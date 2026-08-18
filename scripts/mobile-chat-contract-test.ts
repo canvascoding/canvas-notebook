@@ -13,9 +13,11 @@ try {
   runMigrations(sqlite);
   const columns = sqlite.prepare('PRAGMA table_info(pi_sessions)').all() as { name: string }[];
   assert.equal(columns.some((column) => column.name === 'archived_at'), true);
+  assert.equal(columns.some((column) => column.name === 'client_request_id'), true);
   const indexes = sqlite.prepare('PRAGMA index_list(pi_sessions)').all() as Array<{ name: string; unique: number }>;
   assert.equal(indexes.some((index) => index.name === 'idx_pi_sessions_user_workspace_archived'), true);
   assert.equal(indexes.find((index) => index.name === 'idx_pi_sessions_user_session')?.unique, 1);
+  assert.equal(indexes.find((index) => index.name === 'idx_pi_sessions_user_client_request')?.unique, 1);
 } finally {
   sqlite.close();
 }
@@ -30,6 +32,8 @@ const websocketServer = readFileSync(path.join(root, 'server/websocket-server.ts
 assert.match(listRoute, /query:\s*url\.searchParams\.get\('query'\)/u);
 assert.match(listRoute, /archived:\s*url\.searchParams\.get\('archived'\) === 'true'/u);
 assert.match(listRoute, /error instanceof AiRuntimePolicyError/u);
+assert.match(listRoute, /idempotency-key/u);
+assert.match(listRoute, /clientRequestId: clientRequestIdFrom\(request\)/u);
 assert.match(listRoute, /\{ success: false, code: error\.code, error: error\.message \}/u);
 assert.match(sessionRoute, /updateMobileChatSession/u);
 assert.match(sessionRoute, /markAsUnread:\s*typeof payload\.markAsUnread === 'boolean'/u);
@@ -50,6 +54,8 @@ assert.match(attachmentRoute, /normalizeUploadImageBuffer/u);
 assert.match(service, /isNull\(piSessions\.archivedAt\)/u);
 assert.match(service, /isNotNull\(piSessions\.archivedAt\)/u);
 assert.match(service, /SESSION_ACTIVE/u);
+assert.match(service, /PiSessionClientRequestConflictError/u);
+assert.match(service, /clientRequestId: input\.clientRequestId/u);
 assert.match(service, /markAsUnread\?: boolean/u);
 assert.match(service, /input\.markAsUnread === true \? \{ lastViewedAt: null \}/u);
 assert.match(service, /withRuntimeSessionOperation/u);

@@ -67,6 +67,13 @@ const directMcpOAuthPlugins = directMcpConfig
         scopes: [...DIRECT_MCP_OAUTH_SCOPES],
         clientRegistrationDefaultScopes: ["openid"],
         clientRegistrationAllowedScopes: [...DIRECT_MCP_OAUTH_SCOPES],
+        resources: [{
+          identifier: directMcpConfig.resource,
+          name: 'Canvas Notebook MCP',
+          allowedScopes: [...DIRECT_MCP_OAUTH_SCOPES],
+        }],
+        clientRegistrationDefaultResources: [directMcpConfig.resource],
+        clientRegistrationAllowedResources: [directMcpConfig.resource],
         validAudiences: [directMcpConfig.resource],
         codeExpiresIn: 5 * 60,
         accessTokenExpiresIn: 15 * 60,

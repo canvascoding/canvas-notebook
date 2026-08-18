@@ -209,11 +209,13 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       id TEXT PRIMARY KEY NOT NULL,
       client_id TEXT NOT NULL UNIQUE,
       client_secret TEXT,
+      client_discovery_id TEXT,
       disabled INTEGER DEFAULT 0,
       skip_consent INTEGER,
       enable_end_session INTEGER,
       subject_type TEXT,
       scopes TEXT,
+      client_credentials_scopes TEXT,
       user_id TEXT,
       created_at INTEGER,
       updated_at INTEGER,
@@ -228,12 +230,18 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       software_statement TEXT,
       redirect_uris TEXT NOT NULL,
       post_logout_redirect_uris TEXT,
+      backchannel_logout_uri TEXT,
+      backchannel_logout_session_required INTEGER,
       token_endpoint_auth_method TEXT,
+      application_type TEXT,
+      jwks TEXT,
+      jwks_uri TEXT,
       grant_types TEXT,
       response_types TEXT,
       public INTEGER,
       type TEXT,
       require_pkce INTEGER,
+      dpop_bound_access_tokens INTEGER,
       reference_id TEXT,
       metadata TEXT,
       FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
@@ -242,6 +250,40 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_oauth_client_user
       ON oauth_client (user_id);
 
+    CREATE TABLE IF NOT EXISTS oauth_resource (
+      id TEXT PRIMARY KEY NOT NULL,
+      identifier TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      access_token_ttl INTEGER,
+      refresh_token_ttl INTEGER,
+      signing_algorithm TEXT,
+      signing_key_id TEXT,
+      allowed_scopes TEXT,
+      custom_claims TEXT,
+      dpop_bound_access_tokens_required INTEGER,
+      disabled INTEGER DEFAULT 0,
+      created_at INTEGER,
+      updated_at INTEGER,
+      policy_version INTEGER DEFAULT 1,
+      metadata TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS oauth_client_resource (
+      id TEXT PRIMARY KEY NOT NULL,
+      client_id TEXT NOT NULL,
+      resource_id TEXT NOT NULL,
+      metadata TEXT,
+      created_at INTEGER,
+      UNIQUE (client_id, resource_id),
+      FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
+      FOREIGN KEY (resource_id) REFERENCES oauth_resource(identifier) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS oauth_client_assertion (
+      id TEXT PRIMARY KEY NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS oauth_refresh_token (
       id TEXT PRIMARY KEY NOT NULL,
       token TEXT NOT NULL UNIQUE,
@@ -249,10 +291,17 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       session_id TEXT,
       user_id TEXT NOT NULL,
       reference_id TEXT,
+      authorization_code_id TEXT,
+      resources TEXT,
+      requested_user_info_claims TEXT,
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
       revoked INTEGER,
+      rotated_at INTEGER,
+      rotation_replay_response TEXT,
+      rotation_replay_expires_at INTEGER,
       auth_time INTEGER,
+      confirmation TEXT,
       scopes TEXT NOT NULL,
       FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
       FOREIGN KEY (session_id) REFERENCES session(id) ON DELETE SET NULL,
@@ -273,9 +322,13 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       session_id TEXT,
       user_id TEXT,
       reference_id TEXT,
+      authorization_code_id TEXT,
+      resources TEXT,
+      requested_user_info_claims TEXT,
       refresh_id TEXT,
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
+      confirmation TEXT,
       scopes TEXT NOT NULL,
       FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
       FOREIGN KEY (session_id) REFERENCES session(id) ON DELETE SET NULL,
@@ -297,6 +350,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       client_id TEXT NOT NULL,
       user_id TEXT,
       reference_id TEXT,
+      resources TEXT,
+      requested_user_info_claims TEXT,
       scopes TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
@@ -893,6 +948,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS pi_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       session_id TEXT NOT NULL,
+      client_request_id TEXT,
       user_id TEXT NOT NULL,
       agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
       provider TEXT NOT NULL,
@@ -2335,6 +2391,39 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     revision: 'INTEGER NOT NULL DEFAULT 1',
   });
 
+  addColumns(sqlite, 'oauth_client', {
+    client_discovery_id: 'TEXT',
+    client_credentials_scopes: 'TEXT',
+    backchannel_logout_uri: 'TEXT',
+    backchannel_logout_session_required: 'INTEGER',
+    application_type: 'TEXT',
+    jwks: 'TEXT',
+    jwks_uri: 'TEXT',
+    dpop_bound_access_tokens: 'INTEGER',
+  });
+
+  addColumns(sqlite, 'oauth_refresh_token', {
+    authorization_code_id: 'TEXT',
+    resources: 'TEXT',
+    requested_user_info_claims: 'TEXT',
+    rotated_at: 'INTEGER',
+    rotation_replay_response: 'TEXT',
+    rotation_replay_expires_at: 'INTEGER',
+    confirmation: 'TEXT',
+  });
+
+  addColumns(sqlite, 'oauth_access_token', {
+    authorization_code_id: 'TEXT',
+    resources: 'TEXT',
+    requested_user_info_claims: 'TEXT',
+    confirmation: 'TEXT',
+  });
+
+  addColumns(sqlite, 'oauth_consent', {
+    resources: 'TEXT',
+    requested_user_info_claims: 'TEXT',
+  });
+
   addColumns(sqlite, 'pi_sessions', {
     title_generation_state: 'TEXT',
     last_message_at: 'INTEGER',
@@ -2346,6 +2435,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     runtime_catalog_revision: 'INTEGER',
     runtime_policy_revision: 'INTEGER',
     runtime_selection_source: 'TEXT',
+    client_request_id: 'TEXT',
   });
 
   addColumns(sqlite, 'ai_provider_installations', {
@@ -2873,6 +2963,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_created ON pi_sessions (user_id, created_at);
     DROP INDEX IF EXISTS idx_pi_sessions_user_session;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_sessions_user_session ON pi_sessions (user_id, session_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_sessions_user_client_request ON pi_sessions (user_id, client_request_id);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_channel_created ON pi_sessions (user_id, channel_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_agent ON pi_sessions (agent_id);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_channel ON pi_sessions (channel_id, channel_session_key);

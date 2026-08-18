@@ -36,7 +36,7 @@ import {
   withRuntimeSessionOperation,
 } from '@/app/lib/pi/runtime-service';
 import { parsePersistedPiMessage } from '@/app/lib/pi/message-projection';
-import { createPiSessionWithRuntimeSnapshot } from '@/app/lib/pi/session-store';
+import { createPiSessionWithRuntimeSnapshot, PiSessionClientRequestConflictError } from '@/app/lib/pi/session-store';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { createPiSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
 import {
@@ -545,6 +545,7 @@ export async function updateMobileChatSession(input: ChatActor & {
 export async function createMobileChatSession(input: ChatActor & {
   agentId?: string;
   title?: string;
+  clientRequestId?: string;
 }) {
   const workspace = await resolveChatWorkspace(input);
   await ensureDefaultAgent();
@@ -588,27 +589,36 @@ export async function createMobileChatSession(input: ChatActor & {
     workspaceId: workspace.workspaceId,
     projectId: workspace.projectId,
   });
-  const inserted = await createPiSessionWithRuntimeSnapshot({
-    sessionId,
-    userId: input.userId,
-    agentId,
-    title,
-    titleGenerationState: input.title?.trim() ? 'manual' : 'pending',
-    workspace: workspaceToPiSessionFields(workspace),
-    runtimeSnapshot: prepared.snapshot,
-    systemPromptSnapshot: promptSnapshot,
-  });
+  let inserted: Awaited<ReturnType<typeof createPiSessionWithRuntimeSnapshot>>;
+  try {
+    inserted = await createPiSessionWithRuntimeSnapshot({
+      sessionId,
+      clientRequestId: input.clientRequestId,
+      userId: input.userId,
+      agentId,
+      title,
+      titleGenerationState: input.title?.trim() ? 'manual' : 'pending',
+      workspace: workspaceToPiSessionFields(workspace),
+      runtimeSnapshot: prepared.snapshot,
+      systemPromptSnapshot: promptSnapshot,
+    });
+  } catch (error) {
+    if (error instanceof PiSessionClientRequestConflictError) {
+      throw new MobileChatError('CLIENT_REQUEST_CONFLICT', 'This conversation request conflicts with an earlier request.', 409);
+    }
+    throw error;
+  }
   await ensureSessionChannelLink({
-    sessionId,
+    sessionId: inserted.sessionId,
     userId: input.userId,
     channelId: WEB_CHANNEL_ID,
     channelSessionKey: webChannelSessionKey(input.userId),
-    displayName: title,
+    displayName: inserted.title?.trim() || DEFAULT_SESSION_TITLE,
     isPrimary: true,
   });
   return {
     id: inserted.sessionId,
-    title,
+    title: inserted.title?.trim() || DEFAULT_SESSION_TITLE,
     agentId: inserted.agentId,
     createdAt: inserted.createdAt.toISOString(),
     lastMessageAt: null,

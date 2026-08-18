@@ -272,11 +272,13 @@ export const oauthClient = sqliteTable("oauth_client", {
   id: text("id").primaryKey(),
   clientId: text("client_id").notNull().unique(),
   clientSecret: text("client_secret"),
+  clientDiscoveryId: text("client_discovery_id"),
   disabled: integer("disabled", { mode: "boolean" }).default(false),
   skipConsent: integer("skip_consent", { mode: "boolean" }),
   enableEndSession: integer("enable_end_session", { mode: "boolean" }),
   subjectType: text("subject_type"),
   scopes: text("scopes").$type<string[]>(),
+  clientCredentialsScopes: text("client_credentials_scopes").$type<string[]>(),
   userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
@@ -291,12 +293,18 @@ export const oauthClient = sqliteTable("oauth_client", {
   softwareStatement: text("software_statement"),
   redirectUris: text("redirect_uris").$type<string[]>().notNull(),
   postLogoutRedirectUris: text("post_logout_redirect_uris").$type<string[]>(),
+  backchannelLogoutUri: text("backchannel_logout_uri"),
+  backchannelLogoutSessionRequired: integer("backchannel_logout_session_required", { mode: "boolean" }),
   tokenEndpointAuthMethod: text("token_endpoint_auth_method"),
+  applicationType: text("application_type"),
+  jwks: text("jwks"),
+  jwksUri: text("jwks_uri"),
   grantTypes: text("grant_types").$type<string[]>(),
   responseTypes: text("response_types").$type<string[]>(),
   public: integer("public", { mode: "boolean" }),
   type: text("type"),
   requirePKCE: integer("require_pkce", { mode: "boolean" }),
+  dpopBoundAccessTokens: integer("dpop_bound_access_tokens", { mode: "boolean" }),
   referenceId: text("reference_id"),
   metadata: text("metadata").$type<Record<string, unknown>>(),
 }, (table) => ({
@@ -310,10 +318,17 @@ export const oauthRefreshToken = sqliteTable("oauth_refresh_token", {
   sessionId: text("session_id").references(() => session.id, { onDelete: "set null" }),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   referenceId: text("reference_id"),
+  authorizationCodeId: text("authorization_code_id"),
+  resources: text("resources").$type<string[]>(),
+  requestedUserInfoClaims: text("requested_user_info_claims").$type<string[]>(),
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   revoked: integer("revoked", { mode: "timestamp_ms" }),
+  rotatedAt: integer("rotated_at", { mode: "timestamp_ms" }),
+  rotationReplayResponse: text("rotation_replay_response"),
+  rotationReplayExpiresAt: integer("rotation_replay_expires_at", { mode: "timestamp_ms" }),
   authTime: integer("auth_time", { mode: "timestamp_ms" }),
+  confirmation: text("confirmation").$type<Record<string, unknown>>(),
   scopes: text("scopes").$type<string[]>().notNull(),
 }, (table) => ({
   clientIdx: index("idx_oauth_refresh_token_client").on(table.clientId),
@@ -328,9 +343,13 @@ export const oauthAccessToken = sqliteTable("oauth_access_token", {
   sessionId: text("session_id").references(() => session.id, { onDelete: "set null" }),
   userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
   referenceId: text("reference_id"),
+  authorizationCodeId: text("authorization_code_id"),
+  resources: text("resources").$type<string[]>(),
+  requestedUserInfoClaims: text("requested_user_info_claims").$type<string[]>(),
   refreshId: text("refresh_id").references(() => oauthRefreshToken.id, { onDelete: "cascade" }),
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  confirmation: text("confirmation").$type<Record<string, unknown>>(),
   scopes: text("scopes").$type<string[]>().notNull(),
 }, (table) => ({
   clientIdx: index("idx_oauth_access_token_client").on(table.clientId),
@@ -344,6 +363,8 @@ export const oauthConsent = sqliteTable("oauth_consent", {
   clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
   userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
   referenceId: text("reference_id"),
+  resources: text("resources").$type<string[]>(),
+  requestedUserInfoClaims: text("requested_user_info_claims").$type<string[]>(),
   scopes: text("scopes").$type<string[]>().notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
@@ -351,6 +372,39 @@ export const oauthConsent = sqliteTable("oauth_consent", {
   clientIdx: index("idx_oauth_consent_client").on(table.clientId),
   userIdx: index("idx_oauth_consent_user").on(table.userId),
 }));
+
+export const oauthResource = sqliteTable("oauth_resource", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull().unique(),
+  name: text("name").notNull(),
+  accessTokenTtl: integer("access_token_ttl"),
+  refreshTokenTtl: integer("refresh_token_ttl"),
+  signingAlgorithm: text("signing_algorithm"),
+  signingKeyId: text("signing_key_id"),
+  allowedScopes: text("allowed_scopes").$type<string[]>(),
+  customClaims: text("custom_claims").$type<Record<string, unknown>>(),
+  dpopBoundAccessTokensRequired: integer("dpop_bound_access_tokens_required", { mode: "boolean" }),
+  disabled: integer("disabled", { mode: "boolean" }).default(false),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
+  policyVersion: integer("policy_version").default(1),
+  metadata: text("metadata").$type<Record<string, unknown>>(),
+});
+
+export const oauthClientResource = sqliteTable("oauth_client_resource", {
+  id: text("id").primaryKey(),
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  resourceId: text("resource_id").notNull().references(() => oauthResource.identifier, { onDelete: "cascade" }),
+  metadata: text("metadata").$type<Record<string, unknown>>(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }),
+}, (table) => ({
+  clientResourceUnique: uniqueIndex("idx_oauth_client_resource_unique").on(table.clientId, table.resourceId),
+}));
+
+export const oauthClientAssertion = sqliteTable("oauth_client_assertion", {
+  id: text("id").primaryKey(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+});
 
 export const canvasOrganizationSettings = sqliteTable("canvas_organization_settings", {
   organizationId: text("organization_id").primaryKey(),
@@ -995,6 +1049,7 @@ export const aiMessages = sqliteTable("ai_messages", {
 export const piSessions = sqliteTable("pi_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   sessionId: text("session_id").notNull(),
+  clientRequestId: text("client_request_id"),
   userId: text("user_id").notNull().references(() => user.id),
   agentId: text("agent_id").notNull().default('canvas-agent'),
   provider: text("provider").notNull(),

@@ -641,6 +641,8 @@ async function deduplicatePiSessions(pool: PgQueryable): Promise<void> {
 
   await pool.query('DROP INDEX IF EXISTS idx_pi_sessions_user_session');
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_sessions_user_session ON pi_sessions (user_id, session_id)');
+  await pool.query('ALTER TABLE pi_sessions ADD COLUMN IF NOT EXISTS client_request_id text');
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_sessions_user_client_request ON pi_sessions (user_id, client_request_id)');
 }
 
 export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {

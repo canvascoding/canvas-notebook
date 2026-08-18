@@ -101,6 +101,13 @@ type WorkspaceBrowserFile = {
   selectable: boolean;
 };
 
+const FRAME_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+function browserFrameUrl(mimeType: string, data: string): string | null {
+  if (!FRAME_MIME_TYPES.has(mimeType) || !/^[A-Za-z0-9+/]+={0,2}$/u.test(data)) return null;
+  return `data:${mimeType};base64,${data}`;
+}
+
 const copy = {
   de: {
     eyebrow: 'Entwicklungswerkzeug',
@@ -404,7 +411,7 @@ export function BrowserLabClient({
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const [viewState, setViewState] = useState<BrowserViewState | null>(null);
-  const [frameUrl, setFrameUrl] = useState<string | null>(null);
+const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [frameSequence, setFrameSequence] = useState(0);
   const [address, setAddress] = useState('about:blank');
   const [failure, setFailure] = useState<BrowserViewFailure | null>(null);
@@ -686,7 +693,9 @@ export function BrowserLabClient({
           setConnectionStatus('live');
           if (!isLiveView) setSessionSetupOpen(false);
         } else if (message.type === 'frame') {
-          setFrameUrl(`data:${message.mimeType};base64,${message.data}`);
+          const nextFrameUrl = browserFrameUrl(message.mimeType, message.data);
+          if (!nextFrameUrl) return;
+          setFrameUrl(nextFrameUrl);
           setFrameSequence(message.sequence);
         } else if (message.type === 'state') {
           setViewState(message.state);

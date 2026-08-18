@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.8.16.1
-- Lockfile SHA-256: `988eb2da52c9e02e8d4ab7855b8d7ecc4142faf0b9b34a72754e16e6c1379e0e`
-- Distributed components: 1508
+- Lockfile SHA-256: `fadaac7c7b2c6a8fef519c369df987a8fe8a2bac65002e87a11bbfd516c741b6`
+- Distributed components: 1510
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -99,6 +99,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @better-auth/prisma-adapter | 1.7.0-rc.6 | runtime | MIT | allowed |
 | @better-auth/telemetry | 1.7.0-rc.6 | runtime | MIT | allowed |
 | @better-auth/utils | 0.4.2 | runtime | MIT | allowed |
+| @better-auth/utils | 0.5.0 | runtime | MIT | allowed |
 | @better-fetch/fetch | 1.3.1 | runtime | MIT | allowed |
 | @borewit/text-codec | 0.2.2 | runtime | MIT | allowed |
 | @braintree/sanitize-url | 6.0.2 | runtime | MIT | allowed |
@@ -1339,6 +1340,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | safe-stable-stringify | 2.5.0 | runtime | MIT | allowed |
 | safer-buffer | 2.1.2 | runtime | MIT | allowed |
 | sass | 1.51.0 | runtime | MIT | allowed |
+| sax | 1.6.0 | runtime | BlueOak-1.0.0 | allowed |
 | saxes | 6.0.0 | runtime | ISC | allowed |
 | scheduler | 0.27.0 | runtime | MIT | allowed |
 | schema-utils | 4.3.3 | runtime | MIT | allowed |
@@ -16261,7 +16263,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### License text 8a1af140fdfb
 
-Applies to lru-cache@11.5.2, lru-cache@11.5.2, minipass@7.1.3, path-scurry@2.0.2.
+Applies to lru-cache@11.5.2, lru-cache@11.5.2, minipass@7.1.3, path-scurry@2.0.2, sax@1.6.0.
 
 Copyright notices:
 
@@ -30298,7 +30300,7 @@ SOFTWARE.
 
 ### License text f0112ade926a
 
-Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, docker-global-npm:err-code@2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a, docker-global-npm:imurmurhash@0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2, docker-python:markitdown@0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, is-reference@1.2.1, jszip@3.10.1, lazy-val@1.0.5, react-remove-scroll-bar@2.3.8, server-only@0.0.1.
+Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, docker-global-npm:err-code@2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a, docker-global-npm:imurmurhash@0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2, docker-python:markitdown@0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @better-auth/utils@0.5.0, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, is-reference@1.2.1, jszip@3.10.1, lazy-val@1.0.5, react-remove-scroll-bar@2.3.8, server-only@0.0.1.
 
 Copyright notices:
 

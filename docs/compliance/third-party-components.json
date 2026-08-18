@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.8.16.1",
-  "lockfileSha256": "988eb2da52c9e02e8d4ab7855b8d7ecc4142faf0b9b34a72754e16e6c1379e0e",
+  "lockfileSha256": "fadaac7c7b2c6a8fef519c369df987a8fe8a2bac65002e87a11bbfd516c741b6",
   "summary": {
-    "totalComponents": 2033,
-    "npmComponents": 2010,
+    "totalComponents": 2034,
+    "npmComponents": 2011,
     "nonNpmComponents": 23,
-    "runtimeComponents": 1508,
-    "developmentOnlyComponents": 525,
-    "allowed": 1983,
+    "runtimeComponents": 1510,
+    "developmentOnlyComponents": 524,
+    "allowed": 1984,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -9067,26 +9067,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "sax",
-      "versionOrCommit": "1.6.0",
-      "sourceUrl": "ssh://git@github.com/isaacs/sax-js",
-      "packagePathOrArtifact": "node_modules/sax",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "BlueOak-1.0.0",
-      "verifiedLicense": "BlueOak-1.0.0",
-      "licenseTextRef": "node_modules/sax/LICENSE.md",
-      "licenseTextSha256": "8a1af140fdfbf5afd3df27f7e662f989c5b963a300020dfafce42033cae9e004",
-      "copyrightNotices": [
-        "Copyright",
-        "copyright in it."
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "semver-compare",
       "versionOrCommit": "1.0.0",
       "sourceUrl": "https://github.com/substack/semver-compare/tree/152c863e7c2615f9e9e81a9a370b672afaa3819a",
@@ -12102,6 +12082,31 @@
       "reviewNotes": "The exact npm release declares MIT and signed provenance maps v0.4.2 to commit b20329a32d78f1f9bcc088bbd6f982b28c4192f1, but the release omits a LICENSE and explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies the canonical MIT terms and uses the exact publisher author metadata, Bereket Engida, with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://github.com/better-auth/utils/blob/v0.4.2/package.json",
       "reviewedBy": "Frank Alexander Weber",
       "reviewedAt": "2026-07-17"
+    },
+    {
+      "name": "@better-auth/utils",
+      "versionOrCommit": "0.5.0",
+      "sourceUrl": "https://github.com/better-auth/utils/tree/aae93c6618c22bee39e867055e61fa310fefb46c",
+      "packagePathOrArtifact": "node_modules/better-call/node_modules/@better-auth/utils",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
+      "copyrightNotices": [
+        "Copyright (c) Bereket Engida and contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release declares MIT, has signed npm provenance, and the matching v0.5.0 tag resolves to aae93c6618c22bee39e867055e61fa310fefb46c, but the release omits a LICENSE and explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-08-13 under documented residual attribution risk. Canvas supplies the canonical MIT terms and uses the exact publisher author metadata, Bereket Engida, with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://github.com/better-auth/utils/blob/v0.5.0/package.json",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-08-13"
     },
     {
       "name": "@better-fetch/fetch",
@@ -33703,7 +33708,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "The exact npm release declares MIT, identifies author Vladimir Krivosheev and publishes gitHead b69ad4119f1b19bdab13c61ee2fcc88d46b89071, but the tarball and matching source revision omit the full license text and copyright line. Canvas retains the canonical MIT terms and uses the exact package author with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://registry.npmjs.org/lazy-val/1.0.5",
+      "reviewNotes": "The exact npm release declares MIT, identifies author Vladimir Krivosheev and publishes gitHead b69ad4119f1b19bdab13c61ee2fcc88d46b89071, but the tarball and matching source revision omit the full license text and copyright line. Canvas retains the canonical MIT terms and uses the exact package author with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://registry.npmjs.org/lazy-val/1.0.5 Published source revision: b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
       "reviewedBy": "Frank Alexander Weber",
       "reviewedAt": "2026-08-16"
     },
@@ -40466,6 +40471,29 @@
         "Copyright 2020, the Dart project authors.",
         "Copyright 2021, the Dart project authors.",
         "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "sax",
+      "versionOrCommit": "1.6.0",
+      "sourceUrl": "ssh://git@github.com/isaacs/sax-js",
+      "packagePathOrArtifact": "node_modules/sax",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "BlueOak-1.0.0",
+      "verifiedLicense": "BlueOak-1.0.0",
+      "licenseTextRef": "node_modules/sax/LICENSE.md",
+      "licenseTextSha256": "8a1af140fdfbf5afd3df27f7e662f989c5b963a300020dfafce42033cae9e004",
+      "copyrightNotices": [
+        "Copyright",
+        "copyright in it."
       ],
       "modified": false,
       "policyDecision": "allowed"

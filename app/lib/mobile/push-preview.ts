@@ -161,10 +161,6 @@ function decodeHtmlEntities(value: string): string {
     });
 }
 
-function plainHtml(value: string): string {
-  return decodeHtmlEntities(value.replace(/<[^>]*>/gu, ''));
-}
-
 function renderInline(tokens: Token[]): string {
   return tokens.map(renderInlineToken).join('');
 }
@@ -177,7 +173,9 @@ function renderInlineToken(token: Token): string {
     case 'escape':
       return decodeHtmlEntities((token as Tokens.Codespan | Tokens.Escape).text);
     case 'html':
-      return plainHtml((token as Tokens.HTML | Tokens.Tag).text);
+      // Raw HTML is intentionally omitted from notification previews. These
+      // previews are plain text and must not attempt to sanitize markup.
+      return '';
     case 'image': {
       const image = token as Tokens.Image;
       return renderInline(image.tokens).trim() || decodeHtmlEntities(image.text);
@@ -196,7 +194,7 @@ function renderInlineToken(token: Token): string {
     }
     default: {
       const generic = token as Tokens.Generic;
-      return generic.tokens?.length ? renderInline(generic.tokens) : plainHtml(generic.raw);
+      return generic.tokens?.length ? renderInline(generic.tokens) : '';
     }
   }
 }
@@ -215,7 +213,7 @@ function renderBlockToken(token: Token): string {
     case 'paragraph':
       return renderInline((token as Tokens.Heading | Tokens.Paragraph).tokens);
     case 'html':
-      return plainHtml((token as Tokens.HTML | Tokens.Tag).text);
+      return '';
     case 'list':
       return (token as Tokens.List).items
         .map((item) => renderBlocks(item.tokens))
@@ -254,7 +252,7 @@ export function markdownToNotificationText(markdown: string): string {
   try {
     return normalizePreviewText(renderBlocks(Lexer.lex(markdown, { gfm: true })));
   } catch {
-    return normalizePreviewText(plainHtml(markdown));
+    return '';
   }
 }
 

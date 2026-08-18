@@ -66,7 +66,7 @@ export const ObsidianInlineFootnoteExtension = Node.create({
 
   renderMarkdown: (node) => {
     const content = typeof node.attrs?.content === 'string' ? node.attrs.content : '';
-    return `^[${content.replace(/\]/gu, '\\]')}]`;
+    return `^[${content.replace(/\\/gu, '\\\\').replace(/\]/gu, '\\]')}]`;
   },
 
   markdownTokenizer: {

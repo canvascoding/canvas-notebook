@@ -36,7 +36,7 @@ function cleanInlineText(value: string): string {
 }
 
 function codeValue(value: string): string {
-  return `\`${value.replace(/`/gu, '\\`')}\``;
+  return `\`${value.replace(/\\/gu, '\\\\').replace(/`/gu, '\\`')}\``;
 }
 
 function formatDirectRelation(relation: WorkspaceDocumentRelation): string {

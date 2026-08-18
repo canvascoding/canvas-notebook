@@ -102,6 +102,7 @@ function attachPersistedSequence(message: AgentMessage, sequence: number): Agent
 
 export type CreatePiSessionWithRuntimeSnapshotInput = {
   sessionId: string;
+  clientRequestId?: string;
   userId: string;
   agentId: string;
   title: string;
@@ -115,6 +116,13 @@ export type InsertPiSessionWithRuntimeSnapshotResult = {
   id: number | string;
   created: boolean;
 };
+
+export class PiSessionClientRequestConflictError extends Error {
+  constructor() {
+    super('The client request ID was already used for a different session.');
+    this.name = 'PiSessionClientRequestConflictError';
+  }
+}
 
 function storedRuntimeSnapshotMatches(
   session: typeof piSessions.$inferSelect,
@@ -165,6 +173,25 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
     throw new Error('Organization setup is required for an AI runtime session.');
   }
 
+  if (input.clientRequestId) {
+    const requestRows = await connection.all(
+      `SELECT id, agent_id, workspace_id
+       FROM pi_sessions
+       WHERE user_id = ? AND client_request_id = ?
+       ORDER BY id ASC
+       LIMIT 2`,
+      [input.userId, input.clientRequestId],
+    ) as Array<{ id?: number | string; agent_id?: string; workspace_id?: string | null }>;
+    if (requestRows.length > 1) throw new PiSessionClientRequestConflictError();
+    const existingRequest = requestRows[0];
+    if (existingRequest?.id !== undefined) {
+      if (existingRequest.agent_id !== input.agentId || existingRequest.workspace_id !== input.workspace.workspaceId) {
+        throw new PiSessionClientRequestConflictError();
+      }
+      return { id: existingRequest.id, created: false };
+    }
+  }
+
   const existingRows = await connection.all(
     `SELECT id, agent_id
      FROM pi_sessions
@@ -193,14 +220,14 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
   const now = toDatabaseTimestamp(new Date());
   const inserted = await connection.get(
     `INSERT INTO pi_sessions (
-         session_id, user_id, agent_id, provider, model, thinking_level, title, title_generation_state,
+         session_id, client_request_id, user_id, agent_id, provider, model, thinking_level, title, title_generation_state,
          created_at, updated_at, system_prompt_snapshot, system_prompt_snapshot_hash,
          system_prompt_snapshot_created_at, channel_id, channel_session_key,
          organization_id, customer_id, project_id, workspace_id, workspace_type,
          workspace_name, workspace_root_relative_path, runtime_provider_installation_id,
          runtime_catalog_revision, runtime_policy_revision, runtime_selection_source
        )
-       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app', NULL,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app', NULL,
               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
        WHERE COALESCE((
          SELECT catalog_revision
@@ -217,6 +244,7 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
        RETURNING id`,
     [
       input.sessionId,
+      input.clientRequestId ?? null,
       input.userId,
       input.agentId,
       input.runtimeSnapshot.selection.providerId,
@@ -299,11 +327,11 @@ export async function createPiSessionWithRuntimeSnapshot(
       await connection.close?.();
     }
 
-    const session = await db.query.piSessions.findFirst({
-      where: buildPiSessionLookup(input.sessionId, input.userId, input.agentId),
-    });
+    const session = insertResult
+      ? await db.query.piSessions.findFirst({ where: eq(piSessions.id, insertResult.id as number) })
+      : null;
     if (!session) throw new Error('Session could not be loaded after creation.');
-    if (insertResult && !insertResult.created && !storedRuntimeSnapshotMatches(session, input)) {
+    if (insertResult && !insertResult.created && !input.clientRequestId && !storedRuntimeSnapshotMatches(session, input)) {
       throw new SessionRuntimeSnapshotConflictError();
     }
     return session;

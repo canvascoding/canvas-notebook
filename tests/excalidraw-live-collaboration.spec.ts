@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -92,7 +93,7 @@ test.describe('Excalidraw live collaboration', () => {
   test.setTimeout(150_000);
 
   test('converges across users and exposes a safe agent review UI', async ({ browser }, testInfo) => {
-    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const suffix = `${Date.now()}-${randomUUID()}`;
     const memberEmail = 'excalidraw-collaboration-member@example.test';
     const memberPassword = 'Excalidraw-E2E-Password-1!';
     const filePath = `excalidraw-e2e-${suffix}.excalidraw`;

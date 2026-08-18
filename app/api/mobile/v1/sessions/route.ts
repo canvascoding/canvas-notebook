@@ -41,6 +41,15 @@ function workspaceIdFrom(request: NextRequest): string {
   return request.headers.get('x-canvas-workspace-id')?.trim() || '';
 }
 
+function clientRequestIdFrom(request: NextRequest): string | undefined {
+  const value = request.headers.get('idempotency-key')?.trim();
+  if (!value) return undefined;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(value)) {
+    throw new MobileChatError('INVALID_IDEMPOTENCY_KEY', 'The conversation request ID is invalid.', 400);
+  }
+  return value;
+}
+
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -87,6 +96,7 @@ export async function POST(request: NextRequest) {
       workspaceId: workspaceIdFrom(request),
       agentId: typeof payload.agentId === 'string' ? payload.agentId : undefined,
       title: typeof payload.title === 'string' ? payload.title : undefined,
+      clientRequestId: clientRequestIdFrom(request),
     });
     return NextResponse.json({ success: true, session: created }, { status: 201, headers: responseHeaders });
   } catch (error) {

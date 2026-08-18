@@ -5,6 +5,7 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   AlertTriangle,
+  ArrowUpDown,
   ArrowLeft,
   ArrowRight,
   CalendarClock,
@@ -80,6 +81,8 @@ import { cn } from '@/lib/utils';
 type ScheduleKind = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval';
 type ComposerMode = 'scheduled' | 'trigger';
 type TriggerSource = 'custom' | 'composio';
+type AutomationListFilter = 'all' | 'active' | 'paused' | 'running' | 'attention';
+type AutomationListSort = 'nextRun' | 'lastRun' | 'name';
 
 type JobDraft = {
   id: string | null;
@@ -948,6 +951,10 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   }, [activeWorkspace, automationWorkspaces]);
   const [jobs, setJobs] = useState<AutomationJobView[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [previewJobId, setPreviewJobId] = useState<string | null>(null);
+  const [automationSearch, setAutomationSearch] = useState('');
+  const [automationFilter, setAutomationFilter] = useState<AutomationListFilter>('all');
+  const [automationSort, setAutomationSort] = useState<AutomationListSort>('nextRun');
   const [draft, setDraft] = useState<JobDraft>(() => defaultDraft(defaultTimeZone, defaultAutomationWorkspaceId));
   const [triggerDraft, setTriggerDraft] = useState<TriggerComposerDraft>(() => defaultTriggerDraft(defaultAutomationWorkspaceId));
   const [customWebhookDraft, setCustomWebhookDraft] = useState<CustomWebhookDraft>(() => defaultCustomWebhookDraft(defaultAutomationWorkspaceId));
@@ -992,6 +999,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const suppressComposerCloseRef = useRef(false);
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) || null, [jobs, selectedJobId]);
+  const previewJob = useMemo(() => jobs.find((job) => job.id === previewJobId) || null, [jobs, previewJobId]);
   const workspaceById = useMemo(() => new Map(workspaces.map((workspace) => [workspace.id, workspace])), [workspaces]);
   const draftWorkspaceId = draft.workspaceId || defaultAutomationWorkspaceId;
   const triggerWorkspaceId = triggerDraft.workspaceId || defaultAutomationWorkspaceId;
@@ -1081,6 +1089,36 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     running: automationGroups.running.length,
     failed: automationGroups.needsAttention.length,
   }), [automationGroups.needsAttention.length, automationGroups.running.length, jobs]);
+  const filteredAutomationGroups = useMemo(() => {
+    const query = automationSearch.trim().toLowerCase();
+    const matchesFilter = (job: AutomationJobView) => {
+      if (automationFilter === 'active') return job.status === 'active';
+      if (automationFilter === 'paused') return job.status === 'paused';
+      if (automationFilter === 'running') return job.lastRunStatus === 'running' || job.lastRunStatus === 'pending' || job.lastRunStatus === 'retry_scheduled';
+      if (automationFilter === 'attention') return job.lastRunStatus === 'failed';
+      return true;
+    };
+    const sortJobs = (items: AutomationJobView[]) => [...items].sort((a, b) => {
+      if (automationSort === 'name') return a.name.localeCompare(b.name, locale);
+      const aValue = automationSort === 'nextRun' ? a.nextRunAt : a.lastRunAt;
+      const bValue = automationSort === 'nextRun' ? b.nextRunAt : b.lastRunAt;
+      if (!aValue) return 1;
+      if (!bValue) return -1;
+      const aTime = new Date(aValue).getTime();
+      const bTime = new Date(bValue).getTime();
+      return automationSort === 'lastRun' ? bTime - aTime : aTime - bTime;
+    });
+    const visible = jobs.filter((job) => {
+      const searchable = `${job.name} ${job.prompt} ${job.agentId}`.toLowerCase();
+      return (!query || searchable.includes(query)) && matchesFilter(job);
+    });
+    const running = visible.filter((job) => job.lastRunStatus === 'running' || job.lastRunStatus === 'pending' || job.lastRunStatus === 'retry_scheduled');
+    const needsAttention = visible.filter((job) => job.lastRunStatus === 'failed');
+    const integration = visible.filter((job) => job.jobType === 'webhook' || job.schedule.kind === 'webhook');
+    const active = visible.filter((job) => job.status === 'active' && !running.includes(job) && !needsAttention.includes(job) && !integration.includes(job));
+    const paused = visible.filter((job) => job.status === 'paused' && !needsAttention.includes(job) && !integration.includes(job));
+    return { active: sortJobs(active), integration: sortJobs(integration), needsAttention: sortJobs(needsAttention), paused: sortJobs(paused), running: sortJobs(running), total: visible.length };
+  }, [automationFilter, automationSearch, automationSort, jobs, locale]);
 
   const draftEffectiveTargetOutputPath = useMemo(
     () => getEffectiveAutomationTargetOutputPath({ name: draft.name || 'automation', targetOutputPath: draft.targetOutputPath }),
@@ -2487,6 +2525,43 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
             </CardHeader>
             <CardContent className="p-3 sm:p-4">
               <div className="space-y-4" data-testid="automation-job-list">
+                <div className="grid gap-2 rounded-lg border bg-muted/20 p-2.5 sm:grid-cols-[minmax(0,1fr)_11rem_11rem] sm:p-3">
+                  <label className="relative block">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      value={automationSearch}
+                      onChange={(event) => setAutomationSearch(event.target.value)}
+                      className="h-10 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                      placeholder={t('overview.searchPlaceholder')}
+                      aria-label={t('overview.searchPlaceholder')}
+                    />
+                  </label>
+                  <select
+                    value={automationFilter}
+                    onChange={(event) => setAutomationFilter(event.target.value as AutomationListFilter)}
+                    className="h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+                    aria-label={t('overview.filterLabel')}
+                  >
+                    <option value="all">{t('overview.filters.all')}</option>
+                    <option value="active">{t('jobStatus.active')}</option>
+                    <option value="paused">{t('jobStatus.paused')}</option>
+                    <option value="running">{t('overview.groups.running')}</option>
+                    <option value="attention">{t('overview.groups.needsAttention')}</option>
+                  </select>
+                  <label className="relative block">
+                    <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <select
+                      value={automationSort}
+                      onChange={(event) => setAutomationSort(event.target.value as AutomationListSort)}
+                      className="h-10 w-full min-w-0 appearance-none rounded-md border border-input bg-background pl-9 pr-3 text-sm"
+                      aria-label={t('overview.sortLabel')}
+                    >
+                      <option value="nextRun">{t('overview.sort.nextRun')}</option>
+                      <option value="lastRun">{t('overview.sort.lastRun')}</option>
+                      <option value="name">{t('overview.sort.name')}</option>
+                    </select>
+                  </label>
+                </div>
                 {isLoadingJobs && jobs.length === 0 ? (
                   <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -2494,13 +2569,15 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                   </div>
                 ) : jobs.length === 0 ? (
                   <div className="rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">{t('overview.empty')}</div>
+                ) : filteredAutomationGroups.total === 0 ? (
+                  <div className="rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">{t('overview.emptyFiltered')}</div>
                 ) : (
                   [
-                    { key: 'needsAttention', label: t('overview.groups.needsAttention'), jobs: automationGroups.needsAttention, icon: AlertTriangle },
-                    { key: 'running', label: t('overview.groups.running'), jobs: automationGroups.running, icon: Play },
-                    { key: 'integration', label: t('overview.groups.integration'), jobs: automationGroups.integration, icon: Webhook },
-                    { key: 'active', label: t('jobStatus.active'), jobs: automationGroups.active, icon: CheckCircle2 },
-                    { key: 'paused', label: t('jobStatus.paused'), jobs: automationGroups.paused, icon: PauseCircle },
+                    { key: 'needsAttention', label: t('overview.groups.needsAttention'), jobs: filteredAutomationGroups.needsAttention, icon: AlertTriangle },
+                    { key: 'running', label: t('overview.groups.running'), jobs: filteredAutomationGroups.running, icon: Play },
+                    { key: 'integration', label: t('overview.groups.integration'), jobs: filteredAutomationGroups.integration, icon: Webhook },
+                    { key: 'active', label: t('jobStatus.active'), jobs: filteredAutomationGroups.active, icon: CheckCircle2 },
+                    { key: 'paused', label: t('jobStatus.paused'), jobs: filteredAutomationGroups.paused, icon: PauseCircle },
                   ].map((group) => {
                     if (group.jobs.length === 0) return null;
                     const GroupIcon = group.icon;
@@ -2513,7 +2590,20 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                         </div>
                         <div className="space-y-2">
                           {group.jobs.map((job) => (
-                            <article key={job.id} className="min-w-0 rounded-md border bg-background p-3" data-testid={`automation-job-${job.id}`}>
+                            <article
+                              key={job.id}
+                              className="group min-w-0 cursor-pointer rounded-lg border bg-background p-3 transition-colors hover:border-primary/45 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              data-testid={`automation-job-${job.id}`}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setPreviewJobId(job.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  setPreviewJobId(job.id);
+                                }
+                              }}
+                            >
                               <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
                                 <div className="min-w-0">
                                   <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -2526,17 +2616,15 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                                   <div className="mt-1 max-h-[2.5em] overflow-hidden text-xs text-muted-foreground">
                                     <MarkdownRenderer content={job.prompt} variant="muted" />
                                   </div>
-                                  <div className="mt-3 grid min-w-0 gap-1 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
-                                    <span className="min-w-0 truncate">{describeFriendlyScheduleLocalized(job.schedule, t, weekdayLabels)}</span>
-                                    <span className="min-w-0 truncate">{job.triggerKind === 'event' ? t('trigger.emailEvent') : t('trigger.schedule')}</span>
-                                    <span className="min-w-0 truncate">{t('editor.fields.agent')}: {job.agentId}</span>
-                                    <span className="min-w-0 truncate">{locale.startsWith('de') ? 'Ziel' : 'Delivery'}: {deliveryTargetSummary(job)}</span>
-                                    <span className="min-w-0 truncate">{t('overview.nextRun')}: {formatDateTime(job.nextRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
-                                    <span className="min-w-0 truncate">{t('runs.finishedAt')}: {formatDateTime(job.lastRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
-                                    <span className="min-w-0 truncate">{t('results.title')}: {job.effectiveTargetOutputPath || t('output.none')}</span>
+                                  <div className="mt-3 grid min-w-0 gap-x-4 gap-y-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
+                                    <span className="flex min-w-0 items-center gap-1.5 truncate"><Clock3 className="h-3.5 w-3.5 shrink-0" />{describeFriendlyScheduleLocalized(job.schedule, t, weekdayLabels)}</span>
+                                    <span className="flex min-w-0 items-center gap-1.5 truncate"><Webhook className="h-3.5 w-3.5 shrink-0" />{job.triggerKind === 'event' ? t('trigger.emailEvent') : t('trigger.schedule')}</span>
+                                    <span className="flex min-w-0 items-center gap-1.5 truncate"><Bot className="h-3.5 w-3.5 shrink-0" />{job.agentId}</span>
+                                    <span className="flex min-w-0 items-center gap-1.5 truncate"><CalendarClock className="h-3.5 w-3.5 shrink-0" />{t('overview.nextRun')}: {formatDateTime(job.nextRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
+                                    <span className="flex min-w-0 items-center gap-1.5 truncate"><CheckCircle2 className="h-3.5 w-3.5 shrink-0" />{t('runs.finishedAt')}: {formatDateTime(job.lastRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
                                   </div>
                                 </div>
-                                <Button asChild size="sm" className="w-full md:w-auto">
+                                <Button asChild variant="outline" size="sm" className="w-full md:w-auto" onClick={(event) => event.stopPropagation()}>
                                   <Link href={`/automations/${job.id}`}>{t('runDetails.details')}</Link>
                                 </Button>
                               </div>
@@ -2552,6 +2640,60 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
           </Card>
         </div>
       )}
+
+      <Dialog open={Boolean(previewJob)} onOpenChange={(open) => { if (!open) setPreviewJobId(null); }}>
+        <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto p-0" data-testid="automation-preview-dialog">
+          {previewJob ? (
+            <>
+              <DialogHeader className="border-b bg-muted/30 px-5 py-5 pr-12 sm:px-6">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <DialogTitle className="min-w-0 text-left text-lg">{previewJob.name}</DialogTitle>
+                  <Badge variant={previewJob.status === 'active' ? 'default' : 'secondary'}>{t(`jobStatus.${previewJob.status}`)}</Badge>
+                  {previewJob.lastRunStatus === 'failed' ? <Badge variant="destructive">{t('overview.groups.needsAttention')}</Badge> : null}
+                </div>
+                <DialogDescription className="pt-2 text-left">{t('overview.previewDescription')}</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-5 px-5 py-5 sm:px-6">
+                <div className="rounded-lg border bg-background p-3.5">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('editor.fields.prompt')}</p>
+                  <div className="mt-2 max-h-28 overflow-hidden text-sm leading-6 text-muted-foreground">
+                    <MarkdownRenderer content={previewJob.prompt} variant="muted" />
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border p-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Clock3 className="h-4 w-4" />{t('schedule.fields.time')}</div>
+                    <p className="mt-1.5 text-sm font-medium">{describeFriendlyScheduleLocalized(previewJob.schedule, t, weekdayLabels)}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><CalendarClock className="h-4 w-4" />{t('overview.nextRun')}</div>
+                    <p className="mt-1.5 text-sm font-medium">{formatDateTime(previewJob.nextRunAt, locale, t('scheduleSummary.notScheduled'))}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><CheckCircle2 className="h-4 w-4" />{t('runs.finishedAt')}</div>
+                    <p className="mt-1.5 text-sm font-medium">{formatDateTime(previewJob.lastRunAt, locale, t('scheduleSummary.notScheduled'))}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Folder className="h-4 w-4" />{t('results.title')}</div>
+                    <p className="mt-1.5 truncate text-sm font-medium">{previewJob.effectiveTargetOutputPath || t('output.none')}</p>
+                  </div>
+                </div>
+                <div className="grid gap-3 border-t pt-5 text-sm sm:grid-cols-2">
+                  <div className="min-w-0"><p className="text-xs text-muted-foreground">Workspace</p><p className="mt-1 truncate font-medium">{workspaceById.get(previewJob.workspaceId || '')?.name || workspaceScopeLabel({ type: previewJob.workspaceType }, t)}</p></div>
+                  <div className="min-w-0"><p className="text-xs text-muted-foreground">{t('editor.fields.agent')}</p><p className="mt-1 truncate font-medium">{previewJob.agentId}</p></div>
+                  <div className="min-w-0"><p className="text-xs text-muted-foreground">{t('trigger.label')}</p><p className="mt-1 truncate font-medium">{previewJob.triggerKind === 'event' ? t('trigger.emailEvent') : t('trigger.schedule')}</p></div>
+                  <div className="min-w-0"><p className="text-xs text-muted-foreground">{locale.startsWith('de') ? 'Zustellung' : 'Delivery'}</p><p className="mt-1 truncate font-medium">{deliveryTargetSummary(previewJob)}</p></div>
+                </div>
+                <div className="flex justify-end border-t pt-4">
+                  <Button asChild>
+                    <Link href={`/automations/${previewJob.id}`}>{t('runDetails.details')}</Link>
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isComposerOpen} onOpenChange={handleComposerOpenChange}>
         <DialogContent

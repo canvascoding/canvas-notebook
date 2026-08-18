@@ -213,6 +213,7 @@ export function buildObsidianWikiLinkTarget(
   if (!alias) return target;
 
   const escapedAlias = alias
+    .replace(/\\/gu, '\\\\')
     .replace(/\]\]/gu, '] ]')
     .replace(/\|/gu, '\\|');
   return `${target}|${escapedAlias}`;

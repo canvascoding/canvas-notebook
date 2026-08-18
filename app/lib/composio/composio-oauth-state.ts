@@ -1,8 +1,9 @@
 import 'server-only';
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 
 import { openDb } from '@/app/lib/db';
+import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 import type { ResolvedComposioContext } from './composio-context';
 import { ComposioProfileError } from './composio-profiles';
 
@@ -34,7 +35,9 @@ export interface ComposioOAuthFlowState {
 }
 
 function hashState(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
+  // The opaque state is stored only as a keyed digest, so a database leak
+  // cannot be used to verify guesses independently of this server.
+  return createHmac('sha256', resolveAuthSecret()).update(value).digest('hex');
 }
 
 function appBaseUrl(): string {

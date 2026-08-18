@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { writeFile as writeTestFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -145,7 +146,7 @@ test.describe('Markdown live collaboration', () => {
   test.setTimeout(120_000);
 
   test('converges across users, exposes presence, reconnects, and checkpoints the file', async ({ browser }, testInfo) => {
-    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const suffix = `${Date.now()}-${randomUUID()}`;
     const memberEmail = 'collaboration-member@example.test';
     const memberPassword = 'Collaboration-E2E-Password-1!';
     const filePath = `collaboration-e2e-${suffix}.md`;
@@ -384,7 +385,7 @@ test.describe('Markdown live collaboration', () => {
   });
 
   test('creates structural reviews through real agent tools and applies or rejects them in the editor', async ({ browser }, testInfo) => {
-    const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const suffix = `${Date.now()}-${randomUUID()}`;
     const filePath = `collaboration-agent-review-${suffix}.md`;
     const context = await browser.newContext();
     const page = await context.newPage();

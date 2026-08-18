@@ -281,7 +281,11 @@ async function assertAuthorizePolicy(
   const plainPkce = await auth.handler(new Request(authorizeUrl(clientId, {
     code_challenge_method: 'plain',
   })));
-  assert.equal(plainPkce.status, 400);
+  assert.equal(plainPkce.status, 302);
+  const plainPkceError = new URL(plainPkce.headers.get('location') || '', ORIGIN);
+  assert.equal(plainPkceError.origin + plainPkceError.pathname, REDIRECT_URI);
+  assert.equal(plainPkceError.searchParams.get('error'), 'invalid_request');
+  assert.match(plainPkceError.searchParams.get('error_description') || '', /S256/u);
 }
 
 async function assertTokenPolicy(
@@ -369,14 +373,14 @@ async function main(): Promise<void> {
     try {
       const storedClient = await database.get(
         `
-          SELECT client_secret AS clientSecret, public, require_pkce AS requirePkce
+          SELECT client_secret AS clientSecret, token_endpoint_auth_method AS tokenEndpointAuthMethod, require_pkce AS requirePkce
           FROM oauth_client
           WHERE client_id = ?
         `,
         [clientId],
-      ) as { clientSecret: string | null; public: number; requirePkce: number | null };
+      ) as { clientSecret: string | null; tokenEndpointAuthMethod: string | null; requirePkce: number | null };
       assert.equal(storedClient.clientSecret, null);
-      assert.equal(storedClient.public, 1);
+      assert.equal(storedClient.tokenEndpointAuthMethod, 'none');
       assert.notEqual(storedClient.requirePkce, 0);
     } finally {
       await database.close();
