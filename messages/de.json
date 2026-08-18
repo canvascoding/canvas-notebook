@@ -1866,6 +1866,10 @@
         "title": "Einstellungen",
         "description": "Workspace-Einstellungen und Konfiguration verwalten."
       },
+      "browserLab": {
+        "title": "Browser Lab",
+        "description": "Den Browser des Agenten live beobachten, übernehmen und Verbindungen prüfen."
+      },
       "help": {
         "title": "Hilfe",
         "description": "Tutorials, Anleitungen und Hilfe zur Einrichtung der Canvas Software Suite."

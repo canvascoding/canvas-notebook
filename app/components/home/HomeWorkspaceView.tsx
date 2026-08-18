@@ -1,8 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { MonitorUp } from 'lucide-react';
-import { useLocale, useTranslations } from 'next-intl';
+import { useTranslations } from 'next-intl';
 
 import { readNotificationSummary, type NotificationSummary } from '@/app/components/notifications/notification-summary';
 import { PromptHero } from './PromptHero';
@@ -12,22 +11,16 @@ import { HomeAttentionPanel } from './HomeAttentionPanel';
 import { HomeFocusCards } from './HomeFocusCards';
 import { HomeAppLinks } from './HomeAppLinks';
 import { MoreToolsSection } from './MoreToolsSection';
-import { ToolCard } from './ToolCard';
 
 export function HomeWorkspaceView({
   showBrowserLab = false,
 }: {
   showBrowserLab?: boolean;
 }) {
-  const locale = useLocale();
   const t = useTranslations('home');
   const [activeCategory, setActiveCategory] = useState<CategoryId | null>(null);
   const [summary, setSummary] = useState<NotificationSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(true);
-  const browserLabDescription = locale === 'de'
-    ? 'Den Browser des Agenten live beobachten, übernehmen und Verbindungen prüfen.'
-    : 'Watch the agent browser live, take control, and inspect connections.';
-
   const refreshSummary = useCallback(async () => {
     try {
       setSummary(await readNotificationSummary());
@@ -99,19 +92,7 @@ export function HomeWorkspaceView({
         <HomeFocusCards summary={summary} />
         <HomeAppLinks />
 
-        <div className="space-y-4">
-          {showBrowserLab ? (
-            <div data-testid="home-browser-lab-card">
-              <ToolCard
-                icon={MonitorUp}
-                title="Browser Lab"
-                description={browserLabDescription}
-                href="/browser/lab"
-              />
-            </div>
-          ) : null}
-          <MoreToolsSection />
-        </div>
+        <MoreToolsSection showBrowserLab={showBrowserLab} />
       </div>
 
       <HomeAttentionPanel summary={summary} isLoading={isLoadingSummary} />

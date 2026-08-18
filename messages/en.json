@@ -1867,6 +1867,10 @@
         "title": "Settings",
         "description": "Manage workspace settings and configuration."
       },
+      "browserLab": {
+        "title": "Browser Lab",
+        "description": "Watch the agent browser live, take control, and inspect connections."
+      },
       "help": {
         "title": "Help",
         "description": "Tutorials, guides, and help for setting up the Canvas Software Suite."

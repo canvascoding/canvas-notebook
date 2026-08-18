@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
-import { ChevronDown, Terminal, Settings, MessageSquare, FolderOpen } from 'lucide-react';
+import { ChevronDown, Terminal, Settings, MessageSquare, FolderOpen, MonitorUp } from 'lucide-react';
 import { NOTEBOOK_CHAT_HREF } from '@/app/lib/chat/chat-navigation-intent';
 
 interface MoreToolsLink {
@@ -13,16 +13,18 @@ interface MoreToolsLink {
 }
 
 const MORE_TOOLS_LINKS: MoreToolsLink[] = [
+  { labelKey: 'browserLab', href: '/browser/lab', icon: MonitorUp },
   { labelKey: 'chat', href: NOTEBOOK_CHAT_HREF, icon: MessageSquare },
   { labelKey: 'files', href: '/files', icon: FolderOpen },
   { labelKey: 'terminal', href: '/terminal', icon: Terminal },
   { labelKey: 'settings', href: '/settings', icon: Settings },
 ];
 
-export function MoreToolsSection() {
+export function MoreToolsSection({ showBrowserLab = false }: { showBrowserLab?: boolean }) {
   const t = useTranslations('home');
   const tApps = useTranslations('home.apps');
   const [isExpanded, setIsExpanded] = useState(false);
+  const links = showBrowserLab ? MORE_TOOLS_LINKS : MORE_TOOLS_LINKS.slice(1);
 
   return (
     <div className="mx-auto w-full max-w-2xl">
@@ -36,7 +38,7 @@ export function MoreToolsSection() {
       </button>
       {isExpanded && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {MORE_TOOLS_LINKS.map((link, index) => {
+          {links.map((link, index) => {
             const Icon = link.icon;
             return (
               <React.Fragment key={link.labelKey}>
@@ -47,7 +49,7 @@ export function MoreToolsSection() {
                   <Icon className="h-3.5 w-3.5" />
                   {tApps(`${link.labelKey}.title`)}
                 </Link>
-                {index < MORE_TOOLS_LINKS.length - 1 ? (
+                {index < links.length - 1 ? (
                   <span className="text-xs text-muted-foreground/60" aria-hidden="true">
                     ·
                   </span>
