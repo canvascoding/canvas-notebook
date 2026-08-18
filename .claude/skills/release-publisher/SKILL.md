@@ -21,6 +21,7 @@ Use this skill to publish Canvas Notebook releases consistently.
 - Commit finished release-prep work before moving to tag or publish steps.
 - Do not create or push a release tag until the release commit itself has been pushed to the remote branch and the pushed branch has completed the remote Build and Push worker successfully.
 - Do not rely on pushing a tag to upload unpublished local commits. `origin/main` must already point at the release commit before a tag is created or pushed.
+- Do not create the GitHub Release manually with `gh release create`. The `build-both.yml` workflow creates the GitHub Release and uploads all assets as part of the tag-triggered build. Creating the release early causes the `Notify Control Plane Release` workflow to run before assets exist and fail.
 
 ## Versioning
 
@@ -265,29 +266,17 @@ git ls-remote origin refs/tags/vVERSION refs/tags/vVERSION^{}
 
 The tag push will trigger another `Build and Push` run for the versioned tag. Track that run separately from the pre-tag branch run and report its status.
 
-### 11. Publish GitHub Release
+### 11. GitHub Release Is Created by CI
 
-Use GitHub CLI:
+Do **not** run `gh release create` manually. The `build-both.yml` workflow's `merge` job creates the GitHub Release automatically after the multi-arch image manifest is built and the CLI/compliance assets are packaged. The release is published with auto-generated notes, which is acceptable because the changelog lives in `CHANGELOG.md`.
+
+After the tag-triggered `Build and Push` run succeeds, verify that the release exists and contains the expected assets:
 
 ```bash
-gh auth status
-gh release create vVERSION \
-  --repo canvascoding/canvas-notebook \
-  --title "Canvas Notebook VERSION" \
-  --notes "..."
+gh api "repos/canvascoding/canvas-notebook/releases/tags/vVERSION" --jq '.tag_name, .name, (.assets | map(.name))'
 ```
 
-The release should be published directly unless the user asks for a draft.
-
-Recommended release body:
-
-```markdown
-## Highlights
-- ...
-
-## Verification
-- `npm run build`
-```
+The `Notify Control Plane Release` workflow will run automatically once the release is published by CI.
 
 ### 12. Final Report
 
@@ -309,4 +298,5 @@ Keep the final response short and factual.
 - If `npm run build` fails, stop before committing/tagging and fix the failure if it is in scope.
 - If `gh auth status` fails, stop before release creation and tell the user what credential is missing.
 - If pushing the tag fails, do not create the GitHub Release until the tag is visible on GitHub.
-- If `gh release create` says the release already exists, inspect it before editing or replacing anything.
+- If the tag-triggered `Build and Push` run fails, do not attempt to create or fix the GitHub Release manually. Fix the build failure and restart the release process from the tag push.
+- If the CI-created release is missing assets, inspect the `merge` job logs of the tag-triggered `Build and Push` run; the workflow handles release creation and asset upload there.
