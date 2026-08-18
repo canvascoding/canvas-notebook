@@ -70,7 +70,13 @@ assert.throws(
 
 const nativeWorkflow = await readFile(new URL('../.github/workflows/build-both.yml', import.meta.url), 'utf8');
 const workflow = await readFile(new URL('../.github/workflows/notify-control-plane-release.yml', import.meta.url), 'utf8');
-assert.doesNotMatch(nativeWorkflow, /gh release upload/u);
+assert.match(nativeWorkflow, /gh release create/u);
+assert.match(nativeWorkflow, /gh release upload/u);
+const ghReleaseCreateIndex = nativeWorkflow.indexOf('gh release create');
+const verifyMultiArchIndex = nativeWorkflow.indexOf('Verify multi-architecture native compliance');
+const createManifestIndex = nativeWorkflow.indexOf('Create multi-arch manifest');
+assert(ghReleaseCreateIndex > verifyMultiArchIndex, 'GitHub release must be created after native compliance verification');
+assert(ghReleaseCreateIndex > createManifestIndex, 'GitHub release must be created after multi-arch manifest creation');
 assert.match(workflow, /release:\s+types: \[published\]/su);
 assert.match(workflow, /browser_download_url/u);
 assert.match(workflow, /CONTROL_PLANE_RELEASE_WEBHOOK_SECRET is required for published releases/u);
