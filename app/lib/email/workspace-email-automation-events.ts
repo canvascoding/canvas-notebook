@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull, lte, or } from 'drizzle-orm';
 
 import { scheduleAutomationJobRun } from '@/app/lib/automations/store';
 import type { AutomationJobRecord, AutomationRunRecord } from '@/app/lib/automations/types';
@@ -10,6 +10,9 @@ import { db } from '@/app/lib/db';
 import { automationJobs, emailAccounts, emailInboxEvents, workspaceEmailMailboxes } from '@/app/lib/db/schema';
 
 type InboxEventRow = typeof emailInboxEvents.$inferSelect;
+
+const EMAIL_EVENT_QUEUE_MAX_ATTEMPTS = 3;
+const EMAIL_EVENT_QUEUE_RETRY_BASE_MS = 60_000;
 
 export type WorkspaceEmailAutomationEventContext = {
   eventId: string;
@@ -119,6 +122,23 @@ async function markEvent(event: InboxEventRow, input: { status: 'queued' | 'igno
   }).where(and(eq(emailInboxEvents.id, event.id), eq(emailInboxEvents.status, 'pending')));
 }
 
+async function retryOrFailEventQueueing(event: InboxEventRow, errorCode: string): Promise<'deferred' | 'failed'> {
+  const attemptCount = event.attemptCount + 1;
+  const isFinalAttempt = attemptCount >= EMAIL_EVENT_QUEUE_MAX_ATTEMPTS;
+  const nextAttemptAt = isFinalAttempt
+    ? null
+    : new Date(Date.now() + EMAIL_EVENT_QUEUE_RETRY_BASE_MS * (2 ** Math.max(attemptCount - 1, 0)));
+  await db.update(emailInboxEvents).set({
+    status: isFinalAttempt ? 'failed' : 'pending',
+    processedAt: null,
+    attemptCount,
+    nextAttemptAt,
+    errorCode: errorCode.slice(0, 250),
+    updatedAt: new Date(),
+  }).where(and(eq(emailInboxEvents.id, event.id), eq(emailInboxEvents.status, 'pending')));
+  return isFinalAttempt ? 'failed' : 'deferred';
+}
+
 /**
  * Converts provider inbox events into normal Automation Engine runs. It deliberately
  * does not read mail, classify it, call an LLM, or create drafts; those are normal
@@ -126,8 +146,12 @@ async function markEvent(event: InboxEventRow, input: { status: 'queued' | 'igno
  */
 export async function queuePendingWorkspaceEmailAutomationRuns(input: { limit?: number } = {}): Promise<WorkspaceEmailAutomationQueueResult> {
   await migrateWorkspaceEmailAutomationJobs();
+  const now = new Date();
   const events = await db.query.emailInboxEvents.findMany({
-    where: eq(emailInboxEvents.status, 'pending'),
+    where: and(
+      eq(emailInboxEvents.status, 'pending'),
+      or(isNull(emailInboxEvents.nextAttemptAt), lte(emailInboxEvents.nextAttemptAt, now)),
+    ),
     orderBy: [asc(emailInboxEvents.receivedAt)],
     limit: Math.min(Math.max(input.limit ?? 25, 1), 100),
   });
@@ -152,9 +176,9 @@ export async function queuePendingWorkspaceEmailAutomationRuns(input: { limit?: 
       result.queued += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'email_automation_queue_failed';
-      await markEvent(event, { status: 'failed', errorCode: message.slice(0, 250) });
-      result.failed += 1;
-      console.warn('[WorkspaceEmailAutomation] Event queue failed', event.id, message);
+      const outcome = await retryOrFailEventQueueing(event, message);
+      result[outcome] += 1;
+      console.warn(`[WorkspaceEmailAutomation] Event queue ${outcome}`, event.id, message);
     }
   }
   return result;
