@@ -42,6 +42,8 @@ export function WorkspaceMailboxAssignmentDialog({
   useEffect(() => {
     if (!open || !workspace) return;
     let cancelled = false;
+    // Opening the dialog starts a fresh request; these are UI loading-state resets.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsLoading(true);
     setError(null);
     void fetch(`/api/workspaces/${encodeURIComponent(workspace.id)}/email/mailbox`, { credentials: 'include', cache: 'no-store' })

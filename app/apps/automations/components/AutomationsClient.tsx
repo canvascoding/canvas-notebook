@@ -1303,6 +1303,8 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
 
   useEffect(() => {
     if (!workspaceInitialized || !draftWorkspaceId) {
+      // The selected workspace was cleared; stale mailbox choices must not remain visible.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setEmailAccounts([]);
       return;
     }
