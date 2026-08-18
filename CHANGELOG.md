@@ -11,6 +11,24 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.18.3] - 2026-08-18
+
+### Fixed
+
+- Fixed Better Auth 1.7 email/password login by adding the required `issuer` column to the `account` table for both SQLite and Postgres. Legacy credential accounts default to `local:credential` so existing users can sign in after the upgrade.
+
+### Verification
+
+- `npm run build`
+- `npm run lint`
+- `npm run setup` (Postgres)
+- `scripts/auth-setup-test.ts`
+- `scripts/auth-seat-limit-test.ts`
+- `scripts/organization-offboarding-test.ts`
+- `scripts/migration-export-policy-test.ts`
+- `scripts/mcp-server-oauth-schema-test.ts`
+- `scripts/todo-api-test.mjs`
+
 ## [2026.8.18.2] - 2026-08-18
 
 ### Added
