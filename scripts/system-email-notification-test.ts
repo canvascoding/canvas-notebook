@@ -42,6 +42,7 @@ async function main() {
     clearSystemSmtpConfiguration,
     getSystemSmtpConfigurationStatus,
     saveSystemSmtpConfiguration,
+    setSystemEmailDeliveryMode,
   } = await import('../app/lib/email/system-smtp-config');
   const { resolveNotificationDeliveryRoute, sendNotificationThroughRoute } = await import('../app/lib/email/notification-delivery-service');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-transport');
@@ -49,6 +50,57 @@ async function main() {
 
   await clearSystemSmtpConfiguration();
   assert.equal((await getSystemSmtpConfigurationStatus()).configured, false);
+
+  const originalFetch = globalThis.fetch;
+  const managedRequests: Array<{ url: string; method: string; body: Record<string, unknown> | null }> = [];
+  process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'true';
+  process.env.CANVAS_CONTROL_PLANE_URL = 'https://control.example.test';
+  process.env.CANVAS_INSTANCE_TOKEN = 'managed-system-email-token';
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : null;
+    managedRequests.push({ url, method: init?.method || 'GET', body });
+    if (url.endsWith('/v1/managed/system-email/status')) {
+      return new Response(JSON.stringify({ systemEmail: { available: true, fromAddress: 'notifications@example.test', fromName: 'Canvas' } }), { status: 200 });
+    }
+    if (url.endsWith('/v1/managed/system-email/send')) {
+      return new Response(JSON.stringify({ messageId: '<managed-notification@example.test>' }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ error: 'Unexpected managed request' }), { status: 500 });
+  };
+
+  await setSystemEmailDeliveryMode('managed');
+  const managedRoute = await resolveNotificationDeliveryRoute('recipient-without-mailbox', 'recipient@example.test');
+  assert.deepEqual(managedRoute, { kind: 'managed_system_email' });
+  if (managedRoute.kind !== 'managed_system_email') {
+    throw new Error(`Expected the managed system email route, received ${managedRoute.kind}.`);
+  }
+  const managedResult = await sendNotificationThroughRoute(managedRoute, 'recipient-without-mailbox', {
+    to: ['recipient@example.test'],
+    subject: 'Managed system notification',
+    body: '<p>Managed</p>',
+    isHtml: true,
+    purpose: 'todo_created',
+    idempotencyKey: 'todo-created:managed-test',
+  });
+  assert.equal(managedResult.messageId, '<managed-notification@example.test>');
+  assert.equal(managedRequests.length, 2);
+  assert.deepEqual(managedRequests[1], {
+    url: 'https://control.example.test/v1/managed/system-email/send',
+    method: 'POST',
+    body: {
+      purpose: 'todo_created',
+      to: ['recipient@example.test'],
+      subject: 'Managed system notification',
+      body: '<p>Managed</p>',
+      isHtml: true,
+      idempotencyKey: 'todo-created:managed-test',
+    },
+  });
+  globalThis.fetch = originalFetch;
+  delete process.env.CANVAS_MANAGED_SERVICES_ENABLED;
+  delete process.env.CANVAS_CONTROL_PLANE_URL;
+  delete process.env.CANVAS_INSTANCE_TOKEN;
 
   setSmtpTransportFactoryForTests((options) => ({
     verify: async () => {

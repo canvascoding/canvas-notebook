@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { readScopedEnvState, replaceScopedEnvEntries } from '@/app/lib/integrations/env-config';
+import { isManagedSystemEmailAvailable } from '@/app/lib/email/managed-system-email-client';
 
 const SYSTEM_SMTP_KEYS = {
   host: 'CANVAS_SYSTEM_SMTP_HOST',
@@ -11,6 +12,7 @@ const SYSTEM_SMTP_KEYS = {
   fromAddress: 'CANVAS_SYSTEM_EMAIL_FROM',
   fromName: 'CANVAS_SYSTEM_EMAIL_FROM_NAME',
   replyTo: 'CANVAS_SYSTEM_EMAIL_REPLY_TO',
+  deliveryMode: 'CANVAS_SYSTEM_EMAIL_DELIVERY_MODE',
 } as const;
 
 const SYSTEM_SMTP_ENV_KEY_SET = new Set<string>(Object.values(SYSTEM_SMTP_KEYS));
@@ -41,6 +43,8 @@ export type SystemSmtpConfigurationInput = {
   replyTo?: unknown;
 };
 
+export type SystemEmailDeliveryMode = 'managed' | 'local' | 'disabled';
+
 export type SystemSmtpConfigurationStatus = {
   configured: boolean;
   complete: boolean;
@@ -53,6 +57,8 @@ export type SystemSmtpConfigurationStatus = {
   fromName: string | null;
   replyTo: string | null;
   configurationError: string | null;
+  deliveryMode: SystemEmailDeliveryMode;
+  managedAvailable: boolean;
 };
 
 type SystemSmtpValues = Record<keyof typeof SYSTEM_SMTP_KEYS, string>;
@@ -111,7 +117,7 @@ function valuesFromEntries(entries: Array<{ key: string; value: string }>): Syst
 }
 
 function parseConfiguredValues(values: SystemSmtpValues): SystemSmtpConfiguration | null {
-  const hasAnyValue = Object.values(values).some((value) => value.trim().length > 0);
+  const hasAnyValue = Object.entries(values).some(([key, value]) => key !== 'deliveryMode' && value.trim().length > 0);
   if (!hasAnyValue) return null;
 
   return {
@@ -128,6 +134,17 @@ function parseConfiguredValues(values: SystemSmtpValues): SystemSmtpConfiguratio
     },
     replyTo: values.replyTo.trim() ? normalizeEmailAddress(values.replyTo, 'Reply-to email address') : null,
   };
+}
+
+function hasLocalSmtpValues(values: SystemSmtpValues): boolean {
+  return Object.entries(values).some(([key, value]) => key !== 'deliveryMode' && value.trim().length > 0);
+}
+
+function resolveDeliveryMode(values: SystemSmtpValues): SystemEmailDeliveryMode {
+  const configured = values.deliveryMode.trim().toLowerCase();
+  if (configured === 'managed' || configured === 'local' || configured === 'disabled') return configured;
+  if (isManagedSystemEmailAvailable() && !hasLocalSmtpValues(values)) return 'managed';
+  return 'local';
 }
 
 export async function getSystemSmtpConfiguration(): Promise<SystemSmtpConfiguration | null> {
@@ -160,6 +177,8 @@ export async function getSystemSmtpConfigurationStatus(): Promise<SystemSmtpConf
     fromName: values.fromName.trim() || null,
     replyTo: values.replyTo.trim().toLowerCase() || null,
     configurationError,
+    deliveryMode: resolveDeliveryMode(values),
+    managedAvailable: isManagedSystemEmailAvailable(),
   };
 }
 
@@ -178,6 +197,7 @@ export async function saveSystemSmtpConfiguration(input: SystemSmtpConfiguration
     replyTo: normalizeOptionalString(input.replyTo)
       ? normalizeEmailAddress(input.replyTo, 'Reply-to email address')
       : '',
+    deliveryMode: 'local',
   };
   parseConfiguredValues(next);
 
@@ -192,6 +212,21 @@ export async function saveSystemSmtpConfiguration(input: SystemSmtpConfiguration
     })),
   ];
   await replaceScopedEnvEntries('integrations', entries);
+  return getSystemSmtpConfigurationStatus();
+}
+
+export async function setSystemEmailDeliveryMode(mode: SystemEmailDeliveryMode): Promise<SystemSmtpConfigurationStatus> {
+  const state = await readScopedEnvState('integrations');
+  const remaining = state.entries
+    .filter((entry) => !SYSTEM_SMTP_ENV_KEY_SET.has(entry.key))
+    .map((entry) => ({ key: entry.key, value: entry.value }));
+  await replaceScopedEnvEntries('integrations', [
+    ...remaining,
+    { key: SYSTEM_SMTP_KEYS.deliveryMode, value: mode },
+    ...state.entries
+      .filter((entry) => SYSTEM_SMTP_ENV_KEY_SET.has(entry.key) && entry.key !== SYSTEM_SMTP_KEYS.deliveryMode)
+      .map((entry) => ({ key: entry.key, value: entry.value })),
+  ]);
   return getSystemSmtpConfigurationStatus();
 }
 

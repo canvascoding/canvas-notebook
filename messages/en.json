@@ -2526,6 +2526,12 @@
       "title": "System email notifications",
       "description": "This SMTP sender belongs to the complete virtual machine. It sends app notifications only and does not receive email.",
       "fallbackDescription": "When no system sender is configured, Canvas uses the recipient's primary send-capable personal email account for notifications. Once system SMTP is configured, a send failure never silently falls back to a personal sender.",
+      "managedToggle": "Use Canvas managed system email",
+      "managedDescription": "Canvas Control Plane sends notifications through the centrally configured sender. SMTP credentials never reach this instance.",
+      "managedActive": "Canvas managed sender active",
+      "managedUnavailable": "Canvas managed sender is not configured yet. Notifications continue with the available local fallback.",
+      "localDescription": "Use your own SMTP sender for this instance instead of the Canvas managed sender.",
+      "modeUpdated": "System email delivery mode updated.",
       "statusConfigured": "System SMTP active",
       "statusNotConfigured": "Not configured",
       "host": "SMTP host",
@@ -2553,7 +2559,8 @@
         "load": "Could not load system email settings.",
         "save": "Could not save system email settings.",
         "test": "Could not test the SMTP connection.",
-        "remove": "Could not remove system email settings."
+        "remove": "Could not remove system email settings.",
+        "mode": "Could not update the system email delivery mode."
       }
     },
     "workspaceMailboxes": {

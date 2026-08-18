@@ -7,8 +7,13 @@ import {
   withEmailPolicyDefaultAddresses,
 } from '@/app/lib/email/policy';
 import { listEmailAccounts, sendEmailMessage } from '@/app/lib/email/service';
-import { getSystemSmtpConfiguration } from '@/app/lib/email/system-smtp-config';
+import { getSystemSmtpConfiguration, getSystemSmtpConfigurationStatus } from '@/app/lib/email/system-smtp-config';
 import { sendSystemSmtpEmail } from '@/app/lib/email/system-smtp-service';
+import {
+  getManagedSystemEmailAvailability,
+  sendManagedSystemEmail,
+  systemEmailIdempotencyKey,
+} from '@/app/lib/email/managed-system-email-client';
 import type { EmailCustomHeaders } from '@/app/lib/email/headers';
 
 type EmailAccountCandidate = {
@@ -22,6 +27,7 @@ type EmailAccountCandidate = {
 };
 
 export type NotificationDeliveryRoute =
+  | { kind: 'managed_system_email' }
   | { kind: 'system_smtp' }
   | { kind: 'personal_email'; accountId: string }
   | { kind: 'unavailable'; reason: string };
@@ -34,6 +40,8 @@ export type NotificationMessage = {
   body: string;
   isHtml?: boolean;
   headers?: EmailCustomHeaders;
+  purpose?: 'todo_created' | 'todo_assigned' | 'invite' | 'auth_reset' | 'email_verification' | 'automation_alert';
+  idempotencyKey?: string;
 };
 
 function isActiveAccount(value: unknown): value is EmailAccountCandidate {
@@ -59,8 +67,18 @@ export async function resolveNotificationDeliveryRoute(
   userId: string,
   recipient: string,
 ): Promise<NotificationDeliveryRoute> {
+  const systemStatus = await getSystemSmtpConfigurationStatus();
+  if (systemStatus.deliveryMode === 'managed' && systemStatus.managedAvailable) {
+    try {
+      const managed = await getManagedSystemEmailAvailability();
+      if (managed.available) return { kind: 'managed_system_email' };
+    } catch (error) {
+      console.warn('[NotificationDelivery] Managed system email availability check failed:', error instanceof Error ? error.message : error);
+    }
+  }
+
   const systemSmtp = await getSystemSmtpConfiguration();
-  if (systemSmtp) {
+  if (systemStatus.deliveryMode === 'local' && systemSmtp) {
     return { kind: 'system_smtp' };
   }
 
@@ -85,6 +103,24 @@ export async function sendNotificationThroughRoute(
   userId: string,
   message: NotificationMessage,
 ): Promise<{ messageId: string | null }> {
+  if (route.kind === 'managed_system_email') {
+    const idempotencyKey = message.idempotencyKey || systemEmailIdempotencyKey([
+      userId,
+      message.purpose || 'todo_created',
+      message.to.join(','),
+      message.subject,
+      message.body,
+    ].join('\n'));
+    return sendManagedSystemEmail({
+      purpose: message.purpose || 'todo_created',
+      to: message.to,
+      subject: message.subject,
+      body: message.body,
+      isHtml: message.isHtml,
+      idempotencyKey,
+    });
+  }
+
   if (route.kind === 'system_smtp') {
     return sendSystemSmtpEmail({
       ...message,

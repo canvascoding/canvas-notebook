@@ -6,6 +6,8 @@ import {
   clearSystemSmtpConfiguration,
   getSystemSmtpConfigurationStatus,
   saveSystemSmtpConfiguration,
+  setSystemEmailDeliveryMode,
+  type SystemEmailDeliveryMode,
   type SystemSmtpConfigurationInput,
 } from '@/app/lib/email/system-smtp-config';
 
@@ -58,6 +60,36 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ success: true, data: status });
   } catch (error) {
     return NextResponse.json({ success: false, error: errorMessage(error, 'Failed to save system email settings.') }, { status: 400 });
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  const admin = await requireInstanceAdmin(request);
+  if (!admin.ok) return admin.response;
+
+  try {
+    const payload = await request.json().catch(() => null);
+    const mode = payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as { mode?: unknown }).mode
+      : null;
+    if (mode !== 'managed' && mode !== 'local' && mode !== 'disabled') {
+      return NextResponse.json({ success: false, error: 'Invalid system email delivery mode.' }, { status: 400 });
+    }
+    const status = await setSystemEmailDeliveryMode(mode as SystemEmailDeliveryMode);
+    await recordAuditEvent({
+      userId: admin.session.user.id,
+      source: 'system_email',
+      eventType: 'configuration',
+      entityType: 'system_smtp',
+      entityId: 'system',
+      action: 'system_email.delivery_mode',
+      status: 'success',
+      summary: `System email delivery mode changed to ${mode}.`,
+      metadata: { mode },
+    });
+    return NextResponse.json({ success: true, data: status });
+  } catch (error) {
+    return NextResponse.json({ success: false, error: errorMessage(error, 'Failed to update system email delivery mode.') }, { status: 400 });
   }
 }
 

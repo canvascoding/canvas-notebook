@@ -22,7 +22,7 @@ import {
 export type TodoEmailNotificationResult =
   | {
       status: 'sent';
-      delivery: 'system_smtp' | 'personal_email';
+      delivery: 'managed_system_email' | 'system_smtp' | 'personal_email';
       accountId: string | null;
       messageId: string | null;
       replyToken: string | null;
@@ -102,6 +102,8 @@ export async function sendTodoCreatedEmailNotification(_creatorUserId: string, t
       body: email.html,
       isHtml: true,
       headers: replyToken ? todoEmailReplyTrackingHeaders(todo.id, replyToken) : undefined,
+      purpose: 'todo_created',
+      idempotencyKey: `todo-created:${todo.id}`,
     });
     const normalizedMessageId = sendResponse.messageId;
 

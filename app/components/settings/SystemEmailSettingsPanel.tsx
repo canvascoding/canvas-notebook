@@ -24,6 +24,8 @@ type SystemEmailStatus = {
   fromName: string | null;
   replyTo: string | null;
   configurationError: string | null;
+  deliveryMode: 'managed' | 'local' | 'disabled';
+  managedAvailable: boolean;
 };
 
 type SystemEmailForm = {
@@ -66,7 +68,7 @@ export function SystemEmailSettingsPanel() {
   const [status, setStatus] = useState<SystemEmailStatus | null>(null);
   const [form, setForm] = useState<SystemEmailForm>(EMPTY_FORM);
   const [isLoading, setIsLoading] = useState(true);
-  const [action, setAction] = useState<'save' | 'test' | 'remove' | null>(null);
+  const [action, setAction] = useState<'save' | 'test' | 'remove' | 'mode' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -140,6 +142,30 @@ export function SystemEmailSettingsPanel() {
     }
   };
 
+  const updateDeliveryMode = async (mode: 'managed' | 'local') => {
+    setAction('mode');
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/admin/system-email', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ mode }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.mode'));
+      const nextStatus = payload.data as SystemEmailStatus;
+      setStatus(nextStatus);
+      setForm(formFromStatus(nextStatus));
+      setMessage(t('modeUpdated'));
+    } catch (modeError) {
+      setError(modeError instanceof Error ? modeError.message : t('errors.mode'));
+    } finally {
+      setAction(null);
+    }
+  };
+
   const testConnection = async () => {
     setAction('test');
     setError(null);
@@ -183,6 +209,7 @@ export function SystemEmailSettingsPanel() {
 
   const isBusy = action !== null;
   const configured = status?.configured === true;
+  const isManagedMode = status?.deliveryMode === 'managed';
 
   return (
     <div className="space-y-5">
@@ -193,8 +220,8 @@ export function SystemEmailSettingsPanel() {
             <CardTitle className="flex items-center gap-2 text-base"><Mail className="h-4 w-4" />{t('title')}</CardTitle>
             <CardDescription>{t('description')}</CardDescription>
           </div>
-          <Badge variant={configured ? 'default' : 'secondary'}>
-            {configured ? t('statusConfigured') : t('statusNotConfigured')}
+          <Badge variant={isManagedMode ? 'default' : configured ? 'default' : 'secondary'}>
+            {isManagedMode ? t('managedActive') : configured ? t('statusConfigured') : t('statusNotConfigured')}
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">{t('fallbackDescription')}</p>
@@ -214,6 +241,34 @@ export function SystemEmailSettingsPanel() {
           </div>
         )}
 
+        {status?.managedAvailable && (
+          <div className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
+            <div>
+              <Label htmlFor="system-email-managed">{t('managedToggle')}</Label>
+              <p className="text-xs text-muted-foreground">{isManagedMode ? t('managedDescription') : t('localDescription')}</p>
+            </div>
+            <Switch
+              id="system-email-managed"
+              checked={isManagedMode}
+              onCheckedChange={(checked) => void updateDeliveryMode(checked ? 'managed' : 'local')}
+              disabled={isLoading || isBusy}
+            />
+          </div>
+        )}
+
+        {isManagedMode && (
+          <div className="border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+            {t('managedDescription')}
+          </div>
+        )}
+
+        {isManagedMode && !status?.managedAvailable && (
+          <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {t('managedUnavailable')}
+          </div>
+        )}
+
+        {!isManagedMode && <>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="system-smtp-host">{t('host')}</Label>
@@ -272,6 +327,7 @@ export function SystemEmailSettingsPanel() {
             {t('save')}
           </Button>
         </div>
+        </>}
       </CardContent>
     </Card>
     <WorkspaceMailboxesSettingsPanel />
