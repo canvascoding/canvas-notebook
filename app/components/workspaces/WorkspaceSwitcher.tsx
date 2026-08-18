@@ -349,7 +349,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
           data-active-workspace-type={activeWorkspace?.type ?? ''}
           className={cn(
             'h-8 min-w-0 gap-1.5 px-2 text-xs',
-            isFileToolbar ? 'w-full max-w-none @container' : isChatCompact ? 'max-w-[8rem]' : isCompact ? 'max-w-[9.5rem]' : 'max-w-[14rem]',
+            isFileToolbar ? 'w-full max-w-none @container' : isChatCompact ? 'max-w-[8rem]' : isCompact ? 'max-w-[9.5rem] md:max-w-[18rem] xl:max-w-[24rem]' : 'max-w-[14rem]',
             isToolbar && 'bg-background/70',
             className
           )}
