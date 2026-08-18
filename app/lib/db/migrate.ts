@@ -2402,6 +2402,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     dpop_bound_access_tokens: 'INTEGER',
   });
 
+  // Better Auth's JWT plugin persists the signing algorithm and curve with
+  // each key. These nullable columns preserve compatibility with legacy key
+  // rows, which Better Auth treats as using its configured default algorithm.
+  addColumns(sqlite, 'jwks', {
+    alg: 'TEXT',
+    crv: 'TEXT',
+  });
+
   addColumns(sqlite, 'oauth_refresh_token', {
     authorization_code_id: 'TEXT',
     resources: 'TEXT',
