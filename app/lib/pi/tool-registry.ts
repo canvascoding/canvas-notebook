@@ -43,6 +43,35 @@ export {
 
 export type PiToolGroup = 'Core' | 'Documents' | 'Studio' | 'Automation' | 'Agents' | 'Audio' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web' | 'Security' | 'Skills' | 'Onboarding';
 
+// Inbox-triggered automations operate on untrusted external content. This is a
+// server-side capability boundary, deliberately independent of an agent's
+// normal tool preferences. It keeps the useful read-only workspace context,
+// but excludes shells, mutations, delegation, external integrations, and
+// automation/agent administration.
+const EMAIL_EVENT_AUTOMATION_ALLOWED_TOOL_NAMES = new Set([
+  'ls',
+  'read',
+  'rg',
+  'grep',
+  'glob',
+  'list_file_snapshots',
+  'inspect_document_relations',
+  'session_search',
+  'email_list_mailboxes',
+  'email_search_messages',
+  'email_read_message',
+  'email_list_thread_messages',
+  'email_list_cases',
+  'email_create_or_update_case',
+  'email_create_outbox_draft',
+  'email_update_outbox_draft',
+  'email_list_outbox_drafts',
+]);
+
+export function filterEmailEventAutomationTools(tools: AgentTool[]): AgentTool[] {
+  return tools.filter((tool) => EMAIL_EVENT_AUTOMATION_ALLOWED_TOOL_NAMES.has(tool.name));
+}
+
 export type PiToolMetadata = {
   name: string;
   label: string;
@@ -420,10 +449,9 @@ export async function getPiTools(
     }
   }
 
-  // An event run replaces only the email tools enabled for its agent with the
-  // same tools bound to its triggering mailbox. The model can search
-  // related messages in that mailbox, but cannot select another workspace or
-  // mailbox. Agent tool configuration remains the capability boundary.
+  // An event run uses a small server-side capability set. The bound email
+  // tools can only access the triggering mailbox; workspace context remains
+  // read-only even when the selected agent normally has broader permissions.
   if (options.workspaceEmailAutomation) {
     const boundWorkspaceEmailTools = createWorkspaceEmailAutomationTools(options.workspaceEmailAutomation);
     const enabledNames = new Set(allTools.map((tool) => tool.name));
@@ -431,6 +459,7 @@ export async function getPiTools(
     const boundNames = new Set(enabledBoundTools.map((tool) => tool.name));
     allTools = allTools.filter((tool) => !boundNames.has(tool.name));
     allTools.push(...enabledBoundTools);
+    allTools = filterEmailEventAutomationTools(allTools);
   }
 
   if (resolvedExecutionContext) {

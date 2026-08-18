@@ -493,10 +493,10 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         + `provider=${provider}, model=${model.id}`,
       );
 
-      // Generic email access is never available to an automation. Inbox-event
-      // runs receive only the server-bound workspace email tools above; their
-      // Outbox send tool checks the configured outbound mode on every call.
-      const tools = (await getPiTools(automationUserId, job.agentId, piSessionId, {
+      // Inbox-event runs receive server-bound email tools. Their final
+      // capability boundary is enforced in the tool registry, where only
+      // read-only workspace tools and human-review email operations survive.
+      const tools = await getPiTools(automationUserId, job.agentId, piSessionId, {
         workspaceEmailAutomation: emailInboxEventContext
           ? {
               ...emailInboxEventContext,
@@ -507,18 +507,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               agentId: job.agentId,
             }
           : undefined,
-      }))
-        .filter((tool) => !(
-          tool.name === 'email_send_draft'
-          || tool.name === 'email'
-          || tool.name === 'terminal'
-          || tool.name === 'browser'
-          || tool.name === 'mcp'
-          || tool.name === 'composio'
-          || tool.name.startsWith('mcp_')
-          || tool.name.startsWith('COMPOSIO_')
-          || tool.name === 'composio_execute'
-        ));
+      });
       assertAutomationExecutionActive(executionSignal);
       const promptSnapshot = await loadPiSessionSystemPromptSnapshot({
         sessionId: piSessionId,

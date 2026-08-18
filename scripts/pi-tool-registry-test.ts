@@ -106,7 +106,7 @@ async function main() {
   const { createToolLoopGuard } = await import('../app/lib/pi/tool-loop-guard');
   const { getProgressiveGatewayCapabilityNames } = await import('../app/lib/pi/progressive-tool-gateway');
   const { createBrowserGatewayTool } = await import('../app/lib/pi/browser/tool');
-  const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateImageTool, createStudioGenerateVideoTool, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
+  const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateImageTool, createStudioGenerateVideoTool, filterEmailEventAutomationTools, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
   const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
   const { writePiRuntimeConfig } = await import('../app/lib/agents/storage');
 
@@ -1116,6 +1116,17 @@ async function main() {
   assert.ok(restrictedRuntimeTools.some((tool) => tool.name === 'email_search_messages'));
   assert.equal(restrictedRuntimeTools.some((tool) => tool.name === 'email'), false);
   assert.equal(restrictedRuntimeTools.some((tool) => tool.name === 'email_send_draft'), false);
+
+  const eventAutomationToolNames = filterEmailEventAutomationTools([
+    ...restrictedRuntimeTools,
+    { name: 'bash' },
+    { name: 'automation_manage' },
+    { name: 'mcp' },
+  ] as typeof restrictedRuntimeTools).map((tool) => tool.name);
+  assert.ok(eventAutomationToolNames.includes('email_search_messages'));
+  assert.equal(eventAutomationToolNames.includes('bash'), false);
+  assert.equal(eventAutomationToolNames.includes('automation_manage'), false);
+  assert.equal(eventAutomationToolNames.includes('mcp'), false);
 
   console.log('pi-tool-registry-test: ok');
 

@@ -265,8 +265,8 @@ export function createEmailAgentTools(context: EmailAgentToolsContext = {}): Age
           const value = params as { mailboxId?: string; draftId: string; expectedVersion: number; to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string };
           const mailbox = await requireMailbox(context, value.mailboxId);
           return result(mailbox.kind === 'workspace'
-            ? await updateWorkspaceOutboxDraft({ userId: requireUser(context), workspaceId: mailbox.workspaceId!, ...value, status: 'awaiting_review' })
-            : await updatePersonalOutboxDraft({ userId: requireUser(context), ...value, status: 'awaiting_review' }));
+            ? await updateWorkspaceOutboxDraft({ userId: requireUser(context), workspaceId: mailbox.workspaceId!, ...value, status: 'awaiting_review', actor: 'agent' })
+            : await updatePersonalOutboxDraft({ userId: requireUser(context), ...value, status: 'awaiting_review', actor: 'agent' }));
         } catch (error) { return toolError(error); }
       },
     },

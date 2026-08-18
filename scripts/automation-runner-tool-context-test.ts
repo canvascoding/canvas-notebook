@@ -443,6 +443,13 @@ moduleInternals._load = (request, parent, isMain) => {
             parameters: { type: 'object', properties: {} },
             execute: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
           },
+          {
+            name: 'bash',
+            label: 'Shell',
+            description: 'This must never reach an email-event automation run.',
+            parameters: { type: 'object', properties: {} },
+            execute: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+          },
         ];
       },
     };
@@ -510,7 +517,7 @@ async function main() {
   await new Promise<void>((resolve) => setImmediate(resolve));
 
   assert.deepEqual(toolCalls, [{ userId, agentId, sessionId: `auto-${run.id.replace(/^run-/, '')}` }]);
-  assert.deepEqual(agentLoopToolNames, ['studio_generate_image']);
+  assert.deepEqual(agentLoopToolNames, ['studio_generate_image', 'email_send_draft', 'mcp', 'bash']);
   assert.equal(agentLoopStreamFns[0], testStreamFn);
   assert.equal(agentLoopThinkingLevels[0], 'off');
   assert.match(agentLoopSystemPrompts[0] || '', /## Current Workspace File Tree/);

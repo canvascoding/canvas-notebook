@@ -252,6 +252,13 @@ async function main() {
       }),
       /has changed/i,
     );
+    await assert.rejects(
+      () => updateWorkspaceOutboxDraft({
+        userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: edited.version,
+        subject: 'Re: Support request', body: '<p>Automated overwrite</p>', to: ['customer@example.test'], actor: 'agent',
+      }),
+      /being reviewed by a person/i,
+    );
     let sentInput: { to: string[]; subject: string; body: string } | null = null;
     const sent = await sendWorkspaceOutboxDraft({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: edited.version,

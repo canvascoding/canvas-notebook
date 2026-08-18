@@ -270,17 +270,24 @@ export async function createPersonalOutboxDraft(input: {
 export async function updateWorkspaceOutboxDraft(input: {
   userId: string; workspaceId: string; draftId: string; expectedVersion: number; subject: string; body: string;
   to: string[]; cc?: string[]; bcc?: string[]; status?: Extract<OutboxStatus, 'awaiting_review' | 'editing' | 'discarded'>;
+  actor?: 'human' | 'agent';
 }) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
   const current = await db.query.emailDrafts.findFirst({ where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.workspaceId, input.workspaceId), inArray(emailDrafts.origin, ['automation', 'agent'])) });
   if (!current) throw new Error('Workspace outbox draft not found.');
   if (current.version !== input.expectedVersion) throw new Error('This outbox draft has changed. Reload it before saving.');
   if (current.outboxStatus === 'sent' || current.outboxStatus === 'discarded') throw new Error('This outbox draft can no longer be edited.');
+  if (input.actor === 'agent' && current.editingByUserId) {
+    throw new Error('This outbox draft is being reviewed by a person. Create a new draft instead of overwriting it.');
+  }
   const nextStatus = input.status || 'editing';
   const now = new Date();
   const [updated] = await db.update(emailDrafts).set({
     subject: input.subject.trim(), body: input.body, toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []),
-    outboxStatus: nextStatus, version: current.version + 1, editingByUserId: input.userId, editingStartedAt: now, updatedAt: now,
+    outboxStatus: nextStatus, version: current.version + 1,
+    editingByUserId: input.actor === 'agent' ? null : input.userId,
+    editingStartedAt: input.actor === 'agent' ? null : now,
+    updatedAt: now,
   }).where(and(eq(emailDrafts.id, current.id), eq(emailDrafts.version, current.version))).returning();
   if (!updated) throw new Error('This outbox draft has changed. Reload it before saving.');
   return publicOutboxDraft(updated);
@@ -289,6 +296,7 @@ export async function updateWorkspaceOutboxDraft(input: {
 export async function updatePersonalOutboxDraft(input: {
   userId: string; draftId: string; expectedVersion: number; subject: string; body: string;
   to: string[]; cc?: string[]; bcc?: string[]; status?: Extract<OutboxStatus, 'awaiting_review' | 'editing' | 'discarded'>;
+  actor?: 'human' | 'agent';
 }) {
   const current = await db.query.emailDrafts.findFirst({
     where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.userId, input.userId), isNull(emailDrafts.workspaceId), eq(emailDrafts.origin, 'agent')),
@@ -296,10 +304,16 @@ export async function updatePersonalOutboxDraft(input: {
   if (!current) throw new Error('Personal outbox draft not found.');
   if (current.version !== input.expectedVersion) throw new Error('This outbox draft has changed. Reload it before saving.');
   if (current.outboxStatus === 'sent' || current.outboxStatus === 'discarded') throw new Error('This outbox draft can no longer be edited.');
+  if (input.actor === 'agent' && current.editingByUserId) {
+    throw new Error('This outbox draft is being reviewed by a person. Create a new draft instead of overwriting it.');
+  }
   const now = new Date();
   const [updated] = await db.update(emailDrafts).set({
     subject: input.subject.trim(), body: input.body, toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []),
-    outboxStatus: input.status || 'editing', version: current.version + 1, editingByUserId: input.userId, editingStartedAt: now, updatedAt: now,
+    outboxStatus: input.status || 'editing', version: current.version + 1,
+    editingByUserId: input.actor === 'agent' ? null : input.userId,
+    editingStartedAt: input.actor === 'agent' ? null : now,
+    updatedAt: now,
   }).where(and(eq(emailDrafts.id, current.id), eq(emailDrafts.version, current.version))).returning();
   if (!updated) throw new Error('This outbox draft has changed. Reload it before saving.');
   return publicOutboxDraft(updated);
