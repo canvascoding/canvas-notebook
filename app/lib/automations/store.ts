@@ -454,6 +454,39 @@ function normalizeEmailInboxEventConfig(value: unknown): { eventType: 'email_inb
   return { eventType: 'email_inbox_event', mailboxId };
 }
 
+/**
+ * A mailbox is deliberately handled by one live triage automation at a time.
+ * Several active agents would otherwise independently prepare competing drafts
+ * for the same incoming message.
+ */
+async function assertNoConflictingActiveEmailInboxAutomation(input: {
+  workspaceId: string;
+  mailboxId: string;
+  excludeJobId?: string;
+}): Promise<void> {
+  const conditions = [
+    eq(automationJobs.workspaceId, input.workspaceId),
+    eq(automationJobs.triggerKind, 'event'),
+    eq(automationJobs.status, 'active'),
+  ];
+  if (input.excludeJobId) {
+    conditions.push(ne(automationJobs.id, input.excludeJobId));
+  }
+  const jobs = await db.select({ id: automationJobs.id, eventConfigJson: automationJobs.eventConfigJson })
+    .from(automationJobs)
+    .where(and(...conditions));
+  const conflict = jobs.some((job) => {
+    try {
+      return normalizeEmailInboxEventConfig(parseOptionalJsonObject(job.eventConfigJson)).mailboxId === input.mailboxId;
+    } catch {
+      return false;
+    }
+  });
+  if (conflict) {
+    throw new Error('An active email inbox automation is already configured for this mailbox. Pause it or choose another mailbox first.');
+  }
+}
+
 function applyDefaultScheduleTimeZone(input: unknown, timeZone: string): unknown {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return input;
@@ -896,6 +929,12 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
       agentId,
       workspace: automationScope.workspace,
     });
+    if ((input.status || 'active') === 'active') {
+      await assertNoConflictingActiveEmailInboxAutomation({
+        workspaceId: automationScope.workspaceId,
+        mailboxId: eventConfig.mailboxId,
+      });
+    }
   }
   const jobScope = buildAutomationJobScope({ ...automationScope, createdByUserId: userId });
   const now = new Date();
@@ -1173,6 +1212,13 @@ export async function updateAutomationJob(
       emailAccountId: eventConfig.mailboxId,
       workspaceId: existing.workspaceId,
     });
+    if (status === 'active') {
+      await assertNoConflictingActiveEmailInboxAutomation({
+        workspaceId: existing.workspaceId,
+        mailboxId: eventConfig.mailboxId,
+        excludeJobId: existing.id,
+      });
+    }
   }
   const nextRunAt = status === 'paused' || triggerKind !== 'schedule'
     ? null

@@ -136,6 +136,18 @@ async function main() {
     assert.deepEqual(eventAutomation.eventConfig, { eventType: 'email_inbox_event', mailboxId: created.id });
     assert.equal(eventAutomation.nextRunAt, null);
     assert.equal((await listDueAutomationJobs(new Date(Date.now() + 86_400_000))).some((job) => job.id === eventAutomation.id), false);
+    await assert.rejects(
+      () => createAutomationJob({
+        name: 'Duplicate email triage',
+        prompt: 'Prepare another draft but never send it.',
+        workspaceId: ownerWorkspace.id,
+        triggerKind: 'event',
+        eventConfig: { eventType: 'email_inbox_event', mailboxId: created.id },
+        resultPolicy: 'record_only',
+        schedule: { kind: 'daily', times: ['10:00'], timeZone: 'UTC' },
+      }, { id: 'owner-user', email: 'owner@example.test', role: 'admin' }),
+      /already configured for this mailbox/i,
+    );
     const { pollWorkspaceMailboxInboxEvents } = await import('../app/lib/email/inbox-events');
     const pollNow = new Date(Date.now() + 1_000);
     const firstPoll = await pollWorkspaceMailboxInboxEvents({
