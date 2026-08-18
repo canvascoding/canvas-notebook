@@ -126,11 +126,17 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       access_token_expires_at INTEGER,
       refresh_token_expires_at INTEGER,
       scope TEXT,
+      issuer TEXT NOT NULL DEFAULT 'local:credential',
       password TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_account_issuer_account_id
+      ON account (issuer, account_id);
+    CREATE INDEX IF NOT EXISTS idx_account_user_provider
+      ON account (user_id, provider_id);
 
     CREATE TABLE IF NOT EXISTS email_accounts (
       id TEXT PRIMARY KEY NOT NULL,
@@ -2409,6 +2415,19 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     alg: 'TEXT',
     crv: 'TEXT',
   });
+
+  // Better Auth 1.7+ requires an `issuer` column on the account table. Existing
+  // credential rows are defaulted to the synthetic local credential issuer so
+  // email/password sign-in keeps working after the upgrade.
+  addColumns(sqlite, 'account', {
+    issuer: "TEXT NOT NULL DEFAULT 'local:credential'",
+  });
+  sqlite.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_account_issuer_account_id
+      ON account (issuer, account_id);
+    CREATE INDEX IF NOT EXISTS idx_account_user_provider
+      ON account (user_id, provider_id);
+  `);
 
   addColumns(sqlite, 'oauth_refresh_token', {
     authorization_code_id: 'TEXT',

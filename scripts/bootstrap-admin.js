@@ -226,6 +226,7 @@ CREATE TABLE IF NOT EXISTS account (
   access_token_expires_at INTEGER,
   refresh_token_expires_at INTEGER,
   scope TEXT,
+  issuer TEXT NOT NULL DEFAULT 'local:credential',
   password TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
@@ -233,6 +234,8 @@ CREATE TABLE IF NOT EXISTS account (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS user_email_unique ON user (email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_issuer_account_id ON account (issuer, account_id);
+CREATE INDEX IF NOT EXISTS idx_account_user_provider ON account (user_id, provider_id);
 
 CREATE TABLE IF NOT EXISTS canvas_organization_settings (
   organization_id TEXT PRIMARY KEY NOT NULL,
@@ -1221,17 +1224,17 @@ function ensureCredentialPassword(db, userId, passwordHash) {
   if (existingAccount) {
     db.prepare(`
       UPDATE account
-      SET account_id = ?, password = ?, updated_at = ?
+      SET account_id = ?, issuer = COALESCE(issuer, ?), password = ?, updated_at = ?
       WHERE id = ?
-    `).run(userId, passwordHash, now, existingAccount.id);
+    `).run(userId, 'local:credential', passwordHash, now, existingAccount.id);
     return;
   }
 
   db.prepare(`
     INSERT INTO account (
-      id, account_id, provider_id, user_id, password, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(randomUUID(), userId, 'credential', userId, passwordHash, now, now);
+      id, account_id, provider_id, user_id, issuer, password, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(randomUUID(), userId, 'credential', userId, 'local:credential', passwordHash, now, now);
 }
 
 function updateExistingUser(db, userId, email, name) {

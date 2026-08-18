@@ -95,10 +95,17 @@ export const account = sqliteTable("account", {
   accessTokenExpiresAt: integer("access_token_expires_at", { mode: "timestamp" }),
   refreshTokenExpiresAt: integer("refresh_token_expires_at", { mode: "timestamp" }),
   scope: text("scope"),
+  // Better Auth 1.7+ requires a synthetic issuer for local credential accounts
+  // (value: "local:credential") and OAuth accounts. Legacy rows without an
+  // issuer are defaulted to the local credential issuer during migration.
+  issuer: text("issuer").notNull().default("local:credential"),
   password: text("password"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull()
-});
+}, (table) => ({
+  issuerAccountIdIdx: uniqueIndex("idx_account_issuer_account_id").on(table.issuer, table.accountId),
+  userProviderIdx: index("idx_account_user_provider").on(table.userId, table.providerId),
+}));
 
 export const emailAccounts = sqliteTable("email_accounts", {
   id: text("id").primaryKey(),

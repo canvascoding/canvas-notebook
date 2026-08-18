@@ -17,16 +17,18 @@ const OAUTH_TABLES = [
 ] as const;
 
 const REQUIRED_COLUMNS: Record<(typeof OAUTH_TABLES)[number], string[]> = {
-  jwks: ['id', 'public_key', 'private_key', 'created_at', 'expires_at'],
+  jwks: ['id', 'public_key', 'private_key', 'created_at', 'expires_at', 'alg', 'crv'],
   oauth_client: [
     'id',
     'client_id',
     'client_secret',
+    'client_discovery_id',
     'disabled',
     'skip_consent',
     'enable_end_session',
     'subject_type',
     'scopes',
+    'client_credentials_scopes',
     'user_id',
     'created_at',
     'updated_at',
@@ -41,12 +43,18 @@ const REQUIRED_COLUMNS: Record<(typeof OAUTH_TABLES)[number], string[]> = {
     'software_statement',
     'redirect_uris',
     'post_logout_redirect_uris',
+    'backchannel_logout_uri',
+    'backchannel_logout_session_required',
     'token_endpoint_auth_method',
+    'application_type',
+    'jwks',
+    'jwks_uri',
     'grant_types',
     'response_types',
     'public',
     'type',
     'require_pkce',
+    'dpop_bound_access_tokens',
     'reference_id',
     'metadata',
   ],
@@ -57,10 +65,17 @@ const REQUIRED_COLUMNS: Record<(typeof OAUTH_TABLES)[number], string[]> = {
     'session_id',
     'user_id',
     'reference_id',
+    'authorization_code_id',
+    'resources',
+    'requested_user_info_claims',
     'expires_at',
     'created_at',
     'revoked',
+    'rotated_at',
+    'rotation_replay_response',
+    'rotation_replay_expires_at',
     'auth_time',
+    'confirmation',
     'scopes',
   ],
   oauth_access_token: [
@@ -70,9 +85,13 @@ const REQUIRED_COLUMNS: Record<(typeof OAUTH_TABLES)[number], string[]> = {
     'session_id',
     'user_id',
     'reference_id',
+    'authorization_code_id',
+    'resources',
+    'requested_user_info_claims',
     'refresh_id',
     'expires_at',
     'created_at',
+    'confirmation',
     'scopes',
   ],
   oauth_consent: [
@@ -80,6 +99,8 @@ const REQUIRED_COLUMNS: Record<(typeof OAUTH_TABLES)[number], string[]> = {
     'client_id',
     'user_id',
     'reference_id',
+    'resources',
+    'requested_user_info_claims',
     'scopes',
     'created_at',
     'updated_at',
@@ -165,13 +186,14 @@ function seedSqliteAuthData(sqlite: Database.Database): void {
   );
   sqlite.prepare(`
     INSERT INTO account (
-      id, account_id, provider_id, user_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?)
+      id, account_id, provider_id, user_id, issuer, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
     'oauth-schema-account',
     'oauth-schema-user',
     'credential',
     'oauth-schema-user',
+    'local:credential',
     1_700_000_000,
     1_700_000_000,
   );
@@ -371,12 +393,13 @@ async function seedPostgresAuthData(postgres: PGlite): Promise<void> {
   `);
   await postgres.query(`
     INSERT INTO account (
-      id, account_id, provider_id, user_id, created_at, updated_at
+      id, account_id, provider_id, user_id, issuer, created_at, updated_at
     ) VALUES (
       'oauth-schema-account',
       'oauth-schema-user',
       'credential',
       'oauth-schema-user',
+      'local:credential',
       1700000000,
       1700000000
     )

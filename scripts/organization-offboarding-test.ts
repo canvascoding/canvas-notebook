@@ -273,8 +273,8 @@ async function main() {
       VALUES ('session-member', ?, 'token-member', ?, ?, 'user-member')
     `).run(now + 60_000, now, now);
     sqlite.prepare(`
-      INSERT INTO account (id, account_id, provider_id, user_id, access_token, refresh_token, id_token, password, created_at, updated_at)
-      VALUES ('account-member', 'member-login', 'credential', 'user-member', 'access', 'refresh', 'id-token', 'password', ?, ?)
+      INSERT INTO account (id, account_id, provider_id, user_id, issuer, access_token, refresh_token, id_token, password, created_at, updated_at)
+      VALUES ('account-member', 'member-login', 'credential', 'user-member', 'local:credential', 'access', 'refresh', 'id-token', 'password', ?, ?)
     `).run(now, now);
     sqlite.prepare(`
       INSERT INTO email_accounts (

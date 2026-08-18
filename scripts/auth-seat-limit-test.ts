@@ -47,12 +47,13 @@ async function main() {
   `).run(now, now);
   sqlite.prepare(`
     INSERT INTO account (
-      id, account_id, provider_id, user_id, password, created_at, updated_at
+      id, account_id, provider_id, user_id, issuer, password, created_at, updated_at
     ) VALUES (
       'member-account',
       'member-user',
       'credential',
       'member-user',
+      'local:credential',
       ?,
       ?,
       ?

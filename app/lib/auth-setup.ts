@@ -274,9 +274,9 @@ export async function createInitialOwner(input: unknown): Promise<InitialOwner> 
 
     sqlite.prepare(`
       INSERT INTO account (
-        id, account_id, provider_id, user_id, password, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(accountId, userId, 'credential', userId, passwordHash, now, now);
+        id, account_id, provider_id, user_id, issuer, password, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(accountId, userId, 'credential', userId, 'local:credential', passwordHash, now, now);
 
     ensureOrganizationBootstrapForUser(sqlite, userId);
     runTeamSeatLegacyBackfill(sqlite);

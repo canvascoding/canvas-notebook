@@ -436,8 +436,8 @@ export async function ensurePostgresCredentialPassword(
 
   if (existingAccount) {
     await database.run(
-      'UPDATE account SET account_id = ?, password = ?, updated_at = ? WHERE id = ?',
-      [input.userId, input.passwordHash, now, existingAccount.id],
+      'UPDATE account SET account_id = ?, issuer = COALESCE(issuer, ?), password = ?, updated_at = ? WHERE id = ?',
+      [input.userId, 'local:credential', input.passwordHash, now, existingAccount.id],
     );
     return;
   }
@@ -445,10 +445,10 @@ export async function ensurePostgresCredentialPassword(
   await database.run(
     `
       INSERT INTO account (
-        id, account_id, provider_id, user_id, password, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        id, account_id, provider_id, user_id, issuer, password, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
-    [input.accountId || randomUUID(), input.userId, 'credential', input.userId, input.passwordHash, now, now],
+    [input.accountId || randomUUID(), input.userId, 'credential', input.userId, 'local:credential', input.passwordHash, now, now],
   );
 }
 

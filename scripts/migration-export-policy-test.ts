@@ -93,11 +93,15 @@ async function main() {
         CREATE TABLE verification (id TEXT PRIMARY KEY, identifier TEXT, value TEXT);
         CREATE TABLE account (
           id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL,
+          provider_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
           access_token TEXT,
           refresh_token TEXT,
           id_token TEXT,
           access_token_expires_at INTEGER,
           refresh_token_expires_at INTEGER,
+          issuer TEXT NOT NULL DEFAULT 'local:credential',
           password TEXT
         );
         CREATE TABLE oauth_tokens (id TEXT PRIMARY KEY, provider TEXT, access_token TEXT, refresh_token TEXT);
@@ -120,7 +124,7 @@ async function main() {
         INSERT INTO public_file_shares VALUES ('share-1', 'public-token', 'hash', 'active');
         INSERT INTO session VALUES ('session-1', 'session-token');
         INSERT INTO verification VALUES ('verification-1', 'email', 'verification-token');
-        INSERT INTO account VALUES ('account-1', 'access-token', 'refresh-token', 'id-token', 1, 2, 'password-secret');
+        INSERT INTO account VALUES ('account-1', 'account-1', 'credential', 'user-1', 'access-token', 'refresh-token', 'id-token', 1, 2, 'local:credential', 'password-secret');
         INSERT INTO oauth_tokens VALUES ('oauth-1', 'pi', 'oauth-access', 'oauth-refresh');
         INSERT INTO channel_link_tokens VALUES (1, 'channel-token');
         INSERT INTO todo_email_reply_watchers VALUES ('watcher-1', 'reply-token');
