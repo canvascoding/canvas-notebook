@@ -11,6 +11,36 @@ Das Ziel ist ein moeglichst einfaches Produktmodell: **Agenten sind wiederverwen
 
 Dieses Dokument ist eine Architekturentscheidung und keine unmittelbare Implementierungsanweisung. Die V1-Abgrenzung dient als naechster Planungsschritt.
 
+## Verbindlicher V1-Entscheidungsstand (2026-08-18)
+
+Die folgenden Entscheidungen ersetzen aeltere, abweichende Aussagen in diesem
+Dokument sowie in den zugehoerigen Detaildokumenten:
+
+- Eine Automation gehoert immer genau einem Workspace. Der Workspace bestimmt
+  Daten, Mailbox, Agent-Zuweisung, Auftrag, Ausloeser, Zustellung und Audit.
+- `Heartbeat` ist kein technischer Typ. Die gleichnamige UI-Bezeichnung darf
+  bestehen bleiben; technisch ist sie die Vorlage **Regelmaessige
+  Workspace-Pruefung** fuer eine geplante Automation.
+- Eine eingehende E-Mail erzeugt in V1 einen schlanken Inbox-Fall im Workspace,
+  nicht ein vollstaendiges Helpdesk-System. Die E-Mail-Triage kann Fall,
+  Prioritaets- und Themenvorschlaege sowie einen Antwortentwurf vorbereiten.
+- Persoenliche Mailboxen bleiben user-eigen und duerfen unzugeordnet sein. Sie
+  werden erst nach einer expliziten Workspace-Zuordnung zur Automationsquelle.
+  Der persoenliche Standard-Workspace ist ausschliesslich ein manueller
+  Komfort-Fallback.
+- Business-Mailboxen werden zentral ausschliesslich durch einen
+  Organisations-Admin verbunden oder getrennt. Ein Workspace-Admin ordnet eine
+  bereits verbundene Business-Mailbox seinem Workspace zu. In V1 darf eine
+  Business-Mailbox hoechstens eine aktive Workspace-Zuordnung haben. Bis zur
+  Zuordnung ist sie nicht operativ und loest keine Automation aus.
+- Workspace-Admins verwalten Zuordnung, Automation, Agent und Versandregeln.
+  Mitglieder mit Schreibrecht bearbeiten Inbox-Faelle und Entwuerfe und senden
+  nach menschlicher Pruefung. Agenten duerfen lesen, klassifizieren und Faelle
+  oder Entwuerfe anlegen bzw. aktualisieren, aber nie senden.
+- Automatischer Versand ist ausgeschlossen. Jeder Entwurf landet in der
+  Workspace-Outbox und kann nur durch eine interaktive, berechtigte
+  Benutzeraktion bearbeitet und versendet werden.
+
 ## Umsetzungstracking
 
 Die sequenzielle, abhakbare V1-Aufgabenliste steht in [workspace-email-automations-v1-todo.json](./workspace-email-automations-v1-todo.json). Sie ist die verbindliche Reihenfolge fuer die Umsetzung; pro Zeitpunkt darf nur eine Aufgabe in Arbeit sein. Das konkrete Schema- und Migrationsmodell steht in [workspace-email-automations-v1-data-model.md](./workspace-email-automations-v1-data-model.md); die serverseitige Sicherheitsgrenze in [workspace-email-automations-v1-security-policy.md](./workspace-email-automations-v1-security-policy.md).
@@ -137,10 +167,10 @@ Die dritte Stufe ist ausschliesslich ein Komfort-Fallback fuer manuelle, persoen
 | Art der Mailbox | Kann unzugeordnet bleiben? | Wer verbindet sie? | Darf automatisiert werden? |
 | --- | ---: | --- | ---: |
 | Persoenliche Mailbox eines Users | Ja | Der User | Erst nach expliziter Workspace-Zuordnung |
-| Business-Mailbox | Nein, sobald sie operativ genutzt wird | Organisations-Admin oder berechtigte Rolle | Ja, nur im explizit zugeordneten Workspace |
-| Geteilte Business-Mailbox | Nicht ohne Routing | Organisations-Admin | Spaeter, mit expliziten Routingregeln |
+| Business-Mailbox | Ja, bis ein Workspace-Admin sie zuordnet | Organisations-Admin | Ja, nur nach expliziter Zuordnung zu genau einem Workspace |
+| Geteilte Business-Mailbox | Ja, bis die eindeutige Zuordnung erfolgt | Organisations-Admin | Nicht in V1 fuer mehrere Workspaces; spaeter nur mit expliziten Routingregeln |
 
-Eine Business-Mailbox wird nicht als stiller Fallback in den persoenlichen Standard-Workspace gelegt. Fehlt die Zuordnung, werden Eingangsereignisse nicht agentisch verarbeitet und sichtbar als Konfigurationsproblem gemeldet.
+Eine Business-Mailbox wird nicht als stiller Fallback in den persoenlichen Standard-Workspace gelegt. Fehlt die Zuordnung, wird sie zwar als zentral verbunden angezeigt, ist aber nicht operativ: Eingangsereignisse werden nicht agentisch verarbeitet und die Workspace-Konfiguration meldet klar, was noch fehlt.
 
 ## Geplante Workspace-Automationen
 
@@ -284,7 +314,7 @@ Der Versand erfolgt ausschliesslich aus der Workspace-Outbox durch einen berecht
 
 Die erste Version soll leicht erklaerbar und sicher sein. Sie umfasst:
 
-1. Eine Business-Mailbox ist genau einem Workspace zugeordnet.
+1. Eine Business-Mailbox wird zentral durch einen Organisations-Admin verbunden und kann in V1 von einem Workspace-Admin genau einem Workspace aktiv zugeordnet werden.
 2. Persoenliche Mailboxen duerfen ohne Zuordnung existieren und nutzen manuell den persoenlichen Standard-Workspace als Fallback.
 3. Automationen duerfen nur mit expliziter Workspace- und Mailbox-Zuordnung laufen.
 4. Ein Workspace kann einen Support-Triage-Agenten und geplante Workspace-Automationen konfigurieren.
@@ -336,10 +366,27 @@ Der Bereich **Automationen** zeigt alle Automationen des Workspace. Beim Anlegen
    - Entwuerfe in der Workspace-Outbox; Bearbeitung und Versand im vorhandenen E-Mail-Composer
    - sichtbarer Status von Verbindung und letzter Verarbeitung
 
-Zusätzlich gibt es die **Outbox** des Workspace. Sie zeigt alle vorbereiteten Antworten mit Status und oeffnet den E-Mail-Composer mit einem Klick zur menschlichen Pruefung, Bearbeitung und zum expliziten Versand.
-
 3. **Eigene Automation**
    - Ausloeser, Agent, Auftrag, Ergebnisregel und Zustellung frei konfigurieren
+
+Zusaetzlich gibt es die **Outbox** des Workspace. Sie zeigt alle vorbereiteten Antworten mit Status und oeffnet den E-Mail-Composer mit einem Klick zur menschlichen Pruefung, Bearbeitung und zum expliziten Versand.
+
+### Mailbox-Konfiguration und Rollen
+
+- **Einstellungen → Integrationen:** Ein User verbindet und verwaltet nur seine
+  persoenlichen Mailboxen. Eine solche Mailbox kann unzugeordnet bleiben und
+  fuer manuelle E-Mail-Arbeit den persoenlichen Standard-Workspace verwenden.
+- **Einstellungen → System-E-Mail → Business-Mailboxen:** Ein
+  Organisations-Admin verbindet, testet, erneuert oder trennt zentrale
+  Business-Mailboxen. Dieser Bereich verwaltet Zugangsdaten, nicht die
+  fachliche Zuordnung zu einem Team.
+- **Workspace → E-Mail / Automationen:** Ein Workspace-Admin waehlt eine
+  verbundene, noch nicht aktive Business-Mailbox fuer seinen Workspace und
+  konfiguriert dort Triage, Agent, Zeitplan und Zustellung. Die Zuordnung kann
+  pausiert oder aufgehoben werden, ohne die zentrale Verbindung zu loeschen.
+- **Workspace-Inbox und -Outbox:** Mitglieder mit Leserecht sehen die Faelle;
+  Mitglieder mit Schreibrecht duerfen sie bearbeiten und Entwuerfe nach
+  menschlicher Pruefung senden.
 
 ### Persoenliche Einstellungen
 
@@ -347,7 +394,7 @@ Der User kann eigene E-Mail-Konten verbinden und einen persoenlichen Standard-Wo
 
 ## Umsetzungsreihenfolge nach V1-Freigabe
 
-1. Fachliche Entscheidungen finalisieren: Ownership von Business-Mailboxen, V1-Ticketziel und Freigabeprozess.
+1. Die hier festgelegte Ownership- und Rollenaufteilung als verbindliche API- und UI-Grenze absichern.
 2. Workspace-Mailbox-Zuordnung und Berechtigungschecks implementieren, inklusive Migration bestehender User-Konten als unzugeordnet.
 3. Bestehende Heartbeats zu geplanten Workspace-Automationen migrieren: Workspace zuordnen, `HEARTBEAT.md` in den Auftragsinhalt uebernehmen, No-op-Verhalten als allgemeine Ergebnisregel implementieren und die Agent-Settings bereinigen.
 4. Ereignisbasierte E-Mail-Inbox mit Idempotenz und Klaerungswarteschlange bereitstellen.
@@ -355,12 +402,14 @@ Der User kann eigene E-Mail-Konten verbinden und einen persoenlichen Standard-Wo
 6. Vorlage fuer regelmaessige Workspace-Pruefungen mit Ticket-/Entwurfs-/Fehlerchecks integrieren.
 7. End-to-End pruefen: Berechtigungen, Workspace-Isolation, Duplikate, Token-Ablauf, Fehlermeldungen, No-op-Benachrichtigungen und Offboarding.
 
-## Offene Entscheidungen vor der Implementierung
+## Noch zu konkretisierende Betriebsdetails
 
-- Welches vorhandene oder neue Datenmodell repraesentiert ein Support-Ticket in V1?
-- Soll eine Business-Mailbox zwingend organisationsverwaltet sein, oder darf ein User sie mit expliziter Organisationsfreigabe bereitstellen?
-- Welche Rollen duerfen eine Mailbox zuordnen, einen Agenten aktivieren und Entwuerfe aus der Outbox versenden?
-- Welcher Zustellkanal ist fuer relevante Workspace-Monitor-Hinweise die V1-Voreinstellung?
-- Welche Retention- und Datenschutzregeln gelten fuer E-Mail-Inhalt, Anhaenge, Entwuerfe und Auditdaten?
+Die Produktentscheidungen fuer V1 sind getroffen. Vor dem Produktivstart
+werden nur noch diese Betriebsdetails als konfigurierbare Policy festgelegt:
 
-Erst nach diesen Entscheidungen wird die V1 in konkrete Datenbank-, API-, UI- und Test-Tasks zerlegt.
+- Voreinstellung fuer den Zustellkanal relevanter Workspace-Hinweise;
+- konkrete Retention fuer E-Mail-Inhalte, Anhaenge, Entwuerfe und Auditdaten;
+- Retry-Fenster und sichtbare Eskalation bei Provider-, Token- und
+  Rate-Limit-Fehlern.
+
+Diese Details aendern weder die Ownership noch die menschliche Versandpflicht.

@@ -15,10 +15,10 @@ Dieses Dokument konkretisiert `WEA-V1-03`. Es macht die menschliche Versandpflic
 
 ## Rollenmatrix für V1
 
-| Aktion | Instance-Admin | Workspace-Owner/Admin | Workspace-Mitglied mit Schreibrecht | Agent / Scheduler |
+| Aktion | Organisations-Admin | Workspace-Owner/Admin | Workspace-Mitglied mit Schreibrecht | Agent / Scheduler |
 | --- | --- | --- | --- | --- |
 | Business-Mailbox verbinden oder trennen | erlaubt | nicht erlaubt | nicht erlaubt | nicht erlaubt |
-| Business-Mailbox einem Workspace zuordnen | erlaubt, ausschließlich unter System-E-Mail | nicht erlaubt | nicht erlaubt | nicht erlaubt |
+| Business-Mailbox einem Workspace zuordnen oder die Zuordnung pausieren | nicht erlaubt, sofern kein Workspace-Admin | erlaubt, sofern die Mailbox zentral verbunden und noch nicht aktiv zugeordnet ist | nicht erlaubt | nicht erlaubt |
 | Persönliche Mailbox manuell nutzen, Inbox-Fall oder Outbox-Entwurf bearbeiten | nur eigene Konten | nur eigene Konten | nur eigene Konten | nur Fall/Entwurf anlegen oder aktualisieren |
 | Automation konfigurieren oder pausieren | erlaubt | erlaubt | nicht erlaubt | nicht erlaubt |
 | Inbox und Outbox lesen | erlaubt | erlaubt | mit `canRead` | nur im Ausführungskontext |
@@ -26,7 +26,7 @@ Dieses Dokument konkretisiert `WEA-V1-03`. Es macht die menschliche Versandpflic
 | Outbox-Entwurf senden | erlaubt | erlaubt | mit `canWrite` und Mailbox-Zugriff | **nie erlaubt** |
 | Auditdaten lesen | erlaubt | nur eigener Workspace | nur eigener Workspace, sofern nicht sensibel eingeschränkt | schreibt nur eigene technische Ereignisse |
 
-Die Instance-Admin-Prüfung ist die Grenze für das Erstellen, Ändern, Testen und Entfernen zentraler Workspace-Postfächer. `canRead` und `canWrite` grenzen anschließend Inbox und Outbox innerhalb des jeweiligen Workspaces ab. Workspace-Admins dürfen Automationen verwalten, aber keine zentralen Zugangsdaten verändern.
+Die Organisations-Admin-Prüfung ist die Grenze für das Verbinden, Ändern, Testen und Trennen zentraler Business-Mailboxen unter **System-E-Mail**. Sie verwaltet Zugangsdaten, nicht die fachliche Teamzuordnung. Die Workspace-Admin-Prüfung ist die Grenze für die Zuweisung einer bereits verbundenen Mailbox zu einem Workspace sowie für dessen Automationen, Agent und Versandregeln. `canRead` und `canWrite` grenzen anschließend Inbox und Outbox innerhalb des jeweiligen Workspaces ab. Workspace-Admins dürfen keine zentralen Zugangsdaten verändern.
 
 ## Serverseitige Guard-Kette
 
@@ -36,9 +36,9 @@ Jede Inbox-, Outbox-, Mailbox- und Automationsroute folgt dieser Reihenfolge:
 
 1. Session bestimmen; ohne User-Session immer `401`.
 2. Mailbox-Scope aus Pfad oder Payload normalisieren; niemals nur vom Client übernehmen.
-3. Bei zentraler Mailbox-Konfiguration Instance-Admin prüfen; bei Inbox/Outbox anschließend Workspace-Zugriff über die bestehende Workspace-Guard-Logik oder persönlichen Owner prüfen.
+3. Bei zentraler Business-Mailbox-Konfiguration Organisations-Admin prüfen. Bei der Zuordnung einer bereits verbundenen Mailbox Workspace-Admin im Ziel-Workspace prüfen. Bei Inbox/Outbox anschließend Workspace-Zugriff über die bestehende Workspace-Guard-Logik oder persönlichen Owner prüfen.
 4. Für Mailbox und Entwurf die Datenbankzeile zusätzlich mit Workspace oder Owner abfragen.
-5. Für Business-Mailboxen die Organisationszugehörigkeit und Admin-/Managementrecht prüfen.
+5. Für Business-Mailboxen die Organisationszugehörigkeit prüfen. Die Verbindungsoperation verlangt Organisations-Admin, die Zuordnungsoperation Workspace-Admin im Ziel-Workspace und eine noch nicht aktive Zuordnung.
 6. Für schreibende Aktionen Version, Status und erwarteten Actor mit einer Compare-and-Set-Bedingung prüfen.
 7. Erst danach persistieren oder eine Provider-Aktion ausführen.
 

@@ -33,17 +33,18 @@ Neue Felder:
 
 | Feld | Bedeutung |
 | --- | --- |
-| `account_scope` | `personal`, `workspace` oder ein bestehender Kompatibilitätswert. Persönliche Konten erscheinen ausschließlich unter den persönlichen Integrationen; `workspace`-Konten ausschließlich unter System-E-Mail. |
+| `account_scope` | `personal`, `workspace` oder ein bestehender Kompatibilitätswert. Persönliche Konten erscheinen ausschließlich unter den persönlichen Integrationen; zentrale Business-Konten ausschließlich unter System-E-Mail. |
 | `organization_id` | Bestehendes Feld für Organisations-Kontext; für zentral gespeicherte Workspace-Zugangsdaten nicht die Autorisierungsquelle. |
 | `connected_by_user_id` | Der User, der die Verbindung hergestellt oder zuletzt erneuert hat; wird aus dem bestehenden `user_id` migriert. |
 | `automation_enabled_at` | Zeitpunkt, an dem das Konto erstmals als Automationsquelle freigegeben wurde; ansonsten leer. |
 
-`user_id` bleibt aus Kompatibilitätsgründen ein technischer Protokoll- und Provider-Actor. Bei `account_scope = workspace` liegt die Secret-Referenz jedoch im zentralen Instanz-Scope, das Postfach wird nicht in den persönlichen Integrationen dieses Users gezeigt und kann nur über die Admin-API verwaltet werden.
+`user_id` bleibt aus Kompatibilitätsgründen ein technischer Protokoll- und Provider-Actor. Bei `account_scope = workspace` liegt die Secret-Referenz jedoch im zentralen Organisations-Scope. Das Postfach wird nicht in den persönlichen Integrationen dieses Users gezeigt. Ausschließlich ein Organisations-Admin darf es zentral verbinden, testen, erneuern oder trennen; die fachliche Workspace-Zuordnung ist davon getrennt.
 
 ### Konfigurationsoberfläche
 
 - **Einstellungen → Integrationen → Meine E-Mail-Konten:** ausschließlich persönliche Konten des aktuellen Users.
-- **Einstellungen → System-E-Mail → Gemeinsame Workspace-Postfächer:** ausschließlich Instance-Admins konfigurieren hier zentrale SMTP/IMAP-Postfächer und wählen den Ziel-Workspace.
+- **Einstellungen → System-E-Mail → Business-Mailboxen:** ausschließlich Organisations-Admins konfigurieren, testen, erneuern oder trennen hier zentrale SMTP/IMAP-Postfächer. Sie wählen dort keinen Ziel-Workspace.
+- **Workspace → E-Mail / Automationen:** Workspace-Admins ordnen eine zentral verbundene, noch nicht aktive Business-Mailbox ihrem Workspace zu oder heben diese Zuordnung wieder auf. Eine Zuordnung aktiviert in V1 nie mehr als einen Workspace je Mailbox.
 - System-SMTP für App-Benachrichtigungen und Workspace-Postfächer bleiben zwei getrennte Konfigurationen im selben Admin-Bereich.
 
 ### Neue Tabelle `workspace_email_mailboxes`
@@ -57,7 +58,7 @@ Sie ist die fachliche Berechtigungsgrenze zwischen Mailbox und Workspace.
 | `email_account_id` | Nicht null, Fremdschluessel auf `email_accounts`. |
 | `status` | `active`, `paused`, `disconnected` oder `archived`. |
 | `role` | V1: `inbound_outbound`; fuer spaeter `inbound` und `outbound`. |
-| `created_by_user_id` | User, der die Zuordnung angelegt hat. |
+| `created_by_user_id` | Workspace-Admin, der die Zuordnung angelegt hat. |
 | `last_edited_by_user_id` | Letzte verantwortliche User-Aktion. |
 | `created_at`, `updated_at`, `paused_at` | Lifecycle und Auditbasis. |
 
@@ -65,7 +66,7 @@ Indizes und Constraints:
 
 - Index auf `(workspace_id, status)` fuer die Workspace-Ansicht.
 - Index auf `(email_account_id, status)` fuer Ereignisauflösung.
-- In V1 darf es hoechstens eine aktive Zuordnung je `email_account_id` geben. SQLite und PostgreSQL erhalten dazu einen partiellen Unique-Index auf aktive Zeilen.
+- In V1 darf es hoechstens eine aktive Zuordnung je `email_account_id` geben. Eine verbundene, aber unzugeordnete Business-Mailbox bleibt inaktiv und ist keine Automationsquelle. SQLite und PostgreSQL erhalten dazu einen partiellen Unique-Index auf aktive Zeilen.
 - Service und API pruefen zusaetzlich, dass eine `organization`-Mailbox nur in einen Workspace derselben Organisation gebunden werden kann.
 
 ### Tabelle `email_inbox_cases` und persönliche Fälle
@@ -156,7 +157,7 @@ Fuer neue und migrierte V1-Automationen ist `workspace_id` im Service verpflicht
 Die Migration wird fuer SQLite und PostgreSQL in derselben fachlichen Reihenfolge umgesetzt. Jeder Schritt ist idempotent und erzeugt keine Netzwerk- oder Agentenarbeit.
 
 1. **Schema erweitern:** Neue Tabellen und additive Spalten/Indizes anlegen. Noch keine bestehenden Läufe oder Mailboxen aktiv verändern.
-2. **Konten klassifizieren:** Alle bestehenden `email_accounts` als `personal` markieren. Konten mit bereits aktiver Workspace-Mailbox werden anschließend zu `workspace`, erscheinen nicht mehr unter persönlichen Integrationen und bleiben für laufende Automationen verfügbar.
+2. **Konten klassifizieren:** Alle bestehenden `email_accounts` als `personal` markieren. Zentral verwaltete Business-Konten werden anschließend zu `workspace`, erscheinen nicht mehr unter persönlichen Integrationen und bleiben bis zur bewussten Zuordnung eines Workspace-Admins nicht automatisiert.
 3. **Heartbeat vorbereiten:** Für jeden bestehenden Heartbeat den persönlichen Standard-Workspace zuverlässig auflösen. Fehlt er, Job auf `paused` lassen und einen migrationssicheren Fehlerstatus erfassen.
 4. **Heartbeat migrieren:** Genau eine normale geplante Automation je Altjob upserten; Zeitplan, Zustellung und der Inhalt von `HEARTBEAT.md` werden als `prompt` übernommen. Eine Migrationstabelle oder ein stabiler `legacy_heartbeat_job_id`-Verweis verhindert Duplikate.
 5. **Alte Heartbeats stilllegen:** Erst nachdem der Zieljob aktiv und validiert ist, den Altjob pausieren. Die alte Settings-UI bleibt während der Übergangsphase nur lesbar.

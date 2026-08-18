@@ -1,6 +1,6 @@
 {
   "title": "Workspace-Automationen und E-Mail-Support V1",
-  "updatedAt": "2026-08-15",
+  "updatedAt": "2026-08-18",
   "source": "docs/architecture/canvas-notebook/workspace-email-automations-plan.md",
   "executionPolicy": {
     "sequential": true,
@@ -15,7 +15,8 @@
     "workspaceBoundary": "Jede Automation gehoert genau einem Workspace.",
     "heartbeatModel": "Heartbeat ist nur eine UI-Vorlage fuer eine geplante Automation, kein eigener technischer Typ.",
     "agentInstructions": "HEARTBEAT.md wird in eine normale Automationsanweisung migriert und danach nicht mehr benoetigt.",
-    "businessMailboxScope": "Eine Business-Mailbox ist in V1 genau einem Workspace zugeordnet.",
+    "businessMailboxScope": "Eine Business-Mailbox wird zentral durch einen Organisations-Admin verbunden oder getrennt und kann in V1 hoechstens einem Workspace aktiv zugeordnet werden. Bis zur Zuordnung ist sie keine Automationsquelle.",
+    "businessMailboxRoles": "Ein Workspace-Admin ordnet eine bereits zentral verbundene Business-Mailbox seinem Workspace zu und verwaltet dort Automation, Agent und Versandregeln. Mitglieder mit canWrite bearbeiten und senden nach menschlicher Pruefung.",
     "personalMailboxFallback": "Eine unzugeordnete persoenliche Mailbox darf bei manueller Nutzung auf den persoenlichen Standard-Workspace zurueckfallen.",
     "automationMailboxScope": "Automationen duerfen nur mit einer expliziten Workspace-Mailbox-Zuordnung arbeiten.",
     "outboundEmail": "Automationen und Agenten duerfen niemals selbst E-Mails versenden. Jede E-Mail wird von einem Menschen in der Workspace-Outbox geprueft, bei Bedarf bearbeitet und explizit gesendet."
@@ -426,6 +427,32 @@
         "npm run build ist erfolgreich abgeschlossen, einschließlich Lizenzprüfung, TypeScript und statischer Seitengenerierung. Turbopack meldet bestehende Warnungen zu breiten dynamischen Dateipfaden, aber keinen Build-Fehler.",
         "Relevante Tests wurden abgeschlossen: Automation Runner, Heartbeat-Migration, Workspace-Scope, Workspace-E-Mail-Binding und PostgreSQL-Migration. Die UI-Abnahme lief auf localhost:3000; ein Container wurde nicht gebaut.",
         "Die zentrale Tool-Filterung, der ausschließlich serverseitig kontrollierte Outbox-Send-Endpunkt und die sichtbaren Human-Review-Hinweise bestätigen erneut: Kein Agent und keine Automation kann E-Mails versenden; nur ein berechtigter Mensch kann den manuellen Versand auslösen."
+      ]
+    },
+    {
+      "id": "WEA-V1-16",
+      "title": "Business-Mailbox-Verbindung und Workspace-Zuordnung als getrennte Rollen umsetzen",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-15"
+      ],
+      "source": "V1-Entscheidungsstand vom 2026-08-18 in workspace-email-automations-plan.md",
+      "deliverables": [
+        "System-E-Mail beschraenkt auf Organisations-Admins fuer Verbinden, Testen, Erneuern und Trennen zentraler Business-Mailboxen",
+        "Workspace-Einstellungen erlauben Workspace-Admins die Auswahl, Aktivierung, Pausierung und Aufhebung einer bereits verbundenen Business-Mailbox",
+        "Eindeutige Server-Guards und Audit-Ereignisse fuer beide getrennten Aktionen",
+        "Klare UI-Hinweise fuer zentral verbunden, noch nicht zugeordnet und aktiv dem Workspace zugeordnet"
+      ],
+      "acceptance": [
+        "Ein Organisations-Admin kann ohne Workspace-Admin-Recht keine Business-Mailbox einem Workspace zuordnen.",
+        "Ein Workspace-Admin kann ohne Organisations-Admin-Recht keine zentralen Zugangsdaten verbinden, testen, erneuern oder trennen.",
+        "Eine Business-Mailbox kann in V1 nur eine aktive Workspace-Zuordnung haben und bleibt ohne Zuordnung von Automationen ausgeschlossen.",
+        "Persoenliche, unzugeordnete Mailboxen bleiben fuer manuelle Nutzung verfuegbar und werden nicht still automatisiert."
+      ],
+      "verification": [
+        "Gezielte API- und Berechtigungstests fuer beide Rollen und die Ein-Workspace-Constraint",
+        "Explizit freigegebene UI-Abnahme auf localhost:3000 fuer System-E-Mail und Workspace-Zuordnung",
+        "npm run lint und npm run build vor Abschluss"
       ]
     }
   ]

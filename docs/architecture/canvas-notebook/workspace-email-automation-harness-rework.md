@@ -51,7 +51,7 @@ Er wird wie der Canvas Agent in der normalen Agent-Registry und Runtime gefuehrt
 
 ## Tool- und Kontextmodell
 
-Die E-Mail-Tools sind normale, konfigurierbare Agent-Faehigkeiten. In einer normalen Session waehlt der Agent eine persönliche oder aktive Workspace-Mailbox; jede Auswahl wird serverseitig gegen Eigentum beziehungsweise Workspace-Mitgliedschaft geprueft. Persönliche Mailboxen werden unter Integrationen vom User eingerichtet. Gemeinsame Workspace-Mailboxen werden ausschließlich von Instance-Admins unter System-E-Mail eingerichtet und gehören dem Workspace, nicht dem konfigurierenden User. Ein Automation-Run verwendet dieselben Tools, bindet aber die ausloesende Workspace-Mailbox serverseitig. Er darf dort bei Bedarf weitere relevante Nachrichten suchen und lesen.
+Die E-Mail-Tools sind normale, konfigurierbare Agent-Faehigkeiten. In einer normalen Session waehlt der Agent eine persoenliche oder aktive Workspace-Mailbox; jede Auswahl wird serverseitig gegen Eigentum beziehungsweise Workspace-Mitgliedschaft geprueft. Persoenliche Mailboxen werden unter Integrationen vom User eingerichtet und duerfen unzugeordnet bleiben. Gemeinsame Business-Mailboxen werden ausschliesslich von einem Organisations-Admin unter System-E-Mail verbunden oder getrennt. Ein Workspace-Admin ordnet eine bereits verbundene Business-Mailbox seinem Workspace zu; in V1 ist hoechstens eine aktive Zuordnung erlaubt. Ein Automation-Run verwendet dieselben Tools, bindet aber die ausloesende Workspace-Mailbox serverseitig. Er darf dort bei Bedarf weitere relevante Nachrichten suchen und lesen.
 
 Es gibt nur eine sichtbare E-Mail-Tool-Familie:
 
