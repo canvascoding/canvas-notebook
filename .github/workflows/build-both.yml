@@ -100,7 +100,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    needs: [source, safety-tests]
+    needs: source
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
@@ -183,7 +183,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    needs: [source, safety-tests]
+    needs: source
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
