@@ -240,6 +240,7 @@ async function main() {
       subject: 'Re: Support request', body: '<p>We will help.</p>', to: ['customer@example.test'],
     });
     assert.equal(outboxDraft.status, 'awaiting_review');
+    assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).find((item) => item.id === inboxCase.id)?.status, 'awaiting_review');
     const edited = await updateWorkspaceOutboxDraft({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: 1,
       subject: 'Re: Support request', body: '<p>We will help shortly.</p>', to: ['customer@example.test'], status: 'editing',
@@ -307,6 +308,7 @@ async function main() {
       subject: 'Re: Private request', body: '<p>Happy to help.</p>', to: ['friend@example.test'],
     });
     assert.equal(personalDraft.status, 'awaiting_review');
+    assert.equal((await listPersonalInboxCases('owner-user')).find((item) => item.id === personalCase.id)?.status, 'awaiting_review');
     const editedPersonalDraft = await updatePersonalOutboxDraft({
       userId: 'owner-user', draftId: personalDraft.id, expectedVersion: personalDraft.version,
       subject: 'Re: Private request', body: '<p>Happy to help shortly.</p>', to: ['friend@example.test'], status: 'editing',

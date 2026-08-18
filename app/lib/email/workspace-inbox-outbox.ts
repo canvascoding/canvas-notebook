@@ -158,6 +158,11 @@ export async function createWorkspaceInboxCase(input: {
   });
   const item = await db.query.emailInboxCases.findFirst({ where: and(eq(emailInboxCases.mailboxId, input.mailboxId), eq(emailInboxCases.providerThreadId, input.providerThreadId)) });
   if (!item) throw new Error('Inbox case could not be created.');
+  await recordAuditEvent({
+    source: 'workspace-email-inbox', eventType: 'email_inbox_case.upsert', entityType: 'email_inbox_case', entityId: item.id,
+    action: 'upsert', status: 'success', workspaceId: input.workspaceId, userId: input.userId,
+    summary: `Inbox case ${item.subject} created or updated.`, metadata: { mailboxId: input.mailboxId, status: item.status, priority: item.priority },
+  });
   return publicInboxCase(item);
 }
 
@@ -235,6 +240,25 @@ export async function createWorkspaceOutboxDraft(input: {
   });
   const draft = await db.query.emailDrafts.findFirst({ where: eq(emailDrafts.id, id) });
   if (!draft) throw new Error('Workspace outbox draft could not be created.');
+  if (input.inboxCaseId) {
+    await db.update(emailInboxCases)
+      .set({ status: 'awaiting_review', updatedAt: now })
+      .where(and(eq(emailInboxCases.id, input.inboxCaseId), eq(emailInboxCases.workspaceId, input.workspaceId)));
+  }
+  await recordAuditEvent({
+    source: 'workspace-email-outbox', eventType: 'email_outbox.prepared', entityType: 'email_draft', entityId: draft.id,
+    action: 'create', status: 'success', workspaceId: input.workspaceId, userId: input.userId,
+    summary: 'Workspace outbox draft prepared for human review.',
+    metadata: { mailboxId: input.mailboxId, inboxCaseId: input.inboxCaseId || null, origin: input.origin || 'agent' },
+  });
+  void import('@/app/lib/mobile/push-devices')
+    .then(({ sendWorkspaceOutboxReviewPush }) => sendWorkspaceOutboxReviewPush({
+      userId: input.assignedUserId || input.userId,
+      workspaceId: input.workspaceId,
+      draftId: draft.id,
+      subject: draft.subject,
+    }))
+    .catch(() => undefined);
   return publicOutboxDraft(draft);
 }
 
@@ -264,6 +288,11 @@ export async function createPersonalOutboxDraft(input: {
   });
   const draft = await db.query.emailDrafts.findFirst({ where: and(eq(emailDrafts.id, id), eq(emailDrafts.userId, input.userId)) });
   if (!draft) throw new Error('Personal outbox draft could not be created.');
+  if (input.inboxCaseId) {
+    await db.update(personalEmailInboxCases)
+      .set({ status: 'awaiting_review', updatedAt: now })
+      .where(and(eq(personalEmailInboxCases.id, input.inboxCaseId), eq(personalEmailInboxCases.userId, input.userId)));
+  }
   return publicOutboxDraft(draft);
 }
 
@@ -290,6 +319,12 @@ export async function updateWorkspaceOutboxDraft(input: {
     updatedAt: now,
   }).where(and(eq(emailDrafts.id, current.id), eq(emailDrafts.version, current.version))).returning();
   if (!updated) throw new Error('This outbox draft has changed. Reload it before saving.');
+  await recordAuditEvent({
+    source: 'workspace-email-outbox', eventType: 'email_outbox.updated', entityType: 'email_draft', entityId: updated.id,
+    action: 'update', status: 'success', workspaceId: input.workspaceId, userId: input.userId,
+    summary: input.actor === 'agent' ? 'Workspace outbox draft updated by an agent.' : 'Workspace outbox draft updated for review.',
+    metadata: { status: updated.outboxStatus, version: updated.version, actor: input.actor || 'human' },
+  });
   return publicOutboxDraft(updated);
 }
 

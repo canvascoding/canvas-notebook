@@ -228,16 +228,16 @@ export function createEmailAgentTools(context: EmailAgentToolsContext = {}): Age
     },
     {
       name: 'email_create_or_update_case', label: 'Create or update email Inbox case', description: 'Creates or updates an Inbox case for a thread in the selected mailbox.',
-      parameters: Type.Object({ ...mailboxParameter, providerThreadId: Type.Optional(Type.String({ minLength: 1, description: bound ? 'Defaults to the triggering thread.' : 'Provider thread ID.' })), latestProviderMessageId: Type.Optional(Type.String({ minLength: 1 })), subject: Type.String({ minLength: 1 }), requesterAddress: Type.Optional(Type.String()), requesterName: Type.Optional(Type.String()), priority: Type.Optional(Type.Union([Type.Literal('low'), Type.Literal('normal'), Type.Literal('high'), Type.Literal('urgent')])) }),
+      parameters: Type.Object({ ...mailboxParameter, providerThreadId: Type.Optional(Type.String({ minLength: 1, description: bound ? 'Defaults to the triggering thread.' : 'Provider thread ID.' })), latestProviderMessageId: Type.Optional(Type.String({ minLength: 1 })), subject: Type.String({ minLength: 1 }), requesterAddress: Type.Optional(Type.String()), requesterName: Type.Optional(Type.String()), priority: Type.Optional(Type.Union([Type.Literal('low'), Type.Literal('normal'), Type.Literal('high'), Type.Literal('urgent')])), status: Type.Optional(Type.Union([Type.Literal('new'), Type.Literal('in_progress'), Type.Literal('awaiting_review'), Type.Literal('closed'), Type.Literal('needs_routing')])) }),
       execute: async (_toolCallId, params) => {
         try {
-          const value = params as { mailboxId?: string; providerThreadId?: string; latestProviderMessageId?: string; subject: string; requesterAddress?: string; requesterName?: string; priority?: 'low' | 'normal' | 'high' | 'urgent' };
+          const value = params as { mailboxId?: string; providerThreadId?: string; latestProviderMessageId?: string; subject: string; requesterAddress?: string; requesterName?: string; priority?: 'low' | 'normal' | 'high' | 'urgent'; status?: 'new' | 'in_progress' | 'awaiting_review' | 'closed' | 'needs_routing' };
           const mailbox = await requireMailbox(context, value.mailboxId);
           const providerThreadId = value.providerThreadId || bound?.providerThreadId || bound?.providerMessageId;
           if (!providerThreadId) throw new Error('providerThreadId is required.');
           const inboxCase = mailbox.kind === 'workspace'
-            ? await createWorkspaceInboxCase({ userId: requireUser(context), workspaceId: mailbox.workspaceId!, mailboxId: mailbox.id, providerThreadId, subject: value.subject, latestProviderMessageId: value.latestProviderMessageId || bound?.providerMessageId, requesterAddress: value.requesterAddress, requesterName: value.requesterName, priority: value.priority })
-            : await createPersonalInboxCase({ userId: requireUser(context), accountId: mailbox.accountId, providerThreadId, subject: value.subject, latestProviderMessageId: value.latestProviderMessageId, requesterAddress: value.requesterAddress, requesterName: value.requesterName, priority: value.priority });
+            ? await createWorkspaceInboxCase({ userId: requireUser(context), workspaceId: mailbox.workspaceId!, mailboxId: mailbox.id, providerThreadId, subject: value.subject, latestProviderMessageId: value.latestProviderMessageId || bound?.providerMessageId, requesterAddress: value.requesterAddress, requesterName: value.requesterName, priority: value.priority, status: value.status })
+            : await createPersonalInboxCase({ userId: requireUser(context), accountId: mailbox.accountId, providerThreadId, subject: value.subject, latestProviderMessageId: value.latestProviderMessageId, requesterAddress: value.requesterAddress, requesterName: value.requesterName, priority: value.priority, status: value.status });
           if (bound?.eventId) await db.update(emailInboxEvents).set({ caseId: inboxCase.id, updatedAt: new Date() }).where(eq(emailInboxEvents.id, bound.eventId));
           return result(inboxCase);
         } catch (error) { return toolError(error); }
