@@ -1097,6 +1097,11 @@ type EmailMessageListActionState = {
   messageId: string;
 } | null;
 
+type EmailMessageContextMenuPosition = {
+  x: number;
+  y: number;
+};
+
 type EmailMessageViewerActions = {
   activeAction: EmailMessageActionName | null;
   folders: EmailFolder[];
@@ -1205,16 +1210,20 @@ function EmailAiSplitButton({
 
 function EmailMessageRowActions({
   activeAction,
+  contextMenuPosition,
   folders,
   labels,
   message,
   onAction,
+  onCloseContextMenu,
 }: {
   activeAction: EmailMessageListActionState;
+  contextMenuPosition: EmailMessageContextMenuPosition | null;
   folders: EmailFolder[];
   labels: Pick<EmailMessageViewerLabels, 'archive' | 'cancel' | 'markRead' | 'markUnread' | 'moveTo' | 'noFolders' | 'permanentDelete' | 'trash'> & { messageOptions: string };
   message: EmailMessageSummary;
   onAction(message: EmailMessageSummary, action: EmailMessageListActionName, destination?: string): void;
+  onCloseContextMenu(): void;
 }) {
   const [isMoveOpen, setIsMoveOpen] = useState(false);
   const isBusy = activeAction?.messageId === message.id;
@@ -1258,22 +1267,47 @@ function EmailMessageRowActions({
           </DropdownMenuTrigger>
         </div>
         <DropdownMenuContent align="end" sideOffset={8} className="w-48">
-          <DropdownMenuItem onSelect={() => onAction(message, 'archive')}>
-            <Archive className="h-4 w-4" />
-            {labels.archive}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setIsMoveOpen(true)}>
-            <FolderInput className="h-4 w-4" />
-            {labels.moveTo}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onAction(message, readAction)}>
-            {message.isRead ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
-            {readLabel}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onAction(message, 'permanent-delete')} className="text-destructive focus:text-destructive">
-            <XCircle className="h-4 w-4" />
-            {labels.permanentDelete}
-          </DropdownMenuItem>
+          <EmailMessageRowActionMenuItems
+            disabled={isBusy}
+            labels={labels}
+            message={message}
+            onAction={onAction}
+            onMove={() => setIsMoveOpen(true)}
+            readAction={readAction}
+            readLabel={readLabel}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <DropdownMenu
+        modal={false}
+        open={Boolean(contextMenuPosition)}
+        onOpenChange={(open) => {
+          if (!open) onCloseContextMenu();
+        }}
+      >
+        <DropdownMenuTrigger asChild>
+          <span
+            aria-hidden="true"
+            className="pointer-events-none fixed h-px w-px"
+            style={contextMenuPosition ? { left: contextMenuPosition.x, top: contextMenuPosition.y } : undefined}
+          />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          sideOffset={4}
+          className="w-48"
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
+          <EmailMessageRowActionMenuItems
+            disabled={isBusy}
+            labels={labels}
+            message={message}
+            onAction={onAction}
+            onMove={() => setIsMoveOpen(true)}
+            readAction={readAction}
+            readLabel={readLabel}
+          />
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -1311,6 +1345,45 @@ function EmailMessageRowActions({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </>
+  );
+}
+
+function EmailMessageRowActionMenuItems({
+  disabled,
+  labels,
+  message,
+  onAction,
+  onMove,
+  readAction,
+  readLabel,
+}: {
+  disabled: boolean;
+  labels: Pick<EmailMessageViewerLabels, 'archive' | 'markRead' | 'markUnread' | 'moveTo' | 'permanentDelete'>;
+  message: EmailMessageSummary;
+  onAction(message: EmailMessageSummary, action: EmailMessageListActionName): void;
+  onMove(): void;
+  readAction: 'mark-read' | 'mark-unread';
+  readLabel: string;
+}) {
+  return (
+    <>
+      <DropdownMenuItem disabled={disabled} onSelect={() => onAction(message, 'archive')}>
+        <Archive className="h-4 w-4" />
+        {labels.archive}
+      </DropdownMenuItem>
+      <DropdownMenuItem disabled={disabled} onSelect={onMove}>
+        <FolderInput className="h-4 w-4" />
+        {labels.moveTo}
+      </DropdownMenuItem>
+      <DropdownMenuItem disabled={disabled} onSelect={() => onAction(message, readAction)}>
+        {message.isRead ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
+        {readLabel}
+      </DropdownMenuItem>
+      <DropdownMenuItem disabled={disabled} onSelect={() => onAction(message, 'permanent-delete')} className="text-destructive focus:text-destructive">
+        <XCircle className="h-4 w-4" />
+        {labels.permanentDelete}
+      </DropdownMenuItem>
     </>
   );
 }
@@ -2131,6 +2204,7 @@ export function EmailClient({
   const [isLoadingMessage, setIsLoadingMessage] = useState(false);
   const [activeMessageAction, setActiveMessageAction] = useState<EmailMessageActionName | null>(null);
   const [activeMessageListAction, setActiveMessageListAction] = useState<EmailMessageListActionState>(null);
+  const [messageContextMenu, setMessageContextMenu] = useState<(EmailMessageContextMenuPosition & { messageId: string }) | null>(null);
   const [isAddingSendPolicyRecipient, setIsAddingSendPolicyRecipient] = useState(false);
   const [composeDraft, setComposeDraft] = useState<EmailComposeDraft | null>(null);
   const [workspaceOutboxEditing, setWorkspaceOutboxEditing] = useState<{ id: string; version: number; scope: 'personal' | 'workspace'; workspaceId?: string } | null>(null);
@@ -3648,6 +3722,10 @@ export function EmailClient({
                       'group/message flex w-full items-stretch border-b border-border transition-colors hover:bg-muted/60',
                       selectedMessageId === message.id && 'bg-primary/10',
                     )}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setMessageContextMenu({ messageId: message.id, x: event.clientX, y: event.clientY });
+                    }}
                   >
                     <button
                       type="button"
@@ -3678,10 +3756,12 @@ export function EmailClient({
                     <div className="flex shrink-0 items-start px-2 py-2">
                       <EmailMessageRowActions
                         activeAction={activeMessageListAction}
+                        contextMenuPosition={messageContextMenu?.messageId === message.id ? messageContextMenu : null}
                         folders={folders}
                         labels={messageViewerLabels}
                         message={message}
                         onAction={handleMessageListAction}
+                        onCloseContextMenu={() => setMessageContextMenu(null)}
                       />
                     </div>
                   </div>
