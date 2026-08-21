@@ -1,12 +1,43 @@
 ---
 title: 'Umsetzungsplan zu Ticket 18: Agent-System-Prompts an effektive Tools koppeln'
-status: ready
+status: implemented
 date: 2026-08-21
 platforms: [server, agent-runtime]
 tags: [type/implementation-plan, topic/agents, topic/system-prompt, topic/tools, topic/email]
 ---
 
 # Umsetzungsplan: Agent-System-Prompts an effektive Tools koppeln
+
+## Umsetzungsstand (2026-08-21)
+
+Implementiert in den fokussierten Commits `6042e4ec`, `454c3f4c` und
+`ed68492b`:
+
+- Der markierte `Effective Runtime Tools`-Block wird aus den tatsaechlich an
+  den Modellturn uebergebenen `AgentTool[]` aufgebaut, einschliesslich der
+  korrekten Gateway-/Operation-Darstellung.
+- Live-Runtime, Browser-Reload, Planning Mode, Automationen und temporaere
+  Delegations-Worker verwenden den Block zusammen mit genau ihrer effektiven
+  Toolmenge. Workspace-Dateibaum-Kontext wird nur bei einer vorhandenen
+  Workspace-Lesefaehigkeit erzeugt.
+- Ein v2-Fundament-Marker migriert alte Session-Prompt-Snapshots beim naechsten
+  Zugriff. Der persistierte Teil bleibt capability-neutral.
+- Der eingebaute E-Mail-Agent ist serverseitig auf neun Mailbox-/Draft- und
+  sechs read-only Workspace-Tools begrenzt. Die gleiche Liste begrenzt
+  E-Mail-Event-Automationen; Snapshots und Session-Suche sind ausgeschlossen.
+  Unveraenderte Neun-Tool-Profile werden erweitert, manipulierte oder neue
+  unzulaessige Selektionen werden geschnitten beziehungsweise mit
+  `AGENT_TOOL_POLICY_DENIED` abgewiesen.
+- Workspace-Schreib-, Loesch- und Freigaberechte entfernen die zugehoerigen
+  Schemas vor dem Turn; Tool-interne Time-of-check/Time-of-use-Pruefungen
+  bleiben bestehen.
+
+Automatisiert verifiziert wurden die Manifest-, Prompt-, E-Mail- und
+Workspace-Policy-, Registry-, Runtime-/Browser-Refresh-, Automation- und
+Delegations-Tests sowie `npm run build`. Die Tests protokollieren in dieser
+lokalen Konfiguration erwartete Hinweise zu einer fehlenden MCP-Basis-URL;
+sie bestehen dennoch. Keine Browser-/Playwright-Abnahme wurde ausgefuehrt,
+weil sie nicht explizit freigegeben war.
 
 ## Ziel und Arbeitsmodus
 
