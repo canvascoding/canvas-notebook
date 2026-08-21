@@ -9,6 +9,9 @@ tags: [type/bug, topic/agents, topic/live-collaboration, topic/markdown, topic/t
 
 # Ticket 23: Agent-Edits in Live-Collaboration-Dokumenten reparieren
 
+Der codebestandsnahe, strikt sequenzielle Plan liegt in
+[Ticket 23: Umsetzungsplan](./23-agent-edits-in-live-collaboration-umsetzungsplan.md).
+
 ## Problem
 
 In einem Team-Workspace kann ein KI-Agent Markdown- bzw. Textdokumente mit
