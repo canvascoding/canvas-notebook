@@ -115,6 +115,7 @@ export function createMobileBootstrap(input: {
     'notebook.collaboration.session.v1',
     'files.browse',
     'files.html_preview',
+    'files.marp_preview.v1',
     'files.mutate',
     'files.excalidraw_edit',
     'files.copy',

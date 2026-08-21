@@ -189,6 +189,7 @@
     "test:mobile:push": "tsx --conditions react-server scripts/mobile-push-devices-test.ts",
     "test:mobile:notebook": "tsx --conditions react-server scripts/mobile-notebook-test.ts && tsx --conditions react-server scripts/mobile-collaboration-ticket-test.ts",
     "test:mobile:files": "tsx --conditions react-server scripts/mobile-files-test.ts",
+    "test:marp-preview": "tsx --conditions react-server scripts/marp-preview-render-test.ts",
     "test:mobile:inbox": "tsx --conditions react-server scripts/mobile-inbox-todos-test.ts",
     "test:mobile:studio": "tsx --conditions react-server scripts/mobile-studio-test.ts",
     "test:mobile:automations": "tsx --conditions react-server scripts/mobile-automations-test.ts",
