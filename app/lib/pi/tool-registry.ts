@@ -8,7 +8,8 @@ import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledTo
 import { PLANNING_MODE_ALLOWED_TOOLS } from './planning-mode';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
-import { getPiToolsetsForTool, type PiToolset } from '@/app/lib/pi/toolsets';
+import { getPiToolsetsForTool, resolveDelegatedWorkerToolNames, type PiToolset } from '@/app/lib/pi/toolsets';
+import { getDelegatedWorkerToolsets } from '@/app/lib/pi/delegation-policy';
 import { resolveBrowserRuntimeCapability } from '@/app/lib/pi/browser/settings-service';
 import {
   isOnboardingProfileToolAvailable,
@@ -460,6 +461,23 @@ export async function getPiTools(
     allTools = allTools.filter((tool) => !boundNames.has(tool.name));
     allTools.push(...enabledBoundTools);
     allTools = filterEmailEventAutomationTools(allTools);
+  }
+
+  if (userId && sessionId) {
+    const workerToolsets = await getDelegatedWorkerToolsets({ userId, sessionId });
+    if (workerToolsets !== null) {
+      const allowedToolNames = resolveDelegatedWorkerToolNames(
+        workerToolsets,
+        getProgressiveGatewayCapabilityNames(allTools),
+      );
+      allTools = allTools.flatMap((tool) => {
+        if (isProgressiveGatewayTool(tool)) {
+          const constrained = withAllowedProgressiveGatewayOperations(tool, allowedToolNames);
+          return constrained ? [constrained] : [];
+        }
+        return allowedToolNames.has(tool.name) ? [tool] : [];
+      });
+    }
   }
 
   if (resolvedExecutionContext) {

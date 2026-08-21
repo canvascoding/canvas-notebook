@@ -21,6 +21,9 @@ const moduleLoader = Module as unknown as {
 const originalLoad = moduleLoader._load;
 moduleLoader._load = function loadWithMocks(request, parent, isMain) {
   if (request === 'server-only') return {};
+  if (request === '@earendil-works/pi-ai/compat') {
+    return { getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined };
+  }
   if (matchesModule(request, 'app/lib/auth')) {
     return {
       auth: {

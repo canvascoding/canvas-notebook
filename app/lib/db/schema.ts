@@ -1080,6 +1080,10 @@ export const piSessions = sqliteTable("pi_sessions", {
   archivedAt: integer("archived_at", { mode: "timestamp" }),
   channelId: text("channel_id").notNull().default('app'),
   channelSessionKey: text("channel_session_key"),
+  sessionKind: text("session_kind").notNull().default('conversation'),
+  parentSessionId: text("parent_session_id"),
+  delegationId: text("delegation_id"),
+  delegationDepth: integer("delegation_depth").notNull().default(0),
   organizationId: text("organization_id"),
   customerId: text("customer_id"),
   projectId: text("project_id"),
@@ -1101,6 +1105,10 @@ export const piSessions = sqliteTable("pi_sessions", {
   projectIdx: index("idx_pi_sessions_project").on(table.projectId, table.lastMessageAt),
   userWorkspaceCreatedIdx: index("idx_pi_sessions_user_workspace_created").on(table.userId, table.workspaceId, table.createdAt),
   userWorkspaceArchivedIdx: index("idx_pi_sessions_user_workspace_archived").on(table.userId, table.workspaceId, table.archivedAt),
+  userKindCreatedIdx: index("idx_pi_sessions_user_kind_created").on(table.userId, table.sessionKind, table.createdAt),
+  delegationIdx: index("idx_pi_sessions_delegation").on(table.userId, table.delegationId),
+  sessionKindCheck: check("pi_sessions_session_kind_check", sql`${table.sessionKind} IN ('conversation', 'delegation_worker')`),
+  delegationDepthCheck: check("pi_sessions_delegation_depth_check", sql`${table.delegationDepth} IN (0, 1)`),
 }));
 
 export const piDelegations = sqliteTable("pi_delegations", {

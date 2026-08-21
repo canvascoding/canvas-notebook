@@ -15,11 +15,12 @@ import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/regis
 import { requireAgentAccess } from '@/app/lib/agents/access';
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { requireDelegationSource } from '@/app/lib/pi/delegation-policy';
 import { DEFAULT_PI_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { createPiSessionWithRuntimeSnapshot, savePiSession } from '@/app/lib/pi/session-store';
 import { withExclusivePiSessionExecution } from '@/app/lib/pi/session-exclusive-execution';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
-import { PI_TOOLSETS, resolvePiToolsetTools } from '@/app/lib/pi/toolsets';
+import { DELEGATABLE_PI_TOOLSETS, PI_TOOLSETS, resolveDelegatedWorkerToolNames } from '@/app/lib/pi/toolsets';
 import {
   buildPiSystemPromptSnapshotFromText,
   createPiSystemPromptSnapshot,
@@ -318,7 +319,7 @@ function normalizeToolsets(value: unknown): string[] {
     if (!toolset || seen.has(toolset)) {
       continue;
     }
-    if (!(toolset in PI_TOOLSETS)) {
+    if (!(toolset in PI_TOOLSETS) || !DELEGATABLE_PI_TOOLSETS.has(toolset as keyof typeof PI_TOOLSETS)) {
       throw new Error(`Unknown toolset "${toolset}". Available toolsets: ${Object.keys(PI_TOOLSETS).join(', ')}.`);
     }
     seen.add(toolset);
@@ -393,7 +394,7 @@ async function resolveEphemeralTools(
     sessionId,
     { executionContext },
   );
-  const allowedToolNames = resolvePiToolsetTools(request.toolsets, allTools.map((tool) => tool.name));
+  const allowedToolNames = resolveDelegatedWorkerToolNames(request.toolsets, allTools.map((tool) => tool.name));
   for (const blockedToolName of BLOCKED_CHILD_TOOL_NAMES) {
     allowedToolNames.delete(blockedToolName);
   }
@@ -690,6 +691,13 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
             workspace: workspaceToPiSessionFields(insertionScope.workspace),
             runtimeSnapshot: preparedSnapshot.snapshot,
             systemPromptSnapshot: promptSnapshot,
+            ...(request.delegationId ? {
+              delegation: {
+                id: request.delegationId,
+                parentSessionId: request.sourceSessionId,
+                depth: 1 as const,
+              },
+            } : {}),
           });
           const createdChildSessions = await db.query.piSessions.findMany({
             where: and(
@@ -917,6 +925,13 @@ async function ensureManagedDelegatedSession(
           workspace: workspaceToPiSessionFields(refreshedScope.workspace),
           runtimeSnapshot: prepared.snapshot,
           systemPromptSnapshot: promptSnapshot,
+          ...(request.delegationId ? {
+            delegation: {
+              id: request.delegationId,
+              parentSessionId: request.sourceSessionId,
+              depth: 1 as const,
+            },
+          } : {}),
         });
         const createdSessions = await db.query.piSessions.findMany({
           where: and(
@@ -1159,6 +1174,11 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
 
 export async function startDelegatedRun(request: DelegateTaskRequest): Promise<DelegateTaskResult> {
   throwIfDelegationAborted(request.abortSignal);
+  await requireDelegationSource({
+    userId: request.userId,
+    sourceSessionId: request.sourceSessionId,
+    sourceAgentId: request.sourceAgentId,
+  });
   if (request.targetAgentId) {
     return startManagedDelegatedRun(request);
   }

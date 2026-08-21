@@ -150,6 +150,12 @@ async function main() {
     });
     assert.match(getText(selfResult), /requires a different target_agent_id/);
 
+    const blockedToolset = await tool.execute('delegate-blocked-toolset', {
+      goal: 'Attempt recursive delegation capability',
+      toolsets: ['delegation'],
+    });
+    assert.match(getText(blockedToolset), /Unknown toolset "delegation"/);
+
     const nonMainTool = createDelegateTaskTool({
       userId: 'user-1',
       sourceAgentId: 'research-agent',

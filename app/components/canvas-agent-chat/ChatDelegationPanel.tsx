@@ -9,6 +9,7 @@ import {
   CircleDashed,
   Loader2,
   Network,
+  Plus,
   RotateCw,
   XCircle,
 } from 'lucide-react';
@@ -17,10 +18,23 @@ import { useLocale, useTranslations } from 'next-intl';
 import {
   cancelChatDelegation,
   fetchChatDelegations,
+  fetchDelegationOptions,
+  startChatDelegation,
   type ChatDelegation,
+  type DelegationOptions,
 } from '@/app/lib/chat/delegation-api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 const POLL_INTERVAL_MS = 3_000;
@@ -55,6 +69,16 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cancellingIds, setCancellingIds] = useState<Set<string>>(() => new Set());
+  const [expandedResultIds, setExpandedResultIds] = useState<Set<string>>(() => new Set());
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [delegationOptions, setDelegationOptions] = useState<DelegationOptions | null>(null);
+  const [optionsLoading, setOptionsLoading] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [targetAgentId, setTargetAgentId] = useState('');
+  const [goal, setGoal] = useState('');
+  const [context, setContext] = useState('');
+  const [selectedToolsets, setSelectedToolsets] = useState<Set<string>>(() => new Set());
   const requestInFlightRef = useRef(false);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -93,7 +117,6 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
   }, [refresh]);
 
   const activeCount = useMemo(() => tasks.filter(isActive).length, [tasks]);
-  const visibleTasks = tasks.slice(0, 6);
   const timeFormatter = useMemo(() => new Intl.DateTimeFormat(locale, {
     hour: '2-digit',
     minute: '2-digit',
@@ -122,34 +145,104 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
     }
   }, [refresh, t]);
 
-  if (!loading && tasks.length === 0 && !loadError) return null;
+  const openStartDialog = useCallback(async () => {
+    setDialogOpen(true);
+    setStartError(null);
+    setOptionsLoading(true);
+    try {
+      const options = await fetchDelegationOptions(sourceSessionId);
+      setDelegationOptions(options);
+      setTargetAgentId((current) => current || options.agents[0]?.agentId || '');
+      setSelectedToolsets((current) => current.size > 0
+        ? current
+        : new Set(options.toolsets.map((toolset) => toolset.name)));
+    } catch {
+      setStartError(t('delegationOptionsFailed'));
+    } finally {
+      setOptionsLoading(false);
+    }
+  }, [sourceSessionId, t]);
+
+  const submitDelegation = useCallback(async () => {
+    if (!targetAgentId || !goal.trim()) return;
+    setStarting(true);
+    setStartError(null);
+    try {
+      await startChatDelegation({
+        sourceSessionId,
+        targetAgentId,
+        goal: goal.trim(),
+        context: context.trim() || undefined,
+        toolsets: Array.from(selectedToolsets),
+      });
+      setDialogOpen(false);
+      setGoal('');
+      setContext('');
+      void refresh();
+    } catch {
+      setStartError(t('delegationStartFailed'));
+    } finally {
+      setStarting(false);
+    }
+  }, [context, goal, refresh, selectedToolsets, sourceSessionId, t, targetAgentId]);
+
+  const toggleToolset = useCallback((toolset: string) => {
+    setSelectedToolsets((current) => {
+      const next = new Set(current);
+      if (next.has(toolset)) next.delete(toolset);
+      else next.add(toolset);
+      return next;
+    });
+  }, []);
+
+  const toggleResult = useCallback((id: string) => {
+    setExpandedResultIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   return (
     <div
       data-testid="chat-delegation-panel"
       className="mb-2 overflow-hidden rounded-md border border-border/70 bg-background/95 shadow-sm"
     >
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
-        className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs transition-colors hover:bg-accent/60"
-      >
-        <Network className="h-4 w-4 text-primary" />
-        <span className="font-medium text-foreground">{t('delegations')}</span>
-        {activeCount > 0 ? (
-          <Badge variant="secondary" className="h-5 border-blue-500/20 bg-blue-500/10 px-1.5 text-[10px] text-blue-700 dark:text-blue-300">
-            {t('delegationActiveCount', { count: activeCount })}
-          </Badge>
-        ) : tasks.length > 0 ? (
-          <span className="text-[10px] text-muted-foreground">{t('delegationTaskCount', { count: tasks.length })}</span>
-        ) : null}
-        <span className="ml-auto text-muted-foreground">
-          {loading && tasks.length === 0
-            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            : expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        </span>
-      </button>
+      <div className="flex items-center px-2.5 py-1">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
+          className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left text-xs transition-colors hover:text-primary"
+        >
+          <Network className="h-4 w-4 text-primary" />
+          <span className="font-medium text-foreground">{t('delegations')}</span>
+          {activeCount > 0 ? (
+            <Badge variant="secondary" className="h-5 border-blue-500/20 bg-blue-500/10 px-1.5 text-[10px] text-blue-700 dark:text-blue-300">
+              {t('delegationActiveCount', { count: activeCount })}
+            </Badge>
+          ) : tasks.length > 0 ? (
+            <span className="text-[10px] text-muted-foreground">{t('delegationTaskCount', { count: tasks.length })}</span>
+          ) : null}
+          <span className="ml-auto text-muted-foreground">
+            {loading && tasks.length === 0
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </span>
+        </button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          data-testid="chat-delegation-start"
+          aria-label={t('delegationStart')}
+          title={t('delegationStart')}
+          onClick={() => void openStartDialog()}
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
+      </div>
 
       {expanded ? (
         <div className="max-h-56 overflow-y-auto border-t border-border/60">
@@ -162,7 +255,11 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
             </div>
           ) : null}
 
-          {visibleTasks.map((task) => {
+          {!loading && tasks.length === 0 && !loadError ? (
+            <div className="px-2.5 py-3 text-[11px] text-muted-foreground">{t('delegationNoTasks')}</div>
+          ) : null}
+
+          {tasks.map((task) => {
             const canCancel = isActive(task) && !task.cancelRequestedAt;
             const statusKey = task.cancelRequestedAt
               ? 'delegationStatusCancelling'
@@ -199,11 +296,23 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
                       <span>{timeFormatter.format(new Date(task.createdAt))}</span>
                     </div>
                     {result ? (
-                      <div className={cn(
-                        'mt-1 line-clamp-2 text-[11px] leading-relaxed',
-                        task.status === 'failed' ? 'text-destructive' : 'text-muted-foreground',
-                      )}>
-                        {result}
+                      <div className="mt-1">
+                        <div className={cn(
+                          'text-[11px] leading-relaxed',
+                          !expandedResultIds.has(task.id) && 'line-clamp-2',
+                          task.status === 'failed' ? 'text-destructive' : 'text-muted-foreground',
+                        )}>
+                          {result}
+                        </div>
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="xs"
+                          onClick={() => toggleResult(task.id)}
+                          className="h-auto px-0 py-0.5 text-[10px]"
+                        >
+                          {expandedResultIds.has(task.id) ? t('delegationHideResult') : t('delegationShowResult')}
+                        </Button>
                       </div>
                     ) : null}
                     {task.deliveryStatus === 'failed' && task.deliveryErrorText ? (
@@ -231,6 +340,80 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
           })}
         </div>
       ) : null}
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('delegationStart')}</DialogTitle>
+            <DialogDescription>{t('delegationStartDescription')}</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-2">
+            {optionsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t('delegationStarting')}
+              </div>
+            ) : delegationOptions ? (
+              <>
+                {delegationOptions.agents.length > 0 ? (
+                  <label className="grid gap-1.5 text-sm font-medium">
+                    {t('delegationTarget')}
+                    <select
+                      value={targetAgentId}
+                      onChange={(event) => setTargetAgentId(event.target.value)}
+                      className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    >
+                      {delegationOptions.agents.map((agent) => (
+                        <option key={agent.agentId} value={agent.agentId}>{agent.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t('delegationNoAgents')}</p>
+                )}
+
+                <label className="grid gap-1.5 text-sm font-medium">
+                  {t('delegationGoal')}
+                  <Input value={goal} onChange={(event) => setGoal(event.target.value)} disabled={delegationOptions.agents.length === 0} />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium">
+                  {t('delegationContext')}
+                  <Textarea value={context} onChange={(event) => setContext(event.target.value)} disabled={delegationOptions.agents.length === 0} />
+                </label>
+                <fieldset className="grid gap-2">
+                  <legend className="text-sm font-medium">{t('delegationTools')}</legend>
+                  <div className="grid gap-1.5">
+                    {delegationOptions.toolsets.map((toolset) => (
+                      <label key={toolset.name} className="flex cursor-pointer items-start gap-2 text-sm text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          checked={selectedToolsets.has(toolset.name)}
+                          onChange={() => toggleToolset(toolset.name)}
+                          className="mt-0.5 h-3.5 w-3.5 accent-primary"
+                        />
+                        <span><span className="font-medium text-foreground">{toolset.label}</span> · {toolset.description}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              </>
+            ) : null}
+            {startError ? <p className="text-sm text-destructive">{startError}</p> : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              onClick={() => void submitDelegation()}
+              disabled={optionsLoading || starting || !targetAgentId || !goal.trim() || selectedToolsets.size === 0}
+            >
+              {starting ? <Loader2 className="animate-spin" /> : null}
+              {starting ? t('delegationStarting') : t('delegationSubmit')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

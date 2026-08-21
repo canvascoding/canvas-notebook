@@ -469,6 +469,7 @@ async function main() {
     });
 
     const ephemeralResult = await startDelegatedRun({
+      delegationId: 'delegation-direct-ephemeral',
       userId,
       sourceAgentId,
       sourceSessionId,
@@ -499,6 +500,24 @@ async function main() {
     assert.equal(childSession.runtimeCatalogRevision, runtimeSnapshot.catalogRevision);
     assert.equal(childSession.runtimePolicyRevision, runtimeSnapshot.policyRevision);
     assert.equal(childSession.runtimeSelectionSource, runtimeSnapshot.selectionSource);
+    assert.equal(childSession.sessionKind, 'delegation_worker');
+    assert.equal(childSession.parentSessionId, sourceSessionId);
+    assert.equal(childSession.delegationId, 'delegation-direct-ephemeral');
+    assert.equal(childSession.delegationDepth, 1);
+
+    await assert.rejects(
+      () => startDelegatedRun({
+        delegationId: 'delegation-recursive-attempt',
+        userId,
+        sourceAgentId,
+        sourceSessionId: childSession.sessionId,
+        goal: 'This must never run.',
+        toolsets: ['file'],
+        waitForResult: false,
+        timeoutSeconds: 0,
+      }),
+      /Sub-agents cannot start another sub-agent/,
+    );
 
     assert.equal(preparedContexts.length, 1);
     assert.equal(preparedContexts[0]?.context.organizationId, organizationId);

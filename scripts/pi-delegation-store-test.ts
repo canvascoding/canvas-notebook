@@ -19,7 +19,7 @@ moduleLoader._load = function loadWithServerOnlyMock(request, parent, isMain) {
 async function main() {
   try {
     const { db } = await import('../app/lib/db');
-    const { piDelegations, user } = await import('../app/lib/db/schema');
+    const { piDelegations, piSessions, user } = await import('../app/lib/db/schema');
     const {
       cancelRunningPiDelegation,
       claimPiDelegationDelivery,
@@ -34,6 +34,7 @@ async function main() {
       requestPiDelegationCancellation,
       updatePiDelegationDelivery,
     } = await import('../app/lib/pi/delegation-store');
+    const { getDelegatedWorkerToolsets } = await import('../app/lib/pi/delegation-policy');
 
     const now = new Date();
     await db.insert(user).values([
@@ -54,6 +55,34 @@ async function main() {
         updatedAt: now,
       },
     ]);
+
+    await db.insert(piSessions).values({
+      sessionId: 'reused-managed-session',
+      userId: 'delegation-user-1',
+      agentId: 'research-agent',
+      provider: 'test-provider',
+      model: 'test-model',
+      thinkingLevel: 'off',
+      channelId: 'app',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await createPiDelegation({
+      id: 'delegation-reused-managed-session',
+      userId: 'delegation-user-1',
+      sourceSessionId: 'source-session-1',
+      sourceAgentId: 'canvas-agent',
+      workerSessionId: 'reused-managed-session',
+      workerType: 'managed',
+      targetAgentId: 'research-agent',
+      goal: 'Apply a reduced toolset to an existing managed session',
+      toolsets: ['web'],
+    });
+    assert.deepEqual(await getDelegatedWorkerToolsets({
+      userId: 'delegation-user-1',
+      sessionId: 'reused-managed-session',
+    }), ['web']);
 
     const created = await createPiDelegation({
       id: 'delegation-1',
@@ -76,7 +105,10 @@ async function main() {
       userId: 'delegation-user-1',
       sourceSessionId: 'source-session-1',
     });
-    assert.deepEqual(listed.map((record) => record.id), ['delegation-1']);
+    assert.deepEqual(listed.map((record) => record.id), [
+      'delegation-reused-managed-session',
+      'delegation-1',
+    ]);
 
     const [firstClaim, duplicateClaim] = await Promise.all([
       claimQueuedPiDelegation(created.id),
@@ -184,7 +216,7 @@ async function main() {
     assert.match(recoveredDelivery?.deliveryErrorText ?? '', /will be retried/);
 
     const rows = await db.select().from(piDelegations);
-    assert.equal(rows.length, 5);
+    assert.equal(rows.length, 6);
 
     console.log('pi-delegation-store-test: ok');
   } finally {

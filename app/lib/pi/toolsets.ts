@@ -111,6 +111,12 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
   },
 };
 
+/** Toolsets that may be granted to a delegated worker. */
+export const DELEGATABLE_PI_TOOLSETS = new Set<PiToolset>([
+  'audio', 'automation', 'browser', 'composio', 'email', 'file', 'memory',
+  'mcp', 'pdf', 'session_search', 'skills', 'studio', 'terminal', 'todo', 'web',
+]);
+
 export const SKILL_TOOL_NAMES = [
   'create_canvas_plugin_draft',
   'inspect_canvas_plugin',
@@ -219,4 +225,14 @@ export function resolvePiToolsetTools(toolsets: Iterable<string>, allToolNames: 
   }
 
   return resolved;
+}
+
+export function resolveDelegatedWorkerToolNames(
+  toolsets: Iterable<string>,
+  allToolNames: Iterable<string>,
+): Set<string> {
+  return resolvePiToolsetTools(
+    [...toolsets].filter((toolset): toolset is PiToolset => DELEGATABLE_PI_TOOLSETS.has(toolset as PiToolset)),
+    allToolNames,
+  );
 }
