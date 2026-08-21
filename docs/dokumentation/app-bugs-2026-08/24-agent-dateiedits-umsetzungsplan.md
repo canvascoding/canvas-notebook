@@ -11,7 +11,8 @@ tags: [type/implementation-plan, topic/agents, topic/tools, topic/files, topic/l
 ## Ziel, Scope und Arbeitsmodus
 
 Dieser Plan konkretisiert [Ticket 24](./24-agent-dateiedits-buendeln-und-stale-state-feedback.md)
-auf Basis des Codebestands in Commit `1c589a23`. Er ist ausschliesslich die
+auf Basis des Codebestands in Commit `b6f9f9c0` nach den Merges von Ticket 18
+(PR #68, `d636429c`) und Ticket 23 (PR #72, `dc615f54`). Er ist ausschliesslich die
 Planung fuer den Agent-Dateiworkflow aus `read`, `edit_file`, `apply_patch` und
 `write`, die dazugehoerigen Runtime-Resultate sowie deren Chat-Darstellung.
 
@@ -33,37 +34,44 @@ Nicht Teil dieses Tickets sind:
 
 ## Abhaengigkeiten und verbindliche Integrationsgates
 
-### Ticket 18 ist eine harte fachliche Abhaengigkeit
+### Ticket 18 ist erfuellte fachliche Abhaengigkeit
 
-[Ticket 18](./18-agent-system-prompts-an-tools-koppeln.md) ist noch offen. Der
-aktuelle feste Basisprompt beschreibt Dateiwerkzeuge unabhaengig vom
-tatsaechlichen Toolset eines Runs. Gleichzeitig werden Tools erst spaeter in
-`getPiTools(...)` nach Agentenkonfiguration, Workspace-Kontext, Automation,
-Delegation und Runtime-Verfuegbarkeit gefiltert.
+[Ticket 18](./18-agent-system-prompts-an-tools-koppeln.md) ist als PR #68
+gemergt. Sein kanonischer Mechanismus liegt in
+`app/lib/pi/effective-tool-manifest.ts`: `buildEffectiveToolManifest(...)`
+leitet die Toolinventur aus den tatsaechlich registrierten Tools eines Runs ab
+und `appendEffectiveToolCapabilitiesPrompt(...)` fuegt nur diese
+capability-gebundene Guidance an den Prompt an. `live-runtime.ts` nutzt ihn
+bei Initialisierung und Tool-Refresh; Automation und Delegation verwenden
+denselben Mechanismus.
 
-Ticket 24 darf deshalb keine konkurrierende finale Prompt- oder
-Tool-Capability-Architektur einfuehren. Vor dem ersten Produktivcode-Commit
-muss Ticket 18 abgeschlossen und sein tatsaechlicher Vertrag dokumentiert
-sein. Ticket 24 konsumiert danach dessen einen kanonischen Mechanismus fuer:
+Ticket 24 darf deshalb keine parallele Prompt- oder Tool-Capability-Architektur
+einfuehren. Es konsumiert den vorhandenen Mechanismus fuer:
 
 - die effektiven Tools des konkreten Runs;
 - capability-gebundene Guidance;
-- Prompt-Snapshot-Erzeugung und -Invalidierung;
+- die bestehende Prompt-Snapshot-Erzeugung und deren gezielte Erneuerung,
+  wenn sich die feste Dateiworkflow-Guidance aendert;
 - Reload, Delegation und Automation.
 
-Die konkrete Funktion beziehungsweise Datei, in der Ticket 18 diese Guidance
-verankert, bleibt bis zu dessen Abschluss absichtlich offen. Die fachliche
-Entscheidungsmatrix aus diesem Plan ist verbindlich; ihre technische
-Prompt-Einbettung wird nicht vorweggenommen.
+Die fachliche Entscheidungsmatrix aus diesem Plan wird als Dateiworkflow-
+Guidance in diesen vorhandenen Mechanismus eingebracht, aber nur dann, wenn
+das jeweilige Tool im Manifest vorhanden ist. Die Toolregistrierung und
+serverseitige Autorisierung bleiben autoritativ.
 
 ### Ticket 23 ist eine koordinierte Schnittstelle, kein Teil-Scope
 
-[Ticket 23](./23-agent-edits-in-live-collaboration-reparieren.md) ist ebenfalls
-offen und besitzt dieselben Integrationsgrenzen in `core-tools.ts`,
-`agent-file-operations.ts` und `agent-file-edits.ts`. Ticket 24 veraendert
-nicht die fachliche Yjs-/Review-Entscheidung. Es uebernimmt nach Ticket 23 die
-dort festgelegten stabilen Collaboration-Fehlercodes und Statusnamen, sofern
-sie bis dahin eingefuehrt wurden.
+[Ticket 23](./23-agent-edits-in-live-collaboration-reparieren.md) ist als
+PR #72 gemergt und besitzt weiterhin die gemeinsame Integrationsgrenze in
+`core-tools.ts`, `agent-file-operations.ts` und `agent-file-edits.ts`. Es
+revalidiert am Direct-Connection-Apply die urspruengliche PI-Session,
+Workspace-Identitaet und Schreibberechtigung; entzogene Autorisierung wird als
+`authorization_revoked` im Collaboration-Konflikt erhalten. Zudem markiert
+der Chatadapter `details.error` bereits als Toolfehler.
+
+Ticket 24 veraendert weder die fachliche Yjs-/Review-Entscheidung noch diese
+Autorisierungsgrenze. Es normalisiert lediglich deren vorhandene Status und
+Konflikte zusammen mit den Dateirevisionsfehlern fuer Agent, Runtime und UI.
 
 Verbindliche Grenze:
 
@@ -78,6 +86,9 @@ Verbindliche Grenze:
   Vorschlagshash nicht als neue Edit-Basis behandeln.
 - Ein semantischer Collaboration-Konflikt wird als Review-/Konfliktzustand
   erhalten und nicht in einen normalen Hash-Retry umgedeutet.
+- Ein von Ticket 23 gemeldetes `authorization_revoked` bleibt ein
+  Berechtigungs-/Collaboration-Konflikt und darf weder mit einem neuen Hash
+  noch automatisch wiederholt werden.
 
 ## Inventur des bestehenden Stands
 
@@ -92,12 +103,20 @@ Verbindliche Grenze:
 - `app/lib/agents/system-prompt-shared.ts`
   - bindet die Basis-Guidance statisch in jeden zusammengesetzten Prompt ein;
   - persistierte Session-Prompts werden als Snapshots gespeichert.
-- `app/lib/agents/system-prompt.ts`
-  - erzeugt fuer spezialisierte Agenten eine Toolliste aus globalen Metadaten
-    und konfigurierten Overrides, nicht aus dem final gefilterten Run-Toolset.
+- `app/lib/pi/effective-tool-manifest.ts` (Ticket 18)
+  - baut eine versionierte Inventur aus den tatsaechlich registrierten
+    Top-Level-Tools und Gateway-Operationen;
+  - fuegt mit `appendEffectiveToolCapabilitiesPrompt(...)` nur fuer dieses
+    Inventar die Effective-Runtime-Tools-Guidance ein.
+- `app/lib/pi/live-runtime.ts`, `delegate-task-tool.ts` und
+  `app/lib/automations/runner.ts`
+  - haengen die Capability-Guidance nach dem jeweiligen Tool-Filtering an;
+    Reload, Delegation und Automation verwenden damit denselben Vertrag.
 - `app/lib/pi/system-prompt-snapshot.ts`
-  - laedt bestehende Snapshots weiter und regeneriert sie nur bei expliziter
-    Invalidierung oder fehlendem Snapshot.
+  - persistiert die Prompt-Grundlage; die effektive Toolinventur wird erst am
+    Runtime-Rand aus dem aktuellen Toolset ergaenzt. Eine Aenderung an der
+    festen Dateiworkflow-Guidance muss deshalb weiterhin den vorhandenen
+    Snapshot-Refresh ausloesen.
 - `app/lib/pi/core-tools.ts`
   - ist heute die kanonische Registry fuer die tatsaechlichen Beschreibungen
     und Schemas von `read`, `write`, `edit_file` und `apply_patch`;
@@ -107,8 +126,9 @@ Verbindliche Grenze:
   - filtern die Tools fuer Hauptagent, spezialisierten Agenten, Delegation und
     Automation; der File-Toolset enthaelt alle vier betroffenen Werkzeuge.
 
-Die endgueltige Kopplung dieser Texte an das effektive Toolset gehoert zu
-Ticket 18. Ticket 24 liefert dafuer nur die Dateiworkflow-Semantik.
+Die effektive Kopplung ist durch Ticket 18 abgeschlossen. Ticket 24 liefert
+die Dateiworkflow-Semantik ausschliesslich ueber dessen bestehende,
+capability-gebundene Einbettung.
 
 ### Read-, Mutation- und Hash-Vertrag
 
@@ -141,9 +161,10 @@ Ticket 18. Ticket 24 liefert dafuer nur die Dateiworkflow-Semantik.
   Folgeaktion gehen verloren.
 - Die Live Runtime reicht ein Toolresultat mit `details` an den WebSocket-Client
   weiter, und die Persistenzprojektion behaelt kleine Detailobjekte bei.
-- `useChatRuntimeEvents.ts` setzt ein `tool_execution_end` derzeit jedoch
-  pauschal auf `isError: false` und Chat-Status `sent`. Ein vom Tool als Text
-  zurueckgegebener Fehler erscheint daher visuell als `Fertig`.
+- `useChatRuntimeEvents.ts` erkennt seit Ticket 23 `details.error` als
+  `isError`. Kategorien, Code, Pfad, aktueller Hash und Folgeaktion fehlen
+  jedoch weiterhin und koennen nicht aus dem Fehlertext verlaesslich abgeleitet
+  werden.
 - `ToolOutputView.tsx` parst erfolgreiche Dateiresultate aus formatiertem Text.
   Es gibt keine strukturierte Karte fuer Sicherheitskonflikt, Reviewbedarf
   oder technischen Fehler.
@@ -176,6 +197,8 @@ Ticket 18. Ticket 24 liefert dafuer nur die Dateiworkflow-Semantik.
 ### Bestehende Tests
 
 - `scripts/prompt-builder-test.ts`: statische Basisprompt-Komposition;
+- `scripts/effective-tool-manifest-test.ts`: Effective-Tool-Manifest,
+  capability-gebundene Prompt-Guidance und reduzierte Toolsets aus Ticket 18;
 - `scripts/agent-runtime-config-test.ts`: konfigurierte Agent-Tooltexte und
   Prompt-Snapshots;
 - `scripts/pi-tool-registry-test.ts`: Toolregistrierung, Einzel-Edit,
@@ -188,8 +211,8 @@ Ticket 18. Ticket 24 liefert dafuer nur die Dateiworkflow-Semantik.
   `edit_file` und `apply_patch`;
 - `tests/pi-chat.spec.ts`: Darstellung eines erfolgreichen Dateiresultats.
 
-Noch nicht abgedeckt sind die effektive Entscheidungsmatrix aus Ticket 18,
-strukturierte Agent-Stale-Resultate, ein externer Write im
+Noch nicht abgedeckt sind die Dateiworkflow-Ergaenzung der bereits effektiven
+Tool-Guidance, strukturierte Agent-Stale-Resultate, ein externer Write im
 Patch-Preflight/Commit-Fenster, sichtbare Teilresultate, nicht blockierende
 Same-Path-Hinweise sowie die drei UI-Kategorien dieses Tickets.
 
@@ -203,13 +226,15 @@ Same-Path-Hinweise sowie die drei UI-Kategorien dieses Tickets.
 2. **Der Folgehash ist vorhanden, aber nicht handlungsorientiert typisiert.**
    `afterSha256` steht in Text und Details, es fehlt jedoch eine
    maschinenlesbare Aussage, wann er fuer einen Folge-Edit geeignet ist.
-3. **Die Promptmatrix ist zu grob und statisch.** Mehrere bekannte
+3. **Die Promptmatrix ist trotz effektiver Toolinventur zu grob.** Mehrere bekannte
    Aenderungen an derselben Datei werden nicht eindeutig einem einzigen
-   `apply_patch` zugeordnet; die Guidance ist zudem nicht an den finalen
-   Runtime-Toolbestand gekoppelt.
-4. **Die Runtime klassifiziert Toolfehler nicht verlaesslich.** Ein Catch in
-   `core-tools.ts` erzeugt ein regulaeres Resultat, und die Live-UI markiert
-   das Endereignis als erfolgreich.
+   `apply_patch` zugeordnet; die von Ticket 18 an das finale Runtime-Toolset
+   gekoppelte Guidance enthaelt noch keine sichere Folge-Edit- oder
+   Stale-State-Semantik.
+4. **Die Runtime klassifiziert Toolfehler nur grob.** Ein Catch in
+   `core-tools.ts` erzeugt weiterhin nur `details.error`; Ticket 23 markiert
+   dies im Chat zwar als Fehler, aber ohne maschinenlesbare Kategorie oder
+   handlungsorientierte Konfliktinformation.
 5. **`apply_patch` hat eine Race-Luecke nach dem Preflight.** Nicht
    kollaborative Dateien werden aus dem vorbereiteten Buffer geschrieben,
    ohne unmittelbar davor dessen Hash erneut zu bestaetigen.
@@ -222,10 +247,14 @@ Same-Path-Hinweise sowie die drei UI-Kategorien dieses Tickets.
 
 ### Vor Phase 1 erneut zu verifizieren
 
-- Welche Capability-/Prompt-API Ticket 18 tatsaechlich liefert und wie
-  persistierte Prompt-Snapshots nach einer Guidance-Aenderung erneuert werden.
-- Welche stabilen Conflict-, Review- und Durability-Codes Ticket 23 am Ende
-  verwendet; Ticket 24 fuehrt keine konkurrierenden Synonyme ein.
+- Dass eine Dateiworkflow-Guidance in Ticket 18s
+  `appendEffectiveToolCapabilitiesPrompt(...)` nur bei vorhandenem Tool
+  erscheint und bestehende Sessions nach dem vorgesehenen Snapshot-Refresh
+  erreichen kann.
+- Die vorhandenen Collaboration-Werte aus Ticket 23: insbesondere
+  `authorization_revoked`, `needs_review`, `semantic_conflict` sowie die
+  Durability-/Operation-Status. Ticket 24 fuehrt keine konkurrierenden
+  Synonyme ein.
 - Ob `AgentToolResult.isError` in der eingesetzten PI-Version unverkuerzt an
   Modell, persistierte Message, Automation/Delegation und WebSocket gelangt.
 - Ob Provideradapter `details` vollstaendig erhalten oder nur sichtbaren Text
@@ -240,7 +269,7 @@ Same-Path-Hinweise sowie die drei UI-Kategorien dieses Tickets.
 
 ### 1. Eine fachliche Entscheidungsmatrix, capability-gebunden ausgespielt
 
-Nach Abschluss von Ticket 18 verwendet der effektive Prompt und jede
+Auf dem von Ticket 18 gemergten Manifestpfad verwendet der effektive Prompt und jede
 betroffene Toolbeschreibung dieselben Begriffe:
 
 | Ausgangslage | Workflow | Revisionsregel |
@@ -252,13 +281,14 @@ betroffene Toolbeschreibung dieselben Begriffe:
 | Zustand unklar, Ergebnis war Review oder irgendein fremder Write ist moeglich | erneut `read`, danach neu planen | niemals Hash aus Fehlermeldung blind uebernehmen |
 | neue Datei | `write` | kein bestehender Ausgangshash |
 | grosse strukturelle Umschreibung einer bestehenden, nicht kollaborativen Datei | aktueller `read`, Ansatz ankündigen, danach der erlaubte Full-Write-/Review-Pfad | aktueller Hash zwingend in Shared Workspaces |
-| aktive Live-Collaboration | zielgenaues `edit_file`/`apply_patch` oder struktureller Review aus Ticket 23 | Live-Yjs-Hash; kein Whole-File-Write |
+| aktive Live-Collaboration | zielgenaues `edit_file`/`apply_patch` oder struktureller Review auf dem Ticket-23-Pfad | Live-Yjs-Hash; kein Whole-File-Write |
 
 Falls eines der genannten Tools im effektiven Run fehlt, darf der Prompt es
 nicht nennen und keine gleichwertige Schreibfaehigkeit behaupten. Ein Agent
 ohne `apply_patch` erhaelt daher auch keine Aufforderung, dieses Tool zu
-verwenden. Die erlaubte Ersatzhandlung wird durch Ticket 18 aus den effektiven
-Capabilities abgeleitet; Sicherheit und Berechtigung bleiben serverseitig.
+verwenden. Die erlaubte Ersatzhandlung wird durch das Ticket-18-Manifest aus
+den effektiven Capabilities abgeleitet; Sicherheit und Berechtigung bleiben
+serverseitig.
 
 ### 2. Ein versionierter, additiver Datei-Toolresultatvertrag
 
@@ -470,18 +500,22 @@ Invarianten:
 | erwarteter Hash fehlt | `FILE_REVISION_REQUIRED` | `safety_conflict` | `read_then_retry` |
 | erwarteter Hash ist veraltet / Datei fehlt inzwischen | `FILE_REVISION_CONFLICT` | `safety_conflict` | `read_then_retry` |
 | Exact-Text-Vorkommen stimmt nicht | bestehender `ExactTextPatchError.code`, stabil namespacen | `safety_conflict` | `read_then_retry` |
-| aktiver Yjs-Zustand ist stale | Code aus Ticket 23, sonst auf gemeinsamen Revision-Conflict abbilden | `safety_conflict` | `read_then_retry` |
-| struktureller/semantischer Collaboration-Review | Code/Status aus Ticket 23 | `review_required` | `review_in_editor` |
+| aktiver Yjs-Zustand ist stale | unter Ticket 24 auf `FILE_REVISION_CONFLICT` abbilden, solange die Collaboration-Domain keinen oeffentlichen Stale-Code liefert | `safety_conflict` | `read_then_retry` |
+| struktureller/semantischer Collaboration-Review | bestehende Status `needs_review` beziehungsweise `semantic_conflict` erhalten | `review_required` | `review_in_editor` |
+| entzogene Collaboration-Autorisierung | `authorization_revoked` aus Ticket 23 erhalten | `safety_conflict` | `inspect_error` |
 | Permission, Workspace oder Lock blockiert | bestehender Policycode erhalten | `safety_conflict` | `inspect_error` beziehungsweise neuer Read nach Freigabe |
-| Persistenz/Checkpoint degraded | Code aus Collaboration-Domain | `technical_error` oder eigener nicht-erfolgreicher Durability-Status aus Ticket 23 | `inspect_error` |
+| Persistenz/Checkpoint degraded | bestehender Collaboration-Durability-/Operation-Status | `technical_error` oder eigener nicht-erfolgreicher Durability-Status | `inspect_error` |
 | unerwartete I/O-/Validierungsstörung | stabiler technischer Obercode plus redigierte Meldung | `technical_error` | `inspect_error` |
 
-Die genaue Benennung neuer Collaboration-Codes wird erst nach Ticket 23
-finalisiert. Bestehende Codes werden nicht ohne Migrationsgrund umbenannt.
+Ticket 23 liefert derzeit einen spezifischen Autorisierungskonflikt, aber
+keinen oeffentlichen Stale-Hash-Code. Ticket 24 darf deshalb nur additiv die
+Dateirevisionscodes fuer seinen Toolvertrag nutzen und muss
+`authorization_revoked` sowie Review-/Durability-Status unveraendert
+weiterreichen.
 
 ## Strikt sequenzielle Implementierungsphasen
 
-### Phase 0: Abhaengigkeiten abschliessen und Vertrag einfrieren
+### Phase 0: Gemergte Abhaengigkeiten verifizieren und Vertrag einfrieren
 
 - Den gemergten Stand von Ticket 18 vollstaendig gegen diesen Plan pruefen:
   effektive Toolquelle, Prompt-Guidance-Hook, Snapshot-Lifecycle, Delegation,
@@ -491,8 +525,9 @@ finalisiert. Bestehende Codes werden nicht ohne Migrationsgrund umbenannt.
 - Die oben beschriebenen Resultattypen, Code-Mappings und
   Batch-Semantik als kurze technische Vertragsnotiz finalisieren.
 - Baseline-Tests fuer bestehendes Verhalten ausfuehren.
-- Gate: Keine Produktivcode-Aenderung, solange Ticket 18 offen oder die
-  gemeinsame Ownership von `core-tools.ts`/Prompt-Dateien ungeklärt ist.
+- Gate: Ticket 18 ist erfuellt. Keine Produktivcode-Aenderung, solange die
+  Nutzung seines Manifestpfads und die gemeinsame Ownership von
+  `core-tools.ts`/Prompt-Dateien nicht in der Vertragsnotiz festgehalten sind.
 - Verifikation: Dokumentationskonsistenz und Baseline der gezielten Tests.
 - Commit: `Define agent file workflow contracts`.
 
@@ -574,9 +609,10 @@ finalisiert. Bestehende Codes werden nicht ohne Migrationsgrund umbenannt.
   `read_then_retry`, Review und fehlenden Auto-Retry beschreiben.
 - Toolkombinationen testen: alle Filetools; Read/Edit ohne Patch; Read-only;
   keine Filetools; Delegation/Automation mit reduziertem Toolset.
-- Persistierte Prompt-Snapshots nach dem in Ticket 18 definierten Mechanismus
-  gezielt invalidieren beziehungsweise versionieren, damit neue Guidance nicht
-  nur neue Sessions erreicht.
+- Persistierte Prompt-Snapshots ueber den vorhandenen Refresh-/Invalidierungs-
+  weg gezielt erneuern, damit die geaenderte feste Dateiworkflow-Guidance nicht
+  nur neue Sessions erreicht; die effektive Toolinventur bleibt weiterhin
+  turnlokal aus dem Manifest abgeleitet.
 - Keine nicht verfuegbare Capability im Prompt suggerieren.
 - Verifikation: Prompt-Builder-, Tool-Registry-, Snapshot-, Reload-,
   Delegations- und Automation-Tests.
@@ -676,9 +712,10 @@ ausgefuehrt.
 
 ### Risiken und Gegenmassnahmen
 
-- **Ticket-18-Drift:** Eine vorgezogene Promptloesung wuerde erneut statische
-  Capability-Behauptungen schaffen. Gegenmassnahme: Phase-0-Gate und Nutzung
-  ausschliesslich der gemergten Ticket-18-Schnittstelle.
+- **Ticket-18-Drift:** Eine parallele Promptloesung wuerde erneut statische
+  Capability-Behauptungen schaffen. Gegenmassnahme: ausschliesslich
+  `buildEffectiveToolManifest(...)` und
+  `appendEffectiveToolCapabilitiesPrompt(...)` verwenden.
 - **Ticket-23-Drift:** Doppelte Collaboration-Codes oder ein Whole-File-
   Fallback koennten den Yjs-Pfad unterlaufen. Gegenmassnahme: Codes und Status
   aus Ticket 23 uebernehmen, gemeinsame Dateien vor Phase 1 abstimmen.
@@ -694,9 +731,10 @@ ausgefuehrt.
 - **UI/Modell-Divergenz:** Text, Details und `isError` koennten unterschiedlich
   klassifiziert werden. Gegenmassnahme: ein gemeinsamer Serializer und
   End-to-End-Contracttests durch Persistenz und Projektion.
-- **Prompt-Snapshot-Stale-State:** Bestehende Sessions koennten alte Guidance
-  behalten. Gegenmassnahme: den von Ticket 18 definierten Snapshot-
-  Versions-/Invalidierungsweg verwenden und explizit testen.
+- **Prompt-Snapshot-Stale-State:** Bestehende Sessions koennten alte feste
+  Dateiworkflow-Guidance behalten. Gegenmassnahme: den bestehenden
+  Snapshot-Refresh gezielt ausloesen und explizit testen; die aktuelle
+  Toolinventur wird davon getrennt bei jeder Runtime-Komposition ermittelt.
 - **Datenschutz:** Same-Path-Telemetrie koennte Dateiinhalte oder Arbeitsmuster
   sammeln. Gegenmassnahme: nur turnlokaler Speicher; keine Inhalte, Diffs oder
   Hashfolgen; allenfalls anonyme Aggregatmetrik ohne Pfad.
@@ -705,9 +743,10 @@ ausgefuehrt.
 
 Eine Datenbankmigration ist nach aktuellem Stand nicht erforderlich. Der
 Toolresultatvertrag wird additiv versioniert. Alte gespeicherte Toolmessages
-bleiben ueber den bestehenden Textfallback darstellbar. Falls Ticket 18 eine
-Prompt-Snapshot-Version einfuehrt, nutzt Ticket 24 genau diesen Mechanismus und
-keinen eigenen parallelen Migrationspfad.
+bleiben ueber den bestehenden Textfallback darstellbar. Die feste neue
+Dateiworkflow-Guidance nutzt den vorhandenen Prompt-Snapshot-Refresh; die
+effektive Toolinventur bleibt der turnlokale Ticket-18-Manifestpfad. Ein
+zweiter paralleler Migrationspfad ist nicht zulaessig.
 
 ### Rollback
 
