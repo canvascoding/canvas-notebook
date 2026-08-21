@@ -9,6 +9,9 @@ tags: [type/bug, topic/todos, topic/workspaces, topic/ui]
 
 # Ticket 14: To-do-Sichtbarkeit, Filter und Priorisierung korrigieren
 
+> Detaillierter, am aktuellen Codebestand ausgerichteter Umsetzungsplan:
+> [14-todo-sichtbarkeit-filter-priorisierung-umsetzungsplan.md](./14-todo-sichtbarkeit-filter-priorisierung-umsetzungsplan.md)
+
 ## Problem
 
 In der To-do-Route und den zugehoerigen UI-Flaechen ist nicht verlaesslich
