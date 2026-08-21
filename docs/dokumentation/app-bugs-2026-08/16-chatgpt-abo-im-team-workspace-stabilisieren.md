@@ -9,6 +9,9 @@ tags: [type/bug, topic/chatgpt, topic/oauth, topic/workspaces, topic/runtime]
 
 # Ticket 16: Persoenliches ChatGPT-Abo im Team-Workspace nutzbar machen
 
+> Detaillierter, am aktuellen Codebestand ausgerichteter Umsetzungsplan:
+> [16-chatgpt-abo-im-team-workspace-umsetzungsplan.md](./16-chatgpt-abo-im-team-workspace-umsetzungsplan.md)
+
 ## Problem
 
 Ein Nutzer kann sein persoenlich verbundenes ChatGPT-Abo im persoenlichen
