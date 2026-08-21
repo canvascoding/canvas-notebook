@@ -327,7 +327,7 @@ function countMessageAttachments(message: Extract<AgentMessage, { role: 'user' }
 
 function buildQueuePreview(message: Extract<AgentMessage, { role: 'user' }>): RuntimeQueuePreview {
   const clientMessageId = typeof (message as { clientMessageId?: unknown }).clientMessageId === 'string'
-    ? (message as { clientMessageId: string }).clientMessageId.trim() || undefined
+    ? (message as unknown as { clientMessageId: string }).clientMessageId.trim() || undefined
     : undefined;
   return {
     id: `queue-${message.timestamp}-${Math.random().toString(36).slice(2, 8)}`,
@@ -341,7 +341,7 @@ function buildQueuePreview(message: Extract<AgentMessage, { role: 'user' }>): Ru
 
 function getMessageSignature(message: Extract<AgentMessage, { role: 'user' }>): string {
   const clientMessageId = typeof (message as { clientMessageId?: unknown }).clientMessageId === 'string'
-    ? (message as { clientMessageId: string }).clientMessageId.trim()
+    ? (message as unknown as { clientMessageId: string }).clientMessageId.trim()
     : '';
   return `${clientMessageId}:${message.timestamp}:${extractUserMessageText(message)}:${countMessageAttachments(message)}`;
 }

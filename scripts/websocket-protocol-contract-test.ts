@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { isRuntimeStatusStale, type RuntimeStatus } from '../app/lib/chat/runtime-status';
 import {
   CHAT_WEBSOCKET_CLOSE_CODES,
   CHAT_WEBSOCKET_PATH,
@@ -11,6 +12,20 @@ assert.equal(CHAT_WEBSOCKET_PROTOCOL, 'canvas-chat-v1');
 assert.equal(CHAT_WEBSOCKET_CLOSE_CODES.serviceRestart, 1012);
 assert.equal(CHAT_WEBSOCKET_CLOSE_CODES.unauthorized, 4001);
 assert.equal(CHAT_WEBSOCKET_CLOSE_CODES.licenseRequired, 4003);
+assert.equal(
+  isRuntimeStatusStale(
+    { sessionId: 'session-a', revision: 4 } as RuntimeStatus,
+    { sessionId: 'session-a', revision: 3 } as RuntimeStatus,
+  ),
+  true,
+);
+assert.equal(
+  isRuntimeStatusStale(
+    { sessionId: 'session-a', revision: 4 } as RuntimeStatus,
+    { sessionId: 'session-a', revision: 4 } as RuntimeStatus,
+  ),
+  false,
+);
 
 for (const message of [
   { type: 'subscribe_session', requestId: 'subscribe-1', sessionId: 'session-a' },
