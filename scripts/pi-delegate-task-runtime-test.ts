@@ -505,6 +505,20 @@ async function main() {
     assert.equal(childSession.delegationId, 'delegation-direct-ephemeral');
     assert.equal(childSession.delegationDepth, 1);
 
+    await assert.rejects(
+      () => startDelegatedRun({
+        delegationId: 'delegation-recursive-attempt',
+        userId,
+        sourceAgentId,
+        sourceSessionId: childSession.sessionId,
+        goal: 'This must never run.',
+        toolsets: ['file'],
+        waitForResult: false,
+        timeoutSeconds: 0,
+      }),
+      /Sub-agents cannot start another sub-agent/,
+    );
+
     assert.equal(preparedContexts.length, 1);
     assert.equal(preparedContexts[0]?.context.organizationId, organizationId);
     assert.equal(preparedContexts[0]?.context.workspaceId, sourceWorkspaceId);

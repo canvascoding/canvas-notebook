@@ -15,6 +15,7 @@ import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/regis
 import { requireAgentAccess } from '@/app/lib/agents/access';
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { requireDelegationSource } from '@/app/lib/pi/delegation-policy';
 import { DEFAULT_PI_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { createPiSessionWithRuntimeSnapshot, savePiSession } from '@/app/lib/pi/session-store';
 import { withExclusivePiSessionExecution } from '@/app/lib/pi/session-exclusive-execution';
@@ -1173,6 +1174,11 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
 
 export async function startDelegatedRun(request: DelegateTaskRequest): Promise<DelegateTaskResult> {
   throwIfDelegationAborted(request.abortSignal);
+  await requireDelegationSource({
+    userId: request.userId,
+    sourceSessionId: request.sourceSessionId,
+    sourceAgentId: request.sourceAgentId,
+  });
   if (request.targetAgentId) {
     return startManagedDelegatedRun(request);
   }
