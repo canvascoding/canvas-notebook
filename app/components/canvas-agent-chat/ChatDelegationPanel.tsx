@@ -406,7 +406,7 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
             <Button
               type="button"
               onClick={() => void submitDelegation()}
-              disabled={optionsLoading || starting || !targetAgentId || !goal.trim()}
+              disabled={optionsLoading || starting || !targetAgentId || !goal.trim() || selectedToolsets.size === 0}
             >
               {starting ? <Loader2 className="animate-spin" /> : null}
               {starting ? t('delegationStarting') : t('delegationSubmit')}

@@ -9,7 +9,7 @@ import type { DelegateTaskRequest } from '@/app/lib/pi/delegate-task-tool';
 const DEFAULT_TOOLSETS: PiToolset[] = ['file', 'terminal', 'web', 'session_search'];
 
 function normalizeToolsets(value: unknown): string[] {
-  if (!Array.isArray(value) || value.length === 0) return DEFAULT_TOOLSETS;
+  if (!Array.isArray(value)) return DEFAULT_TOOLSETS;
   const toolsets = new Set<string>();
   for (const item of value) {
     if (typeof item !== 'string') continue;
@@ -19,7 +19,7 @@ function normalizeToolsets(value: unknown): string[] {
     }
     toolsets.add(toolset);
   }
-  return toolsets.size > 0 ? [...toolsets] : DEFAULT_TOOLSETS;
+  return [...toolsets];
 }
 
 export async function prepareUserDelegation(input: {

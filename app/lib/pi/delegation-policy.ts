@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { piDelegations, piSessions } from '@/app/lib/db/schema';
@@ -89,12 +89,19 @@ export async function getDelegatedWorkerToolsets(input: {
     ),
     columns: { delegationId: true },
   });
-  if (!worker?.delegationId) return null;
   const delegation = await db.query.piDelegations.findFirst({
-    where: and(eq(piDelegations.id, worker.delegationId), eq(piDelegations.userId, input.userId)),
+    where: worker?.delegationId
+      ? and(eq(piDelegations.id, worker.delegationId), eq(piDelegations.userId, input.userId))
+      : and(
+        eq(piDelegations.userId, input.userId),
+        eq(piDelegations.workerSessionId, input.sessionId),
+        eq(piDelegations.workerType, 'managed'),
+        inArray(piDelegations.status, ['queued', 'running']),
+      ),
+    orderBy: (delegations, { desc }) => [desc(delegations.updatedAt), desc(delegations.id)],
     columns: { toolsetsJson: true },
   });
-  if (!delegation) return [];
+  if (!delegation) return worker?.delegationId ? [] : null;
   try {
     const value = JSON.parse(delegation.toolsetsJson) as unknown;
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
