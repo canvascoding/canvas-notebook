@@ -33,6 +33,15 @@ Abnahmeplanung liegt im
 Bis zu einer dort dokumentierten Go-Entscheidung werden keine produktiven
 Office-Tools oder In-place-Bearbeitungen umgesetzt.
 
+### Ausfuehrungsstand
+
+Phase 1 hat keine datensparsame, bereits freigegebene Quelle erreicht, mit der
+das Bedarfsgate fuer DOCX oder XLSX nachweisbar erfuellt werden kann. Die
+[Bedarfsevidenz und Gate-Entscheidung](./19-office-usage-evidence.md) lautet
+deshalb `insufficient_evidence`: Die Evaluation stoppt vor Fixtures und
+Parser-PoC; eine Neubewertung benoetigt erst einen freigegebenen,
+aggregierten Auswertungsauftrag.
+
 - Telemetrie bzw. Supportfaelle datensparsam auswerten und Kern-Use-Cases fuer
   DOCX und XLSX festlegen; keine Dokumentinhalte erheben.
 - Bestehende PDF-, Export-, Upload-, Preview- und abgeleitete DOCX-Pfade sowie
