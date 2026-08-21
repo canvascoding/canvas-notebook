@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
-import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
+import { assertCanAccessAutomationJob, canAccessAutomationRun } from '@/app/lib/automations/policy';
 import { getAutomationJob, listAutomationRuns } from '@/app/lib/automations/store';
 
 type RouteContext = {
@@ -30,6 +30,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }
 
-  const runs = await listAutomationRuns(jobId);
-  return NextResponse.json({ success: true, data: runs });
+  const visibleRuns = (await Promise.all((await listAutomationRuns(jobId)).map(async (run) => (
+    await canAccessAutomationRun(session.user.id, run) ? run : null
+  )))).filter((run): run is NonNullable<typeof run> => run !== null);
+  return NextResponse.json({ success: true, data: visibleRuns });
 }
