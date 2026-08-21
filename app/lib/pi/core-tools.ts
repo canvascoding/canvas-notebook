@@ -63,6 +63,10 @@ import {
   formatPathOperationResult,
   readPathList,
 } from '@/app/lib/pi/tool-file-formatters';
+import {
+  asAgentFileToolError,
+  asAgentFileToolSuccess,
+} from '@/app/lib/pi/agent-file-tool-results';
 
 export const piTools: AgentTool[] = [
   createMcpProxyTool(),
@@ -272,7 +276,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'write',
     label: 'Writing file',
-    description: 'Writes text content to a file. Creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Prefer edit_file or apply_patch for existing files when possible. Existing shared workspace files require expectedSha256 from the read tool output.',
+    description: 'Writes text content to a file. Creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Use for new files or an intentional full rewrite; use edit_file or apply_patch for existing-file edits when possible. Existing shared workspace files require expectedSha256 from a current read. A revision conflict requires a new read and is never auto-retried.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       content: Type.String({ description: 'The content to write.' }),
@@ -289,13 +293,14 @@ export const piTools: AgentTool[] = [
         });
         return {
           content: [{ type: 'text', text: formatFileChangeResult(result) }],
-          details: result,
+          details: asAgentFileToolSuccess(result, 'write'),
         };
       } catch (error: unknown) {
-        const message = getErrorMessage(error);
+        const details = asAgentFileToolError(error, 'write', filePath);
         return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
+          content: [{ type: 'text', text: `Error: ${details.message}\nRecommended action: ${details.recommendedAction}.` }],
+          details,
+          isError: true,
         };
       }
     },
@@ -303,7 +308,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'edit_file',
     label: 'Editing file safely',
-    description: 'Safely edits an existing text file by exact oldText -> newText replacement. Active live-collaboration documents use the current Yjs state: stable paragraph edits apply live, while structural or ambiguous Markdown edits create a persisted review with Accept/Reject actions in the editor. Existing shared workspace files require expectedSha256 from the read tool output. Use this instead of sed, perl -pi, tee, or shell redirects.',
+    description: 'Safely edits an existing text file by one exact oldText -> newText replacement. For several already-known replacements use one apply_patch instead. Active live-collaboration documents use the current Yjs state: stable paragraph edits apply live, while structural or ambiguous Markdown edits create a persisted review with Accept/Reject actions in the editor. Existing shared workspace files require expectedSha256 from a current read. A successful sequential follow-up may use afterSha256; on any uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       oldText: Type.String({ description: 'Exact text to replace. Must match expectedOccurrences.' }),
@@ -330,13 +335,14 @@ export const piTools: AgentTool[] = [
         });
         return {
           content: [{ type: 'text', text: formatFileChangeResult(result) }],
-          details: result,
+          details: asAgentFileToolSuccess(result, 'edit_file'),
         };
       } catch (error: unknown) {
-        const message = getErrorMessage(error);
+        const details = asAgentFileToolError(error, 'edit_file', filePath);
         return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
+          content: [{ type: 'text', text: `Error: ${details.message}\nRecommended action: ${details.recommendedAction}.` }],
+          details,
+          isError: true,
         };
       }
     },
@@ -344,7 +350,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'apply_patch',
     label: 'Applying safe patch',
-    description: 'Safely applies multiple exact text replacements across one or more existing files using files[].edits[]. All replacements are preflighted before any write. Active live-collaboration documents use live Yjs transactions or persisted structural review operations instead of whole-file writes. Existing shared workspace files require expectedSha256 from the read tool output.',
+    description: 'Safely applies multiple already-known exact text replacements across one or more existing files using files[].edits[]. Put all replacements for one path in that entry; each canonical path may appear once. All replacements are preflighted before any write, then revalidated at commit. Active live-collaboration documents use live Yjs transactions or persisted structural review operations instead of whole-file writes. Existing shared workspace files require expectedSha256 from a current read. On a conflict, read and re-plan; never auto-retry.',
     parameters: Type.Object({
       files: Type.Array(Type.Object({
         path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
@@ -364,13 +370,23 @@ export const piTools: AgentTool[] = [
         });
         return {
           content: [{ type: 'text', text: formatFileChangeResults(results) }],
-          details: { results },
+          details: {
+            contractVersion: 1,
+            kind: 'file_patch_batch',
+            operation: 'apply_patch',
+            outcome: results.some((result) => result.collaboration?.reviewRequired) ? 'review_required' : 'applied',
+            category: results.some((result) => result.collaboration?.reviewRequired) ? 'review_required' : 'success',
+            results: results.map((result) => asAgentFileToolSuccess(result, 'apply_patch')),
+            recommendedAction: results.some((result) => result.collaboration?.reviewRequired) ? 'review_in_editor' : 'none',
+            safeToAutoRetry: false,
+          },
         };
       } catch (error: unknown) {
-        const message = getErrorMessage(error);
+        const details = asAgentFileToolError(error, 'apply_patch');
         return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
+          content: [{ type: 'text', text: `Error: ${details.message}\nRecommended action: ${details.recommendedAction}.` }],
+          details,
+          isError: true,
         };
       }
     },

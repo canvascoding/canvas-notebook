@@ -7,7 +7,10 @@ import { parseDocument } from 'yaml';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { logger } from '@/app/lib/logging';
-import { normalizeExpectedSha256 as normalizeAgentExpectedSha256 } from '@/app/lib/files/revision-guard';
+import {
+  normalizeExpectedSha256 as normalizeAgentExpectedSha256,
+  WorkspaceFileRevisionError,
+} from '@/app/lib/files/revision-guard';
 import {
   archiveFileCollaborationPaths,
   assertFileCollaborationWriteAllowed,
@@ -648,9 +651,30 @@ function assertAgentSharedWorkspaceRevision(params: {
   if (!params.beforeExisted || !activePathRequiresRevisionGuard(params.path)) return;
   if (normalizeAgentExpectedSha256(params.expectedSha256)) return;
 
-  throw new Error(
-    `Refusing to ${params.operation} ${params.path}: existing shared workspace files require expectedSha256. Read the file first and retry with the current SHA-256 hash.`,
-  );
+  throw new WorkspaceFileRevisionError({
+    code: 'FILE_REVISION_REQUIRED',
+    status: 428,
+    path: params.path,
+    expectedSha256: null,
+    currentSha256: null,
+    message: `Refusing to ${params.operation} ${params.path}: existing shared workspace files require expectedSha256. Read the file first and retry with the current SHA-256 hash.`,
+  });
+}
+
+function throwAgentFileRevisionConflict(params: {
+  operation: string;
+  path: string;
+  expectedSha256: string;
+  currentSha256: string | null;
+}): never {
+  throw new WorkspaceFileRevisionError({
+    code: 'FILE_REVISION_CONFLICT',
+    status: 409,
+    path: params.path,
+    expectedSha256: params.expectedSha256,
+    currentSha256: params.currentSha256,
+    message: `Refusing to ${params.operation} ${params.path}: expectedSha256 did not match the current file hash. Read the file again before retrying.`,
+  });
 }
 
 async function recordAgentFileChangeAudit(result: AgentFileChangeResult, operation: string): Promise<void> {
@@ -1267,7 +1291,7 @@ export async function writeAgentTextFile(params: {
   });
 
   if (expectedSha256 && beforeSha256 !== expectedSha256) {
-    throw new Error(`Refusing to write ${params.path}: expectedSha256 did not match current file hash.`);
+    throwAgentFileRevisionConflict({ operation: 'write', path: params.path, expectedSha256, currentSha256: beforeSha256 });
   }
 
   return commitTextChange({
@@ -1317,7 +1341,7 @@ export async function writeAgentBinaryFile(params: {
     expectedSha256,
   });
   if (expectedSha256 && beforeSha256 !== expectedSha256) {
-    throw new Error(`Refusing to write ${params.path}: expectedSha256 did not match current file hash.`);
+    throwAgentFileRevisionConflict({ operation, path: params.path, expectedSha256, currentSha256: beforeSha256 });
   }
 
   const afterSha256 = sha256Buffer(params.content);
@@ -1532,7 +1556,7 @@ export async function editAgentFile(params: {
   }
 
   if (expectedSha256 && beforeSha256 !== expectedSha256) {
-    throw new Error(`Refusing to edit ${params.path}: expectedSha256 did not match current file hash.`);
+    throwAgentFileRevisionConflict({ operation: 'edit_file', path: params.path, expectedSha256, currentSha256: beforeSha256 });
   }
   const nextContent = applyExactTextEdits(beforeContent, [params], params.path);
   return commitTextChange({
@@ -1628,7 +1652,7 @@ export async function applyAgentFilePatch(params: {
     }
 
     if (expectedSha256 && beforeSha256 !== expectedSha256) {
-      throw new Error(`Refusing to patch ${file.path}: expectedSha256 did not match current file hash.`);
+      throwAgentFileRevisionConflict({ operation: 'apply_patch', path: file.path, expectedSha256, currentSha256: beforeSha256 });
     }
     const nextContent = applyExactTextEdits(before.buffer.toString('utf8'), file.edits, file.path);
     const validation = validateAgentFileContent(file.path, nextContent);
@@ -1658,6 +1682,20 @@ export async function applyAgentFilePatch(params: {
         auditOperation: 'collaboration_apply_patch',
       }));
     } else {
+      // Preflight is intentionally separate from commit for multi-file patches.
+      // Re-read at the authoritative write boundary so a file changed after
+      // preflight is never overwritten from the stale buffer.
+      const current = await readExistingFile(file.fullPath);
+      const preflightSha256 = sha256Buffer(file.beforeBuffer);
+      const currentSha256 = current.buffer ? sha256Buffer(current.buffer) : null;
+      if (!current.existed || !current.buffer || currentSha256 !== preflightSha256) {
+        throwAgentFileRevisionConflict({
+          operation: 'apply_patch',
+          path: file.inputPath,
+          expectedSha256: preflightSha256,
+          currentSha256,
+        });
+      }
       results.push(await commitTextChange({
         inputPath: file.inputPath,
         fullPath: file.fullPath,

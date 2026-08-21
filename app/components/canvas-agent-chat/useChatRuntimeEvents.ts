@@ -846,7 +846,7 @@ export function useChatRuntimeEvents({
         toolCallId: event.toolCallId,
         toolName: event.toolName || t('tool'),
         content: text,
-        status: 'sent',
+        status: isError ? 'error' : 'sent',
         type: 'tool_result',
         piMessage: toolResultPiMessage,
         attachments: resultAttachments.length > 0 ? resultAttachments : undefined,
