@@ -24,6 +24,8 @@ type DirectMcpGrantStateRow = {
   user_banned: unknown;
   client_id: string;
   client_disabled: unknown;
+  refresh_grant_count: unknown;
+  active_refresh_grant_count: unknown;
 };
 
 export type DirectMcpJwtClaims = {
@@ -247,7 +249,22 @@ export async function loadDirectMcpGrantState(
         local_user.id AS user_id,
         local_user.banned AS user_banned,
         oauth_client.client_id AS client_id,
-        oauth_client.disabled AS client_disabled
+        oauth_client.disabled AS client_disabled,
+        (
+          SELECT COUNT(*)
+          FROM oauth_refresh_token refresh_grant
+          WHERE refresh_grant.client_id = oauth_client.client_id
+            AND refresh_grant.session_id = auth_session.id
+            AND refresh_grant.user_id = local_user.id
+        ) AS refresh_grant_count,
+        (
+          SELECT COUNT(*)
+          FROM oauth_refresh_token refresh_grant
+          WHERE refresh_grant.client_id = oauth_client.client_id
+            AND refresh_grant.session_id = auth_session.id
+            AND refresh_grant.user_id = local_user.id
+            AND refresh_grant.revoked IS NULL
+        ) AS active_refresh_grant_count
       FROM "session" auth_session
       INNER JOIN "user" local_user
         ON local_user.id = auth_session.user_id
@@ -268,6 +285,8 @@ function assertGrantStateActive(
   claims: DirectMcpJwtClaims,
 ): void {
   const sessionExpiresAt = timestampToMilliseconds(state?.session_expires_at);
+  const refreshGrantCount = Number(state?.refresh_grant_count ?? 0);
+  const activeRefreshGrantCount = Number(state?.active_refresh_grant_count ?? 0);
   if (
     !state
     || state.session_id !== claims.sessionId
@@ -277,6 +296,12 @@ function assertGrantStateActive(
     || isDatabaseBoolean(state.client_disabled)
     || sessionExpiresAt === null
     || sessionExpiresAt <= Date.now()
+    // Test-generated JWTs and OAuth grants without refresh tokens have no
+    // local revocation record. Once a client/session has refresh grants,
+    // however, at least one must remain active for its access tokens to work.
+    || (Number.isFinite(refreshGrantCount)
+      && refreshGrantCount > 0
+      && (!Number.isFinite(activeRefreshGrantCount) || activeRefreshGrantCount < 1))
   ) {
     throw invalidToken();
   }

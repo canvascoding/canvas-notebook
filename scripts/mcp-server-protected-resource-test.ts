@@ -24,6 +24,10 @@ const REQUESTED_SCOPES = [
   'knowledge:read',
 ];
 
+function tokenHash(token: string): string {
+  return createHash('sha256').update(token).digest('base64url');
+}
+
 type AuthHandler = {
   handler: (request: Request) => Promise<Response>;
   api: {
@@ -114,10 +118,12 @@ async function issueTokenSet(
   dispatch: (request: Request) => Promise<Response>,
   issuer: string,
   resource: string,
+  existingSessionCookie?: string,
 ): Promise<{
   accessToken: string;
   refreshToken: string;
   clientId: string;
+  sessionCookie: string;
 }> {
   const registrationResponse = await dispatch(new Request(`${issuer}/oauth2/register`, {
     method: 'POST',
@@ -138,19 +144,21 @@ async function issueTokenSet(
   const clientId = String((await readJson(registrationResponse)).client_id);
   assert.ok(clientId);
 
-  const loginResponse = await dispatch(new Request(`${issuer}/sign-in/email`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      origin: ORIGIN,
-    },
-    body: JSON.stringify({
-      email: EMAIL,
-      password: PASSWORD,
-    }),
-  }));
-  assert.equal(loginResponse.status, 200);
-  const sessionCookie = readSessionCookie(loginResponse);
+  const sessionCookie = existingSessionCookie ?? await (async () => {
+    const loginResponse = await dispatch(new Request(`${issuer}/sign-in/email`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: ORIGIN,
+      },
+      body: JSON.stringify({
+        email: EMAIL,
+        password: PASSWORD,
+      }),
+    }));
+    assert.equal(loginResponse.status, 200);
+    return readSessionCookie(loginResponse);
+  })();
 
   const authorizeResponse = await dispatch(new Request(
     authorizationUrl(clientId, resource),
@@ -205,6 +213,7 @@ async function issueTokenSet(
     accessToken: String(tokenSet.access_token),
     refreshToken: String(tokenSet.refresh_token),
     clientId,
+    sessionCookie,
   };
 }
 
@@ -443,6 +452,13 @@ async function main(): Promise<void> {
     });
     const revocationCandidate = await prepareDirectMcpRevocation(revokeRequest);
     assert.ok(revocationCandidate);
+    const otherClientTokenSet = await issueTokenSet(
+      auth,
+      dispatch,
+      issuer,
+      resource,
+      tokenSet.sessionCookie,
+    );
     const revokeResponse = await authRoute.POST(new NextRequest(revokeRequest));
     assert.equal(revokeResponse.status, 200, await revokeResponse.clone().text());
     await assertAuthorizationError(
@@ -452,6 +468,23 @@ async function main(): Promise<void> {
         code: 'invalid_token',
       },
     );
+    await verifyDirectMcpAccessToken(otherClientTokenSet.accessToken, ['knowledge:read']);
+    const revocationDatabase = await openDb();
+    try {
+      const session = await revocationDatabase.get(
+        'SELECT id FROM "session" WHERE id = ? LIMIT 1',
+        [principal.sessionId],
+      );
+      assert.ok(session, 'Revoking one OAuth client must not end the browser session.');
+      const otherClientGrant = await revocationDatabase.get(`
+        SELECT revoked
+        FROM oauth_refresh_token
+        WHERE token = ?
+      `, [tokenHash(otherClientTokenSet.refreshToken)]) as { revoked: unknown } | undefined;
+      assert.equal(otherClientGrant?.revoked, null);
+    } finally {
+      await revocationDatabase.close();
+    }
 
     const refreshAfterRevocation = new Request(`${issuer}/oauth2/token`, {
       method: 'POST',

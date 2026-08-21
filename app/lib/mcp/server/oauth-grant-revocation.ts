@@ -234,12 +234,8 @@ export async function applyDirectMcpRevocation(
         SET revoked = COALESCE(revoked, ?)
         WHERE session_id = ?
           AND user_id = ?
-      `, [revokedAt, candidate.sessionId, candidate.userId]);
-      await database.run(`
-        DELETE FROM "session"
-        WHERE id = ?
-          AND user_id = ?
-      `, [candidate.sessionId, candidate.userId]);
+          AND client_id = ?
+      `, [revokedAt, candidate.sessionId, candidate.userId, candidate.clientId]);
     } else {
       await database.run(`
         UPDATE oauth_refresh_token
