@@ -5,6 +5,8 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { getDirectMcpServerSettingsStatus } from '@/app/lib/mcp/server/settings-status';
 import { applyDirectMcpSettingsToRuntime } from '@/app/lib/mcp/server/runtime-settings';
+import { getDirectMcpReadiness } from '@/app/lib/mcp/server/readiness';
+import { DIRECT_MCP_TOOL_IDS, type DirectMcpToolId } from '@/app/lib/mcp/server/config';
 import { setDirectMcpServerPreferences } from '@/app/lib/server-settings';
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -86,6 +88,35 @@ export async function PATCH(request: NextRequest) {
         },
         { status: 409 },
       );
+    }
+
+    const validTools = new Set<string>(DIRECT_MCP_TOOL_IDS);
+    if (payload.tools.some((tool) => typeof tool !== 'string' || !validTools.has(tool))) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'MCP_CAPABILITIES_INVALID',
+          error: 'MCP server capabilities contain an unsupported value.',
+        },
+        { status: 422 },
+      );
+    }
+
+    if (payload.enabled) {
+      const readiness = await getDirectMcpReadiness({
+        enabled: true,
+        tools: payload.tools as DirectMcpToolId[],
+      });
+      if (readiness.status !== 'ready') {
+        return NextResponse.json(
+          {
+            success: false,
+            code: readiness.code,
+            error: 'Direct MCP cannot be enabled until its OAuth runtime is ready.',
+          },
+          { status: 503 },
+        );
+      }
     }
 
     const preferences = await setDirectMcpServerPreferences(session.user.id, {

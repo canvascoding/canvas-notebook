@@ -5,6 +5,7 @@ import { openDb } from '@/app/lib/db';
 import { resolveDirectMcpOAuthConfig } from '@/app/lib/mcp/server/config';
 import { createDirectMcpServer } from '@/app/lib/mcp/server/direct-server';
 import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
+import type { DirectMcpToolId } from '@/app/lib/mcp/server/config';
 
 export type DirectMcpReadinessStatus = 'disabled' | 'ready' | 'failed';
 
@@ -41,10 +42,15 @@ async function assertDirectMcpSchemaReady(): Promise<void> {
   }
 }
 
-export async function getDirectMcpReadiness(): Promise<DirectMcpReadiness> {
+export async function getDirectMcpReadiness(
+  requestedSettings?: {
+    enabled: boolean;
+    tools: readonly DirectMcpToolId[];
+  },
+): Promise<DirectMcpReadiness> {
   let settings: Awaited<ReturnType<typeof getDirectMcpRuntimeSettings>>;
   try {
-    settings = await getDirectMcpRuntimeSettings();
+    settings = requestedSettings ?? await getDirectMcpRuntimeSettings();
   } catch {
     return { status: 'failed', code: 'MCP_CONFIGURATION_INVALID' };
   }
