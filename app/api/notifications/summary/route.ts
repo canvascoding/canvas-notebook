@@ -12,9 +12,10 @@ import { loadMobileInboxScope } from '@/app/lib/mobile/inbox-scope';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type PatchPayload = {
-  action?: 'mark_all_read' | 'mark_item_read' | 'dismiss_item';
+  action?: 'mark_all_read' | 'mark_item_read' | 'set_item_read_state' | 'dismiss_item';
   itemId?: string;
   workspaceId?: string;
+  read?: boolean;
 };
 
 function mobileInboxErrorResponse(error: unknown) {
@@ -93,7 +94,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (
-      (payload.action === 'mark_item_read' || payload.action === 'dismiss_item')
+      (payload.action === 'mark_item_read' || payload.action === 'set_item_read_state' || payload.action === 'dismiss_item')
       && payload.itemId
       && payload.workspaceId
     ) {
@@ -106,6 +107,7 @@ export async function PATCH(request: NextRequest) {
         workspace,
         action: payload.action,
         itemId: payload.itemId,
+        read: payload.read,
       });
       return NextResponse.json({ success: true, data });
     }

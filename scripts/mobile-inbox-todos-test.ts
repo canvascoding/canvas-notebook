@@ -77,7 +77,7 @@ async function main() {
     await database.close();
 
     const { createLegacyPersonalWorkspaceContext } = await import('../app/lib/workspaces/context');
-    const { createTodo } = await import('../app/lib/todos/store');
+    const { createTodo, updateTodo } = await import('../app/lib/todos/store');
     const { getMobileTodo, listMobileTodos } = await import('../app/lib/mobile/todos');
     const {
       countMobileUnreadMessages,
@@ -104,6 +104,11 @@ async function main() {
       fileLinks: [{ workspacePath: 'Clients/Acme/brief.md', label: 'Brief' }],
     });
     await createTodo('mobile-attention-user', { title: 'Prepare screenshots', seenAt: new Date() });
+    const completedTodo = await createTodo('mobile-attention-user', {
+      title: 'Confirm launch checklist',
+      seenAt: new Date(),
+    });
+    await updateTodo('mobile-attention-user', completedTodo.id, { status: 'done' });
 
     const inbox = await listMobileInbox({ userId: 'mobile-attention-user', workspace, limit: 20 });
     assert.equal(inbox.counts.unread, 5);
@@ -111,6 +116,7 @@ async function main() {
     assert.equal(inbox.items.some((item) => item.id === 'chat:attention-session'), true);
     assert.equal(inbox.items.some((item) => item.id === 'chat:historic-unread-session'), true);
     assert.equal(inbox.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
+    assert.equal(inbox.items.some((item) => item.id === `todo:${completedTodo.id}`), true);
     assert.equal(inbox.items.some((item) => item.id === 'studio:generation-ready'), true);
     assert.equal(inbox.items.some((item) => item.id === 'automation:run-failed'), true);
     assert.equal(
@@ -279,6 +285,26 @@ async function main() {
         && error.code === 'ITEM_NOT_DISMISSIBLE'
       ),
     );
+
+    await markMobileInboxRead({
+      userId: 'mobile-attention-user',
+      workspace,
+      action: 'mark_item_read',
+      itemId: `todo:${firstTodo.id}`,
+    });
+    const afterTodoRead = await listMobileInbox({ userId: 'mobile-attention-user', workspace });
+    assert.equal(afterTodoRead.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
+    const afterTodoReadUnread = await listMobileInbox({ userId: 'mobile-attention-user', workspace, filter: 'unread' });
+    assert.equal(afterTodoReadUnread.items.some((item) => item.id === `todo:${firstTodo.id}`), false);
+    await markMobileInboxRead({
+      userId: 'mobile-attention-user',
+      workspace,
+      action: 'set_item_read_state',
+      itemId: `todo:${firstTodo.id}`,
+      read: false,
+    });
+    const afterTodoUnread = await listMobileInbox({ userId: 'mobile-attention-user', workspace, filter: 'unread' });
+    assert.equal(afterTodoUnread.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
 
     const readAllResponse = await notificationSummaryRoute.PATCH(
       new NextRequest('http://localhost/api/notifications/summary', {
