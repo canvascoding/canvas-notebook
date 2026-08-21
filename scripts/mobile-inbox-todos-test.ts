@@ -209,6 +209,11 @@ async function main() {
     );
     await setUserInboxExcludedWorkspaceIds('mobile-attention-user', []);
 
+    await Promise.all(Array.from({ length: 12 }, (_, index) => createTodo('mobile-attention-user', {
+      title: `Read background task ${index + 1}`,
+      seenAt: new Date(),
+    })));
+
     const { auth } = await import('../app/lib/auth');
     let badgeSession: {
       user: { id: string; email: string; role: string };

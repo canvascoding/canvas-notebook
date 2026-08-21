@@ -38,7 +38,7 @@ const MAX_SOURCE_ITEMS = 200;
 const INITIAL_UNREAD_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const TODO_PRESENTATION_GROUP_WINDOW_MS = 5 * 60 * 1_000;
 
-export const MOBILE_INBOX_FILTERS = ['all', 'unread', 'chat', 'todos', 'studio', 'automation'] as const;
+export const MOBILE_INBOX_FILTERS = ['all', 'unread', 'notifications', 'chat', 'todos', 'studio', 'automation'] as const;
 export type MobileInboxFilter = typeof MOBILE_INBOX_FILTERS[number];
 
 export type MobileInboxItem = {
@@ -420,6 +420,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
 function matchesFilter(item: MobileInboxItem, filter: MobileInboxFilter): boolean {
   if (filter === 'all') return true;
   if (filter === 'unread') return item.unread;
+  if (filter === 'notifications') return item.target.kind !== 'todo';
   if (filter === 'chat') return item.target.kind === 'chat';
   if (filter === 'todos') return item.target.kind === 'todo';
   if (filter === 'studio') return item.target.kind === 'studio';

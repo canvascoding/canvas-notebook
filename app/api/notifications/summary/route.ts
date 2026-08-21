@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
       listMobileAggregateInbox({
         userId: session.user.id,
         workspaces: scope.includedWorkspaces,
+        filter: 'notifications',
         limit: 12,
       }),
       // Persistent To-dos must not be crowded out by recent event notifications.
@@ -58,12 +59,10 @@ export async function GET(request: NextRequest) {
       }),
     ]);
     const workspaceNames = new Map(scope.sources.map((source) => [source.id, source.name]));
-    const notificationItems = inbox.items
-      .filter((item) => item.target.kind !== 'todo')
-      .map((item) => ({
-        ...item,
-        workspaceName: workspaceNames.get(item.workspaceId) ?? null,
-      }));
+    const notificationItems = inbox.items.map((item) => ({
+      ...item,
+      workspaceName: workspaceNames.get(item.workspaceId) ?? null,
+    }));
     const todoItems = todosInbox.items.map((item) => ({
       ...item,
       workspaceName: workspaceNames.get(item.workspaceId) ?? null,

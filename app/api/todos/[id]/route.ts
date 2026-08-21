@@ -128,11 +128,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         ...(payload.dueAt !== undefined ? { dueAt: parseOptionalDate(payload.dueAt) ?? null } : {}),
         ...(payload.status !== undefined ? { status: parseStatus(payload.status) } : {}),
         ...(payload.assigneeUserId !== undefined ? {
-        assigneeUserId: typeof payload.assigneeUserId === 'string' ? payload.assigneeUserId : null,
-      } : {}),
+          assigneeUserId: typeof payload.assigneeUserId === 'string' ? payload.assigneeUserId : null,
+        } : {}),
         ...(payload.completionComment !== undefined ? {
-        completionComment: typeof payload.completionComment === 'string' ? payload.completionComment : null,
-      } : {}),
+          completionComment: typeof payload.completionComment === 'string' ? payload.completionComment : null,
+        } : {}),
         ...(payload.fileLinks !== undefined ? { fileLinks: parseFileLinks(payload.fileLinks) ?? [] } : {}),
       });
       if (!updatedTodo) return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
