@@ -181,7 +181,8 @@ export async function createReadStream(
 export async function writeFile(
   filePath: string,
   content: Buffer | string,
-  options?: WorkspaceFileOperationOptions
+  options?: WorkspaceFileOperationOptions,
+  onBeforeReplace?: () => Promise<void>,
 ): Promise<void> {
   const fullPath = await resolveWritableWorkspacePath(filePath, options);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
@@ -202,6 +203,7 @@ export async function writeFile(
     await handle.sync();
     await handle.close();
     handle = null;
+    await onBeforeReplace?.();
     await fs.rename(stagingPath, fullPath);
 
     const directoryHandle = await fs.open(path.dirname(fullPath), 'r');

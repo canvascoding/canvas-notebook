@@ -7,6 +7,10 @@ const editorSource = fs.readFileSync(
   path.join(root, 'app', 'components', 'editor', 'MarkdownEditor.tsx'),
   'utf8',
 );
+const codeEditorSource = fs.readFileSync(
+  path.join(root, 'app', 'components', 'editor', 'CodeEditor.tsx'),
+  'utf8',
+);
 const editorStyles = fs.readFileSync(path.join(root, 'app', 'globals.css'), 'utf8');
 const collaborationSource = fs.readFileSync(
   path.join(root, 'app', 'lib', 'collaboration', 'markdown-state.ts'),
@@ -135,6 +139,16 @@ assert.match(
   collaborationSource,
   /richMarkdownCodecExtensions/u,
   'the server collaboration schema must use the shared rich Markdown codec',
+);
+assert.match(
+  editorSource,
+  /<CodeEditor[\s\S]*?collaborationEnabled=\{collaborationEnabled\}/u,
+  'source-only Markdown must keep collaboration enabled through the plain-text editor',
+);
+assert.match(
+  codeEditorSource,
+  /representation:\s*'plain_text'/u,
+  'the source editor must request the plain-text collaboration representation',
 );
 
 for (const selector of [

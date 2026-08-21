@@ -72,8 +72,7 @@ function existingFileError(path: string, existing: Awaited<ReturnType<typeof get
   });
 }
 
-export async function writeWorkspaceFileContent(input: WriteWorkspaceFileContentInput) {
-  return withWorkspaceFileWriteLock(input.workspace.workspaceId, input.path, async () => {
+async function writeWorkspaceFileContentUnlocked(input: WriteWorkspaceFileContentInput) {
   if (input.createOnly) {
     const existing = await getWorkspaceFileRevision(input.path, input.fileOptions);
     if (existing) {
@@ -119,7 +118,15 @@ export async function writeWorkspaceFileContent(input: WriteWorkspaceFileContent
       throw error;
     }
   } else {
-    await writeFile(input.path, input.content, input.fileOptions);
+    await writeFile(input.path, input.content, input.fileOptions, async () => {
+      if (!input.expectedSha256) return;
+      await assertWorkspaceFileRevisionAllowed({
+        path: input.path,
+        expectedSha256: input.expectedSha256,
+        options: input.fileOptions,
+        requireExpectedRevision: true,
+      });
+    });
   }
   const contentBuffer = Buffer.isBuffer(input.content) ? input.content : Buffer.from(input.content);
   const afterRevision = await getWorkspaceFileRevision(input.path, input.fileOptions);
@@ -183,5 +190,12 @@ export async function writeWorkspaceFileContent(input: WriteWorkspaceFileContent
     revision,
     collaboration,
   };
-  });
+}
+
+export async function writeWorkspaceFileContent(input: WriteWorkspaceFileContentInput) {
+  return withWorkspaceFileWriteLock(
+    input.workspace.workspaceId,
+    input.path,
+    () => writeWorkspaceFileContentUnlocked(input),
+  );
 }

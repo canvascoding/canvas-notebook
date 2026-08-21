@@ -29,8 +29,12 @@ async function main() {
   try {
     const { writeFile } = await import('../app/lib/filesystem/workspace-files');
     await fs.writeFile(path.join(root, 'deck.md'), 'before\n', { mode: 0o640 });
-    await writeFile('deck.md', 'after\n', { workspace });
+    let beforeReplaceCalled = false;
+    await writeFile('deck.md', 'after\n', { workspace }, async () => {
+      beforeReplaceCalled = true;
+    });
 
+    assert.equal(beforeReplaceCalled, true);
     assert.equal(await fs.readFile(path.join(root, 'deck.md'), 'utf8'), 'after\n');
     assert.equal((await fs.stat(path.join(root, 'deck.md'))).mode & 0o777, 0o640);
     assert.equal((await fs.readdir(root)).some((name) => name.includes('.canvas-write-')), false);
