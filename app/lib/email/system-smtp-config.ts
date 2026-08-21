@@ -1,21 +1,37 @@
 import 'server-only';
 
-import { readScopedEnvState, replaceScopedEnvEntries } from '@/app/lib/integrations/env-config';
+import { mutateScopedEnvEntries, readScopedEnvState } from '@/app/lib/integrations/env-config';
 import { isManagedSystemEmailAvailable } from '@/app/lib/email/managed-system-email-client';
+import { SYSTEM_EMAIL_ENV_KEYS, isSystemEmailEnvKey as isSystemEmailEnvKeyInternal } from '@/app/lib/email/system-email-keys';
+import {
+  normalizeOptionalSmtpString,
+  normalizeRequiredSmtpString,
+  normalizeSmtpBoolean,
+  normalizeSmtpEmailAddress,
+  normalizeSmtpHost,
+  normalizeSmtpPort,
+  normalizeSmtpTlsMode,
+  secureFromTlsMode,
+  type SmtpTlsMode,
+} from '@/app/lib/email/smtp-configuration';
 
-const SYSTEM_SMTP_KEYS = {
-  host: 'CANVAS_SYSTEM_SMTP_HOST',
-  port: 'CANVAS_SYSTEM_SMTP_PORT',
-  secure: 'CANVAS_SYSTEM_SMTP_SECURE',
-  username: 'CANVAS_SYSTEM_SMTP_USERNAME',
-  password: 'CANVAS_SYSTEM_SMTP_PASSWORD',
-  fromAddress: 'CANVAS_SYSTEM_EMAIL_FROM',
-  fromName: 'CANVAS_SYSTEM_EMAIL_FROM_NAME',
-  replyTo: 'CANVAS_SYSTEM_EMAIL_REPLY_TO',
-  deliveryMode: 'CANVAS_SYSTEM_EMAIL_DELIVERY_MODE',
+export const SYSTEM_SMTP_KEYS = {
+  host: SYSTEM_EMAIL_ENV_KEYS[0],
+  port: SYSTEM_EMAIL_ENV_KEYS[1],
+  secure: SYSTEM_EMAIL_ENV_KEYS[2],
+  username: SYSTEM_EMAIL_ENV_KEYS[3],
+  password: SYSTEM_EMAIL_ENV_KEYS[4],
+  fromAddress: SYSTEM_EMAIL_ENV_KEYS[5],
+  fromName: SYSTEM_EMAIL_ENV_KEYS[6],
+  replyTo: SYSTEM_EMAIL_ENV_KEYS[7],
+  deliveryMode: SYSTEM_EMAIL_ENV_KEYS[8],
 } as const;
 
-const SYSTEM_SMTP_ENV_KEY_SET = new Set<string>(Object.values(SYSTEM_SMTP_KEYS));
+export const SYSTEM_SMTP_ENV_KEY_SET = new Set<string>(Object.values(SYSTEM_SMTP_KEYS));
+
+export function isSystemEmailEnvKey(key: string): boolean {
+  return isSystemEmailEnvKeyInternal(key);
+}
 
 export type SystemSmtpConfiguration = {
   smtp: {
@@ -36,6 +52,7 @@ export type SystemSmtpConfigurationInput = {
   host?: unknown;
   port?: unknown;
   secure?: unknown;
+  tlsMode?: unknown;
   username?: unknown;
   password?: unknown;
   fromAddress?: unknown;
@@ -52,6 +69,7 @@ export type SystemSmtpConfigurationStatus = {
   host: string | null;
   port: number | null;
   secure: boolean | null;
+  tlsMode: SmtpTlsMode | null;
   username: string | null;
   fromAddress: string | null;
   fromName: string | null;
@@ -62,52 +80,6 @@ export type SystemSmtpConfigurationStatus = {
 };
 
 type SystemSmtpValues = Record<keyof typeof SYSTEM_SMTP_KEYS, string>;
-
-function normalizeHost(value: unknown, label = 'SMTP host'): string {
-  if (typeof value !== 'string') throw new Error(`${label} is required.`);
-  const normalized = value.trim();
-  if (!normalized) throw new Error(`${label} is required.`);
-  if (/^[a-z][a-z0-9+.-]*:/iu.test(normalized) || /[/?#\\]/u.test(normalized)) {
-    throw new Error(`${label} must be a host name or IP address, not a URL.`);
-  }
-  return normalized;
-}
-
-function normalizePort(value: unknown): number {
-  const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number.parseInt(value, 10) : NaN;
-  if (!Number.isInteger(numeric) || numeric < 1 || numeric > 65535) {
-    throw new Error('SMTP port must be a port between 1 and 65535.');
-  }
-  return numeric;
-}
-
-function normalizeBoolean(value: unknown, label: string): boolean {
-  if (typeof value === 'boolean') return value;
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  throw new Error(`${label} must be true or false.`);
-}
-
-function normalizeRequiredString(value: unknown, label: string): string {
-  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} is required.`);
-  return value.trim();
-}
-
-function normalizeEmailAddress(value: unknown, label: string): string {
-  if (typeof value !== 'string') throw new Error(`${label} is required.`);
-  const normalized = value.trim().toLowerCase();
-  if (!normalized || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(normalized)) {
-    throw new Error(`${label} must be a valid email address.`);
-  }
-  return normalized;
-}
-
-function normalizeOptionalString(value: unknown): string | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== 'string') throw new Error('Optional SMTP values must be text.');
-  const normalized = value.trim();
-  return normalized || null;
-}
 
 function valuesFromEntries(entries: Array<{ key: string; value: string }>): SystemSmtpValues {
   const byKey = new Map(entries.map((entry) => [entry.key, entry.value]));
@@ -122,17 +94,17 @@ function parseConfiguredValues(values: SystemSmtpValues): SystemSmtpConfiguratio
 
   return {
     smtp: {
-      host: normalizeHost(values.host),
-      port: normalizePort(values.port),
-      secure: normalizeBoolean(values.secure, 'SMTP secure'),
-      username: normalizeRequiredString(values.username, 'SMTP username'),
-      password: normalizeRequiredString(values.password, 'SMTP password'),
+      host: normalizeSmtpHost(values.host),
+      port: normalizeSmtpPort(values.port),
+      secure: normalizeSmtpBoolean(values.secure, 'SMTP secure'),
+      username: normalizeRequiredSmtpString(values.username, 'SMTP username'),
+      password: normalizeRequiredSmtpString(values.password, 'SMTP password'),
     },
     from: {
-      address: normalizeEmailAddress(values.fromAddress, 'Sender email address'),
-      name: normalizeOptionalString(values.fromName),
+      address: normalizeSmtpEmailAddress(values.fromAddress, 'Sender email address'),
+      name: normalizeOptionalSmtpString(values.fromName),
     },
-    replyTo: values.replyTo.trim() ? normalizeEmailAddress(values.replyTo, 'Reply-to email address') : null,
+    replyTo: values.replyTo.trim() ? normalizeSmtpEmailAddress(values.replyTo, 'Reply-to email address') : null,
   };
 }
 
@@ -164,7 +136,8 @@ export async function getSystemSmtpConfigurationStatus(): Promise<SystemSmtpConf
     configurationError = error instanceof Error ? error.message : 'System SMTP configuration is incomplete.';
   }
 
-  const parsedPort = Number.parseInt(values.port, 10);
+  const parsedPort = /^\d+$/u.test(values.port.trim()) ? Number(values.port) : NaN;
+  const tlsMode: SmtpTlsMode | null = values.secure === 'true' ? 'implicit_tls' : values.secure === 'false' ? 'starttls' : null;
   return {
     configured: Boolean(configuration),
     complete: Boolean(configuration),
@@ -172,6 +145,7 @@ export async function getSystemSmtpConfigurationStatus(): Promise<SystemSmtpConf
     host: values.host.trim() || null,
     port: Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65535 ? parsedPort : null,
     secure: values.secure === 'true' ? true : values.secure === 'false' ? false : null,
+    tlsMode,
     username: values.username.trim() || null,
     fromAddress: values.fromAddress.trim().toLowerCase() || null,
     fromName: values.fromName.trim() || null,
@@ -183,60 +157,43 @@ export async function getSystemSmtpConfigurationStatus(): Promise<SystemSmtpConf
 }
 
 export async function saveSystemSmtpConfiguration(input: SystemSmtpConfigurationInput): Promise<SystemSmtpConfigurationStatus> {
-  const state = await readScopedEnvState('integrations');
-  const existingValues = valuesFromEntries(state.entries);
-  const passwordInput = typeof input.password === 'string' ? input.password : '';
-  const next: SystemSmtpValues = {
-    host: normalizeHost(input.host),
-    port: String(normalizePort(input.port)),
-    secure: String(normalizeBoolean(input.secure, 'SMTP secure')),
-    username: normalizeRequiredString(input.username, 'SMTP username'),
-    password: passwordInput || existingValues.password,
-    fromAddress: normalizeEmailAddress(input.fromAddress, 'Sender email address'),
-    fromName: normalizeOptionalString(input.fromName) || '',
-    replyTo: normalizeOptionalString(input.replyTo)
-      ? normalizeEmailAddress(input.replyTo, 'Reply-to email address')
-      : '',
-    deliveryMode: 'local',
-  };
-  parseConfiguredValues(next);
-
-  const remaining = state.entries
-    .filter((entry) => !SYSTEM_SMTP_ENV_KEY_SET.has(entry.key))
-    .map((entry) => ({ key: entry.key, value: entry.value }));
-  const entries = [
-    ...remaining,
-    ...Object.entries(SYSTEM_SMTP_KEYS).map(([name, key]) => ({
-      key,
-      value: next[name as keyof SystemSmtpValues],
-    })),
-  ];
-  await replaceScopedEnvEntries('integrations', entries);
+  await mutateScopedEnvEntries('integrations', (entries) => {
+    const existingValues = valuesFromEntries(entries);
+    const passwordInput = typeof input.password === 'string' ? input.password : '';
+    const next: SystemSmtpValues = {
+      host: normalizeSmtpHost(input.host),
+      port: String(normalizeSmtpPort(input.port)),
+      secure: String(secureFromTlsMode(normalizeSmtpTlsMode(input.tlsMode, input.secure))),
+      username: normalizeRequiredSmtpString(input.username, 'SMTP username'),
+      password: passwordInput || existingValues.password,
+      fromAddress: normalizeSmtpEmailAddress(input.fromAddress, 'Sender email address'),
+      fromName: normalizeOptionalSmtpString(input.fromName) || '',
+      replyTo: normalizeOptionalSmtpString(input.replyTo)
+        ? normalizeSmtpEmailAddress(input.replyTo, 'Reply-to email address')
+        : '',
+      deliveryMode: 'local',
+    };
+    parseConfiguredValues(next);
+    return [
+      ...entries.filter((entry) => !SYSTEM_SMTP_ENV_KEY_SET.has(entry.key)),
+      ...Object.entries(SYSTEM_SMTP_KEYS).map(([name, key]) => ({ key, value: next[name as keyof SystemSmtpValues] })),
+    ];
+  });
   return getSystemSmtpConfigurationStatus();
 }
 
 export async function setSystemEmailDeliveryMode(mode: SystemEmailDeliveryMode): Promise<SystemSmtpConfigurationStatus> {
-  const state = await readScopedEnvState('integrations');
-  const remaining = state.entries
-    .filter((entry) => !SYSTEM_SMTP_ENV_KEY_SET.has(entry.key))
-    .map((entry) => ({ key: entry.key, value: entry.value }));
-  await replaceScopedEnvEntries('integrations', [
-    ...remaining,
+  await mutateScopedEnvEntries('integrations', (entries) => [
+    ...entries.filter((entry) => entry.key !== SYSTEM_SMTP_KEYS.deliveryMode),
     { key: SYSTEM_SMTP_KEYS.deliveryMode, value: mode },
-    ...state.entries
-      .filter((entry) => SYSTEM_SMTP_ENV_KEY_SET.has(entry.key) && entry.key !== SYSTEM_SMTP_KEYS.deliveryMode)
-      .map((entry) => ({ key: entry.key, value: entry.value })),
   ]);
   return getSystemSmtpConfigurationStatus();
 }
 
 export async function clearSystemSmtpConfiguration(): Promise<SystemSmtpConfigurationStatus> {
-  const state = await readScopedEnvState('integrations');
-  await replaceScopedEnvEntries(
-    'integrations',
-    state.entries
-      .filter((entry) => !SYSTEM_SMTP_ENV_KEY_SET.has(entry.key))
-      .map((entry) => ({ key: entry.key, value: entry.value })),
-  );
+  await mutateScopedEnvEntries('integrations', (entries) => [
+    ...entries.filter((entry) => !SYSTEM_SMTP_ENV_KEY_SET.has(entry.key)),
+    { key: SYSTEM_SMTP_KEYS.deliveryMode, value: 'disabled' },
+  ]);
   return getSystemSmtpConfigurationStatus();
 }

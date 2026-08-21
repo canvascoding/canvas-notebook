@@ -5,7 +5,10 @@ import { and, eq } from 'drizzle-orm';
 
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
 import type { AgentStorageScope } from '@/app/lib/agents/storage';
-import { truncateComposedSystemPrompt } from '@/app/lib/agents/system-prompt-shared';
+import {
+  SYSTEM_PROMPT_FOUNDATION_MARKER,
+  truncateComposedSystemPrompt,
+} from '@/app/lib/agents/system-prompt-shared';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { ensureCanvasMarkdownAgentGuidance } from '@/app/lib/markdown/canvas-markdown-agent-guidance';
@@ -64,7 +67,7 @@ export async function ensurePiSessionSystemPromptSnapshot(
   session: PiSessionPromptSnapshotRow,
 ): Promise<PiSystemPromptSnapshot> {
   const existingPrompt = session.systemPromptSnapshot;
-  if (existingPrompt && existingPrompt.length > 0) {
+  if (existingPrompt && existingPrompt.length > 0 && existingPrompt.includes(SYSTEM_PROMPT_FOUNDATION_MARKER)) {
     const boundedPrompt = truncateComposedSystemPrompt(
       ensureCanvasMarkdownAgentGuidance(existingPrompt),
     );

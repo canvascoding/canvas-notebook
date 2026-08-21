@@ -17,7 +17,12 @@ import {
 } from '@/app/lib/onboarding/profile';
 import { createOnboardingProfileTool, createUserScopedTools } from '@/app/lib/pi/scoped-tools';
 import { createAgentManagementTools } from '@/app/lib/pi/agent-management-tools';
-import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
+import { DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
+import {
+  EMAIL_AGENT_ALLOWED_TOOL_NAME_SET,
+  filterToolsToAllowedNames,
+} from '@/app/lib/pi/email-agent-policy';
+import { filterToolsForWorkspacePermissions } from '@/app/lib/pi/workspace-tool-policy';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { getErrorMessage, wrapToolWithExecutionContext } from '@/app/lib/pi/tool-runtime-helpers';
@@ -49,28 +54,8 @@ export type PiToolGroup = 'Core' | 'Documents' | 'Studio' | 'Automation' | 'Agen
 // normal tool preferences. It keeps the useful read-only workspace context,
 // but excludes shells, mutations, delegation, external integrations, and
 // automation/agent administration.
-const EMAIL_EVENT_AUTOMATION_ALLOWED_TOOL_NAMES = new Set([
-  'ls',
-  'read',
-  'rg',
-  'grep',
-  'glob',
-  'list_file_snapshots',
-  'inspect_document_relations',
-  'session_search',
-  'email_list_mailboxes',
-  'email_search_messages',
-  'email_read_message',
-  'email_list_thread_messages',
-  'email_list_cases',
-  'email_create_or_update_case',
-  'email_create_outbox_draft',
-  'email_update_outbox_draft',
-  'email_list_outbox_drafts',
-]);
-
 export function filterEmailEventAutomationTools(tools: AgentTool[]): AgentTool[] {
-  return tools.filter((tool) => EMAIL_EVENT_AUTOMATION_ALLOWED_TOOL_NAMES.has(tool.name));
+  return filterToolsToAllowedNames(tools, EMAIL_AGENT_ALLOWED_TOOL_NAME_SET);
 }
 
 export type PiToolMetadata = {
@@ -448,6 +433,17 @@ export async function getPiTools(
     if (onboardingProfileToolAvailable && !allTools.some((tool) => tool.name === ONBOARDING_PROFILE_TOOL_NAME)) {
       allTools.push(createOnboardingProfileTool(userId, agentId, sessionId));
     }
+  }
+
+  // Persisted preferences are never an authority for the built-in email
+  // agent. Reapply its narrow ceiling after normal configuration/default
+  // resolution so a modified database row cannot add a capability.
+  if (agentId?.trim().toLowerCase() === EMAIL_MANAGED_AGENT_ID) {
+    allTools = filterToolsToAllowedNames(allTools, EMAIL_AGENT_ALLOWED_TOOL_NAME_SET);
+  }
+
+  if (resolvedExecutionContext) {
+    allTools = filterToolsForWorkspacePermissions(allTools, resolvedExecutionContext);
   }
 
   // An event run uses a small server-side capability set. The bound email

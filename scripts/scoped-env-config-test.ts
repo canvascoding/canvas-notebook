@@ -30,6 +30,8 @@ async function main() {
       getEnvFilePath,
       getOpenAIApiKeyFromIntegrations,
       readScopedEnvState,
+      mutateScopedEnvEntries,
+      mutateScopedEnvRaw,
       replaceScopedEnvEntries,
       writeScopedEnvRaw,
     } = await import('../app/lib/integrations/env-config');
@@ -77,6 +79,17 @@ async function main() {
     assert.equal(systemIntegrations.entries.find((entry) => entry.key === 'SYSTEM_API_KEY')?.value, 'system-key');
     assert.equal(legacyIntegrations.exists, false);
     assert.equal(userAIntegrations.entries.some((entry) => entry.value === 'user-b-key'), false);
+
+    await mutateScopedEnvEntries('integrations', (entries) => [
+      ...entries.filter((entry) => entry.key !== 'SYSTEM_TEST_KEY'),
+      { key: 'SYSTEM_TEST_KEY', value: 'kept-while-updating' },
+    ], system);
+    await mutateScopedEnvRaw('integrations', (state) => {
+      assert.equal(state.entries.find((entry) => entry.key === 'SYSTEM_TEST_KEY')?.value, 'kept-while-updating');
+      return '# Raw edits preserve their original file format\nSYSTEM_TEST_KEY=kept-while-updating\n';
+    }, system);
+    const serializedSystem = await readScopedEnvState('integrations', system);
+    assert.equal(serializedSystem.entries.find((entry) => entry.key === 'SYSTEM_TEST_KEY')?.value, 'kept-while-updating');
 
     const userAFileMode = (await fs.stat(userAIntegrations.path)).mode & 0o777;
     assert.equal(userAFileMode, 0o600);

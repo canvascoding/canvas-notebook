@@ -48,6 +48,11 @@ import {
 } from '@/app/lib/pi/session-exclusive-execution';
 import { loadPiSessionSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
+import {
+  appendEffectiveToolCapabilitiesPrompt,
+  buildEffectiveToolManifest,
+  effectiveToolManifestHas,
+} from '@/app/lib/pi/effective-tool-manifest';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { buildAutomationPrompt } from './prompt';
@@ -520,15 +525,23 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         promptSnapshot.systemPrompt,
         automationBrandContext,
       );
-      const initialWorkspaceFileTree = await buildWorkspaceFileTreePrompt({
-        workspaceId: automationWorkspace.workspaceId,
-        rootPath: automationWorkspace.rootPath,
-      });
-      const systemPrompt = replaceWorkspaceFileTreePromptBlock(
+      const effectiveBaseSystemPrompt = appendEffectiveToolCapabilitiesPrompt(
         baseSystemPrompt,
+        buildEffectiveToolManifest(tools),
+      );
+      const hasWorkspaceReadCapability = ['ls', 'read', 'rg', 'grep', 'glob', 'inspect_document_relations']
+        .some((toolName) => effectiveToolManifestHas(buildEffectiveToolManifest(tools), toolName));
+      const initialWorkspaceFileTree = hasWorkspaceReadCapability
+        ? await buildWorkspaceFileTreePrompt({
+            workspaceId: automationWorkspace.workspaceId,
+            rootPath: automationWorkspace.rootPath,
+          })
+        : { promptBlock: '' };
+      const systemPrompt = replaceWorkspaceFileTreePromptBlock(
+        effectiveBaseSystemPrompt,
         initialWorkspaceFileTree.promptBlock,
       );
-      const systemPromptBudgetTokens = estimateTextTokens(baseSystemPrompt)
+      const systemPromptBudgetTokens = estimateTextTokens(effectiveBaseSystemPrompt)
         + estimateTextTokens('x'.repeat(WORKSPACE_FILE_TREE_MAX_PROMPT_BYTES));
       const promptMessage: AgentMessage = {
         role: 'user',
@@ -627,15 +640,17 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             uploadWorkspaceId: automationWorkspace.workspaceId,
           }),
           prepareNextTurn: async (turnContext: { context: AgentContext }) => {
-            const nextWorkspaceFileTree = await buildWorkspaceFileTreePrompt({
-              workspaceId: automationWorkspace.workspaceId,
-              rootPath: automationWorkspace.rootPath,
-            });
+            const nextWorkspaceFileTree = hasWorkspaceReadCapability
+              ? await buildWorkspaceFileTreePrompt({
+                  workspaceId: automationWorkspace.workspaceId,
+                  rootPath: automationWorkspace.rootPath,
+                })
+              : { promptBlock: '' };
             return {
               context: {
                 ...turnContext.context,
                 systemPrompt: replaceWorkspaceFileTreePromptBlock(
-                  baseSystemPrompt,
+                  effectiveBaseSystemPrompt,
                   nextWorkspaceFileTree.promptBlock,
                 ),
               },

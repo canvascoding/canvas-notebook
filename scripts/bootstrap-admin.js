@@ -972,7 +972,12 @@ function migrateLegacySecretsToUserScope(userId) {
     if (!fileExists(file.sourcePath)) continue;
 
     sawLegacyFile = true;
-    const legacyEntries = readEnvEntries(file.sourcePath);
+    const legacyEntries = readEnvEntries(file.sourcePath)
+      .filter((entry) => file.kind !== 'integrations' || ![
+        'CANVAS_SYSTEM_SMTP_HOST', 'CANVAS_SYSTEM_SMTP_PORT', 'CANVAS_SYSTEM_SMTP_SECURE',
+        'CANVAS_SYSTEM_SMTP_USERNAME', 'CANVAS_SYSTEM_SMTP_PASSWORD', 'CANVAS_SYSTEM_EMAIL_FROM',
+        'CANVAS_SYSTEM_EMAIL_FROM_NAME', 'CANVAS_SYSTEM_EMAIL_REPLY_TO', 'CANVAS_SYSTEM_EMAIL_DELIVERY_MODE',
+      ].includes(entry.key));
     if (legacyEntries.length === 0) continue;
 
     sawLegacyEntries = true;

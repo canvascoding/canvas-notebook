@@ -223,8 +223,8 @@ async function main() {
     console.error = originalConsoleError;
   }
   assert.equal(invalidPromptFallback.diagnostics.usedFallback, true);
-  assert.match(invalidPromptFallback.systemPrompt, /^# Canvas Notebook Runtime/);
-  assert.match(invalidPromptFallback.systemPrompt, /## File Access for Uploaded Attachments/);
+  assert.match(invalidPromptFallback.systemPrompt, /^<!-- canvas-system-prompt-foundation:v2 -->\n\n# Canvas Notebook Runtime/);
+  assert.doesNotMatch(invalidPromptFallback.systemPrompt, /## File Access for Uploaded Attachments/);
   await assert.rejects(
     () => writeManagedAgentFile('AGENTS.md', 'Invalid scoped prompt.\n', DEFAULT_MANAGED_AGENT_ID, {
       userId: '../other-user',
@@ -265,26 +265,23 @@ async function main() {
   assert.deepEqual(customConfig.enabledTools, ['bash']);
   assert.deepEqual(customConfig.overrideState, { model: true, tools: true });
   const customToolPrompt = await loadManagedAgentSystemPrompt(customAgent.agentId);
-  assert.match(customToolPrompt.systemPrompt, /## Agent-Enabled Runtime Tools/);
-  assert.match(customToolPrompt.systemPrompt, /`bash`/);
-  assert.doesNotMatch(customToolPrompt.systemPrompt, /^- `read` /m);
+  assert.doesNotMatch(customToolPrompt.systemPrompt, /## Agent-Enabled Runtime Tools/);
+  assert.doesNotMatch(customToolPrompt.systemPrompt, /`bash`/);
 
   const mcpAgent = await createAgentProfile({
     name: 'MCP Agent',
     enabledTools: ['mcp'],
   });
   const mcpPrompt = await loadManagedAgentSystemPrompt(mcpAgent.agentId);
-  assert.match(mcpPrompt.systemPrompt, /## Agent-Enabled Runtime Tools/);
-  assert.match(mcpPrompt.systemPrompt, /`mcp`/);
-  assert.match(mcpPrompt.systemPrompt, /Connector Discovery Hints/);
-  assert.match(mcpPrompt.systemPrompt, /search_tools/);
+  assert.doesNotMatch(mcpPrompt.systemPrompt, /## Agent-Enabled Runtime Tools/);
+  assert.doesNotMatch(mcpPrompt.systemPrompt, /Connector Discovery Hints/);
 
   const restrictedEmailAgent = await createAgentProfile({
     name: 'Restricted Email Agent',
     enabledTools: ['email_search_messages'],
   });
   const restrictedEmailPrompt = await loadManagedAgentSystemPrompt(restrictedEmailAgent.agentId);
-  assert.match(restrictedEmailPrompt.systemPrompt, /`email_search_messages`/);
+  assert.doesNotMatch(restrictedEmailPrompt.systemPrompt, /`email_search_messages`/);
   assert.doesNotMatch(restrictedEmailPrompt.systemPrompt, /email_send_draft/);
 
   const legacyAgent = await createAgentProfile({
@@ -378,9 +375,9 @@ async function main() {
   assert.match(prompt.systemPrompt, /# Enabled Skills/);
   assert.match(prompt.systemPrompt, /## Skill: research-notes/);
   assert.doesNotMatch(prompt.systemPrompt, /general-helper/);
-  assert.match(prompt.systemPrompt, /## Prioritized Apps & MCP/);
-  assert.match(prompt.systemPrompt, /Docs/);
-  assert.match(prompt.systemPrompt, /slack/);
+  assert.doesNotMatch(prompt.systemPrompt, /## Prioritized Apps & MCP/);
+  assert.doesNotMatch(prompt.systemPrompt, /Docs/);
+  assert.doesNotMatch(prompt.systemPrompt, /slack/);
 
   const inheritedPrompt = await loadManagedAgentSystemPrompt(inheritedAgent.agentId);
   assert.match(inheritedPrompt.systemPrompt, /## Skill: research-notes/);
@@ -479,7 +476,7 @@ async function main() {
   assert.ok(oversizedSession);
   const boundedSnapshot = await ensurePiSessionSystemPromptSnapshot(oversizedSession);
   assert.ok(Buffer.byteLength(boundedSnapshot.systemPrompt, 'utf8') <= MAX_COMPOSED_SYSTEM_PROMPT_BYTES);
-  assert.match(boundedSnapshot.systemPrompt, /Content truncated to keep the runtime context within its safety budget\./);
+  assert.match(boundedSnapshot.systemPrompt, /<!-- canvas-system-prompt-foundation:v2 -->/);
   const persistedBoundedSession = await db.query.piSessions.findFirst({
     where: eq(piSessions.sessionId, 'oversized-snapshot-session'),
   });

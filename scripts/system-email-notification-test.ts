@@ -45,6 +45,7 @@ async function main() {
     setSystemEmailDeliveryMode,
   } = await import('../app/lib/email/system-smtp-config');
   const { resolveNotificationDeliveryRoute, sendNotificationThroughRoute } = await import('../app/lib/email/notification-delivery-service');
+  const { sendSystemEmailTestMessage, SystemEmailAdminError } = await import('../app/lib/email/system-email-admin-service');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-transport');
   const { sendSystemSmtpEmail, verifySystemSmtpConnection } = await import('../app/lib/email/system-smtp-service');
 
@@ -129,6 +130,15 @@ async function main() {
   assert.equal(status.passwordConfigured, true);
   assert.equal(status.host, 'smtp.example.test');
   assert.equal(status.fromAddress, 'notifications@example.test');
+  assert.equal(status.tlsMode, 'starttls');
+
+  await assert.rejects(
+    () => saveSystemSmtpConfiguration({
+      host: 'smtp.example.test', port: '587-not-a-port', secure: false,
+      username: 'notifications@example.test', password: 'test-password', fromAddress: 'notifications@example.test',
+    }),
+    /SMTP port must be a port/u,
+  );
 
   const route = await resolveNotificationDeliveryRoute('recipient-without-mailbox', 'recipient@example.test');
   assert.deepEqual(route, { kind: 'system_smtp' });
@@ -162,6 +172,12 @@ async function main() {
   assert.equal(sentMessages.length, 2);
   assert.equal(sentMessages[1]?.subject, 'Routed system notification');
 
+  const testMessage = await sendSystemEmailTestMessage('admin@example.test');
+  assert.equal(testMessage.mode, 'local');
+  assert.equal(testMessage.recipientMasked, 'a***@example.test');
+  assert.equal(sentMessages[2]?.subject, 'Canvas Notebook system email test');
+  assert.deepEqual(sentMessages[2]?.to, ['admin@example.test']);
+
   const unchangedPasswordStatus = await saveSystemSmtpConfiguration({
     host: 'smtp.example.test',
     port: 465,
@@ -173,9 +189,17 @@ async function main() {
   assert.equal(unchangedPasswordStatus.configured, true);
   assert.equal(unchangedPasswordStatus.port, 465);
   assert.equal(unchangedPasswordStatus.secure, true);
+  assert.equal(unchangedPasswordStatus.tlsMode, 'implicit_tls');
 
   await clearSystemSmtpConfiguration();
   assert.equal((await getSystemSmtpConfigurationStatus()).configured, false);
+  assert.equal((await getSystemSmtpConfigurationStatus()).deliveryMode, 'disabled');
+  await assert.rejects(
+    () => sendSystemEmailTestMessage('admin@example.test'),
+    (error: unknown) => error instanceof SystemEmailAdminError && error.code === 'SYSTEM_EMAIL_MODE_UNAVAILABLE',
+  );
+  const disabledRoute = await resolveNotificationDeliveryRoute('recipient-without-mailbox', 'recipient@example.test');
+  assert.deepEqual(disabledRoute, { kind: 'unavailable', reason: 'System email delivery is disabled by an administrator.' });
   setSmtpTransportFactoryForTests(null);
   console.log('System email notification test passed.');
 }

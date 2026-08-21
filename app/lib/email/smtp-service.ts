@@ -29,6 +29,13 @@ import {
   createSmtpTransport,
   type SmtpTransportConfig,
 } from '@/app/lib/email/smtp-transport';
+import {
+  normalizeRequiredSmtpString,
+  normalizeSmtpBoolean,
+  normalizeSmtpEmailAddress,
+  normalizeSmtpHost,
+  normalizeSmtpPort,
+} from '@/app/lib/email/smtp-configuration';
 
 export { setSmtpTransportFactoryForTests } from '@/app/lib/email/smtp-transport';
 
@@ -53,46 +60,14 @@ type SmtpEmailInput = LocalEmailDraftInput & {
   headers?: EmailCustomHeaders;
 };
 
-function normalizeHost(value: unknown, label: string): string {
-  if (typeof value !== 'string') throw new Error(`${label} is required.`);
-  const normalized = value.trim();
-  if (!normalized) throw new Error(`${label} is required.`);
-  if (/^[a-z][a-z0-9+.-]*:/iu.test(normalized) || /[/?#\\]/u.test(normalized)) {
-    throw new Error(`${label} must be a host name or IP address, not a URL.`);
-  }
-  return normalized;
-}
-
 function normalizeOptionalHost(value: unknown, label: string): string | undefined {
   if (value === undefined || value === null || value === '') return undefined;
-  return normalizeHost(value, label);
-}
-
-function normalizePort(value: unknown, label: string): number {
-  const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number.parseInt(value, 10) : NaN;
-  if (!Number.isInteger(numeric) || numeric < 1 || numeric > 65535) {
-    throw new Error(`${label} must be a port between 1 and 65535.`);
-  }
-  return numeric;
+  return normalizeSmtpHost(value, label);
 }
 
 function normalizeOptionalPort(value: unknown, label: string): number | undefined {
   if (value === undefined || value === null || value === '') return undefined;
-  return normalizePort(value, label);
-}
-
-function normalizeEmailAddress(value: unknown): string {
-  if (typeof value !== 'string') throw new Error('Email address is required.');
-  const normalized = value.trim().toLowerCase();
-  if (!normalized || !normalized.includes('@')) throw new Error('Email address is required.');
-  return normalized;
-}
-
-function normalizeRequiredString(value: unknown, label: string): string {
-  if (typeof value !== 'string') throw new Error(`${label} is required.`);
-  const normalized = value.trim();
-  if (!normalized) throw new Error(`${label} is required.`);
-  return normalized;
+  return normalizeSmtpPort(value, label);
 }
 
 function normalizePassword(value: unknown, fallback: string | undefined, label: string): string {
@@ -109,15 +84,15 @@ export type NormalizedSmtpAccountInput = {
 };
 
 export function normalizeSmtpAccountInput(input: SmtpAccountInput, existingSecret?: EmailAccountSmtpSecret | null): NormalizedSmtpAccountInput {
-  const emailAddress = normalizeEmailAddress(input.emailAddress);
-  const smtpHost = normalizeHost(input.smtpHost, 'SMTP host');
-  const smtpPort = normalizePort(input.smtpPort, 'SMTP port');
-  const smtpUsername = normalizeRequiredString(input.smtpUsername, 'SMTP username');
+  const emailAddress = normalizeSmtpEmailAddress(input.emailAddress);
+  const smtpHost = normalizeSmtpHost(input.smtpHost, 'SMTP host');
+  const smtpPort = normalizeSmtpPort(input.smtpPort, 'SMTP port');
+  const smtpUsername = normalizeRequiredSmtpString(input.smtpUsername, 'SMTP username');
   const smtpPassword = normalizePassword(input.smtpPassword, existingSecret?.smtp.password, 'SMTP password');
   const imapHost = normalizeOptionalHost(input.imapHost, 'IMAP host');
   const imapPort = normalizeOptionalPort(input.imapPort, 'IMAP port');
-  const imapUsername = input.imapUsername ? normalizeRequiredString(input.imapUsername, 'IMAP username') : undefined;
-  const imapPassword = input.imapPassword ? normalizeRequiredString(input.imapPassword, 'IMAP password') : existingSecret?.imap?.password;
+  const imapUsername = input.imapUsername ? normalizeRequiredSmtpString(input.imapUsername, 'IMAP username') : undefined;
+  const imapPassword = input.imapPassword ? normalizeRequiredSmtpString(input.imapPassword, 'IMAP password') : existingSecret?.imap?.password;
 
   if ((imapHost || imapPort || imapUsername || imapPassword) && (!imapHost || !imapPort || !imapUsername || !imapPassword)) {
     throw new Error('IMAP host, port, username, and password are all required when IMAP is configured.');
@@ -135,14 +110,14 @@ export function normalizeSmtpAccountInput(input: SmtpAccountInput, existingSecre
       smtp: {
         host: smtpHost,
         port: smtpPort,
-        secure: Boolean(input.smtpSecure),
+        secure: normalizeSmtpBoolean(input.smtpSecure, 'SMTP secure'),
         username: smtpUsername,
         password: smtpPassword,
       },
       imap: imapHost && imapPort && imapUsername && imapPassword ? {
         host: imapHost,
         port: imapPort,
-        secure: Boolean(input.imapSecure),
+        secure: normalizeSmtpBoolean(input.imapSecure, 'IMAP secure'),
         username: imapUsername,
         password: imapPassword,
       } : undefined,

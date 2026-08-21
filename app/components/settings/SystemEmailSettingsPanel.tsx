@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, Loader2, Mail, RefreshCw, Save, ShieldAlert, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,7 @@ type SystemEmailStatus = {
   host: string | null;
   port: number | null;
   secure: boolean | null;
+  tlsMode?: 'implicit_tls' | 'starttls' | null;
   username: string | null;
   fromAddress: string | null;
   fromName: string | null;
@@ -63,7 +65,13 @@ function formFromStatus(status: SystemEmailStatus): SystemEmailForm {
   };
 }
 
-export function SystemEmailSettingsPanel() {
+export function SystemEmailSettingsPanel({
+  canManageSystemEmail = true,
+  canManageWorkspaceMailboxes = false,
+}: {
+  canManageSystemEmail?: boolean;
+  canManageWorkspaceMailboxes?: boolean;
+}) {
   const t = useTranslations('settings.systemEmail');
   const [status, setStatus] = useState<SystemEmailStatus | null>(null);
   const [form, setForm] = useState<SystemEmailForm>(EMPTY_FORM);
@@ -73,6 +81,7 @@ export function SystemEmailSettingsPanel() {
   const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (!canManageSystemEmail) return;
     setIsLoading(true);
     setError(null);
     try {
@@ -87,9 +96,12 @@ export function SystemEmailSettingsPanel() {
     } finally {
       setIsLoading(false);
     }
-  }, [t]);
+  }, [canManageSystemEmail, t]);
 
   useEffect(() => {
+    if (!canManageSystemEmail) {
+      return;
+    }
     let cancelled = false;
     void fetch('/api/admin/system-email', { credentials: 'include', cache: 'no-store' })
       .then(async (response) => ({ response, payload: await response.json() }))
@@ -112,7 +124,7 @@ export function SystemEmailSettingsPanel() {
     return () => {
       cancelled = true;
     };
-  }, [t]);
+  }, [canManageSystemEmail, t]);
 
   const updateForm = <Key extends keyof SystemEmailForm>(key: Key, value: SystemEmailForm[Key]) => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -142,7 +154,7 @@ export function SystemEmailSettingsPanel() {
     }
   };
 
-  const updateDeliveryMode = async (mode: 'managed' | 'local') => {
+  const updateDeliveryMode = async (mode: 'managed' | 'local' | 'disabled') => {
     setAction('mode');
     setError(null);
     setMessage(null);
@@ -210,6 +222,11 @@ export function SystemEmailSettingsPanel() {
   const isBusy = action !== null;
   const configured = status?.configured === true;
   const isManagedMode = status?.deliveryMode === 'managed';
+  const isDisabledMode = status?.deliveryMode === 'disabled';
+
+  if (!canManageSystemEmail) {
+    return canManageWorkspaceMailboxes ? <WorkspaceMailboxesSettingsPanel /> : null;
+  }
 
   return (
     <div className="space-y-5">
@@ -220,8 +237,8 @@ export function SystemEmailSettingsPanel() {
             <CardTitle className="flex items-center gap-2 text-base"><Mail className="h-4 w-4" />{t('title')}</CardTitle>
             <CardDescription>{t('description')}</CardDescription>
           </div>
-          <Badge variant={isManagedMode ? 'default' : configured ? 'default' : 'secondary'}>
-            {isManagedMode ? t('managedActive') : configured ? t('statusConfigured') : t('statusNotConfigured')}
+          <Badge variant={isDisabledMode ? 'secondary' : isManagedMode ? 'default' : configured ? 'default' : 'secondary'}>
+            {isDisabledMode ? t('disabledActive') : isManagedMode ? t('managedActive') : configured ? t('statusConfigured') : t('statusNotConfigured')}
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">{t('fallbackDescription')}</p>
@@ -233,6 +250,11 @@ export function SystemEmailSettingsPanel() {
             <span>{t('incompleteConfiguration', { error: status.configurationError })}</span>
           </div>
         )}
+        {!isManagedMode && !configured && !status?.configurationError && (
+          <div className="border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+            {t('missingConfiguration')} <Link className="font-medium text-primary underline-offset-4 hover:underline" href="/settings?tab=integrations">{t('openIntegrations')}</Link>
+          </div>
+        )}
         {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
         {message && (
           <div className="flex gap-2 border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-300">
@@ -241,20 +263,15 @@ export function SystemEmailSettingsPanel() {
           </div>
         )}
 
-        {status?.managedAvailable && (
-          <div className="flex items-center justify-between gap-3 rounded-md border border-border p-3">
-            <div>
-              <Label htmlFor="system-email-managed">{t('managedToggle')}</Label>
-              <p className="text-xs text-muted-foreground">{isManagedMode ? t('managedDescription') : t('localDescription')}</p>
-            </div>
-            <Switch
-              id="system-email-managed"
-              checked={isManagedMode}
-              onCheckedChange={(checked) => void updateDeliveryMode(checked ? 'managed' : 'local')}
-              disabled={isLoading || isBusy}
-            />
-          </div>
-        )}
+        <div className="space-y-2 rounded-md border border-border p-3">
+          <Label htmlFor="system-email-mode">{t('deliveryMode')}</Label>
+          <select id="system-email-mode" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={status?.deliveryMode || 'local'} onChange={(event) => void updateDeliveryMode(event.target.value as 'managed' | 'local' | 'disabled')} disabled={isLoading || isBusy}>
+            <option value="local">{t('modeLocal')}</option>
+            <option value="managed" disabled={!status?.managedAvailable}>{t('modeManaged')}</option>
+            <option value="disabled">{t('modeDisabled')}</option>
+          </select>
+          <p className="text-xs text-muted-foreground">{isDisabledMode ? t('disabledDescription') : isManagedMode ? t('managedDescription') : t('localDescription')}</p>
+        </div>
 
         {isManagedMode && (
           <div className="border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
@@ -268,7 +285,7 @@ export function SystemEmailSettingsPanel() {
           </div>
         )}
 
-        {!isManagedMode && <>
+        {!isManagedMode && !isDisabledMode && <>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="system-smtp-host">{t('host')}</Label>
@@ -310,14 +327,6 @@ export function SystemEmailSettingsPanel() {
         </div>
 
         <div className="flex flex-wrap justify-end gap-2">
-          <Button type="button" variant="outline" onClick={() => void load()} disabled={isLoading || isBusy}>
-            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-            {t('reload')}
-          </Button>
-          <Button type="button" variant="outline" onClick={() => void testConnection()} disabled={isLoading || isBusy || !configured}>
-            {action === 'test' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {t('testConnection')}
-          </Button>
           <Button type="button" variant="outline" onClick={() => void remove()} disabled={isLoading || isBusy || !configured}>
             {action === 'remove' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
             {t('remove')}
@@ -328,9 +337,20 @@ export function SystemEmailSettingsPanel() {
           </Button>
         </div>
         </>}
+        {isDisabledMode && <div className="border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">{t('disabledDescription')}</div>}
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => void load()} disabled={isLoading || isBusy}>
+            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            {t('reload')}
+          </Button>
+          <Button type="button" variant="outline" onClick={() => void testConnection()} disabled={isLoading || isBusy || isDisabledMode || (!isManagedMode && !configured)}>
+            {action === 'test' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {t('sendTest')}
+          </Button>
+        </div>
       </CardContent>
     </Card>
-    <WorkspaceMailboxesSettingsPanel />
+    {canManageWorkspaceMailboxes && <WorkspaceMailboxesSettingsPanel />}
     </div>
   );
 }

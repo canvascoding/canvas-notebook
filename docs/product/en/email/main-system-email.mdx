@@ -6,12 +6,12 @@ sectionOrder: 7
 order: 10
 locale: en
 translationKey: email.main-system-email
-updatedAt: 2026-07-17
+updatedAt: 2026-08-21
 ---
 
 # Main Email and System Email
 
-Canvas Notebook uses two separate email concepts: a user's primary personal account and the instance's system SMTP sender.
+Canvas Notebook uses three separate email concepts: a user's primary personal account, the instance's system sender, and shared business mailboxes for workspaces.
 
 ## Primary personal account
 
@@ -23,7 +23,11 @@ Each user can have a different primary account. Disconnecting the primary promot
 
 System SMTP is configured by an administrator with host, port, secure mode, username, password, From address and name, and optional Reply-To. It sends platform-generated notification email rather than acting as a personal inbox. File and URL access are disabled for system-mail transport inputs.
 
-When no system sender exists, Canvas can use the notification recipient's primary send-capable personal account as a fallback. Once system SMTP is configured, a system send failure does not silently fall back to a personal sender. This prevents an unexpected change of identity after an administrator selected a system address.
+When no system sender exists, Canvas can use the notification recipient's primary send-capable personal account as a fallback. Once system SMTP is configured, a system send failure does not silently fall back to a personal sender. Managed and disabled modes also do not fall back when their selected system path is unavailable. This prevents an unexpected change of identity after an administrator selected a system address.
+
+## Shared business mailboxes
+
+Business mailboxes are SMTP/IMAP accounts used by a workspace, such as a shared support inbox. They have separate encrypted credentials, are owned by an organization admin, and can be assigned only within that organization. They are never a fallback or replacement for the instance-wide system sender.
 
 ## Choose clear identities
 

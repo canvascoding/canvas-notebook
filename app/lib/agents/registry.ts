@@ -8,6 +8,7 @@ import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ICON_ID, normalizeAgentIconId, type AgentIconId } from './icons';
 import { DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID, SYSTEM_MANAGED_AGENT_IDS } from './storage';
+import { EMAIL_AGENT_DEFAULT_ENABLED_TOOLS } from '../pi/email-agent-policy';
 
 export { EMAIL_MANAGED_AGENT_ID } from './storage';
 
@@ -28,7 +29,7 @@ const LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
   'workspace_email_list_outbox_drafts',
 ];
 
-const EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
+const PREVIOUS_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
   'email_list_mailboxes',
   'email_search_messages',
   'email_read_message',
@@ -247,8 +248,13 @@ export async function ensureEmailAgent(): Promise<AgentProfile> {
   });
   if (!row) throw new Error('Email Agent could not be loaded.');
   const configuredTools = parseEnabledTools(row.enabledToolsJson);
-  const isUnmodifiedLegacyProfile = configuredTools?.length === LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS.length
-    && configuredTools.every((tool, index) => tool === LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS[index]);
+  const isUnmodifiedLegacyProfile = [
+    LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS,
+    PREVIOUS_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS,
+  ].some((defaultTools) => (
+    configuredTools?.length === defaultTools.length
+      && configuredTools.every((tool, index) => tool === defaultTools[index])
+  ));
   if (isUnmodifiedLegacyProfile) {
     await db.update(agents).set({
       enabledToolsJson: JSON.stringify(EMAIL_AGENT_DEFAULT_ENABLED_TOOLS),
