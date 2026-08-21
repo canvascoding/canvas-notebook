@@ -122,7 +122,9 @@ export function runtimePrincipalCanUseUserCredentials(input: {
   return input.principal.type === 'user'
     && input.principal.userId === input.userId
     && input.principal.credentialSubjectUserId === input.userId
-    && input.executionMode !== 'organization_automation';
+    // V1 grants are deliberately interactive-only. Future execution modes
+    // must opt in through a separately reviewed policy and grant contract.
+    && input.executionMode === 'interactive';
 }
 
 function issue(
@@ -323,7 +325,7 @@ export async function resolveEffectiveAgentRuntime(
   const [catalog, policy, preference, agent, persistedSession] = await Promise.all([
     readAppRuntimeCatalog(context.organizationId),
     readWorkspaceModelPolicy(context.organizationId, context.workspaceId),
-    principal.type === 'user'
+    principal.type === 'user' && executionAllowsUserCredentials
       ? readUserModelPreference({
         organizationId: context.organizationId,
         userId: principal.credentialSubjectUserId,
@@ -398,7 +400,7 @@ export async function resolveEffectiveAgentRuntime(
 
   const explicit = context.requestedSelection
     ? { selection: context.requestedSelection, source: 'session' as const, snapshot: null }
-    : persistedSession
+    : persistedSession && executionAllowsUserCredentials
       ? {
           selection: persistedSession.selection,
           source: persistedSession.selectionSource,

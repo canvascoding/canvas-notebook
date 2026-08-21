@@ -886,6 +886,25 @@ async function main() {
   });
   assert.equal(resolution.source, 'user_preference');
 
+  // A personal interactive grant must not follow the same user's session into
+  // an external channel. Those runs use only non-user credentials unless a
+  // future, separately reviewed grant mode explicitly permits them.
+  const externalChannelResolution = await resolveEffectiveAgentRuntime({
+    ...organizationContext,
+    executionMode: 'external_channel',
+    principal: {
+      type: 'user',
+      userId: owner.id,
+      credentialSubjectUserId: owner.id,
+    },
+  });
+  assert.equal(externalChannelResolution.valid, true);
+  assert.equal(externalChannelResolution.source, 'workspace_default');
+  assert.equal(
+    externalChannelResolution.providers.some((provider) => provider.installationId === userProviderId),
+    false,
+  );
+
   // Organization automations retain a responsible user for audit and
   // workspace authorization, but that user must never become the credential
   // subject. Even with the workspace policy and a user preference enabled,
