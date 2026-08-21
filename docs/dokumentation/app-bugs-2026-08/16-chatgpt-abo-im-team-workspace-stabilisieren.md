@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 16: Persoenliches ChatGPT-Abo im Team-Workspace nutzbar machen'
-status: in_progress
+status: in_review
 priority: high
 depends_on: []
 platforms: [web, server, agent-runtime]
@@ -34,10 +34,10 @@ Provider und Session-Runtime muss ueberprueft werden.
 
 ## Aktueller Umsetzungsstand (2026-08-21)
 
-Die Consent-, Resolver- und Credential-Isolationsaenderungen werden in einem
-separaten, gepushten Branch vorbereitet. Sie sind noch nicht in `main`
-integriert. Das Ticket bleibt bis zur fokussierten Testabnahme mit Testkonten
-und zur Integration offen.
+Die Consent-, Resolver- und Credential-Isolationsaenderungen sind als PR #73
+in `main` integriert. Die fokussierte Runtime-Abnahme mit Testkonten sowie die
+manuelle Verifikation der Consent-/Reauth-Zustaende stehen noch aus; das Ticket
+ist deshalb in Abnahme und nicht erledigt.
 
 - OAuth-/Provider-Credentials, Runtime-Resolver, Session-Snapshots und
   Workspace-Berechtigungen fuer persoenliche und Team-Sessions inventarisieren.
