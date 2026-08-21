@@ -195,6 +195,7 @@ async function main(): Promise<void> {
     }));
     assert.equal(untrustedOriginResponse.status, 403);
     assert.equal(untrustedOriginResponse.headers.get('access-control-allow-origin'), null);
+    assert.match(untrustedOriginResponse.headers.get('x-request-id') || '', /^[0-9a-f-]{36}$/iu);
 
     const trustedPreflight = await mcpRoute.OPTIONS(new Request(`${ORIGIN}/mcp`, {
       method: 'OPTIONS',
@@ -203,6 +204,7 @@ async function main(): Promise<void> {
     assert.equal(trustedPreflight.status, 204);
     assert.equal(trustedPreflight.headers.get('access-control-allow-origin'), ORIGIN);
     assert.match(trustedPreflight.headers.get('vary') || '', /Origin/u);
+    assert.match(trustedPreflight.headers.get('x-request-id') || '', /^[0-9a-f-]{36}$/iu);
 
     const untrustedPreflight = await mcpRoute.OPTIONS(new Request(`${ORIGIN}/mcp`, {
       method: 'OPTIONS',
@@ -629,10 +631,12 @@ async function main(): Promise<void> {
     const getResponse = await mcpRoute.GET(new Request(`${ORIGIN}/mcp`));
     assert.equal(getResponse.status, 405);
     assert.equal(getResponse.headers.get('allow'), 'POST, OPTIONS');
+    assert.match(getResponse.headers.get('x-request-id') || '', /^[0-9a-f-]{36}$/iu);
     const optionsResponse = await mcpRoute.OPTIONS(new Request(`${ORIGIN}/mcp`, {
       method: 'OPTIONS',
     }));
     assert.equal(optionsResponse.status, 204);
+    assert.match(optionsResponse.headers.get('x-request-id') || '', /^[0-9a-f-]{36}$/iu);
     assert.ok(
       optionsResponse.headers
         .get('access-control-allow-headers')

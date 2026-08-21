@@ -519,8 +519,8 @@ async function executeListWorkspaces(
       resultCount: workspaces.length,
     });
     return result({ workspaces }, `${workspaces.length} Canvas workspace(s) available.`);
-  } catch (error) {
-    return errorResult(error instanceof Error ? error.message : 'Could not list Canvas workspaces.');
+  } catch {
+    return errorResult('Could not list Canvas workspaces.');
   }
 }
 
@@ -562,8 +562,8 @@ async function executeGetWorkspaceOverview(
       resultCount: topLevel.length,
     });
     return result(structuredContent, `Overview for ${workspace.displayName || 'workspace'} loaded.`);
-  } catch (error) {
-    return errorResult(error instanceof Error ? error.message : 'Could not load the Canvas workspace overview.');
+  } catch {
+    return errorResult('Could not load the Canvas workspace overview.');
   }
 }
 
@@ -601,8 +601,8 @@ async function executeListKnowledgeTree(
       resultCount: tree.entries.length,
     });
     return result(structuredContent, `${tree.entries.length} workspace file(s) and folder(s) found.`);
-  } catch (error) {
-    return errorResult(error instanceof Error ? error.message : 'Could not browse the Canvas workspace.');
+  } catch {
+    return errorResult('Could not browse the Canvas workspace.');
   }
 }
 
@@ -667,8 +667,8 @@ async function executeSearchKnowledge(
       resultCount: results.length,
     });
     return result(structuredContent, `${results.length} matching workspace document(s) found.`);
-  } catch (error) {
-    return errorResult(error instanceof Error ? error.message : 'Could not search the Canvas workspace.');
+  } catch {
+    return errorResult('Could not search the Canvas workspace.');
   }
 }
 
@@ -721,8 +721,8 @@ async function executeReadKnowledgeSource(
       resultCount: content.length,
     });
     return result(structuredContent, `Read ${content.length} characters from ${filePath}.`);
-  } catch (error) {
-    return errorResult(error instanceof Error ? error.message : 'Could not read the Canvas workspace file.');
+  } catch {
+    return errorResult('Could not read the Canvas workspace file.');
   }
 }
 

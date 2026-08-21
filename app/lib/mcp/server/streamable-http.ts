@@ -149,6 +149,17 @@ function methodNotAllowed(request: Request): Response {
   }), request);
 }
 
+function internalMcpErrorResponse(): Response {
+  return Response.json({
+    jsonrpc: '2.0',
+    error: {
+      code: -32603,
+      message: 'Internal server error.',
+    },
+    id: null,
+  }, { status: 500 });
+}
+
 async function resolveAuthInfo(request: Request): Promise<AuthInfo | undefined> {
   if (!request.headers.has('authorization')) return undefined;
 
@@ -233,41 +244,113 @@ export async function handleDirectMcpPost(request: Request): Promise<Response> {
       startedAt,
       statusCode: 500,
     });
-    return withDirectMcpHeaders(Response.json({
-      jsonrpc: '2.0',
-      error: {
-        code: -32603,
-        message: 'Internal server error.',
-      },
-      id: null,
-    }, { status: 500 }), request, diagnostics.requestId);
+    return withDirectMcpHeaders(internalMcpErrorResponse(), request, diagnostics.requestId);
   }
 }
 
 export async function handleDirectMcpUnsupportedMethod(request: Request): Promise<Response> {
-  if (!(await getDirectMcpRuntimeSettings()).enabled) return directMcpNotFound();
-  return rejectUntrustedOrigin(request) || methodNotAllowed(request);
+  const startedAt = Date.now();
+  const diagnostics = beginDirectMcpDiagnostic(request, 'mcp.http');
+  try {
+    const runtimeSettings = await getDirectMcpRuntimeSettings();
+    const response = !runtimeSettings.enabled
+      ? directMcpNotFound()
+      : rejectUntrustedOrigin(request) || methodNotAllowed(request);
+    const responseWithHeaders = withDirectMcpHeaders(
+      response,
+      request,
+      diagnostics.requestId,
+    );
+    completeDirectMcpDiagnostic(diagnostics, {
+      statusCode: responseWithHeaders.status,
+      code: responseWithHeaders.status === 404
+        ? 'MCP_DISABLED'
+        : responseWithHeaders.status === 403
+          ? 'MCP_ORIGIN_REJECTED'
+          : 'MCP_METHOD_REJECTED',
+      startedAt,
+    });
+    return responseWithHeaders;
+  } catch {
+    failDirectMcpDiagnostic(diagnostics, {
+      code: 'MCP_INTERNAL_ERROR',
+      startedAt,
+      statusCode: 500,
+    });
+    return withDirectMcpHeaders(
+      internalMcpErrorResponse(),
+      request,
+      diagnostics.requestId,
+    );
+  }
 }
 
 export async function handleDirectMcpOptions(request: Request): Promise<Response> {
-  if (!(await getDirectMcpRuntimeSettings()).enabled) return directMcpNotFound();
-  const originRejection = rejectUntrustedOrigin(request);
-  if (originRejection) return originRejection;
-  const origin = request.headers.get('origin');
-  const requestedHeaders = request.headers.get('access-control-request-headers');
-  const headers = new Headers({
-    'access-control-allow-headers': requestedHeaders || MCP_ALLOWED_HEADERS,
-    'access-control-allow-methods': MCP_ALLOWED_METHODS,
-    'access-control-expose-headers': MCP_EXPOSED_HEADERS,
-    'access-control-max-age': '300',
-    allow: MCP_ALLOWED_METHODS,
-  });
-  if (origin && isConfiguredTrustedOrigin(origin)) {
-    headers.set('access-control-allow-origin', new URL(origin).origin);
-    headers.append('vary', 'Origin');
+  const startedAt = Date.now();
+  const diagnostics = beginDirectMcpDiagnostic(request, 'mcp.http');
+  try {
+    const runtimeSettings = await getDirectMcpRuntimeSettings();
+    if (!runtimeSettings.enabled) {
+      const response = withDirectMcpHeaders(
+        directMcpNotFound(),
+        request,
+        diagnostics.requestId,
+      );
+      completeDirectMcpDiagnostic(diagnostics, {
+        statusCode: response.status,
+        code: 'MCP_DISABLED',
+        startedAt,
+      });
+      return response;
+    }
+    const originRejection = rejectUntrustedOrigin(request);
+    if (originRejection) {
+      const response = withDirectMcpHeaders(
+        originRejection,
+        request,
+        diagnostics.requestId,
+      );
+      completeDirectMcpDiagnostic(diagnostics, {
+        statusCode: response.status,
+        code: 'MCP_ORIGIN_REJECTED',
+        startedAt,
+      });
+      return response;
+    }
+    const origin = request.headers.get('origin');
+    const requestedHeaders = request.headers.get('access-control-request-headers');
+    const headers = new Headers({
+      'access-control-allow-headers': requestedHeaders || MCP_ALLOWED_HEADERS,
+      'access-control-allow-methods': MCP_ALLOWED_METHODS,
+      'access-control-expose-headers': MCP_EXPOSED_HEADERS,
+      'access-control-max-age': '300',
+      allow: MCP_ALLOWED_METHODS,
+    });
+    if (origin && isConfiguredTrustedOrigin(origin)) {
+      headers.set('access-control-allow-origin', new URL(origin).origin);
+      headers.append('vary', 'Origin');
+    }
+    const response = withDirectMcpHeaders(
+      new Response(null, { status: 204, headers }),
+      request,
+      diagnostics.requestId,
+    );
+    completeDirectMcpDiagnostic(diagnostics, {
+      statusCode: response.status,
+      code: 'MCP_OPTIONS_COMPLETED',
+      startedAt,
+    });
+    return response;
+  } catch {
+    failDirectMcpDiagnostic(diagnostics, {
+      code: 'MCP_INTERNAL_ERROR',
+      startedAt,
+      statusCode: 500,
+    });
+    return withDirectMcpHeaders(
+      internalMcpErrorResponse(),
+      request,
+      diagnostics.requestId,
+    );
   }
-  return new Response(null, {
-    status: 204,
-    headers,
-  });
 }
