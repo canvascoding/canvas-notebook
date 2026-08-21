@@ -41,6 +41,28 @@ const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist',
 const HIDDEN_WORKSPACE_METADATA_FILES = new Set(['.gitkeep', '.keep']);
 const FILE_METADATA_CONCURRENCY = 32;
 const FILE_TREE_DIRECTORY_CONCURRENCY = 16;
+const workspaceFileMutationLocks = new Map<string, Promise<void>>();
+
+async function withWorkspaceFileMutationLock<T>(
+  filePath: string,
+  options: WorkspaceFileOperationOptions | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const key = `${getWorkspace(options).workspaceId}\0${filePath}`;
+  const previous = workspaceFileMutationLocks.get(key) ?? Promise.resolve();
+  let releaseCurrent!: () => void;
+  const current = new Promise<void>((resolve) => { releaseCurrent = resolve; });
+  const queued = previous.then(() => current);
+  workspaceFileMutationLocks.set(key, queued);
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    releaseCurrent();
+    if (workspaceFileMutationLocks.get(key) === queued) workspaceFileMutationLocks.delete(key);
+  }
+}
 
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -184,6 +206,19 @@ export async function writeFile(
   options?: WorkspaceFileOperationOptions,
   onBeforeReplace?: () => Promise<void>,
 ): Promise<void> {
+  return withWorkspaceFileMutationLock(
+    filePath,
+    options,
+    () => writeFileUnlocked(filePath, content, options, onBeforeReplace),
+  );
+}
+
+async function writeFileUnlocked(
+  filePath: string,
+  content: Buffer | string,
+  options?: WorkspaceFileOperationOptions,
+  onBeforeReplace?: () => Promise<void>,
+): Promise<void> {
   const fullPath = await resolveWritableWorkspacePath(filePath, options);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
   const stagingPath = `${fullPath}.canvas-write-${randomUUID()}.tmp`;
@@ -219,6 +254,18 @@ export async function writeFile(
 }
 
 export async function replaceWorkspaceFileFromPath(
+  sourcePath: string,
+  filePath: string,
+  options?: WorkspaceFileOperationOptions,
+): Promise<void> {
+  return withWorkspaceFileMutationLock(
+    filePath,
+    options,
+    () => replaceWorkspaceFileFromPathUnlocked(sourcePath, filePath, options),
+  );
+}
+
+async function replaceWorkspaceFileFromPathUnlocked(
   sourcePath: string,
   filePath: string,
   options?: WorkspaceFileOperationOptions,

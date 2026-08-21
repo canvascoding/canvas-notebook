@@ -130,6 +130,14 @@ export async function createCollaborationSessionGrant(input: {
     }
     lifecycleGeneration = state.lifecycleGeneration;
   } else {
+    const initialContent = (await readFile(request.path, fileOptions)).toString('utf8');
+    if (request.representation === 'tiptap_xml' && analyzeMarkdownRichMode(initialContent).mode === 'source') {
+      throw new CollaborationSessionError(
+        'This Markdown document can only collaborate in source mode so its representation is preserved.',
+        409,
+        'source_representation_required',
+      );
+    }
     let state = await loadCollaborationState(collaboration.document.id);
     if (state) {
       if (
@@ -144,18 +152,10 @@ export async function createCollaborationSessionGrant(input: {
         );
       }
     } else {
-      const initialContent = (await readFile(request.path, fileOptions)).toString('utf8');
       if (Buffer.byteLength(initialContent, 'utf8') > MAX_COLLABORATION_TEXT_BYTES) {
         throw new CollaborationSessionError(
           'Live collaboration supports text files up to 5 MiB.',
           413,
-        );
-      }
-      if (request.representation === 'tiptap_xml' && analyzeMarkdownRichMode(initialContent).mode === 'source') {
-        throw new CollaborationSessionError(
-          'This Markdown document can only collaborate in source mode so its representation is preserved.',
-          409,
-          'source_representation_required',
         );
       }
       state = await ensureCollaborationState({

@@ -20,6 +20,7 @@ import {
   getFileCollaborationState,
 } from '@/app/lib/files/collaboration-policy';
 import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
+import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
 import { runCollaborationDirectConnection } from '@/app/lib/collaboration/direct-connection';
 import { readCurrentCollaborationTextSnapshot } from '@/app/lib/collaboration/agent-file-edits';
 import {
@@ -308,13 +309,17 @@ export async function readMobileNotebookDocument(input: {
   if (collaboration.document) {
     let state = await loadCollaborationState(collaboration.document.id);
     if (!state) {
+      const initialContent = buffer.toString('utf8');
       state = await ensureCollaborationState({
         documentId: collaboration.document.id,
         workspaceId: input.workspace.workspaceId,
         organizationId: input.workspace.organizationId ?? null,
         path: filePath,
-        representation: path.posix.extname(filePath).toLowerCase() === '.txt' ? 'plain_text' : 'tiptap_xml',
-        initialContent: buffer.toString('utf8'),
+        representation: path.posix.extname(filePath).toLowerCase() === '.txt'
+          || analyzeMarkdownRichMode(initialContent).mode === 'source'
+          ? 'plain_text'
+          : 'tiptap_xml',
+        initialContent,
       });
     }
     if (state.workspaceId !== input.workspace.workspaceId || state.path !== filePath) {
