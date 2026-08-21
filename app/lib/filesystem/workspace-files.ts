@@ -454,6 +454,19 @@ export async function renameFile(
   overwrite = false,
   options?: WorkspaceFileOperationOptions
 ): Promise<void> {
+  return withWorkspaceFileMutationLock(
+    newPath,
+    options,
+    () => renameFileUnlocked(oldPath, newPath, overwrite, options),
+  );
+}
+
+async function renameFileUnlocked(
+  oldPath: string,
+  newPath: string,
+  overwrite = false,
+  options?: WorkspaceFileOperationOptions,
+): Promise<void> {
   const fullOldPath = await resolveExistingWorkspacePath(oldPath, options);
   const fullNewPath = validatePath(newPath, options);
 

@@ -38,6 +38,26 @@ async function main() {
     assert.equal(await fs.readFile(path.join(root, 'deck.md'), 'utf8'), 'after\n');
     assert.equal((await fs.stat(path.join(root, 'deck.md'))).mode & 0o777, 0o640);
     assert.equal((await fs.readdir(root)).some((name) => name.includes('.canvas-write-')), false);
+
+    let releaseFirstWrite!: () => void;
+    const firstWriteCanFinish = new Promise<void>((resolve) => { releaseFirstWrite = resolve; });
+    let firstWriteIsReady!: () => void;
+    const firstWriteReady = new Promise<void>((resolve) => { firstWriteIsReady = resolve; });
+    let secondWriteReachedReplace = false;
+    const firstWrite = writeFile('deck.md', 'first\n', { workspace }, async () => {
+      firstWriteIsReady();
+      await firstWriteCanFinish;
+    });
+    await firstWriteReady;
+    const secondWrite = writeFile('deck.md', 'second\n', { workspace }, async () => {
+      secondWriteReachedReplace = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(secondWriteReachedReplace, false);
+    releaseFirstWrite();
+    await Promise.all([firstWrite, secondWrite]);
+    assert.equal(secondWriteReachedReplace, true);
+    assert.equal(await fs.readFile(path.join(root, 'deck.md'), 'utf8'), 'second\n');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
