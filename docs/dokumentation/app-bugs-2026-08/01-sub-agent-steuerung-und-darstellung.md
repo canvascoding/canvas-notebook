@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 01: Sub-Agent-Steuerung und Darstellung'
-status: open
+status: completed
 priority: high
 depends_on: []
 platforms: [web, server]
@@ -69,3 +69,20 @@ sein.
 - Manuelle Abnahme des Dialogs und der Ergebnis-Karte; Browser-/E2E-Test nur
   nach expliziter Freigabe.
 - Eigener Commit, danach Status im [Index](./README.md) auf `erledigt` setzen.
+
+## Umsetzung abgeschlossen
+
+Abgeschlossen am 21.08.2026 auf Branch `ticket/01-sub-agent-control`.
+
+- Worker-Sessions sind als `delegation_worker` mit Parent-Referenz und Tiefe
+  `1` persistiert und aus normalen Web-, Mobile-, Inbox- und Suchhistorien
+  ausgeschlossen.
+- Die serverseitige Delegations-Policy erzwingt Ownership, Workspace-Scope,
+  Agentenfreigabe und das Rekursionslimit.
+- Pro Lauf gewaehlte Tools werden als Obergrenze gespeichert und auch nach
+  einem Tool-Reload auf Worker angewendet.
+- Der Chat bietet eine Agenten- und Tool-Auswahl sowie kompakte,
+  aufklappbare Ergebnis-Karten.
+- Geprueft mit den relevanten Delegations-Scripttests, TypeScript, gezieltem
+  ESLint und `npm run build`. Eine manuelle Browser-Abnahme steht nur noch
+  unter expliziter Browser-/Playwright-Freigabe aus.

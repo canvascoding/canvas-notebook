@@ -1,6 +1,6 @@
 ---
 title: 'Umsetzungsplan zu Ticket 01: Sub-Agent-Steuerung und Darstellung'
-status: planned
+status: completed
 date: 2026-08-21
 branch: ticket/01-sub-agent-control
 platforms: [web, server]
@@ -140,7 +140,7 @@ Arbeitsergebnis zu verlieren.
 
 ### Optionen laden
 
-`GET /api/delegations/options?sourceSessionId=...`
+`GET /api/delegations?sourceSessionId=...&options=true`
 
 Liefert nur serverseitig freigegebene Ziele und Toolsets:
 
@@ -328,3 +328,14 @@ uebertragen.
 - Alle neuen und bestehenden Delegationstests, Lint und Build sind gruen.
 - Jede Phase besitzt einen eigenen fokussierten Commit; erst danach beginnt
   Ticket 02.
+
+## Abschlussnachweis
+
+- Phasen-Commits: `91f3e726`, `64aaffc4`, `4ec4e129`, `a48e36ed`,
+  `96f94dc2`, `33831b9d`.
+- Erfolgreich ausgefuehrt: Delegation-Runtime-, Tool- und UI-Scripttests,
+  TypeScript-Pruefung, gezieltes ESLint und `npm run build`.
+- Der Build gab lokale Hinweise zu `BETTER_AUTH_BASE_URL` bzw. der Better-Auth
+  Base-URL aus, endete aber erfolgreich.
+- Eine interaktive Browser-Abnahme wurde gemaess Repository-Regel nicht ohne
+  ausdrueckliche Freigabe gestartet.
