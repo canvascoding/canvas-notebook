@@ -3,7 +3,7 @@ import 'server-only';
 import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { piSessions } from '@/app/lib/db/schema';
+import { piDelegations, piSessions } from '@/app/lib/db/schema';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 
 export class DelegationPolicyError extends Error {
@@ -75,4 +75,30 @@ export async function requireDelegationSource(input: {
     organizationId: source.organizationId,
     projectId: source.projectId,
   };
+}
+
+export async function getDelegatedWorkerToolsets(input: {
+  userId: string;
+  sessionId: string;
+}): Promise<string[] | null> {
+  const worker = await db.query.piSessions.findFirst({
+    where: and(
+      eq(piSessions.userId, input.userId),
+      eq(piSessions.sessionId, input.sessionId),
+      eq(piSessions.sessionKind, 'delegation_worker'),
+    ),
+    columns: { delegationId: true },
+  });
+  if (!worker?.delegationId) return null;
+  const delegation = await db.query.piDelegations.findFirst({
+    where: and(eq(piDelegations.id, worker.delegationId), eq(piDelegations.userId, input.userId)),
+    columns: { toolsetsJson: true },
+  });
+  if (!delegation) return [];
+  try {
+    const value = JSON.parse(delegation.toolsetsJson) as unknown;
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
 }
