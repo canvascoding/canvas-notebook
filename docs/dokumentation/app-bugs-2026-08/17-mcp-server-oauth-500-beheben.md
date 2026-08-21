@@ -9,6 +9,12 @@ tags: [type/bug, topic/mcp, topic/oauth, topic/integrations]
 
 # Ticket 17: Exponierten MCP-Server und OAuth-500 beheben
 
+## Umsetzungsplan
+
+Der codebestandsnahe, strikt sequenzielle Plan ist unter
+[17-mcp-server-oauth-500-umsetzungsplan.md](./17-mcp-server-oauth-500-umsetzungsplan.md)
+dokumentiert.
+
 ## Problem
 
 Der extern exponierte MCP-Server startet bzw. antwortet nicht zuverlaessig.
