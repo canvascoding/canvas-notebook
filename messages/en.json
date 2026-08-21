@@ -829,6 +829,7 @@
     "markdownEditorPropertiesAliasesPlaceholder": "Alternative names, separated by commas",
     "markdownEditorPropertiesAdditional": "Additional properties",
     "markdownEditorPropertiesSourceHint": "Edit these in source mode",
+    "markdownEditorSourcePreservationNotice": "This document stays in source mode so its Markdown and presentation metadata are preserved exactly.",
     "markdownEditorBacklinks": "Cross-references",
     "markdownEditorBacklinksCount": "{count, plural, =0 {No references} one {# reference} other {# references}}",
     "markdownEditorBacklinksSummary": "{documents, plural, =0 {No documents} one {# document} other {# documents}} · {references, plural, =0 {no references} one {# reference} other {# references}}",
