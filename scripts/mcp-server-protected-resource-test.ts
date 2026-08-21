@@ -261,18 +261,21 @@ async function main(): Promise<void> {
     };
     assert.deepEqual(await getDirectMcpProtectedResourceMetadata(), expectedMetadata);
     for (const response of await Promise.all([
-      directMcpProtectedResourceMetadataResponse(),
-      canonicalMetadataRoute.GET(),
-      aliasMetadataRoute.GET(),
+      directMcpProtectedResourceMetadataResponse(new Request(`${ORIGIN}/.well-known/oauth-protected-resource/mcp`)),
+      canonicalMetadataRoute.GET(new Request(`${ORIGIN}/.well-known/oauth-protected-resource/mcp`)),
+      aliasMetadataRoute.GET(new Request(`${ORIGIN}/.well-known/oauth-protected-resource`)),
     ])) {
       assert.equal(response.status, 200);
       assert.equal(response.headers.get('access-control-allow-origin'), '*');
+      assert.match(response.headers.get('x-request-id') || '', /^[0-9a-f-]{36}$/iu);
       assert.deepEqual(await readJson(response), expectedMetadata);
     }
 
     const originalFeatureFlag = process.env.CANVAS_MCP_DIRECT_ENABLED;
     process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
-    assert.equal((await directMcpProtectedResourceMetadataResponse()).status, 404);
+    assert.equal((await directMcpProtectedResourceMetadataResponse(
+      new Request(`${ORIGIN}/.well-known/oauth-protected-resource/mcp`),
+    )).status, 404);
     process.env.CANVAS_MCP_DIRECT_ENABLED = originalFeatureFlag;
 
     const tokenSet = await issueTokenSet(
@@ -428,7 +431,7 @@ async function main(): Promise<void> {
     const revocationCandidate = await prepareDirectMcpRevocation(revokeRequest);
     assert.ok(revocationCandidate);
     const revokeResponse = await auth.handler(revokeRequest);
-    assert.equal(revokeResponse.status, 200);
+    assert.equal(revokeResponse.status, 200, await revokeResponse.clone().text());
     await applyDirectMcpRevocation(revocationCandidate);
     await assertAuthorizationError(
       () => verifyDirectMcpAccessToken(tokenSet.accessToken, ['knowledge:read']),

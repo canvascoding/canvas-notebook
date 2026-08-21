@@ -36,7 +36,7 @@ function disabledResponse(): Response {
   );
 }
 
-function isDirectMcpOAuthPath(pathname: string): boolean {
+export function isDirectMcpOAuthPath(pathname: string): boolean {
   return [
     '/api/auth/oauth2/register',
     '/api/auth/oauth2/authorize',

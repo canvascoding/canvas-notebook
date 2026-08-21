@@ -2,6 +2,12 @@ import {
   DIRECT_MCP_RESOURCE_SCOPES,
   resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
+import {
+  beginDirectMcpDiagnostic,
+  completeDirectMcpDiagnostic,
+  failDirectMcpDiagnostic,
+  withDirectMcpRequestId,
+} from '@/app/lib/mcp/server/diagnostics';
 import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
 
 export type DirectMcpProtectedResourceMetadata = {
@@ -24,23 +30,46 @@ Promise<DirectMcpProtectedResourceMetadata | null> {
   };
 }
 
-export async function directMcpProtectedResourceMetadataResponse(): Promise<Response> {
-  const metadata = await getDirectMcpProtectedResourceMetadata();
-  if (!metadata) {
-    return new Response(null, {
-      status: 404,
-      headers: {
-        'cache-control': 'no-store',
-      },
+export async function directMcpProtectedResourceMetadataResponse(
+  request: Request,
+): Promise<Response> {
+  const startedAt = Date.now();
+  const diagnostics = beginDirectMcpDiagnostic(request, 'discovery.protected_resource');
+  try {
+    const metadata = await getDirectMcpProtectedResourceMetadata();
+    const response = withDirectMcpRequestId(metadata
+      ? Response.json(metadata, {
+        headers: {
+          'access-control-allow-origin': '*',
+          'cache-control': 'public, max-age=300',
+        },
+      })
+      : new Response(null, {
+        status: 404,
+        headers: {
+          'cache-control': 'no-store',
+        },
+      }), diagnostics.requestId);
+    completeDirectMcpDiagnostic(diagnostics, {
+      statusCode: response.status,
+      code: response.status === 404 ? 'MCP_DISABLED' : 'MCP_DISCOVERY_COMPLETED',
+      startedAt,
     });
+    return response;
+  } catch {
+    failDirectMcpDiagnostic(diagnostics, {
+      code: 'MCP_DISCOVERY_ERROR',
+      startedAt,
+      statusCode: 500,
+    });
+    return withDirectMcpRequestId(Response.json({
+      error: 'temporarily_unavailable',
+      error_description: 'Protected resource metadata is temporarily unavailable.',
+    }, {
+      status: 503,
+      headers: { 'cache-control': 'no-store' },
+    }), diagnostics.requestId);
   }
-
-  return Response.json(metadata, {
-    headers: {
-      'access-control-allow-origin': '*',
-      'cache-control': 'public, max-age=300',
-    },
-  });
 }
 
 export async function directMcpProtectedResourceMetadataOptionsResponse(): Promise<Response> {

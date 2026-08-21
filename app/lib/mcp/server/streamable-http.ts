@@ -15,6 +15,13 @@ import { createDirectMcpServer } from '@/app/lib/mcp/server/direct-server';
 import {
   resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
+import {
+  beginDirectMcpDiagnostic,
+  completeDirectMcpDiagnostic,
+  failDirectMcpDiagnostic,
+  withDirectMcpRequestId,
+  type DirectMcpDiagnosticContext,
+} from '@/app/lib/mcp/server/diagnostics';
 import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 
@@ -33,16 +40,25 @@ const MCP_EXPOSED_HEADERS = [
   'mcp-protocol-version',
   'mcp-session-id',
   'www-authenticate',
+  'x-request-id',
 ].join(', ');
 
-function createModernMcpHandler(enabledTools: readonly import('@/app/lib/mcp/server/config').DirectMcpToolId[]) {
+function createModernMcpHandler(
+  enabledTools: readonly import('@/app/lib/mcp/server/config').DirectMcpToolId[],
+  diagnostics: DirectMcpDiagnosticContext,
+  startedAt: number,
+) {
   return createMcpHandler(
     () => createDirectMcpServer(enabledTools),
     {
-    legacy: 'reject',
-    onerror: (error) => {
-      console.error('[MCP] Direct server request failed', error);
-    },
+      legacy: 'reject',
+      onerror: () => {
+        failDirectMcpDiagnostic(diagnostics, {
+          code: 'MCP_TRANSPORT_ERROR',
+          startedAt,
+          statusCode: 500,
+        });
+      },
     },
   );
 }
@@ -51,9 +67,15 @@ async function handleProtocolRequest(
   request: Request,
   enabledTools: readonly import('@/app/lib/mcp/server/config').DirectMcpToolId[],
   authInfo?: AuthInfo,
+  diagnostics?: DirectMcpDiagnosticContext,
+  startedAt?: number,
 ): Promise<Response> {
   if (!await isLegacyRequest(request)) {
-    return createModernMcpHandler(enabledTools).fetch(request, { authInfo });
+    if (!diagnostics || !startedAt) {
+      throw new Error('Direct MCP diagnostics context is required.');
+    }
+    return createModernMcpHandler(enabledTools, diagnostics, startedAt)
+      .fetch(request, { authInfo });
   }
 
   const server = createDirectMcpServer(enabledTools);
@@ -69,7 +91,11 @@ async function handleProtocolRequest(
   }
 }
 
-function withDirectMcpHeaders(response: Response, request?: Request): Response {
+function withDirectMcpHeaders(
+  response: Response,
+  request?: Request,
+  requestId?: string,
+): Response {
   const headers = new Headers(response.headers);
   const requestOrigin = request?.headers.get('origin');
   if (requestOrigin && isConfiguredTrustedOrigin(requestOrigin)) {
@@ -79,6 +105,7 @@ function withDirectMcpHeaders(response: Response, request?: Request): Response {
   headers.set('access-control-expose-headers', MCP_EXPOSED_HEADERS);
   headers.set('cache-control', 'no-store');
   headers.set('x-content-type-options', 'nosniff');
+  if (requestId) headers.set('x-request-id', requestId);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -143,23 +170,78 @@ async function resolveAuthInfo(request: Request): Promise<AuthInfo | undefined> 
 }
 
 export async function handleDirectMcpPost(request: Request): Promise<Response> {
-  const runtimeSettings = await getDirectMcpRuntimeSettings();
-  if (!runtimeSettings.enabled) return directMcpNotFound();
-  const originRejection = rejectUntrustedOrigin(request);
-  if (originRejection) return originRejection;
-
-  let authInfo: AuthInfo | undefined;
+  const startedAt = Date.now();
+  const diagnostics = beginDirectMcpDiagnostic(request, 'mcp.http');
   try {
-    authInfo = await resolveAuthInfo(request);
-  } catch (error) {
-    if (error instanceof DirectMcpAuthorizationError) {
-      return withDirectMcpHeaders(error.toResponse(), request);
+    const runtimeSettings = await getDirectMcpRuntimeSettings();
+    if (!runtimeSettings.enabled) {
+      const response = withDirectMcpHeaders(directMcpNotFound(), request, diagnostics.requestId);
+      completeDirectMcpDiagnostic(diagnostics, {
+        statusCode: response.status,
+        code: 'MCP_DISABLED',
+        startedAt,
+      });
+      return response;
     }
-    throw error;
-  }
+    const originRejection = rejectUntrustedOrigin(request);
+    if (originRejection) {
+      const response = withDirectMcpHeaders(originRejection, request, diagnostics.requestId);
+      completeDirectMcpDiagnostic(diagnostics, {
+        statusCode: response.status,
+        code: 'MCP_ORIGIN_REJECTED',
+        startedAt,
+      });
+      return response;
+    }
 
-  const response = await handleProtocolRequest(request, runtimeSettings.tools, authInfo);
-  return withDirectMcpHeaders(response, request);
+    let authInfo: AuthInfo | undefined;
+    try {
+      authInfo = await resolveAuthInfo(request);
+    } catch (error) {
+      if (error instanceof DirectMcpAuthorizationError) {
+        const response = withDirectMcpHeaders(error.toResponse(), request, diagnostics.requestId);
+        completeDirectMcpDiagnostic(diagnostics, {
+          statusCode: response.status,
+          code: `MCP_${error.code.toUpperCase()}`,
+          startedAt,
+        });
+        return response;
+      }
+      throw error;
+    }
+
+    const response = withDirectMcpHeaders(
+      await handleProtocolRequest(
+        request,
+        runtimeSettings.tools,
+        authInfo,
+        diagnostics,
+        startedAt,
+      ),
+      request,
+      diagnostics.requestId,
+    );
+    completeDirectMcpDiagnostic(diagnostics, {
+      statusCode: response.status,
+      code: response.status >= 500 ? 'MCP_TRANSPORT_ERROR' : 'MCP_REQUEST_COMPLETED',
+      startedAt,
+    });
+    return response;
+  } catch {
+    failDirectMcpDiagnostic(diagnostics, {
+      code: 'MCP_INTERNAL_ERROR',
+      startedAt,
+      statusCode: 500,
+    });
+    return withDirectMcpHeaders(Response.json({
+      jsonrpc: '2.0',
+      error: {
+        code: -32603,
+        message: 'Internal server error.',
+      },
+      id: null,
+    }, { status: 500 }), request, diagnostics.requestId);
+  }
 }
 
 export async function handleDirectMcpUnsupportedMethod(request: Request): Promise<Response> {
