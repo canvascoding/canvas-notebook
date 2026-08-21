@@ -28,6 +28,11 @@ dieselben Regeln wie UI und REST-API erzwingen.
 
 ## Umsetzung
 
+Der codebestandsnahe, sequenzielle Umsetzungsplan ist in
+[10-automationen-ui-workspace-umsetzungsplan.md](./10-automationen-ui-workspace-umsetzungsplan.md)
+dokumentiert. Das Ticket bleibt bis zur eigentlichen Implementierung und
+Abnahme offen.
+
 - Alle Automationsrouten, Store-/Policy-/Runner-Pfade, Mobile-Adapter und
   Agent-Tools gegen `team-workspace/11-automation-execution-model.md`
   inventarisieren.
