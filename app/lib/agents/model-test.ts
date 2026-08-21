@@ -130,6 +130,14 @@ function extractAssistantText(message: AssistantMessage): string {
     .trim();
 }
 
+function isExpectedProbeResponse(responseText: string): boolean {
+  // Some otherwise compatible providers add a single terminal period despite
+  // the exact-response instruction. Keep the probe strict while accepting
+  // that harmless punctuation variant.
+  const normalized = responseText.toUpperCase();
+  return normalized === 'OK' || normalized === 'OK.';
+}
+
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown model test error';
 }
@@ -325,7 +333,7 @@ export async function testAgentModelConnection(params: {
         }
 
         const responseText = extractAssistantText(response);
-        if (responseText.toUpperCase() !== 'OK') {
+        if (!isExpectedProbeResponse(responseText)) {
           logWarn(runId, 'unexpected-response', {
             agentId,
             provider,
