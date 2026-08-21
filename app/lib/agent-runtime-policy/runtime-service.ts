@@ -4,13 +4,16 @@ import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-st
 import {
   deleteWorkspaceModelPolicyStore,
   deleteUserModelPreferenceStore,
+  readUserWorkspaceProviderGrant,
   readWorkspaceModelPolicy,
+  revokeUserWorkspaceProviderGrant,
   RuntimeContextRevisionConflictError,
   RuntimeRevisionConflictError,
   RuntimeStoredDataError,
   SessionRuntimeContextRevisionConflictError,
   SessionRuntimeSnapshotConflictError,
   writeUserModelPreferenceStore,
+  writeUserWorkspaceProviderGrant,
   writeWorkspaceModelPolicyStore,
 } from '@/app/lib/agent-runtime-policy/runtime-store';
 import {
@@ -23,6 +26,8 @@ import type {
   AiEffectiveRuntimeResolution,
   AiModelReference,
   AiRuntimeSelection,
+  AiRuntimeExecutionMode,
+  AiUserWorkspaceProviderGrant,
   AiWorkspaceModelPolicy,
 } from '@/app/lib/agent-runtime-policy/types';
 import { AI_THINKING_LEVELS } from '@/app/lib/agent-runtime-policy/types';
@@ -34,6 +39,7 @@ const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@+~-]{0,199}$/u;
 const INSTALLATION_ID_PATTERN = /^aip_[a-f0-9]{24}$/u;
 const MAX_POLICY_MODELS = 10_000;
+const USER_GRANT_EXECUTION_MODES = new Set<AiRuntimeExecutionMode>(['interactive']);
 
 export class AiRuntimeInputError extends Error {
   readonly status = 400;
@@ -116,6 +122,130 @@ export function parseUserPreferenceUpdate(value: unknown): AiUserPreferenceUpdat
     expectedPolicyRevision: revisionField(value.expectedPolicyRevision, 'expectedPolicyRevision'),
     selection: parseRuntimeSelection(value.selection),
   };
+}
+
+export type AiUserProviderGrantUpdate = {
+  providerInstallationId: string;
+  allowedExecutionModes: AiRuntimeExecutionMode[];
+  expectedRevision: number;
+};
+
+export function parseUserProviderGrantUpdate(value: unknown): AiUserProviderGrantUpdate {
+  if (!isRecord(value)) {
+    throw new AiRuntimeInputError('INVALID_RUNTIME_INPUT', 'User provider credential grant must be an object.');
+  }
+  assertAllowedKeys(value, [
+    'workspaceId',
+    'agentId',
+    'providerInstallationId',
+    'allowedExecutionModes',
+    'expectedRevision',
+  ]);
+  if (!Array.isArray(value.allowedExecutionModes) || value.allowedExecutionModes.length === 0) {
+    throw new AiRuntimeInputError('INVALID_RUNTIME_INPUT', 'allowedExecutionModes must be a non-empty array.');
+  }
+  const modes = Array.from(new Set(value.allowedExecutionModes.map((mode) => {
+    if (typeof mode !== 'string' || !USER_GRANT_EXECUTION_MODES.has(mode as AiRuntimeExecutionMode)) {
+      throw new AiRuntimeInputError(
+        'INVALID_RUNTIME_INPUT',
+        'Only interactive user credential grants are currently supported.',
+      );
+    }
+    return mode as AiRuntimeExecutionMode;
+  })));
+  return {
+    providerInstallationId: stringField(value.providerInstallationId, 'providerInstallationId', INSTALLATION_ID_PATTERN),
+    allowedExecutionModes: modes,
+    expectedRevision: revisionField(value.expectedRevision, 'expectedRevision'),
+  };
+}
+
+async function assertUserProviderGrantTarget(input: {
+  context: AiRuntimeResolutionContext;
+  providerInstallationId: string;
+}): Promise<void> {
+  if (input.context.workspaceType === 'personal') {
+    throw new AiRuntimePolicyError(
+      'PROVIDER_INSTALLATION_NOT_ALLOWED',
+      'Personal workspaces do not require a team credential grant.',
+    );
+  }
+  if (
+    input.context.principal?.type === 'organization_service'
+    || (input.context.principal?.type === 'user' && input.context.principal.userId !== input.context.userId)
+  ) {
+    throw new AiRuntimePolicyError('PROVIDER_INSTALLATION_NOT_ALLOWED', 'Only the credential owner can manage this grant.');
+  }
+  const [catalog, policy] = await Promise.all([
+    readAppRuntimeCatalog(input.context.organizationId),
+    readWorkspaceModelPolicy(input.context.organizationId, input.context.workspaceId),
+  ]);
+  const provider = catalog.providers.find((candidate) => candidate.installationId === input.providerInstallationId);
+  if (!provider || !provider.enabled || provider.credentialScope !== 'user' || provider.config.authMethod !== 'oauth') {
+    throw new AiRuntimePolicyError(
+      'PROVIDER_INSTALLATION_NOT_ALLOWED',
+      'The selected provider installation is not an enabled personal OAuth provider.',
+    );
+  }
+  if (!policy?.allowUserCredentials) {
+    throw new AiRuntimePolicyError(
+      'PROVIDER_INSTALLATION_NOT_ALLOWED',
+      'Personal provider credentials are disabled by this workspace policy.',
+    );
+  }
+}
+
+export async function setUserProviderGrant(input: {
+  context: AiRuntimeResolutionContext;
+  update: AiUserProviderGrantUpdate;
+}): Promise<AiUserWorkspaceProviderGrant> {
+  await assertUserProviderGrantTarget({
+    context: input.context,
+    providerInstallationId: input.update.providerInstallationId,
+  });
+  return writeUserWorkspaceProviderGrant({
+    organizationId: input.context.organizationId,
+    userId: input.context.userId,
+    workspaceId: input.context.workspaceId,
+    agentId: input.context.agentId,
+    providerInstallationId: input.update.providerInstallationId,
+    allowedExecutionModes: input.update.allowedExecutionModes,
+    expectedRevision: input.update.expectedRevision,
+  });
+}
+
+export async function getUserProviderGrant(input: {
+  context: AiRuntimeResolutionContext;
+  providerInstallationId: string;
+}): Promise<AiUserWorkspaceProviderGrant | null> {
+  return readUserWorkspaceProviderGrant({
+    organizationId: input.context.organizationId,
+    userId: input.context.userId,
+    workspaceId: input.context.workspaceId,
+    agentId: input.context.agentId,
+    providerInstallationId: input.providerInstallationId,
+  });
+}
+
+export async function revokeUserProviderGrant(input: {
+  context: AiRuntimeResolutionContext;
+  providerInstallationId: string;
+  expectedRevision?: number;
+}): Promise<AiUserWorkspaceProviderGrant | null> {
+  if (
+    input.context.principal?.type === 'organization_service'
+    || (input.context.principal?.type === 'user' && input.context.principal.userId !== input.context.userId)
+  ) {
+    throw new AiRuntimePolicyError('PROVIDER_INSTALLATION_NOT_ALLOWED', 'Only the credential owner can revoke this grant.');
+  }
+  return revokeUserWorkspaceProviderGrant({
+    organizationId: input.context.organizationId,
+    userId: input.context.userId,
+    workspaceId: input.context.workspaceId,
+    agentId: input.context.agentId,
+    providerInstallationId: input.providerInstallationId,
+    expectedRevision: input.expectedRevision,
+  });
 }
 
 function assertContextRevisions(

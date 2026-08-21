@@ -38,6 +38,12 @@ let organizationCredentialReadBarrier: {
   release: Deferred;
 } | null = null;
 
+let userCredentialReadBarrier: {
+  remainingReads: number;
+  started: Deferred;
+  release: Deferred;
+} | null = null;
+
 function delayOrganizationCredentialReadAfter(readsToSkip: number): {
   started: Promise<void>;
   release: () => void;
@@ -53,6 +59,26 @@ function delayOrganizationCredentialReadAfter(readsToSkip: number): {
     started: started.promise,
     release: () => {
       organizationCredentialReadBarrier = null;
+      release.resolve();
+    },
+  };
+}
+
+function delayUserCredentialReadAfter(readsToSkip: number): {
+  started: Promise<void>;
+  release: () => void;
+} {
+  const started = deferred();
+  const release = deferred();
+  userCredentialReadBarrier = {
+    remainingReads: readsToSkip,
+    started,
+    release,
+  };
+  return {
+    started: started.promise,
+    release: () => {
+      userCredentialReadBarrier = null;
       release.resolve();
     },
   };
@@ -144,8 +170,12 @@ moduleInternals._load = (request, parent, isMain) => {
         scope: string,
         storageScope?: { secretScope?: string } | null,
       ) => {
-        const barrier = organizationCredentialReadBarrier;
-        if (barrier && storageScope?.secretScope === 'organization') {
+        const barrier = storageScope?.secretScope === 'organization'
+          ? organizationCredentialReadBarrier
+          : storageScope?.secretScope === 'user'
+            ? userCredentialReadBarrier
+            : null;
+        if (barrier) {
           if (barrier.remainingReads > 0) {
             barrier.remainingReads -= 1;
           } else {
@@ -218,6 +248,7 @@ async function main() {
     RuntimeStoredDataError,
     SessionRuntimeSnapshotConflictError,
     writeUserModelPreferenceStore,
+    writeUserWorkspaceProviderGrant,
     writeWorkspaceModelPolicyStore,
     writePiSessionRuntimeSnapshot,
   } = await import('../app/lib/agent-runtime-policy/runtime-store');
@@ -854,6 +885,31 @@ async function main() {
     },
   });
   assert.equal(organizationPolicy.revision, 2);
+  const ungrantedTeamResolution = await resolveEffectiveAgentRuntime({
+    ...organizationContext,
+    requestedSelection: userSelection,
+  });
+  assert.equal(ungrantedTeamResolution.valid, false);
+  assert.equal(
+    ungrantedTeamResolution.issues.some((entry) => entry.code === 'CREDENTIAL_NOT_AVAILABLE'),
+    true,
+  );
+  const userCredentialGrant = await writeUserWorkspaceProviderGrant({
+    organizationId: organization.organizationId,
+    userId: owner.id,
+    workspaceId: organizationWorkspaceId,
+    agentId: 'canvas-agent',
+    providerInstallationId: userProviderId,
+    allowedExecutionModes: ['interactive'],
+    expectedRevision: 0,
+  });
+  assert.equal(userCredentialGrant.status, 'active');
+  assert.deepEqual(userCredentialGrant.allowedExecutionModes, ['interactive']);
+  await replaceScopedEnvEntries(
+    'agents',
+    [{ key: 'OPENAI_COMPATIBLE_API_KEY', value: 'sk-user-compatible-runtime-test' }],
+    { secretScope: 'user', organizationId: organization.organizationId, userId: owner.id },
+  );
   resolution = await setUserRuntimePreference({
     context: organizationContext,
     update: {
@@ -864,6 +920,107 @@ async function main() {
     },
   });
   assert.equal(resolution.source, 'user_preference');
+
+  const personalAutomationResolution = await resolveEffectiveAgentRuntime({
+    ...personalContext,
+    requestedSelection: userSelection,
+    executionMode: 'personal_automation',
+    principal: {
+      type: 'user',
+      userId: owner.id,
+      credentialSubjectUserId: owner.id,
+    },
+  });
+  assert.equal(personalAutomationResolution.valid, true);
+  assert.equal(
+    personalAutomationResolution.effectiveSelection?.selection.providerInstallationId,
+    userProviderId,
+  );
+
+  const grantedTeamRuntime = await resolveExecutableAgentRuntime({
+    ...organizationContext,
+    requestedSelection: userSelection,
+  });
+  const streamCallsBeforeGrantRace = scopedStreamCalls.length;
+  const userCredentialRead = delayUserCredentialReadAfter(1);
+  const revokedGrantStream = grantedTeamRuntime.streamFn(
+    grantedTeamRuntime.model,
+    { messages: [] },
+    { sessionId: 'scoped-runtime-grant-race-test' },
+  );
+  try {
+    await within(userCredentialRead.started, 'User credential read barrier');
+    sqlite.prepare(`
+      UPDATE ai_user_workspace_provider_grants
+      SET status = 'revoked', revision = revision + 1, revoked_at = ?, updated_at = ?
+      WHERE organization_id = ? AND user_id = ? AND workspace_id = ?
+        AND agent_id = ? AND provider_installation_id = ?
+    `).run(
+      Date.now(),
+      Date.now(),
+      organization.organizationId,
+      owner.id,
+      organizationWorkspaceId,
+      'canvas-agent',
+      userProviderId,
+    );
+    userCredentialRead.release();
+    await within(Promise.resolve(revokedGrantStream), 'Revoked user grant stream');
+  } finally {
+    userCredentialRead.release();
+  }
+  assert.equal(scopedStreamCalls.length, streamCallsBeforeGrantRace);
+  assert.equal(grantedTeamRuntime.requiresRecreation(), true);
+
+  // A personal interactive grant must not follow the same user's session into
+  // an external channel. Those runs use only non-user credentials unless a
+  // future, separately reviewed grant mode explicitly permits them.
+  const externalChannelResolution = await resolveEffectiveAgentRuntime({
+    ...organizationContext,
+    executionMode: 'external_channel',
+    principal: {
+      type: 'user',
+      userId: owner.id,
+      credentialSubjectUserId: owner.id,
+    },
+  });
+  assert.equal(externalChannelResolution.valid, true);
+  assert.equal(externalChannelResolution.source, 'workspace_default');
+  assert.equal(
+    externalChannelResolution.providers.some((provider) => provider.installationId === userProviderId),
+    false,
+  );
+
+  // Organization automations retain a responsible user for audit and
+  // workspace authorization, but that user must never become the credential
+  // subject. Even with the workspace policy and a user preference enabled,
+  // user-scoped installations are unavailable to a service principal.
+  const organizationAutomationContext = {
+    ...organizationContext,
+    executionMode: 'organization_automation' as const,
+    principal: {
+      type: 'organization_service' as const,
+      serviceActorId: `org-service:${organization.organizationId}`,
+      responsibleUserId: owner.id,
+      credentialSubjectUserId: null,
+    },
+  };
+  const organizationAutomationResolution = await resolveEffectiveAgentRuntime(organizationAutomationContext);
+  assert.equal(organizationAutomationResolution.valid, true);
+  assert.equal(organizationAutomationResolution.source, 'workspace_default');
+  assert.equal(
+    organizationAutomationResolution.providers.some((provider) => provider.installationId === userProviderId),
+    false,
+  );
+  const organizationAutomationUserSelection = await resolveEffectiveAgentRuntime({
+    ...organizationAutomationContext,
+    requestedSelection: userSelection,
+  });
+  assert.equal(organizationAutomationUserSelection.valid, false);
+  assert.equal(
+    organizationAutomationUserSelection.issues.some((entry) => entry.code === 'PROVIDER_INSTALLATION_NOT_ALLOWED'),
+    true,
+  );
 
   const memberId = 'runtime-member';
   const now = Date.now();

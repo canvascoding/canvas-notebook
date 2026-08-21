@@ -486,6 +486,21 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         workspaceType: automationWorkspace.workspaceType,
         agentId: job.agentId,
         requestedSelection: null,
+        executionMode: job.scope === 'organization'
+          ? 'organization_automation' as const
+          : 'personal_automation' as const,
+        principal: job.scope === 'organization'
+          ? {
+              type: 'organization_service' as const,
+              serviceActorId: job.serviceActorId || `org-service:${automationWorkspace.organizationId}`,
+              responsibleUserId: automationUserId,
+              credentialSubjectUserId: null,
+            }
+          : {
+              type: 'user' as const,
+              userId: automationUserId,
+              credentialSubjectUserId: automationUserId,
+            },
       };
       let executableRuntime = persistedSession
         ? await resolveAndPinSessionRuntime({ ...runtimeContext, sessionId: piSessionId })

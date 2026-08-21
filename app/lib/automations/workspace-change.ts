@@ -259,6 +259,21 @@ async function prepareAutomationWorkspaceChange(
         agentId: job.agentId,
         sessionId: null,
         requestedSelection: null,
+        executionMode: job.scope === 'organization'
+          ? 'organization_automation' as const
+          : 'personal_automation' as const,
+        principal: job.scope === 'organization'
+          ? {
+              type: 'organization_service' as const,
+              serviceActorId: job.serviceActorId || `org-service:${executionWorkspace.organizationId}`,
+              responsibleUserId,
+              credentialSubjectUserId: null,
+            }
+          : {
+              type: 'user' as const,
+              userId: responsibleUserId,
+              credentialSubjectUserId: responsibleUserId,
+            },
       });
     } catch (error) {
       issues.push(issue(

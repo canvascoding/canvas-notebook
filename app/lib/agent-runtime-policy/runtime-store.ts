@@ -1,11 +1,15 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
+
 import { getDatabaseProvider, openDb } from '@/app/lib/db';
 import type {
   AiModelReference,
   AiRuntimeSelection,
+  AiRuntimeExecutionMode,
   AiRuntimeSelectionSource,
   AiSessionRuntimeSnapshot,
+  AiUserWorkspaceProviderGrant,
   AiUserModelPreference,
   AiWorkspaceModelPolicy,
 } from '@/app/lib/agent-runtime-policy/types';
@@ -18,6 +22,13 @@ const SELECTION_SOURCES = new Set<AiRuntimeSelectionSource>([
   'agent_default',
   'workspace_default',
   'app_default',
+]);
+const EXECUTION_MODES = new Set<AiRuntimeExecutionMode>([
+  'interactive',
+  'external_channel',
+  'delegation',
+  'personal_automation',
+  'organization_automation',
 ]);
 
 type WorkspacePolicyRow = {
@@ -47,6 +58,21 @@ type UserPreferenceRow = {
   updated_at: number | string;
 };
 
+type UserWorkspaceProviderGrantRow = {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  workspace_id: string;
+  agent_id: string;
+  provider_installation_id: string;
+  allowed_execution_modes_json: string;
+  status: string;
+  revision: number | string;
+  granted_at: number | string;
+  revoked_at: number | string | null;
+  updated_at: number | string;
+};
+
 type SessionRuntimeRow = {
   id: number | string;
   provider: string;
@@ -63,7 +89,7 @@ export class RuntimeRevisionConflictError extends Error {
   readonly status = 409;
 
   constructor(
-    public readonly entity: 'workspace_policy' | 'user_preference',
+    public readonly entity: 'workspace_policy' | 'user_preference' | 'user_provider_grant',
     public readonly currentRevision: number,
   ) {
     super(`${entity} revision conflict. Current revision is ${currentRevision}.`);
@@ -209,6 +235,45 @@ function assertRuntimeContextRevisions(
 
 function isoTimestamp(value: unknown): string {
   return new Date(numberValue(value, Date.now())).toISOString();
+}
+
+function parseGrantModes(value: string): AiRuntimeExecutionMode[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('invalid modes');
+    const modes = Array.from(new Set(parsed.filter((mode): mode is AiRuntimeExecutionMode => (
+      typeof mode === 'string' && EXECUTION_MODES.has(mode as AiRuntimeExecutionMode)
+    ))));
+    if (modes.length !== parsed.length || modes.includes('organization_automation')) {
+      throw new Error('invalid modes');
+    }
+    return modes;
+  } catch {
+    throw new RuntimeStoredDataError(
+      'RUNTIME_PREFERENCE_CORRUPT',
+      'Stored user provider credential grant is invalid.',
+    );
+  }
+}
+
+function grantFromRow(row: UserWorkspaceProviderGrantRow): AiUserWorkspaceProviderGrant {
+  if (row.status !== 'active' && row.status !== 'revoked') {
+    throw new RuntimeStoredDataError('RUNTIME_PREFERENCE_CORRUPT', 'Stored user provider grant status is invalid.');
+  }
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    userId: row.user_id,
+    workspaceId: row.workspace_id,
+    agentId: row.agent_id,
+    providerInstallationId: row.provider_installation_id,
+    allowedExecutionModes: parseGrantModes(row.allowed_execution_modes_json),
+    status: row.status,
+    revision: numberValue(row.revision, 0),
+    grantedAt: isoTimestamp(row.granted_at),
+    revokedAt: row.revoked_at === null ? null : isoTimestamp(row.revoked_at),
+    updatedAt: isoTimestamp(row.updated_at),
+  };
 }
 
 function storedThinkingLevel(
@@ -536,6 +601,200 @@ export async function readUserModelPreference(input: {
   } finally {
     await connection.close?.();
   }
+}
+
+export async function readUserWorkspaceProviderGrant(input: {
+  organizationId: string;
+  userId: string;
+  workspaceId: string;
+  agentId: string;
+  providerInstallationId: string;
+}): Promise<AiUserWorkspaceProviderGrant | null> {
+  const connection = await openDb();
+  try {
+    const row = await connection.get(
+      `SELECT id, organization_id, user_id, workspace_id, agent_id,
+              provider_installation_id, allowed_execution_modes_json, status,
+              revision, granted_at, revoked_at, updated_at
+       FROM ai_user_workspace_provider_grants
+       WHERE organization_id = ? AND user_id = ? AND workspace_id = ?
+         AND agent_id = ? AND provider_installation_id = ?
+       LIMIT 1`,
+      [
+        input.organizationId,
+        input.userId,
+        input.workspaceId,
+        input.agentId,
+        input.providerInstallationId,
+      ],
+    ) as UserWorkspaceProviderGrantRow | undefined;
+    return row ? grantFromRow(row) : null;
+  } finally {
+    await connection.close?.();
+  }
+}
+
+export async function writeUserWorkspaceProviderGrant(input: {
+  organizationId: string;
+  userId: string;
+  workspaceId: string;
+  agentId: string;
+  providerInstallationId: string;
+  allowedExecutionModes: AiRuntimeExecutionMode[];
+  expectedRevision: number;
+}): Promise<AiUserWorkspaceProviderGrant> {
+  const modes = Array.from(new Set(input.allowedExecutionModes));
+  if (modes.length === 0 || modes.some((mode) => !EXECUTION_MODES.has(mode) || mode === 'organization_automation')) {
+    throw new Error('Invalid user provider credential grant modes.');
+  }
+  const connection = await openDb();
+  let transactionStarted = false;
+  try {
+    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    transactionStarted = true;
+    await lockWorkspaceRuntimeContext(connection, input);
+    const current = await connection.get(
+      `SELECT id, organization_id, user_id, workspace_id, agent_id,
+              provider_installation_id, allowed_execution_modes_json, status,
+              revision, granted_at, revoked_at, updated_at
+       FROM ai_user_workspace_provider_grants
+       WHERE organization_id = ? AND user_id = ? AND workspace_id = ?
+         AND agent_id = ? AND provider_installation_id = ?
+       LIMIT 1`,
+      [
+        input.organizationId,
+        input.userId,
+        input.workspaceId,
+        input.agentId,
+        input.providerInstallationId,
+      ],
+    ) as UserWorkspaceProviderGrantRow | undefined;
+    const currentRevision = current ? numberValue(current.revision, 0) : 0;
+    if (currentRevision !== input.expectedRevision) {
+      throw new RuntimeRevisionConflictError('user_provider_grant', currentRevision);
+    }
+    const now = Date.now();
+    const nextRevision = currentRevision + 1;
+    const modesJson = JSON.stringify(modes);
+    if (current) {
+      const result = await connection.run(
+        `UPDATE ai_user_workspace_provider_grants
+         SET allowed_execution_modes_json = ?, status = 'active', revision = ?,
+             granted_at = ?, revoked_at = NULL, updated_at = ?
+         WHERE id = ? AND revision = ?`,
+        [modesJson, nextRevision, now, now, current.id, currentRevision],
+      );
+      if (changedRows(result) !== 1) {
+        throw new RuntimeRevisionConflictError('user_provider_grant', currentRevision + 1);
+      }
+    } else {
+      await connection.run(
+        `INSERT INTO ai_user_workspace_provider_grants (
+          id, organization_id, user_id, workspace_id, agent_id,
+          provider_installation_id, allowed_execution_modes_json, status,
+          revision, granted_at, revoked_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL, ?, ?)`,
+        [
+          randomUUID(),
+          input.organizationId,
+          input.userId,
+          input.workspaceId,
+          input.agentId,
+          input.providerInstallationId,
+          modesJson,
+          nextRevision,
+          now,
+          now,
+          now,
+        ],
+      );
+    }
+    await connection.run('COMMIT');
+    transactionStarted = false;
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await connection.run('ROLLBACK');
+      } catch {
+        // Preserve the original grant error.
+      }
+    }
+    throw error;
+  } finally {
+    await connection.close?.();
+  }
+
+  const grant = await readUserWorkspaceProviderGrant(input);
+  if (!grant) throw new Error('User provider credential grant could not be loaded after update.');
+  return grant;
+}
+
+export async function revokeUserWorkspaceProviderGrant(input: {
+  organizationId: string;
+  userId: string;
+  workspaceId: string;
+  agentId: string;
+  providerInstallationId: string;
+  expectedRevision?: number;
+}): Promise<AiUserWorkspaceProviderGrant | null> {
+  const connection = await openDb();
+  let transactionStarted = false;
+  try {
+    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    transactionStarted = true;
+    await lockWorkspaceRuntimeContext(connection, input);
+    const current = await connection.get(
+      `SELECT id, organization_id, user_id, workspace_id, agent_id,
+              provider_installation_id, allowed_execution_modes_json, status,
+              revision, granted_at, revoked_at, updated_at
+       FROM ai_user_workspace_provider_grants
+       WHERE organization_id = ? AND user_id = ? AND workspace_id = ?
+         AND agent_id = ? AND provider_installation_id = ?
+       LIMIT 1`,
+      [
+        input.organizationId,
+        input.userId,
+        input.workspaceId,
+        input.agentId,
+        input.providerInstallationId,
+      ],
+    ) as UserWorkspaceProviderGrantRow | undefined;
+    if (!current) {
+      await connection.run('COMMIT');
+      transactionStarted = false;
+      return null;
+    }
+    const currentRevision = numberValue(current.revision, 0);
+    if (input.expectedRevision !== undefined && input.expectedRevision !== currentRevision) {
+      throw new RuntimeRevisionConflictError('user_provider_grant', currentRevision);
+    }
+    if (current.status === 'active') {
+      const now = Date.now();
+      const result = await connection.run(
+        `UPDATE ai_user_workspace_provider_grants
+         SET status = 'revoked', revision = ?, revoked_at = ?, updated_at = ?
+         WHERE id = ? AND revision = ?`,
+        [currentRevision + 1, now, now, current.id, currentRevision],
+      );
+      if (changedRows(result) !== 1) {
+        throw new RuntimeRevisionConflictError('user_provider_grant', currentRevision + 1);
+      }
+    }
+    await connection.run('COMMIT');
+    transactionStarted = false;
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await connection.run('ROLLBACK');
+      } catch {
+        // Preserve the original grant error.
+      }
+    }
+    throw error;
+  } finally {
+    await connection.close?.();
+  }
+  return readUserWorkspaceProviderGrant(input);
 }
 
 export async function writeUserModelPreferenceStore(input: {
