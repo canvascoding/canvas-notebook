@@ -189,7 +189,9 @@ export async function resolveDirectMcpConsentPresentation(
   if (
     !client
     || client.disabled === true
-    || client.public !== true
+    // Better Auth derives public-client status from the `none` endpoint auth
+    // method and no longer persists the legacy `public` column for DCR rows.
+    || client.public === false
     || client.tokenEndpointAuthMethod !== 'none'
   ) {
     return null;

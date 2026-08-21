@@ -12,8 +12,11 @@ const OAUTH_TABLES = [
   'jwks',
   'oauth_access_token',
   'oauth_client',
+  'oauth_client_assertion',
+  'oauth_client_resource',
   'oauth_consent',
   'oauth_refresh_token',
+  'oauth_resource',
 ] as const;
 
 const REQUIRED_COLUMNS: Record<(typeof OAUTH_TABLES)[number], string[]> = {
@@ -57,6 +60,14 @@ const REQUIRED_COLUMNS: Record<(typeof OAUTH_TABLES)[number], string[]> = {
     'dpop_bound_access_tokens',
     'reference_id',
     'metadata',
+  ],
+  oauth_client_assertion: ['id', 'expires_at'],
+  oauth_client_resource: [
+    'id',
+    'client_id',
+    'resource_id',
+    'metadata',
+    'created_at',
   ],
   oauth_refresh_token: [
     'id',
@@ -105,6 +116,23 @@ const REQUIRED_COLUMNS: Record<(typeof OAUTH_TABLES)[number], string[]> = {
     'created_at',
     'updated_at',
   ],
+  oauth_resource: [
+    'id',
+    'identifier',
+    'name',
+    'access_token_ttl',
+    'refresh_token_ttl',
+    'signing_algorithm',
+    'signing_key_id',
+    'allowed_scopes',
+    'custom_claims',
+    'dpop_bound_access_tokens_required',
+    'disabled',
+    'created_at',
+    'updated_at',
+    'policy_version',
+    'metadata',
+  ],
 };
 
 function sqliteSchemaSnapshot(sqlite: Database.Database): string {
@@ -134,6 +162,24 @@ function assertSqliteSchema(sqlite: Database.Database): void {
   assert.equal(clientIndexes.some((index) => index.name === 'idx_oauth_client_user'), true);
   assert.equal(clientIndexes.some((index) => index.unique === 1), true);
 
+  const accountColumns = sqlite.prepare('PRAGMA table_info("account")').all() as Array<{ name: string }>;
+  assert.equal(accountColumns.some((column) => column.name === 'issuer'), true);
+  const accountIndexes = sqlite.prepare('PRAGMA index_list("account")').all() as Array<{
+    name: string;
+    unique: number;
+  }>;
+  assert.equal(
+    accountIndexes.some((index) => (
+      index.name === 'idx_account_issuer_account_id' && index.unique === 1
+    )),
+    true,
+  );
+
+  const clientResourceIndexes = sqlite.prepare('PRAGMA index_list("oauth_client_resource")').all() as Array<{
+    unique: number;
+  }>;
+  assert.equal(clientResourceIndexes.some((index) => index.unique === 1), true);
+
   const accessForeignKeys = sqlite.prepare('PRAGMA foreign_key_list("oauth_access_token")').all() as Array<{
     table: string;
     from: string;
@@ -143,6 +189,30 @@ function assertSqliteSchema(sqlite: Database.Database): void {
     accessForeignKeys.some((key) => (
       key.table === 'oauth_refresh_token'
       && key.from === 'refresh_id'
+      && key.on_delete === 'CASCADE'
+    )),
+    true,
+  );
+
+  const clientResourceForeignKeys = sqlite.prepare(
+    'PRAGMA foreign_key_list("oauth_client_resource")',
+  ).all() as Array<{
+    table: string;
+    from: string;
+    on_delete: string;
+  }>;
+  assert.equal(
+    clientResourceForeignKeys.some((key) => (
+      key.table === 'oauth_client'
+      && key.from === 'client_id'
+      && key.on_delete === 'CASCADE'
+    )),
+    true,
+  );
+  assert.equal(
+    clientResourceForeignKeys.some((key) => (
+      key.table === 'oauth_resource'
+      && key.from === 'resource_id'
       && key.on_delete === 'CASCADE'
     )),
     true,
@@ -233,7 +303,10 @@ function assertSqliteFreshIdempotentAndUpgrade(): void {
     sqlite.exec(`
       DROP TABLE oauth_access_token;
       DROP TABLE oauth_consent;
+      DROP TABLE oauth_client_assertion;
+      DROP TABLE oauth_client_resource;
       DROP TABLE oauth_refresh_token;
+      DROP TABLE oauth_resource;
       DROP TABLE oauth_client;
       DROP TABLE jwks;
     `);
@@ -321,6 +394,24 @@ async function assertPostgresSchema(postgres: PGlite): Promise<void> {
     );
   }
 
+  const accountIssuer = await postgres.query<{ column_name: string }>(`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'account'
+      AND column_name = 'issuer'
+  `);
+  assert.equal(accountIssuer.rows.length, 1);
+
+  const accountIssuerIndex = await postgres.query<{ indexname: string }>(`
+    SELECT indexname
+    FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND tablename = 'account'
+      AND indexname = 'idx_account_issuer_account_id'
+  `);
+  assert.equal(accountIssuerIndex.rows.length, 1);
+
   const foreignKeys = await postgres.query<{
     table_name: string;
     column_name: string;
@@ -350,6 +441,46 @@ async function assertPostgresSchema(postgres: PGlite): Promise<void> {
     foreignKeys.rows.some((key) => (
       key.column_name === 'refresh_id'
       && key.foreign_table_name === 'oauth_refresh_token'
+      && key.delete_rule === 'CASCADE'
+    )),
+    true,
+  );
+
+  const clientResourceForeignKeys = await postgres.query<{
+    column_name: string;
+    foreign_table_name: string;
+    delete_rule: string;
+  }>(`
+    SELECT
+      kcu.column_name,
+      ccu.table_name AS foreign_table_name,
+      rc.delete_rule
+    FROM information_schema.table_constraints tc
+    INNER JOIN information_schema.key_column_usage kcu
+      ON tc.constraint_name = kcu.constraint_name
+     AND tc.constraint_schema = kcu.constraint_schema
+    INNER JOIN information_schema.constraint_column_usage ccu
+      ON tc.constraint_name = ccu.constraint_name
+     AND tc.constraint_schema = ccu.constraint_schema
+    INNER JOIN information_schema.referential_constraints rc
+      ON tc.constraint_name = rc.constraint_name
+     AND tc.constraint_schema = rc.constraint_schema
+    WHERE tc.constraint_type = 'FOREIGN KEY'
+      AND tc.table_schema = 'public'
+      AND tc.table_name = 'oauth_client_resource'
+  `);
+  assert.equal(
+    clientResourceForeignKeys.rows.some((key) => (
+      key.column_name === 'client_id'
+      && key.foreign_table_name === 'oauth_client'
+      && key.delete_rule === 'CASCADE'
+    )),
+    true,
+  );
+  assert.equal(
+    clientResourceForeignKeys.rows.some((key) => (
+      key.column_name === 'resource_id'
+      && key.foreign_table_name === 'oauth_resource'
       && key.delete_rule === 'CASCADE'
     )),
     true,
@@ -421,7 +552,10 @@ async function assertPostgresFreshIdempotentAndUpgrade(): Promise<void> {
     await postgres.exec(`
       DROP TABLE oauth_access_token CASCADE;
       DROP TABLE oauth_consent CASCADE;
+      DROP TABLE oauth_client_assertion CASCADE;
+      DROP TABLE oauth_client_resource CASCADE;
       DROP TABLE oauth_refresh_token CASCADE;
+      DROP TABLE oauth_resource CASCADE;
       DROP TABLE oauth_client CASCADE;
       DROP TABLE jwks CASCADE;
     `);

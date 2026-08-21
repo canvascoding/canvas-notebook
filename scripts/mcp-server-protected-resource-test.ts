@@ -4,6 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { NextRequest } from 'next/server';
+
 import {
   DIRECT_MCP_OAUTH_SCOPES,
   DIRECT_MCP_RESOURCE_SCOPES,
@@ -112,43 +114,51 @@ async function issueTokenSet(
   dispatch: (request: Request) => Promise<Response>,
   issuer: string,
   resource: string,
+  existingSessionCookie?: string,
+  existingClientId?: string,
 ): Promise<{
   accessToken: string;
   refreshToken: string;
   clientId: string;
+  sessionCookie: string;
 }> {
-  const registrationResponse = await dispatch(new Request(`${issuer}/oauth2/register`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      origin: ORIGIN,
-    },
-    body: JSON.stringify({
-      client_name: 'ChatGPT Protected Resource Test',
-      redirect_uris: [REDIRECT_URI],
-      token_endpoint_auth_method: 'none',
-      grant_types: ['authorization_code', 'refresh_token'],
-      response_types: ['code'],
-      scope: DIRECT_MCP_OAUTH_SCOPES.join(' '),
-    }),
-  }));
-  assert.equal([200, 201].includes(registrationResponse.status), true);
-  const clientId = String((await readJson(registrationResponse)).client_id);
-  assert.ok(clientId);
+  let clientId = existingClientId;
+  if (!clientId) {
+    const registrationResponse = await dispatch(new Request(`${issuer}/oauth2/register`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: ORIGIN,
+      },
+      body: JSON.stringify({
+        client_name: 'ChatGPT Protected Resource Test',
+        redirect_uris: [REDIRECT_URI],
+        token_endpoint_auth_method: 'none',
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        scope: DIRECT_MCP_OAUTH_SCOPES.join(' '),
+      }),
+    }));
+    assert.equal([200, 201].includes(registrationResponse.status), true);
+    clientId = String((await readJson(registrationResponse)).client_id);
+    assert.ok(clientId);
+  }
 
-  const loginResponse = await dispatch(new Request(`${issuer}/sign-in/email`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      origin: ORIGIN,
-    },
-    body: JSON.stringify({
-      email: EMAIL,
-      password: PASSWORD,
-    }),
-  }));
-  assert.equal(loginResponse.status, 200);
-  const sessionCookie = readSessionCookie(loginResponse);
+  const sessionCookie = existingSessionCookie ?? await (async () => {
+    const loginResponse = await dispatch(new Request(`${issuer}/sign-in/email`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: ORIGIN,
+      },
+      body: JSON.stringify({
+        email: EMAIL,
+        password: PASSWORD,
+      }),
+    }));
+    assert.equal(loginResponse.status, 200);
+    return readSessionCookie(loginResponse);
+  })();
 
   const authorizeResponse = await dispatch(new Request(
     authorizationUrl(clientId, resource),
@@ -203,6 +213,7 @@ async function issueTokenSet(
     accessToken: String(tokenSet.access_token),
     refreshToken: String(tokenSet.refresh_token),
     clientId,
+    sessionCookie,
   };
 }
 
@@ -230,10 +241,11 @@ async function main(): Promise<void> {
         getDirectMcpProtectedResourceMetadata,
         directMcpProtectedResourceMetadataResponse,
       },
+      { getDirectMcpReadiness },
       {
-        applyDirectMcpRevocation,
         prepareDirectMcpRevocation,
       },
+      authRoute,
       canonicalMetadataRoute,
       aliasMetadataRoute,
     ] = await Promise.all([
@@ -241,12 +253,18 @@ async function main(): Promise<void> {
       import('../app/lib/mcp/server/oauth-request-policy'),
       import('../app/lib/mcp/server/access-token-verifier'),
       import('../app/lib/mcp/server/protected-resource-metadata'),
+      import('../app/lib/mcp/server/readiness'),
       import('../app/lib/mcp/server/oauth-grant-revocation'),
+      import('../app/api/auth/[...all]/route'),
       import('../app/.well-known/oauth-protected-resource/mcp/route'),
       import('../app/.well-known/oauth-protected-resource/route'),
     ]);
     const { issuer, resource, protectedResourceMetadataUrl } =
       resolveDirectMcpServerConfig();
+    assert.deepEqual(await getDirectMcpReadiness(), {
+      status: 'ready',
+      code: 'MCP_READY',
+    });
 
     async function dispatch(request: Request): Promise<Response> {
       return (await enforceDirectMcpOAuthRequestPolicy(request))
@@ -261,18 +279,25 @@ async function main(): Promise<void> {
     };
     assert.deepEqual(await getDirectMcpProtectedResourceMetadata(), expectedMetadata);
     for (const response of await Promise.all([
-      directMcpProtectedResourceMetadataResponse(),
-      canonicalMetadataRoute.GET(),
-      aliasMetadataRoute.GET(),
+      directMcpProtectedResourceMetadataResponse(new Request(`${ORIGIN}/.well-known/oauth-protected-resource/mcp`)),
+      canonicalMetadataRoute.GET(new Request(`${ORIGIN}/.well-known/oauth-protected-resource/mcp`)),
+      aliasMetadataRoute.GET(new Request(`${ORIGIN}/.well-known/oauth-protected-resource`)),
     ])) {
       assert.equal(response.status, 200);
       assert.equal(response.headers.get('access-control-allow-origin'), '*');
+      assert.match(response.headers.get('x-request-id') || '', /^[0-9a-f-]{36}$/iu);
       assert.deepEqual(await readJson(response), expectedMetadata);
     }
 
     const originalFeatureFlag = process.env.CANVAS_MCP_DIRECT_ENABLED;
     process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
-    assert.equal((await directMcpProtectedResourceMetadataResponse()).status, 404);
+    assert.deepEqual(await getDirectMcpReadiness(), {
+      status: 'disabled',
+      code: 'MCP_DISABLED',
+    });
+    assert.equal((await directMcpProtectedResourceMetadataResponse(
+      new Request(`${ORIGIN}/.well-known/oauth-protected-resource/mcp`),
+    )).status, 404);
     process.env.CANVAS_MCP_DIRECT_ENABLED = originalFeatureFlag;
 
     const tokenSet = await issueTokenSet(
@@ -427,9 +452,16 @@ async function main(): Promise<void> {
     });
     const revocationCandidate = await prepareDirectMcpRevocation(revokeRequest);
     assert.ok(revocationCandidate);
-    const revokeResponse = await auth.handler(revokeRequest);
-    assert.equal(revokeResponse.status, 200);
-    await applyDirectMcpRevocation(revocationCandidate);
+    const siblingTokenSet = await issueTokenSet(
+      auth,
+      dispatch,
+      issuer,
+      resource,
+      tokenSet.sessionCookie,
+      tokenSet.clientId,
+    );
+    const revokeResponse = await authRoute.POST(new NextRequest(revokeRequest));
+    assert.equal(revokeResponse.status, 200, await revokeResponse.clone().text());
     await assertAuthorizationError(
       () => verifyDirectMcpAccessToken(tokenSet.accessToken, ['knowledge:read']),
       {
@@ -437,8 +469,28 @@ async function main(): Promise<void> {
         code: 'invalid_token',
       },
     );
+    await verifyDirectMcpAccessToken(siblingTokenSet.accessToken, ['knowledge:read']);
+    const revocationDatabase = await openDb();
+    try {
+      const session = await revocationDatabase.get(
+        'SELECT id FROM "session" WHERE id = ? LIMIT 1',
+        [principal.sessionId],
+      );
+      assert.ok(session, 'Revoking one OAuth client must not end the browser session.');
+      const siblingGrant = await revocationDatabase.get(`
+        SELECT revoked
+        FROM oauth_refresh_token
+        WHERE client_id = ?
+          AND session_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+      `, [tokenSet.clientId, principal.sessionId]) as { revoked: unknown } | undefined;
+      assert.equal(siblingGrant?.revoked, null);
+    } finally {
+      await revocationDatabase.close();
+    }
 
-    const refreshAfterRevocation = new Request(`${issuer}/oauth2/token`, {
+    const refreshAfterAccessTokenRevocation = new Request(`${issuer}/oauth2/token`, {
       method: 'POST',
       headers: {
         'content-type': 'application/x-www-form-urlencoded',
@@ -451,10 +503,9 @@ async function main(): Promise<void> {
       }),
     });
     const refreshPolicyResponse = await enforceDirectMcpOAuthRequestPolicy(
-      refreshAfterRevocation,
+      refreshAfterAccessTokenRevocation,
     );
-    assert.equal(refreshPolicyResponse?.status, 400);
-    assert.equal((await readJson(refreshPolicyResponse!)).error, 'invalid_grant');
+    assert.equal(refreshPolicyResponse, null);
 
     const errorResponse = new DirectMcpAuthorizationError(
       'invalid_token',

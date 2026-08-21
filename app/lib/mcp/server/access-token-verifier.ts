@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { createHash } from 'node:crypto';
+
 import type { JSONWebKeySet, JWTPayload } from 'jose';
 import { verifyJwsAccessToken } from 'better-auth/oauth2';
 
@@ -24,6 +26,7 @@ type DirectMcpGrantStateRow = {
   user_banned: unknown;
   client_id: string;
   client_disabled: unknown;
+  revoked_token_hash: string | null;
 };
 
 export type DirectMcpJwtClaims = {
@@ -237,6 +240,7 @@ export async function verifyDirectMcpJwtClaims(
 
 export async function loadDirectMcpGrantState(
   claims: Pick<DirectMcpJwtClaims, 'sessionId' | 'subject' | 'clientId'>,
+  token?: string,
 ): Promise<DirectMcpGrantStateRow | null> {
   const database = await openDb();
   try {
@@ -247,16 +251,27 @@ export async function loadDirectMcpGrantState(
         local_user.id AS user_id,
         local_user.banned AS user_banned,
         oauth_client.client_id AS client_id,
-        oauth_client.disabled AS client_disabled
+        oauth_client.disabled AS client_disabled,
+        revoked_access_token.token_hash AS revoked_token_hash
       FROM "session" auth_session
       INNER JOIN "user" local_user
         ON local_user.id = auth_session.user_id
       INNER JOIN oauth_client
         ON oauth_client.client_id = ?
+      LEFT JOIN mcp_revoked_access_token revoked_access_token
+        ON revoked_access_token.token_hash = ?
+       AND revoked_access_token.client_id = oauth_client.client_id
+       AND revoked_access_token.session_id = auth_session.id
+       AND revoked_access_token.user_id = local_user.id
       WHERE auth_session.id = ?
         AND auth_session.user_id = ?
       LIMIT 1
-    `, [claims.clientId, claims.sessionId, claims.subject]);
+    `, [
+      claims.clientId,
+      token ? createHash('sha256').update(token).digest('base64url') : '',
+      claims.sessionId,
+      claims.subject,
+    ]);
     return (row as DirectMcpGrantStateRow | undefined) ?? null;
   } finally {
     await database.close();
@@ -277,6 +292,7 @@ function assertGrantStateActive(
     || isDatabaseBoolean(state.client_disabled)
     || sessionExpiresAt === null
     || sessionExpiresAt <= Date.now()
+    || state.revoked_token_hash !== null
   ) {
     throw invalidToken();
   }
@@ -303,7 +319,7 @@ export async function verifyDirectMcpAccessToken(
 
   let state: DirectMcpGrantStateRow | null;
   try {
-    state = await loadDirectMcpGrantState(claims);
+    state = await loadDirectMcpGrantState(claims, token);
   } catch {
     throw authorizationUnavailable();
   }

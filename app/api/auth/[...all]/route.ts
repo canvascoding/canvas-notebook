@@ -5,11 +5,20 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
 import { initializeUserOnboarding } from '@/app/lib/user-preferences';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
-import { enforceDirectMcpOAuthRequestPolicy } from '@/app/lib/mcp/server/oauth-request-policy';
+import {
+  enforceDirectMcpOAuthRequestPolicy,
+  isDirectMcpOAuthPath,
+} from '@/app/lib/mcp/server/oauth-request-policy';
 import {
   applyDirectMcpRevocation,
   prepareDirectMcpRevocation,
 } from '@/app/lib/mcp/server/oauth-grant-revocation';
+import {
+  beginDirectMcpDiagnostic,
+  completeDirectMcpDiagnostic,
+  failDirectMcpDiagnostic,
+  withDirectMcpRequestId,
+} from '@/app/lib/mcp/server/diagnostics';
 
 function hasAuthPathSegment(pathname: string, segment: string): boolean {
   return new RegExp(`/${segment}(?:/|$)`).test(pathname);
@@ -99,65 +108,110 @@ async function initializeCreatedUserOnboarding(pathname: string, response: Respo
   await initializeUserOnboarding(userId);
 }
 
-export async function GET(request: NextRequest) {
-  const policyResponse = await enforceDirectMcpOAuthRequestPolicy(request);
-  if (policyResponse) return policyResponse;
+function directMcpOAuthUnavailableResponse(): Response {
+  return NextResponse.json(
+    {
+      error: 'temporarily_unavailable',
+      error_description: 'The Direct MCP OAuth service is temporarily unavailable.',
+    },
+    {
+      status: 503,
+      headers: {
+        'cache-control': 'no-store',
+        pragma: 'no-cache',
+      },
+    },
+  );
+}
 
-  if (isTeamUserManagementPath(request.nextUrl.pathname)) {
-    const licenseResponse = await requireTeamRuntimeRoute();
-    if (licenseResponse) return licenseResponse;
+async function handleDirectMcpOAuthRequest(
+  request: NextRequest,
+  handler: () => Promise<Response>,
+): Promise<Response> {
+  if (!isDirectMcpOAuthPath(request.nextUrl.pathname)) return handler();
+
+  const startedAt = Date.now();
+  const diagnostics = beginDirectMcpDiagnostic(request, 'oauth.request');
+  try {
+    const response = withDirectMcpRequestId(await handler(), diagnostics.requestId);
+    completeDirectMcpDiagnostic(diagnostics, {
+      statusCode: response.status,
+      code: response.status >= 500 ? 'OAUTH_PROVIDER_ERROR' : 'OAUTH_REQUEST_COMPLETED',
+      startedAt,
+    });
+    return response;
+  } catch {
+    failDirectMcpDiagnostic(diagnostics, {
+      code: 'OAUTH_INTERNAL_ERROR',
+      startedAt,
+      statusCode: 503,
+    });
+    return withDirectMcpRequestId(
+      directMcpOAuthUnavailableResponse(),
+      diagnostics.requestId,
+    );
   }
-  return auth.handler(request);
+}
+
+export async function GET(request: NextRequest) {
+  return handleDirectMcpOAuthRequest(request, async () => {
+    const policyResponse = await enforceDirectMcpOAuthRequestPolicy(request);
+    if (policyResponse) return policyResponse;
+
+    if (isTeamUserManagementPath(request.nextUrl.pathname)) {
+      const licenseResponse = await requireTeamRuntimeRoute();
+      if (licenseResponse) return licenseResponse;
+    }
+    return auth.handler(request);
+  });
 }
 
 export async function POST(request: NextRequest) {
-  const pathname = request.nextUrl.pathname;
-  const policyResponse = await enforceDirectMcpOAuthRequestPolicy(request);
-  if (policyResponse) return policyResponse;
-  const revocationCandidate = await prepareDirectMcpRevocation(request);
+  return handleDirectMcpOAuthRequest(request, async () => {
+    const pathname = request.nextUrl.pathname;
+    const policyResponse = await enforceDirectMcpOAuthRequestPolicy(request);
+    if (policyResponse) return policyResponse;
+    const revocationCandidate = await prepareDirectMcpRevocation(request);
 
-  const action = authAuditAction(pathname);
-  const beforeUserId = action ? await getCurrentAuthUserId(request) : null;
-
-  if (hasAuthPathSegment(pathname, 'sign-up')) {
-    const response = NextResponse.json({ message: 'Sign up is disabled' }, { status: 403 });
-    if (action) await recordAuthRequestAudit(request, action, response, beforeUserId);
-    return response;
-  }
-
-  if (isTeamUserManagementPath(pathname)) {
-    const licenseResponse = await requireTeamRuntimeRoute();
-    if (licenseResponse) return licenseResponse;
-  }
-
-  const response = await auth.handler(request);
-  if (response.ok && revocationCandidate) {
-    try {
-      await applyDirectMcpRevocation(revocationCandidate);
-    } catch (error) {
-      console.error('[auth] Failed to revoke the local Direct MCP grant:', error);
-      return NextResponse.json(
-        {
+    if (revocationCandidate) {
+      try {
+        await applyDirectMcpRevocation(revocationCandidate);
+        return new Response(null, {
+          status: 200,
+          headers: { 'cache-control': 'no-store' },
+        });
+      } catch {
+        console.error('[auth] Failed to revoke the local Direct MCP grant.');
+        return NextResponse.json({
           error: 'temporarily_unavailable',
           error_description: 'The local OAuth grant could not be revoked.',
-        },
-        {
-          status: 503,
-          headers: {
-            'cache-control': 'no-store',
-            pragma: 'no-cache',
-          },
-        },
-      );
+        }, { status: 503, headers: { 'cache-control': 'no-store', pragma: 'no-cache' } });
+      }
     }
-  }
-  try {
-    await initializeCreatedUserOnboarding(pathname, response);
-  } catch (error) {
-    // Account creation must keep Better Auth's response semantics. The admin
-    // UI retries the explicit initializer if persistence briefly fails.
-    console.error('[auth] Failed to initialize personal onboarding for created user:', error);
-  }
-  if (action) await recordAuthRequestAudit(request, action, response, beforeUserId);
-  return response;
+
+    const action = authAuditAction(pathname);
+    const beforeUserId = action ? await getCurrentAuthUserId(request) : null;
+
+    if (hasAuthPathSegment(pathname, 'sign-up')) {
+      const response = NextResponse.json({ message: 'Sign up is disabled' }, { status: 403 });
+      if (action) await recordAuthRequestAudit(request, action, response, beforeUserId);
+      return response;
+    }
+
+    if (isTeamUserManagementPath(pathname)) {
+      const licenseResponse = await requireTeamRuntimeRoute();
+      if (licenseResponse) return licenseResponse;
+    }
+
+    const response = await auth.handler(request);
+    try {
+      await initializeCreatedUserOnboarding(pathname, response);
+    } catch (error) {
+      // Account creation must keep Better Auth's response semantics. The admin
+      // UI retries the explicit initializer if persistence briefly fails.
+      console.error('[auth] Failed to initialize personal onboarding for created user:', error);
+    }
+    if (action) await recordAuthRequestAudit(request, action, response, beforeUserId);
+    return response;
+  });
 }

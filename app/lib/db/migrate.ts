@@ -351,6 +351,24 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_oauth_access_token_refresh
       ON oauth_access_token (refresh_id);
 
+    -- Direct MCP uses self-contained JWT access tokens. Keep only a digest of
+    -- an explicitly revoked token so a single token can be made inactive
+    -- without revoking the browser session or other OAuth grants.
+    CREATE TABLE IF NOT EXISTS mcp_revoked_access_token (
+      token_hash TEXT PRIMARY KEY NOT NULL,
+      client_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      revoked_at INTEGER NOT NULL,
+      FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
+      FOREIGN KEY (session_id) REFERENCES session(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mcp_revoked_access_token_expiry
+      ON mcp_revoked_access_token (expires_at);
+
     CREATE TABLE IF NOT EXISTS oauth_consent (
       id TEXT PRIMARY KEY NOT NULL,
       client_id TEXT NOT NULL,

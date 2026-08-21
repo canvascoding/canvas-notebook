@@ -71,7 +71,7 @@ export function createDirectMcpServer(
     if (!tool) {
       throw new ProtocolError(
         ProtocolErrorCode.MethodNotFound,
-        `Unknown or disabled tool ${request.params.name}.`,
+        'The requested tool is not available.',
       );
     }
     return tool.execute(request.params.arguments, context.http?.authInfo);

@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 17: Exponierten MCP-Server und OAuth-500 beheben'
-status: open
+status: in_progress
 priority: high
 depends_on: []
 platforms: [server, mcp, oauth]
@@ -8,6 +8,12 @@ tags: [type/bug, topic/mcp, topic/oauth, topic/integrations]
 ---
 
 # Ticket 17: Exponierten MCP-Server und OAuth-500 beheben
+
+## Umsetzungsplan
+
+Der codebestandsnahe, strikt sequenzielle Plan ist unter
+[17-mcp-server-oauth-500-umsetzungsplan.md](./17-mcp-server-oauth-500-umsetzungsplan.md)
+dokumentiert.
 
 ## Problem
 
@@ -53,3 +59,12 @@ als zusammenhaengender Flow diagnostiziert werden.
 - `npm run build` und manuelle Integrationsabnahme; Browser-/E2E-Test nur nach
   expliziter Freigabe.
 - Eigener Commit, danach Status im [Index](./README.md) aktualisieren.
+
+## Implementierungsstatus (2026-08-21)
+
+Die serverseitige Umsetzung ist erfolgt und die Direct-MCP-Testsuite wurde
+erfolgreich ausgefuehrt. Der detailierte Nachweis mit offenen Abnahmen steht in
+[17-mcp-server-oauth-500-validierung.md](./17-mcp-server-oauth-500-validierung.md).
+
+Der Ticketstatus bleibt bis zur explizit freigegebenen externen
+ChatGPT-Abnahme `in_progress`.

@@ -213,7 +213,7 @@ function authorizeUrl(clientId: string, overrides: Record<string, string | null>
     scope: 'openid workspace:list knowledge:read',
     state: 'opaque-client-state',
     resource: RESOURCE,
-    code_challenge: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~',
+    code_challenge: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_',
     code_challenge_method: 'S256',
   };
   for (const [key, value] of Object.entries(overrides)) {

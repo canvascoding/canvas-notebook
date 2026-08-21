@@ -36,7 +36,7 @@ function disabledResponse(): Response {
   );
 }
 
-function isDirectMcpOAuthPath(pathname: string): boolean {
+export function isDirectMcpOAuthPath(pathname: string): boolean {
   return [
     '/api/auth/oauth2/register',
     '/api/auth/oauth2/authorize',
@@ -50,6 +50,22 @@ function validateResourceValues(values: string[]): Response | null {
   const { resource } = resolveDirectMcpOAuthConfig();
   if (values.length !== 1 || values[0] !== resource) {
     return oauthError('invalid_target', `The OAuth resource must be exactly ${resource}.`);
+  }
+  return null;
+}
+
+function validateAuthorizationPkce(url: URL): Response | null {
+  const codeChallenge = url.searchParams.get('code_challenge')?.trim();
+  const codeChallengeMethod = url.searchParams.get('code_challenge_method');
+  if (
+    !codeChallenge
+    || !/^[A-Za-z0-9_-]{43,128}$/.test(codeChallenge)
+    || codeChallengeMethod !== 'S256'
+  ) {
+    return oauthError(
+      'invalid_request',
+      'Direct MCP authorization requires a S256 PKCE code challenge.',
+    );
   }
   return null;
 }
@@ -125,7 +141,10 @@ export async function enforceDirectMcpOAuthRequestPolicy(
     request.method === 'GET'
     && url.pathname === '/api/auth/oauth2/authorize'
   ) {
-    return validateResourceValues(url.searchParams.getAll('resource'));
+    return (
+      validateResourceValues(url.searchParams.getAll('resource'))
+      ?? validateAuthorizationPkce(url)
+    );
   }
 
   if (

@@ -30,6 +30,10 @@ export type DirectMcpRevocationCandidate = {
   clientId: string;
   sessionId: string | null;
   userId: string;
+  tokenType: 'access_token' | 'refresh_token';
+  refreshId: string | null;
+  accessTokenHash: string | null;
+  accessTokenExpiresAt: number | null;
 };
 
 function isDatabaseBoolean(value: unknown): boolean {
@@ -161,6 +165,10 @@ async function prepareAccessTokenCandidate(
       clientId,
       sessionId: claims.sessionId,
       userId: claims.subject,
+      tokenType: 'access_token',
+      refreshId: null,
+      accessTokenHash: storedTokenHash(token),
+      accessTokenExpiresAt: claims.expiresAt * 1000,
     };
   } catch (error) {
     if (error instanceof DirectMcpAuthorizationError) return null;
@@ -178,6 +186,10 @@ async function prepareRefreshTokenCandidate(
     clientId,
     sessionId: grant.session_id,
     userId: grant.user_id,
+    tokenType: 'refresh_token',
+    refreshId: grant.id,
+    accessTokenHash: null,
+    accessTokenExpiresAt: null,
   };
 }
 
@@ -225,25 +237,31 @@ export async function applyDirectMcpRevocation(
   const revokedAt = Date.now();
   await database.run('BEGIN');
   try {
-    if (candidate.sessionId) {
+    if (candidate.accessTokenHash && candidate.sessionId && candidate.accessTokenExpiresAt) {
+      await database.run(`
+        INSERT INTO mcp_revoked_access_token (
+          token_hash, client_id, session_id, user_id, expires_at, revoked_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(token_hash) DO NOTHING
+      `, [
+        candidate.accessTokenHash,
+        candidate.clientId,
+        candidate.sessionId,
+        candidate.userId,
+        candidate.accessTokenExpiresAt,
+        revokedAt,
+      ]);
+    } else if (candidate.refreshId) {
       await database.run(`
         UPDATE oauth_refresh_token
         SET revoked = COALESCE(revoked, ?)
-        WHERE session_id = ?
-          AND user_id = ?
-      `, [revokedAt, candidate.sessionId, candidate.userId]);
+        WHERE id = ? AND user_id = ? AND client_id = ?
+      `, [revokedAt, candidate.refreshId, candidate.userId, candidate.clientId]);
       await database.run(`
-        DELETE FROM "session"
-        WHERE id = ?
-          AND user_id = ?
-      `, [candidate.sessionId, candidate.userId]);
-    } else {
-      await database.run(`
-        UPDATE oauth_refresh_token
-        SET revoked = COALESCE(revoked, ?)
-        WHERE client_id = ?
-          AND user_id = ?
-      `, [revokedAt, candidate.clientId, candidate.userId]);
+        UPDATE oauth_access_token
+        SET expires_at = CASE WHEN expires_at > ? THEN ? ELSE expires_at END
+        WHERE refresh_id = ? AND user_id = ? AND client_id = ?
+      `, [revokedAt, revokedAt, candidate.refreshId, candidate.userId, candidate.clientId]);
     }
     await database.run('COMMIT');
   } catch (error) {
