@@ -133,8 +133,8 @@ assert.match(
 );
 assert.match(
   collaborationSource,
-  /\.\.\.canvasRichMarkdownExtensions\(\)/u,
-  'the server collaboration schema must use the same rich Markdown extensions as the browser',
+  /richMarkdownCodecExtensions/u,
+  'the server collaboration schema must use the shared rich Markdown codec',
 );
 
 for (const selector of [
