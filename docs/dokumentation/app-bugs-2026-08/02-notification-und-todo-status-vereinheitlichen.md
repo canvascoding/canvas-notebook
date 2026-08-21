@@ -9,6 +9,9 @@ tags: [type/bug, topic/notifications, topic/todos]
 
 # Ticket 02: Notification- und To-do-Status vereinheitlichen
 
+> Detaillierter, am aktuellen Codebestand ausgerichteter Umsetzungsplan:
+> [02-notification-todo-umsetzungsplan.md](./02-notification-todo-umsetzungsplan.md)
+
 ## Problem
 
 Die Notification Central behandelt Chat-Hinweise und To-dos gleich. Dadurch
