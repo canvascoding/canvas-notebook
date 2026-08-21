@@ -43,16 +43,32 @@ export async function GET(request: NextRequest) {
     if (!limited.ok) return limited.response;
 
     const scope = await loadMobileInboxScope(session.user);
-    const inbox = await listMobileAggregateInbox({
-      userId: session.user.id,
-      workspaces: scope.includedWorkspaces,
-      limit: 12,
-    });
+    const [inbox, todosInbox] = await Promise.all([
+      listMobileAggregateInbox({
+        userId: session.user.id,
+        workspaces: scope.includedWorkspaces,
+        limit: 12,
+      }),
+      // Persistent To-dos must not be crowded out by recent event notifications.
+      listMobileAggregateInbox({
+        userId: session.user.id,
+        workspaces: scope.includedWorkspaces,
+        filter: 'todos',
+        limit: 50,
+      }),
+    ]);
     const workspaceNames = new Map(scope.sources.map((source) => [source.id, source.name]));
-    const items = inbox.items.map((item) => ({
+    const notificationItems = inbox.items
+      .filter((item) => item.target.kind !== 'todo')
+      .map((item) => ({
+        ...item,
+        workspaceName: workspaceNames.get(item.workspaceId) ?? null,
+      }));
+    const todoItems = todosInbox.items.map((item) => ({
       ...item,
       workspaceName: workspaceNames.get(item.workspaceId) ?? null,
     }));
+    const items = [...notificationItems, ...todoItems];
 
     return NextResponse.json({
       success: true,
@@ -63,8 +79,8 @@ export async function GET(request: NextRequest) {
         // center can render its persistent To-do section independently.
         items,
         sections: {
-          notifications: items.filter((item) => item.target.kind !== 'todo'),
-          todos: items.filter((item) => item.target.kind === 'todo'),
+          notifications: notificationItems,
+          todos: todoItems,
         },
       },
     });

@@ -443,6 +443,7 @@ export async function listMobileInbox(input: {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
     todos: allItems.filter((item) => item.target.kind === 'todo').length,
+    todoUnread: allItems.filter((item) => item.target.kind === 'todo' && item.unread).length,
     studio: allItems.filter((item) => item.target.kind === 'studio').length,
     automation: allItems.filter((item) => item.target.kind === 'automation').length,
   };
@@ -602,6 +603,7 @@ export async function listMobileAggregateInbox(input: {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
     todos: allItems.filter((item) => item.target.kind === 'todo').length,
+    todoUnread: allItems.filter((item) => item.target.kind === 'todo' && item.unread).length,
     studio: allItems.filter((item) => item.target.kind === 'studio').length,
     automation: allItems.filter((item) => item.target.kind === 'automation').length,
   };
@@ -816,6 +818,6 @@ export async function markMobileInboxRead(input: {
     throw new MobileInboxError('INVALID_ITEM', 'The Inbox item is invalid.', 400);
   }
   return requestedRead
-    ? { itemId: input.itemId, readAt: now.toISOString() }
-    : { itemId: input.itemId, read: false };
+    ? { itemId: input.itemId, read: true, readAt: now.toISOString() }
+    : { itemId: input.itemId, read: false, readAt: null };
 }

@@ -19,7 +19,7 @@ abgeschlossen sind.
 | Reihenfolge | Ticket | Status | Abhaengigkeit |
 | --- | --- | --- | --- |
 | 01 | [Sub-Agent-Steuerung und Darstellung](./01-sub-agent-steuerung-und-darstellung.md) | erledigt | – |
-| 02 | [Notification- und To-do-Status vereinheitlichen](./02-notification-und-todo-status-vereinheitlichen.md) | offen | 01 |
+| 02 | [Notification- und To-do-Status vereinheitlichen](./02-notification-und-todo-status-vereinheitlichen.md) | erledigt | 01 |
 | 03 | [Mobile Inbox mit Kategorien und Badges](./03-mobile-inbox-tabs-und-badges.md) | offen | 02 |
 | 04 | [Mobile Chat und Browser-Use stabilisieren](./04-mobile-chat-und-browser-use-stabilisieren.md) | offen | 03 |
 | 05 | [Files-Tab automatisch aktualisieren](./05-files-tab-automatisch-aktualisieren.md) | offen | 04 |

@@ -23,6 +23,7 @@ export type NotificationSummary = {
     unread: number;
     chat: number;
     todos: number;
+    todoUnread: number;
     studio: number;
     automation: number;
   };

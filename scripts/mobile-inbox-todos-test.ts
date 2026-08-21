@@ -112,6 +112,7 @@ async function main() {
 
     const inbox = await listMobileInbox({ userId: 'mobile-attention-user', workspace, limit: 20 });
     assert.equal(inbox.counts.unread, 5);
+    assert.equal(inbox.counts.todoUnread, 1);
     assert.equal(await countMobileUnreadMessages({ userId: 'mobile-attention-user', workspaces: [workspace] }), 2);
     assert.equal(inbox.items.some((item) => item.id === 'chat:attention-session'), true);
     assert.equal(inbox.items.some((item) => item.id === 'chat:historic-unread-session'), true);

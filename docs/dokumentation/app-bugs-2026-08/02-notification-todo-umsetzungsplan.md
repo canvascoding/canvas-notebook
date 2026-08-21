@@ -1,6 +1,6 @@
 ---
 title: 'Umsetzungsplan zu Ticket 02: Notification- und To-do-Status vereinheitlichen'
-status: planned
+status: completed
 date: 2026-08-21
 branch: ticket/02-notification-todo-status
 platforms: [web, server, mobile-api]
@@ -26,6 +26,20 @@ Die fachliche Trennung lautet:
   orchestrieren die Statusaenderung.
 - Ein gemeinsamer Read-State-Store kapselt die wiederverwendbare Persistenz.
   Web-, Mobile- und To-do-APIs duerfen keine eigene Statusmechanik besitzen.
+
+## Abschluss am 21.08.2026
+
+Alle Phasen wurden umgesetzt. Die fokussierten Commits sind:
+
+1. `ca6f5f66 Add per-user todo read state`
+2. `289c06c7 Unify todo read state actions`
+3. `dff8dcc2 Keep todos visible in notification inbox`
+4. `55b23dbf Separate todos in notification center`
+
+Der finale Vertrag liefert `counts.todoUnread` sowie getrennte
+`sections.notifications` und `sections.todos`; die bestehende zusammengefuehrte
+`items`-Liste bleibt kompatibel. Der Notification-Summary lädt die To-do-Sektion
+separat, damit sie nicht durch ereignisbasierte Hinweise verdraengt wird.
 
 ## Inventur des bestehenden Stands
 
