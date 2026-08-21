@@ -27,6 +27,12 @@ Tools fuer Lesen, Erstellen und kontrolliertes Bearbeiten rechtfertigt.
 
 ## Umsetzung
 
+Die codebestandsnahe Evaluations-, Sicherheits-, PoC-, Roundtrip- und
+Abnahmeplanung liegt im
+[Evaluationsplan zu Ticket 19](./19-word-und-excel-werkzeuge-evaluationsplan.md).
+Bis zu einer dort dokumentierten Go-Entscheidung werden keine produktiven
+Office-Tools oder In-place-Bearbeitungen umgesetzt.
+
 - Telemetrie bzw. Supportfaelle datensparsam auswerten und Kern-Use-Cases fuer
   DOCX und XLSX festlegen; keine Dokumentinhalte erheben.
 - Bestehende PDF-, Export-, Upload-, Preview- und abgeleitete DOCX-Pfade sowie
