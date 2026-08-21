@@ -43,7 +43,7 @@ abgeschlossen sind.
 | 23 | [Agent-Edits in Live-Collaboration-Dokumenten reparieren](./23-agent-edits-in-live-collaboration-reparieren.md) | in Umsetzung | – |
 | 24 | [Agent-Dateiedits buendeln und Stale-State-Feedback verbessern](./24-agent-dateiedits-buendeln-und-stale-state-feedback.md) | in Umsetzung | 18 |
 | 25 | [Heartbeat-Automationen, Notifications und Tokenverbrauch kontrollieren](./25-heartbeat-automationen-und-tokenverbrauch-kontrollieren.md) | offen | 10 |
-| 26 | [Vision-Bilder aus dem Read-Tool korrekt an Modelle uebergeben](./26-vision-bilder-aus-read-tool-korrekt-uebergeben.md) | offen | – |
+| 26 | [Vision-Faehigkeiten fuer Bilder aus dem Read-Tool aktivieren](./26-vision-bilder-aus-read-tool-korrekt-uebergeben.md) | offen | – |
 
 ## Gemeinsame Arbeitsregeln
 

@@ -1,5 +1,5 @@
 ---
-title: 'Ticket 26: Vision-Bilder aus dem Read-Tool korrekt an Modelle uebergeben'
+title: 'Ticket 26: Vision-Faehigkeiten fuer Bilder aus dem Read-Tool aktivieren'
 status: open
 priority: high
 depends_on: []
@@ -7,23 +7,25 @@ platforms: [server, agent-runtime, providers]
 tags: [type/bug, topic/agents, topic/vision, topic/images, topic/tools, topic/providers]
 ---
 
-# Ticket 26: Vision-Bilder aus dem Read-Tool korrekt an Modelle uebergeben
+# Ticket 26: Vision-Faehigkeiten fuer Bilder aus dem Read-Tool aktivieren
 
 ## Problem
 
-Ein visionfaehiges KI-Modell kann Bilder, die ueber das `read`-Tool aus einem
-Workspace gelesen werden, derzeit nicht verlaesslich sehen und verstehen. Die
-Erkennung der effektiven Vision-Faehigkeit eines Modellturns und die
-Weitergabe des Image-Contents vom Toolresultat ueber Nachrichten-Normalisierung
-und Provider-Adapter bis zum Modell muessen als ein durchgaengiger Vertrag
-behandelt werden. Ein Bild darf auf diesem Weg weder still verloren gehen noch
-bei einem nicht visionfaehigen Modell irrefuehrend als verarbeitet gelten.
+Ein tatsaechlich visionfaehiges KI-Modell kann seine Vision-Capability im
+aktuellen Runtime-Turn nicht zuverlaessig ausnutzen, wenn es ein Bild ueber das
+`read`-Tool aus einem Workspace liest. Das Problem ist damit nicht bloss ein
+fehlender Bildanhang: Das effektive Modell wird als visionfaehig behandelt oder
+erkannt, bekommt die Bildinformation aber nicht in einer fuer seine
+Vision-Inferenz nutzbaren Form. Die Capability-Erkennung und die Weitergabe des
+Image-Contents vom Toolresultat ueber Nachrichten-Normalisierung und
+Provider-Adapter bis zum Modell muessen als ein durchgaengiger Vertrag
+funktionieren.
 
 ## Zielzustand
 
-- Fuer einen Modellturn mit tatsaechlich aktivem Vision-Support erreicht ein
-  via `read` gelesenes, berechtigtes Bild den Provider im jeweils korrekten
-  multimodalen Eingabeformat und ist fuer das Modell auswertbar.
+- Ein tatsaechlich visionfaehiger Modellturn kann ein via `read` gelesenes,
+  berechtigtes Bild erfolgreich als visuellen Input verwenden und dessen Inhalt
+  beantworten; ein erkannter Vision-Support bleibt nicht ungenutzt.
 - Die Vision-Entscheidung wird aus dem effektiven Provider-/Modellprofil und
   dem konkreten Turn abgeleitet, nicht aus einem statischen Modellnamen, einer
   UI-Annahme oder einer blossen Toolfreigabe.
@@ -47,10 +49,12 @@ bei einem nicht visionfaehigen Modell irrefuehrend als verarbeitet gelten.
   gegebenenfalls PDF-Seitenbild-Eingaben festlegen. Provider- oder
   Modellwechsel, Runtime-Reload, Delegation und Automation duerfen keinen
   alten Vision-Status weiterverwenden.
-- Sicherstellen, dass ein erfolgreiches `read`-Bild als typisiertes
-  multimodales Content-Element den naechsten Modellturn erreicht und nicht
-  durch Normalisierung, Groessenbudget, Serialisierung oder Adapterkonvertierung
-  in Text, `undefined` oder eine leere Nachricht zerfaellt.
+- Sicherstellen, dass ein erfolgreiches `read`-Bild als typisiertes,
+  fuer den gewaehlten Vision-Provider nutzbares multimodales Content-Element
+  den naechsten Modellturn erreicht. Es darf nicht durch Normalisierung,
+  Groessenbudget, Serialisierung oder Adapterkonvertierung in Text,
+  `undefined`, eine leere Nachricht oder einen fuer Vision wirkungslosen
+  Anhang zerfallen.
 - Fuer nicht unterstuetzte MIME-Typen, zu grosse Bilder, nicht visionfaehige
   Modelle und providerseitig abgewiesene Bildinputs klare, maschinenlesbare
   Fehler-/Fallback-Codes definieren. Kein stilles Entfernen und kein erneutes
@@ -69,9 +73,9 @@ bei einem nicht visionfaehigen Modell irrefuehrend als verarbeitet gelten.
 ## Abnahmekriterien
 
 - Ein berechtigter Agent liest eine PNG- oder JPEG-Datei im Workspace mit einem
-  visionfaehigen Modell und beantwortet eine kontrollierte Bildfrage anhand des
-  Bildinhalts; der Test belegt die multimodale Provideranfrage ohne Bildbytes
-  zu protokollieren.
+  tatsaechlich visionfaehigen Modell und beantwortet eine kontrollierte,
+  nur visuell loesbare Bildfrage anhand des Bildinhalts. Der Test belegt, dass
+  die Vision-Inferenz verwendet wurde, ohne Bildbytes zu protokollieren.
 - Derselbe Lauf mit einem nicht visionfaehigen Modell liefert einen eindeutigen
   Fallback-/Fehlercode und behauptet nicht, das Bild gesehen zu haben.
 - Ein Modell- oder Providerwechsel sowie ein Runtime-Reload aendern die
