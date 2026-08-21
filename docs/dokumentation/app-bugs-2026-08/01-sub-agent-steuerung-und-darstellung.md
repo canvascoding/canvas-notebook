@@ -9,6 +9,9 @@ tags: [type/bug, topic/canvas-agent, topic/sub-agents]
 
 # Ticket 01: Sub-Agent-Steuerung und Darstellung
 
+> Detaillierter, am aktuellen Codebestand ausgerichteter Umsetzungsplan:
+> [01-sub-agent-umsetzungsplan.md](./01-sub-agent-umsetzungsplan.md)
+
 ## Problem
 
 Sub-Agent-Sessions erscheinen wie normale Sessions in der Historie. Ihre
