@@ -3,6 +3,7 @@ import 'server-only';
 import { readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { importPortableExcalidrawAssets } from '@/app/lib/excalidraw-collaboration/assets';
+import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
 import {
   ensureExcalidrawScene,
   loadExcalidrawScene,
@@ -19,11 +20,17 @@ const MAX_COLLABORATION_TEXT_BYTES = 5 * 1024 * 1024;
 
 export class CollaborationSessionError extends Error {
   readonly status: 400 | 404 | 409 | 413;
+  readonly code?: 'source_representation_required';
 
-  constructor(message: string, status: CollaborationSessionError['status']) {
+  constructor(
+    message: string,
+    status: CollaborationSessionError['status'],
+    code?: CollaborationSessionError['code'],
+  ) {
     super(message);
     this.name = 'CollaborationSessionError';
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -142,6 +149,13 @@ export async function createCollaborationSessionGrant(input: {
         throw new CollaborationSessionError(
           'Live collaboration supports text files up to 5 MiB.',
           413,
+        );
+      }
+      if (request.representation === 'tiptap_xml' && analyzeMarkdownRichMode(initialContent).mode === 'source') {
+        throw new CollaborationSessionError(
+          'This Markdown document can only collaborate in source mode so its representation is preserved.',
+          409,
+          'source_representation_required',
         );
       }
       state = await ensureCollaborationState({

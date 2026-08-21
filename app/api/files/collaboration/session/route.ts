@@ -108,6 +108,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Could not start collaboration.',
+      ...(error instanceof CollaborationSessionError && error.code ? { code: error.code } : {}),
     }, { status });
   }
 }
