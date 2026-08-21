@@ -2,7 +2,7 @@
 title: 'Ticket 16: Persoenliches ChatGPT-Abo im Team-Workspace nutzbar machen'
 status: open
 priority: high
-depends_on: ['15-legacy-auto-update-und-managed-bootstrap-entkoppeln']
+depends_on: []
 platforms: [web, server, agent-runtime]
 tags: [type/bug, topic/chatgpt, topic/oauth, topic/workspaces, topic/runtime]
 ---

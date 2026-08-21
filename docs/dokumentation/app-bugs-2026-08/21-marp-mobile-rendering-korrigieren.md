@@ -2,7 +2,7 @@
 title: 'Ticket 21: MARP-Praesentationen auf Mobile korrekt rendern'
 status: open
 priority: medium
-depends_on: ['20-todo-agent-tools-und-mobile-notifications']
+depends_on: []
 platforms: [mobile, server, mobile-api]
 repositories: [canvasstudios-notebook, expo-mobile-app]
 tags: [type/bug, topic/marp, topic/mobile-app, topic/rendering]

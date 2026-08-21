@@ -2,7 +2,7 @@
 title: 'Ticket 10: Automationen, UI und Workspace-Zuordnung pruefen'
 status: open
 priority: high
-depends_on: ['09-administrator-email-setup-reparieren']
+depends_on: []
 platforms: [web, server, agent-runtime]
 tags: [type/bug, topic/automations, topic/workspaces, topic/ownership]
 ---

@@ -2,7 +2,7 @@
 title: 'Ticket 11: Lizenztypen und Control-Plane-Handshake Ende-zu-Ende testen'
 status: open
 priority: high
-depends_on: ['10-automationen-ui-und-workspace-zuordnung-pruefen']
+depends_on: []
 platforms: [server, control-plane, vm-agent]
 repositories: [canvasstudios-notebook, canvas-control-plane]
 tags: [type/bug, topic/licensing, topic/control-plane, topic/e2e]

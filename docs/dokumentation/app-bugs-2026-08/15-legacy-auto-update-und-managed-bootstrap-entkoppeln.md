@@ -2,7 +2,7 @@
 title: 'Ticket 15: Legacy-Auto-Update und Managed Bootstrap entkoppeln'
 status: open
 priority: high
-depends_on: ['14-todo-sichtbarkeit-filter-und-priorisierung']
+depends_on: ['11-lizenztypen-und-control-plane-handshake-testen']
 platforms: [server, cli, control-plane, vm-agent]
 repositories: [canvasstudios-notebook, canvas-control-plane]
 tags: [type/bug, topic/updates, topic/control-plane, topic/cli]

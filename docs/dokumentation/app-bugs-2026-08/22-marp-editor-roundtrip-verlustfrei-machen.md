@@ -2,7 +2,7 @@
 title: 'Ticket 22: MARP-YAML und Formatierung beim Editorwechsel erhalten'
 status: open
 priority: high
-depends_on: ['21-marp-mobile-rendering-korrigieren']
+depends_on: []
 platforms: [web]
 tags: [type/bug, topic/marp, topic/editor, topic/frontmatter]
 ---

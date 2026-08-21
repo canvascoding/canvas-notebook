@@ -2,7 +2,7 @@
 title: 'Ticket 18: Agent-System-Prompts an effektive Tools koppeln'
 status: open
 priority: high
-depends_on: ['17-mcp-server-oauth-500-beheben']
+depends_on: []
 platforms: [server, agent-runtime]
 tags: [type/bug, topic/agents, topic/system-prompt, topic/tools, topic/email]
 ---

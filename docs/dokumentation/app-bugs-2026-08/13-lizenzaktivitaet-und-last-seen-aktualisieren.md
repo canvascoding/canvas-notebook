@@ -2,7 +2,7 @@
 title: 'Ticket 13: Lizenzaktivitaet und Last-Seen im Control Plane aktualisieren'
 status: open
 priority: medium
-depends_on: ['12-user-einladungsflow-und-ui-stabilisieren']
+depends_on: ['11-lizenztypen-und-control-plane-handshake-testen']
 platforms: [server, control-plane, vm-agent]
 repositories: [canvasstudios-notebook, canvas-control-plane]
 tags: [type/bug, topic/licensing, topic/telemetry, topic/control-plane]

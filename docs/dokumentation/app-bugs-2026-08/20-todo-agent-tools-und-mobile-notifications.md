@@ -2,7 +2,7 @@
 title: 'Ticket 20: Agenten-Tools fuer To-do-Verwaltung und Mobile Notifications erweitern'
 status: open
 priority: medium
-depends_on: ['19-word-und-excel-werkzeuge-evaluieren']
+depends_on: ['02-notification-und-todo-status-vereinheitlichen', '14-todo-sichtbarkeit-filter-und-priorisierung']
 platforms: [server, agent-runtime, mobile, mobile-api]
 repositories: [canvasstudios-notebook, expo-mobile-app]
 tags: [type/feature, topic/todos, topic/tools, topic/notifications]

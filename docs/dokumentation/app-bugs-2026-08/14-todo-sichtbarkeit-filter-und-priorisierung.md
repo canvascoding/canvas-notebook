@@ -2,7 +2,7 @@
 title: 'Ticket 14: To-do-Sichtbarkeit, Filter und Priorisierung korrigieren'
 status: open
 priority: high
-depends_on: ['13-lizenzaktivitaet-und-last-seen-aktualisieren']
+depends_on: ['02-notification-und-todo-status-vereinheitlichen']
 platforms: [web, server, mobile-api]
 tags: [type/bug, topic/todos, topic/workspaces, topic/ui]
 ---

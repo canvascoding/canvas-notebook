@@ -2,7 +2,7 @@
 title: 'Ticket 17: Exponierten MCP-Server und OAuth-500 beheben'
 status: open
 priority: high
-depends_on: ['16-chatgpt-abo-im-team-workspace-stabilisieren']
+depends_on: []
 platforms: [server, mcp, oauth]
 tags: [type/bug, topic/mcp, topic/oauth, topic/integrations]
 ---

@@ -2,7 +2,7 @@
 title: 'Ticket 09: Administrator-E-Mail-Setup reparieren'
 status: open
 priority: high
-depends_on: ['08-dateien-sortieren-und-anpinnen']
+depends_on: []
 platforms: [web, server]
 tags: [type/bug, topic/email, topic/settings, topic/admin]
 ---

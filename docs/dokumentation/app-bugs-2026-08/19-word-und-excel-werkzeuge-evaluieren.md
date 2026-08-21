@@ -2,7 +2,7 @@
 title: 'Ticket 19: Word- und Excel-Werkzeuge evaluieren'
 status: open
 priority: low
-depends_on: ['18-agent-system-prompts-an-tools-koppeln']
+depends_on: []
 platforms: [server, agent-runtime]
 tags: [type/feature, topic/documents, topic/spreadsheets, topic/tools]
 ---
