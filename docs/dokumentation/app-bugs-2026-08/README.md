@@ -42,6 +42,7 @@ abgeschlossen sind.
 | 22 | [MARP-YAML und Formatierung beim Editorwechsel erhalten](./22-marp-editor-roundtrip-verlustfrei-machen.md) | offen | – |
 | 23 | [Agent-Edits in Live-Collaboration-Dokumenten reparieren](./23-agent-edits-in-live-collaboration-reparieren.md) | offen | – |
 | 24 | [Agent-Dateiedits buendeln und Stale-State-Feedback verbessern](./24-agent-dateiedits-buendeln-und-stale-state-feedback.md) | offen | 18 |
+| 25 | [Heartbeat-Automationen, Notifications und Tokenverbrauch kontrollieren](./25-heartbeat-automationen-und-tokenverbrauch-kontrollieren.md) | offen | 10 |
 
 ## Gemeinsame Arbeitsregeln
 
@@ -67,11 +68,11 @@ abgeschlossen sind.
   oder End-to-End-Tests mit Playwright/Chrome nur nach expliziter Freigabe.
 - Der Abschluss eines Tickets erfordert einen eigenen, fokussierten Commit.
 
-## Parallelisierungsplan fuer Tickets 09–24
+## Parallelisierungsplan fuer Tickets 09–25
 
 | Strang | Startbare Tickets | Harte Reihenfolge / Koordination |
 | --- | --- | --- |
-| E-Mail und Automationen | 09, 10 | Koordination bei gemeinsamen E-Mail-Settings; keine harte Abhaengigkeit. |
+| E-Mail und Automationen | 09, 10 | 25 folgt auf 10; Koordination bei gemeinsamen E-Mail-Settings. |
 | Lizenz und Control Plane | 11 | Danach 12, 13 und 15; 13 und 15 teilen Agent-/VM-Zustaende und werden besser nacheinander integriert. |
 | To-dos | 14 nach 02 | 20 erst nach 02 und 14. |
 | Agent-Runtime | 16, 18 | Bei gemeinsamen Runtime-Resolver-Dateien vorab Dateigrenzen festlegen. |
@@ -80,6 +81,7 @@ abgeschlossen sind.
 | MARP | 21, 22 | Mobile-Rendering und Web-Editor sind getrennt; gemeinsame MARP-Fixtures abstimmen. |
 | Live Collaboration | 23 | Eigenstaendig startbar; Tool-/Runtime-Grenzen mit 18 und Rich-Markdown-Fixtures mit 22 abstimmen. |
 | Agent-Dateiworkflow | 24 nach 18 | Prompt-/Tool-Guidance baut auf der effektiven Toolbeschreibung aus 18 auf; Stale-/Collaboration-Verhalten mit 23 abstimmen. |
+| Heartbeat-Automationen | 25 nach 10 | Nutzt Workspace-/Owner-/Filter-Grundlage aus 10; Usage- und Notification-Vertraege separat koordinieren. |
 
 ## Bestehende Referenzen
 
