@@ -8,7 +8,12 @@ async function main() {
   const { mapPersistedChatMessages } = await import(
     '../app/components/canvas-agent-chat/chatMessageMapping'
   );
-  const { cancelChatDelegation, fetchChatDelegations } = await import(
+  const {
+    cancelChatDelegation,
+    fetchChatDelegations,
+    fetchDelegationOptions,
+    startChatDelegation,
+  } = await import(
     '../app/lib/chat/delegation-api'
   );
 
@@ -52,6 +57,14 @@ async function main() {
         },
       });
     }
+    if (init?.method === 'POST') return Response.json({ success: true });
+    if (String(input).includes('options=true')) {
+      return Response.json({
+        success: true,
+        agents: [{ agentId: 'agent-ui-1', name: 'UI Agent', iconId: null }],
+        toolsets: [{ name: 'web', label: 'Web', description: 'Browse the web' }],
+      });
+    }
     return Response.json({
       success: true,
       delegations: [{ id: 'delegation-ui-1', status: 'running' }],
@@ -68,6 +81,19 @@ async function main() {
     assert.equal(cancelled.status, 'cancelled');
     assert.equal(requests[1]?.url, '/api/delegations/delegation%2Fui-1');
     assert.equal(requests[1]?.init?.method, 'DELETE');
+
+    const options = await fetchDelegationOptions('source session/one');
+    assert.equal(options.agents[0]?.agentId, 'agent-ui-1');
+    assert.equal(requests[2]?.url, '/api/delegations?sourceSessionId=source+session%2Fone&options=true');
+
+    await startChatDelegation({
+      sourceSessionId: 'source-ui-1',
+      targetAgentId: 'agent-ui-1',
+      goal: 'Inspect the result',
+      toolsets: ['web'],
+    });
+    assert.equal(requests[3]?.url, '/api/delegations');
+    assert.equal(requests[3]?.init?.method, 'POST');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -93,7 +119,11 @@ async function main() {
   assert.match(composerSource, /\{delegationPanel\}/u);
   assert.match(chatSource, /<ChatDelegationPanel key=\{sessionId\} sourceSessionId=\{sessionId\}/u);
   assert.match(panelSource, /data-testid="chat-delegation-panel"/u);
+  assert.match(panelSource, /data-testid="chat-delegation-start"/u);
+  assert.match(panelSource, /<Dialog open=\{dialogOpen\}/u);
   assert.match(panelSource, /cancelChatDelegation/u);
+  assert.match(panelSource, /startChatDelegation/u);
+  assert.match(panelSource, /delegationShowResult/u);
   assert.match(runtimeEventsSource, /!isDelegationCompletionMessage\(event\.message\)/u);
 
   console.log('pi-delegation-ui-test: ok');
