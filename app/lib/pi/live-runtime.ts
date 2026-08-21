@@ -469,6 +469,7 @@ class LivePiRuntime {
   constructor(init: RuntimeInit, agent: Agent, private readonly options: RuntimeOptions = {}) {
     this.sessionId = init.sessionId;
     this.userId = init.userId;
+    this.statusRevision = currentRuntimeStatusRevision(init.sessionId, init.userId);
     this.agentId = init.agentId;
     this.provider = init.provider;
     this.model = init.model;
@@ -1622,7 +1623,7 @@ class LivePiRuntime {
     if (signature === this.lastBroadcastStatusSignature) {
       return;
     }
-    this.statusRevision += 1;
+    this.statusRevision = nextRuntimeStatusRevision(this.sessionId, this.userId);
     const status = this.getStatus();
     const event: RuntimeStatusEvent = {
       type: 'runtime_status',
@@ -1920,6 +1921,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
 
 type RuntimeStore = {
   runtimes: Map<string, Promise<LivePiRuntime>>;
+  statusRevisions: Map<string, number>;
   cleanupStarted: boolean;
 };
 
@@ -1931,6 +1933,7 @@ function getStore(): RuntimeStore {
   if (!globalStore.__canvasPiRuntimeStore) {
     globalStore.__canvasPiRuntimeStore = {
       runtimes: new Map<string, Promise<LivePiRuntime>>(),
+      statusRevisions: new Map<string, number>(),
       cleanupStarted: false,
     };
   }
@@ -1980,6 +1983,18 @@ function getStore(): RuntimeStore {
 
 function getRuntimeKey(sessionId: string, userId: string) {
   return `${userId}:${sessionId}`;
+}
+
+function currentRuntimeStatusRevision(sessionId: string, userId: string): number {
+  return getStore().statusRevisions.get(getRuntimeKey(sessionId, userId)) || 0;
+}
+
+function nextRuntimeStatusRevision(sessionId: string, userId: string): number {
+  const store = getStore();
+  const key = getRuntimeKey(sessionId, userId);
+  const revision = (store.statusRevisions.get(key) || 0) + 1;
+  store.statusRevisions.set(key, revision);
+  return revision;
 }
 
 async function evictPiRuntimeInstance(
@@ -2200,7 +2215,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
 
   return {
     sessionId,
-    revision: 0,
+    revision: currentRuntimeStatusRevision(sessionId, userId),
     ...(browserSnapshot.running ? { browser: browserSnapshot } : {}),
     phase: 'idle',
     activeTool: null,
