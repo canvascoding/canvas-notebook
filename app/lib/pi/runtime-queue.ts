@@ -5,6 +5,7 @@ export type RuntimeQueuePreview = {
   id: string;
   text: string;
   attachmentCount: number;
+  clientMessageId?: string;
   messageTimestamp?: number;
   signature?: string;
 };

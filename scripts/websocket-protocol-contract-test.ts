@@ -20,6 +20,7 @@ for (const message of [
     type: 'send_message',
     requestId: 'send-1',
     sessionId: 'session-a',
+    clientMessageId: 'pending-1',
     message: { role: 'user', content: 'hello', timestamp: Date.now() },
   },
   { type: 'control', sessionId: 'session-a', action: 'abort' },
@@ -35,6 +36,8 @@ for (const message of [
   { type: 'subscribe_session', sessionId: '' },
   { type: 'subscribe_session', sessionId: 'x'.repeat(257) },
   { type: 'send_message', sessionId: 'session-a', message: 'hello' },
+  { type: 'send_message', sessionId: 'session-a', clientMessageId: '', message: { role: 'user', content: 'hello', timestamp: Date.now() } },
+  { type: 'send_message', sessionId: 'session-a', clientMessageId: 'x'.repeat(257), message: { role: 'user', content: 'hello', timestamp: Date.now() } },
   { type: 'control', sessionId: 'session-a', action: 'delete_everything' },
 ]) {
   assert.equal(parseClientMessage(message).ok, false, 'expected invalid message');

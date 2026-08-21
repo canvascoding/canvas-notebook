@@ -29,6 +29,7 @@ export type ClientMessage =
       requestId?: string;
       sessionId: string;
       agentId?: string;
+      clientMessageId?: string;
       message: AgentMessage;
       context?: ChatRequestContext;
     }
@@ -135,6 +136,9 @@ export function parseClientMessage(value: unknown): ClientMessageParseResult {
       }
       if (!isOptionalBoundedString(value.agentId, MAX_IDENTIFIER_LENGTH)) {
         return invalid('agentId must be a non-empty bounded string');
+      }
+      if (!isOptionalBoundedString(value.clientMessageId, MAX_IDENTIFIER_LENGTH)) {
+        return invalid('clientMessageId must be a non-empty bounded string');
       }
       if (value.context !== undefined && !isRecord(value.context)) {
         return invalid('context must be an object');

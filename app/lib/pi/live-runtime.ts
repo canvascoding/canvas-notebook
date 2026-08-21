@@ -172,6 +172,8 @@ type RuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting';
 
 export type PiRuntimeStatus = {
   sessionId: string;
+  /** Monotonically increasing server revision for causally ordered UI state. */
+  revision: number;
   browser?: BrowserSessionSnapshot;
   phase: RuntimePhase;
   activeTool: { toolCallId: string; name: string } | null;
@@ -324,17 +326,24 @@ function countMessageAttachments(message: Extract<AgentMessage, { role: 'user' }
 }
 
 function buildQueuePreview(message: Extract<AgentMessage, { role: 'user' }>): RuntimeQueuePreview {
+  const clientMessageId = typeof (message as { clientMessageId?: unknown }).clientMessageId === 'string'
+    ? (message as { clientMessageId: string }).clientMessageId.trim() || undefined
+    : undefined;
   return {
     id: `queue-${message.timestamp}-${Math.random().toString(36).slice(2, 8)}`,
     text: extractUserMessageText(message),
     attachmentCount: countMessageAttachments(message),
+    ...(clientMessageId ? { clientMessageId } : {}),
     messageTimestamp: message.timestamp,
     signature: getMessageSignature(message),
   };
 }
 
 function getMessageSignature(message: Extract<AgentMessage, { role: 'user' }>): string {
-  return `${message.timestamp}:${extractUserMessageText(message)}:${countMessageAttachments(message)}`;
+  const clientMessageId = typeof (message as { clientMessageId?: unknown }).clientMessageId === 'string'
+    ? (message as { clientMessageId: string }).clientMessageId.trim()
+    : '';
+  return `${clientMessageId}:${message.timestamp}:${extractUserMessageText(message)}:${countMessageAttachments(message)}`;
 }
 
 function sanitizeUserMessage(
@@ -439,6 +448,7 @@ class LivePiRuntime {
   private persistLock = false;
   private persistPending: 'turn_end' | 'agent_end' | 'error' | null = null;
   private lastBroadcastStatusSignature: string | null = null;
+  private statusRevision = 0;
   private currentUserPromptText = '';
   private currentUserPromptSignature: string | null = null;
   private syntheticContinuationCount = 0;
@@ -548,6 +558,7 @@ class LivePiRuntime {
 
     return {
       sessionId: this.sessionId,
+      revision: this.statusRevision,
       ...(this.browserSnapshot ? { browser: this.browserSnapshot } : {}),
       phase: this.abortRequested || hasPendingReplace
         ? 'aborting'
@@ -1606,6 +1617,12 @@ class LivePiRuntime {
   }
 
   private publishStatus() {
+    const currentStatus = this.getStatus();
+    const signature = getRuntimeStatusSignature(currentStatus);
+    if (signature === this.lastBroadcastStatusSignature) {
+      return;
+    }
+    this.statusRevision += 1;
     const status = this.getStatus();
     const event: RuntimeStatusEvent = {
       type: 'runtime_status',
@@ -1613,12 +1630,6 @@ class LivePiRuntime {
     };
 
     this.publish(event);
-
-    const signature = getRuntimeStatusSignature(status);
-    if (signature === this.lastBroadcastStatusSignature) {
-      return;
-    }
-
     this.lastBroadcastStatusSignature = signature;
     this.emitRuntimeEvent(event);
   }
@@ -2189,6 +2200,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
 
   return {
     sessionId,
+    revision: 0,
     ...(browserSnapshot.running ? { browser: browserSnapshot } : {}),
     phase: 'idle',
     activeTool: null,

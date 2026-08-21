@@ -81,6 +81,7 @@ export type MobileChatMessage = {
   role: 'user' | 'assistant' | 'system' | 'tool';
   kind: 'message' | 'tool' | 'error';
   text: string;
+  clientMessageId?: string;
   toolName: string | null;
   toolInput: string | null;
   attachments: MobileChatAttachment[];
@@ -250,12 +251,17 @@ export function serializeMobileChatMessage(input: {
   const visibleText = extractPiMessageText(piMessage, { hideAttachmentMetadata: true })
     || stripAttachmentBlocks(contentToString(parsed.content));
   const toolCallId = messageToolCallId(parsed);
+  const clientMessageId = typeof parsed.clientMessageId === 'string'
+    && parsed.clientMessageId.trim().length <= 256
+    ? parsed.clientMessageId.trim()
+    : undefined;
   return {
     id: String(input.id),
     sequence: input.sequence,
     role,
     kind: isError ? 'error' : role === 'tool' ? 'tool' : 'message',
     text: visibleText,
+    ...(clientMessageId ? { clientMessageId } : {}),
     toolName: messageToolName(parsed),
     toolInput: toolCallId ? toolInputsById.get(toolCallId) || null : null,
     attachments: attachments.map(serializeMessageAttachment),
