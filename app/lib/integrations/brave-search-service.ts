@@ -69,7 +69,11 @@ function normalizeProvider(value: unknown): WebSearchProvider {
 async function getSearchProvider(storageScope?: EnvStorageScope | null): Promise<WebSearchProvider> {
   try {
     const state = await readScopedEnvState('integrations', storageScope);
-    return normalizeProvider(new Map(state.entries.map((entry) => [entry.key, entry.value])).get('WEB_SEARCH_PROVIDER')?.trim().toLowerCase());
+    const configuredProvider = new Map(state.entries.map((entry) => [entry.key, entry.value]))
+      .get('WEB_SEARCH_PROVIDER')
+      ?.trim()
+      .toLowerCase();
+    return normalizeProvider(configuredProvider || process.env.WEB_SEARCH_PROVIDER?.trim().toLowerCase());
   } catch {
     return normalizeProvider(process.env.WEB_SEARCH_PROVIDER?.trim().toLowerCase());
   }

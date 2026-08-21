@@ -72,7 +72,8 @@ async function main() {
     assert.equal(result.results[0].url, 'https://example.com/docs');
     assert.doesNotMatch(formatWebSearchResults(result), /test-local-key/);
 
-    await fs.writeFile(path.join(secretsDir, 'Canvas-Integrations.env'), 'WEB_SEARCH_PROVIDER=ollama\nOLLAMA_API_KEY=test-ollama-key\n', 'utf8');
+    process.env.WEB_SEARCH_PROVIDER = 'ollama';
+    await fs.writeFile(path.join(secretsDir, 'Canvas-Integrations.env'), 'OLLAMA_API_KEY=test-ollama-key\n', 'utf8');
     let sawOllamaAuthorization = false;
     globalThis.fetch = async (input, init) => {
       assert.equal(String(input), 'https://ollama.com/api/web_search');
