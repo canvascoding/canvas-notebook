@@ -25,7 +25,7 @@ async function main() {
     await fs.mkdir(path.join(dataRoot, 'users', 'owner-user', 'secrets'), { recursive: true });
     await fs.writeFile(
       path.join(dataRoot, 'secrets', 'Canvas-Integrations.env'),
-      'OPENAI_API_KEY=legacy-openai\nGEMINI_API_KEY=legacy-gemini\nMULTILINE_KEY="line1\tline2"\n',
+      'OPENAI_API_KEY=legacy-openai\nGEMINI_API_KEY=legacy-gemini\nCANVAS_SYSTEM_SMTP_PASSWORD=must-stay-system-scoped\nMULTILINE_KEY="line1\tline2"\n',
       'utf8',
     );
     await fs.writeFile(
@@ -55,6 +55,7 @@ async function main() {
 
     assert.equal(envValue(migratedIntegrations, 'OPENAI_API_KEY'), 'user-openai');
     assert.equal(envValue(migratedIntegrations, 'GEMINI_API_KEY'), 'legacy-gemini');
+    assert.equal(envValue(migratedIntegrations, 'CANVAS_SYSTEM_SMTP_PASSWORD'), null);
     assert.equal(envValue(migratedIntegrations, 'MULTILINE_KEY'), 'line1\\tline2');
     assert.equal(envValue(migratedAgents, 'ANTHROPIC_API_KEY'), 'legacy-anthropic');
 

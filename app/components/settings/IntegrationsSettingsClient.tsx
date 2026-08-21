@@ -2397,6 +2397,9 @@ export function IntegrationsSettingsClient({
   const createWorkspaceOpen = searchParams.get('createWorkspace') === '1';
   const canManageAgentDefaults = isAdmin
     && (organizationPermission?.role === 'owner' || organizationPermission?.role === 'admin');
+  const canManageWorkspaceMailboxes = organizationPermission?.status === 'active'
+    && (organizationPermission.role === 'owner' || organizationPermission.role === 'admin')
+    || (isAdmin && !organizationPermission);
   const canManageOrganizationBrand = organizationPermission?.role === 'owner'
     || organizationPermission?.role === 'admin'
     || (isAdmin && !organizationPermission);
@@ -2407,10 +2410,10 @@ export function IntegrationsSettingsClient({
       if (tab.value === 'user-management') return isAdmin;
       if (tab.value === 'data-migration') return isAdmin;
       if (tab.value === 'ai-providers') return isAdmin;
-      if (tab.value === 'system-email') return isAdmin;
+      if (tab.value === 'system-email') return isAdmin || canManageWorkspaceMailboxes;
       return true;
     }),
-    [isAdmin],
+    [canManageWorkspaceMailboxes, isAdmin],
   );
   const visibleSettingsTabs = useMemo(
     () => new Set<SettingsTab>(visibleSettingsTabItems.map((tab) => tab.value)),
@@ -3297,7 +3300,12 @@ export function IntegrationsSettingsClient({
             </>
           ))}
 
-          {renderLazyTabContent('system-email', <SystemEmailSettingsPanel />)}
+          {renderLazyTabContent('system-email', (
+            <SystemEmailSettingsPanel
+              canManageSystemEmail={isAdmin}
+              canManageWorkspaceMailboxes={canManageWorkspaceMailboxes}
+            />
+          ))}
 
           {renderLazyTabContent('data-migration', <SystemMigrationPanel isAdmin={isAdmin} />)}
 

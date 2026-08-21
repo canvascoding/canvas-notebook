@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { requireInstanceAdmin } from '@/app/lib/admin-auth';
+import { requireWorkspaceMailboxAdmin } from '@/app/lib/email/workspace-mailbox-admin-auth';
 import {
   removeAdminWorkspaceMailbox,
   saveAdminWorkspaceMailbox,
@@ -14,7 +14,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ mailboxId: string }> }) {
-  const admin = await requireInstanceAdmin(request);
+  const admin = await requireWorkspaceMailboxAdmin(request);
   if (!admin.ok) return admin.response;
   const limited = rateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: 'admin-workspace-mailbox-update' });
   if (!limited.ok) return limited.response;
@@ -24,7 +24,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ m
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return NextResponse.json({ success: false, error: 'Invalid workspace mailbox configuration.' }, { status: 400 });
     }
-    const mailbox = await saveAdminWorkspaceMailbox(admin.session.user.id, { ...(payload as WorkspaceMailboxSmtpInput), accountId: mailboxId }, { verify: Boolean((payload as { verifyConnection?: unknown }).verifyConnection) });
+    const mailbox = await saveAdminWorkspaceMailbox(admin.session.user.id, { ...(payload as WorkspaceMailboxSmtpInput), accountId: mailboxId }, {
+      verify: Boolean((payload as { verifyConnection?: unknown }).verifyConnection),
+      organizationId: admin.organizationId,
+    });
     await recordAuditEvent({
       userId: admin.session.user.id,
       workspaceId: mailbox.workspaceId || undefined,
@@ -40,13 +43,13 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ m
 }
 
 export async function DELETE(request: NextRequest, context: { params: Promise<{ mailboxId: string }> }) {
-  const admin = await requireInstanceAdmin(request);
+  const admin = await requireWorkspaceMailboxAdmin(request);
   if (!admin.ok) return admin.response;
   const limited = rateLimit(request, { limit: 10, windowMs: 60_000, keyPrefix: 'admin-workspace-mailbox-remove' });
   if (!limited.ok) return limited.response;
   try {
     const { mailboxId } = await context.params;
-    await removeAdminWorkspaceMailbox(admin.session.user.id, mailboxId);
+    await removeAdminWorkspaceMailbox(admin.session.user.id, mailboxId, admin.organizationId);
     await recordAuditEvent({
       userId: admin.session.user.id,
       source: 'system_email', eventType: 'workspace_mailbox', entityType: 'workspace_email_mailbox', entityId: mailboxId,

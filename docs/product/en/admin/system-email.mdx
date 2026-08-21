@@ -6,7 +6,7 @@ sectionOrder: 10
 order: 5
 locale: en
 translationKey: admin.system-email
-updatedAt: 2026-07-17
+updatedAt: 2026-08-21
 ---
 
 # System Email Configuration
@@ -31,23 +31,25 @@ CANVAS_SYSTEM_EMAIL_REPLY_TO
 ```
 
 If integration environment encryption is enabled, the stored values are encrypted with the integration master key. The UI reports whether a password exists without requiring it to be re-entered for every non-password change.
+These reserved values are redacted from the general Integrations editor and can only be changed in System Email by an instance administrator.
 
 ## Configure and test
 
 1. Create a dedicated SMTP credential with sending-only access when possible.
 2. Enter settings in the administrator System Email panel.
 3. Save and confirm that the configuration is complete.
-4. Send a test message to a controlled recipient.
+4. Send a test message. Canvas delivers it to the signed-in administrator's email address, so the destination cannot be used to relay arbitrary mail.
 5. Check provider logs, spam placement, sender authentication, and the received From and Reply-To headers.
 
 Use SPF, DKIM, and DMARC for the sending domain. Do not use a personal employee password as the long-term system credential.
 
 ## Troubleshooting
 
-Verify secure mode against the port and provider requirements, outbound firewall rules, DNS, credential status, and permitted sender address. Clearing system SMTP disables this notification path but does not remove user mailbox connections.
+Use implicit TLS for providers that require TLS from connection start (commonly port 465); use STARTTLS for port 587. Connection, greeting, and socket timeouts are limited. Provider failures return a safe error code rather than SMTP credentials or raw transport errors.
+
+System Email has three delivery modes: local SMTP, Canvas-managed email, and disabled. Disabled deliberately suppresses system notifications and never substitutes a personal or workspace mailbox. Clearing local SMTP also selects disabled; it does not remove any user or workspace mailbox connection.
 
 ## Related guides
 
 - [Main email and system email](/docs/email/main-system-email)
 - [Managing API keys and secrets](/docs/integrations/secrets)
-

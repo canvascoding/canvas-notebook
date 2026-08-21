@@ -68,13 +68,19 @@ export async function resolveNotificationDeliveryRoute(
   recipient: string,
 ): Promise<NotificationDeliveryRoute> {
   const systemStatus = await getSystemSmtpConfigurationStatus();
-  if (systemStatus.deliveryMode === 'managed' && systemStatus.managedAvailable) {
-    try {
-      const managed = await getManagedSystemEmailAvailability();
-      if (managed.available) return { kind: 'managed_system_email' };
-    } catch (error) {
-      console.warn('[NotificationDelivery] Managed system email availability check failed:', error instanceof Error ? error.message : error);
+  if (systemStatus.deliveryMode === 'disabled') {
+    return { kind: 'unavailable', reason: 'System email delivery is disabled by an administrator.' };
+  }
+  if (systemStatus.deliveryMode === 'managed') {
+    if (systemStatus.managedAvailable) {
+      try {
+        const managed = await getManagedSystemEmailAvailability();
+        if (managed.available) return { kind: 'managed_system_email' };
+      } catch (error) {
+        console.warn('[NotificationDelivery] Managed system email availability check failed:', error instanceof Error ? error.message : error);
+      }
     }
+    return { kind: 'unavailable', reason: 'Managed system email is unavailable.' };
   }
 
   const systemSmtp = await getSystemSmtpConfiguration();

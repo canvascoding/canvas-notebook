@@ -102,15 +102,19 @@ function policyJson(policy: Partial<EmailPolicy> | undefined, emailAddress: stri
   return JSON.stringify(withEmailPolicyDefaultAddresses(policy || {}, [emailAddress]));
 }
 
-async function requireWorkspace(workspaceId: string): Promise<void> {
+async function requireWorkspace(workspaceId: string, organizationId?: string | null): Promise<void> {
   const workspace = await db.query.canvasWorkspaces.findFirst({
-    where: and(eq(canvasWorkspaces.id, workspaceId), eq(canvasWorkspaces.status, 'active')),
+    where: and(
+      eq(canvasWorkspaces.id, workspaceId),
+      eq(canvasWorkspaces.status, 'active'),
+      organizationId ? eq(canvasWorkspaces.organizationId, organizationId) : undefined,
+    ),
     columns: { id: true },
   });
   if (!workspace) throw new Error('Workspace not found or inactive.');
 }
 
-async function listWorkspaceMailboxRows(): Promise<WorkspaceMailboxRow[]> {
+async function listWorkspaceMailboxRows(organizationId?: string | null): Promise<WorkspaceMailboxRow[]> {
   const accounts = await db.select({
     id: emailAccounts.id,
     accountId: emailAccounts.id,
@@ -126,6 +130,11 @@ async function listWorkspaceMailboxRows(): Promise<WorkspaceMailboxRow[]> {
     .where(and(
       eq(emailAccounts.accountScope, WORKSPACE_ACCOUNT_SCOPE),
       eq(emailAccounts.status, 'active'),
+      organizationId === undefined
+        ? undefined
+        : organizationId
+          ? eq(emailAccounts.organizationId, organizationId)
+          : isNull(emailAccounts.organizationId),
     ))
     .orderBy(asc(emailAccounts.emailAddress), desc(emailAccounts.updatedAt));
   return Promise.all(accounts.map(async (account) => {
@@ -165,7 +174,7 @@ async function listWorkspaceMailboxRows(): Promise<WorkspaceMailboxRow[]> {
   }));
 }
 
-async function requireAdminMailbox(mailboxId: string) {
+async function requireAdminMailbox(mailboxId: string, organizationId?: string | null) {
   const [mailbox] = await db.select({
     id: workspaceEmailMailboxes.id,
     workspaceId: workspaceEmailMailboxes.workspaceId,
@@ -173,26 +182,42 @@ async function requireAdminMailbox(mailboxId: string) {
     status: workspaceEmailMailboxes.status,
   }).from(workspaceEmailMailboxes)
     .innerJoin(emailAccounts, eq(emailAccounts.id, workspaceEmailMailboxes.emailAccountId))
-    .where(and(eq(workspaceEmailMailboxes.id, mailboxId), eq(emailAccounts.accountScope, WORKSPACE_ACCOUNT_SCOPE)))
+    .where(and(
+      eq(workspaceEmailMailboxes.id, mailboxId),
+      eq(emailAccounts.accountScope, WORKSPACE_ACCOUNT_SCOPE),
+      organizationId === undefined
+        ? undefined
+        : organizationId
+          ? eq(emailAccounts.organizationId, organizationId)
+          : isNull(emailAccounts.organizationId),
+    ))
     .limit(1);
   if (!mailbox) throw new Error('Workspace mailbox not found.');
   return mailbox;
 }
 
-async function requireAdminWorkspaceAccount(identifier: string) {
+async function requireAdminWorkspaceAccount(identifier: string, organizationId?: string | null) {
   const byAccount = await db.query.emailAccounts.findFirst({
-    where: and(eq(emailAccounts.id, identifier), eq(emailAccounts.accountScope, WORKSPACE_ACCOUNT_SCOPE)),
+    where: and(
+      eq(emailAccounts.id, identifier),
+      eq(emailAccounts.accountScope, WORKSPACE_ACCOUNT_SCOPE),
+      organizationId === undefined
+        ? undefined
+        : organizationId
+          ? eq(emailAccounts.organizationId, organizationId)
+          : isNull(emailAccounts.organizationId),
+    ),
   });
   if (byAccount) return byAccount;
-  const mailbox = await requireAdminMailbox(identifier).catch(() => null);
+  const mailbox = await requireAdminMailbox(identifier, organizationId).catch(() => null);
   if (!mailbox) throw new Error('Workspace mailbox not found.');
   const account = await db.query.emailAccounts.findFirst({ where: eq(emailAccounts.id, mailbox.emailAccountId) });
   if (!account) throw new Error('Workspace mailbox account not found.');
   return account;
 }
 
-async function resolvePublicMailbox(mailboxId: string): Promise<PublicAdminWorkspaceMailbox> {
-  const rows = await listWorkspaceMailboxRows();
+async function resolvePublicMailbox(mailboxId: string, organizationId?: string | null): Promise<PublicAdminWorkspaceMailbox> {
+  const rows = await listWorkspaceMailboxRows(organizationId);
   const row = rows.find((item) => item.id === mailboxId || item.mailboxId === mailboxId);
   if (!row) throw new Error('Workspace mailbox not found.');
   return publicMailbox(row);
@@ -249,17 +274,24 @@ async function activateMailboxForWorkspace(input: {
   return id;
 }
 
-/** Instance-admin orchestration for shared SMTP/IMAP mailboxes. */
-export async function saveAdminWorkspaceMailbox(actorUserId: string, input: WorkspaceMailboxSmtpInput, options: { verify?: boolean } = {}) {
+/** Organization-admin orchestration for shared SMTP/IMAP mailboxes. */
+export async function saveAdminWorkspaceMailbox(
+  actorUserId: string,
+  input: WorkspaceMailboxSmtpInput,
+  options: { verify?: boolean; organizationId?: string | null } = {},
+) {
+  const organizationId = options.organizationId === undefined
+    ? (await readOrganizationPermissionForUser(actorUserId)).organizationId
+    : options.organizationId;
   const workspaceId = optionalWorkspaceId(input.workspaceId);
-  if (workspaceId) await requireWorkspace(workspaceId);
+  if (workspaceId) await requireWorkspace(workspaceId, organizationId);
   const accountIdentifier = typeof input.accountId === 'string' && input.accountId.trim()
     ? input.accountId.trim()
     : typeof input.mailboxId === 'string' && input.mailboxId.trim()
       ? input.mailboxId.trim()
       : undefined;
   const existingAccount = accountIdentifier
-    ? await requireAdminWorkspaceAccount(accountIdentifier)
+    ? await requireAdminWorkspaceAccount(accountIdentifier, organizationId)
     : undefined;
 
   const existingSecret = existingAccount
@@ -276,7 +308,6 @@ export async function saveAdminWorkspaceMailbox(actorUserId: string, input: Work
   }
 
   const now = new Date();
-  const organizationId = (await readOrganizationPermissionForUser(actorUserId)).organizationId;
   const accountId = existingAccount?.id || `workspace-smtp-${randomUUID()}`;
   const previousSecretRef = existingAccount?.secretRef || null;
   const secretRef = workspaceEmailAccountSecretRef(accountId);
@@ -310,9 +341,9 @@ export async function saveAdminWorkspaceMailbox(actorUserId: string, input: Work
       workspaceId,
       actorUserId,
     });
-    return resolvePublicMailbox(activeMailboxId);
+    return resolvePublicMailbox(activeMailboxId, organizationId);
   }
-  return resolvePublicMailbox(accountId);
+  return resolvePublicMailbox(accountId, organizationId);
 }
 
 /**
@@ -394,21 +425,28 @@ async function getActiveMailboxForAccount(accountId: string) {
   });
 }
 
-export async function listAdminWorkspaceMailboxes() {
-  return (await listWorkspaceMailboxRows()).map(publicMailbox);
+export async function listAdminWorkspaceMailboxes(organizationId?: string | null) {
+  return (await listWorkspaceMailboxRows(organizationId)).map(publicMailbox);
 }
 
-export async function listWorkspaceMailboxWorkspaceChoices() {
+export async function listWorkspaceMailboxWorkspaceChoices(organizationId?: string | null) {
   const workspaces = await db.query.canvasWorkspaces.findMany({
-    where: eq(canvasWorkspaces.status, 'active'),
+    where: and(
+      eq(canvasWorkspaces.status, 'active'),
+      organizationId === undefined
+        ? undefined
+        : organizationId
+          ? eq(canvasWorkspaces.organizationId, organizationId)
+          : undefined,
+    ),
     columns: { id: true, displayName: true, type: true },
     orderBy: [asc(canvasWorkspaces.displayName)],
   });
   return workspaces.map((workspace) => ({ id: workspace.id, name: workspace.displayName, type: workspace.type }));
 }
 
-export async function testAdminWorkspaceMailbox(mailboxId: string) {
-  const account = await requireAdminWorkspaceAccount(mailboxId);
+export async function testAdminWorkspaceMailbox(mailboxId: string, organizationId?: string | null) {
+  const account = await requireAdminWorkspaceAccount(mailboxId, organizationId);
   const secret = await readEmailAccountSecret(account.secretRef);
   if (secret.authType !== 'smtp_imap') throw new Error('Workspace mailbox is not an SMTP/IMAP mailbox.');
 
@@ -425,8 +463,8 @@ export async function testAdminWorkspaceMailbox(mailboxId: string) {
   };
 }
 
-export async function removeAdminWorkspaceMailbox(actorUserId: string, mailboxId: string) {
-  const account = await requireAdminWorkspaceAccount(mailboxId);
+export async function removeAdminWorkspaceMailbox(actorUserId: string, mailboxId: string, organizationId?: string | null) {
+  const account = await requireAdminWorkspaceAccount(mailboxId, organizationId);
   const now = new Date();
   await db.update(workspaceEmailMailboxes)
     .set({ status: 'archived', pausedAt: now, lastEditedByUserId: actorUserId, updatedAt: now })

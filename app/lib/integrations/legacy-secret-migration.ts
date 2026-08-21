@@ -19,6 +19,7 @@ import {
   resolveScopedIntegrationsEnvPath,
   resolveSystemMigrationDir,
 } from '@/app/lib/runtime-data-paths';
+import { isSystemEmailEnvKey } from '@/app/lib/email/system-email-keys';
 
 type EnvKind = 'integrations' | 'agents';
 
@@ -167,7 +168,8 @@ export function migrateLegacySecretsToUserScope(userId: string): LegacySecretMig
     if (!isFile(sourcePath)) continue;
 
     sawLegacyFile = true;
-    const legacyEntries = readEnvEntries(sourcePath);
+    const legacyEntries = readEnvEntries(sourcePath)
+      .filter((entry) => file.kind !== 'integrations' || !isSystemEmailEnvKey(entry.key));
     if (legacyEntries.length === 0) continue;
 
     sawLegacyEntries = true;
