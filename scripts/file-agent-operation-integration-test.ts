@@ -371,6 +371,7 @@ try {
     runGeneration: 1,
     targets: [targetFor(state, 'Alpha', 'Applied alpha')],
     explicitUserRequest: true,
+    actorSessionId: `revert-session-${suffix}`,
   });
   assert.equal(safeRevertSource.operationStatus, 'checkpointed_file');
   const reverted = await revertAgentOperation({
@@ -380,6 +381,13 @@ try {
     idempotencyKey: `revert-${suffix}`,
   });
   assert.equal(reverted.operationStatus, 'reverted');
+  assert.ok(
+    directConnectionInputs.some((input) => (
+      input.operationId === reverted.operationId
+      && input.actorSessionId === `revert-session-${suffix}`
+    )),
+    'Revert operations must preserve the originating agent session for direct collaboration authorization.',
+  );
   assert.equal(await persistedText(), 'Alpha\nBeta by agent\nGamma reviewed');
 
   state = await loadCollaborationState(documentId);

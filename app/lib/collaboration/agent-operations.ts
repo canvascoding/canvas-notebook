@@ -1747,6 +1747,7 @@ export async function revertAgentOperation(input: {
     requestedMode: input.requestedMode || 'direct_apply',
     explicitUserRequest: true,
     operationType: 'revert',
+    actorSessionId: row!.actor_session_id || undefined,
     supersedesOperationId: row!.operation_id,
     correlationId: row!.correlation_id || row!.operation_id,
     causationId: row!.operation_id,
