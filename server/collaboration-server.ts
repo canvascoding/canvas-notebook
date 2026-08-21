@@ -6,7 +6,14 @@ import { WebSocketServer } from 'ws';
 
 import { auth } from '@/app/lib/auth';
 import { materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
-import { installCollaborationDirectConnection } from '@/app/lib/collaboration/direct-connection';
+import {
+  AgentDirectConnectionAuthorizationError,
+  installCollaborationDirectConnection,
+} from '@/app/lib/collaboration/direct-connection';
+import {
+  resolveAgentExecutionContextForStoredSession,
+  workspaceFromAgentExecutionContext,
+} from '@/app/lib/pi/session-workspace-context';
 import { installCollaborationDocumentReader } from '@/app/lib/collaboration/document-access';
 import { setCollaborationRuntimeHealth } from '@/app/lib/collaboration/health';
 import { collaborationUserColors } from '@/app/lib/collaboration/identity';
@@ -337,9 +344,30 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
   });
   setCollaborationRuntimeHealth({ websocketReady: true, persistenceReady: true });
   installCollaborationDirectConnection(async (input, apply, onApplied) => {
-    const state = await loadCollaborationState(input.documentId);
-    if (!state || state.workspaceId !== input.workspace.workspaceId) throw new Error('Collaboration document is unavailable or stale.');
     const actorType = input.actorType ?? 'agent';
+    let workspace = input.workspace;
+    if (actorType === 'agent') {
+      if (!input.actorSessionId) {
+        throw new AgentDirectConnectionAuthorizationError('Agent collaboration operations require their originating session.');
+      }
+      let executionContext: Awaited<ReturnType<typeof resolveAgentExecutionContextForStoredSession>>;
+      try {
+        executionContext = await resolveAgentExecutionContextForStoredSession({
+          sessionId: input.actorSessionId,
+          userId: input.initiatedByUserId,
+          agentId: input.actorId,
+          permissions: ['canRead', 'canRunAgent', 'canWrite'],
+        });
+      } catch {
+        throw new AgentDirectConnectionAuthorizationError('The agent session no longer has write access to this collaboration workspace.');
+      }
+      workspace = workspaceFromAgentExecutionContext(executionContext);
+      if (workspace.workspaceId !== input.workspace.workspaceId) {
+        throw new AgentDirectConnectionAuthorizationError('The agent session no longer has access to this collaboration workspace.');
+      }
+    }
+    const state = await loadCollaborationState(input.documentId);
+    if (!state || state.workspaceId !== workspace.workspaceId) throw new Error('Collaboration document is unavailable or stale.');
     const context: CollaborationContext = {
       claims: {
         schemaVersion: state.schemaVersion,
@@ -356,7 +384,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         permission: 'write',
         lifecycleGeneration: state.lifecycleGeneration,
       },
-      workspace: input.workspace,
+      workspace,
       user: { id: input.actorId, name: input.actorDisplayName, email: null },
       actorType,
       initiatedByUserId: actorType === 'agent' ? input.initiatedByUserId : null,

@@ -19,7 +19,9 @@ async function main() {
     const { user, piSessions, auditEvents } = await import('../app/lib/db/schema');
     const {
       resolveAgentExecutionContextForSession,
+      resolveAgentExecutionContextForStoredSession,
       resolveAgentSessionWorkspaceForUser,
+      workspaceFromAgentExecutionContext,
       workspaceToPiSessionFields,
     } = await import('../app/lib/pi/session-workspace-context');
     const {
@@ -87,6 +89,33 @@ async function main() {
     assert.equal(executionContext.workspaceRoot, workspace.rootPath);
     assert.equal(executionContext.canWrite, true);
     assert.equal(executionContext.canDelete, true);
+
+    const storedOperationContext = await resolveAgentExecutionContextForStoredSession({
+      sessionId,
+      userId,
+      agentId: 'canvas-agent',
+      permissions: ['canRead', 'canRunAgent', 'canWrite'],
+    });
+    assert.equal(storedOperationContext.workspaceId, workspace.workspaceId);
+    assert.equal(workspaceFromAgentExecutionContext(storedOperationContext).rootPath, workspace.rootPath);
+    await assert.rejects(
+      () => resolveAgentExecutionContextForStoredSession({
+        sessionId,
+        userId,
+        agentId: 'different-agent',
+        permissions: ['canRead', 'canRunAgent', 'canWrite'],
+      }),
+      /agent session is no longer available/u,
+    );
+    await assert.rejects(
+      () => resolveAgentExecutionContextForStoredSession({
+        sessionId: 'missing-agent-session',
+        userId,
+        agentId: 'canvas-agent',
+        permissions: ['canRead', 'canRunAgent', 'canWrite'],
+      }),
+      /agent session is no longer available/u,
+    );
 
     await runWithAgentExecutionContext(executionContext, async () => {
       assert.equal(getAgentWorkspaceRoot(), workspace.rootPath);

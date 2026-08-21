@@ -169,6 +169,7 @@ await ensureCollaborationState({
 });
 
 const activeDocuments = new Map<string, Y.Doc>();
+const directConnectionInputs: Array<{ operationId: string; actorSessionId?: string }> = [];
 const uninstallDocumentReader = installCollaborationDocumentReader(async (targetDocumentId, targetWorkspaceId, read) => {
   const state = await loadCollaborationState(targetDocumentId);
   assert(state);
@@ -186,6 +187,7 @@ const uninstallDocumentReader = installCollaborationDocumentReader(async (target
 });
 
 const uninstallDirectConnection = installCollaborationDirectConnection(async (input, apply, onApplied) => {
+  directConnectionInputs.push({ operationId: input.operationId, actorSessionId: input.actorSessionId });
   const state = await loadCollaborationState(input.documentId);
   assert(state);
   const activeDocument = activeDocuments.get(input.documentId);
@@ -701,6 +703,10 @@ try {
   assert.equal(directToolDetails.collaboration?.reviewRequired, false);
   assert.equal(directToolDetails.collaboration?.operationStatus, 'checkpointed_file');
   assert.equal(directToolDetails.collaboration?.durability, 'checkpointed_file');
+  assert.ok(
+    directConnectionInputs.some((input) => input.actorSessionId === agentExecutionContext.sessionId),
+    'Agent tool operations must forward their PI session to the direct collaboration connection.',
+  );
   assert.equal(
     richMarkdownFromYDoc(activeToolDocument),
     'Tool **checkpoint** paragraph\n\nLive paragraph updated by agent',

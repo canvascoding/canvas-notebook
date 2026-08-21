@@ -209,6 +209,34 @@ export function workspaceToAgentExecutionContext(input: {
   };
 }
 
+/**
+ * Rebuild the workspace value required by lower-level services from an
+ * execution context that was resolved for the current request. Keeping this
+ * conversion here prevents collaboration code from recreating an authority
+ * snapshot with subtly different permissions.
+ */
+export function workspaceFromAgentExecutionContext(executionContext: AgentExecutionContext): WorkspaceContext {
+  return {
+    workspaceId: executionContext.workspaceId,
+    workspaceType: executionContext.workspaceType,
+    rootPath: executionContext.workspaceRoot,
+    rootRelativePath: executionContext.workspaceRootRelativePath ?? undefined,
+    displayName: executionContext.workspaceName ?? undefined,
+    organizationId: executionContext.organizationId,
+    customerId: executionContext.customerId,
+    projectId: executionContext.projectId,
+    permissions: {
+      canRead: true,
+      canWrite: executionContext.canWrite,
+      canDelete: executionContext.canDelete,
+      canCreatePublicLinks: executionContext.canShare,
+      canManageWorkspace: false,
+      canRunAgent: true,
+    },
+    legacy: executionContext.legacy,
+  };
+}
+
 export async function addEffectiveSkillReadRoots(
   executionContext: AgentExecutionContext,
 ): Promise<AgentExecutionContext> {
@@ -369,11 +397,13 @@ export async function resolveAgentExecutionContextForSession(input: {
   sessionId: string;
   userId: string;
   agentId?: string | null;
+  permissions?: WorkspacePermissionRequirement[];
 }): Promise<AgentExecutionContext> {
   const workspace = await ensurePiSessionWorkspaceSnapshot({
     sessionId: input.sessionId,
     userId: input.userId,
     agentId: input.agentId,
+    permissions: input.permissions,
   });
   await requireAgentAccess(input.userId, input.agentId || 'canvas-agent', 'canUse', {
     organizationId: workspace.organizationId,
@@ -387,4 +417,30 @@ export async function resolveAgentExecutionContextForSession(input: {
     sessionId: input.sessionId,
     agentId: input.agentId ?? null,
   }));
+}
+
+/**
+ * Resolve an authority context for a persisted agent operation. Unlike the
+ * runtime bootstrap helper, this must never fall back to a default workspace:
+ * a queued operation is only valid while its original PI session still belongs
+ * to the initiating user and agent.
+ */
+export async function resolveAgentExecutionContextForStoredSession(input: {
+  sessionId: string;
+  userId: string;
+  agentId: string;
+  permissions?: WorkspacePermissionRequirement[];
+}): Promise<AgentExecutionContext> {
+  const session = await db.query.piSessions.findFirst({
+    where: and(
+      eq(piSessions.sessionId, input.sessionId),
+      eq(piSessions.userId, input.userId),
+      eq(piSessions.agentId, input.agentId),
+    ),
+  });
+  if (!session) {
+    throw new Error('The agent session is no longer available for this collaboration operation.');
+  }
+
+  return resolveAgentExecutionContextForSession(input);
 }

@@ -3,6 +3,9 @@ import 'server-only';
 import type * as Y from 'yjs';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
+/** Raised when the server can no longer prove an agent operation's authority. */
+export class AgentDirectConnectionAuthorizationError extends Error {}
+
 export interface AgentDirectConnectionInput {
   documentId: string;
   workspace: WorkspaceContext;
