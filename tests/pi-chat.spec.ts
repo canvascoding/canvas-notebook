@@ -26,6 +26,7 @@ const EMPTY_USAGE = {
 function createMockRuntimeStatus(sessionId: string, overrides: Partial<PiRuntimeStatus> = {}): PiRuntimeStatus {
   return {
     sessionId,
+    revision: 0,
     phase: 'idle',
     activeTool: null,
     pendingToolCalls: 0,
@@ -1760,6 +1761,7 @@ contentKind: document
     const sessionId = 'sess-runtime-status';
     let currentStatus: PiRuntimeStatus = {
       sessionId,
+      revision: 0,
       phase: 'running_tool',
       activeTool: { toolCallId: 'tool-1', name: 'read' },
       pendingToolCalls: 1,
@@ -2466,6 +2468,7 @@ contentKind: document
     const sessionId = 'sess-compact-break';
     let currentStatus: PiRuntimeStatus = {
       sessionId,
+      revision: 0,
       phase: 'idle',
       activeTool: null,
       pendingToolCalls: 0,

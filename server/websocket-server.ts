@@ -110,6 +110,7 @@ function summarizeClientMessage(message: ClientMessage | { type?: unknown }): Re
     requestId?: unknown;
     sessionId?: unknown;
     agentId?: unknown;
+    clientMessageId?: unknown;
     action?: unknown;
     queueItemId?: unknown;
     message?: { role?: unknown; content?: unknown };
@@ -122,6 +123,7 @@ function summarizeClientMessage(message: ClientMessage | { type?: unknown }): Re
   if (typeof input.requestId === 'string') summary.requestId = input.requestId;
   if (typeof input.sessionId === 'string') summary.sessionId = input.sessionId;
   if (typeof input.agentId === 'string') summary.agentId = input.agentId;
+  if (typeof input.clientMessageId === 'string') summary.clientMessageId = input.clientMessageId;
   if (typeof input.action === 'string') summary.action = input.action;
   if (typeof input.queueItemId === 'string') summary.queueItemId = input.queueItemId;
   if (input.message) {
@@ -785,6 +787,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           channelSessionKey: webChannelSessionKey(userId),
           requestedSessionId: message.sessionId,
           agentId,
+          ...(typeof message.clientMessageId === 'string' ? { clientMessageId: message.clientMessageId } : {}),
           ...(agentMessageTimestamp ? { agentMessageTimestamp } : {}),
           userId,
           text: typeof message.message.content === 'string' ? message.message.content : '',
