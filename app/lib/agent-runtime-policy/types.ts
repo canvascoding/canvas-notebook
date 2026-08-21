@@ -158,6 +158,21 @@ export type AiUserModelPreference = {
   updatedAt: string;
 };
 
+export type AiUserWorkspaceProviderGrant = {
+  id: string;
+  organizationId: string;
+  userId: string;
+  workspaceId: string;
+  agentId: string;
+  providerInstallationId: string;
+  allowedExecutionModes: AiRuntimeExecutionMode[];
+  status: 'active' | 'revoked';
+  revision: number;
+  grantedAt: string;
+  revokedAt: string | null;
+  updatedAt: string;
+};
+
 export type AiSessionRuntimeSnapshot = {
   selection: AiRuntimeSelection;
   catalogRevision: number;

@@ -218,6 +218,7 @@ async function main() {
     RuntimeStoredDataError,
     SessionRuntimeSnapshotConflictError,
     writeUserModelPreferenceStore,
+    writeUserWorkspaceProviderGrant,
     writeWorkspaceModelPolicyStore,
     writePiSessionRuntimeSnapshot,
   } = await import('../app/lib/agent-runtime-policy/runtime-store');
@@ -854,6 +855,26 @@ async function main() {
     },
   });
   assert.equal(organizationPolicy.revision, 2);
+  const ungrantedTeamResolution = await resolveEffectiveAgentRuntime({
+    ...organizationContext,
+    requestedSelection: userSelection,
+  });
+  assert.equal(ungrantedTeamResolution.valid, false);
+  assert.equal(
+    ungrantedTeamResolution.issues.some((entry) => entry.code === 'CREDENTIAL_NOT_AVAILABLE'),
+    true,
+  );
+  const userCredentialGrant = await writeUserWorkspaceProviderGrant({
+    organizationId: organization.organizationId,
+    userId: owner.id,
+    workspaceId: organizationWorkspaceId,
+    agentId: 'canvas-agent',
+    providerInstallationId: userProviderId,
+    allowedExecutionModes: ['interactive'],
+    expectedRevision: 0,
+  });
+  assert.equal(userCredentialGrant.status, 'active');
+  assert.deepEqual(userCredentialGrant.allowedExecutionModes, ['interactive']);
   resolution = await setUserRuntimePreference({
     context: organizationContext,
     update: {

@@ -942,6 +942,27 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS ai_user_workspace_provider_grants (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      provider_installation_id TEXT NOT NULL,
+      allowed_execution_modes_json TEXT NOT NULL DEFAULT '["interactive"]',
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked')),
+      revision INTEGER NOT NULL DEFAULT 1,
+      granted_at INTEGER NOT NULL,
+      revoked_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE (user_id, workspace_id, agent_id, provider_installation_id),
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
+      FOREIGN KEY (provider_installation_id) REFERENCES ai_provider_installations(id) ON DELETE CASCADE
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_provider_installations_org_binding ON ai_provider_installations (organization_id, provider_id, credential_scope);
     CREATE INDEX IF NOT EXISTS idx_ai_provider_installations_org_enabled ON ai_provider_installations (organization_id, enabled);
     CREATE INDEX IF NOT EXISTS idx_ai_provider_installations_org_status ON ai_provider_installations (organization_id, status);
@@ -950,6 +971,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_ai_workspace_model_policies_org ON ai_workspace_model_policies (organization_id);
     CREATE INDEX IF NOT EXISTS idx_ai_user_model_preferences_org_user ON ai_user_model_preferences (organization_id, user_id);
     CREATE INDEX IF NOT EXISTS idx_ai_user_model_preferences_workspace ON ai_user_model_preferences (workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_ai_user_workspace_provider_grants_org_user ON ai_user_workspace_provider_grants (organization_id, user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_ai_user_workspace_provider_grants_workspace ON ai_user_workspace_provider_grants (workspace_id, status);
 
     CREATE TABLE IF NOT EXISTS pi_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,

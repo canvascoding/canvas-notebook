@@ -5,6 +5,7 @@ import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-st
 import { isProviderInstallationCredentialAvailable } from '@/app/lib/agent-runtime-policy/installation-credentials';
 import {
   readPiSessionRuntimeSnapshot,
+  readUserWorkspaceProviderGrant,
   readUserModelPreference,
   readWorkspaceModelPolicy,
 } from '@/app/lib/agent-runtime-policy/runtime-store';
@@ -341,16 +342,31 @@ export async function resolveEffectiveAgentRuntime(
   ]);
   if (!agent) throw new Error('Agent not found.');
 
-  const credentialAvailability = new Map(await Promise.all(catalog.providers.map(async (provider) => ([
-    provider.installationId,
-    provider.credentialScope === 'user' && !executionAllowsUserCredentials
-      ? false
-      : await isProviderInstallationCredentialAvailable({
+  const credentialAvailability = new Map(await Promise.all(catalog.providers.map(async (provider) => {
+    if (provider.credentialScope === 'user' && !executionAllowsUserCredentials) {
+      return [provider.installationId, false] as const;
+    }
+    if (provider.credentialScope === 'user' && context.workspaceType !== 'personal') {
+      const grant = await readUserWorkspaceProviderGrant({
+        organizationId: context.organizationId,
+        userId: principal.type === 'user' ? principal.credentialSubjectUserId : context.userId,
+        workspaceId: context.workspaceId,
+        agentId: context.agentId,
+        providerInstallationId: provider.installationId,
+      });
+      if (!grant || grant.status !== 'active' || !grant.allowedExecutionModes.includes(context.executionMode)) {
+        return [provider.installationId, false] as const;
+      }
+    }
+    return [
+      provider.installationId,
+      await isProviderInstallationCredentialAvailable({
         provider,
         organizationId: context.organizationId,
         userId: principal.type === 'user' ? principal.credentialSubjectUserId : context.userId,
       }),
-  ] as const))));
+    ] as const;
+  })));
   const providers = buildEffectiveCatalogProviders({
     catalog,
     policy,
