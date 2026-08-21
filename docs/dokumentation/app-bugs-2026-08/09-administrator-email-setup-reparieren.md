@@ -9,6 +9,9 @@ tags: [type/bug, topic/email, topic/settings, topic/admin]
 
 # Ticket 09: Administrator-E-Mail-Setup reparieren
 
+Der am aktuellen Codebestand ausgerichtete Detailplan liegt unter
+[Umsetzungsplan zu Ticket 09](./09-administrator-email-setup-umsetzungsplan.md).
+
 ## Problem
 
 Das Administrator-Setup fuer die System-E-Mail in den Einstellungen arbeitet
