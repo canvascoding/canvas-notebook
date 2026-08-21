@@ -359,8 +359,8 @@ moduleInternals._load = (request, parent, isMain) => {
           executionContext: options?.executionContext,
         });
         return [
-          { name: 'read', execute: async () => ({ content: [] }) },
-          { name: 'delegate_task', execute: async () => ({ content: [] }) },
+          { name: 'read', execute: async () => ({ content: [], details: {} }) },
+          { name: 'delegate_task', execute: async () => ({ content: [], details: {} }) },
         ];
       },
     };

@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 
+import { isProgressiveGatewayTool } from './progressive-tool-gateway';
+
 export const EFFECTIVE_TOOL_CAPABILITIES_MARKER = '<!-- canvas-effective-tools:v1 -->';
 
 export type EffectiveToolManifestEntry = {
@@ -25,22 +27,6 @@ export type EffectiveToolManifest = {
   groups: string[];
   revision: string;
 };
-
-type ProgressiveGatewayLike = AgentTool & {
-  progressiveGateway: {
-    operations: readonly AgentTool[];
-  };
-};
-
-function isProgressiveGatewayLike(tool: AgentTool): tool is ProgressiveGatewayLike {
-  return Boolean(
-    tool
-      && typeof tool === 'object'
-      && 'progressiveGateway' in tool
-      && tool.progressiveGateway
-      && Array.isArray(tool.progressiveGateway.operations),
-  );
-}
 
 function compact(value: string | undefined, maxLength = 280): string {
   const normalized = value?.replace(/\s+/gu, ' ').trim() || '';
@@ -92,7 +78,7 @@ export function buildEffectiveToolManifest(tools: readonly AgentTool[]): Effecti
 
   for (const tool of tools) {
     registeredToolNames.push(tool.name);
-    if (isProgressiveGatewayLike(tool)) {
+    if (isProgressiveGatewayTool(tool)) {
       gateways.push({
         toolName: tool.name,
         label: compact(tool.label) || tool.name,
