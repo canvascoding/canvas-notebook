@@ -9,6 +9,9 @@ tags: [type/bug, topic/agents, topic/system-prompt, topic/tools, topic/email]
 
 # Ticket 18: Agent-System-Prompts an effektive Tools koppeln
 
+> Detaillierter, am aktuellen Codebestand ausgerichteter Umsetzungsplan:
+> [18-agent-system-prompt-tools-umsetzungsplan.md](./18-agent-system-prompt-tools-umsetzungsplan.md)
+
 ## Problem
 
 System-Prompts koennen Faehigkeiten behaupten, die im effektiven Runtime-Toolset
