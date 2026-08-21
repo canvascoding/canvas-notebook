@@ -33,6 +33,8 @@ async function main() {
       normalizeMobileNotebookPath,
       readMobileNotebookDocument,
       saveMobileNotebookDocument,
+      selectMobileCollaborationRepresentation,
+      shouldReadMobileCollaborationSnapshot,
     } = await import('../app/lib/mobile/notebook');
     const workspace = createLegacyPersonalWorkspaceContext({
       userId: 'notebook-user',
@@ -54,6 +56,11 @@ async function main() {
     assert.equal(search.items.length, 1);
     assert.equal(search.items[0]?.path, 'Research/Beta.markdown');
     assert.equal(search.items[0]?.match, 'content');
+
+    const protectedSource = '---\nmarp: true\n---\n<!-- _class: lead -->\n# Exact source\n';
+    assert.equal(selectMobileCollaborationRepresentation('Protected.md', protectedSource), 'plain_text');
+    assert.equal(shouldReadMobileCollaborationSnapshot('plain_text', 'tiptap_xml'), false);
+    assert.equal(shouldReadMobileCollaborationSnapshot('plain_text', 'plain_text'), true);
 
     const loaded = await readMobileNotebookDocument({
       workspace,
