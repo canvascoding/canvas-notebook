@@ -64,6 +64,12 @@ async function main() {
       'email_create_outbox_draft',
       'email_update_outbox_draft',
       'email_list_outbox_drafts',
+      'ls',
+      'read',
+      'rg',
+      'grep',
+      'glob',
+      'inspect_document_relations',
     ]);
     assert.ok((await listAgentProfiles()).some((agent) => agent.agentId === EMAIL_MANAGED_AGENT_ID));
     assert.deepEqual(await getAgentAccess('owner-user', EMAIL_MANAGED_AGENT_ID), {

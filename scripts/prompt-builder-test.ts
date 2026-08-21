@@ -37,7 +37,7 @@ assert.equal(populated.diagnostics.usedFallback, false);
 assert.deepEqual(populated.diagnostics.includedFiles, ['AGENTS.md', 'MEMORY.md', 'TOOLS.md']);
 assert.deepEqual(populated.diagnostics.emptyFiles, ['USER.md', 'SOUL.md']);
 assert.doesNotMatch(populated.systemPrompt, /^You are an AI assistant in Canvas Notebook\./);
-assert.match(populated.systemPrompt, /^# Canvas Notebook Runtime/);
+assert.match(populated.systemPrompt, /^<!-- canvas-system-prompt-foundation:v2 -->\n\n# Canvas Notebook Runtime/);
 assert.match(populated.systemPrompt, new RegExp(CANVAS_MARKDOWN_GUIDANCE_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 assert.match(populated.systemPrompt, /Write inline math as `\$E = mc\^2\$`/);
 assert.match(populated.systemPrompt, /Use collapsible sections with `<details>`/);
@@ -53,8 +53,8 @@ assert.match(populated.systemPrompt, /type\/note/);
 assert.match(populated.systemPrompt, /normally 2–5 specific `tags`/);
 assert.match(populated.systemPrompt, /Never use a Canvas Notebook browser URL or route as an internal document link/);
 assert.match(populated.systemPrompt, /Preserve existing frontmatter, unknown properties, comments, aliases, and tags/);
-assert.match(populated.systemPrompt, /# Canvas Base Tool Guidance/);
-assert.match(populated.systemPrompt, /Python 3 is available in the Linux container runtime/);
+assert.match(populated.systemPrompt, /Effective Runtime Tools section as the only tool/);
+assert.doesNotMatch(populated.systemPrompt, /# Canvas Base Tool Guidance/);
 assert.match(populated.systemPrompt, /## AGENTS\.md\n\n- Follow repo rules\./);
 assert.match(populated.systemPrompt, /## MEMORY\.md\n\nRemember the migration state\./);
 assert.doesNotMatch(populated.systemPrompt, /## SOUL\.md/);
@@ -65,8 +65,8 @@ assert.doesNotMatch(populated.systemPrompt, /## File Search Strategy \(CRITICAL\
 assert.doesNotMatch(populated.systemPrompt, /## File System Structure/);
 assert.doesNotMatch(populated.systemPrompt, /## Temporary Files Directory/);
 assert.doesNotMatch(populated.systemPrompt, /## Memory Management \(MEMORY\.md\)/);
-assert.match(populated.systemPrompt, /## File Access for Uploaded Attachments/);
-assert.match(populated.systemPrompt, /\*\*PDF\*\*: Use the `read` tool first for ordinary text extraction/);
+assert.doesNotMatch(populated.systemPrompt, /## File Access for Uploaded Attachments/);
+assert.doesNotMatch(populated.systemPrompt, /Use the `read` tool first for ordinary text extraction/);
 assert.doesNotMatch(populated.systemPrompt, /Use the `pdf` skill to read and extract content/);
 
 const legacyGuidance = `<!-- canvas-markdown-guidance:v3 -->

@@ -46,12 +46,15 @@ import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-st
 import { generatePendingPiSessionTitle } from '@/app/lib/pi/session-title-generator';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { filterToolsForPlanningMode } from '@/app/lib/pi/planning-mode';
+import {
+  appendEffectiveToolCapabilitiesPrompt,
+  buildEffectiveToolManifest,
+  effectiveToolManifestHas,
+} from '@/app/lib/pi/effective-tool-manifest';
 import { replaceNextTurnContext } from '@/app/lib/pi/next-turn-context';
 import { getChannelSystemPromptBlock } from '@/app/lib/agents/channel-system-prompt';
 import { formatZonedDateTimeForPrompt } from '@/app/lib/time-zones';
-import { EMAIL_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/email-prompt-block';
 import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
-import { STUDIO_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/studio-prompt-block';
 import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
 import {
   getStudioOutputsRoot,
@@ -804,6 +807,14 @@ class LivePiRuntime {
   }
 
   async refreshWorkspaceFileTreePrompt(): Promise<void> {
+    if (!this.hasWorkspaceReadCapability()) {
+      this.workspaceFileTreePromptBlock = '';
+      this.lastComposition = null;
+      if (!this.isRunning && !this.agent.state.isStreaming) {
+        this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
+      }
+      return;
+    }
     const result = await buildWorkspaceFileTreePrompt({
       workspaceId: this.executionContext.workspaceId,
       rootPath: this.executionContext.workspaceRoot,
@@ -849,7 +860,10 @@ class LivePiRuntime {
     this.browserToolMode = browserMode;
     this.browserToolsNeedRefresh = false;
     this.lastComposition = null;
-    this.agent.state.tools = this.planningMode ? filterToolsForPlanningMode(this.tools) : this.tools;
+    this.agent.state.tools = this.getEffectiveTools();
+    if (!this.isRunning && !this.agent.state.isStreaming) {
+      this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
+    }
   }
 
   private systemPromptRefreshRequested = false;
@@ -907,7 +921,21 @@ class LivePiRuntime {
       blocks.push(runtimeTempBlock);
     }
 
-    return blocks.length > 0 ? `${this.systemPrompt}\n\n${blocks.join('\n\n')}` : this.systemPrompt;
+    const foundation = blocks.length > 0 ? `${this.systemPrompt}\n\n${blocks.join('\n\n')}` : this.systemPrompt;
+    return appendEffectiveToolCapabilitiesPrompt(
+      foundation,
+      buildEffectiveToolManifest(this.getEffectiveTools()),
+    );
+  }
+
+  private getEffectiveTools(): AgentTool[] {
+    return this.planningMode ? filterToolsForPlanningMode(this.tools) : this.tools;
+  }
+
+  private hasWorkspaceReadCapability(): boolean {
+    const manifest = buildEffectiveToolManifest(this.getEffectiveTools());
+    return ['ls', 'read', 'rg', 'grep', 'glob', 'inspect_document_relations']
+      .some((toolName) => effectiveToolManifestHas(manifest, toolName));
   }
 
   private getAgentRuntimeTempContextBlock(): string | null {
@@ -1060,10 +1088,10 @@ class LivePiRuntime {
   private getPageContextBlock(): string | null {
     if (!this.pageContext) return null;
     if (this.pageContext.startsWith('/studio')) {
-      return STUDIO_SYSTEM_PROMPT_BLOCK;
+      return '## Studio Context\nUse only the effective runtime tools listed below for studio work.';
     }
     if (this.pageContext.startsWith('/emails')) {
-      return EMAIL_SYSTEM_PROMPT_BLOCK;
+      return '## Email Context\nUse only the effective runtime tools listed below for mailbox work. Email drafts require human review; do not imply that an email was sent.';
     }
     return null;
   }
@@ -1298,16 +1326,10 @@ class LivePiRuntime {
     this.isRunning = true;
     this.publishStatus();
 
+    this.agent.state.tools = this.getEffectiveTools();
     const effectiveSystemPrompt = this.getEffectiveSystemPrompt();
     if (this.agent.state.systemPrompt !== effectiveSystemPrompt) {
       this.agent.state.systemPrompt = effectiveSystemPrompt;
-    }
-
-    // Apply planning mode tool filter
-    if (this.planningMode) {
-      this.agent.state.tools = filterToolsForPlanningMode(this.tools);
-    } else {
-      this.agent.state.tools = this.tools;
     }
 
     const prompts = initialContinuation ? [initialContinuation, sanitized] : sanitized;
@@ -1819,17 +1841,20 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     : await createPiSystemPromptSnapshot(agentId, { userId });
   timing.mark('systemPrompt');
   const systemPrompt = promptSnapshot.systemPrompt;
-  const workspaceFileTreePrompt = await buildWorkspaceFileTreePrompt({
-    workspaceId: executionContext.workspaceId,
-    rootPath: executionContext.workspaceRoot,
-  });
-  timing.mark('workspaceFileTree');
   const browserSnapshot = await refreshBrowserSessionSnapshot(executionContext);
   const tools = await getPiTools(userId, agentId, sessionId, {
     executionContext,
     browserMode: browserSnapshot.running ? 'active' : 'dormant',
   });
   timing.mark('tools');
+  const workspaceFileTreePrompt = ['ls', 'read', 'rg', 'grep', 'glob', 'inspect_document_relations']
+    .some((toolName) => effectiveToolManifestHas(buildEffectiveToolManifest(tools), toolName))
+    ? await buildWorkspaceFileTreePrompt({
+        workspaceId: executionContext.workspaceId,
+        rootPath: executionContext.workspaceRoot,
+      })
+    : { promptBlock: '' };
+  timing.mark('workspaceFileTree');
   const toolLoopGuard = createToolLoopGuard();
   const imageNormalizationOptions = {
     workspaceImageRoot: executionContext.workspaceRoot,
@@ -1849,7 +1874,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
   const agent = new Agent({
     initialState: {
-      systemPrompt,
+      systemPrompt: appendEffectiveToolCapabilitiesPrompt(systemPrompt, buildEffectiveToolManifest(tools)),
       model,
       thinkingLevel,
       tools,
