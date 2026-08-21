@@ -367,6 +367,17 @@ export const oauthAccessToken = sqliteTable("oauth_access_token", {
   refreshIdx: index("idx_oauth_access_token_refresh").on(table.refreshId),
 }));
 
+export const mcpRevokedAccessToken = sqliteTable("mcp_revoked_access_token", {
+  tokenHash: text("token_hash").primaryKey(),
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull().references(() => session.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  revokedAt: integer("revoked_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => ({
+  expiryIdx: index("idx_mcp_revoked_access_token_expiry").on(table.expiresAt),
+}));
+
 export const oauthConsent = sqliteTable("oauth_consent", {
   id: text("id").primaryKey(),
   clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),

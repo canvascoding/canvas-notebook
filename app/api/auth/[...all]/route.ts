@@ -124,18 +124,6 @@ function directMcpOAuthUnavailableResponse(): Response {
   );
 }
 
-async function isSelfContainedAccessTokenRevocationRejection(
-  response: Response,
-): Promise<boolean> {
-  if (response.status !== 400) return false;
-  try {
-    const body = (await response.clone().json()) as { error?: unknown };
-    return body.error === 'unsupported_token_type';
-  } catch {
-    return false;
-  }
-}
-
 async function handleDirectMcpOAuthRequest(
   request: NextRequest,
   handler: () => Promise<Response>,
@@ -185,6 +173,22 @@ export async function POST(request: NextRequest) {
     if (policyResponse) return policyResponse;
     const revocationCandidate = await prepareDirectMcpRevocation(request);
 
+    if (revocationCandidate) {
+      try {
+        await applyDirectMcpRevocation(revocationCandidate);
+        return new Response(null, {
+          status: 200,
+          headers: { 'cache-control': 'no-store' },
+        });
+      } catch {
+        console.error('[auth] Failed to revoke the local Direct MCP grant.');
+        return NextResponse.json({
+          error: 'temporarily_unavailable',
+          error_description: 'The local OAuth grant could not be revoked.',
+        }, { status: 503, headers: { 'cache-control': 'no-store', pragma: 'no-cache' } });
+      }
+    }
+
     const action = authAuditAction(pathname);
     const beforeUserId = action ? await getCurrentAuthUserId(request) : null;
 
@@ -200,35 +204,6 @@ export async function POST(request: NextRequest) {
     }
 
     const response = await auth.handler(request);
-    const providerRejectedSelfContainedAccessToken =
-      revocationCandidate?.tokenType === 'access_token'
-      && await isSelfContainedAccessTokenRevocationRejection(response);
-    if ((response.ok || providerRejectedSelfContainedAccessToken) && revocationCandidate) {
-      try {
-        await applyDirectMcpRevocation(revocationCandidate);
-      } catch {
-        console.error('[auth] Failed to revoke the local Direct MCP grant.');
-        return NextResponse.json(
-          {
-            error: 'temporarily_unavailable',
-            error_description: 'The local OAuth grant could not be revoked.',
-          },
-          {
-            status: 503,
-            headers: {
-              'cache-control': 'no-store',
-              pragma: 'no-cache',
-            },
-          },
-        );
-      }
-    }
-    if (providerRejectedSelfContainedAccessToken) {
-      return new Response(null, {
-        status: 200,
-        headers: { 'cache-control': 'no-store' },
-      });
-    }
     try {
       await initializeCreatedUserOnboarding(pathname, response);
     } catch (error) {

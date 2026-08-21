@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { createHash } from 'node:crypto';
+
 import type { JSONWebKeySet, JWTPayload } from 'jose';
 import { verifyJwsAccessToken } from 'better-auth/oauth2';
 
@@ -24,8 +26,7 @@ type DirectMcpGrantStateRow = {
   user_banned: unknown;
   client_id: string;
   client_disabled: unknown;
-  refresh_grant_count: unknown;
-  active_refresh_grant_count: unknown;
+  revoked_token_hash: string | null;
 };
 
 export type DirectMcpJwtClaims = {
@@ -239,6 +240,7 @@ export async function verifyDirectMcpJwtClaims(
 
 export async function loadDirectMcpGrantState(
   claims: Pick<DirectMcpJwtClaims, 'sessionId' | 'subject' | 'clientId'>,
+  token?: string,
 ): Promise<DirectMcpGrantStateRow | null> {
   const database = await openDb();
   try {
@@ -250,30 +252,26 @@ export async function loadDirectMcpGrantState(
         local_user.banned AS user_banned,
         oauth_client.client_id AS client_id,
         oauth_client.disabled AS client_disabled,
-        (
-          SELECT COUNT(*)
-          FROM oauth_refresh_token refresh_grant
-          WHERE refresh_grant.client_id = oauth_client.client_id
-            AND refresh_grant.session_id = auth_session.id
-            AND refresh_grant.user_id = local_user.id
-        ) AS refresh_grant_count,
-        (
-          SELECT COUNT(*)
-          FROM oauth_refresh_token refresh_grant
-          WHERE refresh_grant.client_id = oauth_client.client_id
-            AND refresh_grant.session_id = auth_session.id
-            AND refresh_grant.user_id = local_user.id
-            AND refresh_grant.revoked IS NULL
-        ) AS active_refresh_grant_count
+        revoked_access_token.token_hash AS revoked_token_hash
       FROM "session" auth_session
       INNER JOIN "user" local_user
         ON local_user.id = auth_session.user_id
       INNER JOIN oauth_client
         ON oauth_client.client_id = ?
+      LEFT JOIN mcp_revoked_access_token revoked_access_token
+        ON revoked_access_token.token_hash = ?
+       AND revoked_access_token.client_id = oauth_client.client_id
+       AND revoked_access_token.session_id = auth_session.id
+       AND revoked_access_token.user_id = local_user.id
       WHERE auth_session.id = ?
         AND auth_session.user_id = ?
       LIMIT 1
-    `, [claims.clientId, claims.sessionId, claims.subject]);
+    `, [
+      claims.clientId,
+      token ? createHash('sha256').update(token).digest('base64url') : '',
+      claims.sessionId,
+      claims.subject,
+    ]);
     return (row as DirectMcpGrantStateRow | undefined) ?? null;
   } finally {
     await database.close();
@@ -285,8 +283,6 @@ function assertGrantStateActive(
   claims: DirectMcpJwtClaims,
 ): void {
   const sessionExpiresAt = timestampToMilliseconds(state?.session_expires_at);
-  const refreshGrantCount = Number(state?.refresh_grant_count ?? 0);
-  const activeRefreshGrantCount = Number(state?.active_refresh_grant_count ?? 0);
   if (
     !state
     || state.session_id !== claims.sessionId
@@ -296,12 +292,7 @@ function assertGrantStateActive(
     || isDatabaseBoolean(state.client_disabled)
     || sessionExpiresAt === null
     || sessionExpiresAt <= Date.now()
-    // Test-generated JWTs and OAuth grants without refresh tokens have no
-    // local revocation record. Once a client/session has refresh grants,
-    // however, at least one must remain active for its access tokens to work.
-    || (Number.isFinite(refreshGrantCount)
-      && refreshGrantCount > 0
-      && (!Number.isFinite(activeRefreshGrantCount) || activeRefreshGrantCount < 1))
+    || state.revoked_token_hash !== null
   ) {
     throw invalidToken();
   }
@@ -328,7 +319,7 @@ export async function verifyDirectMcpAccessToken(
 
   let state: DirectMcpGrantStateRow | null;
   try {
-    state = await loadDirectMcpGrantState(claims);
+    state = await loadDirectMcpGrantState(claims, token);
   } catch {
     throw authorizationUnavailable();
   }

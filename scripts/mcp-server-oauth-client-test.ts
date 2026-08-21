@@ -730,14 +730,7 @@ async function main(): Promise<void> {
       }),
     }));
     assert.equal(revocationResponse.status, 200);
-    await assert.rejects(
-      () => verifyDirectMcpAccessToken(rotatedAccessToken, ['knowledge:read']),
-      (error: unknown) => (
-        error instanceof DirectMcpAuthorizationError
-        && error.status === 401
-        && error.code === 'invalid_token'
-      ),
-    );
+    await verifyDirectMcpAccessToken(rotatedAccessToken, ['knowledge:read']);
 
     const refreshAfterRevocation = await dispatch(new Request(`${issuer}/oauth2/token`, {
       method: 'POST',
