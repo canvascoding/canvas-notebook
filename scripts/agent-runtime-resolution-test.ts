@@ -865,6 +865,37 @@ async function main() {
   });
   assert.equal(resolution.source, 'user_preference');
 
+  // Organization automations retain a responsible user for audit and
+  // workspace authorization, but that user must never become the credential
+  // subject. Even with the workspace policy and a user preference enabled,
+  // user-scoped installations are unavailable to a service principal.
+  const organizationAutomationContext = {
+    ...organizationContext,
+    executionMode: 'organization_automation' as const,
+    principal: {
+      type: 'organization_service' as const,
+      serviceActorId: `org-service:${organization.organizationId}`,
+      responsibleUserId: owner.id,
+      credentialSubjectUserId: null,
+    },
+  };
+  const organizationAutomationResolution = await resolveEffectiveAgentRuntime(organizationAutomationContext);
+  assert.equal(organizationAutomationResolution.valid, true);
+  assert.equal(organizationAutomationResolution.source, 'workspace_default');
+  assert.equal(
+    organizationAutomationResolution.providers.some((provider) => provider.installationId === userProviderId),
+    false,
+  );
+  const organizationAutomationUserSelection = await resolveEffectiveAgentRuntime({
+    ...organizationAutomationContext,
+    requestedSelection: userSelection,
+  });
+  assert.equal(organizationAutomationUserSelection.valid, false);
+  assert.equal(
+    organizationAutomationUserSelection.issues.some((entry) => entry.code === 'PROVIDER_INSTALLATION_NOT_ALLOWED'),
+    true,
+  );
+
   const memberId = 'runtime-member';
   const now = Date.now();
   sqlite.prepare(`

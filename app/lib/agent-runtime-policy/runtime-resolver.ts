@@ -14,6 +14,8 @@ import type {
   AiEffectiveRuntimeResolution,
   AiResolvedRuntimeSelection,
   AiRuntimeResolutionIssue,
+  AiRuntimeExecutionMode,
+  AiRuntimePrincipal,
   AiRuntimeSelection,
   AiRuntimeSelectionSource,
   AiSessionRuntimeSnapshot,
@@ -31,6 +33,8 @@ export type AiRuntimeResolutionContext = {
   agentId: string;
   sessionId?: string | null;
   requestedSelection?: AiRuntimeSelection | null;
+  executionMode?: AiRuntimeExecutionMode;
+  principal?: AiRuntimePrincipal;
 };
 
 export class AiRuntimePolicyError extends Error {
@@ -55,13 +59,15 @@ export function buildEffectiveCatalogProviders(input: {
   policy: AiWorkspaceModelPolicy | null;
   workspaceType: WorkspaceType;
   credentialAvailability?: ReadonlyMap<string, boolean>;
+  allowUserCredentials?: boolean;
 }): AiEffectiveCatalogProvider[] {
   const allowedModels = input.policy?.allowedModels === null || input.policy?.allowedModels === undefined
     ? null
     : new Set(input.policy.allowedModels.map((reference) => (
         modelReferenceKey(reference.providerInstallationId, reference.modelId)
       )));
-  const allowUserCredentials = input.workspaceType === 'personal' || input.policy?.allowUserCredentials === true;
+  const allowUserCredentials = input.allowUserCredentials
+    ?? (input.workspaceType === 'personal' || input.policy?.allowUserCredentials === true);
 
   return input.catalog.providers.flatMap<AiEffectiveCatalogProvider>((provider) => {
     if (!provider.enabled || (provider.credentialScope === 'user' && !allowUserCredentials)) return [];
@@ -84,6 +90,38 @@ export function buildEffectiveCatalogProviders(input: {
       models,
     }];
   });
+}
+
+function normalizedRuntimePrincipal(context: AiRuntimeResolutionContext): AiRuntimePrincipal {
+  const principal = context.principal;
+  if (!principal) {
+    return {
+      type: 'user',
+      userId: context.userId,
+      credentialSubjectUserId: context.userId,
+    };
+  }
+  if (
+    principal.type === 'user'
+    && (principal.userId !== context.userId || principal.credentialSubjectUserId !== context.userId)
+  ) {
+    throw new AiRuntimePolicyError(
+      'PROVIDER_INSTALLATION_NOT_ALLOWED',
+      'The runtime principal does not match the session owner.',
+    );
+  }
+  return principal;
+}
+
+export function runtimePrincipalCanUseUserCredentials(input: {
+  userId: string;
+  executionMode: AiRuntimeExecutionMode;
+  principal: AiRuntimePrincipal;
+}): boolean {
+  return input.principal.type === 'user'
+    && input.principal.userId === input.userId
+    && input.principal.credentialSubjectUserId === input.userId
+    && input.executionMode !== 'organization_automation';
 }
 
 function issue(
@@ -260,7 +298,14 @@ export async function resolveEffectiveAgentRuntime(
   const context = {
     ...contextInput,
     agentId: normalizeManagedAgentId(contextInput.agentId),
+    executionMode: contextInput.executionMode ?? 'interactive' as const,
   };
+  const principal = normalizedRuntimePrincipal(context);
+  const executionAllowsUserCredentials = runtimePrincipalCanUseUserCredentials({
+    userId: context.userId,
+    executionMode: context.executionMode,
+    principal,
+  });
 
   // A managed instance may receive its first chat request before anyone opens
   // the AI provider settings. Initialize the Control Plane catalog here so a
@@ -277,12 +322,14 @@ export async function resolveEffectiveAgentRuntime(
   const [catalog, policy, preference, agent, persistedSession] = await Promise.all([
     readAppRuntimeCatalog(context.organizationId),
     readWorkspaceModelPolicy(context.organizationId, context.workspaceId),
-    readUserModelPreference({
-      organizationId: context.organizationId,
-      userId: context.userId,
-      workspaceId: context.workspaceId,
-      agentId: context.agentId,
-    }),
+    principal.type === 'user'
+      ? readUserModelPreference({
+        organizationId: context.organizationId,
+        userId: principal.credentialSubjectUserId,
+        workspaceId: context.workspaceId,
+        agentId: context.agentId,
+      })
+      : Promise.resolve(null),
     getAgentProfile(context.agentId),
     context.sessionId
       ? readPiSessionRuntimeSnapshot({
@@ -296,17 +343,21 @@ export async function resolveEffectiveAgentRuntime(
 
   const credentialAvailability = new Map(await Promise.all(catalog.providers.map(async (provider) => ([
     provider.installationId,
-    await isProviderInstallationCredentialAvailable({
-      provider,
-      organizationId: context.organizationId,
-      userId: context.userId,
-    }),
+    provider.credentialScope === 'user' && !executionAllowsUserCredentials
+      ? false
+      : await isProviderInstallationCredentialAvailable({
+        provider,
+        organizationId: context.organizationId,
+        userId: principal.type === 'user' ? principal.credentialSubjectUserId : context.userId,
+      }),
   ] as const))));
   const providers = buildEffectiveCatalogProviders({
     catalog,
     policy,
     workspaceType: context.workspaceType,
     credentialAvailability,
+    allowUserCredentials: executionAllowsUserCredentials
+      && (context.workspaceType === 'personal' || policy?.allowUserCredentials === true),
   });
   const policyRevision = policy?.revision ?? 0;
   const baseIssues: AiRuntimeResolutionIssue[] = [];
@@ -367,6 +418,8 @@ export async function resolveEffectiveAgentRuntime(
       workspaceId: context.workspaceId,
       workspaceType: context.workspaceType,
       agentId: context.agentId,
+      executionMode: context.executionMode,
+      principal,
     },
     catalogRevision: catalog.revision,
     policyRevision,
