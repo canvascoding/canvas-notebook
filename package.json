@@ -49,7 +49,7 @@
     "test:pi:progressive-gateway": "tsx scripts/progressive-tool-gateway-test.ts",
     "test:pi:runtime-context": "tsx scripts/runtime-prompt-context-test.ts",
     "test:pi:workspace-tree": "tsx --conditions react-server scripts/workspace-file-tree-context-test.ts",
-    "test:brave-search": "tsx scripts/brave-search-service-test.ts",
+    "test:search": "tsx scripts/brave-search-service-test.ts",
     "test:pi:session-search": "tsx scripts/pi-session-search-tool-test.ts",
     "test:pi:delegate-task": "tsx scripts/pi-delegate-task-tool-test.ts",
     "test:pi:delegate-task-runtime": "tsx --conditions react-server scripts/pi-delegate-task-runtime-test.ts",

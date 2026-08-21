@@ -10,6 +10,8 @@ async function main() {
   process.env.CANVAS_DATA_ROOT = dataDir;
   process.env.INTEGRATIONS_ENV_PATH = path.join(dataDir, 'secrets', 'Canvas-Integrations.env');
   delete process.env.BRAVE_API_KEY;
+  delete process.env.OLLAMA_API_KEY;
+  delete process.env.WEB_SEARCH_PROVIDER;
   delete process.env.CANVAS_MANAGED_SERVICES_ENABLED;
   delete process.env.CANVAS_CONTROL_PLANE_URL;
   delete process.env.CANVAS_INSTANCE_TOKEN;
@@ -27,9 +29,9 @@ async function main() {
 
   const originalFetch = globalThis.fetch;
   try {
-    const { formatWebSearchResults, getBraveSearchStatus, searchWeb } = await import('../app/lib/integrations/brave-search-service');
+    const { formatWebSearchResults, getWebSearchStatus, searchWeb } = await import('../app/lib/integrations/brave-search-service');
 
-    const disabledStatus = await getBraveSearchStatus();
+    const disabledStatus = await getWebSearchStatus();
     assert.equal(disabledStatus.mode, 'disabled');
 
     const secretsDir = path.join(dataDir, 'secrets');
@@ -58,7 +60,7 @@ async function main() {
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     };
 
-    const status = await getBraveSearchStatus();
+    const status = await getWebSearchStatus();
     assert.equal(status.mode, 'local');
     assert.equal(status.localConfigured, true);
 
@@ -69,6 +71,28 @@ async function main() {
     assert.equal(result.results.length, 1);
     assert.equal(result.results[0].url, 'https://example.com/docs');
     assert.doesNotMatch(formatWebSearchResults(result), /test-local-key/);
+
+    await fs.writeFile(path.join(secretsDir, 'Canvas-Integrations.env'), 'WEB_SEARCH_PROVIDER=ollama\nOLLAMA_API_KEY=test-ollama-key\n', 'utf8');
+    let sawOllamaAuthorization = false;
+    globalThis.fetch = async (input, init) => {
+      assert.equal(String(input), 'https://ollama.com/api/web_search');
+      assert.equal(init?.method, 'POST');
+      const headers = new Headers(init?.headers);
+      sawOllamaAuthorization = headers.get('Authorization') === 'Bearer test-ollama-key';
+      assert.deepEqual(JSON.parse(String(init?.body)), { query: 'canvas', max_results: 10 });
+      return new Response(JSON.stringify({
+        results: [{ title: 'Ollama Docs', url: 'https://ollama.com/docs', content: 'Web search documentation' }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    };
+
+    const ollamaStatus = await getWebSearchStatus();
+    assert.equal(ollamaStatus.provider, 'ollama');
+    assert.equal(ollamaStatus.mode, 'local');
+    const ollamaResult = await searchWeb({ query: 'canvas', count: 20 });
+    assert.equal(sawOllamaAuthorization, true);
+    assert.equal(ollamaResult.provider, 'ollama');
+    assert.equal(ollamaResult.results[0].snippet, 'Web search documentation');
+    assert.match(formatWebSearchResults(ollamaResult), /Ollama Web Search/);
 
     console.log('brave-search-service-test: ok');
   } finally {

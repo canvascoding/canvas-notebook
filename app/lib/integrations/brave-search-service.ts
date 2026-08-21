@@ -11,7 +11,8 @@ import { IntegrationServiceError } from '@/app/lib/integrations/integration-serv
 import { getManagedControlPlaneBaseUrl } from '@/app/lib/managed/control-plane-url';
 import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
 
-export type BraveSearchMode = 'local' | 'managed' | 'disabled';
+export type WebSearchProvider = 'brave' | 'ollama';
+export type WebSearchMode = 'local' | 'managed' | 'disabled';
 
 export interface WebSearchInput {
   query: string;
@@ -33,8 +34,8 @@ export interface WebSearchResult {
 }
 
 export interface WebSearchResponse {
-  provider: 'brave';
-  mode: BraveSearchMode;
+  provider: WebSearchProvider;
+  mode: WebSearchMode;
   query: string;
   count: number;
   country: string;
@@ -44,6 +45,7 @@ export interface WebSearchResponse {
 }
 
 const BRAVE_SEARCH_ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
+const OLLAMA_WEB_SEARCH_ENDPOINT = 'https://ollama.com/api/web_search';
 const SETTINGS_LINK = '/settings?tab=integrations';
 const DEFAULT_COUNT = 5;
 const MAX_COUNT = 20;
@@ -58,6 +60,19 @@ function isManagedBraveSearchAvailable(): boolean {
     Boolean(getManagedControlPlaneBaseUrl()) &&
     Boolean(process.env.CANVAS_INSTANCE_TOKEN?.trim())
   );
+}
+
+function normalizeProvider(value: unknown): WebSearchProvider {
+  return value === 'ollama' ? 'ollama' : 'brave';
+}
+
+async function getSearchProvider(storageScope?: EnvStorageScope | null): Promise<WebSearchProvider> {
+  try {
+    const state = await readScopedEnvState('integrations', storageScope);
+    return normalizeProvider(new Map(state.entries.map((entry) => [entry.key, entry.value])).get('WEB_SEARCH_PROVIDER')?.trim().toLowerCase());
+  } catch {
+    return normalizeProvider(process.env.WEB_SEARCH_PROVIDER?.trim().toLowerCase());
+  }
 }
 
 function normalizeCount(value: unknown): number {
@@ -110,22 +125,40 @@ export async function getLocalBraveApiKey(storageScope?: EnvStorageScope | null)
   }
 }
 
-export async function getBraveSearchStatus(storageScope?: EnvStorageScope | null): Promise<{
+export async function getLocalOllamaApiKey(storageScope?: EnvStorageScope | null): Promise<string | null> {
+  try {
+    const state = await readScopedEnvState('integrations', storageScope);
+    const envKey = new Map(state.entries.map((entry) => [entry.key, entry.value])).get('OLLAMA_API_KEY')?.trim();
+    return envKey || process.env.OLLAMA_API_KEY?.trim() || null;
+  } catch {
+    return process.env.OLLAMA_API_KEY?.trim() || null;
+  }
+}
+
+export async function getWebSearchStatus(storageScope?: EnvStorageScope | null): Promise<{
+  provider: WebSearchProvider;
   configured: boolean;
-  mode: BraveSearchMode;
+  mode: WebSearchMode;
   localConfigured: boolean;
   managedAvailable: boolean;
 }> {
-  const localConfigured = Boolean(await getLocalBraveApiKey(storageScope));
+  const provider = await getSearchProvider(storageScope);
+  const localConfigured = provider === 'ollama'
+    ? Boolean(await getLocalOllamaApiKey(storageScope))
+    : Boolean(await getLocalBraveApiKey(storageScope));
   const managedAvailable = isManagedBraveSearchAvailable();
-  const mode: BraveSearchMode = localConfigured ? 'local' : managedAvailable ? 'managed' : 'disabled';
+  const mode: WebSearchMode = localConfigured ? 'local' : provider === 'brave' && managedAvailable ? 'managed' : 'disabled';
   return {
+    provider,
     configured: mode !== 'disabled',
     mode,
     localConfigured,
     managedAvailable,
   };
 }
+
+/** @deprecated Use getWebSearchStatus. */
+export const getBraveSearchStatus = getWebSearchStatus;
 
 function htmlToMarkdown(html: string): string {
   const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
@@ -254,6 +287,47 @@ async function searchWithLocalBraveApiKey(input: {
   return normalizeBraveResults(data, input.count);
 }
 
+function normalizeOllamaResults(value: unknown, limit: number): WebSearchResult[] {
+  const root = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const rawResults = Array.isArray(root.results) ? root.results : [];
+  return rawResults
+    .filter((result): result is Record<string, unknown> => result !== null && typeof result === 'object' && !Array.isArray(result))
+    .slice(0, limit)
+    .map((result) => ({
+      title: typeof result.title === 'string' ? result.title : '',
+      url: typeof result.url === 'string' ? result.url : '',
+      snippet: typeof result.content === 'string' ? result.content : '',
+    }))
+    .filter((result) => result.url);
+}
+
+async function searchWithLocalOllamaApiKey(input: {
+  apiKey: string;
+  query: string;
+  count: number;
+  signal?: AbortSignal;
+}): Promise<WebSearchResult[]> {
+  const response = await fetch(OLLAMA_WEB_SEARCH_ENDPOINT, {
+    method: 'POST',
+    signal: combineSignals(input.signal, 15_000),
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${input.apiKey}`,
+    },
+    body: JSON.stringify({ query: input.query, max_results: Math.min(input.count, 10) }),
+  });
+  const text = await response.text();
+  let data: unknown = {};
+  if (text) {
+    try { data = JSON.parse(text); } catch { /* handled as an empty response */ }
+  }
+  if (!response.ok) {
+    throw new IntegrationServiceError(`Ollama Web Search request failed (${response.status}). ${text.slice(0, 300)}`, response.status);
+  }
+  return normalizeOllamaResults(data, input.count);
+}
+
 function managedControlPlaneUrl(path: string): string {
   const baseUrl = getManagedControlPlaneBaseUrl();
   if (!baseUrl) {
@@ -327,16 +401,22 @@ export async function searchWeb(
   const freshness = normalizeFreshness(input.freshness);
   const includeContent = input.includeContent === true;
   const maxContentLength = normalizeContentLength(input.maxContentLength);
-  const localApiKey = await getLocalBraveApiKey(storageScope);
-  const mode: BraveSearchMode = localApiKey ? 'local' : isManagedBraveSearchAvailable() ? 'managed' : 'disabled';
+  const provider = await getSearchProvider(storageScope);
+  const localApiKey = provider === 'ollama'
+    ? await getLocalOllamaApiKey(storageScope)
+    : await getLocalBraveApiKey(storageScope);
+  const mode: WebSearchMode = localApiKey ? 'local' : provider === 'brave' && isManagedBraveSearchAvailable() ? 'managed' : 'disabled';
 
   if (mode === 'disabled') {
-    throw new IntegrationServiceError(`Brave Search ist nicht konfiguriert. Lege BRAVE_API_KEY unter ${SETTINGS_LINK} ab oder aktiviere Managed Search.`, 400);
+    const key = provider === 'ollama' ? 'OLLAMA_API_KEY' : 'BRAVE_API_KEY';
+    throw new IntegrationServiceError(`${provider === 'ollama' ? 'Ollama Web Search' : 'Brave Search'} ist nicht konfiguriert. Lege ${key} unter ${SETTINGS_LINK} ab.`, 400);
   }
 
-  const results = mode === 'local'
-    ? await searchWithLocalBraveApiKey({ apiKey: localApiKey as string, query, count, country, freshness, signal })
-    : await searchWithManagedBrave({ query, count, country, freshness, signal });
+  const results = provider === 'ollama'
+    ? await searchWithLocalOllamaApiKey({ apiKey: localApiKey as string, query, count, signal })
+    : mode === 'local'
+      ? await searchWithLocalBraveApiKey({ apiKey: localApiKey as string, query, count, country, freshness, signal })
+      : await searchWithManagedBrave({ query, count, country, freshness, signal });
 
   if (includeContent) {
     for (const result of results) {
@@ -351,7 +431,7 @@ export async function searchWeb(
   }
 
   return {
-    provider: 'brave',
+    provider,
     mode,
     query,
     count,
@@ -366,7 +446,7 @@ export function formatWebSearchResults(response: WebSearchResponse): string {
   const lines = [
     `# Web Search Results (${response.results.length})`,
     '',
-    `Provider: Brave Search (${response.mode})`,
+    `Provider: ${response.provider === 'ollama' ? 'Ollama Web Search' : 'Brave Search'} (${response.mode})`,
     `Query: ${response.query}`,
     `Country: ${response.country}`,
     response.freshness ? `Freshness: ${response.freshness}` : null,
