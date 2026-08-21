@@ -41,6 +41,7 @@ abgeschlossen sind.
 | 21 | [MARP-Praesentationen auf Mobile korrekt rendern](./21-marp-mobile-rendering-korrigieren.md) | offen | – |
 | 22 | [MARP-YAML und Formatierung beim Editorwechsel erhalten](./22-marp-editor-roundtrip-verlustfrei-machen.md) | offen | – |
 | 23 | [Agent-Edits in Live-Collaboration-Dokumenten reparieren](./23-agent-edits-in-live-collaboration-reparieren.md) | offen | – |
+| 24 | [Agent-Dateiedits buendeln und Stale-State-Feedback verbessern](./24-agent-dateiedits-buendeln-und-stale-state-feedback.md) | offen | 18 |
 
 ## Gemeinsame Arbeitsregeln
 
@@ -66,7 +67,7 @@ abgeschlossen sind.
   oder End-to-End-Tests mit Playwright/Chrome nur nach expliziter Freigabe.
 - Der Abschluss eines Tickets erfordert einen eigenen, fokussierten Commit.
 
-## Parallelisierungsplan fuer Tickets 09–23
+## Parallelisierungsplan fuer Tickets 09–24
 
 | Strang | Startbare Tickets | Harte Reihenfolge / Koordination |
 | --- | --- | --- |
@@ -78,6 +79,7 @@ abgeschlossen sind.
 | Office-Dateien | 19 | Als Evaluation eigenstaendig; eine spaetere Tool-Implementierung mit 18 abstimmen. |
 | MARP | 21, 22 | Mobile-Rendering und Web-Editor sind getrennt; gemeinsame MARP-Fixtures abstimmen. |
 | Live Collaboration | 23 | Eigenstaendig startbar; Tool-/Runtime-Grenzen mit 18 und Rich-Markdown-Fixtures mit 22 abstimmen. |
+| Agent-Dateiworkflow | 24 nach 18 | Prompt-/Tool-Guidance baut auf der effektiven Toolbeschreibung aus 18 auf; Stale-/Collaboration-Verhalten mit 23 abstimmen. |
 
 ## Bestehende Referenzen
 
