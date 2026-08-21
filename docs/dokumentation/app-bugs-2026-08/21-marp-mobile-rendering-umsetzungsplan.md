@@ -34,10 +34,12 @@ Nicht im Scope sind:
 - ein allgemeiner Offline-Dateispeicher oder eine Offline-Mutationsqueue,
 - frei konfigurierbare Remote-Asset-Proxies oder neue Organization-Settings.
 
-Das separate Repository `canvas-notebook-mobile` war bei der Planung lokal nicht vorhanden. Seine
-konkreten Dateipfade, Expo-/React-Native-Versionen, Testwerkzeuge und bereits vorhandenen Preview-
-Komponenten muessen deshalb in Phase 0 lesend verifiziert werden. Die in diesem Plan genannten
-Mobile-Dateinamen sind Zielorte, keine Behauptung ueber den aktuellen Mobile-Codebestand.
+Das separate Repository `canvas-notebook-mobile` wurde nach gezielter Suche unter
+`/Users/frankalexanderweber/Documents/canvas-notebook-mobile` gefunden und in einem eigenen,
+detached Planungs-Worktree auf `origin/main` (`69e16e4`) vollstaendig nur lesend inventarisiert.
+Die nachfolgend genannten Mobile-Dateipfade und Versionen sind deshalb am realen Mobile-Codebestand
+belegt. Runtime-Verhalten auf Simulatoren und Geraeten bleibt dagegen bewusst Bestandteil der
+Implementierungsabnahme.
 
 ## 2. Gelesene Grundlagen und aktueller Bestand
 
@@ -105,6 +107,49 @@ nicht erneut umschreiben.
 - Es gibt keine gemeinsamen Marp-Fixtures, keine Route-/ACL-Tests, keine Asset-Isolationstests,
   keine Snapshot-/Screenshot-Baselines und keine iOS-/Android-Abnahme im vorliegenden Repository.
 
+### 2.5 Tatsaechlicher Mobile-Codebestand auf `origin/main`
+
+- Das Mobile-Repository verwendet Expo SDK `57.0.14`, React Native `0.86.2` und
+  `react-native-webview` `13.16.1`. `react-native-gesture-handler` `2.32.0`, Reanimated `4.5.1`,
+  Safe Area Context und `expo-network` sind bereits vorhanden; fuer Buehne, Gesten, Layout und
+  Netzstatus ist voraussichtlich kein neues Native-Modul erforderlich.
+- `app.config.ts` setzt `orientation: 'default'`. Die App unterstuetzt damit Portrait und Landscape,
+  besitzt aber keine `expo-screen-orientation`-Abhaengigkeit. Bestehende responsive Screens verwenden
+  `useWindowDimensions()`, `useSafeAreaInsets()` und `calculateResponsiveLayout()` aus
+  `src/components/layout/responsive-layout.ts` beziehungsweise `responsive-layout-metrics.ts`.
+- `src/features/files/contracts.ts` kennt Marp nur ueber Exportpfade; `CanvasFileEntry` hat weder
+  `renderKind` noch einen Marp-Open-Kind. Die Runtime-Parser sind fail-closed und verwenden
+  `INVALID_FILES_CONTRACT`, was fuer den neuen Vertrag beibehalten werden soll.
+- `src/features/files/api.ts` implementiert `detectMarpFile()` ausschliesslich gegen
+  `/api/mobile/v1/files/export/marp-detect`. Es gibt keinen Preview-Client.
+- `src/features/files/files-browser-screen.tsx` ruft `detectMarpFile()` nur beim Oeffnen des
+  Aktionsblatts auf, um PDF-/PNG-/JPEG-Exportaktionen einzublenden. `openItem()` navigiert vorher
+  anhand von `openKind` und erkennt Marp nicht.
+- `src/features/files/navigation.ts` leitet jedes Markdown-Dokument auf
+  `/files/markdown/[documentPath]` beziehungsweise `/chat/file/markdown/[documentPath]`.
+  `src/app/(app)/(tabs)/files/view.tsx` redirectet Markdown ebenfalls zwingend auf diese Route.
+- Beide Markdown-Routen mounten `NotebookDocumentScreen`. Marp wird daher heute als normale native
+  Markdown-/Notebook-Datei gelesen und bearbeitet, nicht als Praesentation gerendert. Ticket 21 muss
+  einen separaten Read-only-Praesentationspfad einfuehren und die bestehende Markdown-Route nur als
+  explizite `Markdown bearbeiten`-/Fallback-Aktion behalten; Editorsemantik bleibt Ticket 22.
+- `src/features/files/html-viewer.tsx` und `html-webview.native.tsx` liefern einen nuetzlichen
+  Security-Praezedenzfall: incognito/no-cache, keine geteilten oder Drittanbieter-Cookies, kein
+  File-Access, `mixedContentMode="never"` und kontrollierte Navigation. Die aktuelle Komponente ist
+  jedoch bewusst URI-/Ticket-basiert, laesst JavaScript/DOM-Storage und interne HTTPS-Navigation zu
+  und darf fuer selbstenthaltenes Marp nicht durch Aufweichen ihrer HTML-Semantik wiederverwendet
+  werden. Ticket 21 plant eine eigene kleinere `MarpWebView` mit lokaler HTML-Quelle.
+- TanStack Query ist in `src/providers/app-providers.tsx` nur in-memory konfiguriert; es gibt keine
+  persistierte Query-Cache-Schicht. File-Detail-Keys enthalten die aktive Workspace-ID. Auth-
+  Instanzwechsel, Logout und Disconnect rufen in `src/features/auth/auth-provider.tsx`
+  `queryClient.clear()` auf. Damit ist der geplante in-memory Offline-Zustand codebestandsnah und
+  ein neuer persistenter Deckcache nicht erforderlich.
+- `src/features/chat/realtime-provider.tsx` zeigt das vorhandene Muster fuer `expo-network`-Listener,
+  App-State und Query-Invalidierung beim Reconnect. Der Marp-Screen kann dieses Muster in einer
+  kleinen gemeinsamen Hook wiederverwenden, ohne Chat-State zu koppeln.
+- `scripts/files-foundation-test.ts` prueft bereits File-Parser, Routing, Marp-Detect/Export und
+  WebView-Sicherheitsflags. Der fokussierte Mobile-Testbefehl ist `npm run test:files`; das volle
+  Mobile-Gate ist gemaess Mobile-`AGENTS.md` `npm run verify`.
+
 ## 3. Fehlerursachen: belegt und in Phase 0 zu verifizieren
 
 | Status | Ursache/Hypothese | Beleg oder Verifikation |
@@ -116,10 +161,10 @@ nicht erneut umschreiben.
 | Belegt | Lokale Assetfehler und das 5-MiB-Limit werden nur geloggt; der Client erhaelt keine maschinenlesbaren Warnungen. | `resolveWorkspaceAssetDataUri()` gibt `null` zurueck und laesst die urspruengliche URL stehen. |
 | Belegt | Der aktuelle CSP erlaubt HTTP-/HTTPS-Bilder, Medien und Fonts; eine feste Remote-Asset-Policy fehlt. | CSP in `renderMarpMarkdownToHtmlDocument()`. |
 | Belegt | Renderer- und API-Ergebnis enthalten keine Folienzahl, Seitengroesse, Source-Revision oder Contract-Version. | Aktuelle Rueckgabe ist nur ein HTML-String. |
-| Zu verifizieren | Welche Mobile-Komponente Marp aktuell oeffnet und ob sie Markdown, Web-Preview oder Export-Aliase nutzt. | In Phase 0 im privaten Mobile-Repository mit konkreten Dateipfaden dokumentieren. |
+| Belegt | Marp oeffnet aktuell den normalen `NotebookDocumentScreen`; Detect wird nur fuer Exportaktionen verwendet. | `files-browser-screen.tsx`, `navigation.ts`, die Files-/Chat-Markdown-Routen und `files-foundation-test.ts`. |
 | Zu verifizieren | Plattformabweichungen von `react-native-webview` bei `foreignObject`, SVG-Text, Fonts, `viewBox`, Zoom und Rotation. | Gleiche Fixtures auf iOS-Simulator/Geraet und Android-Emulator/Geraet reproduzieren. |
-| Zu verifizieren | Ob Rotation den Screen neu mountet oder nur Layoutmasse aendert und welcher State dabei verloren geht. | Navigation-/Router-/Orientation-Code im Mobile-Repository und ein reproduzierender Komponententest. |
-| Zu verifizieren | Ob aktuelle Mobile-Caches Dateiinhalte oder HTML persistent halten und wie Logout/Workspace-Wechsel sie loeschen. | Query-Persistenz und SecureStore-/Cache-Wipe-Code im Mobile-Repository inventarisieren. |
+| Teilweise belegt | Die App erlaubt beide Orientierungen und bestehende Layouts reagieren auf Window-Masse; ein Marp-Screen und damit dessen Remount-/Stateverhalten existiert noch nicht. | `app.config.ts`, `responsive-layout.ts`; final per neuem Komponenten-/Device-Test verifizieren. |
+| Belegt | File-/Query-Inhalte werden nur in-memory gehalten und bei Auth-Identitaetswechsel/Logout/Disconnect geleert; Workspace-Queries sind per ID getrennt. | `app-providers.tsx`, `auth-provider.tsx`, `workspace-provider.tsx`, File-Query-Keys. |
 
 Phase 0 darf Hypothesen nicht als bereits bewiesene Fehler behandeln. Sie endet mit einem kurzen
 Reproduktionsprotokoll pro Plattform, einschliesslich App-/OS-/WebView-Version und Screenshot-ID.
@@ -386,15 +431,17 @@ Keine Phase beginnt, bevor Gate und fokussierter Commit der vorherigen Phase abg
 Serververtrag wird vor Mobile-Integration ausgeliefert; ein Mobile-Client darf nie gegen einen noch
 nicht festgeschriebenen Draft implementiert werden.
 
-### Phase 0 - Reproduktion und Mobile-Inventar, noch ohne Produktivcode
+### Phase 0 - Runtime-Reproduktion auf dem inventarisierten Mobile-Stand, noch ohne Produktivcode
 
-1. Privates Mobile-Repository ausfindig machen und dort `AGENTS.md`/Repository-Regeln lesen.
-2. Konkreten File-Open-Flow, API-Client, Workspace-Header, Query-Cache, WebView-Abhaengigkeit,
-   Orientation-Lifecycle und aktuelle Testwerkzeuge dokumentieren.
-3. Mit temporaeren Kopien der fuer Phase 1 vorgesehenen Faelle mindestens `default-16x9`,
+1. Den bereits inventarisierten Mobile-Commit `69e16e4` beziehungsweise dessen spaeteren,
+   bewusst festgehaltenen Implementierungs-Base-Commit verwenden; `AGENTS.md` erneut gegen den
+   Arbeitsauftrag pruefen.
+2. Mit temporaeren Kopien der fuer Phase 1 vorgesehenen Faelle mindestens `default-16x9`,
    `classic-4x3`, lokale/remote Assets, langen Code und eine fehlerhafte Datei auf iOS und Android
    reproduzieren.
-4. Screenshots, OS/WebView/App-Version und beobachteten Folien-/Rotationszustand im Ticket-PR
+3. Belegen, dass der aktuelle Files-Open-Flow auf `NotebookDocumentScreen` landet und dass
+   `detectMarpFile()` nur im Export-Aktionsblatt ausgefuehrt wird.
+4. Screenshots, OS/WebView/App-Version und beobachteten Datei-/Rotationszustand im Ticket-PR
    dokumentieren; keine Zugangsdaten oder private Dateiinhalte erfassen.
 
 Gate: Jede Fehlerhypothese aus Abschnitt 3 ist als bestaetigt, widerlegt oder nicht reproduzierbar
@@ -453,11 +500,22 @@ Commit Notebook: `Add mobile Marp preview API`.
 ### Phase 4 - Mobile-Vertrag importieren und Read-only-Screen integrieren
 
 1. Exakte Fixtures/Schemaartefakte mit Notebook-Commit/Manifest-SHA im Mobile-Repository einchecken.
-2. API-Client und Runtime-Validator fuer Capability, Discovery, Response und Fehlercodes ergaenzen.
-3. Bestehenden File-Open-Flow so erweitern, dass `renderKind: 'marp'` direkt und generisches
-   Markdown nach erfolgreichem Detect als Praesentation geoeffnet wird.
-4. Bei fehlender Capability oder unbekannter Contract-Version sicher auf Markdown zurueckfallen.
-5. Komponenten-/API-Mocktests fuer Discovery, Workspace-Wechsel und Fallback ergaenzen.
+2. `src/features/files/contracts.ts` und `api.ts` um Pfadkonstante, Runtime-Validator,
+   `fetchMarpPreview()` und die stabilen Fehlercodes ergaenzen.
+3. In `src/features/files/navigation.ts` getrennte `marpFileHref()`-/Chat-Routen einfuehren und die
+   neuen Expo-Router-Dateien unter `src/app/(app)/(tabs)/files/marp/[documentPath].tsx` sowie
+   `src/app/(app)/chat/file/marp/[documentPath].tsx` anlegen.
+4. `src/features/files/files-browser-screen.tsx` so erweitern, dass `renderKind: 'marp'` direkt und
+   generisches Markdown nach erfolgreichem bestehendem Detect als Praesentation geoeffnet wird. Der
+   Detect-Lade-/Fehlerzustand muss den Tap deterministisch behandeln und darf keine doppelte
+   Navigation ausloesen.
+5. Chat-Dateireferenzen und der generische `files/view`-Redirect verwenden dieselbe Routingfunktion,
+   damit Marp nicht je nach Einstiegspunkt unterschiedlich geoeffnet wird.
+6. Bei fehlender Capability, unbekannter Contract-Version oder Detect-Fehler sicher auf die heutige
+   Markdown-Route zurueckfallen. Dort bleibt eine explizite Vorschauaktion moeglich, sobald die
+   Capability vorhanden ist.
+7. `scripts/files-foundation-test.ts` um Discovery, Parser, Files-/Chat-Routen, Workspace-Wechsel und
+   Fallback erweitern; `npm run test:files` ausfuehren.
 
 Gate: Kein Marp-HTML wird ohne erfolgreich validierten Vertrag in eine WebView gegeben; falsche
 Workspace-/Instanz-Caches werden nicht wiederverwendet.
@@ -466,12 +524,18 @@ Commit Mobile: `Add Marp preview contract client`.
 
 ### Phase 5 - Buehne, Navigation, Zoom und Rotation implementieren
 
-1. Read-only-Praesentationsscreen mit Safe-Area-Container, isolierter WebView und nativen Controls
-   bauen.
-2. Versionierte Bridge, eine sichtbare Folie, Fit-Berechnung, Swipe/Buttons, Pinch/Reset und
-   Accessibility implementieren.
-3. Index/Zoom ueber Layout-, Rotation-, App-State- und Theme-Aenderungen stabil halten.
-4. iOS-/Android-Komponententests und vorhandene native E2E-Werkzeuge fuer Vor/Zurueck,
+1. `src/features/files/marp-presentation-screen.tsx` mit `useCanvasWorkspace()`, workspace-gescoptem
+   Query-Key, Safe-Area-Buehne, nativen Controls sowie `Markdown bearbeiten`-Fallback bauen.
+2. Eine eigene `marp-webview.native.tsx` samt Props/Bridge-Helfer und sicherem Web-Fallback anlegen.
+   Sicherheitsflags aus `html-webview.native.tsx` werden uebernommen, aber URI-Navigation,
+   DOM-Storage, Downloads, Fenster und HTML-Ticket-Scope nicht.
+3. Versionierte Bridge, eine sichtbare Folie, Fit-Berechnung, Swipe/Buttons, Pinch/Reset und
+   Accessibility mit den bereits installierten Gesture-/Reanimated-/WebView-Abhaengigkeiten
+   implementieren.
+4. `useWindowDimensions()`, Safe-Area-Insets und `onLayout` statt eines neuen Orientation-Moduls
+   verwenden, solange Phase 0 keinen Plattformblocker belegt.
+5. Index/Zoom ueber Layout-, Rotation-, App-State- und Theme-Aenderungen stabil halten.
+6. iOS-/Android-Komponententests und vorhandene native E2E-Werkzeuge fuer Vor/Zurueck,
    Boundary-Zustaende und Rotation ergaenzen.
 
 Gate: Beide Plattformen zeigen alle Fixture-Formate unverzerrt; zehn wiederholte Rotationen und
@@ -487,7 +551,12 @@ Commit Mobile: `Add native Marp presentation stage`.
    anzeigen.
 3. WebView-Navigation, Cookie-/Storage-Zugriff, externe Requests, Fenster, Downloads und Bridge-
    Payloads auf iOS und Android negativ testen.
-4. Logout, Instanzwechsel und Workspace-Wechsel auf HTML-/State-Cleanup pruefen.
+4. Fuer Netzstatus das vorhandene `expo-network`-/App-State-Muster aus dem Realtime-Provider in eine
+   kleine allgemeine Hook extrahieren oder lokal aequivalent kapseln; keine Abhaengigkeit vom
+   Chat-Realtime-State erzeugen.
+5. Logout, Instanzwechsel und Workspace-Wechsel auf HTML-/State-Cleanup sowie
+   `queryClient.clear()`-/workspacegescopte Query-Keys pruefen.
+6. `src/i18n/copy.ts` und `docs/files.md` um Marp-Preview-, Warn- und Fallbacktexte ergaenzen.
 
 Gate: Kein Authmaterial erscheint in WebView, URL, Logs oder Snapshots; fremde Assets und Remote-
 Ressourcen werden nicht geladen; Fehler lassen die App bedienbar.
@@ -505,8 +574,10 @@ Commit Mobile: `Harden Marp mobile preview states`.
    Flugmodus/Netzwechsel und Sessionablauf durchfuehren.
 5. Produktdokumentation, Capability-Mindestversion und Release Notes aktualisieren; Ticket/Index erst
    nach beiden Repository-Commits und bestandener Abnahme auf erledigt setzen.
-6. Notebook nochmals mit fokussierten Tests, `npm run lint` und `npm run build` pruefen. Mobile mit
-   seinen in Phase 0 bestaetigten Lint-, Typecheck-, Unit-, Komponenten- und E2E-Befehlen pruefen.
+6. Notebook nochmals mit fokussierten Tests, `npm run lint` und `npm run build` pruefen. Mobile
+   mindestens mit `npm run test:files` waehrend der fokussierten Commits und vor Abschluss mit dem
+   verbindlichen Vollgate `npm run verify` pruefen; native E2E-/Realgeraete-Befehle gemaess der in
+   Phase 0 dokumentierten Freigabe ausfuehren.
 
 Gate: Alle Kriterien aus Abschnitt 10 sind protokolliert bestanden; keine offene P0/P1-Security-
 oder Crash-Abweichung und keine unerklärte visuelle Differenz.
