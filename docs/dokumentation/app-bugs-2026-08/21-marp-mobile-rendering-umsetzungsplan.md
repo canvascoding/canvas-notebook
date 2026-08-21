@@ -1,6 +1,6 @@
 ---
 title: 'Umsetzungsplan zu Ticket 21: MARP-Praesentationen auf Mobile korrekt rendern'
-status: planned
+status: implemented-pending-device-acceptance
 date: 2026-08-21
 ticket: ./21-marp-mobile-rendering-korrigieren.md
 repositories: [canvasstudios-notebook, canvas-notebook-mobile]
@@ -708,3 +708,28 @@ gespeicherte Workspace-Dateien zu migrieren oder zu veraendern.
 - visuelle Web-/iOS-/Android-Baselines,
 - manuelles Realgeraete-Abnahmeprotokoll,
 - je Repository fokussierte Commits und erst danach Statusaktualisierung im Ticketindex.
+
+## 13. Implementierungsstand vom 2026-08-21
+
+Die additive V1-Implementierung ist in getrennten Worktrees committed:
+
+- Notebook: `d8f097e5 Add mobile Marp preview contract` fuegt `POST
+  /api/mobile/v1/files/marp-preview`, die Capability `files.marp_preview.v1`, einen gespeicherten,
+  workspace-authentifizierten Renderpfad, die Profile `marp-mobile-v1`/`marp-preview.v1` und die
+  Fixtures `basic.marp.md` sowie `remote-asset.marp.md` hinzu. Remote-Assets werden nicht geladen;
+  der Vertrag liefert stattdessen `REMOTE_ASSET_BLOCKED`.
+- Mobile: `d5659a0 Render Marp presentations in mobile files` validiert den Vertrag fail-closed,
+  routet erkannte Decks aus Files und Chat in eine getrennte Read-only-Buehne und verwendet eine
+  lokale WebView-Quelle ohne Cookie-/Header-/URL-Uebergabe. File-, Storage-, Mixed-Content-,
+  Fenster- und Top-Level-Navigation sind dort deaktiviert.
+
+Erfolgreiche automatisierte Nachweise: der Server-Marp-Renderer-Test sowie die Server-Mobile-Files-,
+Compatibility- und Bootstrap-Tests; im Mobile-Worktree `npm run test:files` und `npm run lint`.
+`npm run verify` erreicht einen vorbestehenden, nicht von Ticket 21 beruehrten Typecheck-Fehler in
+`src/features/notebook/notebook-rich-editor.native.tsx` (`keyboardDismissMode` ist in der aktuellen
+`@expo/dom-webview`-Typdefinition nicht vorhanden). Der neue Marp-Code erzeugt keinen Typecheck-Fehler.
+
+Die Realgeraete-/Simulator-Abnahme, visuelle Goldens, Swipe/Zoom und die in Abschnitt 10 genannten
+Rotation-, Offline- und Plattformparitaetskriterien bleiben offen. Sie wurden nicht ausgefuehrt, weil
+in diesem Auftrag keine Browser-/Playwright- oder Device-Tests autorisiert waren. Vor Release ist
+diese Restabnahme verpflichtend nachzuholen; bis dahin bleibt der Status bewusst nicht `completed`.
