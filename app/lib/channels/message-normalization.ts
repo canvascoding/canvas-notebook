@@ -19,5 +19,8 @@ export function buildUserAgentMessageFromInbound(message: InboundMessage): UserA
     role: 'user',
     content,
     timestamp,
+    ...(typeof message.clientMessageId === 'string' && message.clientMessageId.trim()
+      ? { clientMessageId: message.clientMessageId.trim() }
+      : {}),
   } as Extract<AgentMessage, { role: 'user' }>;
 }

@@ -35,7 +35,7 @@ import {
   getHistoryRuntimeActiveToolName,
   getHistoryRuntimePhase,
 } from '@/app/lib/chat/runtime-message-utils';
-import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
+import { isRuntimeStatusStale, type RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import type {
   AISession,
   Attachment,
@@ -257,6 +257,10 @@ export function useChatRuntimeEvents({
   }, [historyRef, setHistory]);
 
   const setRuntimeStatusWithReconciliation = useCallback((status: RuntimeStatus) => {
+    if (isRuntimeStatusStale(runtimeStatusRef.current, status)) {
+      return;
+    }
+    runtimeStatusRef.current = status;
     setRuntimeStatus(status);
     applyRuntimeStatusToHistory(status);
     reconcileQueuedMessages(status);

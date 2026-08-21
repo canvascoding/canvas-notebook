@@ -35,6 +35,8 @@ export interface InboundMessage {
   channelThreadKey?: string;
   requestedSessionId?: string;
   agentId?: string;
+  /** Stable client-owned identity used to reconcile optimistic mobile rows. */
+  clientMessageId?: string;
   agentMessageTimestamp?: number;
   userId: string;
   text: string;
