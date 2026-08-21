@@ -19,8 +19,15 @@ async function main() {
     canvasProjects,
     canvasWorkspaces,
     organizationUserPermissions,
+    todoReadStates,
     user,
   } = await import('../app/lib/db/schema');
+  const {
+    clearTodoReadState,
+    getTodoReadState,
+    listTodoReadStates,
+    setTodoReadState,
+  } = await import('../app/lib/todos/read-state-store');
   const {
     DEFAULT_TODO_CATEGORY_NAME,
     getDefaultTodoCategoryKey,
@@ -297,6 +304,17 @@ async function main() {
   assert.equal(created.fileLinks.length, 1);
   assert.equal(created.fileLinks[0].workspacePath, 'docs/brief.md');
   assert.equal(created.fileLinks[0].workspaceId, null);
+
+  const firstReadAt = new Date('2026-05-31T12:01:00.000Z');
+  const replacementReadAt = new Date('2026-05-31T12:02:00.000Z');
+  await setTodoReadState('todo-user', created.id, firstReadAt);
+  assert.equal((await getTodoReadState('todo-user', created.id))?.toISOString(), firstReadAt.toISOString());
+  await setTodoReadState('todo-user', created.id, replacementReadAt);
+  assert.equal((await getTodoReadState('todo-user', created.id))?.toISOString(), replacementReadAt.toISOString());
+  assert.equal((await listTodoReadStates('other-user', [created.id])).size, 0);
+  await clearTodoReadState('todo-user', created.id);
+  assert.equal(await getTodoReadState('todo-user', created.id), null);
+  assert.equal((await db.select().from(todoReadStates)).length, 0);
 
   const todos = await listTodos('todo-user');
   assert.equal(todos.length, 1);

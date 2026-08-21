@@ -1359,6 +1359,18 @@ export const todoItems = sqliteTable("todo_items", {
   categoryIdx: index("idx_todo_items_category").on(table.categoryId),
 }));
 
+export const todoReadStates = sqliteTable("todo_read_states", {
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  todoId: text("todo_id").notNull().references(() => todoItems.id, { onDelete: "cascade" }),
+  readAt: integer("read_at", { mode: "timestamp" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.userId, table.todoId] }),
+  userReadIdx: index("idx_todo_read_states_user_read").on(table.userId, table.readAt),
+  todoIdx: index("idx_todo_read_states_todo").on(table.todoId),
+}));
+
 export const todoFileLinks = sqliteTable("todo_file_links", {
   id: text("id").primaryKey(),
   todoId: text("todo_id").notNull().references(() => todoItems.id),
