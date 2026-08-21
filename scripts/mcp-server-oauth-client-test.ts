@@ -332,12 +332,8 @@ async function main(): Promise<void> {
     }), {
       headers: { cookie: sessionCookie },
     }));
-    assert.equal(missingPkce.status, 302);
-    const missingPkceCallback = new URL(
-      missingPkce.headers.get('location') || '',
-      ORIGIN,
-    );
-    assert.equal(missingPkceCallback.searchParams.get('error'), 'invalid_request');
+    assert.equal(missingPkce.status, 400);
+    assert.equal((await missingPkce.json()).error, 'invalid_request');
 
     const plainPkce = await dispatch(new Request(buildAuthorizationUrl({
       clientId,
@@ -349,6 +345,7 @@ async function main(): Promise<void> {
       headers: { cookie: sessionCookie },
     }));
     assert.equal(plainPkce.status, 400);
+    assert.equal((await plainPkce.json()).error, 'invalid_request');
 
     const wrongAuthorizeResource = await dispatch(new Request(
       buildAuthorizationUrl({
@@ -432,7 +429,7 @@ async function main(): Promise<void> {
       redirectUri: WRONG_REDIRECT_URI,
     });
     assert.equal(wrongTokenRedirect.status, 400);
-    assert.equal((await readJson(wrongTokenRedirect)).error, 'invalid_request');
+    assert.equal((await readJson(wrongTokenRedirect)).error, 'invalid_grant');
 
     const validCode = await authorizeCode({
       dispatch,
@@ -483,7 +480,7 @@ async function main(): Promise<void> {
       clientId,
       code: validCode,
     });
-    assert.equal(replayResponse.status, 401);
+    assert.equal(replayResponse.status, 400);
     assert.equal((await readJson(replayResponse)).error, 'invalid_grant');
 
     const accessPayload = decodeJwt(accessToken);
@@ -599,6 +596,24 @@ async function main(): Promise<void> {
       ),
     );
 
+    const elevatedScopeCode = await authorizeCode({
+      dispatch,
+      clientId,
+      cookie: sessionCookie,
+      resource,
+      state: 'elevated-refresh-scope',
+    });
+    const elevatedScopeTokens = await exchangeAuthorizationCode({
+      dispatch,
+      issuer,
+      resource,
+      clientId,
+      code: elevatedScopeCode,
+    });
+    assert.equal(elevatedScopeTokens.status, 200);
+    const elevatedScopeRefreshToken = String(
+      (await readJson(elevatedScopeTokens)).refresh_token,
+    );
     const elevatedRefreshScope = await dispatch(new Request(`${issuer}/oauth2/token`, {
       method: 'POST',
       headers: {
@@ -607,13 +622,32 @@ async function main(): Promise<void> {
       body: new URLSearchParams({
         grant_type: 'refresh_token',
         client_id: clientId,
-        refresh_token: refreshToken,
+        refresh_token: elevatedScopeRefreshToken,
         scope: `${GRANTED_SCOPES.join(' ')} knowledge:search`,
         resource,
       }),
     }));
     assert.equal(elevatedRefreshScope.status, 400);
     assert.equal((await readJson(elevatedRefreshScope)).error, 'invalid_scope');
+
+    const refreshFlowCode = await authorizeCode({
+      dispatch,
+      clientId,
+      cookie: sessionCookie,
+      resource,
+      state: 'refresh-flow',
+    });
+    const refreshFlowTokens = await exchangeAuthorizationCode({
+      dispatch,
+      issuer,
+      resource,
+      clientId,
+      code: refreshFlowCode,
+    });
+    assert.equal(refreshFlowTokens.status, 200);
+    const refreshFlowRefreshToken = String(
+      (await readJson(refreshFlowTokens)).refresh_token,
+    );
 
     const wrongRefreshResource = await dispatch(new Request(`${issuer}/oauth2/token`, {
       method: 'POST',
@@ -623,7 +657,7 @@ async function main(): Promise<void> {
       body: new URLSearchParams({
         grant_type: 'refresh_token',
         client_id: clientId,
-        refresh_token: refreshToken,
+        refresh_token: refreshFlowRefreshToken,
         resource: 'https://foreign-instance.example.test/mcp',
       }),
     }));
@@ -639,7 +673,7 @@ async function main(): Promise<void> {
       body: new URLSearchParams({
         grant_type: 'refresh_token',
         client_id: clientId,
-        refresh_token: refreshToken,
+        refresh_token: refreshFlowRefreshToken,
         resource,
       }),
     }));
@@ -649,7 +683,7 @@ async function main(): Promise<void> {
     const rotatedRefreshToken = String(rotatedTokens.refresh_token);
     assert.ok(rotatedAccessToken);
     assert.ok(rotatedRefreshToken);
-    assert.notEqual(rotatedRefreshToken, refreshToken);
+    assert.notEqual(rotatedRefreshToken, refreshFlowRefreshToken);
     await verifyDirectMcpAccessToken(rotatedAccessToken, ['knowledge:read']);
 
     const rotationDatabase = await openDb();
@@ -658,7 +692,7 @@ async function main(): Promise<void> {
         SELECT revoked
         FROM oauth_refresh_token
         WHERE token = ?
-      `, [tokenHash(refreshToken)]) as { revoked: unknown } | undefined;
+      `, [tokenHash(refreshFlowRefreshToken)]) as { revoked: unknown } | undefined;
       const newGrant = await rotationDatabase.get(`
         SELECT revoked
         FROM oauth_refresh_token

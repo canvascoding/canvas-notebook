@@ -4,6 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { NextRequest } from 'next/server';
+
 import {
   DIRECT_MCP_OAUTH_SCOPES,
   DIRECT_MCP_RESOURCE_SCOPES,
@@ -232,9 +234,9 @@ async function main(): Promise<void> {
       },
       { getDirectMcpReadiness },
       {
-        applyDirectMcpRevocation,
         prepareDirectMcpRevocation,
       },
+      authRoute,
       canonicalMetadataRoute,
       aliasMetadataRoute,
     ] = await Promise.all([
@@ -244,6 +246,7 @@ async function main(): Promise<void> {
       import('../app/lib/mcp/server/protected-resource-metadata'),
       import('../app/lib/mcp/server/readiness'),
       import('../app/lib/mcp/server/oauth-grant-revocation'),
+      import('../app/api/auth/[...all]/route'),
       import('../app/.well-known/oauth-protected-resource/mcp/route'),
       import('../app/.well-known/oauth-protected-resource/route'),
     ]);
@@ -440,9 +443,8 @@ async function main(): Promise<void> {
     });
     const revocationCandidate = await prepareDirectMcpRevocation(revokeRequest);
     assert.ok(revocationCandidate);
-    const revokeResponse = await auth.handler(revokeRequest);
+    const revokeResponse = await authRoute.POST(new NextRequest(revokeRequest));
     assert.equal(revokeResponse.status, 200, await revokeResponse.clone().text());
-    await applyDirectMcpRevocation(revocationCandidate);
     await assertAuthorizationError(
       () => verifyDirectMcpAccessToken(tokenSet.accessToken, ['knowledge:read']),
       {

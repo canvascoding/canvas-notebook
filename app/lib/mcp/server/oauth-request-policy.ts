@@ -54,6 +54,22 @@ function validateResourceValues(values: string[]): Response | null {
   return null;
 }
 
+function validateAuthorizationPkce(url: URL): Response | null {
+  const codeChallenge = url.searchParams.get('code_challenge')?.trim();
+  const codeChallengeMethod = url.searchParams.get('code_challenge_method');
+  if (
+    !codeChallenge
+    || !/^[A-Za-z0-9_-]{43,128}$/.test(codeChallenge)
+    || codeChallengeMethod !== 'S256'
+  ) {
+    return oauthError(
+      'invalid_request',
+      'Direct MCP authorization requires a S256 PKCE code challenge.',
+    );
+  }
+  return null;
+}
+
 function validateRegistrationBody(body: unknown): Response | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return oauthError('invalid_client_metadata', 'The client metadata must be a JSON object.');
@@ -125,7 +141,10 @@ export async function enforceDirectMcpOAuthRequestPolicy(
     request.method === 'GET'
     && url.pathname === '/api/auth/oauth2/authorize'
   ) {
-    return validateResourceValues(url.searchParams.getAll('resource'));
+    return (
+      validateResourceValues(url.searchParams.getAll('resource'))
+      ?? validateAuthorizationPkce(url)
+    );
   }
 
   if (

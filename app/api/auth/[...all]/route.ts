@@ -124,6 +124,18 @@ function directMcpOAuthUnavailableResponse(): Response {
   );
 }
 
+async function isSelfContainedAccessTokenRevocationRejection(
+  response: Response,
+): Promise<boolean> {
+  if (response.status !== 400) return false;
+  try {
+    const body = (await response.clone().json()) as { error?: unknown };
+    return body.error === 'unsupported_token_type';
+  } catch {
+    return false;
+  }
+}
+
 async function handleDirectMcpOAuthRequest(
   request: NextRequest,
   handler: () => Promise<Response>,
@@ -188,7 +200,10 @@ export async function POST(request: NextRequest) {
     }
 
     const response = await auth.handler(request);
-    if (response.ok && revocationCandidate) {
+    const providerRejectedSelfContainedAccessToken =
+      revocationCandidate?.tokenType === 'access_token'
+      && await isSelfContainedAccessTokenRevocationRejection(response);
+    if ((response.ok || providerRejectedSelfContainedAccessToken) && revocationCandidate) {
       try {
         await applyDirectMcpRevocation(revocationCandidate);
       } catch {
@@ -207,6 +222,12 @@ export async function POST(request: NextRequest) {
           },
         );
       }
+    }
+    if (providerRejectedSelfContainedAccessToken) {
+      return new Response(null, {
+        status: 200,
+        headers: { 'cache-control': 'no-store' },
+      });
     }
     try {
       await initializeCreatedUserOnboarding(pathname, response);

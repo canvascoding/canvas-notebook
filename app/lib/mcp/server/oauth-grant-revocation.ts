@@ -30,6 +30,7 @@ export type DirectMcpRevocationCandidate = {
   clientId: string;
   sessionId: string | null;
   userId: string;
+  tokenType: 'access_token' | 'refresh_token';
 };
 
 function isDatabaseBoolean(value: unknown): boolean {
@@ -161,6 +162,7 @@ async function prepareAccessTokenCandidate(
       clientId,
       sessionId: claims.sessionId,
       userId: claims.subject,
+      tokenType: 'access_token',
     };
   } catch (error) {
     if (error instanceof DirectMcpAuthorizationError) return null;
@@ -178,6 +180,7 @@ async function prepareRefreshTokenCandidate(
     clientId,
     sessionId: grant.session_id,
     userId: grant.user_id,
+    tokenType: 'refresh_token',
   };
 }
 
