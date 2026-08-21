@@ -158,6 +158,7 @@ function helpText(topic?: string): string {
 
   return [
     'Browser gateway actions: status, start, list_tabs, select_tab, new_tab, close_tab, navigate, observe, click, type, keypress, scroll, screenshot, extract_content, evaluate, dialog_status, accept_dialog, dismiss_dialog, console_logs, close.',
+    'Use extract_content to read rendered page content and observe to inspect visible interactive elements. For scroll, use scroll_x and scroll_y; camelCase scrollX and scrollY are accepted for compatibility.',
     'Use web_fetch first for static HTML, docs, blogs, and ordinary content extraction. Use this browser gateway only for JavaScript-rendered pages, UI interaction, screenshots, login/session checks, or local app verification.',
     'Navigation blocks cloud metadata, link-local, multicast, and private network targets by default; localhost is allowed for local app verification.',
     'Browser storage is persistent per user and agent by default, so cookies, local storage, and site login state can survive new agent sessions. Use normal site prompts to keep sign-ins persistent when appropriate.',

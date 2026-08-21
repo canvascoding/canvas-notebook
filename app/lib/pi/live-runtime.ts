@@ -46,6 +46,7 @@ import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-st
 import { generatePendingPiSessionTitle } from '@/app/lib/pi/session-title-generator';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { filterToolsForPlanningMode } from '@/app/lib/pi/planning-mode';
+import { replaceNextTurnContext } from '@/app/lib/pi/next-turn-context';
 import { getChannelSystemPromptBlock } from '@/app/lib/agents/channel-system-prompt';
 import { formatZonedDateTimeForPrompt } from '@/app/lib/time-zones';
 import { EMAIL_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/email-prompt-block';
@@ -813,12 +814,13 @@ class LivePiRuntime {
     if (signal?.aborted) return undefined;
     await this.refreshWorkspaceFileTreePrompt();
     if (signal?.aborted) return undefined;
-    return {
-      context: {
-        ...context.context,
-        systemPrompt: this.getEffectiveSystemPrompt(),
-      },
-    };
+    // The agent loop retains its own context snapshot between turns. Updating
+    // agent.state.tools alone therefore does not expose a newly active browser
+    // schema until a later user run unless we replace the loop context here.
+    return replaceNextTurnContext(context.context, {
+      systemPrompt: this.getEffectiveSystemPrompt(),
+      tools: this.agent.state.tools,
+    });
   }
 
   async reloadTools() {
