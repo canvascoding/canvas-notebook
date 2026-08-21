@@ -41,6 +41,7 @@ export interface IntegrationEnvEntry {
   key: string;
   value: string;
   encrypted: boolean;
+  readable: boolean;
 }
 
 export interface IntegrationEnvState {
@@ -57,6 +58,8 @@ interface ParsedEnvEntry {
   value: string;
   encrypted: boolean;
 }
+
+const pendingMutations = new Map<string, Promise<void>>();
 
 function getScopeConfig(scope: EnvScope): EnvScopeConfig {
   return ENV_SCOPE_CONFIG[scope];
@@ -241,12 +244,14 @@ export async function readScopedEnvState(
           key: entry.key,
           value: decryptValue(entry.value, secret),
           encrypted: true,
+          readable: true,
         };
       } catch {
         return {
           key: entry.key,
           value: '',
           encrypted: true,
+          readable: false,
         };
       }
     }
@@ -255,6 +260,7 @@ export async function readScopedEnvState(
       key: entry.key,
       value: entry.value,
       encrypted: entry.encrypted,
+      readable: !entry.encrypted || Boolean(secret),
     };
   });
 
@@ -298,6 +304,56 @@ export async function replaceScopedEnvEntries(
   const sorted = Array.from(byKey.values()).sort((a, b) => a.key.localeCompare(b.key));
   await writeScopedEnvRaw(scope, serializeEntries(sorted), storageScope);
   return readScopedEnvState(scope, storageScope);
+}
+
+export async function mutateScopedEnvEntries(
+  scope: EnvScope,
+  mutate: (entries: Array<{ key: string; value: string }>) => Array<{ key: string; value: string }>,
+  storageScope?: EnvStorageScope | null,
+): Promise<IntegrationEnvState> {
+  const filePath = getEnvFilePath(scope, storageScope);
+  const previous = pendingMutations.get(filePath) || Promise.resolve();
+  let release: (() => void) | undefined;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  pendingMutations.set(filePath, queued);
+  await previous;
+  try {
+    const state = await readScopedEnvState(scope, storageScope);
+    if (state.entries.some((entry) => entry.encrypted && !entry.readable)) {
+      throw new Error('Encrypted integration settings cannot be read safely. Configure the integration master key before saving.');
+    }
+    return await replaceScopedEnvEntries(scope, mutate(state.entries.map(({ key, value }) => ({ key, value }))), storageScope);
+  } finally {
+    release?.();
+    if (pendingMutations.get(filePath) === queued) pendingMutations.delete(filePath);
+  }
+}
+
+/** Serializes a raw edit with structured writers for the same secret file. */
+export async function mutateScopedEnvRaw(
+  scope: EnvScope,
+  mutate: (state: IntegrationEnvState) => string,
+  storageScope?: EnvStorageScope | null,
+): Promise<IntegrationEnvState> {
+  const filePath = getEnvFilePath(scope, storageScope);
+  const previous = pendingMutations.get(filePath) || Promise.resolve();
+  let release: (() => void) | undefined;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  pendingMutations.set(filePath, queued);
+  await previous;
+  try {
+    const state = await readScopedEnvState(scope, storageScope);
+    if (state.entries.some((entry) => entry.encrypted && !entry.readable)) {
+      throw new Error('Encrypted integration settings cannot be read safely. Configure the integration master key before saving.');
+    }
+    await writeScopedEnvRaw(scope, mutate(state), storageScope);
+    return readScopedEnvState(scope, storageScope);
+  } finally {
+    release?.();
+    if (pendingMutations.get(filePath) === queued) pendingMutations.delete(filePath);
+  }
 }
 
 function generateNumericFallback(length = 24): string {

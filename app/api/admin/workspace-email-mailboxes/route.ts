@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { requireInstanceAdmin } from '@/app/lib/admin-auth';
+import { requireWorkspaceMailboxAdmin } from '@/app/lib/email/workspace-mailbox-admin-auth';
 import {
   listAdminWorkspaceMailboxes,
   listWorkspaceMailboxWorkspaceChoices,
@@ -15,12 +15,12 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 export async function GET(request: NextRequest) {
-  const admin = await requireInstanceAdmin(request);
+  const admin = await requireWorkspaceMailboxAdmin(request);
   if (!admin.ok) return admin.response;
   try {
     const [mailboxes, workspaces] = await Promise.all([
-      listAdminWorkspaceMailboxes(),
-      listWorkspaceMailboxWorkspaceChoices(),
+      listAdminWorkspaceMailboxes(admin.organizationId),
+      listWorkspaceMailboxWorkspaceChoices(admin.organizationId),
     ]);
     return NextResponse.json({ success: true, data: { mailboxes, workspaces } }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const admin = await requireInstanceAdmin(request);
+  const admin = await requireWorkspaceMailboxAdmin(request);
   if (!admin.ok) return admin.response;
   const limited = rateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: 'admin-workspace-mailbox-create' });
   if (!limited.ok) return limited.response;
@@ -38,7 +38,10 @@ export async function POST(request: NextRequest) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return NextResponse.json({ success: false, error: 'Invalid workspace mailbox configuration.' }, { status: 400 });
     }
-    const mailbox = await saveAdminWorkspaceMailbox(admin.session.user.id, payload as WorkspaceMailboxSmtpInput, { verify: Boolean((payload as { verifyConnection?: unknown }).verifyConnection) });
+    const mailbox = await saveAdminWorkspaceMailbox(admin.session.user.id, payload as WorkspaceMailboxSmtpInput, {
+      verify: Boolean((payload as { verifyConnection?: unknown }).verifyConnection),
+      organizationId: admin.organizationId,
+    });
     await recordAuditEvent({
       userId: admin.session.user.id,
       workspaceId: mailbox.workspaceId || undefined,

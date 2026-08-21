@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 09: Administrator-E-Mail-Setup reparieren'
-status: open
+status: in_review
 priority: high
 depends_on: []
 platforms: [web, server]
@@ -57,3 +57,14 @@ dadurch nicht eindeutig oder fehlerhaft.
 - `npm run build` und manuelle Abnahme der Settings-UI; Browser-/E2E-Test nur
   nach expliziter Freigabe.
 - Eigener Commit, danach Status im [Index](./README.md) aktualisieren.
+
+## Umsetzungsstand
+
+Die Implementierung liegt vor: System-SMTP hat sichere Validierung, explizite
+TLS-Semantik, Redaction, tatsächlichen Testversand an die angemeldete
+Admin-Adresse und einen deaktivierbaren Versandmodus ohne Mailbox-Fallback.
+System-Absender und Workspace-Postfächer sind in UI, API-Guard und
+Organisationsfilter getrennt. Die automatisierten Service-, Scope-,
+Migrations-, Berechtigungs- und Build-Prüfungen sind dokumentiert; die
+manuelle Browser-Abnahme bleibt gemäß Repository-Regel einer explizit
+freigegebenen UI-Prüfung vorbehalten.

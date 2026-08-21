@@ -26,7 +26,7 @@ abgeschlossen sind.
 | 06 | [Mobile Notizen von WebView zu nativ migrieren](./06-mobile-notizen-native-migration.md) | offen | 05 |
 | 07 | [Session-Liste typografisch korrigieren](./07-session-liste-typografie.md) | offen | 06 |
 | 08 | [Dateien nach Nutzung sortieren und anpinnen](./08-dateien-sortieren-und-anpinnen.md) | offen | 07 |
-| 09 | [Administrator-E-Mail-Setup reparieren](./09-administrator-email-setup-reparieren.md) | offen | – |
+| 09 | [Administrator-E-Mail-Setup reparieren](./09-administrator-email-setup-reparieren.md) | in Abnahme | – |
 | 10 | [Automationen, UI und Workspace-Zuordnung pruefen](./10-automationen-ui-und-workspace-zuordnung-pruefen.md) | offen | – |
 | 11 | [Lizenztypen und Control-Plane-Handshake Ende-zu-Ende testen](./11-lizenztypen-und-control-plane-handshake-testen.md) | offen | – |
 | 12 | [User-Einladungsflow und scrollbare UI stabilisieren](./12-user-einladungsflow-und-ui-stabilisieren.md) | offen | 11 |

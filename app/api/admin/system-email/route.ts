@@ -10,9 +10,12 @@ import {
   type SystemEmailDeliveryMode,
   type SystemSmtpConfigurationInput,
 } from '@/app/lib/email/system-smtp-config';
+import { systemEmailErrorDetails } from '@/app/lib/email/system-email-admin-service';
+import { rateLimit } from '@/app/lib/utils/rate-limit';
 
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+function errorResponse(error: unknown, fallback: string, defaultStatus = 400) {
+  const details = systemEmailErrorDetails(error);
+  return NextResponse.json({ success: false, code: details.code, error: details.message || fallback, settingsLink: '/settings?tab=integrations' }, { status: details.status || defaultStatus });
 }
 
 export async function GET(request: NextRequest) {
@@ -25,13 +28,15 @@ export async function GET(request: NextRequest) {
       { headers: { 'Cache-Control': 'private, no-store' } },
     );
   } catch (error) {
-    return NextResponse.json({ success: false, error: errorMessage(error, 'Failed to load system email settings.') }, { status: 500 });
+    return errorResponse(error, 'Failed to load system email settings.', 500);
   }
 }
 
 export async function PUT(request: NextRequest) {
   const admin = await requireInstanceAdmin(request);
   if (!admin.ok) return admin.response;
+  const limited = rateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: `admin-system-email-save:${admin.session.user.id}` });
+  if (!limited.ok) return limited.response;
 
   try {
     const payload = await request.json().catch(() => null);
@@ -59,13 +64,15 @@ export async function PUT(request: NextRequest) {
     });
     return NextResponse.json({ success: true, data: status });
   } catch (error) {
-    return NextResponse.json({ success: false, error: errorMessage(error, 'Failed to save system email settings.') }, { status: 400 });
+    return errorResponse(error, 'Failed to save system email settings.');
   }
 }
 
 export async function PATCH(request: NextRequest) {
   const admin = await requireInstanceAdmin(request);
   if (!admin.ok) return admin.response;
+  const limited = rateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: `admin-system-email-mode:${admin.session.user.id}` });
+  if (!limited.ok) return limited.response;
 
   try {
     const payload = await request.json().catch(() => null);
@@ -89,13 +96,15 @@ export async function PATCH(request: NextRequest) {
     });
     return NextResponse.json({ success: true, data: status });
   } catch (error) {
-    return NextResponse.json({ success: false, error: errorMessage(error, 'Failed to update system email delivery mode.') }, { status: 400 });
+    return errorResponse(error, 'Failed to update system email delivery mode.');
   }
 }
 
 export async function DELETE(request: NextRequest) {
   const admin = await requireInstanceAdmin(request);
   if (!admin.ok) return admin.response;
+  const limited = rateLimit(request, { limit: 10, windowMs: 60_000, keyPrefix: `admin-system-email-delete:${admin.session.user.id}` });
+  if (!limited.ok) return limited.response;
 
   try {
     const status = await clearSystemSmtpConfiguration();
@@ -111,6 +120,6 @@ export async function DELETE(request: NextRequest) {
     });
     return NextResponse.json({ success: true, data: status });
   } catch (error) {
-    return NextResponse.json({ success: false, error: errorMessage(error, 'Failed to remove system email settings.') }, { status: 500 });
+    return errorResponse(error, 'Failed to remove system email settings.', 500);
   }
 }

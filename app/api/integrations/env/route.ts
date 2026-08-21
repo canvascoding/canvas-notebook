@@ -4,9 +4,9 @@ import { isAdminUser } from '@/app/lib/admin-auth';
 import { auth } from '@/app/lib/auth';
 import {
   type EnvScope,
+  mutateScopedEnvEntries,
+  mutateScopedEnvRaw,
   readScopedEnvState,
-  replaceScopedEnvEntries,
-  writeScopedEnvRaw,
   type EnvStorageScope,
 } from '@/app/lib/integrations/env-config';
 import { closeMcpServersForScope } from '@/app/lib/mcp/manager';
@@ -16,6 +16,7 @@ import {
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { isSystemEmailEnvKey } from '@/app/lib/email/system-email-keys';
 
 interface KeyValueEntry {
   key: string;
@@ -31,6 +32,26 @@ interface PutPayload {
 }
 
 type SecretScope = 'user' | 'organization' | 'system';
+
+function redactSystemEmailEntries<T extends { key: string; value: string }>(entries: T[]): T[] {
+  return entries.map((entry) => isSystemEmailEnvKey(entry.key)
+    ? { ...entry, value: '' }
+    : entry);
+}
+
+function redactSystemEmailRaw(rawContent: string): string {
+  return rawContent.split(/\r?\n/u)
+    .filter((line) => !isSystemEmailEnvKey(line.trim().replace(/^export\s+/u, '').split('=', 1)[0] || ''))
+    .join('\n');
+}
+
+function clientEnvState<T extends { entries: Array<{ key: string; value: string }>; rawContent: string }>(state: T): T {
+  return {
+    ...state,
+    entries: redactSystemEmailEntries(state.entries),
+    rawContent: redactSystemEmailRaw(state.rawContent),
+  };
+}
 
 function parseScope(value: string | null | undefined): EnvScope {
   return value === 'agents' ? 'agents' : 'integrations';
@@ -141,7 +162,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (secretScope === 'system') await migrateLegacyAgentEnvIfNeeded();
-    const state = await readScopedEnvState(scope, storageScope);
+    const state = clientEnvState(await readScopedEnvState(scope, storageScope));
     const requestedKey = request.nextUrl.searchParams.get('key')?.trim() || null;
     if (requestedKey && !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(requestedKey)) {
       return NextResponse.json({ success: false, error: 'Invalid environment variable key.' }, { status: 400 });
@@ -197,8 +218,17 @@ export async function PUT(request: NextRequest) {
     if (secretScope === 'system') await migrateLegacyAgentEnvIfNeeded();
 
     if (mode === 'raw') {
-      await writeScopedEnvRaw(scope, payload.rawContent ?? '', storageScope);
-      const updated = await readScopedEnvState(scope, storageScope);
+      const rawIncludesSystemEmailSetting = typeof payload.rawContent === 'string'
+        && payload.rawContent.split(/\r?\n/u).some((line) => isSystemEmailEnvKey(line.trim().replace(/^export\s+/u, '').split('=', 1)[0] || ''));
+      if (rawIncludesSystemEmailSetting) {
+        return NextResponse.json({ success: false, code: 'SYSTEM_EMAIL_SETTINGS_RESERVED', error: 'System email settings must be changed in System Email settings.' }, { status: 400 });
+      }
+      const updated = await mutateScopedEnvRaw(scope, (existing) => {
+        if (existing.entries.some((entry) => isSystemEmailEnvKey(entry.key))) {
+          throw new Error('SYSTEM_EMAIL_SETTINGS_RESERVED');
+        }
+        return typeof payload.rawContent === 'string' ? payload.rawContent : '';
+      }, storageScope);
       await closeMcpServersForScope(storageScope);
       await recordAuditEvent({
         organizationId,
@@ -218,11 +248,16 @@ export async function PUT(request: NextRequest) {
           keys: updated.entries.map((entry) => entry.key),
         },
       });
-      return NextResponse.json({ success: true, data: updated });
+      return NextResponse.json({ success: true, data: clientEnvState(updated) });
     }
 
-    const entries = Array.isArray(payload.entries) ? payload.entries : [];
-    const updated = await replaceScopedEnvEntries(scope, entries, storageScope);
+    const requestedEntries = Array.isArray(payload.entries) ? payload.entries : [];
+    const updated = await mutateScopedEnvEntries(scope, (existingEntries) => [
+      ...requestedEntries.filter((entry) => !isSystemEmailEnvKey(entry.key)),
+      ...existingEntries
+        .filter((entry) => isSystemEmailEnvKey(entry.key))
+        .map((entry) => ({ key: entry.key, value: entry.value })),
+    ], storageScope);
     await closeMcpServersForScope(storageScope);
     await recordAuditEvent({
       organizationId,
@@ -242,8 +277,11 @@ export async function PUT(request: NextRequest) {
         entryCount: updated.entries.length,
       },
     });
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json({ success: true, data: clientEnvState(updated) });
   } catch (error) {
+    if (error instanceof Error && error.message === 'SYSTEM_EMAIL_SETTINGS_RESERVED') {
+      return NextResponse.json({ success: false, code: 'SYSTEM_EMAIL_SETTINGS_RESERVED', error: 'System email settings must be changed in System Email settings.' }, { status: 400 });
+    }
     console.error('[API] integrations/env PUT error:', error);
     const message = error instanceof Error ? error.message : 'Failed to update env file';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
