@@ -27,10 +27,10 @@ import {
   piSessions,
   studioGenerationOutputs,
   studioGenerations,
-  todoItems,
 } from '@/app/lib/db/schema';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
-import { getTodo, listTodos, markTodoSeen, type TodoWithRelations } from '@/app/lib/todos/store';
+import { setTodoReadStateForUser } from '@/app/lib/todos/read-state-actions';
+import { getTodo, listTodos, type TodoWithRelations } from '@/app/lib/todos/store';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const BASELINE_KEY = '__baseline__';
@@ -38,7 +38,7 @@ const MAX_SOURCE_ITEMS = 200;
 const INITIAL_UNREAD_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const TODO_PRESENTATION_GROUP_WINDOW_MS = 5 * 60 * 1_000;
 
-export const MOBILE_INBOX_FILTERS = ['all', 'unread', 'chat', 'todos', 'studio', 'automation'] as const;
+export const MOBILE_INBOX_FILTERS = ['all', 'unread', 'notifications', 'chat', 'todos', 'studio', 'automation'] as const;
 export type MobileInboxFilter = typeof MOBILE_INBOX_FILTERS[number];
 
 export type MobileInboxItem = {
@@ -273,9 +273,6 @@ function genericUnread(itemKey: string, occurredAt: Date, state: Awaited<ReturnT
 
 async function collectInboxItems(input: { userId: string; workspace: WorkspaceContext }) {
   const state = await readState({ userId: input.userId, workspaceId: input.workspace.workspaceId });
-  const endOfToday = new Date();
-  endOfToday.setHours(23, 59, 59, 999);
-
   const [sessionRows, todos, generationRows, automationRows] = await Promise.all([
     db.select({
       sessionId: piSessions.sessionId,
@@ -364,21 +361,17 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
     });
   }
   for (const todo of todos) {
-    const isDue = todo.status === 'open' && Boolean(todo.dueAt && todo.dueAt <= endOfToday);
     const itemKey = `todo:${todo.id}`;
-    const unread = input.workspace.workspaceType === 'personal'
-      ? !todo.seenAt
-      : genericUnread(itemKey, todo.updatedAt, state);
-    if (todo.status !== 'open' || (!unread && !isDue)) continue;
+    const unread = todo.readState === 'unread';
     items.push({
       id: itemKey,
       type: 'todo.attention',
       title: todo.title,
-      detail: todo.category?.name || (isDue ? 'Due today' : 'To-do'),
+      detail: todo.category?.name || (todo.status === 'done' ? 'Completed To-do' : 'To-do'),
       previewUrl: null,
       occurredAt: todo.updatedAt.toISOString(),
       unread,
-      priority: todo.priority === 'high' || isDue ? 'high' : 'normal',
+      priority: todo.priority === 'high' ? 'high' : 'normal',
       target: { kind: 'todo', todoId: todo.id },
       todoPresentationCandidate: todoPresentationCandidate(todo),
     });
@@ -427,6 +420,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
 function matchesFilter(item: MobileInboxItem, filter: MobileInboxFilter): boolean {
   if (filter === 'all') return true;
   if (filter === 'unread') return item.unread;
+  if (filter === 'notifications') return item.target.kind !== 'todo';
   if (filter === 'chat') return item.target.kind === 'chat';
   if (filter === 'todos') return item.target.kind === 'todo';
   if (filter === 'studio') return item.target.kind === 'studio';
@@ -450,6 +444,7 @@ export async function listMobileInbox(input: {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
     todos: allItems.filter((item) => item.target.kind === 'todo').length,
+    todoUnread: allItems.filter((item) => item.target.kind === 'todo' && item.unread).length,
     studio: allItems.filter((item) => item.target.kind === 'studio').length,
     automation: allItems.filter((item) => item.target.kind === 'automation').length,
   };
@@ -609,6 +604,7 @@ export async function listMobileAggregateInbox(input: {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
     todos: allItems.filter((item) => item.target.kind === 'todo').length,
+    todoUnread: allItems.filter((item) => item.target.kind === 'todo' && item.unread).length,
     studio: allItems.filter((item) => item.target.kind === 'studio').length,
     automation: allItems.filter((item) => item.target.kind === 'automation').length,
   };
@@ -735,18 +731,15 @@ export async function markMobileInboxRead(input: {
   workspace: WorkspaceContext;
   action: unknown;
   itemId?: unknown;
+  read?: unknown;
 }) {
   const now = new Date();
   if (input.action === 'mark_all_read') {
-    const personalTodoRead = input.workspace.workspaceType === 'personal'
-      ? db.update(todoItems).set({ seenAt: now, updatedAt: now }).where(and(
-          eq(todoItems.userId, input.userId),
-          eq(todoItems.workspaceType, 'personal'),
-          workspaceCondition(todoItems.workspaceId, input.workspace),
-          eq(todoItems.status, 'open'),
-          isNull(todoItems.seenAt),
-        ))
-      : Promise.resolve();
+    const todos = await listTodos(input.userId, {
+      ...todoWorkspaceOptions(input.workspace),
+      status: 'active',
+      limit: MAX_SOURCE_ITEMS,
+    });
     await Promise.all([
       db.update(piSessions).set({ lastViewedAt: piSessionReadCursorSql(), updatedAt: now }).where(and(
         eq(piSessions.userId, input.userId),
@@ -754,7 +747,14 @@ export async function markMobileInboxRead(input: {
         workspaceCondition(piSessions.workspaceId, input.workspace),
         isNotNull(piSessions.lastMessageAt),
       )),
-      personalTodoRead,
+      ...todos
+        .filter((todo) => todo.readState === 'unread')
+        .map((todo) => setTodoReadStateForUser({
+          userId: input.userId,
+          todoId: todo.id,
+          read: true,
+          readAt: now,
+        })),
       upsertReadState(input.userId, input.workspace.workspaceId, BASELINE_KEY, now),
     ]);
     return { readAt: now.toISOString() };
@@ -774,12 +774,20 @@ export async function markMobileInboxRead(input: {
     await upsertDismissedState(input.userId, input.workspace.workspaceId, input.itemId, now);
     return { itemId: input.itemId, dismissedAt: now.toISOString() };
   }
-  if (input.action !== 'mark_item_read' || typeof input.itemId !== 'string') {
+  const requestedRead = input.action === 'mark_item_read'
+    ? true
+    : input.action === 'set_item_read_state' && typeof input.read === 'boolean'
+      ? input.read
+      : null;
+  if (requestedRead === null || typeof input.itemId !== 'string') {
     throw new MobileInboxError('INVALID_ACTION', 'The Inbox read action is invalid.', 400);
   }
   const [kind, entityId] = input.itemId.split(':', 2);
   if (!entityId) throw new MobileInboxError('INVALID_ITEM', 'The Inbox item is invalid.', 400);
   if (kind === 'chat') {
+    if (!requestedRead) {
+      throw new MobileInboxError('ITEM_READ_STATE_NOT_SUPPORTED', 'Chat items can only be marked read.', 400);
+    }
     const result = await db.update(piSessions).set({ lastViewedAt: piSessionReadCursorSql(), updatedAt: now }).where(and(
       eq(piSessions.userId, input.userId),
       eq(piSessions.sessionId, entityId),
@@ -792,12 +800,16 @@ export async function markMobileInboxRead(input: {
     if (!todoBelongsToWorkspace(todo, input.workspace)) {
       throw new MobileInboxError('ITEM_NOT_FOUND', 'The Inbox item was not found.', 404);
     }
-    if (input.workspace.workspaceType === 'personal') {
-      await markTodoSeen(input.userId, entityId, now);
-    } else {
-      await upsertReadState(input.userId, input.workspace.workspaceId, input.itemId, now);
-    }
+    await setTodoReadStateForUser({
+      userId: input.userId,
+      todoId: entityId,
+      read: requestedRead,
+      readAt: now,
+    });
   } else if (kind === 'studio' || kind === 'automation') {
+    if (!requestedRead) {
+      throw new MobileInboxError('ITEM_READ_STATE_NOT_SUPPORTED', 'Only To-dos can be marked unread.', 400);
+    }
     const items = await collectInboxItems(input);
     if (!items.some((item) => item.id === input.itemId)) {
       throw new MobileInboxError('ITEM_NOT_FOUND', 'The Inbox item was not found.', 404);
@@ -806,5 +818,7 @@ export async function markMobileInboxRead(input: {
   } else {
     throw new MobileInboxError('INVALID_ITEM', 'The Inbox item is invalid.', 400);
   }
-  return { itemId: input.itemId, readAt: now.toISOString() };
+  return requestedRead
+    ? { itemId: input.itemId, read: true, readAt: now.toISOString() }
+    : { itemId: input.itemId, read: false, readAt: null };
 }

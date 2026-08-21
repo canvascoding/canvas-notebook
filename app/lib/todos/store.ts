@@ -20,6 +20,11 @@ import {
   getDefaultTodoCategoryKey,
   resolveDefaultTodoCategoryName,
 } from './default-categories';
+import {
+  clearTodoReadState,
+  listTodoReadStates,
+  setTodoReadState,
+} from './read-state-store';
 import type { TodoScopeKind } from './scope';
 
 export type { TodoScopeKind } from './scope';
@@ -69,6 +74,8 @@ export type TodoItem = typeof todoItems.$inferSelect;
 export type TodoFileLink = typeof todoFileLinks.$inferSelect;
 
 export type TodoWithRelations = TodoItem & {
+  readAt: Date | null;
+  readState: 'read' | 'unread';
   category: TodoCategory | null;
   fileLinks: TodoFileLink[];
   createdBy: TodoUserSummary | null;
@@ -763,7 +770,8 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
     sourceType: normalizeTodoSourceType(input.sourceType),
     sourceAgentId: normalizeOptionalText(input.sourceAgentId, 120),
     sourceSessionId: normalizeOptionalText(input.sourceSessionId, 160),
-    seenAt: normalizeDate(input.seenAt),
+    // Read state is per user and intentionally lives outside the shared to-do row.
+    seenAt: null,
     completedAt: null,
     completionComment: null,
     followUpSentAt: null,
@@ -776,6 +784,10 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
   }).returning();
 
   await replaceFileLinks(created.id, userId, scope, fileLinks, now);
+  const initialReadAt = normalizeDate(input.seenAt);
+  if (initialReadAt) {
+    await setTodoReadState(userId, created.id, initialReadAt);
+  }
   const hydrated = await getTodo(userId, created.id);
   if (!hydrated) {
     throw new TodoStoreError('Todo not found after creation', 'TODO_NOT_FOUND');
@@ -785,8 +797,10 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
   return (await getTodo(userId, created.id)) ?? hydrated;
 }
 
-async function hydrateTodos(rows: TodoItem[]): Promise<TodoWithRelations[]> {
+async function hydrateTodos(rows: TodoItem[], userId: string): Promise<TodoWithRelations[]> {
   if (rows.length === 0) return [];
+
+  const readStateByTodoId = await listTodoReadStates(userId, rows.map((row) => row.id));
 
   const categoryIds = Array.from(new Set(rows.map((row) => row.categoryId).filter(Boolean))) as string[];
   const categories = categoryIds.length
@@ -827,6 +841,11 @@ async function hydrateTodos(rows: TodoItem[]): Promise<TodoWithRelations[]> {
 
   return rows.map((row) => ({
     ...row,
+    // `seenAt` is retained as a compatibility alias while API clients migrate to
+    // the explicit per-user `readAt` / `readState` fields.
+    seenAt: readStateByTodoId.get(row.id) ?? null,
+    readAt: readStateByTodoId.get(row.id) ?? null,
+    readState: readStateByTodoId.has(row.id) ? 'read' : 'unread' as const,
     category: row.categoryId ? categoryById.get(row.categoryId) ?? null : null,
     fileLinks: linksByTodoId.get(row.id) ?? [],
     createdBy: userById.get(row.createdByUserId || row.userId) ?? null,
@@ -848,7 +867,7 @@ export async function getTodo(userId: string, todoId: string): Promise<TodoWithR
   });
   if (!todo) return null;
   await assertCanReadTodo(userId, todo);
-  const [hydrated] = await hydrateTodos([todo]);
+  const [hydrated] = await hydrateTodos([todo], userId);
   return hydrated;
 }
 
@@ -994,7 +1013,7 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     .orderBy(desc(todoItems.updatedAt), desc(todoItems.id))
     .limit(limit);
 
-  return hydrateTodos(rows);
+  return hydrateTodos(rows, userId);
 }
 
 export async function updateTodo(userId: string, todoId: string, input: UpdateTodoInput): Promise<TodoWithRelations | null> {
@@ -1026,9 +1045,6 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
   }
   if (input.dueAt !== undefined) {
     updates.dueAt = normalizeDate(input.dueAt);
-  }
-  if (input.seenAt !== undefined) {
-    updates.seenAt = normalizeDate(input.seenAt);
   }
   if (input.completionComment !== undefined) {
     updates.completionComment = normalizeOptionalText(input.completionComment, DESCRIPTION_MAX_LENGTH);
@@ -1097,5 +1113,15 @@ export async function restoreTodo(userId: string, todoId: string): Promise<TodoW
 }
 
 export async function markTodoSeen(userId: string, todoId: string, seenAt = new Date()): Promise<TodoWithRelations | null> {
-  return updateTodo(userId, todoId, { seenAt });
+  const todo = await getTodo(userId, todoId);
+  if (!todo) return null;
+  await setTodoReadState(userId, todoId, seenAt);
+  return getTodo(userId, todoId);
+}
+
+export async function markTodoUnread(userId: string, todoId: string): Promise<TodoWithRelations | null> {
+  const todo = await getTodo(userId, todoId);
+  if (!todo) return null;
+  await clearTodoReadState(userId, todoId);
+  return getTodo(userId, todoId);
 }

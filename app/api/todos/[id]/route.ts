@@ -13,6 +13,7 @@ import {
   type TodoPriority,
   type TodoStatus,
 } from '@/app/lib/todos/store';
+import { setTodoReadStateForUser } from '@/app/lib/todos/read-state-actions';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -32,6 +33,26 @@ function parsePriority(value: unknown): TodoPriority | undefined {
 
 function parseFileLinks(value: unknown): TodoFileLinkInput[] | undefined {
   return Array.isArray(value) ? value as TodoFileLinkInput[] : undefined;
+}
+
+function parseRequestedReadState(payload: Record<string, unknown>): { read: boolean; readAt?: Date } | undefined {
+  if (payload.read !== undefined) {
+    if (typeof payload.read !== 'boolean') throw new Error('read must be a boolean.');
+    return { read: payload.read };
+  }
+  if (payload.markSeen === true) return { read: true };
+  if (payload.seenAt !== undefined) {
+    const readAt = parseOptionalDate(payload.seenAt);
+    return readAt ? { read: true, readAt } : { read: false };
+  }
+  return undefined;
+}
+
+function hasTodoUpdate(payload: Record<string, unknown>): boolean {
+  return [
+    'title', 'description', 'categoryId', 'priority', 'dueAt', 'status',
+    'assigneeUserId', 'completionComment', 'fileLinks',
+  ].some((key) => payload[key] !== undefined);
 }
 
 async function requireTodoWriteWorkspace(
@@ -84,37 +105,45 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
 
   try {
-    const payload = await request.json();
+    const payload = await request.json() as Record<string, unknown>;
     const { id } = await context.params;
     const existingTodo = await getTodo(session.user.id, id);
     if (!existingTodo) {
       return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
     }
-    const permissionResponse = await requireTodoWriteWorkspace(session, existingTodo);
-    if (permissionResponse) {
-      return permissionResponse;
+    const requestedReadState = parseRequestedReadState(payload);
+    const shouldUpdateTodo = hasTodoUpdate(payload);
+    if (shouldUpdateTodo) {
+      const permissionResponse = await requireTodoWriteWorkspace(session, existingTodo);
+      if (permissionResponse) return permissionResponse;
     }
 
-    const todo = await updateTodo(session.user.id, id, {
-      ...(payload?.title !== undefined ? { title: String(payload.title) } : {}),
-      ...(payload?.description !== undefined ? { description: typeof payload.description === 'string' ? payload.description : null } : {}),
-      ...(payload?.categoryId !== undefined ? { categoryId: typeof payload.categoryId === 'string' ? payload.categoryId : null } : {}),
-      ...(payload?.priority !== undefined ? { priority: parsePriority(payload.priority) } : {}),
-      ...(payload?.dueAt !== undefined ? { dueAt: parseOptionalDate(payload.dueAt) ?? null } : {}),
-      ...(payload?.status !== undefined ? { status: parseStatus(payload.status) } : {}),
-      ...(payload?.assigneeUserId !== undefined ? {
-        assigneeUserId: typeof payload.assigneeUserId === 'string' ? payload.assigneeUserId : null,
-      } : {}),
-      ...(payload?.markSeen === true ? { seenAt: new Date() } : {}),
-      ...(payload?.seenAt !== undefined ? { seenAt: parseOptionalDate(payload.seenAt) ?? null } : {}),
-      ...(payload?.completionComment !== undefined ? {
-        completionComment: typeof payload.completionComment === 'string' ? payload.completionComment : null,
-      } : {}),
-      ...(payload?.fileLinks !== undefined ? { fileLinks: parseFileLinks(payload.fileLinks) ?? [] } : {}),
-    });
-
-    if (!todo) {
-      return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
+    let todo = existingTodo;
+    if (shouldUpdateTodo) {
+      const updatedTodo = await updateTodo(session.user.id, id, {
+        ...(payload.title !== undefined ? { title: String(payload.title) } : {}),
+        ...(payload.description !== undefined ? { description: typeof payload.description === 'string' ? payload.description : null } : {}),
+        ...(payload.categoryId !== undefined ? { categoryId: typeof payload.categoryId === 'string' ? payload.categoryId : null } : {}),
+        ...(payload.priority !== undefined ? { priority: parsePriority(payload.priority) } : {}),
+        ...(payload.dueAt !== undefined ? { dueAt: parseOptionalDate(payload.dueAt) ?? null } : {}),
+        ...(payload.status !== undefined ? { status: parseStatus(payload.status) } : {}),
+        ...(payload.assigneeUserId !== undefined ? {
+          assigneeUserId: typeof payload.assigneeUserId === 'string' ? payload.assigneeUserId : null,
+        } : {}),
+        ...(payload.completionComment !== undefined ? {
+          completionComment: typeof payload.completionComment === 'string' ? payload.completionComment : null,
+        } : {}),
+        ...(payload.fileLinks !== undefined ? { fileLinks: parseFileLinks(payload.fileLinks) ?? [] } : {}),
+      });
+      if (!updatedTodo) return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
+      todo = updatedTodo;
+    }
+    if (requestedReadState) {
+      todo = (await setTodoReadStateForUser({
+        userId: session.user.id,
+        todoId: id,
+        ...requestedReadState,
+      })).todo;
     }
 
     return NextResponse.json({ success: true, data: todo });

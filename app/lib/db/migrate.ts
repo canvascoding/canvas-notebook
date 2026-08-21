@@ -1213,6 +1213,17 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (category_id) REFERENCES todo_categories(id)
     );
 
+    CREATE TABLE IF NOT EXISTS todo_read_states (
+      user_id TEXT NOT NULL,
+      todo_id TEXT NOT NULL,
+      read_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, todo_id),
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (todo_id) REFERENCES todo_items(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS todo_file_links (
       id TEXT PRIMARY KEY NOT NULL,
       todo_id TEXT NOT NULL,
@@ -2357,6 +2368,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_todo_items_project_status ON todo_items (project_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_assignee_status ON todo_items (assignee_user_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_category ON todo_items (category_id);
+    CREATE INDEX IF NOT EXISTS idx_todo_read_states_user_read ON todo_read_states (user_id, read_at);
+    CREATE INDEX IF NOT EXISTS idx_todo_read_states_todo ON todo_read_states (todo_id);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_todo ON todo_file_links (todo_id);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_user_path ON todo_file_links (user_id, workspace_path);
     CREATE INDEX IF NOT EXISTS idx_todo_file_links_workspace_path ON todo_file_links (organization_id, workspace_id, workspace_path);
@@ -3348,6 +3361,31 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   `);
 
   // ── One-time data fixes ───────────────────────────────────────────────────────
+
+  // To-do read state used to be stored globally on todo_items or in the generic
+  // mobile inbox table. Keep both legacy sources readable while seeding the
+  // canonical, per-user state. INSERT OR IGNORE makes this safe on every startup.
+  sqlite.exec(`
+    INSERT OR IGNORE INTO todo_read_states (
+      user_id, todo_id, read_at, created_at, updated_at
+    )
+    SELECT user_id, id, seen_at, seen_at, seen_at
+    FROM todo_items
+    WHERE seen_at IS NOT NULL;
+
+    INSERT OR IGNORE INTO todo_read_states (
+      user_id, todo_id, read_at, created_at, updated_at
+    )
+    SELECT read_state.user_id,
+      todo.id,
+      read_state.read_at,
+      read_state.created_at,
+      read_state.updated_at
+    FROM mobile_inbox_read_states read_state
+    INNER JOIN todo_items todo
+      ON read_state.item_key = 'todo:' || todo.id
+    WHERE read_state.dismissed_at IS NULL;
+  `);
 
   try {
     sqlite.exec(`

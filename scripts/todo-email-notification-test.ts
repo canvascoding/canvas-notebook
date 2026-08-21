@@ -128,6 +128,8 @@ async function main() {
     updatedAt: now,
   }).returning();
   const todoRelations = {
+    readAt: null,
+    readState: 'unread' as const,
     category: null,
     fileLinks: [],
     createdBy: { id: userId, name: 'Todo Email User', email: 'owner@example.test' },

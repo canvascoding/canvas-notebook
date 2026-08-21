@@ -27,9 +27,10 @@ import {
 } from './notification-summary';
 
 type NotificationMutation = {
-  action: 'mark_all_read' | 'mark_item_read' | 'dismiss_item';
+  action: 'mark_all_read' | 'mark_item_read' | 'set_item_read_state' | 'dismiss_item';
   itemId?: string;
   workspaceId?: string;
+  read?: boolean;
 };
 
 function formatBadgeCount(count: number) {
@@ -174,6 +175,21 @@ export function NotificationBell() {
     }
   }, [mutateInbox, refresh]);
 
+  const setTodoReadState = useCallback(async (item: NotificationItem, read: boolean) => {
+    setIsMutating(true);
+    try {
+      await mutateInbox({
+        action: 'set_item_read_state',
+        itemId: item.id,
+        workspaceId: item.workspaceId,
+        read,
+      });
+    } finally {
+      setIsMutating(false);
+      await refresh();
+    }
+  }, [mutateInbox, refresh]);
+
   const openItem = useCallback(async (item: NotificationItem) => {
     setOpen(false);
     try {
@@ -200,6 +216,70 @@ export function NotificationBell() {
     if (dispatchOpenChatSession(item.target.sessionId, 'notification', item.workspaceId)) return;
     window.location.assign(notificationHref(item));
   }, [markItemRead]);
+
+  const notificationItems = summary?.sections.notifications ?? summary?.items.filter((item) => item.target.kind !== 'todo') ?? [];
+  const todoItems = summary?.sections.todos ?? summary?.items.filter((item) => item.target.kind === 'todo') ?? [];
+
+  const renderItem = (item: NotificationItem) => {
+    const Icon = notificationIcon(item);
+    const isTodo = item.target.kind === 'todo';
+    return (
+      <div key={`${item.workspaceId}:${item.id}`} className="group flex items-start gap-2 rounded-md px-2 py-2 hover:bg-accent">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-start gap-2 text-left"
+          onClick={() => void openItem(item)}
+        >
+          <span className={cn(
+            'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm',
+            item.priority === 'high' ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground',
+          )}>
+            <Icon className="h-3.5 w-3.5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5">
+              {item.unread ? <Circle className="h-2 w-2 shrink-0 fill-primary text-primary" aria-label={t('unread')} /> : null}
+              <span className="truncate text-sm font-medium">{item.title}</span>
+              {item.priority === 'high' ? <CircleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('highPriority')} /> : null}
+            </span>
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+              {item.detail || t(`types.${item.target.kind}`)}
+            </span>
+            <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+              <FolderKanban className="h-3 w-3 shrink-0" />
+              <span className="truncate">{item.workspaceName || t('workspaceFallback')}</span>
+              <span aria-hidden="true">·</span>
+              <span>{formatDate(item.occurredAt, locale) || t('recent')}</span>
+            </span>
+          </span>
+        </button>
+        {isTodo ? (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="shrink-0"
+            onClick={() => void setTodoReadState(item, item.unread)}
+            disabled={isMutating}
+            aria-label={item.unread ? t('markRead') : t('markUnread')}
+          >
+            {item.unread ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
+          </Button>
+        ) : null}
+        {isDismissible(item) ? (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            onClick={() => void dismissItem(item)}
+            disabled={isMutating}
+            aria-label={t('dismiss')}
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -241,61 +321,26 @@ export function NotificationBell() {
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto p-2">
-          {!summary || summary.items.length === 0 ? (
+          {!summary || (notificationItems.length === 0 && todoItems.length === 0) ? (
             <div className="flex min-h-36 flex-col items-center justify-center px-4 text-center">
               <Check className="h-7 w-7 text-muted-foreground" />
               <p className="mt-2 text-sm font-medium">{t('empty.title')}</p>
               <p className="mt-1 text-xs text-muted-foreground">{t('empty.description')}</p>
             </div>
           ) : (
-            <div className="space-y-1">
-              {summary.items.map((item) => {
-                const Icon = notificationIcon(item);
-                return (
-                  <div key={`${item.workspaceId}:${item.id}`} className="group flex items-start gap-2 rounded-md px-2 py-2 hover:bg-accent">
-                    <button
-                      type="button"
-                      className="flex min-w-0 flex-1 items-start gap-2 text-left"
-                      onClick={() => void openItem(item)}
-                    >
-                      <span className={cn(
-                        'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm',
-                        item.priority === 'high' ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground',
-                      )}>
-                        <Icon className="h-3.5 w-3.5" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-1.5">
-                          {item.unread ? <Circle className="h-2 w-2 shrink-0 fill-primary text-primary" aria-label={t('unread')} /> : null}
-                          <span className="truncate text-sm font-medium">{item.title}</span>
-                          {item.priority === 'high' ? <CircleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('highPriority')} /> : null}
-                        </span>
-                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {item.detail || t(`types.${item.target.kind}`)}
-                        </span>
-                        <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                          <FolderKanban className="h-3 w-3 shrink-0" />
-                          <span className="truncate">{item.workspaceName || t('workspaceFallback')}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>{formatDate(item.occurredAt, locale) || t('recent')}</span>
-                        </span>
-                      </span>
-                    </button>
-                    {isDismissible(item) ? (
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                        onClick={() => void dismissItem(item)}
-                        disabled={isMutating}
-                        aria-label={t('dismiss')}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    ) : null}
-                  </div>
-                );
-              })}
+            <div className="space-y-4">
+              {notificationItems.length > 0 ? (
+                <section aria-labelledby="notification-center-notifications">
+                  <h3 id="notification-center-notifications" className="px-2 pb-1 text-xs font-semibold text-muted-foreground">{t('sections.notifications')}</h3>
+                  <div className="space-y-1">{notificationItems.map(renderItem)}</div>
+                </section>
+              ) : null}
+              {todoItems.length > 0 ? (
+                <section aria-labelledby="notification-center-todos">
+                  <h3 id="notification-center-todos" className="px-2 pb-1 text-xs font-semibold text-muted-foreground">{t('sections.todos')}</h3>
+                  <div className="space-y-1">{todoItems.map(renderItem)}</div>
+                </section>
+              ) : null}
             </div>
           )}
         </div>

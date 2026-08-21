@@ -23,10 +23,15 @@ export type NotificationSummary = {
     unread: number;
     chat: number;
     todos: number;
+    todoUnread: number;
     studio: number;
     automation: number;
   };
   items: NotificationItem[];
+  sections: {
+    notifications: NotificationItem[];
+    todos: NotificationItem[];
+  };
 };
 
 type ApiResponse<T> = {

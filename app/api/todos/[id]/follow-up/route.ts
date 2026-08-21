@@ -8,6 +8,7 @@ import {
 } from '@/app/lib/pi/session-runtime-access';
 import { applyTodoRateLimit, requireTodoSession, todoErrorResponse } from '@/app/lib/todos/api';
 import { getTodo, updateTodo } from '@/app/lib/todos/store';
+import { setTodoReadStateForUser } from '@/app/lib/todos/read-state-actions';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { getUserPreferredLocale } from '@/app/lib/user-preferences';
 
@@ -97,7 +98,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const preparedTodo = await updateTodo(session.user.id, todo.id, {
       status: 'done',
-      seenAt: new Date(),
       completionComment: comment,
       followUpError: null,
     });
@@ -105,6 +105,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (!preparedTodo) {
       return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
     }
+    await setTodoReadStateForUser({ userId: session.user.id, todoId: todo.id, read: true });
 
     const timestamp = Date.now();
     const message: Extract<AgentMessage, { role: 'user' }> = {

@@ -39,6 +39,7 @@ export async function PATCH(request: NextRequest) {
       workspace: workspaceResult.workspace,
       action: payload.action,
       itemId: payload.itemId,
+      read: payload.read,
     });
     return NextResponse.json({ success: true, data }, { headers: mobileInboxResponseHeaders });
   } catch (error) {

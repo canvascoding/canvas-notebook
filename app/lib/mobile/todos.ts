@@ -27,6 +27,8 @@ export type MobileTodo = {
   priority: 'low' | 'normal' | 'high';
   dueAt: string | null;
   seenAt: string | null;
+  readAt: string | null;
+  readState: 'read' | 'unread';
   completedAt: string | null;
   completionComment: string | null;
   followUpSentAt: string | null;
@@ -100,6 +102,8 @@ export function serializeMobileTodo(todo: TodoWithRelations): MobileTodo {
     priority: todo.priority as MobileTodo['priority'],
     dueAt: iso(todo.dueAt),
     seenAt: iso(todo.seenAt),
+    readAt: iso(todo.readAt),
+    readState: todo.readState,
     completedAt: iso(todo.completedAt),
     completionComment: todo.completionComment,
     followUpSentAt: iso(todo.followUpSentAt),

@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 02: Notification- und To-do-Status vereinheitlichen'
-status: open
+status: erledigt
 priority: high
 depends_on: ['01-sub-agent-steuerung-und-darstellung']
 platforms: [web, server, mobile-api]
@@ -8,6 +8,9 @@ tags: [type/bug, topic/notifications, topic/todos]
 ---
 
 # Ticket 02: Notification- und To-do-Status vereinheitlichen
+
+> Detaillierter, am aktuellen Codebestand ausgerichteter Umsetzungsplan:
+> [02-notification-todo-umsetzungsplan.md](./02-notification-todo-umsetzungsplan.md)
 
 ## Problem
 
@@ -28,18 +31,17 @@ gelesen/ungelesen ist zwischen den Clients inkonsistent.
 
 ## Umsetzung
 
-- Bestehendes To-do-Modell und die Planung in
-  `docs/dokumentation/todo-notification-center-plan.md` inventarisieren; eine
-  eindeutige Trennung zwischen Lebenszyklus (`open`, `done`, `archived`) und
-  Aufmerksamkeitsstatus (`seenAt`/ungelesen) festlegen.
-- API-Listen typbasiert ausliefern: Chat-Notifications nach ungelesen, To-dos
-  nach Lebenszyklus und nicht nach Lese-Status filtern.
-- Idempotente Serveraktion zum Setzen von gelesen/ungelesen fuer To-dos bauen;
-  Nutzer-, Workspace- und Ownership-Scope serverseitig erzwingen.
-- Web Notification Central in getrennte Chat- und To-do-Bereiche aufteilen und
-  einen sichtbaren Status sowie Toggle ergaenzen.
-- Mobile-Vertrag inklusive Filter, Counts und Mutationsresponse versioniert
-  dokumentieren, damit Ticket 03 darauf aufbauen kann.
+- Kanonische, nutzerbezogene `todo_read_states`-Persistenz mit idempotenter
+  Migration aus den bisherigen `seen_at`- und Inbox-Read-States eingefuehrt.
+- Read/Unread wird ueber eine gemeinsame, berechtigte Serveraktion gesetzt;
+  `todo_items.updated_at` bleibt dabei unveraendert.
+- Web-, Mobile- und Inbox-APIs liefern `readAt`/`readState`; `markSeen` und
+  `mark_item_read` bleiben kompatible Read-Aliase.
+- Open und done To-dos bleiben als eigene Inbox-Sektion sichtbar; archived
+  To-dos bleiben ausgeschlossen. Counter unterscheiden Gesamt-To-dos und
+  ungelesene To-dos.
+- Die Web Notification Central trennt Benachrichtigungen und To-dos und
+  bietet pro To-do einen Gelesen/Ungelesen-Schalter.
 
 ## Abnahmekriterien
 
@@ -52,8 +54,7 @@ gelesen/ungelesen ist zwischen den Clients inkonsistent.
 
 ## Tests und Abschluss
 
-- API-/Integrationstests fuer Typfilter, Lebenszyklus, Read/Unread-Toggle,
-  Idempotenz und Scope-Isolation.
-- `npm run build` nach Server-/Web-Aenderungen.
-- Manuelle Web-Abnahme; Mobile-Vertrag mit dem Expo-Repository abgleichen.
-- Eigener Commit, danach Status im [Index](./README.md) aktualisieren.
+- `npm run test:todos:store`, `npm run test:mobile:inbox` und ESLint erfolgreich.
+- `npm run build` erfolgreich (inklusive Lizenz- und TypeScript-Pruefung).
+- Browser-/Playwright-Abnahme wurde nicht ausgefuehrt, weil sie laut
+  Repository-Regel erst nach expliziter Freigabe erfolgen darf.

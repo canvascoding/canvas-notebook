@@ -12,9 +12,10 @@ import { loadMobileInboxScope } from '@/app/lib/mobile/inbox-scope';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type PatchPayload = {
-  action?: 'mark_all_read' | 'mark_item_read' | 'dismiss_item';
+  action?: 'mark_all_read' | 'mark_item_read' | 'set_item_read_state' | 'dismiss_item';
   itemId?: string;
   workspaceId?: string;
+  read?: boolean;
 };
 
 function mobileInboxErrorResponse(error: unknown) {
@@ -42,22 +43,44 @@ export async function GET(request: NextRequest) {
     if (!limited.ok) return limited.response;
 
     const scope = await loadMobileInboxScope(session.user);
-    const inbox = await listMobileAggregateInbox({
-      userId: session.user.id,
-      workspaces: scope.includedWorkspaces,
-      limit: 12,
-    });
+    const [inbox, todosInbox] = await Promise.all([
+      listMobileAggregateInbox({
+        userId: session.user.id,
+        workspaces: scope.includedWorkspaces,
+        filter: 'notifications',
+        limit: 12,
+      }),
+      // Persistent To-dos must not be crowded out by recent event notifications.
+      listMobileAggregateInbox({
+        userId: session.user.id,
+        workspaces: scope.includedWorkspaces,
+        filter: 'todos',
+        limit: 50,
+      }),
+    ]);
     const workspaceNames = new Map(scope.sources.map((source) => [source.id, source.name]));
+    const notificationItems = inbox.items.map((item) => ({
+      ...item,
+      workspaceName: workspaceNames.get(item.workspaceId) ?? null,
+    }));
+    const todoItems = todosInbox.items.map((item) => ({
+      ...item,
+      workspaceName: workspaceNames.get(item.workspaceId) ?? null,
+    }));
+    const items = [...notificationItems, ...todoItems];
 
     return NextResponse.json({
       success: true,
       data: {
         unreadCount: inbox.counts.unread,
         counts: inbox.counts,
-        items: inbox.items.map((item) => ({
-          ...item,
-          workspaceName: workspaceNames.get(item.workspaceId) ?? null,
-        })),
+        // Keep `items` for existing dashboard consumers while the notification
+        // center can render its persistent To-do section independently.
+        items,
+        sections: {
+          notifications: notificationItems,
+          todos: todoItems,
+        },
       },
     });
   } catch (error) {
@@ -93,7 +116,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (
-      (payload.action === 'mark_item_read' || payload.action === 'dismiss_item')
+      (payload.action === 'mark_item_read' || payload.action === 'set_item_read_state' || payload.action === 'dismiss_item')
       && payload.itemId
       && payload.workspaceId
     ) {
@@ -106,6 +129,7 @@ export async function PATCH(request: NextRequest) {
         workspace,
         action: payload.action,
         itemId: payload.itemId,
+        read: payload.read,
       });
       return NextResponse.json({ success: true, data });
     }

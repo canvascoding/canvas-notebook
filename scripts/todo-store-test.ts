@@ -19,8 +19,16 @@ async function main() {
     canvasProjects,
     canvasWorkspaces,
     organizationUserPermissions,
+    todoReadStates,
     user,
   } = await import('../app/lib/db/schema');
+  const {
+    clearTodoReadState,
+    getTodoReadState,
+    listTodoReadStates,
+    setTodoReadState,
+  } = await import('../app/lib/todos/read-state-store');
+  const { setTodoReadStateForUser } = await import('../app/lib/todos/read-state-actions');
   const {
     DEFAULT_TODO_CATEGORY_NAME,
     getDefaultTodoCategoryKey,
@@ -28,6 +36,7 @@ async function main() {
     archiveTodo,
     createTodo,
     ensureTodoCategories,
+    getTodo,
     listTodos,
     markTodoSeen,
     normalizeWorkspaceTodoPath,
@@ -298,6 +307,17 @@ async function main() {
   assert.equal(created.fileLinks[0].workspacePath, 'docs/brief.md');
   assert.equal(created.fileLinks[0].workspaceId, null);
 
+  const firstReadAt = new Date('2026-05-31T12:01:00.000Z');
+  const replacementReadAt = new Date('2026-05-31T12:02:00.000Z');
+  await setTodoReadState('todo-user', created.id, firstReadAt);
+  assert.equal((await getTodoReadState('todo-user', created.id))?.toISOString(), firstReadAt.toISOString());
+  await setTodoReadState('todo-user', created.id, replacementReadAt);
+  assert.equal((await getTodoReadState('todo-user', created.id))?.toISOString(), replacementReadAt.toISOString());
+  assert.equal((await listTodoReadStates('other-user', [created.id])).size, 0);
+  await clearTodoReadState('todo-user', created.id);
+  assert.equal(await getTodoReadState('todo-user', created.id), null);
+  assert.equal((await db.select().from(todoReadStates)).length, 0);
+
   const todos = await listTodos('todo-user');
   assert.equal(todos.length, 1);
   assert.equal(todos[0].id, created.id);
@@ -350,6 +370,21 @@ async function main() {
   assert.equal(teamTodo.assignee?.id, 'other-user');
   assert.equal(teamTodo.fileLinks[0].workspaceType, 'team');
   assert.equal(teamTodo.fileLinks[0].workspaceId, 'team-workspace');
+
+  const sharedTodoUpdatedAt = teamTodo.updatedAt.toISOString();
+  const readonlyRead = await setTodoReadStateForUser({
+    userId: 'readonly-user',
+    todoId: teamTodo.id,
+    read: true,
+    readAt: new Date('2026-05-31T12:03:00.000Z'),
+  });
+  assert.equal(readonlyRead.todo.readState, 'read');
+  assert.equal(readonlyRead.todo.readAt?.toISOString(), '2026-05-31T12:03:00.000Z');
+  assert.equal((await getTodoReadState('todo-user', teamTodo.id)), null);
+  assert.equal((await getTodoReadState('readonly-user', teamTodo.id))?.toISOString(), '2026-05-31T12:03:00.000Z');
+  const readonlyUnread = await setTodoReadStateForUser({ userId: 'readonly-user', todoId: teamTodo.id, read: false });
+  assert.equal(readonlyUnread.todo.readState, 'unread');
+  assert.equal((await getTodo('todo-user', teamTodo.id))?.updatedAt.toISOString(), sharedTodoUpdatedAt);
 
   const memberTeamTodos = await listTodos('other-user', {
     status: 'all',
