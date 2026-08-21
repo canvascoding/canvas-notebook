@@ -3,7 +3,10 @@ import 'server-only';
 import path from 'node:path';
 
 import { createDirectory, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
-import { getWorkspaceFileRevision } from '@/app/lib/files/revision-guard';
+import {
+  assertWorkspaceFileRevisionUnchanged,
+  getWorkspaceFileRevision,
+} from '@/app/lib/files/revision-guard';
 import {
   acquireFileLock,
   assertFileCollaborationWriteAllowed,
@@ -20,7 +23,7 @@ export async function runWorkspaceUploadWrite(params: {
   fileOptions: WorkspaceFileOperationOptions;
   actorUserId: string;
   targetPath: string;
-  write: () => Promise<void>;
+  write: (onBeforeReplace: () => Promise<void>) => Promise<void>;
 }): Promise<void> {
   const parentDir = path.posix.dirname(params.targetPath);
   if (parentDir !== '.' && parentDir !== '/') {
@@ -63,15 +66,23 @@ export async function runWorkspaceUploadWrite(params: {
       }
     }
 
-    assertFileCollaborationWriteAllowed({
-      workspace: params.workspace,
-      path: params.targetPath,
-      actorUserId: params.actorUserId,
-      actorType: 'user',
-      baseRevisionId: storedBaseRevision?.id ?? null,
-    });
+    const assertUploadStillAllowed = async () => {
+      await assertWorkspaceFileRevisionUnchanged({
+        path: params.targetPath,
+        expectedRevision: beforeRevision,
+        options: params.fileOptions,
+      });
+      assertFileCollaborationWriteAllowed({
+        workspace: params.workspace,
+        path: params.targetPath,
+        actorUserId: params.actorUserId,
+        actorType: 'user',
+        baseRevisionId: storedBaseRevision?.id ?? null,
+      });
+    };
 
-    await params.write();
+    await assertUploadStillAllowed();
+    await params.write(assertUploadStillAllowed);
     const afterRevision = await getWorkspaceFileRevision(params.targetPath, params.fileOptions);
     if (afterRevision) {
       ensureFileRevisionForCurrentContent({

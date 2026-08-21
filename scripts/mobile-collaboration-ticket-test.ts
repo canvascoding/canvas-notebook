@@ -91,7 +91,9 @@ const routeSource = readFileSync(
 );
 const serverSource = readFileSync(path.join(root, 'server/collaboration-server.ts'), 'utf8');
 assert.match(routeSource, /issueMobileCollaborationTicket/u);
-assert.match(routeSource, /requestedPath\.endsWith\('\.txt'\) \? 'plain_text' : 'tiptap_xml'/u);
+assert.match(routeSource, /analyzeMarkdownRichMode/u);
+assert.match(routeSource, /representation,/u);
+assert.match(routeSource, /error instanceof CollaborationSessionError && error\.code/u);
 assert.match(routeSource, /richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION/u);
 assert.equal(RICH_MARKDOWN_SCHEMA_VERSION, 3);
 assert.match(serverSource, /consumeMobileCollaborationTicket/u);

@@ -828,6 +828,7 @@
     "markdownEditorPropertiesAliasesPlaceholder": "Alternative Namen, durch Kommas getrennt",
     "markdownEditorPropertiesAdditional": "Weitere Eigenschaften",
     "markdownEditorPropertiesSourceHint": "Im Quellmodus bearbeiten",
+    "markdownEditorSourcePreservationNotice": "Dieses Dokument bleibt im Quellmodus, damit Markdown und Präsentationsmetadaten exakt erhalten bleiben.",
     "markdownEditorBacklinks": "Querverweise",
     "markdownEditorBacklinksCount": "{count, plural, =0 {Keine Verweise} one {# Verweis} other {# Verweise}}",
     "markdownEditorBacklinksSummary": "{documents, plural, =0 {Keine Dokumente} one {# Dokument} other {# Dokumente}} · {references, plural, =0 {keine Verweise} one {# Verweis} other {# Verweise}}",

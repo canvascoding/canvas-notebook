@@ -20,6 +20,7 @@ import {
   getFileCollaborationState,
 } from '@/app/lib/files/collaboration-policy';
 import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
+import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
 import { runCollaborationDirectConnection } from '@/app/lib/collaboration/direct-connection';
 import { readCurrentCollaborationTextSnapshot } from '@/app/lib/collaboration/agent-file-edits';
 import {
@@ -103,6 +104,23 @@ function isMarkdownPath(filePath: string): boolean {
 
 function isMobileTextDocumentPath(filePath: string): boolean {
   return MOBILE_TEXT_DOCUMENT_EXTENSIONS.has(path.posix.extname(filePath).toLowerCase());
+}
+
+export function selectMobileCollaborationRepresentation(
+  filePath: string,
+  content: string,
+): 'plain_text' | 'tiptap_xml' {
+  return path.posix.extname(filePath).toLowerCase() === '.txt'
+    || analyzeMarkdownRichMode(content).mode === 'source'
+    ? 'plain_text'
+    : 'tiptap_xml';
+}
+
+export function shouldReadMobileCollaborationSnapshot(
+  requestedRepresentation: 'plain_text' | 'tiptap_xml',
+  persistedRepresentation: 'plain_text' | 'tiptap_xml',
+): boolean {
+  return requestedRepresentation === 'tiptap_xml' || persistedRepresentation === 'plain_text';
 }
 
 export function normalizeMobileNotebookPath(value: unknown): string {
@@ -289,6 +307,8 @@ export async function readMobileNotebookDocument(input: {
     throw new MobileNotebookError('Notebook documents may be at most 2 MiB.', 413, 'DOCUMENT_TOO_LARGE');
   }
   const buffer = await readFile(filePath, input.fileOptions);
+  const sourceContent = buffer.toString('utf8');
+  const requestedRepresentation = selectMobileCollaborationRepresentation(filePath, sourceContent);
   const sha256 = sha256Buffer(buffer);
   const revision = ensureFileRevisionForCurrentContent({
     workspace: input.workspace,
@@ -313,8 +333,8 @@ export async function readMobileNotebookDocument(input: {
         workspaceId: input.workspace.workspaceId,
         organizationId: input.workspace.organizationId ?? null,
         path: filePath,
-        representation: path.posix.extname(filePath).toLowerCase() === '.txt' ? 'plain_text' : 'tiptap_xml',
-        initialContent: buffer.toString('utf8'),
+        representation: requestedRepresentation,
+        initialContent: sourceContent,
       });
     }
     if (state.workspaceId !== input.workspace.workspaceId || state.path !== filePath) {
@@ -324,12 +344,14 @@ export async function readMobileNotebookDocument(input: {
         'COLLABORATION_STATE_STALE',
       );
     }
-    collaborationSnapshot = await readCurrentCollaborationTextSnapshot({
-      documentId: collaboration.document.id,
-      workspace: input.workspace,
-    });
+    if (shouldReadMobileCollaborationSnapshot(requestedRepresentation, state.representation)) {
+      collaborationSnapshot = await readCurrentCollaborationTextSnapshot({
+        documentId: collaboration.document.id,
+        workspace: input.workspace,
+      });
+    }
   }
-  const content = collaborationSnapshot?.content ?? buffer.toString('utf8');
+  const content = collaborationSnapshot?.content ?? sourceContent;
   const contentBytes = Buffer.byteLength(content, 'utf8');
   const collaborationDocumentExists = Boolean(collaboration.document);
   const canWrite = input.workspace.permissions.canWrite;

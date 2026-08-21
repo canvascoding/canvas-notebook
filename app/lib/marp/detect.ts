@@ -1,8 +1,7 @@
 const MARP_MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
 const MARP_NAMED_FILE_REGEX = /\.(marp|slides)\.(md|markdown)$/i;
 const MARP_COMMENT_REGEX = /<!--\s*marp\s*:\s*(true|yes|on)\s*-->/i;
-const MARP_FRONTMATTER_REGEX = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
-const MARP_FRONTMATTER_LINE_REGEX = /^\s*marp\s*:\s*(true|yes|on|"true"|'true')\s*$/im;
+import { parseCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadata';
 
 export function isMarpMarkdownPath(filePath: string): boolean {
   const lower = filePath.toLowerCase();
@@ -18,12 +17,14 @@ export function hasMarpDirective(markdown: string): boolean {
     return true;
   }
 
-  const frontmatter = markdown.match(MARP_FRONTMATTER_REGEX);
-  if (!frontmatter) {
-    return false;
-  }
+  const document = parseCanvasMarkdownDocument(markdown);
+  if (document.error || !document.frontmatter) return false;
 
-  return MARP_FRONTMATTER_LINE_REGEX.test(frontmatter[1]);
+  const marp = document.frontmatter.data.marp;
+  if (marp === true) return true;
+  if (typeof marp !== 'string') return false;
+
+  return ['true', 'yes', 'on'].includes(marp.trim().toLowerCase());
 }
 
 export function isMarpMarkdown(filePath: string, markdown?: string): boolean {

@@ -41,6 +41,28 @@ const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist',
 const HIDDEN_WORKSPACE_METADATA_FILES = new Set(['.gitkeep', '.keep']);
 const FILE_METADATA_CONCURRENCY = 32;
 const FILE_TREE_DIRECTORY_CONCURRENCY = 16;
+const workspaceFileMutationLocks = new Map<string, Promise<void>>();
+
+async function withWorkspaceFileMutationLock<T>(
+  filePath: string,
+  options: WorkspaceFileOperationOptions | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const key = `${getWorkspace(options).workspaceId}\0${filePath}`;
+  const previous = workspaceFileMutationLocks.get(key) ?? Promise.resolve();
+  let releaseCurrent!: () => void;
+  const current = new Promise<void>((resolve) => { releaseCurrent = resolve; });
+  const queued = previous.then(() => current);
+  workspaceFileMutationLocks.set(key, queued);
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    releaseCurrent();
+    if (workspaceFileMutationLocks.get(key) === queued) workspaceFileMutationLocks.delete(key);
+  }
+}
 
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -181,17 +203,74 @@ export async function createReadStream(
 export async function writeFile(
   filePath: string,
   content: Buffer | string,
-  options?: WorkspaceFileOperationOptions
+  options?: WorkspaceFileOperationOptions,
+  onBeforeReplace?: () => Promise<void>,
+): Promise<void> {
+  return withWorkspaceFileMutationLock(
+    filePath,
+    options,
+    () => writeFileUnlocked(filePath, content, options, onBeforeReplace),
+  );
+}
+
+async function writeFileUnlocked(
+  filePath: string,
+  content: Buffer | string,
+  options?: WorkspaceFileOperationOptions,
+  onBeforeReplace?: () => Promise<void>,
 ): Promise<void> {
   const fullPath = await resolveWritableWorkspacePath(filePath, options);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
-  await fs.writeFile(fullPath, buffer);
+  const stagingPath = `${fullPath}.canvas-write-${randomUUID()}.tmp`;
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
+  try {
+    let mode = 0o666;
+    try {
+      mode = (await fs.stat(fullPath)).mode & 0o777;
+    } catch (error) {
+      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
+    handle = await fs.open(stagingPath, 'wx', mode);
+    await handle.writeFile(buffer);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await onBeforeReplace?.();
+    await fs.rename(stagingPath, fullPath);
+
+    const directoryHandle = await fs.open(path.dirname(fullPath), 'r');
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
+  } finally {
+    await handle?.close().catch(() => undefined);
+    await fs.rm(stagingPath, { force: true }).catch(() => undefined);
+  }
 }
 
 export async function replaceWorkspaceFileFromPath(
   sourcePath: string,
   filePath: string,
   options?: WorkspaceFileOperationOptions,
+  onBeforeReplace?: () => Promise<void>,
+): Promise<void> {
+  return withWorkspaceFileMutationLock(
+    filePath,
+    options,
+    () => replaceWorkspaceFileFromPathUnlocked(sourcePath, filePath, options, onBeforeReplace),
+  );
+}
+
+async function replaceWorkspaceFileFromPathUnlocked(
+  sourcePath: string,
+  filePath: string,
+  options?: WorkspaceFileOperationOptions,
+  onBeforeReplace?: () => Promise<void>,
 ): Promise<void> {
   const sourceStats = await fs.stat(sourcePath);
   if (!sourceStats.isFile()) {
@@ -220,6 +299,7 @@ export async function replaceWorkspaceFileFromPath(
         createLocalWriteStream(stagingPath, { flags: 'wx', mode: 0o644 }),
       );
     }
+    await onBeforeReplace?.();
     await fs.rename(stagingPath, fullPath);
     await fs.chmod(fullPath, 0o644);
   } finally {
@@ -376,6 +456,19 @@ export async function renameFile(
   newPath: string,
   overwrite = false,
   options?: WorkspaceFileOperationOptions
+): Promise<void> {
+  return withWorkspaceFileMutationLock(
+    newPath,
+    options,
+    () => renameFileUnlocked(oldPath, newPath, overwrite, options),
+  );
+}
+
+async function renameFileUnlocked(
+  oldPath: string,
+  newPath: string,
+  overwrite = false,
+  options?: WorkspaceFileOperationOptions,
 ): Promise<void> {
   const fullOldPath = await resolveExistingWorkspacePath(oldPath, options);
   const fullNewPath = validatePath(newPath, options);

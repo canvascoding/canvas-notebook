@@ -14,6 +14,13 @@ function deferred() {
   return { promise, release };
 }
 
+function testIdenticalDraftDoesNotBecomeDirty() {
+  useEditorStore.getState().setActiveFile('slides.md', '# Slide\n');
+  useEditorStore.getState().updateDraft('# Slide\n');
+  assert.equal(useEditorStore.getState().isDirty, false);
+  assert.equal(useEditorStore.getState().draft, '# Slide\n');
+}
+
 function treeResponse(data: FileNode[]) {
   return Response.json({ success: true, data });
 }
@@ -504,6 +511,7 @@ function testExplorerPreferencesAreScopedByWorkspace() {
 
 async function main() {
   try {
+    testIdenticalDraftDoesNotBecomeDirty();
     await testConcurrentDirectoryLoadsShareTheSamePromise();
     await testLatestOpenRequestWins();
     await testCreatedEmptyFileOpensAfterCreateRefresh();

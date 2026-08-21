@@ -44,7 +44,12 @@ export async function POST(
           fileOptions,
           actorUserId: workspaceResult.session.user.id,
           targetPath: file.targetPath,
-          write: () => replaceWorkspaceFileFromPath(sourcePath, file.targetPath, fileOptions),
+          write: (onBeforeReplace) => replaceWorkspaceFileFromPath(
+            sourcePath,
+            file.targetPath,
+            fileOptions,
+            onBeforeReplace,
+          ),
         });
       },
     });

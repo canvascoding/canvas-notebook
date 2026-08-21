@@ -16,7 +16,7 @@ interface EditorState {
   clear: () => void;
 }
 
-export const useEditorStore = create<EditorState>((set) => ({
+export const useEditorStore = create<EditorState>((set, get) => ({
   activePath: null,
   draft: '',
   baseContent: '',
@@ -34,8 +34,10 @@ export const useEditorStore = create<EditorState>((set) => ({
       saveError: null,
       lastSavedAt: null,
     }),
-  updateDraft: (content: string) =>
-    set({ draft: content, isDirty: true, saveError: null }),
+  updateDraft: (content: string) => {
+    if (content === get().draft) return;
+    set({ draft: content, isDirty: true, saveError: null });
+  },
   markSaving: () => set({ isSaving: true, saveError: null }),
   markSaved: () =>
     set((state) => ({

@@ -143,7 +143,12 @@ export async function POST(request: NextRequest) {
         fileOptions,
         actorUserId: workspaceResult.session.user.id,
         targetPath,
-        write: () => writeFile(targetPath, normalized.buffer, fileOptions),
+        write: (onBeforeReplace) => writeFile(
+          targetPath,
+          normalized.buffer,
+          fileOptions,
+          onBeforeReplace,
+        ),
       });
       uploadedFiles.push(filename);
       uploadedPaths.push(targetPath);

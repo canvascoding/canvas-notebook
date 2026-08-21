@@ -71,12 +71,17 @@ async function main() {
       options: { workspace: personalWorkspace },
       requireExpectedRevision: workspaceRequiresRevisionCheck(personalWorkspace),
     }));
-    await assert.doesNotReject(() => assertWorkspaceFileRevisionAllowed({
+    await assert.rejects(() => assertWorkspaceFileRevisionAllowed({
       path: 'notes.md',
       expectedSha256: '0'.repeat(64),
       options: { workspace: personalWorkspace },
       requireExpectedRevision: workspaceRequiresRevisionCheck(personalWorkspace),
-    }));
+    }), (error) => error instanceof WorkspaceFileRevisionError && error.code === 'FILE_REVISION_CONFLICT');
+
+    await fs.chmod(path.join(personalRoot, 'notes.md'), 0o640);
+    await writeFile('notes.md', 'personal v2\n', { workspace: personalWorkspace });
+    assert.equal(await fs.readFile(path.join(personalRoot, 'notes.md'), 'utf8'), 'personal v2\n');
+    assert.equal((await fs.stat(path.join(personalRoot, 'notes.md'))).mode & 0o777, 0o640);
 
     await writeFile('team.md', 'team v1\n', { workspace: teamWorkspace });
     const teamRevision = await getWorkspaceFileRevision('team.md', { workspace: teamWorkspace });

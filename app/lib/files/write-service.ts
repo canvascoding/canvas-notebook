@@ -37,6 +37,29 @@ export type WriteWorkspaceFileContentInput = {
   ensureCollaborationDocument?: boolean;
 };
 
+const fileWriteLocks = new Map<string, Promise<void>>();
+
+async function withWorkspaceFileWriteLock<T>(
+  workspaceId: string,
+  filePath: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const key = `${workspaceId}\0${filePath}`;
+  const previous = fileWriteLocks.get(key) ?? Promise.resolve();
+  let releaseCurrent!: () => void;
+  const current = new Promise<void>((resolve) => { releaseCurrent = resolve; });
+  const queued = previous.then(() => current);
+  fileWriteLocks.set(key, queued);
+
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    releaseCurrent();
+    if (fileWriteLocks.get(key) === queued) fileWriteLocks.delete(key);
+  }
+}
+
 function existingFileError(path: string, existing: Awaited<ReturnType<typeof getWorkspaceFileRevision>>) {
   return new WorkspaceFileRevisionError({
     code: 'FILE_REVISION_CONFLICT',
@@ -49,7 +72,7 @@ function existingFileError(path: string, existing: Awaited<ReturnType<typeof get
   });
 }
 
-export async function writeWorkspaceFileContent(input: WriteWorkspaceFileContentInput) {
+async function writeWorkspaceFileContentUnlocked(input: WriteWorkspaceFileContentInput) {
   if (input.createOnly) {
     const existing = await getWorkspaceFileRevision(input.path, input.fileOptions);
     if (existing) {
@@ -95,7 +118,15 @@ export async function writeWorkspaceFileContent(input: WriteWorkspaceFileContent
       throw error;
     }
   } else {
-    await writeFile(input.path, input.content, input.fileOptions);
+    await writeFile(input.path, input.content, input.fileOptions, async () => {
+      if (!input.expectedSha256) return;
+      await assertWorkspaceFileRevisionAllowed({
+        path: input.path,
+        expectedSha256: input.expectedSha256,
+        options: input.fileOptions,
+        requireExpectedRevision: true,
+      });
+    });
   }
   const contentBuffer = Buffer.isBuffer(input.content) ? input.content : Buffer.from(input.content);
   const afterRevision = await getWorkspaceFileRevision(input.path, input.fileOptions);
@@ -159,4 +190,12 @@ export async function writeWorkspaceFileContent(input: WriteWorkspaceFileContent
     revision,
     collaboration,
   };
+}
+
+export async function writeWorkspaceFileContent(input: WriteWorkspaceFileContentInput) {
+  return withWorkspaceFileWriteLock(
+    input.workspace.workspaceId,
+    input.path,
+    () => writeWorkspaceFileContentUnlocked(input),
+  );
 }

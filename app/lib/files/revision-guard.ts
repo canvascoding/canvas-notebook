@@ -104,7 +104,7 @@ export async function assertWorkspaceFileRevisionAllowed(params: {
   const currentRevision = await getWorkspaceFileRevision(params.path, params.options);
 
   if (!currentRevision) {
-    if (params.requireExpectedRevision && expectedSha256) {
+    if (expectedSha256) {
       throw new WorkspaceFileRevisionError({
         code: 'FILE_REVISION_CONFLICT',
         status: 409,
@@ -116,10 +116,6 @@ export async function assertWorkspaceFileRevisionAllowed(params: {
       });
     }
     return null;
-  }
-
-  if (!params.requireExpectedRevision) {
-    return currentRevision;
   }
 
   if (expectedSha256 && expectedSha256 !== currentRevision.sha256) {
@@ -147,4 +143,28 @@ export async function assertWorkspaceFileRevisionAllowed(params: {
   }
 
   return currentRevision;
+}
+
+/**
+ * Verifies that a previously observed revision is still current immediately
+ * before an atomic replacement. Unlike `assertWorkspaceFileRevisionAllowed`,
+ * this also treats a file created after an absent observation as a conflict.
+ */
+export async function assertWorkspaceFileRevisionUnchanged(params: {
+  path: string;
+  expectedRevision: WorkspaceFileRevision | null;
+  options?: WorkspaceFileOperationOptions;
+}): Promise<WorkspaceFileRevision | null> {
+  const currentRevision = await getWorkspaceFileRevision(params.path, params.options);
+  if (params.expectedRevision?.sha256 === currentRevision?.sha256) return currentRevision;
+
+  throw new WorkspaceFileRevisionError({
+    code: 'FILE_REVISION_CONFLICT',
+    status: 409,
+    message: 'File revision conflict: this file changed while the upload was in progress.',
+    path: params.path,
+    expectedSha256: params.expectedRevision?.sha256 ?? null,
+    currentSha256: currentRevision?.sha256 ?? null,
+    currentStats: currentRevision?.stats ?? null,
+  });
 }

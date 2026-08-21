@@ -1,14 +1,6 @@
 import 'server-only';
 
-import Image from '@tiptap/extension-image';
-import Link from '@tiptap/extension-link';
-import Mathematics from '@tiptap/extension-mathematics';
-import { TableKit } from '@tiptap/extension-table';
-import TaskItem from '@tiptap/extension-task-item';
-import TaskList from '@tiptap/extension-task-list';
-import UniqueID, { generateUniqueIds } from '@tiptap/extension-unique-id';
-import { Markdown, MarkdownManager } from '@tiptap/markdown';
-import StarterKit from '@tiptap/starter-kit';
+import { generateUniqueIds } from '@tiptap/extension-unique-id';
 import { getSchema } from '@tiptap/core';
 import type * as YTypes from 'yjs';
 
@@ -16,35 +8,19 @@ import {
   composeCanvasMarkdownDocument,
   splitCanvasMarkdownForRichEditor,
 } from '@/app/lib/markdown/obsidian-metadata';
-import { canvasRichMarkdownExtensions } from '@/app/lib/markdown/canvas-rich-markdown-extensions';
+import {
+  createRichMarkdownManager,
+  richMarkdownCodecExtensions,
+  restoreRichMarkdownFinalLineEnding,
+} from '@/app/lib/markdown/rich-markdown-codec';
 import { TiptapTransformer, Y, YProsemirror } from './server-runtime';
 
-export const RICH_MARKDOWN_UNIQUE_ID_TYPES = 'all' as const;
-
 export function richMarkdownSchemaExtensions() {
-  return [
-    StarterKit.configure({ link: false, paragraph: false }),
-    ...canvasRichMarkdownExtensions(),
-    Link.configure({ openOnClick: false, autolink: false }),
-    Image,
-    Mathematics,
-    TaskList,
-    TaskItem.configure({ nested: true }),
-    TableKit,
-    UniqueID.configure({ types: RICH_MARKDOWN_UNIQUE_ID_TYPES }),
-    Markdown.configure({
-      markedOptions: { gfm: true, breaks: false },
-      indentation: { style: 'space', size: 2 },
-    }),
-  ];
+  return richMarkdownCodecExtensions();
 }
 
 function markdownManager() {
-  return new MarkdownManager({
-    extensions: richMarkdownSchemaExtensions(),
-    markedOptions: { gfm: true, breaks: false },
-    indentation: { style: 'space', size: 2 },
-  });
+  return createRichMarkdownManager();
 }
 
 export function createRichMarkdownYDoc(markdown: string): YTypes.Doc {
@@ -54,12 +30,18 @@ export function createRichMarkdownYDoc(markdown: string): YTypes.Doc {
   const json = generateUniqueIds(manager.parse(parts.body), extensions);
   const doc = TiptapTransformer.toYdoc(json, 'body', extensions);
   if (parts.prefix) doc.getText('frontmatter').insert(0, parts.prefix);
+  const finalLineEnding = parts.body.match(/(\r?\n)$/u)?.[1];
+  if (finalLineEnding) doc.getText('bodyFinalLineEnding').insert(0, finalLineEnding);
   return doc;
 }
 
 export function richMarkdownFromYDoc(doc: YTypes.Doc): string {
   const json = TiptapTransformer.fromYdoc(doc, 'body');
-  const body = markdownManager().serialize(json);
+  const serializedBody = markdownManager().serialize(json);
+  const body = restoreRichMarkdownFinalLineEnding(
+    doc.getText('bodyFinalLineEnding').toString(),
+    serializedBody,
+  );
   return composeCanvasMarkdownDocument(doc.getText('frontmatter').toString(), body);
 }
 
@@ -90,6 +72,10 @@ export function replaceRichMarkdownInYDoc(
       const frontmatter = doc.getText('frontmatter');
       if (frontmatter.length > 0) frontmatter.delete(0, frontmatter.length);
       if (parts.prefix) frontmatter.insert(0, parts.prefix);
+      const bodyFinalLineEnding = doc.getText('bodyFinalLineEnding');
+      if (bodyFinalLineEnding.length > 0) bodyFinalLineEnding.delete(0, bodyFinalLineEnding.length);
+      const finalLineEnding = parts.body.match(/(\r?\n)$/u)?.[1];
+      if (finalLineEnding) bodyFinalLineEnding.insert(0, finalLineEnding);
     }, origin);
   } finally {
     replacement.destroy();

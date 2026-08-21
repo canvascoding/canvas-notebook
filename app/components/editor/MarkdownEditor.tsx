@@ -133,7 +133,6 @@ import {
   hasMobileToolbarPressMoved,
   isMobileToolbarReleaseInside,
 } from '@/app/lib/editor/mobile-toolbar-gesture';
-import { getMarkdownSourceModeReason } from '@/app/lib/editor/text-editor-guards';
 import {
   createCurrentBlockCommandTarget,
   createInsertedBlockCommandTarget,
@@ -159,7 +158,6 @@ import {
   scrollToMarkdownHeadingAnchor,
 } from '@/app/lib/markdown/heading-anchor';
 import { MarkdownHeadingAnchors } from '@/app/lib/markdown/tiptap-heading-anchors';
-import { hasObsidianRichEditorUnsupportedSyntax } from '@/app/lib/markdown/obsidian-flavored-markdown';
 import {
   buildObsidianWikiLinkTarget,
   findObsidianWikiCompletionContext,
@@ -170,6 +168,11 @@ import {
   parseCanvasMarkdownDocument,
   splitCanvasMarkdownForRichEditor,
 } from '@/app/lib/markdown/obsidian-metadata';
+import {
+  analyzeMarkdownRichMode,
+  restoreRichMarkdownFinalLineEnding,
+  type MarkdownRichModeReason,
+} from '@/app/lib/markdown/rich-markdown-codec';
 import { openWorkspaceMarkdownTarget } from '@/app/lib/markdown/workspace-markdown-navigation-client';
 import {
   getWorkspaceWikiCompletionItems,
@@ -5055,7 +5058,10 @@ function RichMarkdownEditor({
       const markdownEditor = asMarkdownEditor(updateEditor);
       const markdown = markdownEditor?.getMarkdown() ?? '';
       const currentParts = splitCanvasMarkdownForRichEditor(latestValueRef.current);
-      const nextValue = composeCanvasMarkdownDocument(currentParts.prefix, markdown);
+      const nextValue = composeCanvasMarkdownDocument(
+        currentParts.prefix,
+        restoreRichMarkdownFinalLineEnding(currentParts.body, markdown),
+      );
       if (nextValue !== latestValueRef.current) {
         latestValueRef.current = nextValue;
         onChange?.(nextValue);
@@ -5088,7 +5094,11 @@ function RichMarkdownEditor({
     if (!collaboration) return;
     const frontmatter = collaboration.doc.getText('frontmatter');
     const updateValue = () => {
-      const body = asMarkdownEditor(editor)?.getMarkdown() ?? '';
+      const currentParts = splitCanvasMarkdownForRichEditor(latestValueRef.current);
+      const body = restoreRichMarkdownFinalLineEnding(
+        currentParts.body,
+        asMarkdownEditor(editor)?.getMarkdown() ?? '',
+      );
       const nextValue = composeCanvasMarkdownDocument(frontmatter.toString(), body);
       latestValueRef.current = nextValue;
       onChange?.(nextValue);
@@ -5623,14 +5633,17 @@ function SourceMarkdownEditor({
   onRichMode,
   markdownNavigationTarget,
   collaborationEnabled = false,
+  sourceModeReason,
 }: MarkdownEditorProps & {
   initiallyShowMobileToolbar?: boolean;
   richModeAvailable: boolean;
   isMobileKeyboardActive: boolean;
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   onRichMode: () => void;
+  sourceModeReason?: MarkdownRichModeReason;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const t = useTranslations('notebook');
   const releaseInteractionTimeoutRef = useRef<number | null>(null);
   const [isSourceFocused, setIsSourceFocused] = useState(initiallyShowMobileToolbar);
   const [isInteractingWithToolbar, setIsInteractingWithToolbar] = useState(false);
@@ -5688,6 +5701,16 @@ function SourceMarkdownEditor({
           onRichMode={onRichMode}
         />
       ) : null}
+      {sourceModeReason ? (
+        <div
+          className="mx-3 mt-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-foreground"
+          data-testid="markdown-source-preservation-warning"
+          role="status"
+        >
+          <BadgeInfo aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <span>{t('markdownEditorSourcePreservationNotice')}</span>
+        </div>
+      ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
         <CodeEditor
           value={value}
@@ -5718,12 +5741,8 @@ export function MarkdownEditor({
 
   const isMobileKeyboardActive = useMobileKeyboardActive();
   const parsedDocument = useMemo(() => parseCanvasMarkdownDocument(value), [value]);
-  const sourceModeReason = useMemo(() => getMarkdownSourceModeReason(value), [value]);
-  const omfSourceModeRequired = useMemo(
-    () => hasObsidianRichEditorUnsupportedSyntax(parsedDocument.body),
-    [parsedDocument.body],
-  );
-  const sourceModeRequired = parsedDocument.error !== null || sourceModeReason !== null || omfSourceModeRequired;
+  const richModeAnalysis = useMemo(() => analyzeMarkdownRichMode(value), [value]);
+  const sourceModeRequired = richModeAnalysis.mode === 'source';
   const [mode, setMode] = useState<EditorMode>(() => (
     sourceModeRequired || shouldDefaultToSource(readOnly, filePath) ? 'source' : 'rich'
   ));
@@ -5798,6 +5817,7 @@ export function MarkdownEditor({
         onRichMode={switchToRichMode}
         markdownNavigationTarget={markdownNavigationTarget}
         collaborationEnabled={collaborationEnabled}
+        sourceModeReason={richModeAnalysis.mode === 'source' ? richModeAnalysis.reason : undefined}
       />
     );
   }

@@ -29,6 +29,9 @@ Formatierungen veraendert werden. Der Editorwechsel ist damit nicht verlustfrei.
 
 ## Umsetzung
 
+Der codebestandsnahe, strikt sequenzielle Plan liegt in
+[22-marp-editor-roundtrip-umsetzungsplan.md](./22-marp-editor-roundtrip-umsetzungsplan.md).
+
 - Roundtrip-Fixtures fuer MARP-Front-Matter, Kommentare, unbekannte Felder,
   Direktiven, Folientrenner, HTML, Code, Tabellen und Whitespace erstellen.
 - Datenfluss in `MarkdownEditor`, Markdown-/TipTap-Serialisierung,
