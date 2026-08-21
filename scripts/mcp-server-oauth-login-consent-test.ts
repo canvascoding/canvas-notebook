@@ -75,7 +75,7 @@ function authorizationUrl(
   url.searchParams.set('resource', resource);
   url.searchParams.set(
     'code_challenge',
-    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~',
+    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_',
   );
   url.searchParams.set('code_challenge_method', 'S256');
   if (prompt) url.searchParams.set('prompt', prompt);
@@ -211,7 +211,7 @@ async function main(): Promise<void> {
         [clientId],
       ) as {
         disabled: number;
-        public: number;
+        public: number | null;
         tokenEndpointAuthMethod: string;
         scopes: string;
       };
@@ -224,7 +224,7 @@ async function main(): Promise<void> {
         },
         {
           disabled: 0,
-          public: 1,
+          public: null,
           tokenEndpointAuthMethod: 'none',
           scopes: [...DIRECT_MCP_OAUTH_SCOPES],
         },
