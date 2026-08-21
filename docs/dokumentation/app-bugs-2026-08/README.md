@@ -1,6 +1,6 @@
 ---
 title: App-Fehler August 2026 – sequenzielle Ticketliste
-date: 2026-08-20
+date: 2026-08-21
 status: open
 tags:
   - type/bug-tracker
@@ -10,8 +10,8 @@ tags:
 
 # App-Fehler August 2026 – sequenzielle Ticketliste
 
-Diese Tickets zerlegen den Bericht „Weitere App-Fehler – Sub-Agents,
-Notification-Inbox, Mobile UI & Files-Tab“ in abnahmefaehige Arbeitspakete.
+Diese Tickets zerlegen die gesammelten App-, Runtime-, Control-Plane- und
+Mobile-Befunde in abnahmefaehige Arbeitspakete.
 Sie werden **streng in der angegebenen Reihenfolge** bearbeitet: Mit Ticket
 `NN` darf erst begonnen werden, wenn Ticket `NN - 1` implementiert, getestet,
 dokumentiert und als erledigt markiert wurde.
@@ -26,6 +26,20 @@ dokumentiert und als erledigt markiert wurde.
 | 06 | [Mobile Notizen von WebView zu nativ migrieren](./06-mobile-notizen-native-migration.md) | offen | 05 |
 | 07 | [Session-Liste typografisch korrigieren](./07-session-liste-typografie.md) | offen | 06 |
 | 08 | [Dateien nach Nutzung sortieren und anpinnen](./08-dateien-sortieren-und-anpinnen.md) | offen | 07 |
+| 09 | [Administrator-E-Mail-Setup reparieren](./09-administrator-email-setup-reparieren.md) | offen | 08 |
+| 10 | [Automationen, UI und Workspace-Zuordnung pruefen](./10-automationen-ui-und-workspace-zuordnung-pruefen.md) | offen | 09 |
+| 11 | [Lizenztypen und Control-Plane-Handshake Ende-zu-Ende testen](./11-lizenztypen-und-control-plane-handshake-testen.md) | offen | 10 |
+| 12 | [User-Einladungsflow und scrollbare UI stabilisieren](./12-user-einladungsflow-und-ui-stabilisieren.md) | offen | 11 |
+| 13 | [Lizenzaktivitaet und Last-Seen im Control Plane aktualisieren](./13-lizenzaktivitaet-und-last-seen-aktualisieren.md) | offen | 12 |
+| 14 | [To-do-Sichtbarkeit, Filter und Priorisierung korrigieren](./14-todo-sichtbarkeit-filter-und-priorisierung.md) | offen | 13 |
+| 15 | [Legacy-Auto-Update und Managed Bootstrap entkoppeln](./15-legacy-auto-update-und-managed-bootstrap-entkoppeln.md) | offen | 14 |
+| 16 | [Persoenliches ChatGPT-Abo im Team-Workspace nutzbar machen](./16-chatgpt-abo-im-team-workspace-stabilisieren.md) | offen | 15 |
+| 17 | [Exponierten MCP-Server und OAuth-500 beheben](./17-mcp-server-oauth-500-beheben.md) | offen | 16 |
+| 18 | [Agent-System-Prompts an effektive Tools koppeln](./18-agent-system-prompts-an-tools-koppeln.md) | offen | 17 |
+| 19 | [Word- und Excel-Werkzeuge evaluieren](./19-word-und-excel-werkzeuge-evaluieren.md) | offen | 18 |
+| 20 | [Agenten-Tools fuer To-do-Verwaltung und Mobile Notifications erweitern](./20-todo-agent-tools-und-mobile-notifications.md) | offen | 19 |
+| 21 | [MARP-Praesentationen auf Mobile korrekt rendern](./21-marp-mobile-rendering-korrigieren.md) | offen | 20 |
+| 22 | [MARP-YAML und Formatierung beim Editorwechsel erhalten](./22-marp-editor-roundtrip-verlustfrei-machen.md) | offen | 21 |
 
 ## Gemeinsame Arbeitsregeln
 
@@ -39,6 +53,9 @@ dokumentiert und als erledigt markiert wurde.
 - Die Expo-App liegt in einem separaten Repository. Mobile-Tickets definieren
   daher hier Server-Vertraege und Abnahmekriterien; ihre Client-Implementierung
   wird im Mobile-Repository referenziert und getestet.
+- Control-Plane-Tickets werden in einer isolierten lokalen Testumgebung mit dem
+  benachbarten Control-Plane-Repository geplant und abgenommen. Produktive
+  Instanzen, Lizenzen und Updatekanaele duerfen dabei nicht verwendet werden.
 - Fuer jedes Ticket: relevante automatisierte Tests, `npm run build` bei
   Server-/Web-Aenderungen und eine manuelle Produktabnahme dokumentieren. UI-
   oder End-to-End-Tests mit Playwright/Chrome nur nach expliziter Freigabe.
