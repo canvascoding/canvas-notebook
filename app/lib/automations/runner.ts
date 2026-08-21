@@ -541,7 +541,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         effectiveBaseSystemPrompt,
         initialWorkspaceFileTree.promptBlock,
       );
-      const systemPromptBudgetTokens = estimateTextTokens(baseSystemPrompt)
+      const systemPromptBudgetTokens = estimateTextTokens(effectiveBaseSystemPrompt)
         + estimateTextTokens('x'.repeat(WORKSPACE_FILE_TREE_MAX_PROMPT_BYTES));
       const promptMessage: AgentMessage = {
         role: 'user',
