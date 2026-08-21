@@ -1,5 +1,5 @@
 ---
-title: App-Fehler August 2026 – sequenzielle Ticketliste
+title: App-Fehler August 2026 – koordinierte Ticketliste
 date: 2026-08-21
 status: open
 tags:
@@ -8,7 +8,7 @@ tags:
   - topic/canvas-agent
 ---
 
-# App-Fehler August 2026 – sequenzielle Ticketliste
+# App-Fehler August 2026 – koordinierte Ticketliste
 
 Diese Tickets zerlegen die gesammelten App-, Runtime-, Control-Plane- und
 Mobile-Befunde in abnahmefaehige Arbeitspakete. Die Nummerierung dient der
@@ -40,6 +40,7 @@ abgeschlossen sind.
 | 20 | [Agenten-Tools fuer To-do-Verwaltung und Mobile Notifications erweitern](./20-todo-agent-tools-und-mobile-notifications.md) | offen | 02, 14 |
 | 21 | [MARP-Praesentationen auf Mobile korrekt rendern](./21-marp-mobile-rendering-korrigieren.md) | offen | – |
 | 22 | [MARP-YAML und Formatierung beim Editorwechsel erhalten](./22-marp-editor-roundtrip-verlustfrei-machen.md) | offen | – |
+| 23 | [Agent-Edits in Live-Collaboration-Dokumenten reparieren](./23-agent-edits-in-live-collaboration-reparieren.md) | offen | – |
 
 ## Gemeinsame Arbeitsregeln
 
@@ -65,7 +66,7 @@ abgeschlossen sind.
   oder End-to-End-Tests mit Playwright/Chrome nur nach expliziter Freigabe.
 - Der Abschluss eines Tickets erfordert einen eigenen, fokussierten Commit.
 
-## Parallelisierungsplan fuer Tickets 09–22
+## Parallelisierungsplan fuer Tickets 09–23
 
 | Strang | Startbare Tickets | Harte Reihenfolge / Koordination |
 | --- | --- | --- |
@@ -76,6 +77,7 @@ abgeschlossen sind.
 | MCP | 17 | Eigenstaendig; nur OAuth-/Runtime-Schnittstellen mit 16/18 abstimmen. |
 | Office-Dateien | 19 | Als Evaluation eigenstaendig; eine spaetere Tool-Implementierung mit 18 abstimmen. |
 | MARP | 21, 22 | Mobile-Rendering und Web-Editor sind getrennt; gemeinsame MARP-Fixtures abstimmen. |
+| Live Collaboration | 23 | Eigenstaendig startbar; Tool-/Runtime-Grenzen mit 18 und Rich-Markdown-Fixtures mit 22 abstimmen. |
 
 ## Bestehende Referenzen
 
