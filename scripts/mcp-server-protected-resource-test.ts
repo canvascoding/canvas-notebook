@@ -230,6 +230,7 @@ async function main(): Promise<void> {
         getDirectMcpProtectedResourceMetadata,
         directMcpProtectedResourceMetadataResponse,
       },
+      { getDirectMcpReadiness },
       {
         applyDirectMcpRevocation,
         prepareDirectMcpRevocation,
@@ -241,12 +242,17 @@ async function main(): Promise<void> {
       import('../app/lib/mcp/server/oauth-request-policy'),
       import('../app/lib/mcp/server/access-token-verifier'),
       import('../app/lib/mcp/server/protected-resource-metadata'),
+      import('../app/lib/mcp/server/readiness'),
       import('../app/lib/mcp/server/oauth-grant-revocation'),
       import('../app/.well-known/oauth-protected-resource/mcp/route'),
       import('../app/.well-known/oauth-protected-resource/route'),
     ]);
     const { issuer, resource, protectedResourceMetadataUrl } =
       resolveDirectMcpServerConfig();
+    assert.deepEqual(await getDirectMcpReadiness(), {
+      status: 'ready',
+      code: 'MCP_READY',
+    });
 
     async function dispatch(request: Request): Promise<Response> {
       return (await enforceDirectMcpOAuthRequestPolicy(request))
@@ -273,6 +279,10 @@ async function main(): Promise<void> {
 
     const originalFeatureFlag = process.env.CANVAS_MCP_DIRECT_ENABLED;
     process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
+    assert.deepEqual(await getDirectMcpReadiness(), {
+      status: 'disabled',
+      code: 'MCP_DISABLED',
+    });
     assert.equal((await directMcpProtectedResourceMetadataResponse(
       new Request(`${ORIGIN}/.well-known/oauth-protected-resource/mcp`),
     )).status, 404);

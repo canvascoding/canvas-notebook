@@ -671,6 +671,15 @@ async function startServer() {
     throw error;
   }
 
+  try {
+    const { assertDirectMcpStartupReady } = require('./app/lib/mcp/server/readiness');
+    await assertDirectMcpStartupReady();
+    console.log('[Startup] Direct MCP readiness check completed');
+  } catch (error) {
+    console.error('[Startup] CRITICAL ERROR in Direct MCP readiness:', error.message);
+    throw error;
+  }
+
   let agentRuntimeWarmupPromise = null;
   let managedCatalogWarmupPromise = null;
 

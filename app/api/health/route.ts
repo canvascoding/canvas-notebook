@@ -10,6 +10,7 @@ import {
 } from '@/app/lib/organization/bootstrap';
 import { getCollaborationRuntimeHealth, setCollaborationRuntimeHealth } from '@/app/lib/collaboration/health';
 import { requireRuntimeCapability, requireTeamRuntimeLicense } from '@/app/lib/license/entitlements';
+import { getDirectMcpReadiness } from '@/app/lib/mcp/server/readiness';
 
 export async function GET() {
   const checks: Record<string, 'ok' | 'error'> = {
@@ -23,6 +24,10 @@ export async function GET() {
   const teamFeaturesEnabled = areTeamFeaturesEnabled(deploymentMode);
   const providerGate = resolveDatabaseProviderGate({ teamFeaturesEnabled });
   const collaboration = getCollaborationRuntimeHealth();
+  const mcpReadiness = await getDirectMcpReadiness();
+
+  checks.mcp = mcpReadiness.status === 'failed' ? 'error' : 'ok';
+  if (mcpReadiness.status === 'failed') status = 503;
 
   if (!providerGate.ok) {
     checks.databaseProvider = 'error';
@@ -93,6 +98,7 @@ export async function GET() {
         enabled: teamFeaturesEnabled && checks.collaboration === 'ok' && getCollaborationRuntimeHealth().capabilityReady,
         ...getCollaborationRuntimeHealth(),
       },
+      mcp: mcpReadiness,
       timestamp: new Date().toISOString(),
     },
     { status }
