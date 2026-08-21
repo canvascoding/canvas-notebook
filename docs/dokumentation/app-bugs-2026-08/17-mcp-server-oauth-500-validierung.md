@@ -36,6 +36,8 @@ Alle folgenden Befehle liefen am 2026-08-21 erfolgreich:
 - `npm run test:mcp:server-oauth-client`
 - `npm run test:mcp:server-resource`
 - `npm run test:mcp:server-auth-probe`
+- `npm run test:mcp:server-http-smoke` gegen den frisch gebauten Stand auf
+  `http://localhost:3000` mit isolierten temporaeren Testdaten
 - `npm run build`
 
 Die OAuth-Client-Pruefung deckt DCR, Login/Consent, S256-PKCE, Code- und
@@ -44,14 +46,8 @@ Refresh-Token-Austausch, Replay, Scope- und Resource-Ablehnung, Revocation,
 
 ## Noch offen
 
-- `npm run test:mcp:server-http-smoke` gegen diesen Worktree. Port 3000 war
-  durch einen laufenden Prozess aus einem anderen Arbeitsverzeichnis belegt;
-  er wurde nicht veraendert. Ein Smoke gegen diesen fremden Stand waere kein
-  Nachweis fuer Ticket 17.
-- Wiederholung des positiven HTTP-Flows nach einem Neustart des aktuellen
-  Worktrees.
 - Manuelle externe ChatGPT-Connector-Abnahme. Sie erfordert weiterhin eine
   explizite Browser-/Playwright-Freigabe und dedizierte Test-Credentials.
 
-Nach diesen drei Abnahmen kann das Ticket geschlossen und der Bug-Index
-aktualisiert werden.
+Nach dieser Abnahme kann das Ticket geschlossen und der Bug-Index aktualisiert
+werden.

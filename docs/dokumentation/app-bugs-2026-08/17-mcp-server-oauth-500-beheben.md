@@ -66,5 +66,5 @@ Die serverseitige Umsetzung ist erfolgt und die Direct-MCP-Testsuite wurde
 erfolgreich ausgefuehrt. Der detailierte Nachweis mit offenen Abnahmen steht in
 [17-mcp-server-oauth-500-validierung.md](./17-mcp-server-oauth-500-validierung.md).
 
-Der Ticketstatus bleibt bis zum HTTP-Smoke auf dem aktuellen Worktree und der
-explizit freigegebenen externen ChatGPT-Abnahme `in_progress`.
+Der Ticketstatus bleibt bis zur explizit freigegebenen externen
+ChatGPT-Abnahme `in_progress`.
