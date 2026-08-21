@@ -116,15 +116,20 @@ function normalizedRuntimePrincipal(context: AiRuntimeResolutionContext): AiRunt
 
 export function runtimePrincipalCanUseUserCredentials(input: {
   userId: string;
+  workspaceType: WorkspaceType;
   executionMode: AiRuntimeExecutionMode;
   principal: AiRuntimePrincipal;
 }): boolean {
-  return input.principal.type === 'user'
+  const ownsCredential = input.principal.type === 'user'
     && input.principal.userId === input.userId
-    && input.principal.credentialSubjectUserId === input.userId
-    // V1 grants are deliberately interactive-only. Future execution modes
-    // must opt in through a separately reviewed policy and grant contract.
-    && input.executionMode === 'interactive';
+    && input.principal.credentialSubjectUserId === input.userId;
+  if (!ownsCredential) return false;
+
+  // Team grants are deliberately interactive-only in V1. Existing personal
+  // automations retain their owner-scoped credential behavior because they do
+  // not cross a workspace boundary or need a team grant.
+  return input.executionMode === 'interactive'
+    || (input.executionMode === 'personal_automation' && input.workspaceType === 'personal');
 }
 
 function issue(
@@ -306,6 +311,7 @@ export async function resolveEffectiveAgentRuntime(
   const principal = normalizedRuntimePrincipal(context);
   const executionAllowsUserCredentials = runtimePrincipalCanUseUserCredentials({
     userId: context.userId,
+    workspaceType: context.workspaceType,
     executionMode: context.executionMode,
     principal,
   });

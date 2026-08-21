@@ -38,6 +38,12 @@ let organizationCredentialReadBarrier: {
   release: Deferred;
 } | null = null;
 
+let userCredentialReadBarrier: {
+  remainingReads: number;
+  started: Deferred;
+  release: Deferred;
+} | null = null;
+
 function delayOrganizationCredentialReadAfter(readsToSkip: number): {
   started: Promise<void>;
   release: () => void;
@@ -53,6 +59,26 @@ function delayOrganizationCredentialReadAfter(readsToSkip: number): {
     started: started.promise,
     release: () => {
       organizationCredentialReadBarrier = null;
+      release.resolve();
+    },
+  };
+}
+
+function delayUserCredentialReadAfter(readsToSkip: number): {
+  started: Promise<void>;
+  release: () => void;
+} {
+  const started = deferred();
+  const release = deferred();
+  userCredentialReadBarrier = {
+    remainingReads: readsToSkip,
+    started,
+    release,
+  };
+  return {
+    started: started.promise,
+    release: () => {
+      userCredentialReadBarrier = null;
       release.resolve();
     },
   };
@@ -144,8 +170,12 @@ moduleInternals._load = (request, parent, isMain) => {
         scope: string,
         storageScope?: { secretScope?: string } | null,
       ) => {
-        const barrier = organizationCredentialReadBarrier;
-        if (barrier && storageScope?.secretScope === 'organization') {
+        const barrier = storageScope?.secretScope === 'organization'
+          ? organizationCredentialReadBarrier
+          : storageScope?.secretScope === 'user'
+            ? userCredentialReadBarrier
+            : null;
+        if (barrier) {
           if (barrier.remainingReads > 0) {
             barrier.remainingReads -= 1;
           } else {
@@ -875,6 +905,11 @@ async function main() {
   });
   assert.equal(userCredentialGrant.status, 'active');
   assert.deepEqual(userCredentialGrant.allowedExecutionModes, ['interactive']);
+  await replaceScopedEnvEntries(
+    'agents',
+    [{ key: 'OPENAI_COMPATIBLE_API_KEY', value: 'sk-user-compatible-runtime-test' }],
+    { secretScope: 'user', organizationId: organization.organizationId, userId: owner.id },
+  );
   resolution = await setUserRuntimePreference({
     context: organizationContext,
     update: {
@@ -885,6 +920,57 @@ async function main() {
     },
   });
   assert.equal(resolution.source, 'user_preference');
+
+  const personalAutomationResolution = await resolveEffectiveAgentRuntime({
+    ...personalContext,
+    requestedSelection: userSelection,
+    executionMode: 'personal_automation',
+    principal: {
+      type: 'user',
+      userId: owner.id,
+      credentialSubjectUserId: owner.id,
+    },
+  });
+  assert.equal(personalAutomationResolution.valid, true);
+  assert.equal(
+    personalAutomationResolution.effectiveSelection?.selection.providerInstallationId,
+    userProviderId,
+  );
+
+  const grantedTeamRuntime = await resolveExecutableAgentRuntime({
+    ...organizationContext,
+    requestedSelection: userSelection,
+  });
+  const streamCallsBeforeGrantRace = scopedStreamCalls.length;
+  const userCredentialRead = delayUserCredentialReadAfter(1);
+  const revokedGrantStream = grantedTeamRuntime.streamFn(
+    grantedTeamRuntime.model,
+    { messages: [] },
+    { sessionId: 'scoped-runtime-grant-race-test' },
+  );
+  try {
+    await within(userCredentialRead.started, 'User credential read barrier');
+    sqlite.prepare(`
+      UPDATE ai_user_workspace_provider_grants
+      SET status = 'revoked', revision = revision + 1, revoked_at = ?, updated_at = ?
+      WHERE organization_id = ? AND user_id = ? AND workspace_id = ?
+        AND agent_id = ? AND provider_installation_id = ?
+    `).run(
+      Date.now(),
+      Date.now(),
+      organization.organizationId,
+      owner.id,
+      organizationWorkspaceId,
+      'canvas-agent',
+      userProviderId,
+    );
+    userCredentialRead.release();
+    await within(Promise.resolve(revokedGrantStream), 'Revoked user grant stream');
+  } finally {
+    userCredentialRead.release();
+  }
+  assert.equal(scopedStreamCalls.length, streamCallsBeforeGrantRace);
+  assert.equal(grantedTeamRuntime.requiresRecreation(), true);
 
   // A personal interactive grant must not follow the same user's session into
   // an external channel. Those runs use only non-user credentials unless a

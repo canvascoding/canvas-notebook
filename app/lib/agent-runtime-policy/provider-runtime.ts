@@ -26,6 +26,7 @@ import {
 import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-runtime-policy/runtime-snapshot';
 import {
   readPiSessionRuntimeSnapshot,
+  readUserWorkspaceProviderGrant,
   readWorkspaceModelPolicy,
   SessionRuntimeContextRevisionConflictError,
   SessionRuntimeSnapshotConflictError,
@@ -471,6 +472,36 @@ async function materializeResolution(
         'RUNTIME_PROVIDER_CHANGED',
         'The selected provider installation changed before the request started. Try again.',
       );
+    }
+
+    // The credential lookup below may refresh OAuth state or otherwise await
+    // I/O. Re-read the owner grant immediately before the provider request so
+    // a revocation during that window cannot authorize the stale credential.
+    if (latestProvider.credentialScope === 'user' && context.workspaceType !== 'personal') {
+      const principal = resolution.context.principal;
+      if (!runtimePrincipalCanUseUserCredentials(resolution.context) || principal.type !== 'user') {
+        throw new AiRuntimeExecutionError(
+          'RUNTIME_POLICY_CHANGED',
+          'Personal provider credentials are no longer allowed for this runtime principal. Try again.',
+        );
+      }
+      const grant = await readUserWorkspaceProviderGrant({
+        organizationId: resolution.context.organizationId,
+        userId: principal.credentialSubjectUserId,
+        workspaceId: resolution.context.workspaceId,
+        agentId: resolution.context.agentId,
+        providerInstallationId: latestProvider.installationId,
+      });
+      if (
+        !grant
+        || grant.status !== 'active'
+        || !grant.allowedExecutionModes.includes(resolution.context.executionMode)
+      ) {
+        throw new AiRuntimeExecutionError(
+          'RUNTIME_POLICY_CHANGED',
+          'The personal provider credential grant is no longer active. Try again.',
+        );
+      }
     }
 
     const allowedProvider = buildEffectiveCatalogProviders({
