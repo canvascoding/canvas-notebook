@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 23: Agent-Edits in Live-Collaboration-Dokumenten reparieren'
-status: open
+status: in_progress
 priority: high
 depends_on: []
 platforms: [web, server, agent-runtime]
@@ -11,6 +11,13 @@ tags: [type/bug, topic/agents, topic/live-collaboration, topic/markdown, topic/t
 
 Der codebestandsnahe, strikt sequenzielle Plan liegt in
 [Ticket 23: Umsetzungsplan](./23-agent-edits-in-live-collaboration-umsetzungsplan.md).
+
+## Aktueller Umsetzungsstand (2026-08-21)
+
+Die erste Reparatur des Session-/Collaboration-Kontexts ist in `main`
+integriert. Ein weiterer, gepushter Folgecommit fuer Collaboration-Reverts
+liegt noch separat vor. Die Team-Workspace-Abnahme mit zwei Clients und einem
+echten Agent-Tool-Call steht weiterhin aus; das Ticket bleibt in Umsetzung.
 
 ## Problem
 

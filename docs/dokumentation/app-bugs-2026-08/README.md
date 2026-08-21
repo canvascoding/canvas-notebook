@@ -27,21 +27,21 @@ abgeschlossen sind.
 | 07 | [Session-Liste typografisch korrigieren](./07-session-liste-typografie.md) | offen | 06 |
 | 08 | [Dateien nach Nutzung sortieren und anpinnen](./08-dateien-sortieren-und-anpinnen.md) | offen | 07 |
 | 09 | [Administrator-E-Mail-Setup reparieren](./09-administrator-email-setup-reparieren.md) | in Abnahme | – |
-| 10 | [Automationen, UI und Workspace-Zuordnung pruefen](./10-automationen-ui-und-workspace-zuordnung-pruefen.md) | offen | – |
-| 11 | [Lizenztypen und Control-Plane-Handshake Ende-zu-Ende testen](./11-lizenztypen-und-control-plane-handshake-testen.md) | offen | – |
+| 10 | [Automationen, UI und Workspace-Zuordnung pruefen](./10-automationen-ui-und-workspace-zuordnung-pruefen.md) | in Umsetzung | – |
+| 11 | [Lizenztypen und Control-Plane-Handshake Ende-zu-Ende testen](./11-lizenztypen-und-control-plane-handshake-testen.md) | in Umsetzung | – |
 | 12 | [User-Einladungsflow und scrollbare UI stabilisieren](./12-user-einladungsflow-und-ui-stabilisieren.md) | offen | 11 |
 | 13 | [Lizenzaktivitaet und Last-Seen im Control Plane aktualisieren](./13-lizenzaktivitaet-und-last-seen-aktualisieren.md) | offen | 11 |
 | 14 | [To-do-Sichtbarkeit, Filter und Priorisierung korrigieren](./14-todo-sichtbarkeit-filter-und-priorisierung.md) | offen | 02 |
 | 15 | [Legacy-Auto-Update und Managed Bootstrap entkoppeln](./15-legacy-auto-update-und-managed-bootstrap-entkoppeln.md) | offen | 11 |
-| 16 | [Persoenliches ChatGPT-Abo im Team-Workspace nutzbar machen](./16-chatgpt-abo-im-team-workspace-stabilisieren.md) | offen | – |
-| 17 | [Exponierten MCP-Server und OAuth-500 beheben](./17-mcp-server-oauth-500-beheben.md) | offen | – |
-| 18 | [Agent-System-Prompts an effektive Tools koppeln](./18-agent-system-prompts-an-tools-koppeln.md) | offen | – |
-| 19 | [Word- und Excel-Werkzeuge evaluieren](./19-word-und-excel-werkzeuge-evaluieren.md) | offen | – |
+| 16 | [Persoenliches ChatGPT-Abo im Team-Workspace nutzbar machen](./16-chatgpt-abo-im-team-workspace-stabilisieren.md) | in Umsetzung | – |
+| 17 | [Exponierten MCP-Server und OAuth-500 beheben](./17-mcp-server-oauth-500-beheben.md) | in Abnahme | – |
+| 18 | [Agent-System-Prompts an effektive Tools koppeln](./18-agent-system-prompts-an-tools-koppeln.md) | in Abnahme | – |
+| 19 | [Word- und Excel-Werkzeuge evaluieren](./19-word-und-excel-werkzeuge-evaluieren.md) | erledigt (No-Go) | – |
 | 20 | [Agenten-Tools fuer To-do-Verwaltung und Mobile Notifications erweitern](./20-todo-agent-tools-und-mobile-notifications.md) | offen | 02, 14 |
-| 21 | [MARP-Praesentationen auf Mobile korrekt rendern](./21-marp-mobile-rendering-korrigieren.md) | offen | – |
-| 22 | [MARP-YAML und Formatierung beim Editorwechsel erhalten](./22-marp-editor-roundtrip-verlustfrei-machen.md) | offen | – |
-| 23 | [Agent-Edits in Live-Collaboration-Dokumenten reparieren](./23-agent-edits-in-live-collaboration-reparieren.md) | offen | – |
-| 24 | [Agent-Dateiedits buendeln und Stale-State-Feedback verbessern](./24-agent-dateiedits-buendeln-und-stale-state-feedback.md) | offen | 18 |
+| 21 | [MARP-Praesentationen auf Mobile korrekt rendern](./21-marp-mobile-rendering-korrigieren.md) | in Abnahme | – |
+| 22 | [MARP-YAML und Formatierung beim Editorwechsel erhalten](./22-marp-editor-roundtrip-verlustfrei-machen.md) | in Abnahme | – |
+| 23 | [Agent-Edits in Live-Collaboration-Dokumenten reparieren](./23-agent-edits-in-live-collaboration-reparieren.md) | in Umsetzung | – |
+| 24 | [Agent-Dateiedits buendeln und Stale-State-Feedback verbessern](./24-agent-dateiedits-buendeln-und-stale-state-feedback.md) | in Umsetzung | 18 |
 | 25 | [Heartbeat-Automationen, Notifications und Tokenverbrauch kontrollieren](./25-heartbeat-automationen-und-tokenverbrauch-kontrollieren.md) | offen | 10 |
 
 ## Gemeinsame Arbeitsregeln
@@ -68,19 +68,19 @@ abgeschlossen sind.
   oder End-to-End-Tests mit Playwright/Chrome nur nach expliziter Freigabe.
 - Der Abschluss eines Tickets erfordert einen eigenen, fokussierten Commit.
 
-## Parallelisierungsplan fuer Tickets 09–25
+## Parallelisierungs- und Integrationsstand fuer Tickets 09–25
 
 | Strang | Startbare Tickets | Harte Reihenfolge / Koordination |
 | --- | --- | --- |
-| E-Mail und Automationen | 09, 10 | 25 folgt auf 10; Koordination bei gemeinsamen E-Mail-Settings. |
-| Lizenz und Control Plane | 11 | Danach 12, 13 und 15; 13 und 15 teilen Agent-/VM-Zustaende und werden besser nacheinander integriert. |
+| E-Mail und Automationen | 10 in Umsetzung; 09 in Abnahme | 25 bleibt bis zum Abschluss von 10 blockiert; Koordination bei gemeinsamen E-Mail-Settings. |
+| Lizenz und Control Plane | 11 in Umsetzung | Danach 12, 13 und 15; 13 und 15 teilen Agent-/VM-Zustaende und werden besser nacheinander integriert. |
 | To-dos | 14 nach 02 | 20 erst nach 02 und 14. |
-| Agent-Runtime | 16, 18 | Bei gemeinsamen Runtime-Resolver-Dateien vorab Dateigrenzen festlegen. |
-| MCP | 17 | Eigenstaendig; nur OAuth-/Runtime-Schnittstellen mit 16/18 abstimmen. |
-| Office-Dateien | 19 | Als Evaluation eigenstaendig; eine spaetere Tool-Implementierung mit 18 abstimmen. |
-| MARP | 21, 22 | Mobile-Rendering und Web-Editor sind getrennt; gemeinsame MARP-Fixtures abstimmen. |
-| Live Collaboration | 23 | Eigenstaendig startbar; Tool-/Runtime-Grenzen mit 18 und Rich-Markdown-Fixtures mit 22 abstimmen. |
-| Agent-Dateiworkflow | 24 nach 18 | Prompt-/Tool-Guidance baut auf der effektiven Toolbeschreibung aus 18 auf; Stale-/Collaboration-Verhalten mit 23 abstimmen. |
+| Agent-Runtime | 16 in Umsetzung; 18 in Abnahme | Bei gemeinsamen Runtime-Resolver-Dateien vorab Dateigrenzen festlegen. |
+| MCP | 17 in Abnahme | Eigenstaendig; nur OAuth-/Runtime-Schnittstellen mit 16/18 abstimmen. |
+| Office-Dateien | 19 abgeschlossen (No-Go) | Kein produktives Tool bauen; erst bei freigegebener Bedarfsevidenz ein neues Folgeticket erstellen. |
+| MARP | 21, 22 in Abnahme | Mobile-Rendering und Web-Editor sind getrennt; gemeinsame MARP-Fixtures abstimmen. |
+| Live Collaboration | 23 in Umsetzung | Tool-/Runtime-Grenzen mit 18 und Rich-Markdown-Fixtures mit 22 abstimmen. |
+| Agent-Dateiworkflow | 24 in Umsetzung | Ticket 18 ist erfuellt; Stale-/Collaboration-Verhalten mit 23 gemeinsam abnehmen. |
 | Heartbeat-Automationen | 25 nach 10 | Nutzt Workspace-/Owner-/Filter-Grundlage aus 10; Usage- und Notification-Vertraege separat koordinieren. |
 
 ## Bestehende Referenzen

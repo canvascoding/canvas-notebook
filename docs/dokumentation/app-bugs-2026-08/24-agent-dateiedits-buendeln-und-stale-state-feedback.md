@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 24: Agent-Dateiedits buendeln und Stale-State-Feedback verbessern'
-status: open
+status: in_progress
 priority: medium
 depends_on: ['18-agent-system-prompts-an-tools-koppeln']
 platforms: [server, agent-runtime]
@@ -15,6 +15,12 @@ dokumentiert. Die Implementierung ist fachlich an dessen Effective-Tool-Vertrag
 gebunden. Ticket 18 ist als PR #68
 gemergt; Ticket 24 verwendet dessen kanonischen Mechanismus und stimmt die
 Live-Collaboration-Grenze mit dem als PR #72 gemergten Ticket 23 ab.
+
+## Aktueller Umsetzungsstand (2026-08-21)
+
+Eine erste Implementierung der strukturierten Datei-Edit-Feedbacks liegt in
+einem separaten Worktree vor, ist jedoch noch nicht nach `main` integriert.
+Stale-/Collaboration-Verhalten wird erst zusammen mit Ticket 23 abgenommen.
 
 ## Problem
 

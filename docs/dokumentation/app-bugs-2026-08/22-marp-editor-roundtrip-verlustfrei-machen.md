@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 22: MARP-YAML und Formatierung beim Editorwechsel erhalten'
-status: open
+status: in_review
 priority: high
 depends_on: []
 platforms: [web]
@@ -31,6 +31,13 @@ Formatierungen veraendert werden. Der Editorwechsel ist damit nicht verlustfrei.
 
 Der codebestandsnahe, strikt sequenzielle Plan liegt in
 [22-marp-editor-roundtrip-umsetzungsplan.md](./22-marp-editor-roundtrip-umsetzungsplan.md).
+
+## Aktueller Umsetzungsstand (2026-08-21)
+
+Die Preservation-, Revision- und atomaren Write-Aenderungen sind in `main`
+integriert. Die im Plan geforderte manuelle Moduswechsel-Abnahme sowie das
+abschliessende Build-Gate sind noch als Abnahme nachzuholen; deshalb ist das
+Ticket in Abnahme und nicht erledigt.
 
 - Roundtrip-Fixtures fuer MARP-Front-Matter, Kommentare, unbekannte Felder,
   Direktiven, Folientrenner, HTML, Code, Tabellen und Whitespace erstellen.

@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 21: MARP-Praesentationen auf Mobile korrekt rendern'
-status: open
+status: in_review
 priority: medium
 depends_on: []
 platforms: [mobile, server, mobile-api]
@@ -33,6 +33,15 @@ muessen gegen denselben Inhalt wie in der Next.js-App abgeglichen werden.
 - Nicht unterstuetzte MARP-Funktionen werden sichtbar und sicher behandelt.
 
 ## Umsetzung
+
+## Aktueller Umsetzungsstand (2026-08-21)
+
+Der additive Notebook-Vertrag und die Mobile-Implementierung sind umgesetzt;
+die ausgefuehrten automatisierten Nachweise und der bekannte, vorbestehende
+Mobile-Typecheck-Hinweis sind im
+[Umsetzungsplan](./21-marp-mobile-rendering-umsetzungsplan.md) festgehalten.
+Die verpflichtende iOS-/Android-Realgeraete- und visuelle Abnahme ist noch
+offen. Das Ticket bleibt deshalb in Abnahme.
 
 - Reproduktions-Fixtures fuer Front Matter, Themes, lokale/remote Assets,
   Codebloecke, lange Folien und unterschiedliche Seitenformate festlegen.

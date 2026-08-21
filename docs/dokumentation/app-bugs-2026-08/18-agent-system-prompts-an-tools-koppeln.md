@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 18: Agent-System-Prompts an effektive Tools koppeln'
-status: open
+status: in_review
 priority: high
 depends_on: []
 platforms: [server, agent-runtime]
@@ -30,6 +30,14 @@ muss er strikt auf die fuer ihn freigegebenen Tools begrenzt bleiben.
   Workspace-Wechsel konsistent.
 
 ## Umsetzung
+
+## Aktueller Umsetzungsstand (2026-08-21)
+
+Die effektive Tool-/Prompt-Kopplung ist in `main` implementiert und die
+automatisierten Tests einschliesslich `npm run build` sind im zugehoerigen
+[Umsetzungsplan](./18-agent-system-prompt-tools-umsetzungsplan.md)
+dokumentiert. Ausstehend ist nur noch die manuelle Runtime-Abnahme mit einem
+Testagenten; das Ticket steht deshalb in Abnahme und nicht auf erledigt.
 
 - `base-system-prompt`, geteilte Promptbausteine, Agent-Templates, Toolsets,
   Registry, Scoped Tools und Runtime-Reload gemeinsam inventarisieren.

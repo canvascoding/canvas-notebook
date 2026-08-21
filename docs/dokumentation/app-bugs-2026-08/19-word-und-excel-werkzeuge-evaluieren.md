@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 19: Word- und Excel-Werkzeuge evaluieren'
-status: open
+status: completed
 priority: low
 depends_on: []
 platforms: [server, agent-runtime]
@@ -51,6 +51,15 @@ aggregierten Auswertungsauftrag.
 - Einen read-only Proof of Concept und optional kontrollierte Kopie-statt-
   In-place-Bearbeitung mit Render-/Roundtrip-Pruefung bewerten.
 - Entscheidung, API-/Tool-Schemas, Feature-Flag und Abnahmematrix dokumentieren.
+
+## Abschlussentscheidung (2026-08-21)
+
+Die Evaluation ist mit einem **No-Go** abgeschlossen: Die zulaessigen Quellen
+belegen keinen ausreichenden Bedarf; Details stehen in der
+[Bedarfsevidenz](./19-office-usage-evidence.md). Es werden keine produktiven
+DOCX-/XLSX-Tools oder Parser umgesetzt. Bei einer spaeter explizit
+freigegebenen, datensparsamen Bedarfsauswertung wird ein neues Folgeticket
+eroeffnet.
 
 ## Abnahmekriterien
 

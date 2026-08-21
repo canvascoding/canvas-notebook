@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 10: Automationen, UI und Workspace-Zuordnung pruefen'
-status: open
+status: in_progress
 priority: high
 depends_on: []
 platforms: [web, server, agent-runtime]
@@ -32,6 +32,15 @@ Der codebestandsnahe, sequenzielle Umsetzungsplan ist in
 [10-automationen-ui-workspace-umsetzungsplan.md](./10-automationen-ui-workspace-umsetzungsplan.md)
 dokumentiert. Das Ticket bleibt bis zur eigentlichen Implementierung und
 Abnahme offen.
+
+## Aktueller Umsetzungsstand (2026-08-21)
+
+Die Scope-Integritaet wird in einem separaten, bereits gepushten Arbeitsbranch
+umgesetzt. Die dortigen Commits decken Datenmodell-/Migrationspruefungen,
+Quarantaene inkonsistenter Jobs, Run-Snapshots und die Sperre von
+Automation-Management aus Automation-Runs ab. Sie sind noch nicht in `main`
+integriert. Die Listenfilter, die sichtbare Owner-/Workspace-Administration
+und die vollstaendige UI-Abnahme bleiben deshalb Teil dieses offenen Tickets.
 
 - Alle Automationsrouten, Store-/Policy-/Runner-Pfade, Mobile-Adapter und
   Agent-Tools gegen `team-workspace/11-automation-execution-model.md`

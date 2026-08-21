@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 11: Lizenztypen und Control-Plane-Handshake Ende-zu-Ende testen'
-status: open
+status: in_progress
 priority: high
 depends_on: []
 platforms: [server, control-plane, vm-agent]
@@ -33,6 +33,14 @@ inklusive Development-Testlizenzen reproduzierbar funktionieren.
   und bereinigen.
 
 ## Umsetzung
+
+## Aktueller Umsetzungsstand (2026-08-21)
+
+Der Umsetzungsplan sowie eine erweiterte lokale Lizenz-Handshake-Testumgebung
+sind in einem separaten Worktree erarbeitet worden. Diese Produkt- und
+Test-Commits sind noch nicht nach `main` integriert. Die fachliche Abnahme in
+der isolierten Control-Plane-Umgebung bleibt daher offen; insbesondere duerfen
+keine produktiven Lizenzen oder Endpunkte verwendet werden.
 
 - Zuerst einen repositoryuebergreifenden Testplan mit Ports, Datenbanken,
   Schluesseln, Zeitsteuerung, Cleanup und Netzwerkgrenzen schreiben; keine
