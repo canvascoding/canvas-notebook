@@ -16,6 +16,7 @@ async function main() {
     await fs.writeFile(path.join(workspaceRoot, 'Readme.txt'), 'Mobile file preview.');
     await fs.writeFile(path.join(workspaceRoot, 'Cover.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     await fs.writeFile(path.join(workspaceRoot, 'Projects', 'Brief.md'), '# Brief');
+    await fs.writeFile(path.join(workspaceRoot, 'Projects', 'MobileDeck.marp.md'), '---\nmarp: true\n---\n\n# Deck');
     await fs.writeFile(
       path.join(workspaceRoot, 'Projects', 'Dashboard.html'),
       '<!doctype html><html><head><link rel="stylesheet" href="assets/site.css"></head><body><a href="Details.html">Details</a></body></html>',
@@ -75,6 +76,11 @@ async function main() {
     assert.equal(search.items[0]?.path, 'Projects/Brief.md');
     assert.equal(search.items[0]?.openKind, 'markdown');
     assert.equal(search.items[0]?.canOpenInNotebook, true);
+
+    const marpList = await listMobileFiles({ workspace, fileOptions, query: 'mobiledeck', limit: 20 });
+    assert.equal(marpList.items[0]?.renderKind, 'marp');
+    const marpDetail = await readMobileFileDetail({ workspace, fileOptions, path: 'Projects/MobileDeck.marp.md' });
+    assert.equal(marpDetail.renderKind, 'marp');
 
     const text = await readMobileFileDetail({ workspace, fileOptions, path: 'Readme.txt' });
     assert.equal(text.previewMode, 'text');
@@ -189,6 +195,7 @@ async function main() {
     const uploadAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/uploads/[id]/route.ts'), 'utf8');
     const excalidrawRoute = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/excalidraw/route.ts'), 'utf8');
     const htmlTicketRoute = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/html-preview-ticket/route.ts'), 'utf8');
+    const marpPreviewRoute = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/marp-preview/route.ts'), 'utf8');
     const htmlPreviewRoute = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/html-preview/[ticket]/[...path]/route.ts'), 'utf8');
     const proxy = await fs.readFile(path.join(process.cwd(), 'proxy.ts'), 'utf8');
     assert.match(blobAlias, /api\/files\/download\/route/u);
@@ -202,6 +209,9 @@ async function main() {
     assert.match(excalidrawRoute, /saveMobileExcalidrawDocument/u);
     assert.match(htmlTicketRoute, /issueMobileHtmlPreviewTicket/u);
     assert.match(htmlPreviewRoute, /resolveMobileHtmlPreviewTicket/u);
+    assert.match(marpPreviewRoute, /requireRequestWorkspace\(request, \{ permissions: 'canRead' \}\)/u);
+    assert.match(marpPreviewRoute, /renderMarpMarkdownToMobilePreview/u);
+    assert.match(marpPreviewRoute, /MARP_PREVIEW_TOO_LARGE/u);
     assert.match(proxy, /isMobileHtmlPreviewRoute/u);
     assert.match(proxy, /html-preview\\\/\[A-Za-z0-9_-\]\{43\}/u);
     const publicPrefixDeclaration = proxy.match(/const PUBLIC_PREFIX_ROUTES = \[[^\]]*\]/u)?.[0] || '';

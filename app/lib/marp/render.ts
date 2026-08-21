@@ -11,6 +11,25 @@ import {
 } from '@/app/lib/filesystem/workspace-files';
 
 const MAX_ASSET_INLINE_SIZE = 5 * 1024 * 1024;
+const MAX_MOBILE_DOCUMENT_SIZE = 20 * 1024 * 1024;
+const BLOCKED_REMOTE_ASSET_PLACEHOLDER = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4=';
+
+export type MarpRenderWarning = {
+  code: 'REMOTE_ASSET_BLOCKED' | 'ASSET_NOT_EMBEDDED';
+  reference: string;
+};
+
+export type MarpMobilePreview = {
+  contractVersion: 'marp-preview.v1';
+  profile: 'marp-mobile-v1';
+  html: string;
+  deck: {
+    title: string;
+    slideCount: number;
+    slides: Array<{ index: number; width: number; height: number }>;
+  };
+  warnings: MarpRenderWarning[];
+};
 
 type HtmlAttributeAllowList = Record<string, boolean | ((value: string) => string)>;
 type HtmlAllowList = Record<string, string[] | HtmlAttributeAllowList>;
@@ -341,7 +360,8 @@ export async function inlineMarpMarkdownWorkspaceAssets(
 async function inlineHtmlAssetSources(
   html: string,
   baseDir: string,
-  fileOptions?: WorkspaceFileOperationOptions
+  fileOptions?: WorkspaceFileOperationOptions,
+  options?: { blockRemoteAssets?: boolean; warnings?: MarpRenderWarning[] }
 ): Promise<string> {
   const sourceRegex = /(<(?:img|source|video|audio)\b[^>]*\b(?:src|poster)=["'])([^"']+)(["'][^>]*>)/gi;
   const matches = Array.from(html.matchAll(sourceRegex));
@@ -352,6 +372,12 @@ async function inlineHtmlAssetSources(
     const dataUri = await resolveWorkspaceAssetDataUri(source, baseDir, fileOptions);
     if (dataUri) {
       nextHtml = nextHtml.replace(fullMatch, `${before}${dataUri}${after}`);
+    } else if (options?.blockRemoteAssets && /^https?:/i.test(source.trim())) {
+      options.warnings?.push({ code: 'REMOTE_ASSET_BLOCKED', reference: source });
+      nextHtml = nextHtml.replace(fullMatch, `${before}${BLOCKED_REMOTE_ASSET_PLACEHOLDER}${after}`);
+    } else if (options?.blockRemoteAssets && !/^data:image\//i.test(source.trim())) {
+      options.warnings?.push({ code: 'ASSET_NOT_EMBEDDED', reference: source });
+      nextHtml = nextHtml.replace(fullMatch, `${before}${BLOCKED_REMOTE_ASSET_PLACEHOLDER}${after}`);
     }
   }
 
@@ -361,7 +387,8 @@ async function inlineHtmlAssetSources(
 async function inlineCssUrls(
   css: string,
   baseDir: string,
-  fileOptions?: WorkspaceFileOperationOptions
+  fileOptions?: WorkspaceFileOperationOptions,
+  options?: { blockRemoteAssets?: boolean; warnings?: MarpRenderWarning[] }
 ): Promise<string> {
   const urlRegex = /url\(\s*(["']?)([^"')]+)\1\s*\)/gi;
   const matches = Array.from(css.matchAll(urlRegex));
@@ -372,6 +399,9 @@ async function inlineCssUrls(
     const dataUri = await resolveWorkspaceAssetDataUri(source, baseDir, fileOptions);
     if (dataUri) {
       nextCss = nextCss.replace(fullMatch, `url("${dataUri}")`);
+    } else if (options?.blockRemoteAssets && /^https?:/i.test(source.trim())) {
+      options.warnings?.push({ code: 'REMOTE_ASSET_BLOCKED', reference: source });
+      nextCss = nextCss.replace(fullMatch, `url("${BLOCKED_REMOTE_ASSET_PLACEHOLDER}")`);
     }
   }
 
@@ -541,4 +571,52 @@ export async function renderMarpMarkdownToHtmlDocument(
 ${html}
 </body>
 </html>`;
+}
+
+function marpSlides(html: string): Array<{ index: number; width: number; height: number }> {
+  return Array.from(html.matchAll(/<svg\b(?=[^>]*\bdata-marpit-svg\b)([^>]*)>/g)).map((match, index) => {
+    const attributes = match[1] || '';
+    const viewBox = attributes.match(/\bviewBox="[\d.]+\s+[\d.]+\s+([\d.]+)\s+([\d.]+)"/i);
+    const width = Number(attributes.match(/\bwidth="([\d.]+)"/)?.[1] || viewBox?.[1] || 0);
+    const height = Number(attributes.match(/\bheight="([\d.]+)"/)?.[1] || viewBox?.[2] || 0);
+    return { index, width, height };
+  });
+}
+
+export async function renderMarpMarkdownToMobilePreview(
+  markdown: string,
+  options: {
+    filePath: string;
+    title?: string;
+    fileOptions?: WorkspaceFileOperationOptions;
+  }
+): Promise<MarpMobilePreview> {
+  const baseDir = path.dirname(options.filePath);
+  const marp = createMarpRenderer();
+  const rendered = marp.render(markdown);
+  const warnings: MarpRenderWarning[] = [];
+  const renderedHtml = await inlineHtmlAssetSources(rendered.html, baseDir, options.fileOptions, {
+    blockRemoteAssets: true,
+    warnings,
+  });
+  const css = await inlineCssUrls(rendered.css, baseDir, options.fileOptions, {
+    blockRemoteAssets: true,
+    warnings,
+  });
+  const slides = marpSlides(renderedHtml);
+  const title = options.title || path.basename(options.filePath);
+  const html = `<!DOCTYPE html>
+<html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"><title>${escapeHtml(title)}</title><style>${css}</style><style>html,body{width:100%;height:100%;margin:0;background:#111827;overflow:hidden}.marpit{width:100%;height:100%;display:flex;align-items:center;justify-content:center}.marpit>svg{display:none;width:100% !important;height:auto !important;max-width:100%;max-height:100%;background:#fff}.marpit>svg[data-canvas-active="true"]{display:block}.marp-slide-caption{display:none}</style></head><body>${appendMarpSlideCaptions(renderedHtml)}</body></html>`;
+
+  if (Buffer.byteLength(html, 'utf8') > MAX_MOBILE_DOCUMENT_SIZE) {
+    throw new Error('Mobile Marp preview exceeds the 20 MiB document limit.');
+  }
+
+  return {
+    contractVersion: 'marp-preview.v1',
+    profile: 'marp-mobile-v1',
+    html,
+    deck: { title, slideCount: slides.length, slides },
+    warnings,
+  };
 }

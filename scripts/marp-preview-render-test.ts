@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import Module from 'node:module';
 
 type MarpRenderModule = typeof import('../app/lib/marp/render');
@@ -21,7 +23,7 @@ async function importMarpRenderer(): Promise<MarpRenderModule> {
 }
 
 async function main() {
-  const { renderMarpMarkdownToHtmlDocument } = await importMarpRenderer();
+  const { renderMarpMarkdownToHtmlDocument, renderMarpMarkdownToMobilePreview } = await importMarpRenderer();
   const html = await renderMarpMarkdownToHtmlDocument(`---
 marp: true
 theme: default
@@ -39,6 +41,29 @@ theme: default
   assert.match(html, /<p class="marp-slide-caption" aria-hidden="true">Slide 1<\/p>/);
   assert.match(html, /<svg role="img" aria-label="Slide 2"/);
   assert.doesNotMatch(html, /marp-slide-frame|marp-slide-surface/);
+
+  const fixtureDirectory = path.join(process.cwd(), 'scripts/fixtures/marp-mobile');
+  const mobilePreview = await renderMarpMarkdownToMobilePreview(
+    await readFile(path.join(fixtureDirectory, 'basic.marp.md'), 'utf8'),
+    { filePath: 'fixtures/basic.marp.md' },
+  );
+  assert.equal(mobilePreview.contractVersion, 'marp-preview.v1');
+  assert.equal(mobilePreview.profile, 'marp-mobile-v1');
+  assert.equal(mobilePreview.deck.slideCount, 2);
+  assert.equal(mobilePreview.deck.slides[0]?.width, 1280);
+  assert.equal(mobilePreview.deck.slides[0]?.height, 720);
+  assert.match(mobilePreview.html, /\.marpit>svg\[data-canvas-active="true"\]/u);
+  assert.doesNotMatch(mobilePreview.html, /img-src[^>]*https:/u);
+
+  const remotePreview = await renderMarpMarkdownToMobilePreview(
+    await readFile(path.join(fixtureDirectory, 'remote-asset.marp.md'), 'utf8'),
+    { filePath: 'fixtures/remote-asset.marp.md' },
+  );
+  assert.deepEqual(remotePreview.warnings, [{
+    code: 'REMOTE_ASSET_BLOCKED',
+    reference: 'https://example.invalid/remote.png',
+  }]);
+  assert.doesNotMatch(remotePreview.html, /example\.invalid/u);
 
   console.log('marp-preview-render-test: ok');
 }

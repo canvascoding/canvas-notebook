@@ -17,6 +17,7 @@ import {
 } from '@/app/lib/public-sharing/public-file-shares';
 import type { FileNode } from '@/app/lib/files/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { hasMarpFileName, isMarpMarkdown } from '@/app/lib/marp/detect';
 
 const MAX_LIST_LIMIT = 80;
 const MAX_SEARCH_ENTRIES = 10_000;
@@ -67,6 +68,7 @@ export type MobileFileEntry = {
   sizeBytes: number;
   modifiedAt: string;
   openKind: MobileFileOpenKind;
+  renderKind: 'marp' | null;
   canPreview: boolean;
   /** @deprecated Mobile clients should route Markdown through openKind. */
   canOpenInNotebook: boolean;
@@ -205,6 +207,7 @@ function entryFor(node: FileNode, share?: PublicShareAnnotation): MobileFileEntr
     sizeBytes: node.size || 0,
     modifiedAt: modifiedAt(node.modified),
     openKind,
+    renderKind: node.type === 'file' && hasMarpFileName(node.path) ? 'marp' : null,
     canPreview: node.type === 'file' && mode !== 'download',
     canOpenInNotebook: openKind === 'markdown',
     publicShare: publicShareValue(share),
@@ -369,5 +372,11 @@ export async function readMobileFileDetail(input: {
       contentTruncated = true;
     }
   }
-  return { ...entry, previewMode: mode, content, contentTruncated };
+  return {
+    ...entry,
+    renderKind: entry.renderKind || (content && isMarpMarkdown(filePath, content) ? 'marp' : null),
+    previewMode: mode,
+    content,
+    contentTruncated,
+  };
 }
