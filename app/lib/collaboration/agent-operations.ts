@@ -12,7 +12,10 @@ import {
   type ExactTextEdit,
 } from '@/app/lib/files/exact-text-patch';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
-import { runCollaborationDirectConnection } from './direct-connection';
+import {
+  AgentDirectConnectionAuthorizationError,
+  runCollaborationDirectConnection,
+} from './direct-connection';
 import { loadCollaborationState } from './persistence';
 import {
   createRichMarkdownYDoc,
@@ -93,6 +96,7 @@ export interface AgentApplyConflict {
     | 'target_scope_invalid'
     | 'backpressure'
     | 'feedback_loop'
+    | 'authorization_revoked'
     | 'persistence_degraded'
     | 'lifecycle_stale'
     | 'cancelled'
@@ -1152,6 +1156,7 @@ async function applyStoredOperation(input: {
       actorDisplayName: input.actorDisplayName,
       initiatedByUserId: row.initiated_by_user_id,
       operationId: row.operation_id,
+      actorSessionId: row.actor_session_id || undefined,
     }, (doc) => {
       if (cancelRequests.has(row.operation_id)) throw new AgentOperationCancelledError('Agent operation was cancelled before apply.');
       const origin = {
@@ -1235,10 +1240,13 @@ async function applyStoredOperation(input: {
     const combinedApplied = appliedExecution.value
       ? combinedFor(appliedExecution.value).combinedApplied
       : priorResult.appliedTargetIds;
+    const conflictCode = error instanceof AgentDirectConnectionAuthorizationError
+      ? 'authorization_revoked'
+      : 'persistence_degraded';
     const degradedResult = publicResult(fresh, {
       status: combinedApplied.length > 0 ? 'partially_applied' : 'needs_review',
       appliedTargetIds: combinedApplied,
-      conflicts: targets.map((target) => ({ targetId: target.targetId, groupId: target.groupId, code: 'persistence_degraded' })),
+      conflicts: targets.map((target) => ({ targetId: target.targetId, groupId: target.groupId, code: conflictCode })),
       stateVector: appliedExecution.value?.stateVector || Buffer.from(state.stateVector).toString('base64'),
     }, combinedApplied.length > 0 ? 'applied_to_ydoc' : 'needs_review');
     const degraded = await transitionOperation({
@@ -1246,7 +1254,7 @@ async function applyStoredOperation(input: {
       row: fresh,
       expectedStatuses: [fresh.status],
       status: combinedApplied.length > 0 ? 'partially_applied' : 'needs_review',
-      fields: { result_json: JSON.stringify(degradedResult), error_code: 'persistence_degraded' },
+      fields: { result_json: JSON.stringify(degradedResult), error_code: conflictCode },
     });
     return { ...degradedResult, operationStatus: degraded.status, casVersion: Number(degraded.cas_version) };
   } finally {
@@ -1739,6 +1747,7 @@ export async function revertAgentOperation(input: {
     requestedMode: input.requestedMode || 'direct_apply',
     explicitUserRequest: true,
     operationType: 'revert',
+    actorSessionId: row!.actor_session_id || undefined,
     supersedesOperationId: row!.operation_id,
     correlationId: row!.correlation_id || row!.operation_id,
     causationId: row!.operation_id,

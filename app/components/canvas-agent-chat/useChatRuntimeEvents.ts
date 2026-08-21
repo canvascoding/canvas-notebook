@@ -822,13 +822,19 @@ export function useChatRuntimeEvents({
     if (event.type === 'tool_execution_end') {
       const text = extractToolResultText(event.result?.content);
       const resultDetails = event.result?.details;
+      const isError = Boolean(
+        resultDetails
+        && typeof resultDetails === 'object'
+        && 'error' in resultDetails
+        && resultDetails.error,
+      );
       const toolResultPiMessage = {
         role: 'toolResult',
         toolCallId: event.toolCallId,
         toolName: event.toolName || t('tool'),
         content: text ? [{ type: 'text', text }] : [],
         details: resultDetails,
-        isError: false,
+        isError,
         timestamp: Date.now(),
       } as AgentMessage;
       const resultAttachments = dedupeAttachments([
