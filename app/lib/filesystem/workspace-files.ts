@@ -257,11 +257,12 @@ export async function replaceWorkspaceFileFromPath(
   sourcePath: string,
   filePath: string,
   options?: WorkspaceFileOperationOptions,
+  onBeforeReplace?: () => Promise<void>,
 ): Promise<void> {
   return withWorkspaceFileMutationLock(
     filePath,
     options,
-    () => replaceWorkspaceFileFromPathUnlocked(sourcePath, filePath, options),
+    () => replaceWorkspaceFileFromPathUnlocked(sourcePath, filePath, options, onBeforeReplace),
   );
 }
 
@@ -269,6 +270,7 @@ async function replaceWorkspaceFileFromPathUnlocked(
   sourcePath: string,
   filePath: string,
   options?: WorkspaceFileOperationOptions,
+  onBeforeReplace?: () => Promise<void>,
 ): Promise<void> {
   const sourceStats = await fs.stat(sourcePath);
   if (!sourceStats.isFile()) {
@@ -297,6 +299,7 @@ async function replaceWorkspaceFileFromPathUnlocked(
         createLocalWriteStream(stagingPath, { flags: 'wx', mode: 0o644 }),
       );
     }
+    await onBeforeReplace?.();
     await fs.rename(stagingPath, fullPath);
     await fs.chmod(fullPath, 0o644);
   } finally {
