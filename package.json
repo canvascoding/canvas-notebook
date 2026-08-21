@@ -158,6 +158,7 @@
     "test:automation:delivery": "tsx --conditions react-server scripts/automation-delivery-test.ts",
     "test:automation:webhook": "tsx --conditions react-server scripts/automation-custom-webhook-test.ts",
     "test:automation:workspace-scope": "tsx --conditions react-server scripts/automation-workspace-scope-test.ts",
+    "test:automation:integrity": "tsx --conditions react-server scripts/automation-integrity-test.ts",
     "test:email:html-content": "tsx scripts/email-html-content-test.ts",
     "test:email:html-conversion": "tsx scripts/email-html-conversion-test.ts",
     "test:email:derived-draft": "tsx scripts/email-derived-draft-html-test.ts",
