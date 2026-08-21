@@ -1800,6 +1800,12 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     agentId,
     sessionId,
     requestedSelection: null,
+    executionMode: sessionRecord.sessionKind === 'delegation_worker' ? 'delegation' : 'interactive',
+    principal: {
+      type: 'user',
+      userId,
+      credentialSubjectUserId: userId,
+    },
   });
   timing.mark('runtimeResolution');
   const provider = executableRuntime.selection.selection.providerId;
@@ -2198,6 +2204,12 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     agentId: sessionRecord.agentId,
     sessionId,
     requestedSelection: null,
+    executionMode: sessionRecord.sessionKind === 'delegation_worker' ? 'delegation' : 'interactive',
+    principal: {
+      type: 'user',
+      userId,
+      credentialSubjectUserId: userId,
+    },
   });
   const model = executableRuntime.model;
   const browserRuntimeContextBlock = buildBrowserRuntimeContextBlock(browserSnapshot);

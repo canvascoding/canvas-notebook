@@ -667,6 +667,12 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
               agentId: request.sourceAgentId,
               sessionId: null,
               requestedSelection: null,
+              executionMode: 'delegation',
+              principal: {
+                type: 'user',
+                userId: request.userId,
+                credentialSubjectUserId: request.userId,
+              },
             },
             update: {
               selection: sourceRuntime.selection.selection,
@@ -733,6 +739,12 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
           agentId: request.sourceAgentId,
           sessionId,
           requestedSelection: null,
+          executionMode: 'delegation',
+          principal: {
+            type: 'user',
+            userId: request.userId,
+            credentialSubjectUserId: request.userId,
+          },
         });
         throwIfDelegationAborted(execution.controller.signal);
         const provider = runtime.selection.selection.providerId;
@@ -910,6 +922,12 @@ async function ensureManagedDelegatedSession(
           agentId: targetAgentId,
           sessionId: null,
           requestedSelection: null,
+          executionMode: 'delegation',
+          principal: {
+            type: 'user',
+            userId: request.userId,
+            credentialSubjectUserId: request.userId,
+          },
         },
       });
       const refreshedScope = await resolveDelegationSourceScope(request);
