@@ -6,9 +6,15 @@ depends_on: []
 platforms: [mobile, server, mobile-api]
 repositories: [canvasstudios-notebook, expo-mobile-app]
 tags: [type/bug, topic/marp, topic/mobile-app, topic/rendering]
+plan: ./21-marp-mobile-rendering-umsetzungsplan.md
 ---
 
 # Ticket 21: MARP-Praesentationen auf Mobile korrekt rendern
+
+## Umsetzungsplan
+
+Der codebestandsnahe, repositoryuebergreifende Plan liegt unter
+[21-marp-mobile-rendering-umsetzungsplan.md](./21-marp-mobile-rendering-umsetzungsplan.md).
 
 ## Problem
 
