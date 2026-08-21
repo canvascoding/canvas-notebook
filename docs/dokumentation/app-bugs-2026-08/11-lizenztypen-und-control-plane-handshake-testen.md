@@ -10,6 +10,10 @@ tags: [type/bug, topic/licensing, topic/control-plane, topic/e2e]
 
 # Ticket 11: Lizenztypen und Control-Plane-Handshake Ende-zu-Ende testen
 
+> Detaillierter, am aktuellen Codebestand beider Repositories ausgerichteter
+> Umsetzungsplan:
+> [11-lizenztypen-control-plane-handshake-umsetzungsplan.md](./11-lizenztypen-control-plane-handshake-umsetzungsplan.md)
+
 ## Problem
 
 Lizenztypen, Claims und ihre Auswirkungen sind repositoryuebergreifend noch
