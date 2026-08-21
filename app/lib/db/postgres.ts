@@ -745,6 +745,66 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS deleted_at bigint');
   await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS deleted_by_user_id text');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_automation_jobs_integrity_status ON automation_jobs (integrity_status, status, next_run_at)');
+  await pool.query(`
+    UPDATE automation_jobs AS job
+    SET
+      integrity_status = CASE
+        WHEN job.scope NOT IN ('personal', 'organization') THEN 'quarantined'
+        WHEN job.organization_id IS NULL OR job.workspace_id IS NULL THEN 'quarantined'
+        WHEN workspace.id IS NULL THEN 'quarantined'
+        WHEN job.organization_id IS DISTINCT FROM workspace.organization_id THEN 'quarantined'
+        WHEN job.workspace_type IS DISTINCT FROM workspace.type THEN 'quarantined'
+        WHEN job.scope = 'personal' AND (
+          job.owner_user_id IS NULL OR job.responsible_user_id IS DISTINCT FROM job.owner_user_id OR
+          job.workspace_type <> 'personal' OR job.service_actor_id IS NOT NULL OR job.approved_by_user_id IS NOT NULL
+        ) THEN 'quarantined'
+        WHEN job.scope = 'organization' AND (
+          job.owner_user_id IS NOT NULL OR job.responsible_user_id IS NULL OR job.service_actor_id IS NULL OR
+          job.approved_by_user_id IS NULL OR job.workspace_type NOT IN ('organization', 'team')
+        ) THEN 'quarantined'
+        ELSE 'valid'
+      END,
+      integrity_reason = CASE
+        WHEN job.scope NOT IN ('personal', 'organization') THEN 'invalid_scope'
+        WHEN job.organization_id IS NULL OR job.workspace_id IS NULL THEN 'missing_scope_binding'
+        WHEN workspace.id IS NULL THEN 'missing_workspace'
+        WHEN job.organization_id IS DISTINCT FROM workspace.organization_id THEN 'workspace_organization_mismatch'
+        WHEN job.workspace_type IS DISTINCT FROM workspace.type THEN 'workspace_type_mismatch'
+        WHEN job.scope = 'personal' AND (
+          job.owner_user_id IS NULL OR job.responsible_user_id IS DISTINCT FROM job.owner_user_id OR
+          job.workspace_type <> 'personal' OR job.service_actor_id IS NOT NULL OR job.approved_by_user_id IS NOT NULL
+        ) THEN 'invalid_personal_binding'
+        WHEN job.scope = 'organization' AND (
+          job.owner_user_id IS NOT NULL OR job.responsible_user_id IS NULL OR job.service_actor_id IS NULL OR
+          job.approved_by_user_id IS NULL OR job.workspace_type NOT IN ('organization', 'team')
+        ) THEN 'invalid_organization_binding'
+        ELSE NULL
+      END,
+      revision = CASE WHEN job.revision IS NULL OR job.revision < 1 THEN 1 ELSE job.revision END
+    FROM canvas_workspaces AS workspace
+    WHERE workspace.id = job.workspace_id
+      AND (
+        job.integrity_status IS NULL
+        OR job.integrity_status = ''
+        OR job.integrity_status = 'valid'
+        OR job.integrity_reason IS NULL
+        OR job.revision IS NULL
+        OR job.revision < 1
+      )
+  `);
+  await pool.query(`
+    UPDATE automation_jobs
+    SET
+      integrity_status = 'quarantined',
+      integrity_reason = CASE
+        WHEN scope NOT IN ('personal', 'organization') THEN 'invalid_scope'
+        WHEN organization_id IS NULL OR workspace_id IS NULL THEN 'missing_scope_binding'
+        ELSE 'missing_workspace'
+      END,
+      revision = CASE WHEN revision IS NULL OR revision < 1 THEN 1 ELSE revision END
+    WHERE (workspace_id IS NULL OR workspace_id NOT IN (SELECT id FROM canvas_workspaces))
+      AND (integrity_status IS NULL OR integrity_status = '' OR integrity_status = 'valid' OR integrity_reason IS NULL OR revision IS NULL OR revision < 1)
+  `);
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS workspace_id text');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS mailbox_id text');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS inbox_case_id text');
