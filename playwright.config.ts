@@ -20,7 +20,7 @@ export default defineConfig({
   webServer: useExternalServer
     ? undefined
     : {
-      command: 'npm run build && npm run start',
+      command: 'npm run start',
       port: 3000,
       // Onboarding state is persisted in the database. Reusing a developer
       // server here would make first-run assertions depend on its state.
@@ -31,6 +31,7 @@ export default defineConfig({
         DATA: e2eDataRoot,
         CANVAS_DATA_ROOT: e2eDataRoot,
         ONBOARDING: 'true',
+        BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET || 'e2e-only-auth-secret-not-for-production-0001',
       },
     },
 });

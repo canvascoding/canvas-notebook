@@ -296,7 +296,7 @@
     "test:e2e:collaboration:restart": "COLLABORATION_E2E=1 E2E_EXTERNAL_SERVER=1 playwright test tests/file-collaboration-restart.spec.ts",
     "test:agent:session-workspace": "tsx --conditions react-server scripts/agent-session-workspace-context-test.ts",
     "test:pi:session-exclusive": "tsx scripts/pi-session-exclusive-execution-test.ts",
-    "test:e2e": "playwright test --pass-with-no-tests",
+    "test:e2e": "npm run build && playwright test --pass-with-no-tests",
     "test:all": "node scripts/test-all.mjs",
     "test:websocket:connection": "node scripts/test-websocket-connection.js",
     "test:websocket:client": "tsx scripts/websocket-client-lifecycle-test.ts",
