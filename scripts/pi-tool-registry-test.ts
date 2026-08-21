@@ -106,7 +106,7 @@ async function main() {
   const { createToolLoopGuard } = await import('../app/lib/pi/tool-loop-guard');
   const { getProgressiveGatewayCapabilityNames } = await import('../app/lib/pi/progressive-tool-gateway');
   const { createBrowserGatewayTool } = await import('../app/lib/pi/browser/tool');
-  const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateImageTool, createStudioGenerateVideoTool, filterEmailEventAutomationTools, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
+  const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateImageTool, createStudioGenerateVideoTool, filterAutomationExecutionTools, filterEmailEventAutomationTools, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
   const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
   const { writePiRuntimeConfig } = await import('../app/lib/agents/storage');
 
@@ -1127,6 +1127,13 @@ async function main() {
   assert.equal(eventAutomationToolNames.includes('bash'), false);
   assert.equal(eventAutomationToolNames.includes('automation_manage'), false);
   assert.equal(eventAutomationToolNames.includes('mcp'), false);
+
+  const normalAutomationToolNames = filterAutomationExecutionTools([
+    { name: 'automation_manage' },
+    { name: 'list_automation_jobs' },
+    { name: 'read' },
+  ] as typeof restrictedRuntimeTools).map((tool) => tool.name);
+  assert.deepEqual(normalAutomationToolNames, ['read']);
 
   console.log('pi-tool-registry-test: ok');
 
