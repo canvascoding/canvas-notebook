@@ -2787,6 +2787,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     composio_profile_id: 'TEXT',
     composio_user_id: 'TEXT',
     webhook_trigger_config_json: 'TEXT',
+    integrity_status: "TEXT NOT NULL DEFAULT 'valid'",
+    integrity_reason: 'TEXT',
+    revision: 'INTEGER NOT NULL DEFAULT 1',
+    deleted_at: 'INTEGER',
+    deleted_by_user_id: 'TEXT',
   });
 
   addColumns(sqlite, 'automation_runs', {
@@ -2805,7 +2810,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   sqlite.exec(`
     UPDATE automation_jobs
     SET
-      owner_user_id = COALESCE(owner_user_id, created_by_user_id),
+      owner_user_id = CASE
+        WHEN COALESCE(NULLIF(scope, ''), 'personal') = 'organization' THEN NULL
+        ELSE COALESCE(owner_user_id, created_by_user_id)
+      END,
       responsible_user_id = COALESCE(responsible_user_id, created_by_user_id),
       last_edited_by_user_id = COALESCE(last_edited_by_user_id, created_by_user_id),
       scope = COALESCE(NULLIF(scope, ''), 'personal'),
@@ -2825,6 +2833,48 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       OR job_scope IS NULL
       OR job_scope = ''
       OR job_scope = 'personal:legacy:legacy';
+
+    UPDATE automation_jobs
+    SET
+      integrity_status = CASE
+        WHEN scope NOT IN ('personal', 'organization') THEN 'quarantined'
+        WHEN organization_id IS NULL OR workspace_id IS NULL THEN 'quarantined'
+        WHEN workspace_id NOT IN (SELECT id FROM canvas_workspaces) THEN 'quarantined'
+        WHEN organization_id != (SELECT organization_id FROM canvas_workspaces WHERE id = automation_jobs.workspace_id) THEN 'quarantined'
+        WHEN workspace_type != (SELECT type FROM canvas_workspaces WHERE id = automation_jobs.workspace_id) THEN 'quarantined'
+        WHEN scope = 'personal' AND (
+          owner_user_id IS NULL OR responsible_user_id != owner_user_id OR
+          workspace_type != 'personal' OR service_actor_id IS NOT NULL OR approved_by_user_id IS NOT NULL
+        ) THEN 'quarantined'
+        WHEN scope = 'organization' AND (
+          owner_user_id IS NOT NULL OR responsible_user_id IS NULL OR service_actor_id IS NULL OR
+          approved_by_user_id IS NULL OR workspace_type NOT IN ('organization', 'team')
+        ) THEN 'quarantined'
+        ELSE 'valid'
+      END,
+      integrity_reason = CASE
+        WHEN scope NOT IN ('personal', 'organization') THEN 'invalid_scope'
+        WHEN organization_id IS NULL OR workspace_id IS NULL THEN 'missing_scope_binding'
+        WHEN workspace_id NOT IN (SELECT id FROM canvas_workspaces) THEN 'missing_workspace'
+        WHEN organization_id != (SELECT organization_id FROM canvas_workspaces WHERE id = automation_jobs.workspace_id) THEN 'workspace_organization_mismatch'
+        WHEN workspace_type != (SELECT type FROM canvas_workspaces WHERE id = automation_jobs.workspace_id) THEN 'workspace_type_mismatch'
+        WHEN scope = 'personal' AND (
+          owner_user_id IS NULL OR responsible_user_id != owner_user_id OR
+          workspace_type != 'personal' OR service_actor_id IS NOT NULL OR approved_by_user_id IS NOT NULL
+        ) THEN 'invalid_personal_binding'
+        WHEN scope = 'organization' AND (
+          owner_user_id IS NOT NULL OR responsible_user_id IS NULL OR service_actor_id IS NULL OR
+          approved_by_user_id IS NULL OR workspace_type NOT IN ('organization', 'team')
+        ) THEN 'invalid_organization_binding'
+        ELSE NULL
+      END,
+      revision = CASE WHEN revision IS NULL OR revision < 1 THEN 1 ELSE revision END
+    WHERE integrity_status IS NULL
+      OR integrity_status = ''
+      OR integrity_status = 'valid'
+      OR integrity_reason IS NULL
+      OR revision IS NULL
+      OR revision < 1;
 
     UPDATE automation_jobs
     SET composio_profile_id = (
@@ -3039,6 +3089,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_org_workspace ON automation_jobs (organization_id, workspace_id);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_project_status ON automation_jobs (project_id, status, next_run_at);
     CREATE INDEX IF NOT EXISTS idx_automation_jobs_job_scope_status ON automation_jobs (job_scope, status, next_run_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_jobs_integrity_status ON automation_jobs (integrity_status, status, next_run_at);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_jobs_composio_trigger_id ON automation_jobs (composio_trigger_id);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_job_id_created_at ON automation_runs (job_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs (status);

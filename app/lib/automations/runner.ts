@@ -502,6 +502,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       // capability boundary is enforced in the tool registry, where only
       // read-only workspace tools and human-review email operations survive.
       const tools = await getPiTools(automationUserId, job.agentId, piSessionId, {
+        automationExecution: true,
         workspaceEmailAutomation: emailInboxEventContext
           ? {
               ...emailInboxEventContext,

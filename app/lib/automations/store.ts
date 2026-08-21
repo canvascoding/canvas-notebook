@@ -525,6 +525,9 @@ function mapJobRow(
     id: row.id,
     name: row.name,
     status: row.status as AutomationJobRecord['status'],
+    integrityStatus: row.integrityStatus === 'quarantined' ? 'quarantined' : 'valid',
+    integrityReason: row.integrityReason ?? null,
+    revision: row.revision,
     scope: normalizeAutomationScope(row.scope),
     jobScope: resolveStoredJobScope(row),
     organizationId: row.organizationId ?? null,
@@ -554,6 +557,7 @@ function mapJobRow(
     deliveryChannelSessionKey: row.deliveryChannelSessionKey ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    deletedAt: toIsoString(row.deletedAt),
     jobType: (row.jobType as AutomationJobType) || 'default',
     triggerKind: normalizeAutomationJobTriggerKind(row.triggerKind, row.scheduleKind === 'webhook' ? 'webhook' : 'schedule'),
     resultPolicy: normalizeAutomationResultPolicy(row.resultPolicy),
@@ -947,6 +951,9 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
       id,
       name,
       status: input.status || 'active',
+      integrityStatus: 'valid',
+      integrityReason: null,
+      revision: 1,
       scope: automationScope.scope,
       jobScope,
       organizationId: automationScope.organizationId,
@@ -1019,6 +1026,9 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
       id,
       name,
       status: input.status || 'active',
+      integrityStatus: 'valid',
+      integrityReason: null,
+      revision: 1,
       scope: automationScope.scope,
       jobScope,
       organizationId: automationScope.organizationId,
@@ -1095,6 +1105,9 @@ export async function createCustomWebhookAutomationJob(
     id,
     name,
     status: input.status || 'active',
+    integrityStatus: 'valid',
+    integrityReason: null,
+    revision: 1,
     scope: automationScope.scope,
     jobScope,
     organizationId: automationScope.organizationId,
@@ -1264,6 +1277,7 @@ export async function updateAutomationJob(
       nextRunAt,
       lastRunStatus: input.lastRunStatus === undefined ? existing.lastRunStatus : input.lastRunStatus,
       lastEditedByUserId: options.actorUserId === undefined ? existing.lastEditedByUserId : options.actorUserId,
+      revision: existing.revision + 1,
       updatedAt: new Date(),
     })
     .where(eq(automationJobs.id, jobId))
@@ -1335,6 +1349,7 @@ export async function moveAutomationJobToWorkspace(
         serviceActorId: scope === 'organization' ? target.serviceActorId : null,
         approvedByUserId: scope === 'organization' ? options.actorUserId : null,
         lastEditedByUserId: options.actorUserId,
+        revision: existing.revision + 1,
         preferredSkill: options.resetPreferredSkill ? 'auto' : existing.preferredSkill,
         deliverySessionMode: options.resetFixedDeliverySession ? 'new_session' : existing.deliverySessionMode,
         deliverySessionId: options.resetFixedDeliverySession ? null : existing.deliverySessionId,
@@ -1396,6 +1411,7 @@ export async function moveAutomationJobToWorkspace(
           serviceActorId: scope === 'organization' ? target.serviceActorId : null,
           approvedByUserId: scope === 'organization' ? options.actorUserId : null,
           lastEditedByUserId: options.actorUserId,
+          revision: existing.revision + 1,
           preferredSkill: options.resetPreferredSkill ? 'auto' : existing.preferredSkill,
           deliverySessionMode: options.resetFixedDeliverySession ? 'new_session' : existing.deliverySessionMode,
           deliverySessionId: options.resetFixedDeliverySession ? null : existing.deliverySessionId,
@@ -1696,6 +1712,7 @@ export async function listDueAutomationJobs(now = new Date()): Promise<Automatio
     .where(
       and(
         eq(automationJobs.status, 'active'),
+        eq(automationJobs.integrityStatus, 'valid'),
         eq(automationJobs.triggerKind, 'schedule'),
         lte(automationJobs.nextRunAt, now),
       ),
@@ -1870,6 +1887,9 @@ export async function scheduleAutomationJobRun(
       if (!job) {
         throw new Error('Automation job not found.');
       }
+      if (job.status !== 'active' || job.integrityStatus !== 'valid' || job.deletedAt) {
+        throw new Error('Automation job is not active with a valid workspace scope.');
+      }
 
       const inFlightRun = getInFlightAutomationRunSync(tx, jobId);
       if (inFlightRun) {
@@ -1898,6 +1918,9 @@ export async function scheduleAutomationJobRun(
       const job = await getAutomationJobRowAsync(tx, jobId);
       if (!job) {
         throw new Error('Automation job not found.');
+      }
+      if (job.status !== 'active' || job.integrityStatus !== 'valid' || job.deletedAt) {
+        throw new Error('Automation job is not active with a valid workspace scope.');
       }
 
       const inFlightRun = await getInFlightAutomationRunAsync(tx, jobId);

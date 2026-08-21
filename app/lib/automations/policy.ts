@@ -270,6 +270,49 @@ export async function assertCanAccessAutomationJob(
   }
 }
 
+/** Runs keep an immutable scope snapshot. A later job move must not grant the
+ * destination workspace access to an earlier run. */
+export async function canAccessAutomationRun(
+  userId: string,
+  run: {
+    scope?: string | null;
+    organizationId?: string | null;
+    workspaceId?: string | null;
+    actorUserId?: string | null;
+  },
+): Promise<boolean> {
+  if (run.scope !== 'organization') {
+    if (!run.actorUserId || run.actorUserId !== userId || !run.workspaceId) return false;
+    try {
+      await resolveAgentSessionWorkspaceForUser({ userId, workspaceId: run.workspaceId, permissions: ['canRead'] });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  const state = await readOrganizationPermissionForUser(userId);
+  if (!run.organizationId || state.organizationId !== run.organizationId ||
+    !hasOrganizationPermission(state.permission, 'canCreateTeamAutomations') || !run.workspaceId) {
+    return false;
+  }
+  try {
+    await resolveAgentSessionWorkspaceForUser({ userId, workspaceId: run.workspaceId, permissions: ['canRead'] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function assertCanAccessAutomationRun(
+  userId: string,
+  run: Parameters<typeof canAccessAutomationRun>[1],
+): Promise<void> {
+  if (!(await canAccessAutomationRun(userId, run))) {
+    throw new AutomationPolicyError('Automation run is not accessible for this user.');
+  }
+}
+
 export async function resolveAutomationRunWorkspace(job: {
   createdByUserId: string;
   ownerUserId?: string | null;

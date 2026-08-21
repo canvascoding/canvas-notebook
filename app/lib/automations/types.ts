@@ -6,6 +6,7 @@ export type AutomationResultPolicy = 'deliver_all' | 'deliver_relevant_only' | '
 export type AutomationPreferredSkill = string;
 export type AutomationJobType = 'default' | 'webhook';
 export type AutomationScope = 'personal' | 'organization';
+export type AutomationIntegrityStatus = 'valid' | 'quarantined';
 export type AutomationWorkspaceType = 'personal' | 'organization' | 'team' | 'project';
 export type AutomationActorType = 'user' | 'service';
 export type AutomationDeliveryMode = 'web' | 'origin' | 'session' | 'channel_home' | 'last_active' | 'silent';
@@ -66,6 +67,9 @@ export type AutomationJobRecord = {
   id: string;
   name: string;
   status: AutomationJobStatus;
+  integrityStatus: AutomationIntegrityStatus;
+  integrityReason: string | null;
+  revision: number;
   scope: AutomationScope;
   jobScope: string;
   organizationId: string | null;
@@ -95,6 +99,7 @@ export type AutomationJobRecord = {
   deliveryChannelSessionKey: string | null;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
   jobType: AutomationJobType;
   triggerKind: AutomationJobTriggerKind;
   resultPolicy: AutomationResultPolicy;

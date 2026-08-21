@@ -58,6 +58,11 @@ export function filterEmailEventAutomationTools(tools: AgentTool[]): AgentTool[]
   return filterToolsToAllowedNames(tools, EMAIL_AGENT_ALLOWED_TOOL_NAME_SET);
 }
 
+/** Automation executions cannot manage other automations. */
+export function filterAutomationExecutionTools(tools: AgentTool[]): AgentTool[] {
+  return tools.filter((tool) => tool.name !== 'automation_manage' && !tool.name.includes('automation_job'));
+}
+
 export type PiToolMetadata = {
   name: string;
   label: string;
@@ -347,6 +352,7 @@ export async function getPiTools(
     executionContext?: AgentExecutionContext;
     browserMode?: BrowserToolMode;
     workspaceEmailAutomation?: WorkspaceEmailAutomationToolContext;
+    automationExecution?: boolean;
   } = {},
 ): Promise<AgentTool[]> {
   let resolvedExecutionContext: AgentExecutionContext | undefined;
@@ -457,6 +463,10 @@ export async function getPiTools(
     allTools = allTools.filter((tool) => !boundNames.has(tool.name));
     allTools.push(...enabledBoundTools);
     allTools = filterEmailEventAutomationTools(allTools);
+  }
+
+  if (options.automationExecution) {
+    allTools = filterAutomationExecutionTools(allTools);
   }
 
   if (userId && sessionId) {
