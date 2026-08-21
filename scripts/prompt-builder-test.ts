@@ -37,7 +37,7 @@ assert.equal(populated.diagnostics.usedFallback, false);
 assert.deepEqual(populated.diagnostics.includedFiles, ['AGENTS.md', 'MEMORY.md', 'TOOLS.md']);
 assert.deepEqual(populated.diagnostics.emptyFiles, ['USER.md', 'SOUL.md']);
 assert.doesNotMatch(populated.systemPrompt, /^You are an AI assistant in Canvas Notebook\./);
-assert.match(populated.systemPrompt, /^# Canvas Notebook Runtime/);
+assert.match(populated.systemPrompt, /^<!-- canvas-system-prompt-foundation:v2 -->\n\n# Canvas Notebook Runtime/);
 assert.match(populated.systemPrompt, new RegExp(CANVAS_MARKDOWN_GUIDANCE_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 assert.match(populated.systemPrompt, /Write inline math as `\$E = mc\^2\$`/);
 assert.match(populated.systemPrompt, /Use collapsible sections with `<details>`/);

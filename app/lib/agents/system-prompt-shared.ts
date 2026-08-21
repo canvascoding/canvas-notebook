@@ -15,6 +15,8 @@ export type ManagedPromptFileName = (typeof MANAGED_PROMPT_FILE_NAMES)[number];
 export type SystemPromptFileName = (typeof SYSTEM_PROMPT_FILE_NAMES)[number];
 export type ManagedPromptFiles = Record<ManagedPromptFileName, string>;
 
+export const SYSTEM_PROMPT_FOUNDATION_MARKER = '<!-- canvas-system-prompt-foundation:v2 -->';
+
 export const PLANNING_MODE_GUIDANCE = `## Planning Mode (ACTIVE)
 
 You are currently operating in **Planning Mode**. This mode restricts you to read-only analysis — you may inspect the workspace, search files, and create plans, but you MUST NOT make any changes.
@@ -58,6 +60,7 @@ export function composeManagedAgentSystemPrompt(
   _source?: ManagedPromptSource,
 ): ManagedSystemPromptResult {
   const fixedSystemBlocks = [
+    SYSTEM_PROMPT_FOUNDATION_MARKER,
     CANVAS_BASE_SYSTEM_PROMPT,
     CANVAS_MARKDOWN_AGENT_GUIDANCE,
   ];

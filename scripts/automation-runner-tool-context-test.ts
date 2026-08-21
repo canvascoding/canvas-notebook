@@ -520,12 +520,11 @@ async function main() {
   assert.deepEqual(agentLoopToolNames, ['studio_generate_image', 'email_send_draft', 'mcp', 'bash']);
   assert.equal(agentLoopStreamFns[0], testStreamFn);
   assert.equal(agentLoopThinkingLevels[0], 'off');
-  assert.match(agentLoopSystemPrompts[0] || '', /## Current Workspace File Tree/);
-  assert.match(agentLoopNextTurnSystemPrompts[0] || '', /## Current Workspace File Tree/);
-  assert.equal(
-    (agentLoopNextTurnSystemPrompts[0] || '').split('<!-- canvas-workspace-file-tree:start -->').length - 1,
-    1,
-  );
+  assert.match(agentLoopSystemPrompts[0] || '', /<!-- canvas-effective-tools:v1 -->/);
+  assert.match(agentLoopSystemPrompts[0] || '', /`studio_generate_image`/);
+  assert.doesNotMatch(agentLoopSystemPrompts[0] || '', /## Current Workspace File Tree/);
+  assert.match(agentLoopNextTurnSystemPrompts[0] || '', /<!-- canvas-effective-tools:v1 -->/);
+  assert.doesNotMatch(agentLoopNextTurnSystemPrompts[0] || '', /## Current Workspace File Tree/);
   assert.deepEqual(runtimeResolutionCalls.slice(0, 2).map((call) => call.kind), ['executable', 'pinned']);
   assert.equal(runtimeResolutionCalls[0].context.userId, userId);
   assert.equal(runtimeResolutionCalls[0].context.agentId, agentId);
