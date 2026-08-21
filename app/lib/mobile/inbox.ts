@@ -284,6 +284,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       lastViewedAt: piSessions.lastViewedAt,
     }).from(piSessions).where(and(
       eq(piSessions.userId, input.userId),
+      eq(piSessions.sessionKind, 'conversation'),
       workspaceCondition(piSessions.workspaceId, input.workspace),
     )).orderBy(desc(piSessions.lastMessageAt), desc(piSessions.id)).limit(MAX_SOURCE_ITEMS),
     listTodos(input.userId, {
@@ -681,6 +682,7 @@ export async function countMobileUnreadMessages(input: {
     lastViewedAt: piSessions.lastViewedAt,
   }).from(piSessions).where(and(
     eq(piSessions.userId, input.userId),
+    eq(piSessions.sessionKind, 'conversation'),
     isNotNull(piSessions.lastMessageAt),
     or(
       isNull(piSessions.lastViewedAt),
@@ -748,6 +750,7 @@ export async function markMobileInboxRead(input: {
     await Promise.all([
       db.update(piSessions).set({ lastViewedAt: piSessionReadCursorSql(), updatedAt: now }).where(and(
         eq(piSessions.userId, input.userId),
+        eq(piSessions.sessionKind, 'conversation'),
         workspaceCondition(piSessions.workspaceId, input.workspace),
         isNotNull(piSessions.lastMessageAt),
       )),
@@ -780,6 +783,7 @@ export async function markMobileInboxRead(input: {
     const result = await db.update(piSessions).set({ lastViewedAt: piSessionReadCursorSql(), updatedAt: now }).where(and(
       eq(piSessions.userId, input.userId),
       eq(piSessions.sessionId, entityId),
+      eq(piSessions.sessionKind, 'conversation'),
       workspaceCondition(piSessions.workspaceId, input.workspace),
     )).returning({ id: piSessions.id });
     if (!result.length) throw new MobileInboxError('ITEM_NOT_FOUND', 'The Inbox item was not found.', 404);

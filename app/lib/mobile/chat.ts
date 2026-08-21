@@ -284,6 +284,7 @@ export async function listMobileChat(input: ChatActor & {
   const activity = sql<Date>`coalesce(${piSessions.lastMessageAt}, ${piSessions.createdAt})`;
   const conditions: SQL[] = [
     eq(piSessions.userId, input.userId),
+    eq(piSessions.sessionKind, 'conversation'),
     workspaceSessionCondition(workspace.workspaceId, workspace.workspaceType),
     inArray(piSessions.agentId, agentIds),
     input.archived ? isNotNull(piSessions.archivedAt) : isNull(piSessions.archivedAt),
@@ -351,6 +352,7 @@ export async function requireMobileChatSession(input: ChatActor & { sessionId: s
     where: and(
       eq(piSessions.sessionId, input.sessionId),
       eq(piSessions.userId, input.userId),
+      eq(piSessions.sessionKind, 'conversation'),
       workspaceSessionCondition(workspace.workspaceId, workspace.workspaceType),
     ),
     columns: {

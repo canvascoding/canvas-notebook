@@ -281,7 +281,7 @@ export async function GET(request: NextRequest) {
       const piCutoffCondition = cutoff
         ? or(lt(piSessions.lastMessageAt, cutoff), and(isNull(piSessions.lastMessageAt), lt(piSessions.createdAt, cutoff)))
         : undefined;
-      const piCountConditions: SQL[] = [eq(piSessions.userId, session.user.id), piCutoffCondition!];
+      const piCountConditions: SQL[] = [eq(piSessions.userId, session.user.id), eq(piSessions.sessionKind, 'conversation'), piCutoffCondition!];
       if (!includeAllAgentSessions) {
         piCountConditions.push(eq(piSessions.agentId, agentIdFilter!));
       } else {
@@ -336,7 +336,7 @@ export async function GET(request: NextRequest) {
       (includeAllAgentSessions || agentIdFilter === DEFAULT_AGENT_ID) &&
       (!normalizedChannelFilter || normalizedChannelFilter === WEB_CHANNEL_ID) &&
       (!scopedWorkspace || scopedWorkspace.workspaceType === 'personal');
-    const piBaseConditions: SQL[] = [eq(piSessions.userId, session.user.id)];
+    const piBaseConditions: SQL[] = [eq(piSessions.userId, session.user.id), eq(piSessions.sessionKind, 'conversation')];
     if (!includeAllAgentSessions) {
       piBaseConditions.push(eq(piSessions.agentId, agentIdFilter!));
     } else {

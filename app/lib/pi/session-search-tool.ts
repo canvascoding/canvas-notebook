@@ -151,6 +151,7 @@ async function getSessionForUser(
       eq(piSessions.sessionId, sessionId),
       eq(piSessions.userId, userId),
       eq(piSessions.agentId, agentId),
+      eq(piSessions.sessionKind, 'conversation'),
       sessionWorkspaceCondition(scope),
     ))
     .limit(1);
@@ -193,6 +194,7 @@ async function browseSessions(userId: string, agentId: string, scope: SessionSea
     .where(and(
       eq(piSessions.userId, userId),
       eq(piSessions.agentId, agentId),
+      eq(piSessions.sessionKind, 'conversation'),
       sessionWorkspaceCondition(scope),
     ))
     .orderBy(desc(piSessions.lastMessageAt), desc(piSessions.updatedAt), desc(piSessions.createdAt))
@@ -254,6 +256,7 @@ async function searchSessions(userId: string, agentId: string, scope: SessionSea
     .where(and(
       eq(piSessions.userId, userId),
       eq(piSessions.agentId, agentId),
+      eq(piSessions.sessionKind, 'conversation'),
       sessionWorkspaceCondition(scope),
       like(piMessages.content, likePattern),
       roleConditions.length === 1 ? roleConditions[0] : or(...roleConditions),
