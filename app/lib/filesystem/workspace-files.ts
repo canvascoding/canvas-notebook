@@ -185,7 +185,35 @@ export async function writeFile(
 ): Promise<void> {
   const fullPath = await resolveWritableWorkspacePath(filePath, options);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
-  await fs.writeFile(fullPath, buffer);
+  const stagingPath = `${fullPath}.canvas-write-${randomUUID()}.tmp`;
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
+  try {
+    let mode = 0o666;
+    try {
+      mode = (await fs.stat(fullPath)).mode & 0o777;
+    } catch (error) {
+      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
+    handle = await fs.open(stagingPath, 'wx', mode);
+    await handle.writeFile(buffer);
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await fs.rename(stagingPath, fullPath);
+
+    const directoryHandle = await fs.open(path.dirname(fullPath), 'r');
+    try {
+      await directoryHandle.sync();
+    } finally {
+      await directoryHandle.close();
+    }
+  } finally {
+    await handle?.close().catch(() => undefined);
+    await fs.rm(stagingPath, { force: true }).catch(() => undefined);
+  }
 }
 
 export async function replaceWorkspaceFileFromPath(

@@ -104,7 +104,7 @@ export async function assertWorkspaceFileRevisionAllowed(params: {
   const currentRevision = await getWorkspaceFileRevision(params.path, params.options);
 
   if (!currentRevision) {
-    if (params.requireExpectedRevision && expectedSha256) {
+    if (expectedSha256) {
       throw new WorkspaceFileRevisionError({
         code: 'FILE_REVISION_CONFLICT',
         status: 409,
@@ -116,10 +116,6 @@ export async function assertWorkspaceFileRevisionAllowed(params: {
       });
     }
     return null;
-  }
-
-  if (!params.requireExpectedRevision) {
-    return currentRevision;
   }
 
   if (expectedSha256 && expectedSha256 !== currentRevision.sha256) {
