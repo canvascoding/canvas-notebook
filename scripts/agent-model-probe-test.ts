@@ -74,6 +74,14 @@ async function main() {
   assert.equal(inexact.success, false);
   assert.equal(inexact.code, 'MODEL_TEST_UNEXPECTED_RESPONSE');
 
+  const punctuated = await testAgentModelConnection({
+    agentId: 'provider-verification',
+    provider: fakeModel.provider,
+    model: fakeModel,
+    complete: async () => assistantText(fakeModel, 'OK.'),
+  });
+  assert.equal(punctuated.success, true);
+
   const successful = await testAgentModelConnection({
     agentId: 'provider-verification',
     provider: fakeModel.provider,

@@ -1042,6 +1042,30 @@ export const aiUserModelPreferences = sqliteTable("ai_user_model_preferences", {
   workspaceIdx: index("idx_ai_user_model_preferences_workspace").on(table.workspaceId),
 }));
 
+export const aiUserWorkspaceProviderGrants = sqliteTable("ai_user_workspace_provider_grants", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").notNull().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  agentId: text("agent_id").notNull(),
+  providerInstallationId: text("provider_installation_id").notNull().references(() => aiProviderInstallations.id, { onDelete: 'cascade' }),
+  allowedExecutionModesJson: text("allowed_execution_modes_json").notNull().default('["interactive"]'),
+  status: text("status").notNull().default("active"),
+  revision: integer("revision").notNull().default(1),
+  grantedAt: integer("granted_at", { mode: "timestamp" }).notNull(),
+  revokedAt: integer("revoked_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  bindingIdx: uniqueIndex("idx_ai_user_workspace_provider_grants_binding")
+    .on(table.userId, table.workspaceId, table.agentId, table.providerInstallationId),
+  organizationUserIdx: index("idx_ai_user_workspace_provider_grants_org_user")
+    .on(table.organizationId, table.userId, table.status),
+  workspaceIdx: index("idx_ai_user_workspace_provider_grants_workspace")
+    .on(table.workspaceId, table.status),
+  statusCheck: check("ai_user_workspace_provider_grants_status_check", sql`${table.status} IN ('active', 'revoked')`),
+}));
+
 export const aiSessions = sqliteTable("ai_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   sessionId: text("session_id").notNull(),

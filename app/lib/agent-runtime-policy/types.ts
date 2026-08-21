@@ -3,11 +3,32 @@ import type { PiThinkingLevel } from '@/app/lib/pi/config';
 export const AI_PROVIDER_SOURCES = ['managed', 'built-in', 'self-hosted'] as const;
 export const AI_CREDENTIAL_SCOPES = ['managed', 'system', 'organization', 'user'] as const;
 export const AI_PROVIDER_STATUSES = ['unverified', 'ready', 'degraded', 'disabled'] as const;
+export const AI_RUNTIME_EXECUTION_MODES = [
+  'interactive',
+  'external_channel',
+  'delegation',
+  'personal_automation',
+  'organization_automation',
+] as const;
 export const AI_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const satisfies readonly PiThinkingLevel[];
 
 export type AiProviderSource = (typeof AI_PROVIDER_SOURCES)[number];
 export type AiCredentialScope = (typeof AI_CREDENTIAL_SCOPES)[number];
 export type AiProviderStatus = (typeof AI_PROVIDER_STATUSES)[number];
+export type AiRuntimeExecutionMode = (typeof AI_RUNTIME_EXECUTION_MODES)[number];
+
+export type AiRuntimePrincipal =
+  | {
+      type: 'user';
+      userId: string;
+      credentialSubjectUserId: string;
+    }
+  | {
+      type: 'organization_service';
+      serviceActorId: string;
+      responsibleUserId: string;
+      credentialSubjectUserId: null;
+    };
 
 export type AiProviderSafeConfig = {
   authMethod?: 'api-key' | 'oauth';
@@ -137,6 +158,21 @@ export type AiUserModelPreference = {
   updatedAt: string;
 };
 
+export type AiUserWorkspaceProviderGrant = {
+  id: string;
+  organizationId: string;
+  userId: string;
+  workspaceId: string;
+  agentId: string;
+  providerInstallationId: string;
+  allowedExecutionModes: AiRuntimeExecutionMode[];
+  status: 'active' | 'revoked';
+  revision: number;
+  grantedAt: string;
+  revokedAt: string | null;
+  updatedAt: string;
+};
+
 export type AiSessionRuntimeSnapshot = {
   selection: AiRuntimeSelection;
   catalogRevision: number;
@@ -183,6 +219,8 @@ export type AiEffectiveRuntimeResolution = {
     workspaceId: string;
     workspaceType: 'personal' | 'organization' | 'team' | 'project';
     agentId: string;
+    executionMode: AiRuntimeExecutionMode;
+    principal: AiRuntimePrincipal;
   };
   catalogRevision: number;
   policyRevision: number;

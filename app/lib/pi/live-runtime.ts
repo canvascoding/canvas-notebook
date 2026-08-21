@@ -61,7 +61,7 @@ import {
   resolveStudioFilePath,
   STUDIO_OUTPUTS_ROOT_DIR,
 } from '@/app/lib/integrations/studio-workspace';
-import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { DEFAULT_AGENT_ID, normalizeStoredChannelId, WEB_CHANNEL_ID } from '@/app/lib/channels/constants';
 import { buildWorkspaceFileTreePrompt } from '@/app/lib/agents/workspace-file-tree-context';
 import { buildReferencedPluginRuntimeContext } from '@/app/lib/plugins/plugin-reference-context';
 import { createToolLoopGuard } from '@/app/lib/pi/tool-loop-guard';
@@ -107,6 +107,16 @@ const CLEANUP_INTERVAL_MS = 60 * 1000;
 const MAX_RUNTIME_INSTANCES = 20;
 const MAX_MESSAGE_CONTEXT_SNAPSHOTS = 64;
 const RUNTIME_CONTEXT_VALUE_MAX_CHARS = 2_000;
+
+function runtimeExecutionModeForSession(session: Pick<typeof piSessions.$inferSelect, 'sessionKind' | 'channelId'>) {
+  if (session.sessionKind === 'delegation_worker') {
+    return 'delegation' as const;
+  }
+
+  return normalizeStoredChannelId(session.channelId ?? 'app') === WEB_CHANNEL_ID
+    ? 'interactive' as const
+    : 'external_channel' as const;
+}
 
 function estimatePiToolSchemaTokens(tools: AgentTool[]): number {
   try {
@@ -1822,6 +1832,12 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     agentId,
     sessionId,
     requestedSelection: null,
+    executionMode: runtimeExecutionModeForSession(sessionRecord),
+    principal: {
+      type: 'user',
+      userId,
+      credentialSubjectUserId: userId,
+    },
   });
   timing.mark('runtimeResolution');
   const provider = executableRuntime.selection.selection.providerId;
@@ -2223,6 +2239,12 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     agentId: sessionRecord.agentId,
     sessionId,
     requestedSelection: null,
+    executionMode: runtimeExecutionModeForSession(sessionRecord),
+    principal: {
+      type: 'user',
+      userId,
+      credentialSubjectUserId: userId,
+    },
   });
   const model = executableRuntime.model;
   const browserRuntimeContextBlock = buildBrowserRuntimeContextBlock(browserSnapshot);

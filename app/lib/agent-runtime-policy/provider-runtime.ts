@@ -20,11 +20,13 @@ import {
   assertEffectiveRuntimeSelection,
   buildEffectiveCatalogProviders,
   resolveEffectiveAgentRuntime,
+  runtimePrincipalCanUseUserCredentials,
   type AiRuntimeResolutionContext,
 } from '@/app/lib/agent-runtime-policy/runtime-resolver';
 import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-runtime-policy/runtime-snapshot';
 import {
   readPiSessionRuntimeSnapshot,
+  readUserWorkspaceProviderGrant,
   readWorkspaceModelPolicy,
   SessionRuntimeContextRevisionConflictError,
   SessionRuntimeSnapshotConflictError,
@@ -140,12 +142,27 @@ function applyOllamaEndpoint(
 
 async function runtimeAuth(input: {
   provider: AiProviderInstallation;
-  organizationId: string;
-  userId: string;
+  context: AiEffectiveRuntimeResolution['context'];
 }): Promise<ProviderInstallationRuntimeAuth> {
+  if (
+    input.provider.credentialScope === 'user'
+    && !runtimePrincipalCanUseUserCredentials(input.context)
+  ) {
+    throw new AiRuntimeExecutionError(
+      'USER_CREDENTIAL_EXECUTION_FORBIDDEN',
+      'Personal provider credentials are not available for this runtime principal.',
+    );
+  }
+  const credentialUserId = input.context.principal.type === 'user'
+    ? input.context.principal.credentialSubjectUserId
+    : input.context.userId;
   let auth: ProviderInstallationRuntimeAuth;
   try {
-    auth = await resolveProviderInstallationRuntimeAuth(input);
+    auth = await resolveProviderInstallationRuntimeAuth({
+      provider: input.provider,
+      organizationId: input.context.organizationId,
+      userId: credentialUserId,
+    });
   } catch {
     throw new AiRuntimeExecutionError(
       'CREDENTIAL_LOOKUP_FAILED',
@@ -380,8 +397,7 @@ async function materializeResolution(
     ),
     runtimeAuth({
       provider: providerInstallation,
-      organizationId: resolution.context.organizationId,
-      userId: resolution.context.userId,
+      context: resolution.context,
     }),
   ]);
 
@@ -458,10 +474,42 @@ async function materializeResolution(
       );
     }
 
+    // The credential lookup below may refresh OAuth state or otherwise await
+    // I/O. Re-read the owner grant immediately before the provider request so
+    // a revocation during that window cannot authorize the stale credential.
+    if (latestProvider.credentialScope === 'user' && context.workspaceType !== 'personal') {
+      const principal = resolution.context.principal;
+      if (!runtimePrincipalCanUseUserCredentials(resolution.context) || principal.type !== 'user') {
+        throw new AiRuntimeExecutionError(
+          'RUNTIME_POLICY_CHANGED',
+          'Personal provider credentials are no longer allowed for this runtime principal. Try again.',
+        );
+      }
+      const grant = await readUserWorkspaceProviderGrant({
+        organizationId: resolution.context.organizationId,
+        userId: principal.credentialSubjectUserId,
+        workspaceId: resolution.context.workspaceId,
+        agentId: resolution.context.agentId,
+        providerInstallationId: latestProvider.installationId,
+      });
+      if (
+        !grant
+        || grant.status !== 'active'
+        || !grant.allowedExecutionModes.includes(resolution.context.executionMode)
+      ) {
+        throw new AiRuntimeExecutionError(
+          'RUNTIME_POLICY_CHANGED',
+          'The personal provider credential grant is no longer active. Try again.',
+        );
+      }
+    }
+
     const allowedProvider = buildEffectiveCatalogProviders({
       catalog: latestCatalog,
       policy: latestPolicy,
       workspaceType: context.workspaceType,
+      allowUserCredentials: runtimePrincipalCanUseUserCredentials(resolution.context)
+        && (context.workspaceType === 'personal' || latestPolicy?.allowUserCredentials === true),
     }).find((candidate) => candidate.installationId === providerInstallation.installationId);
     const allowedModel = allowedProvider?.models.find((candidate) => candidate.id === catalogModel.id);
     if (!allowedModel) {
@@ -528,8 +576,7 @@ async function materializeResolution(
     });
     const auth = await runtimeAuth({
       provider: latestProvider,
-      organizationId: resolution.context.organizationId,
-      userId: resolution.context.userId,
+      context: latestResolution.context,
     });
 
     // Credential/OAuth lookup can perform filesystem, database, or network
