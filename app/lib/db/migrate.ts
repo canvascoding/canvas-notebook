@@ -2828,6 +2828,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
         WHEN organization_id IS NULL OR workspace_id IS NULL THEN 'quarantined'
         WHEN workspace_id NOT IN (SELECT id FROM canvas_workspaces) THEN 'quarantined'
         WHEN organization_id != (SELECT organization_id FROM canvas_workspaces WHERE id = automation_jobs.workspace_id) THEN 'quarantined'
+        WHEN workspace_type != (SELECT type FROM canvas_workspaces WHERE id = automation_jobs.workspace_id) THEN 'quarantined'
         WHEN scope = 'personal' AND (
           owner_user_id IS NULL OR responsible_user_id != owner_user_id OR
           workspace_type != 'personal' OR service_actor_id IS NOT NULL OR approved_by_user_id IS NOT NULL
@@ -2843,6 +2844,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
         WHEN organization_id IS NULL OR workspace_id IS NULL THEN 'missing_scope_binding'
         WHEN workspace_id NOT IN (SELECT id FROM canvas_workspaces) THEN 'missing_workspace'
         WHEN organization_id != (SELECT organization_id FROM canvas_workspaces WHERE id = automation_jobs.workspace_id) THEN 'workspace_organization_mismatch'
+        WHEN workspace_type != (SELECT type FROM canvas_workspaces WHERE id = automation_jobs.workspace_id) THEN 'workspace_type_mismatch'
         WHEN scope = 'personal' AND (
           owner_user_id IS NULL OR responsible_user_id != owner_user_id OR
           workspace_type != 'personal' OR service_actor_id IS NOT NULL OR approved_by_user_id IS NOT NULL

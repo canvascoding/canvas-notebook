@@ -737,6 +737,14 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS trigger_kind text NOT NULL DEFAULT 'schedule'");
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS result_policy text NOT NULL DEFAULT 'deliver_all'");
   await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS event_config_json text');
+  // Keep existing PostgreSQL installations compatible with the shared Drizzle
+  // schema. Fresh databases receive these columns from createTableSql above.
+  await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS integrity_status text NOT NULL DEFAULT 'valid'");
+  await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS integrity_reason text');
+  await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 1');
+  await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS deleted_at bigint');
+  await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS deleted_by_user_id text');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_automation_jobs_integrity_status ON automation_jobs (integrity_status, status, next_run_at)');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS workspace_id text');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS mailbox_id text');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS inbox_case_id text');
