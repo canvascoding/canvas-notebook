@@ -212,6 +212,7 @@ async function main() {
     assert.match(marpPreviewRoute, /requireRequestWorkspace\(request, \{ permissions: 'canRead' \}\)/u);
     assert.match(marpPreviewRoute, /renderMarpMarkdownToMobilePreview/u);
     assert.match(marpPreviewRoute, /MARP_PREVIEW_TOO_LARGE/u);
+    assert.match(marpPreviewRoute, /MarpMobilePreviewTooLargeError/u);
     assert.match(proxy, /isMobileHtmlPreviewRoute/u);
     assert.match(proxy, /html-preview\\\/\[A-Za-z0-9_-\]\{43\}/u);
     const publicPrefixDeclaration = proxy.match(/const PUBLIC_PREFIX_ROUTES = \[[^\]]*\]/u)?.[0] || '';

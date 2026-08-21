@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { applyRateLimit } from '@/app/lib/api/route-helpers';
 import { getFileStats, readFile } from '@/app/lib/filesystem/workspace-files';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
-import { renderMarpMarkdownToMobilePreview } from '@/app/lib/marp/render';
+import { MarpMobilePreviewTooLargeError, renderMarpMarkdownToMobilePreview } from '@/app/lib/marp/render';
 import { MobileFilesError, normalizeMobileFilePath } from '@/app/lib/mobile/files';
 import { mobileFilesErrorResponse, mobileFilesResponseHeaders } from '@/app/lib/mobile/files-route';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
@@ -57,6 +57,12 @@ export async function POST(request: NextRequest) {
       },
     }, { headers: mobileFilesResponseHeaders });
   } catch (error) {
+    if (error instanceof MarpMobilePreviewTooLargeError) {
+      return NextResponse.json(
+        { success: false, error: error.message, code: 'MARP_PREVIEW_TOO_LARGE' },
+        { status: 413, headers: mobileFilesResponseHeaders },
+      );
+    }
     return mobileFilesErrorResponse(error, '[API] Mobile Marp preview error:');
   }
 }
