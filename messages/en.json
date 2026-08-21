@@ -2211,11 +2211,17 @@
     "loading": "Updating...",
     "summary": "{count} unread",
     "markAllRead": "Mark all read",
+    "markRead": "Mark read",
+    "markUnread": "Mark unread",
     "unread": "Unread",
     "highPriority": "High priority",
     "dismiss": "Remove from notifications",
     "workspaceFallback": "Workspace",
     "recent": "Recent",
+    "sections": {
+      "notifications": "Notifications",
+      "todos": "To-dos"
+    },
     "types": {
       "chat": "New agent response",
       "todo": "To-do needs attention",

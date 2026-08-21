@@ -2210,11 +2210,17 @@
     "loading": "Wird aktualisiert...",
     "summary": "{count} ungelesen",
     "markAllRead": "Alle gelesen",
+    "markRead": "Als gelesen markieren",
+    "markUnread": "Als ungelesen markieren",
     "unread": "Ungelesen",
     "highPriority": "Hohe Priorität",
     "dismiss": "Aus Benachrichtigungen entfernen",
     "workspaceFallback": "Workspace",
     "recent": "Kürzlich",
+    "sections": {
+      "notifications": "Benachrichtigungen",
+      "todos": "To-dos"
+    },
     "types": {
       "chat": "Neue Agent-Antwort",
       "todo": "To-do benötigt Aufmerksamkeit",

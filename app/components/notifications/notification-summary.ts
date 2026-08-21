@@ -27,6 +27,10 @@ export type NotificationSummary = {
     automation: number;
   };
   items: NotificationItem[];
+  sections: {
+    notifications: NotificationItem[];
+    todos: NotificationItem[];
+  };
 };
 
 type ApiResponse<T> = {

@@ -245,6 +245,8 @@ async function main() {
     assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === `todo:${firstTodo.id}`), true);
     assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'studio:generation-ready'), true);
     assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'automation:run-failed'), true);
+    assert.equal(notificationSummary.data.sections.notifications.some((item: { id: string }) => item.id === 'chat:attention-session'), true);
+    assert.equal(notificationSummary.data.sections.todos.some((item: { id: string }) => item.id === `todo:${firstTodo.id}`), true);
     const studioNotification = notificationSummary.data.items.find((item: { id: string }) => item.id === 'studio:generation-ready');
     assert.equal(typeof studioNotification?.workspaceId, 'string');
 

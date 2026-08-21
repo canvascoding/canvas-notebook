@@ -49,16 +49,23 @@ export async function GET(request: NextRequest) {
       limit: 12,
     });
     const workspaceNames = new Map(scope.sources.map((source) => [source.id, source.name]));
+    const items = inbox.items.map((item) => ({
+      ...item,
+      workspaceName: workspaceNames.get(item.workspaceId) ?? null,
+    }));
 
     return NextResponse.json({
       success: true,
       data: {
         unreadCount: inbox.counts.unread,
         counts: inbox.counts,
-        items: inbox.items.map((item) => ({
-          ...item,
-          workspaceName: workspaceNames.get(item.workspaceId) ?? null,
-        })),
+        // Keep `items` for existing dashboard consumers while the notification
+        // center can render its persistent To-do section independently.
+        items,
+        sections: {
+          notifications: items.filter((item) => item.target.kind !== 'todo'),
+          todos: items.filter((item) => item.target.kind === 'todo'),
+        },
       },
     });
   } catch (error) {
