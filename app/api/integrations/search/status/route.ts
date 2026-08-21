@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { getBraveSearchStatus } from '@/app/lib/integrations/brave-search-service';
+import { getWebSearchStatus } from '@/app/lib/integrations/brave-search-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function requireSession(request: NextRequest) {
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const status = await getBraveSearchStatus({ userId: authResult.session.user.id });
+    const status = await getWebSearchStatus({ userId: authResult.session.user.id });
     return NextResponse.json({ success: true, data: status });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to load search integration status';

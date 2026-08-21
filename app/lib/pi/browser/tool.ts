@@ -8,6 +8,22 @@ import type { BrowserRuntimeContext } from './runtime';
 
 export type BrowserToolMode = 'dormant' | 'active';
 
+function prepareBrowserGatewayArguments(args: unknown): BrowserGatewayInput {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    return args as BrowserGatewayInput;
+  }
+
+  const normalized = { ...(args as Record<string, unknown>) };
+  if (normalized.scroll_y === undefined && typeof normalized.scrollY === 'number') {
+    normalized.scroll_y = normalized.scrollY;
+  }
+  if (normalized.scroll_x === undefined && typeof normalized.scrollX === 'number') {
+    normalized.scroll_x = normalized.scrollX;
+  }
+
+  return normalized as BrowserGatewayInput;
+}
+
 export function createBrowserGatewayTool(
   context: BrowserRuntimeContext = {},
   options: { mode?: BrowserToolMode } = {},
@@ -51,6 +67,7 @@ export function createBrowserGatewayTool(
         topic: Type.Optional(Type.String({ description: 'For help: overview, safety, or interaction.' })),
         url: Type.Optional(Type.String({ description: 'For start: absolute http(s) URL or about:blank.' })),
       }),
+      prepareArguments: prepareBrowserGatewayArguments,
       execute: executeBrowserAction,
     };
   }
@@ -117,6 +134,7 @@ export function createBrowserGatewayTool(
       clear: Type.Optional(Type.Boolean({ description: 'For type: clear the existing value before typing. Defaults to true.' })),
       mutates: Type.Optional(Type.Boolean({ description: 'For evaluate: set true only after explicit user approval when the script intentionally changes page state.' })),
     }),
+    prepareArguments: prepareBrowserGatewayArguments,
     execute: executeBrowserAction,
   };
 }

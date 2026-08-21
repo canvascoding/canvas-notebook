@@ -225,6 +225,7 @@ type EmailPreviewPreferences = {
 };
 
 type SearchIntegrationStatus = {
+  provider: 'brave' | 'ollama';
   configured: boolean;
   mode: 'local' | 'managed' | 'disabled';
   localConfigured: boolean;
@@ -468,7 +469,7 @@ function getStoredIntegrationsSectionOpenState(): IntegrationsSectionOpenState {
 }
 
 const DEFAULT_SCOPE_KEYS: Record<EnvScope, string[]> = {
-  integrations: ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'KIE_API_KEY', 'BRAVE_API_KEY', 'GROQ_API_KEY', 'COMPOSIO_API_KEY', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'MICROSOFT_OAUTH_CLIENT_ID', 'MICROSOFT_OAUTH_CLIENT_SECRET'],
+  integrations: ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'KIE_API_KEY', 'BRAVE_API_KEY', 'OLLAMA_API_KEY', 'WEB_SEARCH_PROVIDER', 'GROQ_API_KEY', 'COMPOSIO_API_KEY', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'MICROSOFT_OAUTH_CLIENT_ID', 'MICROSOFT_OAUTH_CLIENT_SECRET'],
   agents: ['OPENROUTER_API_KEY', 'OLLAMA_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'],
 };
 
@@ -772,7 +773,9 @@ function SearchIntegrationCard({
 }) {
   const t = useTranslations('settings.searchIntegration');
   const [status, setStatus] = useState<SearchIntegrationStatus | null>(null);
+  const [provider, setProvider] = useState<'brave' | 'ollama'>('brave');
   const [apiKey, setApiKey] = useState('');
+  const [apiKeys, setApiKeys] = useState({ brave: '', ollama: '' });
   const [isVisible, setIsVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -797,8 +800,14 @@ function SearchIntegrationCard({
       }
       setStatus(statusPayload.data as SearchIntegrationStatus);
       const entries = (envPayload.data?.entries || []) as EnvEntry[];
-      const braveKey = entries.find((entry) => entry.key === 'BRAVE_API_KEY')?.value || '';
-      setApiKey(braveKey);
+      const nextProvider = statusPayload.data?.provider === 'ollama' ? 'ollama' : 'brave';
+      const nextApiKeys = {
+        brave: entries.find((entry) => entry.key === 'BRAVE_API_KEY')?.value || '',
+        ollama: entries.find((entry) => entry.key === 'OLLAMA_API_KEY')?.value || '',
+      };
+      setProvider(nextProvider);
+      setApiKeys(nextApiKeys);
+      setApiKey(nextApiKeys[nextProvider]);
       setMessage(null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : t('errors.load'));
@@ -814,7 +823,7 @@ function SearchIntegrationCard({
     return () => window.clearTimeout(timeout);
   }, [loadSearchIntegration]);
 
-  const saveApiKey = async (nextValue: string) => {
+  const saveApiKey = async (nextValue: string, nextProvider = provider) => {
     setIsSaving(true);
     setError(null);
     setMessage(null);
@@ -829,12 +838,13 @@ function SearchIntegrationCard({
       }
       const currentEntries = (currentPayload.data?.entries || []) as EnvEntry[];
       const nextEntries = currentEntries
-        .filter((entry) => entry.key !== 'BRAVE_API_KEY')
+        .filter((entry) => entry.key !== (nextProvider === 'ollama' ? 'OLLAMA_API_KEY' : 'BRAVE_API_KEY') && entry.key !== 'WEB_SEARCH_PROVIDER')
         .map((entry) => ({ key: entry.key, value: entry.value }));
       const trimmed = nextValue.trim();
       if (trimmed) {
-        nextEntries.push({ key: 'BRAVE_API_KEY', value: trimmed });
+        nextEntries.push({ key: nextProvider === 'ollama' ? 'OLLAMA_API_KEY' : 'BRAVE_API_KEY', value: trimmed });
       }
+      nextEntries.push({ key: 'WEB_SEARCH_PROVIDER', value: nextProvider });
 
       const saveResponse = await fetch('/api/integrations/env?scope=integrations', {
         method: 'PUT',
@@ -847,6 +857,8 @@ function SearchIntegrationCard({
         throw new Error(savePayload.error || t('errors.save'));
       }
       setApiKey(trimmed);
+      setApiKeys((current) => ({ ...current, [nextProvider]: trimmed }));
+      setProvider(nextProvider);
       setMessage(trimmed ? t('saved') : t('removed'));
       await Promise.all([loadSearchIntegration(), onEnvSaved()]);
     } catch (saveError) {
@@ -856,6 +868,7 @@ function SearchIntegrationCard({
     }
   };
 
+  const providerLabel = provider === 'ollama' ? t('providerOllama') : t('providerBrave');
   const modeLabel = status?.mode === 'local'
     ? t('modeLocal')
     : status?.mode === 'managed'
@@ -863,7 +876,8 @@ function SearchIntegrationCard({
       : t('modeMissing');
   const summaryItems = [
     isLoading ? t('loading') : modeLabel,
-    status?.managedAvailable ? t('managedAvailable') : null,
+    providerLabel,
+    status?.provider === 'brave' && status?.managedAvailable ? t('managedAvailable') : null,
   ].filter((item): item is string => Boolean(item));
 
   return (
@@ -879,17 +893,35 @@ function SearchIntegrationCard({
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={status?.configured ? 'default' : 'secondary'}>{modeLabel}</Badge>
         {status?.localConfigured && <Badge variant="outline">{t('localConfigured')}</Badge>}
-        {status?.managedAvailable && <Badge variant="outline">{t('managedAvailable')}</Badge>}
+        {status?.provider === 'brave' && status?.managedAvailable && <Badge variant="outline">{t('managedAvailable')}</Badge>}
       </div>
       <p className="text-sm text-muted-foreground">
-        {status?.mode === 'managed' ? t('managedDescription') : t('localDescription')}
+        {provider === 'ollama' ? t('ollamaDescription') : status?.mode === 'managed' ? t('managedDescription') : t('localDescription')}
       </p>
       {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
       {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
+      <div className="space-y-2">
+        <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="search-provider">{t('providerLabel')}</Label>
+        <select
+          id="search-provider"
+          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+          value={provider}
+          onChange={(event) => {
+            const nextProvider = event.target.value === 'ollama' ? 'ollama' : 'brave';
+            setProvider(nextProvider);
+            setApiKey(apiKeys[nextProvider]);
+          }}
+          disabled={isLoading || isSaving}
+        >
+          <option value="brave">{t('providerBrave')}</option>
+          <option value="ollama">{t('providerOllama')}</option>
+        </select>
+        <p className="text-xs text-muted-foreground">{t('providerHint')}</p>
+      </div>
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
         <div className="space-y-2">
           <Label className="text-xs uppercase tracking-wider text-muted-foreground" htmlFor="search-brave-api-key">
-            {t('apiKeyLabel')}
+            {provider === 'ollama' ? t('ollamaApiKeyLabel') : t('apiKeyLabel')}
           </Label>
           <div className="relative">
             <Input
@@ -898,7 +930,7 @@ function SearchIntegrationCard({
               className="font-mono text-xs pr-11"
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
-              placeholder="BRAVE_API_KEY"
+              placeholder={provider === 'ollama' ? 'OLLAMA_API_KEY' : 'BRAVE_API_KEY'}
               disabled={isLoading || isSaving}
             />
             <Button
@@ -913,7 +945,7 @@ function SearchIntegrationCard({
               {isVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">{t('apiKeyHint')}</p>
+          <p className="text-xs text-muted-foreground">{provider === 'ollama' ? t('ollamaApiKeyHint') : t('apiKeyHint')}</p>
         </div>
         <div className="flex flex-wrap gap-2 md:justify-end">
           <Button type="button" variant="outline" onClick={() => void loadSearchIntegration()} disabled={isLoading || isSaving}>
