@@ -690,6 +690,13 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
             workspace: workspaceToPiSessionFields(insertionScope.workspace),
             runtimeSnapshot: preparedSnapshot.snapshot,
             systemPromptSnapshot: promptSnapshot,
+            ...(request.delegationId ? {
+              delegation: {
+                id: request.delegationId,
+                parentSessionId: request.sourceSessionId,
+                depth: 1 as const,
+              },
+            } : {}),
           });
           const createdChildSessions = await db.query.piSessions.findMany({
             where: and(
@@ -917,6 +924,13 @@ async function ensureManagedDelegatedSession(
           workspace: workspaceToPiSessionFields(refreshedScope.workspace),
           runtimeSnapshot: prepared.snapshot,
           systemPromptSnapshot: promptSnapshot,
+          ...(request.delegationId ? {
+            delegation: {
+              id: request.delegationId,
+              parentSessionId: request.sourceSessionId,
+              depth: 1 as const,
+            },
+          } : {}),
         });
         const createdSessions = await db.query.piSessions.findMany({
           where: and(

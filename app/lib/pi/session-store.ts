@@ -110,6 +110,11 @@ export type CreatePiSessionWithRuntimeSnapshotInput = {
   workspace: PiSessionWorkspaceFields;
   runtimeSnapshot: AiSessionRuntimeSnapshot;
   systemPromptSnapshot: PiSystemPromptSnapshot;
+  delegation?: {
+    id: string;
+    parentSessionId: string;
+    depth: 1;
+  };
 };
 
 export type InsertPiSessionWithRuntimeSnapshotResult = {
@@ -172,6 +177,10 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
   if (!input.workspace.organizationId) {
     throw new Error('Organization setup is required for an AI runtime session.');
   }
+  const delegation = input.delegation;
+  if (delegation && (!delegation.id.trim() || !delegation.parentSessionId.trim() || delegation.depth !== 1)) {
+    throw new Error('Delegated worker sessions require a parent session, delegation ID, and depth 1.');
+  }
 
   if (input.clientRequestId) {
     const requestRows = await connection.all(
@@ -223,11 +232,12 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
          session_id, client_request_id, user_id, agent_id, provider, model, thinking_level, title, title_generation_state,
          created_at, updated_at, system_prompt_snapshot, system_prompt_snapshot_hash,
          system_prompt_snapshot_created_at, channel_id, channel_session_key,
+         session_kind, parent_session_id, delegation_id, delegation_depth,
          organization_id, customer_id, project_id, workspace_id, workspace_type,
          workspace_name, workspace_root_relative_path, runtime_provider_installation_id,
          runtime_catalog_revision, runtime_policy_revision, runtime_selection_source
        )
-       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app', NULL,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app', NULL, ?, ?, ?, ?,
               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
        WHERE COALESCE((
          SELECT catalog_revision
@@ -257,6 +267,10 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
       input.systemPromptSnapshot.systemPrompt,
       input.systemPromptSnapshot.systemPromptHash,
       toDatabaseTimestamp(input.systemPromptSnapshot.systemPromptCreatedAt),
+      delegation ? 'delegation_worker' : 'conversation',
+      delegation?.parentSessionId.trim() || null,
+      delegation?.id.trim() || null,
+      delegation?.depth ?? 0,
       input.workspace.organizationId,
       input.workspace.customerId,
       input.workspace.projectId,

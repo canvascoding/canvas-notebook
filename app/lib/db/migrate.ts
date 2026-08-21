@@ -976,6 +976,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       archived_at INTEGER,
       channel_id TEXT NOT NULL DEFAULT 'app',
       channel_session_key TEXT,
+      session_kind TEXT NOT NULL DEFAULT 'conversation' CHECK (session_kind IN ('conversation', 'delegation_worker')),
+      parent_session_id TEXT,
+      delegation_id TEXT,
+      delegation_depth INTEGER NOT NULL DEFAULT 0 CHECK (delegation_depth IN (0, 1)),
       organization_id TEXT,
       customer_id TEXT,
       project_id TEXT,
@@ -1882,6 +1886,17 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   addColumns(sqlite, 'pi_delegations', {
     requested_session_id: 'TEXT',
   });
+
+  addColumns(sqlite, 'pi_sessions', {
+    session_kind: "TEXT NOT NULL DEFAULT 'conversation'",
+    parent_session_id: 'TEXT',
+    delegation_id: 'TEXT',
+    delegation_depth: 'INTEGER NOT NULL DEFAULT 0',
+  });
+  sqlite.exec(`
+    CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_kind_created ON pi_sessions (user_id, session_kind, created_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_sessions_delegation ON pi_sessions (user_id, delegation_id);
+  `);
 
   addColumns(sqlite, 'canvas_workspaces', {
     customer_id: 'TEXT',
