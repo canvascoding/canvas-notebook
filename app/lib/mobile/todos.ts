@@ -78,7 +78,7 @@ function workspaceOptions(workspace: WorkspaceContext): Pick<
       scopeKind: 'workspace',
     };
   }
-  return { workspaceType: 'personal', workspaceId: workspace.workspaceId, scopeKind: 'all' };
+  return { workspaceType: 'personal', workspaceId: workspace.workspaceId, scopeKind: 'workspace' };
 }
 
 export function mobileTodoBelongsToWorkspace(todo: TodoWithRelations, workspace: WorkspaceContext): boolean {

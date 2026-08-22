@@ -2241,6 +2241,7 @@
     "sections": {
       "workspace": "Scope",
       "status": "Status",
+      "priority": "Priority",
       "categories": "Categories",
       "files": "Files",
       "session": "Session",
@@ -2248,6 +2249,8 @@
     },
     "scope": {
       "personal": "Personal",
+      "global": "All accessible workspaces",
+      "workspace": "Workspace",
       "team": "Team",
       "user": "Across workspaces for me"
     },
@@ -2259,6 +2262,7 @@
     },
     "filters": {
       "allCategories": "All categories",
+      "allPriorities": "All priorities",
       "noCategory": "No category",
       "status": {
         "active": "Active",

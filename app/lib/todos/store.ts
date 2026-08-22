@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import {
@@ -129,9 +129,13 @@ export type ListTodosOptions = {
   workspaceType?: TodoWorkspaceType | 'all';
   organizationId?: string | null;
   workspaceId?: string | null;
+  /** Trusted server-side resolved workspace ids for an explicit global view. */
+  workspaceIds?: string[];
   scopeKind?: TodoScopeKind | 'all';
   assigneeUserId?: string | 'me' | 'unassigned' | null;
-  due?: 'overdue' | 'today' | 'upcoming';
+  createdByUserId?: string | 'me' | null;
+  priority?: TodoPriority;
+  due?: 'overdue' | 'today' | 'upcoming' | 'none';
   query?: string;
   beforeUpdatedAt?: Date;
   beforeId?: string;
@@ -901,6 +905,25 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
       conditions.push(eq(todoItems.workspaceId, workspaceId));
     }
   } else if (workspaceType === 'all') {
+    const resolvedWorkspaceIds = Array.from(new Set((options.workspaceIds ?? [])
+      .map((workspaceId) => normalizeOptionalId(workspaceId))
+      .filter((workspaceId): workspaceId is string => Boolean(workspaceId))));
+    if (options.workspaceIds) {
+      const globalConditions = [
+        and(
+          eq(todoItems.userId, userId),
+          eq(todoItems.workspaceType, 'personal'),
+          eq(todoItems.scopeKind, 'user'),
+        )!,
+      ];
+      if (resolvedWorkspaceIds.length > 0) {
+        globalConditions.push(and(
+          eq(todoItems.scopeKind, 'workspace'),
+          inArray(todoItems.workspaceId, resolvedWorkspaceIds),
+        )!);
+      }
+      conditions.push(or(...globalConditions)!);
+    } else {
     const organizationId = normalizeOptionalId(options.organizationId);
     const readableProjectWorkspaceIds = organizationId
       ? await listReadableProjectWorkspaceIds(organizationId, userId)
@@ -925,6 +948,7 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
       conditions.push(or(...workspaceConditions)!);
     } else {
       conditions.push(eq(todoItems.userId, userId), eq(todoItems.workspaceType, 'personal'));
+    }
     }
   } else {
     const workspaceId = normalizeOptionalId(options.workspaceId);
@@ -966,12 +990,20 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
   if (options.sourceType) {
     conditions.push(eq(todoItems.sourceType, normalizeTodoSourceType(options.sourceType)));
   }
+  if (options.priority) {
+    conditions.push(eq(todoItems.priority, normalizeTodoPriority(options.priority)));
+  }
   if (options.assigneeUserId === 'me') {
     conditions.push(eq(todoItems.assigneeUserId, userId));
   } else if (options.assigneeUserId === 'unassigned') {
     conditions.push(sql`${todoItems.assigneeUserId} IS NULL`);
   } else if (typeof options.assigneeUserId === 'string' && options.assigneeUserId.trim()) {
     conditions.push(eq(todoItems.assigneeUserId, options.assigneeUserId.trim()));
+  }
+  if (options.createdByUserId === 'me') {
+    conditions.push(or(eq(todoItems.createdByUserId, userId), and(isNull(todoItems.createdByUserId), eq(todoItems.userId, userId)))!);
+  } else if (typeof options.createdByUserId === 'string' && options.createdByUserId.trim()) {
+    conditions.push(eq(todoItems.createdByUserId, options.createdByUserId.trim()));
   }
   if (options.due) {
     const now = new Date();
@@ -989,6 +1021,8 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
       )!);
     } else if (options.due === 'upcoming') {
       conditions.push(and(isNotNull(todoItems.dueAt), gte(todoItems.dueAt, startOfTomorrow))!);
+    } else if (options.due === 'none') {
+      conditions.push(isNull(todoItems.dueAt));
     }
   }
   if (options.query?.trim()) {
@@ -1006,11 +1040,33 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     )!);
   }
 
+  const now = new Date();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfTomorrow = new Date(startOfToday);
+  startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+  const lifecycleRank = sql<number>`CASE ${todoItems.status} WHEN 'open' THEN 0 WHEN 'done' THEN 1 ELSE 2 END`;
+  const priorityRank = sql<number>`CASE ${todoItems.priority} WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END`;
+  const dueRank = sql<number>`CASE
+    WHEN ${todoItems.status} != 'open' THEN 4
+    WHEN ${todoItems.dueAt} IS NULL THEN 3
+    WHEN ${todoItems.dueAt} < ${now} THEN 0
+    WHEN ${todoItems.dueAt} < ${startOfTomorrow} THEN 1
+    ELSE 2
+  END`;
+
   const rows = await db
     .select()
     .from(todoItems)
     .where(and(...conditions))
-    .orderBy(desc(todoItems.updatedAt), desc(todoItems.id))
+    .orderBy(
+      asc(lifecycleRank),
+      asc(priorityRank),
+      asc(dueRank),
+      asc(todoItems.dueAt),
+      desc(todoItems.createdAt),
+      desc(todoItems.id),
+    )
     .limit(limit);
 
   return hydrateTodos(rows, userId);

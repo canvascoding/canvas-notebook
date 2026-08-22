@@ -74,8 +74,18 @@ type TodoPresentationCandidate = {
   fingerprint: string;
 };
 
+type TodoSortKey = {
+  lifecycleRank: number;
+  priorityRank: number;
+  dueRank: number;
+  dueAt: string | null;
+  createdAt: string;
+  id: string;
+};
+
 type CollectedInboxItem = MobileInboxItem & {
   todoPresentationCandidate?: TodoPresentationCandidate;
+  todoSortKey?: TodoSortKey;
 };
 
 type CollectedAggregateInboxItem = CollectedInboxItem & {
@@ -130,7 +140,7 @@ function todoWorkspaceOptions(workspace: WorkspaceContext) {
   return {
     workspaceType: 'personal' as const,
     workspaceId: workspace.workspaceId,
-    scopeKind: 'all' as const,
+    scopeKind: 'workspace' as const,
   };
 }
 
@@ -161,8 +171,48 @@ function todoPresentationCandidate(todo: TodoWithRelations): TodoPresentationCan
   return { createdAt: todo.createdAt.toISOString(), fingerprint };
 }
 
+function todoSortKey(todo: TodoWithRelations): TodoSortKey {
+  const now = new Date();
+  const dueAt = todo.dueAt?.toISOString() || null;
+  const dueTimestamp = todo.dueAt?.getTime() ?? null;
+  const startOfTomorrow = new Date(now);
+  startOfTomorrow.setHours(24, 0, 0, 0);
+  return {
+    lifecycleRank: todo.status === 'open' ? 0 : todo.status === 'done' ? 1 : 2,
+    priorityRank: todo.priority === 'high' ? 0 : todo.priority === 'normal' ? 1 : 2,
+    dueRank: todo.status !== 'open'
+      ? 4
+      : dueTimestamp === null
+        ? 3
+        : dueTimestamp < now.getTime()
+          ? 0
+          : dueTimestamp < startOfTomorrow.getTime()
+            ? 1
+            : 2,
+    dueAt,
+    createdAt: todo.createdAt.toISOString(),
+    id: todo.id,
+  };
+}
+
+function compareTodoSortKeys(left: TodoSortKey, right: TodoSortKey): number {
+  return left.lifecycleRank - right.lifecycleRank
+    || left.priorityRank - right.priorityRank
+    || left.dueRank - right.dueRank
+    || (left.dueAt || '\uffff').localeCompare(right.dueAt || '\uffff')
+    || right.createdAt.localeCompare(left.createdAt)
+    || right.id.localeCompare(left.id);
+}
+
+function compareCollectedInboxItems(left: CollectedInboxItem, right: CollectedInboxItem): number {
+  if (left.target.kind === 'todo' && right.target.kind === 'todo' && left.todoSortKey && right.todoSortKey) {
+    return compareTodoSortKeys(left.todoSortKey, right.todoSortKey);
+  }
+  return right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id);
+}
+
 function publicInboxItem(item: CollectedInboxItem): MobileInboxItem {
-  const { todoPresentationCandidate: _candidate, ...publicItem } = item;
+  const { todoPresentationCandidate: _candidate, todoSortKey: _sortKey, ...publicItem } = item;
   return publicItem;
 }
 
@@ -170,6 +220,7 @@ function publicAggregateInboxItem(item: GroupableAggregateInboxItem): MobileAggr
   const {
     todoPresentationCandidate: _candidate,
     todoPresentationGroupId: _groupId,
+    todoSortKey: _sortKey,
     ...publicItem
   } = item;
   return publicItem;
@@ -284,11 +335,28 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       eq(piSessions.sessionKind, 'conversation'),
       workspaceCondition(piSessions.workspaceId, input.workspace),
     )).orderBy(desc(piSessions.lastMessageAt), desc(piSessions.id)).limit(MAX_SOURCE_ITEMS),
-    listTodos(input.userId, {
-      ...todoWorkspaceOptions(input.workspace),
-      status: 'active',
-      limit: MAX_SOURCE_ITEMS,
-    }),
+    (async () => {
+      const workspaceTodos = await listTodos(input.userId, {
+        ...todoWorkspaceOptions(input.workspace),
+        status: 'active',
+        limit: MAX_SOURCE_ITEMS,
+      });
+      // User-scoped personal To-dos have no concrete workspace. Attach them
+      // exactly once to the default personal Inbox source so aggregate views
+      // neither omit them nor duplicate them across personal workspaces.
+      if (
+        input.workspace.workspaceType !== 'personal'
+        || input.workspace.legacy
+        || !input.workspace.isDefault
+      ) return workspaceTodos;
+      const personalTodos = await listTodos(input.userId, {
+        workspaceType: 'personal',
+        scopeKind: 'user',
+        status: 'active',
+        limit: MAX_SOURCE_ITEMS,
+      });
+      return Array.from(new Map([...workspaceTodos, ...personalTodos].map((todo) => [todo.id, todo])).values());
+    })(),
     db.select({
       id: studioGenerations.id,
       status: studioGenerations.status,
@@ -374,6 +442,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       priority: todo.priority === 'high' ? 'high' : 'normal',
       target: { kind: 'todo', todoId: todo.id },
       todoPresentationCandidate: todoPresentationCandidate(todo),
+      todoSortKey: todoSortKey(todo),
     });
   }
   for (const row of generationRows) {
@@ -412,9 +481,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
   }
   return items
     .filter((item) => !state.dismissedItemKeys.has(item.id))
-    .sort((left, right) => (
-      right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id)
-    ));
+    .sort(compareCollectedInboxItems);
 }
 
 function matchesFilter(item: MobileInboxItem, filter: MobileInboxFilter): boolean {
@@ -491,9 +558,12 @@ async function collectAggregateInboxItems(input: {
 }
 
 function compareAggregateInboxItems(
-  left: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId'>,
-  right: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId'>,
+  left: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId' | 'target'> & { todoSortKey?: TodoSortKey },
+  right: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId' | 'target'> & { todoSortKey?: TodoSortKey },
 ): number {
+  if (left.target.kind === 'todo' && right.target.kind === 'todo' && left.todoSortKey && right.todoSortKey) {
+    return compareTodoSortKeys(left.todoSortKey, right.todoSortKey);
+  }
   return right.occurredAt.localeCompare(left.occurredAt)
     || right.workspaceId.localeCompare(left.workspaceId)
     || right.id.localeCompare(left.id);
