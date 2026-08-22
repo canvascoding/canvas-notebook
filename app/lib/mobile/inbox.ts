@@ -209,6 +209,8 @@ function compareCollectedInboxItems(left: CollectedInboxItem, right: CollectedIn
   if (left.target.kind === 'todo' && right.target.kind === 'todo' && left.todoSortKey && right.todoSortKey) {
     return compareTodoSortKeys(left.todoSortKey, right.todoSortKey);
   }
+  if (left.target.kind === 'todo') return -1;
+  if (right.target.kind === 'todo') return 1;
   return right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id);
 }
 
@@ -575,6 +577,8 @@ function compareAggregateInboxItems(
   if (left.target.kind === 'todo' && right.target.kind === 'todo' && left.todoSortKey && right.todoSortKey) {
     return compareTodoSortKeys(left.todoSortKey, right.todoSortKey);
   }
+  if (left.target.kind === 'todo') return -1;
+  if (right.target.kind === 'todo') return 1;
   return right.occurredAt.localeCompare(left.occurredAt)
     || right.workspaceId.localeCompare(left.workspaceId)
     || right.id.localeCompare(left.id);

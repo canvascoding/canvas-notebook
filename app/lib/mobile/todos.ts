@@ -19,6 +19,7 @@ type MobileTodoCursor = {
   priority: MobileTodo['priority'];
   dueAt: string | null;
   createdAt: string;
+  updatedAt: string;
   sortAsOf: string;
   id: string;
 };
@@ -165,6 +166,8 @@ function decodeCursor(value: string | null | undefined, workspaceId: string, exp
       || (parsed.dueAt !== null && (typeof parsed.dueAt !== 'string' || Number.isNaN(new Date(parsed.dueAt).getTime())))
       || typeof parsed.createdAt !== 'string'
       || Number.isNaN(new Date(parsed.createdAt).getTime())
+      || typeof parsed.updatedAt !== 'string'
+      || Number.isNaN(new Date(parsed.updatedAt).getTime())
       || typeof parsed.sortAsOf !== 'string'
       || Number.isNaN(new Date(parsed.sortAsOf).getTime())
       || typeof parsed.id !== 'string'
@@ -198,6 +201,20 @@ export async function listMobileTodos(input: {
   const cursor = decodeCursor(input.cursor, input.workspace.workspaceId, cursorSignature);
   const limit = normalizeLimit(input.limit);
   const sortAsOf = cursor ? new Date(cursor.sortAsOf) : new Date();
+  if (cursor) {
+    const anchor = await getTodo(input.userId, cursor.id);
+    if (
+      !anchor
+      || !mobileTodoBelongsToWorkspace(anchor, input.workspace)
+      || anchor.status !== cursor.status
+      || anchor.priority !== cursor.priority
+      || (anchor.dueAt?.toISOString() || null) !== cursor.dueAt
+      || anchor.createdAt.toISOString() !== cursor.createdAt
+      || anchor.updatedAt.toISOString() !== cursor.updatedAt
+    ) {
+      throw new MobileTodoError('STALE_CURSOR', 'The To-do list changed. Refresh and retry.', 409);
+    }
+  }
   const todos = await listTodos(input.userId, {
     ...workspaceOptions(input.workspace),
     status,
@@ -226,6 +243,7 @@ export async function listMobileTodos(input: {
           priority: last.priority as MobileTodo['priority'],
           dueAt: last.dueAt?.toISOString() || null,
           createdAt: last.createdAt.toISOString(),
+          updatedAt: last.updatedAt.toISOString(),
           sortAsOf: sortAsOf.toISOString(),
           id: last.id,
         } satisfies MobileTodoCursor), 'utf8').toString('base64url')
