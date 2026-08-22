@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { listMobileInbox, markMobileInboxRead } from '@/app/lib/mobile/inbox';
+import { getMobileInboxCategoryCounts } from '@/app/lib/mobile/inbox-counts';
 import { mobileInboxErrorResponse, mobileInboxResponseHeaders } from '@/app/lib/mobile/inbox-route';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
@@ -14,14 +15,20 @@ export async function GET(request: NextRequest) {
   if (!limited.ok) return limited.response;
   try {
     const limitValue = request.nextUrl.searchParams.get('limit');
-    const data = await listMobileInbox({
-      userId: workspaceResult.session.user.id,
-      workspace: workspaceResult.workspace,
-      filter: request.nextUrl.searchParams.get('filter'),
-      cursor: request.nextUrl.searchParams.get('cursor'),
-      limit: limitValue === null ? undefined : Number(limitValue),
-    });
-    return NextResponse.json({ success: true, ...data }, { headers: mobileInboxResponseHeaders });
+    const [data, categories] = await Promise.all([
+      listMobileInbox({
+        userId: workspaceResult.session.user.id,
+        workspace: workspaceResult.workspace,
+        filter: request.nextUrl.searchParams.get('filter'),
+        cursor: request.nextUrl.searchParams.get('cursor'),
+        limit: limitValue === null ? undefined : Number(limitValue),
+      }),
+      getMobileInboxCategoryCounts({
+        userId: workspaceResult.session.user.id,
+        workspaces: [workspaceResult.workspace],
+      }),
+    ]);
+    return NextResponse.json({ success: true, ...data, categories }, { headers: mobileInboxResponseHeaders });
   } catch (error) {
     return mobileInboxErrorResponse(error, '[API] Mobile Inbox GET failed:');
   }

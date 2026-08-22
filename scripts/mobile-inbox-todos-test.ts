@@ -163,6 +163,8 @@ async function main() {
     assert.equal(inbox.items.some((item) => item.id === `todo:${completedTodo.id}`), true);
     assert.equal(inbox.items.some((item) => item.id === 'studio:generation-ready'), true);
     assert.equal(inbox.items.some((item) => item.id === 'automation:run-failed'), true);
+    assert.equal(inbox.items.some((item) => item.id === 'email-case:email-case-active'), true);
+    assert.equal(inbox.counts.emails, 2);
     assert.equal(
       inbox.items.find((item) => item.id === 'studio:generation-ready')?.previewUrl,
       '/api/mobile/v1/studio/outputs/generation-preview-output/preview',
@@ -204,6 +206,17 @@ async function main() {
       todos: { badge: 2 },
     });
     assert.equal(await countMobileUnreadNotifications({ userId: 'mobile-attention-user', workspaces: [workspace] }), 4);
+    const emailInbox = await listMobileInbox({
+      userId: 'mobile-attention-user',
+      workspace,
+      filter: 'emails',
+      limit: 20,
+    });
+    assert.deepEqual(emailInbox.items.map((item) => item.id).sort(), [
+      'email-case:email-case-active',
+      'email-draft:email-draft-standalone',
+    ]);
+    assert.equal(emailInbox.items.every((item) => item.target.kind === 'email'), true);
     const aggregateInbox = await listMobileAggregateInbox({
       userId: 'mobile-attention-user',
       workspaces: [workspace],
@@ -317,7 +330,15 @@ async function main() {
     );
     assert.equal(badgeResponse.status, 200);
     assert.equal(badgeResponse.headers.get('cache-control'), 'no-store, max-age=0');
-    assert.deepEqual(await badgeResponse.json(), { success: true, count: 4 });
+    assert.deepEqual(await badgeResponse.json(), {
+      success: true,
+      count: 4,
+      categories: {
+        notifications: { badge: 4 },
+        emails: { badge: 2 },
+        todos: { badge: 14 },
+      },
+    });
 
     const notificationSummaryRoute = await import('../app/api/notifications/summary/route');
     const notificationSummaryResponse = await notificationSummaryRoute.GET(

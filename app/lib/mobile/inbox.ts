@@ -20,6 +20,7 @@ import {
 import { piSessionReadCursorSql } from '@/app/lib/chat/read-cursor';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { db } from '@/app/lib/db';
+import { listEmailAttention } from '@/app/lib/email/inbox-attention';
 import {
   automationJobs,
   automationRuns,
@@ -38,20 +39,22 @@ const MAX_SOURCE_ITEMS = 200;
 const INITIAL_UNREAD_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const TODO_PRESENTATION_GROUP_WINDOW_MS = 5 * 60 * 1_000;
 
-export const MOBILE_INBOX_FILTERS = ['all', 'unread', 'notifications', 'chat', 'todos', 'studio', 'automation'] as const;
+export const MOBILE_INBOX_FILTERS = ['all', 'unread', 'notifications', 'chat', 'emails', 'todos', 'studio', 'automation'] as const;
 export type MobileInboxFilter = typeof MOBILE_INBOX_FILTERS[number];
 
 export type MobileInboxItem = {
   id: string;
-  type: 'chat.response' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed';
+  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed';
   title: string;
   detail: string | null;
   previewUrl: string | null;
   occurredAt: string;
   unread: boolean;
   priority: 'normal' | 'high';
+  attentionRequired?: true;
   target:
     | { kind: 'chat'; sessionId: string }
+    | { kind: 'email'; scope: 'personal' | 'workspace'; caseId?: string; draftId?: string }
     | { kind: 'todo'; todoId: string }
     | { kind: 'studio'; generationId: string }
     | { kind: 'automation'; runId: string };
@@ -331,7 +334,7 @@ function genericUnread(itemKey: string, occurredAt: Date, state: Awaited<ReturnT
 
 async function collectInboxItems(input: { userId: string; workspace: WorkspaceContext; sortAsOf: Date }) {
   const state = await readState({ userId: input.userId, workspaceId: input.workspace.workspaceId });
-  const [sessionRows, todos, generationRows, automationRows] = await Promise.all([
+  const [sessionRows, todos, generationRows, automationRows, emailItems] = await Promise.all([
     db.select({
       sessionId: piSessions.sessionId,
       title: piSessions.title,
@@ -388,6 +391,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
         ? or(eq(automationRuns.actorUserId, input.userId), eq(automationJobs.ownerUserId, input.userId))
         : undefined,
     )).orderBy(desc(automationRuns.finishedAt), desc(automationRuns.createdAt)).limit(MAX_SOURCE_ITEMS),
+    listEmailAttention({ userId: input.userId, workspace: input.workspace }),
   ]);
 
   const imageGenerationIds = generationRows
@@ -433,6 +437,22 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       unread: true,
       priority: 'normal',
       target: { kind: 'chat', sessionId: row.sessionId },
+    });
+  }
+  for (const email of emailItems) {
+    items.push({
+      id: email.id,
+      type: email.type,
+      title: email.title,
+      detail: email.detail,
+      previewUrl: null,
+      occurredAt: email.occurredAt,
+      // E-mail attention is derived from its case/draft lifecycle. It remains
+      // visible until resolved, rather than being hidden by generic Inbox reads.
+      unread: false,
+      priority: email.priority,
+      attentionRequired: email.attentionRequired,
+      target: email.target,
     });
   }
   for (const todo of todos) {
@@ -494,8 +514,9 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
 function matchesFilter(item: MobileInboxItem, filter: MobileInboxFilter): boolean {
   if (filter === 'all') return true;
   if (filter === 'unread') return item.unread;
-  if (filter === 'notifications') return item.target.kind !== 'todo';
+  if (filter === 'notifications') return item.target.kind !== 'todo' && item.target.kind !== 'email';
   if (filter === 'chat') return item.target.kind === 'chat';
+  if (filter === 'emails') return item.target.kind === 'email';
   if (filter === 'todos') return item.target.kind === 'todo';
   if (filter === 'studio') return item.target.kind === 'studio';
   return item.target.kind === 'automation';
@@ -518,6 +539,7 @@ export async function listMobileInbox(input: {
   const counts = {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
+    emails: allItems.filter((item) => item.target.kind === 'email').length,
     todos: allItems.filter((item) => item.target.kind === 'todo').length,
     todoUnread: allItems.filter((item) => item.target.kind === 'todo' && item.unread).length,
     studio: allItems.filter((item) => item.target.kind === 'studio').length,
@@ -689,6 +711,7 @@ export async function listMobileAggregateInbox(input: {
   const counts = {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
+    emails: allItems.filter((item) => item.target.kind === 'email').length,
     todos: allItems.filter((item) => item.target.kind === 'todo').length,
     todoUnread: allItems.filter((item) => item.target.kind === 'todo' && item.unread).length,
     studio: allItems.filter((item) => item.target.kind === 'studio').length,

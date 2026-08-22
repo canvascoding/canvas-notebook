@@ -6,6 +6,7 @@ import {
   markMobileAggregateInboxRead,
   MobileInboxError,
 } from '@/app/lib/mobile/inbox';
+import { getMobileInboxCategoryCounts } from '@/app/lib/mobile/inbox-counts';
 import {
   mobileInboxErrorResponse,
   mobileInboxResponseHeaders,
@@ -34,15 +35,21 @@ export async function GET(request: NextRequest) {
   try {
     const scope = await loadMobileInboxScope(session.user);
     const limitValue = request.nextUrl.searchParams.get('limit');
-    const data = await listMobileAggregateInbox({
-      userId: session.user.id,
-      workspaces: scope.includedWorkspaces,
-      filter: request.nextUrl.searchParams.get('filter'),
-      groupWorkspaceTodos: request.nextUrl.searchParams.get('groupTodos') === 'workspace',
-      cursor: request.nextUrl.searchParams.get('cursor'),
-      limit: limitValue === null ? undefined : Number(limitValue),
-    });
-    return NextResponse.json({ success: true, ...data }, { headers: mobileInboxResponseHeaders });
+    const [data, categories] = await Promise.all([
+      listMobileAggregateInbox({
+        userId: session.user.id,
+        workspaces: scope.includedWorkspaces,
+        filter: request.nextUrl.searchParams.get('filter'),
+        groupWorkspaceTodos: request.nextUrl.searchParams.get('groupTodos') === 'workspace',
+        cursor: request.nextUrl.searchParams.get('cursor'),
+        limit: limitValue === null ? undefined : Number(limitValue),
+      }),
+      getMobileInboxCategoryCounts({
+        userId: session.user.id,
+        workspaces: scope.includedWorkspaces,
+      }),
+    ]);
+    return NextResponse.json({ success: true, ...data, categories }, { headers: mobileInboxResponseHeaders });
   } catch (error) {
     return mobileInboxErrorResponse(error, '[API] Mobile aggregate Inbox GET failed:');
   }
