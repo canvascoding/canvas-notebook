@@ -149,6 +149,29 @@ function todoWorkspaceOptions(workspace: WorkspaceContext) {
   };
 }
 
+async function listInboxTodos(input: { userId: string; workspace: WorkspaceContext }) {
+  const workspaceTodos = await listTodos(input.userId, {
+    ...todoWorkspaceOptions(input.workspace),
+    status: 'active',
+    limit: MAX_SOURCE_ITEMS,
+  });
+  // User-scoped personal To-dos have no concrete workspace. Attach them
+  // exactly once to the default personal Inbox source so aggregate views
+  // neither omit them nor duplicate them across personal workspaces.
+  if (
+    input.workspace.workspaceType !== 'personal'
+    || input.workspace.legacy
+    || !input.workspace.isDefault
+  ) return workspaceTodos;
+  const personalTodos = await listTodos(input.userId, {
+    workspaceType: 'personal',
+    scopeKind: 'user',
+    status: 'active',
+    limit: MAX_SOURCE_ITEMS,
+  });
+  return Array.from(new Map([...workspaceTodos, ...personalTodos].map((todo) => [todo.id, todo])).values());
+}
+
 function todoBelongsToWorkspace(todo: Awaited<ReturnType<typeof getTodo>>, workspace: WorkspaceContext): boolean {
   if (!todo) return false;
   if (workspace.workspaceType === 'personal') {
@@ -345,28 +368,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       eq(piSessions.sessionKind, 'conversation'),
       workspaceCondition(piSessions.workspaceId, input.workspace),
     )).orderBy(desc(piSessions.lastMessageAt), desc(piSessions.id)).limit(MAX_SOURCE_ITEMS),
-    (async () => {
-      const workspaceTodos = await listTodos(input.userId, {
-        ...todoWorkspaceOptions(input.workspace),
-        status: 'active',
-        limit: MAX_SOURCE_ITEMS,
-      });
-      // User-scoped personal To-dos have no concrete workspace. Attach them
-      // exactly once to the default personal Inbox source so aggregate views
-      // neither omit them nor duplicate them across personal workspaces.
-      if (
-        input.workspace.workspaceType !== 'personal'
-        || input.workspace.legacy
-        || !input.workspace.isDefault
-      ) return workspaceTodos;
-      const personalTodos = await listTodos(input.userId, {
-        workspaceType: 'personal',
-        scopeKind: 'user',
-        status: 'active',
-        limit: MAX_SOURCE_ITEMS,
-      });
-      return Array.from(new Map([...workspaceTodos, ...personalTodos].map((todo) => [todo.id, todo])).values());
-    })(),
+    listInboxTodos({ userId: input.userId, workspace: input.workspace }),
     db.select({
       id: studioGenerations.id,
       status: studioGenerations.status,
@@ -913,11 +915,7 @@ export async function markMobileInboxRead(input: {
       throw new MobileInboxError('INVALID_CATEGORY', 'The Inbox category is invalid.', 400);
     }
     const todos = input.action === 'mark_all_read'
-      ? await listTodos(input.userId, {
-        ...todoWorkspaceOptions(input.workspace),
-        status: 'active',
-        limit: MAX_SOURCE_ITEMS,
-      })
+      ? await listInboxTodos({ userId: input.userId, workspace: input.workspace })
       : [];
     await Promise.all([
       db.update(piSessions).set({ lastViewedAt: piSessionReadCursorSql(), updatedAt: now }).where(and(
