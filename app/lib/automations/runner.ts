@@ -11,7 +11,8 @@ import {
 import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-runtime-policy/runtime-snapshot';
 import { SessionRuntimeContextRevisionConflictError } from '@/app/lib/agent-runtime-policy/runtime-store';
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
-import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
+import { prepareMessagesForEffectiveModel } from '@/app/lib/pi/multimodal-preparation';
+import { projectAgentEventForExternal } from '@/app/lib/pi/visual-data-projection';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { estimateTextTokens } from '@/app/lib/pi/history-budget';
 import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
@@ -649,12 +650,16 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         const config = {
           model,
           thinkingLevel: executableRuntime.selection.selection.thinkingLevel as ThinkingLevel,
-          convertToLlm: async (messages: AgentMessage[]) => normalizePiMessagesForLlm(messages, {
-            workspaceImageRoot: automationWorkspace.rootPath,
-            allowedImageFileRoots: [automationWorkspace.rootPath],
-            uploadOwnerUserId: runtimeContext.userId,
-            uploadWorkspaceId: automationWorkspace.workspaceId,
-          }),
+          convertToLlm: async (messages: AgentMessage[]) => prepareMessagesForEffectiveModel(
+            messages,
+            model,
+            {
+              workspaceImageRoot: automationWorkspace.rootPath,
+              allowedImageFileRoots: [automationWorkspace.rootPath],
+              uploadOwnerUserId: runtimeContext.userId,
+              uploadWorkspaceId: automationWorkspace.workspaceId,
+            },
+          ),
           prepareNextTurn: async (turnContext: { context: AgentContext }) => {
             const nextWorkspaceFileTree = hasWorkspaceReadCapability
               ? await buildWorkspaceFileTreePrompt({
@@ -711,7 +716,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           executableRuntime.streamFn,
         )) {
           if (loopEvents.length < MAX_EVENTS_LOG) {
-            const json = JSON.stringify(event);
+            const json = JSON.stringify(projectAgentEventForExternal(event));
             loopEvents.push(json.length > MAX_EVENT_JSON_LENGTH ? json.slice(0, MAX_EVENT_JSON_LENGTH) + '...[truncated]' : json);
           }
           if (event.type === 'agent_end') {

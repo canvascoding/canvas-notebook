@@ -449,9 +449,10 @@ async function runEphemeralWorker(params: {
       model,
       thinkingLevel: params.runtime.selection.selection.thinkingLevel as ThinkingLevel,
       convertToLlm: async (messages: AgentMessage[]) => {
-        const { normalizePiMessagesForLlm } = await import('@/app/lib/pi/message-normalization');
-        return normalizePiMessagesForLlm(
-          messages.filter((message) => message.role !== 'compact-break' && message.role !== 'composio_auth_required'),
+        const { prepareMessagesForEffectiveModel } = await import('@/app/lib/pi/multimodal-preparation');
+        return prepareMessagesForEffectiveModel(
+          messages,
+          model,
           {
             workspaceImageRoot: params.executionContext.workspaceRoot,
             allowedImageFileRoots: [params.executionContext.workspaceRoot],
