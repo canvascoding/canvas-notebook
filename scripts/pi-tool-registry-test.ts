@@ -447,6 +447,8 @@ async function main() {
   assert.match(editText, /Validation: passed/);
   assert.match(editText, /markdown-tables/);
   assert.match(editText, /Snapshot: /);
+  assert.equal((editResult.details as { contractVersion?: number }).contractVersion, 1);
+  assert.equal((editResult.details as { recommendedAction?: string }).recommendedAction, 'reuse_after_sha256_if_sequential');
   assert.doesNotMatch(await fs.readFile(markdownPath, 'utf8'), /Welche Zitierweise/);
 
   const brokenMarkdownResult = await editFileTool.execute('edit-broken-markdown', {
@@ -486,6 +488,8 @@ async function main() {
     ],
   });
   assert.match(getText(patchResult), /json-parse: JSON syntax OK/);
+  assert.equal((patchResult.details as { kind?: string }).kind, 'file_patch_batch');
+  assert.equal((patchResult.details as { safeToAutoRetry?: boolean }).safeToAutoRetry, false);
   assert.deepEqual(JSON.parse(await fs.readFile(jsonPath, 'utf8')), { enabled: true, name: 'new' });
 
   const invalidJsonResult = await applyPatchTool.execute('patch-invalid-json', {

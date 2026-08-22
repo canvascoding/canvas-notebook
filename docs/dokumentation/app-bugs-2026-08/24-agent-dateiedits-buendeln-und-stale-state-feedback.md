@@ -9,6 +9,13 @@ tags: [type/improvement, topic/agents, topic/tools, topic/files, topic/developer
 
 # Ticket 24: Agent-Dateiedits buendeln und Stale-State-Feedback verbessern
 
+Der codebestandsnahe, strikt sequenzielle Plan ist im
+[Umsetzungsplan zu Ticket 24](./24-agent-dateiedits-umsetzungsplan.md)
+dokumentiert. Die Implementierung ist fachlich an dessen Effective-Tool-Vertrag
+gebunden. Ticket 18 ist als PR #68
+gemergt; Ticket 24 verwendet dessen kanonischen Mechanismus und stimmt die
+Live-Collaboration-Grenze mit dem als PR #72 gemergten Ticket 23 ab.
+
 ## Problem
 
 Die Dateiwerkzeuge verhalten sich grundsaetzlich korrekt, werden von Agenten
