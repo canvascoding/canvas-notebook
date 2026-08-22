@@ -466,8 +466,8 @@ async function main() {
     status: 'all',
     limit: 20,
     beforeCursor: {
-      status: firstRankedTodo.status,
-      priority: firstRankedTodo.priority,
+      status: firstRankedTodo.status as 'open' | 'done' | 'archived',
+      priority: firstRankedTodo.priority as 'low' | 'normal' | 'high',
       dueAt: firstRankedTodo.dueAt,
       createdAt: firstRankedTodo.createdAt,
       id: firstRankedTodo.id,

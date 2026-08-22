@@ -83,7 +83,7 @@ async function main() {
       resolvedPath: absolutePath,
       nested: { sourcePath: absolutePath },
     },
-  };
+  } as unknown as AgentMessage;
   const absoluteRead = projectAgentMessageForPersistence(absoluteReadInput);
   const absoluteReadJson = JSON.stringify(absoluteRead);
   assert.doesNotMatch(absoluteReadJson, new RegExp(absolutePath));

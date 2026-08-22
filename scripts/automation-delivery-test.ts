@@ -1,8 +1,44 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
+import Module from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AutomationJobRecord } from '../app/lib/automations/types';
+
+type LoadFn = (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+
+const moduleInternals = Module as typeof Module & { _load: LoadFn };
+const originalLoad = moduleInternals._load;
+let telegramChannelEnabled = true;
+let telegramChannelLinked = true;
+
+moduleInternals._load = (request, parent, isMain) => {
+  if (request === '@earendil-works/pi-ai/compat') {
+    return {
+      getModels: () => [],
+      getProviders: () => [],
+      registerBuiltInApiProviders: () => undefined,
+    };
+  }
+  if (request === '@/app/lib/channels/availability' || request.endsWith('/channels/availability')) {
+    return {
+      getChannelDeliveryReadiness: async () => !telegramChannelEnabled
+        ? {
+          ok: false,
+          reason: 'channel_disabled',
+          error: 'TELEGRAM_CHANNEL_ENABLED is false',
+        }
+        : !telegramChannelLinked
+          ? {
+            ok: false,
+            reason: 'channel_unlinked',
+            error: 'Telegram channel is no longer linked for this user',
+          }
+        : { ok: true },
+    };
+  }
+  return originalLoad(request, parent, isMain);
+};
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-automation-delivery-'));
 process.env.DATA = dataDir;
@@ -244,7 +280,7 @@ async function main() {
   assert.equal(lastActive.channelSessionKey, 'telegram:42');
   assert.ok(lastActive.warnings.some((warning) => warning.includes('another workspace')));
 
-  process.env.TELEGRAM_CHANNEL_ENABLED = 'false';
+  telegramChannelEnabled = false;
   const lastActiveFallback = await resolveAutomationDeliveryTarget({
     job: {
       ...baseJob,
@@ -260,7 +296,7 @@ async function main() {
   assert.equal(lastActiveFallback.channelId, 'web');
   assert.equal(lastActiveFallback.channelSessionKey, `web:user:${userId}`);
   assert.ok(lastActiveFallback.warnings.some((warning) => warning.includes('falling back')));
-  process.env.TELEGRAM_CHANNEL_ENABLED = 'true';
+  telegramChannelEnabled = true;
 
   const missingActive = await resolveAutomationDeliveryTarget({
     job: {
@@ -375,7 +411,7 @@ async function main() {
   assert.equal(telegramDispatch.delivered, true);
   assert.deepEqual(delivered, [{ content: 'Telegram result', chatId: '42' }]);
 
-  process.env.TELEGRAM_CHANNEL_ENABLED = 'false';
+  telegramChannelEnabled = false;
   const disabledTelegramDispatch = await dispatchAutomationResult({
     job: {
       ...baseJob,
@@ -393,9 +429,10 @@ async function main() {
   assert.equal(shouldPauseAutomationAfterDeliveryFailure(disabledTelegramDispatch), true);
   assert.deepEqual(delivered, [{ content: 'Telegram result', chatId: '42' }]);
   assert.match(getAutomationDeliveryFailureMessage(active, disabledTelegramDispatch) || '', /channel is disabled/);
-  process.env.TELEGRAM_CHANNEL_ENABLED = 'true';
+  telegramChannelEnabled = true;
 
   await deleteBinding(userId, 'telegram');
+  telegramChannelLinked = false;
   const unlinkedTelegramDispatch = await dispatchAutomationResult({
     job: {
       ...baseJob,

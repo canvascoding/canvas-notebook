@@ -2273,8 +2273,11 @@ export async function deleteAgentPaths(params: {
     });
   }
   const deleteWorkspace = getAgentWorkspaceContext();
-  if (deleteWorkspace && deletableEntries.length > 0) {
-    const deletedPaths = deletableEntries.map((entry) => workspaceRelativeAgentPath(deleteWorkspace, entry.sourceResolvedPath));
+  const workspaceDeletions = deleteWorkspace
+    ? deletableEntries.filter((entry) => isPathWithin(entry.sourceResolvedPath, deleteWorkspace.rootPath))
+    : [];
+  if (deleteWorkspace && workspaceDeletions.length > 0) {
+    const deletedPaths = workspaceDeletions.map((entry) => workspaceRelativeAgentPath(deleteWorkspace, entry.sourceResolvedPath));
     archiveFileCollaborationPaths({ workspace: deleteWorkspace, paths: deletedPaths.map((path) => ({ path })) });
     await archivePersistedCollaborationPaths({ workspaceId: deleteWorkspace.workspaceId, paths: deletedPaths });
   }
