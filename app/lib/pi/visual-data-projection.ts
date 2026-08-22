@@ -19,9 +19,22 @@ function isServerPathField(key: string): boolean {
   return key === 'path' || key.endsWith('Path');
 }
 
+const ABSOLUTE_PATH_TOKEN = /(?:^|(?<=[\s"'`(]))(?:\/(?:[^\s"'`<>()\[\]{}]+\/)+[^\s"'`<>()\[\]{}]+|[a-z]:[\\/](?:[^\s"'`<>()\[\]{}]+[\\/])+[^\s"'`<>()\[\]{}]+|\\\\(?:[^\s"'`<>()\[\]{}]+[\\/])+[^\s"'`<>()\[\]{}]+)/gi;
+
+function redactAbsoluteFilesystemPaths(value: string, purpose: 'persistence' | 'external-event'): string {
+  return value.replace(
+    ABSOLUTE_PATH_TOKEN,
+    `[absolute server path omitted from ${purpose === 'persistence' ? 'persisted chat history' : 'live event'}]`,
+  );
+}
+
 function projectVisualValue(value: unknown, purpose: 'persistence' | 'external-event'): unknown {
   if (Array.isArray(value)) {
     return value.map((entry) => projectVisualValue(entry, purpose));
+  }
+
+  if (typeof value === 'string') {
+    return redactAbsoluteFilesystemPaths(value, purpose);
   }
 
   if (!isRecord(value)) {

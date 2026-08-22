@@ -71,21 +71,30 @@ async function main() {
   assert.match(externalJson, /omitted from live event/);
 
   const absolutePath = '/private/agent-runtime/image.png';
-  const absoluteRead = projectAgentMessageForPersistence({
+  const absoluteReadInput = {
     ...toolResult,
+    content: [
+      { type: 'text', text: `Read ${absolutePath}` },
+      { type: 'image', data: imageData, mimeType: 'image/png' },
+    ],
     details: {
       filePath: absolutePath,
       requestedPath: absolutePath,
       resolvedPath: absolutePath,
       nested: { sourcePath: absolutePath },
     },
-  });
-  assert.doesNotMatch(JSON.stringify(absoluteRead), new RegExp(absolutePath));
+  };
+  const absoluteRead = projectAgentMessageForPersistence(absoluteReadInput);
+  const absoluteReadJson = JSON.stringify(absoluteRead);
+  assert.doesNotMatch(absoluteReadJson, new RegExp(absolutePath));
+  assert.match(absoluteReadJson, /absolute server path omitted from persisted chat history/);
   const absoluteEvent = projectAgentEventForExternal({
     type: 'tool_execution_end',
-    result: absoluteRead,
+    result: absoluteReadInput,
   });
-  assert.doesNotMatch(JSON.stringify(absoluteEvent), new RegExp(absolutePath));
+  const absoluteEventJson = JSON.stringify(absoluteEvent);
+  assert.doesNotMatch(absoluteEventJson, new RegExp(absolutePath));
+  assert.match(absoluteEventJson, /absolute server path omitted from live event/);
 
   console.log('[PI Multimodal Delivery Test] Passed.');
 }
