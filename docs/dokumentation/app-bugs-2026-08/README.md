@@ -44,6 +44,7 @@ abgeschlossen sind.
 | 24 | [Agent-Dateiedits buendeln und Stale-State-Feedback verbessern](./24-agent-dateiedits-buendeln-und-stale-state-feedback.md) | in Umsetzung | 18 |
 | 25 | [Heartbeat-Automationen, Notifications und Tokenverbrauch kontrollieren](./25-heartbeat-automationen-und-tokenverbrauch-kontrollieren.md) | offen | 10 |
 | 26 | [Vision-Faehigkeiten fuer Bilder aus dem Read-Tool aktivieren](./26-vision-bilder-aus-read-tool-korrekt-uebergeben.md) | offen | – |
+| 27 | [E-Mail-Inbox-Lesefluss und Progressive Disclosure verbessern](./27-email-inbox-lesefluss-und-progressive-disclosure.md) | offen | – |
 
 ## Gemeinsame Arbeitsregeln
 
@@ -69,7 +70,7 @@ abgeschlossen sind.
   oder End-to-End-Tests mit Playwright/Chrome nur nach expliziter Freigabe.
 - Der Abschluss eines Tickets erfordert einen eigenen, fokussierten Commit.
 
-## Parallelisierungs- und Integrationsstand fuer Tickets 09–26
+## Parallelisierungs- und Integrationsstand fuer Tickets 09–27
 
 | Strang | Startbare Tickets | Harte Reihenfolge / Koordination |
 | --- | --- | --- |
@@ -84,6 +85,7 @@ abgeschlossen sind.
 | Agent-Dateiworkflow | 24 in Umsetzung | Ticket 18 ist erfuellt; Stale-/Collaboration-Verhalten mit 23 gemeinsam abnehmen. |
 | Heartbeat-Automationen | 25 nach 10 | Nutzt Workspace-/Owner-/Filter-Grundlage aus 10; Usage- und Notification-Vertraege separat koordinieren. |
 | Vision und Datei-Lesen | 26 | Eigenstaendig startbar; mit Tickets 18 und 24 an gemeinsamen Runtime-/Toolresultat-Grenzen koordinieren. |
+| E-Mail-Inbox | 27 | Eigenstaendig startbar; mit Ticket 09 nur bei gemeinsamen Settings-/E-Mail-Datenpfaden abstimmen. |
 
 ## Bestehende Referenzen
 
