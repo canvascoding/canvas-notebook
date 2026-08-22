@@ -45,6 +45,7 @@ export async function PATCH(request: NextRequest) {
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
       action: payload.action,
+      category: payload.category,
       itemId: payload.itemId,
       read: payload.read,
     });

@@ -758,13 +758,15 @@ export async function listMobileAggregateInbox(input: {
 export async function markMobileAggregateInboxRead(input: {
   userId: string;
   workspaces: WorkspaceContext[];
+  category?: 'notifications';
 }) {
   let readAt = new Date().toISOString();
   for (const workspace of input.workspaces) {
     const result = await markMobileInboxRead({
       userId: input.userId,
       workspace,
-      action: 'mark_all_read',
+      action: input.category ? 'mark_category_read' : 'mark_all_read',
+      ...(input.category ? { category: input.category } : {}),
     });
     if ('readAt' in result && typeof result.readAt === 'string') readAt = result.readAt;
   }
@@ -900,16 +902,23 @@ export async function markMobileInboxRead(input: {
   userId: string;
   workspace: WorkspaceContext;
   action: unknown;
+  category?: unknown;
   itemId?: unknown;
   read?: unknown;
 }) {
   const now = new Date();
-  if (input.action === 'mark_all_read') {
-    const todos = await listTodos(input.userId, {
-      ...todoWorkspaceOptions(input.workspace),
-      status: 'active',
-      limit: MAX_SOURCE_ITEMS,
-    });
+  const markNotificationsRead = input.action === 'mark_category_read';
+  if (input.action === 'mark_all_read' || markNotificationsRead) {
+    if (markNotificationsRead && input.category !== 'notifications') {
+      throw new MobileInboxError('INVALID_CATEGORY', 'The Inbox category is invalid.', 400);
+    }
+    const todos = input.action === 'mark_all_read'
+      ? await listTodos(input.userId, {
+        ...todoWorkspaceOptions(input.workspace),
+        status: 'active',
+        limit: MAX_SOURCE_ITEMS,
+      })
+      : [];
     await Promise.all([
       db.update(piSessions).set({ lastViewedAt: piSessionReadCursorSql(), updatedAt: now }).where(and(
         eq(piSessions.userId, input.userId),

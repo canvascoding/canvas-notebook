@@ -436,6 +436,22 @@ async function main() {
     assert.equal(afterAllRead.counts.unread, 0, JSON.stringify(afterAllRead));
     assert.equal(afterAllRead.items.length, 0);
     assert.equal(await countMobileUnreadMessages({ userId: 'mobile-attention-user', workspaces: [workspace] }), 0);
+    await markMobileInboxRead({
+      userId: 'mobile-attention-user',
+      workspace,
+      action: 'set_item_read_state',
+      itemId: `todo:${firstTodo.id}`,
+      read: false,
+    });
+    const notificationRead = await markMobileInboxRead({
+      userId: 'mobile-attention-user',
+      workspace,
+      action: 'mark_category_read',
+      category: 'notifications',
+    });
+    assert.equal('readAt' in notificationRead, true);
+    const afterCategoryRead = await listMobileInbox({ userId: 'mobile-attention-user', workspace, filter: 'unread' });
+    assert.equal(afterCategoryRead.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
     const aggregateReadResult = await markMobileAggregateInboxRead({
       userId: 'mobile-attention-user',
       workspaces: [workspace],

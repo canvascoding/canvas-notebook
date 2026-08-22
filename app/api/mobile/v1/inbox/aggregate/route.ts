@@ -66,13 +66,17 @@ export async function PATCH(request: NextRequest) {
   if (!limited.ok) return limited.response;
   try {
     const payload = await request.json().catch(() => ({})) as Record<string, unknown>;
-    if (payload.action !== 'mark_all_read') {
+    if (
+      payload.action !== 'mark_all_read'
+      && !(payload.action === 'mark_category_read' && payload.category === 'notifications')
+    ) {
       throw new MobileInboxError('INVALID_ACTION', 'The Inbox read action is invalid.', 400);
     }
     const scope = await loadMobileInboxScope(session.user);
     const data = await markMobileAggregateInboxRead({
       userId: session.user.id,
       workspaces: scope.includedWorkspaces,
+      ...(payload.action === 'mark_category_read' ? { category: 'notifications' as const } : {}),
     });
     return NextResponse.json({ success: true, data }, { headers: mobileInboxResponseHeaders });
   } catch (error) {
