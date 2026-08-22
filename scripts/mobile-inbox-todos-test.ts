@@ -110,6 +110,13 @@ async function main() {
     await database.run(
       `INSERT INTO email_drafts (
         id, user_id, account_id, status, to_json, cc_json, bcc_json, subject, body, is_html,
+        attachments_json, origin, personal_inbox_case_id, outbox_status, version, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['email-draft-linked-closed-newer', 'mobile-attention-user', 'mobile-email-account', 'draft', '[]', '[]', '[]', 'Latest follow up on closed request', '', 1, '[]', 'agent', 'email-case-closed', 'awaiting_review', 1, nowSeconds - 1, nowSeconds + 1],
+    );
+    await database.run(
+      `INSERT INTO email_drafts (
+        id, user_id, account_id, status, to_json, cc_json, bcc_json, subject, body, is_html,
         attachments_json, origin, outbox_status, version, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ['email-draft-standalone', 'mobile-attention-user', 'mobile-email-account', 'draft', '[]', '[]', '[]', 'Needs approval', '', 1, '[]', 'agent', 'send_failed', 1, nowSeconds - 2, nowSeconds],
@@ -201,7 +208,8 @@ async function main() {
     assert.equal(emailAttention.some((item) => item.id === 'email-case:email-case-active'), true);
     assert.equal(emailAttention.some((item) => item.id === 'email-draft:email-draft-standalone'), true);
     assert.equal(emailAttention.some((item) => item.id === 'email-case:email-case-closed'), false);
-    assert.equal(emailAttention.some((item) => item.id === 'email-draft:email-draft-linked-closed'), true);
+    assert.equal(emailAttention.some((item) => item.id === 'email-draft:email-draft-linked-closed'), false);
+    assert.equal(emailAttention.some((item) => item.id === 'email-draft:email-draft-linked-closed-newer'), true);
     assert.equal(emailAttention.find((item) => item.id === 'email-case:email-case-active')?.target.draftId, 'email-draft-linked');
     assert.equal(await countEmailAttention({ userId: 'mobile-attention-user', workspace }), 3);
     const categoryCounts = await getMobileInboxCategoryCounts({
@@ -222,7 +230,7 @@ async function main() {
     });
     assert.deepEqual(emailInbox.items.map((item) => item.id).sort(), [
       'email-case:email-case-active',
-      'email-draft:email-draft-linked-closed',
+      'email-draft:email-draft-linked-closed-newer',
       'email-draft:email-draft-standalone',
     ]);
     assert.equal(emailInbox.items.every((item) => item.target.kind === 'email'), true);
