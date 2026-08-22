@@ -20,6 +20,7 @@ import {
   type PiSystemPromptSnapshot,
 } from './system-prompt-snapshot';
 import { parsePersistedPiMessage, type PiMessageProjectionMode } from './message-projection';
+import { projectAgentMessageForPersistence } from './visual-data-projection';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 import { DEFAULT_AGENT_ID, normalizeChannelThreadKey, normalizeStoredChannelId, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 import {
@@ -484,7 +485,7 @@ export async function savePiSession(
       newMessages.map((m, index) => ({
         piSessionDbId: sessionDbId,
         role: m.role,
-        content: JSON.stringify(m),
+        content: JSON.stringify(projectAgentMessageForPersistence(m)),
         timestamp: getAgentMessageTimestamp(m),
         sequence: startIndex + index + 1,
       }))

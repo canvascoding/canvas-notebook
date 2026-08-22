@@ -27,7 +27,7 @@ import {
   type PiHistoryComposition,
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
-import { normalizePiMessagesForLlm, filterImagesForNonVisionModel } from '@/app/lib/pi/message-normalization';
+import { prepareMessagesForEffectiveModel } from '@/app/lib/pi/multimodal-preparation';
 import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
 import { createCompactBreakMessage, createRuntimeContinuationMessage, type RuntimeContinuationReason } from '@/app/lib/pi/custom-messages';
 import {
@@ -39,7 +39,6 @@ import {
 import {
   formatImageInputUnsupportedError,
   isImageInputUnsupportedError,
-  modelSupportsImageInput,
 } from '@/app/lib/pi/model-resolver';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
@@ -1897,9 +1896,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       messages: initialMessages,
     },
     convertToLlm: async (messages) => {
-      const filtered = messages.filter((m) => m.role !== 'compact-break' && m.role !== 'composio_auth_required');
-      const messagesForLlm = modelSupportsImageInput(model) ? filtered : filterImagesForNonVisionModel(filtered);
-      return normalizePiMessagesForLlm(messagesForLlm, imageNormalizationOptions);
+      return prepareMessagesForEffectiveModel(messages, model, imageNormalizationOptions);
     },
     transformContext: async (messages, signal) => {
       if (!runtimeRef.current) {

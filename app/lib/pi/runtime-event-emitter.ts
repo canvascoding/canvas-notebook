@@ -6,6 +6,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { projectAgentEventForExternal } from './visual-data-projection';
 
 interface PiRuntimeEvent {
   sessionId: string;
@@ -32,7 +33,7 @@ class PiRuntimeEventEmitter extends EventEmitter {
     this.emit('agent_event', {
       sessionId,
       userId,
-      event,
+      event: projectAgentEventForExternal(event),
       timestamp: Date.now(),
     } as PiRuntimeEvent);
   }
