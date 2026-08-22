@@ -11,6 +11,35 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.22.1] - 2026-08-22
+
+### Added
+
+- Added user-facing delegated-task controls with runtime policy enforcement and scoped worker sessions.
+- Added per-user to-do read state, mobile inbox categories and badges, and a versioned mobile inbox contract.
+- Added Direct MCP OAuth discovery, PKCE, revocation, readiness diagnostics, and protected-resource metadata.
+
+### Changed
+
+- Aligned effective agent prompts with the tools and permissions available in each runtime.
+- Improved mobile MARP rendering, lossless Markdown round-trips, and live-collaboration edit feedback.
+- Strengthened workspace automation scope handling and personal-provider consent in team workspaces.
+
+### Fixed
+
+- Corrected to-do scope filtering, priority ordering, cursor pagination, and notification inbox visibility.
+- Fixed vision-image delivery and safe provider fallback behavior.
+- Hardened stale-revision handling for workspace files and uploads.
+
+### Security
+
+- Restricted delegated worker capabilities and interactive credential access.
+- Hardened Direct MCP OAuth authorization, client consent, token revocation, and request validation.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.18.5] - 2026-08-18
 
 ### Changed
