@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import {
@@ -129,13 +129,27 @@ export type ListTodosOptions = {
   workspaceType?: TodoWorkspaceType | 'all';
   organizationId?: string | null;
   workspaceId?: string | null;
+  /** Trusted server-side resolved workspace ids for an explicit global view. */
+  workspaceIds?: string[];
   scopeKind?: TodoScopeKind | 'all';
   assigneeUserId?: string | 'me' | 'unassigned' | null;
-  due?: 'overdue' | 'today' | 'upcoming';
+  createdByUserId?: string | 'me' | null;
+  priority?: TodoPriority;
+  due?: 'overdue' | 'today' | 'upcoming' | 'none';
   query?: string;
-  beforeUpdatedAt?: Date;
-  beforeId?: string;
+  /** Shared ranking timestamp for every page in one cursor sequence. */
+  sortAsOf?: Date;
+  beforeCursor?: TodoListCursor;
   limit?: number;
+};
+
+/** Opaque mobile cursor values are decoded by the caller before reaching SQL. */
+export type TodoListCursor = {
+  status: TodoStatus;
+  priority: TodoPriority;
+  dueAt: Date | null;
+  createdAt: Date;
+  id: string;
 };
 
 export type TodoUserSummary = {
@@ -901,6 +915,33 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
       conditions.push(eq(todoItems.workspaceId, workspaceId));
     }
   } else if (workspaceType === 'all') {
+    const resolvedWorkspaceIds = Array.from(new Set((options.workspaceIds ?? [])
+      .map((workspaceId) => normalizeOptionalId(workspaceId))
+      .filter((workspaceId): workspaceId is string => Boolean(workspaceId))));
+    if (options.workspaceIds) {
+      const globalConditions = [
+        and(
+          eq(todoItems.userId, userId),
+          eq(todoItems.workspaceType, 'personal'),
+          eq(todoItems.scopeKind, 'user'),
+        )!,
+      ];
+      const sharedWorkspaceIds = resolvedWorkspaceIds.filter((workspaceId) => workspaceId !== LEGACY_PERSONAL_WORKSPACE_ID);
+      if (sharedWorkspaceIds.length > 0) {
+        globalConditions.push(and(
+          eq(todoItems.scopeKind, 'workspace'),
+          inArray(todoItems.workspaceId, sharedWorkspaceIds),
+        )!);
+      }
+      if (resolvedWorkspaceIds.includes(LEGACY_PERSONAL_WORKSPACE_ID)) {
+        globalConditions.push(and(
+          eq(todoItems.userId, userId),
+          eq(todoItems.scopeKind, 'workspace'),
+          eq(todoItems.workspaceId, LEGACY_PERSONAL_WORKSPACE_ID),
+        )!);
+      }
+      conditions.push(or(...globalConditions)!);
+    } else {
     const organizationId = normalizeOptionalId(options.organizationId);
     const readableProjectWorkspaceIds = organizationId
       ? await listReadableProjectWorkspaceIds(organizationId, userId)
@@ -925,6 +966,7 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
       conditions.push(or(...workspaceConditions)!);
     } else {
       conditions.push(eq(todoItems.userId, userId), eq(todoItems.workspaceType, 'personal'));
+    }
     }
   } else {
     const workspaceId = normalizeOptionalId(options.workspaceId);
@@ -954,6 +996,22 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     }
   }
 
+  const sortNow = options.sortAsOf ?? new Date();
+  const startOfToday = new Date(sortNow);
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfTomorrow = new Date(startOfToday);
+  startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+  const lifecycleRank = sql<number>`CASE ${todoItems.status} WHEN 'open' THEN 0 WHEN 'done' THEN 1 ELSE 2 END`;
+  const priorityRank = sql<number>`CASE ${todoItems.priority} WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END`;
+  const dueRank = sql<number>`CASE
+    WHEN ${todoItems.status} != 'open' THEN 4
+    WHEN ${todoItems.dueAt} IS NULL THEN 3
+    WHEN ${todoItems.dueAt} < ${sortNow} THEN 0
+    WHEN ${todoItems.dueAt} < ${startOfTomorrow} THEN 1
+    ELSE 2
+  END`;
+  const dueAtNullRank = sql<number>`CASE WHEN ${todoItems.dueAt} IS NULL THEN 1 ELSE 0 END`;
+
   if (options.status && options.status !== 'all' && options.status !== 'active') {
     conditions.push(eq(todoItems.status, options.status));
   } else if (options.status !== 'all') {
@@ -966,6 +1024,9 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
   if (options.sourceType) {
     conditions.push(eq(todoItems.sourceType, normalizeTodoSourceType(options.sourceType)));
   }
+  if (options.priority) {
+    conditions.push(eq(todoItems.priority, normalizeTodoPriority(options.priority)));
+  }
   if (options.assigneeUserId === 'me') {
     conditions.push(eq(todoItems.assigneeUserId, userId));
   } else if (options.assigneeUserId === 'unassigned') {
@@ -973,14 +1034,14 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
   } else if (typeof options.assigneeUserId === 'string' && options.assigneeUserId.trim()) {
     conditions.push(eq(todoItems.assigneeUserId, options.assigneeUserId.trim()));
   }
+  if (options.createdByUserId === 'me') {
+    conditions.push(or(eq(todoItems.createdByUserId, userId), and(isNull(todoItems.createdByUserId), eq(todoItems.userId, userId)))!);
+  } else if (typeof options.createdByUserId === 'string' && options.createdByUserId.trim()) {
+    conditions.push(eq(todoItems.createdByUserId, options.createdByUserId.trim()));
+  }
   if (options.due) {
-    const now = new Date();
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
-    const startOfTomorrow = new Date(now);
-    startOfTomorrow.setHours(24, 0, 0, 0);
     if (options.due === 'overdue') {
-      conditions.push(and(isNotNull(todoItems.dueAt), lt(todoItems.dueAt, now))!);
+      conditions.push(and(isNotNull(todoItems.dueAt), lt(todoItems.dueAt, sortNow))!);
     } else if (options.due === 'today') {
       conditions.push(and(
         isNotNull(todoItems.dueAt),
@@ -989,6 +1050,8 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
       )!);
     } else if (options.due === 'upcoming') {
       conditions.push(and(isNotNull(todoItems.dueAt), gte(todoItems.dueAt, startOfTomorrow))!);
+    } else if (options.due === 'none') {
+      conditions.push(isNull(todoItems.dueAt));
     }
   }
   if (options.query?.trim()) {
@@ -999,10 +1062,51 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
       OR lower(COALESCE(${todoItems.description}, '')) LIKE ${pattern} ESCAPE '\'
     )`);
   }
-  if (options.beforeUpdatedAt && options.beforeId) {
+  if (options.beforeCursor) {
+    const cursor = options.beforeCursor;
+    const cursorLifecycleRank = cursor.status === 'open' ? 0 : cursor.status === 'done' ? 1 : 2;
+    const cursorPriorityRank = cursor.priority === 'high' ? 0 : cursor.priority === 'normal' ? 1 : 2;
+    const cursorDueRank = cursor.status !== 'open'
+      ? 4
+      : cursor.dueAt === null
+        ? 3
+        : cursor.dueAt < sortNow
+          ? 0
+          : cursor.dueAt < startOfTomorrow
+            ? 1
+            : 2;
+    const cursorDueAtNullRank = cursor.dueAt === null ? 1 : 0;
+    const sameSortPrefix = and(
+      eq(lifecycleRank, cursorLifecycleRank),
+      eq(priorityRank, cursorPriorityRank),
+      eq(dueRank, cursorDueRank),
+      eq(dueAtNullRank, cursorDueAtNullRank),
+    )!;
+    const afterCreatedAt = or(
+      lt(todoItems.createdAt, cursor.createdAt),
+      and(eq(todoItems.createdAt, cursor.createdAt), lt(todoItems.id, cursor.id)),
+    )!;
+    const afterDueAt = cursor.dueAt === null
+      ? afterCreatedAt
+      : or(
+        gt(todoItems.dueAt, cursor.dueAt),
+        and(eq(todoItems.dueAt, cursor.dueAt), afterCreatedAt),
+      )!;
     conditions.push(or(
-      lt(todoItems.updatedAt, options.beforeUpdatedAt),
-      and(eq(todoItems.updatedAt, options.beforeUpdatedAt), lt(todoItems.id, options.beforeId)),
+      gt(lifecycleRank, cursorLifecycleRank),
+      and(eq(lifecycleRank, cursorLifecycleRank), gt(priorityRank, cursorPriorityRank)),
+      and(
+        eq(lifecycleRank, cursorLifecycleRank),
+        eq(priorityRank, cursorPriorityRank),
+        gt(dueRank, cursorDueRank),
+      ),
+      and(
+        eq(lifecycleRank, cursorLifecycleRank),
+        eq(priorityRank, cursorPriorityRank),
+        eq(dueRank, cursorDueRank),
+        gt(dueAtNullRank, cursorDueAtNullRank),
+      ),
+      and(sameSortPrefix, afterDueAt),
     )!);
   }
 
@@ -1010,7 +1114,15 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     .select()
     .from(todoItems)
     .where(and(...conditions))
-    .orderBy(desc(todoItems.updatedAt), desc(todoItems.id))
+    .orderBy(
+      asc(lifecycleRank),
+      asc(priorityRank),
+      asc(dueRank),
+      asc(dueAtNullRank),
+      asc(todoItems.dueAt),
+      desc(todoItems.createdAt),
+      desc(todoItems.id),
+    )
     .limit(limit);
 
   return hydrateTodos(rows, userId);

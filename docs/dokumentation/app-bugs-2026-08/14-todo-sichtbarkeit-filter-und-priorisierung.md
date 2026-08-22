@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 14: To-do-Sichtbarkeit, Filter und Priorisierung korrigieren'
-status: open
+status: in_review
 priority: high
 depends_on: ['02-notification-und-todo-status-vereinheitlichen']
 platforms: [web, server, mobile-api]
@@ -8,6 +8,15 @@ tags: [type/bug, topic/todos, topic/workspaces, topic/ui]
 ---
 
 # Ticket 14: To-do-Sichtbarkeit, Filter und Priorisierung korrigieren
+
+> Detaillierter, am aktuellen Codebestand ausgerichteter Umsetzungsplan:
+> [14-todo-sichtbarkeit-filter-priorisierung-umsetzungsplan.md](./14-todo-sichtbarkeit-filter-priorisierung-umsetzungsplan.md)
+
+## Aktueller Umsetzungsstand (2026-08-22)
+
+Die Scope-, Filter-, Priorisierungs- und Pagination-Aenderungen sind als PR
+#75 in `main` integriert. Die dokumentierte manuelle Mehr-Workspace-Abnahme
+steht noch aus; das Ticket ist deshalb in Abnahme und nicht erledigt.
 
 ## Problem
 

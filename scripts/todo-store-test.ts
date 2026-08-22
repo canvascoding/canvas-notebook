@@ -445,6 +445,36 @@ async function main() {
   });
   assert.deepEqual(externalProjectTodos.map((todo) => todo.id), [projectTodo.id]);
 
+  const explicitGlobalTodos = await listTodos('todo-user', {
+    status: 'all',
+    workspaceType: 'all',
+    workspaceIds: ['personal-workspace', 'team-workspace', 'project-workspace'],
+  });
+  assert.equal(explicitGlobalTodos.some((todo) => todo.id === created.id), true);
+  assert.equal(explicitGlobalTodos.some((todo) => todo.id === personalWorkspaceTodo.id), true);
+  assert.equal(explicitGlobalTodos.some((todo) => todo.id === teamTodo.id), true);
+  assert.equal(explicitGlobalTodos.some((todo) => todo.id === projectTodo.id), true);
+
+  const lowPriorityTodo = await createTodo('todo-user', { title: 'Low priority ranking', priority: 'low' });
+  const highPriorityTodo = await createTodo('todo-user', { title: 'High priority ranking', priority: 'high' });
+  const rankedPersonalTodos = await listTodos('todo-user', { status: 'all' });
+  assert.ok(rankedPersonalTodos.findIndex((todo) => todo.id === highPriorityTodo.id) < rankedPersonalTodos.findIndex((todo) => todo.id === lowPriorityTodo.id));
+  assert.equal((await listTodos('todo-user', { status: 'all', priority: 'high' })).some((todo) => todo.id === highPriorityTodo.id), true);
+  const firstRankedPage = await listTodos('todo-user', { status: 'all', limit: 1 });
+  const firstRankedTodo = firstRankedPage[0]!;
+  const nextRankedPage = await listTodos('todo-user', {
+    status: 'all',
+    limit: 20,
+    beforeCursor: {
+      status: firstRankedTodo.status,
+      priority: firstRankedTodo.priority,
+      dueAt: firstRankedTodo.dueAt,
+      createdAt: firstRankedTodo.createdAt,
+      id: firstRankedTodo.id,
+    },
+  });
+  assert.equal(nextRankedPage.some((todo) => todo.id === firstRankedTodo.id), false);
+
   const readonlyAllTodos = await listTodos('readonly-user', {
     status: 'all',
     workspaceType: 'all',
@@ -551,7 +581,7 @@ async function main() {
   const archived = await archiveTodo('todo-user', created.id);
   assert.equal(archived?.status, 'archived');
   assert.ok(archived?.archivedAt instanceof Date);
-  assert.equal((await listTodos('todo-user')).length, 0);
+  assert.equal((await listTodos('todo-user')).some((todo) => todo.id === created.id), false);
   assert.equal((await listTodos('todo-user', { status: 'archived' })).length, 1);
 
   const restored = await restoreTodo('todo-user', created.id);

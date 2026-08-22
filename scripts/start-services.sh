@@ -5,7 +5,8 @@
 set -eu
 
 # ─── Progress display helpers ──────────────────────────────────────────────
-STARTUP_LOG="/data/logs/startup.log"
+RUNTIME_DATA_DIR="${DATA:-/data}"
+STARTUP_LOG="${RUNTIME_DATA_DIR}/logs/startup.log"
 _step_num=0
 _step_total=0
 _step_label=""
@@ -61,14 +62,14 @@ if [ -n "${BOOTSTRAP_ADMIN_EMAIL:-}" ] && [ -n "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]
 fi
 
 # ─── Init log ─────────────────────────────────────────────────────────────
-mkdir -p /data/logs
+mkdir -p "${RUNTIME_DATA_DIR}/logs"
 
 # Use the container default in production while allowing local starts and test
 # runners to explicitly point at their checked-out application root.
 export CANVAS_APP_ROOT="${CANVAS_APP_ROOT:-/app}"
 
 # Runtime logging configuration
-export LOG_FILE="${LOG_FILE:-/data/logs/runtime.log}"
+export LOG_FILE="${LOG_FILE:-${RUNTIME_DATA_DIR}/logs/runtime.log}"
 export LOG_TO_STDOUT="${LOG_TO_STDOUT:-true}"
 export LOG_LEVEL="${LOG_LEVEL:-info}"
 app_version="$(node -p "require('${CANVAS_APP_ROOT}/package.json').version" 2>/dev/null || printf 'unknown')"

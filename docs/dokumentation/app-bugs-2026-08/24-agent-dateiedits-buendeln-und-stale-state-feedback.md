@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 24: Agent-Dateiedits buendeln und Stale-State-Feedback verbessern'
-status: in_progress
+status: in_review
 priority: medium
 depends_on: ['18-agent-system-prompts-an-tools-koppeln']
 platforms: [server, agent-runtime]
@@ -18,10 +18,9 @@ Live-Collaboration-Grenze mit dem als PR #72 gemergten Ticket 23 ab.
 
 ## Aktueller Umsetzungsstand (2026-08-21)
 
-Eine erste Implementierung der strukturierten Datei-Edit-Feedbacks liegt in
-einem separaten Worktree vor, ist jedoch noch nicht nach `main` integriert.
-Stale-/Collaboration-Verhalten wird erst zusammen mit Ticket 23 abgenommen.
-
+Die strukturierten Datei-Edit-Feedbacks sind als PR #74 in `main` integriert.
+Die Stale-/Collaboration-Abnahme wird weiterhin gemeinsam mit Ticket 23
+dokumentiert; bis dahin steht dieses Ticket in Abnahme und nicht auf erledigt.
 ## Problem
 
 Die Dateiwerkzeuge verhalten sich grundsaetzlich korrekt, werden von Agenten

@@ -72,6 +72,7 @@ type TodoStatus = 'open' | 'done' | 'archived';
 type TodoPriority = 'low' | 'normal' | 'high';
 type TodoSourceType = 'user' | 'agent';
 type TodoScopeKind = 'user' | 'workspace';
+type TodoListScope = 'personal' | 'workspace' | 'global';
 type StatusFilter = TodoStatus | 'all';
 
 type TodoCategory = {
@@ -522,7 +523,9 @@ export function TodosClient({ title }: { title: string }) {
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
   const [assignees, setAssignees] = useState<AssigneeOption[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(() => requestedWorkspaceId || '');
+  const [listScope, setListScope] = useState<TodoListScope>(() => requestedWorkspaceId ? 'workspace' : 'personal');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
+  const [priorityFilter, setPriorityFilter] = useState<TodoPriority | ''>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -597,7 +600,11 @@ export function TodosClient({ title }: { title: string }) {
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null,
     [selectedWorkspaceId, workspaces],
   );
-  const selectedWorkspaceLabel = selectedWorkspace?.name || t('scope.user');
+  const selectedWorkspaceLabel = listScope === 'global'
+    ? t('scope.global')
+    : listScope === 'personal'
+      ? t('scope.personal')
+      : selectedWorkspace?.name || t('scope.workspace');
 
   const formatTodoScope = useCallback((todo: Pick<TodoItem, 'scopeKind' | 'workspace' | 'workspaceType'>) => (
     todo.scopeKind === 'user'
@@ -618,8 +625,8 @@ export function TodosClient({ title }: { title: string }) {
   }, [categories, categoryFilter, formatCategoryName, t]);
 
   const filterSummary = useMemo(
-    () => `${selectedWorkspaceLabel} · ${t(`filters.status.${statusFilter}`)} · ${selectedCategoryName}`,
-    [selectedCategoryName, selectedWorkspaceLabel, statusFilter, t],
+    () => `${selectedWorkspaceLabel} · ${t(`filters.status.${statusFilter}`)} · ${priorityFilter ? t(`priority.${priorityFilter}`) : t('filters.allPriorities')} · ${selectedCategoryName}`,
+    [priorityFilter, selectedCategoryName, selectedWorkspaceLabel, statusFilter, t],
   );
 
   const loadWorkspaces = useCallback(async () => {
@@ -664,7 +671,7 @@ export function TodosClient({ title }: { title: string }) {
 
   const loadAssignees = useCallback(async () => {
     const params = new URLSearchParams();
-    if (selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId);
+    if (listScope === 'workspace' && selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId);
     const response = await fetch(`/api/todos/assignees?${params.toString()}`, {
       credentials: 'include',
       cache: 'no-store',
@@ -677,7 +684,7 @@ export function TodosClient({ title }: { title: string }) {
         : current
     ));
     return data;
-  }, [selectedWorkspaceId]);
+  }, [listScope, selectedWorkspaceId]);
 
   const loadTodos = useCallback(async () => {
     todoListRequestRef.current?.abort();
@@ -685,8 +692,9 @@ export function TodosClient({ title }: { title: string }) {
     todoListRequestRef.current = controller;
     const params = new URLSearchParams({ status: statusFilter });
     if (categoryFilter) params.set('categoryId', categoryFilter);
-    params.set('scopeKind', selectedWorkspaceId ? 'workspace' : 'user');
-    if (selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId);
+    params.set('scope', listScope);
+    if (listScope === 'workspace' && selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId);
+    if (priorityFilter) params.set('priority', priorityFilter);
     try {
       const response = await fetch(`/api/todos?${params.toString()}`, {
         credentials: 'include',
@@ -725,7 +733,7 @@ export function TodosClient({ title }: { title: string }) {
         todoListRequestRef.current = null;
       }
     }
-  }, [categoryFilter, selectedWorkspaceId, statusFilter, todoIdParam]);
+  }, [categoryFilter, listScope, priorityFilter, selectedWorkspaceId, statusFilter, todoIdParam]);
 
   const refreshAll = useCallback(async () => {
     setIsLoading(true);
@@ -914,6 +922,7 @@ export function TodosClient({ title }: { title: string }) {
 
   const openEditDialog = useCallback((todo: TodoItem) => {
     setSelectedWorkspaceId(todo.scopeKind === 'workspace' ? todo.workspaceId || '' : '');
+    setListScope(todo.scopeKind === 'workspace' ? 'workspace' : 'personal');
     setEditingTodoId(todo.id);
     setForm(todoToForm(todo));
     setFileQuery('');
@@ -939,8 +948,8 @@ export function TodosClient({ title }: { title: string }) {
         assigneeUserId: form.assigneeUserId || null,
         fileLinks: form.fileLinks,
         ...(!editingTodoId ? {
-          scopeKind: selectedWorkspaceId ? 'workspace' : 'user',
-          ...(selectedWorkspaceId ? { workspaceId: selectedWorkspaceId } : {}),
+          scopeKind: listScope === 'workspace' && selectedWorkspaceId ? 'workspace' : 'user',
+          ...(listScope === 'workspace' && selectedWorkspaceId ? { workspaceId: selectedWorkspaceId } : {}),
         } : {}),
       };
       const response = await fetch(editingTodoId ? `/api/todos/${encodeURIComponent(editingTodoId)}` : '/api/todos', {
@@ -960,7 +969,7 @@ export function TodosClient({ title }: { title: string }) {
     } finally {
       setIsMutating(false);
     }
-  }, [editingTodoId, form, loadTodos, selectedWorkspaceId, t]);
+  }, [editingTodoId, form, listScope, loadTodos, selectedWorkspaceId, t]);
 
   const archiveTodo = useCallback(async (todo: TodoItem) => {
     todoListRequestRef.current?.abort();
@@ -1153,24 +1162,71 @@ export function TodosClient({ title }: { title: string }) {
     </div>
   );
 
+  const renderPriorityFilters = (closeOnSelect = false) => (
+    <div className="grid grid-cols-2 gap-1 md:grid-cols-1">
+      <button
+        type="button"
+        className={cn(
+          'flex h-9 min-w-0 items-center gap-2 rounded-md px-3 text-sm transition-colors',
+          !priorityFilter ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+        )}
+        onClick={() => { setPriorityFilter(''); if (closeOnSelect) setFilterSheetOpen(false); }}
+      >
+        <span className="min-w-0 truncate">{t('filters.allPriorities')}</span>
+      </button>
+      {priorities.map((priority) => (
+        <button
+          key={priority}
+          type="button"
+          className={cn(
+            'flex h-9 min-w-0 items-center gap-2 rounded-md px-3 text-sm transition-colors',
+            priorityFilter === priority ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+          )}
+          onClick={() => { setPriorityFilter(priority); if (closeOnSelect) setFilterSheetOpen(false); }}
+        >
+          <span className="min-w-0 truncate">{t(`priority.${priority}`)}</span>
+        </button>
+      ))}
+    </div>
+  );
+
   const renderWorkspaceFilters = (closeOnSelect = false) => (
     <div className="grid grid-cols-2 gap-1 md:grid-cols-1">
       <button
         type="button"
         className={cn(
           'flex h-9 min-w-0 items-center gap-2 rounded-md px-3 text-sm transition-colors',
-          !selectedWorkspaceId
+          listScope === 'personal'
             ? 'bg-primary text-primary-foreground'
             : 'text-muted-foreground hover:bg-accent hover:text-foreground',
         )}
         onClick={() => {
           setSelectedWorkspaceId('');
+          setListScope('personal');
+          setSelectedTodoId(null);
+          if (closeOnSelect) setFilterSheetOpen(false);
+        }}
+      >
+        <UserRound className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{t('scope.personal')}</span>
+      </button>
+      <button
+        type="button"
+        className={cn(
+          'flex h-9 min-w-0 items-center gap-2 rounded-md px-3 text-sm transition-colors',
+          listScope === 'global'
+            ? 'bg-primary text-primary-foreground'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+        )}
+        onClick={() => {
+          setSelectedWorkspaceId('');
+          setListScope('global');
           setSelectedTodoId(null);
           if (closeOnSelect) setFilterSheetOpen(false);
         }}
       >
         <Globe2 className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 truncate">{t('scope.user')}</span>
+        <span className="min-w-0 truncate">{t('scope.global')}</span>
       </button>
       {readableWorkspaces.map((workspace) => {
         const WorkspaceIcon = workspace.type === 'personal'
@@ -1186,12 +1242,13 @@ export function TodosClient({ title }: { title: string }) {
           type="button"
           className={cn(
             'flex h-9 min-w-0 items-center gap-2 rounded-md px-3 text-sm transition-colors',
-            selectedWorkspaceId === workspace.id
+            listScope === 'workspace' && selectedWorkspaceId === workspace.id
               ? 'bg-primary text-primary-foreground'
               : 'text-muted-foreground hover:bg-accent hover:text-foreground',
           )}
           onClick={() => {
             setSelectedWorkspaceId(workspace.id);
+            setListScope('workspace');
             setSelectedTodoId(null);
             if (closeOnSelect) setFilterSheetOpen(false);
           }}
@@ -1338,6 +1395,13 @@ export function TodosClient({ title }: { title: string }) {
               <Badge variant="outline">{visibleUnreadCount > 99 ? '99+' : visibleUnreadCount}</Badge>
             </div>
             {renderStatusFilters()}
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              {t('sections.priority')}
+            </h3>
+            {renderPriorityFilters()}
           </section>
 
           <section className="space-y-3">
@@ -1557,6 +1621,13 @@ export function TodosClient({ title }: { title: string }) {
                 <Badge variant="outline">{visibleUnreadCount > 99 ? '99+' : visibleUnreadCount}</Badge>
               </div>
               {renderStatusFilters(true)}
+            </section>
+
+            <section className="mt-5 space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                {t('sections.priority')}
+              </h3>
+              {renderPriorityFilters(true)}
             </section>
 
             <section className="mt-5 space-y-3">

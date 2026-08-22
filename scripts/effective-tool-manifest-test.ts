@@ -15,7 +15,7 @@ function tool(name: string, description = `${name} description`): AgentTool {
     label: name,
     description,
     parameters: {} as AgentTool['parameters'],
-    execute: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+    execute: async () => ({ content: [{ type: 'text', text: 'ok' }], details: {} }),
   } as AgentTool;
 }
 

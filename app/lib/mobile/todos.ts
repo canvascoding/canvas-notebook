@@ -15,7 +15,12 @@ export const MOBILE_TODO_DUE_FILTERS = ['overdue', 'today', 'upcoming'] as const
 type MobileTodoCursor = {
   workspaceId: string;
   signature: string;
+  status: MobileTodo['status'];
+  priority: MobileTodo['priority'];
+  dueAt: string | null;
+  createdAt: string;
   updatedAt: string;
+  sortAsOf: string;
   id: string;
 };
 
@@ -78,7 +83,7 @@ function workspaceOptions(workspace: WorkspaceContext): Pick<
       scopeKind: 'workspace',
     };
   }
-  return { workspaceType: 'personal', workspaceId: workspace.workspaceId, scopeKind: 'all' };
+  return { workspaceType: 'personal', workspaceId: workspace.workspaceId, scopeKind: 'workspace' };
 }
 
 export function mobileTodoBelongsToWorkspace(todo: TodoWithRelations, workspace: WorkspaceContext): boolean {
@@ -156,8 +161,15 @@ function decodeCursor(value: string | null | undefined, workspaceId: string, exp
     if (
       parsed.workspaceId !== workspaceId
       || parsed.signature !== expectedSignature
+      || !['open', 'done', 'archived'].includes(parsed.status as MobileTodo['status'])
+      || !['low', 'normal', 'high'].includes(parsed.priority as MobileTodo['priority'])
+      || (parsed.dueAt !== null && (typeof parsed.dueAt !== 'string' || Number.isNaN(new Date(parsed.dueAt).getTime())))
+      || typeof parsed.createdAt !== 'string'
+      || Number.isNaN(new Date(parsed.createdAt).getTime())
       || typeof parsed.updatedAt !== 'string'
       || Number.isNaN(new Date(parsed.updatedAt).getTime())
+      || typeof parsed.sortAsOf !== 'string'
+      || Number.isNaN(new Date(parsed.sortAsOf).getTime())
       || typeof parsed.id !== 'string'
       || !parsed.id
     ) throw new Error('Invalid cursor');
@@ -188,14 +200,35 @@ export async function listMobileTodos(input: {
   const cursorSignature = signature({ status: status || 'active', due: due || '', assigneeUserId, query });
   const cursor = decodeCursor(input.cursor, input.workspace.workspaceId, cursorSignature);
   const limit = normalizeLimit(input.limit);
+  const sortAsOf = cursor ? new Date(cursor.sortAsOf) : new Date();
+  if (cursor) {
+    const anchor = await getTodo(input.userId, cursor.id);
+    if (
+      !anchor
+      || !mobileTodoBelongsToWorkspace(anchor, input.workspace)
+      || anchor.status !== cursor.status
+      || anchor.priority !== cursor.priority
+      || (anchor.dueAt?.toISOString() || null) !== cursor.dueAt
+      || anchor.createdAt.toISOString() !== cursor.createdAt
+      || anchor.updatedAt.toISOString() !== cursor.updatedAt
+    ) {
+      throw new MobileTodoError('STALE_CURSOR', 'The To-do list changed. Refresh and retry.', 409);
+    }
+  }
   const todos = await listTodos(input.userId, {
     ...workspaceOptions(input.workspace),
     status,
     due,
     assigneeUserId: assigneeUserId || undefined,
     query: query || undefined,
-    beforeUpdatedAt: cursor ? new Date(cursor.updatedAt) : undefined,
-    beforeId: cursor?.id,
+    sortAsOf,
+    beforeCursor: cursor ? {
+      status: cursor.status,
+      priority: cursor.priority,
+      dueAt: cursor.dueAt ? new Date(cursor.dueAt) : null,
+      createdAt: new Date(cursor.createdAt),
+      id: cursor.id,
+    } : undefined,
     limit: limit + 1,
   });
   const page = todos.slice(0, limit);
@@ -206,7 +239,12 @@ export async function listMobileTodos(input: {
       ? Buffer.from(JSON.stringify({
           workspaceId: input.workspace.workspaceId,
           signature: cursorSignature,
+          status: last.status as MobileTodo['status'],
+          priority: last.priority as MobileTodo['priority'],
+          dueAt: last.dueAt?.toISOString() || null,
+          createdAt: last.createdAt.toISOString(),
           updatedAt: last.updatedAt.toISOString(),
+          sortAsOf: sortAsOf.toISOString(),
           id: last.id,
         } satisfies MobileTodoCursor), 'utf8').toString('base64url')
       : null,

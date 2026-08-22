@@ -7,6 +7,7 @@ import {
   countExactTextOccurrences,
   type ExactTextEdit,
 } from '@/app/lib/files/exact-text-patch';
+import { WorkspaceFileRevisionError } from '@/app/lib/files/revision-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   applyAgentTextTargets,
@@ -190,9 +191,14 @@ export async function prepareCollaborationTextEdit(input: {
       const content = canonicalContent(state.representation, doc);
       const currentSha256 = sha256(content);
       if (input.expectedSha256 && input.expectedSha256 !== currentSha256) {
-        throw new Error(
-          `Refusing to edit ${input.path}: expectedSha256 did not match the current live collaboration state. Read the file again and retry with SHA-256 ${currentSha256}.`,
-        );
+        throw new WorkspaceFileRevisionError({
+          code: 'FILE_REVISION_CONFLICT',
+          status: 409,
+          path: input.path,
+          expectedSha256: input.expectedSha256,
+          currentSha256,
+          message: `Refusing to edit ${input.path}: expectedSha256 did not match the current live collaboration state. Read the file again before retrying.`,
+        });
       }
       const proposedContent = applyExactTextEdits(content, input.edits, input.path);
       let targets: AgentTextTarget[] = [];

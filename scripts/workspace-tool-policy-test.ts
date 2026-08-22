@@ -4,7 +4,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { filterToolsForWorkspacePermissions } from '../app/lib/pi/workspace-tool-policy';
 
 function tool(name: string): AgentTool {
-  return { name, label: name, description: name, parameters: {}, execute: async () => ({ content: [] }) } as AgentTool;
+  return { name, label: name, description: name, parameters: {}, execute: async () => ({ content: [], details: {} }) } as AgentTool;
 }
 
 const readOnly = filterToolsForWorkspacePermissions(

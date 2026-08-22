@@ -13,7 +13,7 @@ function tool(name: string): AgentTool {
     label: name,
     description: name,
     parameters: {},
-    execute: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+    execute: async () => ({ content: [{ type: 'text', text: 'ok' }], details: {} }),
   } as AgentTool;
 }
 

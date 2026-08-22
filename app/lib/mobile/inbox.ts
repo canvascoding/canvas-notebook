@@ -74,8 +74,18 @@ type TodoPresentationCandidate = {
   fingerprint: string;
 };
 
+type TodoSortKey = {
+  lifecycleRank: number;
+  priorityRank: number;
+  dueRank: number;
+  dueAt: string | null;
+  createdAt: string;
+  id: string;
+};
+
 type CollectedInboxItem = MobileInboxItem & {
   todoPresentationCandidate?: TodoPresentationCandidate;
+  todoSortKey?: TodoSortKey;
 };
 
 type CollectedAggregateInboxItem = CollectedInboxItem & {
@@ -89,6 +99,7 @@ type GroupableAggregateInboxItem = CollectedAggregateInboxItem & {
 type InboxCursor = {
   workspaceId: string;
   filter: MobileInboxFilter;
+  sortAsOf: string;
   occurredAt: string;
   id: string;
 };
@@ -97,6 +108,7 @@ type AggregateInboxCursor = {
   scopeKey: string;
   filter: MobileInboxFilter;
   groupWorkspaceTodos: boolean;
+  sortAsOf: string;
   occurredAt: string;
   workspaceId: string;
   id: string;
@@ -130,7 +142,7 @@ function todoWorkspaceOptions(workspace: WorkspaceContext) {
   return {
     workspaceType: 'personal' as const,
     workspaceId: workspace.workspaceId,
-    scopeKind: 'all' as const,
+    scopeKind: 'workspace' as const,
   };
 }
 
@@ -161,8 +173,49 @@ function todoPresentationCandidate(todo: TodoWithRelations): TodoPresentationCan
   return { createdAt: todo.createdAt.toISOString(), fingerprint };
 }
 
+function todoSortKey(todo: TodoWithRelations, sortAsOf: Date): TodoSortKey {
+  const dueAt = todo.dueAt?.toISOString() || null;
+  const dueTimestamp = todo.dueAt?.getTime() ?? null;
+  const startOfTomorrow = new Date(sortAsOf);
+  startOfTomorrow.setHours(24, 0, 0, 0);
+  return {
+    lifecycleRank: todo.status === 'open' ? 0 : todo.status === 'done' ? 1 : 2,
+    priorityRank: todo.priority === 'high' ? 0 : todo.priority === 'normal' ? 1 : 2,
+    dueRank: todo.status !== 'open'
+      ? 4
+      : dueTimestamp === null
+        ? 3
+        : dueTimestamp < sortAsOf.getTime()
+          ? 0
+          : dueTimestamp < startOfTomorrow.getTime()
+            ? 1
+            : 2,
+    dueAt,
+    createdAt: todo.createdAt.toISOString(),
+    id: todo.id,
+  };
+}
+
+function compareTodoSortKeys(left: TodoSortKey, right: TodoSortKey): number {
+  return left.lifecycleRank - right.lifecycleRank
+    || left.priorityRank - right.priorityRank
+    || left.dueRank - right.dueRank
+    || (left.dueAt || '\uffff').localeCompare(right.dueAt || '\uffff')
+    || right.createdAt.localeCompare(left.createdAt)
+    || right.id.localeCompare(left.id);
+}
+
+function compareCollectedInboxItems(left: CollectedInboxItem, right: CollectedInboxItem): number {
+  if (left.target.kind === 'todo' && right.target.kind === 'todo' && left.todoSortKey && right.todoSortKey) {
+    return compareTodoSortKeys(left.todoSortKey, right.todoSortKey);
+  }
+  if (left.target.kind === 'todo') return -1;
+  if (right.target.kind === 'todo') return 1;
+  return right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id);
+}
+
 function publicInboxItem(item: CollectedInboxItem): MobileInboxItem {
-  const { todoPresentationCandidate: _candidate, ...publicItem } = item;
+  const { todoPresentationCandidate: _candidate, todoSortKey: _sortKey, ...publicItem } = item;
   return publicItem;
 }
 
@@ -170,6 +223,7 @@ function publicAggregateInboxItem(item: GroupableAggregateInboxItem): MobileAggr
   const {
     todoPresentationCandidate: _candidate,
     todoPresentationGroupId: _groupId,
+    todoSortKey: _sortKey,
     ...publicItem
   } = item;
   return publicItem;
@@ -194,6 +248,8 @@ function decodeCursor(value: string | null | undefined, workspaceId: string, fil
     if (
       parsed.workspaceId !== workspaceId
       || parsed.filter !== filter
+      || typeof parsed.sortAsOf !== 'string'
+      || Number.isNaN(new Date(parsed.sortAsOf).getTime())
       || typeof parsed.id !== 'string'
       || typeof parsed.occurredAt !== 'string'
       || Number.isNaN(new Date(parsed.occurredAt).getTime())
@@ -228,6 +284,8 @@ function decodeAggregateCursor(
       parsed.scopeKey !== scopeKey
       || parsed.filter !== filter
       || parsed.groupWorkspaceTodos !== groupWorkspaceTodos
+      || typeof parsed.sortAsOf !== 'string'
+      || Number.isNaN(new Date(parsed.sortAsOf).getTime())
       || typeof parsed.workspaceId !== 'string'
       || typeof parsed.id !== 'string'
       || typeof parsed.occurredAt !== 'string'
@@ -271,7 +329,7 @@ function genericUnread(itemKey: string, occurredAt: Date, state: Awaited<ReturnT
   return occurredAt > state.baseline && !state.itemKeys.has(itemKey);
 }
 
-async function collectInboxItems(input: { userId: string; workspace: WorkspaceContext }) {
+async function collectInboxItems(input: { userId: string; workspace: WorkspaceContext; sortAsOf: Date }) {
   const state = await readState({ userId: input.userId, workspaceId: input.workspace.workspaceId });
   const [sessionRows, todos, generationRows, automationRows] = await Promise.all([
     db.select({
@@ -284,11 +342,28 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       eq(piSessions.sessionKind, 'conversation'),
       workspaceCondition(piSessions.workspaceId, input.workspace),
     )).orderBy(desc(piSessions.lastMessageAt), desc(piSessions.id)).limit(MAX_SOURCE_ITEMS),
-    listTodos(input.userId, {
-      ...todoWorkspaceOptions(input.workspace),
-      status: 'active',
-      limit: MAX_SOURCE_ITEMS,
-    }),
+    (async () => {
+      const workspaceTodos = await listTodos(input.userId, {
+        ...todoWorkspaceOptions(input.workspace),
+        status: 'active',
+        limit: MAX_SOURCE_ITEMS,
+      });
+      // User-scoped personal To-dos have no concrete workspace. Attach them
+      // exactly once to the default personal Inbox source so aggregate views
+      // neither omit them nor duplicate them across personal workspaces.
+      if (
+        input.workspace.workspaceType !== 'personal'
+        || input.workspace.legacy
+        || !input.workspace.isDefault
+      ) return workspaceTodos;
+      const personalTodos = await listTodos(input.userId, {
+        workspaceType: 'personal',
+        scopeKind: 'user',
+        status: 'active',
+        limit: MAX_SOURCE_ITEMS,
+      });
+      return Array.from(new Map([...workspaceTodos, ...personalTodos].map((todo) => [todo.id, todo])).values());
+    })(),
     db.select({
       id: studioGenerations.id,
       status: studioGenerations.status,
@@ -374,6 +449,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       priority: todo.priority === 'high' ? 'high' : 'normal',
       target: { kind: 'todo', todoId: todo.id },
       todoPresentationCandidate: todoPresentationCandidate(todo),
+      todoSortKey: todoSortKey(todo, input.sortAsOf),
     });
   }
   for (const row of generationRows) {
@@ -412,9 +488,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
   }
   return items
     .filter((item) => !state.dismissedItemKeys.has(item.id))
-    .sort((left, right) => (
-      right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id)
-    ));
+    .sort(compareCollectedInboxItems);
 }
 
 function matchesFilter(item: MobileInboxItem, filter: MobileInboxFilter): boolean {
@@ -439,7 +513,8 @@ export async function listMobileInbox(input: {
     : 'all';
   const limit = normalizeLimit(input.limit);
   const cursor = decodeCursor(input.cursor, input.workspace.workspaceId, filter);
-  const allItems = await collectInboxItems(input);
+  const sortAsOf = cursor ? new Date(cursor.sortAsOf) : new Date();
+  const allItems = await collectInboxItems({ ...input, sortAsOf });
   const counts = {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
@@ -450,9 +525,13 @@ export async function listMobileInbox(input: {
   };
   let filtered = allItems.filter((item) => matchesFilter(item, filter));
   if (cursor) {
-    filtered = filtered.filter((item) => (
-      item.occurredAt < cursor.occurredAt || (item.occurredAt === cursor.occurredAt && item.id < cursor.id)
+    const cursorIndex = filtered.findIndex((item) => (
+      item.occurredAt === cursor.occurredAt && item.id === cursor.id
     ));
+    if (cursorIndex < 0) {
+      throw new MobileInboxError('STALE_CURSOR', 'The Inbox changed. Refresh and retry.', 409);
+    }
+    filtered = filtered.slice(cursorIndex + 1);
   }
   const page = filtered.slice(0, limit);
   const last = page.at(-1);
@@ -460,7 +539,7 @@ export async function listMobileInbox(input: {
     counts,
     items: page.map(publicInboxItem),
     nextCursor: filtered.length > limit && last
-      ? encodeCursor({ workspaceId: input.workspace.workspaceId, filter, occurredAt: last.occurredAt, id: last.id })
+      ? encodeCursor({ workspaceId: input.workspace.workspaceId, filter, sortAsOf: sortAsOf.toISOString(), occurredAt: last.occurredAt, id: last.id })
       : null,
   };
 }
@@ -468,13 +547,14 @@ export async function listMobileInbox(input: {
 async function collectAggregateInboxItems(input: {
   userId: string;
   workspaces: WorkspaceContext[];
+  sortAsOf: Date;
 }): Promise<CollectedAggregateInboxItem[]> {
   const items: CollectedAggregateInboxItem[] = [];
   const concurrency = 4;
   for (let index = 0; index < input.workspaces.length; index += concurrency) {
     const batch = input.workspaces.slice(index, index + concurrency);
     const batchItems = await Promise.all(batch.map(async (workspace) => {
-      const workspaceItems = await collectInboxItems({ userId: input.userId, workspace });
+      const workspaceItems = await collectInboxItems({ userId: input.userId, workspace, sortAsOf: input.sortAsOf });
       return workspaceItems.map((item) => ({ ...item, workspaceId: workspace.workspaceId }));
     }));
     items.push(...batchItems.flat());
@@ -491,9 +571,14 @@ async function collectAggregateInboxItems(input: {
 }
 
 function compareAggregateInboxItems(
-  left: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId'>,
-  right: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId'>,
+  left: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId' | 'target'> & { todoSortKey?: TodoSortKey },
+  right: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId' | 'target'> & { todoSortKey?: TodoSortKey },
 ): number {
+  if (left.target.kind === 'todo' && right.target.kind === 'todo' && left.todoSortKey && right.todoSortKey) {
+    return compareTodoSortKeys(left.todoSortKey, right.todoSortKey);
+  }
+  if (left.target.kind === 'todo') return -1;
+  if (right.target.kind === 'todo') return 1;
   return right.occurredAt.localeCompare(left.occurredAt)
     || right.workspaceId.localeCompare(left.workspaceId)
     || right.id.localeCompare(left.id);
@@ -599,7 +684,8 @@ export async function listMobileAggregateInbox(input: {
   const scopeKey = aggregateScopeKey(input.workspaces);
   const groupWorkspaceTodos = input.groupWorkspaceTodos === true;
   const cursor = decodeAggregateCursor(input.cursor, scopeKey, filter, groupWorkspaceTodos);
-  const allItems = assignTodoPresentationGroups(await collectAggregateInboxItems(input));
+  const sortAsOf = cursor ? new Date(cursor.sortAsOf) : new Date();
+  const allItems = assignTodoPresentationGroups(await collectAggregateInboxItems({ ...input, sortAsOf }));
   const counts = {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
@@ -613,16 +699,15 @@ export async function listMobileAggregateInbox(input: {
     ? createTodoPresentationEntries(filteredItems)
     : filteredItems.map(publicAggregateInboxItem);
   if (cursor) {
-    filtered = filtered.filter((item) => (
-      item.occurredAt < cursor.occurredAt
-      || (
-        item.occurredAt === cursor.occurredAt
-        && (
-          item.workspaceId < cursor.workspaceId
-          || (item.workspaceId === cursor.workspaceId && item.id < cursor.id)
-        )
-      )
+    const cursorIndex = filtered.findIndex((item) => (
+      item.occurredAt === cursor.occurredAt
+      && item.workspaceId === cursor.workspaceId
+      && item.id === cursor.id
     ));
+    if (cursorIndex < 0) {
+      throw new MobileInboxError('STALE_CURSOR', 'The Inbox changed. Refresh and retry.', 409);
+    }
+    filtered = filtered.slice(cursorIndex + 1);
   }
   const page = filtered.slice(0, limit);
   const last = page.at(-1);
@@ -638,6 +723,7 @@ export async function listMobileAggregateInbox(input: {
           scopeKey,
           filter,
           groupWorkspaceTodos,
+          sortAsOf: sortAsOf.toISOString(),
           occurredAt: last.occurredAt,
           workspaceId: last.workspaceId,
           id: last.id,
@@ -767,7 +853,7 @@ export async function markMobileInboxRead(input: {
     if (!entityId || (kind !== 'studio' && kind !== 'automation')) {
       throw new MobileInboxError('ITEM_NOT_DISMISSIBLE', 'This Inbox item cannot be dismissed.', 400);
     }
-    const items = await collectInboxItems(input);
+    const items = await collectInboxItems({ ...input, sortAsOf: now });
     if (!items.some((item) => item.id === input.itemId)) {
       throw new MobileInboxError('ITEM_NOT_FOUND', 'The Inbox item was not found.', 404);
     }
@@ -810,7 +896,7 @@ export async function markMobileInboxRead(input: {
     if (!requestedRead) {
       throw new MobileInboxError('ITEM_READ_STATE_NOT_SUPPORTED', 'Only To-dos can be marked unread.', 400);
     }
-    const items = await collectInboxItems(input);
+    const items = await collectInboxItems({ ...input, sortAsOf: now });
     if (!items.some((item) => item.id === input.itemId)) {
       throw new MobileInboxError('ITEM_NOT_FOUND', 'The Inbox item was not found.', 404);
     }
