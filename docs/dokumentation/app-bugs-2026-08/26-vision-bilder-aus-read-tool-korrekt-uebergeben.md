@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 26: Vision-Faehigkeiten fuer Bilder aus dem Read-Tool aktivieren'
-status: open
+status: in_review
 priority: high
 depends_on: []
 platforms: [server, agent-runtime, providers]
@@ -8,6 +8,14 @@ tags: [type/bug, topic/agents, topic/vision, topic/images, topic/tools, topic/pr
 ---
 
 # Ticket 26: Vision-Faehigkeiten fuer Bilder aus dem Read-Tool aktivieren
+
+## Aktueller Umsetzungsstand (2026-08-22)
+
+Die Korrektur fuer die Bildweitergabe und den optimistischen Provider-Fallback
+ist in `main` integriert. Die neuen multimodalen Delivery- und
+Vision-Fallback-Tests liegen ebenfalls vor. Die manuelle Abnahme mit einem
+visionfaehigen Modell und einem kontrollierten Testbild steht noch aus; das
+Ticket ist deshalb in Abnahme und nicht erledigt.
 
 ## Problem
 

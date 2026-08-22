@@ -20,7 +20,7 @@ abgeschlossen sind.
 | --- | --- | --- | --- |
 | 01 | [Sub-Agent-Steuerung und Darstellung](./01-sub-agent-steuerung-und-darstellung.md) | erledigt | – |
 | 02 | [Notification- und To-do-Status vereinheitlichen](./02-notification-und-todo-status-vereinheitlichen.md) | erledigt | 01 |
-| 03 | [Mobile Inbox mit Kategorien und Badges](./03-mobile-inbox-tabs-und-badges.md) | offen | 02 |
+| 03 | [Mobile Inbox mit Kategorien und Badges](./03-mobile-inbox-tabs-und-badges.md) | in Abnahme | 02 |
 | 04 | [Mobile Chat und Browser-Use stabilisieren](./04-mobile-chat-und-browser-use-stabilisieren.md) | offen | 03 |
 | 05 | [Files-Tab automatisch aktualisieren](./05-files-tab-automatisch-aktualisieren.md) | offen | 04 |
 | 06 | [Mobile Notizen von WebView zu nativ migrieren](./06-mobile-notizen-native-migration.md) | offen | 05 |
@@ -43,7 +43,7 @@ abgeschlossen sind.
 | 23 | [Agent-Edits in Live-Collaboration-Dokumenten reparieren](./23-agent-edits-in-live-collaboration-reparieren.md) | in Umsetzung | – |
 | 24 | [Agent-Dateiedits buendeln und Stale-State-Feedback verbessern](./24-agent-dateiedits-buendeln-und-stale-state-feedback.md) | in Abnahme | 18 |
 | 25 | [Heartbeat-Automationen, Notifications und Tokenverbrauch kontrollieren](./25-heartbeat-automationen-und-tokenverbrauch-kontrollieren.md) | offen | 10 |
-| 26 | [Vision-Faehigkeiten fuer Bilder aus dem Read-Tool aktivieren](./26-vision-bilder-aus-read-tool-korrekt-uebergeben.md) | offen | – |
+| 26 | [Vision-Faehigkeiten fuer Bilder aus dem Read-Tool aktivieren](./26-vision-bilder-aus-read-tool-korrekt-uebergeben.md) | in Abnahme | – |
 | 27 | [E-Mail-Inbox-Lesefluss und Progressive Disclosure verbessern](./27-email-inbox-lesefluss-und-progressive-disclosure.md) | offen | – |
 
 ## Gemeinsame Arbeitsregeln
@@ -84,7 +84,7 @@ abgeschlossen sind.
 | Live Collaboration | 23 in Umsetzung | Tool-/Runtime-Grenzen mit 18 und Rich-Markdown-Fixtures mit 22 abstimmen. |
 | Agent-Dateiworkflow | 24 in Abnahme | Ticket 18 ist erfuellt; Stale-/Collaboration-Verhalten mit 23 gemeinsam abnehmen. |
 | Heartbeat-Automationen | 25 nach 10 | Nutzt Workspace-/Owner-/Filter-Grundlage aus 10; Usage- und Notification-Vertraege separat koordinieren. |
-| Vision und Datei-Lesen | 26 | Eigenstaendig startbar; mit Tickets 18 und 24 an gemeinsamen Runtime-/Toolresultat-Grenzen koordinieren. |
+| Vision und Datei-Lesen | 26 in Abnahme | Mit Tickets 18 und 24 an gemeinsamen Runtime-/Toolresultat-Grenzen koordinieren. |
 | E-Mail-Inbox | 27 | Eigenstaendig startbar; mit Ticket 09 nur bei gemeinsamen Settings-/E-Mail-Datenpfaden abstimmen. |
 
 ## Bestehende Referenzen

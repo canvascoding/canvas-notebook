@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 03: Mobile Inbox mit Kategorien und Badges'
-status: open
+status: in_review
 priority: high
 depends_on: ['02-notification-und-todo-status-vereinheitlichen']
 platforms: [mobile, mobile-api, web]
@@ -11,6 +11,13 @@ tags: [type/bug, topic/mobile-app, topic/notifications, topic/todos]
 
 > Detaillierter, codebestandsnaher Umsetzungsplan:
 > [03-mobile-inbox-umsetzungsplan.md](./03-mobile-inbox-umsetzungsplan.md)
+
+## Aktueller Umsetzungsstand (2026-08-22)
+
+Die Notebook-seitigen Mobile-Inbox-Vertraege, Kategorien und Badge-Counts sind
+als PR #77 in `main` integriert. Die Expo-seitige Komponenten- und
+Realgeraeteabnahme bleibt gemaess den Abnahmekriterien offen; das Ticket steht
+deshalb in Abnahme und nicht auf erledigt.
 
 ## Problem
 
