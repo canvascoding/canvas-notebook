@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { countMobileAppBadge } from '@/app/lib/mobile/app-badge';
+import { getMobileInboxCategoryCounts } from '@/app/lib/mobile/inbox-counts';
+import { loadMobileInboxScope } from '@/app/lib/mobile/inbox-scope';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -28,8 +29,12 @@ export async function GET(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   try {
-    const count = await countMobileAppBadge(session.user);
-    return NextResponse.json({ success: true, count }, { headers: responseHeaders });
+    const scope = await loadMobileInboxScope(session.user);
+    const categories = await getMobileInboxCategoryCounts({
+      userId: session.user.id,
+      workspaces: scope.availableWorkspaces,
+    });
+    return NextResponse.json({ success: true, count: categories.notifications.badge, categories }, { headers: responseHeaders });
   } catch (error) {
     console.error('[API] Mobile app badge count failed:', error);
     return NextResponse.json(

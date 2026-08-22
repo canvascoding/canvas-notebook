@@ -20,6 +20,7 @@ import {
 import { piSessionReadCursorSql } from '@/app/lib/chat/read-cursor';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { db } from '@/app/lib/db';
+import { listEmailAttention } from '@/app/lib/email/inbox-attention';
 import {
   automationJobs,
   automationRuns,
@@ -38,20 +39,22 @@ const MAX_SOURCE_ITEMS = 200;
 const INITIAL_UNREAD_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const TODO_PRESENTATION_GROUP_WINDOW_MS = 5 * 60 * 1_000;
 
-export const MOBILE_INBOX_FILTERS = ['all', 'unread', 'notifications', 'chat', 'todos', 'studio', 'automation'] as const;
+export const MOBILE_INBOX_FILTERS = ['all', 'unread', 'notifications', 'chat', 'emails', 'todos', 'studio', 'automation'] as const;
 export type MobileInboxFilter = typeof MOBILE_INBOX_FILTERS[number];
 
 export type MobileInboxItem = {
   id: string;
-  type: 'chat.response' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed';
+  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed';
   title: string;
   detail: string | null;
   previewUrl: string | null;
   occurredAt: string;
   unread: boolean;
   priority: 'normal' | 'high';
+  attentionRequired?: true;
   target:
     | { kind: 'chat'; sessionId: string }
+    | { kind: 'email'; scope: 'personal' | 'workspace'; caseId?: string; draftId?: string }
     | { kind: 'todo'; todoId: string }
     | { kind: 'studio'; generationId: string }
     | { kind: 'automation'; runId: string };
@@ -144,6 +147,29 @@ function todoWorkspaceOptions(workspace: WorkspaceContext) {
     workspaceId: workspace.workspaceId,
     scopeKind: 'workspace' as const,
   };
+}
+
+async function listInboxTodos(input: { userId: string; workspace: WorkspaceContext }) {
+  const workspaceTodos = await listTodos(input.userId, {
+    ...todoWorkspaceOptions(input.workspace),
+    status: 'active',
+    limit: MAX_SOURCE_ITEMS,
+  });
+  // User-scoped personal To-dos have no concrete workspace. Attach them
+  // exactly once to the default personal Inbox source so aggregate views
+  // neither omit them nor duplicate them across personal workspaces.
+  if (
+    input.workspace.workspaceType !== 'personal'
+    || input.workspace.legacy
+    || !input.workspace.isDefault
+  ) return workspaceTodos;
+  const personalTodos = await listTodos(input.userId, {
+    workspaceType: 'personal',
+    scopeKind: 'user',
+    status: 'active',
+    limit: MAX_SOURCE_ITEMS,
+  });
+  return Array.from(new Map([...workspaceTodos, ...personalTodos].map((todo) => [todo.id, todo])).values());
 }
 
 function todoBelongsToWorkspace(todo: Awaited<ReturnType<typeof getTodo>>, workspace: WorkspaceContext): boolean {
@@ -331,7 +357,7 @@ function genericUnread(itemKey: string, occurredAt: Date, state: Awaited<ReturnT
 
 async function collectInboxItems(input: { userId: string; workspace: WorkspaceContext; sortAsOf: Date }) {
   const state = await readState({ userId: input.userId, workspaceId: input.workspace.workspaceId });
-  const [sessionRows, todos, generationRows, automationRows] = await Promise.all([
+  const [sessionRows, todos, generationRows, automationRows, emailItems] = await Promise.all([
     db.select({
       sessionId: piSessions.sessionId,
       title: piSessions.title,
@@ -342,28 +368,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       eq(piSessions.sessionKind, 'conversation'),
       workspaceCondition(piSessions.workspaceId, input.workspace),
     )).orderBy(desc(piSessions.lastMessageAt), desc(piSessions.id)).limit(MAX_SOURCE_ITEMS),
-    (async () => {
-      const workspaceTodos = await listTodos(input.userId, {
-        ...todoWorkspaceOptions(input.workspace),
-        status: 'active',
-        limit: MAX_SOURCE_ITEMS,
-      });
-      // User-scoped personal To-dos have no concrete workspace. Attach them
-      // exactly once to the default personal Inbox source so aggregate views
-      // neither omit them nor duplicate them across personal workspaces.
-      if (
-        input.workspace.workspaceType !== 'personal'
-        || input.workspace.legacy
-        || !input.workspace.isDefault
-      ) return workspaceTodos;
-      const personalTodos = await listTodos(input.userId, {
-        workspaceType: 'personal',
-        scopeKind: 'user',
-        status: 'active',
-        limit: MAX_SOURCE_ITEMS,
-      });
-      return Array.from(new Map([...workspaceTodos, ...personalTodos].map((todo) => [todo.id, todo])).values());
-    })(),
+    listInboxTodos({ userId: input.userId, workspace: input.workspace }),
     db.select({
       id: studioGenerations.id,
       status: studioGenerations.status,
@@ -388,6 +393,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
         ? or(eq(automationRuns.actorUserId, input.userId), eq(automationJobs.ownerUserId, input.userId))
         : undefined,
     )).orderBy(desc(automationRuns.finishedAt), desc(automationRuns.createdAt)).limit(MAX_SOURCE_ITEMS),
+    listEmailAttention({ userId: input.userId, workspace: input.workspace }),
   ]);
 
   const imageGenerationIds = generationRows
@@ -433,6 +439,22 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       unread: true,
       priority: 'normal',
       target: { kind: 'chat', sessionId: row.sessionId },
+    });
+  }
+  for (const email of emailItems) {
+    items.push({
+      id: email.id,
+      type: email.type,
+      title: email.title,
+      detail: email.detail,
+      previewUrl: null,
+      occurredAt: email.occurredAt,
+      // E-mail attention is derived from its case/draft lifecycle. It remains
+      // visible until resolved, rather than being hidden by generic Inbox reads.
+      unread: false,
+      priority: email.priority,
+      attentionRequired: email.attentionRequired,
+      target: email.target,
     });
   }
   for (const todo of todos) {
@@ -494,8 +516,9 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
 function matchesFilter(item: MobileInboxItem, filter: MobileInboxFilter): boolean {
   if (filter === 'all') return true;
   if (filter === 'unread') return item.unread;
-  if (filter === 'notifications') return item.target.kind !== 'todo';
+  if (filter === 'notifications') return item.target.kind !== 'todo' && item.target.kind !== 'email';
   if (filter === 'chat') return item.target.kind === 'chat';
+  if (filter === 'emails') return item.target.kind === 'email';
   if (filter === 'todos') return item.target.kind === 'todo';
   if (filter === 'studio') return item.target.kind === 'studio';
   return item.target.kind === 'automation';
@@ -518,6 +541,7 @@ export async function listMobileInbox(input: {
   const counts = {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
+    emails: allItems.filter((item) => item.target.kind === 'email').length,
     todos: allItems.filter((item) => item.target.kind === 'todo').length,
     todoUnread: allItems.filter((item) => item.target.kind === 'todo' && item.unread).length,
     studio: allItems.filter((item) => item.target.kind === 'studio').length,
@@ -689,6 +713,7 @@ export async function listMobileAggregateInbox(input: {
   const counts = {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
+    emails: allItems.filter((item) => item.target.kind === 'email').length,
     todos: allItems.filter((item) => item.target.kind === 'todo').length,
     todoUnread: allItems.filter((item) => item.target.kind === 'todo' && item.unread).length,
     studio: allItems.filter((item) => item.target.kind === 'studio').length,
@@ -735,13 +760,15 @@ export async function listMobileAggregateInbox(input: {
 export async function markMobileAggregateInboxRead(input: {
   userId: string;
   workspaces: WorkspaceContext[];
+  category?: 'notifications';
 }) {
   let readAt = new Date().toISOString();
   for (const workspace of input.workspaces) {
     const result = await markMobileInboxRead({
       userId: input.userId,
       workspace,
-      action: 'mark_all_read',
+      action: input.category ? 'mark_category_read' : 'mark_all_read',
+      ...(input.category ? { category: input.category } : {}),
     });
     if ('readAt' in result && typeof result.readAt === 'string') readAt = result.readAt;
   }
@@ -783,6 +810,67 @@ export async function countMobileUnreadMessages(input: {
   )).length;
 }
 
+/**
+ * Counts every unread, badge-eligible notification source. To-dos intentionally
+ * stay outside this aggregate: their lifecycle count is displayed on their own
+ * tab and must never inflate the global Inbox badge.
+ */
+export async function countMobileUnreadNotifications(input: {
+  userId: string;
+  workspaces: WorkspaceContext[];
+}): Promise<number> {
+  const workspaces = [...new Map(input.workspaces.map((workspace) => [workspace.workspaceId, workspace])).values()];
+  const counts = await Promise.all(workspaces.map(async (workspace) => {
+    const state = await readState({ userId: input.userId, workspaceId: workspace.workspaceId });
+    const [sessionRows, generationRows, automationRows] = await Promise.all([
+      db.select({
+        lastMessageAt: piSessions.lastMessageAt,
+        lastViewedAt: piSessions.lastViewedAt,
+      }).from(piSessions).where(and(
+        eq(piSessions.userId, input.userId),
+        eq(piSessions.sessionKind, 'conversation'),
+        workspaceCondition(piSessions.workspaceId, workspace),
+        isNotNull(piSessions.lastMessageAt),
+        or(
+          isNull(piSessions.lastViewedAt),
+          gt(piSessions.lastMessageAt, piSessions.lastViewedAt),
+        ),
+      )),
+      db.select({
+        id: studioGenerations.id,
+        updatedAt: studioGenerations.updatedAt,
+      }).from(studioGenerations).where(and(
+        workspaceCondition(studioGenerations.workspaceId, workspace),
+        inArray(studioGenerations.status, ['completed', 'failed']),
+        workspace.workspaceType === 'personal' ? eq(studioGenerations.userId, input.userId) : undefined,
+      )),
+      db.select({
+        runId: automationRuns.id,
+        occurredAt: automationRuns.finishedAt,
+        createdAt: automationRuns.createdAt,
+      }).from(automationRuns).innerJoin(automationJobs, eq(automationJobs.id, automationRuns.jobId)).where(and(
+        workspaceCondition(automationRuns.workspaceId, workspace),
+        eq(automationRuns.status, 'failed'),
+        workspace.workspaceType === 'personal'
+          ? or(eq(automationRuns.actorUserId, input.userId), eq(automationJobs.ownerUserId, input.userId))
+          : undefined,
+      )),
+    ]);
+    const unreadChats = sessionRows.filter((session) => (
+      hasUnreadAssistantResponse(session.lastMessageAt, session.lastViewedAt)
+    )).length;
+    const unreadGenerations = generationRows.filter((generation) => (
+      genericUnread(`studio:${generation.id}`, generation.updatedAt, state)
+    )).length;
+    const unreadAutomations = automationRows.filter((automation) => {
+      const occurredAt = automation.occurredAt || automation.createdAt;
+      return genericUnread(`automation:${automation.runId}`, occurredAt, state);
+    }).length;
+    return unreadChats + unreadGenerations + unreadAutomations;
+  }));
+  return counts.reduce((total, count) => total + count, 0);
+}
+
 async function upsertReadState(userId: string, workspaceId: string, itemKey: string, readAt: Date) {
   await db.insert(mobileInboxReadStates).values({
     userId,
@@ -816,16 +904,19 @@ export async function markMobileInboxRead(input: {
   userId: string;
   workspace: WorkspaceContext;
   action: unknown;
+  category?: unknown;
   itemId?: unknown;
   read?: unknown;
 }) {
   const now = new Date();
-  if (input.action === 'mark_all_read') {
-    const todos = await listTodos(input.userId, {
-      ...todoWorkspaceOptions(input.workspace),
-      status: 'active',
-      limit: MAX_SOURCE_ITEMS,
-    });
+  const markNotificationsRead = input.action === 'mark_category_read';
+  if (input.action === 'mark_all_read' || markNotificationsRead) {
+    if (markNotificationsRead && input.category !== 'notifications') {
+      throw new MobileInboxError('INVALID_CATEGORY', 'The Inbox category is invalid.', 400);
+    }
+    const todos = input.action === 'mark_all_read'
+      ? await listInboxTodos({ userId: input.userId, workspace: input.workspace })
+      : [];
     await Promise.all([
       db.update(piSessions).set({ lastViewedAt: piSessionReadCursorSql(), updatedAt: now }).where(and(
         eq(piSessions.userId, input.userId),

@@ -9,6 +9,9 @@ tags: [type/bug, topic/mobile-app, topic/notifications, topic/todos]
 
 # Ticket 03: Mobile Inbox mit Kategorien und Badges
 
+> Detaillierter, codebestandsnaher Umsetzungsplan:
+> [03-mobile-inbox-umsetzungsplan.md](./03-mobile-inbox-umsetzungsplan.md)
+
 ## Problem
 
 Die Expo-Inbox vermischt Notifications und To-dos. E-Mails sind nicht klar
