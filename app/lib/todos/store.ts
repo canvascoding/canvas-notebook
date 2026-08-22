@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import {
@@ -137,9 +137,17 @@ export type ListTodosOptions = {
   priority?: TodoPriority;
   due?: 'overdue' | 'today' | 'upcoming' | 'none';
   query?: string;
-  beforeUpdatedAt?: Date;
-  beforeId?: string;
+  beforeCursor?: TodoListCursor;
   limit?: number;
+};
+
+/** Opaque mobile cursor values are decoded by the caller before reaching SQL. */
+export type TodoListCursor = {
+  status: TodoStatus;
+  priority: TodoPriority;
+  dueAt: Date | null;
+  createdAt: Date;
+  id: string;
 };
 
 export type TodoUserSummary = {
@@ -916,10 +924,18 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
           eq(todoItems.scopeKind, 'user'),
         )!,
       ];
-      if (resolvedWorkspaceIds.length > 0) {
+      const sharedWorkspaceIds = resolvedWorkspaceIds.filter((workspaceId) => workspaceId !== LEGACY_PERSONAL_WORKSPACE_ID);
+      if (sharedWorkspaceIds.length > 0) {
         globalConditions.push(and(
           eq(todoItems.scopeKind, 'workspace'),
-          inArray(todoItems.workspaceId, resolvedWorkspaceIds),
+          inArray(todoItems.workspaceId, sharedWorkspaceIds),
+        )!);
+      }
+      if (resolvedWorkspaceIds.includes(LEGACY_PERSONAL_WORKSPACE_ID)) {
+        globalConditions.push(and(
+          eq(todoItems.userId, userId),
+          eq(todoItems.scopeKind, 'workspace'),
+          eq(todoItems.workspaceId, LEGACY_PERSONAL_WORKSPACE_ID),
         )!);
       }
       conditions.push(or(...globalConditions)!);
@@ -978,6 +994,22 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     }
   }
 
+  const sortNow = new Date();
+  const startOfToday = new Date(sortNow);
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfTomorrow = new Date(startOfToday);
+  startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+  const lifecycleRank = sql<number>`CASE ${todoItems.status} WHEN 'open' THEN 0 WHEN 'done' THEN 1 ELSE 2 END`;
+  const priorityRank = sql<number>`CASE ${todoItems.priority} WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END`;
+  const dueRank = sql<number>`CASE
+    WHEN ${todoItems.status} != 'open' THEN 4
+    WHEN ${todoItems.dueAt} IS NULL THEN 3
+    WHEN ${todoItems.dueAt} < ${sortNow} THEN 0
+    WHEN ${todoItems.dueAt} < ${startOfTomorrow} THEN 1
+    ELSE 2
+  END`;
+  const dueAtNullRank = sql<number>`CASE WHEN ${todoItems.dueAt} IS NULL THEN 1 ELSE 0 END`;
+
   if (options.status && options.status !== 'all' && options.status !== 'active') {
     conditions.push(eq(todoItems.status, options.status));
   } else if (options.status !== 'all') {
@@ -1006,13 +1038,8 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     conditions.push(eq(todoItems.createdByUserId, options.createdByUserId.trim()));
   }
   if (options.due) {
-    const now = new Date();
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
-    const startOfTomorrow = new Date(now);
-    startOfTomorrow.setHours(24, 0, 0, 0);
     if (options.due === 'overdue') {
-      conditions.push(and(isNotNull(todoItems.dueAt), lt(todoItems.dueAt, now))!);
+      conditions.push(and(isNotNull(todoItems.dueAt), lt(todoItems.dueAt, sortNow))!);
     } else if (options.due === 'today') {
       conditions.push(and(
         isNotNull(todoItems.dueAt),
@@ -1033,27 +1060,53 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
       OR lower(COALESCE(${todoItems.description}, '')) LIKE ${pattern} ESCAPE '\'
     )`);
   }
-  if (options.beforeUpdatedAt && options.beforeId) {
+  if (options.beforeCursor) {
+    const cursor = options.beforeCursor;
+    const cursorLifecycleRank = cursor.status === 'open' ? 0 : cursor.status === 'done' ? 1 : 2;
+    const cursorPriorityRank = cursor.priority === 'high' ? 0 : cursor.priority === 'normal' ? 1 : 2;
+    const cursorDueRank = cursor.status !== 'open'
+      ? 4
+      : cursor.dueAt === null
+        ? 3
+        : cursor.dueAt < sortNow
+          ? 0
+          : cursor.dueAt < startOfTomorrow
+            ? 1
+            : 2;
+    const cursorDueAtNullRank = cursor.dueAt === null ? 1 : 0;
+    const sameSortPrefix = and(
+      eq(lifecycleRank, cursorLifecycleRank),
+      eq(priorityRank, cursorPriorityRank),
+      eq(dueRank, cursorDueRank),
+      eq(dueAtNullRank, cursorDueAtNullRank),
+    )!;
+    const afterCreatedAt = or(
+      lt(todoItems.createdAt, cursor.createdAt),
+      and(eq(todoItems.createdAt, cursor.createdAt), lt(todoItems.id, cursor.id)),
+    )!;
+    const afterDueAt = cursor.dueAt === null
+      ? afterCreatedAt
+      : or(
+        gt(todoItems.dueAt, cursor.dueAt),
+        and(eq(todoItems.dueAt, cursor.dueAt), afterCreatedAt),
+      )!;
     conditions.push(or(
-      lt(todoItems.updatedAt, options.beforeUpdatedAt),
-      and(eq(todoItems.updatedAt, options.beforeUpdatedAt), lt(todoItems.id, options.beforeId)),
+      gt(lifecycleRank, cursorLifecycleRank),
+      and(eq(lifecycleRank, cursorLifecycleRank), gt(priorityRank, cursorPriorityRank)),
+      and(
+        eq(lifecycleRank, cursorLifecycleRank),
+        eq(priorityRank, cursorPriorityRank),
+        gt(dueRank, cursorDueRank),
+      ),
+      and(
+        eq(lifecycleRank, cursorLifecycleRank),
+        eq(priorityRank, cursorPriorityRank),
+        eq(dueRank, cursorDueRank),
+        gt(dueAtNullRank, cursorDueAtNullRank),
+      ),
+      and(sameSortPrefix, afterDueAt),
     )!);
   }
-
-  const now = new Date();
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-  const startOfTomorrow = new Date(startOfToday);
-  startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
-  const lifecycleRank = sql<number>`CASE ${todoItems.status} WHEN 'open' THEN 0 WHEN 'done' THEN 1 ELSE 2 END`;
-  const priorityRank = sql<number>`CASE ${todoItems.priority} WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END`;
-  const dueRank = sql<number>`CASE
-    WHEN ${todoItems.status} != 'open' THEN 4
-    WHEN ${todoItems.dueAt} IS NULL THEN 3
-    WHEN ${todoItems.dueAt} < ${now} THEN 0
-    WHEN ${todoItems.dueAt} < ${startOfTomorrow} THEN 1
-    ELSE 2
-  END`;
 
   const rows = await db
     .select()
@@ -1063,6 +1116,7 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
       asc(lifecycleRank),
       asc(priorityRank),
       asc(dueRank),
+      asc(dueAtNullRank),
       asc(todoItems.dueAt),
       desc(todoItems.createdAt),
       desc(todoItems.id),

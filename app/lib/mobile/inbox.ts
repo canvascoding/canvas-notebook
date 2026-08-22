@@ -517,9 +517,10 @@ export async function listMobileInbox(input: {
   };
   let filtered = allItems.filter((item) => matchesFilter(item, filter));
   if (cursor) {
-    filtered = filtered.filter((item) => (
-      item.occurredAt < cursor.occurredAt || (item.occurredAt === cursor.occurredAt && item.id < cursor.id)
+    const cursorIndex = filtered.findIndex((item) => (
+      item.occurredAt === cursor.occurredAt && item.id === cursor.id
     ));
+    filtered = cursorIndex < 0 ? [] : filtered.slice(cursorIndex + 1);
   }
   const page = filtered.slice(0, limit);
   const last = page.at(-1);
@@ -683,16 +684,12 @@ export async function listMobileAggregateInbox(input: {
     ? createTodoPresentationEntries(filteredItems)
     : filteredItems.map(publicAggregateInboxItem);
   if (cursor) {
-    filtered = filtered.filter((item) => (
-      item.occurredAt < cursor.occurredAt
-      || (
-        item.occurredAt === cursor.occurredAt
-        && (
-          item.workspaceId < cursor.workspaceId
-          || (item.workspaceId === cursor.workspaceId && item.id < cursor.id)
-        )
-      )
+    const cursorIndex = filtered.findIndex((item) => (
+      item.occurredAt === cursor.occurredAt
+      && item.workspaceId === cursor.workspaceId
+      && item.id === cursor.id
     ));
+    filtered = cursorIndex < 0 ? [] : filtered.slice(cursorIndex + 1);
   }
   const page = filtered.slice(0, limit);
   const last = page.at(-1);

@@ -15,7 +15,10 @@ export const MOBILE_TODO_DUE_FILTERS = ['overdue', 'today', 'upcoming'] as const
 type MobileTodoCursor = {
   workspaceId: string;
   signature: string;
-  updatedAt: string;
+  status: MobileTodo['status'];
+  priority: MobileTodo['priority'];
+  dueAt: string | null;
+  createdAt: string;
   id: string;
 };
 
@@ -156,8 +159,11 @@ function decodeCursor(value: string | null | undefined, workspaceId: string, exp
     if (
       parsed.workspaceId !== workspaceId
       || parsed.signature !== expectedSignature
-      || typeof parsed.updatedAt !== 'string'
-      || Number.isNaN(new Date(parsed.updatedAt).getTime())
+      || !['open', 'done', 'archived'].includes(parsed.status as MobileTodo['status'])
+      || !['low', 'normal', 'high'].includes(parsed.priority as MobileTodo['priority'])
+      || (parsed.dueAt !== null && (typeof parsed.dueAt !== 'string' || Number.isNaN(new Date(parsed.dueAt).getTime())))
+      || typeof parsed.createdAt !== 'string'
+      || Number.isNaN(new Date(parsed.createdAt).getTime())
       || typeof parsed.id !== 'string'
       || !parsed.id
     ) throw new Error('Invalid cursor');
@@ -194,8 +200,13 @@ export async function listMobileTodos(input: {
     due,
     assigneeUserId: assigneeUserId || undefined,
     query: query || undefined,
-    beforeUpdatedAt: cursor ? new Date(cursor.updatedAt) : undefined,
-    beforeId: cursor?.id,
+    beforeCursor: cursor ? {
+      status: cursor.status,
+      priority: cursor.priority,
+      dueAt: cursor.dueAt ? new Date(cursor.dueAt) : null,
+      createdAt: new Date(cursor.createdAt),
+      id: cursor.id,
+    } : undefined,
     limit: limit + 1,
   });
   const page = todos.slice(0, limit);
@@ -206,7 +217,10 @@ export async function listMobileTodos(input: {
       ? Buffer.from(JSON.stringify({
           workspaceId: input.workspace.workspaceId,
           signature: cursorSignature,
-          updatedAt: last.updatedAt.toISOString(),
+          status: last.status as MobileTodo['status'],
+          priority: last.priority as MobileTodo['priority'],
+          dueAt: last.dueAt?.toISOString() || null,
+          createdAt: last.createdAt.toISOString(),
           id: last.id,
         } satisfies MobileTodoCursor), 'utf8').toString('base64url')
       : null,

@@ -460,6 +460,20 @@ async function main() {
   const rankedPersonalTodos = await listTodos('todo-user', { status: 'all' });
   assert.ok(rankedPersonalTodos.findIndex((todo) => todo.id === highPriorityTodo.id) < rankedPersonalTodos.findIndex((todo) => todo.id === lowPriorityTodo.id));
   assert.equal((await listTodos('todo-user', { status: 'all', priority: 'high' })).some((todo) => todo.id === highPriorityTodo.id), true);
+  const firstRankedPage = await listTodos('todo-user', { status: 'all', limit: 1 });
+  const firstRankedTodo = firstRankedPage[0]!;
+  const nextRankedPage = await listTodos('todo-user', {
+    status: 'all',
+    limit: 20,
+    beforeCursor: {
+      status: firstRankedTodo.status,
+      priority: firstRankedTodo.priority,
+      dueAt: firstRankedTodo.dueAt,
+      createdAt: firstRankedTodo.createdAt,
+      id: firstRankedTodo.id,
+    },
+  });
+  assert.equal(nextRankedPage.some((todo) => todo.id === firstRankedTodo.id), false);
 
   const readonlyAllTodos = await listTodos('readonly-user', {
     status: 'all',

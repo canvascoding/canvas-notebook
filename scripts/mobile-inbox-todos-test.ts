@@ -124,6 +124,15 @@ async function main() {
       inbox.items.find((item) => item.id === 'studio:generation-ready')?.previewUrl,
       '/api/mobile/v1/studio/outputs/generation-preview-output/preview',
     );
+    const inboxPage = await listMobileInbox({ userId: 'mobile-attention-user', workspace, limit: 1 });
+    assert.ok(inboxPage.nextCursor);
+    const inboxNextPage = await listMobileInbox({
+      userId: 'mobile-attention-user',
+      workspace,
+      cursor: inboxPage.nextCursor,
+      limit: 20,
+    });
+    assert.equal(inboxNextPage.items.some((item) => item.id === inboxPage.items[0]?.id), false);
     const aggregateInbox = await listMobileAggregateInbox({
       userId: 'mobile-attention-user',
       workspaces: [workspace],
@@ -141,6 +150,7 @@ async function main() {
       limit: 2,
     });
     assert.equal(aggregateNextPage.items.length, 2);
+    assert.equal(aggregateNextPage.items.some((item) => item.id === aggregateInbox.items[0]?.id), false);
     const groupedTodoEntries = groupMobileAggregateInboxItemsForPresentation([
       ...['workspace-alex', 'workspace-coding', 'workspace-notebook'].map((workspaceId, index) => ({
         id: `todo:grouped-${index}`,
