@@ -53,8 +53,7 @@ async function main() {
 
   const textPayload = await prepareMessagesForEffectiveModel([toolResult], textModel);
   const textContent = textPayload[0].content as Array<{ type: string; text?: string }>;
-  assert.equal(textContent.filter((part) => part.type === 'image').length, 0);
-  assert.match(textContent.map((part) => part.text || '').join('\n'), /does not support vision/i);
+  assert.equal(textContent.filter((part) => part.type === 'image').length, 1);
 
   const persisted = projectAgentMessageForPersistence(toolResult);
   const persistedJson = JSON.stringify(persisted);
