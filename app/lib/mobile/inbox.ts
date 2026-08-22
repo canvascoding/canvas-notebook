@@ -520,7 +520,10 @@ export async function listMobileInbox(input: {
     const cursorIndex = filtered.findIndex((item) => (
       item.occurredAt === cursor.occurredAt && item.id === cursor.id
     ));
-    filtered = cursorIndex < 0 ? [] : filtered.slice(cursorIndex + 1);
+    if (cursorIndex < 0) {
+      throw new MobileInboxError('STALE_CURSOR', 'The Inbox changed. Refresh and retry.', 409);
+    }
+    filtered = filtered.slice(cursorIndex + 1);
   }
   const page = filtered.slice(0, limit);
   const last = page.at(-1);
@@ -689,7 +692,10 @@ export async function listMobileAggregateInbox(input: {
       && item.workspaceId === cursor.workspaceId
       && item.id === cursor.id
     ));
-    filtered = cursorIndex < 0 ? [] : filtered.slice(cursorIndex + 1);
+    if (cursorIndex < 0) {
+      throw new MobileInboxError('STALE_CURSOR', 'The Inbox changed. Refresh and retry.', 409);
+    }
+    filtered = filtered.slice(cursorIndex + 1);
   }
   const page = filtered.slice(0, limit);
   const last = page.at(-1);

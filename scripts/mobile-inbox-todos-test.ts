@@ -133,6 +133,16 @@ async function main() {
       limit: 20,
     });
     assert.equal(inboxNextPage.items.some((item) => item.id === inboxPage.items[0]?.id), false);
+    const staleInboxCursor = Buffer.from(JSON.stringify({
+      workspaceId: workspace.workspaceId,
+      filter: 'all',
+      occurredAt: inboxPage.items[0]?.occurredAt,
+      id: 'missing-item',
+    }), 'utf8').toString('base64url');
+    await assert.rejects(
+      () => listMobileInbox({ userId: 'mobile-attention-user', workspace, cursor: staleInboxCursor }),
+      (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'STALE_CURSOR'),
+    );
     const aggregateInbox = await listMobileAggregateInbox({
       userId: 'mobile-attention-user',
       workspaces: [workspace],
