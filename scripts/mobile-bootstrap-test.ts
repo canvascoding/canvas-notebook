@@ -102,6 +102,8 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'inbox.feed',
   'inbox.aggregate',
   'inbox.sources',
+  'inbox.categories',
+  'inbox.email_attention',
   'inbox.read_state',
   'inbox.dismiss',
   'todos.read',

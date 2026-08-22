@@ -51,6 +51,7 @@ import {
   modelSupportsImageInput,
   resolvePiModel,
 } from '@/app/lib/pi/model-resolver';
+import { createVisionFallbackStreamFn } from '@/app/lib/pi/vision-fallback-stream';
 
 export class AiRuntimeExecutionError extends Error {
   readonly status = 409;
@@ -588,6 +589,32 @@ async function materializeResolution(
     return auth;
   };
 
+  const authenticatedStreamFn: ExecutableAgentRuntime['streamFn'] = async (requestedModel, requestContext, options) => {
+    try {
+      if (requestedModel.id !== model.id || requestedModel.provider !== model.provider) {
+        throw new AiRuntimeExecutionError(
+          'RUNTIME_PROVIDER_CHANGED',
+          'The active runtime model changed before the provider request started. Try again.',
+        );
+      }
+      const auth = await resolveRequestAuth();
+      const authenticatedModel = auth.baseUrl
+        ? { ...requestedModel, baseUrl: auth.baseUrl }
+        : requestedModel;
+      return streamSimple(authenticatedModel, requestContext, {
+        ...omitUnsupportedTemperature(authenticatedModel, options),
+        ...(auth.apiKey ? { apiKey: auth.apiKey } : {}),
+        ...((auth.headers || options?.headers)
+          ? { headers: { ...auth.headers, ...options?.headers } }
+          : {}),
+        env: { ...options?.env, ...auth.env },
+      });
+    } catch (error) {
+      recreationRequired ||= isRuntimeRecreationRequiredError(error);
+      return runtimeErrorStream(requestedModel, error);
+    }
+  };
+
   return {
     resolution,
     selection,
@@ -609,31 +636,7 @@ async function materializeResolution(
         return undefined;
       }
     },
-    streamFn: async (requestedModel, requestContext, options) => {
-      try {
-        if (requestedModel.id !== model.id || requestedModel.provider !== model.provider) {
-          throw new AiRuntimeExecutionError(
-            'RUNTIME_PROVIDER_CHANGED',
-            'The active runtime model changed before the provider request started. Try again.',
-          );
-        }
-        const auth = await resolveRequestAuth();
-        const authenticatedModel = auth.baseUrl
-          ? { ...requestedModel, baseUrl: auth.baseUrl }
-          : requestedModel;
-        return streamSimple(authenticatedModel, requestContext, {
-          ...omitUnsupportedTemperature(authenticatedModel, options),
-          ...(auth.apiKey ? { apiKey: auth.apiKey } : {}),
-          ...((auth.headers || options?.headers)
-            ? { headers: { ...auth.headers, ...options?.headers } }
-            : {}),
-          env: { ...options?.env, ...auth.env },
-        });
-      } catch (error) {
-        recreationRequired ||= isRuntimeRecreationRequiredError(error);
-        return runtimeErrorStream(requestedModel, error);
-      }
-    },
+    streamFn: createVisionFallbackStreamFn(authenticatedStreamFn, createAssistantMessageEventStream),
     requiresRecreation: () => recreationRequired,
   };
 }

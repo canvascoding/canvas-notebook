@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
+import Module from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -7,6 +8,22 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-pi-message-projection-'));
 process.env.DATA = dataDir;
+
+const moduleInternals = Module as typeof Module & {
+  _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+};
+const originalLoad = moduleInternals._load;
+moduleInternals._load = (request, parent, isMain) => {
+  if (request === 'server-only') return {};
+  if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
+    return {
+      getModels: () => [],
+      getProviders: () => [],
+      registerBuiltInApiProviders: () => undefined,
+    };
+  }
+  return originalLoad(request, parent, isMain);
+};
 
 async function main() {
   const { eq } = await import('drizzle-orm');
@@ -53,6 +70,7 @@ async function main() {
     ],
     details: {
       filePath: 'case.pdf',
+      resolvedPath: '/private/runtime/workspace/case.pdf',
       type: 'image',
       mimeType: 'image/png',
       previewUrl: '/api/files/preview?path=case.pdf&w=192&preset=mini',
@@ -93,13 +111,14 @@ async function main() {
   assert.equal(rows.length, 1);
   const rawContent = rows[0].content;
   assert.ok(rawContent.includes('raw-pdf-body'));
-  assert.ok(rawContent.includes(imageData.slice(0, 200)));
+  assert.doesNotMatch(rawContent, new RegExp(imageData.slice(0, 200)));
+  assert.doesNotMatch(rawContent, /private\/runtime\/workspace/);
 
   const rawMessage = parsePersistedPiMessage(rawContent, 'raw') as unknown as Record<string, unknown>;
   assert.equal(JSON.stringify(rawMessage).length, rawContent.length);
   const rawParts = rawMessage.content as Array<Record<string, unknown>>;
   assert.equal(rawParts[0].text, hugeText);
-  assert.equal(rawParts[1].data, imageData);
+  assert.match(String(rawParts[1].text), /omitted from persisted chat history/);
 
   const loaded = await loadPiSessionWithSummary(sessionId, userId, 'canvas-agent');
   assert.ok(loaded);
@@ -117,6 +136,7 @@ async function main() {
   assert.equal(projectedToolDetails.mimeType, 'image/png');
   assert.equal(projectedToolDetails.previewUrl, '/api/files/preview?path=case.pdf&w=192&preset=mini');
   assert.equal(projectedToolDetails.mediaUrl, '/api/media/case.pdf');
+  assert.equal(projectedToolDetails.resolvedPath, undefined);
 
   const projectedUserImage = loaded.messages.find((message) => {
     const content = (message as unknown as { content?: unknown }).content;
@@ -124,7 +144,7 @@ async function main() {
   });
   assert.ok(projectedUserImage);
   const projectedUserJson = JSON.stringify(projectedUserImage);
-  assert.match(projectedUserJson, /image omitted from loaded chat context/);
+  assert.match(projectedUserJson, /image omitted from persisted chat history/);
   assert.doesNotMatch(projectedUserJson, new RegExp(imageData.slice(0, 200)));
 
   const normalizedForLlm = await normalizePiMessagesForLlm([userImageMessage, toolResultMessage]);
@@ -222,6 +242,7 @@ async function main() {
 
 main()
   .finally(() => {
+    moduleInternals._load = originalLoad;
     rmSync(dataDir, { recursive: true, force: true });
   })
   .catch((error) => {

@@ -1,4 +1,5 @@
 import { type AgentEvent } from '@earendil-works/pi-agent-core';
+import { projectAgentEventForExternal } from './visual-data-projection';
 
 type AgentErrorEvent = {
   type: 'error';
@@ -15,7 +16,7 @@ function getErrorMessage(error: unknown): string {
  * Encodes AgentEvent into a string for streaming.
  */
 export function encodeAgentEvent(event: StreamAgentEvent): string {
-  return JSON.stringify(event) + '\n';
+  return JSON.stringify(projectAgentEventForExternal(event)) + '\n';
 }
 
 /**

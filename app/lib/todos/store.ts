@@ -1006,8 +1006,8 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
   const dueRank = sql<number>`CASE
     WHEN ${todoItems.status} != 'open' THEN 4
     WHEN ${todoItems.dueAt} IS NULL THEN 3
-    WHEN ${todoItems.dueAt} < ${sortNow} THEN 0
-    WHEN ${todoItems.dueAt} < ${startOfTomorrow} THEN 1
+    WHEN ${todoItems.dueAt} < ${sql.param(sortNow, todoItems.dueAt)} THEN 0
+    WHEN ${todoItems.dueAt} < ${sql.param(startOfTomorrow, todoItems.dueAt)} THEN 1
     ELSE 2
   END`;
   const dueAtNullRank = sql<number>`CASE WHEN ${todoItems.dueAt} IS NULL THEN 1 ELSE 0 END`;

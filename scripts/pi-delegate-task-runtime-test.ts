@@ -409,7 +409,10 @@ moduleInternals._load = (request, parent, isMain) => {
     };
   }
   if (matchesModule(request, 'app/lib/pi/message-normalization')) {
-    return { normalizePiMessagesForLlm: async (messages: unknown[]) => messages };
+    return {
+      normalizePiMessagesForLlm: async (messages: unknown[]) => messages,
+      filterImagesForNonVisionModel: (messages: unknown[]) => messages,
+    };
   }
   return originalLoad(request, parent, isMain);
 };
