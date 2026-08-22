@@ -74,6 +74,46 @@ async function main() {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ['run-failed', 'job-failed', 'failed', 'mobile-attention-user', 'manual', nowSeconds - 3, 1, 'Provider unavailable', nowSeconds - 6],
     );
+    await database.run(
+      `INSERT INTO email_accounts (
+        id, user_id, provider, auth_type, email_address, status, policy_json, secret_ref,
+        is_primary, account_scope, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['mobile-email-account', 'mobile-attention-user', 'google', 'oauth', 'attention@example.test', 'active', '{}', 'test-secret-ref', 1, 'personal', nowSeconds, nowSeconds],
+    );
+    await database.run(
+      `INSERT INTO personal_email_inbox_cases (
+        id, user_id, email_account_id, provider_thread_id, subject, status, priority, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['email-case-active', 'mobile-attention-user', 'mobile-email-account', 'email-thread-active', 'Review campaign brief', 'awaiting_review', 'high', nowSeconds - 8, nowSeconds - 2],
+    );
+    await database.run(
+      `INSERT INTO personal_email_inbox_cases (
+        id, user_id, email_account_id, provider_thread_id, subject, status, priority, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['email-case-closed', 'mobile-attention-user', 'mobile-email-account', 'email-thread-closed', 'Closed request', 'closed', 'normal', nowSeconds - 8, nowSeconds - 2],
+    );
+    await database.run(
+      `INSERT INTO email_drafts (
+        id, user_id, account_id, status, to_json, cc_json, bcc_json, subject, body, is_html,
+        attachments_json, origin, personal_inbox_case_id, outbox_status, version, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['email-draft-linked', 'mobile-attention-user', 'mobile-email-account', 'draft', '[]', '[]', '[]', 'Re: campaign brief', '', 1, '[]', 'agent', 'email-case-active', 'awaiting_review', 1, nowSeconds - 2, nowSeconds - 1],
+    );
+    await database.run(
+      `INSERT INTO email_drafts (
+        id, user_id, account_id, status, to_json, cc_json, bcc_json, subject, body, is_html,
+        attachments_json, origin, outbox_status, version, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['email-draft-standalone', 'mobile-attention-user', 'mobile-email-account', 'draft', '[]', '[]', '[]', 'Needs approval', '', 1, '[]', 'agent', 'send_failed', 1, nowSeconds - 2, nowSeconds],
+    );
+    await database.run(
+      `INSERT INTO email_drafts (
+        id, user_id, account_id, status, to_json, cc_json, bcc_json, subject, body, is_html,
+        attachments_json, origin, outbox_status, version, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['email-draft-sent', 'mobile-attention-user', 'mobile-email-account', 'draft', '[]', '[]', '[]', 'Already sent', '', 1, '[]', 'agent', 'sent', 1, nowSeconds - 2, nowSeconds],
+    );
     await database.close();
 
     const { createLegacyPersonalWorkspaceContext } = await import('../app/lib/workspaces/context');
@@ -81,12 +121,15 @@ async function main() {
     const { getMobileTodo, listMobileTodos } = await import('../app/lib/mobile/todos');
     const {
       countMobileUnreadMessages,
+      countMobileUnreadNotifications,
       groupMobileAggregateInboxItemsForPresentation,
       listMobileAggregateInbox,
       listMobileInbox,
       markMobileAggregateInboxRead,
       markMobileInboxRead,
     } = await import('../app/lib/mobile/inbox');
+    const { countEmailAttention, listEmailAttention } = await import('../app/lib/email/inbox-attention');
+    const { getMobileInboxCategoryCounts } = await import('../app/lib/mobile/inbox-counts');
     const {
       getUserInboxExcludedWorkspaceIds,
       setUserInboxExcludedWorkspaceIds,
@@ -144,6 +187,23 @@ async function main() {
       () => listMobileInbox({ userId: 'mobile-attention-user', workspace, cursor: staleInboxCursor }),
       (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'STALE_CURSOR'),
     );
+    const emailAttention = await listEmailAttention({ userId: 'mobile-attention-user', workspace });
+    assert.equal(emailAttention.length, 2);
+    assert.equal(emailAttention.some((item) => item.id === 'email-case:email-case-active'), true);
+    assert.equal(emailAttention.some((item) => item.id === 'email-draft:email-draft-standalone'), true);
+    assert.equal(emailAttention.some((item) => item.id === 'email-case:email-case-closed'), false);
+    assert.equal(emailAttention.find((item) => item.id === 'email-case:email-case-active')?.target.draftId, 'email-draft-linked');
+    assert.equal(await countEmailAttention({ userId: 'mobile-attention-user', workspace }), 2);
+    const categoryCounts = await getMobileInboxCategoryCounts({
+      userId: 'mobile-attention-user',
+      workspaces: [workspace],
+    });
+    assert.deepEqual(categoryCounts, {
+      notifications: { badge: 4 },
+      emails: { badge: 2 },
+      todos: { badge: 2 },
+    });
+    assert.equal(await countMobileUnreadNotifications({ userId: 'mobile-attention-user', workspaces: [workspace] }), 4);
     const aggregateInbox = await listMobileAggregateInbox({
       userId: 'mobile-attention-user',
       workspaces: [workspace],
@@ -257,7 +317,7 @@ async function main() {
     );
     assert.equal(badgeResponse.status, 200);
     assert.equal(badgeResponse.headers.get('cache-control'), 'no-store, max-age=0');
-    assert.deepEqual(await badgeResponse.json(), { success: true, count: 2 });
+    assert.deepEqual(await badgeResponse.json(), { success: true, count: 4 });
 
     const notificationSummaryRoute = await import('../app/api/notifications/summary/route');
     const notificationSummaryResponse = await notificationSummaryRoute.GET(

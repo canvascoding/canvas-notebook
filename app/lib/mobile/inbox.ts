@@ -783,6 +783,67 @@ export async function countMobileUnreadMessages(input: {
   )).length;
 }
 
+/**
+ * Counts every unread, badge-eligible notification source. To-dos intentionally
+ * stay outside this aggregate: their lifecycle count is displayed on their own
+ * tab and must never inflate the global Inbox badge.
+ */
+export async function countMobileUnreadNotifications(input: {
+  userId: string;
+  workspaces: WorkspaceContext[];
+}): Promise<number> {
+  const workspaces = [...new Map(input.workspaces.map((workspace) => [workspace.workspaceId, workspace])).values()];
+  const counts = await Promise.all(workspaces.map(async (workspace) => {
+    const state = await readState({ userId: input.userId, workspaceId: workspace.workspaceId });
+    const [sessionRows, generationRows, automationRows] = await Promise.all([
+      db.select({
+        lastMessageAt: piSessions.lastMessageAt,
+        lastViewedAt: piSessions.lastViewedAt,
+      }).from(piSessions).where(and(
+        eq(piSessions.userId, input.userId),
+        eq(piSessions.sessionKind, 'conversation'),
+        workspaceCondition(piSessions.workspaceId, workspace),
+        isNotNull(piSessions.lastMessageAt),
+        or(
+          isNull(piSessions.lastViewedAt),
+          gt(piSessions.lastMessageAt, piSessions.lastViewedAt),
+        ),
+      )),
+      db.select({
+        id: studioGenerations.id,
+        updatedAt: studioGenerations.updatedAt,
+      }).from(studioGenerations).where(and(
+        workspaceCondition(studioGenerations.workspaceId, workspace),
+        inArray(studioGenerations.status, ['completed', 'failed']),
+        workspace.workspaceType === 'personal' ? eq(studioGenerations.userId, input.userId) : undefined,
+      )),
+      db.select({
+        runId: automationRuns.id,
+        occurredAt: automationRuns.finishedAt,
+        createdAt: automationRuns.createdAt,
+      }).from(automationRuns).innerJoin(automationJobs, eq(automationJobs.id, automationRuns.jobId)).where(and(
+        workspaceCondition(automationRuns.workspaceId, workspace),
+        eq(automationRuns.status, 'failed'),
+        workspace.workspaceType === 'personal'
+          ? or(eq(automationRuns.actorUserId, input.userId), eq(automationJobs.ownerUserId, input.userId))
+          : undefined,
+      )),
+    ]);
+    const unreadChats = sessionRows.filter((session) => (
+      hasUnreadAssistantResponse(session.lastMessageAt, session.lastViewedAt)
+    )).length;
+    const unreadGenerations = generationRows.filter((generation) => (
+      genericUnread(`studio:${generation.id}`, generation.updatedAt, state)
+    )).length;
+    const unreadAutomations = automationRows.filter((automation) => {
+      const occurredAt = automation.occurredAt || automation.createdAt;
+      return genericUnread(`automation:${automation.runId}`, occurredAt, state);
+    }).length;
+    return unreadChats + unreadGenerations + unreadAutomations;
+  }));
+  return counts.reduce((total, count) => total + count, 0);
+}
+
 async function upsertReadState(userId: string, workspaceId: string, itemKey: string, readAt: Date) {
   await db.insert(mobileInboxReadStates).values({
     userId,
