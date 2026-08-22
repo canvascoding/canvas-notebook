@@ -137,6 +137,8 @@ export type ListTodosOptions = {
   priority?: TodoPriority;
   due?: 'overdue' | 'today' | 'upcoming' | 'none';
   query?: string;
+  /** Shared ranking timestamp for every page in one cursor sequence. */
+  sortAsOf?: Date;
   beforeCursor?: TodoListCursor;
   limit?: number;
 };
@@ -994,7 +996,7 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     }
   }
 
-  const sortNow = new Date();
+  const sortNow = options.sortAsOf ?? new Date();
   const startOfToday = new Date(sortNow);
   startOfToday.setHours(0, 0, 0, 0);
   const startOfTomorrow = new Date(startOfToday);

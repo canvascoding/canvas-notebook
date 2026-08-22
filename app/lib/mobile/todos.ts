@@ -19,6 +19,7 @@ type MobileTodoCursor = {
   priority: MobileTodo['priority'];
   dueAt: string | null;
   createdAt: string;
+  sortAsOf: string;
   id: string;
 };
 
@@ -164,6 +165,8 @@ function decodeCursor(value: string | null | undefined, workspaceId: string, exp
       || (parsed.dueAt !== null && (typeof parsed.dueAt !== 'string' || Number.isNaN(new Date(parsed.dueAt).getTime())))
       || typeof parsed.createdAt !== 'string'
       || Number.isNaN(new Date(parsed.createdAt).getTime())
+      || typeof parsed.sortAsOf !== 'string'
+      || Number.isNaN(new Date(parsed.sortAsOf).getTime())
       || typeof parsed.id !== 'string'
       || !parsed.id
     ) throw new Error('Invalid cursor');
@@ -194,12 +197,14 @@ export async function listMobileTodos(input: {
   const cursorSignature = signature({ status: status || 'active', due: due || '', assigneeUserId, query });
   const cursor = decodeCursor(input.cursor, input.workspace.workspaceId, cursorSignature);
   const limit = normalizeLimit(input.limit);
+  const sortAsOf = cursor ? new Date(cursor.sortAsOf) : new Date();
   const todos = await listTodos(input.userId, {
     ...workspaceOptions(input.workspace),
     status,
     due,
     assigneeUserId: assigneeUserId || undefined,
     query: query || undefined,
+    sortAsOf,
     beforeCursor: cursor ? {
       status: cursor.status,
       priority: cursor.priority,
@@ -221,6 +226,7 @@ export async function listMobileTodos(input: {
           priority: last.priority as MobileTodo['priority'],
           dueAt: last.dueAt?.toISOString() || null,
           createdAt: last.createdAt.toISOString(),
+          sortAsOf: sortAsOf.toISOString(),
           id: last.id,
         } satisfies MobileTodoCursor), 'utf8').toString('base64url')
       : null,

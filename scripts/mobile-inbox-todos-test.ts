@@ -136,6 +136,7 @@ async function main() {
     const staleInboxCursor = Buffer.from(JSON.stringify({
       workspaceId: workspace.workspaceId,
       filter: 'all',
+      sortAsOf: new Date(now).toISOString(),
       occurredAt: inboxPage.items[0]?.occurredAt,
       id: 'missing-item',
     }), 'utf8').toString('base64url');
