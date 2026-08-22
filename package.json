@@ -42,6 +42,7 @@
     "test:integration": "node scripts/integration-test.mjs",
     "test:integration:pi": "node scripts/pi-integration-test.mjs",
     "test:pi:attachments": "tsx scripts/pi-attachments-test.ts",
+    "test:pi:multimodal-delivery": "tsx scripts/pi-multimodal-delivery-test.ts",
     "test:pi:summary": "tsx scripts/pi-session-summary-test.ts",
     "test:pi:session-title": "tsx --conditions react-server scripts/pi-session-title-test.ts",
     "test:pi:usage": "tsx scripts/pi-usage-test.ts",
