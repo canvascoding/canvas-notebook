@@ -103,6 +103,13 @@ async function main() {
     await database.run(
       `INSERT INTO email_drafts (
         id, user_id, account_id, status, to_json, cc_json, bcc_json, subject, body, is_html,
+        attachments_json, origin, personal_inbox_case_id, outbox_status, version, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['email-draft-linked-closed', 'mobile-attention-user', 'mobile-email-account', 'draft', '[]', '[]', '[]', 'Follow up on closed request', '', 1, '[]', 'agent', 'email-case-closed', 'awaiting_review', 1, nowSeconds - 2, nowSeconds],
+    );
+    await database.run(
+      `INSERT INTO email_drafts (
+        id, user_id, account_id, status, to_json, cc_json, bcc_json, subject, body, is_html,
         attachments_json, origin, outbox_status, version, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ['email-draft-standalone', 'mobile-attention-user', 'mobile-email-account', 'draft', '[]', '[]', '[]', 'Needs approval', '', 1, '[]', 'agent', 'send_failed', 1, nowSeconds - 2, nowSeconds],
@@ -164,7 +171,7 @@ async function main() {
     assert.equal(inbox.items.some((item) => item.id === 'studio:generation-ready'), true);
     assert.equal(inbox.items.some((item) => item.id === 'automation:run-failed'), true);
     assert.equal(inbox.items.some((item) => item.id === 'email-case:email-case-active'), true);
-    assert.equal(inbox.counts.emails, 2);
+    assert.equal(inbox.counts.emails, 3);
     assert.equal(
       inbox.items.find((item) => item.id === 'studio:generation-ready')?.previewUrl,
       '/api/mobile/v1/studio/outputs/generation-preview-output/preview',
@@ -190,19 +197,20 @@ async function main() {
       (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'STALE_CURSOR'),
     );
     const emailAttention = await listEmailAttention({ userId: 'mobile-attention-user', workspace });
-    assert.equal(emailAttention.length, 2);
+    assert.equal(emailAttention.length, 3);
     assert.equal(emailAttention.some((item) => item.id === 'email-case:email-case-active'), true);
     assert.equal(emailAttention.some((item) => item.id === 'email-draft:email-draft-standalone'), true);
     assert.equal(emailAttention.some((item) => item.id === 'email-case:email-case-closed'), false);
+    assert.equal(emailAttention.some((item) => item.id === 'email-draft:email-draft-linked-closed'), true);
     assert.equal(emailAttention.find((item) => item.id === 'email-case:email-case-active')?.target.draftId, 'email-draft-linked');
-    assert.equal(await countEmailAttention({ userId: 'mobile-attention-user', workspace }), 2);
+    assert.equal(await countEmailAttention({ userId: 'mobile-attention-user', workspace }), 3);
     const categoryCounts = await getMobileInboxCategoryCounts({
       userId: 'mobile-attention-user',
       workspaces: [workspace],
     });
     assert.deepEqual(categoryCounts, {
       notifications: { badge: 4 },
-      emails: { badge: 2 },
+      emails: { badge: 3 },
       todos: { badge: 2 },
     });
     assert.equal(await countMobileUnreadNotifications({ userId: 'mobile-attention-user', workspaces: [workspace] }), 4);
@@ -214,6 +222,7 @@ async function main() {
     });
     assert.deepEqual(emailInbox.items.map((item) => item.id).sort(), [
       'email-case:email-case-active',
+      'email-draft:email-draft-linked-closed',
       'email-draft:email-draft-standalone',
     ]);
     assert.equal(emailInbox.items.every((item) => item.target.kind === 'email'), true);
@@ -335,7 +344,7 @@ async function main() {
       count: 4,
       categories: {
         notifications: { badge: 4 },
-        emails: { badge: 2 },
+        emails: { badge: 3 },
         todos: { badge: 14 },
       },
     });

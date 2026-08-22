@@ -7,6 +7,8 @@ import {
   eq,
   inArray,
   isNull,
+  notInArray,
+  or,
 } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
@@ -119,6 +121,7 @@ async function listWorkspaceAttention(input: {
     }),
   ]);
   const draftsByCaseId = latestDraftByCaseId(drafts, 'inboxCaseId');
+  const activeCaseIds = new Set(cases.map((emailCase) => emailCase.id));
   const items: EmailAttentionItem[] = cases.map((emailCase) => {
     const draft = draftsByCaseId.get(emailCase.id) ?? null;
     const occurredAt = draft && draft.updatedAt > emailCase.updatedAt ? draft.updatedAt : emailCase.updatedAt;
@@ -139,7 +142,7 @@ async function listWorkspaceAttention(input: {
     };
   });
   for (const draft of drafts) {
-    if (draft.inboxCaseId) continue;
+    if (draft.inboxCaseId && activeCaseIds.has(draft.inboxCaseId)) continue;
     items.push({
       id: `email-draft:${draft.id}`,
       type: 'email.attention',
@@ -177,6 +180,7 @@ async function listPersonalAttention(input: {
     }),
   ]);
   const draftsByCaseId = latestDraftByCaseId(drafts, 'personalInboxCaseId');
+  const activeCaseIds = new Set(cases.map((emailCase) => emailCase.id));
   const items: EmailAttentionItem[] = cases.map((emailCase) => {
     const draft = draftsByCaseId.get(emailCase.id) ?? null;
     const occurredAt = draft && draft.updatedAt > emailCase.updatedAt ? draft.updatedAt : emailCase.updatedAt;
@@ -197,7 +201,7 @@ async function listPersonalAttention(input: {
     };
   });
   for (const draft of drafts) {
-    if (draft.personalInboxCaseId) continue;
+    if (draft.personalInboxCaseId && activeCaseIds.has(draft.personalInboxCaseId)) continue;
     items.push({
       id: `email-draft:${draft.id}`,
       type: 'email.attention',
@@ -234,7 +238,15 @@ export async function countEmailAttention(input: {
         eq(emailDrafts.userId, input.userId),
         isNull(emailDrafts.workspaceId),
         eq(emailDrafts.origin, 'agent'),
-        isNull(emailDrafts.personalInboxCaseId),
+        or(
+          isNull(emailDrafts.personalInboxCaseId),
+          notInArray(emailDrafts.personalInboxCaseId, db.select({ id: personalEmailInboxCases.id })
+            .from(personalEmailInboxCases)
+            .where(and(
+              eq(personalEmailInboxCases.userId, input.userId),
+              inArray(personalEmailInboxCases.status, ACTIVE_CASE_STATUSES),
+            ))),
+        ),
         inArray(emailDrafts.outboxStatus, ACTIVE_DRAFT_STATUSES),
       )),
     ]);
@@ -248,7 +260,15 @@ export async function countEmailAttention(input: {
     db.select({ total: count() }).from(emailDrafts).where(and(
       eq(emailDrafts.workspaceId, workspace.workspaceId),
       inArray(emailDrafts.origin, ['automation', 'agent']),
-      isNull(emailDrafts.inboxCaseId),
+      or(
+        isNull(emailDrafts.inboxCaseId),
+        notInArray(emailDrafts.inboxCaseId, db.select({ id: emailInboxCases.id })
+          .from(emailInboxCases)
+          .where(and(
+            eq(emailInboxCases.workspaceId, workspace.workspaceId),
+            inArray(emailInboxCases.status, ACTIVE_CASE_STATUSES),
+          ))),
+      ),
       inArray(emailDrafts.outboxStatus, ACTIVE_DRAFT_STATUSES),
     )),
   ]);
