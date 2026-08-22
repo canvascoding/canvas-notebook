@@ -70,6 +70,23 @@ async function main() {
   assert.doesNotMatch(externalJson, /private\/workspace/);
   assert.match(externalJson, /omitted from live event/);
 
+  const absolutePath = '/private/agent-runtime/image.png';
+  const absoluteRead = projectAgentMessageForPersistence({
+    ...toolResult,
+    details: {
+      filePath: absolutePath,
+      requestedPath: absolutePath,
+      resolvedPath: absolutePath,
+      nested: { sourcePath: absolutePath },
+    },
+  });
+  assert.doesNotMatch(JSON.stringify(absoluteRead), new RegExp(absolutePath));
+  const absoluteEvent = projectAgentEventForExternal({
+    type: 'tool_execution_end',
+    result: absoluteRead,
+  });
+  assert.doesNotMatch(JSON.stringify(absoluteEvent), new RegExp(absolutePath));
+
   console.log('[PI Multimodal Delivery Test] Passed.');
 }
 
