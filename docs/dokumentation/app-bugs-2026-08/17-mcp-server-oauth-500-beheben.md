@@ -80,3 +80,6 @@ Die weitere Diagnose muss Request-ID, Public Base URL, Metadaten-
 Fehlerantwort erfassen. Ein Workaround durch manuell vorregistrierte Clients
 zaehlt nicht als Abschluss, solange der von ChatGPT verwendete dynamische Flow
 nicht funktioniert.
+
+Die erneute Abnahme am korrekt produktiven Stand bestaetigt denselben Befund;
+Ticket 17 bleibt daher unveraendert in Umsetzung.

@@ -35,6 +35,11 @@ Session, Generation, Yjs-State, State-Vector, Live-Hash, Checkpoint und deren
 Freshness vergleichen. Das bloße erneute Ausfuehren des Edit-Tools oder ein
 Whole-File-Fallback ist kein zulaessiger Workaround.
 
+Die erneute Pruefung am korrekt produktiven Stand bestaetigt denselben Fehler.
+Das Ticket bleibt in Umsetzung; der Erfolg beim Anlegen neuer Dokumente oder
+Bearbeiten von CSV-Dateien darf nicht als erfolgreiche Abnahme des bestehenden
+kollaborativen Markdown-Pfads gewertet werden.
+
 ## Problem
 
 In einem Team-Workspace kann ein KI-Agent Markdown- bzw. Textdokumente mit

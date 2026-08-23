@@ -26,6 +26,13 @@ Abnahme darf sich daher nicht auf die To-do-Route beschraenken: Home- und
 Notification-Zentrale muessen aktiven Workspace, globale Sicht, Leerzustand,
 Prioritaet und Navigation konsistent zum kanonischen Listenvertrag zeigen.
 
+Ein To-do mit dem Lebenszyklusstatus `erledigt` gilt fachlich zugleich als
+gelesen. Es darf danach weder als ungelesen gezaehlt noch als ungelesener
+Eintrag auf Startseite, To-do-Route, Notification-Zentrum oder Mobile
+erscheinen. Diese Ableitung muss serverseitig Teil des kanonischen
+Listenvertrags sein, damit getrennte Clients nicht unterschiedliche
+Unread-Zustaende berechnen.
+
 ## Problem
 
 In der To-do-Route und den zugehoerigen UI-Flaechen ist nicht verlaesslich
@@ -48,6 +55,10 @@ einem anderen Workspace erscheinen. Eine eindeutige Priorisierung fehlt.
   Adapter inventarisieren; konkrete Zwei-Workspace-Reproduktionen festhalten.
 - Einen kanonischen Listenvertrag fuer `workspaceId`, Assignee, Owner,
   Lebenszyklus, Read-Status, Prioritaet, Faelligkeit und Pagination definieren.
+- Die Read-Status-Semantik verbindlich festlegen und implementieren:
+  `erledigt` impliziert immer `gelesen`; eine nachtraegliche Read-Markierung
+  darf diese Invariante nicht aufheben. Ungelesen-Zaehler, Filter und
+  Notifications verwenden dieselbe serverseitige Ableitung.
 - Scope und Filter in einer gemeinsamen serverseitigen Query-/Policy-Schicht
   erzwingen; persoenliche und Team-Workspaces nicht implizit zusammenfassen.
 - Stabile Sortierung festlegen, z. B. Prioritaet, ueberfaellig/faellig,
@@ -68,6 +79,8 @@ einem anderen Workspace erscheinen. Eine eindeutige Priorisierung fehlt.
 - Startseite und Notification-Zentrale zeigen weder fremde To-dos noch einen
   vom aktiven Workspace abweichenden To-do-Scope; Klicks fuehren zum passenden
   Workspace und To-do.
+- Ein erledigtes To-do ist in jeder Oberflaeche als gelesen behandelt, erhoeht
+  keinen Unread-Zaehler und erscheint nicht in einem Ungelesen-Filter.
 
 ## Tests und Abschluss
 

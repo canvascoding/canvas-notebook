@@ -20,6 +20,12 @@ zuverlaessig nutzbar: Ein neuer Chat kann nicht mehr aktiviert oder gestartet
 werden. Das blockiert den zentralen mobilen Chat-Workflow und wird in diesem
 Ticket gemeinsam mit Navigation, Chat-State und Lifecycle behandelt.
 
+Auch im Kontextmenue „Verwalten“ sind die Eintraege
+„Automationseinstellungen“, „Neue Automation“ und „Heartbeat“ nicht anwaehlbar.
+Diese Aktionen muessen im selben mobilen Navigations-/Berechtigungsfluss
+untersucht werden; eine sichtbare, aber wirkungslose Aktion ist kein
+zulaessiger Zustand.
+
 ## Zielzustand
 
 - Der Chat bleibt bei Streaming, Keyboard-Wechsel, Rotation und langen
@@ -27,6 +33,9 @@ Ticket gemeinsam mit Navigation, Chat-State und Lifecycle behandelt.
 - Der Plus-Button im Agenten-Tab erstellt bzw. aktiviert einen neuen Chat
   verlaesslich, auch nach App-Hintergrundwechsel, Workspace-Wechsel und einer
   zuvor geoeffneten Session.
+- Die drei Automationseintraege im Kontextmenue „Verwalten“ sind im jeweils
+  zulaessigen Workspace anwaehlbar und navigieren bzw. starten die erwartete
+  Aktion; bei fehlender Berechtigung erklaert die UI den Grund.
 - Streaming-Events werden genau einmal und in kausaler Reihenfolge gerendert.
 - Browser-Use bietet mobile Lade-, Fehler-, Berechtigungs- und
   Viewport-Zustaende sowie touch-taugliche Steuerung.
@@ -41,6 +50,10 @@ Ticket gemeinsam mit Navigation, Chat-State und Lifecycle behandelt.
   Workspace-Scope, optimistic UI und Fehler-/Retry-Zustand inventarisieren;
   Doppelklicks duerfen keine doppelten Sessions anlegen und ein Fehler darf den
   vorhandenen Chat nicht unbrauchbar machen.
+- Kontextmenue, Feature-Flags, Workspace-/Rollenpruefung und Navigation der
+  Automationseinstellungen, neuen Automation und des Heartbeats inventarisieren.
+  Disabled-Zustaende duerfen nur bei einem konkreten, sichtbaren
+  Berechtigungs- oder Verfuegbarkeitsgrund entstehen.
 - Streaming-Protokoll auf monotone Event-IDs bzw. Sequenzen, Duplikatschutz und
   kontrolliertes Reconnect/Replay pruefen; bei Bedarf Server- und Clientvertrag
   anpassen.
@@ -57,6 +70,9 @@ Ticket gemeinsam mit Navigation, Chat-State und Lifecycle behandelt.
 - Der Plus-Button erzeugt oder aktiviert genau einen neuen, dem aktiven
   Workspace zugeordneten Chat und zeigt bei einem Fehler eine bedienbare
   Rueckmeldung statt einer wirkungslosen Aktion.
+- Die drei genannten Kontextmenueaktionen sind im berechtigten Team- und
+  Personal-Workspace bedienbar; unberechtigte Nutzer erhalten einen eindeutigen
+  Disabled-/Fehlerzustand statt einer still wirkungslosen Auswahl.
 - Browser-Use hat fuer Ladefehler, keine Verbindung und unzulaessige Inhalte
   nachvollziehbare, wiederholbare UI-Zustaende.
 - Tests decken Lifecycle-, Reconnect- und Eventreihenfolgen ab.
