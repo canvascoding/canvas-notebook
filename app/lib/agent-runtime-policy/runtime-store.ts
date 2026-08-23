@@ -15,7 +15,7 @@ import type {
 } from '@/app/lib/agent-runtime-policy/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 
-const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 const SELECTION_SOURCES = new Set<AiRuntimeSelectionSource>([
   'session',
   'user_preference',

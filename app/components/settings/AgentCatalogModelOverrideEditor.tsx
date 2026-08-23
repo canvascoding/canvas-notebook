@@ -271,7 +271,8 @@ function selectionFromAgent(agent: AgentDefaultProfile): AgentCatalogModelSelect
       && thinkingLevel !== 'low'
       && thinkingLevel !== 'medium'
       && thinkingLevel !== 'high'
-      && thinkingLevel !== 'xhigh')
+      && thinkingLevel !== 'xhigh'
+      && thinkingLevel !== 'max')
   ) {
     return null;
   }

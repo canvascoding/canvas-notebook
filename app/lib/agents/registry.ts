@@ -77,7 +77,7 @@ export class AgentRevisionConflictError extends Error {
   }
 }
 
-const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 const PROVIDER_INSTALLATION_ID_PATTERN = /^aip_[a-f0-9]{24}$/u;
 
 type AgentDefaultTuple = {

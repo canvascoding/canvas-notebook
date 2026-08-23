@@ -1,13 +1,13 @@
 import 'server-only';
 
-import type { Model } from '@earendil-works/pi-ai';
+import type { Api, Model } from '@earendil-works/pi-ai';
 import { createHash } from 'node:crypto';
 
 import { getManagedControlPlaneBaseUrl } from './control-plane-url';
 
 export const CANVAS_CONTROL_PLANE_PROVIDER_ID = 'canvas-control-plane';
 
-export type ManagedControlPlaneProvider = 'openrouter' | 'groq' | 'openai-compatible';
+export type ManagedControlPlaneProvider = 'openrouter' | 'groq' | 'ollama' | 'openai' | 'anthropic' | 'openai-compatible';
 
 type ManagedControlPlanePricing = {
   currency: string;
@@ -18,7 +18,7 @@ type ManagedControlPlanePricing = {
   source?: string;
 };
 
-export type ManagedControlPlaneModel = Model<'openai-completions'> & {
+export type ManagedControlPlaneModel = Model<Api> & {
   managedProvider: ManagedControlPlaneProvider;
   managedPricing?: ManagedControlPlanePricing | null;
 };
@@ -28,7 +28,7 @@ export type ManagedControlPlaneCatalog = {
   errorCode: string | null;
   catalogRevision: string | null;
   defaultModelId: string | null;
-  defaultThinkingLevel: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  defaultThinkingLevel: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   models: ManagedControlPlaneModel[];
 };
 
@@ -90,12 +90,19 @@ function summarizeError(error: unknown): Record<string, unknown> {
 }
 
 export function managedProviderPath(provider: ManagedControlPlaneProvider): string {
+  if (provider === 'anthropic') return 'anthropic';
+  if (provider === 'ollama') return 'ollama';
+  if (provider === 'openai') return 'openai';
   if (provider === 'groq') return 'groq';
   if (provider === 'openai-compatible') return 'openai-compatible';
   return 'openrouter';
 }
 
-function managedProviderCompat(provider: ManagedControlPlaneProvider): ManagedControlPlaneModel['compat'] {
+function managedProviderApi(provider: ManagedControlPlaneProvider): 'anthropic-messages' | 'openai-completions' {
+  return provider === 'anthropic' ? 'anthropic-messages' : 'openai-completions';
+}
+
+function managedProviderCompat(provider: Exclude<ManagedControlPlaneProvider, 'anthropic'>): Model<'openai-completions'>['compat'] {
   const base = {
     supportsDeveloperRole: false,
     supportsStore: false,
@@ -119,13 +126,15 @@ function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel
   if (!isRecord(value)) return null;
   const id = typeof value.id === 'string' ? value.id.trim() : '';
   const name = typeof value.name === 'string' ? value.name.trim() : id;
-  const managedProvider = value.provider === 'groq'
-    ? 'groq'
-    : value.provider === 'openai-compatible'
-      ? 'openai-compatible'
-      : value.provider === 'openrouter'
-        ? 'openrouter'
-        : null;
+  const provider = typeof value.provider === 'string' ? value.provider : '';
+  const managedProvider: ManagedControlPlaneProvider | null = provider === 'openrouter'
+    || provider === 'groq'
+    || provider === 'ollama'
+    || provider === 'openai'
+    || provider === 'anthropic'
+    || provider === 'openai-compatible'
+    ? provider
+    : null;
   const contextWindow = typeof value.contextWindow === 'number' && Number.isFinite(value.contextWindow)
     ? value.contextWindow
     : 128000;
@@ -147,10 +156,10 @@ function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel
 
   if (!id || !managedProvider) return null;
 
-  return {
+  const base = {
     id,
     name,
-    api: 'openai-completions',
+    api: managedProviderApi(managedProvider),
     provider: CANVAS_CONTROL_PLANE_PROVIDER_ID,
     managedProvider,
     baseUrl: '',
@@ -164,9 +173,15 @@ function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel
     },
     contextWindow,
     maxTokens,
-    compat: managedProviderCompat(managedProvider),
     managedPricing: pricing,
   };
+  if (managedProvider === 'anthropic') {
+    return base as ManagedControlPlaneModel;
+  }
+  return {
+    ...base,
+    compat: managedProviderCompat(managedProvider),
+  } as ManagedControlPlaneModel;
 }
 
 function unavailableCatalog(errorCode: string): ManagedControlPlaneCatalog {
@@ -181,7 +196,7 @@ function unavailableCatalog(errorCode: string): ManagedControlPlaneCatalog {
 }
 
 function normalizeThinkingLevel(value: unknown): ManagedControlPlaneCatalog['defaultThinkingLevel'] {
-  return value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh'
+  return value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max'
     ? value
     : 'off';
 }

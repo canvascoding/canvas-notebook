@@ -243,6 +243,7 @@ const DE_COPY: PanelCopy = {
     medium: 'Mittel',
     high: 'Hoch',
     xhigh: 'Sehr hoch',
+    max: 'Maximum',
   },
   providerCard: {
     enabled: 'Aktiv',
@@ -373,6 +374,7 @@ const EN_COPY: PanelCopy = {
     medium: 'Medium',
     high: 'High',
     xhigh: 'Extra high',
+    max: 'Maximum',
   },
   providerCard: {
     enabled: 'Active',

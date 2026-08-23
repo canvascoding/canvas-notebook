@@ -152,7 +152,7 @@ function parseThinkingLevels(value: string): PiThinkingLevel[] {
     const parsed = JSON.parse(value) as unknown;
     if (!Array.isArray(parsed)) throw new Error('invalid thinking levels');
     const levels = parsed.filter((entry): entry is PiThinkingLevel => (
-      entry === 'off' || entry === 'minimal' || entry === 'low' || entry === 'medium' || entry === 'high' || entry === 'xhigh'
+      entry === 'off' || entry === 'minimal' || entry === 'low' || entry === 'medium' || entry === 'high' || entry === 'xhigh' || entry === 'max'
     ));
     if (levels.length !== parsed.length || levels.length === 0) throw new Error('invalid thinking levels');
     return Array.from(new Set(levels));
@@ -167,7 +167,7 @@ function parseCredentialScope(value: string): AiProviderInstallation['credential
 }
 
 function parseStoredThinkingLevel(value: string | null): PiThinkingLevel {
-  if (value === 'off' || value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh') {
+  if (value === 'off' || value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max') {
     return value;
   }
   throw new Error('Stored AI runtime default intelligence is invalid.');

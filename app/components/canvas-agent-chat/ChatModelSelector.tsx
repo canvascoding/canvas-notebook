@@ -65,7 +65,7 @@ type SelectorFeedback = {
 
 type RuntimeSelectorView = 'overview' | 'models' | 'intelligence';
 
-const THINKING_LEVELS: PiThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+const THINKING_LEVELS: PiThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 function getModelShortLabel(modelName: string): string {
   const normalized = modelName
@@ -192,6 +192,7 @@ export function ChatModelSelector({
       medium: t('runtimeIntelligenceMedium'),
       high: t('runtimeIntelligenceHigh'),
       xhigh: t('runtimeIntelligenceExtraHigh'),
+      max: 'Maximum',
     };
     return labels[level];
   };

@@ -10,7 +10,7 @@ export const AI_RUNTIME_EXECUTION_MODES = [
   'personal_automation',
   'organization_automation',
 ] as const;
-export const AI_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const satisfies readonly PiThinkingLevel[];
+export const AI_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const satisfies readonly PiThinkingLevel[];
 
 export type AiProviderSource = (typeof AI_PROVIDER_SOURCES)[number];
 export type AiCredentialScope = (typeof AI_CREDENTIAL_SCOPES)[number];

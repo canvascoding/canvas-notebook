@@ -79,7 +79,7 @@ type RenameSessionPayload = {
   expectedPolicyRevision?: unknown;
 };
 
-const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 function getSessionActivityTime(sessionItem: { createdAt: Date; lastMessageAt?: Date | null }): number {
   return (sessionItem.lastMessageAt ?? sessionItem.createdAt).getTime();

@@ -2,7 +2,7 @@
  * PI-first Runtime Configuration Schema
  */
 
-export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export type OllamaMode = 'local' | 'cloud';
 

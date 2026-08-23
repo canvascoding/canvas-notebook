@@ -10,6 +10,7 @@ async function main() {
   const {
     getCanvasControlPlaneCatalog,
     invalidateCanvasControlPlaneCatalogCache,
+    managedProviderPath,
   } = await import('../app/lib/managed/control-plane-models');
 
   invalidateCanvasControlPlaneCatalogCache();
@@ -19,14 +20,28 @@ async function main() {
     await new Promise((resolve) => setImmediate(resolve));
     return new Response(JSON.stringify({
       catalogRevision: `revision-${fetchCount}`,
-      defaultModelId: 'managed-model',
-      defaultThinkingLevel: 'off',
-      models: [{
-        id: 'managed-model',
-        name: 'Managed Model',
-        provider: 'openrouter',
-        reasoning: false,
-      }],
+      defaultModelId: 'managed-openai',
+      defaultThinkingLevel: 'medium',
+      models: [
+        {
+          id: 'managed-openai',
+          name: 'Managed OpenAI Model',
+          provider: 'openai',
+          reasoning: true,
+        },
+        {
+          id: 'managed-anthropic',
+          name: 'Managed Anthropic Model',
+          provider: 'anthropic',
+          reasoning: true,
+        },
+        {
+          id: 'managed-ollama',
+          name: 'Managed Ollama Model',
+          provider: 'ollama',
+          reasoning: false,
+        },
+      ],
     }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
 
@@ -37,6 +52,14 @@ async function main() {
   assert.equal(fetchCount, 1);
   assert.equal(first.catalogRevision, 'revision-1');
   assert.equal(joined.catalogRevision, 'revision-1');
+  assert.equal(first.status, 'ready');
+  assert.equal(first.defaultModelId, 'managed-openai');
+  assert.equal(first.models.find((model) => model.id === 'managed-openai')?.api, 'openai-completions');
+  assert.equal(first.models.find((model) => model.id === 'managed-anthropic')?.api, 'anthropic-messages');
+  assert.equal(first.models.find((model) => model.id === 'managed-ollama')?.managedProvider, 'ollama');
+  assert.equal(managedProviderPath('openai'), 'openai');
+  assert.equal(managedProviderPath('anthropic'), 'anthropic');
+  assert.equal(managedProviderPath('ollama'), 'ollama');
 
   const cached = await getCanvasControlPlaneCatalog({ maxAgeMs: 30_000 });
   assert.equal(fetchCount, 1);
