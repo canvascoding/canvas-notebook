@@ -39,12 +39,6 @@ export async function runStartupDatabaseMigrations(): Promise<void> {
       await migrationPool.end();
     }
     console.log('[Startup] Postgres database migrations completed');
-    // Workspace/file collaboration policy keeps its durable path-to-document
-    // index in the local bootstrap store. A Postgres-only migration leaves
-    // that index absent and makes existing collaborative files appear stale.
-    console.log('[Startup] Running SQLite bootstrap migrations...');
-    runSqliteBootstrapMigrations();
-    console.log('[Startup] SQLite bootstrap migrations completed');
     return;
   }
 

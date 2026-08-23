@@ -62,6 +62,7 @@ assert.match(serverSource, /startup-migrations/u);
 assert.match(startupMigrationSource, /await runPostgresMigrations\(migrationPool\)/u);
 assert.match(startupMigrationSource, /await migrationPool\.end\(\)/u);
 assert.match(startupMigrationSource, /runMigrations\(migrationDatabase\)/u);
+assert.doesNotMatch(startupMigrationSource, /Running SQLite bootstrap migrations/u);
 assert.match(migrationRunnerSource, /loadAppEnv\(process\.cwd\(\)\)/u);
 assert.match(migrationRunnerSource, /await runStartupDatabaseMigrations\(\)/u);
 assert.match(dockerEntrypointSource, /export CANVAS_DATABASE_MIGRATIONS_COMPLETED=true/u);
