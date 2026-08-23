@@ -1714,7 +1714,8 @@
         "sessions": {
           "title": "New replies",
           "empty": "No unread replies.",
-          "newResponse": "New reply"
+          "newResponse": "New reply",
+          "workspace": "Workspace: {workspace}"
         },
         "todos": {
           "title": "Needs attention",

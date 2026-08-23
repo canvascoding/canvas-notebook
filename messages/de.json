@@ -1713,7 +1713,8 @@
         "sessions": {
           "title": "Neue Antworten",
           "empty": "Keine ungelesenen Antworten.",
-          "newResponse": "Neue Antwort"
+          "newResponse": "Neue Antwort",
+          "workspace": "Workspace: {workspace}"
         },
         "todos": {
           "title": "Braucht Aufmerksamkeit",
