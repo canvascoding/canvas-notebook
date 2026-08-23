@@ -1091,14 +1091,6 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const column of collaborationAgentColumns) {
     await pool.query(`ALTER TABLE collaboration_agent_operations ADD COLUMN IF NOT EXISTS ${column}`);
   }
-  await pool.query(`
-    UPDATE collaboration_agent_operations AS operation
-    SET document_path = COALESCE(operation.document_path, state.path),
-        document_representation = COALESCE(operation.document_representation, state.representation)
-    FROM collaboration_yjs_states AS state
-    WHERE operation.document_id = state.document_id
-      AND (operation.document_path IS NULL OR operation.document_representation IS NULL)
-  `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_agent_document_status ON collaboration_agent_operations (document_id, status, updated_at)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_agent_expiry ON collaboration_agent_operations (status, expires_at)');
 

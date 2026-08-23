@@ -9,6 +9,7 @@ import {
   prepareCollaborationTextEdit,
   readCurrentCollaborationTextSnapshot,
 } from '../app/lib/collaboration/agent-file-edits';
+import { materializeCollaborationCheckpoint } from '../app/lib/collaboration/checkpoint';
 import {
   acceptAgentOperation,
   applyAgentTextTargets,
@@ -58,7 +59,7 @@ if (process.env.CANVAS_DATABASE_PROVIDER !== 'postgres' || !process.env.DATABASE
 
 const suffix = randomUUID();
 const documentId = `agent-operation-test-${suffix}`;
-const richDocumentId = `agent-operation-rich-test-${suffix}`;
+let richDocumentId = `agent-operation-rich-test-${suffix}`;
 const compactionDocumentId = `agent-operation-compaction-test-${suffix}`;
 const sagaFirstDocumentId = `agent-operation-saga-first-${suffix}`;
 const sagaSecondDocumentId = `agent-operation-saga-second-${suffix}`;
@@ -154,6 +155,10 @@ async function persistUserMutation(
   const canonical = doc.getText('content').toString();
   await markCollaborationCheckpoint({
     documentId: targetDocumentId,
+    workspaceId: persisted.workspaceId,
+    path: persisted.path,
+    lifecycleGeneration: persisted.lifecycleGeneration,
+    schemaVersion: persisted.schemaVersion,
     sequence: persisted.documentSequence,
     canonicalContent: canonical,
     serializedContent: serializeCanonicalText(canonical, persisted),
@@ -207,12 +212,40 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
     const canonical = state.representation === 'plain_text'
       ? doc.getText('content').toString()
       : richMarkdownFromYDoc(doc);
-    await markCollaborationCheckpoint({
-      documentId: input.documentId,
-      sequence: persisted.documentSequence,
-      canonicalContent: canonical,
-      serializedContent: serializeCanonicalText(canonical, persisted),
-    });
+    const projection = input.requiresFileCheckpointIdentity
+      ? getFileCollaborationState({
+          workspace: input.workspace,
+          path: persisted.path,
+          ensureDocument: false,
+        })
+      : null;
+    if (projection?.document?.id === input.documentId) {
+      await materializeCollaborationCheckpoint({
+        state: persisted,
+        workspace: input.workspace,
+        canonicalContent: canonical,
+        actorUserId: input.initiatedByUserId,
+        actorType: input.actorType || 'agent',
+        sourceSessionId: input.actorSessionId || input.operationId,
+      });
+    } else {
+      const checkpointedState = await markCollaborationCheckpoint({
+        documentId: input.documentId,
+        workspaceId: persisted.workspaceId,
+        path: persisted.path,
+        lifecycleGeneration: persisted.lifecycleGeneration,
+        schemaVersion: persisted.schemaVersion,
+        sequence: persisted.documentSequence,
+        canonicalContent: canonical,
+        serializedContent: serializeCanonicalText(canonical, persisted),
+      });
+      assert(checkpointedState, 'The test collaboration checkpoint CAS must confirm the persisted state.');
+      assert.equal(checkpointedState.checkpointSequence, persisted.documentSequence);
+      assert.equal(
+        (await loadCollaborationState(input.documentId))?.checkpointSequence,
+        persisted.documentSequence,
+      );
+    }
     return result;
   } finally {
     if (!activeDocument) doc.destroy();
@@ -621,13 +654,32 @@ try {
 
   // Rich Markdown agent edits use stable anchors inside Y.XmlText and pass a
   // schema/stable-ID/roundtrip clone before the authoritative transaction.
+  const richPath = `agent-operation-rich-${suffix}.md`;
+  const richInitialContent = 'Rich **bold** paragraph\n\nOther paragraph';
+  await fs.mkdir(workspace.rootPath, { recursive: true });
+  await fs.writeFile(path.join(workspace.rootPath, richPath), richInitialContent, 'utf8');
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: richPath,
+    contentHash: createHash('sha256').update(richInitialContent, 'utf8').digest('hex'),
+    sizeBytes: Buffer.byteLength(richInitialContent, 'utf8'),
+    actorUserId: userId,
+    actorType: 'user',
+  });
+  const richProjection = getFileCollaborationState({
+    workspace,
+    path: richPath,
+    ensureDocument: true,
+  });
+  assert(richProjection.document);
+  richDocumentId = richProjection.document.id;
   await ensureCollaborationState({
     documentId: richDocumentId,
     workspaceId,
     organizationId: workspace.organizationId || null,
-    path: `agent-operation-rich-${suffix}.md`,
+    path: richPath,
     representation: 'tiptap_xml',
-    initialContent: 'Rich **bold** paragraph\n\nOther paragraph',
+    initialContent: richInitialContent,
   });
   const richState = await loadCollaborationState(richDocumentId);
   assert(richState);
@@ -738,7 +790,7 @@ try {
   try {
     const operationRow = await operationDatabase.get(
       `SELECT document_path, document_representation, document_lifecycle_generation,
-              base_state_vector, base_document_sequence
+              base_state_vector, base_document_sequence, checkpoint_revision_id
        FROM collaboration_agent_operations WHERE operation_id = ?`,
       [directToolDetails.collaboration.operationId],
     ) as {
@@ -747,6 +799,7 @@ try {
       document_lifecycle_generation: number;
       base_state_vector: Buffer;
       base_document_sequence: number;
+      checkpoint_revision_id: string | null;
     } | undefined;
     assert(operationRow);
     assert.equal(operationRow.document_path, toolPath);
@@ -754,6 +807,27 @@ try {
     assert.equal(Number(operationRow.document_lifecycle_generation), 1);
     assert.equal(Buffer.from(operationRow.base_state_vector).toString('base64'), toolReadDetails.collaboration?.stateVector);
     assert.equal(Number(operationRow.base_document_sequence), toolReadDetails.collaboration?.documentSequence);
+    assert(operationRow.checkpoint_revision_id);
+    const checkpointProjection = getFileCollaborationState({
+      workspace,
+      path: toolPath,
+      ensureDocument: false,
+    });
+    const checkpointState = await loadCollaborationState(toolDocumentId);
+    assert(checkpointState);
+    assert.equal(checkpointProjection.document?.stateVersion, checkpointState.checkpointSequence);
+    assert.equal(checkpointProjection.document?.snapshotRevisionId, operationRow.checkpoint_revision_id);
+    const staleCheckpoint = await markCollaborationCheckpoint({
+      documentId: toolDocumentId,
+      workspaceId: checkpointState.workspaceId,
+      path: checkpointState.path,
+      lifecycleGeneration: checkpointState.lifecycleGeneration + 1,
+      schemaVersion: checkpointState.schemaVersion,
+      sequence: checkpointState.documentSequence,
+      canonicalContent: 'This stale checkpoint must not be confirmed',
+      serializedContent: 'This stale checkpoint must not be confirmed',
+    });
+    assert.equal(staleCheckpoint, null);
   } finally {
     await operationDatabase.close();
   }
@@ -915,6 +989,10 @@ try {
   const concurrentPersisted = await persistCollaborationYDoc(richDocumentId, concurrentRichDoc);
   await markCollaborationCheckpoint({
     documentId: richDocumentId,
+    workspaceId: concurrentPersisted.workspaceId,
+    path: concurrentPersisted.path,
+    lifecycleGeneration: concurrentPersisted.lifecycleGeneration,
+    schemaVersion: concurrentPersisted.schemaVersion,
     sequence: concurrentPersisted.documentSequence,
     canonicalContent: concurrentRichContent,
     serializedContent: serializeCanonicalText(concurrentRichContent, concurrentPersisted),

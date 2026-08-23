@@ -273,19 +273,31 @@ export async function persistCollaborationYDoc(
 
 export async function markCollaborationCheckpoint(input: {
   documentId: string;
+  workspaceId: string;
+  path: string;
+  lifecycleGeneration: number;
+  schemaVersion: number;
   sequence: number;
   canonicalContent: string;
   serializedContent: string;
   degraded?: boolean;
-}): Promise<void> {
+}): Promise<PersistedCollaborationState | null> {
   assertPostgres();
   const database = await openDb();
   try {
-    await database.run(
+    const row = await database.get(
       `
         UPDATE collaboration_yjs_states
         SET checkpointed_at = ?, checkpoint_sequence = ?, canonical_hash = ?, serialized_hash = ?, degraded = ?
-        WHERE document_id = ? AND document_sequence = ?
+        WHERE document_id = ?
+          AND workspace_id = ?
+          AND path = ?
+          AND status = 'active'
+          AND lifecycle_generation = ?
+          AND schema_version = ?
+          AND document_sequence = ?
+          AND checkpoint_sequence <= ?
+        RETURNING *
       `,
       [
         Date.now(),
@@ -294,9 +306,15 @@ export async function markCollaborationCheckpoint(input: {
         sha256Text(input.serializedContent),
         input.degraded ? 1 : 0,
         input.documentId,
+        input.workspaceId,
+        input.path,
+        input.lifecycleGeneration,
+        input.schemaVersion,
+        input.sequence,
         input.sequence,
       ],
-    );
+    ) as StateRow | undefined;
+    return row ? mapState(row) : null;
   } finally {
     await database.close();
   }

@@ -5,7 +5,10 @@ import { Hocuspocus, type onAwarenessUpdatePayload } from '@hocuspocus/server';
 import { WebSocketServer } from 'ws';
 
 import { auth } from '@/app/lib/auth';
-import { materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
+import {
+  CollaborationCheckpointSupersededError,
+  materializeCollaborationCheckpoint,
+} from '@/app/lib/collaboration/checkpoint';
 import {
   AgentDirectConnectionAuthorizationError,
   installCollaborationDirectConnection,
@@ -311,6 +314,13 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
           revisionId: result.revisionId,
         }));
       } catch (error) {
+        if (error instanceof CollaborationCheckpointSupersededError) {
+          document.broadcastStateless(JSON.stringify({
+            type: 'checkpoint_superseded',
+            sequence: error.sequence,
+          }));
+          return;
+        }
         await markCollaborationDegraded(documentName);
         document.broadcastStateless(JSON.stringify({
           type: 'degraded',
@@ -367,11 +377,13 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       }
     }
     const state = await loadCollaborationState(input.documentId);
-    const collaboration = getFileCollaborationState({
-      workspace,
-      path: input.documentPath,
-      ensureDocument: false,
-    });
+    const collaboration = input.requiresFileCheckpointIdentity
+      ? getFileCollaborationState({
+          workspace,
+          path: input.documentPath,
+          ensureDocument: false,
+        })
+      : null;
     if (
       !state
       || state.workspaceId !== workspace.workspaceId
@@ -379,10 +391,12 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       || state.representation !== input.documentRepresentation
       || state.lifecycleGeneration !== input.documentLifecycleGeneration
       || state.schemaVersion !== input.documentSchemaVersion
-      || !collaboration.document
-      || collaboration.document.id !== input.documentId
-      || collaboration.document.status !== 'active'
-      || collaboration.document.provider !== 'yjs'
+      || (input.requiresFileCheckpointIdentity && (
+        !collaboration?.document
+        || collaboration.document.id !== input.documentId
+        || collaboration.document.status !== 'active'
+        || collaboration.document.provider !== 'yjs'
+      ))
     ) {
       throw new Error('Collaboration document identity, lifecycle, or representation is unavailable or stale.');
     }

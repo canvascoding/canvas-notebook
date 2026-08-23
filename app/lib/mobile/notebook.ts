@@ -440,6 +440,7 @@ async function saveMobileCollaborativeNotebookDocument(input: {
       documentRepresentation: persistedState.representation,
       documentLifecycleGeneration: persistedState.lifecycleGeneration,
       documentSchemaVersion: persistedState.schemaVersion,
+      requiresFileCheckpointIdentity: true,
       workspace: input.workspace,
       actorId: input.actorUserId,
       actorDisplayName: 'Mobile editor',

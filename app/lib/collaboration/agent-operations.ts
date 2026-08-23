@@ -11,6 +11,7 @@ import {
   countExactTextOccurrences,
   type ExactTextEdit,
 } from '@/app/lib/files/exact-text-patch';
+import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   AgentDirectConnectionAuthorizationError,
@@ -997,8 +998,8 @@ async function createOrLoadOperation(input: {
     [
       operationId,
       input.documentId,
-      input.documentPath || state.path,
-      input.documentRepresentation || state.representation,
+      input.documentPath || null,
+      input.documentRepresentation || null,
       input.workspace.workspaceId,
       state.organizationId,
       input.documentLifecycleGeneration ?? state.lifecycleGeneration,
@@ -1041,19 +1042,65 @@ function publicResult(row: AgentOperationRow, result: AgentApplyResult, durabili
   };
 }
 
-async function waitForDurableState(documentId: string, expectedStateVector: string) {
+async function waitForDurableState(input: {
+  documentId: string;
+  expectedStateVector: string;
+  workspace: WorkspaceContext;
+  documentPath: string | null;
+}) {
   const deadline = Date.now() + PERSISTENCE_CONFIRMATION_TIMEOUT_MS;
+  let diagnostics: Record<string, unknown> = { stateAvailable: false };
   do {
-    const state = await loadCollaborationState(documentId);
+    const state = await loadCollaborationState(input.documentId);
+    diagnostics = state
+      ? {
+          stateAvailable: true,
+          degraded: state.degraded,
+          stateVectorIncludesExpected: stateVectorIncludes(state.stateVector, input.expectedStateVector),
+          documentSequence: state.documentSequence,
+          checkpointSequence: state.checkpointSequence,
+          projectionRequired: Boolean(input.documentPath),
+        }
+      : { stateAvailable: false };
     if (
       state
       && !state.degraded
-      && stateVectorIncludes(state.stateVector, expectedStateVector)
+      && stateVectorIncludes(state.stateVector, input.expectedStateVector)
       && state.checkpointSequence >= state.documentSequence
-    ) return state;
+    ) {
+      let checkpointRevisionId: string | null = null;
+      if (input.documentPath) {
+        const projection = getFileCollaborationState({
+          workspace: input.workspace,
+          path: input.documentPath,
+          ensureDocument: false,
+        });
+        if (
+          !projection.document
+          || projection.document.id !== input.documentId
+          || projection.document.stateVersion !== state.checkpointSequence
+          || !projection.document.snapshotRevisionId
+          || projection.latestRevision?.id !== projection.document.snapshotRevisionId
+        ) {
+          diagnostics = {
+            ...diagnostics,
+            projectionDocumentId: projection.document?.id || null,
+            projectionStateVersion: projection.document?.stateVersion ?? null,
+            projectionSnapshotRevisionId: projection.document?.snapshotRevisionId || null,
+            projectionLatestRevisionId: projection.latestRevision?.id || null,
+          };
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          continue;
+        }
+        checkpointRevisionId = projection.document.snapshotRevisionId;
+      }
+      return { state, checkpointRevisionId };
+    }
     await new Promise((resolve) => setTimeout(resolve, 25));
   } while (Date.now() < deadline);
-  throw new Error('Agent update was not confirmed as a persisted Yjs state and file checkpoint in time.');
+  throw new Error(
+    `Agent update was not confirmed as a persisted Yjs state and file checkpoint in time (${JSON.stringify(diagnostics)}).`,
+  );
 }
 
 function validateOperationClone(
@@ -1203,6 +1250,7 @@ async function applyStoredOperation(input: {
       documentRepresentation: row.document_representation || state.representation,
       documentLifecycleGeneration: Number(row.document_lifecycle_generation),
       documentSchemaVersion: Number(row.schema_version),
+      requiresFileCheckpointIdentity: row.document_path !== null,
       workspace: input.workspace,
       actorId: row.actor_id,
       actorDisplayName: input.actorDisplayName,
@@ -1351,9 +1399,14 @@ async function applyStoredOperation(input: {
     return { ...reviewResult, operationStatus: review.status, casVersion: Number(review.cas_version) };
   }
 
-  let durableState: Awaited<ReturnType<typeof waitForDurableState>>;
+  let durable: Awaited<ReturnType<typeof waitForDurableState>>;
   try {
-    durableState = await waitForDurableState(row.document_id, execution.stateVector);
+    durable = await waitForDurableState({
+      documentId: row.document_id,
+      expectedStateVector: execution.stateVector,
+      workspace: input.workspace,
+      documentPath: row.document_path,
+    });
   } catch {
     const persistenceConflicts = allTargets.map((target) => ({
       targetId: target.targetId,
@@ -1377,6 +1430,7 @@ async function applyStoredOperation(input: {
     });
     return { ...degradedResult, operationStatus: row.status, casVersion: Number(row.cas_version) };
   }
+  const durableState = durable.state;
   const persistedResult = publicResult(row, baseResult, 'persisted_yjs');
   setAgentChangeWindowSequence(row.document_id, row.operation_id, durableState.documentSequence);
   const operationPersistedAt = Math.max(durableState.persistedAt, Number(row.applied_at || 0));
@@ -1389,6 +1443,7 @@ async function applyStoredOperation(input: {
       result_json: JSON.stringify(persistedResult),
       persisted_at: operationPersistedAt,
       applied_document_sequence: durableState.documentSequence,
+      checkpoint_revision_id: durable.checkpointRevisionId,
     },
   });
   const terminalStatus: AgentOperationStatus = immediateSemanticConflicts.length > 0
