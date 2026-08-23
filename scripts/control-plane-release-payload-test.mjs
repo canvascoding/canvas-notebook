@@ -25,6 +25,13 @@ const payload = buildControlPlaneReleasePayload(env, '2026.7.11.1', '2026-07-11T
 assert.equal(payload.image.digest, digest);
 assert.deepEqual(payload.cliArtifact, { version: 'v2026.7.11.1', sha256: cliSha256 });
 assert.equal(payload.image.tags.includes('ghcr.io/canvascoding/canvas-notebook:v2026.7.11.1'), true);
+const buildProvenance = buildControlPlaneReleasePayload({
+  ...env,
+  RELEASE_BUILD_RUN_ID: '678',
+  RELEASE_BUILD_RUN_NUMBER: '90',
+  RELEASE_BUILD_RUN_ATTEMPT: '2',
+}, '2026.7.11.1');
+assert.deepEqual(buildProvenance.workflow, { runId: '678', runNumber: '90', runAttempt: '2' });
 const body = JSON.stringify(payload);
 assert.equal(
   signControlPlaneReleasePayload('release-secret', '1720000000', body),
@@ -70,15 +77,21 @@ assert.throws(
 
 const nativeWorkflow = await readFile(new URL('../.github/workflows/build-both.yml', import.meta.url), 'utf8');
 const workflow = await readFile(new URL('../.github/workflows/notify-control-plane-release.yml', import.meta.url), 'utf8');
-assert.match(nativeWorkflow, /gh release create/u);
-assert.match(nativeWorkflow, /gh release upload/u);
-const ghReleaseCreateIndex = nativeWorkflow.indexOf('gh release create');
+assert.doesNotMatch(nativeWorkflow, /gh release create/u);
+assert.doesNotMatch(nativeWorkflow, /gh release upload/u);
+assert.match(nativeWorkflow, /Package immutable release metadata/u);
+assert.match(nativeWorkflow, /canvas-notebook-release-metadata\.json/u);
 const verifyMultiArchIndex = nativeWorkflow.indexOf('Verify multi-architecture native compliance');
 const createManifestIndex = nativeWorkflow.indexOf('Create multi-arch manifest');
-assert(ghReleaseCreateIndex > verifyMultiArchIndex, 'GitHub release must be created after native compliance verification');
-assert(ghReleaseCreateIndex > createManifestIndex, 'GitHub release must be created after multi-arch manifest creation');
+const packageMetadataIndex = nativeWorkflow.indexOf('Package immutable release metadata');
+const uploadBundleIndex = nativeWorkflow.indexOf('Upload gated release bundle');
+assert(packageMetadataIndex > verifyMultiArchIndex, 'Release metadata must be created after native compliance verification');
+assert(packageMetadataIndex > createManifestIndex, 'Release metadata must be created after multi-arch manifest creation');
+assert(uploadBundleIndex > packageMetadataIndex, 'The gated release bundle must include release metadata after packaging');
 assert.match(workflow, /release:\s+types: \[published\]/su);
 assert.match(workflow, /browser_download_url/u);
+assert.match(workflow, /canvas-notebook-release-metadata\.json/u);
+assert.match(workflow, /RELEASE_BUILD_RUN_ID/u);
 assert.match(workflow, /CONTROL_PLANE_RELEASE_WEBHOOK_SECRET is required for published releases/u);
 
 console.log('control plane release payload tests passed');

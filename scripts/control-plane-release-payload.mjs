@@ -48,9 +48,9 @@ export function buildControlPlaneReleasePayload(env, packageVersion, publishedAt
     image: { name: imageName, tags, digest: imageDigest },
     cliArtifact,
     workflow: {
-      runId: env.GITHUB_RUN_ID,
-      runNumber: env.GITHUB_RUN_NUMBER,
-      runAttempt: env.GITHUB_RUN_ATTEMPT,
+      runId: env.RELEASE_BUILD_RUN_ID || env.GITHUB_RUN_ID,
+      runNumber: env.RELEASE_BUILD_RUN_NUMBER || env.GITHUB_RUN_NUMBER,
+      runAttempt: env.RELEASE_BUILD_RUN_ATTEMPT || env.GITHUB_RUN_ATTEMPT,
     },
     source: 'github_actions',
     publishedAt,
@@ -58,6 +58,11 @@ export function buildControlPlaneReleasePayload(env, packageVersion, publishedAt
       actor: env.GITHUB_ACTOR,
       eventName: env.GITHUB_EVENT_NAME,
       workflow: env.GITHUB_WORKFLOW,
+      notificationWorkflow: {
+        runId: env.GITHUB_RUN_ID,
+        runNumber: env.GITHUB_RUN_NUMBER,
+        runAttempt: env.GITHUB_RUN_ATTEMPT,
+      },
     },
   };
 }
