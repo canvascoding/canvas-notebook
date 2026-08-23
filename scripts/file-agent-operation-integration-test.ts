@@ -9,8 +9,10 @@ import {
   prepareCollaborationTextEdit,
   readCurrentCollaborationTextSnapshot,
 } from '../app/lib/collaboration/agent-file-edits';
+import { materializeCollaborationCheckpoint } from '../app/lib/collaboration/checkpoint';
 import {
   acceptAgentOperation,
+  applyAgentTextTargets,
   applyPersistedAgentTextOperation,
   cancelAgentOperation,
   createAgentTextTarget,
@@ -36,6 +38,7 @@ import {
   loadCollaborationState,
   markCollaborationCheckpoint,
   persistCollaborationYDoc,
+  reactivatePersistedCollaborationPath,
   serializeCanonicalText,
 } from '../app/lib/collaboration/persistence';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
@@ -56,7 +59,7 @@ if (process.env.CANVAS_DATABASE_PROVIDER !== 'postgres' || !process.env.DATABASE
 
 const suffix = randomUUID();
 const documentId = `agent-operation-test-${suffix}`;
-const richDocumentId = `agent-operation-rich-test-${suffix}`;
+let richDocumentId = `agent-operation-rich-test-${suffix}`;
 const compactionDocumentId = `agent-operation-compaction-test-${suffix}`;
 const sagaFirstDocumentId = `agent-operation-saga-first-${suffix}`;
 const sagaSecondDocumentId = `agent-operation-saga-second-${suffix}`;
@@ -64,6 +67,7 @@ const archivedDocumentId = `agent-operation-archived-${suffix}`;
 const workspaceId = `agent-operation-workspace-${suffix}`;
 const userId = `agent-operation-user-${suffix}`;
 let toolDocumentId: string | null = null;
+let uninitializedToolDocumentId: string | null = null;
 const workspace: WorkspaceContext = {
   workspaceId,
   workspaceType: 'organization',
@@ -151,6 +155,10 @@ async function persistUserMutation(
   const canonical = doc.getText('content').toString();
   await markCollaborationCheckpoint({
     documentId: targetDocumentId,
+    workspaceId: persisted.workspaceId,
+    path: persisted.path,
+    lifecycleGeneration: persisted.lifecycleGeneration,
+    schemaVersion: persisted.schemaVersion,
     sequence: persisted.documentSequence,
     canonicalContent: canonical,
     serializedContent: serializeCanonicalText(canonical, persisted),
@@ -190,6 +198,10 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
   directConnectionInputs.push({ operationId: input.operationId, actorSessionId: input.actorSessionId });
   const state = await loadCollaborationState(input.documentId);
   assert(state);
+  assert.equal(input.documentPath, state.path);
+  assert.equal(input.documentRepresentation, state.representation);
+  assert.equal(input.documentLifecycleGeneration, state.lifecycleGeneration);
+  assert.equal(input.documentSchemaVersion, state.schemaVersion);
   const activeDocument = activeDocuments.get(input.documentId);
   const doc = activeDocument || new Y.Doc({ gc: true });
   try {
@@ -200,12 +212,40 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
     const canonical = state.representation === 'plain_text'
       ? doc.getText('content').toString()
       : richMarkdownFromYDoc(doc);
-    await markCollaborationCheckpoint({
-      documentId: input.documentId,
-      sequence: persisted.documentSequence,
-      canonicalContent: canonical,
-      serializedContent: serializeCanonicalText(canonical, persisted),
-    });
+    const projection = input.requiresFileCheckpointIdentity
+      ? getFileCollaborationState({
+          workspace: input.workspace,
+          path: persisted.path,
+          ensureDocument: false,
+        })
+      : null;
+    if (projection?.document?.id === input.documentId) {
+      await materializeCollaborationCheckpoint({
+        state: persisted,
+        workspace: input.workspace,
+        canonicalContent: canonical,
+        actorUserId: input.initiatedByUserId,
+        actorType: input.actorType || 'agent',
+        sourceSessionId: input.actorSessionId || input.operationId,
+      });
+    } else {
+      const checkpointedState = await markCollaborationCheckpoint({
+        documentId: input.documentId,
+        workspaceId: persisted.workspaceId,
+        path: persisted.path,
+        lifecycleGeneration: persisted.lifecycleGeneration,
+        schemaVersion: persisted.schemaVersion,
+        sequence: persisted.documentSequence,
+        canonicalContent: canonical,
+        serializedContent: serializeCanonicalText(canonical, persisted),
+      });
+      assert(checkpointedState, 'The test collaboration checkpoint CAS must confirm the persisted state.');
+      assert.equal(checkpointedState.checkpointSequence, persisted.documentSequence);
+      assert.equal(
+        (await loadCollaborationState(input.documentId))?.checkpointSequence,
+        persisted.documentSequence,
+      );
+    }
     return result;
   } finally {
     if (!activeDocument) doc.destroy();
@@ -614,13 +654,32 @@ try {
 
   // Rich Markdown agent edits use stable anchors inside Y.XmlText and pass a
   // schema/stable-ID/roundtrip clone before the authoritative transaction.
+  const richPath = `agent-operation-rich-${suffix}.md`;
+  const richInitialContent = 'Rich **bold** paragraph\n\nOther paragraph';
+  await fs.mkdir(workspace.rootPath, { recursive: true });
+  await fs.writeFile(path.join(workspace.rootPath, richPath), richInitialContent, 'utf8');
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: richPath,
+    contentHash: createHash('sha256').update(richInitialContent, 'utf8').digest('hex'),
+    sizeBytes: Buffer.byteLength(richInitialContent, 'utf8'),
+    actorUserId: userId,
+    actorType: 'user',
+  });
+  const richProjection = getFileCollaborationState({
+    workspace,
+    path: richPath,
+    ensureDocument: true,
+  });
+  assert(richProjection.document);
+  richDocumentId = richProjection.document.id;
   await ensureCollaborationState({
     documentId: richDocumentId,
     workspaceId,
     organizationId: workspace.organizationId || null,
-    path: `agent-operation-rich-${suffix}.md`,
+    path: richPath,
     representation: 'tiptap_xml',
-    initialContent: 'Rich **bold** paragraph\n\nOther paragraph',
+    initialContent: richInitialContent,
   });
   const richState = await loadCollaborationState(richDocumentId);
   assert(richState);
@@ -679,10 +738,20 @@ try {
   activeDocuments.set(toolDocumentId, activeToolDocument);
 
   const toolRead = await runPiTool('read', `tool-read-${suffix}`, { path: toolPath });
-  const toolReadDetails = toolRead.details as { sha256?: string; collaboration?: { source?: string } };
+  const toolReadDetails = toolRead.details as {
+    sha256?: string;
+    collaboration?: {
+      source?: string;
+      stateVector?: string;
+      lifecycleGeneration?: number;
+      documentSequence?: number;
+    };
+  };
   const liveHash = createHash('sha256').update(liveContent, 'utf8').digest('hex');
   assert.equal(toolReadDetails.sha256, liveHash);
   assert.equal(toolReadDetails.collaboration?.source, 'live_yjs');
+  assert.equal(toolReadDetails.collaboration?.lifecycleGeneration, 1);
+  assert.equal(toolReadDetails.collaboration?.documentSequence, 0);
   assert.match(
     String((toolRead.content[0] as { text?: string } | undefined)?.text || ''),
     /Source: live Yjs collaboration state/u,
@@ -706,11 +775,62 @@ try {
     newText: 'Live paragraph updated by agent',
   });
   const directToolDetails = directToolEdit.details as {
-    collaboration?: { reviewRequired?: boolean; operationStatus?: string; durability?: string };
+    collaboration?: {
+      operationId?: string;
+      reviewRequired?: boolean;
+      operationStatus?: string;
+      durability?: string;
+    };
   };
   assert.equal(directToolDetails.collaboration?.reviewRequired, false);
   assert.equal(directToolDetails.collaboration?.operationStatus, 'checkpointed_file');
   assert.equal(directToolDetails.collaboration?.durability, 'checkpointed_file');
+  assert(directToolDetails.collaboration?.operationId);
+  const operationDatabase = await openDb();
+  try {
+    const operationRow = await operationDatabase.get(
+      `SELECT document_path, document_representation, document_lifecycle_generation,
+              base_state_vector, base_document_sequence, checkpoint_revision_id
+       FROM collaboration_agent_operations WHERE operation_id = ?`,
+      [directToolDetails.collaboration.operationId],
+    ) as {
+      document_path: string;
+      document_representation: string;
+      document_lifecycle_generation: number;
+      base_state_vector: Buffer;
+      base_document_sequence: number;
+      checkpoint_revision_id: string | null;
+    } | undefined;
+    assert(operationRow);
+    assert.equal(operationRow.document_path, toolPath);
+    assert.equal(operationRow.document_representation, 'tiptap_xml');
+    assert.equal(Number(operationRow.document_lifecycle_generation), 1);
+    assert.equal(Buffer.from(operationRow.base_state_vector).toString('base64'), toolReadDetails.collaboration?.stateVector);
+    assert.equal(Number(operationRow.base_document_sequence), toolReadDetails.collaboration?.documentSequence);
+    assert(operationRow.checkpoint_revision_id);
+    const checkpointProjection = getFileCollaborationState({
+      workspace,
+      path: toolPath,
+      ensureDocument: false,
+    });
+    const checkpointState = await loadCollaborationState(toolDocumentId);
+    assert(checkpointState);
+    assert.equal(checkpointProjection.document?.stateVersion, checkpointState.checkpointSequence);
+    assert.equal(checkpointProjection.document?.snapshotRevisionId, operationRow.checkpoint_revision_id);
+    const staleCheckpoint = await markCollaborationCheckpoint({
+      documentId: toolDocumentId,
+      workspaceId: checkpointState.workspaceId,
+      path: checkpointState.path,
+      lifecycleGeneration: checkpointState.lifecycleGeneration + 1,
+      schemaVersion: checkpointState.schemaVersion,
+      sequence: checkpointState.documentSequence,
+      canonicalContent: 'This stale checkpoint must not be confirmed',
+      serializedContent: 'This stale checkpoint must not be confirmed',
+    });
+    assert.equal(staleCheckpoint, null);
+  } finally {
+    await operationDatabase.close();
+  }
   assert.ok(
     directConnectionInputs.some((input) => input.actorSessionId === agentExecutionContext.sessionId),
     'Agent tool operations must forward their PI session to the direct collaboration connection.',
@@ -719,6 +839,101 @@ try {
     richMarkdownFromYDoc(activeToolDocument),
     'Tool **checkpoint** paragraph\n\nLive paragraph updated by agent',
   );
+
+  // A same-content Y.Doc rebuilt from a checkpoint has different client clocks.
+  // The prepared agent edit must not treat that reset as the state it observed.
+  const staleVectorPrepared = await prepareCollaborationTextEdit({
+    documentId: toolDocumentId,
+    workspace,
+    path: toolPath,
+    edits: [{
+      oldText: 'Live paragraph updated by agent',
+      newText: 'Reset state must reject this edit',
+      expectedOccurrences: 1,
+    }],
+    expectedSha256: createHash('sha256')
+      .update('Tool **checkpoint** paragraph\n\nLive paragraph updated by agent', 'utf8')
+      .digest('hex'),
+    groupId: 'stale-vector',
+  });
+  const resetToolDocument = createRichMarkdownYDoc(
+    'Tool **checkpoint** paragraph\n\nLive paragraph updated by agent',
+  );
+  activeDocuments.set(toolDocumentId, resetToolDocument);
+  activeToolDocument.destroy();
+  const staleVectorResult = await executePreparedCollaborationTextEdit({
+    prepared: staleVectorPrepared,
+    workspace,
+    identity: {
+      initiatedByUserId: userId,
+      actorId: 'agent-b',
+      actorDisplayName: 'Agent B',
+      actorSessionId: agentExecutionContext.sessionId,
+    },
+    idempotencyKey: `stale-vector-${suffix}`,
+  });
+  assert.equal(staleVectorResult.operationStatus, 'needs_review');
+  assert.equal(staleVectorResult.conflicts[0]?.code, 'lifecycle_stale');
+  assert.equal(
+    richMarkdownFromYDoc(resetToolDocument),
+    'Tool **checkpoint** paragraph\n\nLive paragraph updated by agent',
+  );
+
+  // Existing shared Markdown can have collaboration metadata from a normal
+  // file read without having opened a browser collaboration session yet. The
+  // real agent read must initialize that document exactly once before edit.
+  const uninitializedToolPath = `agent-tool-uninitialized-${suffix}.md`;
+  const uninitializedToolContent = '# Existing note\n\nParagraph before agent';
+  await fs.writeFile(path.join(workspace.rootPath, uninitializedToolPath), uninitializedToolContent, 'utf8');
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: uninitializedToolPath,
+    contentHash: createHash('sha256').update(uninitializedToolContent, 'utf8').digest('hex'),
+    sizeBytes: Buffer.byteLength(uninitializedToolContent, 'utf8'),
+    actorUserId: userId,
+    actorType: 'user',
+  });
+  const uninitializedMetadata = getFileCollaborationState({
+    workspace,
+    path: uninitializedToolPath,
+    ensureDocument: false,
+  });
+  assert(uninitializedMetadata.document);
+  uninitializedToolDocumentId = uninitializedMetadata.document.id;
+  assert.equal(await loadCollaborationState(uninitializedToolDocumentId), null);
+
+  const initializedRead = await runPiTool('read', `tool-uninitialized-read-${suffix}`, {
+    path: uninitializedToolPath,
+  });
+  const initializedReadDetails = initializedRead.details as {
+    sha256?: string;
+    collaboration?: { documentId?: string; source?: string };
+  };
+  assert.equal(initializedReadDetails.collaboration?.documentId, uninitializedToolDocumentId);
+  assert.equal(initializedReadDetails.collaboration?.source, 'live_yjs');
+  assert.equal(
+    initializedReadDetails.sha256,
+    createHash('sha256').update(uninitializedToolContent, 'utf8').digest('hex'),
+  );
+  const initializedState = await loadCollaborationState(uninitializedToolDocumentId);
+  assert(initializedState);
+  assert.equal(initializedState.lifecycleGeneration, 1);
+  assert.equal(initializedState.workspaceId, workspaceId);
+  assert.equal(initializedState.path, uninitializedToolPath);
+  assert.equal(initializedState.representation, 'tiptap_xml');
+
+  const initializedEdit = await runPiTool('edit_file', `tool-uninitialized-edit-${suffix}`, {
+    path: uninitializedToolPath,
+    expectedSha256: initializedReadDetails.sha256,
+    oldText: 'Paragraph before agent',
+    newText: 'Paragraph updated by agent',
+  });
+  const initializedEditDetails = initializedEdit.details as {
+    collaboration?: { operationStatus?: string; durability?: string };
+  };
+  assert.equal(initializedEditDetails.collaboration?.operationStatus, 'checkpointed_file');
+  assert.equal(initializedEditDetails.collaboration?.durability, 'checkpointed_file');
+  assert.equal(await persistedText(uninitializedToolDocumentId), '# Existing note\n\nParagraph updated by agent');
 
   // Cross-node Markdown edits are persisted as real review operations. Accept
   // reapplies the exact patch to the then-current Yjs document, preserving an
@@ -750,14 +965,34 @@ try {
   assert.equal(structuralReview.operationStatus, 'needs_review');
   assert.match(await persistedText(richDocumentId), /Rich \*\*strong\*\* paragraph/u);
 
-  const concurrentRichContent = (await persistedText(richDocumentId)).replace(
-    'Other paragraph',
-    'Other paragraph updated by user',
-  );
-  const concurrentRichDoc = createRichMarkdownYDoc(concurrentRichContent);
+  const concurrentRichState = await loadCollaborationState(richDocumentId);
+  assert(concurrentRichState);
+  const concurrentRichDoc = new Y.Doc({ gc: true });
+  Y.applyUpdate(concurrentRichDoc, concurrentRichState.yjsState);
+  const concurrentRichTargets = createRichAgentTextTargets({
+    doc: concurrentRichDoc,
+    search: 'Other paragraph',
+    replacement: 'Other paragraph updated by user',
+  });
+  const concurrentRichEdit = applyAgentTextTargets({
+    doc: concurrentRichDoc,
+    targets: concurrentRichTargets,
+    origin: {
+      actorType: 'agent',
+      actorId: userId,
+      initiatedByUserId: userId,
+      operationId: `concurrent-user-${suffix}`,
+    },
+  });
+  assert.equal(concurrentRichEdit.status, 'applied_to_ydoc');
+  const concurrentRichContent = richMarkdownFromYDoc(concurrentRichDoc);
   const concurrentPersisted = await persistCollaborationYDoc(richDocumentId, concurrentRichDoc);
   await markCollaborationCheckpoint({
     documentId: richDocumentId,
+    workspaceId: concurrentPersisted.workspaceId,
+    path: concurrentPersisted.path,
+    lifecycleGeneration: concurrentPersisted.lifecycleGeneration,
+    schemaVersion: concurrentPersisted.schemaVersion,
     sequence: concurrentPersisted.documentSequence,
     canonicalContent: concurrentRichContent,
     serializedContent: serializeCanonicalText(concurrentRichContent, concurrentPersisted),
@@ -955,17 +1190,24 @@ try {
   );
   archivedDoc.destroy();
 
-  // A restored active file may request its collaboration state before the
-  // asynchronous restore path has reactivated Postgres. Reuse the archived
-  // state in that narrow case rather than preventing the editor from opening.
-  const reactivated = await ensureCollaborationState({
-    documentId: archivedDocumentId,
+  // Only the explicit restore lifecycle may reactivate an archived state.
+  await assert.rejects(
+    () => ensureCollaborationState({
+      documentId: archivedDocumentId,
+      workspaceId,
+      organizationId: workspace.organizationId || null,
+      path: beforeArchive.path,
+      representation: 'plain_text',
+      initialContent: 'Archived content',
+    }),
+    (error: unknown) => error instanceof CollaborationStateInactiveError,
+  );
+  await reactivatePersistedCollaborationPath({
     workspaceId,
-    organizationId: workspace.organizationId || null,
     path: beforeArchive.path,
-    representation: 'plain_text',
-    initialContent: 'Archived content',
   });
+  const reactivated = await loadCollaborationState(archivedDocumentId);
+  assert(reactivated);
   assert.equal(reactivated.status, 'active');
   assert.equal(reactivated.lifecycleGeneration, beforeArchive.lifecycleGeneration + 2);
   assert.equal(await persistedText(archivedDocumentId), 'Archived content');
@@ -1021,6 +1263,7 @@ try {
       sagaSecondDocumentId,
       archivedDocumentId,
       ...(toolDocumentId ? [toolDocumentId] : []),
+      ...(uninitializedToolDocumentId ? [uninitializedToolDocumentId] : []),
     ]) {
       await database.run('DELETE FROM collaboration_agent_operations WHERE document_id = ?', [cleanupDocumentId]);
       await database.run('DELETE FROM collaboration_yjs_state_backups WHERE document_id = ?', [cleanupDocumentId]);

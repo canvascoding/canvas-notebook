@@ -9,14 +9,15 @@ import {
   loadExcalidrawScene,
 } from '@/app/lib/excalidraw-collaboration/repository';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
-import { ensureCollaborationState, loadCollaborationState } from './persistence';
+import {
+  CollaborationDocumentStateError,
+  resolveTextCollaborationState,
+} from './document-state-service';
 import type {
   CollaborationPermission,
   CollaborationProvider,
   CollaborationRepresentation,
 } from './types';
-
-const MAX_COLLABORATION_TEXT_BYTES = 5 * 1024 * 1024;
 
 export class CollaborationSessionError extends Error {
   readonly status: 400 | 404 | 409 | 413;
@@ -138,34 +139,24 @@ export async function createCollaborationSessionGrant(input: {
         'source_representation_required',
       );
     }
-    let state = await loadCollaborationState(collaboration.document.id);
-    if (state) {
-      if (
-        state.status !== 'active'
-        || state.workspaceId !== workspace.workspaceId
-        || state.path !== collaboration.document.path
-        || state.representation !== request.representation
-      ) {
-        throw new CollaborationSessionError(
-          'The collaboration document identity, lifecycle, or representation is stale.',
-          409,
-        );
-      }
-    } else {
-      if (Buffer.byteLength(initialContent, 'utf8') > MAX_COLLABORATION_TEXT_BYTES) {
-        throw new CollaborationSessionError(
-          'Live collaboration supports text files up to 5 MiB.',
-          413,
-        );
-      }
-      state = await ensureCollaborationState({
-        documentId: collaboration.document.id,
-        workspaceId: workspace.workspaceId,
-        organizationId: workspace.organizationId ?? null,
+    let state;
+    try {
+      ({ state } = await resolveTextCollaborationState({
+        document: collaboration.document,
+        workspace,
         path: collaboration.document.path,
-        representation: request.representation as 'plain_text' | 'tiptap_xml',
+        initialRepresentation: request.representation as 'plain_text' | 'tiptap_xml',
         initialContent,
-      });
+        requireRepresentationMatch: true,
+      }));
+    } catch (error) {
+      if (error instanceof CollaborationDocumentStateError) {
+        throw new CollaborationSessionError(
+          error.message,
+          error.code === 'COLLABORATION_TEXT_TOO_LARGE' ? 413 : 409,
+        );
+      }
+      throw error;
     }
     lifecycleGeneration = state.lifecycleGeneration;
   }

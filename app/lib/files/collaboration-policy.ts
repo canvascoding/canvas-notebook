@@ -626,6 +626,44 @@ export function getFileCollaborationState(params: {
   });
 }
 
+/**
+ * Advances the file-facing collaboration projection only after the matching
+ * Yjs sequence has been materialized as a verified file revision.
+ */
+export function markCollaborationDocumentCheckpoint(params: {
+  workspace: WorkspaceContext;
+  path: string;
+  documentId: string;
+  stateVersion: number;
+  snapshotRevisionId: string;
+  nowMs?: number;
+}): CollaborationDocumentRecord | null {
+  const normalizedPath = normalizeWorkspacePath(params.path);
+  const nowMs = params.nowMs ?? Date.now();
+  return withCollaborationDatabase(true, (sqlite) => {
+    const result = sqlite.prepare(`
+      UPDATE collaboration_documents
+      SET state_version = ?, snapshot_revision_id = ?, updated_at = ?
+      WHERE id = ?
+        AND workspace_id = ?
+        AND path = ?
+        AND provider = 'yjs'
+        AND status = 'active'
+        AND state_version <= ?
+    `).run(
+      params.stateVersion,
+      params.snapshotRevisionId,
+      nowMs,
+      params.documentId,
+      params.workspace.workspaceId,
+      normalizedPath,
+      params.stateVersion,
+    );
+    if (result.changes !== 1) return null;
+    return getCollaborationDocument(sqlite, params.workspace.workspaceId, normalizedPath, 'yjs');
+  });
+}
+
 export function ensureFileRevisionForCurrentContent(params: {
   workspace: WorkspaceContext;
   path: string;

@@ -3,6 +3,7 @@ import 'server-only';
 import { writeFile } from '@/app/lib/filesystem/workspace-files';
 import {
   ensureFileRevisionForCurrentContent,
+  markCollaborationDocumentCheckpoint,
 } from '@/app/lib/files/collaboration-policy';
 import { getWorkspaceFileRevision } from '@/app/lib/files/revision-guard';
 import { invalidateWorkspaceFileViews } from '@/app/lib/api/route-helpers';
@@ -12,9 +13,17 @@ import { workspaceFileOptions } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   markCollaborationCheckpoint,
+  loadCollaborationState,
   serializeCanonicalText,
   type PersistedCollaborationState,
 } from './persistence';
+
+export class CollaborationCheckpointSupersededError extends Error {
+  constructor(readonly documentId: string, readonly sequence: number) {
+    super(`Collaboration checkpoint ${documentId}@${sequence} was superseded before confirmation.`);
+    this.name = 'CollaborationCheckpointSupersededError';
+  }
+}
 
 export async function materializeCollaborationCheckpoint(input: {
   state: PersistedCollaborationState;
@@ -26,6 +35,21 @@ export async function materializeCollaborationCheckpoint(input: {
 }): Promise<{ content: string; revisionId: string }> {
   if (input.state.workspaceId !== input.workspace.workspaceId) {
     throw new Error('Collaboration checkpoint workspace mismatch.');
+  }
+  const currentState = await loadCollaborationState(input.state.documentId);
+  if (
+    !currentState
+    || currentState.workspaceId !== input.state.workspaceId
+    || currentState.path !== input.state.path
+    || currentState.lifecycleGeneration !== input.state.lifecycleGeneration
+    || currentState.schemaVersion !== input.state.schemaVersion
+    || currentState.documentSequence !== input.state.documentSequence
+    || !Buffer.from(currentState.stateVector).equals(Buffer.from(input.state.stateVector))
+  ) {
+    throw new CollaborationCheckpointSupersededError(
+      input.state.documentId,
+      input.state.documentSequence,
+    );
   }
   if (Buffer.byteLength(input.canonicalContent, 'utf8') > 5 * 1024 * 1024) {
     throw new Error('Collaboration checkpoint exceeds the 5 MiB text limit.');
@@ -47,12 +71,37 @@ export async function materializeCollaborationCheckpoint(input: {
     actorType: input.actorType ?? 'system',
     sourceSessionId: input.sourceSessionId ?? null,
   });
-  await markCollaborationCheckpoint({
+  const checkpointedState = await markCollaborationCheckpoint({
     documentId: input.state.documentId,
+    workspaceId: input.state.workspaceId,
+    path: input.state.path,
+    lifecycleGeneration: input.state.lifecycleGeneration,
+    schemaVersion: input.state.schemaVersion,
     sequence: input.state.documentSequence,
     canonicalContent: canonical,
     serializedContent: serialized,
   });
+  if (!checkpointedState) {
+    throw new CollaborationCheckpointSupersededError(
+      input.state.documentId,
+      input.state.documentSequence,
+    );
+  }
+  const projectedDocument = markCollaborationDocumentCheckpoint({
+    workspace: input.workspace,
+    path: checkpointedState.path,
+    documentId: checkpointedState.documentId,
+    stateVersion: checkpointedState.checkpointSequence,
+    snapshotRevisionId: revision.id,
+  });
+  if (
+    !projectedDocument
+    || projectedDocument.id !== checkpointedState.documentId
+    || projectedDocument.stateVersion !== checkpointedState.checkpointSequence
+    || projectedDocument.snapshotRevisionId !== revision.id
+  ) {
+    throw new Error('Collaboration checkpoint could not update the authoritative file projection.');
+  }
 
   invalidateWorkspaceFileViews({
     fileOptions,

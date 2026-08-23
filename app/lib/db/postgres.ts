@@ -1015,6 +1015,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     CREATE TABLE IF NOT EXISTS collaboration_agent_operations (
       operation_id text PRIMARY KEY,
       document_id text NOT NULL,
+      document_path text,
+      document_representation text,
       workspace_id text NOT NULL,
       organization_id text,
       document_lifecycle_generation bigint NOT NULL DEFAULT 1,
@@ -1057,6 +1059,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     )
   `);
   const collaborationAgentColumns = [
+    'document_path text',
+    'document_representation text',
     'organization_id text',
     'document_lifecycle_generation bigint NOT NULL DEFAULT 1',
     'schema_version bigint NOT NULL DEFAULT 1',

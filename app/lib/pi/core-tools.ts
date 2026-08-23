@@ -227,7 +227,9 @@ export const piTools: AgentTool[] = [
           };
         }
         const collaborativeScene = await readAgentCollaborativeExcalidrawFile(fullPath);
-        const collaborative = collaborativeScene ? null : await readAgentCollaborativeTextFile(fullPath);
+        const collaborative = collaborativeScene
+          ? null
+          : await readAgentCollaborativeTextFile(fullPath, buffer);
         const text = collaborativeScene?.content ?? collaborative?.content ?? buffer.toString('utf8');
         const textSha256 = collaborativeScene
           ? sha256Buffer(Buffer.from(collaborativeScene.content, 'utf8'))
@@ -258,6 +260,10 @@ export const piTools: AgentTool[] = [
               ? {
                   documentId: collaborative.documentId,
                   representation: collaborative.representation,
+                  lifecycleGeneration: collaborative.lifecycleGeneration,
+                  schemaVersion: collaborative.schemaVersion,
+                  documentSequence: collaborative.documentSequence,
+                  checkpointSequence: collaborative.checkpointSequence,
                   stateVector: collaborative.stateVector,
                   source: 'live_yjs',
                 }
