@@ -33,6 +33,14 @@ erscheinen. Diese Ableitung muss serverseitig Teil des kanonischen
 Listenvertrags sein, damit getrennte Clients nicht unterschiedliche
 Unread-Zustaende berechnen.
 
+Die weitergehende Produktentscheidung, welche wenigen offenen To-dos im
+Notification-Zentrum als Attention erscheinen und wie E-Mail-Reviews dort
+integriert werden, ist bewusst kein verdeckter Teil der Voll-Listen-Abnahme
+dieses Tickets. Sie ist als eigenes Folgeticket in
+[Ticket 29](./29-notification-zentrum-attention-todos-email-review.md)
+festgelegt. Ticket 14 bleibt dessen verbindliche Grundlage fuer Scope,
+Prioritaet und die Invariante `done => read`.
+
 ## Problem
 
 In der To-do-Route und den zugehoerigen UI-Flaechen ist nicht verlaesslich

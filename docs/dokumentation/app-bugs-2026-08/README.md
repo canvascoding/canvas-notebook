@@ -46,6 +46,7 @@ abgeschlossen sind.
 | 26 | [Vision-Faehigkeiten fuer Bilder aus dem Read-Tool aktivieren](./26-vision-bilder-aus-read-tool-korrekt-uebergeben.md) | erledigt | – |
 | 27 | [E-Mail-Inbox-Lesefluss und Progressive Disclosure verbessern](./27-email-inbox-lesefluss-und-progressive-disclosure.md) | offen | – |
 | 28 | [Chat-Kontextkomprimierung und Session-Fortsetzung stabilisieren](./28-chat-kontextkomprimierung-und-session-fortsetzung-stabilisieren.md) | offen | – |
+| 29 | [Notification-Zentrum als Attention- und E-Mail-Review-Queue ausbauen](./29-notification-zentrum-attention-todos-email-review.md) | geplant | 02, 03, 14 |
 
 ## Gemeinsame Arbeitsregeln
 
@@ -71,13 +72,13 @@ abgeschlossen sind.
   oder End-to-End-Tests mit Playwright/Chrome nur nach expliziter Freigabe.
 - Der Abschluss eines Tickets erfordert einen eigenen, fokussierten Commit.
 
-## Parallelisierungs- und Integrationsstand fuer Tickets 09–28
+## Parallelisierungs- und Integrationsstand fuer Tickets 09–29
 
 | Strang | Startbare Tickets | Harte Reihenfolge / Koordination |
 | --- | --- | --- |
 | E-Mail und Automationen | 10 in Umsetzung; 09 in Abnahme | 25 bleibt bis zum Abschluss von 10 blockiert; Koordination bei gemeinsamen E-Mail-Settings. |
 | Lizenz und Control Plane | 11 in Umsetzung | Danach 12, 13 und 15; 13 und 15 teilen Agent-/VM-Zustaende und werden besser nacheinander integriert. |
-| To-dos | 14 in Abnahme (Erledigt = gelesen) | 20 erst nach 02 und 14. |
+| To-dos und Notification-Zentrum | 14 in Abnahme (Erledigt = gelesen); 29 geplant | 29 erst nach Abnahme von 03 und 14; 20 folgt danach auf dem gemeinsamen Attention-Vertrag. |
 | Agent-Runtime | 16 in Umsetzung (Provider-Auswahl); 18 in Abnahme | Bei gemeinsamen Runtime-Resolver-Dateien vorab Dateigrenzen festlegen. |
 | MCP | 17 in Umsetzung (DCR-500) | Eigenstaendig; nur OAuth-/Runtime-Schnittstellen mit 16/18 abstimmen. |
 | Office-Dateien | 19 abgeschlossen (No-Go) | Kein produktives Tool bauen; erst bei freigegebener Bedarfsevidenz ein neues Folgeticket erstellen. |
@@ -86,11 +87,11 @@ abgeschlossen sind.
 | Agent-Dateiworkflow | 24 in Abnahme | Ticket 18 ist erfuellt; Stale-/Collaboration-Verhalten mit 23 gemeinsam abnehmen. |
 | Heartbeat-Automationen | 25 nach 10 | Nutzt Workspace-/Owner-/Filter-Grundlage aus 10; Usage- und Notification-Vertraege separat koordinieren. |
 | Vision und Datei-Lesen | 26 erledigt | Mit Tickets 18 und 24 an gemeinsamen Runtime-/Toolresultat-Grenzen koordinieren. |
-| E-Mail-Inbox | 27 | Eigenstaendig startbar; mit Ticket 09 nur bei gemeinsamen Settings-/E-Mail-Datenpfaden abstimmen. |
+| E-Mail-Inbox | 27; 29 geplant | 27 bleibt der volle E-Mail-Lesefluss. 29 verwendet ausschliesslich persistierte Faelle/Outbox-Entwuerfe und koordiniert sich nach 03 mit dessen Inbox-Vertrag. |
 | Chat-Kontextkomprimierung | 28 | Eigenstaendig startbar; Budgetannahmen mit 18 (Systemprompt/Tools) und 26 (Bilder/Anhaenge) vor Integration abgleichen. |
 
 ## Bestehende Referenzen
 
-- [To-do-Zentrale, Notifications und Session-Ungelesen-Flow](../todo-notification-center-plan.md)
+- [Ticket 29 – zentrale Attention-, To-do- und E-Mail-Review-Planung](./29-notification-zentrum-attention-todos-email-review-umsetzungsplan.md)
 - [Expo Mobile App – Produkt- und Umsetzungsplan](../../expo-mobile-app-plan.md)
 - Bereits gemeldeter Browser-Gateway-Validierungsfehler (separat dokumentiert)

@@ -2,7 +2,7 @@
 title: 'Ticket 20: Agenten-Tools fuer To-do-Verwaltung und Mobile Notifications erweitern'
 status: open
 priority: medium
-depends_on: ['02-notification-und-todo-status-vereinheitlichen', '14-todo-sichtbarkeit-filter-und-priorisierung']
+depends_on: ['02-notification-und-todo-status-vereinheitlichen', '14-todo-sichtbarkeit-filter-und-priorisierung', '29-notification-zentrum-attention-todos-email-review']
 platforms: [server, agent-runtime, mobile, mobile-api]
 repositories: [canvasstudios-notebook, expo-mobile-app]
 tags: [type/feature, topic/todos, topic/tools, topic/notifications]
@@ -41,6 +41,12 @@ zuverlaessiger als Notifications ankommen und zum richtigen Eintrag fuehren.
   Faelligkeit und Abschluss fachlich festlegen; Noise und Duplikate begrenzen.
 - Expo-Deep-Link, Badge-/Read-Sync, Workspace-Wechsel und Push-Fallback gegen
   den versionierten Serververtrag implementieren.
+
+Ereignisarten, Attention-Counts und die Trennung von To-do-Lifecycle,
+Ereignis-Unread und E-Mail-Review richten sich nach
+[Ticket 29](./29-notification-zentrum-attention-todos-email-review.md).
+Dieses Ticket erweitert den Vertrag um Agenten- und Push-Ausloeser, statt eine
+zweite Notification-Semantik einzufuehren.
 
 ## Abnahmekriterien
 

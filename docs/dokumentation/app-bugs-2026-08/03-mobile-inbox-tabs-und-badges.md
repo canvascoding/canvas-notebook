@@ -51,6 +51,12 @@ oder offene Arbeit liegt.
 - Das Zusammenspiel mit der Web Notification Central aus Ticket 02 auf gleiche
   Datenquelle und Begriffe pruefen.
 
+Die spaetere Web-Attention-Projektion mit begrenzten relevanten To-dos,
+E-Mail-Review und human-in-the-loop Versand ist nach Abschluss dieses
+Mobile-Vertrags in [Ticket 29](./29-notification-zentrum-attention-todos-email-review.md)
+definiert. Ticket 03 bleibt fuer mobile Kategorien, Counts und den Expo-Client
+verantwortlich und darf keine abweichende Web-Summary-Semantik einfuehren.
+
 ## Abnahmekriterien
 
 - Alle drei Kategorien sind separat erreichbar und haben korrekte Counts.
