@@ -11,6 +11,17 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.23.2] - 2026-08-23
+
+### Fixed
+
+- Fixed Postgres-managed startup by avoiding an unnecessary SQLite bootstrap migration that could prevent the updated container from becoming healthy.
+
+### Verification
+
+- `npm run test:startup-runtime`
+- `npm run verify:release`
+
 ## [2026.8.23.1] - 2026-08-23
 
 ### Added
