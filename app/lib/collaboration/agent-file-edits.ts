@@ -197,7 +197,7 @@ export async function prepareCollaborationTextEdit(input: {
           path: input.path,
           expectedSha256: input.expectedSha256,
           currentSha256,
-          message: `Refusing to edit ${input.path}: expectedSha256 did not match the current live collaboration state. Read the file again before retrying.`,
+          message: `Refusing to edit ${input.path}: expectedSha256 did not match the current live collaboration state (${currentSha256}). Read the file again before retrying.`,
         });
       }
       const proposedContent = applyExactTextEdits(content, input.edits, input.path);

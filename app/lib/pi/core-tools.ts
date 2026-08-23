@@ -227,7 +227,9 @@ export const piTools: AgentTool[] = [
           };
         }
         const collaborativeScene = await readAgentCollaborativeExcalidrawFile(fullPath);
-        const collaborative = collaborativeScene ? null : await readAgentCollaborativeTextFile(fullPath);
+        const collaborative = collaborativeScene
+          ? null
+          : await readAgentCollaborativeTextFile(fullPath, buffer);
         const text = collaborativeScene?.content ?? collaborative?.content ?? buffer.toString('utf8');
         const textSha256 = collaborativeScene
           ? sha256Buffer(Buffer.from(collaborativeScene.content, 'utf8'))

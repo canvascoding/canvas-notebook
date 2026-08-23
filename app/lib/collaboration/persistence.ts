@@ -126,18 +126,37 @@ export class CollaborationStateInactiveError extends Error {
   }
 }
 
-export async function loadCollaborationState(documentId: string): Promise<PersistedCollaborationState | null> {
+async function loadCollaborationStateRow(
+  documentId: string,
+  includeArchived: boolean,
+): Promise<PersistedCollaborationState | null> {
   assertPostgres();
   const database = await openDb();
   try {
     const row = await database.get(
-      "SELECT * FROM collaboration_yjs_states WHERE document_id = ? AND status = 'active' LIMIT 1",
+      `SELECT * FROM collaboration_yjs_states
+       WHERE document_id = ?${includeArchived ? '' : " AND status = 'active'"}
+       LIMIT 1`,
       [documentId],
     ) as StateRow | undefined;
     return row ? mapState(row) : null;
   } finally {
     await database.close();
   }
+}
+
+export async function loadCollaborationState(documentId: string): Promise<PersistedCollaborationState | null> {
+  return loadCollaborationStateRow(documentId, false);
+}
+
+/**
+ * Lifecycle-aware lookup used before initialization. Callers must distinguish
+ * an archived row from a document that has never had authoritative Yjs state.
+ */
+export async function loadCollaborationStateIncludingArchived(
+  documentId: string,
+): Promise<PersistedCollaborationState | null> {
+  return loadCollaborationStateRow(documentId, true);
 }
 
 export async function ensureCollaborationState(input: {
@@ -149,11 +168,13 @@ export async function ensureCollaborationState(input: {
   initialContent: string;
 }): Promise<PersistedCollaborationState> {
   assertPostgres();
-  const existing = await loadCollaborationState(input.documentId);
+  const existing = await loadCollaborationStateIncludingArchived(input.documentId);
   if (existing) {
+    if (existing.status === 'archived') {
+      throw new CollaborationStateInactiveError(input.documentId);
+    }
     if (
-      existing.status !== 'active'
-      || existing.workspaceId !== input.workspaceId
+      existing.workspaceId !== input.workspaceId
       || existing.path !== input.path
       || existing.representation !== input.representation
     ) {
@@ -178,22 +199,7 @@ export async function ensureCollaborationState(input: {
           document_sequence, persisted_at, checkpointed_at, checkpoint_sequence,
           canonical_hash, serialized_hash, newline_style, has_bom, degraded
         ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, 0, ?, ?, 0, ?, ?, ?, ?, 0)
-        ON CONFLICT(document_id) DO UPDATE SET
-          path = excluded.path,
-          workspace_id = excluded.workspace_id,
-          organization_id = excluded.organization_id,
-          status = CASE
-            WHEN collaboration_yjs_states.status = 'archived' THEN 'active'
-            ELSE collaboration_yjs_states.status
-          END,
-          lifecycle_generation = CASE
-            WHEN collaboration_yjs_states.status = 'archived' THEN collaboration_yjs_states.lifecycle_generation + 1
-            ELSE collaboration_yjs_states.lifecycle_generation
-          END,
-          degraded = CASE
-            WHEN collaboration_yjs_states.status = 'archived' THEN 0
-            ELSE collaboration_yjs_states.degraded
-          END
+        ON CONFLICT(document_id) DO NOTHING
         RETURNING *
       `,
       [
@@ -212,11 +218,13 @@ export async function ensureCollaborationState(input: {
         profile.hasBom ? 1 : 0,
       ],
     ) as StateRow | undefined;
-    if (!row) throw new Error('Failed to initialize collaboration state.');
-    const state = mapState(row);
+    const state = row
+      ? mapState(row)
+      : await loadCollaborationStateIncludingArchived(input.documentId);
+    if (!state) throw new Error('Failed to initialize collaboration state.');
+    if (state.status === 'archived') throw new CollaborationStateInactiveError(input.documentId);
     if (
-      state.status !== 'active'
-      || state.workspaceId !== input.workspaceId
+      state.workspaceId !== input.workspaceId
       || state.path !== input.path
       || state.representation !== input.representation
     ) {

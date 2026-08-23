@@ -20,7 +20,6 @@ import {
   getFileCollaborationState,
 } from '@/app/lib/files/collaboration-policy';
 import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
-import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
 import { runCollaborationDirectConnection } from '@/app/lib/collaboration/direct-connection';
 import { readCurrentCollaborationTextSnapshot } from '@/app/lib/collaboration/agent-file-edits';
 import {
@@ -30,10 +29,13 @@ import {
   validateRichMarkdownYDoc,
 } from '@/app/lib/collaboration/markdown-state';
 import {
-  ensureCollaborationState,
   loadCollaborationState,
   sha256Text,
 } from '@/app/lib/collaboration/persistence';
+import {
+  resolveTextCollaborationState,
+  selectInitialTextCollaborationRepresentation,
+} from '@/app/lib/collaboration/document-state-service';
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import type { FileNode } from '@/app/lib/files/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -110,10 +112,7 @@ export function selectMobileCollaborationRepresentation(
   filePath: string,
   content: string,
 ): 'plain_text' | 'tiptap_xml' {
-  return path.posix.extname(filePath).toLowerCase() === '.txt'
-    || analyzeMarkdownRichMode(content).mode === 'source'
-    ? 'plain_text'
-    : 'tiptap_xml';
+  return selectInitialTextCollaborationRepresentation(filePath, content);
 }
 
 export function shouldReadMobileCollaborationSnapshot(
@@ -326,17 +325,13 @@ export async function readMobileNotebookDocument(input: {
   });
   let collaborationSnapshot: Awaited<ReturnType<typeof readCurrentCollaborationTextSnapshot>> | null = null;
   if (collaboration.document) {
-    let state = await loadCollaborationState(collaboration.document.id);
-    if (!state) {
-      state = await ensureCollaborationState({
-        documentId: collaboration.document.id,
-        workspaceId: input.workspace.workspaceId,
-        organizationId: input.workspace.organizationId ?? null,
-        path: filePath,
-        representation: requestedRepresentation,
-        initialContent: sourceContent,
-      });
-    }
+    const { state } = await resolveTextCollaborationState({
+      document: collaboration.document,
+      workspace: input.workspace,
+      path: filePath,
+      initialRepresentation: requestedRepresentation,
+      initialContent: sourceContent,
+    });
     if (state.workspaceId !== input.workspace.workspaceId || state.path !== filePath) {
       throw new MobileNotebookError(
         'The collaborative document identity is stale. Reload the workspace before editing.',

@@ -36,6 +36,7 @@ import {
   loadCollaborationState,
   markCollaborationCheckpoint,
   persistCollaborationYDoc,
+  reactivatePersistedCollaborationPath,
   serializeCanonicalText,
 } from '../app/lib/collaboration/persistence';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
@@ -64,6 +65,7 @@ const archivedDocumentId = `agent-operation-archived-${suffix}`;
 const workspaceId = `agent-operation-workspace-${suffix}`;
 const userId = `agent-operation-user-${suffix}`;
 let toolDocumentId: string | null = null;
+let uninitializedToolDocumentId: string | null = null;
 const workspace: WorkspaceContext = {
   workspaceId,
   workspaceType: 'organization',
@@ -720,6 +722,62 @@ try {
     'Tool **checkpoint** paragraph\n\nLive paragraph updated by agent',
   );
 
+  // Existing shared Markdown can have collaboration metadata from a normal
+  // file read without having opened a browser collaboration session yet. The
+  // real agent read must initialize that document exactly once before edit.
+  const uninitializedToolPath = `agent-tool-uninitialized-${suffix}.md`;
+  const uninitializedToolContent = '# Existing note\n\nParagraph before agent';
+  await fs.writeFile(path.join(workspace.rootPath, uninitializedToolPath), uninitializedToolContent, 'utf8');
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: uninitializedToolPath,
+    contentHash: createHash('sha256').update(uninitializedToolContent, 'utf8').digest('hex'),
+    sizeBytes: Buffer.byteLength(uninitializedToolContent, 'utf8'),
+    actorUserId: userId,
+    actorType: 'user',
+  });
+  const uninitializedMetadata = getFileCollaborationState({
+    workspace,
+    path: uninitializedToolPath,
+    ensureDocument: false,
+  });
+  assert(uninitializedMetadata.document);
+  uninitializedToolDocumentId = uninitializedMetadata.document.id;
+  assert.equal(await loadCollaborationState(uninitializedToolDocumentId), null);
+
+  const initializedRead = await runPiTool('read', `tool-uninitialized-read-${suffix}`, {
+    path: uninitializedToolPath,
+  });
+  const initializedReadDetails = initializedRead.details as {
+    sha256?: string;
+    collaboration?: { documentId?: string; source?: string };
+  };
+  assert.equal(initializedReadDetails.collaboration?.documentId, uninitializedToolDocumentId);
+  assert.equal(initializedReadDetails.collaboration?.source, 'live_yjs');
+  assert.equal(
+    initializedReadDetails.sha256,
+    createHash('sha256').update(uninitializedToolContent, 'utf8').digest('hex'),
+  );
+  const initializedState = await loadCollaborationState(uninitializedToolDocumentId);
+  assert(initializedState);
+  assert.equal(initializedState.lifecycleGeneration, 1);
+  assert.equal(initializedState.workspaceId, workspaceId);
+  assert.equal(initializedState.path, uninitializedToolPath);
+  assert.equal(initializedState.representation, 'tiptap_xml');
+
+  const initializedEdit = await runPiTool('edit_file', `tool-uninitialized-edit-${suffix}`, {
+    path: uninitializedToolPath,
+    expectedSha256: initializedReadDetails.sha256,
+    oldText: 'Paragraph before agent',
+    newText: 'Paragraph updated by agent',
+  });
+  const initializedEditDetails = initializedEdit.details as {
+    collaboration?: { operationStatus?: string; durability?: string };
+  };
+  assert.equal(initializedEditDetails.collaboration?.operationStatus, 'checkpointed_file');
+  assert.equal(initializedEditDetails.collaboration?.durability, 'checkpointed_file');
+  assert.equal(await persistedText(uninitializedToolDocumentId), '# Existing note\n\nParagraph updated by agent');
+
   // Cross-node Markdown edits are persisted as real review operations. Accept
   // reapplies the exact patch to the then-current Yjs document, preserving an
   // unrelated human edit outside the reviewed target.
@@ -955,17 +1013,24 @@ try {
   );
   archivedDoc.destroy();
 
-  // A restored active file may request its collaboration state before the
-  // asynchronous restore path has reactivated Postgres. Reuse the archived
-  // state in that narrow case rather than preventing the editor from opening.
-  const reactivated = await ensureCollaborationState({
-    documentId: archivedDocumentId,
+  // Only the explicit restore lifecycle may reactivate an archived state.
+  await assert.rejects(
+    () => ensureCollaborationState({
+      documentId: archivedDocumentId,
+      workspaceId,
+      organizationId: workspace.organizationId || null,
+      path: beforeArchive.path,
+      representation: 'plain_text',
+      initialContent: 'Archived content',
+    }),
+    (error: unknown) => error instanceof CollaborationStateInactiveError,
+  );
+  await reactivatePersistedCollaborationPath({
     workspaceId,
-    organizationId: workspace.organizationId || null,
     path: beforeArchive.path,
-    representation: 'plain_text',
-    initialContent: 'Archived content',
   });
+  const reactivated = await loadCollaborationState(archivedDocumentId);
+  assert(reactivated);
   assert.equal(reactivated.status, 'active');
   assert.equal(reactivated.lifecycleGeneration, beforeArchive.lifecycleGeneration + 2);
   assert.equal(await persistedText(archivedDocumentId), 'Archived content');
@@ -1021,6 +1086,7 @@ try {
       sagaSecondDocumentId,
       archivedDocumentId,
       ...(toolDocumentId ? [toolDocumentId] : []),
+      ...(uninitializedToolDocumentId ? [uninitializedToolDocumentId] : []),
     ]) {
       await database.run('DELETE FROM collaboration_agent_operations WHERE document_id = ?', [cleanupDocumentId]);
       await database.run('DELETE FROM collaboration_yjs_state_backups WHERE document_id = ?', [cleanupDocumentId]);

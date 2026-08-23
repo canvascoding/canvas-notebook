@@ -24,6 +24,10 @@ import {
   movePersistedCollaborationPath,
 } from '@/app/lib/collaboration/persistence';
 import {
+  resolveTextCollaborationState,
+  selectInitialTextCollaborationRepresentation,
+} from '@/app/lib/collaboration/document-state-service';
+import {
   executePreparedCollaborationTextEdit,
   prepareCollaborationTextEdit,
   readCurrentCollaborationTextSnapshot,
@@ -506,22 +510,41 @@ function workspaceRelativeAgentPath(workspace: WorkspaceContext, fullPath: strin
   return path.relative(workspace.rootPath, fullPath).split(path.sep).join('/');
 }
 
-function collaborativeAgentFileContext(fullPath: string): {
+async function collaborativeAgentFileContext(fullPath: string, initialBuffer: Buffer): Promise<{
   workspace: WorkspaceContext;
   executionContext: AgentExecutionContext;
   relativePath: string;
   documentId: string;
-} | null {
+} | null> {
   const workspace = getAgentWorkspaceContext();
   const executionContext = getAgentExecutionContext();
   if (!workspace || !executionContext || !isPathWithin(fullPath, workspace.rootPath)) return null;
   const relativePath = workspaceRelativeAgentPath(workspace, fullPath);
+  const initialContent = initialBuffer.toString('utf8');
+  const eligibility = getFileCollaborationState({ workspace, path: relativePath });
+  if (!eligibility.crdtCapable) return null;
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: relativePath,
+    contentHash: sha256Buffer(initialBuffer),
+    sizeBytes: initialBuffer.length,
+    actorUserId: executionContext.userId,
+    actorType: 'agent',
+    sourceSessionId: executionContext.sessionId,
+  });
   const collaboration = getFileCollaborationState({
     workspace,
     path: relativePath,
-    ensureDocument: false,
+    ensureDocument: true,
   });
-  if (!collaboration.crdtCapable || !collaboration.document) return null;
+  if (!collaboration.document) return null;
+  await resolveTextCollaborationState({
+    document: collaboration.document,
+    workspace,
+    path: relativePath,
+    initialRepresentation: selectInitialTextCollaborationRepresentation(relativePath, initialContent),
+    initialContent,
+  });
   return {
     workspace,
     executionContext,
@@ -565,9 +588,11 @@ function collaborationAgentIdentity(executionContext: AgentExecutionContext) {
 
 export async function readAgentCollaborativeTextFile(
   fullPath: string,
+  initialBuffer?: Buffer,
 ): Promise<CollaborationTextSnapshot | null> {
   if (getDatabaseProvider() !== 'postgres') return null;
-  const collaboration = collaborativeAgentFileContext(fullPath);
+  const sourceBuffer = initialBuffer ?? await fs.readFile(fullPath);
+  const collaboration = await collaborativeAgentFileContext(fullPath, sourceBuffer);
   if (!collaboration) return null;
   return readCurrentCollaborationTextSnapshot({
     documentId: collaboration.documentId,
@@ -1530,7 +1555,7 @@ export async function editAgentFile(params: {
   });
 
   const beforeContent = before.buffer.toString('utf8');
-  const collaboration = collaborativeAgentFileContext(fullPath);
+  const collaboration = await collaborativeAgentFileContext(fullPath, before.buffer);
   if (collaboration) {
     const prepared = await prepareCollaborationTextEdit({
       documentId: collaboration.documentId,
@@ -1625,7 +1650,7 @@ export async function applyAgentFilePatch(params: {
       expectedSha256,
     });
 
-    const collaboration = collaborativeAgentFileContext(fullPath);
+    const collaboration = await collaborativeAgentFileContext(fullPath, before.buffer);
     if (collaboration) {
       const collaborationPrepared = await prepareCollaborationTextEdit({
         documentId: collaboration.documentId,
