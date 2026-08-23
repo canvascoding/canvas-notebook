@@ -2252,6 +2252,7 @@ export function EmailClient({
   const summaryAbortControllerRef = useRef<AbortController | null>(null);
   const appliedContextIntentRef = useRef<string | null>(null);
   const openedOutboxDraftRef = useRef<string | null>(null);
+  const openingOutboxDraftRef = useRef<string | null>(null);
   const contextMessageId = contextIntent?.messageId;
 
   const activeAccount = useMemo(
@@ -2776,22 +2777,41 @@ export function EmailClient({
 
   useEffect(() => {
     const draftId = searchParams.get('outboxDraft')?.trim();
-    if (!draftId || openedOutboxDraftRef.current === draftId) return;
+    if (
+      !draftId
+      || openedOutboxDraftRef.current === draftId
+      || openingOutboxDraftRef.current === draftId
+    ) return;
     const workspaceId = searchParams.get('workspaceId')?.trim();
-    openedOutboxDraftRef.current = draftId;
+    openingOutboxDraftRef.current = draftId;
+    const clearOpeningDraft = () => {
+      if (openingOutboxDraftRef.current === draftId) {
+        openingOutboxDraftRef.current = null;
+      }
+    };
     const endpoint = workspaceId
       ? `/api/workspaces/${encodeURIComponent(workspaceId)}/email/outbox`
       : '/api/email/outbox';
     void fetch(endpoint, { credentials: 'include', cache: 'no-store' })
       .then(async (response) => {
         const payload = await response.json().catch(() => null) as { success?: boolean; data?: EmailOutboxDraft[] } | null;
-        if (!response.ok || !payload?.success) return;
+        if (!response.ok || !payload?.success) {
+          clearOpeningDraft();
+          return;
+        }
         const draft = payload.data?.find((item) => item.id === draftId);
-        if (!draft) return;
+        if (!draft) {
+          clearOpeningDraft();
+          return;
+        }
         if (workspaceId) openWorkspaceOutboxDraft(draft, workspaceId);
         else openPersonalOutboxDraft(draft);
+        openedOutboxDraftRef.current = draftId;
+        clearOpeningDraft();
       })
-      .catch(() => undefined);
+      .catch(() => {
+        clearOpeningDraft();
+      });
   }, [openPersonalOutboxDraft, openWorkspaceOutboxDraft, searchParams]);
 
   const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'bodyHtml' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>) => {

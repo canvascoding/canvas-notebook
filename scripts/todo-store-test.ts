@@ -29,6 +29,7 @@ async function main() {
     setTodoReadState,
   } = await import('../app/lib/todos/read-state-store');
   const { setTodoReadStateForUser } = await import('../app/lib/todos/read-state-actions');
+  const { sendDueTodoReminders } = await import('../app/lib/todos/reminders');
   const {
     DEFAULT_TODO_CATEGORY_NAME,
     getDefaultTodoCategoryKey,
@@ -339,6 +340,21 @@ async function main() {
   const reopenedUnread = await updateTodo('todo-user', unreadCompletion.id, { status: 'open' });
   assert.equal(reopenedUnread?.readState, 'unread');
   assert.equal((await listTodos('todo-user', { status: 'all', readState: 'unread' })).some((todo) => todo.id === unreadCompletion.id), true);
+
+  const reminderTodo = await createTodo('todo-user', {
+    title: 'At-most-once reminder',
+    remindAt: new Date('2026-05-31T11:59:00.000Z'),
+  });
+  const concurrentReminderResults = await Promise.all([
+    sendDueTodoReminders(now),
+    sendDueTodoReminders(now),
+  ]);
+  assert.equal(
+    concurrentReminderResults.filter((result) => result.sent.includes(reminderTodo.id)).length,
+    1,
+    'concurrent scheduler runs must claim a reminder before sending it',
+  );
+  assert.ok((await getTodo('todo-user', reminderTodo.id))?.reminderSentAt instanceof Date);
 
   const personalWorkspaceTodo = await createTodo('todo-user', {
     title: 'Workspace notes',
