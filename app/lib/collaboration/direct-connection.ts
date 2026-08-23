@@ -8,6 +8,10 @@ export class AgentDirectConnectionAuthorizationError extends Error {}
 
 export interface AgentDirectConnectionInput {
   documentId: string;
+  documentPath: string;
+  documentRepresentation: 'plain_text' | 'tiptap_xml';
+  documentLifecycleGeneration: number;
+  documentSchemaVersion: number;
   workspace: WorkspaceContext;
   actorId: string;
   actorDisplayName: string;

@@ -260,6 +260,10 @@ export const piTools: AgentTool[] = [
               ? {
                   documentId: collaborative.documentId,
                   representation: collaborative.representation,
+                  lifecycleGeneration: collaborative.lifecycleGeneration,
+                  schemaVersion: collaborative.schemaVersion,
+                  documentSequence: collaborative.documentSequence,
+                  checkpointSequence: collaborative.checkpointSequence,
                   stateVector: collaborative.stateVector,
                   source: 'live_yjs',
                 }

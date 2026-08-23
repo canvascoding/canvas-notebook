@@ -34,6 +34,10 @@ export type CollaborationTextSnapshot = {
   documentId: string;
   path: string;
   representation: 'plain_text' | 'tiptap_xml';
+  lifecycleGeneration: number;
+  schemaVersion: number;
+  documentSequence: number;
+  checkpointSequence: number;
   content: string;
   sha256: string;
   stateVector: string;
@@ -162,6 +166,10 @@ export async function readCurrentCollaborationTextSnapshot(input: {
         documentId: state.documentId,
         path: state.path,
         representation: state.representation,
+        lifecycleGeneration: state.lifecycleGeneration,
+        schemaVersion: state.schemaVersion,
+        documentSequence: state.documentSequence,
+        checkpointSequence: state.checkpointSequence,
         content,
         sha256: sha256(content),
         stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'),
@@ -180,7 +188,12 @@ export async function prepareCollaborationTextEdit(input: {
 }): Promise<PreparedCollaborationTextEdit> {
   if (input.edits.length === 0) throw new Error(`No edits provided for ${input.path}.`);
   const state = await loadCollaborationState(input.documentId);
-  if (!state || state.status !== 'active' || state.workspaceId !== input.workspace.workspaceId) {
+  if (
+    !state
+    || state.status !== 'active'
+    || state.workspaceId !== input.workspace.workspaceId
+    || state.path !== input.path
+  ) {
     throw new Error('The collaborative document state is unavailable or stale.');
   }
 
@@ -236,6 +249,10 @@ export async function prepareCollaborationTextEdit(input: {
         documentId: state.documentId,
         path: state.path,
         representation: state.representation,
+        lifecycleGeneration: state.lifecycleGeneration,
+        schemaVersion: state.schemaVersion,
+        documentSequence: state.documentSequence,
+        checkpointSequence: state.checkpointSequence,
         content,
         sha256: currentSha256,
         stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'),
@@ -266,5 +283,11 @@ export async function executePreparedCollaborationTextEdit(input: {
     requestedMode: input.prepared.requestedMode,
     explicitUserRequest: true,
     actorSessionId: input.identity.actorSessionId,
+    documentPath: input.prepared.path,
+    documentRepresentation: input.prepared.representation,
+    documentLifecycleGeneration: input.prepared.lifecycleGeneration,
+    documentSchemaVersion: input.prepared.schemaVersion,
+    baseStateVector: input.prepared.stateVector,
+    baseDocumentSequence: input.prepared.documentSequence,
   });
 }

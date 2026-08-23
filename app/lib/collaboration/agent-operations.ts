@@ -151,6 +151,8 @@ type ResolvedTarget = AgentTextTarget & {
 type AgentOperationRow = {
   operation_id: string;
   document_id: string;
+  document_path: string | null;
+  document_representation: 'plain_text' | 'tiptap_xml' | null;
   workspace_id: string;
   organization_id: string | null;
   document_lifecycle_generation: number;
@@ -879,13 +881,35 @@ function operationPayloadHash(input: {
   runGeneration: number;
   operationType: 'apply' | 'revert';
   expectedCanonicalHash?: string | null;
+  documentPath?: string;
+  documentRepresentation?: 'plain_text' | 'tiptap_xml';
+  documentLifecycleGeneration?: number;
+  documentSchemaVersion?: number;
+  baseStateVector?: string;
+  baseDocumentSequence?: number;
 }): string {
+  const authoritativeBase = input.documentPath
+    || input.documentRepresentation
+    || input.documentLifecycleGeneration !== undefined
+    || input.documentSchemaVersion !== undefined
+    || input.baseStateVector
+    || input.baseDocumentSequence !== undefined
+    ? {
+        documentPath: input.documentPath || null,
+        documentRepresentation: input.documentRepresentation || null,
+        documentLifecycleGeneration: input.documentLifecycleGeneration ?? null,
+        documentSchemaVersion: input.documentSchemaVersion ?? null,
+        baseStateVector: input.baseStateVector || null,
+        baseDocumentSequence: input.baseDocumentSequence ?? null,
+      }
+    : {};
   return hash(JSON.stringify({
     targets: input.targets,
     independentGroups: input.independentGroups,
     runGeneration: input.runGeneration,
     operationType: input.operationType,
     expectedCanonicalHash: input.expectedCanonicalHash || null,
+    ...authoritativeBase,
   }));
 }
 
@@ -908,6 +932,12 @@ async function createOrLoadOperation(input: {
   causationId?: string;
   triggerDepth?: number;
   expectedCanonicalHash?: string | null;
+  documentPath?: string;
+  documentRepresentation?: 'plain_text' | 'tiptap_xml';
+  documentLifecycleGeneration?: number;
+  documentSchemaVersion?: number;
+  baseStateVector?: string;
+  baseDocumentSequence?: number;
 }): Promise<{ row: AgentOperationRow; created: boolean }> {
   const triggerDepth = input.triggerDepth || 0;
   if (!Number.isInteger(triggerDepth) || triggerDepth < 0 || triggerDepth > MAX_AGENT_TRIGGER_DEPTH) {
@@ -915,6 +945,13 @@ async function createOrLoadOperation(input: {
   }
   if (input.expectedCanonicalHash && !/^[a-f0-9]{64}$/u.test(input.expectedCanonicalHash)) {
     throw new Error('Collaboration agent expected canonical hash is invalid.');
+  }
+  if (input.baseStateVector) {
+    try {
+      Y.decodeStateVector(Buffer.from(input.baseStateVector, 'base64'));
+    } catch {
+      throw new Error('Collaboration agent base state vector is invalid.');
+    }
   }
   const payloadHash = operationPayloadHash(input);
   const existing = await input.database.get(
@@ -936,27 +973,36 @@ async function createOrLoadOperation(input: {
     if (chainDuplicate) return { row: chainDuplicate, created: false };
   }
   const state = await loadCollaborationState(input.documentId);
-  if (!state || state.workspaceId !== input.workspace.workspaceId || state.status !== 'active') {
+  if (
+    !state
+    || state.workspaceId !== input.workspace.workspaceId
+    || state.status !== 'active'
+    || (input.documentPath && state.path !== input.documentPath)
+    || (input.documentRepresentation && state.representation !== input.documentRepresentation)
+  ) {
     throw new Error('Collaboration document is unavailable or stale.');
   }
   const now = Date.now();
   const operationId = randomUUID();
   await input.database.run(
     `INSERT INTO collaboration_agent_operations (
-      operation_id, document_id, workspace_id, organization_id, document_lifecycle_generation,
+      operation_id, document_id, document_path, document_representation, workspace_id,
+      organization_id, document_lifecycle_generation,
       schema_version, initiated_by_user_id, actor_id, agent_run_id, actor_session_id,
       supersedes_operation_id, idempotency_key, run_generation, payload_hash, operation_type,
       requested_mode, atomicity, operation_payload, status, base_state_vector,
       base_document_sequence, result_json, cas_version, expires_at, correlation_id,
       causation_id, trigger_depth, expected_canonical_hash, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'preparing', ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'preparing', ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?, ?)`,
     [
       operationId,
       input.documentId,
+      input.documentPath || state.path,
+      input.documentRepresentation || state.representation,
       input.workspace.workspaceId,
       state.organizationId,
-      state.lifecycleGeneration,
-      state.schemaVersion,
+      input.documentLifecycleGeneration ?? state.lifecycleGeneration,
+      input.documentSchemaVersion ?? state.schemaVersion,
       input.initiatedByUserId,
       input.actorId,
       input.agentRunId || null,
@@ -969,8 +1015,8 @@ async function createOrLoadOperation(input: {
       input.requestedMode,
       input.independentGroups ? 'independent' : 'all_or_nothing',
       sealPayload(input.targets),
-      Buffer.from(state.stateVector),
-      state.documentSequence,
+      input.baseStateVector ? Buffer.from(input.baseStateVector, 'base64') : Buffer.from(state.stateVector),
+      input.baseDocumentSequence ?? state.documentSequence,
       now + AGENT_OPERATION_TTL_MS,
       input.correlationId || operationId,
       input.causationId || null,
@@ -1061,6 +1107,8 @@ async function applyStoredOperation(input: {
     || state.workspaceId !== row.workspace_id
     || state.lifecycleGeneration !== Number(row.document_lifecycle_generation)
     || state.schemaVersion !== Number(row.schema_version)
+    || (row.document_path !== null && state.path !== row.document_path)
+    || (row.document_representation !== null && state.representation !== row.document_representation)
   ) {
     const targets = openPayload<AgentTextTarget[]>(row.operation_payload) || [];
     const terminal = publicResult(row, {
@@ -1151,6 +1199,10 @@ async function applyStoredOperation(input: {
   try {
     execution = await runCollaborationDirectConnection({
       documentId: row.document_id,
+      documentPath: row.document_path || state.path,
+      documentRepresentation: row.document_representation || state.representation,
+      documentLifecycleGeneration: Number(row.document_lifecycle_generation),
+      documentSchemaVersion: Number(row.schema_version),
       workspace: input.workspace,
       actorId: row.actor_id,
       actorDisplayName: input.actorDisplayName,
@@ -1159,6 +1211,21 @@ async function applyStoredOperation(input: {
       actorSessionId: row.actor_session_id || undefined,
     }, (doc) => {
       if (cancelRequests.has(row.operation_id)) throw new AgentOperationCancelledError('Agent operation was cancelled before apply.');
+      const currentStateVector = Y.encodeStateVector(doc);
+      const baseStateVector = Buffer.from(row.base_state_vector).toString('base64');
+      if (!stateVectorIncludes(currentStateVector, baseStateVector)) {
+        return {
+          status: 'needs_review',
+          appliedTargetIds: [],
+          conflicts: targets.map((target) => ({
+            targetId: target.targetId,
+            groupId: target.groupId,
+            code: 'lifecycle_stale' as const,
+          })),
+          stateVector: Buffer.from(currentStateVector).toString('base64'),
+          reverseTargets: [],
+        };
+      }
       const origin = {
         actorType: 'agent' as const,
         actorId: row.actor_id,
@@ -1404,6 +1471,12 @@ export async function applyPersistedAgentTextOperation(input: {
   causationId?: string;
   triggerDepth?: number;
   expectedCanonicalHash?: string | null;
+  documentPath?: string;
+  documentRepresentation?: 'plain_text' | 'tiptap_xml';
+  documentLifecycleGeneration?: number;
+  documentSchemaVersion?: number;
+  baseStateVector?: string;
+  baseDocumentSequence?: number;
 }): Promise<PersistedAgentApplyResult> {
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write permission is required.');
   if (getDatabaseProvider() !== 'postgres') throw new Error('Agent collaboration operations require Postgres.');
@@ -1437,6 +1510,12 @@ export async function applyPersistedAgentTextOperation(input: {
         causationId: input.causationId,
         triggerDepth: input.triggerDepth,
         expectedCanonicalHash: input.expectedCanonicalHash,
+        documentPath: input.documentPath,
+        documentRepresentation: input.documentRepresentation,
+        documentLifecycleGeneration: input.documentLifecycleGeneration,
+        documentSchemaVersion: input.documentSchemaVersion,
+        baseStateVector: input.baseStateVector,
+        baseDocumentSequence: input.baseDocumentSequence,
       });
       if (!created.created) return parseResult(created.row);
       if (mustReview) {

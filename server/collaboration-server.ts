@@ -367,7 +367,25 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       }
     }
     const state = await loadCollaborationState(input.documentId);
-    if (!state || state.workspaceId !== workspace.workspaceId) throw new Error('Collaboration document is unavailable or stale.');
+    const collaboration = getFileCollaborationState({
+      workspace,
+      path: input.documentPath,
+      ensureDocument: false,
+    });
+    if (
+      !state
+      || state.workspaceId !== workspace.workspaceId
+      || state.path !== input.documentPath
+      || state.representation !== input.documentRepresentation
+      || state.lifecycleGeneration !== input.documentLifecycleGeneration
+      || state.schemaVersion !== input.documentSchemaVersion
+      || !collaboration.document
+      || collaboration.document.id !== input.documentId
+      || collaboration.document.status !== 'active'
+      || collaboration.document.provider !== 'yjs'
+    ) {
+      throw new Error('Collaboration document identity, lifecycle, or representation is unavailable or stale.');
+    }
     const context: CollaborationContext = {
       claims: {
         schemaVersion: state.schemaVersion,

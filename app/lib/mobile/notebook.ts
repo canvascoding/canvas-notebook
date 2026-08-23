@@ -436,6 +436,10 @@ async function saveMobileCollaborativeNotebookDocument(input: {
   try {
     await runCollaborationDirectConnection({
       documentId: input.documentId,
+      documentPath: persistedState.path,
+      documentRepresentation: persistedState.representation,
+      documentLifecycleGeneration: persistedState.lifecycleGeneration,
+      documentSchemaVersion: persistedState.schemaVersion,
       workspace: input.workspace,
       actorId: input.actorUserId,
       actorDisplayName: 'Mobile editor',

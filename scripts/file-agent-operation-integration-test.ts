@@ -11,6 +11,7 @@ import {
 } from '../app/lib/collaboration/agent-file-edits';
 import {
   acceptAgentOperation,
+  applyAgentTextTargets,
   applyPersistedAgentTextOperation,
   cancelAgentOperation,
   createAgentTextTarget,
@@ -192,6 +193,10 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
   directConnectionInputs.push({ operationId: input.operationId, actorSessionId: input.actorSessionId });
   const state = await loadCollaborationState(input.documentId);
   assert(state);
+  assert.equal(input.documentPath, state.path);
+  assert.equal(input.documentRepresentation, state.representation);
+  assert.equal(input.documentLifecycleGeneration, state.lifecycleGeneration);
+  assert.equal(input.documentSchemaVersion, state.schemaVersion);
   const activeDocument = activeDocuments.get(input.documentId);
   const doc = activeDocument || new Y.Doc({ gc: true });
   try {
@@ -681,10 +686,20 @@ try {
   activeDocuments.set(toolDocumentId, activeToolDocument);
 
   const toolRead = await runPiTool('read', `tool-read-${suffix}`, { path: toolPath });
-  const toolReadDetails = toolRead.details as { sha256?: string; collaboration?: { source?: string } };
+  const toolReadDetails = toolRead.details as {
+    sha256?: string;
+    collaboration?: {
+      source?: string;
+      stateVector?: string;
+      lifecycleGeneration?: number;
+      documentSequence?: number;
+    };
+  };
   const liveHash = createHash('sha256').update(liveContent, 'utf8').digest('hex');
   assert.equal(toolReadDetails.sha256, liveHash);
   assert.equal(toolReadDetails.collaboration?.source, 'live_yjs');
+  assert.equal(toolReadDetails.collaboration?.lifecycleGeneration, 1);
+  assert.equal(toolReadDetails.collaboration?.documentSequence, 0);
   assert.match(
     String((toolRead.content[0] as { text?: string } | undefined)?.text || ''),
     /Source: live Yjs collaboration state/u,
@@ -708,17 +723,85 @@ try {
     newText: 'Live paragraph updated by agent',
   });
   const directToolDetails = directToolEdit.details as {
-    collaboration?: { reviewRequired?: boolean; operationStatus?: string; durability?: string };
+    collaboration?: {
+      operationId?: string;
+      reviewRequired?: boolean;
+      operationStatus?: string;
+      durability?: string;
+    };
   };
   assert.equal(directToolDetails.collaboration?.reviewRequired, false);
   assert.equal(directToolDetails.collaboration?.operationStatus, 'checkpointed_file');
   assert.equal(directToolDetails.collaboration?.durability, 'checkpointed_file');
+  assert(directToolDetails.collaboration?.operationId);
+  const operationDatabase = await openDb();
+  try {
+    const operationRow = await operationDatabase.get(
+      `SELECT document_path, document_representation, document_lifecycle_generation,
+              base_state_vector, base_document_sequence
+       FROM collaboration_agent_operations WHERE operation_id = ?`,
+      [directToolDetails.collaboration.operationId],
+    ) as {
+      document_path: string;
+      document_representation: string;
+      document_lifecycle_generation: number;
+      base_state_vector: Buffer;
+      base_document_sequence: number;
+    } | undefined;
+    assert(operationRow);
+    assert.equal(operationRow.document_path, toolPath);
+    assert.equal(operationRow.document_representation, 'tiptap_xml');
+    assert.equal(Number(operationRow.document_lifecycle_generation), 1);
+    assert.equal(Buffer.from(operationRow.base_state_vector).toString('base64'), toolReadDetails.collaboration?.stateVector);
+    assert.equal(Number(operationRow.base_document_sequence), toolReadDetails.collaboration?.documentSequence);
+  } finally {
+    await operationDatabase.close();
+  }
   assert.ok(
     directConnectionInputs.some((input) => input.actorSessionId === agentExecutionContext.sessionId),
     'Agent tool operations must forward their PI session to the direct collaboration connection.',
   );
   assert.equal(
     richMarkdownFromYDoc(activeToolDocument),
+    'Tool **checkpoint** paragraph\n\nLive paragraph updated by agent',
+  );
+
+  // A same-content Y.Doc rebuilt from a checkpoint has different client clocks.
+  // The prepared agent edit must not treat that reset as the state it observed.
+  const staleVectorPrepared = await prepareCollaborationTextEdit({
+    documentId: toolDocumentId,
+    workspace,
+    path: toolPath,
+    edits: [{
+      oldText: 'Live paragraph updated by agent',
+      newText: 'Reset state must reject this edit',
+      expectedOccurrences: 1,
+    }],
+    expectedSha256: createHash('sha256')
+      .update('Tool **checkpoint** paragraph\n\nLive paragraph updated by agent', 'utf8')
+      .digest('hex'),
+    groupId: 'stale-vector',
+  });
+  const resetToolDocument = createRichMarkdownYDoc(
+    'Tool **checkpoint** paragraph\n\nLive paragraph updated by agent',
+  );
+  activeDocuments.set(toolDocumentId, resetToolDocument);
+  activeToolDocument.destroy();
+  const staleVectorResult = await executePreparedCollaborationTextEdit({
+    prepared: staleVectorPrepared,
+    workspace,
+    identity: {
+      initiatedByUserId: userId,
+      actorId: 'agent-b',
+      actorDisplayName: 'Agent B',
+      actorSessionId: agentExecutionContext.sessionId,
+    },
+    idempotencyKey: `stale-vector-${suffix}`,
+  });
+  assert.equal(staleVectorResult.operationStatus, 'needs_review');
+  assert.equal(staleVectorResult.conflicts[0]?.code, 'lifecycle_stale');
+  assert.equal(
+    richMarkdownFromYDoc(resetToolDocument),
     'Tool **checkpoint** paragraph\n\nLive paragraph updated by agent',
   );
 
@@ -808,11 +891,27 @@ try {
   assert.equal(structuralReview.operationStatus, 'needs_review');
   assert.match(await persistedText(richDocumentId), /Rich \*\*strong\*\* paragraph/u);
 
-  const concurrentRichContent = (await persistedText(richDocumentId)).replace(
-    'Other paragraph',
-    'Other paragraph updated by user',
-  );
-  const concurrentRichDoc = createRichMarkdownYDoc(concurrentRichContent);
+  const concurrentRichState = await loadCollaborationState(richDocumentId);
+  assert(concurrentRichState);
+  const concurrentRichDoc = new Y.Doc({ gc: true });
+  Y.applyUpdate(concurrentRichDoc, concurrentRichState.yjsState);
+  const concurrentRichTargets = createRichAgentTextTargets({
+    doc: concurrentRichDoc,
+    search: 'Other paragraph',
+    replacement: 'Other paragraph updated by user',
+  });
+  const concurrentRichEdit = applyAgentTextTargets({
+    doc: concurrentRichDoc,
+    targets: concurrentRichTargets,
+    origin: {
+      actorType: 'agent',
+      actorId: userId,
+      initiatedByUserId: userId,
+      operationId: `concurrent-user-${suffix}`,
+    },
+  });
+  assert.equal(concurrentRichEdit.status, 'applied_to_ydoc');
+  const concurrentRichContent = richMarkdownFromYDoc(concurrentRichDoc);
   const concurrentPersisted = await persistCollaborationYDoc(richDocumentId, concurrentRichDoc);
   await markCollaborationCheckpoint({
     documentId: richDocumentId,
