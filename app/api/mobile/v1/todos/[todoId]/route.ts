@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMobileTodo, MobileTodoError, serializeMobileTodo } from '@/app/lib/mobile/todos';
 import { mobileTodosErrorResponse, mobileTodosResponseHeaders } from '@/app/lib/mobile/todos-route';
 import { setTodoReadStateForUser } from '@/app/lib/todos/read-state-actions';
+import { todoLifecycleAllowsUnread } from '@/app/lib/todos/read-state-policy';
 import { archiveTodo, updateTodo, type TodoFileLinkInput, type TodoPriority, type TodoStatus } from '@/app/lib/todos/store';
 import { isTodoIconKey } from '@/app/lib/todos/icons';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -58,12 +59,20 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const payload = await request.json() as Record<string, unknown>;
     const shouldUpdateTodo = hasTodoUpdate(payload);
     const read = requestedReadState(payload);
+    const requestedStatus = payload.status === undefined ? undefined : payload.status as TodoStatus;
+    if (payload.status !== undefined && !['open', 'done', 'archived'].includes(requestedStatus)) {
+      throw new MobileTodoError('INVALID_STATUS', 'The To-do status is invalid.', 400);
+    }
     if (shouldUpdateTodo) {
       const writeWorkspace = await requireSessionWorkspace(workspaceResult.session, {
         workspaceId: workspaceResult.workspace.workspaceId,
         permissions: 'canWrite',
       });
       if (writeWorkspace.response) return writeWorkspace.response;
+    }
+    const resultingStatus = requestedStatus ?? existingTodo.status;
+    if (read === false && !todoLifecycleAllowsUnread(resultingStatus)) {
+      throw new MobileTodoError('TODO_READ_STATE_CONFLICT', 'Completed or archived to-dos cannot be marked unread.', 409);
     }
     let todo = existingTodo;
     if (shouldUpdateTodo) {
@@ -74,7 +83,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         ...(payload.iconKey !== undefined ? { iconKey: isTodoIconKey(payload.iconKey) ? payload.iconKey : null } : {}),
         ...(payload.dueAt !== undefined ? { dueAt: dateValue(payload.dueAt) } : {}),
         ...(payload.remindAt !== undefined ? { remindAt: dateValue(payload.remindAt) } : {}),
-        ...(payload.status !== undefined ? { status: payload.status as TodoStatus } : {}),
+        ...(requestedStatus !== undefined ? { status: requestedStatus } : {}),
         ...(payload.assigneeUserId !== undefined ? { assigneeUserId: typeof payload.assigneeUserId === 'string' ? payload.assigneeUserId : null } : {}),
         ...(payload.completionComment !== undefined ? { completionComment: typeof payload.completionComment === 'string' ? payload.completionComment : null } : {}),
         ...(payload.fileLinks !== undefined ? { fileLinks: Array.isArray(payload.fileLinks) ? payload.fileLinks as TodoFileLinkInput[] : [] } : {}),

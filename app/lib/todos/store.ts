@@ -25,6 +25,7 @@ import {
   listTodoReadStates,
   setTodoReadState,
 } from './read-state-store';
+import { deriveTodoEffectiveReadState, todoLifecycleAllowsUnread } from './read-state-policy';
 import type { TodoScopeKind } from './scope';
 import { isTodoIconKey, type TodoIconKey } from './icons';
 
@@ -63,7 +64,8 @@ export class TodoStoreError extends Error {
       | 'CATEGORY_NOT_FOUND'
       | 'TODO_NOT_FOUND'
       | 'ORGANIZATION_ACCESS_DENIED'
-      | 'ASSIGNEE_NOT_FOUND',
+      | 'ASSIGNEE_NOT_FOUND'
+      | 'TODO_READ_STATE_CONFLICT',
   ) {
     super(message);
     this.name = 'TodoStoreError';
@@ -870,26 +872,35 @@ async function hydrateTodos(rows: TodoItem[], userId: string): Promise<TodoWithR
     : [];
   const workspaceById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
 
-  return rows.map((row) => ({
-    ...row,
-    // `seenAt` is retained as a compatibility alias while API clients migrate to
-    // the explicit per-user `readAt` / `readState` fields.
-    seenAt: readStateByTodoId.get(row.id) ?? null,
-    readAt: readStateByTodoId.get(row.id) ?? null,
-    readState: readStateByTodoId.has(row.id) ? 'read' : 'unread' as const,
-    category: row.categoryId ? categoryById.get(row.categoryId) ?? null : null,
-    fileLinks: linksByTodoId.get(row.id) ?? [],
-    createdBy: userById.get(row.createdByUserId || row.userId) ?? null,
-    assignee: row.assigneeUserId ? userById.get(row.assigneeUserId) ?? null : null,
-    workspace: row.workspaceId
-      ? (() => {
-          const workspace = workspaceById.get(row.workspaceId);
-          return workspace && TODO_WORKSPACE_TYPES.includes(workspace.type as TodoWorkspaceType)
-            ? { ...workspace, type: workspace.type as TodoWorkspaceType }
-            : null;
-        })()
-      : null,
-  }));
+  return rows.map((row) => {
+    const effectiveReadState = deriveTodoEffectiveReadState({
+      status: row.status,
+      persistedReadAt: readStateByTodoId.get(row.id) ?? null,
+      completedAt: row.completedAt,
+      archivedAt: row.archivedAt,
+      updatedAt: row.updatedAt,
+    });
+    return {
+      ...row,
+      // `seenAt` is retained as a compatibility alias while API clients migrate to
+      // the explicit per-user `readAt` / `readState` fields.
+      seenAt: effectiveReadState.readAt,
+      readAt: effectiveReadState.readAt,
+      readState: effectiveReadState.readState,
+      category: row.categoryId ? categoryById.get(row.categoryId) ?? null : null,
+      fileLinks: linksByTodoId.get(row.id) ?? [],
+      createdBy: userById.get(row.createdByUserId || row.userId) ?? null,
+      assignee: row.assigneeUserId ? userById.get(row.assigneeUserId) ?? null : null,
+      workspace: row.workspaceId
+        ? (() => {
+            const workspace = workspaceById.get(row.workspaceId);
+            return workspace && TODO_WORKSPACE_TYPES.includes(workspace.type as TodoWorkspaceType)
+              ? { ...workspace, type: workspace.type as TodoWorkspaceType }
+              : null;
+          })()
+        : null,
+    };
+  });
 }
 
 export async function getTodo(userId: string, todoId: string): Promise<TodoWithRelations | null> {
@@ -1259,6 +1270,9 @@ export async function markTodoSeen(userId: string, todoId: string, seenAt = new 
 export async function markTodoUnread(userId: string, todoId: string): Promise<TodoWithRelations | null> {
   const todo = await getTodo(userId, todoId);
   if (!todo) return null;
+  if (!todoLifecycleAllowsUnread(todo.status)) {
+    throw new TodoStoreError('Completed or archived to-dos cannot be marked unread.', 'TODO_READ_STATE_CONFLICT');
+  }
   await clearTodoReadState(userId, todoId);
   return getTodo(userId, todoId);
 }

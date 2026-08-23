@@ -1,4 +1,5 @@
 import { clearTodoReadState, setTodoReadState } from './read-state-store';
+import { todoLifecycleAllowsUnread } from './read-state-policy';
 import { getTodo, TodoStoreError, type TodoWithRelations } from './store';
 
 export type TodoReadStateActionResult = {
@@ -20,6 +21,10 @@ export async function setTodoReadStateForUser(input: {
   const todo = await getTodo(input.userId, input.todoId);
   if (!todo) {
     throw new TodoStoreError('Todo not found.', 'TODO_NOT_FOUND');
+  }
+
+  if (!input.read && !todoLifecycleAllowsUnread(todo.status)) {
+    throw new TodoStoreError('Completed or archived to-dos cannot be marked unread.', 'TODO_READ_STATE_CONFLICT');
   }
 
   const readAt = input.read

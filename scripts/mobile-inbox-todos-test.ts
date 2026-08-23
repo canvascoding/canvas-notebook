@@ -163,7 +163,7 @@ async function main() {
     await createTodo('mobile-attention-user', { title: 'Prepare screenshots', seenAt: new Date() });
     const completedTodo = await createTodo('mobile-attention-user', {
       title: 'Confirm launch checklist',
-      seenAt: new Date(),
+      seenAt: null,
     });
     await updateTodo('mobile-attention-user', completedTodo.id, { status: 'done' });
 
@@ -175,10 +175,28 @@ async function main() {
     assert.equal(inbox.items.some((item) => item.id === 'chat:historic-unread-session'), true);
     assert.equal(inbox.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
     assert.equal(inbox.items.some((item) => item.id === `todo:${completedTodo.id}`), true);
+    assert.equal(inbox.items.find((item) => item.id === `todo:${completedTodo.id}`)?.unread, false);
+    await assert.rejects(
+      () => markMobileInboxRead({
+        userId: 'mobile-attention-user',
+        workspace,
+        action: 'set_item_read_state',
+        itemId: `todo:${completedTodo.id}`,
+        read: false,
+      }),
+      (error: unknown) => Boolean(
+        error
+        && typeof error === 'object'
+        && 'code' in error
+        && error.code === 'TODO_READ_STATE_CONFLICT'
+      ),
+    );
     assert.equal(inbox.items.some((item) => item.id === 'studio:generation-ready'), true);
     assert.equal(inbox.items.some((item) => item.id === 'automation:run-failed'), true);
     assert.equal(inbox.items.some((item) => item.id === 'email-case:email-case-active'), true);
     assert.equal(inbox.counts.emails, 3);
+    const unreadInbox = await listMobileInbox({ userId: 'mobile-attention-user', workspace, filter: 'unread', limit: 20 });
+    assert.equal(unreadInbox.items.some((item) => item.id === `todo:${completedTodo.id}`), false);
     assert.equal(
       inbox.items.find((item) => item.id === 'studio:generation-ready')?.previewUrl,
       '/api/mobile/v1/studio/outputs/generation-preview-output/preview',

@@ -23,7 +23,8 @@ export function mobileTodosErrorResponse(error: unknown, context: string) {
   if (error instanceof TodoStoreError) {
     const status = error.code === 'TODO_NOT_FOUND' || error.code === 'CATEGORY_NOT_FOUND' || error.code === 'ASSIGNEE_NOT_FOUND'
       ? 404
-      : error.code === 'ORGANIZATION_ACCESS_DENIED' ? 403 : 400;
+      : error.code === 'ORGANIZATION_ACCESS_DENIED' ? 403
+        : error.code === 'TODO_READ_STATE_CONFLICT' ? 409 : 400;
     return NextResponse.json(
       { success: false, code: error.code, error: error.message },
       { status, headers: mobileTodosResponseHeaders },
