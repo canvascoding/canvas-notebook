@@ -1,0 +1,145 @@
+---
+title: 'Ticket 28: Chat-Kontextkomprimierung und Session-Fortsetzung stabilisieren'
+status: open
+priority: high
+depends_on: []
+platforms: [server, agent-runtime, web]
+tags: [type/bug, topic/agents, topic/chat, topic/context-window, topic/sessions]
+---
+
+# Ticket 28: Chat-Kontextkomprimierung und Session-Fortsetzung stabilisieren
+
+## Problem
+
+Wenn ein Chat das Kontextfenster des gewaehlten Modells erreicht, muss die
+Runtime den bereits abgearbeiteten Verlauf sicher in eine interne
+Zusammenfassung ueberfuehren und anschliessend ohne Verlust des aktuellen
+Arbeitsauftrags fortsetzen. Dieser Ablauf funktioniert derzeit nicht
+zuverlaessig. Dadurch kann ein Chat am Kontextlimit stehen bleiben, wiederholt
+an derselben Grenze scheitern oder nach einer Komprimierung den relevanten
+Auftrags-, Tool- oder Sessionzustand verlieren.
+
+Die bereits vorhandene PI-Runtime besitzt Zusammenfassungszustand mit
+Zeitstempel und Sequenzgrenze sowie einen manuellen `compact`-Pfad. Das Ticket
+klaert zuerst reproduzierbar, an welcher Grenze der reale Fehler entsteht:
+Budgetberechnung, automatische Ausloesung, Zusammenfassungsaufruf,
+Persistierung, erneuter LLM-Request oder Wiederaufnahme einer geladenen
+Session.
+
+## Referenzanalyse: Hermes-Agent (Stand 2026-08-23)
+
+Der lokale Checkout `../hermes-agent` wurde per Fast-forward auf
+`f293e7206b4ddd66042329442c6afebc19a8808d` (Upstream `main`, 2026-08-14)
+aktualisiert und nur als fachliche Referenz gelesen. Daraus wird kein Code
+uebernommen.
+
+Folgende, fuer Canvas relevante Muster wurden verifiziert:
+
+- `agent/context_compressor.py` trennt einen geschuetzten Kopf und einen
+  tokenbudgetierten aktuellen Tail von dem komprimierbaren Mittelteil. Es
+  markiert die Zusammenfassung explizit und achtet beim Wiedereinsetzen auf
+  gueltige Nachrichten-/Tool-Reihenfolge.
+- `agent/conversation_compression.py` nutzt einen Commit-Fence: Nach Timeout
+  oder Abbruch darf eine im Hintergrund laufende Zusammenfassung nicht spaeter
+  den aktiven Verlauf oder persistenten Sessionzustand ueberschreiben. Pro
+  Session werden parallele Komprimierungen serialisiert.
+- Die Tests pruefen explizit Zusammenfassungs-Kontinuitaet nach Neustart,
+  Entfernung von sessionfremdem Altzustand sowie das Ruecksetzen von
+  Cooldown-/Fehlerzaehlern am Sessionende. Ein fehlgeschlagener
+  Zusammenfassungsaufruf laesst den Verlauf unveraendert oder verwendet einen
+  klar gekennzeichneten, kontrollierten Fallback.
+- Die optionale Micro-Compaction ist bewusst kein Default: Sie amortisiert
+  grosse Komprimierungen, invalidiert aber durch Umschreiben des Verlaufs den
+  Prompt-Cache. Fuer Canvas ist das eine spaetere Produkt-/Kostenentscheidung,
+  nicht die erste Fehlerbehebung.
+
+Diese Erkenntnisse sind als Qualitaetsmassstab zu verwenden. Canvas soll seine
+eigene Daten-, Sicherheits- und Providerarchitektur beibehalten.
+
+## Zielzustand
+
+- Lange Chats laufen beim Erreichen des Kontextlimits kontrolliert weiter; die
+  aktuelle Nutzeranfrage, der juengste relevante Verlauf und notwendige
+  Toolergebnisse bleiben nutzbar.
+- Automatische und manuelle Komprimierung verwenden denselben sicheren,
+  beobachtbaren Zustandsvertrag. Eine Komprimierung wird ausreichend vor dem
+  harten Providerlimit gestartet und beruecksichtigt Systemprompt, effektive
+  Tools, Runtime-Kontext, Ausgabe-Reserve, Bild-/Anhangsbudgets sowie die
+  neueste Nachricht.
+- Zusammenfassungstext und seine eindeutige Sequenz-/Zeitgrenze werden
+  atomar und nur nach erfolgreicher Erstellung persistiert. Nach Reload oder
+  Retry wird weder schon zusammengefasster Verlauf doppelt geladen noch
+  sessionfremder Zusammenfassungstext uebernommen.
+- Bei Abbruch, Provider-/Netzwerkfehler oder zu grosser letzter Nachricht
+  bleiben die Originalnachrichten erhalten. Die UI zeigt einen eindeutigen
+  handlungsfaehigen Status statt eines stillen Hangs oder einer Retry-Schleife.
+- Workspace-, Nutzer-, Agenten- und Session-Grenzen bleiben erhalten. Inhalte
+  aus Zusammenfassungen bleiben untrusted Kontext; Secrets, rohe Anhaenge und
+  Credentials duerfen nicht in UI, Logs oder Telemetrie gelangen.
+
+## Umsetzung
+
+- Einen reproduzierbaren Fehlerfall mit Modell, effektiver Kontextgroesse,
+  Systemprompt-/Toolumfang, Runtime-Kontext, Nachrichtenfolge und erwarteter
+  Fortsetzung erfassen. Mindestens Text-, Toolresultat- und Bild/Anhangsfall
+  getrennt betrachten.
+- Die Budgetberechnung und Ausloesung in `history-budget`,
+  `session-summary` und `live-runtime` als einen Vertrag pruefen. Harte
+  Providergrenzen duerfen nicht erst nach einer nicht mehr rettbaren Anfrage
+  festgestellt werden; eine einzelne neue Nachricht, die bereits allein zu
+  gross ist, braucht dagegen eine klare, nicht destruktive Fehlermeldung.
+- Einen serialisierten Komprimierungsversuch pro Session einrichten. Erfasst
+  der Versuch einen Timeout, Abbruch oder eine konkurrierende Mutation, darf
+  sein Ergebnis nur nach einem gueltigen Commit der noch aktuellen Session
+  uebernommen werden.
+- Die Persistierung von Zusammenfassung, `summaryThroughSequence`,
+  Zeitgrenze und komprimiertem Kontext pruefbar zusammenziehen. Reload,
+  erneutes Senden, manuelles Komprimieren und Agenten-/Tool-Weiterarbeit
+  muessen dieselbe kanonische Fortsetzung erhalten.
+- Den Inhalt der Zusammenfassung robust strukturieren: aktiver Auftrag,
+  Entscheidungen, aenderte Dateien/Artefakte, relevante Toolresultate,
+  offene Punkte und naechster Schritt. Alte Zusammenfassungen werden
+  kontrolliert ersetzt oder verdichtet; sie duerfen nicht unkontrolliert
+  anwachsen oder alte Nutzeranweisungen als neue Anweisung ausgeben.
+- Wiederholte erfolglose Versuche begrenzen und instrumentieren: Grund,
+  Ausloeser (automatisch/manuell), vorher/nachher Budget, ausgesparte bzw.
+  gesicherte Nachrichtenanzahl, Dauer und Ergebnis. Kein Inhaltslogging.
+- In der Chat-Oberflaeche einen ruhigen Status fuer Erfolg, laufende
+  Komprimierung, no-op, nicht komprimierbare letzte Nachricht und fehlende
+  Zusammenfassung anbieten; eine unklare leere oder blockierte Unterhaltung
+  ist nicht akzeptabel.
+- Mit Ticket 18 bei Systemprompt-/Toolbudget und Ticket 26 bei Bild-/Anhangs-
+  budgets koordinieren. Keine harte Abhaengigkeit, aber gemeinsame
+  Budgetannahmen duerfen nicht auseinanderlaufen.
+
+## Abnahmekriterien
+
+- Ein kontrollierter langer Textchat ueberquert die Ausloeseschwelle,
+  komprimiert genau einmal und beantwortet bzw. bearbeitet die aktuelle
+  Aufgabe anschliessend mit erhaltenen Entscheidungen und dem juengsten
+  Verlauf.
+- Toolintensive Verlaeufe, einschliesslich langer Read-/Edit-Ergebnisse,
+  bleiben nach Komprimierung fortsetzbar; Toolpaare und Nachrichtenreihenfolge
+  bleiben providerkonform.
+- Ein Bild-/Anhangsfall beruecksichtigt dessen Budget korrekt und erhaelt die
+  Sicherheitsgrenzen aus Ticket 26.
+- Ein Fehler, Timeout oder Abbruch beim Zusammenfassen entfernt oder
+  ueberschreibt keine Originalnachricht. Ein zweiter Versuch kann kontrolliert
+  erfolgen, ohne in eine Endlosschleife zu geraten.
+- Parallel ausgeloste manuelle/automatische Versuche und ein Session-Reload
+  erzeugen keine doppelte, veraltete oder fremde Zusammenfassung. Eine
+  Wiederaufnahme nutzt exakt die aktuelle Sequenzgrenze.
+- Die UI macht Ergebnis und naechste sinnvolle Aktion klar, ohne
+  Zusammenfassungsinhalt, Anhaenge oder Credentials offen zu legen.
+
+## Tests und Abschluss
+
+- Unit-/Contract-Tests fuer Budgetgrenzen, Sequenzreihenfolge,
+  Zusammenfassungsfortschreibung, zu grosse Einzelanfragen, Fehler/Abbruch,
+  Retry-Cooldown und konkurrierende Komprimierung.
+- Integrations-Tests fuer Persistierung, Session-Reload, Toolresultate,
+  Runtime-Prompt-Kontext und Modell-/Providerwechsel.
+- Manueller langer Chat mit Text, Toolaufrufen und einem kontrollierten
+  Bild-/Anhangsfall; UI-/Browser-Tests erst nach expliziter Freigabe.
+- `npm run build` nach Server-/Runtime-Aenderungen; eigener fokussierter
+  Commit und anschliessende Statusaktualisierung im [Index](./README.md).
