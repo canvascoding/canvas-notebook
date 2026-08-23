@@ -46,7 +46,7 @@ abgeschlossen sind.
 | 26 | [Vision-Faehigkeiten fuer Bilder aus dem Read-Tool aktivieren](./26-vision-bilder-aus-read-tool-korrekt-uebergeben.md) | erledigt | – |
 | 27 | [E-Mail-Inbox-Lesefluss und Progressive Disclosure verbessern](./27-email-inbox-lesefluss-und-progressive-disclosure.md) | offen | – |
 | 28 | [Chat-Kontextkomprimierung und Session-Fortsetzung stabilisieren](./28-chat-kontextkomprimierung-und-session-fortsetzung-stabilisieren.md) | offen | – |
-| 29 | [Notification-Zentrum als Attention- und E-Mail-Review-Queue ausbauen](./29-notification-zentrum-attention-todos-email-review.md) | geplant | 02, 03, 14 |
+| 29 | [Notification-Zentrum als Attention- und E-Mail-Review-Queue ausbauen](./29-notification-zentrum-attention-todos-email-review.md) | in Abnahme | 02, 03, 14 |
 
 ## Gemeinsame Arbeitsregeln
 
@@ -78,7 +78,7 @@ abgeschlossen sind.
 | --- | --- | --- |
 | E-Mail und Automationen | 10 in Umsetzung; 09 in Abnahme | 25 bleibt bis zum Abschluss von 10 blockiert; Koordination bei gemeinsamen E-Mail-Settings. |
 | Lizenz und Control Plane | 11 in Umsetzung | Danach 12, 13 und 15; 13 und 15 teilen Agent-/VM-Zustaende und werden besser nacheinander integriert. |
-| To-dos und Notification-Zentrum | 14 in Abnahme (Erledigt = gelesen); 29 geplant | 29 erst nach Abnahme von 03 und 14; 20 folgt danach auf dem gemeinsamen Attention-Vertrag. |
+| To-dos und Notification-Zentrum | 14 in Abnahme (Erledigt = gelesen); 29 in Abnahme | 29 nutzt die verifizierten Serververtraege aus 03/14; die manuelle Mehr-Workspace-Abnahme von 03, 14 und 29 erfolgt koordiniert. 20 folgt danach auf dem gemeinsamen Attention-Vertrag. |
 | Agent-Runtime | 16 in Umsetzung (Provider-Auswahl); 18 in Abnahme | Bei gemeinsamen Runtime-Resolver-Dateien vorab Dateigrenzen festlegen. |
 | MCP | 17 in Umsetzung (DCR-500) | Eigenstaendig; nur OAuth-/Runtime-Schnittstellen mit 16/18 abstimmen. |
 | Office-Dateien | 19 abgeschlossen (No-Go) | Kein produktives Tool bauen; erst bei freigegebener Bedarfsevidenz ein neues Folgeticket erstellen. |

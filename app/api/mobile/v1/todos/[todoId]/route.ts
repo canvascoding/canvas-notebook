@@ -60,7 +60,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const shouldUpdateTodo = hasTodoUpdate(payload);
     const read = requestedReadState(payload);
     const requestedStatus = payload.status === undefined ? undefined : payload.status as TodoStatus;
-    if (payload.status !== undefined && !['open', 'done', 'archived'].includes(requestedStatus)) {
+    if (payload.status !== undefined && (!requestedStatus || !['open', 'done', 'archived'].includes(requestedStatus))) {
       throw new MobileTodoError('INVALID_STATUS', 'The To-do status is invalid.', 400);
     }
     if (shouldUpdateTodo) {

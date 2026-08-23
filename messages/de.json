@@ -2221,8 +2221,11 @@
     "recent": "Kürzlich",
     "sections": {
       "notifications": "Benachrichtigungen",
-      "todos": "To-dos"
+      "todos": "To-dos",
+      "emailReview": "E-Mail-Review"
     },
+    "openEmails": "Alle E-Mails anzeigen",
+    "openTodos": "Alle To-dos anzeigen",
     "types": {
       "chat": "Neue Agent-Antwort",
       "todo": "To-do benötigt Aufmerksamkeit",

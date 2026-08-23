@@ -2222,8 +2222,11 @@
     "recent": "Recent",
     "sections": {
       "notifications": "Notifications",
-      "todos": "To-dos"
+      "todos": "To-dos",
+      "emailReview": "Email review"
     },
+    "openEmails": "Open all emails",
+    "openTodos": "Open all to-dos",
     "types": {
       "chat": "New agent response",
       "todo": "To-do needs attention",

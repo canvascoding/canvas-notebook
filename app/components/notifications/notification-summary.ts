@@ -2,17 +2,19 @@
 
 export type NotificationItem = {
   id: string;
-  type: 'chat.response' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed';
+  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed';
   title: string;
   detail: string | null;
   occurredAt: string;
   unread: boolean;
   priority: 'normal' | 'high';
   todoStatus?: 'open' | 'done' | 'archived';
+  todoAttentionReason?: 'overdue' | 'due_today' | 'high_priority' | 'unread' | 'due_soon';
   workspaceId: string;
   workspaceName: string | null;
   target:
     | { kind: 'chat'; sessionId: string }
+    | { kind: 'email'; scope: 'personal' | 'workspace'; caseId?: string; draftId?: string }
     | { kind: 'todo'; todoId: string }
     | { kind: 'studio'; generationId: string }
     | { kind: 'automation'; runId: string };
@@ -25,6 +27,8 @@ export type NotificationSummary = {
     chat: number;
     todos: number;
     todoUnread: number;
+    todoAttention: number;
+    emailAttention: number;
     studio: number;
     automation: number;
   };
@@ -33,6 +37,8 @@ export type NotificationSummary = {
     notifications: NotificationItem[];
     todos: NotificationItem[];
     todoUnread: NotificationItem[];
+    todoAttention: NotificationItem[];
+    emailAttention: NotificationItem[];
   };
 };
 

@@ -382,7 +382,7 @@ async function main() {
     assert.equal(notificationSummaryResponse.status, 200);
     const notificationSummary = await notificationSummaryResponse.json();
     assert.equal(notificationSummary.success, true);
-    assert.equal(notificationSummary.data.unreadCount, 5);
+    assert.equal(notificationSummary.data.unreadCount, 4);
     assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'chat:attention-session'), true);
     assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'chat:historic-unread-session'), true);
     assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === `todo:${firstTodo.id}`), true);
@@ -390,8 +390,10 @@ async function main() {
     assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'automation:run-failed'), true);
     assert.equal(notificationSummary.data.sections.notifications.some((item: { id: string }) => item.id === 'chat:attention-session'), true);
     assert.equal(notificationSummary.data.sections.todos.some((item: { id: string }) => item.id === `todo:${firstTodo.id}`), true);
-    assert.equal(notificationSummary.data.sections.todos.find((item: { id: string }) => item.id === `todo:${completedTodo.id}`)?.unread, false);
-    assert.equal(notificationSummary.data.sections.todos.find((item: { id: string }) => item.id === `todo:${completedTodo.id}`)?.todoStatus, 'done');
+    assert.equal(notificationSummary.data.sections.todos.some((item: { id: string }) => item.id === `todo:${completedTodo.id}`), false);
+    assert.equal(notificationSummary.data.sections.todoAttention.find((item: { id: string }) => item.id === `todo:${firstTodo.id}`)?.todoAttentionReason, 'high_priority');
+    assert.equal(notificationSummary.data.sections.emailAttention.some((item: { id: string }) => item.id === 'email-case:email-case-active'), true);
+    assert.equal(notificationSummary.data.counts.emailAttention, 3);
     assert.equal(notificationSummary.data.sections.todoUnread.some((item: { id: string }) => item.id === `todo:${completedTodo.id}`), false);
     const studioNotification = notificationSummary.data.items.find((item: { id: string }) => item.id === 'studio:generation-ready');
     assert.equal(typeof studioNotification?.workspaceId, 'string');
@@ -462,8 +464,8 @@ async function main() {
     );
     assert.equal(readAllResponse.status, 200);
     const afterAllRead = await listMobileInbox({ userId: 'mobile-attention-user', workspace, filter: 'unread' });
-    assert.equal(afterAllRead.counts.unread, 0, JSON.stringify(afterAllRead));
-    assert.equal(afterAllRead.items.length, 0);
+    assert.equal(afterAllRead.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
+    assert.equal(afterAllRead.items.filter((item) => item.target.kind !== 'todo').length, 0, JSON.stringify(afterAllRead));
     assert.equal(await countMobileUnreadMessages({ userId: 'mobile-attention-user', workspaces: [workspace] }), 0);
     await markMobileInboxRead({
       userId: 'mobile-attention-user',

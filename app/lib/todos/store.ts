@@ -142,6 +142,7 @@ function normalizeTodoIconKey(value: unknown): TodoIconKey | null {
 
 export type ListTodosOptions = {
   status?: TodoStatus | 'active' | 'all';
+  readState?: TodoReadStateFilter;
   categoryId?: string | null;
   sourceType?: TodoSourceType;
   workspaceType?: TodoWorkspaceType | 'all';

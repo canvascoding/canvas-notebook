@@ -10,6 +10,7 @@ import {
   FolderKanban,
   ImageIcon,
   ListTodo,
+  Mail,
   MessageSquare,
   Workflow,
   X,
@@ -17,6 +18,7 @@ import {
 
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
@@ -50,6 +52,10 @@ function notificationHref(item: NotificationItem): string {
       return buildChatSessionHref('/notebook', item.target.sessionId, item.workspaceId);
     case 'todo':
       return `/todos?todo=${encodeURIComponent(item.target.todoId)}&workspaceId=${encodeURIComponent(item.workspaceId)}`;
+    case 'email':
+      return item.target.draftId
+        ? `/emails?outboxDraft=${encodeURIComponent(item.target.draftId)}${item.target.scope === 'workspace' ? `&workspaceId=${encodeURIComponent(item.workspaceId)}` : ''}`
+        : '/emails';
     case 'studio':
       return '/studio';
     case 'automation':
@@ -60,6 +66,7 @@ function notificationHref(item: NotificationItem): string {
 function notificationIcon(item: NotificationItem) {
   if (item.target.kind === 'chat') return MessageSquare;
   if (item.target.kind === 'todo') return ListTodo;
+  if (item.target.kind === 'email') return Mail;
   if (item.target.kind === 'studio') return ImageIcon;
   return Workflow;
 }
@@ -218,7 +225,8 @@ export function NotificationBell() {
   }, [markItemRead]);
 
   const notificationItems = summary?.sections.notifications ?? summary?.items.filter((item) => item.target.kind !== 'todo') ?? [];
-  const todoItems = summary?.sections.todos ?? summary?.items.filter((item) => item.target.kind === 'todo') ?? [];
+  const todoItems = summary?.sections.todoAttention ?? summary?.sections.todos ?? summary?.items.filter((item) => item.target.kind === 'todo') ?? [];
+  const emailItems = summary?.sections.emailAttention ?? summary?.items.filter((item) => item.target.kind === 'email') ?? [];
 
   const renderItem = (item: NotificationItem) => {
     const Icon = notificationIcon(item);
@@ -321,7 +329,7 @@ export function NotificationBell() {
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto p-2">
-          {!summary || (notificationItems.length === 0 && todoItems.length === 0) ? (
+          {!summary || (notificationItems.length === 0 && todoItems.length === 0 && emailItems.length === 0) ? (
             <div className="flex min-h-36 flex-col items-center justify-center px-4 text-center">
               <Check className="h-7 w-7 text-muted-foreground" />
               <p className="mt-2 text-sm font-medium">{t('empty.title')}</p>
@@ -339,6 +347,14 @@ export function NotificationBell() {
                 <section aria-labelledby="notification-center-todos">
                   <h3 id="notification-center-todos" className="px-2 pb-1 text-xs font-semibold text-muted-foreground">{t('sections.todos')}</h3>
                   <div className="space-y-1">{todoItems.map(renderItem)}</div>
+                  <Link href="/todos" className="mt-1 block px-2 py-1 text-xs font-medium text-primary hover:underline">{t('openTodos')}</Link>
+                </section>
+              ) : null}
+              {emailItems.length > 0 ? (
+                <section aria-labelledby="notification-center-email-review">
+                  <h3 id="notification-center-email-review" className="px-2 pb-1 text-xs font-semibold text-muted-foreground">{t('sections.emailReview')}</h3>
+                  <div className="space-y-1">{emailItems.map(renderItem)}</div>
+                  <Link href="/emails" className="mt-1 block px-2 py-1 text-xs font-medium text-primary hover:underline">{t('openEmails')}</Link>
                 </section>
               ) : null}
             </div>

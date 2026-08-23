@@ -38,6 +38,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 
 import { EmailAttachmentPanel } from '@/app/apps/email/components/EmailAttachmentPanel';
 import { useSetEmailChatContext } from '@/app/apps/email/context/email-chat-context';
@@ -2206,6 +2207,7 @@ export function EmailClient({
   const t = useTranslations('emails');
   const locale = useLocale();
   const setEmailChatContext = useSetEmailChatContext();
+  const searchParams = useSearchParams();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
@@ -2249,6 +2251,7 @@ export function EmailClient({
   const [error, setError] = useState<string | null>(null);
   const summaryAbortControllerRef = useRef<AbortController | null>(null);
   const appliedContextIntentRef = useRef<string | null>(null);
+  const openedOutboxDraftRef = useRef<string | null>(null);
   const contextMessageId = contextIntent?.messageId;
 
   const activeAccount = useMemo(
@@ -2736,8 +2739,8 @@ export function EmailClient({
     setMessageDialogOpen(false);
   }, [activeFolder]);
 
-  const openWorkspaceOutboxDraft = useCallback((outboxDraft: EmailOutboxDraft) => {
-    if (!activeWorkspaceId) return;
+  const openWorkspaceOutboxDraft = useCallback((outboxDraft: EmailOutboxDraft, workspaceId = activeWorkspaceId) => {
+    if (!workspaceId) return;
     const bodyValues = outboxDraft.isHtml
       ? { body: outboxDraft.body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), bodyHtml: outboxDraft.body }
       : composeEmailEditorBodyValues(outboxDraft.body);
@@ -2746,7 +2749,7 @@ export function EmailClient({
     setComposeAgentEvents([]);
     setComposeAgentStatus(null);
     setWorkspaceOutboxReviewCase(outboxDraft.reviewCase || null);
-    setWorkspaceOutboxEditing({ id: outboxDraft.id, version: outboxDraft.version, scope: 'workspace', workspaceId: activeWorkspaceId });
+    setWorkspaceOutboxEditing({ id: outboxDraft.id, version: outboxDraft.version, scope: 'workspace', workspaceId });
     setComposeDraft({
       aiGenerated: true, aiMode: 'workspace-agent', aiPrompt: '', aiTone: 'casual', attachments: [],
       ...bodyValues, ccText: composeRecipientText(outboxDraft.cc), contextFiles: [], mode: 'compose',
@@ -2770,6 +2773,26 @@ export function EmailClient({
       subject: outboxDraft.subject, toText: composeRecipientText(outboxDraft.to), usedContext: [],
     });
   }, []);
+
+  useEffect(() => {
+    const draftId = searchParams.get('outboxDraft')?.trim();
+    if (!draftId || openedOutboxDraftRef.current === draftId) return;
+    const workspaceId = searchParams.get('workspaceId')?.trim();
+    openedOutboxDraftRef.current = draftId;
+    const endpoint = workspaceId
+      ? `/api/workspaces/${encodeURIComponent(workspaceId)}/email/outbox`
+      : '/api/email/outbox';
+    void fetch(endpoint, { credentials: 'include', cache: 'no-store' })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null) as { success?: boolean; data?: EmailOutboxDraft[] } | null;
+        if (!response.ok || !payload?.success) return;
+        const draft = payload.data?.find((item) => item.id === draftId);
+        if (!draft) return;
+        if (workspaceId) openWorkspaceOutboxDraft(draft, workspaceId);
+        else openPersonalOutboxDraft(draft);
+      })
+      .catch(() => undefined);
+  }, [openPersonalOutboxDraft, openWorkspaceOutboxDraft, searchParams]);
 
   const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'bodyHtml' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>) => {
     if (Object.prototype.hasOwnProperty.call(updates, 'aiMode') || Object.prototype.hasOwnProperty.call(updates, 'contextFiles')) {

@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 29: Notification-Zentrum als Attention- und E-Mail-Review-Queue ausbauen'
-status: planned
+status: in_review
 priority: high
 depends_on: ['02-notification-und-todo-status-vereinheitlichen', '03-mobile-inbox-tabs-und-badges', '14-todo-sichtbarkeit-filter-und-priorisierung']
 platforms: [web, server, mobile-api]
@@ -11,6 +11,15 @@ tags: [type/feature, topic/notifications, topic/todos, topic/email, topic/worksp
 
 > Verbindlicher Gesamtplan und zentrale Referenz:
 > [29-notification-zentrum-attention-todos-email-review-umsetzungsplan.md](./29-notification-zentrum-attention-todos-email-review-umsetzungsplan.md)
+
+## Aktueller Umsetzungsstand (2026-08-23)
+
+Die serverseitige Attention-Projektion, die getrennten Counts, die Web-
+Sektionen und der sichere Deep-Link in den vorhandenen Outbox-Review-Editor
+sind implementiert. Fokussierte To-do-/Mobile-Inbox-Tests, Typecheck und
+Lint sind erfolgreich. Die manuelle Mehr-Workspace- und Browser-/Mobile-
+Abnahme bleibt offen; `npm run build` wird vor der Kompilierung durch die
+unabhaengige Third-Party-License-Workflow-Assertion blockiert.
 
 ## Problem
 
