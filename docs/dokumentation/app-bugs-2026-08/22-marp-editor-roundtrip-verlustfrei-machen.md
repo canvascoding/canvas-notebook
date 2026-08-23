@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 22: MARP-YAML und Formatierung beim Editorwechsel erhalten'
-status: in_review
+status: in_progress
 priority: high
 depends_on: []
 platforms: [web]
@@ -39,6 +39,18 @@ integriert. Die im Plan geforderte manuelle Moduswechsel-Abnahme sowie das
 abschliessende Build-Gate sind noch als Abnahme nachzuholen; deshalb ist das
 Ticket in Abnahme und nicht erledigt.
 
+## Reproduzierter Abnahmefehler (2026-08-23)
+
+Der Roundtrip ist weiterhin nicht verlustfrei: Beim Wechsel zwischen
+Markdown-/Source- und MARP-/Rich-Ansicht wird das YAML Front Matter veraendert.
+Zusaetzlich besteht der konkrete Verdacht, dass beim Moduswechsel nicht der
+aktuellste Datei- bzw. Revisionsstand verwendet wird, sondern ein aelterer
+Source-, Draft-, Collaboration- oder Revision-Guard-Snapshot zurueckgeschrieben
+wird. Das Ticket ist daher wieder in Umsetzung. Die Ursache muss mit
+Datei-SHA, Revision, Moduswechselreihenfolge, Dirty-State und gespeicherten
+Snapshots eindeutig reproduziert werden; keine Normalisierung oder Migration
+darf diesen Befund verdecken.
+
 - Roundtrip-Fixtures fuer MARP-Front-Matter, Kommentare, unbekannte Felder,
   Direktiven, Folientrenner, HTML, Code, Tabellen und Whitespace erstellen.
 - Datenfluss in `MarkdownEditor`, Markdown-/TipTap-Serialisierung,
@@ -59,6 +71,9 @@ Ticket in Abnahme und nicht erledigt.
 - Unsupported Content erzeugt eine klare Warnung und bleibt im Source erhalten.
 - Wiederholtes Umschalten akkumuliert keine Formatierungs- oder Whitespace-
   Aenderungen.
+- Ein Moduswechsel verwendet immer die aktuellste autoritative Datei-/Draft-
+  Revision; kein aelterer Source-, Collaboration- oder Autosave-Snapshot darf
+  Front Matter oder Body zuruecksetzen.
 
 ## Tests und Abschluss
 

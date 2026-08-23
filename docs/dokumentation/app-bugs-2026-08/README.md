@@ -34,12 +34,12 @@ abgeschlossen sind.
 | 14 | [To-do-Sichtbarkeit, Filter und Priorisierung korrigieren](./14-todo-sichtbarkeit-filter-und-priorisierung.md) | in Abnahme | 02 |
 | 15 | [Legacy-Auto-Update und Managed Bootstrap entkoppeln](./15-legacy-auto-update-und-managed-bootstrap-entkoppeln.md) | offen | 11 |
 | 16 | [Persoenliches ChatGPT-Abo im Team-Workspace nutzbar machen](./16-chatgpt-abo-im-team-workspace-stabilisieren.md) | in Abnahme | – |
-| 17 | [Exponierten MCP-Server und OAuth-500 beheben](./17-mcp-server-oauth-500-beheben.md) | in Abnahme | – |
+| 17 | [Exponierten MCP-Server und OAuth-500 beheben](./17-mcp-server-oauth-500-beheben.md) | in Umsetzung (DCR-500) | – |
 | 18 | [Agent-System-Prompts an effektive Tools koppeln](./18-agent-system-prompts-an-tools-koppeln.md) | in Abnahme | – |
 | 19 | [Word- und Excel-Werkzeuge evaluieren](./19-word-und-excel-werkzeuge-evaluieren.md) | erledigt (No-Go) | – |
 | 20 | [Agenten-Tools fuer To-do-Verwaltung und Mobile Notifications erweitern](./20-todo-agent-tools-und-mobile-notifications.md) | offen | 02, 14 |
 | 21 | [MARP-Praesentationen auf Mobile korrekt rendern](./21-marp-mobile-rendering-korrigieren.md) | in Abnahme | – |
-| 22 | [MARP-YAML und Formatierung beim Editorwechsel erhalten](./22-marp-editor-roundtrip-verlustfrei-machen.md) | in Abnahme | – |
+| 22 | [MARP-YAML und Formatierung beim Editorwechsel erhalten](./22-marp-editor-roundtrip-verlustfrei-machen.md) | in Umsetzung (Roundtrip-Fehler) | – |
 | 23 | [Agent-Edits in Live-Collaboration-Dokumenten reparieren](./23-agent-edits-in-live-collaboration-reparieren.md) | in Umsetzung | – |
 | 24 | [Agent-Dateiedits buendeln und Stale-State-Feedback verbessern](./24-agent-dateiedits-buendeln-und-stale-state-feedback.md) | in Abnahme | 18 |
 | 25 | [Heartbeat-Automationen, Notifications und Tokenverbrauch kontrollieren](./25-heartbeat-automationen-und-tokenverbrauch-kontrollieren.md) | offen | 10 |
@@ -78,9 +78,9 @@ abgeschlossen sind.
 | Lizenz und Control Plane | 11 in Umsetzung | Danach 12, 13 und 15; 13 und 15 teilen Agent-/VM-Zustaende und werden besser nacheinander integriert. |
 | To-dos | 14 in Abnahme | 20 erst nach 02 und 14. |
 | Agent-Runtime | 16, 18 in Abnahme | Bei gemeinsamen Runtime-Resolver-Dateien vorab Dateigrenzen festlegen. |
-| MCP | 17 in Abnahme | Eigenstaendig; nur OAuth-/Runtime-Schnittstellen mit 16/18 abstimmen. |
+| MCP | 17 in Umsetzung (DCR-500) | Eigenstaendig; nur OAuth-/Runtime-Schnittstellen mit 16/18 abstimmen. |
 | Office-Dateien | 19 abgeschlossen (No-Go) | Kein produktives Tool bauen; erst bei freigegebener Bedarfsevidenz ein neues Folgeticket erstellen. |
-| MARP | 21, 22 in Abnahme | Mobile-Rendering und Web-Editor sind getrennt; gemeinsame MARP-Fixtures abstimmen. |
+| MARP | 21 in Abnahme; 22 in Umsetzung | Mobile-Rendering und Web-Editor sind getrennt; gemeinsame MARP-Fixtures abstimmen. |
 | Live Collaboration | 23 in Umsetzung | Tool-/Runtime-Grenzen mit 18 und Rich-Markdown-Fixtures mit 22 abstimmen. |
 | Agent-Dateiworkflow | 24 in Abnahme | Ticket 18 ist erfuellt; Stale-/Collaboration-Verhalten mit 23 gemeinsam abnehmen. |
 | Heartbeat-Automationen | 25 nach 10 | Nutzt Workspace-/Owner-/Filter-Grundlage aus 10; Usage- und Notification-Vertraege separat koordinieren. |

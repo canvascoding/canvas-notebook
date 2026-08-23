@@ -18,6 +18,14 @@ Die Scope-, Filter-, Priorisierungs- und Pagination-Aenderungen sind als PR
 #75 in `main` integriert. Die dokumentierte manuelle Mehr-Workspace-Abnahme
 steht noch aus; das Ticket ist deshalb in Abnahme und nicht erledigt.
 
+## Abnahmeergaenzung (2026-08-23)
+
+Die fachlich identische To-do-Sichtbarkeit muss auch auf der Startseite und im
+Notification-Zentrum klar, gefiltert und sinnvoll priorisiert sein. Die
+Abnahme darf sich daher nicht auf die To-do-Route beschraenken: Home- und
+Notification-Zentrale muessen aktiven Workspace, globale Sicht, Leerzustand,
+Prioritaet und Navigation konsistent zum kanonischen Listenvertrag zeigen.
+
 ## Problem
 
 In der To-do-Route und den zugehoerigen UI-Flaechen ist nicht verlaesslich
@@ -45,6 +53,9 @@ einem anderen Workspace erscheinen. Eine eindeutige Priorisierung fehlt.
 - Stabile Sortierung festlegen, z. B. Prioritaet, ueberfaellig/faellig,
   Erstellungszeit und ID als Tie-Breaker; Produktentscheidung dokumentieren.
 - UI zeigt aktiven Scope, globale Ansicht, Leerzustand und Filterwirkung klar an.
+- Startseite und Notification-Zentrale verwenden dieselben serverseitigen
+  Scope-, Filter- und Prioritaetsdaten und erklaeren eine globale Sicht ebenso
+  eindeutig wie die To-do-Route.
 
 ## Abnahmekriterien
 
@@ -54,6 +65,9 @@ einem anderen Workspace erscheinen. Eine eindeutige Priorisierung fehlt.
 - Gleiche Daten werden nach Reload, Pagination und Clientwechsel gleich
   sortiert und gefiltert.
 - Fuer jeden ausgeblendeten Fall existiert eine testbare fachliche Regel.
+- Startseite und Notification-Zentrale zeigen weder fremde To-dos noch einen
+  vom aktiven Workspace abweichenden To-do-Scope; Klicks fuehren zum passenden
+  Workspace und To-do.
 
 ## Tests und Abschluss
 
