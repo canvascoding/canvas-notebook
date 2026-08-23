@@ -239,6 +239,7 @@ async function main() {
     parseUserPreferenceUpdate,
     replaceWorkspaceRuntimePolicy,
     resetUserRuntimePreference,
+    setUserProviderGrant,
     setUserRuntimePreference,
   } = await import('../app/lib/agent-runtime-policy/runtime-service');
   const {
@@ -413,8 +414,10 @@ async function main() {
 
   const organizationProviderId = installationId(organization.organizationId, 'openai-compatible', 'organization');
   const userProviderId = installationId(organization.organizationId, 'openai-compatible', 'user');
+  const codexProviderId = installationId(organization.organizationId, 'openai-codex', 'user');
   const missingCredentialProviderId = installationId(organization.organizationId, 'openai', 'user');
   const sharedModel = 'shared-model';
+  const codexModel = 'codex-model';
   const catalogUpdate = parseAiCatalogUpdate({
     expectedRevision: 0,
     providers: [
@@ -443,6 +446,17 @@ async function main() {
         },
         modelIds: [sharedModel],
         defaultModelId: sharedModel,
+      },
+      {
+        providerInstallationId: codexProviderId,
+        providerId: 'openai-codex',
+        enabled: true,
+        credentialScope: 'user',
+        // Legacy OAuth-only installations legitimately omit authMethod. The
+        // team consent path must derive OAuth from the provider contract.
+        config: {},
+        modelIds: [codexModel],
+        defaultModelId: codexModel,
       },
       {
         providerInstallationId: missingCredentialProviderId,
@@ -484,6 +498,17 @@ async function main() {
         models: [{
           id: 'key-model',
           name: 'Key Model',
+          reasoning: true,
+          supportsVision: true,
+        }],
+      },
+      'openai-codex': {
+        id: 'openai-codex',
+        name: 'OpenAI Codex',
+        source: 'built-in',
+        models: [{
+          id: codexModel,
+          name: 'Codex Model',
           reasoning: true,
           supportsVision: true,
         }],
@@ -879,12 +904,52 @@ async function main() {
       allowedModels: [
         { providerInstallationId: organizationProviderId, modelId: sharedModel },
         { providerInstallationId: userProviderId, modelId: sharedModel },
+        { providerInstallationId: codexProviderId, modelId: codexModel },
       ],
       defaultSelection: organizationPolicy.defaultSelection,
       allowUserCredentials: true,
     },
   });
   assert.equal(organizationPolicy.revision, 2);
+  const codexSelection = {
+    providerInstallationId: codexProviderId,
+    providerId: 'openai-codex',
+    modelId: codexModel,
+    thinkingLevel: 'off' as const,
+  };
+  const ungrantedCodexResolution = await resolveEffectiveAgentRuntime({
+    ...organizationContext,
+    requestedSelection: codexSelection,
+  });
+  const ungrantedCodexProvider = ungrantedCodexResolution.providers.find((provider) => (
+    provider.installationId === codexProviderId
+  ));
+  assert.equal(ungrantedCodexProvider?.authMethod, 'oauth');
+  assert.equal(ungrantedCodexProvider?.selectable, false);
+  assert.equal(ungrantedCodexResolution.valid, false);
+
+  const codexGrant = await setUserProviderGrant({
+    context: organizationContext,
+    update: {
+      providerInstallationId: codexProviderId,
+      allowedExecutionModes: ['interactive'],
+      expectedRevision: 0,
+    },
+  });
+  assert.equal(codexGrant.status, 'active');
+  const grantedCodexResolution = await resolveEffectiveAgentRuntime({
+    ...organizationContext,
+    requestedSelection: codexSelection,
+  });
+  assert.equal(grantedCodexResolution.valid, false);
+  assert.equal(
+    grantedCodexResolution.issues.some((entry) => entry.code === 'CREDENTIAL_NOT_AVAILABLE'),
+    true,
+  );
+  assert.equal(
+    grantedCodexResolution.providers.find((provider) => provider.installationId === codexProviderId)?.selectable,
+    false,
+  );
   const ungrantedTeamResolution = await resolveEffectiveAgentRuntime({
     ...organizationContext,
     requestedSelection: userSelection,
@@ -1045,6 +1110,16 @@ async function main() {
   assert.equal(memberResolution.preference, null);
   assert.equal(memberResolution.source, 'workspace_default');
   assert.equal(memberResolution.effectiveSelection?.selection.providerInstallationId, organizationProviderId);
+  const memberCodexResolution = await resolveEffectiveAgentRuntime({
+    ...organizationContext,
+    userId: memberId,
+    requestedSelection: codexSelection,
+  });
+  assert.equal(memberCodexResolution.valid, false);
+  assert.equal(
+    memberCodexResolution.providers.find((provider) => provider.installationId === codexProviderId)?.credentialAvailable,
+    false,
+  );
 
   const { auth } = await import('../app/lib/auth');
   type RouteSession = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
@@ -1126,6 +1201,7 @@ async function main() {
         defaultProvider: 'openai-compatible',
         defaultModel: sharedModel,
         defaultThinking: 'off',
+        expectedRevision: 1,
         expectedCatalogRevision: 1,
       }),
     },
@@ -1159,7 +1235,12 @@ async function main() {
       }),
     },
   ));
-  assert.equal(memberPreferenceUpdateResponse.status, 200);
+  const memberPreferenceUpdatePayload = await memberPreferenceUpdateResponse.json();
+  // A team member cannot save a preference for an unconfigured personal
+  // credential. This prevents the owner’s user-scoped credential from being
+  // treated as shared workspace state.
+  assert.equal(memberPreferenceUpdateResponse.status, 409, JSON.stringify(memberPreferenceUpdatePayload));
+  assert.equal(memberPreferenceUpdatePayload.code, 'CREDENTIAL_NOT_AVAILABLE');
 
   routeSession = {
     ...routeSession,
@@ -1199,17 +1280,35 @@ async function main() {
   ));
   assert.equal(ownerPolicyResponse.status, 200);
 
+  const ownerDefaultAgentResponse = await agentsRoute.POST(new NextRequest(
+    'http://localhost:3000/api/agents',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Owner Default Agent',
+        defaultProviderInstallationId: null,
+        defaultProvider: null,
+        defaultModel: null,
+        defaultThinking: null,
+      }),
+    },
+  ));
+  assert.equal(ownerDefaultAgentResponse.status, 200);
+  const ownerDefaultAgentId = (await ownerDefaultAgentResponse.json()).data.agent.agentId as string;
+
   const outsideCatalogAgentDefault = await agentsRoute.PATCH(new NextRequest(
     'http://localhost:3000/api/agents',
     {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        agentId: memberInheritedAgentId,
+        agentId: ownerDefaultAgentId,
         defaultProviderInstallationId: `aip_${'f'.repeat(24)}`,
         defaultProvider: 'openai-compatible',
         defaultModel: sharedModel,
         defaultThinking: 'off',
+        expectedRevision: 1,
         expectedCatalogRevision: 1,
       }),
     },
@@ -1223,11 +1322,12 @@ async function main() {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        agentId: memberInheritedAgentId,
+        agentId: ownerDefaultAgentId,
         defaultProviderInstallationId: userProviderId,
         defaultProvider: 'openai-compatible',
         defaultModel: sharedModel,
         defaultThinking: 'off',
+        expectedRevision: 1,
         expectedCatalogRevision: 0,
       }),
     },
@@ -1241,7 +1341,7 @@ async function main() {
            default_provider AS provider, default_model AS model, default_thinking AS thinking
     FROM agents
     WHERE agent_id = ?
-  `).get(memberInheritedAgentId) as {
+  `).get(ownerDefaultAgentId) as {
     providerInstallationId: string | null;
     provider: string | null;
     model: string | null;
@@ -1260,11 +1360,12 @@ async function main() {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        agentId: memberInheritedAgentId,
+        agentId: ownerDefaultAgentId,
         defaultProviderInstallationId: userProviderId,
         defaultProvider: 'openai-compatible',
         defaultModel: sharedModel,
         defaultThinking: 'off',
+        expectedRevision: 1,
         expectedCatalogRevision: 1,
       }),
     },
@@ -1291,12 +1392,13 @@ async function main() {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        agentId: memberInheritedAgentId,
+        agentId: ownerDefaultAgentId,
         name: '',
         defaultProviderInstallationId: organizationProviderId,
         defaultProvider: 'openai-compatible',
         defaultModel: sharedModel,
         defaultThinking: 'off',
+        expectedRevision: 2,
         expectedCatalogRevision: 1,
       }),
     },
@@ -1307,7 +1409,7 @@ async function main() {
            default_provider AS provider, default_model AS model, default_thinking AS thinking
     FROM agents
     WHERE agent_id = ?
-  `).get(memberInheritedAgentId);
+  `).get(ownerDefaultAgentId);
   assert.deepEqual(defaultAfterInvalidCombinedPatch, {
     providerInstallationId: userProviderId,
     provider: 'openai-compatible',

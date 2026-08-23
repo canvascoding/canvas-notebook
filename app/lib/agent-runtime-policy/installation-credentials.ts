@@ -6,11 +6,12 @@ import path from 'node:path';
 import type { ProviderEnv, ProviderHeaders } from '@earendil-works/pi-ai';
 
 import type { AiProviderInstallation } from '@/app/lib/agent-runtime-policy/types';
+import { providerUsesOAuth } from '@/app/lib/agent-runtime-policy/provider-auth-policy';
 import { isManagedControlPlaneAvailable } from '@/app/lib/agents/storage';
 import { readScopedEnvState, type EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID } from '@/app/lib/managed/control-plane-models';
 import { getProviderRequestAuth, isOAuthProvider, type OAuthProviderId } from '@/app/lib/pi/oauth';
-import { getAuthMethodForProvider, getProviderEnvVars } from '@/app/lib/pi/provider-help';
+import { getProviderEnvVars } from '@/app/lib/pi/provider-help';
 
 const PROVIDER_API_KEY_NAMES: Record<string, readonly string[]> = {
   'ant-ling': ['ANT_LING_API_KEY'],
@@ -232,10 +233,7 @@ export async function resolveProviderInstallationRuntimeAuth(input: {
     };
   }
 
-  const authMethod = getAuthMethodForProvider(providerId);
-  const wantsOAuth = input.provider.config.authMethod === 'oauth'
-    || (authMethod === 'oauth' && input.provider.config.authMethod !== 'api-key');
-  if (wantsOAuth) {
+  if (providerUsesOAuth(input.provider)) {
     if (input.provider.credentialScope !== 'user' || !isOAuthProvider(providerId)) {
       return { configured: false, env: {} };
     }

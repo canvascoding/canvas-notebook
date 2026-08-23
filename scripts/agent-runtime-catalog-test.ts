@@ -39,6 +39,8 @@ async function main() {
   } = await import('../app/lib/agent-runtime-policy/catalog-store');
   const {
     getAllowedCredentialScopesForProvider,
+    providerUsesOAuth,
+    resolveProviderAuthMethod,
     validateProviderCatalogAuth,
   } = await import('../app/lib/agent-runtime-policy/provider-auth-policy');
 
@@ -49,6 +51,13 @@ async function main() {
     credentialScope: 'user',
     config: { authMethod: 'oauth' },
   }), null);
+  assert.equal(validateProviderCatalogAuth({
+    providerId: 'openai-codex',
+    credentialScope: 'user',
+    config: {},
+  }), null);
+  assert.equal(resolveProviderAuthMethod('openai-codex'), 'oauth');
+  assert.equal(providerUsesOAuth({ providerId: 'openai-codex', config: {} }), true);
   assert.equal(validateProviderCatalogAuth({
     providerId: 'openai-codex',
     credentialScope: 'organization',
