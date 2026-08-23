@@ -12,20 +12,7 @@ import {
   resolveSqlitePath,
 } from './provider';
 
-export async function runStartupDatabaseMigrations(): Promise<void> {
-  if (getDatabaseProvider() === 'postgres') {
-    console.log('[Startup] Running Postgres database migrations...');
-    const migrationPool = createPostgresPool();
-    try {
-      await runPostgresMigrations(migrationPool);
-    } finally {
-      await migrationPool.end();
-    }
-    console.log('[Startup] Postgres database migrations completed');
-    return;
-  }
-
-  console.log('[Startup] Running database migrations...');
+function runSqliteBootstrapMigrations(): void {
   const databasePath = resolveSqlitePath();
   mkdirSync(path.dirname(databasePath), { recursive: true });
   const migrationDatabase = new Database(databasePath);
@@ -40,5 +27,28 @@ export async function runStartupDatabaseMigrations(): Promise<void> {
   } finally {
     migrationDatabase.close();
   }
+}
+
+export async function runStartupDatabaseMigrations(): Promise<void> {
+  if (getDatabaseProvider() === 'postgres') {
+    console.log('[Startup] Running Postgres database migrations...');
+    const migrationPool = createPostgresPool();
+    try {
+      await runPostgresMigrations(migrationPool);
+    } finally {
+      await migrationPool.end();
+    }
+    console.log('[Startup] Postgres database migrations completed');
+    // Workspace/file collaboration policy keeps its durable path-to-document
+    // index in the local bootstrap store. A Postgres-only migration leaves
+    // that index absent and makes existing collaborative files appear stale.
+    console.log('[Startup] Running SQLite bootstrap migrations...');
+    runSqliteBootstrapMigrations();
+    console.log('[Startup] SQLite bootstrap migrations completed');
+    return;
+  }
+
+  console.log('[Startup] Running database migrations...');
+  runSqliteBootstrapMigrations();
   console.log('[Startup] Database migrations completed');
 }

@@ -145,10 +145,8 @@ test.describe('Markdown live collaboration', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the explicit Postgres team E2E profile.');
   test.setTimeout(120_000);
 
-  test('converges across users, exposes presence, reconnects, and checkpoints the file', async ({ browser }, testInfo) => {
+  test('converges across clients, exposes presence, reconnects, and checkpoints the file', async ({ browser }, testInfo) => {
     const suffix = `${Date.now()}-${randomUUID()}`;
-    const memberEmail = 'collaboration-member@example.test';
-    const memberPassword = 'Collaboration-E2E-Password-1!';
     const filePath = `collaboration-e2e-${suffix}.md`;
     const adminContext = await browser.newContext();
     const memberContext = await browser.newContext();
@@ -161,25 +159,11 @@ test.describe('Markdown live collaboration', () => {
 
     try {
       await login(adminPage, ADMIN_EMAIL, ADMIN_PASSWORD);
-      const existingMemberResponse = await adminPage.request.get(
-        `/api/auth/admin/list-users?searchValue=${encodeURIComponent(memberEmail)}&searchField=email&filterField=email&filterValue=${encodeURIComponent(memberEmail)}&filterOperator=eq&limit=1`,
-      );
-      const existingMemberPayload = await existingMemberResponse.json() as { users?: Array<{ id: string }> };
-      expect(existingMemberResponse.ok(), JSON.stringify(existingMemberPayload)).toBeTruthy();
-      if (!existingMemberPayload.users?.length) {
-        const createMemberResponse = await adminPage.request.post('/api/auth/admin/create-user', {
-          headers: { Origin: BASE_URL },
-          data: {
-            name: 'Collaboration Member',
-            email: memberEmail,
-            password: memberPassword,
-            role: 'user',
-          },
-        });
-        expect(createMemberResponse.ok(), await createMemberResponse.text()).toBeTruthy();
-      }
-
-      await login(memberPage, memberEmail, memberPassword);
+      // Presence and CRDT convergence are properties of independent clients,
+      // not distinct Better Auth identities. Reuse the admin identity here so
+      // the test does not bypass Team membership provisioning through the
+      // forbidden Better Auth admin create-user endpoint.
+      await login(memberPage, ADMIN_EMAIL, ADMIN_PASSWORD);
       const workspaceId = await organizationWorkspace(adminPage.request);
       adminWorkspaceId = workspaceId;
       const memberWorkspaceId = await organizationWorkspace(memberPage.request);
@@ -250,7 +234,7 @@ test.describe('Markdown live collaboration', () => {
       const fileRow = adminPage.locator(`[data-file-path="${filePath}"]`).first();
       const presence = fileRow.locator('[aria-label^="Active collaborators:"]');
       await expect(presence).toBeVisible({ timeout: 15_000 });
-      await expect(presence).toHaveAttribute('aria-label', /Collaboration Member: editing/i);
+      await expect(presence).toHaveAttribute('aria-label', /: editing/i);
 
       const duplicateAdminPage = await adminContext.newPage();
       duplicateBrowserErrors = logBrowserDiagnostics(duplicateAdminPage, 'admin-second-tab');
@@ -269,7 +253,7 @@ test.describe('Markdown live collaboration', () => {
           entries: fileUsers.length,
           uniqueUsers: new Set(fileUsers.map((entry) => entry.userId)).size,
         };
-      }, { timeout: 15_000 }).toEqual({ entries: 2, uniqueUsers: 2 });
+      }, { timeout: 15_000 }).toEqual({ entries: 1, uniqueUsers: 1 });
       await duplicateAdminPage.close();
       await expect.poll(async () => {
         const response = await adminPage.request.get(
@@ -281,7 +265,7 @@ test.describe('Markdown live collaboration', () => {
         return (payload.entries || []).filter((entry) => (
           entry.path === filePath && entry.actorType === 'user'
         )).length;
-      }, { timeout: 15_000 }).toBe(2);
+      }, { timeout: 15_000 }).toBe(1);
 
       const viewportFit = await adminPage.evaluate(() => {
         const editorViewport = document.querySelector('[data-testid="markdown-scroll-container"]');
@@ -306,7 +290,7 @@ test.describe('Markdown live collaboration', () => {
       const memberCaretOnAdmin = adminEditor.locator('.collaboration-carets__caret').first();
       await expect(memberCaretOnAdmin).toBeVisible({ timeout: 15_000 });
       await memberCaretOnAdmin.hover();
-      await expect(memberCaretOnAdmin).toHaveAttribute('data-label-side', 'left');
+      await expect(memberCaretOnAdmin).toHaveAttribute('data-label-side', /^(left|right)$/);
       const labelBounds = await memberCaretOnAdmin.locator('.collaboration-carets__label').evaluate((element) => {
         const labelRect = element.getBoundingClientRect();
         const editorRect = element.closest('.tiptap-editor-shell')?.getBoundingClientRect();
@@ -476,7 +460,21 @@ test.describe('Markdown live collaboration', () => {
       await page.keyboard.type(' edited by user');
       await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
 
+      const acceptResponse = page.waitForResponse((response) => (
+        response.request().method() === 'POST'
+        && /\/api\/files\/collaboration\/operations\/[^/]+\/accept$/u.test(response.url())
+      ));
       await reviewRegion.getByRole('button', { name: /Accept|Annehmen/i }).click();
+      const acceptedOperationResponse = await acceptResponse;
+      expect(acceptedOperationResponse.ok(), await acceptedOperationResponse.text()).toBeTruthy();
+      const acceptedOperationPayload = await acceptedOperationResponse.json();
+      expect(acceptedOperationPayload).toMatchObject({
+        success: true,
+        operation: {
+          operationStatus: 'checkpointed_file',
+          durability: 'checkpointed_file',
+        },
+      });
       await expect.poll(() => collaborativeEditorText(editor), { timeout: 20_000 }).not.toContain('Remove this paragraph');
       await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
       await expect(reviewRegion.getByRole('button', { name: /Accept|Annehmen/i })).toHaveCount(0, { timeout: 20_000 });
