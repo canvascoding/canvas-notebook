@@ -3,6 +3,7 @@ import 'server-only';
 import { ensureAgentRuntimeCatalogInitialized } from '@/app/lib/agent-runtime-policy/bootstrap-service';
 import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
 import { isProviderInstallationCredentialAvailable } from '@/app/lib/agent-runtime-policy/installation-credentials';
+import { resolveProviderAuthMethod } from '@/app/lib/agent-runtime-policy/provider-auth-policy';
 import {
   readPiSessionRuntimeSnapshot,
   readUserWorkspaceProviderGrant,
@@ -84,7 +85,7 @@ export function buildEffectiveCatalogProviders(input: {
       name: provider.name,
       source: provider.source,
       credentialScope: provider.credentialScope,
-      authMethod: provider.config.authMethod,
+      authMethod: resolveProviderAuthMethod(provider.providerId, provider.config.authMethod),
       credentialAvailable,
       selectable: provider.status === 'ready' && credentialAvailable,
       status: provider.status,

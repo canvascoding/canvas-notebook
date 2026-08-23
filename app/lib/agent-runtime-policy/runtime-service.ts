@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
+import { providerUsesOAuth } from '@/app/lib/agent-runtime-policy/provider-auth-policy';
 import {
   deleteWorkspaceModelPolicyStore,
   deleteUserModelPreferenceStore,
@@ -181,7 +182,7 @@ async function assertUserProviderGrantTarget(input: {
     readWorkspaceModelPolicy(input.context.organizationId, input.context.workspaceId),
   ]);
   const provider = catalog.providers.find((candidate) => candidate.installationId === input.providerInstallationId);
-  if (!provider || !provider.enabled || provider.credentialScope !== 'user' || provider.config.authMethod !== 'oauth') {
+  if (!provider || !provider.enabled || provider.credentialScope !== 'user' || !providerUsesOAuth(provider)) {
     throw new AiRuntimePolicyError(
       'PROVIDER_INSTALLATION_NOT_ALLOWED',
       'The selected provider installation is not an enabled personal OAuth provider.',

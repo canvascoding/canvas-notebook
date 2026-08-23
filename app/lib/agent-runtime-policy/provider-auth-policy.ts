@@ -11,6 +11,31 @@ export type AiProviderAuthPolicyIssue =
   | 'OAUTH_REQUIRES_USER_SCOPE';
 
 /**
+ * Return the effective authentication method for catalog consumers.
+ *
+ * OAuth-only providers predate the optional catalog `authMethod` field, so
+ * migrated installations may correctly store an empty config. Consumers must
+ * derive OAuth from the provider contract instead of treating that optional
+ * persisted field as the authority.
+ */
+export function resolveProviderAuthMethod(
+  providerId: string,
+  configuredAuthMethod?: AiProviderSafeConfig['authMethod'],
+): AiProviderSafeConfig['authMethod'] | undefined {
+  const providerAuthMethod = getAuthMethodForProvider(providerId.trim().toLowerCase());
+  if (providerAuthMethod === 'oauth') return 'oauth';
+  if (providerAuthMethod === 'both') return configuredAuthMethod === 'oauth' ? 'oauth' : 'api-key';
+  return configuredAuthMethod;
+}
+
+export function providerUsesOAuth(input: {
+  providerId: string;
+  config: Pick<AiProviderSafeConfig, 'authMethod'>;
+}): boolean {
+  return resolveProviderAuthMethod(input.providerId, input.config.authMethod) === 'oauth';
+}
+
+/**
  * Credential scopes that can safely host one provider installation. OAuth
  * tokens belong to an individual account, while managed credentials are
  * exclusively supplied by the Control Plane.
@@ -21,11 +46,7 @@ export function getAllowedCredentialScopesForProvider(
 ): readonly AiCredentialScope[] {
   const normalizedProviderId = providerId.trim().toLowerCase();
   if (normalizedProviderId === CANVAS_CONTROL_PLANE_PROVIDER_ID) return MANAGED_CREDENTIAL_SCOPE;
-  const providerAuthMethod = getAuthMethodForProvider(normalizedProviderId);
-  if (
-    providerAuthMethod === 'oauth'
-    || (providerAuthMethod === 'both' && configuredAuthMethod === 'oauth')
-  ) return USER_CREDENTIAL_SCOPE;
+  if (resolveProviderAuthMethod(normalizedProviderId, configuredAuthMethod) === 'oauth') return USER_CREDENTIAL_SCOPE;
   return STANDARD_CREDENTIAL_SCOPES;
 }
 
