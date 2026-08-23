@@ -2242,6 +2242,7 @@
     "sections": {
       "workspace": "Scope",
       "status": "Status",
+      "readState": "Read status",
       "priority": "Priority",
       "categories": "Categories",
       "files": "Files",
@@ -2265,6 +2266,11 @@
       "allCategories": "All categories",
       "allPriorities": "All priorities",
       "noCategory": "No category",
+      "readState": {
+        "all": "Read and unread",
+        "read": "Read",
+        "unread": "Unread"
+      },
       "status": {
         "active": "Active",
         "open": "Open",

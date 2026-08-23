@@ -2241,6 +2241,7 @@
     "sections": {
       "workspace": "Geltungsbereich",
       "status": "Status",
+      "readState": "Lesestatus",
       "priority": "Priorität",
       "categories": "Kategorien",
       "files": "Dateien",
@@ -2264,6 +2265,11 @@
       "allCategories": "Alle Kategorien",
       "allPriorities": "Alle Prioritäten",
       "noCategory": "Ohne Kategorie",
+      "readState": {
+        "all": "Gelesen und ungelesen",
+        "read": "Gelesen",
+        "unread": "Ungelesen"
+      },
       "status": {
         "active": "Aktiv",
         "open": "Offen",

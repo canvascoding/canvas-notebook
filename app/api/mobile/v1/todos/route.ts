@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
       workspace: workspaceResult.workspace,
       status: request.nextUrl.searchParams.get('status'),
       due: request.nextUrl.searchParams.get('due'),
+      readState: request.nextUrl.searchParams.get('readState'),
       assigneeUserId: request.nextUrl.searchParams.get('assigneeUserId'),
       query: request.nextUrl.searchParams.get('query'),
       cursor: request.nextUrl.searchParams.get('cursor'),

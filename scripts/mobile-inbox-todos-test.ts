@@ -390,6 +390,9 @@ async function main() {
     assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'automation:run-failed'), true);
     assert.equal(notificationSummary.data.sections.notifications.some((item: { id: string }) => item.id === 'chat:attention-session'), true);
     assert.equal(notificationSummary.data.sections.todos.some((item: { id: string }) => item.id === `todo:${firstTodo.id}`), true);
+    assert.equal(notificationSummary.data.sections.todos.find((item: { id: string }) => item.id === `todo:${completedTodo.id}`)?.unread, false);
+    assert.equal(notificationSummary.data.sections.todos.find((item: { id: string }) => item.id === `todo:${completedTodo.id}`)?.todoStatus, 'done');
+    assert.equal(notificationSummary.data.sections.todoUnread.some((item: { id: string }) => item.id === `todo:${completedTodo.id}`), false);
     const studioNotification = notificationSummary.data.items.find((item: { id: string }) => item.id === 'studio:generation-ready');
     assert.equal(typeof studioNotification?.workspaceId, 'string');
 
@@ -496,6 +499,14 @@ async function main() {
     });
     assert.equal(nextTodoPage.todos.length, 1);
     assert.notEqual(nextTodoPage.todos[0]?.id, todoPage.todos[0]?.id);
+    const unreadTodoPage = await listMobileTodos({
+      userId: 'mobile-attention-user',
+      workspace,
+      status: 'all',
+      readState: 'unread',
+      limit: 20,
+    });
+    assert.equal(unreadTodoPage.todos.some((todo) => todo.id === completedTodo.id), false);
 
     const loadedTodo = await getMobileTodo({ userId: 'mobile-attention-user', workspace, todoId: firstTodo.id });
     assert.equal(loadedTodo.title, 'Approve launch copy');

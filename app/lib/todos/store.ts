@@ -42,6 +42,8 @@ export type TodoStatus = typeof TODO_STATUSES[number];
 
 export const TODO_PRIORITIES = ['low', 'normal', 'high'] as const;
 export type TodoPriority = typeof TODO_PRIORITIES[number];
+export const TODO_READ_STATES = ['read', 'unread'] as const;
+export type TodoReadStateFilter = typeof TODO_READ_STATES[number];
 
 export const TODO_SOURCE_TYPES = ['user', 'agent'] as const;
 export type TodoSourceType = typeof TODO_SOURCE_TYPES[number];
@@ -117,6 +119,7 @@ export type UpdateTodoInput = {
   description?: string | null;
   categoryId?: string | null;
   priority?: TodoPriority;
+  readState?: TodoReadStateFilter;
   iconKey?: TodoIconKey | null;
   dueAt?: Date | null;
   remindAt?: Date | null;
@@ -1054,6 +1057,19 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
   }
   if (options.priority) {
     conditions.push(eq(todoItems.priority, normalizeTodoPriority(options.priority)));
+  }
+  if (options.readState) {
+    const hasReadState = sql<boolean>`EXISTS (
+      SELECT 1
+      FROM todo_read_states
+      WHERE todo_read_states.user_id = ${userId}
+        AND todo_read_states.todo_id = ${todoItems.id}
+    )`;
+    if (options.readState === 'unread') {
+      conditions.push(and(eq(todoItems.status, 'open'), sql`NOT ${hasReadState}`)!);
+    } else {
+      conditions.push(or(ne(todoItems.status, 'open'), hasReadState)!);
+    }
   }
   if (options.assigneeUserId === 'me') {
     conditions.push(eq(todoItems.assigneeUserId, userId));

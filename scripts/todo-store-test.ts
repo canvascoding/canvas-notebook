@@ -330,12 +330,15 @@ async function main() {
   assert.ok(completedUnread?.readAt instanceof Date);
   assert.equal(completedUnread?.seenAt?.toISOString(), completedUnread?.readAt?.toISOString());
   assert.equal(await getTodoReadState('todo-user', unreadCompletion.id), null);
+  assert.equal((await listTodos('todo-user', { status: 'all', readState: 'read' })).some((todo) => todo.id === unreadCompletion.id), true);
+  assert.equal((await listTodos('todo-user', { status: 'all', readState: 'unread' })).some((todo) => todo.id === unreadCompletion.id), false);
   await assert.rejects(
     () => setTodoReadStateForUser({ userId: 'todo-user', todoId: unreadCompletion.id, read: false }),
     (error) => error instanceof TodoStoreError && error.code === 'TODO_READ_STATE_CONFLICT',
   );
   const reopenedUnread = await updateTodo('todo-user', unreadCompletion.id, { status: 'open' });
   assert.equal(reopenedUnread?.readState, 'unread');
+  assert.equal((await listTodos('todo-user', { status: 'all', readState: 'unread' })).some((todo) => todo.id === unreadCompletion.id), true);
 
   const personalWorkspaceTodo = await createTodo('todo-user', {
     title: 'Workspace notes',

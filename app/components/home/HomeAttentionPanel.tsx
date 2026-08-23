@@ -41,8 +41,8 @@ export function HomeAttentionPanel({ summary, isLoading }: HomeAttentionPanelPro
   const t = useTranslations('home.focus.attention');
   const locale = useLocale();
   const sessionItems = summary?.items.filter(isChatNotification).slice(0, 3) ?? [];
-  const todoItems = summary?.items.filter(isTodoNotification).slice(0, 3) ?? [];
-  const attentionCount = (summary?.counts.chat ?? 0) + (summary?.counts.todos ?? 0);
+  const todoItems = summary?.sections.todoUnread?.filter(isTodoNotification).slice(0, 3) ?? [];
+  const attentionCount = (summary?.counts.chat ?? 0) + (summary?.counts.todoUnread ?? 0);
 
   return (
     <aside className="hidden xl:sticky xl:top-6 xl:block xl:self-start" aria-label={t('title')}>
@@ -104,7 +104,7 @@ export function HomeAttentionPanel({ summary, isLoading }: HomeAttentionPanelPro
               <h3 id="home-attention-todos" className="text-[10px] font-bold tracking-[0.16em] text-muted-foreground uppercase">
                 {t('todos.title')}
               </h3>
-              <span className="text-xs text-muted-foreground">{summary?.counts.todos ?? 0}</span>
+              <span className="text-xs text-muted-foreground">{summary?.counts.todoUnread ?? 0}</span>
             </div>
             {todoItems.length === 0 ? (
               <p className="px-2 py-2 text-sm text-muted-foreground">{t('todos.empty')}</p>

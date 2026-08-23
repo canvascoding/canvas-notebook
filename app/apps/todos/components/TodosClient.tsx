@@ -87,6 +87,7 @@ type TodoSourceType = 'user' | 'agent';
 type TodoScopeKind = 'user' | 'workspace';
 type TodoListScope = 'personal' | 'workspace' | 'global';
 type StatusFilter = TodoStatus | 'all';
+type ReadStateFilter = 'all' | 'read' | 'unread';
 
 type TodoCategory = {
   id: string;
@@ -136,6 +137,8 @@ type TodoItem = {
   dueAt: string | null;
   remindAt: string | null;
   seenAt: string | null;
+  readAt: string | null;
+  readState: Exclude<ReadStateFilter, 'all'>;
   completedAt: string | null;
   completionComment: string | null;
   followUpSentAt: string | null;
@@ -212,6 +215,7 @@ function resolvedTodoIconKey(todo: Pick<TodoItem, 'iconKey' | 'category'>): Todo
 }
 
 const statusFilters: StatusFilter[] = ['open', 'done', 'archived', 'all'];
+const readStateFilters: ReadStateFilter[] = ['all', 'unread', 'read'];
 const priorities: TodoPriority[] = ['low', 'normal', 'high'];
 const emptyTodoFileLinks: TodoFileLink[] = [];
 
@@ -394,7 +398,7 @@ function TodoDetailPanel({
             <Badge variant={todo.status === 'done' ? 'default' : todo.status === 'archived' ? 'secondary' : 'outline'}>
               {t(`status.${todo.status}`)}
             </Badge>
-            {!todo.seenAt && <Badge>{t('labels.unread')}</Badge>}
+            {todo.readState === 'unread' && <Badge>{t('labels.unread')}</Badge>}
           </div>
           <h3 className="mt-2 break-words text-lg font-semibold leading-tight">{todo.title}</h3>
         </div>
@@ -583,7 +587,7 @@ function TodoDetailPanel({
               <CheckCircle2 className="h-4 w-4" />
               {todo.status === 'done' ? t('actions.reopen') : t('actions.complete')}
             </Button>
-            {!todo.seenAt && (
+            {todo.readState === 'unread' && (
               <Button size="sm" variant="outline" onClick={() => void onMarkSeen(todo.id)} disabled={isMutating}>
                 <Check className="h-4 w-4" />
                 {t('actions.markSeen')}
@@ -615,6 +619,7 @@ export function TodosClient({ title }: { title: string }) {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(() => requestedWorkspaceId || '');
   const [listScope, setListScope] = useState<TodoListScope>(() => requestedWorkspaceId ? 'workspace' : 'personal');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
+  const [readStateFilter, setReadStateFilter] = useState<ReadStateFilter>('all');
   const [priorityFilter, setPriorityFilter] = useState<TodoPriority | ''>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
@@ -676,7 +681,7 @@ export function TodosClient({ title }: { title: string }) {
   }, []);
 
   const visibleUnreadCount = useMemo(
-    () => todos.filter((todo) => todo.status !== 'archived' && !todo.seenAt).length,
+    () => todos.filter((todo) => todo.readState === 'unread').length,
     [todos],
   );
 
@@ -715,8 +720,8 @@ export function TodosClient({ title }: { title: string }) {
   }, [categories, categoryFilter, formatCategoryName, t]);
 
   const filterSummary = useMemo(
-    () => `${selectedWorkspaceLabel} · ${t(`filters.status.${statusFilter}`)} · ${priorityFilter ? t(`priority.${priorityFilter}`) : t('filters.allPriorities')} · ${selectedCategoryName}`,
-    [priorityFilter, selectedCategoryName, selectedWorkspaceLabel, statusFilter, t],
+    () => `${selectedWorkspaceLabel} · ${t(`filters.status.${statusFilter}`)} · ${t(`filters.readState.${readStateFilter}`)} · ${priorityFilter ? t(`priority.${priorityFilter}`) : t('filters.allPriorities')} · ${selectedCategoryName}`,
+    [priorityFilter, readStateFilter, selectedCategoryName, selectedWorkspaceLabel, statusFilter, t],
   );
 
   const loadWorkspaces = useCallback(async () => {
@@ -785,6 +790,7 @@ export function TodosClient({ title }: { title: string }) {
     params.set('scope', listScope);
     if (listScope === 'workspace' && selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId);
     if (priorityFilter) params.set('priority', priorityFilter);
+    if (readStateFilter !== 'all') params.set('readState', readStateFilter);
     try {
       const response = await fetch(`/api/todos?${params.toString()}`, {
         credentials: 'include',
@@ -823,7 +829,7 @@ export function TodosClient({ title }: { title: string }) {
         todoListRequestRef.current = null;
       }
     }
-  }, [categoryFilter, listScope, priorityFilter, selectedWorkspaceId, statusFilter, todoIdParam]);
+  }, [categoryFilter, listScope, priorityFilter, readStateFilter, selectedWorkspaceId, statusFilter, todoIdParam]);
 
   const refreshAll = useCallback(async () => {
     setIsLoading(true);
@@ -937,7 +943,7 @@ export function TodosClient({ title }: { title: string }) {
     if (isMobileDetailViewport) {
       setDetailDialogOpen(true);
     }
-    if (!todo.seenAt) {
+    if (todo.readState === 'unread') {
       try {
         await updateTodo(todo.id, { markSeen: true });
       } catch (error) {
@@ -1132,7 +1138,7 @@ export function TodosClient({ title }: { title: string }) {
   }, [t, updateTodo]);
 
   const markAllVisibleSeen = useCallback(async () => {
-    const unreadTodos = todos.filter((todo) => todo.status !== 'archived' && !todo.seenAt);
+    const unreadTodos = todos.filter((todo) => todo.readState === 'unread');
     if (unreadTodos.length === 0) return;
     todoListRequestRef.current?.abort();
     setIsMutating(true);
@@ -1249,6 +1255,29 @@ export function TodosClient({ title }: { title: string }) {
           }}
         >
           <span className="min-w-0 truncate">{t(`filters.status.${filter}`)}</span>
+        </button>
+      ))}
+    </div>
+  );
+
+  const renderReadStateFilters = (closeOnSelect = false) => (
+    <div className="grid grid-cols-2 gap-1 md:grid-cols-1">
+      {readStateFilters.map((filter) => (
+        <button
+          key={filter}
+          type="button"
+          className={cn(
+            'flex h-9 min-w-0 items-center justify-between gap-2 rounded-md px-3 text-sm transition-colors',
+            readStateFilter === filter
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+          )}
+          onClick={() => {
+            setReadStateFilter(filter);
+            if (closeOnSelect) setFilterSheetOpen(false);
+          }}
+        >
+          <span className="min-w-0 truncate">{t(`filters.readState.${filter}`)}</span>
         </button>
       ))}
     </div>
@@ -1491,6 +1520,13 @@ export function TodosClient({ title }: { title: string }) {
 
           <section className="space-y-3">
             <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              {t('sections.readState')}
+            </h3>
+            {renderReadStateFilters()}
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               {t('sections.priority')}
             </h3>
             {renderPriorityFilters()}
@@ -1560,7 +1596,7 @@ export function TodosClient({ title }: { title: string }) {
 
                     <button type="button" className="min-w-0 flex-1 text-left" onClick={() => void handleSelectTodo(todo)}>
                       <div className="flex min-w-0 items-center gap-2">
-                        {!todo.seenAt && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label={t('labels.unread')} />}
+                        {todo.readState === 'unread' && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label={t('labels.unread')} />}
                         <TodoIcon iconKey={resolvedTodoIconKey(todo)} className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <h4 className={cn('truncate text-sm font-semibold', todo.status === 'done' && 'text-muted-foreground line-through')}>
                           {todo.title}
@@ -1615,7 +1651,7 @@ export function TodosClient({ title }: { title: string }) {
                               <Edit3 className="h-4 w-4" />
                               {t('actions.edit')}
                             </DropdownMenuItem>
-                            {!todo.seenAt && (
+                            {todo.readState === 'unread' && (
                               <DropdownMenuItem onSelect={() => void updateTodo(todo.id, { markSeen: true })}>
                                 <Check className="h-4 w-4" />
                                 {t('actions.markSeen')}
@@ -1714,6 +1750,13 @@ export function TodosClient({ title }: { title: string }) {
                 <Badge variant="outline">{visibleUnreadCount > 99 ? '99+' : visibleUnreadCount}</Badge>
               </div>
               {renderStatusFilters(true)}
+            </section>
+
+            <section className="mt-5 space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                {t('sections.readState')}
+              </h3>
+              {renderReadStateFilters(true)}
             </section>
 
             <section className="mt-5 space-y-3">

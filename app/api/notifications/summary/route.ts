@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     if (!limited.ok) return limited.response;
 
     const scope = await loadMobileInboxScope(session.user);
-    const [inbox, todosInbox] = await Promise.all([
+    const [inbox, todosInbox, unreadInbox] = await Promise.all([
       listMobileAggregateInbox({
         userId: session.user.id,
         workspaces: scope.includedWorkspaces,
@@ -57,6 +57,12 @@ export async function GET(request: NextRequest) {
         filter: 'todos',
         limit: 50,
       }),
+      listMobileAggregateInbox({
+        userId: session.user.id,
+        workspaces: scope.includedWorkspaces,
+        filter: 'unread',
+        limit: 50,
+      }),
     ]);
     const workspaceNames = new Map(scope.sources.map((source) => [source.id, source.name]));
     const notificationItems = inbox.items.map((item) => ({
@@ -67,6 +73,12 @@ export async function GET(request: NextRequest) {
       ...item,
       workspaceName: workspaceNames.get(item.workspaceId) ?? null,
     }));
+    const todoUnreadItems = unreadInbox.items
+      .filter((item) => item.target.kind === 'todo')
+      .map((item) => ({
+        ...item,
+        workspaceName: workspaceNames.get(item.workspaceId) ?? null,
+      }));
     const items = [...notificationItems, ...todoItems];
 
     return NextResponse.json({
@@ -80,6 +92,7 @@ export async function GET(request: NextRequest) {
         sections: {
           notifications: notificationItems,
           todos: todoItems,
+          todoUnread: todoUnreadItems,
         },
       },
     });

@@ -8,6 +8,7 @@ export type NotificationItem = {
   occurredAt: string;
   unread: boolean;
   priority: 'normal' | 'high';
+  todoStatus?: 'open' | 'done' | 'archived';
   workspaceId: string;
   workspaceName: string | null;
   target:
@@ -31,6 +32,7 @@ export type NotificationSummary = {
   sections: {
     notifications: NotificationItem[];
     todos: NotificationItem[];
+    todoUnread: NotificationItem[];
   };
 };
 

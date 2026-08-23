@@ -253,7 +253,7 @@ export function NotificationBell() {
             </span>
           </span>
         </button>
-        {isTodo ? (
+        {isTodo && item.todoStatus === 'open' ? (
           <Button
             variant="ghost"
             size="icon-xs"

@@ -8,6 +8,7 @@ import {
 } from '@/app/lib/workspaces/request';
 import {
   TODO_PRIORITIES,
+  TODO_READ_STATES,
   TODO_SOURCE_TYPES,
   TODO_STATUSES,
   createTodo,
@@ -15,6 +16,7 @@ import {
   type ListTodosOptions,
   type TodoFileLinkInput,
   type TodoPriority,
+  type TodoReadStateFilter,
   type TodoSourceType,
   type TodoStatus,
 } from '@/app/lib/todos/store';
@@ -40,6 +42,12 @@ function parseStatus(value: string | null): ListTodosOptions['status'] {
 function parsePriority(value: unknown): TodoPriority | undefined {
   return typeof value === 'string' && TODO_PRIORITIES.includes(value as TodoPriority)
     ? value as TodoPriority
+    : undefined;
+}
+
+function parseReadState(value: unknown): TodoReadStateFilter | undefined {
+  return typeof value === 'string' && TODO_READ_STATES.includes(value as TodoReadStateFilter)
+    ? value as TodoReadStateFilter
     : undefined;
 }
 
@@ -130,6 +138,11 @@ export async function GET(request: NextRequest) {
   if (rawDue && !due) {
     return NextResponse.json({ success: false, error: 'Invalid due filter.', code: 'INVALID_TODO_FILTER' }, { status: 400 });
   }
+  const rawReadState = searchParams.get('readState');
+  const readState = parseReadState(rawReadState);
+  if (rawReadState && !readState) {
+    return NextResponse.json({ success: false, error: 'Invalid to-do read state.', code: 'INVALID_TODO_FILTER' }, { status: 400 });
+  }
   const limit = Number(searchParams.get('limit') || 100);
   try {
     const globalWorkspaceIds = scope === 'global'
@@ -143,6 +156,7 @@ export async function GET(request: NextRequest) {
       categoryId: searchParams.get('categoryId') || undefined,
       sourceType: parseSourceType(searchParams.get('sourceType')),
       priority,
+      readState,
       assigneeUserId: searchParams.get('assigneeUserId') || undefined,
       createdByUserId: searchParams.get('createdByUserId') || undefined,
       due,
