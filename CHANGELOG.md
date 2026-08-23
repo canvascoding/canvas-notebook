@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.23.1] - 2026-08-23
+
+### Added
+
+- Added reliable live-collaboration state for agent file edits, including document initialization and freshness checkpoints.
+- Added an attention queue for notifications and email review, plus per-user to-do ownership, reminders, and file links.
+- Added support for native managed model providers in agent model selection and runtime configuration.
+
+### Changed
+
+- Improved mobile and terminal to-do read-state handling, ownership filtering, and inbox attention behavior.
+- Hardened release artifact provenance checks before Control Plane notification.
+
+### Fixed
+
+- Fixed Direct MCP OAuth dynamic client registration and ChatGPT Team credential consent.
+- Corrected notification-review retry behavior and stopped the auto-update service when it is disabled.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.22.1] - 2026-08-22
 
 ### Added
