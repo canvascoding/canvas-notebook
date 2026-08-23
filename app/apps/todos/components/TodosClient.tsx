@@ -38,7 +38,17 @@ import { Link } from '@/i18n/navigation';
 import { getDefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
-import { listWorkspaceFileReferences, type WorkspaceFileReferenceEntry } from '@/app/lib/files/client';
+import { getFileIconComponent } from '@/app/lib/files/file-icons';
+import {
+  listWorkspaceFileReferences,
+  readWorkspaceFile,
+  type WorkspaceFileReferenceEntry,
+} from '@/app/lib/files/client';
+import {
+  buildTodoFileNotebookHref,
+  getTodoFileFallbackTitle,
+  getTodoFileMetadataTitle,
+} from '@/app/lib/todos/file-link-display';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -172,6 +182,7 @@ type TodoFormState = {
 
 const statusFilters: StatusFilter[] = ['open', 'done', 'archived', 'all'];
 const priorities: TodoPriority[] = ['low', 'normal', 'high'];
+const emptyTodoFileLinks: TodoFileLink[] = [];
 
 const emptyForm: TodoFormState = {
   title: '',
@@ -230,10 +241,38 @@ function todoToForm(todo: TodoItem): TodoFormState {
   };
 }
 
-function fileLinkHref(link: Pick<TodoFileLink, 'workspacePath' | 'workspaceId'>) {
-  const params = new URLSearchParams({ path: link.workspacePath });
-  if (link.workspaceId) params.set('workspaceId', link.workspaceId);
-  return `/files?${params.toString()}`;
+function isMarkdownFile(path: string) {
+  return /\.(?:md|mdx|markdown)$/i.test(path);
+}
+
+function useTodoFileTitles(todo: TodoItem | null) {
+  const [titles, setTitles] = useState<Record<string, string>>({});
+  const links = todo?.fileLinks ?? emptyTodoFileLinks;
+  const linkKey = links.map((link) => `${link.id}:${link.workspaceId ?? ''}:${link.workspacePath}`).join('|');
+
+  useEffect(() => {
+    let cancelled = false;
+    const markdownLinks = links.filter((link) => isMarkdownFile(link.workspacePath));
+
+    void Promise.all(markdownLinks.map(async (link) => {
+      try {
+        const file = await readWorkspaceFile(link.workspacePath, { workspaceId: link.workspaceId });
+        const title = getTodoFileMetadataTitle(file.content);
+        return title ? [link.id, title] as const : null;
+      } catch {
+        return null;
+      }
+    })).then((resolvedTitles) => {
+      if (cancelled) return;
+      setTitles(Object.fromEntries(resolvedTitles.filter((entry): entry is readonly [string, string] => entry !== null)));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [linkKey, links]);
+
+  return titles;
 }
 
 function formatTodoUser(user: TodoUserSummary | null | undefined, fallback: string) {
@@ -295,6 +334,7 @@ function TodoDetailPanel({
   onSendFollowUp,
 }: TodoDetailPanelProps) {
   const t = useTranslations('todos');
+  const fileTitles = useTodoFileTitles(todo);
   const scopeLabel = todo?.scopeKind === 'user'
     ? t('scope.user')
     : todo?.workspace?.name || (todo ? t(`workspaceType.${todo.workspaceType}`) : '');
@@ -416,10 +456,25 @@ function TodoDetailPanel({
         ) : (
           <div className="space-y-2">
             {todo.fileLinks.map((link) => (
-              <Button key={link.id} asChild variant="outline" className="h-auto w-full min-w-0 justify-start overflow-hidden whitespace-normal py-2 text-left">
-                <Link href={fileLinkHref(link)}>
-                  <FileText className="h-4 w-4" />
-                  <span className="min-w-0 flex-1 truncate">{link.label || link.workspacePath}</span>
+              <Button
+                key={link.id}
+                asChild
+                variant="outline"
+                className="h-auto w-full min-w-0 justify-start overflow-hidden whitespace-normal py-2 text-left hover:bg-muted/70"
+              >
+                <Link
+                  href={buildTodoFileNotebookHref({ path: link.workspacePath, workspaceId: link.workspaceId })}
+                  title={link.workspacePath}
+                >
+                  {getFileIconComponent({
+                    name: link.workspacePath.split('/').filter(Boolean).at(-1) || link.workspacePath,
+                    path: link.workspacePath,
+                    type: 'file',
+                    className: 'h-4 w-4',
+                  })}
+                  <span className="min-w-0 flex-1 truncate">
+                    {fileTitles[link.id] || getTodoFileFallbackTitle(link.workspacePath)}
+                  </span>
                 </Link>
               </Button>
             ))}
