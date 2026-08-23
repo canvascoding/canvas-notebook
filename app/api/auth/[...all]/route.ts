@@ -6,8 +6,8 @@ import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
 import { initializeUserOnboarding } from '@/app/lib/user-preferences';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import {
-  enforceDirectMcpOAuthRequestPolicy,
   isDirectMcpOAuthPath,
+  prepareDirectMcpOAuthRequest,
 } from '@/app/lib/mcp/server/oauth-request-policy';
 import {
   applyDirectMcpRevocation,
@@ -17,6 +17,7 @@ import {
   beginDirectMcpDiagnostic,
   completeDirectMcpDiagnostic,
   failDirectMcpDiagnostic,
+  runWithDirectMcpDiagnostic,
   withDirectMcpRequestId,
 } from '@/app/lib/mcp/server/diagnostics';
 
@@ -131,12 +132,34 @@ async function handleDirectMcpOAuthRequest(
   if (!isDirectMcpOAuthPath(request.nextUrl.pathname)) return handler();
 
   const startedAt = Date.now();
-  const diagnostics = beginDirectMcpDiagnostic(request, 'oauth.request');
+  const diagnostics = beginDirectMcpDiagnostic(
+    request,
+    request.nextUrl.pathname === '/api/auth/oauth2/register'
+      ? 'oauth.registration'
+      : 'oauth.request',
+  );
   try {
-    const response = withDirectMcpRequestId(await handler(), diagnostics.requestId);
+    const response = withDirectMcpRequestId(
+      await runWithDirectMcpDiagnostic(
+        diagnostics,
+        handler,
+      ),
+      diagnostics.requestId,
+    );
+    if (response.status >= 500) {
+      completeDirectMcpDiagnostic(diagnostics, {
+        statusCode: 503,
+        code: 'OAUTH_PROVIDER_ERROR',
+        startedAt,
+      });
+      return withDirectMcpRequestId(
+        directMcpOAuthUnavailableResponse(),
+        diagnostics.requestId,
+      );
+    }
     completeDirectMcpDiagnostic(diagnostics, {
       statusCode: response.status,
-      code: response.status >= 500 ? 'OAUTH_PROVIDER_ERROR' : 'OAUTH_REQUEST_COMPLETED',
+      code: 'OAUTH_REQUEST_COMPLETED',
       startedAt,
     });
     return response;
@@ -155,23 +178,24 @@ async function handleDirectMcpOAuthRequest(
 
 export async function GET(request: NextRequest) {
   return handleDirectMcpOAuthRequest(request, async () => {
-    const policyResponse = await enforceDirectMcpOAuthRequestPolicy(request);
-    if (policyResponse) return policyResponse;
+    const prepared = await prepareDirectMcpOAuthRequest(request);
+    if (prepared.response) return prepared.response;
 
     if (isTeamUserManagementPath(request.nextUrl.pathname)) {
       const licenseResponse = await requireTeamRuntimeRoute();
       if (licenseResponse) return licenseResponse;
     }
-    return auth.handler(request);
+    return auth.handler(prepared.request);
   });
 }
 
 export async function POST(request: NextRequest) {
   return handleDirectMcpOAuthRequest(request, async () => {
     const pathname = request.nextUrl.pathname;
-    const policyResponse = await enforceDirectMcpOAuthRequestPolicy(request);
-    if (policyResponse) return policyResponse;
-    const revocationCandidate = await prepareDirectMcpRevocation(request);
+    const prepared = await prepareDirectMcpOAuthRequest(request);
+    if (prepared.response) return prepared.response;
+    const authRequest = prepared.request;
+    const revocationCandidate = await prepareDirectMcpRevocation(authRequest);
 
     if (revocationCandidate) {
       try {
@@ -203,7 +227,7 @@ export async function POST(request: NextRequest) {
       if (licenseResponse) return licenseResponse;
     }
 
-    const response = await auth.handler(request);
+    const response = await auth.handler(authRequest);
     try {
       await initializeCreatedUserOnboarding(pathname, response);
     } catch (error) {

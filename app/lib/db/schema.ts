@@ -1,5 +1,18 @@
 import { desc, sql } from "drizzle-orm";
-import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey, check } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey, check, customType } from "drizzle-orm/sqlite-core";
+
+// OAuth metadata is stored in text columns on both SQLite and PostgreSQL. A
+// plain `$type<T>()` only affects TypeScript; PostgreSQL otherwise persists
+// arrays as PostgreSQL array literals and returns strings to Better Auth.
+// Canonical JSON keeps the runtime type identical for both database providers.
+const jsonText = <T>(name: string) => customType<{
+  data: T;
+  driverData: string;
+}>({
+  dataType: () => 'text',
+  toDriver: (value) => JSON.stringify(value),
+  fromDriver: (value) => JSON.parse(value),
+})(name);
 
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -286,30 +299,30 @@ export const oauthClient = sqliteTable("oauth_client", {
   skipConsent: integer("skip_consent", { mode: "boolean" }),
   enableEndSession: integer("enable_end_session", { mode: "boolean" }),
   subjectType: text("subject_type"),
-  scopes: text("scopes").$type<string[]>(),
-  clientCredentialsScopes: text("client_credentials_scopes").$type<string[]>(),
+  scopes: jsonText<string[]>("scopes"),
+  clientCredentialsScopes: jsonText<string[]>("client_credentials_scopes"),
   userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }),
   name: text("name"),
   uri: text("uri"),
   icon: text("icon"),
-  contacts: text("contacts").$type<string[]>(),
+  contacts: jsonText<string[]>("contacts"),
   tos: text("tos"),
   policy: text("policy"),
   softwareId: text("software_id"),
   softwareVersion: text("software_version"),
   softwareStatement: text("software_statement"),
-  redirectUris: text("redirect_uris").$type<string[]>().notNull(),
-  postLogoutRedirectUris: text("post_logout_redirect_uris").$type<string[]>(),
+  redirectUris: jsonText<string[]>("redirect_uris").notNull(),
+  postLogoutRedirectUris: jsonText<string[]>("post_logout_redirect_uris"),
   backchannelLogoutUri: text("backchannel_logout_uri"),
   backchannelLogoutSessionRequired: integer("backchannel_logout_session_required", { mode: "boolean" }),
   tokenEndpointAuthMethod: text("token_endpoint_auth_method"),
   applicationType: text("application_type"),
   jwks: text("jwks"),
   jwksUri: text("jwks_uri"),
-  grantTypes: text("grant_types").$type<string[]>(),
-  responseTypes: text("response_types").$type<string[]>(),
+  grantTypes: jsonText<string[]>("grant_types"),
+  responseTypes: jsonText<string[]>("response_types"),
   public: integer("public", { mode: "boolean" }),
   type: text("type"),
   requirePKCE: integer("require_pkce", { mode: "boolean" }),
@@ -328,8 +341,8 @@ export const oauthRefreshToken = sqliteTable("oauth_refresh_token", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   referenceId: text("reference_id"),
   authorizationCodeId: text("authorization_code_id"),
-  resources: text("resources").$type<string[]>(),
-  requestedUserInfoClaims: text("requested_user_info_claims").$type<string[]>(),
+  resources: jsonText<string[]>("resources"),
+  requestedUserInfoClaims: jsonText<string[]>("requested_user_info_claims"),
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   revoked: integer("revoked", { mode: "timestamp_ms" }),
@@ -338,7 +351,7 @@ export const oauthRefreshToken = sqliteTable("oauth_refresh_token", {
   rotationReplayExpiresAt: integer("rotation_replay_expires_at", { mode: "timestamp_ms" }),
   authTime: integer("auth_time", { mode: "timestamp_ms" }),
   confirmation: text("confirmation").$type<Record<string, unknown>>(),
-  scopes: text("scopes").$type<string[]>().notNull(),
+  scopes: jsonText<string[]>("scopes").notNull(),
 }, (table) => ({
   clientIdx: index("idx_oauth_refresh_token_client").on(table.clientId),
   sessionIdx: index("idx_oauth_refresh_token_session").on(table.sessionId),
@@ -353,13 +366,13 @@ export const oauthAccessToken = sqliteTable("oauth_access_token", {
   userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
   referenceId: text("reference_id"),
   authorizationCodeId: text("authorization_code_id"),
-  resources: text("resources").$type<string[]>(),
-  requestedUserInfoClaims: text("requested_user_info_claims").$type<string[]>(),
+  resources: jsonText<string[]>("resources"),
+  requestedUserInfoClaims: jsonText<string[]>("requested_user_info_claims"),
   refreshId: text("refresh_id").references(() => oauthRefreshToken.id, { onDelete: "cascade" }),
   expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   confirmation: text("confirmation").$type<Record<string, unknown>>(),
-  scopes: text("scopes").$type<string[]>().notNull(),
+  scopes: jsonText<string[]>("scopes").notNull(),
 }, (table) => ({
   clientIdx: index("idx_oauth_access_token_client").on(table.clientId),
   sessionIdx: index("idx_oauth_access_token_session").on(table.sessionId),
@@ -383,9 +396,9 @@ export const oauthConsent = sqliteTable("oauth_consent", {
   clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
   userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
   referenceId: text("reference_id"),
-  resources: text("resources").$type<string[]>(),
-  requestedUserInfoClaims: text("requested_user_info_claims").$type<string[]>(),
-  scopes: text("scopes").$type<string[]>().notNull(),
+  resources: jsonText<string[]>("resources"),
+  requestedUserInfoClaims: jsonText<string[]>("requested_user_info_claims"),
+  scopes: jsonText<string[]>("scopes").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 }, (table) => ({
@@ -401,7 +414,7 @@ export const oauthResource = sqliteTable("oauth_resource", {
   refreshTokenTtl: integer("refresh_token_ttl"),
   signingAlgorithm: text("signing_algorithm"),
   signingKeyId: text("signing_key_id"),
-  allowedScopes: text("allowed_scopes").$type<string[]>(),
+  allowedScopes: jsonText<string[]>("allowed_scopes"),
   customClaims: text("custom_claims").$type<Record<string, unknown>>(),
   dpopBoundAccessTokensRequired: integer("dpop_bound_access_tokens_required", { mode: "boolean" }),
   disabled: integer("disabled", { mode: "boolean" }).default(false),

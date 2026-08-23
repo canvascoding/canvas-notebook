@@ -4,6 +4,8 @@ import {
   beginDirectMcpDiagnostic,
   completeDirectMcpDiagnostic,
   failDirectMcpDiagnostic,
+  recordDirectMcpOAuthProviderError,
+  runWithDirectMcpDiagnostic,
   withDirectMcpRequestId,
 } from '../app/lib/mcp/server/diagnostics';
 
@@ -17,7 +19,7 @@ function serialize(args: unknown[]): string {
   }).join(' ');
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const originalInfo = console.info;
   const originalError = console.error;
   const captured: string[] = [];
@@ -49,11 +51,20 @@ function main(): void {
     );
     assert.equal(response.headers.get('x-request-id'), diagnostics.requestId);
 
+    const providerSecret = 'provider-error-must-never-appear-in-diagnostics';
+    await runWithDirectMcpDiagnostic(diagnostics, async () => {
+      recordDirectMcpOAuthProviderError(
+        new Error(`relation oauth_client does not exist: ${providerSecret}`),
+      );
+    });
+
     const output = captured.join('\n');
     assert.equal(output.includes(STATE), false);
     assert.equal(output.includes(CLIENT_ID), false);
     assert.equal(output.includes(diagnostics.flowRef || ''), true);
     assert.equal(output.includes('OAUTH_INTERNAL_ERROR'), true);
+    assert.equal(output.includes('OAUTH_PERSISTENCE_SCHEMA_ERROR'), true);
+    assert.equal(output.includes(providerSecret), false);
   } finally {
     console.info = originalInfo;
     console.error = originalError;
@@ -62,4 +73,7 @@ function main(): void {
   console.log('mcp-server-diagnostics-test: ok');
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

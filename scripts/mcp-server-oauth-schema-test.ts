@@ -278,16 +278,16 @@ function assertSqliteFreshIdempotentAndUpgrade(): void {
     'post_logout_redirect_uris',
     'grant_types',
     'response_types',
-    'metadata',
   ]) {
     const column = oauthClientConfig.columns.find(
       (candidate) => candidate.name === columnName,
     );
     assert.equal(
       column?.columnType,
-      'SQLiteText',
-      `${columnName} must remain plain text because Better Auth owns serialization.`,
+      'SQLiteCustomColumn',
+      `${columnName} must serialize canonical JSON while remaining a text column.`,
     );
+    assert.equal(column?.getSQLType(), 'text');
   }
 
   const sqlite = new Database(':memory:');
@@ -545,8 +545,24 @@ async function assertPostgresFreshIdempotentAndUpgrade(): Promise<void> {
     await assertPostgresSchema(postgres);
     const firstSnapshot = await postgresOAuthSchemaSnapshot(postgres);
 
+    await postgres.query(`
+      INSERT INTO oauth_client (id, client_id, redirect_uris, scopes)
+      VALUES ('legacy-oauth-client', 'legacy-oauth-client', '{https://chatgpt.com/callback}', '{openid,workspace:list}')
+    `);
     await runPostgresMigrations(migrationTarget);
     assert.equal(await postgresOAuthSchemaSnapshot(postgres), firstSnapshot);
+    const migratedLegacyClient = await postgres.query<{
+      redirect_uris: string;
+      scopes: string;
+    }>(`
+      SELECT redirect_uris, scopes
+      FROM oauth_client
+      WHERE client_id = 'legacy-oauth-client'
+    `);
+    assert.deepEqual(migratedLegacyClient.rows, [{
+      redirect_uris: '["https://chatgpt.com/callback"]',
+      scopes: '["openid","workspace:list"]',
+    }]);
 
     await seedPostgresAuthData(postgres);
     await postgres.exec(`

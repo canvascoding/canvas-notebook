@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHmac, randomUUID } from 'node:crypto';
 
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
@@ -8,7 +9,10 @@ export type DirectMcpDiagnosticPhase =
   | 'discovery.authorization_server'
   | 'discovery.protected_resource'
   | 'mcp.http'
+  | 'oauth.registration'
   | 'oauth.request';
+
+const directMcpDiagnosticStorage = new AsyncLocalStorage<DirectMcpDiagnosticContext>();
 
 export type DirectMcpDiagnosticContext = {
   requestId: string;
@@ -132,4 +136,56 @@ export function withDirectMcpRequestId(
     statusText: response.statusText,
     headers,
   });
+}
+
+export async function runWithDirectMcpDiagnostic<T>(
+  context: DirectMcpDiagnosticContext,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return directMcpDiagnosticStorage.run(context, operation);
+}
+
+function errorMessage(error: unknown): string {
+  if (!error || typeof error !== 'object' || !('message' in error)) return '';
+  const message = (error as { message?: unknown }).message;
+  return typeof message === 'string' ? message.toLowerCase() : '';
+}
+
+function isServerFailure(error: unknown): boolean {
+  if (!error || typeof error !== 'object' || !('status' in error)) return true;
+  const status = (error as { status?: unknown }).status;
+  return status === 'INTERNAL_SERVER_ERROR'
+    || (typeof status === 'number' && status >= 500);
+}
+
+function classifyProviderError(error: unknown): string {
+  const message = errorMessage(error);
+  if (/relation|table|column|does not exist|schema/u.test(message)) {
+    return 'OAUTH_PERSISTENCE_SCHEMA_ERROR';
+  }
+  if (/constraint|duplicate|database|transaction|query/u.test(message)) {
+    return 'OAUTH_PERSISTENCE_ERROR';
+  }
+  return 'OAUTH_PROVIDER_INTERNAL_ERROR';
+}
+
+export function recordDirectMcpOAuthProviderError(
+  error: unknown,
+): boolean {
+  if (!isServerFailure(error)) return false;
+  const context = directMcpDiagnosticStorage.getStore();
+  if (!context) return false;
+
+  // Keep production diagnostics correlatable without recording client metadata,
+  // credentials, authorization codes, tokens, or provider error text.
+  emitDiagnostic({
+    event: 'direct_mcp_diagnostic',
+    requestId: context.requestId,
+    ...(context.flowRef ? { flowRef: context.flowRef } : {}),
+    phase: context.phase,
+    outcome: 'failed',
+    method: context.method,
+    code: classifyProviderError(error),
+  });
+  return true;
 }
