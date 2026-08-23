@@ -16,6 +16,7 @@ import {
   DIRECT_MCP_OAUTH_SCOPES,
   resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
+import { recordDirectMcpOAuthProviderError } from '@/app/lib/mcp/server/diagnostics';
 import {
   assertUserSeatAccess,
   SeatLimitGuardError,
@@ -164,7 +165,18 @@ export const auth = betterAuth({
       enabled: false,
     }
   },
+  onAPIError: {
+    onError(error) {
+      if (recordDirectMcpOAuthProviderError(error)) return;
+      // Do not expose an upstream error body in shared logs. Direct MCP errors
+      // are correlated above; other Better Auth errors retain a safe signal.
+      console.error('[auth] Better Auth API request failed.');
+    },
+  },
   advanced: {
+    // The public origin is configured explicitly. Never let a client-supplied
+    // forwarded host/proto alter OAuth issuer or endpoint URLs.
+    trustedProxyHeaders: false,
     defaultCookieAttributes: {
       secure: useSecureCookies,
       sameSite: "lax",

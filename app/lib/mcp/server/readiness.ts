@@ -31,11 +31,32 @@ const REQUIRED_OAUTH_TABLES = [
   'oauth_resource',
 ] as const;
 
+const REQUIRED_OAUTH_COLUMNS: Record<string, readonly string[]> = {
+  oauth_client: [
+    'client_id',
+    'client_secret',
+    'scopes',
+    'redirect_uris',
+    'token_endpoint_auth_method',
+    'grant_types',
+    'response_types',
+  ],
+  oauth_client_resource: ['client_id', 'resource_id'],
+  oauth_resource: ['identifier', 'allowed_scopes'],
+  oauth_access_token: ['client_id', 'resources', 'scopes'],
+  oauth_refresh_token: ['client_id', 'resources', 'scopes'],
+  oauth_consent: ['client_id', 'resources', 'scopes'],
+};
+
 async function assertDirectMcpSchemaReady(): Promise<void> {
   const database = await openDb();
   try {
     for (const table of REQUIRED_OAUTH_TABLES) {
       await database.get(`SELECT 1 FROM ${table} LIMIT 1`);
+    }
+    for (const [table, columns] of Object.entries(REQUIRED_OAUTH_COLUMNS)) {
+      // Identifiers are fixed application constants, never request data.
+      await database.get(`SELECT ${columns.join(', ')} FROM ${table} LIMIT 0`);
     }
   } finally {
     await database.close();

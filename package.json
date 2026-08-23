@@ -84,6 +84,7 @@
     "test:mcp:icons": "tsx scripts/mcp-icons-test.ts",
     "test:mcp:server-schema": "tsx scripts/mcp-server-oauth-schema-test.ts",
     "test:mcp:server-provider": "tsx --conditions react-server scripts/mcp-server-oauth-provider-test.ts",
+    "test:mcp:server-postgres-provider": "tsx scripts/mcp-server-oauth-postgres-provider-test.ts",
     "test:mcp:server-login-consent": "tsx --conditions react-server scripts/mcp-server-oauth-login-consent-test.ts",
     "test:mcp:server-resource": "tsx --conditions react-server scripts/mcp-server-protected-resource-test.ts",
     "test:mcp:server-oauth-client": "tsx --conditions react-server scripts/mcp-server-oauth-client-test.ts",

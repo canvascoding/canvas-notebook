@@ -19,7 +19,6 @@ import {
   beginDirectMcpDiagnostic,
   completeDirectMcpDiagnostic,
   failDirectMcpDiagnostic,
-  withDirectMcpRequestId,
   type DirectMcpDiagnosticContext,
 } from '@/app/lib/mcp/server/diagnostics';
 import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';

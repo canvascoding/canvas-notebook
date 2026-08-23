@@ -133,26 +133,77 @@ async function registerPublicClient(
   dispatch: RouteDispatcher,
   issuer: string,
   name: string,
+  tokenEndpointAuthMethod: 'none' | null = 'none',
 ): Promise<string> {
+  const metadata: JsonRecord = {
+    client_name: name,
+    redirect_uris: [REDIRECT_URI],
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    scope: DIRECT_MCP_OAUTH_SCOPES.join(' '),
+  };
+  if (tokenEndpointAuthMethod !== null) {
+    metadata.token_endpoint_auth_method = tokenEndpointAuthMethod;
+  }
   const response = await dispatch(new Request(`${issuer}/oauth2/register`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       origin: ORIGIN,
     },
-    body: JSON.stringify({
-      client_name: name,
-      redirect_uris: [REDIRECT_URI],
-      token_endpoint_auth_method: 'none',
-      grant_types: ['authorization_code', 'refresh_token'],
-      response_types: ['code'],
-      scope: DIRECT_MCP_OAUTH_SCOPES.join(' '),
-    }),
+    body: JSON.stringify(metadata),
   }));
   assert.equal([200, 201].includes(response.status), true);
-  const clientId = String((await readJson(response)).client_id);
+  const registered = await readJson(response);
+  assert.equal(registered.token_endpoint_auth_method, 'none');
+  assert.equal('client_secret' in registered, false);
+  const clientId = String(registered.client_id);
   assert.ok(clientId);
   return clientId;
+}
+
+async function assertDynamicRegistrationBoundary(
+  dispatch: RouteDispatcher,
+  issuer: string,
+): Promise<void> {
+  const implicitPublicClientId = await registerPublicClient(
+    dispatch,
+    issuer,
+    'ChatGPT Public Client With Omitted Auth Method',
+    null,
+  );
+  assert.ok(implicitPublicClientId);
+
+  const invalidAuthMethod = await dispatch(new Request(`${issuer}/oauth2/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: ORIGIN },
+    body: JSON.stringify({
+      client_name: 'Confidential Client Is Not Allowed',
+      redirect_uris: [REDIRECT_URI],
+      token_endpoint_auth_method: 'client_secret_basic',
+    }),
+  }));
+  assert.equal(invalidAuthMethod.status, 400);
+  assert.equal((await readJson(invalidAuthMethod)).error, 'invalid_client_metadata');
+
+  const invalidContentType = await dispatch(new Request(`${issuer}/oauth2/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'text/plain', origin: ORIGIN },
+    body: JSON.stringify({ redirect_uris: [REDIRECT_URI] }),
+  }));
+  assert.equal(invalidContentType.status, 400);
+  assert.equal((await readJson(invalidContentType)).error, 'invalid_client_metadata');
+
+  const oversizedMetadata = await dispatch(new Request(`${issuer}/oauth2/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: ORIGIN },
+    body: JSON.stringify({
+      redirect_uris: [REDIRECT_URI],
+      client_name: 'x'.repeat(16 * 1024),
+    }),
+  }));
+  assert.equal(oversizedMetadata.status, 400);
+  assert.equal((await readJson(oversizedMetadata)).error, 'invalid_client_metadata');
 }
 
 async function authorizeCode(input: {
@@ -308,6 +359,7 @@ async function main(): Promise<void> {
       issuer,
       'Other Public OAuth Client',
     );
+    await assertDynamicRegistrationBoundary(dispatch, issuer);
 
     const loginResponse = await dispatch(new Request(`${issuer}/sign-in/email`, {
       method: 'POST',
@@ -747,6 +799,29 @@ async function main(): Promise<void> {
     assert.equal(refreshAfterRevocation.status, 400);
     assert.equal((await readJson(refreshAfterRevocation)).error, 'invalid_grant');
 
+    const failingRegistrationDatabase = await openDb();
+    try {
+      await failingRegistrationDatabase.run(
+        'ALTER TABLE oauth_client RENAME TO oauth_client_unavailable',
+      );
+    } finally {
+      await failingRegistrationDatabase.close();
+    }
+    const providerFailure = await dispatch(new Request(`${issuer}/oauth2/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: ORIGIN },
+      body: JSON.stringify({
+        client_name: 'Provider Failure Diagnostic Client',
+        redirect_uris: [REDIRECT_URI],
+        token_endpoint_auth_method: 'none',
+      }),
+    }));
+    assert.equal(providerFailure.status, 503);
+    assert.match(providerFailure.headers.get('x-request-id') || '', /^[0-9a-f-]{36}$/iu);
+    const providerFailureBody = await readJson(providerFailure);
+    assert.equal(providerFailureBody.error, 'temporarily_unavailable');
+    assert.equal(JSON.stringify(providerFailureBody).includes('oauth_client'), false);
+
     captureLogs = false;
     const auditDatabase = await openDb();
     let auditText: string;
@@ -785,6 +860,8 @@ async function main(): Promise<void> {
         `Audit records must not contain the ${label}.`,
       );
     }
+    assert.equal(capturedText.includes('OAUTH_PERSISTENCE_SCHEMA_ERROR'), true);
+    assert.equal(capturedText.includes('oauth_client'), false);
 
     originalConsole.log('mcp-server-oauth-client-test: ok');
   } finally {

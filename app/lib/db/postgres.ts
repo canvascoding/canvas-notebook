@@ -176,6 +176,42 @@ function createColumnAddSql(table: PostgresSchemaTable, column: SchemaColumn): s
   return `ALTER TABLE ${quotePostgresIdentifier(tableName)} ADD COLUMN IF NOT EXISTS ${renderColumnDefinition(column, false)}`;
 }
 
+const POSTGRES_OAUTH_JSON_ARRAY_COLUMNS = [
+  ['oauth_client', 'scopes'],
+  ['oauth_client', 'client_credentials_scopes'],
+  ['oauth_client', 'contacts'],
+  ['oauth_client', 'redirect_uris'],
+  ['oauth_client', 'post_logout_redirect_uris'],
+  ['oauth_client', 'grant_types'],
+  ['oauth_client', 'response_types'],
+  ['oauth_refresh_token', 'resources'],
+  ['oauth_refresh_token', 'requested_user_info_claims'],
+  ['oauth_refresh_token', 'scopes'],
+  ['oauth_access_token', 'resources'],
+  ['oauth_access_token', 'requested_user_info_claims'],
+  ['oauth_access_token', 'scopes'],
+  ['oauth_consent', 'resources'],
+  ['oauth_consent', 'requested_user_info_claims'],
+  ['oauth_consent', 'scopes'],
+  ['oauth_resource', 'allowed_scopes'],
+] as const;
+
+async function migratePostgresOauthArrayLiterals(pool: PgQueryable): Promise<void> {
+  for (const [table, column] of POSTGRES_OAUTH_JSON_ARRAY_COLUMNS) {
+    const quotedTable = quotePostgresIdentifier(table);
+    const quotedColumn = quotePostgresIdentifier(column);
+    // Versions before the JSON column mapper let node-postgres serialize arrays
+    // as `{...}` text. Convert only those legacy values; canonical JSON arrays
+    // already start with `[`, and NULL remains untouched.
+    await pool.query(`
+      UPDATE ${quotedTable}
+      SET ${quotedColumn} = to_json(${quotedColumn}::text[])::text
+      WHERE ${quotedColumn} IS NOT NULL
+        AND ${quotedColumn} LIKE '{%}'
+    `);
+  }
+}
+
 function uniqueColumnIndexSql(table: PostgresSchemaTable, column: SchemaColumn): string | null {
   if (!column.isUnique) return null;
   const tableName = String(table[TABLE_NAME_SYMBOL]);
@@ -654,6 +690,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const table of tables) {
     await pool.query(createTableSql(table));
   }
+  await migratePostgresOauthArrayLiterals(pool);
 
   await pool.query('ALTER TABLE studio_generations ADD COLUMN IF NOT EXISTS idempotency_key text');
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_studio_generations_idempotency ON studio_generations (user_id, workspace_id, idempotency_key)');

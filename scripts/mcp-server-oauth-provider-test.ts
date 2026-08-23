@@ -100,7 +100,10 @@ async function readJson(response: Response): Promise<Record<string, unknown>> {
 async function registerClient(
   auth: { handler: (request: Request) => Promise<Response> },
   body: Record<string, unknown>,
-  enforcePolicy: (request: Request) => Promise<Response | null>,
+  prepareRequest: (request: Request) => Promise<{
+    request: Request;
+    response: Response | null;
+  }>,
 ): Promise<Response> {
   const request = new Request(`${ISSUER}/oauth2/register`, {
     method: 'POST',
@@ -110,7 +113,8 @@ async function registerClient(
     },
     body: JSON.stringify(body),
   });
-  return (await enforcePolicy(request)) ?? auth.handler(request);
+  const prepared = await prepareRequest(request);
+  return prepared.response ?? auth.handler(prepared.request);
 }
 
 async function assertMetadata(
@@ -120,7 +124,12 @@ async function assertMetadata(
     `${ORIGIN}/.well-known/oauth-authorization-server/api/auth`,
     `${ISSUER}/.well-known/oauth-authorization-server`,
   ]) {
-    const response = await getMetadata(new Request(url));
+    const response = await getMetadata(new Request(url, {
+      headers: {
+        'x-forwarded-host': 'attacker.example.test',
+        'x-forwarded-proto': 'http',
+      },
+    }));
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type') || '', /application\/json/u);
     assert.match(response.headers.get('cache-control') || '', /max-age=300/u);
@@ -144,6 +153,10 @@ async function assertMetadata(
 async function assertRegistrationPolicy(
   auth: { handler: (request: Request) => Promise<Response> },
   enforcePolicy: (request: Request) => Promise<Response | null>,
+  prepareRequest: (request: Request) => Promise<{
+    request: Request;
+    response: Response | null;
+  }>,
 ): Promise<string> {
   const validRegistration = await registerClient(auth, {
     client_name: 'ChatGPT Direct MCP Test',
@@ -152,7 +165,7 @@ async function assertRegistrationPolicy(
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
     scope: DIRECT_MCP_OAUTH_SCOPES.join(' '),
-  }, enforcePolicy);
+  }, prepareRequest);
   assert.equal([200, 201].includes(validRegistration.status), true);
   const registered = await readJson(validRegistration);
   assert.equal(typeof registered.client_id, 'string');
@@ -161,6 +174,18 @@ async function assertRegistrationPolicy(
   assert.deepEqual(registered.grant_types, ['authorization_code', 'refresh_token']);
   assert.equal(registered.scope, DIRECT_MCP_OAUTH_SCOPES.join(' '));
 
+  const implicitPublicClient = await registerClient(auth, {
+    client_name: 'ChatGPT Public Client Without Auth Method',
+    redirect_uris: [REDIRECT_URI],
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    scope: DIRECT_MCP_OAUTH_SCOPES.join(' '),
+  }, prepareRequest);
+  assert.equal([200, 201].includes(implicitPublicClient.status), true);
+  const implicitPublicRegistered = await readJson(implicitPublicClient);
+  assert.equal(implicitPublicRegistered.token_endpoint_auth_method, 'none');
+  assert.equal('client_secret' in implicitPublicRegistered, false);
+
   const invalidScope = await registerClient(auth, {
     client_name: 'Invalid Scope',
     redirect_uris: [REDIRECT_URI],
@@ -168,7 +193,7 @@ async function assertRegistrationPolicy(
     grant_types: ['authorization_code'],
     response_types: ['code'],
     scope: 'openid knowledge:write',
-  }, enforcePolicy);
+  }, prepareRequest);
   assert.equal(invalidScope.status, 400);
   assert.equal((await readJson(invalidScope)).error, 'invalid_scope');
 
@@ -177,7 +202,7 @@ async function assertRegistrationPolicy(
     redirect_uris: [REDIRECT_URI],
     token_endpoint_auth_method: 'none',
     grant_types: ['client_credentials'],
-  }, enforcePolicy);
+  }, prepareRequest);
   assert.equal(clientCredentials.status, 400);
   assert.equal((await readJson(clientCredentials)).error, 'invalid_client_metadata');
 
@@ -187,7 +212,7 @@ async function assertRegistrationPolicy(
     token_endpoint_auth_method: 'none',
     grant_types: ['authorization_code'],
     response_types: ['code'],
-  }, enforcePolicy);
+  }, prepareRequest);
   assert.equal(invalidRedirect.status, 400);
 
   const disabledPkce = await registerClient(auth, {
@@ -197,7 +222,7 @@ async function assertRegistrationPolicy(
     grant_types: ['authorization_code'],
     response_types: ['code'],
     require_pkce: false,
-  }, enforcePolicy);
+  }, prepareRequest);
   assert.equal(disabledPkce.status, 400);
   assert.equal((await readJson(disabledPkce)).error, 'invalid_client_metadata');
 
@@ -347,7 +372,10 @@ async function main(): Promise<void> {
   configureRuntime(dataDir);
 
   try {
-    const [{ auth }, { getAuthorizationServerMetadata }, { enforceDirectMcpOAuthRequestPolicy }] = await Promise.all([
+    const [{ auth }, { getAuthorizationServerMetadata }, {
+      enforceDirectMcpOAuthRequestPolicy,
+      prepareDirectMcpOAuthRequest,
+    }] = await Promise.all([
       import('../app/lib/auth'),
       import('../app/lib/mcp/server/authorization-server-metadata'),
       import('../app/lib/mcp/server/oauth-request-policy'),
@@ -364,6 +392,7 @@ async function main(): Promise<void> {
     const clientId = await assertRegistrationPolicy(
       auth,
       enforceDirectMcpOAuthRequestPolicy,
+      prepareDirectMcpOAuthRequest,
     );
     await assertAuthorizePolicy(auth, clientId, enforceDirectMcpOAuthRequestPolicy);
     await assertTokenPolicy(auth, clientId, enforceDirectMcpOAuthRequestPolicy);
