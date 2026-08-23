@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listDueAutomationJobs, scheduleAutomationJobRun, advanceAutomationJobSchedule } from '@/app/lib/automations/store';
 import { isValidCanvasInternalToken } from '@/app/lib/internal-auth';
+import { sendDueTodoReminders } from '@/app/lib/todos/reminders';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +13,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const now = new Date();
-    const dueJobs = await listDueAutomationJobs(now);
+    const [dueJobs, todoReminders] = await Promise.all([listDueAutomationJobs(now), sendDueTodoReminders(now)]);
     const queued: string[] = [];
 
     for (const job of dueJobs) {
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
       console.log(`[Scheduler API] Queued ${queued.length} due job(s)`);
     }
 
-    return NextResponse.json({ success: true, queued });
+    return NextResponse.json({ success: true, queued, todoReminders });
   } catch (error) {
     console.error('[Scheduler API] Error queuing due jobs:', error);
     return NextResponse.json(

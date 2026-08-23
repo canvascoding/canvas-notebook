@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getMobileTodo, MobileTodoError, serializeMobileTodo } from '@/app/lib/mobile/todos';
 import { mobileTodosErrorResponse, mobileTodosResponseHeaders } from '@/app/lib/mobile/todos-route';
 import { setTodoReadStateForUser } from '@/app/lib/todos/read-state-actions';
+import { todoLifecycleAllowsUnread } from '@/app/lib/todos/read-state-policy';
 import { archiveTodo, updateTodo, type TodoFileLinkInput, type TodoPriority, type TodoStatus } from '@/app/lib/todos/store';
+import { isTodoIconKey } from '@/app/lib/todos/icons';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace, requireSessionWorkspace } from '@/app/lib/workspaces/request';
 
@@ -19,7 +21,7 @@ function dateValue(value: unknown): Date | null {
 
 function hasTodoUpdate(payload: Record<string, unknown>): boolean {
   return [
-    'title', 'description', 'priority', 'dueAt', 'status', 'assigneeUserId',
+    'title', 'description', 'priority', 'iconKey', 'dueAt', 'remindAt', 'status', 'assigneeUserId',
     'completionComment', 'fileLinks',
   ].some((key) => payload[key] !== undefined);
 }
@@ -57,6 +59,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const payload = await request.json() as Record<string, unknown>;
     const shouldUpdateTodo = hasTodoUpdate(payload);
     const read = requestedReadState(payload);
+    const requestedStatus = payload.status === undefined ? undefined : payload.status as TodoStatus;
+    if (payload.status !== undefined && (!requestedStatus || !['open', 'done', 'archived'].includes(requestedStatus))) {
+      throw new MobileTodoError('INVALID_STATUS', 'The To-do status is invalid.', 400);
+    }
     if (shouldUpdateTodo) {
       const writeWorkspace = await requireSessionWorkspace(workspaceResult.session, {
         workspaceId: workspaceResult.workspace.workspaceId,
@@ -64,14 +70,20 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       });
       if (writeWorkspace.response) return writeWorkspace.response;
     }
+    const resultingStatus = requestedStatus ?? existingTodo.status;
+    if (read === false && !todoLifecycleAllowsUnread(resultingStatus)) {
+      throw new MobileTodoError('TODO_READ_STATE_CONFLICT', 'Completed or archived to-dos cannot be marked unread.', 409);
+    }
     let todo = existingTodo;
     if (shouldUpdateTodo) {
       const updatedTodo = await updateTodo(workspaceResult.session.user.id, todoId, {
         ...(payload.title !== undefined ? { title: String(payload.title) } : {}),
         ...(payload.description !== undefined ? { description: typeof payload.description === 'string' ? payload.description : null } : {}),
         ...(payload.priority !== undefined ? { priority: payload.priority as TodoPriority } : {}),
+        ...(payload.iconKey !== undefined ? { iconKey: isTodoIconKey(payload.iconKey) ? payload.iconKey : null } : {}),
         ...(payload.dueAt !== undefined ? { dueAt: dateValue(payload.dueAt) } : {}),
-        ...(payload.status !== undefined ? { status: payload.status as TodoStatus } : {}),
+        ...(payload.remindAt !== undefined ? { remindAt: dateValue(payload.remindAt) } : {}),
+        ...(requestedStatus !== undefined ? { status: requestedStatus } : {}),
         ...(payload.assigneeUserId !== undefined ? { assigneeUserId: typeof payload.assigneeUserId === 'string' ? payload.assigneeUserId : null } : {}),
         ...(payload.completionComment !== undefined ? { completionComment: typeof payload.completionComment === 'string' ? payload.completionComment : null } : {}),
         ...(payload.fileLinks !== undefined ? { fileLinks: Array.isArray(payload.fileLinks) ? payload.fileLinks as TodoFileLinkInput[] : [] } : {}),

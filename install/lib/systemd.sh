@@ -229,8 +229,11 @@ install_update_timer() {
   run_root systemctl daemon-reload
 
   if is_false "$update_enabled"; then
-    run_root systemctl disable canvas-notebook-update.timer >/dev/null 2>&1 || true
     run_root systemctl stop canvas-notebook-update.timer >/dev/null 2>&1 || true
+    run_root systemctl stop canvas-notebook-update.service >/dev/null 2>&1 || true
+    run_root systemctl disable canvas-notebook-update.timer >/dev/null 2>&1 || true
+    run_root systemctl disable canvas-notebook-update.service >/dev/null 2>&1 || true
+    run_root systemctl reset-failed canvas-notebook-update.timer canvas-notebook-update.service >/dev/null 2>&1 || true
     ok "Auto-update timer installed (disabled)"
   else
     run_root systemctl stop canvas-notebook-update.timer >/dev/null 2>&1 || true

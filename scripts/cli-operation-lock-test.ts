@@ -178,6 +178,7 @@ canvas_operation_lock_acquire borrowed-child
   const shellConfig = await fs.readFile(path.join(root, 'install/lib/shared/config_json.sh'), 'utf8');
   const installer = await fs.readFile(path.join(root, 'install.sh'), 'utf8');
   const systemdInstaller = await fs.readFile(path.join(root, 'install/lib/systemd.sh'), 'utf8');
+  const autoUpdateCommands = await fs.readFile(path.join(root, 'install/lib/commands/auto_update.sh'), 'utf8');
   assert.match(updateUnit, /^TimeoutStartSec=10800$/mu);
   assert.match(updateUnit, /^ExecStart=.* update --require-pinned --no-banner$/mu);
   assert.equal(updateUnit.includes(' cli-update '), false);
@@ -187,6 +188,10 @@ canvas_operation_lock_acquire borrowed-child
   assert.match(installer, /CANVAS_AUTO_UPDATE_ENABLED="\$\{CANVAS_AUTO_UPDATE_ENABLED:-false\}"/u);
   assert.match(systemdInstaller, /CANVAS_AUTO_UPDATE_ENABLED:-false/u);
   assert.doesNotMatch(systemdInstaller, /CANVAS_AUTO_UPDATE_ENABLED:-true/u);
+  assert.match(autoUpdateCommands, /systemctl stop canvas-notebook-update\.service/u);
+  assert.match(autoUpdateCommands, /systemctl disable canvas-notebook-update\.service/u);
+  assert.match(systemdInstaller, /systemctl stop canvas-notebook-update\.service/u);
+  assert.match(systemdInstaller, /systemctl disable canvas-notebook-update\.service/u);
 
   console.log('cli operation lock tests passed');
 } finally {

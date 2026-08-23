@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 26: Vision-Faehigkeiten fuer Bilder aus dem Read-Tool aktivieren'
-status: in_review
+status: done
 priority: high
 depends_on: []
 platforms: [server, agent-runtime, providers]
@@ -16,6 +16,12 @@ ist in `main` integriert. Die neuen multimodalen Delivery- und
 Vision-Fallback-Tests liegen ebenfalls vor. Die manuelle Abnahme mit einem
 visionfaehigen Modell und einem kontrollierten Testbild steht noch aus; das
 Ticket ist deshalb in Abnahme und nicht erledigt.
+
+## Produktionsabnahme (2026-08-23)
+
+Die erneute Pruefung am korrekt produktiven Stand ist erfolgreich: Ein
+visionfaehiges Modell kann Bilder aus dem `read`-Tool verwenden. Ticket 26 ist
+damit erledigt.
 
 ## Problem
 

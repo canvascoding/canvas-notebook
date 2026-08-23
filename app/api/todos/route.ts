@@ -8,6 +8,7 @@ import {
 } from '@/app/lib/workspaces/request';
 import {
   TODO_PRIORITIES,
+  TODO_READ_STATES,
   TODO_SOURCE_TYPES,
   TODO_STATUSES,
   createTodo,
@@ -15,9 +16,11 @@ import {
   type ListTodosOptions,
   type TodoFileLinkInput,
   type TodoPriority,
+  type TodoReadStateFilter,
   type TodoSourceType,
   type TodoStatus,
 } from '@/app/lib/todos/store';
+import { isTodoIconKey, type TodoIconKey } from '@/app/lib/todos/icons';
 import {
   USER_TODO_SCOPE,
   parseTodoScopeKind,
@@ -42,6 +45,12 @@ function parsePriority(value: unknown): TodoPriority | undefined {
     : undefined;
 }
 
+function parseReadState(value: unknown): TodoReadStateFilter | undefined {
+  return typeof value === 'string' && TODO_READ_STATES.includes(value as TodoReadStateFilter)
+    ? value as TodoReadStateFilter
+    : undefined;
+}
+
 function parseSourceType(value: string | null): TodoSourceType | undefined {
   return value && TODO_SOURCE_TYPES.includes(value as TodoSourceType)
     ? value as TodoSourceType
@@ -60,6 +69,13 @@ function parseListScope(value: string | null): TodoListScope | undefined {
 
 function parseFileLinks(value: unknown): TodoFileLinkInput[] | undefined {
   return Array.isArray(value) ? value as TodoFileLinkInput[] : undefined;
+}
+
+function parseIconKey(value: unknown): TodoIconKey | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (!isTodoIconKey(value)) throw new Error('Invalid to-do icon.');
+  return value;
 }
 
 async function resolveRequestedWorkspace(
@@ -122,6 +138,11 @@ export async function GET(request: NextRequest) {
   if (rawDue && !due) {
     return NextResponse.json({ success: false, error: 'Invalid due filter.', code: 'INVALID_TODO_FILTER' }, { status: 400 });
   }
+  const rawReadState = searchParams.get('readState');
+  const readState = parseReadState(rawReadState);
+  if (rawReadState && !readState) {
+    return NextResponse.json({ success: false, error: 'Invalid to-do read state.', code: 'INVALID_TODO_FILTER' }, { status: 400 });
+  }
   const limit = Number(searchParams.get('limit') || 100);
   try {
     const globalWorkspaceIds = scope === 'global'
@@ -135,6 +156,7 @@ export async function GET(request: NextRequest) {
       categoryId: searchParams.get('categoryId') || undefined,
       sourceType: parseSourceType(searchParams.get('sourceType')),
       priority,
+      readState,
       assigneeUserId: searchParams.get('assigneeUserId') || undefined,
       createdByUserId: searchParams.get('createdByUserId') || undefined,
       due,
@@ -185,7 +207,9 @@ export async function POST(request: NextRequest) {
       categoryId: typeof payload?.categoryId === 'string' ? payload.categoryId : null,
       categoryName: typeof payload?.categoryName === 'string' ? payload.categoryName : null,
       priority: parsePriority(payload?.priority),
+      iconKey: parseIconKey(payload?.iconKey),
       dueAt: parseOptionalDate(payload?.dueAt) ?? null,
+      remindAt: parseOptionalDate(payload?.remindAt) ?? null,
       assigneeUserId: typeof payload?.assigneeUserId === 'string' ? payload.assigneeUserId : null,
       sourceType: 'user',
       seenAt: new Date(),

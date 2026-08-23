@@ -19,6 +19,27 @@ integriert. Ein weiterer, gepushter Folgecommit fuer Collaboration-Reverts
 liegt noch separat vor. Die Team-Workspace-Abnahme mit zwei Clients und einem
 echten Agent-Tool-Call steht weiterhin aus; das Ticket bleibt in Umsetzung.
 
+## Reproduzierter Abnahmefehler (2026-08-23)
+
+Die Produktionsabnahme zeigt, dass das Problem weiterhin besteht:
+Kollaborative Markdown-Dokumente sind fuer den Agenten nicht beschreibbar. Der
+reale Tool-Call endet mit **`collaborative document state is unavailable or
+stale`**. Das ist ein Fehler der Workspace-/Collaboration-Zustandsverwaltung,
+nicht der Edit-Operation selbst: Neue Dokumente lassen sich erstellen und
+CSV-Dateien sind bearbeitbar, aber bestehende kollaborative Quelldokumente
+liefern keinen nutzbaren autoritativen Dokumentzustand.
+
+Die naechste Diagnose muss daher vor `edit_file` ansetzen und fuer das
+betroffene bestehende Dokument Workspace, Pfad, `collaborationDocumentId`,
+Session, Generation, Yjs-State, State-Vector, Live-Hash, Checkpoint und deren
+Freshness vergleichen. Das bloße erneute Ausfuehren des Edit-Tools oder ein
+Whole-File-Fallback ist kein zulaessiger Workaround.
+
+Die erneute Pruefung am korrekt produktiven Stand bestaetigt denselben Fehler.
+Das Ticket bleibt in Umsetzung; der Erfolg beim Anlegen neuer Dokumente oder
+Bearbeiten von CSV-Dateien darf nicht als erfolgreiche Abnahme des bestehenden
+kollaborativen Markdown-Pfads gewertet werden.
+
 ## Problem
 
 In einem Team-Workspace kann ein KI-Agent Markdown- bzw. Textdokumente mit
@@ -64,6 +85,11 @@ scheitert, statt die Collaboration-Logik parallel neu zu implementieren.
     Connection und Persistence-/Checkpoint-Bestaetigung erreicht werden;
   - ob der reale Runtime-Tooladapter Fehlerdetails oder Collaboration-Resultate
     verliert bzw. faelschlich als allgemeinen Edit-Fehler darstellt.
+- Fuer ein bestehendes fehlgeschlagenes Quelldokument ausserdem nachweisen,
+  warum der autoritative Collaboration-State nicht aufgeloest wird, obwohl
+  Workspace, Datei und Agent berechtigt sind. Neu angelegte Dateien und
+  CSV-Erfolgsszenarien duerfen diesen Markdown-/Yjs-Zustandsfehler nicht als
+  bestanden maskieren.
 - Eine gemeinsame serverseitige Action-Grenze fuer Read/Prepare/Apply erhalten
   und nur die belegte Integrationsluecke schliessen. Aktive Yjs-Dokumente duerfen
   niemals auf normalen Whole-File-Write oder Checkpoint-Text zurueckfallen.

@@ -264,7 +264,7 @@ jobs:
   merge:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       packages: write
     needs: [source, safety-tests, build-amd64, build-arm64]
     steps:
@@ -441,33 +441,52 @@ jobs:
           echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
 
-      - name: Publish GitHub release assets
+      - name: Package immutable release metadata
         if: startsWith(github.ref, 'refs/tags/v')
         env:
-          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.source.outputs.release_tag }}
           RELEASE_VERSION: ${{ needs.source.outputs.release_version }}
+          RELEASE_COMMIT_SHA: ${{ needs.source.outputs.commit_sha }}
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          HOST_CLI_SHA256: ${{ steps.cli.outputs.sha256 }}
         run: |
           set -euo pipefail
-          gh release create "${RELEASE_TAG}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "Canvas Notebook ${RELEASE_VERSION}" \
-            --generate-notes \
-            dist-portable-cli/canvas-notebook-cli.tar.gz \
-            dist-portable-cli/canvas-notebook-cli.sha256 \
-            dist-host-cli/canvas-notebook-host-cli.tar.gz \
-            dist-host-cli/canvas-notebook-host-cli.sha256 \
-            dist-native-compliance/canvas-native-compliance-${RELEASE_VERSION}.tar.gz \
-            dist-native-compliance/canvas-native-compliance-${RELEASE_VERSION}.sha256 || \
-          gh release upload "${RELEASE_TAG}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --clobber \
-            dist-portable-cli/canvas-notebook-cli.tar.gz \
-            dist-portable-cli/canvas-notebook-cli.sha256 \
-            dist-host-cli/canvas-notebook-host-cli.tar.gz \
-            dist-host-cli/canvas-notebook-host-cli.sha256 \
-            dist-native-compliance/canvas-native-compliance-${RELEASE_VERSION}.tar.gz \
-            dist-native-compliance/canvas-native-compliance-${RELEASE_VERSION}.sha256
+          portable_sha256="$(awk '$2 == "canvas-notebook-cli.tar.gz" { print $1 }' dist-portable-cli/canvas-notebook-cli.sha256)"
+          [[ "$portable_sha256" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$HOST_CLI_SHA256" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          export PORTABLE_CLI_SHA256="$portable_sha256"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const metadata = {
+            schemaVersion: 1,
+            repository: process.env.GITHUB_REPOSITORY,
+            version: process.env.RELEASE_VERSION,
+            tag: process.env.RELEASE_TAG,
+            commitSha: process.env.RELEASE_COMMIT_SHA,
+            image: {
+              name: process.env.GHCR_IMAGE,
+              digest: process.env.IMAGE_DIGEST,
+            },
+            hostCli: {
+              filename: 'canvas-notebook-host-cli.tar.gz',
+              sha256: process.env.HOST_CLI_SHA256,
+            },
+            portableCli: {
+              filename: 'canvas-notebook-cli.tar.gz',
+              sha256: process.env.PORTABLE_CLI_SHA256,
+            },
+            build: {
+              runId: process.env.GITHUB_RUN_ID,
+              runNumber: process.env.GITHUB_RUN_NUMBER,
+              runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            },
+          };
+          fs.mkdirSync('dist-release', { recursive: true });
+          fs.writeFileSync('dist-release/canvas-notebook-release-metadata.json', `${JSON.stringify(metadata, null, 2)}\n`);
+          NODE
 
       - name: Upload gated release bundle
         if: startsWith(github.ref, 'refs/tags/v')
@@ -483,3 +502,4 @@ jobs:
             dist-host-cli/canvas-notebook-host-cli.sha256
             dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz
             dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.sha256
+            dist-release/canvas-notebook-release-metadata.json

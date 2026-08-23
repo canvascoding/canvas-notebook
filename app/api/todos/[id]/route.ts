@@ -7,13 +7,16 @@ import {
   TODO_STATUSES,
   archiveTodo,
   getTodo,
+  TodoStoreError,
   updateTodo,
   type TodoFileLinkInput,
   type TodoWithRelations,
   type TodoPriority,
   type TodoStatus,
 } from '@/app/lib/todos/store';
+import { isTodoIconKey, type TodoIconKey } from '@/app/lib/todos/icons';
 import { setTodoReadStateForUser } from '@/app/lib/todos/read-state-actions';
+import { todoLifecycleAllowsUnread } from '@/app/lib/todos/read-state-policy';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -35,6 +38,13 @@ function parseFileLinks(value: unknown): TodoFileLinkInput[] | undefined {
   return Array.isArray(value) ? value as TodoFileLinkInput[] : undefined;
 }
 
+function parseIconKey(value: unknown): TodoIconKey | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (!isTodoIconKey(value)) throw new Error('Invalid to-do icon.');
+  return value;
+}
+
 function parseRequestedReadState(payload: Record<string, unknown>): { read: boolean; readAt?: Date } | undefined {
   if (payload.read !== undefined) {
     if (typeof payload.read !== 'boolean') throw new Error('read must be a boolean.');
@@ -50,7 +60,7 @@ function parseRequestedReadState(payload: Record<string, unknown>): { read: bool
 
 function hasTodoUpdate(payload: Record<string, unknown>): boolean {
   return [
-    'title', 'description', 'categoryId', 'priority', 'dueAt', 'status',
+    'title', 'description', 'categoryId', 'priority', 'iconKey', 'dueAt', 'remindAt', 'status',
     'assigneeUserId', 'completionComment', 'fileLinks',
   ].some((key) => payload[key] !== undefined);
 }
@@ -113,9 +123,17 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
     const requestedReadState = parseRequestedReadState(payload);
     const shouldUpdateTodo = hasTodoUpdate(payload);
+    const requestedStatus = payload.status === undefined ? undefined : parseStatus(payload.status);
+    if (payload.status !== undefined && !requestedStatus) {
+      throw new Error('Invalid todo status.');
+    }
     if (shouldUpdateTodo) {
       const permissionResponse = await requireTodoWriteWorkspace(session, existingTodo);
       if (permissionResponse) return permissionResponse;
+    }
+    const resultingStatus = requestedStatus ?? existingTodo.status;
+    if (requestedReadState?.read === false && !todoLifecycleAllowsUnread(resultingStatus)) {
+      throw new TodoStoreError('Completed or archived to-dos cannot be marked unread.', 'TODO_READ_STATE_CONFLICT');
     }
 
     let todo = existingTodo;
@@ -125,8 +143,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         ...(payload.description !== undefined ? { description: typeof payload.description === 'string' ? payload.description : null } : {}),
         ...(payload.categoryId !== undefined ? { categoryId: typeof payload.categoryId === 'string' ? payload.categoryId : null } : {}),
         ...(payload.priority !== undefined ? { priority: parsePriority(payload.priority) } : {}),
+        ...(payload.iconKey !== undefined ? { iconKey: parseIconKey(payload.iconKey) } : {}),
         ...(payload.dueAt !== undefined ? { dueAt: parseOptionalDate(payload.dueAt) ?? null } : {}),
-        ...(payload.status !== undefined ? { status: parseStatus(payload.status) } : {}),
+        ...(payload.remindAt !== undefined ? { remindAt: parseOptionalDate(payload.remindAt) ?? null } : {}),
+        ...(requestedStatus !== undefined ? { status: requestedStatus } : {}),
         ...(payload.assigneeUserId !== undefined ? {
           assigneeUserId: typeof payload.assigneeUserId === 'string' ? payload.assigneeUserId : null,
         } : {}),

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 show_auto_update_status() {
-  local timer_active next_run last_result
+  local timer_active service_active next_run last_result
   if ! command -v systemctl >/dev/null 2>&1; then
     warn "systemd not found — auto-update timer requires systemd"
     return 1
@@ -25,6 +25,7 @@ show_auto_update_status() {
   printf 'autoUpdate.schedule=%s\n' "$schedule_val"
 
   timer_active="$(systemctl is-active canvas-notebook-update.timer 2>/dev/null || true)"
+  service_active="$(systemctl is-active canvas-notebook-update.service 2>/dev/null || true)"
   if [[ "$timer_active" == "active" ]]; then
     ok "Timer is active"
     next_run="$(systemctl show canvas-notebook-update.timer --property=NextElapseUSecRealtime 2>/dev/null | cut -d= -f2-)"
@@ -35,14 +36,20 @@ show_auto_update_status() {
     info "Timer is inactive (auto-update disabled)"
   fi
 
+  case "$service_active" in
+    active|activating|deactivating)
+      warn "Auto-update service is ${service_active}"
+      ;;
+  esac
+
   local config_true
   config_true="$(is_false "$enabled_val" && printf 'false' || printf 'true')"
   if config_json_managed_by_control_plane; then
     info "Auto-update is under Control Plane management; local timer state is intentionally ignored."
   elif [[ "$config_true" == "true" && "$timer_active" != "active" ]]; then
     warn "Config says enabled but timer is inactive — run: canvas-notebook auto-update-enable"
-  elif [[ "$config_true" == "false" && "$timer_active" == "active" ]]; then
-    warn "Config says disabled but timer is active — run: canvas-notebook auto-update-disable"
+  elif [[ "$config_true" == "false" && ( "$timer_active" == "active" || "$service_active" == "active" || "$service_active" == "activating" || "$service_active" == "deactivating" ) ]]; then
+    warn "Config says disabled but an auto-update unit is still active — run: canvas-notebook auto-update-disable"
   fi
 
   printf '\n== Timer Unit ==\n'
@@ -125,9 +132,12 @@ disable_auto_update() {
     info "Managed by Control Plane — disabling any autonomous auto-update timer as a safety measure."
   fi
 
-  if [[ -f /etc/systemd/system/canvas-notebook-update.timer ]]; then
+  if [[ -f /etc/systemd/system/canvas-notebook-update.timer || -f /etc/systemd/system/canvas-notebook-update.service ]]; then
     run_root systemctl stop canvas-notebook-update.timer >/dev/null 2>&1 || true
+    run_root systemctl stop canvas-notebook-update.service >/dev/null 2>&1 || true
     run_root systemctl disable canvas-notebook-update.timer >/dev/null 2>&1 || true
+    run_root systemctl disable canvas-notebook-update.service >/dev/null 2>&1 || true
+    run_root systemctl reset-failed canvas-notebook-update.timer canvas-notebook-update.service >/dev/null 2>&1 || true
   fi
 
   config_json_write autoUpdate.enabled false
@@ -136,10 +146,11 @@ disable_auto_update() {
 }
 
 sync_auto_update() {
-  local enabled_val timer_active managed_by_control_plane
+  local enabled_val timer_active service_active managed_by_control_plane
   enabled_val="$(config_json_read autoUpdate.enabled)"
   enabled_val="${enabled_val:-false}"
   timer_active="$(systemctl is-active canvas-notebook-update.timer 2>/dev/null || true)"
+  service_active="$(systemctl is-active canvas-notebook-update.service 2>/dev/null || true)"
   managed_by_control_plane=false
   if config_json_managed_by_control_plane; then
     managed_by_control_plane=true
@@ -151,7 +162,7 @@ sync_auto_update() {
     else
       warn "Image is not pinned to a sha256 digest — autonomous auto-update must remain disabled."
     fi
-    if [[ "$timer_active" == "active" ]]; then
+    if [[ "$timer_active" == "active" || "$service_active" == "active" || "$service_active" == "activating" || "$service_active" == "deactivating" ]]; then
       disable_auto_update
     else
       config_json_write autoUpdate.enabled false
@@ -163,8 +174,8 @@ sync_auto_update() {
   if [[ "$(is_false "$enabled_val" && printf 'false' || printf 'true')" == "true" && "$timer_active" != "active" ]]; then
     info "Config says enabled but timer inactive — enabling..."
     enable_auto_update
-  elif [[ "$(is_false "$enabled_val" && printf 'false' || printf 'true')" == "false" && "$timer_active" == "active" ]]; then
-    info "Config says disabled but timer active — disabling..."
+  elif [[ "$(is_false "$enabled_val" && printf 'false' || printf 'true')" == "false" && ( "$timer_active" == "active" || "$service_active" == "active" || "$service_active" == "activating" || "$service_active" == "deactivating" ) ]]; then
+    info "Config says disabled but an auto-update unit is active — disabling..."
     disable_auto_update
   else
     ok "Auto-update config and timer are in sync"

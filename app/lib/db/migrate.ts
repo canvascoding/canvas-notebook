@@ -1232,7 +1232,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       description TEXT,
       status TEXT NOT NULL DEFAULT 'open',
       priority TEXT NOT NULL DEFAULT 'normal',
+      icon_key TEXT,
       due_at INTEGER,
+      remind_at INTEGER,
+      reminder_sent_at INTEGER,
+      reminder_error TEXT,
       source_type TEXT NOT NULL DEFAULT 'user',
       source_agent_id TEXT,
       source_session_id TEXT,
@@ -2081,6 +2085,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     follow_up_error: 'TEXT',
     email_notification_sent_at: 'INTEGER',
     email_notification_error: 'TEXT',
+    icon_key: 'TEXT',
+    remind_at: 'INTEGER',
+    reminder_sent_at: 'INTEGER',
+    reminder_error: 'TEXT',
   });
 
   addColumns(sqlite, 'todo_file_links', {
@@ -2402,6 +2410,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_todo_categories_user_archived ON todo_categories (user_id, is_archived);
     CREATE INDEX IF NOT EXISTS idx_todo_items_user_status_updated ON todo_items (user_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_user_due ON todo_items (user_id, due_at);
+    CREATE INDEX IF NOT EXISTS idx_todo_items_reminder_due ON todo_items (status, remind_at, reminder_sent_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_user_seen ON todo_items (user_id, seen_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_source_session ON todo_items (user_id, source_session_id);
     CREATE INDEX IF NOT EXISTS idx_todo_items_org_workspace_status ON todo_items (organization_id, workspace_id, status, updated_at);

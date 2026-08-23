@@ -32,10 +32,12 @@ jobs:
 
           host_asset_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name == "canvas-notebook-host-cli.tar.gz") | .browser_download_url')"
           checksum_asset_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name == "canvas-notebook-host-cli.sha256") | .browser_download_url')"
-          [[ -n "$host_asset_url" && -n "$checksum_asset_url" ]]
+          metadata_asset_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name == "canvas-notebook-release-metadata.json") | .browser_download_url')"
+          [[ -n "$host_asset_url" && -n "$checksum_asset_url" && -n "$metadata_asset_url" ]]
 
           curl --fail --location --retry 4 --output canvas-notebook-host-cli.tar.gz "$host_asset_url"
           curl --fail --location --retry 4 --output canvas-notebook-host-cli.sha256 "$checksum_asset_url"
+          curl --fail --location --retry 4 --output canvas-notebook-release-metadata.json "$metadata_asset_url"
           shasum -a 256 -c canvas-notebook-host-cli.sha256
 
           expected_sha256="$(awk '$2 == "canvas-notebook-host-cli.tar.gz" { print $1 }' canvas-notebook-host-cli.sha256)"
@@ -49,6 +51,33 @@ jobs:
 
           release_commit_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
           [[ "$release_commit_sha" =~ ^[a-f0-9]{40,64}$ ]]
+          expected_image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          RELEASE_VERSION="$release_version" RELEASE_TAG="$RELEASE_TAG" RELEASE_COMMIT_SHA="$release_commit_sha" EXPECTED_IMAGE="$expected_image" HOST_CLI_SHA256="$expected_sha256" \
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const metadata = JSON.parse(fs.readFileSync('canvas-notebook-release-metadata.json', 'utf8'));
+          const validDigest = /^sha256:[a-f0-9]{64}$/u.test(metadata.image?.digest || '');
+          const validRunId = /^\d+$/u.test(metadata.build?.runId || '');
+          if (
+            metadata.schemaVersion !== 1 ||
+            metadata.repository !== process.env.GITHUB_REPOSITORY ||
+            metadata.version !== process.env.RELEASE_VERSION ||
+            metadata.tag !== process.env.RELEASE_TAG ||
+            metadata.commitSha !== process.env.RELEASE_COMMIT_SHA ||
+            metadata.image?.name !== process.env.EXPECTED_IMAGE ||
+            !validDigest ||
+            metadata.hostCli?.filename !== 'canvas-notebook-host-cli.tar.gz' ||
+            metadata.hostCli?.sha256 !== process.env.HOST_CLI_SHA256 ||
+            !validRunId
+          ) {
+            throw new Error('Published release metadata does not match the verified tag, image, host CLI, and source commit.');
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `build_run_id=${metadata.build.runId}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `build_run_number=${metadata.build.runNumber || ''}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `build_run_attempt=${metadata.build.runAttempt || ''}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `image_digest=${metadata.image.digest}\n`);
+          NODE
           echo "version=${release_version}" >> "$GITHUB_OUTPUT"
           echo "ref=refs/tags/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
           echo "commit_sha=${release_commit_sha}" >> "$GITHUB_OUTPUT"
@@ -76,6 +105,7 @@ jobs:
           set -euo pipefail
           digest="$(docker buildx imagetools inspect "${GHCR_IMAGE}:${RELEASE_TAG}" --format '{{.Manifest.Digest}}')"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$digest" == "${{ steps.release.outputs.image_digest }}" ]]
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Notify Control Plane release webhook
@@ -90,6 +120,9 @@ jobs:
           RELEASE_REF: ${{ steps.release.outputs.ref }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           RELEASE_COMMIT_SHA: ${{ steps.release.outputs.commit_sha }}
+          RELEASE_BUILD_RUN_ID: ${{ steps.release.outputs.build_run_id }}
+          RELEASE_BUILD_RUN_NUMBER: ${{ steps.release.outputs.build_run_number }}
+          RELEASE_BUILD_RUN_ATTEMPT: ${{ steps.release.outputs.build_run_attempt }}
         run: |
           if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_URL}" ]; then
             echo "::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL secret is missing; using the default Canvas Control Plane release webhook URL."

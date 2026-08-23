@@ -3,12 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { auth } from '@/app/lib/auth';
 import {
-  listMobileAggregateInbox,
   markMobileAggregateInboxRead,
   markMobileInboxRead,
   MobileInboxError,
 } from '@/app/lib/mobile/inbox';
 import { loadMobileInboxScope } from '@/app/lib/mobile/inbox-scope';
+import { readNotificationAttention } from '@/app/lib/notifications/attention';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type PatchPayload = {
@@ -43,43 +43,26 @@ export async function GET(request: NextRequest) {
     if (!limited.ok) return limited.response;
 
     const scope = await loadMobileInboxScope(session.user);
-    const [inbox, todosInbox] = await Promise.all([
-      listMobileAggregateInbox({
-        userId: session.user.id,
-        workspaces: scope.includedWorkspaces,
-        filter: 'notifications',
-        limit: 12,
-      }),
-      // Persistent To-dos must not be crowded out by recent event notifications.
-      listMobileAggregateInbox({
-        userId: session.user.id,
-        workspaces: scope.includedWorkspaces,
-        filter: 'todos',
-        limit: 50,
-      }),
-    ]);
-    const workspaceNames = new Map(scope.sources.map((source) => [source.id, source.name]));
-    const notificationItems = inbox.items.map((item) => ({
-      ...item,
-      workspaceName: workspaceNames.get(item.workspaceId) ?? null,
-    }));
-    const todoItems = todosInbox.items.map((item) => ({
-      ...item,
-      workspaceName: workspaceNames.get(item.workspaceId) ?? null,
-    }));
-    const items = [...notificationItems, ...todoItems];
+    const attention = await readNotificationAttention({
+      userId: session.user.id,
+      workspaces: scope.includedWorkspaces,
+    });
+    const items = [...attention.sections.notifications, ...attention.sections.todoAttention, ...attention.sections.emailAttention];
 
     return NextResponse.json({
       success: true,
       data: {
-        unreadCount: inbox.counts.unread,
-        counts: inbox.counts,
+        unreadCount: attention.unreadCount,
+        counts: attention.counts,
         // Keep `items` for existing dashboard consumers while the notification
         // center can render its persistent To-do section independently.
         items,
         sections: {
-          notifications: notificationItems,
-          todos: todoItems,
+          notifications: attention.sections.notifications,
+          todos: attention.sections.todoAttention,
+          todoUnread: attention.sections.todoAttention.filter((item) => item.unread),
+          todoAttention: attention.sections.todoAttention,
+          emailAttention: attention.sections.emailAttention,
         },
       },
     });
@@ -111,6 +94,7 @@ export async function PATCH(request: NextRequest) {
       const data = await markMobileAggregateInboxRead({
         userId: session.user.id,
         workspaces: scope.includedWorkspaces,
+        category: 'notifications',
       });
       return NextResponse.json({ success: true, data });
     }

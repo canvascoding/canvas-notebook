@@ -68,3 +68,18 @@ erfolgreich ausgefuehrt. Der detailierte Nachweis mit offenen Abnahmen steht in
 
 Der Ticketstatus bleibt bis zur explizit freigegebenen externen
 ChatGPT-Abnahme `in_progress`.
+
+## Abnahmebefund (2026-08-23)
+
+Die externe ChatGPT-Abnahme ist fehlgeschlagen: Die **Dynamic Client
+Registration** erreicht den Registration Endpoint, dieser antwortet jedoch mit
+HTTP 500. Der Fehler liegt vor dem erfolgreichen OAuth-Consent-/Token- und
+MCP-Tool-Call und ist damit ein reproduzierbarer offener Fehler dieses Tickets.
+Die weitere Diagnose muss Request-ID, Public Base URL, Metadaten-
+`registration_endpoint`, Request-Schema, Serverursache und die redigierte
+Fehlerantwort erfassen. Ein Workaround durch manuell vorregistrierte Clients
+zaehlt nicht als Abschluss, solange der von ChatGPT verwendete dynamische Flow
+nicht funktioniert.
+
+Die erneute Abnahme am korrekt produktiven Stand bestaetigt denselben Befund;
+Ticket 17 bleibt daher unveraendert in Umsetzung.

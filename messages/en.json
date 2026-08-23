@@ -1714,7 +1714,8 @@
         "sessions": {
           "title": "New replies",
           "empty": "No unread replies.",
-          "newResponse": "New reply"
+          "newResponse": "New reply",
+          "workspace": "Workspace: {workspace}"
         },
         "todos": {
           "title": "Needs attention",
@@ -2221,8 +2222,11 @@
     "recent": "Recent",
     "sections": {
       "notifications": "Notifications",
-      "todos": "To-dos"
+      "todos": "To-dos",
+      "emailReview": "Email review"
     },
+    "openEmails": "Open all emails",
+    "openTodos": "Open all to-dos",
     "types": {
       "chat": "New agent response",
       "todo": "To-do needs attention",
@@ -2241,6 +2245,7 @@
     "sections": {
       "workspace": "Scope",
       "status": "Status",
+      "readState": "Read status",
       "priority": "Priority",
       "categories": "Categories",
       "files": "Files",
@@ -2264,6 +2269,11 @@
       "allCategories": "All categories",
       "allPriorities": "All priorities",
       "noCategory": "No category",
+      "readState": {
+        "all": "Read and unread",
+        "read": "Read",
+        "unread": "Unread"
+      },
       "status": {
         "active": "Active",
         "open": "Open",
@@ -2285,6 +2295,9 @@
     "source": {
       "user": "User",
       "agent": "Agent"
+    },
+    "icons": {
+      "check": "Task", "eye": "Review", "approval": "Approval", "message": "Reply", "file": "Document", "calendar": "Schedule", "warning": "Attention", "idea": "Decision", "user": "Personal", "settings": "Configuration"
     },
     "defaultCategories": {
       "todo": "To-do",
@@ -2324,8 +2337,11 @@
       "workspace": "Applies to",
       "assignee": "Assignee",
       "priority": "Priority",
+      "icon": "Icon",
       "dueAt": "Due",
       "noDueAt": "No date",
+      "remindAt": "Reminder",
+      "noReminder": "No reminder",
       "fileSearch": "Link workspace file",
       "fileSearchPlaceholder": "Search filename or path",
       "linkedFiles": "Linked files",
@@ -2347,6 +2363,7 @@
       "completeBeforeFollowUp": "Complete the to-do first. Then you can inform the agent in the linked session."
     },
     "labels": {
+      "categoryIcon": "Use category icon",
       "unread": "Unread",
       "unassigned": "Unassigned",
       "followUpSentAt": "Last sent to the agent: {date}",

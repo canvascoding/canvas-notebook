@@ -11,6 +11,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 export const MOBILE_TODO_STATUSES = ['active', 'open', 'done', 'archived', 'all'] as const;
 export const MOBILE_TODO_DUE_FILTERS = ['overdue', 'today', 'upcoming'] as const;
+export const MOBILE_TODO_READ_STATES = ['read', 'unread'] as const;
 
 type MobileTodoCursor = {
   workspaceId: string;
@@ -30,7 +31,9 @@ export type MobileTodo = {
   description: string | null;
   status: 'open' | 'done' | 'archived';
   priority: 'low' | 'normal' | 'high';
+  iconKey: string | null;
   dueAt: string | null;
+  remindAt: string | null;
   seenAt: string | null;
   readAt: string | null;
   readState: 'read' | 'unread';
@@ -105,7 +108,9 @@ export function serializeMobileTodo(todo: TodoWithRelations): MobileTodo {
     description: todo.description,
     status: todo.status as MobileTodo['status'],
     priority: todo.priority as MobileTodo['priority'],
+    iconKey: todo.iconKey,
     dueAt: iso(todo.dueAt),
+    remindAt: iso(todo.remindAt),
     seenAt: iso(todo.seenAt),
     readAt: iso(todo.readAt),
     readState: todo.readState,
@@ -148,6 +153,7 @@ function normalizeLimit(value: number | undefined): number {
 function signature(input: {
   status: string;
   due: string;
+  readState: string;
   assigneeUserId: string;
   query: string;
 }): string {
@@ -184,6 +190,7 @@ export async function listMobileTodos(input: {
   workspace: WorkspaceContext;
   status?: string | null;
   due?: string | null;
+  readState?: string | null;
   assigneeUserId?: string | null;
   query?: string | null;
   cursor?: string | null;
@@ -195,9 +202,13 @@ export async function listMobileTodos(input: {
   const due = MOBILE_TODO_DUE_FILTERS.includes(input.due as typeof MOBILE_TODO_DUE_FILTERS[number])
     ? input.due as ListTodosOptions['due']
     : undefined;
+  if (input.readState && !MOBILE_TODO_READ_STATES.includes(input.readState as typeof MOBILE_TODO_READ_STATES[number])) {
+    throw new MobileTodoError('INVALID_READ_STATE', 'The To-do read state is invalid.', 400);
+  }
+  const readState = input.readState as ListTodosOptions['readState'] | undefined;
   const assigneeUserId = input.assigneeUserId?.trim().slice(0, 160) || '';
   const query = input.query?.trim().toLocaleLowerCase().slice(0, 120) || '';
-  const cursorSignature = signature({ status: status || 'active', due: due || '', assigneeUserId, query });
+  const cursorSignature = signature({ status: status || 'active', due: due || '', readState: readState || '', assigneeUserId, query });
   const cursor = decodeCursor(input.cursor, input.workspace.workspaceId, cursorSignature);
   const limit = normalizeLimit(input.limit);
   const sortAsOf = cursor ? new Date(cursor.sortAsOf) : new Date();
@@ -219,6 +230,7 @@ export async function listMobileTodos(input: {
     ...workspaceOptions(input.workspace),
     status,
     due,
+    readState,
     assigneeUserId: assigneeUserId || undefined,
     query: query || undefined,
     sortAsOf,

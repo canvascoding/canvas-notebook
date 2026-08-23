@@ -1,6 +1,6 @@
 ---
 title: 'Ticket 22: MARP-YAML und Formatierung beim Editorwechsel erhalten'
-status: in_review
+status: done
 priority: high
 depends_on: []
 platforms: [web]
@@ -39,6 +39,14 @@ integriert. Die im Plan geforderte manuelle Moduswechsel-Abnahme sowie das
 abschliessende Build-Gate sind noch als Abnahme nachzuholen; deshalb ist das
 Ticket in Abnahme und nicht erledigt.
 
+## Korrigierte Abnahme (2026-08-23)
+
+Die fruehere Meldung eines Front-Matter-/Revisionsverlusts beruhte auf einem
+fehlerhaften Teststand. Die erneute Pruefung am korrekt produktiven Stand ist
+erfolgreich: Der MARP-Roundtrip funktioniert wie erwartet. Ticket 22 ist damit
+erledigt. Die folgenden Schutzmassnahmen und Abnahmekriterien bleiben als
+Regressionstest-Dokumentation bestehen.
+
 - Roundtrip-Fixtures fuer MARP-Front-Matter, Kommentare, unbekannte Felder,
   Direktiven, Folientrenner, HTML, Code, Tabellen und Whitespace erstellen.
 - Datenfluss in `MarkdownEditor`, Markdown-/TipTap-Serialisierung,
@@ -59,6 +67,9 @@ Ticket in Abnahme und nicht erledigt.
 - Unsupported Content erzeugt eine klare Warnung und bleibt im Source erhalten.
 - Wiederholtes Umschalten akkumuliert keine Formatierungs- oder Whitespace-
   Aenderungen.
+- Ein Moduswechsel verwendet immer die aktuellste autoritative Datei-/Draft-
+  Revision; kein aelterer Source-, Collaboration- oder Autosave-Snapshot darf
+  Front Matter oder Body zuruecksetzen.
 
 ## Tests und Abschluss
 
