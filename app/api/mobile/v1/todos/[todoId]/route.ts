@@ -4,6 +4,7 @@ import { getMobileTodo, MobileTodoError, serializeMobileTodo } from '@/app/lib/m
 import { mobileTodosErrorResponse, mobileTodosResponseHeaders } from '@/app/lib/mobile/todos-route';
 import { setTodoReadStateForUser } from '@/app/lib/todos/read-state-actions';
 import { archiveTodo, updateTodo, type TodoFileLinkInput, type TodoPriority, type TodoStatus } from '@/app/lib/todos/store';
+import { isTodoIconKey } from '@/app/lib/todos/icons';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace, requireSessionWorkspace } from '@/app/lib/workspaces/request';
 
@@ -19,7 +20,7 @@ function dateValue(value: unknown): Date | null {
 
 function hasTodoUpdate(payload: Record<string, unknown>): boolean {
   return [
-    'title', 'description', 'priority', 'dueAt', 'status', 'assigneeUserId',
+    'title', 'description', 'priority', 'iconKey', 'dueAt', 'remindAt', 'status', 'assigneeUserId',
     'completionComment', 'fileLinks',
   ].some((key) => payload[key] !== undefined);
 }
@@ -70,7 +71,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         ...(payload.title !== undefined ? { title: String(payload.title) } : {}),
         ...(payload.description !== undefined ? { description: typeof payload.description === 'string' ? payload.description : null } : {}),
         ...(payload.priority !== undefined ? { priority: payload.priority as TodoPriority } : {}),
+        ...(payload.iconKey !== undefined ? { iconKey: isTodoIconKey(payload.iconKey) ? payload.iconKey : null } : {}),
         ...(payload.dueAt !== undefined ? { dueAt: dateValue(payload.dueAt) } : {}),
+        ...(payload.remindAt !== undefined ? { remindAt: dateValue(payload.remindAt) } : {}),
         ...(payload.status !== undefined ? { status: payload.status as TodoStatus } : {}),
         ...(payload.assigneeUserId !== undefined ? { assigneeUserId: typeof payload.assigneeUserId === 'string' ? payload.assigneeUserId : null } : {}),
         ...(payload.completionComment !== undefined ? { completionComment: typeof payload.completionComment === 'string' ? payload.completionComment : null } : {}),

@@ -30,7 +30,9 @@ export type MobileTodo = {
   description: string | null;
   status: 'open' | 'done' | 'archived';
   priority: 'low' | 'normal' | 'high';
+  iconKey: string | null;
   dueAt: string | null;
+  remindAt: string | null;
   seenAt: string | null;
   readAt: string | null;
   readState: 'read' | 'unread';
@@ -105,7 +107,9 @@ export function serializeMobileTodo(todo: TodoWithRelations): MobileTodo {
     description: todo.description,
     status: todo.status as MobileTodo['status'],
     priority: todo.priority as MobileTodo['priority'],
+    iconKey: todo.iconKey,
     dueAt: iso(todo.dueAt),
+    remindAt: iso(todo.remindAt),
     seenAt: iso(todo.seenAt),
     readAt: iso(todo.readAt),
     readState: todo.readState,

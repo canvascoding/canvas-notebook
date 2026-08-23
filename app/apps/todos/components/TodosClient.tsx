@@ -14,6 +14,7 @@ import {
   Circle,
   Clock3,
   Edit3,
+  Eye,
   ExternalLink,
   FileText,
   FolderSearch,
@@ -23,11 +24,13 @@ import {
   MailWarning,
   Menu,
   MessageSquare,
+  Lightbulb,
   MoreHorizontal,
   Plus,
   RefreshCcw,
   Search,
   Send,
+  Settings2,
   Trash2,
   UserRound,
   Users,
@@ -127,9 +130,11 @@ type TodoItem = {
   description: string | null;
   status: TodoStatus;
   priority: TodoPriority;
+  iconKey: TodoIconKey | null;
   sourceType: TodoSourceType;
   sourceSessionId: string | null;
   dueAt: string | null;
+  remindAt: string | null;
   seenAt: string | null;
   completedAt: string | null;
   completionComment: string | null;
@@ -175,10 +180,36 @@ type TodoFormState = {
   description: string;
   categoryId: string;
   priority: TodoPriority;
+  iconKey: TodoIconKey | '';
   dueAt: string;
+  remindAt: string;
   assigneeUserId: string;
   fileLinks: Array<{ workspacePath: string; label: string | null }>;
 };
+
+type TodoIconKey = 'check' | 'eye' | 'approval' | 'message' | 'file' | 'calendar' | 'warning' | 'idea' | 'user' | 'settings';
+const todoIconKeys: TodoIconKey[] = ['check', 'eye', 'approval', 'message', 'file', 'calendar', 'warning', 'idea', 'user', 'settings'];
+
+function TodoIcon({ iconKey, className = 'h-4 w-4' }: { iconKey: TodoIconKey | null; className?: string }) {
+  if (iconKey === 'eye') return <Eye className={className} />;
+  if (iconKey === 'approval') return <CheckCircle2 className={className} />;
+  if (iconKey === 'message') return <MessageSquare className={className} />;
+  if (iconKey === 'file') return <FileText className={className} />;
+  if (iconKey === 'calendar') return <CalendarDays className={className} />;
+  if (iconKey === 'warning') return <MailWarning className={className} />;
+  if (iconKey === 'idea') return <Lightbulb className={className} />;
+  if (iconKey === 'user') return <UserRound className={className} />;
+  if (iconKey === 'settings') return <Settings2 className={className} />;
+  return <Check className={className} />;
+}
+
+function resolvedTodoIconKey(todo: Pick<TodoItem, 'iconKey' | 'category'>): TodoIconKey {
+  if (todo.iconKey) return todo.iconKey;
+  if (todo.category?.icon === 'search-check') return 'eye';
+  if (todo.category?.icon === 'badge-check') return 'approval';
+  if (todo.category?.icon === 'workflow') return 'settings';
+  return 'check';
+}
 
 const statusFilters: StatusFilter[] = ['open', 'done', 'archived', 'all'];
 const priorities: TodoPriority[] = ['low', 'normal', 'high'];
@@ -189,7 +220,9 @@ const emptyForm: TodoFormState = {
   description: '',
   categoryId: '',
   priority: 'normal',
+  iconKey: '',
   dueAt: '',
+  remindAt: '',
   assigneeUserId: '',
   fileLinks: [],
 };
@@ -232,7 +265,9 @@ function todoToForm(todo: TodoItem): TodoFormState {
     description: todo.description ?? '',
     categoryId: todo.category?.id ?? '',
     priority: todo.priority,
+    iconKey: todo.iconKey ?? '',
     dueAt: toDateInput(todo.dueAt),
+    remindAt: todo.remindAt ? todo.remindAt.slice(0, 16) : '',
     assigneeUserId: todo.assigneeUserId ?? '',
     fileLinks: todo.fileLinks.map((link) => ({
       workspacePath: link.workspacePath,
@@ -999,7 +1034,9 @@ export function TodosClient({ title }: { title: string }) {
         description: form.description || null,
         categoryId: form.categoryId || null,
         priority: form.priority,
+        iconKey: form.iconKey || null,
         dueAt: form.dueAt || null,
+        remindAt: form.remindAt ? new Date(form.remindAt).toISOString() : null,
         assigneeUserId: form.assigneeUserId || null,
         fileLinks: form.fileLinks,
         ...(!editingTodoId ? {
@@ -1524,6 +1561,7 @@ export function TodosClient({ title }: { title: string }) {
                     <button type="button" className="min-w-0 flex-1 text-left" onClick={() => void handleSelectTodo(todo)}>
                       <div className="flex min-w-0 items-center gap-2">
                         {!todo.seenAt && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label={t('labels.unread')} />}
+                        <TodoIcon iconKey={resolvedTodoIconKey(todo)} className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <h4 className={cn('truncate text-sm font-semibold', todo.status === 'done' && 'text-muted-foreground line-through')}>
                           {todo.title}
                         </h4>
@@ -1758,7 +1796,7 @@ export function TodosClient({ title }: { title: string }) {
                     maxLength={5000}
                   />
                 </div>
-                <div className="grid min-w-0 gap-4 sm:grid-cols-3">
+                <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <label className="min-w-0 space-y-2 text-sm">
                     <span className="font-medium">{t('fields.category')}</span>
                     <select
@@ -1784,6 +1822,13 @@ export function TodosClient({ title }: { title: string }) {
                       ))}
                     </select>
                   </label>
+                  <label className="min-w-0 space-y-2 text-sm">
+                    <span className="font-medium">{t('fields.icon')}</span>
+                    <select className="h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 text-sm" value={form.iconKey} onChange={(event) => setForm((current) => ({ ...current, iconKey: event.target.value as TodoIconKey | '' }))}>
+                      <option value="">{t('labels.categoryIcon')}</option>
+                      {todoIconKeys.map((iconKey) => <option key={iconKey} value={iconKey}>{t(`icons.${iconKey}`)}</option>)}
+                    </select>
+                  </label>
                   <div className="min-w-0 space-y-2">
                     <Label htmlFor="todo-due-at">{t('fields.dueAt')}</Label>
                     <Input
@@ -1794,6 +1839,10 @@ export function TodosClient({ title }: { title: string }) {
                       className="block max-w-full [min-inline-size:0] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
                     />
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="todo-remind-at">{t('fields.remindAt')}</Label>
+                  <Input id="todo-remind-at" type="datetime-local" value={form.remindAt} onChange={(event) => setForm((current) => ({ ...current, remindAt: event.target.value }))} />
                 </div>
                 <label className="min-w-0 space-y-2 text-sm">
                   <span className="font-medium">{t('fields.assignee')}</span>

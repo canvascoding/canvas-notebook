@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { listMobileTodos, MobileTodoError, serializeMobileTodo } from '@/app/lib/mobile/todos';
 import { mobileTodosErrorResponse, mobileTodosResponseHeaders } from '@/app/lib/mobile/todos-route';
 import { createTodo, type TodoFileLinkInput, type TodoPriority } from '@/app/lib/todos/store';
+import { isTodoIconKey } from '@/app/lib/todos/icons';
 import { USER_TODO_SCOPE, parseTodoScopeKind, todoScopeForWorkspace } from '@/app/lib/todos/scope';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
@@ -64,7 +65,9 @@ export async function POST(request: NextRequest) {
       description: typeof payload.description === 'string' ? payload.description : null,
       categoryName: typeof payload.categoryName === 'string' ? payload.categoryName : null,
       priority: typeof payload.priority === 'string' ? payload.priority as TodoPriority : undefined,
+      iconKey: isTodoIconKey(payload.iconKey) ? payload.iconKey : null,
       dueAt: dateValue(payload.dueAt),
+      remindAt: dateValue(payload.remindAt),
       assigneeUserId: typeof payload.assigneeUserId === 'string' ? payload.assigneeUserId : null,
       sourceType: 'user',
       seenAt: new Date(),

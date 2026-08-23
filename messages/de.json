@@ -2286,6 +2286,9 @@
       "user": "Nutzer",
       "agent": "Agent"
     },
+    "icons": {
+      "check": "Aufgabe", "eye": "Prüfen", "approval": "Freigabe", "message": "Antwort", "file": "Dokument", "calendar": "Termin", "warning": "Achtung", "idea": "Entscheidung", "user": "Persönlich", "settings": "Konfiguration"
+    },
     "defaultCategories": {
       "todo": "To-do",
       "review": "Prüfen",
@@ -2324,8 +2327,11 @@
       "workspace": "Gilt für",
       "assignee": "Zugewiesen an",
       "priority": "Priorität",
+      "icon": "Symbol",
       "dueAt": "Fällig",
       "noDueAt": "Kein Datum",
+      "remindAt": "Erinnerung",
+      "noReminder": "Keine Erinnerung",
       "fileSearch": "Workspace-Datei verlinken",
       "fileSearchPlaceholder": "Dateiname oder Pfad suchen",
       "linkedFiles": "Verlinkte Dateien",
@@ -2347,6 +2353,7 @@
       "completeBeforeFollowUp": "Hake das To-do zuerst ab. Danach kannst du den Agenten in der verknüpften Session informieren."
     },
     "labels": {
+      "categoryIcon": "Kategorie-Symbol verwenden",
       "unread": "Ungelesen",
       "unassigned": "Nicht zugewiesen",
       "followUpSentAt": "Zuletzt an den Agenten gesendet: {date}",

@@ -26,6 +26,8 @@ async function main() {
     description: 'Human review is required before publishing.',
     categoryName: 'Prüfen',
     priority: 'high',
+    iconKey: 'eye',
+    remindAt: '2026-12-01T09:00:00.000Z',
     fileLinks: [],
   });
 
@@ -40,6 +42,9 @@ async function main() {
   assert.equal(rows[0].sourceSessionId, 'session-from-runtime');
   assert.equal(rows[0].seenAt, null);
   assert.equal(rows[0].priority, 'high');
+  assert.equal(rows[0].iconKey, 'eye');
+  assert.equal(rows[0].remindAt?.toISOString(), '2026-12-01T09:00:00.000Z');
+  assert.equal(rows[0].assigneeUserId, userId);
 
   const category = await db.query.todoCategories.findFirst({
     where: and(eq(todoCategories.id, rows[0].categoryId!), eq(todoCategories.userId, userId)),
@@ -72,6 +77,16 @@ async function main() {
     where: and(eq(todoItems.userId, userId), eq(todoItems.title, 'Explicit session is ignored when runtime session exists')),
   });
   assert.equal(explicitSessionTodo?.sourceSessionId, 'session-from-runtime');
+
+  const unassignedResult = await tool.execute('tool-test-unassigned', {
+    title: 'Intentionally unassigned',
+    leaveUnassigned: true,
+  });
+  assert.match(unassignedResult.content?.[0]?.type === 'text' ? unassignedResult.content[0].text : '', /Human to-do created/);
+  const unassigned = await db.query.todoItems.findFirst({
+    where: and(eq(todoItems.userId, userId), eq(todoItems.title, 'Intentionally unassigned')),
+  });
+  assert.equal(unassigned?.assigneeUserId, null);
 
   await db.delete(todoFileLinks).where(eq(todoFileLinks.userId, userId));
   await db.delete(todoItems).where(eq(todoItems.userId, userId));

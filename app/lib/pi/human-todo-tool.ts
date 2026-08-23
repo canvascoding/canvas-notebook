@@ -6,6 +6,7 @@ import {
   type TodoFileLinkInput,
   type TodoPriority,
 } from '@/app/lib/todos/store';
+import { TODO_ICON_KEYS, isTodoIconKey } from '@/app/lib/todos/icons';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { USER_TODO_SCOPE, todoScopeForWorkspace } from '@/app/lib/todos/scope';
@@ -35,7 +36,16 @@ function normalizeFileLinks(value: unknown): TodoFileLinkInput[] | undefined {
   if (!Array.isArray(value)) {
     throw new Error('fileLinks must be an array of workspace-relative paths.');
   }
-  return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0);
+  return value.flatMap((entry): TodoFileLinkInput[] => {
+    if (typeof entry === 'string' && entry.trim()) return [entry];
+    if (entry && typeof entry === 'object') {
+      const link = entry as Record<string, unknown>;
+      if (typeof link.workspacePath === 'string' && link.workspacePath.trim()) {
+        return [{ workspacePath: link.workspacePath, label: typeof link.label === 'string' ? link.label : null }];
+      }
+    }
+    return [];
+  });
 }
 
 export function createHumanTodoTool(deps: { userId?: string; agentId?: string | null; sessionId?: string | null } = {}): AgentTool {
@@ -59,13 +69,20 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
         Type.Literal('normal'),
         Type.Literal('high'),
       ], { description: 'Priority for the human. Defaults to normal.' })),
+      iconKey: Type.Optional(Type.Union(TODO_ICON_KEYS.map((key) => Type.Literal(key)), {
+        description: 'Optional visual icon. Use check, eye, approval, message, file, calendar, warning, idea, user, or settings.',
+      })),
       dueAt: Type.Optional(Type.String({ description: 'Optional due date or timestamp, preferably ISO 8601.' })),
-      fileLinks: Type.Optional(Type.Array(Type.String(), {
+      remindAt: Type.Optional(Type.String({ description: 'Optional reminder timestamp, preferably ISO 8601.' })),
+      fileLinks: Type.Optional(Type.Array(Type.Union([
+        Type.String(),
+        Type.Object({ workspacePath: Type.String(), label: Type.Optional(Type.String()) }),
+      ]), {
         description: 'Optional workspace-relative file paths relevant to the task. Absolute paths, URLs, and traversal are rejected.',
         maxItems: 20,
       })),
       assigneeUserId: Type.Optional(Type.String({ description: 'Optional user ID to assign the to-do to. For team workspace to-dos the assignee must be a member of the organization.' })),
-      sourceSessionId: Type.Optional(Type.String({ description: 'Optional Canvas Agent session ID. Usually set automatically by Canvas when this tool runs inside a chat session.' })),
+      leaveUnassigned: Type.Optional(Type.Boolean({ description: 'Set true only when the to-do should intentionally have no responsible person.' })),
     }),
     execute: async (_toolCallId, params) => {
       try {
@@ -84,11 +101,15 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
           description: typeof input.description === 'string' ? input.description : null,
           categoryName: typeof input.categoryName === 'string' ? input.categoryName : null,
           priority: normalizePriority(input.priority),
+          iconKey: isTodoIconKey(input.iconKey) ? input.iconKey : null,
           dueAt: parseDueAt(input.dueAt),
-          assigneeUserId: typeof input.assigneeUserId === 'string' ? input.assigneeUserId : null,
+          remindAt: parseDueAt(input.remindAt),
+          assigneeUserId: input.leaveUnassigned === true
+            ? null
+            : typeof input.assigneeUserId === 'string' ? input.assigneeUserId : deps.userId,
           sourceType: 'agent',
           sourceAgentId,
-          sourceSessionId: sourceSessionId || (typeof input.sourceSessionId === 'string' ? input.sourceSessionId : null),
+          sourceSessionId,
           seenAt: null,
           fileLinks: normalizeFileLinks(input.fileLinks),
         });

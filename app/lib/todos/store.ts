@@ -26,6 +26,7 @@ import {
   setTodoReadState,
 } from './read-state-store';
 import type { TodoScopeKind } from './scope';
+import { isTodoIconKey, type TodoIconKey } from './icons';
 
 export type { TodoScopeKind } from './scope';
 
@@ -94,7 +95,9 @@ export type CreateTodoInput = {
   categoryId?: string | null;
   categoryName?: string | null;
   priority?: TodoPriority | null;
+  iconKey?: TodoIconKey | null;
   dueAt?: Date | null;
+  remindAt?: Date | null;
   sourceType?: TodoSourceType;
   sourceAgentId?: string | null;
   sourceSessionId?: string | null;
@@ -112,7 +115,9 @@ export type UpdateTodoInput = {
   description?: string | null;
   categoryId?: string | null;
   priority?: TodoPriority;
+  iconKey?: TodoIconKey | null;
   dueAt?: Date | null;
+  remindAt?: Date | null;
   status?: TodoStatus;
   seenAt?: Date | null;
   completionComment?: string | null;
@@ -121,6 +126,14 @@ export type UpdateTodoInput = {
   assigneeUserId?: string | null;
   fileLinks?: TodoFileLinkInput[];
 };
+
+function normalizeTodoIconKey(value: unknown): TodoIconKey | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (!isTodoIconKey(value)) {
+    throw new TodoStoreError('Invalid to-do icon.', 'INVALID_INPUT');
+  }
+  return value;
+}
 
 export type ListTodosOptions = {
   status?: TodoStatus | 'active' | 'all';
@@ -780,7 +793,11 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
     description: normalizeOptionalText(input.description, DESCRIPTION_MAX_LENGTH),
     status: 'open',
     priority: normalizeTodoPriority(input.priority),
+    iconKey: normalizeTodoIconKey(input.iconKey),
     dueAt: normalizeDate(input.dueAt),
+    remindAt: normalizeDate(input.remindAt),
+    reminderSentAt: null,
+    reminderError: null,
     sourceType: normalizeTodoSourceType(input.sourceType),
     sourceAgentId: normalizeOptionalText(input.sourceAgentId, 120),
     sourceSessionId: normalizeOptionalText(input.sourceSessionId, 160),
@@ -1155,8 +1172,16 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
   if (input.priority !== undefined) {
     updates.priority = normalizeTodoPriority(input.priority);
   }
+  if (input.iconKey !== undefined) {
+    updates.iconKey = normalizeTodoIconKey(input.iconKey);
+  }
   if (input.dueAt !== undefined) {
     updates.dueAt = normalizeDate(input.dueAt);
+  }
+  if (input.remindAt !== undefined) {
+    updates.remindAt = normalizeDate(input.remindAt);
+    updates.reminderSentAt = null;
+    updates.reminderError = null;
   }
   if (input.completionComment !== undefined) {
     updates.completionComment = normalizeOptionalText(input.completionComment, DESCRIPTION_MAX_LENGTH);

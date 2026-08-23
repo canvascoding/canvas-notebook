@@ -18,6 +18,7 @@ import {
   type TodoSourceType,
   type TodoStatus,
 } from '@/app/lib/todos/store';
+import { isTodoIconKey, type TodoIconKey } from '@/app/lib/todos/icons';
 import {
   USER_TODO_SCOPE,
   parseTodoScopeKind,
@@ -60,6 +61,13 @@ function parseListScope(value: string | null): TodoListScope | undefined {
 
 function parseFileLinks(value: unknown): TodoFileLinkInput[] | undefined {
   return Array.isArray(value) ? value as TodoFileLinkInput[] : undefined;
+}
+
+function parseIconKey(value: unknown): TodoIconKey | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (!isTodoIconKey(value)) throw new Error('Invalid to-do icon.');
+  return value;
 }
 
 async function resolveRequestedWorkspace(
@@ -185,7 +193,9 @@ export async function POST(request: NextRequest) {
       categoryId: typeof payload?.categoryId === 'string' ? payload.categoryId : null,
       categoryName: typeof payload?.categoryName === 'string' ? payload.categoryName : null,
       priority: parsePriority(payload?.priority),
+      iconKey: parseIconKey(payload?.iconKey),
       dueAt: parseOptionalDate(payload?.dueAt) ?? null,
+      remindAt: parseOptionalDate(payload?.remindAt) ?? null,
       assigneeUserId: typeof payload?.assigneeUserId === 'string' ? payload.assigneeUserId : null,
       sourceType: 'user',
       seenAt: new Date(),

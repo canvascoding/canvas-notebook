@@ -2287,6 +2287,9 @@
       "user": "User",
       "agent": "Agent"
     },
+    "icons": {
+      "check": "Task", "eye": "Review", "approval": "Approval", "message": "Reply", "file": "Document", "calendar": "Schedule", "warning": "Attention", "idea": "Decision", "user": "Personal", "settings": "Configuration"
+    },
     "defaultCategories": {
       "todo": "To-do",
       "review": "Review",
@@ -2325,8 +2328,11 @@
       "workspace": "Applies to",
       "assignee": "Assignee",
       "priority": "Priority",
+      "icon": "Icon",
       "dueAt": "Due",
       "noDueAt": "No date",
+      "remindAt": "Reminder",
+      "noReminder": "No reminder",
       "fileSearch": "Link workspace file",
       "fileSearchPlaceholder": "Search filename or path",
       "linkedFiles": "Linked files",
@@ -2348,6 +2354,7 @@
       "completeBeforeFollowUp": "Complete the to-do first. Then you can inform the agent in the linked session."
     },
     "labels": {
+      "categoryIcon": "Use category icon",
       "unread": "Unread",
       "unassigned": "Unassigned",
       "followUpSentAt": "Last sent to the agent: {date}",
