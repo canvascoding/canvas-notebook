@@ -33,7 +33,7 @@ abgeschlossen sind.
 | 13 | [Lizenzaktivitaet und Last-Seen im Control Plane aktualisieren](./13-lizenzaktivitaet-und-last-seen-aktualisieren.md) | offen | 11 |
 | 14 | [To-do-Sichtbarkeit, Filter und Priorisierung korrigieren](./14-todo-sichtbarkeit-filter-und-priorisierung.md) | in Abnahme | 02 |
 | 15 | [Legacy-Auto-Update und Managed Bootstrap entkoppeln](./15-legacy-auto-update-und-managed-bootstrap-entkoppeln.md) | offen | 11 |
-| 16 | [Persoenliches ChatGPT-Abo im Team-Workspace nutzbar machen](./16-chatgpt-abo-im-team-workspace-stabilisieren.md) | in Abnahme | – |
+| 16 | [Persoenliches ChatGPT-Abo im Team-Workspace nutzbar machen](./16-chatgpt-abo-im-team-workspace-stabilisieren.md) | in Umsetzung (Provider-Auswahl) | – |
 | 17 | [Exponierten MCP-Server und OAuth-500 beheben](./17-mcp-server-oauth-500-beheben.md) | in Umsetzung (DCR-500) | – |
 | 18 | [Agent-System-Prompts an effektive Tools koppeln](./18-agent-system-prompts-an-tools-koppeln.md) | in Abnahme | – |
 | 19 | [Word- und Excel-Werkzeuge evaluieren](./19-word-und-excel-werkzeuge-evaluieren.md) | erledigt (No-Go) | – |
@@ -78,7 +78,7 @@ abgeschlossen sind.
 | E-Mail und Automationen | 10 in Umsetzung; 09 in Abnahme | 25 bleibt bis zum Abschluss von 10 blockiert; Koordination bei gemeinsamen E-Mail-Settings. |
 | Lizenz und Control Plane | 11 in Umsetzung | Danach 12, 13 und 15; 13 und 15 teilen Agent-/VM-Zustaende und werden besser nacheinander integriert. |
 | To-dos | 14 in Abnahme | 20 erst nach 02 und 14. |
-| Agent-Runtime | 16, 18 in Abnahme | Bei gemeinsamen Runtime-Resolver-Dateien vorab Dateigrenzen festlegen. |
+| Agent-Runtime | 16 in Umsetzung (Provider-Auswahl); 18 in Abnahme | Bei gemeinsamen Runtime-Resolver-Dateien vorab Dateigrenzen festlegen. |
 | MCP | 17 in Umsetzung (DCR-500) | Eigenstaendig; nur OAuth-/Runtime-Schnittstellen mit 16/18 abstimmen. |
 | Office-Dateien | 19 abgeschlossen (No-Go) | Kein produktives Tool bauen; erst bei freigegebener Bedarfsevidenz ein neues Folgeticket erstellen. |
 | MARP | 21 in Abnahme; 22 in Umsetzung | Mobile-Rendering und Web-Editor sind getrennt; gemeinsame MARP-Fixtures abstimmen. |
