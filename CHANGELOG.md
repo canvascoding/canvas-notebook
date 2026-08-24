@@ -11,6 +11,16 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.24.2] - 2026-08-24
+
+### Fixed
+
+- Fixed the Electron desktop release job by checking out the repository before uploading desktop assets to GitHub Releases.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.24.1] - 2026-08-24
 
 ### Added
