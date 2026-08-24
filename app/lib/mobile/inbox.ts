@@ -153,7 +153,7 @@ function todoWorkspaceOptions(workspace: WorkspaceContext) {
 async function listInboxTodos(input: { userId: string; workspace: WorkspaceContext }) {
   const workspaceTodos = await listTodos(input.userId, {
     ...todoWorkspaceOptions(input.workspace),
-    status: 'active',
+    status: 'open',
     limit: MAX_SOURCE_ITEMS,
   });
   // User-scoped personal To-dos have no concrete workspace. Attach them
@@ -167,7 +167,7 @@ async function listInboxTodos(input: { userId: string; workspace: WorkspaceConte
   const personalTodos = await listTodos(input.userId, {
     workspaceType: 'personal',
     scopeKind: 'user',
-    status: 'active',
+    status: 'open',
     limit: MAX_SOURCE_ITEMS,
   });
   return Array.from(new Map([...workspaceTodos, ...personalTodos].map((todo) => [todo.id, todo])).values());
