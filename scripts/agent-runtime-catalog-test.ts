@@ -7,6 +7,8 @@ import path from 'node:path';
 
 import Database from 'better-sqlite3';
 
+import type { AiCatalogDiscovery } from '../app/lib/agent-runtime-policy/types';
+
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-agent-runtime-catalog-'));
 process.env.DATA = dataDir;
 
@@ -133,7 +135,7 @@ async function main() {
     );
   }
 
-  const discovery = {
+  const discovery: AiCatalogDiscovery = {
     openrouter: {
       id: 'openrouter',
       name: 'OpenRouter',
@@ -144,6 +146,7 @@ async function main() {
           name: 'Reasoning Model',
           reasoning: true,
           supportsVision: true,
+          thinkingLevels: ['off', 'low', 'medium', 'high', 'xhigh', 'max'],
           contextWindow: 128_000,
           maxTokens: 16_384,
         },
@@ -232,7 +235,7 @@ async function main() {
       .find((provider) => provider.installationId === organizationInstallationId)
       ?.models.find((model) => model.id === 'reasoning-model')
       ?.thinkingLevels,
-    ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+    ['off', 'low', 'medium', 'high', 'xhigh', 'max'],
   );
 
   const storedConfigs = sqlite.prepare(`

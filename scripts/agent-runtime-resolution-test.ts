@@ -194,6 +194,16 @@ moduleInternals._load = (request, parent, isMain) => {
     return {
       getModels: () => [],
       getProviders: () => [],
+      getSupportedThinkingLevels: (model: {
+        reasoning?: boolean;
+        thinkingLevelMap?: Partial<Record<'xhigh' | 'max', unknown>>;
+      }) => {
+        if (!model.reasoning) return ['off'];
+        const levels = ['off', 'minimal', 'low', 'medium', 'high'];
+        if (model.thinkingLevelMap?.xhigh !== undefined) levels.push('xhigh');
+        if (model.thinkingLevelMap?.max !== undefined) levels.push('max');
+        return levels;
+      },
       registerBuiltInApiProviders: () => undefined,
       streamSimple: (
         model: { id: string },
@@ -591,6 +601,17 @@ async function main() {
   assert.equal(resolution.valid, true);
   assert.equal(resolution.source, 'app_default');
   assert.equal(resolution.effectiveSelection?.selection.providerInstallationId, organizationProviderId);
+  const legacyCloudAliasResolution = await resolveEffectiveAgentRuntime({
+    ...personalContext,
+    requestedSelection: {
+      providerInstallationId: organizationProviderId,
+      providerId: 'openai-compatible',
+      modelId: `${sharedModel}:cloud`,
+      thinkingLevel: 'off',
+    },
+  });
+  assert.equal(legacyCloudAliasResolution.valid, true);
+  assert.equal(legacyCloudAliasResolution.effectiveSelection?.selection.modelId, sharedModel);
   assert.equal(resolution.providers.filter((provider) => provider.providerId === 'openai-compatible').length, 2);
   const executableRuntime = await resolveExecutableAgentRuntime(personalContext);
   assert.equal(executableRuntime.providerInstallation.installationId, organizationProviderId);

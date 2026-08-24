@@ -254,8 +254,11 @@ export function aiProviderInstallationId(
   return `aip_${digest}`;
 }
 
-function modelThinkingLevels(reasoning: boolean): PiThinkingLevel[] {
-  return reasoning ? [...AI_THINKING_LEVELS] : ['off'];
+function modelThinkingLevels(model: AiCatalogDiscovery[string]['models'][number]): PiThinkingLevel[] {
+  if (model.thinkingLevels) return [...model.thinkingLevels];
+  return model.reasoning
+    ? AI_THINKING_LEVELS.filter((level) => level !== 'xhigh' && level !== 'max')
+    : ['off'];
 }
 
 function sameProviderConfiguration(previous: CatalogStoreProviderInput | undefined, next: CatalogStoreProviderInput): boolean {
@@ -386,7 +389,7 @@ function materializeProviders(params: {
         isProviderDefault: model.id === provider.defaultModelId,
         reasoning: model.reasoning,
         supportsVision: model.supportsVision,
-        thinkingLevels: modelThinkingLevels(model.reasoning),
+        thinkingLevels: modelThinkingLevels(model),
         metadata: {
           contextWindow: model.contextWindow,
           maxTokens: model.maxTokens,

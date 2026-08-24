@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { getSupportedThinkingLevels } from '@earendil-works/pi-ai/compat';
+
 import type {
   AiCatalogDiscovery,
   AiProviderSafeConfig,
@@ -61,6 +63,7 @@ export async function loadAiCatalogDiscovery(
         name: model.name || model.id,
         reasoning: Boolean(model.reasoning),
         supportsVision: modelSupportsImageInput(model),
+        thinkingLevels: getSupportedThinkingLevels(model),
         contextWindow: Number.isFinite(model.contextWindow) ? model.contextWindow : undefined,
         maxTokens: Number.isFinite(model.maxTokens) ? model.maxTokens : undefined,
       })),

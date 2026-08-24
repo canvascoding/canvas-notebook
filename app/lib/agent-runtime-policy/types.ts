@@ -107,6 +107,7 @@ export type AiCatalogDiscoveryModel = {
   name: string;
   reasoning: boolean;
   supportsVision: boolean;
+  thinkingLevels?: PiThinkingLevel[];
   contextWindow?: number;
   maxTokens?: number;
 };

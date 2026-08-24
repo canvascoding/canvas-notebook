@@ -141,6 +141,17 @@ function issue(
   return { code, message, source };
 }
 
+function compatibleModel(
+  provider: AiEffectiveCatalogProvider,
+  modelId: string,
+): AiEffectiveCatalogProvider['models'][number] | null {
+  const exact = provider.models.find((candidate) => candidate.id === modelId);
+  if (exact) return exact;
+  if (!/:cloud$/iu.test(modelId)) return null;
+  const canonicalId = modelId.replace(/:cloud$/iu, '');
+  return provider.models.find((candidate) => candidate.id === canonicalId) ?? null;
+}
+
 function validateSelection(input: {
   selection: AiRuntimeSelection;
   source: AiRuntimeSelectionSource;
@@ -178,7 +189,7 @@ function validateSelection(input: {
       issue: issue('PROVIDER_ID_MISMATCH', 'The selected provider does not match its installation.', input.source),
     };
   }
-  const model = provider.models.find((candidate) => candidate.id === input.selection.modelId);
+  const model = compatibleModel(provider, input.selection.modelId);
   if (!model) {
     return {
       selection: null,
@@ -198,7 +209,9 @@ function validateSelection(input: {
 
   return {
     selection: {
-      selection: input.selection,
+      selection: model.id === input.selection.modelId
+        ? input.selection
+        : { ...input.selection, modelId: model.id },
       catalogRevision: input.snapshot?.catalogRevision ?? input.catalogRevision,
       policyRevision: input.snapshot?.policyRevision ?? input.policyRevision,
       selectionSource: input.source,
