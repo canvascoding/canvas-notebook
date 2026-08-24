@@ -125,6 +125,27 @@ function directMcpOAuthUnavailableResponse(): Response {
   );
 }
 
+class DirectMcpOAuthStageError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = 'DirectMcpOAuthStageError';
+  }
+}
+
+async function runDirectMcpOAuthStage<T>(
+  code: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch {
+    // Preserve a stable, non-sensitive failure stage for production
+    // correlation. Do not attach the upstream error: it can contain OAuth
+    // client metadata, tokens, or database details.
+    throw new DirectMcpOAuthStageError(code);
+  }
+}
+
 async function handleDirectMcpOAuthRequest(
   request: NextRequest,
   handler: () => Promise<Response>,
@@ -163,9 +184,11 @@ async function handleDirectMcpOAuthRequest(
       startedAt,
     });
     return response;
-  } catch {
+  } catch (error) {
     failDirectMcpDiagnostic(diagnostics, {
-      code: 'OAUTH_INTERNAL_ERROR',
+      code: error instanceof DirectMcpOAuthStageError
+        ? error.code
+        : 'OAUTH_INTERNAL_ERROR',
       startedAt,
       statusCode: 503,
     });
@@ -178,7 +201,10 @@ async function handleDirectMcpOAuthRequest(
 
 export async function GET(request: NextRequest) {
   return handleDirectMcpOAuthRequest(request, async () => {
-    const prepared = await prepareDirectMcpOAuthRequest(request);
+    const prepared = await runDirectMcpOAuthStage(
+      'OAUTH_REQUEST_POLICY_ERROR',
+      () => prepareDirectMcpOAuthRequest(request),
+    );
     if (prepared.response) return prepared.response;
 
     if (isTeamUserManagementPath(request.nextUrl.pathname)) {
@@ -192,10 +218,21 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   return handleDirectMcpOAuthRequest(request, async () => {
     const pathname = request.nextUrl.pathname;
-    const prepared = await prepareDirectMcpOAuthRequest(request);
+    const isRegistration = pathname === '/api/auth/oauth2/register';
+    const prepared = await runDirectMcpOAuthStage(
+      isRegistration
+        ? 'OAUTH_REGISTRATION_NORMALIZATION_ERROR'
+        : 'OAUTH_REQUEST_POLICY_ERROR',
+      () => prepareDirectMcpOAuthRequest(request),
+    );
     if (prepared.response) return prepared.response;
     const authRequest = prepared.request;
-    const revocationCandidate = await prepareDirectMcpRevocation(authRequest);
+    const revocationCandidate = await runDirectMcpOAuthStage(
+      isRegistration
+        ? 'OAUTH_REGISTRATION_PRE_PROVIDER_ERROR'
+        : 'OAUTH_REQUEST_PRE_PROVIDER_ERROR',
+      () => prepareDirectMcpRevocation(authRequest),
+    );
 
     if (revocationCandidate) {
       try {
@@ -227,7 +264,12 @@ export async function POST(request: NextRequest) {
       if (licenseResponse) return licenseResponse;
     }
 
-    const response = await auth.handler(authRequest);
+    const response = await runDirectMcpOAuthStage(
+      isRegistration
+        ? 'OAUTH_REGISTRATION_PROVIDER_THROWN'
+        : 'OAUTH_REQUEST_PROVIDER_THROWN',
+      () => auth.handler(authRequest),
+    );
     try {
       await initializeCreatedUserOnboarding(pathname, response);
     } catch (error) {

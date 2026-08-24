@@ -6,6 +6,13 @@ import { directMcpRefreshGrantIsActive } from '@/app/lib/mcp/server/oauth-grant-
 import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
 
 const MAX_DYNAMIC_CLIENT_REGISTRATION_BYTES = 16 * 1024;
+const PUBLIC_DYNAMIC_CLIENT_AUTH_METHODS = new Set([
+  'none',
+  // Several MCP clients still send this RFC 7591 value even though an open
+  // registration endpoint can only issue a public client. Normalize it below
+  // and advertise the resulting `none` method in the registration response.
+  'client_secret_post',
+]);
 
 export type PreparedDirectMcpOAuthRequest = {
   request: Request;
@@ -87,11 +94,14 @@ function validateRegistrationBody(body: unknown): Response | null {
   }
   if (
     metadata.token_endpoint_auth_method !== undefined
-    && metadata.token_endpoint_auth_method !== 'none'
+    && (
+      typeof metadata.token_endpoint_auth_method !== 'string'
+      || !PUBLIC_DYNAMIC_CLIENT_AUTH_METHODS.has(metadata.token_endpoint_auth_method)
+    )
   ) {
     return oauthError(
       'invalid_client_metadata',
-      'Unauthenticated registration is limited to public clients.',
+      'Unauthenticated registration only supports public MCP clients.',
     );
   }
   if (Array.isArray(metadata.grant_types)) {
@@ -186,9 +196,11 @@ async function normalizeDynamicClientRegistrationRequest(
   const validationError = validateRegistrationBody(body);
   if (validationError) return { request, response: validationError };
 
-  // Better Auth defaults an omitted method to client_secret_basic. ChatGPT
-  // registers a public client and may omit this optional RFC 7591 field, so
-  // make the public-client contract explicit before handing it to the provider.
+  // Better Auth versions before the stable 1.7 line default an omitted method
+  // to client_secret_basic. MCP clients may also optimistically request
+  // client_secret_post during open registration. Both cases must result in a
+  // public client: a secret cannot safely be issued to an unauthenticated
+  // registrant.
   const metadata = body as Record<string, unknown>;
   const headers = new Headers(request.headers);
   headers.set('content-type', 'application/json');

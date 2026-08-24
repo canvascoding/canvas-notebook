@@ -117,6 +117,51 @@ async function registerClient(
   return prepared.response ?? auth.handler(prepared.request);
 }
 
+async function assertRouteRegistration(
+  post: (request: import('next/server').NextRequest) => Promise<Response>,
+  NextRequest: typeof import('next/server').NextRequest,
+): Promise<void> {
+  for (const tokenEndpointAuthMethod of [undefined, 'client_secret_post']) {
+    const response = await post(new NextRequest(`${ISSUER}/oauth2/register`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: ORIGIN,
+      },
+      body: JSON.stringify({
+        client_name: tokenEndpointAuthMethod
+          ? 'ChatGPT-compatible public client'
+          : 'Implicit public client',
+        redirect_uris: [REDIRECT_URI],
+        ...(tokenEndpointAuthMethod ? { token_endpoint_auth_method: tokenEndpointAuthMethod } : {}),
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        scope: DIRECT_MCP_OAUTH_SCOPES.join(' '),
+      }),
+    }));
+    assert.equal([200, 201].includes(response.status), true);
+    assert.match(response.headers.get('x-request-id') || '', /^[0-9a-f-]{36}$/iu);
+    const registered = await readJson(response);
+    assert.equal(registered.token_endpoint_auth_method, 'none');
+    assert.equal('client_secret' in registered, false);
+  }
+
+  const rejectedMethod = await post(new NextRequest(`${ISSUER}/oauth2/register`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: ORIGIN,
+    },
+    body: JSON.stringify({
+      client_name: 'Confidential client is not allowed',
+      redirect_uris: [REDIRECT_URI],
+      token_endpoint_auth_method: 'client_secret_basic',
+    }),
+  }));
+  assert.equal(rejectedMethod.status, 400);
+  assert.equal((await readJson(rejectedMethod)).error, 'invalid_client_metadata');
+}
+
 async function assertMetadata(
   getMetadata: (request: Request) => Promise<Response>,
 ): Promise<void> {
@@ -173,18 +218,6 @@ async function assertRegistrationPolicy(
   assert.equal('client_secret' in registered, false);
   assert.deepEqual(registered.grant_types, ['authorization_code', 'refresh_token']);
   assert.equal(registered.scope, DIRECT_MCP_OAUTH_SCOPES.join(' '));
-
-  const implicitPublicClient = await registerClient(auth, {
-    client_name: 'ChatGPT Public Client Without Auth Method',
-    redirect_uris: [REDIRECT_URI],
-    grant_types: ['authorization_code', 'refresh_token'],
-    response_types: ['code'],
-    scope: DIRECT_MCP_OAUTH_SCOPES.join(' '),
-  }, prepareRequest);
-  assert.equal([200, 201].includes(implicitPublicClient.status), true);
-  const implicitPublicRegistered = await readJson(implicitPublicClient);
-  assert.equal(implicitPublicRegistered.token_endpoint_auth_method, 'none');
-  assert.equal('client_secret' in implicitPublicRegistered, false);
 
   const invalidScope = await registerClient(auth, {
     client_name: 'Invalid Scope',
@@ -375,10 +408,12 @@ async function main(): Promise<void> {
     const [{ auth }, { getAuthorizationServerMetadata }, {
       enforceDirectMcpOAuthRequestPolicy,
       prepareDirectMcpOAuthRequest,
-    }] = await Promise.all([
+    }, { POST: postOAuthRoute }, { NextRequest }] = await Promise.all([
       import('../app/lib/auth'),
       import('../app/lib/mcp/server/authorization-server-metadata'),
       import('../app/lib/mcp/server/oauth-request-policy'),
+      import('../app/api/auth/[...all]/route'),
+      import('next/server'),
     ]);
 
     await assertMetadata(getAuthorizationServerMetadata);
@@ -389,6 +424,7 @@ async function main(): Promise<void> {
     }));
     assert.equal(disabledResponse?.status, 404);
     process.env.CANVAS_MCP_DIRECT_ENABLED = previousFeatureFlag;
+    await assertRouteRegistration(postOAuthRoute, NextRequest);
     const clientId = await assertRegistrationPolicy(
       auth,
       enforceDirectMcpOAuthRequestPolicy,
