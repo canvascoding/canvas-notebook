@@ -28,6 +28,7 @@ import {
   isToolCallPart,
   stripAttachmentBlocks,
 } from '@/app/lib/chat/message-content';
+import { mobileToolCallId } from '@/app/lib/mobile/tool-call-id';
 import { formatMobileToolInput } from '@/app/lib/mobile/tool-input';
 import {
   getActiveRuntimeStatusSummaries,
@@ -198,12 +199,6 @@ function parsedMobileMessage(row: MobileChatMessageRow): Record<string, unknown>
   return parsePersistedPiMessage(row.content, 'display') as unknown as Record<string, unknown>;
 }
 
-function messageToolCallId(message: Record<string, unknown>): string | null {
-  return typeof message.toolCallId === 'string' && message.toolCallId.trim()
-    ? message.toolCallId.trim().slice(0, 200)
-    : null;
-}
-
 function mobileToolInputsById(rows: MobileChatMessageRow[]): Map<string, string> {
   const inputs = new Map<string, string>();
   for (const row of rows) {
@@ -223,7 +218,7 @@ function missingToolInputIds(rows: MobileChatMessageRow[], knownInputs: Map<stri
   for (const row of rows) {
     const message = parsedMobileMessage(row);
     if (message.role !== 'toolResult') continue;
-    const toolCallId = messageToolCallId(message);
+    const toolCallId = mobileToolCallId(message);
     if (toolCallId && !knownInputs.has(toolCallId)) missing.add(toolCallId);
   }
   return Array.from(missing);
@@ -251,7 +246,7 @@ export function serializeMobileChatMessage(input: {
   )) === index);
   const visibleText = extractPiMessageText(piMessage, { hideAttachmentMetadata: true })
     || stripAttachmentBlocks(contentToString(parsed.content));
-  const toolCallId = messageToolCallId(parsed);
+  const toolCallId = mobileToolCallId(parsed);
   const clientMessageId = typeof parsed.clientMessageId === 'string'
     && parsed.clientMessageId.trim().length <= 256
     ? parsed.clientMessageId.trim()

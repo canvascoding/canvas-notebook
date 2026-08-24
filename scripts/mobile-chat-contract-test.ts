@@ -5,6 +5,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { runMigrations } from '../app/lib/db/migrate';
+import { mobileToolCallId } from '../app/lib/mobile/tool-call-id';
 import { formatMobileToolInput } from '../app/lib/mobile/tool-input';
 
 const sqlite = new Database(':memory:');
@@ -81,5 +82,9 @@ assert.match(formattedToolInput || '', /printf \\"hello\\"/u);
 assert.match(formattedToolInput || '', /Research\/brief\.md/u);
 assert.doesNotMatch(formattedToolInput || '', /top-secret-token|example-secret/u);
 assert.match(formattedToolInput || '', /\[REDACTED\]/u);
+
+assert.equal(mobileToolCallId({ role: 'toolResult', toolCallId: ' tool-call-qa ' }), 'tool-call-qa');
+assert.equal(mobileToolCallId({ role: 'toolResult', toolCallId: '   ' }), null);
+assert.equal(mobileToolCallId({ role: 'assistant' }), null);
 
 console.log('mobile-chat-contract-test: ok');
