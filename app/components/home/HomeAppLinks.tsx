@@ -22,7 +22,7 @@ export function HomeAppLinks() {
       <h2 id="home-workspaces-heading" className="mb-3 text-xs font-bold tracking-[0.18em] text-muted-foreground uppercase">
         {t('sections.workspace')}
       </h2>
-      <div className="grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-3">
+      <div className="grid gap-px border border-border bg-border min-[390px]:grid-cols-2 sm:grid-cols-3">
         {HOME_APPS.map(({ id, href, icon: Icon }) => (
           <Link
             key={id}

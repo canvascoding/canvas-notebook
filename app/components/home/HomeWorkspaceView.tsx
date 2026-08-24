@@ -70,12 +70,12 @@ export function HomeWorkspaceView({
   };
 
   return (
-    <div className="grid gap-8 pb-10 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start">
-      <div className="min-w-0 space-y-8">
-        <section className="space-y-5" aria-labelledby="home-workspace-prompt">
+    <div className="grid gap-6 pb-8 sm:gap-8 sm:pb-10 xl:grid-cols-[minmax(0,1fr)_20rem] xl:items-start">
+      <div className="min-w-0 space-y-6 sm:space-y-8">
+        <section className="space-y-4 sm:space-y-5" aria-labelledby="home-workspace-prompt">
           <div>
             <p className="text-xs font-bold tracking-[0.18em] text-muted-foreground uppercase">{t('hero.eyebrow')}</p>
-            <h1 id="home-workspace-prompt" className="mt-2 text-2xl font-semibold tracking-tight md:text-3xl">{t('focus.promptTitle')}</h1>
+            <h1 id="home-workspace-prompt" className="mt-2 text-[1.65rem] font-semibold leading-tight tracking-tight sm:text-3xl">{t('focus.promptTitle')}</h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">{t('focus.promptDescription')}</p>
           </div>
           <PromptHero />

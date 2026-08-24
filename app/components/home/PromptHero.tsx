@@ -509,7 +509,7 @@ export function PromptHero() {
             role="tab"
             aria-selected={!isStudioMode}
             onClick={() => setMode('notebook')}
-            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${!isStudioMode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            className={`inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors ${!isStudioMode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
           >
             <NotebookPen className="h-3.5 w-3.5" />
             {tHome('focus.composer.notebook')}
@@ -519,7 +519,7 @@ export function PromptHero() {
             role="tab"
             aria-selected={isStudioMode}
             onClick={() => setMode('studio')}
-            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${isStudioMode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+            className={`inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors ${isStudioMode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
           >
             <Sparkles className="h-3.5 w-3.5" />
             {tHome('focus.composer.studio')}
@@ -624,7 +624,7 @@ export function PromptHero() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="rounded-md border border-transparent p-2 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
+                className="flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-accent"
                 title={tChat('attachImage')}
               >
                 <Paperclip className="h-5 w-5" />
@@ -659,7 +659,7 @@ export function PromptHero() {
 
           <button
             type="submit"
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:px-4"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:px-4"
             disabled={isSubmitting || isUploading || (!prompt.trim() && (isStudioMode || attachments.length === 0))}
           >
             {isStudioMode ? <Sparkles className="h-4 w-4" /> : <Send className="h-4 w-4" />}

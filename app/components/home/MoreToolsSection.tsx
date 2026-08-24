@@ -37,23 +37,18 @@ export function MoreToolsSection({ showBrowserLab = false }: { showBrowserLab?: 
         {t('sections.moreTools')}
       </button>
       {isExpanded && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {links.map((link, index) => {
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+          {links.map((link) => {
             const Icon = link.icon;
             return (
               <React.Fragment key={link.labelKey}>
                 <Link
                   href={link.href}
-                  className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/30 hover:bg-accent hover:text-foreground"
+                  className="inline-flex h-10 min-w-0 items-center gap-2 rounded-full border border-border/70 bg-muted/40 px-3 text-sm text-muted-foreground transition-colors hover:border-primary/30 hover:bg-accent hover:text-foreground"
                 >
                   <Icon className="h-3.5 w-3.5" />
-                  {tApps(`${link.labelKey}.title`)}
+                  <span className="truncate">{tApps(`${link.labelKey}.title`)}</span>
                 </Link>
-                {index < links.length - 1 ? (
-                  <span className="text-xs text-muted-foreground/60" aria-hidden="true">
-                    ·
-                  </span>
-                ) : null}
               </React.Fragment>
             );
           })}

@@ -34,34 +34,36 @@ export default async function Home() {
       <div className="fixed inset-0 overflow-hidden bg-background text-foreground">
         <div className="flex h-full min-h-0 flex-col">
           <header className="sticky top-0 z-20 shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
-            <div className="mx-auto flex min-h-14 max-w-7xl flex-nowrap items-center justify-between gap-2 px-4 py-2 md:px-6">
+            <div className="mx-auto flex min-h-14 max-w-7xl flex-nowrap items-center justify-between gap-1.5 px-3 py-2 sm:gap-2 sm:px-4 md:px-6">
               <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
                 <WorkspaceBrandLogo
                   alt={tHome('header.logoAlt')}
                   width={144}
                   height={32}
                   priority
-                  className="h-8 max-w-[5.5rem] shrink-0 object-contain sm:max-w-36"
+                  className="h-7 max-w-[4.25rem] shrink-0 object-contain sm:h-8 sm:max-w-36"
                   fallbackClassName="w-8 border border-border object-cover"
                   workspaceClassName="w-auto"
                 />
-                <div className="min-w-0 flex flex-col">
+                <div className="hidden min-w-0 flex-col min-[390px]:flex">
                   <span className="hidden text-[10px] font-bold tracking-widest text-muted-foreground uppercase sm:block">{tHome('header.productName')}</span>
                   <span className="truncate text-sm font-semibold">{tHome('header.productLabel')}</span>
                 </div>
               </div>
 
-              <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-3">
+              <div className="ml-auto flex shrink-0 items-center gap-1 md:gap-3">
                 <WorkspaceSwitcher source="home" variant="compact" />
                 <NotificationBell />
                 <AppLauncher />
-                <ThemeToggle />
+                <div className="hidden min-[380px]:block">
+                  <ThemeToggle />
+                </div>
                 <LogoutButton />
               </div>
             </div>
           </header>
 
-          <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-6 pb-10 md:px-6 md:pt-8">
+          <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pt-5 pb-8 sm:px-4 sm:pt-6 md:px-6 md:pt-8">
             <div className="mx-auto max-w-6xl space-y-6">
               {showPersonalTour && <GettingStartedCard />}
 
