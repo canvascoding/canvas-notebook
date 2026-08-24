@@ -174,8 +174,7 @@ async function main() {
     assert.equal(inbox.items.some((item) => item.id === 'chat:attention-session'), true);
     assert.equal(inbox.items.some((item) => item.id === 'chat:historic-unread-session'), true);
     assert.equal(inbox.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
-    assert.equal(inbox.items.some((item) => item.id === `todo:${completedTodo.id}`), true);
-    assert.equal(inbox.items.find((item) => item.id === `todo:${completedTodo.id}`)?.unread, false);
+    assert.equal(inbox.items.some((item) => item.id === `todo:${completedTodo.id}`), false);
     await assert.rejects(
       () => markMobileInboxRead({
         userId: 'mobile-attention-user',
@@ -197,6 +196,14 @@ async function main() {
     assert.equal(inbox.counts.emails, 3);
     const unreadInbox = await listMobileInbox({ userId: 'mobile-attention-user', workspace, filter: 'unread', limit: 20 });
     assert.equal(unreadInbox.items.some((item) => item.id === `todo:${completedTodo.id}`), false);
+    const todoAttentionInbox = await listMobileInbox({
+      userId: 'mobile-attention-user',
+      workspace,
+      filter: 'todos',
+      limit: 20,
+    });
+    assert.equal(todoAttentionInbox.items.every((item) => item.todoStatus === 'open'), true);
+    assert.equal(todoAttentionInbox.items.some((item) => item.id === `todo:${completedTodo.id}`), false);
     assert.equal(
       inbox.items.find((item) => item.id === 'studio:generation-ready')?.previewUrl,
       '/api/mobile/v1/studio/outputs/generation-preview-output/preview',
@@ -509,6 +516,20 @@ async function main() {
       limit: 20,
     });
     assert.equal(unreadTodoPage.todos.some((todo) => todo.id === completedTodo.id), false);
+    const openTodoPage = await listMobileTodos({
+      userId: 'mobile-attention-user',
+      workspace,
+      status: 'open',
+      limit: 20,
+    });
+    assert.equal(openTodoPage.todos.every((todo) => todo.status === 'open'), true);
+    const completedTodoPage = await listMobileTodos({
+      userId: 'mobile-attention-user',
+      workspace,
+      status: 'done',
+      limit: 20,
+    });
+    assert.equal(completedTodoPage.todos.some((todo) => todo.id === completedTodo.id), true);
 
     const loadedTodo = await getMobileTodo({ userId: 'mobile-attention-user', workspace, todoId: firstTodo.id });
     assert.equal(loadedTodo.title, 'Approve launch copy');
