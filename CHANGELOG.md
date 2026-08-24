@@ -11,6 +11,21 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.24.1] - 2026-08-24
+
+### Added
+
+- Added stable tool-call ID serialization to the mobile chat contract with dedicated contract coverage.
+
+### Changed
+
+- Improved runtime model catalog compatibility and resolution across supported catalog shapes.
+- Kept completed to-dos out of the mobile attention queue and strengthened the related inbox contract tests.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.23.2] - 2026-08-23
 
 ### Fixed
