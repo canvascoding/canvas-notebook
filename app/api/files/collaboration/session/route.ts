@@ -21,7 +21,7 @@ import {
   COLLABORATION_SCHEMA_VERSION,
   RICH_MARKDOWN_SCHEMA_VERSION,
   type CollaborationProvider,
-  type CollaborationRepresentation,
+  type CollaborationSessionRepresentation,
   type CollaborationSessionResponse,
 } from '@/app/lib/collaboration/types';
 
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
   const body = await readJsonBody<{
     path?: string;
-    representation?: CollaborationRepresentation;
+    representation?: CollaborationSessionRepresentation;
     provider?: CollaborationProvider;
   }>(request);
   const requested = parseCollaborationSessionRequest(body);

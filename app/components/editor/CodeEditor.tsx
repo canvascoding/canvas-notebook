@@ -41,6 +41,7 @@ import type { WorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-mar
 import { useTranslations } from 'next-intl';
 import { yCollab } from 'y-codemirror.next';
 import { useCollaborationDocument } from '@/app/lib/collaboration/client';
+import type { CollaborationSessionResponse } from '@/app/lib/collaboration/types';
 
 export interface CodeEditorProps {
   value: string;
@@ -49,6 +50,7 @@ export interface CodeEditorProps {
   path?: string;
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   collaborationEnabled?: boolean;
+  collaborationSession?: CollaborationSessionResponse | null;
 }
 
 const CODE_MIRROR_BASIC_SETUP = {
@@ -292,6 +294,7 @@ export function CodeEditor({
   path,
   markdownNavigationTarget,
   collaborationEnabled,
+  collaborationSession,
 }: CodeEditorProps) {
   const t = useTranslations('notebook');
   const { currentFile } = useFileStore();
@@ -306,6 +309,7 @@ export function CodeEditor({
     workspaceId: activeWorkspaceId,
     path: languagePath,
     representation: 'plain_text',
+    session: collaborationSession,
   });
   const collaborationReadOnly = shouldCollaborate && (
     !collaboration?.session

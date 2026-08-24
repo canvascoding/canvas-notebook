@@ -3,7 +3,6 @@ import 'server-only';
 import { readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { importPortableExcalidrawAssets } from '@/app/lib/excalidraw-collaboration/assets';
-import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
 import {
   ensureExcalidrawScene,
   loadExcalidrawScene,
@@ -12,16 +11,19 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   CollaborationDocumentStateError,
   resolveTextCollaborationState,
+  selectInitialTextCollaborationRepresentation,
 } from './document-state-service';
+import { loadCollaborationStateIncludingArchived } from './persistence';
 import type {
   CollaborationPermission,
   CollaborationProvider,
   CollaborationRepresentation,
+  TextCollaborationRepresentation,
 } from './types';
 
 export class CollaborationSessionError extends Error {
   readonly status: 400 | 404 | 409 | 413;
-  readonly code?: 'source_representation_required';
+  readonly code?: 'source_representation_required' | 'representation_mismatch';
 
   constructor(
     message: string,
@@ -37,11 +39,18 @@ export class CollaborationSessionError extends Error {
 
 export type CollaborationSessionRequest = {
   path: string;
-  representation: CollaborationRepresentation;
-  provider: CollaborationProvider;
+  representation: 'excalidraw_scene';
+  provider: 'excalidraw';
+} | {
+  path: string;
+  representation: TextCollaborationRepresentation | 'auto';
+  provider: 'yjs';
 };
 
-export type CollaborationSessionGrant = CollaborationSessionRequest & {
+export type CollaborationSessionGrant = {
+  path: string;
+  provider: CollaborationProvider;
+  representation: CollaborationRepresentation;
   documentId: string;
   documentName: string;
   lifecycleGeneration: number;
@@ -68,12 +77,16 @@ export function parseCollaborationSessionRequest(input: {
       : null;
   }
   if (input.provider !== undefined && input.provider !== 'yjs') return null;
-  if (ext === 'txt' && input.representation === 'plain_text') {
-    return { path, representation: 'plain_text', provider: 'yjs' };
+  if (ext === 'txt' && (input.representation === 'plain_text' || input.representation === 'auto')) {
+    return { path, representation: input.representation, provider: 'yjs' };
   }
   if (
     (ext === 'md' || ext === 'markdown')
-    && (input.representation === 'plain_text' || input.representation === 'tiptap_xml')
+    && (
+      input.representation === 'auto'
+      || input.representation === 'plain_text'
+      || input.representation === 'tiptap_xml'
+    )
   ) {
     return { path, representation: input.representation, provider: 'yjs' };
   }
@@ -132,23 +145,31 @@ export async function createCollaborationSessionGrant(input: {
     lifecycleGeneration = state.lifecycleGeneration;
   } else {
     const initialContent = (await readFile(request.path, fileOptions)).toString('utf8');
-    if (request.representation === 'tiptap_xml' && analyzeMarkdownRichMode(initialContent).mode === 'source') {
+    const selectedInitialRepresentation = selectInitialTextCollaborationRepresentation(request.path, initialContent);
+    const existingState = await loadCollaborationStateIncludingArchived(collaboration.document.id);
+    if (
+      !existingState
+      && request.representation === 'tiptap_xml'
+      && selectedInitialRepresentation !== 'tiptap_xml'
+    ) {
       throw new CollaborationSessionError(
         'This Markdown document can only collaborate in source mode so its representation is preserved.',
         409,
         'source_representation_required',
       );
     }
-    let state;
+    const initialRepresentation: TextCollaborationRepresentation = request.representation === 'auto'
+      ? selectedInitialRepresentation
+      : request.representation;
+    let resolved;
     try {
-      ({ state } = await resolveTextCollaborationState({
+      resolved = await resolveTextCollaborationState({
         document: collaboration.document,
         workspace,
         path: collaboration.document.path,
-        initialRepresentation: request.representation as 'plain_text' | 'tiptap_xml',
+        initialRepresentation,
         initialContent,
-        requireRepresentationMatch: true,
-      }));
+      });
     } catch (error) {
       if (error instanceof CollaborationDocumentStateError) {
         throw new CollaborationSessionError(
@@ -158,7 +179,27 @@ export async function createCollaborationSessionGrant(input: {
       }
       throw error;
     }
+    const { state } = resolved;
+    // Existing documents own their Yjs representation. A checkpoint can be
+    // source-only according to the conservative UI codec after a live agent
+    // edit while its validated Y.Doc remains rich text.
+    if (!resolved.initialized && request.representation !== 'auto' && state.representation !== request.representation) {
+      throw new CollaborationSessionError(
+        'The collaboration representation does not match this editor. Reload to use the current document representation.',
+        409,
+        'representation_mismatch',
+      );
+    }
     lifecycleGeneration = state.lifecycleGeneration;
+    return {
+      path: request.path,
+      provider: request.provider,
+      representation: state.representation,
+      documentId: collaboration.document.id,
+      documentName: collaboration.document.id,
+      lifecycleGeneration,
+      permission: workspace.permissions.canWrite ? 'write' : 'read',
+    };
   }
 
   return {
