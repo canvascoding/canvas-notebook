@@ -202,6 +202,7 @@ async function main() {
       filter: 'todos',
       limit: 20,
     });
+    assert.equal(todoAttentionInbox.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
     assert.equal(todoAttentionInbox.items.every((item) => item.todoStatus === 'open'), true);
     assert.equal(todoAttentionInbox.items.some((item) => item.id === `todo:${completedTodo.id}`), false);
     assert.equal(
@@ -522,6 +523,7 @@ async function main() {
       status: 'open',
       limit: 20,
     });
+    assert.equal(openTodoPage.todos.some((todo) => todo.id === firstTodo.id), true);
     assert.equal(openTodoPage.todos.every((todo) => todo.status === 'open'), true);
     const completedTodoPage = await listMobileTodos({
       userId: 'mobile-attention-user',
