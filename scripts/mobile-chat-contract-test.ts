@@ -65,6 +65,7 @@ assert.match(service, /pi_session_runtime\.override/u);
 assert.match(service, /extractMessageAttachments/u);
 assert.match(service, /extractPiMessageText\(piMessage, \{ hideAttachmentMetadata: true \}\)/u);
 assert.match(service, /mobileToolInputsById/u);
+assert.match(service, /toolCallId,/u);
 assert.match(service, /toolInput:/u);
 assert.match(service, /safeRelativeUrl/u);
 assert.match(websocketServer, /SESSION_DATA_CONFLICT/u);

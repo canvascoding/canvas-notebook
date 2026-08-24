@@ -82,6 +82,7 @@ export type MobileChatMessage = {
   kind: 'message' | 'tool' | 'error';
   text: string;
   clientMessageId?: string;
+  toolCallId: string | null;
   toolName: string | null;
   toolInput: string | null;
   attachments: MobileChatAttachment[];
@@ -262,6 +263,7 @@ export function serializeMobileChatMessage(input: {
     kind: isError ? 'error' : role === 'tool' ? 'tool' : 'message',
     text: visibleText,
     ...(clientMessageId ? { clientMessageId } : {}),
+    toolCallId,
     toolName: messageToolName(parsed),
     toolInput: toolCallId ? toolInputsById.get(toolCallId) || null : null,
     attachments: attachments.map(serializeMessageAttachment),
