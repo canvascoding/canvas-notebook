@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.25.1] - 2026-08-25
+
+### Added
+
+- Added robust live-collaboration routing and editor synchronization coverage.
+
+### Changed
+
+- Improved mobile Home page layout and tool navigation.
+- Updated third-party compliance metadata for the current dependency set.
+
+### Fixed
+
+- Fixed MCP OAuth dynamic client registration compatibility and request handling.
+- Fixed live-collaboration session state resets during representation changes and retries.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.24.2] - 2026-08-24
 
 ### Fixed

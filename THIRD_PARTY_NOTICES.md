@@ -3,8 +3,8 @@
 This file is generated from `package-lock.json`, installed package license files,
 versioned overrides, and the bundled non-npm component inventory.
 
-- Canvas Notebook version: 2026.8.24.2
-- Lockfile SHA-256: `c7ba174eaaf46e4bb15b6034f379a11597210df6c8a376aa4436464ddc384295`
+- Canvas Notebook version: 2026.8.25.1
+- Lockfile SHA-256: `e66e7610df47d4746299c6a43d51defc0da2569d0753c6db7368cc5c55b578bf`
 - Distributed components: 1510
 - Release gate: **approved**
 
@@ -89,15 +89,15 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @babel/template | 7.29.7 | runtime | MIT | allowed |
 | @babel/traverse | 7.29.7 | runtime | MIT | allowed |
 | @babel/types | 7.29.7 | runtime | MIT | allowed |
-| @better-auth/core | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/drizzle-adapter | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/expo | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/kysely-adapter | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/memory-adapter | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/mongo-adapter | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/oauth-provider | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/prisma-adapter | 1.7.1 | runtime | MIT | allowed |
-| @better-auth/telemetry | 1.7.1 | runtime | MIT | allowed |
+| @better-auth/core | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/drizzle-adapter | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/expo | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/kysely-adapter | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/memory-adapter | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/mongo-adapter | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/oauth-provider | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/prisma-adapter | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/telemetry | 1.7.0-rc.6 | runtime | MIT | allowed |
 | @better-auth/utils | 0.4.2 | runtime | MIT | allowed |
 | @better-auth/utils | 0.5.0 | runtime | MIT | allowed |
 | @better-fetch/fetch | 1.3.1 | runtime | MIT | allowed |
@@ -669,7 +669,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | basic-ftp | 5.3.1 | runtime | MIT | allowed |
 | batch | 0.6.1 | runtime | MIT | allowed |
 | bcryptjs | 3.0.3 | runtime | BSD-3-Clause | allowed |
-| better-auth | 1.7.1 | runtime | MIT | allowed |
+| better-auth | 1.7.0-rc.6 | runtime | MIT | allowed |
 | better-call | 1.4.0 | runtime | MIT | allowed |
 | better-sqlite3 | 12.11.1 | runtime | MIT | allowed |
 | bidi-js | 1.0.3 | runtime | MIT | allowed |
@@ -14102,7 +14102,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 7a07f7d9085c
 
-Applies to @better-auth/core@1.7.1, @better-auth/drizzle-adapter@1.7.1, @better-auth/expo@1.7.1, @better-auth/kysely-adapter@1.7.1, @better-auth/memory-adapter@1.7.1, @better-auth/mongo-adapter@1.7.1, @better-auth/oauth-provider@1.7.1, @better-auth/prisma-adapter@1.7.1, @better-auth/telemetry@1.7.1, better-auth@1.7.1.
+Applies to @better-auth/core@1.7.0-rc.6, @better-auth/drizzle-adapter@1.7.0-rc.6, @better-auth/expo@1.7.0-rc.6, @better-auth/kysely-adapter@1.7.0-rc.6, @better-auth/memory-adapter@1.7.0-rc.6, @better-auth/mongo-adapter@1.7.0-rc.6, @better-auth/oauth-provider@1.7.0-rc.6, @better-auth/prisma-adapter@1.7.0-rc.6, @better-auth/telemetry@1.7.0-rc.6, better-auth@1.7.0-rc.6.
 
 Copyright notices:
 
