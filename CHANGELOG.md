@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.8.25.1] - 2026-08-25
+## [2026.8.25.2] - 2026-08-25
 
 ### Added
 
@@ -26,6 +26,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Fixed MCP OAuth dynamic client registration compatibility and request handling.
 - Fixed live-collaboration session state resets during representation changes and retries.
+- Refreshed third-party compliance artifacts from a clean lockfile installation.
 
 ### Verification
 
