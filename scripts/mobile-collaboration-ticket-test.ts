@@ -78,6 +78,24 @@ assert.deepEqual(parseCollaborationSessionRequest({
   provider: 'yjs',
   representation: 'plain_text',
 });
+assert.deepEqual(parseCollaborationSessionRequest({
+  path: 'Notes/Shared.md',
+  provider: 'yjs',
+  representation: 'auto',
+}), {
+  path: 'Notes/Shared.md',
+  provider: 'yjs',
+  representation: 'auto',
+});
+assert.deepEqual(parseCollaborationSessionRequest({
+  path: 'Notes/Shared.txt',
+  provider: 'yjs',
+  representation: 'auto',
+}), {
+  path: 'Notes/Shared.txt',
+  provider: 'yjs',
+  representation: 'auto',
+});
 assert.equal(parseCollaborationSessionRequest({
   path: 'Notes/Shared.pdf',
   provider: 'yjs',
@@ -91,8 +109,8 @@ const routeSource = readFileSync(
 );
 const serverSource = readFileSync(path.join(root, 'server/collaboration-server.ts'), 'utf8');
 assert.match(routeSource, /issueMobileCollaborationTicket/u);
-assert.match(routeSource, /analyzeMarkdownRichMode/u);
-assert.match(routeSource, /representation,/u);
+assert.match(routeSource, /representation:\s*'auto'/u);
+assert.doesNotMatch(routeSource, /analyzeMarkdownRichMode/u);
 assert.match(routeSource, /error instanceof CollaborationSessionError && error\.code/u);
 assert.match(routeSource, /richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION/u);
 assert.equal(RICH_MARKDOWN_SCHEMA_VERSION, 3);

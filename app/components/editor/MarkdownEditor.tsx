@@ -207,7 +207,12 @@ import {
 import { ObsidianInlineFootnoteExtension } from './ObsidianInlineFootnoteExtension';
 import Collaboration, { isChangeOrigin } from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
-import { useCollaborationDocument, type CollaborationDocument } from '@/app/lib/collaboration/client';
+import {
+  useCollaborationDocument,
+  useTextCollaborationSession,
+  type CollaborationDocument,
+} from '@/app/lib/collaboration/client';
+import type { CollaborationSessionResponse } from '@/app/lib/collaboration/types';
 
 export interface MarkdownEditorProps {
   value: string;
@@ -216,6 +221,7 @@ export interface MarkdownEditorProps {
   filePath?: string;
   externalValueSync?: 'always' | 'when-blurred';
   collaborationEnabled?: boolean;
+  collaborationSession?: CollaborationSessionResponse | null;
   showNotebookMetadata?: boolean;
 }
 
@@ -4824,6 +4830,7 @@ function RichMarkdownEditor({
   onSourceMode,
   markdownNavigationTarget,
   collaborationEnabled = false,
+  collaborationSession,
   showNotebookMetadata = false,
 }: MarkdownEditorProps & {
   isMobileKeyboardActive: boolean;
@@ -4854,6 +4861,7 @@ function RichMarkdownEditor({
     workspaceId: activeWorkspaceId,
     path: filePath,
     representation: 'tiptap_xml',
+    session: collaborationSession,
   });
   const collaborationReadOnly = collaborationEnabled && (
     !collaboration?.session
@@ -5633,6 +5641,7 @@ function SourceMarkdownEditor({
   onRichMode,
   markdownNavigationTarget,
   collaborationEnabled = false,
+  collaborationSession,
   sourceModeReason,
 }: MarkdownEditorProps & {
   initiallyShowMobileToolbar?: boolean;
@@ -5721,6 +5730,7 @@ function SourceMarkdownEditor({
           path={filePath ?? 'document.md'}
           markdownNavigationTarget={markdownNavigationTarget}
           collaborationEnabled={collaborationEnabled}
+          collaborationSession={collaborationSession}
         />
       </div>
       <MarkdownDocumentStatus value={value} />
@@ -5739,6 +5749,13 @@ export function MarkdownEditor({
 }: MarkdownEditorProps) {
   useVisualViewportBottomOffset();
 
+  const t = useTranslations('notebook');
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const collaborationSession = useTextCollaborationSession({
+    enabled: collaborationEnabled,
+    workspaceId: activeWorkspaceId,
+    path: filePath,
+  });
   const isMobileKeyboardActive = useMobileKeyboardActive();
   const parsedDocument = useMemo(() => parseCanvasMarkdownDocument(value), [value]);
   const richModeAnalysis = useMemo(() => analyzeMarkdownRichMode(value), [value]);
@@ -5750,7 +5767,10 @@ export function MarkdownEditor({
   const [markdownNavigationTarget, setMarkdownNavigationTarget] = useState<WorkspaceMarkdownLocation | null>(() => (
     filePath ? consumeWorkspaceMarkdownLocation(filePath) : null
   ));
-  const effectiveMode: EditorMode = sourceModeRequired ? 'source' : mode;
+  const authoritativeRepresentation = collaborationSession.session?.representation;
+  const effectiveMode: EditorMode = collaborationEnabled && authoritativeRepresentation
+    ? authoritativeRepresentation === 'plain_text' ? 'source' : 'rich'
+    : sourceModeRequired ? 'source' : mode;
 
   useEffect(() => {
     if (!filePath) return;
@@ -5783,6 +5803,21 @@ export function MarkdownEditor({
     setSourceModeRequested(false);
     setMode('rich');
   }, [collaborationEnabled, sourceModeRequired]);
+
+  if (collaborationEnabled && !collaborationSession.session) {
+    return (
+      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 bg-background p-6 text-center">
+        <p className="text-sm text-muted-foreground" role="status">
+          {collaborationSession.error || t('collaboration.connecting')}
+        </p>
+        {collaborationSession.error ? (
+          <Button size="sm" variant="outline" onClick={collaborationSession.retry}>
+            {t('externalChangeReload')}
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
 
   if (readOnly && effectiveMode === 'source') {
     return (
@@ -5817,6 +5852,7 @@ export function MarkdownEditor({
         onRichMode={switchToRichMode}
         markdownNavigationTarget={markdownNavigationTarget}
         collaborationEnabled={collaborationEnabled}
+        collaborationSession={collaborationSession.session}
         sourceModeReason={richModeAnalysis.mode === 'source' ? richModeAnalysis.reason : undefined}
       />
     );
@@ -5833,6 +5869,7 @@ export function MarkdownEditor({
       onSourceMode={switchToSourceMode}
       markdownNavigationTarget={markdownNavigationTarget}
       collaborationEnabled={collaborationEnabled}
+      collaborationSession={collaborationSession.session}
       showNotebookMetadata={showNotebookMetadata}
     />
   );

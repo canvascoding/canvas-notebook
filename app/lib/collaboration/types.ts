@@ -5,6 +5,13 @@ export const COLLABORATION_TICKET_TTL_MS = 90_000;
 export type CollaborationProvider = 'yjs' | 'excalidraw';
 export type TextCollaborationRepresentation = 'plain_text' | 'tiptap_xml';
 export type CollaborationRepresentation = TextCollaborationRepresentation | 'excalidraw_scene';
+/**
+ * `auto` is accepted only while establishing a text-collaboration session.
+ * The server resolves it to the durable representation before issuing a
+ * ticket, so a client never guesses the Yjs top-level type from a file
+ * checkpoint.
+ */
+export type CollaborationSessionRepresentation = CollaborationRepresentation | 'auto';
 export type CollaborationPermission = 'read' | 'write';
 export type CollaborationActorType = 'user' | 'agent';
 export type CollaborationActivity = 'viewing' | 'editing' | 'agent_editing';

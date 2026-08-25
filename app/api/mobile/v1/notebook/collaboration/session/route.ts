@@ -21,8 +21,6 @@ import {
   requireTeamRuntimeLicense,
 } from '@/app/lib/license/entitlements';
 import { issueMobileCollaborationTicket } from '@/app/lib/mobile/collaboration-ticket';
-import { readFile } from '@/app/lib/filesystem/workspace-files';
-import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export const dynamic = 'force-dynamic';
@@ -58,28 +56,11 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await readJsonBody<{ path?: unknown }>(request);
-  const requestedPath = typeof body.path === 'string' ? body.path.trim().toLowerCase() : '';
-  const preliminaryRequest = parseCollaborationSessionRequest({
-    path: body.path,
-    provider: 'yjs',
-    representation: requestedPath.endsWith('.txt') ? 'plain_text' : 'tiptap_xml',
-  });
-  if (!preliminaryRequest) {
-    return NextResponse.json(
-      { success: false, error: 'A supported Markdown or plain-text path is required.' },
-      { status: 400 },
-    );
-  }
   const fileOptions = workspaceFileOptions(workspaceResult.workspace);
-  const representation = requestedPath.endsWith('.txt')
-    ? 'plain_text'
-    : analyzeMarkdownRichMode((await readFile(preliminaryRequest.path, fileOptions)).toString('utf8')).mode === 'source'
-      ? 'plain_text'
-      : 'tiptap_xml';
   const collaborationRequest = parseCollaborationSessionRequest({
     path: body.path,
     provider: 'yjs',
-    representation,
+    representation: 'auto',
   });
   if (!collaborationRequest) {
     return NextResponse.json(

@@ -43,6 +43,10 @@ import {
 } from '../app/lib/collaboration/persistence';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
 import { removeDocumentPresenceEntry, upsertDocumentPresenceEntry } from '../app/lib/collaboration/presence';
+import {
+  CollaborationSessionError,
+  createCollaborationSessionGrant,
+} from '../app/lib/collaboration/session-service';
 import { openDb } from '../app/lib/db';
 import {
   ensureFileRevisionForCurrentContent,
@@ -68,6 +72,7 @@ const workspaceId = `agent-operation-workspace-${suffix}`;
 const userId = `agent-operation-user-${suffix}`;
 let toolDocumentId: string | null = null;
 let uninitializedToolDocumentId: string | null = null;
+let representationRoutingDocumentId: string | null = null;
 const workspace: WorkspaceContext = {
   workspaceId,
   workspaceType: 'organization',
@@ -935,6 +940,62 @@ try {
   assert.equal(initializedEditDetails.collaboration?.durability, 'checkpointed_file');
   assert.equal(await persistedText(uninitializedToolDocumentId), '# Existing note\n\nParagraph updated by agent');
 
+  // The durable Yjs representation must win over a source-only checkpoint.
+  // This is the regression path for a document that an agent has changed
+  // before a browser opens it again.
+  const representationRoutingPath = `agent-representation-routing-${suffix}.md`;
+  const routingRichInitialContent = '# Strategy update\n\nInitial paragraph\n';
+  const sourceOnlyCheckpoint = '# Strategy update\n\nInitial paragraph\n\n%% agent-generated note %%\n';
+  await fs.writeFile(path.join(workspace.rootPath, representationRoutingPath), routingRichInitialContent, 'utf8');
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: representationRoutingPath,
+    contentHash: createHash('sha256').update(routingRichInitialContent, 'utf8').digest('hex'),
+    sizeBytes: Buffer.byteLength(routingRichInitialContent, 'utf8'),
+    actorUserId: userId,
+    actorType: 'user',
+  });
+  const representationRoutingProjection = getFileCollaborationState({
+    workspace,
+    path: representationRoutingPath,
+    ensureDocument: true,
+  });
+  assert(representationRoutingProjection.document);
+  representationRoutingDocumentId = representationRoutingProjection.document.id;
+  await ensureCollaborationState({
+    documentId: representationRoutingDocumentId,
+    workspaceId,
+    organizationId: workspace.organizationId || null,
+    path: representationRoutingPath,
+    representation: 'tiptap_xml',
+    initialContent: routingRichInitialContent,
+  });
+  const sourceOnlyDoc = createRichMarkdownYDoc(sourceOnlyCheckpoint);
+  await persistCollaborationYDoc(representationRoutingDocumentId, sourceOnlyDoc);
+  sourceOnlyDoc.destroy();
+  await fs.writeFile(path.join(workspace.rootPath, representationRoutingPath), sourceOnlyCheckpoint, 'utf8');
+
+  const resolvedGrant = await createCollaborationSessionGrant({
+    workspace,
+    fileOptions: { workspace },
+    request: { path: representationRoutingPath, provider: 'yjs', representation: 'auto' },
+  });
+  assert.equal(resolvedGrant.representation, 'tiptap_xml');
+  const explicitRichGrant = await createCollaborationSessionGrant({
+    workspace,
+    fileOptions: { workspace },
+    request: { path: representationRoutingPath, provider: 'yjs', representation: 'tiptap_xml' },
+  });
+  assert.equal(explicitRichGrant.representation, 'tiptap_xml');
+  await assert.rejects(
+    () => createCollaborationSessionGrant({
+      workspace,
+      fileOptions: { workspace },
+      request: { path: representationRoutingPath, provider: 'yjs', representation: 'plain_text' },
+    }),
+    (error: unknown) => error instanceof CollaborationSessionError && error.code === 'representation_mismatch',
+  );
+
   // Cross-node Markdown edits are persisted as real review operations. Accept
   // reapplies the exact patch to the then-current Yjs document, preserving an
   // unrelated human edit outside the reviewed target.
@@ -1264,6 +1325,7 @@ try {
       archivedDocumentId,
       ...(toolDocumentId ? [toolDocumentId] : []),
       ...(uninitializedToolDocumentId ? [uninitializedToolDocumentId] : []),
+      ...(representationRoutingDocumentId ? [representationRoutingDocumentId] : []),
     ]) {
       await database.run('DELETE FROM collaboration_agent_operations WHERE document_id = ?', [cleanupDocumentId]);
       await database.run('DELETE FROM collaboration_yjs_state_backups WHERE document_id = ?', [cleanupDocumentId]);

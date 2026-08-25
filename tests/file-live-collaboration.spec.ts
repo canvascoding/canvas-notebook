@@ -521,6 +521,52 @@ test.describe('Markdown live collaboration', () => {
       await expect.poll(() => collaborativeEditorText(editor)).not.toContain('Combined paragraph');
       await expect(reviewRegion.getByRole('button', { name: /Reject|Ablehnen/i }))
         .toHaveCount(0, { timeout: 20_000 });
+
+      // A rich Y.Doc can validly retain Markdown that the conservative source
+      // codec classifies as source-only. This models an agent review that adds
+      // an Obsidian comment after the document already has a rich Yjs identity.
+      const sourceOnlyRead = await runAgentTool({
+        toolName: 'read',
+        toolCallId: `read-source-only-${suffix}`,
+        params: { path: filePath },
+        context: agentContext,
+      });
+      const sourceOnlySha256 = String((sourceOnlyRead.details as { sha256?: string } | undefined)?.sha256 || '');
+      const sourceOnlyPatch = await runAgentTool({
+        toolName: 'apply_patch',
+        toolCallId: `patch-source-only-${suffix}`,
+        params: {
+          files: [{
+            path: filePath,
+            expectedSha256: sourceOnlySha256,
+            edits: [{
+              oldText: 'Keep this paragraph edited by user\n\nFinal paragraph',
+              newText: 'Keep this paragraph edited by user\n\nFinal paragraph\n\n%% agent-generated note %%',
+            }],
+          }],
+        },
+        context: agentContext,
+      });
+      const sourceOnlyDetails = sourceOnlyPatch.details as {
+        results?: Array<{ collaboration?: { operationStatus?: string } }>;
+      };
+      expect(sourceOnlyDetails.results?.[0]?.collaboration?.operationStatus).toBe('needs_review');
+      const sourceOnlyAccept = page.waitForResponse((response) => (
+        response.request().method() === 'POST'
+        && /\/api\/files\/collaboration\/operations\/[^/]+\/accept$/u.test(response.url())
+      ));
+      await reviewRegion.getByRole('button', { name: /Accept|Annehmen/i }).click();
+      expect((await sourceOnlyAccept).ok()).toBeTruthy();
+      await expect.poll(() => collaborativeEditorText(editor), { timeout: 20_000 })
+        .toContain('agent-generated note');
+
+      // Opening a new editor is the regression boundary: it must resolve the
+      // existing rich Yjs representation instead of selecting CodeMirror from
+      // the source-only checkpoint text.
+      await openCollaborativeMarkdown(page, filePath);
+      const reopenedEditor = page.locator('.tiptap-editor-shell .ProseMirror');
+      await expect.poll(() => collaborativeEditorText(reopenedEditor), { timeout: 20_000 })
+        .toContain('agent-generated note');
       expect(browserErrors, 'Agent review UI must not emit browser errors.').toEqual([]);
     } finally {
       await page.close().catch(() => undefined);

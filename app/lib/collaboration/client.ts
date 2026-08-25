@@ -13,6 +13,8 @@ import type {
   CollaborationSessionResponse,
 } from './types';
 
+type RequestedTextCollaborationRepresentation = TextCollaborationRepresentation | 'auto';
+
 type RegistryEntry = {
   key: string;
   refs: number;
@@ -43,7 +45,10 @@ function emit(entry: RegistryEntry): void {
   for (const listener of entry.listeners) listener();
 }
 
-async function requestSession(path: string, representation: TextCollaborationRepresentation): Promise<CollaborationSessionResponse> {
+async function requestSession(
+  path: string,
+  representation: RequestedTextCollaborationRepresentation,
+): Promise<CollaborationSessionResponse> {
   const response = await fetch('/api/files/collaboration/session', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
@@ -54,13 +59,32 @@ async function requestSession(path: string, representation: TextCollaborationRep
   return payload as CollaborationSessionResponse;
 }
 
+function requireTextSession(
+  session: CollaborationSessionResponse,
+  representation?: TextCollaborationRepresentation,
+): CollaborationSessionResponse {
+  if (
+    session.provider !== 'yjs'
+    || (session.representation !== 'plain_text' && session.representation !== 'tiptap_xml')
+    || (representation && session.representation !== representation)
+  ) {
+    throw new Error('The collaboration representation does not match this editor. Reload to use the current document representation.');
+  }
+  return session;
+}
+
 function websocketUrl(relative: string): string {
   const url = new URL(relative, window.location.href);
   url.protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
 }
 
-function createEntry(key: string, path: string, representation: TextCollaborationRepresentation): RegistryEntry {
+function createEntry(
+  key: string,
+  path: string,
+  representation: TextCollaborationRepresentation,
+  initialSession?: CollaborationSessionResponse | null,
+): RegistryEntry {
   const entry: RegistryEntry = {
     key,
     refs: 0,
@@ -82,7 +106,10 @@ function createEntry(key: string, path: string, representation: TextCollaboratio
       ]);
       if (entry.refs === 0 && !registry.has(key)) return;
       entry.doc = new Y.Doc({ gc: true });
-      let session = await requestSession(path, representation);
+      let session = requireTextSession(
+        initialSession || await requestSession(path, representation),
+        representation,
+      );
       entry.session = session;
       const persistence = new IndexeddbPersistence(
         `canvas:${session.documentId}:${session.lifecycleGeneration}:${representation}`,
@@ -96,7 +123,14 @@ function createEntry(key: string, path: string, representation: TextCollaboratio
         document: entry.doc,
         token: async () => {
           if (Date.parse(session.expiresAt) - Date.now() < 30_000) {
-            session = await requestSession(path, representation);
+            const refreshed = requireTextSession(await requestSession(path, 'auto'), representation);
+            if (
+              refreshed.documentId !== session.documentId
+              || refreshed.lifecycleGeneration !== session.lifecycleGeneration
+            ) {
+              throw new Error('The collaboration document generation changed. Reload to use the current document state.');
+            }
+            session = refreshed;
             entry.session = session;
           }
           return session.token;
@@ -184,9 +218,12 @@ export function useCollaborationDocument(input: {
   workspaceId: string | null;
   path: string | undefined;
   representation: TextCollaborationRepresentation;
+  session?: CollaborationSessionResponse | null;
 }): CollaborationDocument | null {
   const key = input.enabled && input.workspaceId && input.path
-    ? `${input.workspaceId}\0${input.path}\0${input.representation}`
+    ? input.session
+      ? `${input.workspaceId}\0${input.path}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}`
+      : `${input.workspaceId}\0${input.path}\0${input.representation}`
     : null;
   const [state, setState] = useState<CollaborationDocument | null>(null);
   useEffect(() => {
@@ -195,7 +232,7 @@ export function useCollaborationDocument(input: {
     }
     let entry = registry.get(key);
     if (!entry) {
-      entry = createEntry(key, input.path, input.representation);
+      entry = createEntry(key, input.path, input.representation, input.session);
       registry.set(key, entry);
     }
     if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
@@ -216,6 +253,68 @@ export function useCollaborationDocument(input: {
         }, 1_000);
       }
     };
-  }, [input.path, input.representation, key]);
+  }, [input.path, input.representation, input.session, key]);
   return key && state?.registryKey === key ? state : null;
+}
+
+export type TextCollaborationSessionResolution = {
+  session: CollaborationSessionResponse | null;
+  loading: boolean;
+  error: string | null;
+  retry: () => void;
+};
+
+/**
+ * Resolves the durable Yjs representation before an editor selects its root
+ * type. This is intentionally separate from the WebSocket registry so the
+ * UI can choose CodeMirror or Tiptap without making an unsafe first guess.
+ */
+export function useTextCollaborationSession(input: {
+  enabled: boolean;
+  workspaceId: string | null;
+  path: string | undefined;
+}): TextCollaborationSessionResolution {
+  const key = input.enabled && input.workspaceId && input.path
+    ? `${input.workspaceId}\0${input.path}`
+    : null;
+  const [attempt, setAttempt] = useState(0);
+  const [state, setState] = useState<{
+    key: string | null;
+    session: CollaborationSessionResponse | null;
+    error: string | null;
+  }>({ key: null, session: null, error: null });
+
+  useEffect(() => {
+    if (!key || !input.path) {
+      setState({ key: null, session: null, error: null });
+      return;
+    }
+    let cancelled = false;
+    setState({ key, session: null, error: null });
+    void requestSession(input.path, 'auto')
+      .then((session) => requireTextSession(session))
+      .then((session) => {
+        if (!cancelled) setState({ key, session, error: null });
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setState({
+            key,
+            session: null,
+            error: error instanceof Error ? error.message : 'Collaboration could not be started.',
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [input.path, key, attempt]);
+
+  const current = state.key === key ? state : { session: null, error: null };
+  return {
+    session: current.session,
+    loading: Boolean(key) && !current.session && !current.error,
+    error: current.error,
+    retry: () => setAttempt((currentAttempt) => currentAttempt + 1),
+  };
 }
