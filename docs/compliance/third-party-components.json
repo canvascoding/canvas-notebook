@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.8.24.2",
-  "lockfileSha256": "e495bc8527be422921a944ad861026c8eee98ec2feba8d0c657909c8e2d1ecd5",
+  "lockfileSha256": "c7ba174eaaf46e4bb15b6034f379a11597210df6c8a376aa4436464ddc384295",
   "summary": {
     "totalComponents": 2034,
     "npmComponents": 2011,
@@ -11862,7 +11862,7 @@
     },
     {
       "name": "@better-auth/core",
-      "versionOrCommit": "1.7.0-rc.6",
+      "versionOrCommit": "1.7.1",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/core",
       "usage": "runtime",
@@ -11884,7 +11884,7 @@
     },
     {
       "name": "@better-auth/drizzle-adapter",
-      "versionOrCommit": "1.7.0-rc.6",
+      "versionOrCommit": "1.7.1",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/drizzle-adapter",
       "usage": "runtime",
@@ -11906,7 +11906,7 @@
     },
     {
       "name": "@better-auth/expo",
-      "versionOrCommit": "1.7.0-rc.6",
+      "versionOrCommit": "1.7.1",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/expo",
       "usage": "runtime",
@@ -11928,7 +11928,7 @@
     },
     {
       "name": "@better-auth/kysely-adapter",
-      "versionOrCommit": "1.7.0-rc.6",
+      "versionOrCommit": "1.7.1",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/kysely-adapter",
       "usage": "runtime",
@@ -11950,7 +11950,7 @@
     },
     {
       "name": "@better-auth/memory-adapter",
-      "versionOrCommit": "1.7.0-rc.6",
+      "versionOrCommit": "1.7.1",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/memory-adapter",
       "usage": "runtime",
@@ -11972,7 +11972,7 @@
     },
     {
       "name": "@better-auth/mongo-adapter",
-      "versionOrCommit": "1.7.0-rc.6",
+      "versionOrCommit": "1.7.1",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/mongo-adapter",
       "usage": "runtime",
@@ -11994,7 +11994,7 @@
     },
     {
       "name": "@better-auth/oauth-provider",
-      "versionOrCommit": "1.7.0-rc.6",
+      "versionOrCommit": "1.7.1",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/oauth-provider",
       "usage": "runtime",
@@ -12016,7 +12016,7 @@
     },
     {
       "name": "@better-auth/prisma-adapter",
-      "versionOrCommit": "1.7.0-rc.6",
+      "versionOrCommit": "1.7.1",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/prisma-adapter",
       "usage": "runtime",
@@ -12038,7 +12038,7 @@
     },
     {
       "name": "@better-auth/telemetry",
-      "versionOrCommit": "1.7.0-rc.6",
+      "versionOrCommit": "1.7.1",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/telemetry",
       "usage": "runtime",
@@ -25470,7 +25470,7 @@
     },
     {
       "name": "better-auth",
-      "versionOrCommit": "1.7.0-rc.6",
+      "versionOrCommit": "1.7.1",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/better-auth",
       "usage": "runtime",

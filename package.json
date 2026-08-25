@@ -321,8 +321,8 @@
     "container:rebuild": "node scripts/setup.mjs"
   },
   "dependencies": {
-    "@better-auth/expo": "1.7.0-rc.6",
-    "@better-auth/oauth-provider": "1.7.0-rc.6",
+    "@better-auth/expo": "1.7.1",
+    "@better-auth/oauth-provider": "1.7.1",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/lang-cpp": "^6.0.3",
     "@codemirror/lang-css": "^6.3.1",
@@ -395,7 +395,7 @@
     "@xterm/xterm": "^6.0.0",
     "archiver": "^8.0.0",
     "bcryptjs": "^3.0.3",
-    "better-auth": "1.7.0-rc.6",
+    "better-auth": "1.7.1",
     "better-sqlite3": "^12.6.2",
     "chart.js": "^4.5.1",
     "class-variance-authority": "^0.7.1",
