@@ -280,26 +280,26 @@ export function useTextCollaborationSession(input: {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
     key: string | null;
+    attempt: number;
     session: CollaborationSessionResponse | null;
     error: string | null;
-  }>({ key: null, session: null, error: null });
+  }>({ key: null, attempt: -1, session: null, error: null });
 
   useEffect(() => {
     if (!key || !input.path) {
-      setState({ key: null, session: null, error: null });
       return;
     }
     let cancelled = false;
-    setState({ key, session: null, error: null });
     void requestSession(input.path, 'auto')
       .then((session) => requireTextSession(session))
       .then((session) => {
-        if (!cancelled) setState({ key, session, error: null });
+        if (!cancelled) setState({ key, attempt, session, error: null });
       })
       .catch((error) => {
         if (!cancelled) {
           setState({
             key,
+            attempt,
             session: null,
             error: error instanceof Error ? error.message : 'Collaboration could not be started.',
           });
@@ -310,7 +310,7 @@ export function useTextCollaborationSession(input: {
     };
   }, [input.path, key, attempt]);
 
-  const current = state.key === key ? state : { session: null, error: null };
+  const current = state.key === key && state.attempt === attempt ? state : { session: null, error: null };
   return {
     session: current.session,
     loading: Boolean(key) && !current.session && !current.error,
