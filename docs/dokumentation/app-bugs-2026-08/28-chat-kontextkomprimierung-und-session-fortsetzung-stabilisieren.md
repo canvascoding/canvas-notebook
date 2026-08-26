@@ -30,7 +30,7 @@ Budgetberechnung, automatische Ausloesung, Zusammenfassungsaufruf,
 Persistierung, erneuter LLM-Request oder Wiederaufnahme einer geladenen
 Session.
 
-## Referenzanalyse: Hermes-Agent (Stand 2026-08-23)
+## Referenzanalyse: Hermes-Agent (Stand 2026-08-23, Budgetanalyse 2026-08-26)
 
 Der lokale Checkout `../hermes-agent` wurde per Fast-forward auf
 `f293e7206b4ddd66042329442c6afebc19a8808d` (Upstream `main`, 2026-08-14)
@@ -60,6 +60,21 @@ Folgende, fuer Canvas relevante Muster wurden verifiziert:
 Diese Erkenntnisse sind als Qualitaetsmassstab zu verwenden. Canvas soll seine
 eigene Daten-, Sicherheits- und Providerarchitektur beibehalten.
 
+Die anschliessende Detailanalyse des Hermes-Kontextbudgets hat die
+Umsetzungsreihenfolge geschaerft. Hermes berechnet aus dem Modellfenster
+zunaechst ein effektives Eingabefenster nach Abzug der vorgesehenen Ausgabe,
+zaehlt Systemprompt, Nachrichten und Toolschemas gemeinsam und vergleicht
+seine Schaetzung spaeter mit gemeldeter Provider-Usage. Fuer Canvas sind davon
+der vollstaendige Request-Blick, die Ausgabe-Reserve, atomare Toolgruppen und
+die Verwendung realer Usage als kalibrierende Evidenz uebertragbar.
+
+Nicht uebernommen werden Hermes' feste Schwellen/Floors, Python-Threading,
+Gateway- und Session-Rotation, Recovery-Pointer, Micro-Compaction,
+Prompt-Cache-Annahmen oder statische destruktive Fallbacks. Insbesondere ist
+eine Provider-Usage-Meldung keine universelle Tokenwahrheit: Sie gilt nur als
+Evidenz fuer die konkrete Modell-/Provider-/Payload-Konfiguration und erhaelt
+eine explizite Konfidenz.
+
 ## Zielzustand
 
 - Lange Chats laufen beim Erreichen des Kontextlimits kontrolliert weiter; die
@@ -82,6 +97,25 @@ eigene Daten-, Sicherheits- und Providerarchitektur beibehalten.
   Credentials duerfen nicht in UI, Logs oder Telemetrie gelangen.
 
 ## Umsetzung
+
+Die erste Implementierungsphase ist jetzt der gemeinsame Budgetvertrag, noch
+vor Coordinator-, Persistenz- oder breiteren Komprimierungsaenderungen. Fuer
+jede konkrete Hauptmodell-Anfrage wird genau ein unveraenderlicher Snapshot
+aus dem finalen Payloadzustand gebildet. Er umfasst:
+
+- effektive System-/Developer-Anweisungen und Runtime-Promptbloecke;
+- final serialisierte Nachrichten einschliesslich Bild-/Anhangsevidenz;
+- die effektiv gesendeten Toolschemas und Provider-/Runtime-Envelope;
+- eine Ausgabe-Reserve, die exakt dem an den Provider gesendeten
+  `maxTokens`-Cap entspricht, plus explizite Sicherheitsreserve;
+- Modell-, Prompt-, Tool- und Payload-Fingerprints als
+  Invalidierungsgrenzen sowie die Schaetz-/Kalibrierungskonfidenz.
+
+Der zugehoerige History-Planer arbeitet mit unteilbaren Einheiten. Ein
+Assistant-ToolCall und alle zugehoerigen Toolresultate werden gemeinsam
+behalten oder gemeinsam aus dem Raw-Tail entfernt. Trigger- und Zielwerte
+sind Canvas-Policy, injizierbar und testbar; Hermes-Konstanten werden nicht
+hardcodiert.
 
 - Einen reproduzierbaren Fehlerfall mit Modell, effektiver Kontextgroesse,
   Systemprompt-/Toolumfang, Runtime-Kontext, Nachrichtenfolge und erwarteter

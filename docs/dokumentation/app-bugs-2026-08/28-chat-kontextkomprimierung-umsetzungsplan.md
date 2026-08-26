@@ -1,6 +1,6 @@
 ---
 title: 'Umsetzungsplan zu Ticket 28: Chat-Kontextkomprimierung und Session-Fortsetzung stabilisieren'
-status: planning_review
+status: implementation_started
 date: 2026-08-26
 platforms: [server, agent-runtime, web]
 tags: [type/implementation-plan, topic/agents, topic/chat, topic/context-window, topic/sessions]
@@ -12,13 +12,15 @@ tags: [type/implementation-plan, topic/agents, topic/chat, topic/context-window,
 
 Dieser Plan konkretisiert
 [Ticket 28](./28-chat-kontextkomprimierung-und-session-fortsetzung-stabilisieren.md)
-auf Basis des aktuellen Repository-Stands. Er ist **zur Planungspruefung
-bereit**, aber weder umgesetzt noch abgenommen. Das Ticket bleibt offen.
+auf Basis des aktuellen Repository-Stands. Die Budgetanalyse ist abgeschlossen
+und der Budgetvertrag ist als erste Implementierungsphase freigegeben. Die
+breiteren Komprimierungs-, Persistenz-, Coordinator- und UI-Aenderungen sind
+weiterhin nur geplant. Das Ticket bleibt offen und ist nicht abgenommen.
 
-Fuer diese Analyse wurden keine Produktdateien, Tests, Konfigurationen oder
-Deployments geaendert und keine Runtime, kein Dev-Server, kein Browser und kein
-externes System gestartet. Der lokale Hermes-Checkout wurde ausschliesslich
-read-only als Referenz gelesen.
+Der lokale Hermes-Checkout wurde ausschliesslich read-only als Referenz
+gelesen. Browser, Dev-Server, Container und externe Systeme bleiben fuer die
+erste Implementierungsphase ausgeschlossen. Produktcode und fokussierte Tests
+werden nur fuer den hier beschriebenen Budgetvertrag geaendert.
 
 Der spaetere Implementierungsgrundsatz lautet:
 
@@ -106,6 +108,77 @@ Session-Rotation in Parent/Child-Sessions, gateway-spezifische Statusfilter,
 der dortige Prompt-Cache-Vertrag, Micro-Compaction oder ein destruktiver
 statischer Summary-Fallback. Canvas behaelt seine PI-Agent-, Workspace-,
 Provider-, Daten- und UI-Architektur.
+
+#### Konkretes Hermes-Budgetmodell und belastbare Uebertragung
+
+Hermes ermittelt sein Komprimierungslimit nicht allein aus der sichtbaren
+Chat-Historie. Der Referenzstand bildet zuerst ein effektives Eingabefenster
+aus `context_length - max_tokens` (sofern positiv), schaetzt den gesamten
+Request aus Systemprompt, Wire-/Nachrichtenform, Toolschemas und Bildern und
+wendet darauf eine modellabhaengige Triggerpolicy an. Fuer kleinere Fenster
+existieren feste Prozent-/Tokenfloors; ein separater Tail-Target-Wert bestimmt,
+wie viel Rohhistorie nach einer Komprimierung verbleibt. Spaetere
+Provider-Usage wird zusammen mit der vorherigen Schaetzung protokolliert und
+kann die Schaetzqualitaet fuer denselben Requesttyp belegen.
+
+Diese Details sind **Evidenz fuer das Design**, keine fuer Canvas gueltigen
+Konstanten. Uebertragen werden:
+
+- Ausgabe vor der Eingabebelegung reservieren und dabei denselben Cap
+  verwenden, der tatsaechlich im Providerrequest steht;
+- den kompletten finalen Request betrachten: effektive Anweisungen,
+  serialisierte Nachrichten, effektive Tools, Runtime-/Provider-Envelope und
+  multimodale Last;
+- ToolCall/Result-Gruppen und die neueste echte Nutzer-/Tool-Einheit atomar
+  behandeln;
+- Trigger, Target und Safety als getrennte, kalibrierbare Policywerte fuehren;
+- Provider-Usage nur zusammen mit Modell-, Prompt-, Tool- und
+  Payloadidentitaet als nachtraegliche Kalibrierungsevidenz speichern.
+
+Nicht uebertragen werden die Hermes-Floors und Prozentwerte (unter anderem
+64k-, 75-/85-Prozent- und Lean-/Overshoot-Konstanten), grobe Bildpauschalen,
+Session-Rotation, Recovery-Pointer, Gatewaystatus, Python-Threads,
+Micro-Compaction, Prompt-Cache-Vertraege oder destruktive statische
+Zusammenfassungen. Canvas darf daraus insbesondere keine universelle
+Provider-Tokenformel ableiten.
+
+#### Canvas-Budgetvertrag
+
+Fuer einen eingefrorenen finalen Hauptmodell-Payload gelten konzeptionell:
+
+```text
+W = verifiziertes Kontextfenster des effektiven Modells
+I = effektive System-/Developer-Anweisungen
+T = final serialisierte effektive Toolschemas
+R = Runtime-/Provider-Envelope und sonstige feste Requestfelder
+O = tatsaechlich im Request gesendeter Output-Cap
+S = explizite Safety-Reserve fuer Tokenizer-/Adapterunsicherheit
+H = max(0, W - I - T - R - O - S)       // hartes History-Budget
+trigger = floor(H * triggerRatio)         // Start der Komprimierung
+target  = floor(H * targetRatio)          // Ziel fuer Summary + Raw-Tail
+```
+
+Die Nachrichtenschaetzung `M` wird auf dem nach Providerprojektion und
+Multimodalnormalisierung final serialisierbaren Nachrichtensatz gebildet und
+gegen `H`, `trigger` und `target` verglichen. Byte- und Bildgrenzen bleiben
+zusaetzliche harte Achsen; sie werden nicht in scheinbar exakte Tokens
+umgerechnet. `targetRatio < triggerRatio <= 1` ist eine validierte Policy,
+nicht hart an Hermes gekoppelt.
+
+Der Snapshot ist unveraenderlich und inhaltsfrei diagnostizierbar. Er traegt
+Fingerprints/Revisionen fuer Modell samt Limitmetadaten, effektive
+Anweisungen, effektive Tools, Runtime-Enveloperegeln,
+Multimodalnormalisierung und finalen Payload. Eine Aenderung an einer dieser
+Grenzen erzeugt einen neuen Snapshot; ein laufender Versuch wird nicht
+nachtraeglich umgedeutet.
+
+Provider-Usage wird als separates Kalibrierungsdatum mit expliziter
+Konfidenz behandelt, beispielsweise `heuristic`, `provider_reported` oder
+`verified_same_contract`. Sie darf einen Snapshot nur fuer denselben
+Fingerprint plausibilisieren. Ob ein Provider Toolschemas, Cache-Tokens,
+Systemrollen, Bilder oder interne Adapter-Overheads in `input_tokens`
+einschliesst, ist providerspezifisch und bis zum verifizierten Contract als
+Unsicherheit mit Safety-Reserve zu behandeln.
 
 ## Heutiger Daten- und Kontrollfluss
 
@@ -318,28 +391,41 @@ Alle Pfade verwenden eine gemeinsame Struktur, beispielsweise in
 
 ```ts
 type PiContextBudgetSnapshot = {
+  snapshotVersion: number;
   modelIdentity: string;
+  modelFingerprint: string;
+  instructionFingerprint: string;
+  toolSchemaFingerprint: string;
+  runtimeFingerprint: string;
+  payloadFingerprint: string;
   contextWindowTokens: number;
-  systemPromptTokens: number;
+  effectiveInstructionTokens: number;
+  serializedMessageTokens: number;
   toolSchemaTokens: number;
-  runtimeContextTokens: number;
+  runtimeProviderOverheadTokens: number;
+  multimodalTokens: number;
+  serializedMessageBytes: number;
+  multimodalBytes: number;
   outputReserveTokens: number;
   safetyReserveTokens: number;
   hardHistoryTokens: number;
   triggerHistoryTokens: number;
   targetTailTokens: number;
   hardHistoryBytes: number;
-  imageBytes: number;
   totalImageBytesLimit: number;
+  estimateConfidence: 'heuristic' | 'provider_reported' | 'verified_same_contract';
 };
 ```
 
 Der Snapshot wird aus dem **effektiven** Systemprompt, den **effektiven**
 Toolschemas aus Ticket 18, dem fuer diesen Turn eingefrorenen Runtime-Kontext,
-dem effektiven Modell sowie den finalen Attachment-Metadaten abgeleitet. Status,
-manuell, automatisch und Automation erhalten denselben Builder. Ein Status
-ohne konkreten Turn muss klar als Schaetzung markiert sein und darf nicht
-vorgeben, einen noch nicht gebauten Page-/Plugin-Kontext zu kennen.
+dem effektiven Modell sowie den final normalisierten und serialisierbaren
+Nachrichten/Attachment-Metadaten abgeleitet. Der Builder erhaelt den
+`outputReserveTokens`-Wert nicht aus einer zweiten Formel, sondern aus der
+Requestoption, die derselbe Aufruf als `maxTokens` an `streamFn` sendet.
+Status, manuell, automatisch und Automation erhalten denselben Builder. Ein
+Status ohne konkreten Turn muss klar als Schaetzung markiert sein und darf
+nicht vorgeben, einen noch nicht gebauten Page-/Plugin-Kontext zu kennen.
 
 Es gelten drei getrennte Grenzen:
 
@@ -350,20 +436,23 @@ Es gelten drei getrennte Grenzen:
 3. `targetTailTokens`: nach Erfolg bleibt genug Luft fuer Summary, den
    aktuellen Turn und mindestens einen nuetzlichen Folgeturn.
 
-Als Startwerte fuer die Implementierung werden 80 Prozent des harten
+Als initiale Canvas-Defaultpolicy werden 80 Prozent des harten
 History-Budgets als Soft-Trigger und 60 Prozent als Tail-Ziel vorgeschlagen.
-Diese Werte sind **keine Providerwahrheit**: Phase 0 muss sie mit kleinen,
-mittleren und grossen Modellfenstern sowie realistischen Toolschemas
-verifizieren. Feste Minimalreserven duerfen ein kleines Modell nicht komplett
+Die Werte liegen in einer injizierbaren, validierten Policy und sind **keine
+Providerwahrheit oder Hermes-Konstanten**. Kalibrierungsfixtures pruefen sie
+mit kleinen, mittleren und grossen Modellfenstern sowie realistischen
+Toolschemas. Feste Minimalreserven duerfen ein kleines Modell nicht komplett
 blockieren; eine dynamische Untergrenze wird explizit getestet.
 
-Die bestehende Schaetzung `ceil(characters * 0.25)` bleibt bis zu dieser
-Kalibrierung die gemeinsame Baseline. Sie wird nicht erneut isoliert auf
-UTF-8-Bytes umgestellt, weil die Historie bereits belegt, dass dies reale
-Erstnachrichten bei grossen Prompts faelschlich blockierte. Wenn PI AI einen
-API-spezifischen Zaehler bereitstellt, wird er hinter derselben Schnittstelle
-genutzt; andernfalls schuetzen Soft-Trigger, Safety-Reserve und ein einmaliger
-klassifizierter Overflow-Recovery-Pfad gegen Unterzaehlung.
+Die bestehende Schaetzung `ceil(characters * 0.25)` bleibt als klar markierte
+heuristische Baseline. Die Final-Payload-Evidenz zaehlt zusaetzlich
+Serialisierungs-Envelope, Runtime-/Provider-Overhead, Bildtokens und Bytes als
+getrennte Anteile; System-/Developerrollen und Tools werden nie aus der
+Historyzahl abgeleitet. Provider-Usage kann nach einem Request nur als
+fingerprintgebundene Kalibrierung mit expliziter Konfidenz hinzukommen. Wenn
+PI AI einen API-spezifischen Zaehler bereitstellt, wird er hinter derselben
+Schnittstelle genutzt; andernfalls schuetzen Soft-Trigger, Safety-Reserve und
+ein einmaliger klassifizierter Overflow-Recovery-Pfad gegen Unterzaehlung.
 
 ### A2: Der Planner arbeitet mit unteilbaren Nachrichteneinheiten
 
@@ -682,32 +771,49 @@ imitieren.
 
 ## Sequenzieller Implementierungspfad
 
-### Phase 0: Reproduktionsfixtures und Vertragsbaseline
+### Phase 0: Budgetanalyse und Vertragsbaseline (abgeschlossen)
 
-1. Einen rein lokalen Fixture-Builder fuer persistierte und In-Memory-
-   `AgentMessage`s mit Modellfenster, effektivem Systemprompt, Toolschemas,
-   Runtime-Kontext, Sequenzen, Toolgruppen und Bildmetadaten erstellen.
-2. F1 bis F11 jeweils als fehlenden oder roten Contract-Test festhalten. Die
-   Tests verwenden Fake-Streams und temporaere DBs, keine externen Provider.
-3. PI-Agent-Core-Aufrufreihenfolge und Provider-Toolpaarverhalten aus der
-   installierten Version beziehungsweise deren offizieller Quelle bestaetigen.
-4. Ein anonymes Diagnoseformat definieren, das nur Budgets, Zaehler,
-   Attempt-ID, Trigger, Dauer und Grundcode ausgibt.
-5. Soft-Trigger/Target und Timeoutwerte anhand kleiner (4k/8k), mittlerer
-   (32k) und grosser Fenster kalibrieren.
+1. Aktuellen Canvas-Requestpfad und Hermes-Budgetmodell codebasiert
+   vergleichen.
+2. Vollstaendigen Payloadumfang, Output-Cap, Safety-Reserve,
+   Tokenizerunsicherheit, Multimodalachsen und Invalidierungsgrenzen als
+   Budgetvertrag festlegen.
+3. Hermes-spezifische Konstanten und Mechanismen explizit ausschliessen.
+4. Provider-Usage als fingerprintgebundene Evidenz mit Konfidenz statt als
+   universelle Wahrheit definieren.
 
-**Gate:** Jeder behauptete Fehler hat eine reproduzierbare Fixture oder wird
-im Plan als nicht reproduzierbar korrigiert. Noch keine Produktintegration.
+**Gate:** Erfuellt durch die dokumentierte Budgetanalyse. Die exakte
+PI-Agent-Core-Hookreihenfolge bleibt mangels installierter Dependencyquelle
+eine Integrationsunsicherheit und wird durch Adaptertests statt Annahmen
+abgesichert.
 
-### Phase 1: Pure Budget- und Kompositionsvertraege
+### Phase 1A: Final-Payload-Budgetvertrag (erste Implementierungsphase)
 
-1. `PiContextBudgetSnapshot` und einen einzigen Builder einfuehren.
-2. Nachrichteneinheiten und Toolgruppen bilden und validieren.
-3. Soft-Trigger, Target-Tail und Hardlimit getrennt planen.
-4. Summary/Raw-Tail strikt nach Sequenz entueberlappen; Break-Marker aus der
+1. `PiContextBudgetSnapshot`, validierte `PiContextBudgetPolicy` und einen
+   einzigen Builder einfuehren.
+2. Fuer den Hauptmodellpfad einen expliziten Output-Cap setzen und exakt
+   denselben Wert im Snapshot reservieren.
+3. Effektive Anweisungen, final serialisierte Nachrichten, effektive
+   Toolschemas, Runtime-/Provideroverhead sowie finale Bildtoken-/Byteevidenz
+   getrennt zaehlen.
+4. Fingerprints fuer Modell/Limitmetadaten, Prompt, Tools, Runtimepolicy,
+   Multimodalnormalisierung und Payload bilden; Inhalte selbst nicht loggen.
+5. Kalibrierungsevidenz mit Quelle, Konfidenz und exaktem Contractfingerprint
+   modellieren; keine Schaetzung global ueberschreiben.
+6. Nachrichteneinheiten bilden und ToolCall/Result-Gruppen bei jeder
+   Raw-History-Auswahl ungeteilt halten.
+
+**Gate:** Fokussierte Contracttests fuer Budgetgleichung, echten Output-Cap,
+Fingerprintinvalidierung, Multimodal-/Byteachsen, Konfidenz und Toolatomizitaet
+gruen; Lint und Build gruen. Fokussierter Commit.
+
+### Phase 1B: Pure Kompositionsvertraege
+
+1. Soft-Trigger, Target-Tail und Hardlimit im Summary-Planner anwenden.
+2. Summary/Raw-Tail strikt nach Sequenz entueberlappen; Break-Marker aus der
    LLM-Entscheidung entfernen.
-5. Aktuelle Nutzer-/Tool-/Bild-Einheit als unteilbaren Tail schuetzen.
-6. Bestehende Exporte nur ueber Adapter weiterfuehren und alle Consumer auf
+3. Aktuelle Nutzer-/Tool-/Bild-Einheit als unteilbaren Tail schuetzen.
+4. Bestehende Exporte nur ueber Adapter weiterfuehren und alle Consumer auf
    denselben Snapshot umstellen.
 
 **Gate:** Unit-/Contract-Matrix gruen; vorhandener First-Message-, Byte- und
