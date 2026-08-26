@@ -9,6 +9,10 @@ tags: [type/bug, topic/agents, topic/chat, topic/context-window, topic/sessions]
 
 # Ticket 28: Chat-Kontextkomprimierung und Session-Fortsetzung stabilisieren
 
+> Detaillierter, am aktuellen Codebestand und am lokalen Hermes-Referenzstand
+> ausgerichteter Umsetzungsplan:
+> [28-chat-kontextkomprimierung-umsetzungsplan.md](./28-chat-kontextkomprimierung-umsetzungsplan.md)
+
 ## Problem
 
 Wenn ein Chat das Kontextfenster des gewaehlten Modells erreicht, muss die
