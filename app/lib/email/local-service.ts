@@ -20,6 +20,7 @@ import {
   type StoredEmailAccount,
 } from '@/app/lib/email/account-store';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
+import { EmailMessageNotFoundError, EmailProviderRequestError, isEmailProviderNotFoundError } from '@/app/lib/email/errors';
 import { htmlToPlainText, plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
 import {
   draftEmailComposeWithAiStream,
@@ -652,7 +653,7 @@ async function gmailFetch(pathSuffix: string, token: string, init?: RequestInit)
   });
   const text = await response.text();
   const body = text ? JSON.parse(text) : {};
-  if (!response.ok) throw new Error(typeof body.error?.message === 'string' ? body.error.message : `Gmail request failed with ${response.status}`);
+  if (!response.ok) throw new EmailProviderRequestError(typeof body.error?.message === 'string' ? body.error.message : `Gmail request failed with ${response.status}`, response.status);
   return body as Record<string, unknown>;
 }
 
@@ -667,7 +668,7 @@ async function microsoftFetch(pathSuffix: string, token: string, init?: RequestI
   });
   const text = await response.text();
   const body = text ? JSON.parse(text) : {};
-  if (!response.ok) throw new Error(typeof body.error?.message === 'string' ? body.error.message : `Microsoft Graph request failed with ${response.status}`);
+  if (!response.ok) throw new EmailProviderRequestError(typeof body.error?.message === 'string' ? body.error.message : `Microsoft Graph request failed with ${response.status}`, response.status);
   return body as Record<string, unknown>;
 }
 
@@ -1063,7 +1064,13 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
   const token = await validAccessToken(account);
   let message: Record<string, unknown>;
   if (account.provider === 'google') {
-    const raw = await gmailFetch(`messages/${encodeURIComponent(messageId)}?format=full`, token);
+    let raw: Record<string, unknown>;
+    try {
+      raw = await gmailFetch(`messages/${encodeURIComponent(messageId)}?format=full`, token);
+    } catch (error) {
+      if (isEmailProviderNotFoundError(error)) throw new EmailMessageNotFoundError();
+      throw error;
+    }
     const payload = raw.payload as Record<string, unknown> | undefined;
     const headers = payload?.headers as Array<{ name?: string; value?: string }> | undefined;
     const from = gmailHeader(headers, 'From');
@@ -1095,7 +1102,13 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       snippet: String(raw.snippet || ''),
     };
   } else {
-    const raw = await microsoftFetch(`messages/${encodeURIComponent(messageId)}?$select=id,conversationId,internetMessageId,from,toRecipients,ccRecipients,subject,receivedDateTime,body,bodyPreview,isRead`, token);
+    let raw: Record<string, unknown>;
+    try {
+      raw = await microsoftFetch(`messages/${encodeURIComponent(messageId)}?$select=id,conversationId,internetMessageId,from,toRecipients,ccRecipients,subject,receivedDateTime,body,bodyPreview,isRead`, token);
+    } catch (error) {
+      if (isEmailProviderNotFoundError(error)) throw new EmailMessageNotFoundError();
+      throw error;
+    }
     const from = (raw.from as { emailAddress?: { address?: string } } | undefined)?.emailAddress?.address || '';
     if (enforceReadPolicy) assertSenderAllowed(account, from);
     const body = raw.body as { content?: string; contentType?: string } | undefined;
