@@ -45,6 +45,7 @@
     "test:pi:multimodal-delivery": "tsx scripts/pi-multimodal-delivery-test.ts",
     "test:pi:vision-fallback": "tsx scripts/pi-vision-fallback-stream-test.ts",
     "test:pi:summary": "tsx scripts/pi-session-summary-test.ts",
+    "test:pi:context-budget": "tsx scripts/pi-context-budget-test.ts",
     "test:pi:session-title": "tsx --conditions react-server scripts/pi-session-title-test.ts",
     "test:pi:usage": "tsx scripts/pi-usage-test.ts",
     "test:pi:tools": "tsx scripts/pi-tool-registry-test.ts",

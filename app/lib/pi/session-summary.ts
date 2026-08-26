@@ -19,6 +19,7 @@ type PreparePiHistoryContextOptions = {
   summary: PiSessionSummaryState;
   systemPromptTokens: number;
   model: Model<Api>;
+  requestOutputTokens?: number;
   toolTokens: number;
   additionalContextTokens?: number;
   sessionId?: string;
@@ -355,6 +356,7 @@ export async function preparePiHistoryContext({
   summary,
   systemPromptTokens,
   model,
+  requestOutputTokens,
   toolTokens,
   additionalContextTokens = 0,
   sessionId,
@@ -371,6 +373,7 @@ export async function preparePiHistoryContext({
     systemPromptTokens,
     contextWindow: model.contextWindow,
     modelMaxTokens: model.maxTokens,
+    requestOutputTokens,
     toolTokens,
     additionalContextTokens,
   });
@@ -435,6 +438,7 @@ export async function preparePiHistoryContext({
         systemPromptTokens,
         contextWindow: model.contextWindow,
         modelMaxTokens: model.maxTokens,
+        requestOutputTokens,
         toolTokens,
         additionalContextTokens,
       });

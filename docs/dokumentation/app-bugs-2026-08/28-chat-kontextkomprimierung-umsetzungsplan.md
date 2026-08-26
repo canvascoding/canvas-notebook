@@ -22,6 +22,29 @@ gelesen. Browser, Dev-Server, Container und externe Systeme bleiben fuer die
 erste Implementierungsphase ausgeschlossen. Produktcode und fokussierte Tests
 werden nur fuer den hier beschriebenen Budgetvertrag geaendert.
 
+### Implementierungsfortschritt 2026-08-26
+
+Phase 1A ist technisch umgesetzt:
+
+- `app/lib/pi/context-budget.ts` definiert validierte Canvas-Policy,
+  Output-Cap, immutable Snapshot, inhaltsfreie Fingerprints und
+  providergebundene Kalibrierungsevidenz;
+- `multimodal-preparation.ts` erzeugt finale Nachrichten und Snapshot an
+  derselben Normalisierungsgrenze;
+- Live-Runtime und persistente Automation senden den reservierten Cap
+  tatsaechlich als `maxTokens`, lehnen einen final zu grossen Payload vor dem
+  Provider ab und invalidieren Evidenz bei Prompt-/Tool-/Runtimeaenderungen;
+- `history-budget.ts` selektiert Raw-History nur noch in atomaren
+  ToolCall/Result-Einheiten;
+- fokussierte Contract-, Summary-, Automation-, Multimodal-, Vision-,
+  Runtime-Prompt-, Effective-Tool-, Continuation- und Temperature-Tests,
+  TypeScript, Lint und Produktionsbuild wurden ausgefuehrt.
+
+Damit ist nur das Gate von Phase 1A technisch erfuellt. Phase 1B und alle
+Phasen 2 bis 7 bleiben geplant. Insbesondere wurden keine manuelle
+Langchat-/UI-Abnahme, kein Browser-/Playwright-Test und keine externe
+Providerkalibrierung ausgefuehrt; Ticket 28 bleibt offen.
+
 Der spaetere Implementierungsgrundsatz lautet:
 
 ```text

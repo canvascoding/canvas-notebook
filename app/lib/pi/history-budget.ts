@@ -1,5 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { UserMessage } from '@earendil-works/pi-ai';
+import { estimatePiTextTokens, getPiRequestOutputTokenCap } from './context-budget';
 import { MAX_LLM_HISTORY_BYTES, MAX_LLM_IMAGE_BYTES } from './llm-payload-limits';
 
 export type PiSessionSummaryState = {
@@ -14,6 +15,7 @@ export type PiHistoryComposition = {
   keptMessages: AgentMessage[];
   omittedMessages: AgentMessage[];
   includedSummary: boolean;
+  outputReserveTokens: number;
   availableHistoryTokens: number;
   estimatedHistoryTokens: number;
   availableHistoryBytes: number;
@@ -30,6 +32,7 @@ type ComposePiHistoryOptions = {
   systemPromptTokens: number;
   contextWindow: number;
   modelMaxTokens: number;
+  requestOutputTokens?: number;
   toolCount?: number;
   toolTokens?: number;
   additionalContextTokens?: number;
@@ -40,7 +43,6 @@ const MESSAGE_OVERHEAD_TOKENS = 24;
 const MESSAGE_OVERHEAD_BYTES = 256;
 const STATIC_SAFETY_TOKENS = 512;
 const TOKENS_PER_CHARACTER = 0.25;
-const MAX_OUTPUT_RESERVE_TOKENS = 8_192;
 const AGGRESSIVE_HISTORY_FACTOR = 0.7;
 const MAX_SUMMARY_SHARE = 0.45;
 
@@ -51,7 +53,7 @@ export function estimateTextTokens(value: string): number {
   // Keep this aligned with pi-ai's provider-side context estimate. Treating every
   // UTF-8 byte as a token made ordinary system prompts and tool schemas consume
   // their entire context window before a user could send their first message.
-  return Math.ceil(value.length * TOKENS_PER_CHARACTER);
+  return estimatePiTextTokens(value);
 }
 
 function estimateTextBytes(value: string): number {
@@ -200,27 +202,118 @@ function getHistoryBudget({
   systemPromptTokens,
   contextWindow,
   modelMaxTokens,
+  requestOutputTokens,
   toolTokens = 0,
   additionalContextTokens = 0,
   aggressive = false,
-}: Omit<ComposePiHistoryOptions, 'messages' | 'summary'>): number {
-  // pi-ai clamps max output tokens to the space left after the real request
-  // context is assembled. Reserving a model's full advertised output limit here
-  // (which may equal its whole context window) rejects even a new chat. Keep a
-  // bounded reserve for useful responses while leaving room for the prompt.
-  const outputReserve = Math.min(
-    Math.max(512, Math.floor(contextWindow * 0.2)),
-    Math.max(1_024, Math.min(Math.max(0, modelMaxTokens), MAX_OUTPUT_RESERVE_TOKENS)),
-  );
+}: Omit<ComposePiHistoryOptions, 'messages' | 'summary'>): {
+  availableHistoryTokens: number;
+  outputReserveTokens: number;
+} {
+  const outputReserveTokens = requestOutputTokens === undefined
+    ? getPiRequestOutputTokenCap({ contextWindow, maxTokens: modelMaxTokens })
+    : Math.max(1, Math.floor(requestOutputTokens));
   const available = contextWindow
     - systemPromptTokens
-    - outputReserve
+    - outputReserveTokens
     - Math.max(0, toolTokens)
     - Math.max(0, additionalContextTokens)
     - STATIC_SAFETY_TOKENS;
 
-  if (available <= 0) return 0;
-  return aggressive ? Math.floor(available * AGGRESSIVE_HISTORY_FACTOR) : available;
+  if (available <= 0) {
+    return { availableHistoryTokens: 0, outputReserveTokens };
+  }
+  return {
+    availableHistoryTokens: aggressive ? Math.floor(available * AGGRESSIVE_HISTORY_FACTOR) : available,
+    outputReserveTokens,
+  };
+}
+
+export type PiHistoryUnit = Readonly<{
+  kind: 'message' | 'tool_group';
+  messages: readonly AgentMessage[];
+  toolCallIds: readonly string[];
+  toolChainComplete: boolean;
+}>;
+
+function getAssistantToolCallIds(message: AgentMessage): string[] {
+  if (message.role !== 'assistant' || !Array.isArray(message.content)) return [];
+  return message.content.flatMap((part) => {
+    if (!part || typeof part !== 'object' || !('type' in part) || part.type !== 'toolCall') return [];
+    const id = 'id' in part && typeof part.id === 'string' ? part.id.trim() : '';
+    return id ? [id] : [];
+  });
+}
+
+function getToolResultCallId(message: AgentMessage): string | null {
+  if (message.role !== 'toolResult') return null;
+  const toolCallId = (message as unknown as { toolCallId?: unknown }).toolCallId;
+  return typeof toolCallId === 'string' && toolCallId.trim() ? toolCallId.trim() : null;
+}
+
+/** Groups the raw history before any suffix selection so a cut cannot split a tool transaction. */
+export function buildPiHistoryUnits(messages: readonly AgentMessage[]): PiHistoryUnit[] {
+  const toolCallsByIndex = new Map<number, string[]>();
+  const resultIndexesByCallId = new Map<string, number[]>();
+  messages.forEach((message, index) => {
+    const toolCallIds = getAssistantToolCallIds(message);
+    if (toolCallIds.length > 0) toolCallsByIndex.set(index, toolCallIds);
+    const resultId = getToolResultCallId(message);
+    if (resultId) {
+      const indexes = resultIndexesByCallId.get(resultId) ?? [];
+      indexes.push(index);
+      resultIndexesByCallId.set(resultId, indexes);
+    }
+  });
+
+  const units: PiHistoryUnit[] = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    const toolCallIds = toolCallsByIndex.get(index) ?? [];
+    if (toolCallIds.length === 0) {
+      units.push(Object.freeze({
+        kind: 'message',
+        messages: Object.freeze([message]),
+        toolCallIds: Object.freeze([]),
+        toolChainComplete: message.role !== 'toolResult',
+      }));
+      continue;
+    }
+
+    const groupedToolCallIds = new Set(toolCallIds);
+    let endIndex = toolCallIds.reduce((latestIndex, id) => {
+      const resultIndexes = resultIndexesByCallId.get(id) ?? [];
+      return Math.max(latestIndex, ...resultIndexes.filter((resultIndex) => resultIndex > index));
+    }, index);
+    for (let nestedIndex = index + 1; nestedIndex <= endIndex; nestedIndex += 1) {
+      const nestedToolCallIds = toolCallsByIndex.get(nestedIndex) ?? [];
+      for (const nestedId of nestedToolCallIds) {
+        groupedToolCallIds.add(nestedId);
+        const resultIndexes = resultIndexesByCallId.get(nestedId) ?? [];
+        endIndex = Math.max(endIndex, ...resultIndexes.filter((resultIndex) => resultIndex > nestedIndex));
+      }
+    }
+    const groupedMessages = messages.slice(index, endIndex + 1);
+    const observedResultIds = new Set(
+      groupedMessages.map(getToolResultCallId).filter((id): id is string => id !== null),
+    );
+    units.push(Object.freeze({
+      kind: 'tool_group',
+      messages: Object.freeze(groupedMessages),
+      toolCallIds: Object.freeze([...groupedToolCallIds]),
+      toolChainComplete: [...groupedToolCallIds].every((id) => observedResultIds.has(id)),
+    }));
+    index = endIndex;
+  }
+  return units;
+}
+
+function getUnitTokens(unit: PiHistoryUnit): number {
+  return unit.messages.reduce((total, message) => total + estimatePiMessageTokens(message), 0);
+}
+
+function getUnitBytes(unit: PiHistoryUnit): number {
+  return unit.messages.reduce((total, message) => total + estimatePiMessagePayloadBytes(message), 0);
 }
 
 export function getMessageTimestamp(message: AgentMessage): number {
@@ -257,40 +350,45 @@ export function composePiHistoryForLlm({
   systemPromptTokens,
   contextWindow,
   modelMaxTokens,
+  requestOutputTokens,
   toolTokens,
   additionalContextTokens,
   aggressive = false,
 }: ComposePiHistoryOptions): PiHistoryComposition {
-  const availableHistoryTokens = getHistoryBudget({
+  const budget = getHistoryBudget({
     systemPromptTokens,
     contextWindow,
     modelMaxTokens,
+    requestOutputTokens,
     toolTokens,
     additionalContextTokens,
     aggressive,
   });
+  const { availableHistoryTokens, outputReserveTokens } = budget;
 
-  const keptMessages: AgentMessage[] = [];
+  const historyUnits = buildPiHistoryUnits(messages);
+  const keptUnits: PiHistoryUnit[] = [];
   let keptTokens = 0;
   let keptBytes = 0;
 
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    const messageTokens = estimatePiMessageTokens(message);
-    const messageBytes = estimatePiMessagePayloadBytes(message);
-    const nextTotal = keptTokens + messageTokens;
-    const nextTotalBytes = keptBytes + messageBytes;
+  for (let index = historyUnits.length - 1; index >= 0; index -= 1) {
+    const unit = historyUnits[index];
+    const nextTotal = keptTokens + getUnitTokens(unit);
+    const nextTotalBytes = keptBytes + getUnitBytes(unit);
 
     if (nextTotal > availableHistoryTokens || nextTotalBytes > MAX_LLM_HISTORY_BYTES) {
       break;
     }
 
-    keptMessages.unshift(message);
+    keptUnits.unshift(unit);
     keptTokens = nextTotal;
     keptBytes = nextTotalBytes;
   }
 
-  let omittedMessages = messages.slice(0, Math.max(0, messages.length - keptMessages.length));
+  let keptMessages = keptUnits.flatMap((unit) => [...unit.messages]);
+  let omittedMessages = historyUnits
+    .slice(0, Math.max(0, historyUnits.length - keptUnits.length))
+    .flatMap((unit) => [...unit.messages]);
   const firstMsgTimestamp = messages.length > 0 ? getMessageTimestamp(messages[0]) : null;
   const firstMsgSequence = messages.length > 0 ? getMessageSequence(messages[0]) : null;
   const hasCompactBreakMarker = messages.some((message) => message.role === 'compact-break');
@@ -312,15 +410,18 @@ export function composePiHistoryForLlm({
 
   while (
     summaryMessage
-    && keptMessages.length > 0
+    && keptUnits.length > 0
     && (keptTokens + summaryTokens > availableHistoryTokens || keptBytes + summaryBytes > MAX_LLM_HISTORY_BYTES)
   ) {
-    const removed = keptMessages.shift()!;
-    keptTokens -= estimatePiMessageTokens(removed);
-    keptBytes -= estimatePiMessagePayloadBytes(removed);
+    const removed = keptUnits.shift()!;
+    keptTokens -= getUnitTokens(removed);
+    keptBytes -= getUnitBytes(removed);
   }
 
-  omittedMessages = messages.slice(0, Math.max(0, messages.length - keptMessages.length));
+  keptMessages = keptUnits.flatMap((unit) => [...unit.messages]);
+  omittedMessages = historyUnits
+    .slice(0, Math.max(0, historyUnits.length - keptUnits.length))
+    .flatMap((unit) => [...unit.messages]);
 
   if (summaryMessage && (summaryTokens > availableHistoryTokens || summaryBytes > MAX_LLM_HISTORY_BYTES)) {
     summaryMessage = null;
@@ -328,16 +429,16 @@ export function composePiHistoryForLlm({
     summaryBytes = 0;
   }
 
-  const contextBudgetExceeded = messages.length > 0 && keptMessages.length === 0;
-  const latestMessage = messages[messages.length - 1];
+  const contextBudgetExceeded = historyUnits.length > 0 && keptUnits.length === 0;
+  const latestUnit = historyUnits[historyUnits.length - 1];
   const payloadBudgetExceeded = contextBudgetExceeded
-    && latestMessage !== undefined
-    && estimatePiMessagePayloadBytes(latestMessage) > MAX_LLM_HISTORY_BYTES;
-  const minimumRequiredTokens = contextBudgetExceeded && latestMessage
-    ? estimatePiMessageTokens(latestMessage)
+    && latestUnit !== undefined
+    && getUnitBytes(latestUnit) > MAX_LLM_HISTORY_BYTES;
+  const minimumRequiredTokens = contextBudgetExceeded && latestUnit
+    ? getUnitTokens(latestUnit)
     : 0;
-  const minimumRequiredBytes = contextBudgetExceeded && latestMessage
-    ? estimatePiMessagePayloadBytes(latestMessage)
+  const minimumRequiredBytes = contextBudgetExceeded && latestUnit
+    ? getUnitBytes(latestUnit)
     : 0;
   const llmMessages = summaryMessage
     ? [summaryMessage, ...keptMessages]
@@ -350,6 +451,7 @@ export function composePiHistoryForLlm({
     keptMessages,
     omittedMessages,
     includedSummary: shouldIncludeSummary,
+    outputReserveTokens,
     availableHistoryTokens,
     estimatedHistoryTokens,
     availableHistoryBytes: MAX_LLM_HISTORY_BYTES,

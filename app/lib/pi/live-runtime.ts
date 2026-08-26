@@ -11,7 +11,7 @@ import {
   type StreamFn,
   type ThinkingLevel,
 } from '@earendil-works/pi-agent-core';
-import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
+import type { Api, AssistantMessage, Message, Model } from '@earendil-works/pi-ai';
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
@@ -27,7 +27,16 @@ import {
   type PiHistoryComposition,
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
-import { prepareMessagesForEffectiveModel } from '@/app/lib/pi/multimodal-preparation';
+import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
+import type { PiMessageNormalizationOptions } from '@/app/lib/pi/message-normalization';
+import {
+  createPiProviderUsageCalibrationEvidence,
+  estimatePiToolSchemaTokens,
+  getPiRequestOutputTokenCap,
+  withPiRequestOutputTokenCap,
+  type PiContextBudgetSnapshot,
+  type PiProviderUsageCalibrationEvidence,
+} from '@/app/lib/pi/context-budget';
 import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
 import { createCompactBreakMessage, createRuntimeContinuationMessage, type RuntimeContinuationReason } from '@/app/lib/pi/custom-messages';
 import {
@@ -115,20 +124,6 @@ function runtimeExecutionModeForSession(session: Pick<typeof piSessions.$inferSe
   return normalizeStoredChannelId(session.channelId ?? 'app') === WEB_CHANNEL_ID
     ? 'interactive' as const
     : 'external_channel' as const;
-}
-
-function estimatePiToolSchemaTokens(tools: AgentTool[]): number {
-  try {
-    return estimateTextTokens(JSON.stringify(tools.map((tool) => ({
-      name: tool.name,
-      label: tool.label,
-      description: tool.description,
-      parameters: tool.parameters,
-    }))));
-  } catch {
-    // Keep a conservative fallback if an extension supplies a non-serializable schema.
-    return tools.reduce((total, tool) => total + estimateTextTokens(`${tool.name}\n${tool.label}\n${tool.description || ''}`), 0);
-  }
 }
 
 function getStudioOutputReferencePaths(outputFilePath: string) {
@@ -260,6 +255,8 @@ type RuntimeInit = {
   executionContext: AgentExecutionContext;
   workspaceFileTreePromptBlock: string;
   browserSnapshot: BrowserSessionSnapshot;
+  imageNormalizationOptions: PiMessageNormalizationOptions;
+  requestOutputTokenCap: number;
 };
 
 type RuntimeOptions = {
@@ -442,6 +439,10 @@ class LivePiRuntime {
   private isRunning = false;
   private summary: PiSessionSummaryState;
   private lastComposition: PiHistoryComposition | null = null;
+  private lastFinalPayloadBudgetSnapshot: PiContextBudgetSnapshot | null = null;
+  private lastProviderUsageCalibration: PiProviderUsageCalibrationEvidence | null = null;
+  private readonly imageNormalizationOptions: PiMessageNormalizationOptions;
+  private readonly requestOutputTokenCap: number;
   private lastPersistedLength: number;
   private lastAccessAt = Date.now();
   private lastCompactionAt: Date | null;
@@ -489,6 +490,8 @@ class LivePiRuntime {
     this.tools = init.tools;
     this.executionContext = init.executionContext;
     this.workspaceFileTreePromptBlock = init.workspaceFileTreePromptBlock;
+    this.imageNormalizationOptions = init.imageNormalizationOptions;
+    this.requestOutputTokenCap = init.requestOutputTokenCap;
     this.summary = init.summary;
     this.lastPersistedLength = init.initialMessages.length;
     this.agent = agent;
@@ -504,13 +507,56 @@ class LivePiRuntime {
         if (this.disposed) return;
         const nextMode: BrowserToolMode = snapshot.running ? 'active' : 'dormant';
         this.browserSnapshot = snapshot.running ? snapshot : null;
-        this.lastComposition = null;
+        this.invalidateContextBudget();
         if (nextMode !== this.browserToolMode) {
           this.browserToolsNeedRefresh = true;
         }
         this.publishStatus();
       },
     );
+  }
+
+  private invalidateContextBudget(): void {
+    this.lastComposition = null;
+    this.lastFinalPayloadBudgetSnapshot = null;
+    this.lastProviderUsageCalibration = null;
+  }
+
+  async prepareFinalPayload(messages: AgentMessage[]): Promise<Message[]> {
+    const prepared = await preparePiFinalPayload({
+      messages,
+      model: this.model,
+      effectiveInstructions: [{ role: 'system', content: this.getEffectiveSystemPrompt() }],
+      effectiveTools: this.getEffectiveTools(),
+      requestOutputTokenCap: this.requestOutputTokenCap,
+      runtimeContractRevision: 'canvas-pi-runtime-v1',
+    }, this.imageNormalizationOptions);
+    this.lastFinalPayloadBudgetSnapshot = prepared.budgetSnapshot;
+    this.lastProviderUsageCalibration = null;
+
+    if (prepared.budgetSnapshot.payloadBudgetExceeded) {
+      throw new Error(
+        `The final request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget after image compression. `
+        + 'Shorten the latest message or attachments.',
+      );
+    }
+    if (prepared.budgetSnapshot.contextBudgetExceeded) {
+      throw new Error(
+        'The final serialized request exceeds the selected model context window after instructions, tools, provider overhead, output reserve, multimodal input, and safety margin.',
+      );
+    }
+
+    return prepared.messages;
+  }
+
+  getContextBudgetEvidence(): Readonly<{
+    snapshot: PiContextBudgetSnapshot | null;
+    calibration: PiProviderUsageCalibrationEvidence | null;
+  }> {
+    return Object.freeze({
+      snapshot: this.lastFinalPayloadBudgetSnapshot,
+      calibration: this.lastProviderUsageCalibration,
+    });
   }
 
   touch() {
@@ -561,6 +607,7 @@ class LivePiRuntime {
         systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
         contextWindow: this.model.contextWindow,
         modelMaxTokens: this.model.maxTokens,
+        requestOutputTokens: this.requestOutputTokenCap,
         toolTokens: estimatePiToolSchemaTokens(this.tools),
         additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
       });
@@ -702,6 +749,7 @@ class LivePiRuntime {
       summary: this.summary,
       systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
       model: this.model,
+      requestOutputTokens: this.requestOutputTokenCap,
       toolTokens: estimatePiToolSchemaTokens(this.tools),
       additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
       sessionId: this.sessionId,
@@ -727,6 +775,7 @@ class LivePiRuntime {
         systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
         contextWindow: this.model.contextWindow,
         modelMaxTokens: this.model.maxTokens,
+        requestOutputTokens: this.requestOutputTokenCap,
         toolTokens: estimatePiToolSchemaTokens(this.tools),
         additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
       });
@@ -764,6 +813,7 @@ class LivePiRuntime {
       systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
       contextWindow: this.model.contextWindow,
       modelMaxTokens: this.model.maxTokens,
+      requestOutputTokens: this.requestOutputTokenCap,
       toolTokens: estimatePiToolSchemaTokens(this.tools),
       additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
     });
@@ -780,45 +830,53 @@ class LivePiRuntime {
     }
 
     this.channelId = nextChannelId;
-    this.lastComposition = null;
+    this.invalidateContextBudget();
   }
 
   setTimeZoneContext(timeZone: string, currentTime: string) {
     this.timeZoneContext = { timeZone, currentTime };
+    this.invalidateContextBudget();
   }
 
   setActiveFileContext(path: string | null) {
     this.activeFileContext = path;
+    this.invalidateContextBudget();
   }
 
   setPlanningMode(enabled: boolean) {
     this.planningMode = enabled;
+    this.invalidateContextBudget();
   }
 
   setPageContext(page: string | undefined): void {
     this.pageContext = page ?? null;
+    this.invalidateContextBudget();
   }
 
   setNotebookContext(context: PiRuntimePromptContext['notebookContext']) {
     this.notebookContext = context ?? null;
+    this.invalidateContextBudget();
   }
 
   setStudioContext(context: PiRuntimePromptContext['studioContext']) {
     this.studioContext = context ?? null;
+    this.invalidateContextBudget();
   }
 
   setEmailContext(context: PiRuntimePromptContext['emailContext']) {
     this.emailContext = context ?? null;
+    this.invalidateContextBudget();
   }
 
   setWorkspaceContext(context: PiRuntimePromptContext['workspace']) {
     this.workspaceContext = context ?? null;
+    this.invalidateContextBudget();
   }
 
   async refreshWorkspaceFileTreePrompt(): Promise<void> {
     if (!this.hasWorkspaceReadCapability()) {
       this.workspaceFileTreePromptBlock = '';
-      this.lastComposition = null;
+      this.invalidateContextBudget();
       if (!this.isRunning && !this.agent.state.isStreaming) {
         this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
       }
@@ -829,7 +887,7 @@ class LivePiRuntime {
       rootPath: this.executionContext.workspaceRoot,
     });
     this.workspaceFileTreePromptBlock = result.promptBlock;
-    this.lastComposition = null;
+    this.invalidateContextBudget();
     if (!this.isRunning && !this.agent.state.isStreaming) {
       this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
     }
@@ -868,7 +926,7 @@ class LivePiRuntime {
     });
     this.browserToolMode = browserMode;
     this.browserToolsNeedRefresh = false;
-    this.lastComposition = null;
+    this.invalidateContextBudget();
     this.agent.state.tools = this.getEffectiveTools();
     if (!this.isRunning && !this.agent.state.isStreaming) {
       this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
@@ -897,7 +955,7 @@ class LivePiRuntime {
     });
     this.systemPrompt = snapshot.systemPrompt;
     this.systemPromptRefreshRequested = false;
-    this.lastComposition = null;
+    this.invalidateContextBudget();
     this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
     await db
       .update(piSessions)
@@ -1330,6 +1388,7 @@ class LivePiRuntime {
     });
     
     this.touch();
+    this.invalidateContextBudget();
     this.options.resetToolLoopGuard?.();
     this.abortRequested = false;
     this.isRunning = true;
@@ -1408,6 +1467,19 @@ class LivePiRuntime {
     }
 
     if (event.type === 'message_end' && event.message?.role === 'assistant') {
+      const providerReportedInputTokens = event.message.usage?.input;
+      if (
+        this.lastFinalPayloadBudgetSnapshot
+        && typeof providerReportedInputTokens === 'number'
+        && providerReportedInputTokens > 0
+      ) {
+        this.lastProviderUsageCalibration = createPiProviderUsageCalibrationEvidence({
+          snapshot: this.lastFinalPayloadBudgetSnapshot,
+          provider: event.message.provider,
+          model: event.message.model,
+          providerReportedInputTokens,
+        });
+      }
       const flushed = flushThinkingFilter(this.thinkingFilterState);
       this.thinkingFilterState = createThinkingFilterState();
       if (flushed.text) {
@@ -1479,6 +1551,7 @@ class LivePiRuntime {
       summary: this.summary,
       systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
       model: this.model,
+      requestOutputTokens: this.requestOutputTokenCap,
       toolTokens: estimatePiToolSchemaTokens(this.tools),
       additionalContextTokens: runtimeContext ? estimateTextTokens(runtimeContext) : 0,
       sessionId: this.sessionId,
@@ -1885,6 +1958,11 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     uploadOwnerUserId: userId,
     uploadWorkspaceId: executionContext.workspaceId,
   };
+  const requestOutputTokenCap = getPiRequestOutputTokenCap(model);
+  const mainRequestStreamFn = withPiRequestOutputTokenCap(
+    executableRuntime.streamFn,
+    requestOutputTokenCap,
+  );
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
   const agent = new Agent({
@@ -1896,7 +1974,10 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       messages: initialMessages,
     },
     convertToLlm: async (messages) => {
-      return prepareMessagesForEffectiveModel(messages, model, imageNormalizationOptions);
+      if (!runtimeRef.current) {
+        throw new Error('PI runtime not initialized');
+      }
+      return runtimeRef.current.prepareFinalPayload(messages);
     },
     transformContext: async (messages, signal) => {
       if (!runtimeRef.current) {
@@ -1905,7 +1986,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
 
       return runtimeRef.current.transformContext(messages, signal);
     },
-    streamFn: executableRuntime.streamFn,
+    streamFn: mainRequestStreamFn,
     afterToolCall: async (context) => toolLoopGuard.afterToolCall(context),
     prepareNextTurnWithContext: async (context, signal) => {
       if (!runtimeRef.current) return undefined;
@@ -1929,6 +2010,8 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       executionContext,
       workspaceFileTreePromptBlock: workspaceFileTreePrompt.promptBlock,
       browserSnapshot,
+      imageNormalizationOptions,
+      requestOutputTokenCap,
     },
     agent,
     {
@@ -2251,6 +2334,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     systemPromptTokens: estimateTextTokens(systemPrompt),
     contextWindow: model.contextWindow,
     modelMaxTokens: model.maxTokens,
+    requestOutputTokens: getPiRequestOutputTokenCap(model),
     toolTokens: estimatePiToolSchemaTokens(tools),
     additionalContextTokens: browserRuntimeContextBlock
       ? estimateTextTokens(browserRuntimeContextBlock)

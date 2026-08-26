@@ -96,6 +96,23 @@ eine explizite Konfidenz.
   aus Zusammenfassungen bleiben untrusted Kontext; Secrets, rohe Anhaenge und
   Credentials duerfen nicht in UI, Logs oder Telemetrie gelangen.
 
+## Implementierungsstand 2026-08-26
+
+Die erste Budgetvertragsphase ist technisch umgesetzt und automatisiert
+geprueft. Live-Chat und persistente Automation setzen nun einen expliziten
+Hauptrequest-Ausgabecap und verwenden denselben Wert als Reserve. Unmittelbar
+nach der bestehenden finalen Nachrichten-/Bildnormalisierung entsteht ein
+unveraenderlicher, fingerprintgebundener Snapshot fuer effektive
+Anweisungen, Nachrichten, Toolschemas, Runtime-/Provideroverhead,
+Multimodalkosten, Safety und Bytegrenzen. Raw-History-Schnitte erhalten
+ToolCall/Result-Gruppen atomar. Provider-Usage kann nur als nachtraegliche
+Evidenz mit expliziter Konfidenz am konkreten Contractfingerprint haengen.
+
+Noch **nicht** umgesetzt oder abgenommen sind der neue Soft-Trigger-/Target-
+Summaryplanner, disjunkte Summary-/Raw-Tails, Sequenz-/Revisionspersistenz,
+Coordinator/Commit-Fence, Retry/Timeout, Status/UI und manuelle Langchat-
+Abnahme. Das Ticket bleibt offen.
+
 ## Umsetzung
 
 Die erste Implementierungsphase ist jetzt der gemeinsame Budgetvertrag, noch

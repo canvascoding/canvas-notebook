@@ -11,7 +11,12 @@ import {
 import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-runtime-policy/runtime-snapshot';
 import { SessionRuntimeContextRevisionConflictError } from '@/app/lib/agent-runtime-policy/runtime-store';
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
-import { prepareMessagesForEffectiveModel } from '@/app/lib/pi/multimodal-preparation';
+import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
+import {
+  estimatePiToolSchemaTokens,
+  getPiRequestOutputTokenCap,
+  withPiRequestOutputTokenCap,
+} from '@/app/lib/pi/context-budget';
 import { projectAgentEventForExternal } from '@/app/lib/pi/visual-data-projection';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { estimateTextTokens } from '@/app/lib/pi/history-budget';
@@ -174,19 +179,6 @@ function queueAutomationResponsePush(input: {
 function assertAutomationExecutionActive(signal: AbortSignal): void {
   if (signal.aborted) {
     throw new Error('Automation execution was aborted after exceeding its deadline.');
-  }
-}
-
-function estimateAutomationToolSchemaTokens(tools: AgentContext['tools']): number {
-  try {
-    return estimateTextTokens(JSON.stringify((tools || []).map((tool) => ({
-      name: tool.name,
-      label: tool.label,
-      description: tool.description,
-      parameters: tool.parameters,
-    }))));
-  } catch {
-    return (tools || []).reduce((total, tool) => total + estimateTextTokens(`${tool.name}\n${tool.label}\n${tool.description || ''}`), 0);
   }
 }
 
@@ -571,7 +563,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           summary: initialSessionSummary,
           systemPromptTokens: systemPromptBudgetTokens,
           model: runtime.model,
-          toolTokens: estimateAutomationToolSchemaTokens(tools),
+          requestOutputTokens: getPiRequestOutputTokenCap(runtime.model),
+          toolTokens: estimatePiToolSchemaTokens(tools || []),
           sessionId: piSessionId,
           signal: executionSignal,
           streamFn: runtime.streamFn,
@@ -647,19 +640,39 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         assertAutomationExecutionActive(executionSignal);
         sessionSummary = preparedHistory.summary;
         const preparedMessages = preparedHistory.composition.llmMessages;
+        const requestOutputTokenCap = getPiRequestOutputTokenCap(model);
+        const mainRequestStreamFn = withPiRequestOutputTokenCap(
+          executableRuntime.streamFn,
+          requestOutputTokenCap,
+        );
+        let currentSystemPrompt = systemPrompt;
         const config = {
           model,
           thinkingLevel: executableRuntime.selection.selection.thinkingLevel as ThinkingLevel,
-          convertToLlm: async (messages: AgentMessage[]) => prepareMessagesForEffectiveModel(
-            messages,
-            model,
-            {
+          convertToLlm: async (messages: AgentMessage[]) => {
+            const preparedPayload = await preparePiFinalPayload({
+              messages,
+              model,
+              effectiveInstructions: [{ role: 'system' as const, content: currentSystemPrompt }],
+              effectiveTools: tools || [],
+              requestOutputTokenCap,
+              runtimeContractRevision: 'canvas-pi-automation-v1',
+            }, {
               workspaceImageRoot: automationWorkspace.rootPath,
               allowedImageFileRoots: [automationWorkspace.rootPath],
               uploadOwnerUserId: runtimeContext.userId,
               uploadWorkspaceId: automationWorkspace.workspaceId,
-            },
-          ),
+            });
+            if (preparedPayload.budgetSnapshot.payloadBudgetExceeded) {
+              throw new Error(
+                `Automation request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB final LLM transfer budget.`,
+              );
+            }
+            if (preparedPayload.budgetSnapshot.contextBudgetExceeded) {
+              throw new Error('Automation final payload exceeds the selected model context window.');
+            }
+            return preparedPayload.messages;
+          },
           prepareNextTurn: async (turnContext: { context: AgentContext }) => {
             const nextWorkspaceFileTree = hasWorkspaceReadCapability
               ? await buildWorkspaceFileTreePrompt({
@@ -667,13 +680,14 @@ export async function executeAutomationRun(runId: string): Promise<void> {
                   rootPath: automationWorkspace.rootPath,
                 })
               : { promptBlock: '' };
+            currentSystemPrompt = replaceWorkspaceFileTreePromptBlock(
+              effectiveBaseSystemPrompt,
+              nextWorkspaceFileTree.promptBlock,
+            );
             return {
               context: {
                 ...turnContext.context,
-                systemPrompt: replaceWorkspaceFileTreePromptBlock(
-                  effectiveBaseSystemPrompt,
-                  nextWorkspaceFileTree.promptBlock,
-                ),
+                systemPrompt: currentSystemPrompt,
               },
             };
           },
@@ -713,7 +727,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           context,
           config,
           executionSignal,
-          executableRuntime.streamFn,
+          mainRequestStreamFn,
         )) {
           if (loopEvents.length < MAX_EVENTS_LOG) {
             const json = JSON.stringify(projectAgentEventForExternal(event));
