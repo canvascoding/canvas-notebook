@@ -768,7 +768,7 @@ class LivePiRuntime {
       );
     }
 
-    if (result.summaryFailed && result.composition.omittedMessages.length > 0) {
+    if (result.summaryFailed && result.summaryAttempted) {
       this.lastComposition = composePiHistoryForLlm({
         messages: this.agent.state.messages,
         summary: this.summary,
@@ -783,6 +783,12 @@ class LivePiRuntime {
       this.publishStatus();
       throw new Error(
         'Context compaction failed because the summary could not be updated. No messages were removed.',
+      );
+    }
+
+    if (!result.safeToSend) {
+      throw new Error(
+        'Context compaction could not produce a complete, non-overlapping history inside the selected model context window.',
       );
     }
 
@@ -1570,6 +1576,13 @@ class LivePiRuntime {
         `The current request is too large for the selected model context window. ` +
         `It requires at least ${result.composition.minimumRequiredTokens.toLocaleString()} history tokens after system, tool, and output reserves. ` +
         'Use a larger-context model or shorten the latest message/attachments.',
+      );
+    }
+
+    if (!result.safeToSend) {
+      throw new Error(
+        'The current request cannot be sent safely because context compaction did not preserve complete history coverage. ' +
+        'Use a larger-context model, shorten the request, or retry compaction.',
       );
     }
 

@@ -9,6 +9,7 @@ import {
   getMaxMessageSequence,
   getMessageTimestamp,
   getUnsummarizedMessages,
+  isPiHistoryCompositionSendable,
   type PiHistoryComposition,
   type PiSessionSummaryState,
 } from './history-budget';
@@ -43,6 +44,7 @@ export type PreparePiHistoryContextResult = {
   summaryUpdated: boolean;
   summaryFailed: boolean;
   unsummarizedMessageCount: number;
+  safeToSend: boolean;
 };
 
 const SUMMARY_SYSTEM_PROMPT = [
@@ -386,6 +388,7 @@ export async function preparePiHistoryContext({
       summaryUpdated,
       summaryFailed: false,
       unsummarizedMessageCount: 0,
+      safeToSend: false,
     };
   }
 
@@ -403,6 +406,7 @@ export async function preparePiHistoryContext({
       summaryUpdated,
       summaryFailed,
       unsummarizedMessageCount: 0,
+      safeToSend: isPiHistoryCompositionSendable(composition, nextSummary),
     };
   }
 
@@ -455,6 +459,20 @@ export async function preparePiHistoryContext({
     );
   }
 
+  if (summaryFailed || !isPiHistoryCompositionSendable(composition, nextSummary)) {
+    composition = composePiHistoryForLlm({
+      messages,
+      summary: nextSummary,
+      systemPromptTokens,
+      contextWindow: model.contextWindow,
+      modelMaxTokens: model.maxTokens,
+      requestOutputTokens,
+      toolTokens,
+      additionalContextTokens,
+      selectionMode: 'hard_limit',
+    });
+  }
+
   return {
     summary: nextSummary,
     composition,
@@ -462,5 +480,6 @@ export async function preparePiHistoryContext({
     summaryUpdated,
     summaryFailed,
     unsummarizedMessageCount: unsummarizedMessages.length,
+    safeToSend: isPiHistoryCompositionSendable(composition, nextSummary),
   };
 }

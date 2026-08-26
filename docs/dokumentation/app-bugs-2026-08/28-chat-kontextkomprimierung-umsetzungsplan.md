@@ -24,7 +24,7 @@ werden nur fuer den hier beschriebenen Budgetvertrag geaendert.
 
 ### Implementierungsfortschritt 2026-08-26
 
-Phase 1A ist technisch umgesetzt:
+Phase 1A und Phase 1B sind technisch umgesetzt:
 
 - `app/lib/pi/context-budget.ts` definiert validierte Canvas-Policy,
   Output-Cap, immutable Snapshot, inhaltsfreie Fingerprints und
@@ -36,12 +36,24 @@ Phase 1A ist technisch umgesetzt:
   Provider ab und invalidieren Evidenz bei Prompt-/Tool-/Runtimeaenderungen;
 - `history-budget.ts` selektiert Raw-History nur noch in atomaren
   ToolCall/Result-Einheiten;
+- derselbe Planner wendet nun die injizierbare Canvas-Policy als
+  Soft-Trigger, Target-Tail und Hardlimit an, entfernt reine UI-/Auth-Marker
+  aus Budget und Modellpayload und schuetzt den aktuellen Nutzerturn samt
+  nachfolgender Toolkette ungeteilt;
+- eine vorhandene Summary wird nur bei fehlendem Raw-Praefix oder
+  ueberschrittenem Soft-Trigger verwendet. Ihre Sequenzabdeckung und der
+  rohe Tail sind disjunkt; `includedSummary` beschreibt nur eine tatsaechlich
+  gesendete Summary;
+- `preparePiHistoryContext()` liefert einen gemeinsamen `safeToSend`-Vertrag.
+  Scheitert die Summary, darf Live, Manual oder Automation nur mit dem
+  vollstaendigen Hardlimit-Fallback fortfahren; andernfalls wird vor dem
+  Provider abgebrochen, ohne Originalnachrichten zu entfernen;
 - fokussierte Contract-, Summary-, Automation-, Multimodal-, Vision-,
   Runtime-Prompt-, Effective-Tool-, Continuation- und Temperature-Tests,
   TypeScript, Lint und Produktionsbuild wurden ausgefuehrt.
 
-Damit ist nur das Gate von Phase 1A technisch erfuellt. Phase 1B und alle
-Phasen 2 bis 7 bleiben geplant. Insbesondere wurden keine manuelle
+Damit sind die Gates von Phase 1A und 1B technisch erfuellt. Die Phasen 2 bis
+7 bleiben geplant. Insbesondere wurden keine manuelle
 Langchat-/UI-Abnahme, kein Browser-/Playwright-Test und keine externe
 Providerkalibrierung ausgefuehrt; Ticket 28 bleibt offen.
 
@@ -841,6 +853,13 @@ gruen; Lint und Build gruen. Fokussierter Commit.
 
 **Gate:** Unit-/Contract-Matrix gruen; vorhandener First-Message-, Byte- und
 Summary-Test bleibt gruen. Fokussierter Commit.
+
+**Technischer Stand 2026-08-26:** Umgesetzt. Die Contract-Matrix deckt
+Raw-only unterhalb des Triggers, Target-Auswahl oberhalb des Triggers,
+disjunkte Sequenzabdeckung, fehlendes Raw-Praefix, Markerfreiheit,
+Toolatomizitaet, aktuelle Einheit, zu grosse aktuelle Einheit sowie sicheren
+und unsicheren Summary-Fehlerfallback ab. Browser-/Provider-/Langchat-Abnahme
+ist damit nicht ersetzt und bleibt offen.
 
 ### Phase 2: Additives Datenmodell und atomare Store-APIs
 

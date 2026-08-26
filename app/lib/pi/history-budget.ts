@@ -1,6 +1,12 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { UserMessage } from '@earendil-works/pi-ai';
-import { estimatePiTextTokens, getPiRequestOutputTokenCap } from './context-budget';
+import {
+  DEFAULT_PI_CONTEXT_BUDGET_POLICY,
+  estimatePiTextTokens,
+  getPiRequestOutputTokenCap,
+  validatePiContextBudgetPolicy,
+  type PiContextBudgetPolicy,
+} from './context-budget';
 import { MAX_LLM_HISTORY_BYTES, MAX_LLM_IMAGE_BYTES } from './llm-payload-limits';
 
 export type PiSessionSummaryState = {
@@ -17,6 +23,8 @@ export type PiHistoryComposition = {
   includedSummary: boolean;
   outputReserveTokens: number;
   availableHistoryTokens: number;
+  triggerHistoryTokens: number;
+  targetHistoryTokens: number;
   estimatedHistoryTokens: number;
   availableHistoryBytes: number;
   estimatedHistoryBytes: number;
@@ -24,9 +32,12 @@ export type PiHistoryComposition = {
   payloadBudgetExceeded: boolean;
   minimumRequiredTokens: number;
   minimumRequiredBytes: number;
+  softThresholdExceeded: boolean;
 };
 
-type ComposePiHistoryOptions = {
+export type PiHistorySelectionMode = 'automatic' | 'hard_limit';
+
+export type ComposePiHistoryOptions = {
   messages: AgentMessage[];
   summary: PiSessionSummaryState;
   systemPromptTokens: number;
@@ -36,14 +47,15 @@ type ComposePiHistoryOptions = {
   toolCount?: number;
   toolTokens?: number;
   additionalContextTokens?: number;
+  policy?: PiContextBudgetPolicy;
+  selectionMode?: PiHistorySelectionMode;
+  /** @deprecated Use selectionMode. Kept as a compatibility adapter for callers in flight. */
   aggressive?: boolean;
 };
 
 const MESSAGE_OVERHEAD_TOKENS = 24;
 const MESSAGE_OVERHEAD_BYTES = 256;
-const STATIC_SAFETY_TOKENS = 512;
 const TOKENS_PER_CHARACTER = 0.25;
-const AGGRESSIVE_HISTORY_FACTOR = 0.7;
 const MAX_SUMMARY_SHARE = 0.45;
 
 const SUMMARY_PREAMBLE =
@@ -205,26 +217,36 @@ function getHistoryBudget({
   requestOutputTokens,
   toolTokens = 0,
   additionalContextTokens = 0,
-  aggressive = false,
+  policy = DEFAULT_PI_CONTEXT_BUDGET_POLICY,
 }: Omit<ComposePiHistoryOptions, 'messages' | 'summary'>): {
   availableHistoryTokens: number;
+  triggerHistoryTokens: number;
+  targetHistoryTokens: number;
   outputReserveTokens: number;
 } {
+  const validatedPolicy = validatePiContextBudgetPolicy(policy);
   const outputReserveTokens = requestOutputTokens === undefined
-    ? getPiRequestOutputTokenCap({ contextWindow, maxTokens: modelMaxTokens })
+    ? getPiRequestOutputTokenCap({ contextWindow, maxTokens: modelMaxTokens }, validatedPolicy)
     : Math.max(1, Math.floor(requestOutputTokens));
   const available = contextWindow
     - systemPromptTokens
     - outputReserveTokens
     - Math.max(0, toolTokens)
     - Math.max(0, additionalContextTokens)
-    - STATIC_SAFETY_TOKENS;
+    - validatedPolicy.safetyFloorTokens;
 
   if (available <= 0) {
-    return { availableHistoryTokens: 0, outputReserveTokens };
+    return {
+      availableHistoryTokens: 0,
+      triggerHistoryTokens: 0,
+      targetHistoryTokens: 0,
+      outputReserveTokens,
+    };
   }
   return {
-    availableHistoryTokens: aggressive ? Math.floor(available * AGGRESSIVE_HISTORY_FACTOR) : available,
+    availableHistoryTokens: available,
+    triggerHistoryTokens: Math.floor(available * validatedPolicy.triggerRatio),
+    targetHistoryTokens: Math.floor(available * validatedPolicy.targetRatio),
     outputReserveTokens,
   };
 }
@@ -344,6 +366,60 @@ export function getMaxMessageSequence(
   return maxSequence;
 }
 
+function isProjectionOnlyMessage(message: AgentMessage): boolean {
+  return message.role === 'compact-break' || message.role === 'composio_auth_required';
+}
+
+export function isPiMessageCoveredBySummary(
+  message: AgentMessage,
+  summary: PiSessionSummaryState,
+): boolean {
+  if (summary.summaryThroughSequence !== null) {
+    const sequence = getMessageSequence(message);
+    return sequence !== null && sequence <= summary.summaryThroughSequence;
+  }
+  return summary.summaryThroughTimestamp !== null
+    && getMessageTimestamp(message) <= summary.summaryThroughTimestamp;
+}
+
+function getUnitsTokens(units: readonly PiHistoryUnit[]): number {
+  return units.reduce((total, unit) => total + getUnitTokens(unit), 0);
+}
+
+function getUnitsBytes(units: readonly PiHistoryUnit[]): number {
+  return units.reduce((total, unit) => total + getUnitBytes(unit), 0);
+}
+
+function getProtectedUnitStart(units: readonly PiHistoryUnit[]): number {
+  for (let index = units.length - 1; index >= 0; index -= 1) {
+    if (units[index].messages.some((message) => message.role === 'user')) {
+      return index;
+    }
+  }
+  return Math.max(0, units.length - 1);
+}
+
+function hasPrunedSummaryPrefix(
+  units: readonly PiHistoryUnit[],
+  summary: PiSessionSummaryState,
+): boolean {
+  const messages = units.flatMap((unit) => [...unit.messages]);
+  if (summary.summaryThroughSequence !== null) {
+    if (messages.some((message) => isPiMessageCoveredBySummary(message, summary))) return false;
+    const persistedSequences = messages
+      .map(getMessageSequence)
+      .filter((sequence): sequence is number => sequence !== null);
+    return persistedSequences.length === 0
+      || Math.min(...persistedSequences) > summary.summaryThroughSequence;
+  }
+  if (summary.summaryThroughTimestamp !== null) {
+    if (messages.some((message) => isPiMessageCoveredBySummary(message, summary))) return false;
+    return messages.length === 0
+      || Math.min(...messages.map(getMessageTimestamp)) > summary.summaryThroughTimestamp;
+  }
+  return false;
+}
+
 export function composePiHistoryForLlm({
   messages,
   summary,
@@ -353,6 +429,8 @@ export function composePiHistoryForLlm({
   requestOutputTokens,
   toolTokens,
   additionalContextTokens,
+  policy,
+  selectionMode = 'automatic',
   aggressive = false,
 }: ComposePiHistoryOptions): PiHistoryComposition {
   const budget = getHistoryBudget({
@@ -362,85 +440,85 @@ export function composePiHistoryForLlm({
     requestOutputTokens,
     toolTokens,
     additionalContextTokens,
-    aggressive,
+    policy,
   });
-  const { availableHistoryTokens, outputReserveTokens } = budget;
-
-  const historyUnits = buildPiHistoryUnits(messages);
-  const keptUnits: PiHistoryUnit[] = [];
-  let keptTokens = 0;
-  let keptBytes = 0;
-
-  for (let index = historyUnits.length - 1; index >= 0; index -= 1) {
-    const unit = historyUnits[index];
-    const nextTotal = keptTokens + getUnitTokens(unit);
-    const nextTotalBytes = keptBytes + getUnitBytes(unit);
-
-    if (nextTotal > availableHistoryTokens || nextTotalBytes > MAX_LLM_HISTORY_BYTES) {
-      break;
-    }
-
-    keptUnits.unshift(unit);
-    keptTokens = nextTotal;
-    keptBytes = nextTotalBytes;
-  }
-
-  let keptMessages = keptUnits.flatMap((unit) => [...unit.messages]);
-  let omittedMessages = historyUnits
-    .slice(0, Math.max(0, historyUnits.length - keptUnits.length))
-    .flatMap((unit) => [...unit.messages]);
-  const firstMsgTimestamp = messages.length > 0 ? getMessageTimestamp(messages[0]) : null;
-  const firstMsgSequence = messages.length > 0 ? getMessageSequence(messages[0]) : null;
-  const hasCompactBreakMarker = messages.some((message) => message.role === 'compact-break');
-  const hasPrunedHistory = hasCompactBreakMarker
-    || (summary.summaryThroughSequence !== null
-      && firstMsgSequence !== null
-      && firstMsgSequence > summary.summaryThroughSequence)
-    || (summary.summaryThroughTimestamp !== null
-      && firstMsgTimestamp !== null
-      && firstMsgTimestamp > summary.summaryThroughTimestamp);
-  const shouldIncludeSummary = availableHistoryTokens > 0
-    && Boolean(summary.summaryText?.trim())
-    && (omittedMessages.length > 0 || hasPrunedHistory);
-  let summaryMessage = shouldIncludeSummary
-    ? getSummaryMessage(summary.summaryText!, availableHistoryTokens)
+  const {
+    availableHistoryTokens,
+    triggerHistoryTokens,
+    targetHistoryTokens,
+    outputReserveTokens,
+  } = budget;
+  const runnableMessages = messages.filter((message) => !isProjectionOnlyMessage(message));
+  const historyUnits = buildPiHistoryUnits(runnableMessages);
+  const fullHistoryTokens = getUnitsTokens(historyUnits);
+  const fullHistoryBytes = getUnitsBytes(historyUnits);
+  const softThresholdExceeded = fullHistoryTokens > triggerHistoryTokens;
+  const summaryText = summary.summaryText?.trim() || null;
+  const boundarySplit = historyUnits.some((unit) => {
+    const coveredCount = unit.messages.filter((message) => isPiMessageCoveredBySummary(message, summary)).length;
+    return coveredCount > 0 && coveredCount < unit.messages.length;
+  });
+  const summaryUsable = Boolean(summaryText) && !boundarySplit;
+  const hasPrunedHistory = summaryUsable && hasPrunedSummaryPrefix(historyUnits, summary);
+  const shouldIncludeSummary = summaryUsable && (
+    hasPrunedHistory
+    || (selectionMode === 'automatic' && softThresholdExceeded)
+    || (selectionMode === 'hard_limit'
+      && (fullHistoryTokens > availableHistoryTokens || fullHistoryBytes > MAX_LLM_HISTORY_BYTES))
+  );
+  const candidateUnits = shouldIncludeSummary
+    ? historyUnits.filter((unit) => !unit.messages.every((message) => isPiMessageCoveredBySummary(message, summary)))
+    : historyUnits;
+  const summaryLimit = selectionMode === 'hard_limit'
+    ? availableHistoryTokens
+    : Math.max(1, targetHistoryTokens);
+  const summaryMessage = shouldIncludeSummary && summaryText
+    ? getSummaryMessage(summaryText, summaryLimit)
     : null;
-  let summaryTokens = summaryMessage ? estimatePiMessageTokens(summaryMessage) : 0;
-  let summaryBytes = summaryMessage ? estimatePiMessagePayloadBytes(summaryMessage) : 0;
+  const summaryTokens = summaryMessage ? estimatePiMessageTokens(summaryMessage) : 0;
+  const summaryBytes = summaryMessage ? estimatePiMessagePayloadBytes(summaryMessage) : 0;
+  const protectedStart = candidateUnits.length > 0 ? getProtectedUnitStart(candidateUnits) : 0;
+  const protectedUnits = candidateUnits.slice(protectedStart);
+  const minimumRequiredTokens = summaryTokens + getUnitsTokens(protectedUnits);
+  const minimumRequiredBytes = summaryBytes + getUnitsBytes(protectedUnits);
+  const contextBudgetExceeded = minimumRequiredTokens > availableHistoryTokens
+    || minimumRequiredBytes > MAX_LLM_HISTORY_BYTES;
+  const payloadBudgetExceeded = minimumRequiredBytes > MAX_LLM_HISTORY_BYTES;
 
-  while (
-    summaryMessage
-    && keptUnits.length > 0
-    && (keptTokens + summaryTokens > availableHistoryTokens || keptBytes + summaryBytes > MAX_LLM_HISTORY_BYTES)
-  ) {
-    const removed = keptUnits.shift()!;
-    keptTokens -= getUnitTokens(removed);
-    keptBytes -= getUnitBytes(removed);
+  let keptUnits: PiHistoryUnit[] = [];
+  if (!contextBudgetExceeded) {
+    const desiredTokens = selectionMode === 'hard_limit'
+      ? availableHistoryTokens
+      : (softThresholdExceeded || shouldIncludeSummary || aggressive
+        ? targetHistoryTokens
+        : availableHistoryTokens);
+    const selectionTokenCeiling = Math.min(
+      availableHistoryTokens,
+      Math.max(desiredTokens, minimumRequiredTokens),
+    );
+    keptUnits = [...protectedUnits];
+    let keptTokens = minimumRequiredTokens;
+    let keptBytes = minimumRequiredBytes;
+    for (let index = protectedStart - 1; index >= 0; index -= 1) {
+      const unit = candidateUnits[index];
+      const nextTokens = keptTokens + getUnitTokens(unit);
+      const nextBytes = keptBytes + getUnitBytes(unit);
+      if (nextTokens > selectionTokenCeiling || nextBytes > MAX_LLM_HISTORY_BYTES) break;
+      keptUnits.unshift(unit);
+      keptTokens = nextTokens;
+      keptBytes = nextBytes;
+    }
   }
 
-  keptMessages = keptUnits.flatMap((unit) => [...unit.messages]);
-  omittedMessages = historyUnits
-    .slice(0, Math.max(0, historyUnits.length - keptUnits.length))
+  const keptUnitSet = new Set(keptUnits);
+  const keptMessages = contextBudgetExceeded
+    ? []
+    : keptUnits.flatMap((unit) => [...unit.messages]);
+  const omittedMessages = historyUnits
+    .filter((unit) => !keptUnitSet.has(unit))
     .flatMap((unit) => [...unit.messages]);
-
-  if (summaryMessage && (summaryTokens > availableHistoryTokens || summaryBytes > MAX_LLM_HISTORY_BYTES)) {
-    summaryMessage = null;
-    summaryTokens = 0;
-    summaryBytes = 0;
-  }
-
-  const contextBudgetExceeded = historyUnits.length > 0 && keptUnits.length === 0;
-  const latestUnit = historyUnits[historyUnits.length - 1];
-  const payloadBudgetExceeded = contextBudgetExceeded
-    && latestUnit !== undefined
-    && getUnitBytes(latestUnit) > MAX_LLM_HISTORY_BYTES;
-  const minimumRequiredTokens = contextBudgetExceeded && latestUnit
-    ? getUnitTokens(latestUnit)
-    : 0;
-  const minimumRequiredBytes = contextBudgetExceeded && latestUnit
-    ? getUnitBytes(latestUnit)
-    : 0;
-  const llmMessages = summaryMessage
+  const includedSummary = !contextBudgetExceeded && summaryMessage !== null;
+  const llmMessages = includedSummary
     ? [summaryMessage, ...keptMessages]
     : keptMessages;
   const estimatedHistoryTokens = llmMessages.reduce((total, message) => total + estimatePiMessageTokens(message), 0);
@@ -450,9 +528,11 @@ export function composePiHistoryForLlm({
     llmMessages,
     keptMessages,
     omittedMessages,
-    includedSummary: shouldIncludeSummary,
+    includedSummary,
     outputReserveTokens,
     availableHistoryTokens,
+    triggerHistoryTokens,
+    targetHistoryTokens,
     estimatedHistoryTokens,
     availableHistoryBytes: MAX_LLM_HISTORY_BYTES,
     estimatedHistoryBytes,
@@ -460,6 +540,7 @@ export function composePiHistoryForLlm({
     payloadBudgetExceeded,
     minimumRequiredTokens,
     minimumRequiredBytes,
+    softThresholdExceeded,
   };
 }
 
@@ -472,19 +553,23 @@ export function getUnsummarizedMessages(
     return [];
   }
 
-  if (summaryThroughSequence !== null) {
-    return omittedMessages.filter((message) => {
-      const sequence = getMessageSequence(message);
-      if (sequence !== null) {
-        return sequence > summaryThroughSequence;
-      }
-      return summaryThroughTimestamp === null || getMessageTimestamp(message) > summaryThroughTimestamp;
-    });
-  }
+  const boundary: PiSessionSummaryState = {
+    summaryText: null,
+    summaryUpdatedAt: null,
+    summaryThroughTimestamp,
+    summaryThroughSequence,
+  };
+  return buildPiHistoryUnits(omittedMessages.filter((message) => !isProjectionOnlyMessage(message)))
+    .filter((unit) => unit.messages.some((message) => !isPiMessageCoveredBySummary(message, boundary)))
+    .flatMap((unit) => [...unit.messages]);
+}
 
-  if (summaryThroughTimestamp === null) {
-    return omittedMessages;
-  }
-
-  return omittedMessages.filter((message) => getMessageTimestamp(message) > summaryThroughTimestamp);
+export function isPiHistoryCompositionSendable(
+  composition: PiHistoryComposition,
+  summary: PiSessionSummaryState,
+): boolean {
+  if (composition.contextBudgetExceeded) return false;
+  if (composition.omittedMessages.length === 0) return true;
+  return composition.includedSummary
+    && composition.omittedMessages.every((message) => isPiMessageCoveredBySummary(message, summary));
 }

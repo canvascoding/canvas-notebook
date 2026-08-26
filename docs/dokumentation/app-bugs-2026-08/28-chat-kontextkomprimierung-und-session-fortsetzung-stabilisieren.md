@@ -98,8 +98,8 @@ eine explizite Konfidenz.
 
 ## Implementierungsstand 2026-08-26
 
-Die erste Budgetvertragsphase ist technisch umgesetzt und automatisiert
-geprueft. Live-Chat und persistente Automation setzen nun einen expliziten
+Die beiden Budget- und Kompositionsvertragsphasen sind technisch umgesetzt
+und automatisiert geprueft. Live-Chat und persistente Automation setzen nun einen expliziten
 Hauptrequest-Ausgabecap und verwenden denselben Wert als Reserve. Unmittelbar
 nach der bestehenden finalen Nachrichten-/Bildnormalisierung entsteht ein
 unveraenderlicher, fingerprintgebundener Snapshot fuer effektive
@@ -108,10 +108,19 @@ Multimodalkosten, Safety und Bytegrenzen. Raw-History-Schnitte erhalten
 ToolCall/Result-Gruppen atomar. Provider-Usage kann nur als nachtraegliche
 Evidenz mit expliziter Konfidenz am konkreten Contractfingerprint haengen.
 
-Noch **nicht** umgesetzt oder abgenommen sind der neue Soft-Trigger-/Target-
-Summaryplanner, disjunkte Summary-/Raw-Tails, Sequenz-/Revisionspersistenz,
-Coordinator/Commit-Fence, Retry/Timeout, Status/UI und manuelle Langchat-
-Abnahme. Das Ticket bleibt offen.
+Der Summaryplanner verwendet nun die testbare Canvas-Policy fuer
+Soft-Trigger, Target-Tail und Hardlimit. Er haelt Summary-Abdeckung und
+Roh-Tail nach Sequenz auseinander, entfernt interne Marker aus dem
+Modellpayload, schuetzt den aktuellen Nutzerturn samt nachfolgender Toolkette
+und gibt fuer Live, Manual und Automation ein gemeinsames `safeToSend`-Urteil
+aus. Bei Summary-Fehlern wird nur dann mit Rohhistorie fortgesetzt, wenn sie
+vollstaendig in das Hardlimit passt; sonst endet der Request vor dem Provider
+und ohne Nachrichtenverlust.
+
+Noch **nicht** umgesetzt oder abgenommen sind additive Sequenz-/
+Revisionspersistenz, Coordinator/Commit-Fence, Retry/Timeout, der neue
+Status-/UI-Vertrag sowie die manuelle Langchat-, Tool-, Reload- und
+Multimodal-Abnahme. Das Ticket bleibt offen.
 
 ## Umsetzung
 

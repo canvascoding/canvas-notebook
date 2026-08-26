@@ -578,8 +578,10 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           }
           throw new Error('Automation context exceeds the selected model window. Use a larger-context model or start a new automation session.');
         }
-        if (prepared.summaryFailed && prepared.composition.omittedMessages.length > 0) {
-          throw new Error('Automation context compaction failed because its summary could not be updated.');
+        if (!prepared.safeToSend) {
+          throw new Error(
+            'Automation context compaction could not preserve complete history coverage inside the selected model window.',
+          );
         }
         const preparedMessages = prepared.composition.llmMessages;
         if (preparedMessages[preparedMessages.length - 1] !== promptMessage) {

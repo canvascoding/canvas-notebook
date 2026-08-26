@@ -86,6 +86,7 @@ async function main() {
   assert.equal(result.summary.summaryText, null);
   assert.ok(result.unsummarizedMessageCount > 0);
   assert.ok(result.composition.omittedMessages.length > 0);
+  assert.equal(result.safeToSend, false);
 
   const summaryStreamCalls: Array<{ modelId: string; sessionId?: string; messageCount: number }> = [];
   const summaryStreamFn: StreamFn = async (requestedModel, context, options) => {
@@ -132,6 +133,7 @@ async function main() {
   assert.equal(scopedResult.summaryUpdated, true);
   assert.equal(scopedResult.summaryFailed, false);
   assert.equal(scopedResult.summary.summaryText, 'Scoped runtime summary');
+  assert.equal(scopedResult.safeToSend, true);
   assert.ok(summaryStreamCalls.length > 0);
   assert.equal(summaryStreamCalls[0].modelId, model.id);
   assert.equal(summaryStreamCalls[0].sessionId, 'summary-scoped-runtime-test:summary');
@@ -204,6 +206,31 @@ async function main() {
   assert.equal(noOmittedResult.summaryUpdated, false);
   assert.equal(noOmittedResult.summaryFailed, false);
   assert.equal(noOmittedResult.unsummarizedMessageCount, 0);
+  assert.equal(noOmittedResult.safeToSend, true);
+
+  const softLimitMessages = Array.from({ length: 10 }, (_, index) => ({
+    role: 'user' as const,
+    content: `Soft limit turn ${index}: ${'context '.repeat(100)}`,
+    timestamp: 30_000 + index,
+  }));
+  const safeFallbackResult = await preparePiHistoryContext({
+    messages: softLimitMessages,
+    summary: {
+      summaryText: null,
+      summaryUpdatedAt: null,
+      summaryThroughTimestamp: null,
+      summaryThroughSequence: null,
+    },
+    systemPromptTokens: 200,
+    model: { ...model, contextWindow: 4_000, maxTokens: 1_000 },
+    requestOutputTokens: 800,
+    toolTokens: 0,
+    sessionId: 'summary-hard-fallback',
+  });
+  assert.equal(safeFallbackResult.summaryAttempted, true);
+  assert.equal(safeFallbackResult.summaryFailed, true);
+  assert.equal(safeFallbackResult.safeToSend, true);
+  assert.equal(safeFallbackResult.composition.omittedMessages.length, 0);
 
   const outOfOrderOmittedMessages = [
     {
@@ -232,6 +259,28 @@ async function main() {
   assert.equal(unsummarized.length, 1);
   assert.equal((unsummarized[0] as unknown as { sequence: number }).sequence, 2);
 
+  const atomicUnsummarized = getUnsummarizedMessages([
+    {
+      role: 'assistant',
+      content: [{ type: 'toolCall', id: 'call-boundary', name: 'read', arguments: {} }],
+      api: 'test',
+      provider: 'test',
+      model: 'test',
+      stopReason: 'toolUse',
+      timestamp: 6_000,
+      sequence: 1,
+    },
+    {
+      role: 'toolResult',
+      toolCallId: 'call-boundary',
+      toolName: 'read',
+      content: [{ type: 'text', text: 'new result' }],
+      timestamp: 6_001,
+      sequence: 2,
+    },
+  ] as unknown as AgentMessage[], 6_000, 1);
+  assert.equal(atomicUnsummarized.length, 2, 'summary input must not split a tool call/result unit');
+
   const compactedComposition = composePiHistoryForLlm({
     messages: [
       { role: 'user', content: 'current visible turn', timestamp: 1_000, sequence: 3 } as unknown as AgentMessage,
@@ -249,6 +298,7 @@ async function main() {
     toolTokens: 0,
   });
   assert.equal(compactedComposition.includedSummary, true);
+  assert.equal(compactedComposition.llmMessages.some((message) => message.role === 'compact-break'), false);
 
   const firstMessage = 'Recherchier im internet einmal nach einem marp präsentations doku um eine test marp präsi zu erstellen';
   assert.equal(estimateTextTokens(firstMessage), Math.ceil(firstMessage.length / 4));

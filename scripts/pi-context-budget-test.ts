@@ -204,6 +204,8 @@ async function main() {
     'a history cut must omit the assistant tool call and all results together',
   );
   assert.equal(composition.outputReserveTokens, 800);
+  assert.equal(composition.softThresholdExceeded, true);
+  assert.ok(composition.estimatedHistoryTokens <= composition.targetHistoryTokens);
 
   const openToolUnits = buildPiHistoryUnits(toolHistory.slice(0, 2));
   assert.equal(openToolUnits[1].toolChainComplete, false);
@@ -216,6 +218,145 @@ async function main() {
   assert.equal(interleavedToolUnits.length, 1);
   assert.equal(interleavedToolUnits[0].messages.length, 3);
   assert.equal(interleavedToolUnits[0].toolChainComplete, false, 'parallel call-b remains open');
+
+  const completeRawHistory = [
+    { role: 'user', content: 'covered but still available', timestamp: 10, sequence: 1 },
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'recent response' }],
+      api: 'test',
+      provider: 'test',
+      model: 'test',
+      stopReason: 'stop',
+      timestamp: 11,
+      sequence: 2,
+    },
+  ] as unknown as AgentMessage[];
+  const rawOnlyComposition = composePiHistoryForLlm({
+    messages: completeRawHistory,
+    summary: {
+      summaryText: 'This must not duplicate the available raw history.',
+      summaryUpdatedAt: new Date(),
+      summaryThroughTimestamp: 10,
+      summaryThroughSequence: 1,
+    },
+    systemPromptTokens: 100,
+    contextWindow: 4_000,
+    modelMaxTokens: 1_000,
+    requestOutputTokens: 800,
+  });
+  assert.equal(rawOnlyComposition.softThresholdExceeded, false);
+  assert.equal(rawOnlyComposition.includedSummary, false);
+  assert.deepEqual(rawOnlyComposition.keptMessages, completeRawHistory);
+
+  const marker = {
+    role: 'compact-break',
+    kind: 'manual',
+    timestamp: '2026-08-26T10:00:00.000Z',
+  } as unknown as AgentMessage;
+  const authMarker = {
+    role: 'composio_auth_required',
+    toolkit: 'example',
+    timestamp: 11,
+  } as unknown as AgentMessage;
+  const prunedComposition = composePiHistoryForLlm({
+    messages: [completeRawHistory[1], marker, authMarker],
+    summary: {
+      summaryText: 'The raw prefix is no longer loaded.',
+      summaryUpdatedAt: new Date(),
+      summaryThroughTimestamp: 10,
+      summaryThroughSequence: 1,
+    },
+    systemPromptTokens: 100,
+    contextWindow: 4_000,
+    modelMaxTokens: 1_000,
+    requestOutputTokens: 800,
+  });
+  assert.equal(prunedComposition.includedSummary, true);
+  assert.equal(prunedComposition.keptMessages.includes(marker), false);
+  assert.equal(prunedComposition.omittedMessages.includes(marker), false);
+  assert.equal(prunedComposition.llmMessages.includes(marker), false);
+  assert.equal(prunedComposition.llmMessages.includes(authMarker), false);
+  assert.deepEqual(prunedComposition.keptMessages, [completeRawHistory[1]]);
+
+  const longSequencedHistory = Array.from({ length: 12 }, (_, index) => ({
+    role: 'user' as const,
+    content: `turn-${index + 1}-${'context '.repeat(120)}`,
+    timestamp: 100 + index,
+    sequence: index + 1,
+  })) as unknown as AgentMessage[];
+  const disjointComposition = composePiHistoryForLlm({
+    messages: longSequencedHistory,
+    summary: {
+      summaryText: 'Summary through the fourth persisted history unit.',
+      summaryUpdatedAt: new Date(),
+      summaryThroughTimestamp: 103,
+      summaryThroughSequence: 4,
+    },
+    systemPromptTokens: 100,
+    contextWindow: 4_000,
+    modelMaxTokens: 1_000,
+    requestOutputTokens: 800,
+  });
+  assert.equal(disjointComposition.softThresholdExceeded, true);
+  assert.equal(disjointComposition.includedSummary, true);
+  assert.ok(
+    disjointComposition.keptMessages.every(
+      (message) => (message as unknown as { sequence: number }).sequence > 4,
+    ),
+    'raw tail and summary coverage must be disjoint',
+  );
+  assert.equal(disjointComposition.keptMessages.at(-1), longSequencedHistory.at(-1));
+  assert.ok(disjointComposition.estimatedHistoryTokens <= disjointComposition.targetHistoryTokens);
+
+  const currentImageTurn = {
+    role: 'user',
+    content: [
+      { type: 'text', text: 'Use this current image.' },
+      { type: 'image', data: Buffer.alloc(1_024, 3).toString('base64'), mimeType: 'image/png' },
+    ],
+    timestamp: 500,
+  } as unknown as AgentMessage;
+  const activeToolTail = [
+    {
+      role: 'assistant',
+      content: [{ type: 'toolCall', id: 'call-current', name: 'read', arguments: { path: 'current.md' } }],
+      api: 'test',
+      provider: 'test',
+      model: 'test',
+      stopReason: 'toolUse',
+      timestamp: 501,
+    },
+    {
+      role: 'toolResult',
+      toolCallId: 'call-current',
+      toolName: 'read',
+      content: [{ type: 'text', text: 'current result' }],
+      timestamp: 502,
+    },
+  ] as unknown as AgentMessage[];
+  const protectedTailComposition = composePiHistoryForLlm({
+    messages: [
+      ...longSequencedHistory,
+      currentImageTurn,
+      ...activeToolTail,
+    ],
+    summary: {
+      summaryText: null,
+      summaryUpdatedAt: null,
+      summaryThroughTimestamp: null,
+      summaryThroughSequence: null,
+    },
+    systemPromptTokens: 100,
+    contextWindow: 4_000,
+    modelMaxTokens: 1_000,
+    requestOutputTokens: 800,
+  });
+  assert.deepEqual(
+    protectedTailComposition.keptMessages.slice(-3),
+    [currentImageTurn, ...activeToolTail],
+    'the current multimodal turn and every following tool message must remain protected',
+  );
 }
 
 main().catch((error) => {
