@@ -37,12 +37,14 @@ import {
   type EmailPolicy,
 } from '@/app/lib/email/local-service';
 import { resolveEmailAttachments } from '@/app/lib/email/attachments';
+import { EmailMessageNotFoundError } from '@/app/lib/email/errors';
 import type { EmailDeliveryOrigin } from '@/app/lib/email/policy';
 import { logEmailClientEvent } from '@/app/lib/email/logging';
 import {
   getManagedEmailOAuthRedirectUri,
   isManagedEmailAvailable,
   managedEmailRequest,
+  ManagedEmailRequestError,
   type ManagedEmailRequestScope,
   type EmailDraftInput as ManagedEmailDraftInput,
   type ManagedEmailAccount,
@@ -419,11 +421,17 @@ export async function listEmailMessages(userId: string, input: EmailMessageListI
 
 export async function readEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
   if (await findManagedEmailAccount(userId, accountId)) {
-    const payload = await managedEmailRequest<ManagedEmailReadResponse>(
-      `/v1/managed/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(messageId)}`,
-      undefined,
-      managedEmailScope(userId),
-    );
+    let payload: ManagedEmailReadResponse;
+    try {
+      payload = await managedEmailRequest<ManagedEmailReadResponse>(
+        `/v1/managed/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(messageId)}`,
+        undefined,
+        managedEmailScope(userId),
+      );
+    } catch (error) {
+      if (error instanceof ManagedEmailRequestError && error.status === 404) throw new EmailMessageNotFoundError();
+      throw error;
+    }
     return {
       ...payload,
       account: payload.account ? normalizeManagedAccount(payload.account) : undefined,

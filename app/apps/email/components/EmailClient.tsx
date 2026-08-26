@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import DOMPurify from 'dompurify';
 import {
   Archive,
@@ -59,6 +59,7 @@ import {
   sanitizeEmailEditorHtml,
 } from '@/app/lib/email/html-editor-content';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
+import { emailMessageContentRevision, emailMessageListScopeKey } from '@/app/lib/email/reader-refresh';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { listWorkspaceFileReferences } from '@/app/lib/files/client';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
@@ -113,6 +114,23 @@ type EmailOutboxDraft = {
 };
 
 const ACTIONABLE_OUTBOX_STATUSES = new Set(['prepared', 'awaiting_review', 'editing', 'send_failed']);
+const EMAIL_BACKGROUND_REFRESH_MS = 60_000;
+
+function readSessionDisclosure(key: string): boolean {
+  try {
+    return typeof window !== 'undefined' && window.sessionStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeSessionDisclosure(key: string, isOpen: boolean): void {
+  try {
+    window.sessionStorage.setItem(key, isOpen ? '1' : '0');
+  } catch {
+    // The disclosure remains usable when browser storage is unavailable.
+  }
+}
 
 function queueItemTitle(draft: EmailOutboxDraft, inboxCase: WorkspaceInboxCase | null) {
   return inboxCase?.requesterName || inboxCase?.requesterAddress || draft.to[0] || draft.subject;
@@ -127,23 +145,57 @@ function WorkspaceReviewQueue({ workspaceId, t, onOpenOutboxDraft, refreshKey }:
   const [inboxCases, setInboxCases] = useState<WorkspaceInboxCase[]>([]);
   const [outboxDrafts, setOutboxDrafts] = useState<EmailOutboxDraft[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const requestControllerRef = useRef<AbortController | null>(null);
+  const regionId = useId();
+  const disclosureKey = `canvas:email:workspace-review:v1:${workspaceId || 'none'}`;
+
+  useEffect(() => {
+    requestControllerRef.current?.abort();
+    const timeout = window.setTimeout(() => {
+      if (!workspaceId) {
+        setInboxCases([]);
+        setOutboxDrafts([]);
+        setError(null);
+        setIsExpanded(false);
+        return;
+      }
+      setIsExpanded(readSessionDisclosure(disclosureKey));
+    }, 0);
+    return () => {
+      window.clearTimeout(timeout);
+      requestControllerRef.current?.abort();
+    };
+  }, [disclosureKey, workspaceId]);
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
     setIsLoading(true);
+    setError(null);
     try {
       const [inboxResponse, outboxResponse] = await Promise.all([
-        fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/email/inbox`, { credentials: 'include', cache: 'no-store' }),
-        fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/email/outbox`, { credentials: 'include', cache: 'no-store' }),
+        fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/email/inbox`, { credentials: 'include', cache: 'no-store', signal: controller.signal }),
+        fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/email/outbox`, { credentials: 'include', cache: 'no-store', signal: controller.signal }),
       ]);
       const [inboxPayload, outboxPayload] = await Promise.all([inboxResponse.json(), outboxResponse.json()]);
+      if (requestControllerRef.current !== controller) return;
       if (inboxResponse.ok && inboxPayload.success) setInboxCases(Array.isArray(inboxPayload.data) ? inboxPayload.data : []);
       if (outboxResponse.ok && outboxPayload.success) setOutboxDrafts(Array.isArray(outboxPayload.data) ? outboxPayload.data : []);
+      if (!inboxResponse.ok || !inboxPayload.success || !outboxResponse.ok || !outboxPayload.success) {
+        setError(t('workspaceQueue.loadError'));
+      }
+    } catch (loadError) {
+      if (controller.signal.aborted || requestControllerRef.current !== controller) return;
+      setError(loadError instanceof Error ? loadError.message : t('workspaceQueue.loadError'));
     } finally {
-      setIsLoading(false);
+      if (requestControllerRef.current === controller) setIsLoading(false);
     }
-  }, [workspaceId]);
+  }, [t, workspaceId]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => { void load(); }, 0);
@@ -159,16 +211,27 @@ function WorkspaceReviewQueue({ workspaceId, t, onOpenOutboxDraft, refreshKey }:
     setQueueOpen(false);
     onOpenOutboxDraft({ ...draft, reviewCase: inboxCase });
   };
+  const toggleExpanded = () => {
+    setIsExpanded((current) => {
+      const next = !current;
+      writeSessionDisclosure(disclosureKey, next);
+      return next;
+    });
+  };
 
   return (
     <section className="shrink-0 overflow-hidden rounded-xl border border-primary/20 bg-card shadow-sm" aria-label={t('workspaceQueue.title')}>
-      <div className="flex flex-col gap-3 border-b border-primary/10 bg-primary/[0.035] px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm"><Layers3 className="h-4 w-4" /></div>
-          <div className="min-w-0"><p className="text-sm font-semibold">{t('workspaceQueue.reviewTitle')}</p><p className="truncate text-xs text-muted-foreground">{t('workspaceQueue.reviewSubtitle')}</p></div>
-        </div>
-        <div className="flex items-center gap-2"><Badge variant={actionableDrafts.length > 0 ? 'default' : 'secondary'}>{t('workspaceQueue.remaining', { count: actionableDrafts.length })}</Badge><Button type="button" size="sm" variant="ghost" onClick={() => void load()} disabled={isLoading} aria-label={t('refresh')}><RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /></Button></div>
+      <div className="flex items-center gap-2 bg-primary/[0.035] px-3 py-2.5 sm:px-4">
+        <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" onClick={toggleExpanded} aria-controls={regionId} aria-expanded={isExpanded}>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm"><Layers3 className="h-4 w-4" /></div>
+          <div className="min-w-0"><p className="text-sm font-semibold">{t('workspaceQueue.reviewTitle')}</p><p className="truncate text-xs text-muted-foreground">{isExpanded ? t('workspaceQueue.reviewSubtitle') : t('workspaceQueue.collapsedHint')}</p></div>
+          <ChevronDown className={cn('ml-auto h-4 w-4 shrink-0 transition-transform', !isExpanded && '-rotate-90')} aria-hidden="true" />
+        </button>
+        <Badge variant={actionableDrafts.length > 0 ? 'default' : 'secondary'}>{t('workspaceQueue.remaining', { count: actionableDrafts.length })}</Badge>
+        <Button type="button" size="sm" variant="ghost" onClick={() => void load()} disabled={isLoading} aria-label={t('refresh')} title={t('refresh')}><RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /></Button>
       </div>
+      {isExpanded && <div id={regionId} className="border-t border-primary/10" aria-busy={isLoading}>
+      {error && <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive sm:px-4">{error}</div>}
       {nextDraft ? (
         <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-4">
           <button type="button" onClick={() => openDraft(nextDraft)} className="group relative min-h-28 min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
@@ -184,6 +247,7 @@ function WorkspaceReviewQueue({ workspaceId, t, onOpenOutboxDraft, refreshKey }:
       ) : (
         <div className="flex min-h-24 items-center gap-3 px-4 py-4 text-sm text-muted-foreground"><div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted"><Check className="h-4 w-4" /></div><p>{t('workspaceQueue.emptyOutbox')}</p></div>
       )}
+      </div>}
       <Dialog open={queueOpen} onOpenChange={setQueueOpen}>
         <DialogContent className="max-h-[85dvh] max-w-2xl overflow-y-auto">
           <DialogHeader><DialogTitle>{t('workspaceQueue.fullQueueTitle')}</DialogTitle><DialogDescription>{t('workspaceQueue.fullQueueDescription')}</DialogDescription></DialogHeader>
@@ -200,25 +264,54 @@ function PersonalOutboxPanel({ t, onOpenOutboxDraft }: {
 }) {
   const [drafts, setDrafts] = useState<EmailOutboxDraft[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const response = await fetch('/api/email/outbox', { credentials: 'include', cache: 'no-store' });
-      const payload = await response.json();
-      if (response.ok && payload.success) setDrafts(Array.isArray(payload.data) ? payload.data : []);
-    } finally {
-      setIsLoading(false);
-    }
+  const [error, setError] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const requestControllerRef = useRef<AbortController | null>(null);
+  const regionId = useId();
+  const disclosureKey = 'canvas:email:personal-outbox:v1';
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setIsExpanded(readSessionDisclosure(disclosureKey)), 0);
+    return () => {
+      window.clearTimeout(timeout);
+      requestControllerRef.current?.abort();
+    };
   }, []);
+
+  const load = useCallback(async () => {
+    requestControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/email/outbox', { credentials: 'include', cache: 'no-store', signal: controller.signal });
+      const payload = await response.json();
+      if (requestControllerRef.current !== controller) return;
+      if (response.ok && payload.success) setDrafts(Array.isArray(payload.data) ? payload.data : []);
+      else setError(t('workspaceQueue.loadError'));
+    } catch (loadError) {
+      if (controller.signal.aborted || requestControllerRef.current !== controller) return;
+      setError(loadError instanceof Error ? loadError.message : t('workspaceQueue.loadError'));
+    } finally {
+      if (requestControllerRef.current === controller) setIsLoading(false);
+    }
+  }, [t]);
   useEffect(() => {
     const timeout = window.setTimeout(() => { void load(); }, 0);
     return () => window.clearTimeout(timeout);
   }, [load]);
+  const toggleExpanded = () => {
+    setIsExpanded((current) => {
+      const next = !current;
+      writeSessionDisclosure(disclosureKey, next);
+      return next;
+    });
+  };
   return (
     <section className="shrink-0 rounded-lg border border-border bg-card p-3" aria-label={t('workspaceQueue.outboxTitle')}>
-      <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold">{t('workspaceQueue.outboxTitle')}</p><div className="flex items-center gap-1"><Badge variant="secondary">{drafts.length}</Badge><Button type="button" size="sm" variant="ghost" onClick={() => void load()} disabled={isLoading}><RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /></Button></div></div>
-      <p className="mt-1 text-xs text-muted-foreground">{t('workspaceQueue.humanReview')}</p>
-      <div className="mt-2 space-y-1">{drafts.slice(0, 3).map((item) => <button key={item.id} type="button" className="flex w-full items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-left text-xs transition-colors hover:text-primary" onClick={() => onOpenOutboxDraft(item)}><span className="min-w-0 truncate">{item.subject}</span><Badge variant="outline">{item.status || t('workspaceQueue.prepared')}</Badge></button>)}{drafts.length === 0 && <p className="text-xs text-muted-foreground">{t('workspaceQueue.emptyOutbox')}</p>}</div>
+      <div className="flex items-center gap-2"><button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" onClick={toggleExpanded} aria-controls={regionId} aria-expanded={isExpanded}><span className="text-sm font-semibold">{t('workspaceQueue.outboxTitle')}</span><ChevronDown className={cn('ml-auto h-4 w-4 shrink-0 transition-transform', !isExpanded && '-rotate-90')} aria-hidden="true" /></button><Badge variant="secondary">{drafts.length}</Badge><Button type="button" size="sm" variant="ghost" onClick={() => void load()} disabled={isLoading} aria-label={t('refresh')} title={t('refresh')}><RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /></Button></div>
+      {isExpanded && <div id={regionId} className="mt-2" aria-busy={isLoading}>{error && <p className="mb-2 text-xs text-destructive">{error}</p>}<p className="text-xs text-muted-foreground">{t('workspaceQueue.humanReview')}</p><div className="mt-2 max-h-44 space-y-1 overflow-y-auto">{drafts.slice(0, 3).map((item) => <button key={item.id} type="button" className="flex w-full items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-left text-xs transition-colors hover:text-primary" onClick={() => onOpenOutboxDraft(item)}><span className="min-w-0 truncate">{item.subject}</span><Badge variant="outline">{item.status || t('workspaceQueue.prepared')}</Badge></button>)}{drafts.length === 0 && <p className="text-xs text-muted-foreground">{t('workspaceQueue.emptyOutbox')}</p>}</div></div>}
     </section>
   );
 }
@@ -1015,6 +1108,7 @@ type EmailMessageViewerLabels = {
   aiReply: string;
   aiSummary: string;
   archive: string;
+  backToMessages: string;
   attachments: string;
   cancel: string;
   cc: string;
@@ -1023,9 +1117,13 @@ type EmailMessageViewerLabels = {
   forward: string;
   from: string;
   loadingMessage: string;
+  loadUpdatedMessage: string;
   markRead: string;
   markUnread: string;
+  keepCurrentMessage: string;
+  messageContentUpdated: string;
   messageOptions: string;
+  messageUnavailable: string;
   moveTo: string;
   noFolders: string;
   noSubject: string;
@@ -1034,6 +1132,7 @@ type EmailMessageViewerLabels = {
   reply: string;
   replyAll: string;
   replyOptions: string;
+  retryMessage: string;
   selectMessage: string;
   showRemoteImages: string;
   summary: string;
@@ -1428,25 +1527,37 @@ function EmailMessageViewer({
   allowRemoteResourcesByDefault,
   allowedRemoteResourceSenders,
   className,
+  hasPendingUpdate = false,
   isLoading,
   isSummaryStreaming = false,
   labels,
   message,
   onAllowRemoteResourcesForSender,
+  onBackToMessages,
+  onKeepCurrentMessage,
+  onLoadUpdatedMessage,
+  onRetryMessage,
   summary,
   summaryStatus,
+  unavailable = false,
 }: {
   actions?: EmailMessageViewerActions;
   allowRemoteResourcesByDefault: boolean;
   allowedRemoteResourceSenders: string[];
   className?: string;
+  hasPendingUpdate?: boolean;
   isLoading: boolean;
   isSummaryStreaming?: boolean;
   labels: EmailMessageViewerLabels;
   message: EmailMessageDetail | null;
   onAllowRemoteResourcesForSender(sender: string): void;
+  onBackToMessages?(): void;
+  onKeepCurrentMessage?(): void;
+  onLoadUpdatedMessage?(): void;
+  onRetryMessage?(): void;
   summary?: string;
   summaryStatus?: string | null;
+  unavailable?: boolean;
 }) {
   if (isLoading) {
     return (
@@ -1460,13 +1571,30 @@ function EmailMessageViewer({
   if (!message) {
     return (
       <div className={cn('flex h-full min-h-80 items-center justify-center px-6 text-center text-sm text-muted-foreground', className)}>
-        {labels.selectMessage}
+        {unavailable ? (
+          <div className="max-w-sm space-y-3" role="status">
+            <p>{labels.messageUnavailable}</p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {onRetryMessage ? <Button type="button" size="sm" onClick={onRetryMessage}>{labels.retryMessage}</Button> : null}
+              {onBackToMessages ? <Button type="button" size="sm" variant="outline" onClick={onBackToMessages}>{labels.backToMessages}</Button> : null}
+            </div>
+          </div>
+        ) : labels.selectMessage}
       </div>
     );
   }
 
   return (
     <article className={cn('flex h-full min-h-0 flex-col overflow-hidden', className)}>
+      {hasPendingUpdate ? (
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary" role="status">
+          <span>{labels.messageContentUpdated}</span>
+          <div className="flex flex-wrap gap-2">
+            {onLoadUpdatedMessage ? <Button type="button" size="sm" onClick={onLoadUpdatedMessage}>{labels.loadUpdatedMessage}</Button> : null}
+            {onKeepCurrentMessage ? <Button type="button" size="sm" variant="outline" onClick={onKeepCurrentMessage}>{labels.keepCurrentMessage}</Button> : null}
+          </div>
+        </div>
+      ) : null}
       <header className="shrink-0 border-b border-border px-3 py-2.5 pr-10 sm:px-4">
         <h3 className="text-base font-semibold leading-6 sm:text-lg sm:leading-7">{message.subject || labels.noSubject}</h3>
         <div className="mt-1.5 flex flex-col gap-0.5 text-xs text-muted-foreground sm:text-sm">
@@ -2222,6 +2350,9 @@ export function EmailClient({
   const [messagePage, setMessagePage] = useState(0);
   const [selectedMessageId, setSelectedMessageId] = useState('');
   const [selectedMessage, setSelectedMessage] = useState<EmailMessageDetail | null>(null);
+  const [pendingMessageUpdate, setPendingMessageUpdate] = useState<EmailMessageDetail | null>(null);
+  const [messageUnavailable, setMessageUnavailable] = useState<EmailMessageSummary | null>(null);
+  const [readerRevision, setReaderRevision] = useState(0);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [messageDialogOpen, setMessageDialogOpen] = useState(false);
   const [isFolderSidebarOpen, setIsFolderSidebarOpen] = useState(false);
@@ -2231,6 +2362,7 @@ export function EmailClient({
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isRefreshingMessages, setIsRefreshingMessages] = useState(false);
   const [isLoadingMessage, setIsLoadingMessage] = useState(false);
   const [activeMessageAction, setActiveMessageAction] = useState<EmailMessageActionName | null>(null);
   const [activeMessageListAction, setActiveMessageListAction] = useState<EmailMessageListActionState>(null);
@@ -2250,10 +2382,19 @@ export function EmailClient({
   const [streamingSummaryMessageId, setStreamingSummaryMessageId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const summaryAbortControllerRef = useRef<AbortController | null>(null);
+  const folderRequestRef = useRef<AbortController | null>(null);
+  const listRequestRef = useRef<AbortController | null>(null);
+  const listRequestScopeRef = useRef<string | null>(null);
+  const detailRequestRef = useRef<AbortController | null>(null);
+  const detailRefreshRequestRef = useRef<AbortController | null>(null);
+  const selectedMessageRef = useRef<EmailMessageDetail | null>(null);
+  const dismissedMessageRevisionRef = useRef<string | null>(null);
+  const hasMessagesRef = useRef(false);
+  const activeAccountRef = useRef<string>('');
+  const activeFolderRef = useRef('INBOX');
   const appliedContextIntentRef = useRef<string | null>(null);
   const openedOutboxDraftRef = useRef<string | null>(null);
   const openingOutboxDraftRef = useRef<string | null>(null);
-  const contextMessageId = contextIntent?.messageId;
 
   const activeAccount = useMemo(
     () => accounts.find((account) => account.id === activeAccountId) || accounts[0] || null,
@@ -2266,6 +2407,13 @@ export function EmailClient({
   const canReadActiveAccount = Boolean(activeAccount && (activeAccount.authType !== 'smtp_imap' || activeAccount.imapHost));
   const isStreamingSelectedMessageSummary = Boolean(selectedMessage && streamingSummaryMessageId === selectedMessage.id);
 
+  useEffect(() => {
+    activeAccountRef.current = activeAccount?.id || '';
+    activeFolderRef.current = activeFolder;
+    hasMessagesRef.current = messages.length > 0;
+    selectedMessageRef.current = selectedMessage;
+  }, [activeAccount?.id, activeFolder, messages.length, selectedMessage]);
+
   const stopMessageSummaryStream = useCallback(() => {
     summaryAbortControllerRef.current?.abort();
     summaryAbortControllerRef.current = null;
@@ -2277,6 +2425,20 @@ export function EmailClient({
     setMessageSummary('');
     setMessageSummaryStatus(null);
   }, [stopMessageSummaryStream]);
+
+  const clearReader = useCallback(() => {
+    detailRequestRef.current?.abort();
+    detailRefreshRequestRef.current?.abort();
+    setSelectedMessage(null);
+    setSelectedMessageId('');
+    setPendingMessageUpdate(null);
+    setMessageUnavailable(null);
+    dismissedMessageRevisionRef.current = null;
+    setReaderRevision((current) => current + 1);
+    setMessageActionNotice(null);
+    clearMessageSummary();
+    setMessageDialogOpen(false);
+  }, [clearMessageSummary]);
 
   const composeAiStageLabel = useCallback((stage: EmailAiStreamStage | undefined, fallback?: string) => {
     if (stage === 'reading_context') return t('composeAiReadingContext');
@@ -2388,6 +2550,9 @@ export function EmailClient({
   }, [emailRemoteImageAllowedSenders, t]);
 
   const selectAccount = (accountId: string) => {
+    listRequestRef.current?.abort();
+    folderRequestRef.current?.abort();
+    clearReader();
     setActiveAccountId(accountId);
     setFoldersAccountId('');
     setActiveFolder('INBOX');
@@ -2395,22 +2560,29 @@ export function EmailClient({
   };
 
   const selectFolder = (folder: string) => {
+    if (folder === activeFolder) return;
+    listRequestRef.current?.abort();
+    clearReader();
     setActiveFolder(folder);
     setMessagePage(0);
   };
 
   const loadFolders = useCallback(async (accountId: string) => {
     if (!accountId) return;
+    folderRequestRef.current?.abort();
+    const controller = new AbortController();
+    folderRequestRef.current = controller;
     setIsLoadingFolders(true);
-    setFoldersAccountId('');
     setError(null);
     try {
       const response = await fetch(`/api/email/folders?accountId=${encodeURIComponent(accountId)}`, {
         credentials: 'include',
         cache: 'no-store',
+        signal: controller.signal,
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadFolders'));
+      if (folderRequestRef.current !== controller || activeAccountRef.current !== accountId) return;
       const nextFolders = (payload.data?.folders || []) as EmailFolder[];
       setFolders(nextFolders);
       setFoldersAccountId(accountId);
@@ -2419,23 +2591,77 @@ export function EmailClient({
         return nextFolders.find((folder) => folder.role === 'inbox')?.path || nextFolders[0]?.path || 'INBOX';
       });
     } catch (loadError) {
-      setFolders([]);
-      setFoldersAccountId('');
+      if (controller.signal.aborted || folderRequestRef.current !== controller) return;
       setError(loadError instanceof Error ? loadError.message : t('errors.loadFolders'));
     } finally {
-      setIsLoadingFolders(false);
+      if (folderRequestRef.current === controller) setIsLoadingFolders(false);
     }
   }, [t]);
 
-  const loadMessages = useCallback(async () => {
+  const refreshSelectedMessage = useCallback(async () => {
+    const current = selectedMessageRef.current;
+    if (!activeAccount || !current) return;
+    const accountId = activeAccount.id;
+    const folder = current.folder || activeFolder;
+    detailRefreshRequestRef.current?.abort();
+    const controller = new AbortController();
+    detailRefreshRequestRef.current = controller;
+    try {
+      const params = new URLSearchParams({ folder });
+      const response = await fetch(
+        `/api/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(current.id)}?${params.toString()}`,
+        { credentials: 'include', cache: 'no-store', signal: controller.signal },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (
+        detailRefreshRequestRef.current !== controller
+        || activeAccountRef.current !== accountId
+        || activeFolderRef.current !== folder
+        || selectedMessageRef.current?.id !== current.id
+      ) return;
+      if (response.status === 404 && payload.code === 'EMAIL_MESSAGE_NOT_FOUND') {
+        setMessageUnavailable(current);
+        setPendingMessageUpdate(null);
+        return;
+      }
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadMessage'));
+      const nextMessage = payload.data?.message as EmailMessageDetail | undefined;
+      if (!nextMessage) throw new Error(t('errors.loadMessage'));
+      setMessageUnavailable(null);
+      const nextRevision = emailMessageContentRevision(nextMessage);
+      if (nextRevision !== emailMessageContentRevision(current) && dismissedMessageRevisionRef.current !== nextRevision) {
+        setPendingMessageUpdate(nextMessage);
+      }
+    } catch (refreshError) {
+      if (controller.signal.aborted || detailRefreshRequestRef.current !== controller) return;
+      setError(refreshError instanceof Error ? refreshError.message : t('errors.loadMessage'));
+    }
+  }, [activeAccount, activeFolder, t]);
+
+  const loadMessages = useCallback(async (options?: { background?: boolean }) => {
     if (!activeAccount || !canReadActiveAccount || foldersAccountId !== activeAccount.id) return;
-    setIsLoadingMessages(true);
+    const scopeKey = emailMessageListScopeKey({
+      accountId: activeAccount.id,
+      filter: messageFilter,
+      folder: activeFolder,
+      page: messagePage,
+      query: submittedQuery,
+    });
+    if (listRequestRef.current && listRequestScopeRef.current === scopeKey) return;
+    listRequestRef.current?.abort();
+    const controller = new AbortController();
+    listRequestRef.current = controller;
+    listRequestScopeRef.current = scopeKey;
+    const preserveVisibleData = options?.background || hasMessagesRef.current;
+    setIsLoadingMessages(!preserveVisibleData);
+    setIsRefreshingMessages(preserveVisibleData);
     setError(null);
     try {
       const response = await fetch('/api/email/messages/list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        signal: controller.signal,
         body: JSON.stringify({
           accountId: activeAccount.id,
           filter: messageFilter,
@@ -2447,30 +2673,31 @@ export function EmailClient({
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadMessages'));
+      if (
+        listRequestRef.current !== controller
+        || activeAccountRef.current !== activeAccount.id
+        || activeFolderRef.current !== activeFolder
+      ) return;
       const nextMessages = (payload.data?.messages || []) as EmailMessageSummary[];
       setMessages(nextMessages);
       setMessageTotal(typeof payload.data?.total === 'number' ? payload.data.total : null);
-      setSelectedMessageId((current) => (
-        current && (current === contextMessageId || nextMessages.some((message) => message.id === current))
-          ? current
-          : ''
-      ));
-      setSelectedMessage((current) => current?.id === contextMessageId ? current : null);
-      setMessageActionNotice(null);
-      clearMessageSummary();
-      setMessageDialogOpen((current) => contextMessageId ? current : false);
+      void refreshSelectedMessage();
     } catch (loadError) {
-      setMessages([]);
-      setMessageTotal(null);
-      setSelectedMessage(null);
-      setMessageActionNotice(null);
-      clearMessageSummary();
-      setMessageDialogOpen(false);
+      if (controller.signal.aborted || listRequestRef.current !== controller) return;
+      if (!preserveVisibleData) {
+        setMessages([]);
+        setMessageTotal(null);
+      }
       setError(loadError instanceof Error ? loadError.message : t('errors.loadMessages'));
     } finally {
-      setIsLoadingMessages(false);
+      if (listRequestRef.current === controller) {
+        listRequestRef.current = null;
+        listRequestScopeRef.current = null;
+        setIsLoadingMessages(false);
+        setIsRefreshingMessages(false);
+      }
     }
-  }, [activeAccount, activeFolder, canReadActiveAccount, clearMessageSummary, contextMessageId, foldersAccountId, messageFilter, messagePage, submittedQuery, t]);
+  }, [activeAccount, activeFolder, canReadActiveAccount, foldersAccountId, messageFilter, messagePage, refreshSelectedMessage, submittedQuery, t]);
 
   const updateMessageReadState = useCallback((messageId: string, isRead: boolean) => {
     setMessages((current) => current.map((message) => message.id === messageId ? { ...message, isRead } : message));
@@ -2499,7 +2726,16 @@ export function EmailClient({
 
   const loadMessage = useCallback(async (message: EmailMessageSummary, options?: { openDialog?: boolean }) => {
     if (!activeAccount) return;
+    detailRequestRef.current?.abort();
+    detailRefreshRequestRef.current?.abort();
+    const controller = new AbortController();
+    detailRequestRef.current = controller;
+    const accountId = activeAccount.id;
+    const folder = message.folder || activeFolder;
     setSelectedMessageId(message.id);
+    setPendingMessageUpdate(null);
+    setMessageUnavailable(null);
+    dismissedMessageRevisionRef.current = null;
     setIsLoadingMessage(true);
     setError(null);
     setMessageActionNotice(null);
@@ -2507,23 +2743,32 @@ export function EmailClient({
     if (isCompactViewport || options?.openDialog) setMessageDialogOpen(true);
     try {
       const params = new URLSearchParams();
-      params.set('folder', message.folder || activeFolder);
+      params.set('folder', folder);
       const response = await fetch(
-        `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/${encodeURIComponent(message.id)}?${params.toString()}`,
-        { credentials: 'include', cache: 'no-store' },
+        `/api/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(message.id)}?${params.toString()}`,
+        { credentials: 'include', cache: 'no-store', signal: controller.signal },
       );
-      const payload = await response.json();
+      const payload = await response.json().catch(() => ({}));
+      if (
+        detailRequestRef.current !== controller
+        || activeAccountRef.current !== accountId
+        || activeFolderRef.current !== folder
+      ) return;
+      if (response.status === 404 && payload.code === 'EMAIL_MESSAGE_NOT_FOUND') {
+        setSelectedMessage(null);
+        setMessageUnavailable(message);
+        return;
+      }
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadMessage'));
       const nextMessage = payload.data?.message as EmailMessageDetail | undefined;
       if (!nextMessage) throw new Error(t('errors.loadMessage'));
-      setSelectedMessage(nextMessage);
+      setSelectedMessage({ ...nextMessage, folder: nextMessage.folder || folder });
       void markMessageReadOnOpen(nextMessage);
     } catch (loadError) {
-      setSelectedMessage(null);
-      setMessageDialogOpen(false);
+      if (controller.signal.aborted || detailRequestRef.current !== controller) return;
       setError(loadError instanceof Error ? loadError.message : t('errors.loadMessage'));
     } finally {
-      setIsLoadingMessage(false);
+      if (detailRequestRef.current === controller) setIsLoadingMessage(false);
     }
   }, [activeAccount, activeFolder, clearMessageSummary, isCompactViewport, markMessageReadOnOpen, t]);
 
@@ -2553,6 +2798,7 @@ export function EmailClient({
         && accounts.some((account) => account.id === requestedAccountId)
         && activeAccountId !== requestedAccountId
       ) {
+        clearReader();
         setActiveAccountId(requestedAccountId);
         setFoldersAccountId('');
         setActiveFolder(contextIntent.folder || 'INBOX');
@@ -2562,14 +2808,18 @@ export function EmailClient({
       if (!activeAccount && contextIntent.toolName !== 'email_list_accounts') return;
 
       if (contextIntent.folder && activeFolder !== contextIntent.folder) {
+        clearReader();
         setActiveFolder(contextIntent.folder);
         setMessagePage(0);
+        return;
       }
 
       if (contextIntent.toolName === 'email_search' && contextIntent.query !== undefined) {
+        clearReader();
         setQuery(contextIntent.query);
         setSubmittedQuery(contextIntent.query);
         setMessagePage(0);
+        return;
       }
 
       appliedContextIntentRef.current = intentKey;
@@ -2596,6 +2846,7 @@ export function EmailClient({
     activeAccount,
     activeAccountId,
     activeFolder,
+    clearReader,
     contextIntent,
     isLoadingAccounts,
     loadMessage,
@@ -2633,21 +2884,19 @@ export function EmailClient({
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
+      listRequestRef.current?.abort();
+      folderRequestRef.current?.abort();
       setFolders([]);
       setFoldersAccountId('');
       setMessages([]);
       setMessageTotal(null);
-      setSelectedMessage(null);
-      setSelectedMessageId('');
-      setMessageActionNotice(null);
-      clearMessageSummary();
-      setMessageDialogOpen(false);
+      clearReader();
       if (!activeAccount) return;
       if (!canReadActiveAccount) return;
       void loadFolders(activeAccount.id);
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [activeAccount, canReadActiveAccount, clearMessageSummary, loadFolders]);
+  }, [activeAccount, canReadActiveAccount, clearReader, loadFolders]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -2656,13 +2905,33 @@ export function EmailClient({
     return () => window.clearTimeout(timeout);
   }, [loadMessages]);
 
+  useEffect(() => {
+    if (!canReadActiveAccount) return;
+    const refreshIfVisible = () => {
+      if (document.visibilityState !== 'visible' || !navigator.onLine) return;
+      void loadMessages({ background: true });
+    };
+    const interval = window.setInterval(refreshIfVisible, EMAIL_BACKGROUND_REFRESH_MS);
+    window.addEventListener('online', refreshIfVisible);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('online', refreshIfVisible);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
+  }, [canReadActiveAccount, loadMessages]);
+
   const handleSearch = (event: React.FormEvent) => {
     event.preventDefault();
+    listRequestRef.current?.abort();
+    clearReader();
     setMessagePage(0);
     setSubmittedQuery(query.trim());
   };
 
   const toggleUnreadFilter = () => {
+    listRequestRef.current?.abort();
+    clearReader();
     setMessagePage(0);
     setMessageFilter((current) => current === 'unread' ? 'all' : 'unread');
   };
@@ -3272,10 +3541,7 @@ export function EmailClient({
       }
 
       setMessages((current) => current.filter((message) => message.id !== selectedMessage.id));
-      setSelectedMessage(null);
-      setSelectedMessageId('');
-      clearMessageSummary();
-      setMessageDialogOpen(false);
+      clearReader();
       setMessageActionNotice(t('messageMoved'));
       void loadFolders(activeAccount.id);
     } catch (actionError) {
@@ -3286,7 +3552,7 @@ export function EmailClient({
     } finally {
       setActiveMessageAction(null);
     }
-  }, [activeAccount, activeFolder, activeWorkspaceId, clearMessageSummary, loadFolders, openComposeDraft, selectedMessage, summaryAiStageLabel, t, updateQuickAiProgress]);
+  }, [activeAccount, activeFolder, activeWorkspaceId, clearReader, loadFolders, openComposeDraft, selectedMessage, summaryAiStageLabel, t, updateQuickAiProgress]);
 
   const handleMessageListAction = useCallback(async (message: EmailMessageSummary, action: EmailMessageListActionName, destination?: string) => {
     if (!activeAccount) return;
@@ -3319,10 +3585,7 @@ export function EmailClient({
 
       setMessages((current) => current.filter((currentMessage) => currentMessage.id !== message.id));
       if (selectedMessageId === message.id) {
-        setSelectedMessage(null);
-        setSelectedMessageId('');
-        clearMessageSummary();
-        setMessageDialogOpen(false);
+        clearReader();
       }
       setMessageActionNotice(t('messageMoved'));
       void loadFolders(activeAccount.id);
@@ -3333,7 +3596,7 @@ export function EmailClient({
     } finally {
       setActiveMessageListAction(null);
     }
-  }, [activeAccount, activeFolder, clearMessageSummary, loadFolders, selectedMessageId, t]);
+  }, [activeAccount, activeFolder, clearReader, loadFolders, selectedMessageId, t]);
 
   const messageOffset = messagePage * MESSAGE_PAGE_SIZE;
   const messageStart = messages.length > 0 ? messageOffset + 1 : 0;
@@ -3347,11 +3610,25 @@ export function EmailClient({
     : messageTotal === null
       ? t(hasNextMessagePage ? 'messageRangeMore' : 'messageRangeUnknown', { start: messageStart, end: messageEnd })
       : t('messageRange', { start: messageStart, end: messageEnd, total: messageTotal });
+  const applyPendingMessageUpdate = () => {
+    if (!pendingMessageUpdate) return;
+    setSelectedMessage(pendingMessageUpdate);
+    setPendingMessageUpdate(null);
+    setMessageUnavailable(null);
+    dismissedMessageRevisionRef.current = null;
+    setReaderRevision((current) => current + 1);
+  };
+  const dismissPendingMessageUpdate = () => {
+    if (!pendingMessageUpdate) return;
+    dismissedMessageRevisionRef.current = emailMessageContentRevision(pendingMessageUpdate);
+    setPendingMessageUpdate(null);
+  };
   const messageViewerLabels = {
     aiReply: t('aiReply'),
     aiSummary: t('aiSummary'),
     archive: t('archive'),
     attachments: t('attachments'),
+    backToMessages: t('backToMessages'),
     cancel: t('composeCancel'),
     cc: t('cc'),
     date: t('date'),
@@ -3359,9 +3636,13 @@ export function EmailClient({
     forward: t('forward'),
     from: t('from'),
     loadingMessage: t('loadingMessage'),
+    loadUpdatedMessage: t('loadUpdatedMessage'),
     markRead: t('markRead'),
     markUnread: t('markUnread'),
+    keepCurrentMessage: t('keepCurrentMessage'),
+    messageContentUpdated: t('messageContentUpdated'),
     messageOptions: t('messageOptions'),
+    messageUnavailable: t('messageUnavailable'),
     moveTo: t('moveTo'),
     noFolders: t('noFolders'),
     noSubject: t('noSubject'),
@@ -3370,6 +3651,7 @@ export function EmailClient({
     reply: t('reply'),
     replyAll: t('replyAll'),
     replyOptions: t('replyOptions'),
+    retryMessage: t('retryMessage'),
     selectMessage: t('selectMessage'),
     showRemoteImages: t('showRemoteImages'),
     summary: t('summary'),
@@ -3489,8 +3771,6 @@ export function EmailClient({
           : 'max-w-7xl gap-3 px-3 py-3 sm:px-6 sm:py-5',
       )}
     >
-      <WorkspaceReviewQueue workspaceId={activeWorkspaceId} t={t} onOpenOutboxDraft={openWorkspaceOutboxDraft} refreshKey={workspaceOutboxRevision} />
-      <PersonalOutboxPanel t={t} onOpenOutboxDraft={openPersonalOutboxDraft} />
       <section className={cn(
         'shrink-0 flex flex-col gap-2 border border-border bg-card px-3 py-2 sm:px-4',
         embedded && 'border-x-0 border-t-0',
@@ -3548,10 +3828,10 @@ export function EmailClient({
               variant="outline"
               aria-label={t('refresh')}
               title={t('refresh')}
-              onClick={() => void loadMessages()}
-              disabled={!canReadActiveAccount || isLoadingMessages}
+              onClick={() => void loadMessages({ background: true })}
+              disabled={!canReadActiveAccount || isLoadingMessages || isRefreshingMessages}
             >
-              {isLoadingMessages ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {isLoadingMessages || isRefreshingMessages ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             </Button>
           </div>
         </div>
@@ -3568,6 +3848,9 @@ export function EmailClient({
           </Button>
         </form>
       </section>
+
+      <WorkspaceReviewQueue workspaceId={activeWorkspaceId} t={t} onOpenOutboxDraft={openWorkspaceOutboxDraft} refreshKey={workspaceOutboxRevision} />
+      <PersonalOutboxPanel t={t} onOpenOutboxDraft={openPersonalOutboxDraft} />
 
       {error && (
         <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -3743,7 +4026,11 @@ export function EmailClient({
                   variant="outline"
                   size="icon-sm"
                   aria-label={t('previousPage')}
-                  onClick={() => setMessagePage((current) => Math.max(0, current - 1))}
+                  onClick={() => {
+                    listRequestRef.current?.abort();
+                    clearReader();
+                    setMessagePage((current) => Math.max(0, current - 1));
+                  }}
                   disabled={!hasPreviousMessagePage || isLoadingMessages}
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -3753,7 +4040,11 @@ export function EmailClient({
                   variant="outline"
                   size="icon-sm"
                   aria-label={t('nextPage')}
-                  onClick={() => setMessagePage((current) => current + 1)}
+                  onClick={() => {
+                    listRequestRef.current?.abort();
+                    clearReader();
+                    setMessagePage((current) => current + 1);
+                  }}
                   disabled={!hasNextMessagePage || isLoadingMessages}
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -3826,16 +4117,23 @@ export function EmailClient({
 
           <section className="hidden min-h-0 flex-col overflow-hidden border border-border bg-card lg:flex">
             <EmailMessageViewer
+              key={`email-message-viewer:${activeAccount?.id || ''}:${selectedMessage?.folder || activeFolder}:${selectedMessage?.id || 'empty'}:${readerRevision}`}
               actions={selectedMessage ? { activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
               allowRemoteResourcesByDefault={emailAllowRemoteImages}
               allowedRemoteResourceSenders={emailRemoteImageAllowedSenders}
+              hasPendingUpdate={Boolean(pendingMessageUpdate)}
               isLoading={isLoadingMessage}
               isSummaryStreaming={isStreamingSelectedMessageSummary}
               labels={messageViewerLabels}
               message={selectedMessage}
               onAllowRemoteResourcesForSender={allowRemoteImagesForSender}
+              onBackToMessages={clearReader}
+              onKeepCurrentMessage={dismissPendingMessageUpdate}
+              onLoadUpdatedMessage={applyPendingMessageUpdate}
+              onRetryMessage={messageUnavailable ? () => void loadMessage(messageUnavailable) : undefined}
               summary={messageSummary}
               summaryStatus={messageSummaryStatus}
+              unavailable={Boolean(messageUnavailable)}
             />
           </section>
         </div>
@@ -3851,17 +4149,24 @@ export function EmailClient({
               </DialogDescription>
             </DialogHeader>
             <EmailMessageViewer
+              key={`email-message-dialog-viewer:${activeAccount?.id || ''}:${selectedMessage?.folder || activeFolder}:${selectedMessage?.id || 'empty'}:${readerRevision}`}
               actions={selectedMessage ? { activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
               allowRemoteResourcesByDefault={emailAllowRemoteImages}
               allowedRemoteResourceSenders={emailRemoteImageAllowedSenders}
               className="bg-card"
+              hasPendingUpdate={Boolean(pendingMessageUpdate)}
               isLoading={isLoadingMessage}
               isSummaryStreaming={isStreamingSelectedMessageSummary}
               labels={messageViewerLabels}
               message={selectedMessage}
               onAllowRemoteResourcesForSender={allowRemoteImagesForSender}
+              onBackToMessages={clearReader}
+              onKeepCurrentMessage={dismissPendingMessageUpdate}
+              onLoadUpdatedMessage={applyPendingMessageUpdate}
+              onRetryMessage={messageUnavailable ? () => void loadMessage(messageUnavailable, { openDialog: true }) : undefined}
               summary={messageSummary}
               summaryStatus={messageSummaryStatus}
+              unavailable={Boolean(messageUnavailable)}
             />
           </DialogContent>
         </Dialog>
