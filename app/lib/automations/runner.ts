@@ -12,13 +12,8 @@ import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-run
 import { SessionRuntimeContextRevisionConflictError } from '@/app/lib/agent-runtime-policy/runtime-store';
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
-import {
-  estimatePiToolSchemaTokens,
-  getPiRequestOutputTokenCap,
-  withPiRequestOutputTokenCap,
-} from '@/app/lib/pi/context-budget';
+import { getPiRequestOutputTokenCap, withPiRequestOutputTokenCap } from '@/app/lib/pi/context-budget';
 import { projectAgentEventForExternal } from '@/app/lib/pi/visual-data-projection';
-import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { estimateTextTokens } from '@/app/lib/pi/history-budget';
 import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
 import {
@@ -61,6 +56,7 @@ import {
 } from '@/app/lib/pi/effective-tool-manifest';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
+import { prepareAutomationHistoryWithCompaction } from './history-compaction';
 import { buildAutomationPrompt } from './prompt';
 import { classifyAutomationResult, NO_ACTION_TOKEN } from './result-policy';
 import {
@@ -558,39 +554,27 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         content: promptText,
         timestamp: Date.now(),
       };
-      const prepareHistoryForRuntime = async (runtime: ExecutableAgentRuntime) => {
-        const prepared = await preparePiHistoryContext({
-          messages: [...existingMessages, promptMessage],
-          summary: initialSessionSummary,
-          systemPromptTokens: systemPromptBudgetTokens,
-          model: runtime.model,
-          requestOutputTokens: getPiRequestOutputTokenCap(runtime.model),
-          toolTokens: estimatePiToolSchemaTokens(tools || []),
+      const prepareHistoryForRuntime = (runtime: ExecutableAgentRuntime) => (
+        prepareAutomationHistoryWithCompaction({
           sessionId: piSessionId,
+          userId: automationUserId,
+          agentId: job.agentId,
+          workspaceId: automationWorkspace.workspaceId,
+          messages: [...existingMessages, promptMessage],
+          promptMessage,
+          summary: initialSessionSummary,
+          persistedMessageCheckpoint: existingMessages.length,
+          model: runtime.model,
+          tools: tools || [],
+          effectiveSystemPrompt: systemPrompt,
+          systemPromptBudgetTokens,
+          requestOutputTokens: getPiRequestOutputTokenCap(runtime.model),
+          runtimeCatalogRevision: runtime.selection.catalogRevision,
+          runtimePolicyRevision: runtime.selection.policyRevision,
           signal: executionSignal,
           streamFn: runtime.streamFn,
-        });
-        if (prepared.composition.contextBudgetExceeded) {
-          if (prepared.composition.payloadBudgetExceeded) {
-            throw new Error(
-              `Automation request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
-              'Shorten the latest prompt or attachments.',
-            );
-          }
-          throw new Error('Automation context exceeds the selected model window. Use a larger-context model or start a new automation session.');
-        }
-        if (!prepared.safeToSend) {
-          throw new Error(
-            'Automation context compaction could not preserve complete history coverage inside the selected model window.',
-          );
-        }
-        const preparedMessages = prepared.composition.llmMessages;
-        if (preparedMessages[preparedMessages.length - 1] !== promptMessage) {
-          throw new Error('Automation prompt could not be retained inside the model context budget.');
-        }
-        return prepared;
-      };
-      let sessionSummary = initialSessionSummary;
+        })
+      );
       let sessionReadyForPersistence = Boolean(persistedSession);
       try {
         if (!sessionReadyForPersistence) {
@@ -641,7 +625,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
         const preparedHistory = await prepareHistoryForRuntime(executableRuntime);
         assertAutomationExecutionActive(executionSignal);
-        sessionSummary = preparedHistory.summary;
         const preparedMessages = preparedHistory.composition.llmMessages;
         const requestOutputTokenCap = getPiRequestOutputTokenCap(model);
         const mainRequestStreamFn = withPiRequestOutputTokenCap(
@@ -702,13 +685,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           tools,
         };
 
-        const promptSaveResult = await savePiSession(
+        await savePiSession(
           piSessionId,
           automationUserId,
           provider,
           model.id,
           [...existingMessages, promptMessage],
-          sessionSummary,
+          undefined,
           {
             titleOverride: piSessionTitle,
             agentId: job.agentId,
@@ -717,13 +700,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             channelSessionKey: deliveryResolution.channelSessionKey || null,
             workspaceId: automationWorkspace.workspaceId,
             systemPromptSnapshot: promptSnapshot,
-            expectedSummaryRevision: sessionSummary.summaryRevision,
           },
         );
-        sessionSummary = {
-          ...sessionSummary,
-          summaryRevision: promptSaveResult.summaryRevision,
-        };
         promptPersistedBeforeRun = true;
         assertAutomationExecutionActive(executionSignal);
 
@@ -790,8 +768,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             deleteSessionIfEmpty: !persistedSession,
             title: persistedSession?.title,
             titleGenerationState: persistedSession?.titleGenerationState,
-            summary: sessionSummary,
-            expectedSummaryRevision: sessionSummary.summaryRevision,
           });
         } else {
           const persistedFinalMessages = buildPersistedAutomationMessages({
@@ -803,13 +779,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             existingMessagesLength: existingMessages.length,
             promptPersistedBeforeRun,
           });
-          const finalSaveResult = await savePiSession(
+          await savePiSession(
             piSessionId,
             automationUserId,
             provider,
             model.id,
             persistedFinalMessages,
-            sessionSummary,
+            undefined,
             {
               titleOverride: piSessionTitle,
               agentId: job.agentId,
@@ -817,13 +793,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               channelId: deliveryResolution.channelId,
               channelSessionKey: deliveryResolution.channelSessionKey || null,
               workspaceId: automationWorkspace.workspaceId,
-              expectedSummaryRevision: sessionSummary.summaryRevision,
             },
           );
-          sessionSummary = {
-            ...sessionSummary,
-            summaryRevision: finalSaveResult.summaryRevision,
-          };
         }
         assertAutomationExecutionActive(executionSignal);
         console.log(`[Automationen] Saved session ${piSessionId} for run ${runId}`);
@@ -898,13 +869,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           promptPersistedBeforeRun,
         });
         if (sessionReadyForPersistence) {
-          const failureSaveResult = await savePiSession(
+          await savePiSession(
             piSessionId,
             automationUserId,
             provider,
             model.id,
             persistedFailureMessages,
-            sessionSummary,
+            undefined,
             {
               titleOverride: piSessionTitle,
               agentId: job.agentId,
@@ -912,13 +883,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               channelId: deliveryResolution.channelId,
               channelSessionKey: deliveryResolution.channelSessionKey || null,
               workspaceId: automationWorkspace.workspaceId,
-              expectedSummaryRevision: sessionSummary.summaryRevision,
             },
           );
-          sessionSummary = {
-            ...sessionSummary,
-            summaryRevision: failureSaveResult.summaryRevision,
-          };
           assertAutomationExecutionActive(executionSignal);
         }
 

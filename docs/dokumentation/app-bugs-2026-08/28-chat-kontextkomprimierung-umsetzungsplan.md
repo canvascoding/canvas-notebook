@@ -15,8 +15,9 @@ Dieser Plan konkretisiert
 auf Basis des aktuellen Repository-Stands. Die Budgetanalyse, der
 Budgetvertrag, das additive Persistenzfundament und der isolierte Coordinator
 sowie seine Live-/Manual-Runtimeintegration sind technisch umgesetzt.
-Automation-Integration und UI-Aenderungen sind weiterhin nur geplant. Das
-Ticket bleibt offen und ist nicht abgenommen.
+Auch die persistente Automation verwendet inzwischen den Coordinator;
+UI-Aenderungen und Gesamtabnahme sind weiterhin geplant. Das Ticket bleibt
+offen und ist nicht abgenommen.
 
 Der lokale Hermes-Checkout wurde ausschliesslich read-only als Referenz
 gelesen. Browser, Dev-Server, Container und externe Systeme bleiben fuer die
@@ -54,8 +55,8 @@ Phase 1A und Phase 1B sind technisch umgesetzt:
 
 Damit sind die Gates von Phase 1A und 1B technisch erfuellt. Phase 2, der
 Coordinator aus Phase 3 und der produktive Live-/Manual-Adapter aus Phase 4
-sind ebenfalls technisch umgesetzt; ihr genauer Stand ist unten dokumentiert.
-Die Phasen 5 bis 7 bleiben geplant.
+sowie der Automation-Adapter aus Phase 5 sind ebenfalls technisch umgesetzt;
+ihr genauer Stand ist unten dokumentiert. Die Phasen 6 und 7 bleiben geplant.
 Insbesondere wurden keine manuelle
 Langchat-/UI-Abnahme, kein Browser-/Playwright-Test und keine externe
 Providerkalibrierung ausgefuehrt; Ticket 28 bleibt offen.
@@ -1017,6 +1018,31 @@ Revision erzeugt. Manuelle Browser-/Provider-/Langchat-Abnahme bleibt Phase 7.
 
 **Gate:** Reload-/Retry-Faelle erzeugen keine doppelte Summary und keine
 sessionfremde Uebernahme. Fokussierter Commit.
+
+**Technischer Stand 2026-08-27:** Die persistente Automation verwendet mit
+`automations/history-compaction.ts` denselben Coordinator, Attempt-Store und
+CAS-Commit wie Live/Manual. Kurze Verlaeufe bleiben ohne Attempt auf dem
+vollstaendigen Raw-Pfad. Lange Verlaeufe binden Modell-/Providerlimits,
+Output-Cap, Summary-Revision/Watermark, Nachrichtencheckpoint, Workspace,
+Runtime-Policy/-Katalog, effektiven Prompt, Toolschemas und aktuellen
+Automation-Prompt in einen inhaltsfrei gespeicherten Generation-Fingerprint.
+Abort, Cooldown, Providerfehler und unsicherer Hardlimit-Fallback folgen dem
+gemeinsamen Coordinatorvertrag.
+
+Allgemeine Prompt-, Ergebnis-, Fehler- und No-op-Saves erhalten keinen
+Summary-Kandidaten mehr. Nur der Coordinator darf den Summaryzustand
+schreiben; normale Saves lesen danach lediglich die aktuelle Revision zurueck.
+Ein SQLite-Integrationstest prueft einen echten Automation-Commit, Promptsave,
+Reload und einen anschliessenden monotonen Watermark-Fortschritt ohne erneute
+Abdeckung des bereits committeten Bereichs. Der bestehende Runner-Test deckt
+weiterhin Erfolg, Fehler/Retry, Abbruch, exklusiven Sessionzugriff, Runtime-
+Pinning, Tools und Delivery ab.
+
+Managed Delegations laufen bereits ueber die Live-Runtime. Der Telegram-
+`/compact`-Befehl delegiert an deren gemeinsamen manuellen Control-Pfad.
+Ephemeral Delegations bleiben entsprechend der dokumentierten Phase-0-Grenze
+bewusst ausserhalb: Sie besitzen keinen wiederaufnehmbaren Parentverlauf und
+erhalten in Ticket 28 keine nachgebaute Session-Rotation oder Hermes-Mechanik.
 
 ### Phase 6: Web-Status und Reload-Darstellung
 

@@ -144,10 +144,17 @@ Invalidierung verwerfen auch spaete Providerergebnisse. Ein Runtime-
 Integrationstest prueft Erfolg/Reload, Manual-Auto-Race, Abort, Stale State,
 Timeout und Late Results.
 
-Noch **nicht** umgesetzt oder abgenommen sind die Umstellung der persistenten
-Automation und weiterer Nicht-Live-Consumer auf Coordinator/Attempt-Ledger,
-der neue Status-/UI-Vertrag sowie die manuelle Langchat-, Tool-, Reload- und
-Multimodal-Abnahme. Das Ticket bleibt offen.
+Die persistente Automation verwendet nun ebenfalls Coordinator,
+Attempt-Ledger und revisions-/watermark-geprueften Commit. Ihre allgemeinen
+Prompt-, Ergebnis-, Fehler- und No-op-Saves schreiben keinen Summaryzustand
+mehr. Ein fokussierter Reload-Test belegt monotonen Fortschritt ab dem bereits
+committeten Watermark. Managed Delegations und Telegram-`/compact` nutzen den
+Live-/Manual-Pfad; ephemeral Worker bleiben als nicht fortsetzbare, getrennte
+Grenze bewusst ausserhalb.
+
+Noch **nicht** umgesetzt oder abgenommen sind der neue Status-/UI-Vertrag
+sowie die manuelle Langchat-, Tool-, Reload- und Multimodal-Abnahme. Das
+Ticket bleibt offen.
 
 ## Umsetzung
 
