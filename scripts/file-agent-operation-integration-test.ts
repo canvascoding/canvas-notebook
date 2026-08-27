@@ -31,6 +31,7 @@ import { installCollaborationDirectConnection } from '../app/lib/collaboration/d
 import { installCollaborationDocumentReader } from '../app/lib/collaboration/document-access';
 import {
   CollaborationStateInactiveError,
+  CollaborationStateStaleError,
   archivePersistedCollaborationPaths,
   ensureCollaborationState,
   changeCollaborationRepresentation,
@@ -159,7 +160,11 @@ async function persistUserMutation(
   const doc = new Y.Doc({ gc: true });
   Y.applyUpdate(doc, state.yjsState);
   mutate(doc.getText('content'));
-  const persisted = await persistCollaborationYDoc(targetDocumentId, doc);
+  const persisted = await persistCollaborationYDoc(
+    targetDocumentId,
+    state.lifecycleGeneration,
+    doc,
+  );
   const canonical = doc.getText('content').toString();
   await markCollaborationCheckpoint({
     documentId: targetDocumentId,
@@ -216,7 +221,11 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
     if (!activeDocument) Y.applyUpdate(doc, state.yjsState);
     const result = apply(doc);
     if (onApplied) await onApplied(result);
-    const persisted = await persistCollaborationYDoc(input.documentId, doc);
+    const persisted = await persistCollaborationYDoc(
+      input.documentId,
+      state.lifecycleGeneration,
+      doc,
+    );
     const canonical = state.representation === 'plain_text'
       ? doc.getText('content').toString()
       : richMarkdownFromYDoc(doc);
@@ -965,7 +974,7 @@ try {
   });
   assert(representationRoutingProjection.document);
   representationRoutingDocumentId = representationRoutingProjection.document.id;
-  await ensureCollaborationState({
+  const representationRoutingState = await ensureCollaborationState({
     documentId: representationRoutingDocumentId,
     workspaceId,
     organizationId: workspace.organizationId || null,
@@ -974,7 +983,11 @@ try {
     initialContent: routingRichInitialContent,
   });
   const sourceOnlyDoc = createRichMarkdownYDoc(sourceOnlyCheckpoint);
-  await persistCollaborationYDoc(representationRoutingDocumentId, sourceOnlyDoc);
+  await persistCollaborationYDoc(
+    representationRoutingDocumentId,
+    representationRoutingState.lifecycleGeneration,
+    sourceOnlyDoc,
+  );
   sourceOnlyDoc.destroy();
   await fs.writeFile(path.join(workspace.rootPath, representationRoutingPath), sourceOnlyCheckpoint, 'utf8');
 
@@ -1031,7 +1044,7 @@ try {
   });
   assert(autoMigrationProjection.document);
   autoMigrationDocumentId = autoMigrationProjection.document.id;
-  await ensureCollaborationState({
+  const autoMigrationInitialState = await ensureCollaborationState({
     documentId: autoMigrationDocumentId,
     workspaceId,
     organizationId: workspace.organizationId || null,
@@ -1046,6 +1059,23 @@ try {
   });
   assert.equal(autoMigrationGrant.representation, 'tiptap_xml');
   assert.equal(autoMigrationGrant.lifecycleGeneration, 2);
+  assert.equal(await persistedText(autoMigrationDocumentId), autoMigrationContent);
+  const stalePlainDoc = new Y.Doc({ gc: true });
+  Y.applyUpdate(stalePlainDoc, autoMigrationInitialState.yjsState);
+  stalePlainDoc.getText('content').insert(0, 'stale room update\n');
+  await assert.rejects(
+    () => persistCollaborationYDoc(
+      autoMigrationInitialState.documentId,
+      autoMigrationInitialState.lifecycleGeneration,
+      stalePlainDoc,
+    ),
+    (error: unknown) => error instanceof CollaborationStateStaleError
+      && error.code === 'COLLABORATION_STATE_STALE',
+  );
+  stalePlainDoc.destroy();
+  const stateAfterStaleStore = await loadCollaborationState(autoMigrationDocumentId);
+  assert.equal(stateAfterStaleStore?.representation, 'tiptap_xml');
+  assert.equal(stateAfterStaleStore?.lifecycleGeneration, 2);
   assert.equal(await persistedText(autoMigrationDocumentId), autoMigrationContent);
 
   // Connected source clients block migration. Once the room is empty, two
@@ -1160,7 +1190,11 @@ try {
   });
   assert.equal(concurrentRichEdit.status, 'applied_to_ydoc');
   const concurrentRichContent = richMarkdownFromYDoc(concurrentRichDoc);
-  const concurrentPersisted = await persistCollaborationYDoc(richDocumentId, concurrentRichDoc);
+  const concurrentPersisted = await persistCollaborationYDoc(
+    richDocumentId,
+    concurrentRichState.lifecycleGeneration,
+    concurrentRichDoc,
+  );
   await markCollaborationCheckpoint({
     documentId: richDocumentId,
     workspaceId: concurrentPersisted.workspaceId,
@@ -1358,7 +1392,11 @@ try {
     paths: [beforeArchive.path],
   });
   await assert.rejects(
-    () => persistCollaborationYDoc(archivedDocumentId, archivedDoc),
+    () => persistCollaborationYDoc(
+      archivedDocumentId,
+      beforeArchive.lifecycleGeneration,
+      archivedDoc,
+    ),
     (error: unknown) => error instanceof CollaborationStateInactiveError
       && error.code === 'COLLABORATION_STATE_INACTIVE',
   );

@@ -7,6 +7,11 @@ import {
   richMarkdownFromYDoc,
 } from '../app/lib/collaboration/markdown-state';
 import { serializeCanonicalText } from '../app/lib/collaboration/persistence';
+import {
+  getCollaborationRoomConnectionCount,
+  reserveCollaborationRoomAdmission,
+  withCollaborationRoomLifecycleLock,
+} from '../app/lib/collaboration/runtime-state';
 import { issueCollaborationTicket, verifyCollaborationTicket } from '../app/lib/collaboration/ticket';
 
 process.env.CANVAS_COLLABORATION_TICKET_SECRET = 'test-only-collaboration-ticket-secret-0001';
@@ -48,4 +53,52 @@ plain.destroy();
 offline.destroy();
 restored.destroy();
 rich.destroy();
-console.log('file-live-collaboration-test: ok');
+
+async function verifyRoomAdmissionRace(): Promise<void> {
+  const documentId = 'room-admission-race';
+  let allowMigrationCommit!: () => void;
+  let reportMigrationCheck!: () => void;
+  const migrationCommitAllowed = new Promise<void>((resolve) => {
+    allowMigrationCommit = resolve;
+  });
+  const migrationChecked = new Promise<void>((resolve) => {
+    reportMigrationCheck = resolve;
+  });
+  const migration = withCollaborationRoomLifecycleLock(documentId, async () => {
+    assert.equal(getCollaborationRoomConnectionCount(documentId), 0);
+    reportMigrationCheck();
+    await migrationCommitAllowed;
+    assert.equal(
+      getCollaborationRoomConnectionCount(documentId),
+      0,
+      'a room admission must not enter between the empty-room check and lifecycle commit',
+    );
+  });
+  await migrationChecked;
+  let admissionEntered = false;
+  const admission = withCollaborationRoomLifecycleLock(documentId, async () => {
+    admissionEntered = true;
+    return reserveCollaborationRoomAdmission(documentId);
+  });
+  await Promise.resolve();
+  assert.equal(admissionEntered, false, 'room admission must wait for the lifecycle transaction');
+  allowMigrationCommit();
+  await migration;
+  const releaseAdmission = await admission;
+  assert.equal(getCollaborationRoomConnectionCount(documentId), 1);
+  const observedOccupancy = await withCollaborationRoomLifecycleLock(
+    documentId,
+    async () => getCollaborationRoomConnectionCount(documentId),
+  );
+  assert.equal(observedOccupancy, 1, 'a pending admission must block an idle-room migration');
+  releaseAdmission();
+  assert.equal(getCollaborationRoomConnectionCount(documentId), 0);
+}
+
+void verifyRoomAdmissionRace().then(
+  () => console.log('file-live-collaboration-test: ok'),
+  (error) => {
+    console.error(error);
+    process.exitCode = 1;
+  },
+);

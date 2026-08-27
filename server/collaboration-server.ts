@@ -27,13 +27,18 @@ import {
 import { richMarkdownFromYDoc } from '@/app/lib/collaboration/markdown-state';
 import {
   CollaborationStateInactiveError,
+  CollaborationStateStaleError,
   loadCollaborationState,
   markCollaborationDegraded,
   persistCollaborationYDoc,
 } from '@/app/lib/collaboration/persistence';
 import { replaceDocumentPresence } from '@/app/lib/collaboration/presence';
 import { verifyCollaborationTicket } from '@/app/lib/collaboration/ticket';
-import { installCollaborationRoomInspector } from '@/app/lib/collaboration/runtime-state';
+import {
+  installCollaborationRoomInspector,
+  reserveCollaborationRoomAdmission,
+  withCollaborationRoomLifecycleLock,
+} from '@/app/lib/collaboration/runtime-state';
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import type { CollaborationTicketClaims, FilePresenceEntry } from '@/app/lib/collaboration/types';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
@@ -60,6 +65,7 @@ type CollaborationContext = {
   initiatedByUserId: string | null;
   operationId: string | null;
   observedDocumentSequence: number | null;
+  releaseRoomAdmission: (() => void) | null;
 };
 
 function normalizedPath(requestUrl?: string): string | null {
@@ -161,17 +167,23 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       const workspace = await resolvePostgresWorkspaceForActor(actor, claims.workspaceId);
       if (!workspace || !workspace.permissions.canRead) throw new Error('Workspace access was revoked.');
       if (claims.permission === 'write' && !workspace.permissions.canWrite) throw new Error('Workspace write access was revoked.');
-      const metadata = getFileCollaborationState({ workspace, path: claims.path, ensureDocument: false });
-      const state = await loadCollaborationState(claims.documentId);
-      if (
-        !metadata.document
-        || metadata.document.id !== claims.documentId
-        || !state
-        || state.workspaceId !== claims.workspaceId
-        || state.path !== claims.path
-        || state.representation !== claims.representation
-        || state.lifecycleGeneration !== claims.lifecycleGeneration
-      ) throw new Error('Collaboration document generation is stale.');
+      const releaseRoomAdmission = await withCollaborationRoomLifecycleLock(
+        claims.documentId,
+        async () => {
+          const metadata = getFileCollaborationState({ workspace, path: claims.path, ensureDocument: false });
+          const state = await loadCollaborationState(claims.documentId);
+          if (
+            !metadata.document
+            || metadata.document.id !== claims.documentId
+            || !state
+            || state.workspaceId !== claims.workspaceId
+            || state.path !== claims.path
+            || state.representation !== claims.representation
+            || state.lifecycleGeneration !== claims.lifecycleGeneration
+          ) throw new Error('Collaboration document generation is stale.');
+          return reserveCollaborationRoomAdmission(claims.documentId);
+        },
+      );
       connectionConfig.readOnly = claims.permission !== 'write';
       return {
         claims,
@@ -185,7 +197,12 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         initiatedByUserId: null,
         operationId: null,
         observedDocumentSequence: null,
+        releaseRoomAdmission,
       };
+    },
+    async connected({ context }) {
+      context.releaseRoomAdmission?.();
+      context.releaseRoomAdmission = null;
     },
     async onLoadDocument({ documentName }) {
       const state = await loadCollaborationState(documentName);
@@ -276,19 +293,36 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       );
     },
     async onDisconnect({ context, document }) {
+      context?.releaseRoomAdmission?.();
+      if (context) context.releaseRoomAdmission = null;
       if (!context || document.getConnectionsCount() > 0) return;
       replaceDocumentPresence(context.claims.workspaceId, context.claims.documentId, []);
     },
     async onStoreDocument({ document, documentName, lastContext }) {
       let state: Awaited<ReturnType<typeof persistCollaborationYDoc>>;
       try {
-        state = await persistCollaborationYDoc(documentName, document);
+        state = await persistCollaborationYDoc(
+          documentName,
+          lastContext.claims.lifecycleGeneration,
+          document,
+        );
       } catch (error) {
         // Delete/archive increments the lifecycle generation and invalidates
         // the room. A previously scheduled debounce may still run once; it
         // must not resurrect the file or report a false durability incident.
         if (error instanceof CollaborationStateInactiveError) return;
-        await markCollaborationDegraded(documentName).catch(() => undefined);
+        if (error instanceof CollaborationStateStaleError) {
+          document.broadcastStateless(JSON.stringify({
+            type: 'degraded',
+            message: 'The collaboration document generation changed. Reload to use the current document state.',
+          }));
+          hocuspocus.closeConnections(documentName);
+          return;
+        }
+        await markCollaborationDegraded(
+          documentName,
+          lastContext.claims.lifecycleGeneration,
+        ).catch(() => undefined);
         document.broadcastStateless(JSON.stringify({
           type: 'degraded',
           message: error instanceof Error ? error.message : 'Yjs persistence failed.',
@@ -321,7 +355,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
           }));
           return;
         }
-        await markCollaborationDegraded(documentName);
+        await markCollaborationDegraded(documentName, state.lifecycleGeneration);
         document.broadcastStateless(JSON.stringify({
           type: 'degraded',
           message: error instanceof Error ? error.message : 'Checkpoint failed.',
@@ -376,30 +410,39 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         throw new AgentDirectConnectionAuthorizationError('The agent session no longer has access to this collaboration workspace.');
       }
     }
-    const state = await loadCollaborationState(input.documentId);
-    const collaboration = input.requiresFileCheckpointIdentity
-      ? getFileCollaborationState({
-          workspace,
-          path: input.documentPath,
-          ensureDocument: false,
-        })
-      : null;
-    if (
-      !state
-      || state.workspaceId !== workspace.workspaceId
-      || state.path !== input.documentPath
-      || state.representation !== input.documentRepresentation
-      || state.lifecycleGeneration !== input.documentLifecycleGeneration
-      || state.schemaVersion !== input.documentSchemaVersion
-      || (input.requiresFileCheckpointIdentity && (
-        !collaboration?.document
-        || collaboration.document.id !== input.documentId
-        || collaboration.document.status !== 'active'
-        || collaboration.document.provider !== 'yjs'
-      ))
-    ) {
-      throw new Error('Collaboration document identity, lifecycle, or representation is unavailable or stale.');
-    }
+    const { state, releaseRoomAdmission } = await withCollaborationRoomLifecycleLock(
+      input.documentId,
+      async () => {
+        const state = await loadCollaborationState(input.documentId);
+        const collaboration = input.requiresFileCheckpointIdentity
+          ? getFileCollaborationState({
+              workspace,
+              path: input.documentPath,
+              ensureDocument: false,
+            })
+          : null;
+        if (
+          !state
+          || state.workspaceId !== workspace.workspaceId
+          || state.path !== input.documentPath
+          || state.representation !== input.documentRepresentation
+          || state.lifecycleGeneration !== input.documentLifecycleGeneration
+          || state.schemaVersion !== input.documentSchemaVersion
+          || (input.requiresFileCheckpointIdentity && (
+            !collaboration?.document
+            || collaboration.document.id !== input.documentId
+            || collaboration.document.status !== 'active'
+            || collaboration.document.provider !== 'yjs'
+          ))
+        ) {
+          throw new Error('Collaboration document identity, lifecycle, or representation is unavailable or stale.');
+        }
+        return {
+          state,
+          releaseRoomAdmission: reserveCollaborationRoomAdmission(input.documentId),
+        };
+      },
+    );
     const context: CollaborationContext = {
       claims: {
         schemaVersion: state.schemaVersion,
@@ -422,8 +465,20 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       initiatedByUserId: actorType === 'agent' ? input.initiatedByUserId : null,
       operationId: actorType === 'agent' ? input.operationId : null,
       observedDocumentSequence: state.documentSequence,
+      releaseRoomAdmission,
     };
-    const connection = await hocuspocus.openDirectConnection(input.documentId, context);
+    const connection = await hocuspocus.openDirectConnection(input.documentId, context).then(
+      (openedConnection) => {
+        context.releaseRoomAdmission?.();
+        context.releaseRoomAdmission = null;
+        return openedConnection;
+      },
+      (error) => {
+        context.releaseRoomAdmission?.();
+        context.releaseRoomAdmission = null;
+        throw error;
+      },
+    );
     let result: unknown;
     try {
       await connection.transact((document) => { result = apply(document); });
