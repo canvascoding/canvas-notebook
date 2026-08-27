@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.27.1] - 2026-08-27
+
+### Added
+
+- Added rich-mode collaboration for eligible documents and stabilized collaborative editor synchronization and migration.
+- Added an improved email inbox reading flow and automatic email license activation.
+
+### Changed
+
+- Improved system email settings, workspace mailbox configuration and translations, and admin-configurable Email Agent tools.
+- Refined Home/Studio prompt styling and development startup behavior.
+- Improved streamed MCP registration handling and disabled Sentry session replay.
+
+### Fixed
+
+- Fixed collaboration migration race conditions, duplicate mailbox saves, and markdown source-mode notice behavior.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.25.2] - 2026-08-25
 
 ### Added

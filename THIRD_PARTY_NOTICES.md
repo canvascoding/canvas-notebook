@@ -3,8 +3,8 @@
 This file is generated from `package-lock.json`, installed package license files,
 versioned overrides, and the bundled non-npm component inventory.
 
-- Canvas Notebook version: 2026.8.25.2
-- Lockfile SHA-256: `18dec874e3712fa4b38dcfcf37212def16dd17f3d5d4b186901131ffb88a702c`
+- Canvas Notebook version: 2026.8.27.1
+- Lockfile SHA-256: `2353a20e57496fce6a21e1de370aedbd0b73189d6ce88f42db48dce5cfccafda`
 - Distributed components: 1510
 - Release gate: **approved**
 
