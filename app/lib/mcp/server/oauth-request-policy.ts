@@ -206,7 +206,13 @@ async function normalizeDynamicClientRegistrationRequest(
   headers.set('content-type', 'application/json');
   headers.delete('content-length');
   return {
-    request: new Request(request, {
+    // Do not use the incoming Request as the constructor input here. In the
+    // production Next.js request pipeline it can carry a one-shot body stream;
+    // deriving from it while replacing the body can throw before Better Auth
+    // receives the normalized registration. All OAuth-relevant request data is
+    // explicitly preserved instead.
+    request: new Request(request.url, {
+      method: request.method,
       headers,
       body: JSON.stringify({
         ...metadata,
