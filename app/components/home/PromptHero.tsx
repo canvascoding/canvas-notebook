@@ -35,7 +35,11 @@ type UploadProgressOptions = {
 };
 
 type FilePickerFile = WorkspaceFileReferenceEntry;
-type HomePromptMode = 'notebook' | 'studio';
+export type HomePromptMode = 'notebook' | 'studio';
+
+interface PromptHeroProps {
+  onModeChange?: (mode: HomePromptMode) => void;
+}
 
 const DEFAULT_AGENT_PROFILE: AgentProfile = {
   agentId: DEFAULT_AGENT_ID,
@@ -53,7 +57,7 @@ function createProgressItems(files: File[]): ImagePreprocessProgressItem[] {
   }));
 }
 
-export function PromptHero() {
+export function PromptHero({ onModeChange }: PromptHeroProps = {}) {
   const locale = useLocale();
   const tHome = useTranslations('home');
   const tChat = useTranslations('chat');
@@ -87,6 +91,10 @@ export function PromptHero() {
   const notebookHref = getPathname({ href: '/notebook', locale });
   const studioHref = getPathname({ href: '/studio', locale });
   const isStudioMode = mode === 'studio';
+  const handleModeChange = (nextMode: HomePromptMode) => {
+    setMode(nextMode);
+    onModeChange?.(nextMode);
+  };
   const availableAgents = useMemo(() => (
     agentListState.workspaceId === activeWorkspaceId ? agentListState.agents : []
   ), [activeWorkspaceId, agentListState]);
@@ -475,7 +483,7 @@ export function PromptHero() {
               type="button"
               role="tab"
               aria-selected={false}
-              onClick={() => setMode('notebook')}
+              onClick={() => handleModeChange('notebook')}
               className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               <NotebookPen className="h-3.5 w-3.5" />
@@ -508,7 +516,7 @@ export function PromptHero() {
             type="button"
             role="tab"
             aria-selected={!isStudioMode}
-            onClick={() => setMode('notebook')}
+            onClick={() => handleModeChange('notebook')}
             className={`inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors ${!isStudioMode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
           >
             <NotebookPen className="h-3.5 w-3.5" />
@@ -518,7 +526,7 @@ export function PromptHero() {
             type="button"
             role="tab"
             aria-selected={isStudioMode}
-            onClick={() => setMode('studio')}
+            onClick={() => handleModeChange('studio')}
             className={`inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors ${isStudioMode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
           >
             <Sparkles className="h-3.5 w-3.5" />
