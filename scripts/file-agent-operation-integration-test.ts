@@ -31,6 +31,7 @@ import { installCollaborationDirectConnection } from '../app/lib/collaboration/d
 import { installCollaborationDocumentReader } from '../app/lib/collaboration/document-access';
 import {
   CollaborationStateInactiveError,
+  CollaborationStateStaleError,
   archivePersistedCollaborationPaths,
   ensureCollaborationState,
   changeCollaborationRepresentation,
@@ -43,6 +44,7 @@ import {
 } from '../app/lib/collaboration/persistence';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
 import { removeDocumentPresenceEntry, upsertDocumentPresenceEntry } from '../app/lib/collaboration/presence';
+import { installCollaborationRoomInspector } from '../app/lib/collaboration/runtime-state';
 import {
   CollaborationSessionError,
   createCollaborationSessionGrant,
@@ -73,6 +75,8 @@ const userId = `agent-operation-user-${suffix}`;
 let toolDocumentId: string | null = null;
 let uninitializedToolDocumentId: string | null = null;
 let representationRoutingDocumentId: string | null = null;
+let autoMigrationDocumentId: string | null = null;
+let concurrentAutoMigrationDocumentId: string | null = null;
 const workspace: WorkspaceContext = {
   workspaceId,
   workspaceType: 'organization',
@@ -156,7 +160,11 @@ async function persistUserMutation(
   const doc = new Y.Doc({ gc: true });
   Y.applyUpdate(doc, state.yjsState);
   mutate(doc.getText('content'));
-  const persisted = await persistCollaborationYDoc(targetDocumentId, doc);
+  const persisted = await persistCollaborationYDoc(
+    targetDocumentId,
+    state.lifecycleGeneration,
+    doc,
+  );
   const canonical = doc.getText('content').toString();
   await markCollaborationCheckpoint({
     documentId: targetDocumentId,
@@ -213,7 +221,11 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
     if (!activeDocument) Y.applyUpdate(doc, state.yjsState);
     const result = apply(doc);
     if (onApplied) await onApplied(result);
-    const persisted = await persistCollaborationYDoc(input.documentId, doc);
+    const persisted = await persistCollaborationYDoc(
+      input.documentId,
+      state.lifecycleGeneration,
+      doc,
+    );
     const canonical = state.representation === 'plain_text'
       ? doc.getText('content').toString()
       : richMarkdownFromYDoc(doc);
@@ -962,7 +974,7 @@ try {
   });
   assert(representationRoutingProjection.document);
   representationRoutingDocumentId = representationRoutingProjection.document.id;
-  await ensureCollaborationState({
+  const representationRoutingState = await ensureCollaborationState({
     documentId: representationRoutingDocumentId,
     workspaceId,
     organizationId: workspace.organizationId || null,
@@ -971,7 +983,11 @@ try {
     initialContent: routingRichInitialContent,
   });
   const sourceOnlyDoc = createRichMarkdownYDoc(sourceOnlyCheckpoint);
-  await persistCollaborationYDoc(representationRoutingDocumentId, sourceOnlyDoc);
+  await persistCollaborationYDoc(
+    representationRoutingDocumentId,
+    representationRoutingState.lifecycleGeneration,
+    sourceOnlyDoc,
+  );
   sourceOnlyDoc.destroy();
   await fs.writeFile(path.join(workspace.rootPath, representationRoutingPath), sourceOnlyCheckpoint, 'utf8');
 
@@ -995,6 +1011,133 @@ try {
     }),
     (error: unknown) => error instanceof CollaborationSessionError && error.code === 'representation_mismatch',
   );
+
+  // A healthy, idle Markdown document that was historically initialized as
+  // plain text is upgraded by the authoritative session resolver when its
+  // exact source is now rich-editor safe. Frontmatter is preserved verbatim.
+  const autoMigrationPath = `agent-auto-rich-migration-${suffix}.md`;
+  const autoMigrationContent = [
+    '---',
+    'title: Strategy update',
+    'tags:',
+    '  - topic/strategy',
+    '---',
+    '',
+    '# Strategy update',
+    '',
+    '**Status:** Ready for rich collaboration.',
+    '',
+  ].join('\n');
+  await fs.writeFile(path.join(workspace.rootPath, autoMigrationPath), autoMigrationContent, 'utf8');
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: autoMigrationPath,
+    contentHash: createHash('sha256').update(autoMigrationContent, 'utf8').digest('hex'),
+    sizeBytes: Buffer.byteLength(autoMigrationContent, 'utf8'),
+    actorUserId: userId,
+    actorType: 'user',
+  });
+  const autoMigrationProjection = getFileCollaborationState({
+    workspace,
+    path: autoMigrationPath,
+    ensureDocument: true,
+  });
+  assert(autoMigrationProjection.document);
+  autoMigrationDocumentId = autoMigrationProjection.document.id;
+  const autoMigrationInitialState = await ensureCollaborationState({
+    documentId: autoMigrationDocumentId,
+    workspaceId,
+    organizationId: workspace.organizationId || null,
+    path: autoMigrationPath,
+    representation: 'plain_text',
+    initialContent: autoMigrationContent,
+  });
+  const autoMigrationGrant = await createCollaborationSessionGrant({
+    workspace,
+    fileOptions: { workspace },
+    request: { path: autoMigrationPath, provider: 'yjs', representation: 'auto' },
+  });
+  assert.equal(autoMigrationGrant.representation, 'tiptap_xml');
+  assert.equal(autoMigrationGrant.lifecycleGeneration, 2);
+  assert.equal(await persistedText(autoMigrationDocumentId), autoMigrationContent);
+  const stalePlainDoc = new Y.Doc({ gc: true });
+  Y.applyUpdate(stalePlainDoc, autoMigrationInitialState.yjsState);
+  stalePlainDoc.getText('content').insert(0, 'stale room update\n');
+  await assert.rejects(
+    () => persistCollaborationYDoc(
+      autoMigrationInitialState.documentId,
+      autoMigrationInitialState.lifecycleGeneration,
+      stalePlainDoc,
+    ),
+    (error: unknown) => error instanceof CollaborationStateStaleError
+      && error.code === 'COLLABORATION_STATE_STALE',
+  );
+  stalePlainDoc.destroy();
+  const stateAfterStaleStore = await loadCollaborationState(autoMigrationDocumentId);
+  assert.equal(stateAfterStaleStore?.representation, 'tiptap_xml');
+  assert.equal(stateAfterStaleStore?.lifecycleGeneration, 2);
+  assert.equal(await persistedText(autoMigrationDocumentId), autoMigrationContent);
+
+  // Connected source clients block migration. Once the room is empty, two
+  // simultaneous session requests converge on the same new rich lifecycle;
+  // the earlier plain-text grant is stale and cannot re-enter that room.
+  const concurrentMigrationPath = `agent-concurrent-rich-migration-${suffix}.md`;
+  await fs.writeFile(path.join(workspace.rootPath, concurrentMigrationPath), autoMigrationContent, 'utf8');
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: concurrentMigrationPath,
+    contentHash: createHash('sha256').update(autoMigrationContent, 'utf8').digest('hex'),
+    sizeBytes: Buffer.byteLength(autoMigrationContent, 'utf8'),
+    actorUserId: userId,
+    actorType: 'user',
+  });
+  const concurrentMigrationProjection = getFileCollaborationState({
+    workspace,
+    path: concurrentMigrationPath,
+    ensureDocument: true,
+  });
+  assert(concurrentMigrationProjection.document);
+  concurrentAutoMigrationDocumentId = concurrentMigrationProjection.document.id;
+  await ensureCollaborationState({
+    documentId: concurrentAutoMigrationDocumentId,
+    workspaceId,
+    organizationId: workspace.organizationId || null,
+    path: concurrentMigrationPath,
+    representation: 'plain_text',
+    initialContent: autoMigrationContent,
+  });
+  const uninstallRoomInspector = installCollaborationRoomInspector(
+    (targetDocumentId) => targetDocumentId === concurrentAutoMigrationDocumentId ? 2 : 0,
+  );
+  const connectedGrant = await (async () => {
+    try {
+      return await createCollaborationSessionGrant({
+        workspace,
+        fileOptions: { workspace },
+        request: { path: concurrentMigrationPath, provider: 'yjs', representation: 'auto' },
+      });
+    } finally {
+      uninstallRoomInspector();
+    }
+  })();
+  assert.equal(connectedGrant.representation, 'plain_text');
+  assert.equal(connectedGrant.lifecycleGeneration, 1);
+  const concurrentGrants = await Promise.all([
+    createCollaborationSessionGrant({
+      workspace,
+      fileOptions: { workspace },
+      request: { path: concurrentMigrationPath, provider: 'yjs', representation: 'auto' },
+    }),
+    createCollaborationSessionGrant({
+      workspace,
+      fileOptions: { workspace },
+      request: { path: concurrentMigrationPath, provider: 'yjs', representation: 'auto' },
+    }),
+  ]);
+  assert.deepEqual(concurrentGrants.map((grant) => grant.representation), ['tiptap_xml', 'tiptap_xml']);
+  assert.deepEqual(concurrentGrants.map((grant) => grant.lifecycleGeneration), [2, 2]);
+  assert.notEqual(connectedGrant.lifecycleGeneration, concurrentGrants[0]?.lifecycleGeneration);
+  assert.equal(await persistedText(concurrentAutoMigrationDocumentId), autoMigrationContent);
 
   // Cross-node Markdown edits are persisted as real review operations. Accept
   // reapplies the exact patch to the then-current Yjs document, preserving an
@@ -1047,7 +1190,11 @@ try {
   });
   assert.equal(concurrentRichEdit.status, 'applied_to_ydoc');
   const concurrentRichContent = richMarkdownFromYDoc(concurrentRichDoc);
-  const concurrentPersisted = await persistCollaborationYDoc(richDocumentId, concurrentRichDoc);
+  const concurrentPersisted = await persistCollaborationYDoc(
+    richDocumentId,
+    concurrentRichState.lifecycleGeneration,
+    concurrentRichDoc,
+  );
   await markCollaborationCheckpoint({
     documentId: richDocumentId,
     workspaceId: concurrentPersisted.workspaceId,
@@ -1245,7 +1392,11 @@ try {
     paths: [beforeArchive.path],
   });
   await assert.rejects(
-    () => persistCollaborationYDoc(archivedDocumentId, archivedDoc),
+    () => persistCollaborationYDoc(
+      archivedDocumentId,
+      beforeArchive.lifecycleGeneration,
+      archivedDoc,
+    ),
     (error: unknown) => error instanceof CollaborationStateInactiveError
       && error.code === 'COLLABORATION_STATE_INACTIVE',
   );
@@ -1326,6 +1477,8 @@ try {
       ...(toolDocumentId ? [toolDocumentId] : []),
       ...(uninitializedToolDocumentId ? [uninitializedToolDocumentId] : []),
       ...(representationRoutingDocumentId ? [representationRoutingDocumentId] : []),
+      ...(autoMigrationDocumentId ? [autoMigrationDocumentId] : []),
+      ...(concurrentAutoMigrationDocumentId ? [concurrentAutoMigrationDocumentId] : []),
     ]) {
       await database.run('DELETE FROM collaboration_agent_operations WHERE document_id = ?', [cleanupDocumentId]);
       await database.run('DELETE FROM collaboration_yjs_state_backups WHERE document_id = ?', [cleanupDocumentId]);

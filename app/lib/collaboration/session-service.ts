@@ -13,7 +13,12 @@ import {
   resolveTextCollaborationState,
   selectInitialTextCollaborationRepresentation,
 } from './document-state-service';
-import { loadCollaborationStateIncludingArchived } from './persistence';
+import {
+  CollaborationRepresentationMigrationError,
+  changeCollaborationRepresentation,
+  loadCollaborationStateIncludingArchived,
+} from './persistence';
+import { COLLABORATION_SCHEMA_VERSION } from './types';
 import type {
   CollaborationPermission,
   CollaborationProvider,
@@ -161,7 +166,7 @@ export async function createCollaborationSessionGrant(input: {
     const initialRepresentation: TextCollaborationRepresentation = request.representation === 'auto'
       ? selectedInitialRepresentation
       : request.representation;
-    let resolved;
+    let resolved: Awaited<ReturnType<typeof resolveTextCollaborationState>>;
     try {
       resolved = await resolveTextCollaborationState({
         document: collaboration.document,
@@ -170,6 +175,36 @@ export async function createCollaborationSessionGrant(input: {
         initialRepresentation,
         initialContent,
       });
+      if (
+        request.representation === 'auto'
+        && !resolved.initialized
+        && resolved.state.representation === 'plain_text'
+        && selectedInitialRepresentation === 'tiptap_xml'
+      ) {
+        try {
+          resolved = {
+            state: await changeCollaborationRepresentation({
+              documentId: resolved.state.documentId,
+              expectedLifecycleGeneration: resolved.state.lifecycleGeneration,
+              representation: 'tiptap_xml',
+              schemaVersion: COLLABORATION_SCHEMA_VERSION,
+            }),
+            initialized: false,
+          };
+        } catch (error) {
+          if (!(error instanceof CollaborationRepresentationMigrationError)) throw error;
+          // Migration is opportunistic: active clients, pending checkpoints,
+          // or a concurrent migration keep the durable representation. A
+          // fresh read also adopts the winning lifecycle in a two-client race.
+          resolved = await resolveTextCollaborationState({
+            document: collaboration.document,
+            workspace,
+            path: collaboration.document.path,
+            initialRepresentation,
+            initialContent,
+          });
+        }
+      }
     } catch (error) {
       if (error instanceof CollaborationDocumentStateError) {
         throw new CollaborationSessionError(

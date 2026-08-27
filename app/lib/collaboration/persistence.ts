@@ -11,7 +11,10 @@ import {
   richMarkdownFromYDoc,
   validateRichMarkdownYDoc,
 } from './markdown-state';
-import { getCollaborationRoomConnectionCount } from './runtime-state';
+import {
+  getCollaborationRoomConnectionCount,
+  withCollaborationRoomLifecycleLock,
+} from './runtime-state';
 import { Y } from './server-runtime';
 import {
   archiveExcalidrawScenePaths,
@@ -123,6 +126,15 @@ export class CollaborationStateInactiveError extends Error {
   constructor(documentId: string) {
     super(`Collaboration state ${documentId} is archived.`);
     this.name = 'CollaborationStateInactiveError';
+  }
+}
+
+export class CollaborationStateStaleError extends Error {
+  readonly code = 'COLLABORATION_STATE_STALE';
+
+  constructor(documentId: string, expectedLifecycleGeneration: number) {
+    super(`Collaboration state ${documentId} is no longer at lifecycle generation ${expectedLifecycleGeneration}.`);
+    this.name = 'CollaborationStateStaleError';
   }
 }
 
@@ -239,6 +251,7 @@ export async function ensureCollaborationState(input: {
 
 export async function persistCollaborationYDoc(
   documentId: string,
+  expectedLifecycleGeneration: number,
   doc: YTypes.Doc,
 ): Promise<PersistedCollaborationState> {
   assertPostgres();
@@ -252,17 +265,23 @@ export async function persistCollaborationYDoc(
         UPDATE collaboration_yjs_states
         SET yjs_state = ?, state_vector = ?, document_sequence = document_sequence + 1,
             persisted_at = ?, degraded = 0
-        WHERE document_id = ? AND status = 'active'
+        WHERE document_id = ? AND status = 'active' AND lifecycle_generation = ?
         RETURNING *
       `,
-      [Buffer.from(update), Buffer.from(vector), now, documentId],
+      [Buffer.from(update), Buffer.from(vector), now, documentId, expectedLifecycleGeneration],
     ) as StateRow | undefined;
     if (!row) {
       const existing = await database.get(
-        'SELECT status FROM collaboration_yjs_states WHERE document_id = ? LIMIT 1',
+        'SELECT status, lifecycle_generation FROM collaboration_yjs_states WHERE document_id = ? LIMIT 1',
         [documentId],
-      ) as { status?: string } | undefined;
+      ) as { status?: string; lifecycle_generation?: number | string } | undefined;
       if (existing?.status === 'archived') throw new CollaborationStateInactiveError(documentId);
+      if (
+        existing?.status === 'active'
+        && Number(existing.lifecycle_generation) !== expectedLifecycleGeneration
+      ) {
+        throw new CollaborationStateStaleError(documentId, expectedLifecycleGeneration);
+      }
       throw new Error('Collaboration state does not exist.');
     }
     return mapState(row);
@@ -320,11 +339,18 @@ export async function markCollaborationCheckpoint(input: {
   }
 }
 
-export async function markCollaborationDegraded(documentId: string): Promise<void> {
+export async function markCollaborationDegraded(
+  documentId: string,
+  expectedLifecycleGeneration: number,
+): Promise<void> {
   if (getDatabaseProvider() !== 'postgres') return;
   const database = await openDb();
   try {
-    await database.run('UPDATE collaboration_yjs_states SET degraded = 1 WHERE document_id = ?', [documentId]);
+    await database.run(
+      `UPDATE collaboration_yjs_states SET degraded = 1
+       WHERE document_id = ? AND lifecycle_generation = ?`,
+      [documentId, expectedLifecycleGeneration],
+    );
   } finally {
     await database.close();
   }
@@ -364,6 +390,22 @@ function createValidatedFreshDocument(representation: TextCollaborationRepresent
     }
   }
   return fresh;
+}
+
+export class CollaborationRepresentationMigrationError extends Error {
+  constructor(
+    message: string,
+    readonly code:
+      | 'room_active'
+      | 'lifecycle_stale'
+      | 'checkpoint_stale'
+      | 'content_unsupported'
+      | 'agent_operation_pending'
+      | 'state_changed',
+  ) {
+    super(message);
+    this.name = 'CollaborationRepresentationMigrationError';
+  }
 }
 
 async function pendingAgentOperationCount(database: Awaited<ReturnType<typeof openDb>>, documentId: string): Promise<number> {
@@ -408,7 +450,7 @@ async function writeStateBackup(input: {
  * lifecycle generation changes so offline clients cannot merge old tombstone
  * histories into the compacted room without an explicit reload/review.
  */
-export async function compactCollaborationState(input: {
+async function compactCollaborationStateWhileLocked(input: {
   documentId: string;
   expectedLifecycleGeneration: number;
 }): Promise<PersistedCollaborationState> {
@@ -469,8 +511,19 @@ export async function compactCollaborationState(input: {
   }
 }
 
+export async function compactCollaborationState(input: {
+  documentId: string;
+  expectedLifecycleGeneration: number;
+}): Promise<PersistedCollaborationState> {
+  assertPostgres();
+  return withCollaborationRoomLifecycleLock(
+    input.documentId,
+    () => compactCollaborationStateWhileLocked(input),
+  );
+}
+
 /** Quiescent server-side representation migration; never a local editor toggle. */
-export async function changeCollaborationRepresentation(input: {
+async function changeCollaborationRepresentationWhileLocked(input: {
   documentId: string;
   expectedLifecycleGeneration: number;
   representation: TextCollaborationRepresentation;
@@ -478,17 +531,34 @@ export async function changeCollaborationRepresentation(input: {
 }): Promise<PersistedCollaborationState> {
   assertPostgres();
   if (getCollaborationRoomConnectionCount(input.documentId) > 0) {
-    throw new Error('Collaboration representation can only change while the document room is empty.');
+    throw new CollaborationRepresentationMigrationError(
+      'Collaboration representation can only change while the document room is empty.',
+      'room_active',
+    );
   }
   const state = await loadCollaborationState(input.documentId);
   if (!state || state.lifecycleGeneration !== input.expectedLifecycleGeneration) {
-    throw new Error('Collaboration lifecycle changed before representation migration.');
+    throw new CollaborationRepresentationMigrationError(
+      'Collaboration lifecycle changed before representation migration.',
+      'lifecycle_stale',
+    );
   }
   if (state.degraded || state.checkpointSequence < state.documentSequence) {
-    throw new Error('A healthy confirmed checkpoint is required before representation migration.');
+    throw new CollaborationRepresentationMigrationError(
+      'A healthy confirmed checkpoint is required before representation migration.',
+      'checkpoint_stale',
+    );
   }
   const canonicalContent = canonicalContentFromState(state);
-  const fresh = createValidatedFreshDocument(input.representation, canonicalContent);
+  let fresh: YTypes.Doc;
+  try {
+    fresh = createValidatedFreshDocument(input.representation, canonicalContent);
+  } catch (error) {
+    throw new CollaborationRepresentationMigrationError(
+      error instanceof Error ? error.message : 'The collaboration content cannot use the requested representation.',
+      'content_unsupported',
+    );
+  }
   const update = Y.encodeStateAsUpdate(fresh);
   const vector = Y.encodeStateVector(fresh);
   const now = Date.now();
@@ -502,7 +572,10 @@ export async function changeCollaborationRepresentation(input: {
       [state.documentId],
     ) as { count?: number | string } | undefined;
     if (Number(applying?.count || 0) > 0) {
-      throw new Error('Representation migration cannot race with an authoritative agent apply.');
+      throw new CollaborationRepresentationMigrationError(
+        'Representation migration cannot race with an authoritative agent apply.',
+        'agent_operation_pending',
+      );
     }
     await database.run(
       `UPDATE collaboration_agent_operations
@@ -535,7 +608,12 @@ export async function changeCollaborationRepresentation(input: {
         state.lifecycleGeneration,
       ],
     ) as StateRow | undefined;
-    if (!row) throw new Error('Collaboration state changed concurrently during representation migration.');
+    if (!row) {
+      throw new CollaborationRepresentationMigrationError(
+        'Collaboration state changed concurrently during representation migration.',
+        'state_changed',
+      );
+    }
     await database.run('COMMIT');
     return mapState(row);
   } catch (error) {
@@ -545,6 +623,19 @@ export async function changeCollaborationRepresentation(input: {
     fresh.destroy();
     await database.close();
   }
+}
+
+export async function changeCollaborationRepresentation(input: {
+  documentId: string;
+  expectedLifecycleGeneration: number;
+  representation: TextCollaborationRepresentation;
+  schemaVersion: number;
+}): Promise<PersistedCollaborationState> {
+  assertPostgres();
+  return withCollaborationRoomLifecycleLock(
+    input.documentId,
+    () => changeCollaborationRepresentationWhileLocked(input),
+  );
 }
 
 function escapedLikePath(path: string): string {
