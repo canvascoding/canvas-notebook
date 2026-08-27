@@ -6,9 +6,9 @@ import {
 } from './progressive-tool-gateway';
 
 /**
- * The built-in email agent may maintain mailbox cases and human-reviewed
- * outbox drafts, and may read workspace knowledge to do so. This is a hard
- * server-side ceiling, independent of persisted agent preferences.
+ * Inbox-triggered automations run on untrusted external email content. Their
+ * narrow server-side ceiling is deliberately independent of the Email Agent's
+ * administrator-managed tool preferences for normal sessions.
  */
 export const EMAIL_AGENT_ALLOWED_TOOL_NAMES = [
   'email_list_mailboxes',
@@ -39,8 +39,4 @@ export function filterToolsToAllowedNames(tools: AgentTool[], allowedNames: Read
     }
     return allowedNames.has(tool.name) ? [tool] : [];
   });
-}
-
-export function emailAgentDisallowedToolNames(toolNames: readonly string[] | null | undefined): string[] {
-  return (toolNames || []).filter((toolName) => !EMAIL_AGENT_ALLOWED_TOOL_NAME_SET.has(toolName));
 }

@@ -17,7 +17,7 @@ import {
 } from '@/app/lib/onboarding/profile';
 import { createOnboardingProfileTool, createUserScopedTools } from '@/app/lib/pi/scoped-tools';
 import { createAgentManagementTools } from '@/app/lib/pi/agent-management-tools';
-import { DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
+import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import {
   EMAIL_AGENT_ALLOWED_TOOL_NAME_SET,
   filterToolsToAllowedNames,
@@ -439,13 +439,6 @@ export async function getPiTools(
     if (onboardingProfileToolAvailable && !allTools.some((tool) => tool.name === ONBOARDING_PROFILE_TOOL_NAME)) {
       allTools.push(createOnboardingProfileTool(userId, agentId, sessionId));
     }
-  }
-
-  // Persisted preferences are never an authority for the built-in email
-  // agent. Reapply its narrow ceiling after normal configuration/default
-  // resolution so a modified database row cannot add a capability.
-  if (agentId?.trim().toLowerCase() === EMAIL_MANAGED_AGENT_ID) {
-    allTools = filterToolsToAllowedNames(allTools, EMAIL_AGENT_ALLOWED_TOOL_NAME_SET);
   }
 
   if (resolvedExecutionContext) {

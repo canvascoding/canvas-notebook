@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import {
   EMAIL_AGENT_ALLOWED_TOOL_NAMES,
-  emailAgentDisallowedToolNames,
   filterToolsToAllowedNames,
 } from '../app/lib/pi/email-agent-policy';
 
@@ -26,6 +25,4 @@ assert.deepEqual(
   ], new Set(EMAIL_AGENT_ALLOWED_TOOL_NAMES)).map((entry) => entry.name),
   ['email_read_message', 'read'],
 );
-assert.deepEqual(emailAgentDisallowedToolNames(['read', 'write', 'bash']), ['write', 'bash']);
-
 console.log('email-agent-policy-test: ok');

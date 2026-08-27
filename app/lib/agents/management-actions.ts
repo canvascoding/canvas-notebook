@@ -44,6 +44,7 @@ import {
 import {
   AGENT_MANAGED_FILE_NAMES,
   DEFAULT_MANAGED_AGENT_ID,
+  EMAIL_MANAGED_AGENT_ID,
   deleteManagedAgentDefinitionStorage,
   isManagedAgentFileName,
   isWritableManagedAgentFileName,
@@ -59,7 +60,6 @@ import type { EffectiveCapabilitySnapshot } from '@/app/lib/capabilities/types';
 import { openDb } from '@/app/lib/db';
 import { isOrganizationAdminLike, readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { assertBrowserToolCanBeEnabled } from '@/app/lib/pi/browser/settings-service';
-import { emailAgentDisallowedToolNames } from '@/app/lib/pi/email-agent-policy';
 
 export type AgentManagementSource = 'api' | 'tool' | 'ui' | 'system';
 
@@ -345,19 +345,6 @@ async function validateSpecialAgentTools(enabledTools: string[] | null | undefin
   }
 }
 
-function validateBuiltInAgentToolPolicy(agentId: string, enabledTools: string[] | null | undefined): void {
-  if (normalizeManagedAgentId(agentId) !== 'email-agent' || !enabledTools) return;
-  const deniedToolNames = emailAgentDisallowedToolNames(enabledTools);
-  if (deniedToolNames.length > 0) {
-    throw new AgentManagementError(
-      'AGENT_TOOL_POLICY_DENIED',
-      `Email Agent cannot enable: ${deniedToolNames.join(', ')}`,
-      403,
-      { agentId: 'email-agent', deniedToolNames },
-    );
-  }
-}
-
 function readinessForBindings(
   bindings: AgentCapabilityBinding[],
   snapshot: EffectiveCapabilitySnapshot | null,
@@ -589,8 +576,10 @@ export async function updateManagedAgentRuntime(input: {
   ensureExpectedRevision(existing, input.expectedRevision);
   const nextEnabledTools = input.enabledTools === undefined ? existing.enabledTools : input.enabledTools;
   if (input.enabledTools !== undefined) {
+    if (existing.agentId === EMAIL_MANAGED_AGENT_ID) {
+      await requireOrganizationAdmin(input.actor);
+    }
     await validateSpecialAgentTools(input.enabledTools);
-    validateBuiltInAgentToolPolicy(existing.agentId, input.enabledTools);
   }
   await assertBrowserToolCanBeEnabled({ previousEnabledTools: existing.enabledTools, nextEnabledTools });
   const changesDefault = [
