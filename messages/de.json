@@ -2477,6 +2477,7 @@
     "tabs": {
       "general": "Allgemein",
       "integrations": "Integrationen",
+      "secrets": "Secrets",
       "mcp": "MCP",
       "agentSettings": "Agent-Einstellungen",
       "browser": "Browser",
@@ -2486,7 +2487,7 @@
       "userManagement": "Benutzer",
       "dataMigration": "Datenmigration",
       "aiProviders": "KI-Provider & Modelle",
-      "systemEmail": "System-E-Mail",
+      "systemEmail": "E-Mail",
       "channels": "Channels",
       "usage": "Nutzung",
       "skills": "Plugins",
@@ -2515,13 +2516,14 @@
         "agentSettings": "Identität, Fähigkeiten, Tools und Laufzeitverhalten der Agents steuern.",
         "browser": "Browser-Laufzeit und Browser-Zugriff für Agents konfigurieren.",
         "skills": "Plugins, Skills und deren Verbindungen verwalten.",
-        "integrations": "API-Schlüssel, verbundene Apps und E-Mail-Dienste einrichten.",
+        "integrations": "Verbundene Apps und Suche einrichten.",
+        "secrets": "API-Schlüssel und Laufzeit-Zugangsdaten sicher verwalten.",
         "mcp": "Canvas als MCP-Server freigeben und externe MCP-Server verbinden.",
         "channels": "Externe Kommunikationskanäle und Benutzerverknüpfungen verwalten.",
         "userManagement": "Benutzerkonten, Rollen, Rechte und Zugriff verwalten.",
         "dataMigration": "VM-Migrationen, Import-Prüfungen und Wiederherstellungen dieser Instanz verwalten.",
         "aiProviders": "Appweit verfügbare KI-Provider, Modelle und Standards administrieren.",
-        "systemEmail": "Den systemweiten SMTP-Absender für App-Benachrichtigungen konfigurieren.",
+        "systemEmail": "Persönliche Inbox sowie – mit Berechtigung – Business Inboxen und die System-E-Mail verwalten.",
         "usage": "Tokenverbrauch, Kosten und Laufzeitereignisse analysieren.",
         "license": "Lizenzstatus und Aktivierung dieser Instanz verwalten.",
         "legal": "Drittanbieter-Komponenten, Lizenzhinweise und den kommerziellen Release-Status prüfen."
@@ -2592,7 +2594,7 @@
       }
     },
     "systemEmail": {
-      "title": "System-Benachrichtigungen per E-Mail",
+      "title": "System-E-Mail",
       "description": "Dieser SMTP-Absender gehört zur gesamten virtuellen Maschine. Er versendet ausschließlich App-Benachrichtigungen und empfängt keine E-Mails.",
       "fallbackDescription": "Wenn kein System-Absender eingerichtet ist, verwendet Canvas für Benachrichtigungen das primäre, versandfähige persönliche E-Mail-Konto des jeweiligen Empfängers. Bei einer aktivierten System-Konfiguration erfolgt kein stiller Fallback nach einem Versandfehler.",
       "managedToggle": "Canvas-System-E-Mail verwenden",
@@ -2642,9 +2644,9 @@
       }
     },
     "workspaceMailboxes": {
-      "title": "Business-Postfächer",
-      "description": "Richte hier gemeinsam genutzte Postfächer für Support, Vertrieb und Team-Automationen ein.",
-      "sharedHint": "Die Zugangsdaten werden zentral unter System-E-Mail verwaltet. Ein Workspace-Admin ordnet ein verbundenes Postfach genau einem Workspace zu.",
+      "title": "Business Inbox",
+      "description": "Verbinde gemeinsame Inboxen für Support, Vertrieb und Team-Automationen und ordne jede einem Workspace zu.",
+      "sharedHint": "Business Inboxen werden zentral verwaltet. Ein Workspace-Administrator ordnet jedes verbundene Postfach genau einem Workspace zu.",
       "add": "Postfach hinzufügen",
       "edit": "Postfach bearbeiten",
       "editorDescription": "Die Zugangsdaten werden zentral gespeichert. Die Zuordnung erfolgt im jeweiligen Workspace; E-Mails werden weiterhin nur nach menschlicher Freigabe aus der Outbox versendet.",
@@ -3086,6 +3088,10 @@
         "title": "Agent-Laufzeit",
         "description": "Zusätzliche Schlüssel und Einstellungen für die Laufzeit deines Agents."
       }
+    },
+    "secrets": {
+      "sectionTitle": "Secrets",
+      "sectionDescription": "Verwalte API-Schlüssel und Zugangsdaten für Integrationen und die Agent-Laufzeit zentral an einem Ort."
     },
     "channels": {
       "telegram": {
@@ -5046,8 +5052,8 @@
       }
     },
     "emailAccounts": {
-      "title": "Meine E-Mail-Konten",
-      "description": "Verbinde deine persönlichen E-Mail-Konten und steuere, welche Absender gelesen und welche Empfänger zum Senden verwendet werden dürfen. Gemeinsame Team-Postfächer werden von Administratoren unter System-E-Mail eingerichtet.",
+      "title": "Persönliche Inbox",
+      "description": "Verbinde und verwalte deine persönlichen E-Mail-Konten. Business Inboxen und die System-E-Mail werden getrennt angezeigt, wenn du sie verwalten darfst.",
       "summary": "{count, plural, =0 {Keine Konten} one {# Konto verbunden} other {# Konten verbunden}}",
       "loadingSummary": "Lade Konten...",
       "errorSummary": "Fehler beim Laden",

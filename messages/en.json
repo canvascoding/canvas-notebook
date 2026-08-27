@@ -2478,6 +2478,7 @@
     "tabs": {
       "general": "General",
       "integrations": "Integrations",
+      "secrets": "Secrets",
       "mcp": "MCP",
       "agentSettings": "Agent Settings",
       "browser": "Browser",
@@ -2487,7 +2488,7 @@
       "userManagement": "Users",
       "dataMigration": "Data Migration",
       "aiProviders": "AI Providers & Models",
-      "systemEmail": "System Email",
+      "systemEmail": "Email",
       "channels": "Channels",
       "usage": "Usage",
       "skills": "Plugins",
@@ -2516,13 +2517,14 @@
         "agentSettings": "Control agent identity, capabilities, tools, and runtime behavior.",
         "browser": "Configure the browser runtime and browser access for agents.",
         "skills": "Manage plugins, skills, and their connections.",
-        "integrations": "Set up API keys, connected apps, and email services.",
+        "integrations": "Set up connected apps and search.",
+        "secrets": "Manage API keys and runtime credentials securely.",
         "mcp": "Expose Canvas as an MCP server and connect external MCP servers.",
         "channels": "Manage external communication channels and user bindings.",
         "userManagement": "Manage user accounts, roles, permissions, and access.",
         "dataMigration": "Manage VM migrations, import checks, and restores for this instance.",
         "aiProviders": "Administer app-wide AI providers, models, and defaults.",
-        "systemEmail": "Configure the instance-wide SMTP sender for app notifications.",
+        "systemEmail": "Manage your personal inbox and, where permitted, business inboxes and system email.",
         "usage": "Analyze token usage, cost, and runtime events.",
         "license": "Manage the license status and activation of this instance.",
         "legal": "Review third-party components, license notices, and commercial release readiness."
@@ -2593,7 +2595,7 @@
       }
     },
     "systemEmail": {
-      "title": "System email notifications",
+      "title": "System email",
       "description": "This SMTP sender belongs to the complete virtual machine. It sends app notifications only and does not receive email.",
       "fallbackDescription": "When no system sender is configured, Canvas uses the recipient's primary send-capable personal email account for notifications. Once system SMTP is configured, a send failure never silently falls back to a personal sender.",
       "managedToggle": "Use Canvas managed system email",
@@ -2643,9 +2645,9 @@
       }
     },
     "workspaceMailboxes": {
-      "title": "Business mailboxes",
-      "description": "Connect shared inboxes for support, sales, and team automations here.",
-      "sharedHint": "These credentials are centrally managed in System Email. A workspace administrator assigns a connected mailbox to exactly one workspace.",
+      "title": "Business inbox",
+      "description": "Connect shared inboxes for support, sales, and team automations, then assign each one to a workspace.",
+      "sharedHint": "Business inboxes are centrally managed. A workspace administrator assigns each connected mailbox to exactly one workspace.",
       "add": "Add mailbox",
       "edit": "Edit mailbox",
       "editorDescription": "Credentials are stored centrally. Assign the mailbox from its workspace; email is still sent only after human approval from the Outbox.",
@@ -3087,6 +3089,10 @@
         "title": "Agent runtime",
         "description": "Additional keys and settings for your agent runtime."
       }
+    },
+    "secrets": {
+      "sectionTitle": "Secrets",
+      "sectionDescription": "Manage API keys and credentials for integrations and the agent runtime centrally in one place."
     },
     "channels": {
       "telegram": {
@@ -5047,8 +5053,8 @@
       }
     },
     "emailAccounts": {
-      "title": "My email accounts",
-      "description": "Connect your personal email accounts and control which senders can be read or recipients can be used for sending. Administrators configure shared team mailboxes under System Email.",
+      "title": "Personal inbox",
+      "description": "Connect and manage your personal email accounts. Business inboxes and system email are shown separately when you have permission to manage them.",
       "summary": "{count, plural, =0 {No accounts} one {# account connected} other {# accounts connected}}",
       "loadingSummary": "Loading accounts...",
       "errorSummary": "Load error",

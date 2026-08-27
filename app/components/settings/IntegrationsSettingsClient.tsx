@@ -2380,16 +2380,20 @@ export function IntegrationsSettingsClient({
   const searchParams = useSearchParams();
 
   const requestedTabParam = searchParams.get('tab');
+  const requestedIntegrationsSection = normalizeIntegrationsSection(searchParams.get('section'));
   const requestedTab = requestedTabParam === 'integrations'
-    && normalizeIntegrationsSection(searchParams.get('section')) === 'mcpConfig'
-    ? 'mcp'
+    ? requestedIntegrationsSection === 'mcpConfig'
+      ? 'mcp'
+      : requestedIntegrationsSection === 'emailAccounts'
+        ? 'system-email'
+        : requestedTabParam
     : requestedTabParam;
   const initialTab = getInitialSettingsTab(requestedTab);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(initialTab);
   const [loadedTabs, setLoadedTabs] = useState<Set<SettingsTab>>(() => new Set([initialTab]));
   const [settingsSidebarCollapsed, setSettingsSidebarCollapsed] = useState(initialSettingsSidebarCollapsed);
   const { activeTabOverride } = useHintContext();
-  const integrationsInitialLoadStartedRef = useRef(false);
+  const secretsInitialLoadStartedRef = useRef(false);
   const mcpInitialLoadStartedRef = useRef(false);
 
   const effectiveTab = normalizeSettingsTab(activeTabOverride) ?? settingsTab;
@@ -2410,8 +2414,7 @@ export function IntegrationsSettingsClient({
       if (tab.value === 'user-management') return isAdmin;
       if (tab.value === 'data-migration') return isAdmin;
       if (tab.value === 'ai-providers') return isAdmin;
-      if (tab.value === 'system-email') return isAdmin || canManageWorkspaceMailboxes;
-      return true;
+        return true;
     }),
     [canManageWorkspaceMailboxes, isAdmin],
   );
@@ -2680,11 +2683,11 @@ export function IntegrationsSettingsClient({
   }, [loadMcpConfig, loadMcpStatus, pollMcpAuthorizationStatus, t]);
 
   useEffect(() => {
-    if (effectiveTab !== 'integrations' || integrationsInitialLoadStartedRef.current) {
+    if (effectiveTab !== 'secrets' || secretsInitialLoadStartedRef.current) {
       return;
     }
 
-    integrationsInitialLoadStartedRef.current = true;
+    secretsInitialLoadStartedRef.current = true;
     startTransition(() => {
       void Promise.all([
         ...SCOPE_CARDS.map((card) => loadState(card.scope)),
@@ -2709,9 +2712,13 @@ export function IntegrationsSettingsClient({
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
+    const integrationsSection = normalizeIntegrationsSection(searchParams.get('section'));
     const tab = tabParam === 'integrations'
-      && normalizeIntegrationsSection(searchParams.get('section')) === 'mcpConfig'
-      ? 'mcp'
+      ? integrationsSection === 'mcpConfig'
+        ? 'mcp'
+        : integrationsSection === 'emailAccounts'
+          ? 'system-email'
+          : tabParam
       : tabParam;
     const requestedNextTab = normalizeSettingsTab(tab) ?? getStoredSettingsTab() ?? DEFAULT_SETTINGS_TAB;
     const nextTab = visibleSettingsTabs.has(requestedNextTab) ? requestedNextTab : DEFAULT_SETTINGS_TAB;
@@ -3182,36 +3189,19 @@ export function IntegrationsSettingsClient({
                 onOpenChange={(isOpen) => setIntegrationsSectionOpen('connectedApps', isOpen)}
                 isAdmin={isAdmin}
               />
-              <EmailAccountsCard
-                isOpen={integrationsSectionOpenById.emailAccounts}
-                onOpenChange={(isOpen) => setIntegrationsSectionOpen('emailAccounts', isOpen)}
-              />
-              {SCOPE_CARDS.filter((card) => card.scope === 'integrations').map((card) => (
-                <EnvEditorCard
-                  key={card.scope}
-                  card={card}
-                  editor={editors[card.scope]}
-                  isOpen={envCardOpenByScope[card.scope]}
-                  onOpenChange={setEnvCardOpen}
-                  onActiveTabChange={setActiveTab}
-                  onLoad={loadState}
-                  onAddEntry={addDraftEntry}
-                  onRemoveEntry={removeDraftEntry}
-                  onUpdateEntry={updateDraftEntry}
-                  onToggleSecret={toggleSecretVisibility}
-                  onRawChange={setRawContent}
-                  onSaveKeyValue={saveKeyValue}
-                  onSaveRaw={saveRaw}
-                />
-              ))}
-              <section className="space-y-3 pt-3" aria-labelledby="developer-settings-heading">
-                <div className="border-t border-border/70 pt-5">
-                  <p id="developer-settings-heading" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                    {t('envCard.developerSectionTitle')}
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">{t('envCard.developerSectionDescription')}</p>
-                </div>
-                {SCOPE_CARDS.filter((card) => card.scope === 'agents').map((card) => (
+            </>,
+            { id: 'onboarding-settings-integrations' },
+          )}
+
+          {renderLazyTabContent('secrets',
+            <section className="space-y-3" aria-labelledby="secrets-heading">
+              <div className="border-b border-border/70 pb-5">
+                <p id="secrets-heading" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  {t('secrets.sectionTitle')}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">{t('secrets.sectionDescription')}</p>
+              </div>
+              {SCOPE_CARDS.map((card) => (
                   <EnvEditorCard
                     key={card.scope}
                     card={card}
@@ -3229,9 +3219,8 @@ export function IntegrationsSettingsClient({
                     onSaveRaw={saveRaw}
                   />
                 ))}
-              </section>
-            </>,
-            { id: 'onboarding-settings-integrations' },
+            </section>,
+            { id: 'onboarding-settings-secrets' },
           )}
 
           {renderLazyTabContent('mcp',
@@ -3301,10 +3290,18 @@ export function IntegrationsSettingsClient({
           ))}
 
           {renderLazyTabContent('system-email', (
-            <SystemEmailSettingsPanel
-              canManageSystemEmail={isAdmin}
-              canManageWorkspaceMailboxes={canManageWorkspaceMailboxes}
-            />
+            <>
+              <EmailAccountsCard
+                isOpen={integrationsSectionOpenById.emailAccounts}
+                onOpenChange={(isOpen) => setIntegrationsSectionOpen('emailAccounts', isOpen)}
+              />
+              {(isAdmin || canManageWorkspaceMailboxes) && (
+                <SystemEmailSettingsPanel
+                  canManageSystemEmail={isAdmin}
+                  canManageWorkspaceMailboxes={canManageWorkspaceMailboxes}
+                />
+              )}
+            </>
           ))}
 
           {renderLazyTabContent('data-migration', <SystemMigrationPanel isAdmin={isAdmin} />)}

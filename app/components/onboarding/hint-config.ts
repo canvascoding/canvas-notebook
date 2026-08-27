@@ -39,7 +39,7 @@ export const ONBOARDING_PAGES: Record<string, PageDefinition> = {
       { hintKey: 'settings.managedFiles', page: 'settings', targetSelector: '#onboarding-settings-managedFiles', requiredTab: 'agent-settings' },
       { hintKey: 'settings.tools', page: 'settings', targetSelector: '#onboarding-settings-tools', requiredTab: 'agent-settings' },
       { hintKey: 'settings.integrations', page: 'settings', targetSelector: '#onboarding-settings-integrations', requiredTab: 'integrations' },
-      { hintKey: 'settings.agentsEnv', page: 'settings', targetSelector: '#onboarding-settings-env-agents', requiredTab: 'integrations' },
+      { hintKey: 'settings.agentsEnv', page: 'settings', targetSelector: '#onboarding-settings-env-agents', requiredTab: 'secrets' },
       { hintKey: 'settings.usage', page: 'settings', targetSelector: '#onboarding-settings-usage', requiredTab: 'usage' },
     ],
   },
