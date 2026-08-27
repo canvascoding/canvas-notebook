@@ -162,6 +162,54 @@ async function assertRouteRegistration(
   assert.equal((await readJson(rejectedMethod)).error, 'invalid_client_metadata');
 }
 
+async function assertRegistrationRebuildDoesNotReuseIncomingRequest(
+  prepareRequest: (request: Request) => Promise<{
+    request: Request;
+    response: Response | null;
+  }>,
+  NextRequest: typeof import('next/server').NextRequest,
+): Promise<void> {
+  const incomingRequest = new NextRequest(`${ISSUER}/oauth2/register`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: ORIGIN,
+    },
+    body: JSON.stringify({
+      client_name: 'Stream-backed public client',
+      redirect_uris: [REDIRECT_URI],
+    }),
+  });
+  const nativeRequest = globalThis.Request;
+  const requestDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Request');
+  assert.ok(requestDescriptor);
+
+  class RequestRejectingRequestInput extends nativeRequest {
+    constructor(input: RequestInfo | URL, init?: RequestInit) {
+      if (input instanceof nativeRequest) {
+        throw new Error('The normalized request must not reuse the incoming Request body stream.');
+      }
+      super(input, init);
+    }
+  }
+
+  Object.defineProperty(globalThis, 'Request', {
+    ...requestDescriptor,
+    value: RequestRejectingRequestInput,
+  });
+  try {
+    const prepared = await prepareRequest(incomingRequest);
+    assert.equal(prepared.response, null);
+    assert.equal(prepared.request.url, incomingRequest.url);
+    assert.equal(prepared.request.method, 'POST');
+    assert.equal(prepared.request.headers.get('origin'), ORIGIN);
+    const metadata = await prepared.request.json() as Record<string, unknown>;
+    assert.equal(metadata.token_endpoint_auth_method, 'none');
+  } finally {
+    Object.defineProperty(globalThis, 'Request', requestDescriptor);
+  }
+}
+
 async function assertMetadata(
   getMetadata: (request: Request) => Promise<Response>,
 ): Promise<void> {
@@ -424,6 +472,10 @@ async function main(): Promise<void> {
     }));
     assert.equal(disabledResponse?.status, 404);
     process.env.CANVAS_MCP_DIRECT_ENABLED = previousFeatureFlag;
+    await assertRegistrationRebuildDoesNotReuseIncomingRequest(
+      prepareDirectMcpOAuthRequest,
+      NextRequest,
+    );
     await assertRouteRegistration(postOAuthRoute, NextRequest);
     const clientId = await assertRegistrationPolicy(
       auth,
