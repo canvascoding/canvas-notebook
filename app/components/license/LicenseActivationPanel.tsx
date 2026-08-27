@@ -21,6 +21,10 @@ import {
   type TeamSeatRolloutStatus,
 } from './CommunityTeamConnectionPanel';
 import { TeamSeatHealthPanel } from './TeamSeatHealthPanel';
+import {
+  useLicenseEmailActivation,
+  type PublicLicenseEmailActivation,
+} from './useLicenseEmailActivation';
 
 type LicenseStatus = {
   licensed: boolean;
@@ -90,6 +94,11 @@ function getActivationCopy(locale: string) {
         marketingOptInDescription:
           'Optional: Erhalte Produktneuigkeiten, Release-Hinweise und wichtige Canvas Notebook Updates per E-Mail. Du kannst dich jederzeit wieder abmelden.',
         sendKey: 'Key senden',
+        emailSent: 'Aktivierungs-E-Mail gesendet',
+        activationPendingTitle: 'Bestätigung ausstehend',
+        activationPendingDescription:
+          'Öffne die E-Mail auf einem beliebigen Gerät und bestätige dort die Aktivierung. Diese Notebook-Instanz übernimmt das signierte Zertifikat danach automatisch; die E-Mail muss nicht auf dem Server geöffnet werden.',
+        activationCompleted: 'Lizenz automatisch aktiviert',
         activationKey: 'Aktivierungs-Key',
         activate: 'Aktivieren',
         statusUnavailableTitle: 'Lizenzstatus nicht verfügbar',
@@ -120,6 +129,11 @@ function getActivationCopy(locale: string) {
         marketingOptInDescription:
           'Optional: receive product news, release notes, and important Canvas Notebook updates by email. You can unsubscribe at any time.',
         sendKey: 'Send key',
+        emailSent: 'Activation email sent',
+        activationPendingTitle: 'Waiting for confirmation',
+        activationPendingDescription:
+          'Open the email on any device and approve the activation there. This Notebook instance will retrieve the signed certificate automatically; the email does not need to be opened on the server.',
+        activationCompleted: 'License activated automatically',
         activationKey: 'Activation key',
         activate: 'Activate',
         statusUnavailableTitle: 'License status unavailable',
@@ -179,6 +193,17 @@ export function LicenseActivationPanel({
     return () => window.clearTimeout(timer);
   }, [loadStatus]);
 
+  const { beginPolling, pendingActivation } = useLicenseEmailActivation({
+    licensed: Boolean(status?.licensed),
+    onActivated: async () => {
+      await loadStatus();
+      toast.success(copy.activationCompleted);
+    },
+    onFailure: (failure) => {
+      toast.error(errorWithCode(failure.error || 'License activation failed', failure.code));
+    },
+  });
+
   async function requestLicense() {
     setRegistering(true);
     try {
@@ -187,11 +212,17 @@ export function LicenseActivationPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, activationPath: getLicenseRegistrationActivationPath('/settings?tab=license'), marketingOptIn }),
       });
-      const payload = await response.json().catch(() => ({}));
+      const payload = await response.json().catch(() => ({})) as {
+        success?: boolean;
+        error?: string;
+        code?: string;
+        activation?: PublicLicenseEmailActivation | null;
+      };
       if (!response.ok || !payload.success) {
         throw new Error(errorWithCode(payload.error || 'License request failed', payload.code));
       }
-      toast.success(`License email sent to ${email}`);
+      beginPolling(payload.activation || null);
+      toast.success(copy.emailSent);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'License request failed');
     } finally {
@@ -323,6 +354,16 @@ export function LicenseActivationPanel({
                   </Button>
                 </div>
               </div>
+
+              {pendingActivation ? (
+                <Alert>
+                  <Loader2 className="animate-spin" />
+                  <AlertTitle>{copy.activationPendingTitle}</AlertTitle>
+                  <AlertDescription>
+                    {copy.activationPendingDescription}
+                  </AlertDescription>
+                </Alert>
+              ) : null}
 
               <div className="flex items-start gap-3 border border-border bg-muted/20 px-3 py-3">
                 <Switch

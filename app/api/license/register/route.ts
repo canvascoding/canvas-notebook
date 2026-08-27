@@ -5,8 +5,9 @@ import {
   LicenseControlPlaneError,
   requestCommunityLicenseRegistration,
 } from '@/app/lib/license/control-plane';
-import { getRequestOrigin } from '@/app/lib/license/instance';
+import { getLicenseInstanceId, getRequestOrigin } from '@/app/lib/license/instance';
 import { logLicenseError } from '@/app/lib/license/logging';
+import { savePendingLicenseEmailActivation } from '@/app/lib/license/email-activation-storage';
 import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -44,8 +45,26 @@ export async function POST(request: NextRequest) {
     const activationUrl = `${getRequestOrigin(request)}${safeActivationPath}`;
     const marketingOptIn = body.marketingOptIn === true;
     const registration = await requestCommunityLicenseRegistration({ email, activationUrl, marketingOptIn });
+    if (registration.activation) {
+      await savePendingLicenseEmailActivation({
+        ...registration.activation,
+        instanceId: getLicenseInstanceId(),
+      });
+    }
+    const { activation, ...publicRegistration } = registration;
     console.info(`${LOG_PREFIX} registration requested`);
-    return NextResponse.json({ success: true, email, ...registration });
+    return NextResponse.json({
+      success: true,
+      email,
+      ...publicRegistration,
+      activation: activation
+        ? {
+            state: 'authorization_pending',
+            expiresAt: activation.expiresAt,
+            pollIntervalSeconds: activation.pollIntervalSeconds,
+          }
+        : null,
+    });
   } catch (error) {
     if (error instanceof LicenseControlPlaneError) {
       const message = redactTeamControlPlaneLogText(error.message, [email]);

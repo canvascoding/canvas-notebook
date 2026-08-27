@@ -6,6 +6,10 @@ import { useSearchParams } from 'next/navigation';
 import { routing } from '@/i18n/routing';
 import { buildLocalePath } from '@/app/lib/locale-path';
 import { scrubLicenseKeyFromBrowserUrl } from '@/app/lib/license/browser-url';
+import {
+  useLicenseEmailActivation,
+  type PublicLicenseEmailActivation,
+} from '@/app/components/license/useLicenseEmailActivation';
 
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { AiProviderCredentialsPanel } from '@/app/components/settings/AiProviderCredentialsPanel';
@@ -797,6 +801,14 @@ function LicenseStep({
     storeOnboardingLicenseKey(key);
   }, [key]);
 
+  const { beginPolling, pendingActivation } = useLicenseEmailActivation({
+    licensed: Boolean(status?.licensed),
+    onActivated: async () => {
+      await fetchLicenseStatus();
+      toast.success(t('licenseActivatedAutomatically'));
+    },
+  });
+
   async function requestLicense() {
     setRegistering(true);
     try {
@@ -805,10 +817,16 @@ function LicenseStep({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, activationPath: getLicenseRegistrationActivationPath('/onboarding'), marketingOptIn }),
       });
-      const payload = await response.json().catch(() => ({})) as { success?: boolean; error?: string; code?: string };
+      const payload = await response.json().catch(() => ({})) as {
+        success?: boolean;
+        error?: string;
+        code?: string;
+        activation?: PublicLicenseEmailActivation | null;
+      };
       if (!response.ok || !payload.success) {
         throw new Error(payload.code ? `${payload.error || t('licenseRequestFailed')} (${payload.code})` : payload.error || t('licenseRequestFailed'));
       }
+      beginPolling(payload.activation || null);
       toast.success(t('licenseEmailSent'));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('licenseRequestFailed'));
@@ -908,6 +926,18 @@ function LicenseStep({
               </Button>
             </div>
           </div>
+
+          {pendingActivation ? (
+            <div className="flex items-start gap-3 border border-border bg-muted/30 p-3 text-sm">
+              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+              <div>
+                <p className="font-medium">{t('licenseActivationPendingTitle')}</p>
+                <p className="mt-1 leading-5 text-muted-foreground">
+                  {t('licenseActivationPendingDescription')}
+                </p>
+              </div>
+            </div>
+          ) : null}
 
           <div className="flex items-start gap-3 border border-border bg-muted/20 p-3">
             <Switch

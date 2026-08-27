@@ -6,7 +6,8 @@ import {
   LicenseControlPlaneError,
   requestCommunityLicenseRegistration,
 } from '@/app/lib/license/control-plane';
-import { getRequestOrigin } from '@/app/lib/license/instance';
+import { savePendingLicenseEmailActivation } from '@/app/lib/license/email-activation-storage';
+import { getLicenseInstanceId, getRequestOrigin } from '@/app/lib/license/instance';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -49,8 +50,27 @@ export async function POST(request: NextRequest) {
       activationUrl: `${getRequestOrigin(request)}/settings?tab=license&source=mobile`,
       marketingOptIn: body.marketingOptIn === true,
     });
+    if (registration.activation) {
+      await savePendingLicenseEmailActivation({
+        ...registration.activation,
+        instanceId: getLicenseInstanceId(),
+      });
+    }
+    const { activation, ...publicRegistration } = registration;
     return NextResponse.json(
-      { success: true, email, delivery: 'email', ...registration },
+      {
+        success: true,
+        email,
+        delivery: 'email',
+        ...publicRegistration,
+        activation: activation
+          ? {
+              state: 'authorization_pending',
+              expiresAt: activation.expiresAt,
+              pollIntervalSeconds: activation.pollIntervalSeconds,
+            }
+          : null,
+      },
       { status: 202, headers: responseHeaders },
     );
   } catch (error) {
