@@ -41,6 +41,7 @@ import type { WorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-mar
 import { useTranslations } from 'next-intl';
 import { yCollab } from 'y-codemirror.next';
 import { useCollaborationDocument } from '@/app/lib/collaboration/client';
+import { getCodeEditorLifecycleKey } from '@/app/lib/collaboration/code-editor-lifecycle';
 import type { CollaborationSessionResponse } from '@/app/lib/collaboration/types';
 
 export interface CodeEditorProps {
@@ -311,6 +312,21 @@ export function CodeEditor({
     representation: 'plain_text',
     session: collaborationSession,
   });
+  const collaborationText = collaboration?.doc.getText('content') ?? null;
+  const collaborationAwareness = collaboration?.provider?.awareness ?? null;
+  const setCollaborationComposition = collaboration?.setComposition ?? null;
+  const collaborationBindingReady = Boolean(
+    collaborationText
+    && collaborationAwareness
+    && setCollaborationComposition
+  );
+  const codeEditorLifecycleKey = getCodeEditorLifecycleKey({
+    workspaceId: activeWorkspaceId,
+    path: languagePath,
+    collaborationRequested: shouldCollaborate,
+    collaborationRegistryKey: collaboration?.registryKey ?? null,
+    collaborationBindingReady,
+  });
   const collaborationReadOnly = shouldCollaborate && (
     !collaboration?.session
     || collaboration.session.permission !== 'write'
@@ -334,6 +350,28 @@ export function CodeEditor({
   const handleChange = useCallback((nextValue: string) => {
     onChangeRef.current(nextValue);
   }, []);
+
+  const collaborationExtensions = useMemo<CodeMirrorExtension[]>(() => {
+    if (!collaborationText || !collaborationAwareness || !setCollaborationComposition) return [];
+    return [
+      yCollab(collaborationText, collaborationAwareness),
+      EditorView.domEventHandlers({
+        compositionstart(_event, view) {
+          const selection = view.state.selection.main;
+          setCollaborationComposition({ textName: 'content', from: selection.from, to: selection.to });
+          return false;
+        },
+        compositionend() {
+          setCollaborationComposition(null);
+          return false;
+        },
+        blur() {
+          setCollaborationComposition(null);
+          return false;
+        },
+      }),
+    ];
+  }, [collaborationAwareness, collaborationText, setCollaborationComposition]);
 
   const extensions = useMemo(() => {
     const nextExtensions: CodeMirrorExtension[] = [];
@@ -366,24 +404,7 @@ export function CodeEditor({
         ));
       }
     }
-    if (collaboration?.provider?.awareness) {
-      nextExtensions.push(yCollab(collaboration.doc.getText('content'), collaboration.provider.awareness));
-      nextExtensions.push(EditorView.domEventHandlers({
-        compositionstart(_event, view) {
-          const selection = view.state.selection.main;
-          collaboration.setComposition({ textName: 'content', from: selection.from, to: selection.to });
-          return false;
-        },
-        compositionend() {
-          collaboration.setComposition(null);
-          return false;
-        },
-        blur() {
-          collaboration.setComposition(null);
-          return false;
-        },
-      }));
-    }
+    nextExtensions.push(...collaborationExtensions);
     return nextExtensions;
   }, [
     activeWorkspaceId,
@@ -391,7 +412,7 @@ export function CodeEditor({
     performanceProfile.disableLanguageExtension,
     performanceProfile.disableLineWrapping,
     effectiveReadOnly,
-    collaboration,
+    collaborationExtensions,
     t,
   ]);
 
@@ -424,7 +445,8 @@ export function CodeEditor({
   return (
     <div className="relative h-full w-full">
       <CodeMirror
-        value={collaboration ? collaboration.doc.getText('content').toString() : value}
+        key={codeEditorLifecycleKey}
+        value={collaborationText?.toString() ?? value}
         height="100%"
         theme={resolvedTheme === 'light' ? 'light' : 'dark'}
         extensions={extensions}

@@ -15,6 +15,14 @@ import type {
 
 type RequestedTextCollaborationRepresentation = TextCollaborationRepresentation | 'auto';
 
+type CollaborationCompositionRange = {
+  textName: 'content' | 'body';
+  from: number;
+  to: number;
+} | null;
+
+type SetCollaborationComposition = (range: CollaborationCompositionRange) => void;
+
 type RegistryEntry = {
   key: string;
   refs: number;
@@ -27,6 +35,7 @@ type RegistryEntry = {
   listeners: Set<() => void>;
   cleanupTimer?: ReturnType<typeof setTimeout>;
   startPromise: Promise<void>;
+  setComposition: SetCollaborationComposition;
 };
 
 export type CollaborationDocument = {
@@ -36,7 +45,7 @@ export type CollaborationDocument = {
   session: CollaborationSessionResponse | null;
   status: CollaborationConnectionStatus;
   error: string | null;
-  setComposition: (range: { textName: 'content' | 'body'; from: number; to: number } | null) => void;
+  setComposition: SetCollaborationComposition;
 };
 
 const registry = new Map<string, RegistryEntry>();
@@ -96,6 +105,12 @@ function createEntry(
     error: null,
     listeners: new Set(),
     startPromise: Promise.resolve(),
+    setComposition: (range) => {
+      const provider = entry.provider;
+      if (!provider) return;
+      const current = provider.awareness?.getLocalState()?.canvas as Record<string, unknown> | undefined;
+      provider.setAwarenessField('canvas', { ...(current || {}), composition: range });
+    },
   };
   entry.startPromise = (async () => {
     try {
@@ -204,12 +219,7 @@ function snapshot(entry: RegistryEntry): CollaborationDocument {
     session: entry.session,
     status: entry.status,
     error: entry.error,
-    setComposition: (range) => {
-      const provider = entry.provider;
-      if (!provider) return;
-      const current = provider.awareness?.getLocalState()?.canvas as Record<string, unknown> | undefined;
-      provider.setAwarenessField('canvas', { ...(current || {}), composition: range });
-    },
+    setComposition: entry.setComposition,
   };
 }
 
