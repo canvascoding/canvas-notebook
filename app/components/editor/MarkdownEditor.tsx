@@ -157,6 +157,7 @@ import {
   markdownHeadingAnchorFromHref,
   scrollToMarkdownHeadingAnchor,
 } from '@/app/lib/markdown/heading-anchor';
+import { isMarpMarkdown } from '@/app/lib/marp/detect';
 import { MarkdownHeadingAnchors } from '@/app/lib/markdown/tiptap-heading-anchors';
 import {
   buildObsidianWikiLinkTarget,
@@ -173,6 +174,7 @@ import {
   restoreRichMarkdownFinalLineEnding,
   type MarkdownRichModeReason,
 } from '@/app/lib/markdown/rich-markdown-codec';
+import { getMarkdownSourceModeNotice } from '@/app/lib/markdown/source-mode-notice';
 import { openWorkspaceMarkdownTarget } from '@/app/lib/markdown/workspace-markdown-navigation-client';
 import {
   getWorkspaceWikiCompletionItems,
@@ -5643,6 +5645,7 @@ function SourceMarkdownEditor({
   collaborationEnabled = false,
   collaborationSession,
   sourceModeReason,
+  isPresentationDocument,
 }: MarkdownEditorProps & {
   initiallyShowMobileToolbar?: boolean;
   richModeAvailable: boolean;
@@ -5650,6 +5653,7 @@ function SourceMarkdownEditor({
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   onRichMode: () => void;
   sourceModeReason?: MarkdownRichModeReason;
+  isPresentationDocument: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const t = useTranslations('notebook');
@@ -5657,6 +5661,9 @@ function SourceMarkdownEditor({
   const [isSourceFocused, setIsSourceFocused] = useState(initiallyShowMobileToolbar);
   const [isInteractingWithToolbar, setIsInteractingWithToolbar] = useState(false);
   const mobileToolbarVisible = isMobileKeyboardActive && (isSourceFocused || isInteractingWithToolbar);
+  const sourceModeNotice = sourceModeReason
+    ? getMarkdownSourceModeNotice(sourceModeReason, isPresentationDocument)
+    : null;
 
   const holdToolbarVisibility = useCallback(() => {
     if (releaseInteractionTimeoutRef.current !== null) {
@@ -5717,7 +5724,9 @@ function SourceMarkdownEditor({
           role="status"
         >
           <BadgeInfo aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-300" />
-          <span>{t('markdownEditorSourcePreservationNotice')}</span>
+          <span>{t(sourceModeNotice === 'presentation'
+            ? 'markdownEditorPresentationSourcePreservationNotice'
+            : 'markdownEditorSourcePreservationNotice')}</span>
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
@@ -5760,6 +5769,10 @@ export function MarkdownEditor({
   const parsedDocument = useMemo(() => parseCanvasMarkdownDocument(value), [value]);
   const richModeAnalysis = useMemo(() => analyzeMarkdownRichMode(value), [value]);
   const sourceModeRequired = richModeAnalysis.mode === 'source';
+  const isPresentationDocument = useMemo(
+    () => Boolean(filePath && isMarpMarkdown(filePath, value)),
+    [filePath, value],
+  );
   const [mode, setMode] = useState<EditorMode>(() => (
     sourceModeRequired || shouldDefaultToSource(readOnly, filePath) ? 'source' : 'rich'
   ));
@@ -5854,6 +5867,7 @@ export function MarkdownEditor({
         collaborationEnabled={collaborationEnabled}
         collaborationSession={collaborationSession.session}
         sourceModeReason={richModeAnalysis.mode === 'source' ? richModeAnalysis.reason : undefined}
+        isPresentationDocument={isPresentationDocument}
       />
     );
   }

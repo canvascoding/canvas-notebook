@@ -20,6 +20,7 @@ import {
   type StoredEmailAccount,
 } from '@/app/lib/email/account-store';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
+import { EmailMessageNotFoundError } from '@/app/lib/email/errors';
 import {
   assertEmailSenderAllowed,
   isEmailAddressAllowed,
@@ -628,7 +629,7 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
       bodyStructure: true,
       threadId: true,
     }, { uid: true });
-    if (!fetched) throw new Error('Email message not found.');
+    if (!fetched) throw new EmailMessageNotFoundError();
 
     const from = firstAddress(fetched.envelope);
     if (options?.enforceReadPolicy !== false) {

@@ -182,6 +182,7 @@
     "test:email:ai-request-body": "tsx --conditions react-server scripts/email-ai-request-body-test.ts",
     "test:email:ai-runtime-scope": "tsx --conditions react-server scripts/email-ai-runtime-scope-test.ts",
     "test:email:chat-context": "tsx scripts/email-chat-context-test.ts",
+    "test:email:inbox-flow": "tsx --conditions react-server scripts/email-inbox-reading-flow-test.ts",
     "test:composio:user-scope": "tsx scripts/composio-user-scope-test.ts",
     "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",
     "test:auth:seat-limit": "tsx --conditions react-server scripts/auth-seat-limit-test.ts",

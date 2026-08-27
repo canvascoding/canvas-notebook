@@ -11,6 +11,7 @@ import {
   splitCanvasMarkdownForRichEditor,
 } from '../app/lib/markdown/obsidian-metadata';
 import { hasMarpDirective } from '../app/lib/marp/detect';
+import { getMarkdownSourceModeNotice } from '../app/lib/markdown/source-mode-notice';
 
 const fixtureRoot = path.join(process.cwd(), 'tests', 'fixtures', 'markdown-roundtrip');
 
@@ -34,6 +35,9 @@ assert.deepEqual(analyzeMarkdownRichMode(directiveFixture), {
   mode: 'source',
   reason: 'unsupported_marp_directive',
 });
+assert.equal(getMarkdownSourceModeNotice('unsupported_marp_directive', true), 'presentation');
+assert.equal(getMarkdownSourceModeNotice('unsupported_marp_directive', false), 'markdown');
+assert.equal(getMarkdownSourceModeNotice('roundtrip_changed', false), 'markdown');
 assert.equal(hasMarpDirective(safeFixture), true);
 assert.equal(hasMarpDirective('---\nmarp: "true"\n---\n# Slide\n'), true);
 assert.equal(hasMarpDirective('---\nmarp: false\n---\n# Note\n'), false);
