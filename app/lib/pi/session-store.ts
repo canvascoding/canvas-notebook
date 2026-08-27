@@ -594,6 +594,9 @@ export async function savePiSession(
   if (sequenceCheckpoint !== expectedCheckpoint) {
     throw new Error('Persisted PI message sequence checkpoint does not match the saved history.');
   }
+  newMessages.forEach((message, index) => {
+    (message as unknown as { sequence: number }).sequence = startIndex + index + 1;
+  });
   if (summaryChanged) {
     const updatedSummary = await db.update(piSessions)
       .set({

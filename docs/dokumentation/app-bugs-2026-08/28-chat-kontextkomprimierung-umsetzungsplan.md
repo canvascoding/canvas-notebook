@@ -14,8 +14,9 @@ Dieser Plan konkretisiert
 [Ticket 28](./28-chat-kontextkomprimierung-und-session-fortsetzung-stabilisieren.md)
 auf Basis des aktuellen Repository-Stands. Die Budgetanalyse, der
 Budgetvertrag, das additive Persistenzfundament und der isolierte Coordinator
-sind technisch umgesetzt. Runtime-/Automation-Integration und UI-Aenderungen
-sind weiterhin nur geplant. Das Ticket bleibt offen und ist nicht abgenommen.
+sowie seine Live-/Manual-Runtimeintegration sind technisch umgesetzt.
+Automation-Integration und UI-Aenderungen sind weiterhin nur geplant. Das
+Ticket bleibt offen und ist nicht abgenommen.
 
 Der lokale Hermes-Checkout wurde ausschliesslich read-only als Referenz
 gelesen. Browser, Dev-Server, Container und externe Systeme bleiben fuer die
@@ -51,9 +52,10 @@ Phase 1A und Phase 1B sind technisch umgesetzt:
   Runtime-Prompt-, Effective-Tool-, Continuation- und Temperature-Tests,
   TypeScript, Lint und Produktionsbuild wurden ausgefuehrt.
 
-Damit sind die Gates von Phase 1A und 1B technisch erfuellt. Phase 2 und der
-isolierte Coordinator aus Phase 3 sind ebenfalls technisch umgesetzt; ihr
-genauer Stand ist unten dokumentiert. Die Phasen 4 bis 7 bleiben geplant.
+Damit sind die Gates von Phase 1A und 1B technisch erfuellt. Phase 2, der
+Coordinator aus Phase 3 und der produktive Live-/Manual-Adapter aus Phase 4
+sind ebenfalls technisch umgesetzt; ihr genauer Stand ist unten dokumentiert.
+Die Phasen 5 bis 7 bleiben geplant.
 Insbesondere wurden keine manuelle
 Langchat-/UI-Abnahme, kein Browser-/Playwright-Test und keine externe
 Providerkalibrierung ausgefuehrt; Ticket 28 bleibt offen.
@@ -928,8 +930,9 @@ Candidate/Commit-Pfad umgestellt.
 Cooldown oder Sessionzustand aendern; zwei Versuche erzeugen hoechstens einen
 Summary-Providercall und einen Commit. Fokussierter Commit.
 
-**Technischer Stand 2026-08-27:** Umgesetzt, aber bewusst noch nicht in Live-
-Runtime oder Automation integriert. `session-compaction-coordinator.ts`
+**Technischer Stand 2026-08-27:** Umgesetzt und inzwischen ueber Phase 4 in
+die Live-Runtime integriert, aber noch nicht in Automation.
+`session-compaction-coordinator.ts`
 registriert pro User-/Session-/Agent-Scope genau einen lokalen Versuch; der
 persistierte partielle Unique-Index erzwingt dieselbe Grenze pro Datenbank auch
 zwischen Prozessen. PostgreSQL erzeugt die Attempt-Indizes explizit, weil die
@@ -956,10 +959,7 @@ Fokussierte Tests decken Single-flight, hoechstens einen Kandidatencall,
 Generation vor/nach Providerwait, Abort, ignoriertes Provider-Abortsignal,
 Timeout und spaetes Ergebnis, no-op/deferred, Persistenzfehler,
 Cooldown/Manual-Bypass/Success-Reset sowie die zugehoerigen SQLite- und
-PostgreSQL-Indizes/Migrationen ab. Die noch offene Phase 4 muss die
-Runtime-Generation aus Modell-, Tool-, Prompt-, Session- und Dispose-
-Aenderungen ableiten und diesen Coordinator statt der bisherigen direkten
-Summary-Uebernahme verwenden.
+PostgreSQL-Indizes/Migrationen ab.
 
 ### Phase 4: Live-Runtime und manueller Control-Pfad
 
@@ -978,6 +978,31 @@ Summary-Uebernahme verwenden.
 **Gate:** Fake-Stream-Integration fuer langer Textchat, Toolloop, Summary-
 Fehler, Abort, Timeout, Manual/Auto-Race, Providerfehler und Runtime-Reload
 gruen. Fokussierter Commit.
+
+**Technischer Stand 2026-08-27:** Der produktive `transformContext()`- und
+`compactNow()`-Pfad verwendet den gemeinsamen Coordinator. Vor dem Attempt
+werden neue Nachrichten dauerhaft gespeichert und mit ihrer echten Sequenz
+gestempelt. Erst der erfolgreiche CAS-Commit aktualisiert den Live-Summary-
+State, emittiert das Erfolgsevent und haengt einen Break-Marker mit derselben
+Attempt-ID an. Ein optionaler Summary-Fehler darf nur mit einem erneut
+geprueften, vollstaendigen Hardlimit-Fallback fortfahren.
+
+Die Runtime-Generation bindet Modell/Provider, Kontextfenster, den tatsaechlich
+gesendeten Output-Cap, Summary-Revision/Watermark, Nachrichtencheckpoint,
+Workspace, effektiven Prompt, effektive Toolschemas und Turn-Runtimekontext.
+Prompt-, Tool-, Browser-/Workspace- und sonstige Runtimeaenderungen
+invalidieren einen laufenden Versuch. `abort()` und `dispose()` erreichen den
+Compaction-Controller direkt; Timeout-, Abort- und Stale-Ergebnisse werden
+auch bei spaeter Provideraufloesung nicht uebernommen.
+
+Der Fake-Stream-Integrationstest deckt erfolgreichen Commit und Reload,
+Manual/Auto-Single-flight, Abort, Runtime-Invalidierung, Timeout und spaete
+Ergebnisse ab. Coordinator-, Summary-, History- und Multimodaltests decken
+Providerfehler, sicheren/unsicheren Fallback und atomare Toolgruppen ab. Dabei
+wurde ein zusaetzlicher Revisionsfehler behoben: Der Commit gibt nun exakt den
+sekundengenau persistierten Summary-Zeitstempel zurueck, sodass ein spaeterer
+Nachrichtenappend keine scheinbare Summary-Aenderung und keine falsche zweite
+Revision erzeugt. Manuelle Browser-/Provider-/Langchat-Abnahme bleibt Phase 7.
 
 ### Phase 5: Automation und weitere Runtime-Consumer
 

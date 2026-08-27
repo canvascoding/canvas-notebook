@@ -169,6 +169,7 @@ async function finishWithRetry(
   now: Date,
   policy: PiCompactionCoordinatorPolicy,
   metrics?: PiCompactionAttemptMetrics,
+  composition?: PiHistoryComposition | null,
 ): Promise<PiCompactionCoordinatorResult> {
   const failureOrdinal = await store.countRetryFailures(scope);
   const retryAt = retryAtForFailure(now, failureOrdinal, policy);
@@ -186,6 +187,7 @@ async function finishWithRetry(
     attemptId,
     reasonCode,
     retryAt: finished.attempt.retryAt ?? retryAt,
+    composition,
   });
 }
 
@@ -359,6 +361,7 @@ export async function runPiSessionCompaction(
         new Date(),
         policy,
         candidateMetrics,
+        candidate.composition,
       );
     }
 

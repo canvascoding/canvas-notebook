@@ -691,7 +691,7 @@ export async function commitPiSessionCompactionSummaryOnConnection(
       status: 'committed',
       summary: {
         summaryText,
-        summaryUpdatedAt: now,
+        summaryUpdatedAt: databaseDate(summaryUpdatedAt),
         summaryThroughTimestamp,
         summaryThroughSequence: input.throughSequence,
         summaryRevision: nextRevision,

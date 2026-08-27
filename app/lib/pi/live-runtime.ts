@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import {
   Agent,
@@ -24,6 +25,7 @@ import {
 import {
   composePiHistoryForLlm,
   estimateTextTokens,
+  isPiHistoryCompositionSendable,
   type PiHistoryComposition,
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
@@ -33,6 +35,7 @@ import {
   createPiProviderUsageCalibrationEvidence,
   estimatePiToolSchemaTokens,
   getPiRequestOutputTokenCap,
+  serializePiEffectiveToolSchemas,
   withPiRequestOutputTokenCap,
   type PiContextBudgetSnapshot,
   type PiProviderUsageCalibrationEvidence,
@@ -50,6 +53,14 @@ import {
   isImageInputUnsupportedError,
 } from '@/app/lib/pi/model-resolver';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
+import {
+  abortPiSessionCompaction,
+  getActivePiSessionCompaction,
+  invalidatePiSessionCompaction,
+  runPiSessionCompaction,
+  type PiCompactionCoordinatorPolicy,
+  type PiCompactionCoordinatorResult,
+} from '@/app/lib/pi/session-compaction-coordinator';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
 import { generatePendingPiSessionTitle } from '@/app/lib/pi/session-title-generator';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
@@ -207,6 +218,7 @@ export type RuntimeStatusEvent = {
 
 export type ContextCompactedEvent = {
   type: 'context_compacted';
+  attemptId: string;
   timestamp: string;
   kind: 'manual' | 'automatic';
   omittedMessageCount: number;
@@ -263,6 +275,7 @@ type RuntimeOptions = {
   resetToolLoopGuard?: () => void;
   requiresRuntimeRecreation?: () => boolean;
   summaryStreamFn?: StreamFn;
+  compactionPolicy?: PiCompactionCoordinatorPolicy;
 };
 
 function isUserMessage(message: AgentMessage): message is Extract<AgentMessage, { role: 'user' }> {
@@ -419,7 +432,7 @@ type PiRuntimePromptDispatchTarget = RuntimePromptContextTarget & {
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
-class LivePiRuntime {
+export class LivePiRuntime {
   readonly sessionId: string;
   readonly userId: string;
   readonly agentId: string;
@@ -444,6 +457,8 @@ class LivePiRuntime {
   private readonly imageNormalizationOptions: PiMessageNormalizationOptions;
   private readonly requestOutputTokenCap: number;
   private lastPersistedLength: number;
+  private messageSequenceCheckpoint: number;
+  private compactionGeneration = 0;
   private lastAccessAt = Date.now();
   private lastCompactionAt: Date | null;
   private lastCompactionKind: 'manual' | 'automatic' | null;
@@ -458,8 +473,7 @@ class LivePiRuntime {
   private studioContext: PiRuntimePromptContext['studioContext'] | null = null;
   private emailContext: PiRuntimePromptContext['emailContext'] | null = null;
   private workspaceContext: PiRuntimePromptContext['workspace'] | null = null;
-  private persistLock = false;
-  private persistPending: 'turn_end' | 'agent_end' | 'error' | null = null;
+  private persistPromise: Promise<number> | null = null;
   private lastBroadcastStatusSignature: string | null = null;
   private statusRevision = 0;
   private currentUserPromptText = '';
@@ -494,6 +508,7 @@ class LivePiRuntime {
     this.requestOutputTokenCap = init.requestOutputTokenCap;
     this.summary = init.summary;
     this.lastPersistedLength = init.initialMessages.length;
+    this.messageSequenceCheckpoint = init.initialMessages.length;
     this.agent = agent;
     this.lastCompactionAt = init.summary.summaryUpdatedAt;
     this.lastCompactionKind = init.summary.summaryUpdatedAt ? 'automatic' : null;
@@ -517,9 +532,105 @@ class LivePiRuntime {
   }
 
   private invalidateContextBudget(): void {
+    this.compactionGeneration += 1;
+    invalidatePiSessionCompaction(this.getCompactionScope());
     this.lastComposition = null;
     this.lastFinalPayloadBudgetSnapshot = null;
     this.lastProviderUsageCalibration = null;
+  }
+
+  private getCompactionScope() {
+    return {
+      sessionId: this.sessionId,
+      userId: this.userId,
+      agentId: this.agentId,
+      workspaceId: this.executionContext.workspaceId ?? null,
+    };
+  }
+
+  private createCompactionGeneration(runtimeContext: string | null): string {
+    const hash = createHash('sha256');
+    hash.update(JSON.stringify({
+      generation: this.compactionGeneration,
+      provider: this.provider,
+      model: this.model.id,
+      contextWindow: this.model.contextWindow,
+      modelMaxTokens: this.model.maxTokens,
+      requestOutputTokenCap: this.requestOutputTokenCap,
+      summaryRevision: this.summary.summaryRevision,
+      summaryThroughSequence: this.summary.summaryThroughSequence,
+      messageSequenceCheckpoint: this.messageSequenceCheckpoint,
+      workspaceId: this.executionContext.workspaceId ?? null,
+    }));
+    hash.update(this.getEffectiveSystemPrompt());
+    hash.update(serializePiEffectiveToolSchemas(this.getEffectiveTools()));
+    hash.update(runtimeContext ?? '');
+    return hash.digest('hex');
+  }
+
+  private composeHistory(
+    messages: AgentMessage[],
+    additionalContextTokens: number,
+    selectionMode: 'automatic' | 'hard_limit' = 'automatic',
+  ): PiHistoryComposition {
+    return composePiHistoryForLlm({
+      messages,
+      summary: this.summary,
+      systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
+      contextWindow: this.model.contextWindow,
+      modelMaxTokens: this.model.maxTokens,
+      requestOutputTokens: this.requestOutputTokenCap,
+      toolTokens: estimatePiToolSchemaTokens(this.getEffectiveTools()),
+      additionalContextTokens,
+      selectionMode,
+    });
+  }
+
+  private async coordinateCompaction(input: {
+    kind: 'manual' | 'automatic';
+    messages: AgentMessage[];
+    additionalContextTokens: number;
+    runtimeContext: string | null;
+    signal?: AbortSignal;
+  }): Promise<PiCompactionCoordinatorResult> {
+    await this.persistMessages('turn_end');
+    const summarySnapshot = { ...this.summary };
+    const generation = this.createCompactionGeneration(input.runtimeContext);
+    const systemPromptTokens = estimateTextTokens(this.getEffectiveSystemPrompt());
+    const toolTokens = estimatePiToolSchemaTokens(this.getEffectiveTools());
+    const before = this.composeHistory(input.messages, input.additionalContextTokens);
+    return runPiSessionCompaction({
+      ...this.getCompactionScope(),
+      trigger: input.kind,
+      generation,
+      expectedSummaryRevision: summarySnapshot.summaryRevision,
+      expectedThroughSequence: summarySnapshot.summaryThroughSequence,
+      provider: this.provider,
+      model: this.model.id,
+      contractFingerprint: generation,
+      metrics: {
+        beforeEstimatedTokens: before.estimatedHistoryTokens,
+        beforeEstimatedBytes: before.estimatedHistoryBytes,
+      },
+      policy: this.options.compactionPolicy,
+      signal: input.signal,
+      isGenerationCurrent: (candidateGeneration) => (
+        !this.disposed
+        && candidateGeneration === this.createCompactionGeneration(input.runtimeContext)
+      ),
+      prepareCandidate: (candidateSignal) => preparePiHistoryContext({
+        messages: input.messages.slice(),
+        summary: summarySnapshot,
+        systemPromptTokens,
+        model: this.model,
+        requestOutputTokens: this.requestOutputTokenCap,
+        toolTokens,
+        additionalContextTokens: input.additionalContextTokens,
+        sessionId: this.sessionId,
+        signal: candidateSignal,
+        streamFn: this.options.summaryStreamFn,
+      }),
+    });
   }
 
   async prepareFinalPayload(messages: AgentMessage[]): Promise<Message[]> {
@@ -631,7 +742,10 @@ class LivePiRuntime {
       pendingToolCalls: this.agent.state.pendingToolCalls.size,
       followUpQueue: this.followUpQueue.map((entry) => entry.preview),
       steeringQueue: this.steeringQueue.map((entry) => entry.preview),
-      canAbort: this.isRunning || this.abortRequested || hasPendingReplace,
+      canAbort: this.isRunning
+        || this.abortRequested
+        || hasPendingReplace
+        || getActivePiSessionCompaction(this.getCompactionScope()) !== null,
       contextWindow: this.model.contextWindow,
       estimatedHistoryTokens: composition.estimatedHistoryTokens,
       availableHistoryTokens: composition.availableHistoryTokens,
@@ -729,11 +843,15 @@ class LivePiRuntime {
   }
 
   async abort() {
+    const compactionAborted = abortPiSessionCompaction(this.getCompactionScope());
     if (this.isRunning || this.agent.state.isStreaming || this.abortRequested) {
       this.abortRequested = true;
       this.touch();
       this.publishStatus();
       this.agent.abort();
+    } else if (compactionAborted) {
+      this.touch();
+      this.publishStatus();
     }
 
     return this.getStatus();
@@ -744,92 +862,63 @@ class LivePiRuntime {
       throw new Error('Cannot compact while the agent is processing.');
     }
 
-    const result = await preparePiHistoryContext({
+    const additionalContextTokens = this.getBrowserRuntimeContextTokenEstimate();
+    const result = await this.coordinateCompaction({
+      kind: 'manual',
       messages: this.agent.state.messages,
-      summary: this.summary,
-      systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
-      model: this.model,
-      requestOutputTokens: this.requestOutputTokenCap,
-      toolTokens: estimatePiToolSchemaTokens(this.tools),
-      additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
-      sessionId: this.sessionId,
-      streamFn: this.options.summaryStreamFn,
+      additionalContextTokens,
+      runtimeContext: null,
     });
 
-    if (result.composition.contextBudgetExceeded) {
-      if (result.composition.payloadBudgetExceeded) {
-        throw new Error(
-          `Context compaction cannot run because the latest message exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
-          'Shorten the latest message or attachments.',
-        );
-      }
-      throw new Error(
-        'Context compaction cannot run because the system prompt, tools, output reserve, or latest message already exceeds the selected model context window.',
-      );
-    }
-
-    if (result.summaryFailed && result.summaryAttempted) {
-      this.lastComposition = composePiHistoryForLlm({
-        messages: this.agent.state.messages,
-        summary: this.summary,
-        systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
-        contextWindow: this.model.contextWindow,
-        modelMaxTokens: this.model.maxTokens,
-        requestOutputTokens: this.requestOutputTokenCap,
-        toolTokens: estimatePiToolSchemaTokens(this.tools),
-        additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
-      });
+    if (result.state === 'succeeded' && result.summary && result.composition) {
+      this.summary = result.summary;
+      this.lastComposition = result.composition;
+      this.recordCompaction(result.attemptId, 'manual', result.composition);
+      await this.persistMessages('turn_end');
+      this.lastComposition = this.composeHistory(this.agent.state.messages, additionalContextTokens);
       this.touch();
       this.publishStatus();
-      throw new Error(
-        'Context compaction failed because the summary could not be updated. No messages were removed.',
-      );
+      return this.getStatus();
     }
 
-    if (!result.safeToSend) {
-      throw new Error(
-        'Context compaction could not produce a complete, non-overlapping history inside the selected model context window.',
-      );
-    }
-
-    const omittedCount = result.composition.omittedMessages.length;
-    if (omittedCount === 0) {
+    if (result.state === 'no_op' && result.composition) {
       this.lastComposition = result.composition;
       this.touch();
       this.publishStatus();
       return this.getStatus();
     }
 
-    this.summary = result.summary;
-    const saveResult = await savePiSession(
-      this.sessionId,
-      this.userId,
-      this.provider,
-      this.model.id,
-      this.agent.state.messages,
-      this.summary,
-      {
-        agentId: this.agentId,
-        expectedSummaryRevision: this.summary.summaryRevision,
-      },
-    );
-    this.summary = { ...this.summary, summaryRevision: saveResult.summaryRevision };
-    this.recordCompaction('manual', result.composition);
-    this.lastPersistedLength = this.agent.state.messages.length;
-    this.lastComposition = composePiHistoryForLlm({
-      messages: this.agent.state.messages,
-      summary: this.summary,
-      systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
-      contextWindow: this.model.contextWindow,
-      modelMaxTokens: this.model.maxTokens,
-      requestOutputTokens: this.requestOutputTokenCap,
-      toolTokens: estimatePiToolSchemaTokens(this.tools),
-      additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
-    });
-
-    this.touch();
-    this.publishStatus();
-    return this.getStatus();
+    if (result.reasonCode === 'payload_bytes_exceeded') {
+        throw new Error(
+          `Context compaction cannot run because the latest message exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
+          'Shorten the latest message or attachments.',
+        );
+    }
+    if (result.reasonCode === 'fixed_context_too_large') {
+      throw new Error(
+        'Context compaction cannot run because the system prompt, tools, output reserve, or latest message already exceeds the selected model context window.',
+      );
+    }
+    if (result.state === 'cooldown_active') {
+      throw new Error(
+        `Context compaction is cooling down${result.retryAt ? ` until ${result.retryAt.toISOString()}` : ''}. No messages were removed.`,
+      );
+    }
+    if (result.state === 'already_running') {
+      throw new Error('Context compaction is already running for this session.');
+    }
+    if (result.state === 'aborted') {
+      throw new Error('Context compaction was aborted. No messages were removed.');
+    }
+    if (result.state === 'stale') {
+      throw new Error('Context compaction became stale after the runtime context changed. No messages were removed.');
+    }
+    if (result.state === 'deferred' || result.reasonCode === 'summary_provider_error' || result.reasonCode === 'summary_timeout') {
+      throw new Error(
+        'Context compaction failed because the summary could not be updated. No messages were removed.',
+      );
+    }
+    throw new Error('Context compaction could not commit a safe session summary. No messages were removed.');
   }
 
   setChannelContext(channelId: string | undefined) {
@@ -1555,57 +1644,87 @@ class LivePiRuntime {
       latestUserMessageText,
       latestUserMessageContext,
     );
-    const result = await preparePiHistoryContext({
+    const additionalContextTokens = runtimeContext ? estimateTextTokens(runtimeContext) : 0;
+    const preflight = this.composeHistory(messages, additionalContextTokens);
+    if (
+      !preflight.softThresholdExceeded
+      && !preflight.contextBudgetExceeded
+      && isPiHistoryCompositionSendable(preflight, this.summary)
+    ) {
+      this.lastComposition = preflight;
+      return this.injectRuntimeContext(preflight.llmMessages, runtimeContext);
+    }
+
+    const result = await this.coordinateCompaction({
+      kind: 'automatic',
       messages,
-      summary: this.summary,
-      systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
-      model: this.model,
-      requestOutputTokens: this.requestOutputTokenCap,
-      toolTokens: estimatePiToolSchemaTokens(this.tools),
-      additionalContextTokens: runtimeContext ? estimateTextTokens(runtimeContext) : 0,
-      sessionId: this.sessionId,
+      additionalContextTokens,
+      runtimeContext,
       signal,
-      streamFn: this.options.summaryStreamFn,
     });
 
-    if (result.composition.contextBudgetExceeded) {
-      if (result.composition.payloadBudgetExceeded) {
+    if (result.state === 'succeeded' && result.summary && result.composition) {
+      this.summary = result.summary;
+      this.lastComposition = result.composition;
+      this.recordCompaction(result.attemptId, 'automatic', result.composition);
+      this.publishStatus();
+      return this.injectRuntimeContext(result.composition.llmMessages, runtimeContext);
+    }
+
+    if ((result.state === 'no_op' || result.state === 'deferred') && result.composition) {
+      this.lastComposition = result.composition;
+      if (isPiHistoryCompositionSendable(result.composition, this.summary)) {
+        this.publishStatus();
+        return this.injectRuntimeContext(result.composition.llmMessages, runtimeContext);
+      }
+    }
+
+    if (result.reasonCode === 'payload_bytes_exceeded') {
         throw new Error(
           `The current request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget after image compression. ` +
           'Shorten the latest message or attachments.',
         );
-      }
+    }
+    if (result.reasonCode === 'fixed_context_too_large') {
       throw new Error(
         `The current request is too large for the selected model context window. ` +
-        `It requires at least ${result.composition.minimumRequiredTokens.toLocaleString()} history tokens after system, tool, and output reserves. ` +
+        `It requires at least ${preflight.minimumRequiredTokens.toLocaleString()} history tokens after system, tool, and output reserves. ` +
         'Use a larger-context model or shorten the latest message/attachments.',
       );
     }
+    if (result.state === 'aborted') {
+      throw new Error('Context compaction was aborted before the model request.');
+    }
+    if (result.state === 'stale') {
+      throw new Error('Context compaction was invalidated because the runtime context changed. Retry the request.');
+    }
 
-    if (!result.safeToSend) {
+    const fallback = this.composeHistory(messages, additionalContextTokens, 'hard_limit');
+    if (isPiHistoryCompositionSendable(fallback, this.summary)) {
+      this.lastComposition = fallback;
+      this.publishStatus();
+      return this.injectRuntimeContext(fallback.llmMessages, runtimeContext);
+    }
+    if (result.state === 'cooldown_active') {
       throw new Error(
-        'The current request cannot be sent safely because context compaction did not preserve complete history coverage. ' +
-        'Use a larger-context model, shorten the request, or retry compaction.',
+        `Context compaction is cooling down${result.retryAt ? ` until ${result.retryAt.toISOString()}` : ''}, and the complete history no longer fits.`,
       );
     }
-
-    const previousSummaryThroughTimestamp = this.summary.summaryThroughTimestamp ?? null;
-    const previousSummaryUpdatedAt = this.summary.summaryUpdatedAt?.getTime() ?? null;
-    this.summary = result.summary;
-    this.lastComposition = result.composition;
-    const nextSummaryThroughTimestamp = result.summary.summaryThroughTimestamp ?? null;
-    const nextSummaryUpdatedAt = result.summary.summaryUpdatedAt?.getTime() ?? null;
-
-    if (
-      result.summaryUpdated &&
-      (nextSummaryThroughTimestamp !== previousSummaryThroughTimestamp || nextSummaryUpdatedAt !== previousSummaryUpdatedAt) &&
-      (result.composition.includedSummary || result.composition.omittedMessages.length > 0)
-    ) {
-      this.recordCompaction('automatic', result.composition);
+    if (result.state === 'already_running') {
+      throw new Error('Context compaction is already running, and the complete history cannot be sent safely yet.');
     }
-
-    this.publishStatus();
-    return this.injectRuntimeContext(result.composition.llmMessages, runtimeContext);
+    if (result.reasonCode === 'summary_timeout') {
+      throw new Error('Context compaction timed out, and the complete history cannot be sent safely. Retry or use a larger-context model.');
+    }
+    if (result.reasonCode === 'summary_provider_error') {
+      throw new Error(
+        'Context compaction could not update the summary, and the complete history cannot be sent safely. Retry or use a larger-context model.',
+      );
+    }
+    throw new Error(
+      'The current request cannot be sent safely because context compaction did not preserve complete history coverage. ' +
+      'Use a larger-context model, shorten the request, or retry compaction.',
+    );
   }
 
   private rememberMessageContext(
@@ -1763,12 +1882,17 @@ class LivePiRuntime {
     });
   }
 
-  private recordCompaction(kind: 'manual' | 'automatic', composition: PiHistoryComposition) {
+  private recordCompaction(
+    attemptId: string,
+    kind: 'manual' | 'automatic',
+    composition: PiHistoryComposition,
+  ) {
     this.lastCompactionAt = new Date();
     this.lastCompactionKind = kind;
     this.lastCompactionOmittedCount = composition.omittedMessages.length;
     this.publish({
       type: 'context_compacted',
+      attemptId,
       timestamp: this.lastCompactionAt.toISOString(),
       kind,
       omittedMessageCount: composition.omittedMessages.length,
@@ -1776,7 +1900,7 @@ class LivePiRuntime {
     });
     this.agent.state.messages = [
       ...this.agent.state.messages,
-      createCompactBreakMessage(kind, this.lastCompactionAt.toISOString(), composition.omittedMessages.length),
+      createCompactBreakMessage(attemptId, kind, this.lastCompactionAt.toISOString(), composition.omittedMessages.length),
     ];
   }
 
@@ -1834,6 +1958,7 @@ class LivePiRuntime {
 
   dispose(): void {
     this.disposed = true;
+    abortPiSessionCompaction(this.getCompactionScope());
     if (this.browserSnapshotUnsubscribe) {
       this.browserSnapshotUnsubscribe();
       this.browserSnapshotUnsubscribe = null;
@@ -1846,19 +1971,29 @@ class LivePiRuntime {
   }
 
   private async persistMessages(reason: 'turn_end' | 'agent_end' | 'error'): Promise<number> {
-    if (this.persistLock) {
-      this.persistPending = reason;
-      return 0;
-    }
-    this.persistLock = true;
-    try {
-      const allMessages = this.agent.state.messages.slice();
-      const startIndex = this.lastPersistedLength;
-
-      if (allMessages.length <= startIndex) {
-        return 0;
+    if (this.persistPromise) {
+      const pending = this.persistPromise;
+      const persistedCount = await pending;
+      if (this.agent.state.messages.length > this.lastPersistedLength) {
+        return persistedCount + await this.persistMessages(reason);
       }
+      return persistedCount;
+    }
+    const operation = this.persistMessagesOnce(reason);
+    this.persistPromise = operation;
+    try {
+      return await operation;
+    } finally {
+      if (this.persistPromise === operation) this.persistPromise = null;
+    }
+  }
 
+  private async persistMessagesOnce(reason: 'turn_end' | 'agent_end' | 'error'): Promise<number> {
+    const allMessages = this.agent.state.messages.slice();
+    const startIndex = this.lastPersistedLength;
+    if (allMessages.length <= startIndex) return 0;
+
+    try {
       const saveResult = await savePiSession(
         this.sessionId,
         this.userId,
@@ -1873,6 +2008,7 @@ class LivePiRuntime {
         },
       );
       this.summary = { ...this.summary, summaryRevision: saveResult.summaryRevision };
+      this.messageSequenceCheckpoint = saveResult.sequenceCheckpoint;
 
       const newMessages = allMessages.slice(startIndex);
       if (newMessages.length > 0) {
@@ -1888,13 +2024,6 @@ class LivePiRuntime {
     } catch (error) {
       console.error(`[LiveRuntime] Failed to persist messages during ${reason}:`, error);
       throw error;
-    } finally {
-      this.persistLock = false;
-      if (this.persistPending) {
-        const pendingReason = this.persistPending;
-        this.persistPending = null;
-        return this.persistMessages(pendingReason);
-      }
     }
   }
 }

@@ -140,6 +140,7 @@ async function main(): Promise<void> {
   );
   assert.equal(append.persistedMessageCount, 1);
   assert.equal(append.sequenceCheckpoint, 2);
+  assert.equal((secondMessage as unknown as { sequence?: number }).sequence, 2);
   assert.equal(append.summaryRevision, 1, 'an unchanged summary must not consume another revision');
 
   await assert.rejects(
