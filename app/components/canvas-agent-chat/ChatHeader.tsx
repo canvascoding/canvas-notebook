@@ -18,7 +18,10 @@ import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentS
 import { ChatLiveBrowserLink } from '@/app/components/canvas-agent-chat/ChatLiveBrowserLink';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
-import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
+import {
+  getRuntimeCompactionStatusTranslationKey,
+  type RuntimeStatus,
+} from '@/app/lib/chat/runtime-status';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import type { ToolVerbosity } from '@/app/store/tool-verbosity-store';
 import { cn } from '@/lib/utils';
@@ -89,6 +92,9 @@ export function ChatHeader({
   const canShowWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
   const showWorkspaceSwitcher = showWorkspaceSwitcherEnabled && canShowWorkspaceSwitcher;
   const compactSelectors = isCompactView || (!isMobile && showWorkspaceSwitcher);
+  const compactionStatus = runtimeStatus?.compactionStatus;
+  const compactionTranslationKey = getRuntimeCompactionStatusTranslationKey(compactionStatus);
+  const compactionLabel = compactionTranslationKey ? t(compactionTranslationKey) : null;
 
   return (
     <>
@@ -242,6 +248,16 @@ export function ChatHeader({
                 </span>
               )}
 
+              {compactionLabel ? (
+                <span
+                  data-testid="chat-compaction-status"
+                  aria-live="polite"
+                  className="inline-flex h-7 items-center border border-cyan-500/30 bg-cyan-500/10 px-1.5 text-[10px] text-cyan-700 dark:text-cyan-300"
+                >
+                  {compactionLabel}
+                </span>
+              ) : null}
+
               {!isMobile && runtimeStatus?.activeTool && toolVerbosity !== 'minimal' && (
                 <span className="inline-flex h-7 items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 text-[10px] text-amber-600">
                   <Wrench size={10} />
@@ -266,7 +282,7 @@ export function ChatHeader({
                     type="button"
                     data-testid="chat-compact"
                     onClick={onCompact}
-                    disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
+                    disabled={!sessionId || runtimeStatus?.phase !== 'idle' || compactionStatus?.state === 'running'}
                     className="h-7 rounded-md border border-border bg-muted/50 px-2.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {t('compact')}
@@ -288,7 +304,7 @@ export function ChatHeader({
                     type="button"
                     data-testid="chat-compact"
                     onClick={onCompact}
-                    disabled={!sessionId || runtimeStatus?.phase !== 'idle'}
+                    disabled={!sessionId || runtimeStatus?.phase !== 'idle' || compactionStatus?.state === 'running'}
                     className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/50 px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
                     title={t('compact')}
                   >
@@ -313,7 +329,9 @@ export function ChatHeader({
               <div
                 data-testid="chat-context-progress"
                 className={`h-full rounded-full transition-all ${
-                  runtimeStatus?.phase === 'aborting'
+                  compactionStatus?.state === 'running'
+                    ? 'bg-violet-400'
+                    : runtimeStatus?.phase === 'aborting'
                     ? 'bg-rose-400'
                     : runtimeStatus?.phase === 'running_tool'
                       ? 'bg-amber-400'

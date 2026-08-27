@@ -152,9 +152,22 @@ committeten Watermark. Managed Delegations und Telegram-`/compact` nutzen den
 Live-/Manual-Pfad; ephemeral Worker bleiben als nicht fortsetzbare, getrennte
 Grenze bewusst ausserhalb.
 
-Noch **nicht** umgesetzt oder abgenommen sind der neue Status-/UI-Vertrag
-sowie die manuelle Langchat-, Tool-, Reload- und Multimodal-Abnahme. Das
-Ticket bleibt offen.
+Der Runtime-/UI-Vertrag transportiert jetzt einen inhaltsfreien
+`compactionStatus` mit Attempt-ID, Zustand, Grundcode und Retry-Zeitpunkt.
+Die Chat-Oberflaeche stellt Running, Success, No-op, Deferred, Too-large,
+Abort, Stale und Failure lokalisiert dar, sperrt doppelte Compact-Aufrufe und
+haelt Abort erreichbar. Event und persistierter Marker werden per Attempt-ID
+dedupliziert; Inhaltsdaten verlassen den Server dabei nicht.
+
+Noch **nicht** abgenommen sind die Browser-/Playwright-Darstellung sowie die
+manuelle Langchat-, Tool-, Reload- und Multimodal-Matrix. Das Ticket bleibt
+offen.
+
+Die nicht-browserbasierte technische Testauswahl fuer Budget, Summary,
+Persistenz, Concurrency-Fences, Live- und Automation-Fortsetzung, UI-Vertrag
+und Multimodalpfade sowie Lint und Produktions-Build ist am 2026-08-27 gruen
+durchgelaufen. Lokale Auth-Base-URL-Hinweise im Build sind bekannte
+Umgebungswarnungen und kein Ticket-28-Fehler.
 
 ## Umsetzung
 

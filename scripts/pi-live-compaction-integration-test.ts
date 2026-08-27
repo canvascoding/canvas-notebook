@@ -159,7 +159,9 @@ async function main(): Promise<void> {
     getBrowserRuntimeContextTokenEstimate: () => 0,
     persistMessages: async () => 0,
     publish: (event: Record<string, unknown>) => { events.push(event); },
-    publishStatus: () => undefined,
+    publishStatus(this: Record<string, unknown>) {
+      events.push({ type: 'runtime_status', status: { compactionStatus: this.compactionStatus } });
+    },
     getStatus: () => ({ sessionId }),
     touch: () => undefined,
   });
@@ -167,7 +169,11 @@ async function main(): Promise<void> {
   const compactPromise = runtime.compactNow();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(summaryCalls, 1);
-  assert.equal(events.length, 0, 'success must not be emitted before the private candidate completes and commits');
+  assert.equal(events.filter((event) => event.type === 'context_compacted').length, 0, 'success must not be emitted before the private candidate completes and commits');
+  assert.equal(
+    (events.at(-1)?.status as { compactionStatus?: { state?: string } } | undefined)?.compactionStatus?.state,
+    'running',
+  );
   const automaticRace = await (runtime as unknown as {
     coordinateCompaction: (input: {
       kind: 'automatic';
@@ -193,9 +199,12 @@ async function main(): Promise<void> {
   assert.equal(attempts.length, 1);
   assert.equal(attempts[0].state, 'succeeded');
   assert.equal(automaticRace.attemptId, attempts[0].id);
-  assert.equal(events.length, 1);
-  assert.equal(events[0].type, 'context_compacted');
-  assert.equal(events[0].attemptId, attempts[0].id);
+  const committedEvents = events.filter((event) => event.type === 'context_compacted');
+  assert.equal(committedEvents.length, 1);
+  assert.equal(committedEvents[0].attemptId, attempts[0].id);
+  assert.ok(events.some((event) => (
+    (event.status as { compactionStatus?: { state?: string } } | undefined)?.compactionStatus?.state === 'succeeded'
+  )));
   const marker = (runtime.agent.state.messages as AgentMessage[]).at(-1) as unknown as Record<string, unknown>;
   assert.equal(marker.role, 'compact-break');
   assert.equal(marker.attemptId, attempts[0].id);
@@ -234,7 +243,10 @@ async function main(): Promise<void> {
   await assert.rejects(abortPromise, /aborted/i);
   abortResult.resolve(createSummaryMessage('Late aborted summary'));
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(events.length, 1, 'an aborted late result must not emit another success');
+  assert.equal(events.filter((event) => event.type === 'context_compacted').length, 1, 'an aborted late result must not emit another success');
+  assert.ok(events.some((event) => (
+    (event.status as { compactionStatus?: { state?: string } } | undefined)?.compactionStatus?.state === 'aborted'
+  )));
   assert.equal((await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision, 1);
 
   appendHistoryBatch('stale');
@@ -253,7 +265,10 @@ async function main(): Promise<void> {
   await assert.rejects(stalePromise, /stale/i);
   staleResult.resolve(createSummaryMessage('Late stale summary'));
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(events.length, 1, 'a stale late result must not emit another success');
+  assert.equal(events.filter((event) => event.type === 'context_compacted').length, 1, 'a stale late result must not emit another success');
+  assert.ok(events.some((event) => (
+    (event.status as { compactionStatus?: { state?: string } } | undefined)?.compactionStatus?.state === 'stale'
+  )));
   assert.equal((await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision, 1);
 
   appendHistoryBatch('timeout');
@@ -275,7 +290,10 @@ async function main(): Promise<void> {
   assert.equal(timeoutCalls, 1);
   timeoutResult.resolve(createSummaryMessage('Late timed out summary'));
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(events.length, 1, 'a timed-out late result must not emit another success');
+  assert.equal(events.filter((event) => event.type === 'context_compacted').length, 1, 'a timed-out late result must not emit another success');
+  assert.ok(events.some((event) => (
+    (event.status as { compactionStatus?: { state?: string } } | undefined)?.compactionStatus?.state === 'failed'
+  )));
   assert.equal((await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision, 1);
 
   const finalAttempts = await db.select().from(piSessionCompactionAttempts);

@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
   Agent,
@@ -84,6 +84,10 @@ import { DEFAULT_AGENT_ID, normalizeStoredChannelId, WEB_CHANNEL_ID } from '@/ap
 import { buildWorkspaceFileTreePrompt } from '@/app/lib/agents/workspace-file-tree-context';
 import { buildReferencedPluginRuntimeContext } from '@/app/lib/plugins/plugin-reference-context';
 import { createToolLoopGuard } from '@/app/lib/pi/tool-loop-guard';
+import {
+  IDLE_RUNTIME_COMPACTION_STATUS,
+  type RuntimeCompactionStatus,
+} from '@/app/lib/chat/runtime-status';
 import {
   createToolTailContinuationDecision,
   extractAgentMessageText,
@@ -209,6 +213,7 @@ export type PiRuntimeStatus = {
   lastCompactionAt: string | null;
   lastCompactionKind: 'manual' | 'automatic' | null;
   lastCompactionOmittedCount: number;
+  compactionStatus: RuntimeCompactionStatus;
 };
 
 export type RuntimeStatusEvent = {
@@ -422,6 +427,7 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
     lastCompactionAt: status.lastCompactionAt,
     lastCompactionKind: status.lastCompactionKind,
     lastCompactionOmittedCount: status.lastCompactionOmittedCount,
+    compactionStatus: status.compactionStatus,
     browser: status.browser,
   });
 }
@@ -463,6 +469,7 @@ export class LivePiRuntime {
   private lastCompactionAt: Date | null;
   private lastCompactionKind: 'manual' | 'automatic' | null;
   private lastCompactionOmittedCount: number;
+  private compactionStatus: RuntimeCompactionStatus = IDLE_RUNTIME_COMPACTION_STATUS;
   private channelId: string | null = null;
   private timeZoneContext: { timeZone: string; currentTime: string } | null = null;
   private activeFileContext: string | null = null;
@@ -599,9 +606,24 @@ export class LivePiRuntime {
     const systemPromptTokens = estimateTextTokens(this.getEffectiveSystemPrompt());
     const toolTokens = estimatePiToolSchemaTokens(this.getEffectiveTools());
     const before = this.composeHistory(input.messages, input.additionalContextTokens);
-    return runPiSessionCompaction({
+    const activeAttempt = getActivePiSessionCompaction(this.getCompactionScope());
+    const attemptId = activeAttempt?.attemptId ?? `compact-${randomUUID()}`;
+    const ownsStatus = activeAttempt === null;
+    if (ownsStatus) {
+      this.compactionStatus = {
+        state: 'running',
+        attemptId,
+        trigger: input.kind,
+        reasonCode: null,
+        retryAfter: null,
+        omittedMessageCount: 0,
+      };
+      this.publishStatus();
+    }
+    const result = await runPiSessionCompaction({
       ...this.getCompactionScope(),
       trigger: input.kind,
+      attemptId,
       generation,
       expectedSummaryRevision: summarySnapshot.summaryRevision,
       expectedThroughSequence: summarySnapshot.summaryThroughSequence,
@@ -631,6 +653,20 @@ export class LivePiRuntime {
         streamFn: this.options.summaryStreamFn,
       }),
     });
+    if (ownsStatus && this.compactionStatus.attemptId === result.attemptId) {
+      this.compactionStatus = {
+        state: result.state === 'cooldown_active' || result.state === 'already_running'
+          ? 'deferred'
+          : result.state,
+        attemptId: result.attemptId,
+        trigger: input.kind,
+        reasonCode: result.reasonCode,
+        retryAfter: result.retryAt?.toISOString() ?? null,
+        omittedMessageCount: result.composition?.omittedMessages.length ?? 0,
+      };
+      this.publishStatus();
+    }
+    return result;
   }
 
   async prepareFinalPayload(messages: AgentMessage[]): Promise<Message[]> {
@@ -756,6 +792,7 @@ export class LivePiRuntime {
       lastCompactionAt: this.lastCompactionAt ? this.lastCompactionAt.toISOString() : null,
       lastCompactionKind: this.lastCompactionKind,
       lastCompactionOmittedCount: this.lastCompactionOmittedCount,
+      compactionStatus: this.compactionStatus,
     };
   }
 
@@ -2513,5 +2550,6 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     lastCompactionAt: summary.summaryUpdatedAt ? summary.summaryUpdatedAt.toISOString() : null,
     lastCompactionKind: summary.summaryUpdatedAt ? 'automatic' : null,
     lastCompactionOmittedCount: summary.summaryUpdatedAt ? composition.omittedMessages.length : 0,
+    compactionStatus: IDLE_RUNTIME_COMPACTION_STATUS,
   };
 }

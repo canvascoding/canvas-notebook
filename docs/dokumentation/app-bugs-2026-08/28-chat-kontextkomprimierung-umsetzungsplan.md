@@ -16,8 +16,9 @@ auf Basis des aktuellen Repository-Stands. Die Budgetanalyse, der
 Budgetvertrag, das additive Persistenzfundament und der isolierte Coordinator
 sowie seine Live-/Manual-Runtimeintegration sind technisch umgesetzt.
 Auch die persistente Automation verwendet inzwischen den Coordinator;
-UI-Aenderungen und Gesamtabnahme sind weiterhin geplant. Das Ticket bleibt
-offen und ist nicht abgenommen.
+der inhaltsfreie Runtime-/UI-Statusvertrag ist ebenfalls umgesetzt. Die
+Gesamtabnahme ist weiterhin geplant. Das Ticket bleibt offen und ist nicht
+abgenommen.
 
 Der lokale Hermes-Checkout wurde ausschliesslich read-only als Referenz
 gelesen. Browser, Dev-Server, Container und externe Systeme bleiben fuer die
@@ -56,7 +57,8 @@ Phase 1A und Phase 1B sind technisch umgesetzt:
 Damit sind die Gates von Phase 1A und 1B technisch erfuellt. Phase 2, der
 Coordinator aus Phase 3 und der produktive Live-/Manual-Adapter aus Phase 4
 sowie der Automation-Adapter aus Phase 5 sind ebenfalls technisch umgesetzt;
-ihr genauer Stand ist unten dokumentiert. Die Phasen 6 und 7 bleiben geplant.
+ihr genauer Stand ist unten dokumentiert. Phase 6 ist technisch umgesetzt;
+Phase 7 bleibt geplant.
 Insbesondere wurden keine manuelle
 Langchat-/UI-Abnahme, kein Browser-/Playwright-Test und keine externe
 Providerkalibrierung ausgefuehrt; Ticket 28 bleibt offen.
@@ -1058,6 +1060,28 @@ erhalten in Ticket 28 keine nachgebaute Session-Rotation oder Hermes-Mechanik.
 **Gate:** Component-/Hook-Tests gruen. Browser-/Playwright-E2E erst nach
 expliziter Freigabe; UI-Commit getrennt von den Runtime-/DB-Commits.
 
+**Technischer Stand 2026-08-27:** `PiRuntimeStatus` transportiert nun einen
+verschachtelten, inhaltsfreien `compactionStatus` mit Zustand, Attempt-ID,
+Trigger, stabilem Grundcode, Retry-Zeitpunkt und ausgelassener Anzahl. Die
+Live-Runtime publiziert `running` vor dem privaten Providerwait und den
+terminalen Zustand erst aus dem Coordinatorergebnis. Summarytext, Prompt,
+Nachrichten, Toolargumente und Anhaenge sind nicht Bestandteil des Payloads.
+
+Die Chat-UI zeigt lokalisierte, ruhige Hinweise fuer Running, Success, No-op,
+Deferred, Too-large, Abort, Stale und Failure. Ein laufender Versuch sperrt
+die doppelte Compact-Aktion und macht den bestehenden Stop-/Abort-Pfad
+erreichbar. Erfolgsevent, Status und persistierter Break-Marker tragen dieselbe
+Attempt-ID; Hook und Reload-Mapping deduplizieren bevorzugt danach und nutzen
+nur fuer Legacy-Marker den Zeitstempel. Ein manueller No-op kann dadurch nicht
+mehr versehentlich den vorherigen Erfolg erneut darstellen.
+
+Der nicht-browserbasierte UI-Contracttest prueft Zustandszuordnung,
+Too-large-Klassifikation, Attempt-ID-Restore und das Fehlen von Inhaltsfeldern.
+Der Live-Fake-Stream-Test prueft zusaetzlich Running-/Terminalstatus fuer
+Success, Abort, Stale und Timeout. Die vorhandene Playwright-Spezifikation ist
+typisiert aktualisiert, wurde gemaess Nutzerfreigabe-Regel aber nicht
+ausgefuehrt; visuelle/manuelle Abnahme bleibt Phase 7.
+
 ### Phase 7: Gesamtabnahme und Rollout
 
 1. Fokussierte Tests aus allen Phasen, relevante bestehende PI-/Automation-/
@@ -1068,6 +1092,16 @@ expliziter Freigabe; UI-Commit getrennt von den Runtime-/DB-Commits.
 4. Zuerst additive Migration und Serververtrag, danach Web-UI ausrollen.
 5. Ticket und Index erst nach vollstaendiger technischer und manueller Abnahme
    aktualisieren; dieser Plan nimmt die Abnahme nicht vorweg.
+
+**Automatisierter Gate-Stand 2026-08-27:** Die fokussierten Summary-,
+Budget-, Store-, Coordinator-, Revision-, Live-, UI-Contract-, Continuation-,
+Attachment-, Multimodal-, Vision-Fallback- und Automation-Tests sind gruen.
+`npm run lint` ist ohne Fehler durchgelaufen (nur bereits vorhandene Warnungen
+aus nicht zu Ticket 28 gehoerenden Dateien), ebenso `npm run build`. Der Build
+meldete ausschliesslich die in der lokalen Umgebung fehlende Auth-Base-URL als
+Warnung. Diese Evidenz ersetzt weder die externe Providerkalibrierung noch die
+unten beschriebene manuelle Browser-/Reload-/Langchat-Abnahme; Phase 7 und das
+Ticket bleiben deshalb offen.
 
 ## Automatisierte Testmatrix
 
