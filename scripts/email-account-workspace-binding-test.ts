@@ -379,6 +379,24 @@ async function main() {
     assert.equal(sharedMailbox.emailAddress, 'support@example.test');
     assert.equal(sharedMailbox.imapHost, 'imap.example.test');
     assert.equal((await listAdminWorkspaceMailboxes()).some((mailbox) => mailbox.id === sharedMailbox.id), true);
+    const savedAgain = await saveAdminWorkspaceMailbox('owner-user', {
+      emailAddress: 'support@example.test',
+      displayName: 'Support desk',
+      smtpHost: 'smtp.example.test',
+      smtpPort: 587,
+      smtpSecure: false,
+      smtpUsername: 'support@example.test',
+      smtpPassword: 'rotated-workspace-secret',
+      imapHost: 'imap.example.test',
+      imapPort: 993,
+      imapSecure: true,
+      imapUsername: 'support@example.test',
+      imapPassword: 'rotated-workspace-secret',
+    });
+    assert.equal(savedAgain.id, sharedMailbox.id);
+    assert.equal(savedAgain.accountId, sharedMailbox.accountId);
+    assert.equal(savedAgain.displayName, 'Support desk');
+    assert.equal((await listAdminWorkspaceMailboxes()).filter((mailbox) => mailbox.emailAddress === 'support@example.test').length, 1);
     const assignedSharedMailbox = await assignAdminWorkspaceMailbox({
       actorUserId: 'owner-user', accountId: sharedMailbox.id, workspaceId: ownerWorkspace.id,
     });
