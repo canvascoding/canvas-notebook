@@ -801,17 +801,20 @@ class LivePiRuntime {
     }
 
     this.summary = result.summary;
-    this.recordCompaction('manual', result.composition);
-
-    await savePiSession(
+    const saveResult = await savePiSession(
       this.sessionId,
       this.userId,
       this.provider,
       this.model.id,
       this.agent.state.messages,
       this.summary,
-      { agentId: this.agentId },
+      {
+        agentId: this.agentId,
+        expectedSummaryRevision: this.summary.summaryRevision,
+      },
     );
+    this.summary = { ...this.summary, summaryRevision: saveResult.summaryRevision };
+    this.recordCompaction('manual', result.composition);
     this.lastPersistedLength = this.agent.state.messages.length;
     this.lastComposition = composePiHistoryForLlm({
       messages: this.agent.state.messages,
@@ -1856,15 +1859,20 @@ class LivePiRuntime {
         return 0;
       }
 
-      await savePiSession(
+      const saveResult = await savePiSession(
         this.sessionId,
         this.userId,
         this.provider,
         this.model.id,
         allMessages,
         this.summary,
-        { agentId: this.agentId, persistedLength: startIndex },
+        {
+          agentId: this.agentId,
+          persistedLength: startIndex,
+          expectedSummaryRevision: this.summary.summaryRevision,
+        },
       );
+      this.summary = { ...this.summary, summaryRevision: saveResult.summaryRevision };
 
       const newMessages = allMessages.slice(startIndex);
       if (newMessages.length > 0) {
@@ -1936,6 +1944,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     summaryUpdatedAt: null,
     summaryThroughTimestamp: null,
     summaryThroughSequence: null,
+    summaryRevision: 0,
   };
   const promptSnapshot = sessionRecord
     ? await ensurePiSessionSystemPromptSnapshot(sessionRecord)
@@ -2308,6 +2317,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     summaryUpdatedAt: null,
     summaryThroughTimestamp: null,
     summaryThroughSequence: null,
+    summaryRevision: 0,
   };
   const promptSnapshot = await ensurePiSessionSystemPromptSnapshot(sessionRecord);
   const systemPrompt = promptSnapshot.systemPrompt;

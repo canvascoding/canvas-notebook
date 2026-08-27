@@ -468,6 +468,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         summaryUpdatedAt: null,
         summaryThroughTimestamp: null,
         summaryThroughSequence: null,
+        summaryRevision: 0,
       };
       if (!automationWorkspace.organizationId) {
         throw new Error('Complete the app AI runtime setup before running an automation.');
@@ -701,7 +702,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           tools,
         };
 
-        await savePiSession(
+        const promptSaveResult = await savePiSession(
           piSessionId,
           automationUserId,
           provider,
@@ -716,8 +717,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             channelSessionKey: deliveryResolution.channelSessionKey || null,
             workspaceId: automationWorkspace.workspaceId,
             systemPromptSnapshot: promptSnapshot,
+            expectedSummaryRevision: sessionSummary.summaryRevision,
           },
         );
+        sessionSummary = {
+          ...sessionSummary,
+          summaryRevision: promptSaveResult.summaryRevision,
+        };
         promptPersistedBeforeRun = true;
         assertAutomationExecutionActive(executionSignal);
 
@@ -785,6 +791,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             title: persistedSession?.title,
             titleGenerationState: persistedSession?.titleGenerationState,
             summary: sessionSummary,
+            expectedSummaryRevision: sessionSummary.summaryRevision,
           });
         } else {
           const persistedFinalMessages = buildPersistedAutomationMessages({
@@ -796,7 +803,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             existingMessagesLength: existingMessages.length,
             promptPersistedBeforeRun,
           });
-          await savePiSession(
+          const finalSaveResult = await savePiSession(
             piSessionId,
             automationUserId,
             provider,
@@ -810,8 +817,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               channelId: deliveryResolution.channelId,
               channelSessionKey: deliveryResolution.channelSessionKey || null,
               workspaceId: automationWorkspace.workspaceId,
+              expectedSummaryRevision: sessionSummary.summaryRevision,
             },
           );
+          sessionSummary = {
+            ...sessionSummary,
+            summaryRevision: finalSaveResult.summaryRevision,
+          };
         }
         assertAutomationExecutionActive(executionSignal);
         console.log(`[Automationen] Saved session ${piSessionId} for run ${runId}`);
@@ -886,7 +898,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           promptPersistedBeforeRun,
         });
         if (sessionReadyForPersistence) {
-          await savePiSession(
+          const failureSaveResult = await savePiSession(
             piSessionId,
             automationUserId,
             provider,
@@ -900,8 +912,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               channelId: deliveryResolution.channelId,
               channelSessionKey: deliveryResolution.channelSessionKey || null,
               workspaceId: automationWorkspace.workspaceId,
+              expectedSummaryRevision: sessionSummary.summaryRevision,
             },
           );
+          sessionSummary = {
+            ...sessionSummary,
+            summaryRevision: failureSaveResult.summaryRevision,
+          };
           assertAutomationExecutionActive(executionSignal);
         }
 

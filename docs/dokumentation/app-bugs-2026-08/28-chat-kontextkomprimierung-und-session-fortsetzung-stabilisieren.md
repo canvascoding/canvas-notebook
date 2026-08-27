@@ -96,7 +96,7 @@ eine explizite Konfidenz.
   aus Zusammenfassungen bleiben untrusted Kontext; Secrets, rohe Anhaenge und
   Credentials duerfen nicht in UI, Logs oder Telemetrie gelangen.
 
-## Implementierungsstand 2026-08-26
+## Implementierungsstand 2026-08-27
 
 Die beiden Budget- und Kompositionsvertragsphasen sind technisch umgesetzt
 und automatisiert geprueft. Live-Chat und persistente Automation setzen nun einen expliziten
@@ -117,8 +117,20 @@ aus. Bei Summary-Fehlern wird nur dann mit Rohhistorie fortgesetzt, wenn sie
 vollstaendig in das Hardlimit passt; sonst endet der Request vor dem Provider
 und ohne Nachrichtenverlust.
 
-Noch **nicht** umgesetzt oder abgenommen sind additive Sequenz-/
-Revisionspersistenz, Coordinator/Commit-Fence, Retry/Timeout, der neue
+Als zweite Phase ist nun auch das additive Persistenzfundament technisch
+umgesetzt. Sessions tragen eine monotone Summary-Revision; ein inhaltsfreies
+Attempt-Ledger erfasst Start, Checkpoint, Scope, Ergebnis und stabile
+Grundcodes. SQLite und PostgreSQL auditieren bestehende Nachrichtensequenzen,
+bevor sie den eindeutigen `(Session, Sequenz)`-Index aktivieren. Start,
+Fehlerabschluss und Summary-Erfolg besitzen transaktionale Store-Operationen.
+Der Erfolgscommit akzeptiert nur die unveraenderte Basisrevision und den
+persistierten Nachrichtencheckpoint und laesst spaetere, parallel angehaengte
+Nachrichten stehen. Allgemeine Session-Saves und die No-op-Finalisierung sind
+gegen stale Summary-Ueberschreibungen eingezaeunt.
+
+Noch **nicht** umgesetzt oder abgenommen sind der gemeinsame Coordinator und
+seine Abort-/Timeout-/Retry-Logik, die Umstellung aller produktiven
+Auto-/Manual-/Automation-Pfade auf das Attempt-Ledger, der neue
 Status-/UI-Vertrag sowie die manuelle Langchat-, Tool-, Reload- und
 Multimodal-Abnahme. Das Ticket bleibt offen.
 

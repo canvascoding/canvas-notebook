@@ -433,6 +433,7 @@ export async function preparePiHistoryContext({
           unsummarizedMessages,
           nextSummary.summaryThroughSequence,
         ),
+        summaryRevision: nextSummary.summaryRevision,
       };
       summaryUpdated = true;
 

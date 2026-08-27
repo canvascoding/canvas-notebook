@@ -681,6 +681,29 @@ async function deduplicatePiSessions(pool: PgQueryable): Promise<void> {
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_sessions_user_client_request ON pi_sessions (user_id, client_request_id)');
 }
 
+async function ensurePostgresPiMessageSequenceIntegrityIndex(pool: PgQueryable): Promise<void> {
+  const audit = await pool.query(`
+    SELECT COUNT(*)::text AS count
+    FROM (
+      SELECT pi_session_db_id, sequence
+      FROM pi_messages
+      GROUP BY pi_session_db_id, sequence
+      HAVING sequence IS NULL OR sequence <= 0 OR COUNT(*) > 1
+    ) invalid_sequences
+  `);
+  const invalidGroupCount = Number.parseInt(String(audit.rows[0]?.count ?? '0'), 10);
+  if (invalidGroupCount === 0) {
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_messages_session_sequence_unique
+      ON pi_messages (pi_session_db_id, sequence)
+    `);
+    return;
+  }
+  console.warn(
+    `[Database] PostgreSQL PI message sequence integrity audit found ${invalidGroupCount} conflicting sequence group(s); unique index deferred.`,
+  );
+}
+
 export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   if (process.env.CANVAS_POSTGRES_VECTOR_ENABLED === 'true') {
     await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
@@ -1147,6 +1170,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   `);
 
   await deduplicatePiSessions(pool);
+  await ensurePostgresPiMessageSequenceIntegrityIndex(pool);
 
   // Deduplicate license certs that were repeatedly inserted by older code.
   // Keep the newest row per (instance_id, cert) so the unique index from the

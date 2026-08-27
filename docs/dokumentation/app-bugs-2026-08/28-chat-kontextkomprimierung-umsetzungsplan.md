@@ -12,15 +12,14 @@ tags: [type/implementation-plan, topic/agents, topic/chat, topic/context-window,
 
 Dieser Plan konkretisiert
 [Ticket 28](./28-chat-kontextkomprimierung-und-session-fortsetzung-stabilisieren.md)
-auf Basis des aktuellen Repository-Stands. Die Budgetanalyse ist abgeschlossen
-und der Budgetvertrag ist als erste Implementierungsphase freigegeben. Die
-breiteren Komprimierungs-, Persistenz-, Coordinator- und UI-Aenderungen sind
+auf Basis des aktuellen Repository-Stands. Die Budgetanalyse, der
+Budgetvertrag und das additive Persistenzfundament sind technisch umgesetzt.
+Coordinator-, Runtime-Integration, Retry/Timeout und UI-Aenderungen sind
 weiterhin nur geplant. Das Ticket bleibt offen und ist nicht abgenommen.
 
 Der lokale Hermes-Checkout wurde ausschliesslich read-only als Referenz
 gelesen. Browser, Dev-Server, Container und externe Systeme bleiben fuer die
-erste Implementierungsphase ausgeschlossen. Produktcode und fokussierte Tests
-werden nur fuer den hier beschriebenen Budgetvertrag geaendert.
+ersten Implementierungsphasen ausgeschlossen.
 
 ### Implementierungsfortschritt 2026-08-26
 
@@ -52,8 +51,9 @@ Phase 1A und Phase 1B sind technisch umgesetzt:
   Runtime-Prompt-, Effective-Tool-, Continuation- und Temperature-Tests,
   TypeScript, Lint und Produktionsbuild wurden ausgefuehrt.
 
-Damit sind die Gates von Phase 1A und 1B technisch erfuellt. Die Phasen 2 bis
-7 bleiben geplant. Insbesondere wurden keine manuelle
+Damit sind die Gates von Phase 1A und 1B technisch erfuellt. Phase 2 ist
+ebenfalls technisch umgesetzt; ihr genauer Stand ist unten dokumentiert. Die
+Phasen 3 bis 7 bleiben geplant. Insbesondere wurden keine manuelle
 Langchat-/UI-Abnahme, kein Browser-/Playwright-Test und keine externe
 Providerkalibrierung ausgefuehrt; Ticket 28 bleibt offen.
 
@@ -876,6 +876,43 @@ ist damit nicht ersetzt und bleibt offen.
 
 **Gate:** SQLite- und PostgreSQL-Vertrag, Rollback bei injiziertem
 Zwischenfehler und alter Datenbestand gruen. Fokussierter Commit.
+
+**Technischer Stand 2026-08-27:** Umgesetzt. `pi_sessions` besitzt jetzt eine
+monotone `summary_revision`; das neue Attempt-Ledger speichert nur Scope-,
+Revisions-, Watermark-, Budget- und Ergebnis-Metadaten, jedoch keine Prompt-,
+Nachrichten- oder Summary-Inhalte. Seine partielle Eindeutigkeit erlaubt
+hoechstens einen laufenden Versuch pro persistierter Session.
+
+SQLite und PostgreSQL migrieren additiv. Vor Aktivierung des eindeutigen
+`(pi_session_db_id, sequence)`-Index wird der Altbestand geprueft. Bei einem
+Konflikt bleibt der Verlauf unveraendert, der Index wird inhaltsfrei
+aufgeschoben und die Komprimierung verweigert einen nicht lueckenlos
+checkpointbaren Verlauf.
+
+Die neuen Store-Operationen starten und beenden Versuche transaktional und
+committen eine Summary nur, wenn User-, Agent-, Workspace- und Session-Scope,
+Basisrevision, bisheriger Watermark und persistierter Nachrichtencheckpoint
+noch passen. Der Erfolgscommit schreibt Summary, Through-Sequenz,
+persistierten Grenzzeitstempel, neue Revision und Attempt-Ergebnis in einer
+Transaktion. Ein parallel oberhalb des Checkpoints angehaengter Turn bleibt
+erhalten. Stale-, Timeout- und Fehlerzustaende schreiben nur inhaltsfreie
+Grundcodes.
+
+`savePiSession()` gibt den dauerhaften Nachrichtencheckpoint und die aktuelle
+Summary-Revision zurueck. Append und Full-save pruefen vor und nach dem
+Schreiben eine lueckenlose Sequenz; allgemeine Summary-Schreibpfade benoetigen
+eine erwartete Revision. Die No-op-Finalisierung verbindet Revisionstest und
+eventuelle Nachrichtenkuerzung in einer Transaktion, sodass ein verlorener
+CAS keine Nachrichten entfernt.
+
+Die fokussierten Tests laufen fuer SQLite und den eingebetteten PostgreSQL-
+Pfad und decken additive/erneute Migration, Altbestand, Scope-Trennung,
+Unique-Audit, parallelen Start, parallelen Append, erfolgreichen und stale
+CAS, injizierten Zwischenfehler mit Rollback, Failure-Abschluss sowie stale
+allgemeine Saves und No-op-Rollback ab. Diese Phase stellt die sicheren
+Persistenzprimitiven bereit; der produktive Auto-/Manual-/Automation-Ablauf
+wird erst in Phase 3 bis 5 auf das Attempt-Ledger und den exklusiven
+Candidate/Commit-Pfad umgestellt.
 
 ### Phase 3: Coordinator, Abort, Timeout und Retry
 

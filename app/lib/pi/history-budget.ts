@@ -14,6 +14,7 @@ export type PiSessionSummaryState = {
   summaryUpdatedAt: Date | null;
   summaryThroughTimestamp: number | null;
   summaryThroughSequence: number | null;
+  summaryRevision: number;
 };
 
 export type PiHistoryComposition = {
@@ -558,6 +559,7 @@ export function getUnsummarizedMessages(
     summaryUpdatedAt: null,
     summaryThroughTimestamp,
     summaryThroughSequence,
+    summaryRevision: 0,
   };
   return buildPiHistoryUnits(omittedMessages.filter((message) => !isProjectionOnlyMessage(message)))
     .filter((unit) => unit.messages.some((message) => !isPiMessageCoveredBySummary(message, boundary)))
