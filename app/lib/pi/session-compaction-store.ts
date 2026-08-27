@@ -53,6 +53,7 @@ export type PiCompactionScope = Readonly<{
 export type PiCompactionAttemptRecord = Readonly<{
   attemptId: string;
   piSessionDbId: number | string;
+  attemptOrdinal: number;
   trigger: PiCompactionTrigger;
   state: PiCompactionAttemptState;
   reasonCode: PiCompactionReasonCode | null;
@@ -91,6 +92,7 @@ type ScopedSessionRow = {
 type AttemptRow = {
   id: string;
   pi_session_db_id: number | string;
+  attempt_ordinal: number | string;
   trigger: PiCompactionTrigger;
   state: PiCompactionAttemptState;
   reason_code: PiCompactionReasonCode | null;
@@ -182,6 +184,7 @@ function mapAttempt(row: AttemptRow): PiCompactionAttemptRecord {
   return Object.freeze({
     attemptId: row.id,
     piSessionDbId: row.pi_session_db_id,
+    attemptOrdinal: integer(row.attempt_ordinal),
     trigger: row.trigger,
     state: row.state,
     reasonCode: row.reason_code,
@@ -254,7 +257,7 @@ async function getAttemptForSession(
 ): Promise<AttemptRow | null> {
   const lock = forUpdate && provider === 'postgres' ? ' FOR UPDATE' : '';
   return await connection.get(
-    `SELECT id, pi_session_db_id, trigger, state, reason_code,
+    `SELECT id, pi_session_db_id, attempt_ordinal, trigger, state, reason_code,
             base_summary_revision, committed_summary_revision,
             base_through_sequence, committed_through_sequence,
             message_sequence_checkpoint, contract_fingerprint, provider, model,
@@ -312,12 +315,14 @@ export type StartPiCompactionAttemptInput = PiCompactionScope & Readonly<{
   model: string;
   contractFingerprint?: string | null;
   metrics?: PiCompactionAttemptMetrics;
+  expiredAttemptRetryAt?: Date | null;
   now?: Date;
 }>;
 
 export type StartPiCompactionAttemptResult =
   | Readonly<{ status: 'started'; attempt: PiCompactionAttemptRecord }>
   | Readonly<{ status: 'already_running'; attempt: PiCompactionAttemptRecord }>
+  | Readonly<{ status: 'cooldown_active'; attempt: PiCompactionAttemptRecord }>
   | Readonly<{ status: 'stale'; currentSummaryRevision: number; currentThroughSequence: number | null }>;
 
 export async function startPiSessionCompactionAttemptOnConnection(
@@ -340,6 +345,9 @@ export async function startPiSessionCompactionAttemptOnConnection(
   ) {
     throw new Error('expectedThroughSequence must be null or a positive integer.');
   }
+  if (input.expiredAttemptRetryAt && input.expiredAttemptRetryAt.getTime() <= now.getTime()) {
+    throw new Error('expiredAttemptRetryAt must be in the future.');
+  }
   if (input.deadlineAt.getTime() <= now.getTime()) throw new Error('Compaction deadline must be in the future.');
   const metrics = input.metrics ?? {};
 
@@ -348,23 +356,72 @@ export async function startPiSessionCompactionAttemptOnConnection(
     const nowTimestamp = toDatabaseTimestamp(now);
     await connection.run(
       `UPDATE pi_session_compaction_attempts
-       SET state = 'timed_out', reason_code = 'summary_timeout', completed_at = ?, updated_at = ?
+       SET state = 'timed_out', reason_code = 'summary_timeout', completed_at = ?,
+           retry_at = COALESCE(retry_at, ?), updated_at = ?
        WHERE pi_session_db_id = ? AND state = 'running' AND deadline_at <= ?`,
-      [nowTimestamp, nowTimestamp, session.id, nowTimestamp],
+      [
+        nowTimestamp,
+        input.expiredAttemptRetryAt ? toDatabaseTimestamp(input.expiredAttemptRetryAt) : null,
+        nowTimestamp,
+        session.id,
+        nowTimestamp,
+      ],
     );
     const existing = await connection.get(
-      `SELECT id, pi_session_db_id, trigger, state, reason_code,
+      `SELECT id, pi_session_db_id, attempt_ordinal, trigger, state, reason_code,
               base_summary_revision, committed_summary_revision,
               base_through_sequence, committed_through_sequence,
               message_sequence_checkpoint, contract_fingerprint, provider, model,
               started_at, deadline_at, completed_at, retry_at
        FROM pi_session_compaction_attempts
        WHERE pi_session_db_id = ? AND state = 'running'
-       ORDER BY started_at DESC
+       ORDER BY attempt_ordinal DESC
        LIMIT 1`,
       [session.id],
     ) as AttemptRow | undefined;
     if (existing) return { status: 'already_running', attempt: mapAttempt(existing) };
+
+    const latestTerminal = await connection.get(
+      `SELECT id, pi_session_db_id, attempt_ordinal, trigger, state, reason_code,
+              base_summary_revision, committed_summary_revision,
+              base_through_sequence, committed_through_sequence,
+              message_sequence_checkpoint, contract_fingerprint, provider, model,
+              started_at, deadline_at, completed_at, retry_at
+       FROM pi_session_compaction_attempts
+       WHERE pi_session_db_id = ? AND state <> 'running'
+       ORDER BY attempt_ordinal DESC
+       LIMIT 1`,
+      [session.id],
+    ) as AttemptRow | undefined;
+    if (latestTerminal?.state !== 'succeeded') {
+      const cooldownAttempt = await connection.get(
+        `SELECT id, pi_session_db_id, attempt_ordinal, trigger, state, reason_code,
+                base_summary_revision, committed_summary_revision,
+                base_through_sequence, committed_through_sequence,
+                message_sequence_checkpoint, contract_fingerprint, provider, model,
+                started_at, deadline_at, completed_at, retry_at
+         FROM pi_session_compaction_attempts
+         WHERE pi_session_db_id = ? AND retry_at > ?
+         ORDER BY attempt_ordinal DESC
+         LIMIT 1`,
+        [session.id, nowTimestamp],
+      ) as AttemptRow | undefined;
+      if (cooldownAttempt) {
+        let bypassAvailable = input.trigger === 'manual' && cooldownAttempt.trigger !== 'manual';
+        if (bypassAvailable) {
+          const previousManualBypass = await connection.get(
+            `SELECT id FROM pi_session_compaction_attempts
+             WHERE pi_session_db_id = ? AND trigger = 'manual' AND attempt_ordinal > ?
+             LIMIT 1`,
+            [session.id, cooldownAttempt.attempt_ordinal],
+          ) as { id?: string } | undefined;
+          bypassAvailable = previousManualBypass?.id === undefined;
+        }
+        if (!bypassAvailable) {
+          return { status: 'cooldown_active', attempt: mapAttempt(cooldownAttempt) };
+        }
+      }
+    }
 
     const currentRevision = integer(session.summary_revision);
     const currentThroughSequence = nullableInteger(session.summary_through_sequence);
@@ -381,10 +438,16 @@ export async function startPiSessionCompactionAttemptOnConnection(
     const audit = await auditPiMessageSequenceIntegrityOnConnection(connection, session.id);
     if (!audit.valid) throw new PiCompactionHistoryIntegrityError(audit);
     const checkpoint = audit.maximumSequence ?? 0;
+    const ordinalRow = await connection.get(
+      `SELECT COALESCE(MAX(attempt_ordinal), 0) + 1 AS next_ordinal
+       FROM pi_session_compaction_attempts WHERE pi_session_db_id = ?`,
+      [session.id],
+    ) as { next_ordinal?: number | string } | undefined;
+    const attemptOrdinal = integer(ordinalRow?.next_ordinal, 1);
     const deadlineTimestamp = toDatabaseTimestamp(input.deadlineAt);
     await connection.run(
       `INSERT INTO pi_session_compaction_attempts (
-         id, pi_session_db_id, trigger, state, reason_code,
+         id, pi_session_db_id, attempt_ordinal, trigger, state, reason_code,
          base_summary_revision, committed_summary_revision,
          base_through_sequence, committed_through_sequence, message_sequence_checkpoint,
          contract_fingerprint, provider, model,
@@ -392,10 +455,11 @@ export async function startPiSessionCompactionAttemptOnConnection(
          before_estimated_bytes, after_estimated_bytes,
          protected_unit_count, summarized_unit_count, omitted_unit_count,
          started_at, deadline_at, completed_at, retry_at, created_at, updated_at
-       ) VALUES (?, ?, ?, 'running', NULL, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, NULL, NULL, ?, ?, NULL, NULL, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, 'running', NULL, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, NULL, NULL, ?, ?, NULL, NULL, ?, ?)`,
       [
         attemptId,
         session.id,
+        attemptOrdinal,
         input.trigger,
         currentRevision,
         currentThroughSequence,
@@ -415,6 +479,29 @@ export async function startPiSessionCompactionAttemptOnConnection(
     const inserted = await getAttemptForSession(connection, attemptId, session.id, false, provider);
     if (!inserted) throw new PiCompactionPersistenceConflictError('Compaction attempt was not persisted.');
     return { status: 'started', attempt: mapAttempt(inserted) };
+  });
+}
+
+export async function countPiSessionCompactionRetryFailuresOnConnection(
+  connection: SqlConnection,
+  provider: DatabaseProvider,
+  scopeInput: PiCompactionScope,
+): Promise<number> {
+  const scope = validateScope(scopeInput);
+  return withTransaction(connection, provider, async () => {
+    const session = await getScopedSessionForUpdate(connection, provider, scope);
+    const row = await connection.get(
+      `SELECT COUNT(*) AS failure_count
+       FROM pi_session_compaction_attempts
+       WHERE pi_session_db_id = ? AND retry_at IS NOT NULL
+         AND attempt_ordinal > COALESCE((
+           SELECT MAX(attempt_ordinal)
+           FROM pi_session_compaction_attempts
+           WHERE pi_session_db_id = ? AND state = 'succeeded'
+         ), 0)`,
+      [session.id, session.id],
+    ) as { failure_count?: number | string } | undefined;
+    return integer(row?.failure_count);
   });
 }
 
@@ -646,6 +733,14 @@ export function finishPiSessionCompactionAttempt(
 ): Promise<Readonly<{ changed: boolean; attempt: PiCompactionAttemptRecord }>> {
   return withCompactionConnection(input, (connection, provider) => (
     finishPiSessionCompactionAttemptOnConnection(connection, provider, input)
+  ));
+}
+
+export function countPiSessionCompactionRetryFailures(
+  input: PiCompactionScope,
+): Promise<number> {
+  return withCompactionConnection(input, (connection, provider) => (
+    countPiSessionCompactionRetryFailuresOnConnection(connection, provider, input)
   ));
 }
 

@@ -1039,6 +1039,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS pi_session_compaction_attempts (
       id TEXT PRIMARY KEY NOT NULL,
       pi_session_db_id INTEGER NOT NULL,
+      attempt_ordinal INTEGER NOT NULL DEFAULT 0,
       trigger TEXT NOT NULL CHECK (trigger IN ('automatic', 'manual', 'automation')),
       state TEXT NOT NULL CHECK (state IN ('running', 'succeeded', 'no_op', 'deferred', 'failed', 'aborted', 'stale', 'timed_out')),
       reason_code TEXT,
@@ -2590,6 +2591,27 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   addColumns(sqlite, 'pi_messages', {
     sequence: 'INTEGER NOT NULL DEFAULT 0',
   });
+
+  addColumns(sqlite, 'pi_session_compaction_attempts', {
+    attempt_ordinal: 'INTEGER NOT NULL DEFAULT 0',
+  });
+  sqlite.exec(`
+    WITH ranked_attempts AS (
+      SELECT id,
+             ROW_NUMBER() OVER (
+               PARTITION BY pi_session_db_id
+               ORDER BY started_at ASC, created_at ASC, id ASC
+             ) AS next_ordinal
+      FROM pi_session_compaction_attempts
+    )
+    UPDATE pi_session_compaction_attempts
+    SET attempt_ordinal = (
+      SELECT next_ordinal FROM ranked_attempts
+      WHERE ranked_attempts.id = pi_session_compaction_attempts.id
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_compaction_attempts_session_ordinal
+      ON pi_session_compaction_attempts (pi_session_db_id, attempt_ordinal);
+  `);
 
   sqlite.exec(`
     WITH ordered_messages AS (

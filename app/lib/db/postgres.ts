@@ -704,6 +704,39 @@ async function ensurePostgresPiMessageSequenceIntegrityIndex(pool: PgQueryable):
   );
 }
 
+async function ensurePostgresCompactionAttemptIndexes(pool: PgQueryable): Promise<void> {
+  await pool.query(`
+    WITH ranked_attempts AS (
+      SELECT id,
+             ROW_NUMBER() OVER (
+               PARTITION BY pi_session_db_id
+               ORDER BY started_at ASC, created_at ASC, id ASC
+             ) AS next_ordinal
+      FROM pi_session_compaction_attempts
+    )
+    UPDATE pi_session_compaction_attempts AS attempts
+    SET attempt_ordinal = ranked_attempts.next_ordinal
+    FROM ranked_attempts
+    WHERE ranked_attempts.id = attempts.id
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_pi_compaction_attempts_session_started
+    ON pi_session_compaction_attempts (pi_session_db_id, started_at)
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_compaction_attempts_session_ordinal
+    ON pi_session_compaction_attempts (pi_session_db_id, attempt_ordinal)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_pi_compaction_attempts_state_deadline
+    ON pi_session_compaction_attempts (state, deadline_at)
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_compaction_attempts_active_session
+    ON pi_session_compaction_attempts (pi_session_db_id) WHERE state = 'running'
+  `);
+}
+
 export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   if (process.env.CANVAS_POSTGRES_VECTOR_ENABLED === 'true') {
     await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
@@ -1157,6 +1190,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
       await pool.query(createColumnAddSql(table, column));
     }
   }
+
+  await ensurePostgresCompactionAttemptIndexes(pool);
 
   await pool.query(`
     UPDATE todo_items

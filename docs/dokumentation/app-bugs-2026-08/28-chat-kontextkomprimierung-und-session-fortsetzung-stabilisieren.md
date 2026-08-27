@@ -128,9 +128,18 @@ persistierten Nachrichtencheckpoint und laesst spaetere, parallel angehaengte
 Nachrichten stehen. Allgemeine Session-Saves und die No-op-Finalisierung sind
 gegen stale Summary-Ueberschreibungen eingezaeunt.
 
-Noch **nicht** umgesetzt oder abgenommen sind der gemeinsame Coordinator und
-seine Abort-/Timeout-/Retry-Logik, die Umstellung aller produktiven
-Auto-/Manual-/Automation-Pfade auf das Attempt-Ledger, der neue
+Der isolierte Phase-3-Coordinator ist ebenfalls implementiert und
+automatisiert geprueft. Er dedupliziert Versuche pro Session, kapselt
+Kandidatenerzeugung hinter Abort-, Generation- und Gesamt-Timeout-Fences,
+verwirft spaete Providerergebnisse und wendet eine injizierbare Canvas-Retry-
+Policy an. Cooldown, einmaliger manueller Bypass und Reset nach Erfolg werden
+restartfest aus dem inhaltsfreien Attempt-Ledger bestimmt. Eine monotone
+Attempt-Ordinalzahl und explizite Attempt-Indizes sichern diesen Vertrag auch
+bei gleicher Zeitsekunde und in PostgreSQL.
+
+Noch **nicht** umgesetzt oder abgenommen sind die Umstellung aller produktiven
+Auto-/Manual-/Automation-Pfade auf den Coordinator und das Attempt-Ledger,
+die Runtime-Invalidierung bei Modell-/Tool-/Prompt-/Sessionaenderungen, der neue
 Status-/UI-Vertrag sowie die manuelle Langchat-, Tool-, Reload- und
 Multimodal-Abnahme. Das Ticket bleibt offen.
 

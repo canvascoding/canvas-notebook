@@ -13,15 +13,15 @@ tags: [type/implementation-plan, topic/agents, topic/chat, topic/context-window,
 Dieser Plan konkretisiert
 [Ticket 28](./28-chat-kontextkomprimierung-und-session-fortsetzung-stabilisieren.md)
 auf Basis des aktuellen Repository-Stands. Die Budgetanalyse, der
-Budgetvertrag und das additive Persistenzfundament sind technisch umgesetzt.
-Coordinator-, Runtime-Integration, Retry/Timeout und UI-Aenderungen sind
-weiterhin nur geplant. Das Ticket bleibt offen und ist nicht abgenommen.
+Budgetvertrag, das additive Persistenzfundament und der isolierte Coordinator
+sind technisch umgesetzt. Runtime-/Automation-Integration und UI-Aenderungen
+sind weiterhin nur geplant. Das Ticket bleibt offen und ist nicht abgenommen.
 
 Der lokale Hermes-Checkout wurde ausschliesslich read-only als Referenz
 gelesen. Browser, Dev-Server, Container und externe Systeme bleiben fuer die
 ersten Implementierungsphasen ausgeschlossen.
 
-### Implementierungsfortschritt 2026-08-26
+### Implementierungsfortschritt 2026-08-27
 
 Phase 1A und Phase 1B sind technisch umgesetzt:
 
@@ -51,9 +51,10 @@ Phase 1A und Phase 1B sind technisch umgesetzt:
   Runtime-Prompt-, Effective-Tool-, Continuation- und Temperature-Tests,
   TypeScript, Lint und Produktionsbuild wurden ausgefuehrt.
 
-Damit sind die Gates von Phase 1A und 1B technisch erfuellt. Phase 2 ist
-ebenfalls technisch umgesetzt; ihr genauer Stand ist unten dokumentiert. Die
-Phasen 3 bis 7 bleiben geplant. Insbesondere wurden keine manuelle
+Damit sind die Gates von Phase 1A und 1B technisch erfuellt. Phase 2 und der
+isolierte Coordinator aus Phase 3 sind ebenfalls technisch umgesetzt; ihr
+genauer Stand ist unten dokumentiert. Die Phasen 4 bis 7 bleiben geplant.
+Insbesondere wurden keine manuelle
 Langchat-/UI-Abnahme, kein Browser-/Playwright-Test und keine externe
 Providerkalibrierung ausgefuehrt; Ticket 28 bleibt offen.
 
@@ -926,6 +927,39 @@ Candidate/Commit-Pfad umgestellt.
 **Gate:** Keine simulierte spaete Promise-Aufloesung kann Summary, Marker,
 Cooldown oder Sessionzustand aendern; zwei Versuche erzeugen hoechstens einen
 Summary-Providercall und einen Commit. Fokussierter Commit.
+
+**Technischer Stand 2026-08-27:** Umgesetzt, aber bewusst noch nicht in Live-
+Runtime oder Automation integriert. `session-compaction-coordinator.ts`
+registriert pro User-/Session-/Agent-Scope genau einen lokalen Versuch; der
+persistierte partielle Unique-Index erzwingt dieselbe Grenze pro Datenbank auch
+zwischen Prozessen. PostgreSQL erzeugt die Attempt-Indizes explizit, weil die
+gemeinsame Schema-zu-PostgreSQL-Migration Drizzle-Indexdefinitionen nicht
+automatisch uebernimmt.
+
+Jeder Versuch besitzt Attempt-ID, immutable Generation, eigenen
+`AbortController`, Canvas-Policy fuer Gesamt-Timeout und injizierbare,
+begrenzte Retry-Abstaende. Kandidatenerzeugung ist ein privater Callback; nur
+der Coordinator darf danach den revisions-/watermark-geprueften Store-Commit
+aufrufen. Abort, Invalidation oder Timeout beenden den Attempt, konsumieren
+ein spaetes Providerergebnis ohne Commit und uebernehmen weder Summary noch
+Runtimezustand. Ein Providerfehler wird nur dann `deferred`, wenn der bereits
+berechnete vollstaendige Fallback sendbar ist.
+
+Cooldown bleibt im Attempt-Ledger ueber `retry_at` restartfest. Automatische
+und Automation-Versuche respektieren ihn; ein manueller Versuch darf ihn
+einmal umgehen. Eine monotone `attempt_ordinal` macht Reihenfolge, Failure-
+Zaehler und Success-Reset auch bei mehreren Abschluessen in derselben Sekunde
+deterministisch. Die Defaultzeiten sind Canvas-Policy und in Tests ersetzbar,
+nicht aus Hermes kopierte Konstanten.
+
+Fokussierte Tests decken Single-flight, hoechstens einen Kandidatencall,
+Generation vor/nach Providerwait, Abort, ignoriertes Provider-Abortsignal,
+Timeout und spaetes Ergebnis, no-op/deferred, Persistenzfehler,
+Cooldown/Manual-Bypass/Success-Reset sowie die zugehoerigen SQLite- und
+PostgreSQL-Indizes/Migrationen ab. Die noch offene Phase 4 muss die
+Runtime-Generation aus Modell-, Tool-, Prompt-, Session- und Dispose-
+Aenderungen ableiten und diesen Coordinator statt der bisherigen direkten
+Summary-Uebernahme verwenden.
 
 ### Phase 4: Live-Runtime und manueller Control-Pfad
 

@@ -9,6 +9,7 @@ import { runPostgresMigrations } from '../app/lib/db/postgres';
 import {
   auditPiMessageSequenceIntegrityOnConnection,
   commitPiSessionCompactionSummaryOnConnection,
+  countPiSessionCompactionRetryFailuresOnConnection,
   finishPiSessionCompactionAttemptOnConnection,
   PiCompactionHistoryIntegrityError,
   PiCompactionScopeError,
@@ -139,6 +140,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now,
   });
   assert.equal(started.status, 'started');
+  assert.equal(started.attempt.attemptOrdinal, 1);
   assert.equal(started.attempt.messageSequenceCheckpoint, 3);
   assert.equal(Object.isFrozen(started.attempt), true);
 
@@ -272,13 +274,109 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   assert.equal(afterStale.summary_text, 'Bounded internal summary');
   assert.equal(Number(afterStale.summary_revision), 2);
 
+  const cooldownSource = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-cooldown-source`,
+    trigger: 'automatic',
+    expectedSummaryRevision: 2,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:10:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    now: new Date('2026-08-27T10:05:00.000Z'),
+  });
+  assert.equal(cooldownSource.status, 'started');
+  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-cooldown-source`,
+    state: 'failed',
+    reasonCode: 'summary_provider_error',
+    retryAt: new Date('2026-08-27T10:15:00.000Z'),
+    now: new Date('2026-08-27T10:05:30.000Z'),
+  });
+  const automaticCooldown = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-cooldown-auto`,
+    trigger: 'automatic',
+    expectedSummaryRevision: 2,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:12:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    now: new Date('2026-08-27T10:06:00.000Z'),
+  });
+  assert.equal(automaticCooldown.status, 'cooldown_active');
+  const manualBypass = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-cooldown-manual`,
+    trigger: 'manual',
+    expectedSummaryRevision: 2,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:12:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    now: new Date('2026-08-27T10:06:00.000Z'),
+  });
+  assert.equal(manualBypass.status, 'started');
+  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-cooldown-manual`,
+    state: 'failed',
+    reasonCode: 'summary_provider_error',
+    retryAt: new Date('2026-08-27T10:16:00.000Z'),
+    now: new Date('2026-08-27T10:06:30.000Z'),
+  });
+  const secondManualBypass = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-cooldown-manual-second`,
+    trigger: 'manual',
+    expectedSummaryRevision: 2,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:12:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    now: new Date('2026-08-27T10:07:00.000Z'),
+  });
+  assert.equal(secondManualBypass.status, 'cooldown_active');
+  assert.equal(
+    await countPiSessionCompactionRetryFailuresOnConnection(connection, provider, scope),
+    2,
+  );
+
+  const resetAttempt = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-cooldown-reset`,
+    trigger: 'automatic',
+    expectedSummaryRevision: 2,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:22:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    now: new Date('2026-08-27T10:17:00.000Z'),
+  });
+  assert.equal(resetAttempt.status, 'started');
+  const resetCommit = await commitPiSessionCompactionSummaryOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-cooldown-reset`,
+    expectedSummaryRevision: 2,
+    expectedThroughSequence: 4,
+    summaryText: 'Successful summary resets retry history',
+    throughSequence: 4,
+    now: new Date('2026-08-27T10:18:00.000Z'),
+  });
+  assert.equal(resetCommit.status, 'committed');
+  assert.equal(
+    await countPiSessionCompactionRetryFailuresOnConnection(connection, provider, scope),
+    0,
+  );
+
   await assert.rejects(
     startPiSessionCompactionAttemptOnConnection(connection, provider, {
       ...scope,
       workspaceId: 'workspace-other',
       attemptId: `attempt-${provider}-wrong-scope`,
       trigger: 'manual',
-      expectedSummaryRevision: 2,
+      expectedSummaryRevision: 3,
       expectedThroughSequence: 4,
       deadlineAt,
       provider: 'test-provider',
@@ -309,7 +407,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
       ...scope,
       attemptId: `attempt-${provider}-invalid-history`,
       trigger: 'manual',
-      expectedSummaryRevision: 2,
+      expectedSummaryRevision: 3,
       expectedThroughSequence: 4,
       deadlineAt,
       provider: 'test-provider',
@@ -328,6 +426,10 @@ async function main(): Promise<void> {
     const columns = sqlite.prepare('PRAGMA table_info(pi_sessions)').all() as Array<{ name: string }>;
     assert.ok(columns.some((column) => column.name === 'summary_revision'));
     assert.ok(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pi_session_compaction_attempts'").get());
+    const attemptColumns = sqlite.prepare('PRAGMA table_info(pi_session_compaction_attempts)').all() as Array<{ name: string }>;
+    assert.ok(attemptColumns.some((column) => column.name === 'attempt_ordinal'));
+    assert.ok(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_pi_compaction_attempts_active_session'").get());
+    assert.ok(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_pi_compaction_attempts_session_ordinal'").get());
     await exerciseStore(sqliteConnection(sqlite), 'sqlite');
     runMigrations(sqlite);
     assert.equal(
@@ -367,6 +469,35 @@ async function main(): Promise<void> {
       WHERE tablename = 'pi_messages' AND indexname = 'idx_pi_messages_session_sequence_unique'
     `);
     assert.equal(postgresSequenceIndex.rows.length, 1);
+    const postgresAttemptIndexes = await postgres.query<{ indexname: string }>(`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE tablename = 'pi_session_compaction_attempts'
+        AND indexname IN (
+          'idx_pi_compaction_attempts_active_session',
+          'idx_pi_compaction_attempts_session_ordinal',
+          'idx_pi_compaction_attempts_state_deadline'
+        )
+    `);
+    assert.equal(postgresAttemptIndexes.rows.length, 3);
+    await postgres.exec(`
+      DROP INDEX idx_pi_compaction_attempts_session_ordinal;
+      ALTER TABLE pi_session_compaction_attempts DROP COLUMN attempt_ordinal;
+    `);
+    await runPostgresMigrations(migrationTarget);
+    const restoredAttemptOrdinal = await postgres.query<{ column_name: string }>(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'pi_session_compaction_attempts' AND column_name = 'attempt_ordinal'
+    `);
+    assert.equal(restoredAttemptOrdinal.rows.length, 1);
+    const restoredAttemptOrdinalIndex = await postgres.query<{ indexname: string }>(`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE tablename = 'pi_session_compaction_attempts'
+        AND indexname = 'idx_pi_compaction_attempts_session_ordinal'
+    `);
+    assert.equal(restoredAttemptOrdinalIndex.rows.length, 1);
     await exerciseStore(postgresConnection(postgres), 'postgres');
     await runPostgresMigrations(migrationTarget);
     const deferredSequenceIndex = await postgres.query<{ indexname: string }>(`

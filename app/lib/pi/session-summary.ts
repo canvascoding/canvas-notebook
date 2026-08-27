@@ -204,7 +204,9 @@ async function sanitizeMessagesForSummary(messages: AgentMessage[]): Promise<Use
     // message contains one from a legacy session, retain its text only.
     normalized = await normalizePiMessagesForLlm(messages);
   } catch (error) {
-    console.warn('[PI Summary] Falling back to text-only legacy message projection:', error);
+    console.warn('[PI Summary] Falling back to text-only legacy message projection.', {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    });
     normalized = messages
       .filter((message): message is AgentMessage & { content: unknown } => 'content' in message)
       .map((message) => ({
@@ -451,13 +453,13 @@ export async function preparePiHistoryContext({
       summaryFailed = true;
     }
   } catch (error) {
+    if (signal?.aborted) throw error;
     summaryAttempted = true;
     summaryFailed = true;
-    console.warn(
-      `[PI Summary] Failed to update summary${sessionId ? ` for ${sessionId}` : ''}: ${
-        error instanceof Error ? error.message : 'unknown error'
-      }`,
-    );
+    console.warn('[PI Summary] Summary candidate generation failed.', {
+      sessionId: sessionId ?? null,
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    });
   }
 
   if (summaryFailed || !isPiHistoryCompositionSendable(composition, nextSummary)) {

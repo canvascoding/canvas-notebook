@@ -1163,6 +1163,7 @@ export const piSessions = sqliteTable("pi_sessions", {
 export const piSessionCompactionAttempts = sqliteTable("pi_session_compaction_attempts", {
   id: text("id").primaryKey(),
   piSessionDbId: integer("pi_session_db_id").notNull().references(() => piSessions.id, { onDelete: "cascade" }),
+  attemptOrdinal: integer("attempt_ordinal").notNull().default(0),
   trigger: text("trigger").notNull(),
   state: text("state").notNull(),
   reasonCode: text("reason_code"),
@@ -1189,6 +1190,7 @@ export const piSessionCompactionAttempts = sqliteTable("pi_session_compaction_at
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   sessionStartedIdx: index("idx_pi_compaction_attempts_session_started").on(table.piSessionDbId, table.startedAt),
+  sessionOrdinalIdx: uniqueIndex("idx_pi_compaction_attempts_session_ordinal").on(table.piSessionDbId, table.attemptOrdinal),
   stateDeadlineIdx: index("idx_pi_compaction_attempts_state_deadline").on(table.state, table.deadlineAt),
   activeSessionIdx: uniqueIndex("idx_pi_compaction_attempts_active_session")
     .on(table.piSessionDbId)

@@ -189,6 +189,25 @@ async function main() {
     1,
     'an aborted multi-batch summary must not start another provider request',
   );
+  await assert.rejects(
+    preparePiHistoryContext({
+      messages: multiBatchSummaryMessages,
+      summary: {
+        summaryText: null,
+        summaryUpdatedAt: null,
+        summaryThroughTimestamp: null,
+        summaryThroughSequence: null,
+        summaryRevision: 0,
+      },
+      systemPromptTokens: 200,
+      model: { ...model, contextWindow: 4_000, maxTokens: 512 },
+      toolTokens: 0,
+      sessionId: 'summary-aborted-candidate',
+      signal: summaryAbortController.signal,
+      streamFn: abortingSummaryStreamFn,
+    }),
+    /Summary generation was aborted/u,
+  );
 
   const noOmittedResult = await preparePiHistoryContext({
     messages: messages.slice(-1),
