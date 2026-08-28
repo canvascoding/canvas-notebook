@@ -144,7 +144,7 @@ export function MemorySettingsPanel() {
       : entrySort === 'updated'
         ? entry.updatedAt
         : entry.lastUsedAt ?? 0;
-    return [...matching].sort((left, right) => right.pinned - left.pinned || metric(right) - metric(left) || left.id.localeCompare(right.id));
+    return [...matching].sort((left, right) => Number(right.pinned) - Number(left.pinned) || metric(right) - metric(left) || left.id.localeCompare(right.id));
   }, [entries, entryQuery, entrySort]);
 
   const loadSettings = useCallback(async () => {

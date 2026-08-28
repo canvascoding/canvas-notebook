@@ -382,7 +382,7 @@ export async function addMemory(scope: MemoryServiceScope & { content: string })
     const now = Date.now();
     const entry: MemoryEntry = {
       id: randomUUID(), content, status: initialMemoryEntryStatus(scope.target), priority: 50,
-      pinned: false, collectionId,
+      pinned: false, collectionId, updatedAt: now, lastUsedAt: null,
     };
     await connection.run(`
       INSERT INTO memory_entries (
