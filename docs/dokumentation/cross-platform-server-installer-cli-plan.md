@@ -178,6 +178,12 @@ separatem Commit des vorherigen Pakets.
 
 #### Phase 0: Vertrag und Differential-Testharness
 
+Status: Implementiert am 2026-08-28. Der maschinenlesbare Vertrag liegt in
+`scripts/fixtures/cli-command-parity.json`; `npm run test:cli:parity` prueft das
+Dispatcher-Inventar, Config-Set-Luecken sowie die gemeinsamen JSON-Vertraege
+von `config-show --secret-state` und `status --json` mit isolierter
+Konfiguration und Fake-Docker.
+
 - Command- und Config-Allowlist als Test-Fixtures abbilden.
 - Test-Runner fuer Legacy- und TypeScript-CLI mit isoliertem Temp-Verzeichnis
   und Fake-Docker bereitstellen.
