@@ -137,6 +137,14 @@ async function main() {
     root,
     'app/components/canvas-agent-chat/ChatDelegationPanel.tsx',
   ), 'utf8');
+  const agentPickerSource = fs.readFileSync(path.join(
+    root,
+    'app/components/canvas-agent-chat/DelegationAgentPicker.tsx',
+  ), 'utf8');
+  const toolsetPickerSource = fs.readFileSync(path.join(
+    root,
+    'app/components/canvas-agent-chat/DelegationToolsetPicker.tsx',
+  ), 'utf8');
   const runtimeEventsSource = fs.readFileSync(path.join(
     root,
     'app/components/canvas-agent-chat/useChatRuntimeEvents.ts',
@@ -148,6 +156,13 @@ async function main() {
   assert.match(panelSource, /data-testid="chat-delegation-start"/u);
   assert.match(panelSource, /readChatDelegationPanelExpanded/u);
   assert.match(panelSource, /writeChatDelegationPanelExpanded/u);
+  assert.match(panelSource, /<DelegationAgentPicker/u);
+  assert.match(panelSource, /<DelegationToolsetPicker/u);
+  assert.doesNotMatch(panelSource, /type="checkbox"/u);
+  assert.match(agentPickerSource, /<AgentAvatar/u);
+  assert.match(agentPickerSource, /data-testid="delegation-agent-picker"/u);
+  assert.match(toolsetPickerSource, /aria-pressed=\{selected\}/u);
+  assert.match(toolsetPickerSource, /<DelegationToolsetIcon/u);
   assert.match(panelSource, /<Dialog open=\{dialogOpen\}/u);
   assert.match(panelSource, /cancelChatDelegation/u);
   assert.match(panelSource, /startChatDelegation/u);
