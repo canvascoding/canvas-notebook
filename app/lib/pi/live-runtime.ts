@@ -1787,6 +1787,18 @@ class LivePiRuntime {
           userId: this.userId,
           messages: newMessages,
         });
+        if (newMessages.some((message) => message.role === 'assistant')) {
+          queueMicrotask(() => {
+            void import('@/app/lib/memory/service')
+              .then(({ scheduleMemoryReviewForSession }) => scheduleMemoryReviewForSession({
+                sessionId: this.sessionId,
+                userId: this.userId,
+              }))
+              .catch((error) => {
+                console.error('[LiveRuntime] Failed to schedule memory review:', error);
+              });
+          });
+        }
       }
 
       this.lastPersistedLength = allMessages.length;

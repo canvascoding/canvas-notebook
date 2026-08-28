@@ -70,6 +70,7 @@
     "test:agent:memory": "tsx scripts/agent-memory-store-test.ts",
     "test:memory:contract": "tsx scripts/memory-contract-test.ts",
     "test:memory:schema": "tsx scripts/memory-schema-test.ts",
+    "test:memory:service": "tsx --conditions react-server scripts/memory-service-test.ts",
     "test:agent:managed-files": "tsx --conditions react-server scripts/agent-managed-files-test.ts",
     "test:agent:runtime-temp": "tsx --conditions react-server scripts/agent-runtime-temp-test.ts",
     "test:agent:temperature": "tsx --conditions react-server scripts/agent-runtime-temperature-test.ts",

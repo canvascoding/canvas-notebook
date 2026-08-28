@@ -8,7 +8,7 @@ import {
   type MemoryAction,
   type MemoryReadResult,
   type MemoryTarget,
-} from '@/app/lib/agents/memory-store';
+} from '@/app/lib/memory/service';
 import {
   assertUserOrganizationPermission,
   readOrganizationPermissionForUser,
@@ -245,13 +245,13 @@ function requireToolUserId(userId: string | undefined, toolLabel: string): strin
 }
 
 function formatMemoryResult(result: MemoryReadResult): string {
-  const label = result.target === 'user' ? 'User memory' : 'Agent memory';
+  const label = `${result.target[0].toUpperCase()}${result.target.slice(1)} memory`;
   if (result.entries.length === 0) {
     return `${label} has no stored entries.`;
   }
   return [
-    `${label} entries from ${result.fileName}:`,
-    ...result.entries.map((entry) => `- [${entry.id}] ${entry.content}`),
+    `${label} entries:`,
+    ...result.entries.map((entry) => `- [${entry.id}] ${entry.content} (${entry.status})`),
   ].join('\n');
 }
 
@@ -403,7 +403,7 @@ function createMemoryTool(userId?: string, agentId?: string | null): AgentTool {
     name: 'memory',
     label: 'Managing memory',
     description:
-      'Reads and maintains durable memory. Use target "agent" for agent-specific MEMORY.md and target "user" for shared USER.md. ' +
+      'Reads and maintains durable database-backed memory. Use the target that matches the current runtime scope. ' +
       'Use only for long-term facts, preferences, and recurring context; never store secrets, logs, temporary tasks, or session summaries.',
     parameters: Type.Object({
       action: Type.Union([
@@ -415,7 +415,9 @@ function createMemoryTool(userId?: string, agentId?: string | null): AgentTool {
       target: Type.Union([
         Type.Literal('agent'),
         Type.Literal('user'),
-      ], { description: 'agent writes this agent MEMORY.md; user writes the shared Canvas Agent USER.md.' }),
+        Type.Literal('workspace'),
+        Type.Literal('organization'),
+      ], { description: 'Memory scope. Workspace and organization entries are created as pending suggestions.' }),
       id: Type.Optional(Type.String({ description: 'Required for update and delete.' })),
       content: Type.Optional(Type.String({ description: 'Required for add and update.' })),
       reason: Type.Optional(Type.String({ description: 'Optional short reason for why this memory matters.' })),
@@ -430,12 +432,21 @@ function createMemoryTool(userId?: string, agentId?: string | null): AgentTool {
           reason?: string;
         };
         const target = input.target;
-        if (target !== 'agent' && target !== 'user') {
-          throw new Error('target must be "agent" or "user".');
+        if (target !== 'agent' && target !== 'user' && target !== 'workspace' && target !== 'organization') {
+          throw new Error('target must be "user", "agent", "workspace", or "organization".');
         }
+        const scopedUserId = requireToolUserId(userId, 'memory');
+        const executionContext = getAgentExecutionContext();
+        const scope = {
+          target,
+          userId: scopedUserId,
+          agentId,
+          workspaceId: executionContext?.workspaceId,
+          organizationId: executionContext?.organizationId,
+        };
 
         if (input.action === 'read') {
-          const result = await readMemory({ target, agentId, userId });
+          const result = await readMemory(scope);
           return { content: [{ type: 'text', text: formatMemoryResult(result) }], details: result };
         }
 
@@ -443,7 +454,7 @@ function createMemoryTool(userId?: string, agentId?: string | null): AgentTool {
           if (typeof input.content !== 'string') {
             throw new Error('content is required for add.');
           }
-          const result = await addMemory({ target, agentId, userId, content: input.content });
+          const result = await addMemory({ ...scope, content: input.content });
           const prefix = result.changed ? 'Memory entry added.' : 'Memory entry already existed.';
           return { content: [{ type: 'text', text: `${prefix}\n${formatMemoryResult(result)}` }], details: result };
         }
@@ -455,7 +466,7 @@ function createMemoryTool(userId?: string, agentId?: string | null): AgentTool {
           if (typeof input.content !== 'string') {
             throw new Error('content is required for update.');
           }
-          const result = await updateMemory({ target, agentId, userId, id: input.id, content: input.content });
+          const result = await updateMemory({ ...scope, id: input.id, content: input.content });
           return { content: [{ type: 'text', text: `Memory entry updated.\n${formatMemoryResult(result)}` }], details: result };
         }
 
@@ -463,7 +474,7 @@ function createMemoryTool(userId?: string, agentId?: string | null): AgentTool {
           if (!input.id) {
             throw new Error('id is required for delete.');
           }
-          const result = await deleteMemory({ target, agentId, userId, id: input.id });
+          const result = await deleteMemory({ ...scope, id: input.id });
           return { content: [{ type: 'text', text: `Memory entry deleted.\n${formatMemoryResult(result)}` }], details: result };
         }
 
