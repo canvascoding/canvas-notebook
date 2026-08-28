@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import {
   NOTEBOOK_MAX_OPEN_DOCUMENTS,
+  closeNotebookDocumentTabsAtPaths,
   activateNotebookDocumentTab,
   closeNotebookDocumentTab,
   emptyNotebookDocumentTabsState,
@@ -43,6 +44,15 @@ state = closeNotebookDocumentTab(state, 'two.md');
 assert.equal(state.activePath, 'three.md', 'closing the active tab should prefer its right neighbor');
 state = closeNotebookDocumentTab(state, 'three.md');
 assert.equal(state.activePath, 'one.md', 'the left neighbor should be used when there is no right neighbor');
+
+const closedAfterExternalMove = closeNotebookDocumentTabsAtPaths({
+  activePath: 'project/brief.md',
+  openPaths: ['notes/today.md', 'project/brief.md', 'project/assets/spec.md'],
+}, ['project']);
+assert.deepEqual(closedAfterExternalMove, {
+  activePath: 'notes/today.md',
+  openPaths: ['notes/today.md'],
+}, 'an externally moved folder must close every affected document tab');
 
 let limitedState = emptyNotebookDocumentTabsState();
 for (let index = 0; index < NOTEBOOK_MAX_OPEN_DOCUMENTS; index += 1) {
