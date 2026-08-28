@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { openDb } from '@/app/lib/db';
+import { getDatabaseProvider, openDb, type SqlConnection } from '@/app/lib/db';
 import type { DirectMcpAccessPrincipal } from '@/app/lib/mcp/server/access-token-verifier';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import {
@@ -32,6 +32,39 @@ export type SetDirectMcpWorkspaceEnabledResult =
   | { status: 'updated'; enabled: boolean }
   | { status: 'not_found' }
   | { status: 'forbidden' };
+
+async function lockDirectMcpWorkspaceIds(
+  database: SqlConnection,
+  workspaceIds: readonly string[],
+): Promise<void> {
+  if (!workspaceIds.length || getDatabaseProvider() !== 'postgres') return;
+
+  // Postgres row locks cannot protect a setting that has just been deleted,
+  // so use one transaction-scoped advisory lock per workspace. Every write
+  // path below takes the same locks before changing settings or grants.
+  for (const workspaceId of workspaceIds) {
+    await database.run(
+      "SELECT pg_advisory_xact_lock(hashtext('direct-mcp-workspace:' || ?))",
+      [workspaceId],
+    );
+  }
+}
+
+async function areDirectMcpWorkspacesEnabled(
+  database: SqlConnection,
+  workspaceIds: readonly string[],
+): Promise<boolean> {
+  if (!workspaceIds.length) return true;
+  const placeholders = workspaceIds.map(() => '?').join(', ');
+  const rows = await database.all(`
+    SELECT workspace_id
+    FROM mcp_direct_workspace_setting
+    WHERE workspace_id IN (${placeholders})
+  `, [...workspaceIds]) as Array<{ workspace_id: unknown }>;
+  return new Set(rows
+    .map((row) => typeof row.workspace_id === 'string' ? row.workspace_id : null)
+    .filter((workspaceId): workspaceId is string => Boolean(workspaceId))).size === workspaceIds.length;
+}
 
 export function isDirectMcpReadableWorkspace(workspace: WorkspaceContext): boolean {
   return workspace.permissions.canRead
@@ -137,6 +170,7 @@ export async function setDirectMcpWorkspaceEnabled(input: {
   const now = Date.now();
   try {
     await database.run('BEGIN');
+    await lockDirectMcpWorkspaceIds(database, [input.workspaceId]);
     if (input.enabled) {
       await database.run(`
         INSERT INTO mcp_direct_workspace_setting (
@@ -202,6 +236,11 @@ export async function replaceDirectMcpAllowedWorkspaces(input: {
   const updatedAt = Date.now();
   try {
     await database.run('BEGIN');
+    await lockDirectMcpWorkspaceIds(database, workspaceIds);
+    if (!await areDirectMcpWorkspacesEnabled(database, workspaceIds)) {
+      await database.run('ROLLBACK');
+      return { status: 'invalid_workspace' };
+    }
     await database.run(`
       DELETE FROM mcp_direct_workspace_grant
       WHERE client_id = ? AND user_id = ?
