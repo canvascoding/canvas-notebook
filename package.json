@@ -26,7 +26,7 @@
     "postinstall": "patch-package",
     "dev": "node scripts/run-dev.mjs",
     "electron:dev": "electron ./electron",
-    "test:electron": "node --test electron/main/*.test.mjs",
+    "test:electron": "node --test electron/main/*.test.mjs scripts/sync-electron-version.test.mjs",
     "electron:sync-version": "node scripts/sync-electron-version.mjs",
     "electron:build": "npm run electron:sync-version && npm run build && electron-builder --projectDir electron --dir",
     "electron:pack": "npm run electron:build",

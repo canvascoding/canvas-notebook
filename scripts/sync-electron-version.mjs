@@ -14,16 +14,20 @@ function writeJson(filePath, value) {
 }
 
 function toDesktopVersion(rootVersion) {
-  const parts = String(rootVersion)
-    .split('.')
-    .map(part => Number.parseInt(part, 10))
-    .filter(Number.isFinite);
-
-  if (parts.length < 3) {
-    throw new Error(`Cannot derive Electron version from root version "${rootVersion}".`);
+  const parts = String(rootVersion).split('.');
+  if (parts.length !== 4 || parts.some(part => !/^(?:0|[1-9]\d*)$/u.test(part))) {
+    throw new Error(`Cannot derive an Electron version from release version "${rootVersion}".`);
   }
 
-  return parts.slice(0, 3).join('.');
+  const [year, month, day, release] = parts.map(Number);
+  if (release > 999) {
+    throw new Error(`Electron release sequence must be between 0 and 999, received "${rootVersion}".`);
+  }
+
+  // Electron requires SemVer (three numeric components), whereas Canvas uses
+  // YYYY.MM.DD.release. Keep every release sequence in the SemVer patch so
+  // same-day releases are still detected by electron-updater.
+  return `${year}.${month}.${day * 1_000 + release}`;
 }
 
 const rootPackage = readJson(rootPackagePath);
@@ -53,4 +57,3 @@ if (changed) {
 } else {
   console.log(`Electron version already synced: ${nextVersion} (${nextBuildVersion}).`);
 }
-
