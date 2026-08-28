@@ -145,6 +145,7 @@ export type AgentPatchFileInput = {
     oldText: string;
     newText: string;
     expectedOccurrences?: number;
+    replaceAll?: boolean;
   }>;
 };
 
@@ -1535,6 +1536,7 @@ export async function editAgentFile(params: {
   oldText: string;
   newText: string;
   expectedOccurrences?: number;
+  replaceAll?: boolean;
   expectedSha256?: string;
   idempotencyKey?: string;
 }): Promise<AgentFileChangeResult> {
@@ -1565,6 +1567,7 @@ export async function editAgentFile(params: {
         oldText: params.oldText,
         newText: params.newText,
         expectedOccurrences: params.expectedOccurrences,
+        replaceAll: params.replaceAll,
       }],
       expectedSha256,
       groupId: 'edit_file',

@@ -314,20 +314,22 @@ export const piTools: AgentTool[] = [
   {
     name: 'edit_file',
     label: 'Editing file safely',
-    description: 'Safely edits an existing text file by one exact oldText -> newText replacement. For several already-known replacements use one apply_patch instead. Active live-collaboration documents use the current Yjs state: stable paragraph edits apply live, while structural or ambiguous Markdown edits create a persisted review with Accept/Reject actions in the editor. Existing shared workspace files require expectedSha256 from a current read. A successful sequential follow-up may use afterSha256; on any uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects.',
+    description: 'Safely edits an existing text file by one exact oldText -> newText replacement. For a global replacement, set replaceAll to true; otherwise oldText must occur exactly once unless expectedOccurrences is set. For several already-known replacements use one apply_patch instead. Active live-collaboration documents use the current Yjs state: stable paragraph edits apply live, while structural or ambiguous Markdown edits create a persisted review with Accept/Reject actions in the editor. Existing shared workspace files require expectedSha256 from a current read. A successful sequential follow-up may use afterSha256; on any uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
-      oldText: Type.String({ description: 'Exact text to replace. Must match expectedOccurrences.' }),
+      oldText: Type.String({ description: 'Exact text to replace. Must occur exactly once by default, match expectedOccurrences, or use replaceAll.' }),
       newText: Type.String({ description: 'Replacement text.' }),
       expectedOccurrences: Type.Optional(Type.Number({ description: 'Exact number of expected oldText matches. Defaults to 1.' })),
+      replaceAll: Type.Optional(Type.Boolean({ description: 'Replace every matching non-overlapping occurrence. Cannot be combined with expectedOccurrences.' })),
       expectedSha256: Type.Optional(Type.String({ description: 'Optional SHA-256 hash that must match the current file before editing.' })),
     }),
     execute: async (toolCallId, params) => {
-      const { path: filePath, oldText, newText, expectedOccurrences, expectedSha256 } = params as {
+      const { path: filePath, oldText, newText, expectedOccurrences, replaceAll, expectedSha256 } = params as {
         path: string;
         oldText: string;
         newText: string;
         expectedOccurrences?: number;
+        replaceAll?: boolean;
         expectedSha256?: string;
       };
       try {
@@ -336,6 +338,7 @@ export const piTools: AgentTool[] = [
           oldText,
           newText,
           expectedOccurrences,
+          replaceAll,
           expectedSha256,
           idempotencyKey: toolCallId,
         });
@@ -362,9 +365,10 @@ export const piTools: AgentTool[] = [
         path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
         expectedSha256: Type.Optional(Type.String({ description: 'Optional SHA-256 hash that must match this file before patching.' })),
         edits: Type.Array(Type.Object({
-          oldText: Type.String({ description: 'Exact text to replace. Must match expectedOccurrences.' }),
+          oldText: Type.String({ description: 'Exact text to replace. Must occur exactly once by default, match expectedOccurrences, or use replaceAll.' }),
           newText: Type.String({ description: 'Replacement text.' }),
           expectedOccurrences: Type.Optional(Type.Number({ description: 'Exact number of expected oldText matches. Defaults to 1.' })),
+          replaceAll: Type.Optional(Type.Boolean({ description: 'Replace every matching non-overlapping occurrence. Cannot be combined with expectedOccurrences.' })),
         })),
       })),
     }),

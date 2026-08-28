@@ -48,6 +48,7 @@
     "test:pi:session-title": "tsx --conditions react-server scripts/pi-session-title-test.ts",
     "test:pi:usage": "tsx scripts/pi-usage-test.ts",
     "test:pi:tools": "tsx scripts/pi-tool-registry-test.ts",
+    "test:pi:exact-text": "tsx scripts/exact-text-patch-test.ts",
     "test:pi:effective-tools": "tsx scripts/effective-tool-manifest-test.ts",
     "test:pi:email-agent-policy": "tsx scripts/email-agent-policy-test.ts",
     "test:pi:workspace-policy": "tsx scripts/workspace-tool-policy-test.ts",
