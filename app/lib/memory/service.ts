@@ -27,6 +27,8 @@ export type MemoryEntry = {
   pinned: boolean;
   collectionId: string;
   semanticKey?: string | null;
+  updatedAt: number;
+  lastUsedAt?: number | null;
 };
 
 export type MemoryReadResult = {
@@ -184,6 +186,8 @@ function toEntry(row: Record<string, unknown>): MemoryEntry {
     pinned: row.pinned === true || row.pinned === 1,
     collectionId: String(row.collection_id),
     semanticKey: typeof row.semantic_key === 'string' ? row.semantic_key : null,
+    updatedAt: Number(row.updated_at ?? 0),
+    lastUsedAt: typeof row.last_used_at === 'number' ? row.last_used_at : null,
   };
 }
 
@@ -242,7 +246,7 @@ export async function readMemory(scope: MemoryServiceScope): Promise<MemoryReadR
   try {
     const where = collectionScopeWhere(scope);
     const rows = await connection.all(`
-      SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key
+      SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
       WHERE ${where.sql} AND collection.status = 'active' AND entry.status != 'archived'
@@ -295,7 +299,7 @@ export async function readMemoryCollection(
   try {
     const where = collectionScopeWhere(scope);
     const rows = await connection.all(`
-      SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key
+      SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
       WHERE entry.collection_id = ? AND ${where.sql}
@@ -314,7 +318,7 @@ async function findEntryInScope(
 ): Promise<Record<string, unknown> | undefined> {
   const where = collectionScopeWhere(scope);
   return connection.get(`
-    SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key
+    SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
     FROM memory_entries entry
     INNER JOIN memory_collections collection ON collection.id = entry.collection_id
     WHERE entry.id = ? AND ${where.sql} AND entry.status != 'archived'
@@ -366,7 +370,7 @@ export async function addMemory(scope: MemoryServiceScope & { content: string })
   try {
     const hash = contentHash(content);
     const existing = await connection.get(`
-      SELECT id, content, status, priority, pinned, collection_id, semantic_key
+      SELECT id, content, status, priority, pinned, collection_id, semantic_key, updated_at, last_used_at
       FROM memory_entries
       WHERE collection_id = ? AND normalized_content_hash = ? AND status != 'archived'
       LIMIT 1
@@ -510,7 +514,7 @@ export async function restoreMemory(scope: MemoryServiceScope & { id: string }):
   try {
     const where = collectionScopeWhere(scope);
     const existing = await connection.get(`
-      SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key
+      SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
       WHERE entry.id = ? AND ${where.sql} AND entry.status = 'archived'

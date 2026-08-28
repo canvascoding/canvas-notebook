@@ -5,6 +5,7 @@ import { resolveMemoryPromptTokenBudget } from './contract';
 import { resolveMemoryScopeAccess } from './service';
 
 type MemoryPromptEntry = {
+  id: string;
   content: string;
   priority: number;
   pinned: boolean;
@@ -58,7 +59,7 @@ export async function buildMemoryPromptProjection(input: {
       }
     }
     const rows = await connection.all(`
-      SELECT entry.content, entry.priority, entry.pinned, entry.updated_at, collection.scope_type
+      SELECT entry.id, entry.content, entry.priority, entry.pinned, entry.updated_at, collection.scope_type
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
       WHERE entry.status = 'published' AND collection.status = 'active'
@@ -73,6 +74,7 @@ export async function buildMemoryPromptProjection(input: {
       const tokens = estimateTokens(content);
       if (tokens > remaining) continue;
       entries.push({
+        id: String(row.id),
         content,
         priority: Number(row.priority ?? 50),
         pinned: row.pinned === true || row.pinned === 1,
@@ -88,6 +90,10 @@ export async function buildMemoryPromptProjection(input: {
       remaining -= tokens;
     }
     if (entries.length === 0) return '';
+    await connection.run(
+      `UPDATE memory_entries SET last_used_at = ? WHERE id IN (${entries.map(() => '?').join(', ')})`,
+      [Date.now(), ...entries.map((entry) => entry.id)],
+    );
     const userEntries = entries.filter((entry) => entry.scopeType === 'user');
     const agentEntries = entries.filter((entry) => entry.scopeType === 'agent');
     const workspaceEntries = entries.filter((entry) => entry.scopeType === 'workspace');

@@ -34,6 +34,8 @@ type Entry = {
   priority: number;
   pinned: boolean;
   collectionId: string;
+  updatedAt: number;
+  lastUsedAt?: number | null;
 };
 
 type MemoryEvent = { id: string; action: string; actorType: string; decisionCode: string | null; createdAt: number };
@@ -111,6 +113,7 @@ export function MemorySettingsPanel() {
   const [permissions, setPermissions] = useState<MemoryPermissions | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [entryQuery, setEntryQuery] = useState('');
+  const [entrySort, setEntrySort] = useState<'priority' | 'updated' | 'lastUsed'>('priority');
   const [historyForEntryId, setHistoryForEntryId] = useState<string | null>(null);
   const [entryHistory, setEntryHistory] = useState<MemoryEvent[]>([]);
   const [settings, setSettings] = useState<MemorySettings | null>(null);
@@ -135,8 +138,14 @@ export function MemorySettingsPanel() {
   const query = useMemo(() => queryForScope(scope, agentId, workspaceId), [agentId, scope, workspaceId]);
   const visibleEntries = useMemo(() => {
     const normalizedQuery = entryQuery.trim().toLocaleLowerCase();
-    return normalizedQuery ? entries.filter((entry) => entry.content.toLocaleLowerCase().includes(normalizedQuery)) : entries;
-  }, [entries, entryQuery]);
+    const matching = normalizedQuery ? entries.filter((entry) => entry.content.toLocaleLowerCase().includes(normalizedQuery)) : entries;
+    const metric = (entry: Entry) => entrySort === 'priority'
+      ? entry.priority
+      : entrySort === 'updated'
+        ? entry.updatedAt
+        : entry.lastUsedAt ?? 0;
+    return [...matching].sort((left, right) => right.pinned - left.pinned || metric(right) - metric(left) || left.id.localeCompare(right.id));
+  }, [entries, entryQuery, entrySort]);
 
   const loadSettings = useCallback(async () => {
     const data = await readJson<MemorySettings>('/api/memory?settings=1');
@@ -357,7 +366,7 @@ export function MemorySettingsPanel() {
           </Card>
 
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">{entries.length > 0 ? <Input aria-label="Search memory" value={entryQuery} onChange={(event) => setEntryQuery(event.target.value)} placeholder="Search this collection" className="max-w-sm" /> : null}{permissions?.canArchive ? <Button size="sm" variant="outline" onClick={() => setShowArchived((value) => !value)}>{showArchived ? 'Hide archived' : 'Show archived'}</Button> : null}</div>
+            <div className="flex flex-wrap items-center justify-between gap-2">{entries.length > 0 ? <Input aria-label="Search memory" value={entryQuery} onChange={(event) => setEntryQuery(event.target.value)} placeholder="Search this collection" className="max-w-sm" /> : null}<select aria-label="Sort memory" className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={entrySort} onChange={(event) => setEntrySort(event.target.value as 'priority' | 'updated' | 'lastUsed')}><option value="priority">Priority</option><option value="updated">Last updated</option><option value="lastUsed">Last used</option></select>{permissions?.canArchive ? <Button size="sm" variant="outline" onClick={() => setShowArchived((value) => !value)}>{showArchived ? 'Hide archived' : 'Show archived'}</Button> : null}</div>
             {visibleEntries.map((entry) => <Card key={entry.id} className={entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : ''}><CardContent className="pt-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1">{editingId === entry.id ? <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} /> : <p className="whitespace-pre-wrap text-sm leading-6">{entry.content}</p>}<div className="mt-2 flex gap-2"><Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{entry.status}</Badge><span className="text-xs text-muted-foreground">Priority {entry.priority}</span></div></div><div className="flex shrink-0 flex-wrap justify-end gap-1">{entry.status === 'pending' && permissions?.canPublish ? <Button size="icon" variant="outline" title="Publish" onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}{entry.status === 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title="Restore" onClick={() => void mutateEntry(entry, 'restore')}><RotateCcw className="size-4" /></Button> : null}{entry.status !== 'archived' && permissions?.canUpdatePublished ? editingId === entry.id ? <Button size="icon" title="Save" onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button> : <Button size="icon" variant="ghost" title="Edit" onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); }}><Pencil className="size-4" /></Button> : null}{entry.status !== 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title="Archive" onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button> : null}</div></div><Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? 'Hide history' : 'History'}</Button>{historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt)}</p>)}</div> : null}</CardContent></Card>)}
             {!loading && selectedCollectionId && entries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">This collection has no published entries you can view.</p> : null}
             {!loading && entries.length > 0 && visibleEntries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">No memory entries match this search.</p> : null}
