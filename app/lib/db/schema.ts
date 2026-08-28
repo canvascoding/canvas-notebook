@@ -419,6 +419,15 @@ export const mcpDirectWorkspaceGrant = sqliteTable("mcp_direct_workspace_grant",
   userClientIdx: index("idx_mcp_direct_workspace_grant_user_client").on(table.userId, table.clientId),
 }));
 
+// A workspace manager must opt a workspace into Direct MCP before an
+// individual user can grant it to one of their OAuth clients.
+export const mcpDirectWorkspaceSetting = sqliteTable("mcp_direct_workspace_setting", {
+  workspaceId: text("workspace_id").primaryKey().references(() => canvasWorkspaces.id, { onDelete: "cascade" }),
+  enabledByUserId: text("enabled_by_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  enabledAt: integer("enabled_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const oauthConsent = sqliteTable("oauth_consent", {
   id: text("id").primaryKey(),
   clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),

@@ -3361,6 +3361,22 @@
           }
         }
       },
+      "workspaceCatalog": {
+        "title": "Workspaces available to Direct MCP",
+        "description": "Enable a workspace here before it can be granted to a specific MCP connection. Current Canvas workspace permissions still apply to every request.",
+        "loading": "Loading workspaces…",
+        "type": "{type} workspace",
+        "notManager": "Only a workspace manager can enable this workspace for MCP.",
+        "empty": "There are no active workspaces you can access.",
+        "connectionHint": "After enabling a workspace, select it for each MCP connection below. A connection cannot access a workspace until both steps are complete.",
+        "errors": {
+          "load": "Could not load MCP workspace settings."
+        },
+        "noneEnabled": {
+          "title": "No workspace is enabled for Direct MCP yet",
+          "description": "Enable at least one workspace below, then grant it to the MCP connection you want to use. Without an enabled workspace, the server can authenticate but cannot return workspace data."
+        }
+      },
       "requestHistory": {
         "title": "Recent requests",
         "description": "Shows recent requests to this Canvas MCP server. Only safe technical metadata is stored and it is deleted automatically after {hours} hours.",
@@ -4078,6 +4094,16 @@
           "descriptionFallback": "Update the workspace name, short description, icon, and access.",
           "cancel": "Cancel",
           "save": "Save changes"
+        },
+        "mcp": {
+          "title": "Direct MCP access",
+          "description": "Allow this workspace to be selected for Direct MCP connections. Each connection still needs its own explicit workspace selection.",
+          "immediate": "This switch is saved immediately. Turning it off revokes all existing MCP connection selections for this workspace.",
+          "switchLabel": "Enable workspace for Direct MCP",
+          "errors": {
+            "load": "Could not load Direct MCP workspace access.",
+            "update": "Could not update Direct MCP workspace access."
+          }
         },
         "typeChange": {
           "action": "Change type",

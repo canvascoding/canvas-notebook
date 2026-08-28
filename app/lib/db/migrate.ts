@@ -403,6 +403,17 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_mcp_direct_workspace_grant_user_client
       ON mcp_direct_workspace_grant (user_id, client_id);
 
+    -- Workspace managers opt workspaces into Direct MCP before users can add
+    -- them to an individual OAuth client connection. Absence means disabled.
+    CREATE TABLE IF NOT EXISTS mcp_direct_workspace_setting (
+      workspace_id TEXT PRIMARY KEY NOT NULL,
+      enabled_by_user_id TEXT NOT NULL,
+      enabled_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
+      FOREIGN KEY (enabled_by_user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS oauth_consent (
       id TEXT PRIMARY KEY NOT NULL,
       client_id TEXT NOT NULL,

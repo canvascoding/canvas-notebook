@@ -19,9 +19,19 @@ export type DirectMcpWorkspaceOption = {
   type: string;
 };
 
+export type DirectMcpWorkspaceConfiguration = DirectMcpWorkspaceOption & {
+  enabled: boolean;
+  canManage: boolean;
+};
+
 export type ReplaceDirectMcpWorkspaceAccessResult =
   | { status: 'saved'; allowedWorkspaceCount: number }
   | { status: 'invalid_workspace' };
+
+export type SetDirectMcpWorkspaceEnabledResult =
+  | { status: 'updated'; enabled: boolean }
+  | { status: 'not_found' }
+  | { status: 'forbidden' };
 
 export function isDirectMcpReadableWorkspace(workspace: WorkspaceContext): boolean {
   return workspace.permissions.canRead
@@ -70,10 +80,27 @@ export async function listDirectMcpAllowedWorkspaceIds(
   }
 }
 
-export async function listDirectMcpSelectableWorkspaces(
+export async function listDirectMcpEnabledWorkspaceIds(): Promise<Set<string>> {
+  const database = await openDb();
+  try {
+    const rows = await database.all(
+      'SELECT workspace_id FROM mcp_direct_workspace_setting',
+    ) as Array<{ workspace_id: unknown }>;
+    return new Set(rows
+      .map((row) => typeof row.workspace_id === 'string' ? row.workspace_id : null)
+      .filter((workspaceId): workspaceId is string => Boolean(workspaceId)));
+  } finally {
+    await database.close();
+  }
+}
+
+export async function listDirectMcpWorkspaceConfigurations(
   userId: string,
-): Promise<DirectMcpWorkspaceOption[]> {
-  const listing = await loadDirectMcpWorkspaceListingForUser(userId);
+): Promise<DirectMcpWorkspaceConfiguration[]> {
+  const [listing, enabledWorkspaceIds] = await Promise.all([
+    loadDirectMcpWorkspaceListingForUser(userId),
+    listDirectMcpEnabledWorkspaceIds(),
+  ]);
   return listing.workspaces
     .filter(isDirectMcpReadableWorkspace)
     .map((workspace) => ({
@@ -81,8 +108,68 @@ export async function listDirectMcpSelectableWorkspaces(
       name: workspace.displayName || 'Workspace',
       description: workspace.description || null,
       type: workspace.workspaceType,
+      enabled: enabledWorkspaceIds.has(workspace.workspaceId),
+      canManage: workspace.permissions.canManageWorkspace,
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export async function listDirectMcpSelectableWorkspaces(
+  userId: string,
+): Promise<DirectMcpWorkspaceOption[]> {
+  const workspaces = await listDirectMcpWorkspaceConfigurations(userId);
+  return workspaces
+    .filter((workspace) => workspace.enabled)
+    .map(({ enabled: _enabled, canManage: _canManage, ...workspace }) => workspace);
+}
+
+export async function setDirectMcpWorkspaceEnabled(input: {
+  userId: string;
+  workspaceId: string;
+  enabled: boolean;
+}): Promise<SetDirectMcpWorkspaceEnabledResult> {
+  const workspaces = await listDirectMcpWorkspaceConfigurations(input.userId);
+  const workspace = workspaces.find((candidate) => candidate.workspaceId === input.workspaceId);
+  if (!workspace) return { status: 'not_found' };
+  if (!workspace.canManage) return { status: 'forbidden' };
+
+  const database = await openDb();
+  const now = Date.now();
+  try {
+    await database.run('BEGIN');
+    if (input.enabled) {
+      await database.run(`
+        INSERT INTO mcp_direct_workspace_setting (
+          workspace_id, enabled_by_user_id, enabled_at, updated_at
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(workspace_id) DO UPDATE SET
+          enabled_by_user_id = excluded.enabled_by_user_id,
+          updated_at = excluded.updated_at
+      `, [input.workspaceId, input.userId, now, now]);
+    } else {
+      // Disabling a workspace revokes every existing client selection, so a
+      // later re-enable requires an explicit, fresh per-connection choice.
+      await database.run(
+        'DELETE FROM mcp_direct_workspace_grant WHERE workspace_id = ?',
+        [input.workspaceId],
+      );
+      await database.run(
+        'DELETE FROM mcp_direct_workspace_setting WHERE workspace_id = ?',
+        [input.workspaceId],
+      );
+    }
+    await database.run('COMMIT');
+    return { status: 'updated', enabled: input.enabled };
+  } catch (error) {
+    try {
+      await database.run('ROLLBACK');
+    } catch {
+      // The transaction may already have been rolled back by the database.
+    }
+    throw error;
+  } finally {
+    await database.close();
+  }
 }
 
 function normalizeWorkspaceIds(workspaceIds: readonly unknown[]): string[] | null {

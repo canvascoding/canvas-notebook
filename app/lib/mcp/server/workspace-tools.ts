@@ -30,6 +30,7 @@ import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descript
 import {
   isDirectMcpReadableWorkspace,
   listDirectMcpAllowedWorkspaceIds,
+  listDirectMcpEnabledWorkspaceIds,
   loadDirectMcpWorkspaceListingForUser,
 } from '@/app/lib/mcp/server/workspace-access-policy';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -361,14 +362,16 @@ async function readableWorkspace(
   principal: DirectMcpAccessPrincipal,
   workspaceId: string,
 ): Promise<WorkspaceContext> {
-  const [listing, allowedWorkspaceIds] = await Promise.all([
+  const [listing, allowedWorkspaceIds, enabledWorkspaceIds] = await Promise.all([
     loadDirectMcpWorkspaceListingForUser(principal.userId),
     listDirectMcpAllowedWorkspaceIds(principal),
+    listDirectMcpEnabledWorkspaceIds(),
   ]);
   const workspace = listing.workspaces.find((candidate) => candidate.workspaceId === workspaceId);
   if (
     !workspace
     || !isDirectMcpReadableWorkspace(workspace)
+    || !enabledWorkspaceIds.has(workspaceId)
     || !allowedWorkspaceIds.has(workspaceId)
   ) {
     throw new Error('The requested workspace is not available to this Canvas user.');
@@ -488,13 +491,15 @@ async function executeListWorkspaces(
   if ('result' in authorization) return authorization.result;
 
   try {
-    const [listing, allowedWorkspaceIds] = await Promise.all([
+    const [listing, allowedWorkspaceIds, enabledWorkspaceIds] = await Promise.all([
       loadDirectMcpWorkspaceListingForUser(authorization.principal.userId),
       listDirectMcpAllowedWorkspaceIds(authorization.principal),
+      listDirectMcpEnabledWorkspaceIds(),
     ]);
     const workspaces = listing.workspaces
       .filter((workspace) => (
         isDirectMcpReadableWorkspace(workspace)
+        && enabledWorkspaceIds.has(workspace.workspaceId)
         && allowedWorkspaceIds.has(workspace.workspaceId)
       ))
       .map(workspaceSummary);

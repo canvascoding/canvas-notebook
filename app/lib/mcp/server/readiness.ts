@@ -31,6 +31,7 @@ const REQUIRED_OAUTH_TABLES = [
   'oauth_resource',
   'mcp_direct_grant_revocation',
   'mcp_direct_workspace_grant',
+  'mcp_direct_workspace_setting',
 ] as const;
 
 const REQUIRED_OAUTH_COLUMNS: Record<string, readonly string[]> = {

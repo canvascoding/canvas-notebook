@@ -3360,6 +3360,22 @@
           }
         }
       },
+      "workspaceCatalog": {
+        "title": "Für Direct MCP verfügbare Workspaces",
+        "description": "Aktiviere einen Workspace hier, bevor du ihn einer bestimmten MCP-Verbindung zuordnen kannst. Die aktuellen Canvas-Workspace-Rechte gelten weiterhin bei jeder Anfrage.",
+        "loading": "Workspaces werden geladen …",
+        "type": "{type}-Workspace",
+        "notManager": "Nur Workspace-Manager können diesen Workspace für MCP aktivieren.",
+        "empty": "Es gibt keine aktiven Workspaces, auf die du zugreifen kannst.",
+        "connectionHint": "Wähle einen aktivierten Workspace anschließend für jede MCP-Verbindung weiter unten aus. Erst wenn beide Schritte abgeschlossen sind, kann eine Verbindung auf den Workspace zugreifen.",
+        "errors": {
+          "load": "Die MCP-Workspace-Einstellungen konnten nicht geladen werden."
+        },
+        "noneEnabled": {
+          "title": "Für Direct MCP ist noch kein Workspace aktiviert",
+          "description": "Aktiviere mindestens einen Workspace unten und ordne ihn dann der gewünschten MCP-Verbindung zu. Ohne aktivierten Workspace kann sich der Server zwar authentifizieren, aber keine Workspace-Daten zurückgeben."
+        }
+      },
       "requestHistory": {
         "title": "Letzte Anfragen",
         "description": "Zeigt die letzten Anfragen an diesen Canvas-MCP-Server. Es werden nur sichere technische Metadaten gespeichert und nach {hours} Stunden automatisch gelöscht.",
@@ -4077,6 +4093,16 @@
           "descriptionFallback": "Name, Kurzbeschreibung, Icon und Zugriff des Workspace anpassen.",
           "cancel": "Abbrechen",
           "save": "Änderungen speichern"
+        },
+        "mcp": {
+          "title": "Direct-MCP-Zugriff",
+          "description": "Erlaube, dass dieser Workspace für Direct-MCP-Verbindungen ausgewählt werden kann. Jede Verbindung benötigt zusätzlich eine eigene explizite Workspace-Auswahl.",
+          "immediate": "Dieser Schalter wird sofort gespeichert. Beim Ausschalten werden alle bisherigen MCP-Verbindungsfreigaben für diesen Workspace widerrufen.",
+          "switchLabel": "Workspace für Direct MCP aktivieren",
+          "errors": {
+            "load": "Der Direct-MCP-Zugriff für den Workspace konnte nicht geladen werden.",
+            "update": "Der Direct-MCP-Zugriff für den Workspace konnte nicht aktualisiert werden."
+          }
         },
         "typeChange": {
           "action": "Typ ändern",

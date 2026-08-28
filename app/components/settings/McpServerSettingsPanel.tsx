@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { DirectMcpWorkspaceAccessSwitch } from '@/app/components/settings/DirectMcpWorkspaceAccessSwitch';
 
 type McpCapabilityStatus = {
   id: string;
@@ -99,6 +100,15 @@ type DirectMcpWorkspaceAccess = {
   allowedWorkspaceIds: string[];
 };
 
+type DirectMcpWorkspaceConfiguration = {
+  workspaceId: string;
+  name: string;
+  description: string | null;
+  type: string;
+  enabled: boolean;
+  canManage: boolean;
+};
+
 function enabledTools(status: McpServerStatus): string[] {
   return status.capabilities
     .filter((capability) => capability.available && capability.enabled)
@@ -142,6 +152,9 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   const [isWorkspaceAccessLoading, setIsWorkspaceAccessLoading] = useState(false);
   const [workspaceAccessError, setWorkspaceAccessError] = useState<string | null>(null);
   const [isWorkspaceAccessSaving, setIsWorkspaceAccessSaving] = useState(false);
+  const [mcpWorkspaceConfigurations, setMcpWorkspaceConfigurations] = useState<DirectMcpWorkspaceConfiguration[] | null>(null);
+  const [isMcpWorkspaceConfigurationsLoading, setIsMcpWorkspaceConfigurationsLoading] = useState(false);
+  const [mcpWorkspaceConfigurationsError, setMcpWorkspaceConfigurationsError] = useState<string | null>(null);
 
   const applyStatus = useCallback((nextStatus: McpServerStatus) => {
     setStatus(nextStatus);
@@ -216,6 +229,30 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
     }
   }, [t]);
 
+  const loadMcpWorkspaceConfigurations = useCallback(async () => {
+    setIsMcpWorkspaceConfigurationsLoading(true);
+    setMcpWorkspaceConfigurationsError(null);
+    try {
+      const response = await fetch('/api/integrations/mcp-server/workspaces', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('workspaceCatalog.errors.load'));
+      }
+      setMcpWorkspaceConfigurations(Array.isArray(payload.data?.workspaces)
+        ? payload.data.workspaces as DirectMcpWorkspaceConfiguration[]
+        : []);
+    } catch (loadError) {
+      setMcpWorkspaceConfigurationsError(loadError instanceof Error
+        ? loadError.message
+        : t('workspaceCatalog.errors.load'));
+    } finally {
+      setIsMcpWorkspaceConfigurationsLoading(false);
+    }
+  }, [t]);
+
   useEffect(() => {
     let active = true;
     void fetch('/api/integrations/mcp-server', {
@@ -240,6 +277,10 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   useEffect(() => {
     void loadConnections();
   }, [loadConnections]);
+
+  useEffect(() => {
+    void loadMcpWorkspaceConfigurations();
+  }, [loadMcpWorkspaceConfigurations]);
 
   const disconnectConnection = useCallback(async (connection: DirectMcpConnection) => {
     if (disconnectingConnectionId || !window.confirm(
@@ -357,6 +398,13 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
     }
   }, [isWorkspaceAccessSaving, t, workspaceAccess]);
 
+  const refreshMcpWorkspaceConfiguration = useCallback(async () => {
+    setWorkspaceAccess(null);
+    setWorkspaceAccessError(null);
+    setExpandedWorkspaceAccessConnectionId(null);
+    await Promise.all([loadMcpWorkspaceConfigurations(), loadConnections()]);
+  }, [loadConnections, loadMcpWorkspaceConfigurations]);
+
   const savedDraft: DraftSettings | null = status ? ({
     enabled: status.desiredEnabled,
     tools: enabledTools(status),
@@ -366,6 +414,8 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   const enabledCapabilityCount = draft?.tools.length ?? 0;
   const serverIsEnabled = draft?.enabled ?? status?.desiredEnabled ?? false;
   const serverIsActive = Boolean(status?.runtimeEnabled && !status.configurationError);
+  const configuredMcpWorkspaces = mcpWorkspaceConfigurations ?? [];
+  const enabledMcpWorkspaceCount = configuredMcpWorkspaces.filter((workspace) => workspace.enabled).length;
   const connectionConfig = serverIsActive && status?.endpoint
     ? JSON.stringify({
       mcpServers: {
@@ -544,6 +594,59 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
             </div>
           </section>
         ) : null}
+
+        <section aria-labelledby="mcp-server-workspaces-title" className="space-y-3 border-t pt-6">
+          <div>
+            <h3 id="mcp-server-workspaces-title" className="font-semibold">{t('workspaceCatalog.title')}</h3>
+            <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">
+              {t('workspaceCatalog.description')}
+            </p>
+          </div>
+
+          {serverIsActive && !isMcpWorkspaceConfigurationsLoading && enabledMcpWorkspaceCount === 0 ? (
+            <div className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm">
+              <p className="font-medium text-foreground">{t('workspaceCatalog.noneEnabled.title')}</p>
+              <p className="mt-1 leading-5 text-muted-foreground">{t('workspaceCatalog.noneEnabled.description')}</p>
+            </div>
+          ) : null}
+
+          {isMcpWorkspaceConfigurationsLoading && !mcpWorkspaceConfigurations ? (
+            <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t('workspaceCatalog.loading')}
+            </div>
+          ) : mcpWorkspaceConfigurationsError ? (
+            <p role="alert" className="text-sm text-destructive">{mcpWorkspaceConfigurationsError}</p>
+          ) : configuredMcpWorkspaces.length ? (
+            <div className="divide-y overflow-hidden rounded-lg border">
+              {configuredMcpWorkspaces.map((workspace) => (
+                <div key={workspace.workspaceId} className="flex items-start justify-between gap-4 p-4">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{workspace.name}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      {workspace.description || t('workspaceCatalog.type', { type: workspace.type })}
+                    </p>
+                    {!workspace.canManage ? (
+                      <p className="mt-2 text-xs text-muted-foreground">{t('workspaceCatalog.notManager')}</p>
+                    ) : null}
+                  </div>
+                  <DirectMcpWorkspaceAccessSwitch
+                    workspaceId={workspace.workspaceId}
+                    enabled={workspace.enabled}
+                    canManage={workspace.canManage}
+                    onUpdated={refreshMcpWorkspaceConfiguration}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+              {t('workspaceCatalog.empty')}
+            </p>
+          )}
+
+          <p className="text-xs leading-5 text-muted-foreground">{t('workspaceCatalog.connectionHint')}</p>
+        </section>
 
         <section aria-labelledby="mcp-server-connections-title" className="space-y-3 border-t pt-6">
           <div className="flex flex-wrap items-end justify-between gap-2">
