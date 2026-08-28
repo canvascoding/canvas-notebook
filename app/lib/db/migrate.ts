@@ -3497,6 +3497,145 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     `);
   } catch { /* ignore if column doesn't exist */ }
 
+  // Durable memory is intentionally isolated from the legacy USER.md and
+  // MEMORY.md runtime files. Every statement is idempotent so startup may
+  // safely recover after interruption and existing installations upgrade in
+  // place without rewriting old prompt data.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS memory_user_settings (
+      user_id TEXT PRIMARY KEY NOT NULL,
+      automatic_memory_enabled INTEGER NOT NULL DEFAULT 1,
+      provider_installation_id TEXT,
+      model_id TEXT,
+      memory_prompt_max_tokens INTEGER NOT NULL DEFAULT 2000,
+      sensitive_memory_enabled INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK (memory_prompt_max_tokens >= 0 AND memory_prompt_max_tokens <= 4000),
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_user_settings_provider_model
+      ON memory_user_settings (provider_installation_id, model_id);
+
+    CREATE TABLE IF NOT EXISTS memory_collections (
+      id TEXT PRIMARY KEY NOT NULL,
+      scope_type TEXT NOT NULL,
+      user_id TEXT,
+      agent_id TEXT,
+      organization_id TEXT,
+      workspace_id TEXT,
+      category TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT,
+      sensitivity TEXT NOT NULL DEFAULT 'standard',
+      status TEXT NOT NULL DEFAULT 'active',
+      revision INTEGER NOT NULL DEFAULT 1,
+      created_by_user_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK (scope_type IN ('user', 'agent', 'workspace', 'organization')),
+      CHECK (sensitivity IN ('standard', 'sensitive')),
+      CHECK (status IN ('active', 'archived')),
+      CHECK (revision >= 1),
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_collections_user_scope
+      ON memory_collections (user_id, scope_type, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_memory_collections_agent_scope
+      ON memory_collections (user_id, agent_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_memory_collections_workspace_scope
+      ON memory_collections (workspace_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_memory_collections_organization_scope
+      ON memory_collections (organization_id, status, updated_at);
+
+    CREATE TABLE IF NOT EXISTS memory_entries (
+      id TEXT PRIMARY KEY NOT NULL,
+      collection_id TEXT NOT NULL,
+      semantic_key TEXT,
+      content TEXT NOT NULL,
+      normalized_content_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      priority INTEGER NOT NULL DEFAULT 50,
+      pinned INTEGER NOT NULL DEFAULT 0,
+      sensitivity TEXT NOT NULL DEFAULT 'standard',
+      confidence REAL,
+      estimated_tokens INTEGER NOT NULL,
+      source_session_id TEXT,
+      source_message_id INTEGER,
+      source_agent_id TEXT,
+      created_by_actor_type TEXT NOT NULL,
+      created_by_user_id TEXT,
+      last_confirmed_at INTEGER,
+      last_used_at INTEGER,
+      revision INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK (status IN ('pending', 'published', 'archived')),
+      CHECK (priority >= 0 AND priority <= 100),
+      CHECK (sensitivity IN ('standard', 'sensitive')),
+      CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+      CHECK (estimated_tokens >= 0),
+      CHECK (revision >= 1),
+      FOREIGN KEY (collection_id) REFERENCES memory_collections(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_collection_status
+      ON memory_entries (collection_id, status, priority, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_collection_semantic_key
+      ON memory_entries (collection_id, semantic_key);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_source_message
+      ON memory_entries (source_session_id, source_message_id);
+    CREATE INDEX IF NOT EXISTS idx_memory_entries_collection_content_hash
+      ON memory_entries (collection_id, normalized_content_hash);
+
+    CREATE TABLE IF NOT EXISTS memory_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      entry_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor_type TEXT NOT NULL,
+      actor_user_id TEXT,
+      session_id TEXT,
+      source_message_id INTEGER,
+      decision_code TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (entry_id) REFERENCES memory_entries(id) ON DELETE CASCADE,
+      FOREIGN KEY (actor_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_events_entry_created
+      ON memory_events (entry_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_memory_events_session_created
+      ON memory_events (session_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS memory_review_jobs (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      source_assistant_message_id INTEGER,
+      from_message_sequence INTEGER NOT NULL,
+      through_message_sequence INTEGER NOT NULL,
+      trigger_type TEXT NOT NULL,
+      scheduled_for INTEGER,
+      status TEXT NOT NULL DEFAULT 'scheduled',
+      attempts INTEGER NOT NULL DEFAULT 0,
+      lease_until INTEGER,
+      error_code TEXT,
+      created_at INTEGER NOT NULL,
+      started_at INTEGER,
+      completed_at INTEGER,
+      CHECK (trigger_type IN ('turn_interval', 'idle', 'session_close', 'maintenance')),
+      CHECK (status IN ('scheduled', 'awaiting_model_configuration', 'queued', 'running', 'retry_wait', 'completed', 'failed')),
+      CHECK (from_message_sequence >= 1 AND through_message_sequence >= from_message_sequence),
+      CHECK (attempts >= 0),
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      UNIQUE (user_id, session_id, from_message_sequence, through_message_sequence)
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_review_jobs_ready
+      ON memory_review_jobs (status, scheduled_for, lease_until);
+    CREATE INDEX IF NOT EXISTS idx_memory_review_jobs_user_session
+      ON memory_review_jobs (user_id, session_id, created_at);
+  `);
+
   runTeamSeatLegacyBackfill(sqlite);
 }
 
