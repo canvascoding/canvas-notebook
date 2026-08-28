@@ -74,7 +74,7 @@
     { "command": "logs", "legacy": "implemented", "typescript": "implemented" },
     { "command": "container-logs", "legacy": "implemented", "typescript": "implemented" },
     { "command": "manager-log", "legacy": "implemented", "typescript": "implemented" },
-    { "command": "env", "legacy": "implemented", "typescript": "partial" },
+    { "command": "env", "legacy": "implemented", "typescript": "implemented" },
     { "command": "backup", "legacy": "implemented", "typescript": "implemented" },
     { "command": "database", "legacy": "implemented", "typescript": "implemented" },
     { "command": "admin", "legacy": "implemented", "typescript": "implemented" },
@@ -100,10 +100,10 @@
     { "command": "service", "legacy": "missing", "typescript": "implemented" }
   ],
   "subcommandParity": [
-    { "feature": "env display", "legacy": "implemented", "typescript": "missing" },
+    { "feature": "env display", "legacy": "implemented", "typescript": "implemented" },
     { "feature": "env --render", "legacy": "implemented", "typescript": "implemented" },
     { "feature": "env --sync", "legacy": "implemented", "typescript": "implemented" },
-    { "feature": "env --edit", "legacy": "implemented", "typescript": "missing" },
+    { "feature": "env --edit", "legacy": "implemented", "typescript": "implemented" },
     { "feature": "database status", "legacy": "implemented", "typescript": "implemented" },
     { "feature": "database prepare-postgres", "legacy": "implemented", "typescript": "implemented" },
     { "feature": "database reconcile-postgres-auth", "legacy": "implemented", "typescript": "implemented" },

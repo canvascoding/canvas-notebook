@@ -11,6 +11,7 @@ import {
   isSensitiveEnvKey,
   isPinnedImageReference,
   loadConfig,
+  normalizeConfig,
   parseCliDatabaseProvider,
   parseCliRuntimeMode,
   redactConfig,
@@ -67,7 +68,7 @@ interface BackupCreateOptions {
 }
 
 interface EnvOptions {
-  mode: 'render' | 'sync';
+  mode: 'display' | 'render' | 'sync' | 'edit';
   timeoutSeconds: number;
 }
 
@@ -134,6 +135,9 @@ Commands:
   health [--json]                 Check /api/health
   logs                            Follow app container logs
   manager-log                     Show host-side CLI log
+  env [--json]                    Show the active configuration with secrets masked
+  env --edit [--timeout <seconds>]
+                                  Edit config safely, then apply and wait for health
   env --render | env --sync --timeout <seconds>
                                   Render only, or apply safely and wait for health
   config-show --json --secret-state
@@ -279,16 +283,20 @@ function parseInstallOptions(args: string[]): InstallOptions {
   return options;
 }
 
-function parseEnvOptions(args: string[]): EnvOptions {
-  let mode: EnvOptions['mode'] | undefined;
+function parseEnvOptions(args: string[], json: boolean): EnvOptions {
+  let render = false;
+  let sync = false;
+  let edit = false;
   let timeoutSeconds = Number(process.env.CANVAS_ENV_SYNC_TIMEOUT || 900);
   let timeoutSet = false;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (arg === '--render' || arg === '--sync') {
-      const nextMode = arg === '--render' ? 'render' : 'sync';
-      if (mode && mode !== nextMode) throw new Error('--render and --sync are mutually exclusive.');
-      mode = nextMode;
+    if (arg === '--render') {
+      render = true;
+    } else if (arg === '--sync') {
+      sync = true;
+    } else if (arg === '--edit') {
+      edit = true;
     } else if (arg === '--timeout' || arg.startsWith('--timeout=')) {
       const parsed = readOptionValue(args, i, '--timeout');
       timeoutSeconds = Number(parsed.value);
@@ -298,8 +306,11 @@ function parseEnvOptions(args: string[]): EnvOptions {
       throw new Error(`Unknown env option: ${arg}`);
     }
   }
-  if (!mode) throw new Error('Usage: canvas-notebook env --render|--sync [--timeout <seconds>]');
-  if (timeoutSet && mode !== 'sync') throw new Error('--timeout requires --sync.');
+  if (render && sync) throw new Error('--render and --sync are mutually exclusive.');
+  if (render && edit) throw new Error('--edit cannot be combined with --render.');
+  if (edit && json) throw new Error('--edit cannot be combined with --json.');
+  const mode: EnvOptions['mode'] = edit ? 'edit' : sync ? 'sync' : render ? 'render' : 'display';
+  if (timeoutSet && mode !== 'sync' && mode !== 'edit') throw new Error('--timeout requires --sync or --edit.');
   if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 7200) {
     throw new Error('--timeout must be an integer from 1 to 7200 seconds.');
   }
@@ -369,8 +380,65 @@ function managedByControlPlane(config: CanvasCliConfig): boolean {
   return ['true', '1', 'yes', 'on'].includes(managed) || String(config.env.CANVAS_CONTROL_PLANE_URL || '').trim().length > 0;
 }
 
+function printEnvironment(config: CanvasCliConfig, json: boolean): void {
+  const masked = redactConfig(config);
+  if (json) {
+    console.log(JSON.stringify(masked));
+    return;
+  }
+  console.log(`Config: ${config.paths.configFile}`);
+  console.log(`Container env: ${config.paths.containerEnvFile}`);
+  console.log(`Compose env: ${config.paths.composeEnvFile}`);
+  console.log('');
+  for (const key of ['domain', 'image', 'hostPort', 'containerPort', 'dataDir'] as const) {
+    console.log(`${key}=${String(masked[key] || '(not set)')}`);
+  }
+  for (const [key, value] of Object.entries(masked.env).sort(([left], [right]) => left.localeCompare(right))) {
+    console.log(`${key}=${String(value || '(not set)')}`);
+  }
+  console.log(`swap.enabled=${masked.swap.enabled}`);
+  console.log(`swap.size=${masked.swap.size}`);
+  console.log(`swap.file=${masked.swap.file}`);
+  console.log(`swap.swappiness=${masked.swap.swappiness}`);
+  console.log(`autoUpdate.enabled=${masked.autoUpdate.enabled}`);
+  console.log(`autoUpdate.schedule=${masked.autoUpdate.schedule}`);
+}
+
+async function editConfig(
+  context: RuntimeContext,
+  runner: SpawnCommandRunner,
+  config: CanvasCliConfig,
+): Promise<CanvasCliConfig> {
+  const explicitEditor = String(process.env.VISUAL || process.env.EDITOR || '').trim();
+  const editor = explicitEditor || (context.platform === 'windows' ? 'notepad.exe' : 'vi');
+  if (/\0|\r|\n/u.test(editor)) throw new Error('EDITOR contains unsupported control characters.');
+
+  await fs.mkdir(config.paths.installDir, { recursive: true });
+  const temporaryDirectory = await fs.mkdtemp(path.join(config.paths.installDir, '.canvas-env-edit-'));
+  const temporaryConfig = path.join(temporaryDirectory, 'canvas-notebook-config.json');
+  try {
+    await fs.chmod(temporaryDirectory, 0o700);
+    await writeSecureFile(temporaryConfig, `${JSON.stringify(config, null, 2)}\n`);
+    const result = await runner.run(editor, [temporaryConfig], { stdio: 'inherit' });
+    if (result.status !== 0) throw new Error(`Editor exited with status ${result.status}.`);
+
+    const edited = JSON.parse(await fs.readFile(temporaryConfig, 'utf8')) as unknown;
+    const next = normalizeConfig(edited, config);
+    next.platform = { ...config.platform };
+    next.paths = { ...config.paths, dataDir: next.dataDir };
+    await writeConfig(next);
+    return next;
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error('Edited configuration is not valid JSON.');
+    throw error;
+  } finally {
+    await fs.rm(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
 async function runEnvCommand(
   context: RuntimeContext,
+  runner: SpawnCommandRunner,
   docker: DockerManager,
   config: CanvasCliConfig,
   args: string[],
@@ -379,9 +447,13 @@ async function runEnvCommand(
   let phase = 'arguments';
   let postgresAuthReconciled = false;
   try {
-    const options = parseEnvOptions(args);
+    const options = parseEnvOptions(args, json);
+    if (options.mode === 'display') {
+      printEnvironment(config, json);
+      return;
+    }
     if (await hasPostgresRecoveryJournal(config)) {
-      if (options.mode !== 'sync') {
+      if (options.mode !== 'sync' && options.mode !== 'edit') {
         phase = 'recovery';
         throw new Error('An interrupted Postgres auth reconciliation is pending; env --render is blocked.');
       }
@@ -389,7 +461,7 @@ async function runEnvCommand(
       await reconcilePostgresAuth(context, docker, config, ['--timeout', String(options.timeoutSeconds)], json, true);
       config = await readConfig(context);
       postgresAuthReconciled = true;
-    } else if (options.mode === 'sync' && postgresRuntimeDesired(config)) {
+    } else if ((options.mode === 'sync' || options.mode === 'edit') && postgresRuntimeDesired(config)) {
       const existingEnvFiles = await Promise.all([
         fs.access(config.paths.containerEnvFile).then(() => true, () => false),
         fs.access(config.paths.composeEnvFile).then(() => true, () => false),
@@ -400,6 +472,10 @@ async function runEnvCommand(
         config = await readConfig(context);
         postgresAuthReconciled = true;
       }
+    }
+    if (options.mode === 'edit') {
+      phase = 'edit';
+      config = await editConfig(context, runner, config);
     }
     phase = 'render';
     const rendered = await renderEnvFiles(context, config);
@@ -444,6 +520,7 @@ async function runEnvCommand(
       compose: 'Compose configuration failed.',
       postgres: 'Postgres credential reconciliation failed.',
       recovery: error instanceof Error ? error.message : 'Interrupted Postgres auth reconciliation could not be completed.',
+      edit: error instanceof Error ? error.message : 'Configuration edit failed.',
       app: 'Canvas Notebook apply failed.',
       health: 'Canvas Notebook did not become healthy within the configured timeout.',
     };
@@ -1323,7 +1400,7 @@ async function main(): Promise<void> {
       console.log(await fs.readFile(context.paths.logFile, 'utf8').catch(() => ''));
       break;
     case 'env':
-      await runEnvCommand(context, docker, config, parsed.args, parsed.json);
+      await runEnvCommand(context, runner, docker, config, parsed.args, parsed.json);
       break;
     case 'config-show': {
       const includeSecretState = parsed.args.includes('--secret-state');

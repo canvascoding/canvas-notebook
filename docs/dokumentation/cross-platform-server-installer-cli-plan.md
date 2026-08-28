@@ -81,7 +81,7 @@ Arbeitspaket aktualisiert werden.
 | `health` | vorhanden | vorhanden | Text, JSON und Exit Code bei Fehler |
 | `logs`, `container-logs` | vorhanden | vorhanden | Argument- und Prozessbeendigungs-Test |
 | `manager-log` | vorhanden | vorhanden | fehlende und vorhandene Logdatei |
-| `env` | nur `--render`/`--sync` | teilweise | Anzeige ohne Unterbefehl ergaenzen |
+| `env` | Anzeige, `--render`, `--sync`, `--edit` | vorhanden | Maskierung, Editor-Transaktion und Sync-Vertrag |
 | `env --render`, `env --sync` | vorhanden | vorhanden | Config-, Postgres-, Restart- und JSON-Tests |
 | `env --edit` | noch nicht vorhanden | fehlt | sicherer Editor- und anschliessender Sync-Flow |
 | `backup create` | vorhanden | vorhanden | SQLite/Postgres, Output, JSON und No-Wait |
@@ -207,6 +207,12 @@ Legacy-Build-Informationsvertrag sowie `cliGeneration`,
 `configSchemaVersion` und eine maschinenlesbare Command-Liste. Die gemeinsame
 Versionsauflosung behebt zugleich leere `status.image.cliVersion`-Werte in
 gepackten CLI-Bundles.
+
+Teilstatus 2026-08-28: `env` zeigt die aktive Konfiguration in Text oder JSON
+mit maskierten Secrets. `env --edit` bearbeitet eine temporaere Datei mit
+restriktiven Rechten, uebernimmt nur eine parsebare normalisierte Konfiguration,
+schuetzt Plattform- und Zielpfade und nutzt danach denselben Apply-/Health-Pfad
+wie `env --sync`.
 
 - `version --json` und Capability-Vertrag.
 - `env`-Anzeige und `env --edit`.

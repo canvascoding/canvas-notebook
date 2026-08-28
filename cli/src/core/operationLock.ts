@@ -199,7 +199,7 @@ export function commandRequiresOperationLock(command: string, args: string[]): b
   if (command === 'install' || command === 'update' || command === 'cli-update' || command === 'config-set' ||
     command === 'start' || command === 'restart' || command === 'stop' || command === 'down' ||
     command === 'admin' || command === 'backup') return true;
-  if (command === 'env') return args.includes('--sync') || args.includes('--render');
+  if (command === 'env') return args.includes('--sync') || args.includes('--render') || args.includes('--edit');
   if (command === 'database') return args[0] === 'prepare-postgres' || args[0] === 'reconcile-postgres-auth' ||
     args[0] === 'migrate-sqlite-to-postgres';
   if (command === 'service') return args[0] === 'install' || args[0] === 'uninstall';
@@ -208,6 +208,6 @@ export function commandRequiresOperationLock(command: string, args: string[]): b
 
 export function commandCanRunWithPendingPostgresRecovery(command: string, args: string[]): boolean {
   if (command === 'update' || command === 'start' || command === 'restart' || command === 'stop' || command === 'cli-update') return true;
-  if (command === 'env') return args.includes('--sync');
+  if (command === 'env') return args.includes('--sync') || args.includes('--edit');
   return command === 'database' && args[0] === 'reconcile-postgres-auth';
 }

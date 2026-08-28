@@ -226,9 +226,20 @@ async function createFakeHostTools(binDir: string): Promise<void> {
     'exit 0',
     '',
   ].join('\n');
+  const editorScript = [
+    '#!/usr/bin/env bash',
+    'set -euo pipefail',
+    'if [[ "${CANVAS_TEST_EDITOR_MODE:-valid}" == "invalid" ]]; then',
+    '  printf "{invalid-json" > "$1"',
+    '  exit 0',
+    'fi',
+    'node -e \'const fs=require("fs"); const p=process.argv[1]; if ((fs.statSync(p).mode & 0o777) !== 0o600) process.exit(41); const c=JSON.parse(fs.readFileSync(p,"utf8")); c.env.LOG_LEVEL="edited"; c.paths.installDir="/tmp/forbidden-install-dir"; c.platform.os="windows"; fs.writeFileSync(p, JSON.stringify(c, null, 2)+"\\n");\' "$1"',
+    '',
+  ].join('\n');
   await Promise.all([
     fs.promises.writeFile(path.join(binDir, 'docker'), dockerScript, { mode: 0o755 }),
     fs.promises.writeFile(path.join(binDir, 'systemctl'), systemctlScript, { mode: 0o755 }),
+    fs.promises.writeFile(path.join(binDir, 'fake-editor'), editorScript, { mode: 0o755 }),
   ]);
 }
 
@@ -322,6 +333,37 @@ async function runDifferentialContract(): Promise<void> {
       env: typescriptRuntime.env,
       maxBuffer: 1024 * 1024,
     });
+
+    const envJsonOutput = await runTypescript(['env', '--json', '--no-banner']);
+    assert.doesNotMatch(envJsonOutput.stdout, new RegExp(secret, 'u'));
+    const displayedEnv = JSON.parse(envJsonOutput.stdout) as { env: Record<string, unknown> };
+    assert.match(String(displayedEnv.env.CANVAS_INSTANCE_TOKEN), /\*\*\*/u);
+    const envTextOutput = await runTypescript(['env', '--no-banner']);
+    assert.doesNotMatch(envTextOutput.stdout, new RegExp(secret, 'u'));
+    assert.match(envTextOutput.stdout, /swap\.enabled=false/u);
+
+    typescriptRuntime.env.EDITOR = path.join(fakeBin, 'fake-editor');
+    await runTypescript(['env', '--edit', '--timeout', '5', '--no-banner']);
+    const editedConfig = JSON.parse(await fs.promises.readFile(typescriptRuntime.configFile, 'utf8')) as {
+      env: Record<string, unknown>;
+      paths: { installDir: string };
+      platform: { os: string };
+    };
+    assert.equal(editedConfig.env.LOG_LEVEL, 'edited');
+    assert.equal(editedConfig.paths.installDir, typescriptRuntime.installDir);
+    assert.equal(editedConfig.platform.os, 'linux');
+    assert.match(
+      await fs.promises.readFile(path.join(typescriptRuntime.installDir, 'canvas-notebook.env'), 'utf8'),
+      /^LOG_LEVEL=edited$/mu,
+    );
+
+    const configBeforeInvalidEdit = await fs.promises.readFile(typescriptRuntime.configFile, 'utf8');
+    typescriptRuntime.env.CANVAS_TEST_EDITOR_MODE = 'invalid';
+    await assert.rejects(() => runTypescript(['env', '--edit', '--no-banner']));
+    delete typescriptRuntime.env.CANVAS_TEST_EDITOR_MODE;
+    assert.equal(await fs.promises.readFile(typescriptRuntime.configFile, 'utf8'), configBeforeInvalidEdit);
+    await assert.rejects(() => runTypescript(['env', '--edit', '--json']));
+    await assert.rejects(() => runTypescript(['env', '--timeout', '5', '--no-banner']));
 
     const expectedCliVersion = '2026.8.28.99';
     legacyRuntime.env.CANVAS_CLI_VERSION = expectedCliVersion;
@@ -444,7 +486,7 @@ async function main(): Promise<void> {
   await runDifferentialContract();
   console.log(JSON.stringify({
     success: true,
-    differentialContract: ['version --json', 'config-set swap.*', 'config-set autoUpdate.*', 'config-show --secret-state', 'status --json'],
+    differentialContract: ['version --json', 'env display/edit', 'config-set swap.*', 'config-set autoUpdate.*', 'config-show --secret-state', 'status --json'],
     legacyCommandCount: contract.legacyTopLevelCommands.length,
     typescriptCommandCount: contract.typescriptTopLevelCommands.length,
     missingCommands,
