@@ -198,7 +198,7 @@ export async function acquireOperationLock(
 export function commandRequiresOperationLock(command: string, args: string[]): boolean {
   if (command === 'install' || command === 'update' || command === 'cli-update' || command === 'config-set' || command === 'config-migrate' ||
     command === 'start' || command === 'restart' || command === 'stop' || command === 'down' ||
-    command === 'admin' || command === 'backup') return true;
+    command === 'admin' || command === 'backup' || command === 'cleanup-logs') return true;
   if (command === 'env') return args.includes('--sync') || args.includes('--render') || args.includes('--edit');
   if (command === 'database') return args[0] === 'prepare-postgres' || args[0] === 'reconcile-postgres-auth' ||
     args[0] === 'migrate-sqlite-to-postgres';

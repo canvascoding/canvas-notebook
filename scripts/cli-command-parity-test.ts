@@ -276,7 +276,8 @@ function requiredStatusShape(value: unknown) {
   for (const key of ['configuredRef', 'localId', 'localDigest', 'localCreated', 'runningRef', 'runningImageId', 'runningStartedAt', 'appVersion', 'cliVersion']) {
     assert.equal(typeof image[key], 'string', `status.image.${key} must be a string.`);
   }
-  const container = status.container as Record<string, unknown>;
+  const container = status.container as Record<string, unknown> | null;
+  if (container === null) return status;
   for (const key of ['id', 'name', 'status', 'image', 'imageId', 'startedAt']) {
     assert.equal(typeof container[key], 'string', `status.container.${key} must be a string.`);
   }
@@ -446,6 +447,29 @@ async function runDifferentialContract(): Promise<void> {
       '2026.8.28.77',
       'status --json must expose the packaged CLI version.',
     );
+    const emptyPath = path.join(tempRoot, 'empty-path');
+    await fs.promises.mkdir(emptyPath, { recursive: true });
+    const noDockerEnv = { ...packagedEnv, PATH: emptyPath };
+    const runWithoutHostTools = (args: string[]) => execFileAsync(
+      process.execPath,
+      [path.join(packagedRoot, 'dist-cli', 'main.js'), ...args],
+      { cwd: tempRoot, env: noDockerEnv, maxBuffer: 1024 * 1024 },
+    );
+    const noDockerStatus = requiredStatusShape(JSON.parse((await runWithoutHostTools(['status', '--json'])).stdout));
+    assert.equal(noDockerStatus.container, null);
+    assert.equal((noDockerStatus.image as Record<string, unknown>).cliVersion, '2026.8.28.77');
+    const diagnosis = JSON.parse((await runWithoutHostTools(['diagnose', '--json'])).stdout) as {
+      dockerReachable: boolean;
+      vm: Record<string, unknown>;
+      status: unknown;
+    };
+    assert.equal(diagnosis.dockerReachable, false);
+    requiredStatusShape(diagnosis.status);
+    for (const key of ['memoryTotalBytes', 'memoryAvailableBytes', 'diskTotalBytes', 'diskAvailableBytes', 'uptimeSeconds']) {
+      assert.equal(typeof diagnosis.vm[key], 'number');
+    }
+    const cleanup = JSON.parse((await runWithoutHostTools(['cleanup-logs', '--json'])).stdout) as { success: boolean; killed: number };
+    assert.deepEqual(cleanup, { success: true, killed: 0, pids: [] });
 
     const configSetCases = [
       ['swap.enabled', 'yes'],
@@ -618,7 +642,7 @@ async function main(): Promise<void> {
   await runDifferentialContract();
   console.log(JSON.stringify({
     success: true,
-    differentialContract: ['version --json', 'env display/edit', 'config/config-migrate', 'config-set semantics', 'config-show --secret-state', 'status --json'],
+    differentialContract: ['version --json', 'env display/edit', 'config/config-migrate', 'config-set semantics', 'diagnose/cleanup-logs', 'config-show --secret-state', 'status --json'],
     legacyCommandCount: contract.legacyTopLevelCommands.length,
     typescriptCommandCount: contract.typescriptTopLevelCommands.length,
     missingCommands,

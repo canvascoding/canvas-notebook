@@ -22,8 +22,10 @@ import {
   type CliRuntimeMode,
 } from './core/config';
 import { writeComposeFile } from './core/compose';
+import { collectHostResources } from './core/diagnostics';
 import { DockerManager } from './core/docker';
 import { migrateLegacyConfig } from './core/legacyConfig';
+import { cleanupOrphanedLogFollowers } from './core/logCleanup';
 import {
   acquireOperationLock,
   commandCanRunWithPendingPostgresRecovery,
@@ -134,8 +136,10 @@ Commands:
   down                            Stop and remove the compose project
   status [--json]                 Show compose/container status
   health [--json]                 Check /api/health
+  diagnose [--json]               Show tolerant host, Docker, and app diagnostics
   logs                            Follow app container logs
   manager-log                     Show host-side CLI log
+  cleanup-logs [--json]           Stop only orphaned log followers for this installation
   env [--json]                    Show the active configuration with secrets masked
   env --edit [--timeout <seconds>]
                                   Edit config safely, then apply and wait for health
@@ -724,21 +728,61 @@ export async function update(
   }
 }
 
-async function statusJson(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig): Promise<StatusJson> {
-  const [healthy, container] = await Promise.all([
+async function statusJson(
+  context: RuntimeContext,
+  docker: DockerManager,
+  services: ServiceManager,
+  config: CanvasCliConfig,
+): Promise<StatusJson> {
+  const [healthy, dockerReachable, serviceStatus, cliVersion] = await Promise.all([
     docker.isHealthy(config),
-    docker.inspectContainer(config),
+    docker.isReachable().catch(() => false),
+    services.status(config).catch(() => 'service: unknown'),
+    resolveCliVersion(),
   ]);
-  const image = await docker.imageStatus(config, container?.id || '');
+  const container = dockerReachable ? await docker.inspectContainer(config).catch(() => null) : null;
+  const image = dockerReachable
+    ? await docker.imageStatus(config, container?.id || '').catch(() => null)
+    : null;
   return {
     healthy,
-    serviceActive: config.platform.serviceMode,
+    serviceActive: serviceStatus.includes(':') ? serviceStatus.slice(serviceStatus.indexOf(':') + 1).trim() : serviceStatus,
     installDir: config.paths.installDir,
     composeFile: config.paths.composeFile,
     dataDir: config.dataDir,
     managerLog: context.paths.logFile,
-    image,
+    image: image || {
+      configuredRef: config.image,
+      localId: '',
+      localDigest: '',
+      localCreated: '',
+      runningRef: '',
+      runningImageId: '',
+      runningStartedAt: '',
+      appVersion: '',
+      cliVersion,
+    },
     container,
+  };
+}
+
+async function diagnosePayload(
+  context: RuntimeContext,
+  docker: DockerManager,
+  services: ServiceManager,
+  config: CanvasCliConfig,
+) {
+  const [status, vm, dockerReachable] = await Promise.all([
+    statusJson(context, docker, services, config),
+    collectHostResources(config.paths.installDir),
+    docker.isReachable().catch(() => false),
+  ]);
+  return {
+    status,
+    vm,
+    platform: context.platform,
+    dockerReachable,
+    healthUrl: docker.healthUrl(config),
   };
 }
 
@@ -1463,16 +1507,40 @@ async function main(): Promise<void> {
     case 'status':
     case 'ps':
       if (parsed.json) {
-        console.log(JSON.stringify(await statusJson(context, docker, config)));
+        console.log(JSON.stringify(await statusJson(context, docker, services, config)));
       } else {
-        await docker.composeOrThrow(config, ['ps'], 'inherit');
+        const status = await statusJson(context, docker, services, config);
+        console.log(`Health: ${status.healthy ? 'ok' : 'failed'}`);
+        console.log(`Service: ${status.serviceActive}`);
+        console.log(`Container: ${status.container?.status || 'not available'}`);
+        console.log(`Configured image: ${status.image.configuredRef}`);
       }
       break;
     case 'health': {
-      const healthy = await docker.isHealthy(config);
+      const healthy = await docker.isHealthy(config).catch(() => false);
       if (parsed.json) console.log(JSON.stringify({ healthy }));
       else if (healthy) console.log(`ok ${docker.healthUrl(config)}`);
       if (!healthy) process.exitCode = 1;
+      break;
+    }
+    case 'diagnose': {
+      if (parsed.args.length > 0) throw new Error('Usage: canvas-notebook diagnose [--json]');
+      const diagnosis = await diagnosePayload(context, docker, services, config);
+      if (parsed.json) console.log(JSON.stringify(diagnosis));
+      else {
+        console.log('== Canvas Notebook ==');
+        console.log(`Install dir: ${diagnosis.status.installDir}`);
+        console.log(`Compose file: ${diagnosis.status.composeFile}`);
+        console.log(`Health URL: ${diagnosis.healthUrl}`);
+        console.log(`Health: ${diagnosis.status.healthy ? 'ok' : 'failed'}`);
+        console.log(`Docker: ${diagnosis.dockerReachable ? 'reachable' : 'not reachable'}`);
+        console.log(`Container: ${diagnosis.status.container?.status || 'not available'}`);
+        console.log('');
+        console.log('== Host resources ==');
+        console.log(`Memory: ${diagnosis.vm.memoryAvailableBytes}/${diagnosis.vm.memoryTotalBytes} bytes available`);
+        console.log(`Disk: ${diagnosis.vm.diskAvailableBytes}/${diagnosis.vm.diskTotalBytes} bytes available`);
+        console.log(`Uptime: ${Math.floor(diagnosis.vm.uptimeSeconds)} seconds`);
+      }
       break;
     }
     case 'logs':
@@ -1482,6 +1550,13 @@ async function main(): Promise<void> {
     case 'manager-log':
       console.log(await fs.readFile(context.paths.logFile, 'utf8').catch(() => ''));
       break;
+    case 'cleanup-logs': {
+      if (parsed.args.length > 0) throw new Error('Usage: canvas-notebook cleanup-logs [--json]');
+      const pids = await cleanupOrphanedLogFollowers({ runner, context, config });
+      if (parsed.json) console.log(JSON.stringify({ success: true, killed: pids.length, pids }));
+      else console.log(`Stopped ${pids.length} orphaned compose-log follower${pids.length === 1 ? '' : 's'}.`);
+      break;
+    }
     case 'env':
       await runEnvCommand(context, runner, docker, config, parsed.args, parsed.json);
       break;

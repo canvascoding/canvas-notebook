@@ -77,7 +77,7 @@ Arbeitspaket aktualisiert werden.
 | `install` | `install` | Kern vorhanden | Differentialtest fuer Config, Compose, Start und Health |
 | `update` | `update` | vorhanden | Image-Pinning, Deadline, Rollback und Re-Exec |
 | `start`, `restart`, `stop`, `down` | vorhanden | vorhanden | Lifecycle- und Lock-Tests |
-| `status`, `ps` | vorhanden | teilweise verifiziert | identischer JSON-Mindestvertrag fuer Agent/Control Plane |
+| `status`, `ps` | vorhanden | vorhanden | stabiler JSON-Mindestvertrag auch ohne Docker |
 | `health` | vorhanden | vorhanden | Text, JSON und Exit Code bei Fehler |
 | `logs`, `container-logs` | vorhanden | vorhanden | Argument- und Prozessbeendigungs-Test |
 | `manager-log` | vorhanden | vorhanden | fehlende und vorhandene Logdatei |
@@ -92,14 +92,14 @@ Arbeitspaket aktualisiert werden.
 | `admin reset-password` | vorhanden | vorhanden | Passwort nur ueber stdin, keine Secret-Persistenz |
 | `swap`, `swap-sync`, `swap-apply`, `swap-enable`, `swap-disable` | noch nicht vorhanden | fehlt | Linux-Adapter, Transaktion, Ownership und Recovery |
 | `caddy`, `caddy-reload`, `caddy-fix` | noch nicht vorhanden | fehlt | Linux-Adapter, Validierung und sichere Writes |
-| `diagnose` | noch nicht vorhanden | fehlt | tolerante Text-/JSON-Diagnose ohne Docker |
+| `diagnose` | vorhanden | vorhanden | tolerante Text-/JSON-Diagnose ohne Docker |
 | `config` | vorhanden | vorhanden | aktive Pfade und Plattformkonfiguration |
 | `config-show` | vorhanden | vorhanden | Maskierung und `--secret-state` |
 | `config-set` | Top-Level-Basiswerte, `env.*`, `swap.*` und `autoUpdate.*` | vorhanden | validierte Pfade, gekoppelte URLs und Secret-Schutz |
 | `config-migrate` | vorhanden | vorhanden | Migration aus `manager.env`, Compose- und Env-Dateien ohne Credential-Rotation |
 | `cli-update` | vorhanden | vorhanden | Signatur/Checksum, atomarer Austausch und Re-Exec |
 | `auto-update-status`, `auto-update-enable`, `auto-update-disable`, `auto-update-sync` | noch nicht vorhanden | fehlt | Standalone-Timer und Managed-Mode-Sperre |
-| `cleanup-logs` | noch nicht vorhanden | fehlt | nur eigene verwaiste Log-Follower beenden |
+| `cleanup-logs` | vorhanden | vorhanden | nur eigene verwaiste Log-Follower beenden |
 | `service status/install/uninstall` | vorhanden | neue Funktion | systemd Unit muss bei Fresh Install wirklich erzeugt werden |
 
 Ein Befehl gilt nicht allein deshalb als fertig, weil sein Happy Path vorhanden
@@ -232,6 +232,12 @@ Gate: Control-Plane-Konfiguration inklusive Swap- und Auto-Update-Feldern kann
 vollstaendig mit der neuen CLI gelesen, geschrieben und gerendert werden.
 
 #### Phase 2: Diagnose-, Log- und Host-Status-Paritaet
+
+Status: Abgeschlossen am 2026-08-28. `status --json` behaelt seinen bisherigen
+Mindestvertrag und liefert auch ohne Docker eine verwertbare Antwort.
+`diagnose` ergaenzt Host-Ressourcen und Docker-Erreichbarkeit. `cleanup-logs`
+beendet ausschliesslich verwaiste Prozesse mit PPID 1, deren Compose-Datei,
+Projektpfad, Follow-Modus und Service exakt zu dieser Installation passen.
 
 - `diagnose` Text/JSON.
 - `cleanup-logs`.
