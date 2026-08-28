@@ -5645,6 +5645,8 @@ function SourceMarkdownEditor({
   collaborationEnabled = false,
   collaborationSession,
   sourceModeReason,
+  normalizationAvailable,
+  onNormalizeToRichMode,
   isPresentationDocument,
 }: MarkdownEditorProps & {
   initiallyShowMobileToolbar?: boolean;
@@ -5653,6 +5655,8 @@ function SourceMarkdownEditor({
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   onRichMode: () => void;
   sourceModeReason?: MarkdownRichModeReason;
+  normalizationAvailable: boolean;
+  onNormalizeToRichMode: () => void;
   isPresentationDocument: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -5729,6 +5733,29 @@ function SourceMarkdownEditor({
             : 'markdownEditorSourcePreservationNotice')}</span>
         </div>
       ) : null}
+      {normalizationAvailable ? (
+        <div
+          className="mx-3 mt-3 flex flex-col gap-2 rounded-md border border-primary/35 bg-primary/8 px-3 py-2.5 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between"
+          data-testid="markdown-safe-normalization-notice"
+          role="status"
+        >
+          <div className="flex min-w-0 items-start gap-2">
+            <BadgeInfo aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
+            <span>{t('markdownEditorSafeNormalizationNotice')}</span>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 shrink-0 self-start bg-background/80 sm:self-auto"
+            data-testid="markdown-normalize-rich-text"
+            onClick={onNormalizeToRichMode}
+          >
+            <Pencil aria-hidden="true" className="size-3.5" />
+            {t('markdownEditorNormalizeAndOpenRichText')}
+          </Button>
+        </div>
+      ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
         <CodeEditor
           value={value}
@@ -5768,7 +5795,7 @@ export function MarkdownEditor({
   const isMobileKeyboardActive = useMobileKeyboardActive();
   const parsedDocument = useMemo(() => parseCanvasMarkdownDocument(value), [value]);
   const richModeAnalysis = useMemo(() => analyzeMarkdownRichMode(value), [value]);
-  const sourceModeRequired = richModeAnalysis.mode === 'source';
+  const sourceModeRequired = richModeAnalysis.mode !== 'rich';
   const isPresentationDocument = useMemo(
     () => Boolean(filePath && isMarpMarkdown(filePath, value)),
     [filePath, value],
@@ -5816,6 +5843,17 @@ export function MarkdownEditor({
     setSourceModeRequested(false);
     setMode('rich');
   }, [collaborationEnabled, sourceModeRequired]);
+
+  const normalizeToRichMode = useCallback(() => {
+    if (readOnly || collaborationEnabled || richModeAnalysis.mode !== 'normalizable') return;
+    onChange?.(composeCanvasMarkdownDocument(
+      richModeAnalysis.prefix,
+      richModeAnalysis.normalizedBody,
+    ));
+    setSourceModeRequested(false);
+    setMode('rich');
+    toast.success(t('markdownEditorNormalizedForRichText'));
+  }, [collaborationEnabled, onChange, readOnly, richModeAnalysis, t]);
 
   if (collaborationEnabled && !collaborationSession.session) {
     return (
@@ -5867,6 +5905,8 @@ export function MarkdownEditor({
         collaborationEnabled={collaborationEnabled}
         collaborationSession={collaborationSession.session}
         sourceModeReason={richModeAnalysis.mode === 'source' ? richModeAnalysis.reason : undefined}
+        normalizationAvailable={richModeAnalysis.mode === 'normalizable' && !readOnly && !collaborationEnabled}
+        onNormalizeToRichMode={normalizeToRichMode}
         isPresentationDocument={isPresentationDocument}
       />
     );

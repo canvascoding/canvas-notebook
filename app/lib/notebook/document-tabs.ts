@@ -129,6 +129,24 @@ export function closeNotebookDocumentTab(
   };
 }
 
+export function closeNotebookDocumentTabsAtPaths(
+  state: NotebookDocumentTabsState,
+  paths: Iterable<string>,
+): NotebookDocumentTabsState {
+  const closedPaths = new Set(normalizeOpenPaths(Array.from(paths)));
+  if (closedPaths.size === 0) return state;
+
+  const shouldClose = (openPath: string) => Array.from(closedPaths).some((closedPath) => (
+    openPath === closedPath || openPath.startsWith(`${closedPath}/`)
+  ));
+
+  let nextState = state;
+  for (const openPath of state.openPaths.filter(shouldClose)) {
+    nextState = closeNotebookDocumentTab(nextState, openPath);
+  }
+  return nextState;
+}
+
 export function renameNotebookDocumentTabs(
   state: NotebookDocumentTabsState,
   oldPath: string,

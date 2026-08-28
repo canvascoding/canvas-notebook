@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getDatabaseProvider } from '@/app/lib/db/provider';
-import { workspaceRequiresCollaborationPolicy } from '@/app/lib/files/collaboration-policy';
 import { applyRateLimit, readJsonBody } from '@/app/lib/api/route-helpers';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 import { issueCollaborationTicket } from '@/app/lib/collaboration/ticket';
@@ -35,8 +34,8 @@ export async function POST(request: NextRequest) {
   });
   if (rateLimitResponse) return rateLimitResponse;
 
-  if (getDatabaseProvider() !== 'postgres' || !workspaceRequiresCollaborationPolicy(workspaceResult.workspace)) {
-    return NextResponse.json({ success: false, error: 'Live collaboration requires a shared Postgres workspace.' }, { status: 409 });
+  if (getDatabaseProvider() !== 'postgres') {
+    return NextResponse.json({ success: false, error: 'Live collaboration requires Postgres.' }, { status: 409 });
   }
 
   try {

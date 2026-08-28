@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import type Database from 'better-sqlite3';
+import { workspaceSupportsRealtimeTextCollaboration } from '@/app/lib/collaboration/capabilities';
 import { openOrganizationBootstrapDatabase } from '@/app/lib/organization/bootstrap';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
@@ -569,6 +570,19 @@ function ensureCollaborationDocument(
   return created;
 }
 
+function collaborationProviderForStrategy(
+  workspace: WorkspaceContext,
+  strategy: FileCollaborationStrategy,
+): CollaborationDocumentRecord['provider'] | null {
+  if (strategy === 'crdt_text' && workspaceSupportsRealtimeTextCollaboration(workspace)) {
+    return 'yjs';
+  }
+  if (strategy === 'excalidraw_scene' && workspaceRequiresCollaborationPolicy(workspace)) {
+    return 'excalidraw';
+  }
+  return null;
+}
+
 function buildState(params: {
   sqlite: Sqlite;
   workspace: WorkspaceContext;
@@ -581,10 +595,10 @@ function buildState(params: {
   const requiresPolicy = workspaceRequiresCollaborationPolicy(params.workspace);
   const latestRevision = params.latestRevision ?? getLatestRevision(params.sqlite, params.workspace.workspaceId, params.path);
   const activeLock = requiresPolicy ? getActiveLock(params.sqlite, params.workspace.workspaceId, params.path, params.nowMs) : null;
-  const crdtCapable = requiresPolicy && strategy === 'crdt_text';
-  const sceneCapable = requiresPolicy && strategy === 'excalidraw_scene';
-  const provider = sceneCapable ? 'excalidraw' : 'yjs';
-  const document = crdtCapable || sceneCapable
+  const provider = collaborationProviderForStrategy(params.workspace, strategy);
+  const crdtCapable = provider === 'yjs';
+  const sceneCapable = provider === 'excalidraw';
+  const document = provider
     ? params.ensureDocument
       ? ensureCollaborationDocument(params.sqlite, params.workspace, params.path, provider, latestRevision?.id ?? null, params.nowMs)
       : getCollaborationDocument(params.sqlite, params.workspace.workspaceId, params.path, provider)
@@ -681,7 +695,21 @@ export function ensureFileRevisionForCurrentContent(params: {
   return withCollaborationDatabase(true, (sqlite) => {
     const lineage = ensureActiveLineage(sqlite, params.workspace, normalizedPath, nowMs);
     const latest = getLatestRevisionForLineage(sqlite, lineage.id);
+    const collaborationProvider = collaborationProviderForStrategy(
+      params.workspace,
+      detectFileCollaborationStrategy(normalizedPath),
+    );
     if (latest?.contentHash === params.contentHash && latest.sizeBytes === params.sizeBytes) {
+      if (collaborationProvider) {
+        ensureCollaborationDocument(
+          sqlite,
+          params.workspace,
+          normalizedPath,
+          collaborationProvider,
+          latest.id,
+          nowMs,
+        );
+      }
       return latest;
     }
 
@@ -716,13 +744,12 @@ export function ensureFileRevisionForCurrentContent(params: {
       throw new Error(`Failed to create file revision for ${normalizedPath}.`);
     }
 
-    const strategy = detectFileCollaborationStrategy(normalizedPath);
-    if ((strategy === 'crdt_text' || strategy === 'excalidraw_scene') && workspaceRequiresCollaborationPolicy(params.workspace)) {
+    if (collaborationProvider) {
       ensureCollaborationDocument(
         sqlite,
         params.workspace,
         normalizedPath,
-        strategy === 'excalidraw_scene' ? 'excalidraw' : 'yjs',
+        collaborationProvider,
         created.id,
         nowMs,
       );

@@ -51,4 +51,59 @@ assert.deepEqual(analyzeMarkdownRichMode(invalidFrontmatter), {
 const crlfBody = '---\r\nmarp: true\r\n---\r\n\r\n# Slide\r\n';
 assert.equal(analyzeMarkdownRichMode(crlfBody).mode, 'rich');
 
+const normalizableFixture = readFixture('techem-safe-normalization.md');
+const normalizableParts = splitCanvasMarkdownForRichEditor(normalizableFixture);
+const normalizedBody = serializeRichMarkdownBody(normalizableParts.body);
+assert.notEqual(normalizedBody, normalizableParts.body);
+assert.deepEqual(analyzeMarkdownRichMode(normalizableFixture), {
+  mode: 'normalizable',
+  prefix: normalizableParts.prefix,
+  body: normalizableParts.body,
+  normalizedBody,
+  normalizations: ['ordered_list_spacing', 'hard_break_marker'],
+});
+assert.deepEqual(
+  analyzeMarkdownRichMode(composeCanvasMarkdownDocument(normalizableParts.prefix, normalizedBody)),
+  {
+    mode: 'rich',
+    prefix: normalizableParts.prefix,
+    body: normalizedBody,
+  },
+);
+
+assert.deepEqual(analyzeMarkdownRichMode('```text\nvalue\\\n```\n'), {
+  mode: 'rich',
+  prefix: '',
+  body: '```text\nvalue\\\n```\n',
+});
+assert.deepEqual(analyzeMarkdownRichMode('# Raw HTML\n\n<div>keep exactly</div>\n'), {
+  mode: 'source',
+  reason: 'roundtrip_changed',
+});
+assert.deepEqual(analyzeMarkdownRichMode('1. Item\n\n   continuation paragraph\n'), {
+  mode: 'source',
+  reason: 'roundtrip_changed',
+});
+
+const markdownEditorSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'components', 'editor', 'MarkdownEditor.tsx'),
+  'utf8',
+);
+assert.match(markdownEditorSource, /data-testid="markdown-safe-normalization-notice"/u);
+assert.match(markdownEditorSource, /data-testid="markdown-normalize-rich-text"/u);
+assert.match(
+  markdownEditorSource,
+  /composeCanvasMarkdownDocument\(\s*richModeAnalysis\.prefix,\s*richModeAnalysis\.normalizedBody/u,
+);
+
+for (const locale of ['en', 'de']) {
+  const messages = JSON.parse(fs.readFileSync(
+    path.join(process.cwd(), 'messages', `${locale}.json`),
+    'utf8',
+  )) as { notebook?: Record<string, string> };
+  assert.ok(messages.notebook?.markdownEditorSafeNormalizationNotice);
+  assert.ok(messages.notebook?.markdownEditorNormalizeAndOpenRichText);
+  assert.ok(messages.notebook?.markdownEditorNormalizedForRichText);
+}
+
 console.log('markdown-roundtrip-preservation-test: ok');

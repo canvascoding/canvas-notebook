@@ -111,7 +111,7 @@ const agentExecutionContext: AgentExecutionContext = {
 };
 
 async function runPiTool(
-  name: 'read' | 'edit_file' | 'apply_patch',
+  name: 'read' | 'edit_file' | 'apply_patch' | 'move_path',
   toolCallId: string,
   params: Record<string, unknown>,
 ) {
@@ -951,6 +951,56 @@ try {
   assert.equal(initializedEditDetails.collaboration?.operationStatus, 'checkpointed_file');
   assert.equal(initializedEditDetails.collaboration?.durability, 'checkpointed_file');
   assert.equal(await persistedText(uninitializedToolDocumentId), '# Existing note\n\nParagraph updated by agent');
+
+  // Global replacements retain the same semantics when Markdown is backed by
+  // an active Yjs document rather than a materialized file checkpoint.
+  const replaceAllToolPath = `agent-tool-replace-all-${suffix}.md`;
+  const replaceAllToolContent = 'Status: draft\n\nStatus: draft\n';
+  await fs.writeFile(path.join(workspace.rootPath, replaceAllToolPath), replaceAllToolContent, 'utf8');
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: replaceAllToolPath,
+    contentHash: createHash('sha256').update(replaceAllToolContent, 'utf8').digest('hex'),
+    sizeBytes: Buffer.byteLength(replaceAllToolContent, 'utf8'),
+    actorUserId: userId,
+    actorType: 'user',
+  });
+  const replaceAllRead = await runPiTool('read', `tool-replace-all-read-${suffix}`, { path: replaceAllToolPath });
+  const replaceAllReadDetails = replaceAllRead.details as {
+    sha256?: string;
+    collaboration?: { documentId?: string; source?: string };
+  };
+  assert.equal(replaceAllReadDetails.collaboration?.source, 'live_yjs');
+  assert(replaceAllReadDetails.collaboration?.documentId);
+  const replaceAllEdit = await runPiTool('edit_file', `tool-replace-all-edit-${suffix}`, {
+    path: replaceAllToolPath,
+    expectedSha256: replaceAllReadDetails.sha256,
+    oldText: 'Status: draft',
+    newText: 'Status: ready',
+    replaceAll: true,
+  });
+  assert.equal((replaceAllEdit.details as { collaboration?: { operationStatus?: string } }).collaboration?.operationStatus, 'checkpointed_file');
+  assert.equal(
+    await persistedText(replaceAllReadDetails.collaboration!.documentId),
+    'Status: ready\n\nStatus: ready\n',
+  );
+  const movedReplaceAllPath = `agent-tool-replace-all-moved-${suffix}.md`;
+  const moveLiveMarkdown = await runPiTool('move_path', `tool-replace-all-move-${suffix}`, {
+    sourcePath: replaceAllToolPath,
+    destinationPath: movedReplaceAllPath,
+  });
+  assert.equal((moveLiveMarkdown.details as { verified?: boolean }).verified, true);
+  const movedReplaceAllRead = await runPiTool('read', `tool-replace-all-moved-read-${suffix}`, {
+    path: movedReplaceAllPath,
+  });
+  const movedReplaceAllDetails = movedReplaceAllRead.details as {
+    collaboration?: { documentId?: string; source?: string };
+  };
+  assert.equal(movedReplaceAllDetails.collaboration?.documentId, replaceAllReadDetails.collaboration?.documentId);
+  assert.equal(movedReplaceAllDetails.collaboration?.source, 'live_yjs');
+  assert.match(String((movedReplaceAllRead.content[0] as { text?: string } | undefined)?.text || ''), /Status: ready\n\nStatus: ready/u);
+  const oldReplaceAllRead = await runPiTool('read', `tool-replace-all-old-read-${suffix}`, { path: replaceAllToolPath });
+  assert.match(String((oldReplaceAllRead.content[0] as { text?: string } | undefined)?.text || ''), /ENOENT|no such file|does not exist/i);
 
   // The durable Yjs representation must win over a source-only checkpoint.
   // This is the regression path for a document that an agent has changed

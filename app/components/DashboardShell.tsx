@@ -57,6 +57,7 @@ import {
   useShouldShowWorkspaceSwitcher,
 } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
+import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import {
   getNotebookNavigationIntent,
@@ -106,6 +107,7 @@ import type {
 } from '@/app/lib/notebook/context-surface';
 import {
   NOTEBOOK_MAX_OPEN_DOCUMENTS,
+  closeNotebookDocumentTabsAtPaths,
   closeNotebookDocumentTab,
   emptyNotebookDocumentTabsState,
   openNotebookDocumentTab,
@@ -843,25 +845,29 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [handleCloseDocumentTab]);
 
   useEffect(() => {
-    const handlePathsDeleted = (event: Event) => {
+    const closeDocumentTabsAtPaths = (paths: Iterable<string>) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
-      const { paths } = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
-      const shouldRemove = (openPath: string) => paths.some((deletedPath) => (
-        openPath === deletedPath || openPath.startsWith(`${deletedPath}/`)
-      ));
-      let nextTabs = documentTabsRef.current;
-      for (const openPath of nextTabs.openPaths.filter(shouldRemove)) {
-        nextTabs = closeNotebookDocumentTab(nextTabs, openPath);
-      }
+      const closedPaths = Array.from(paths);
+      const nextTabs = closeNotebookDocumentTabsAtPaths(documentTabsRef.current, closedPaths);
       if (nextTabs === documentTabsRef.current) return;
+
+      const currentFilePath = useFileStore.getState().currentFile?.path ?? null;
       replaceDocumentTabs(activeWorkspaceId, nextTabs);
       if (nextTabs.activePath) {
-        if (useFileStore.getState().currentFile?.path !== nextTabs.activePath) {
+        if (currentFilePath !== nextTabs.activePath) {
           void openNotebookFile(nextTabs.activePath);
         }
-      } else {
-        dispatch({ type: 'DOCUMENT_CLOSED' });
+        return;
       }
+
+      useFileStore.getState().clearCurrentFile();
+      useEditorStore.getState().clear();
+      openedPathRef.current = null;
+      dispatch({ type: 'DOCUMENT_CLOSED' });
+    };
+    const handlePathsDeleted = (event: Event) => {
+      const { paths } = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
+      closeDocumentTabsAtPaths(paths);
     };
     const handlePathRenamed = (event: Event) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
@@ -871,11 +877,25 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         renameNotebookDocumentTabs(documentTabsRef.current, oldPath, newPath),
       );
     };
+    const handleWatcherFileChange = (event: Event) => {
+      const detail = (event as CustomEvent<FileEvent>).detail;
+      if (
+        !detail
+        || (detail.type !== 'unlink' && detail.type !== 'unlinkDir')
+        || (detail.workspaceId && detail.workspaceId !== activeWorkspaceId)
+      ) {
+        return;
+      }
+      closeDocumentTabsAtPaths([detail.relativePath]);
+    };
+    const fileWatcher = getFileWatcherClient();
     window.addEventListener(WORKSPACE_PATHS_DELETED_EVENT, handlePathsDeleted);
     window.addEventListener(WORKSPACE_PATH_RENAMED_EVENT, handlePathRenamed);
+    fileWatcher.addEventListener('filechange', handleWatcherFileChange);
     return () => {
       window.removeEventListener(WORKSPACE_PATHS_DELETED_EVENT, handlePathsDeleted);
       window.removeEventListener(WORKSPACE_PATH_RENAMED_EVENT, handlePathRenamed);
+      fileWatcher.removeEventListener('filechange', handleWatcherFileChange);
     };
   }, [activeWorkspaceId, dispatch, openNotebookFile, replaceDocumentTabs]);
 

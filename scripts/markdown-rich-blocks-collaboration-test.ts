@@ -10,6 +10,23 @@ import {
   richMarkdownFromYDoc,
   validateRichMarkdownYDoc,
 } from '../app/lib/collaboration/markdown-state';
+import { selectInitialTextCollaborationRepresentation } from '../app/lib/collaboration/document-state-service';
+
+assert.equal(
+  selectInitialTextCollaborationRepresentation('safe.md', '# Safe\n'),
+  'tiptap_xml',
+  'round-trip-safe Markdown may initialize the collaborative rich-text representation',
+);
+assert.equal(
+  selectInitialTextCollaborationRepresentation('normalizable.md', '1. First\n\n2. Second\n'),
+  'plain_text',
+  'safe normalization must remain explicit before initializing collaborative rich text',
+);
+assert.equal(
+  selectInitialTextCollaborationRepresentation('source.md', '# Raw HTML\n\n<div>keep exactly</div>\n'),
+  'plain_text',
+  'lossy Markdown must initialize the exact plain-text representation',
+);
 
 const markdown = `# Shared note
 

@@ -5,6 +5,7 @@ import crypto, { randomUUID } from 'node:crypto';
 import {
   applyExactTextEdits,
   countExactTextOccurrences,
+  resolveExactTextEditMatchCount,
   type ExactTextEdit,
 } from '@/app/lib/files/exact-text-patch';
 import { WorkspaceFileRevisionError } from '@/app/lib/files/revision-guard';
@@ -73,8 +74,10 @@ function createPlainTargets(input: {
   const text = input.doc.getText('content');
   const targets: AgentTextTarget[] = [];
   for (const [editIndex, edit] of input.edits.entries()) {
-    const expectedOccurrences = edit.expectedOccurrences ?? 1;
-    if (countExactTextOccurrences(input.content, edit.oldText) !== expectedOccurrences) {
+    const expectedOccurrences = edit.replaceAll
+      ? countExactTextOccurrences(input.content, edit.oldText)
+      : edit.expectedOccurrences ?? 1;
+    if (expectedOccurrences === 0 || countExactTextOccurrences(input.content, edit.oldText) !== expectedOccurrences) {
       return [createAgentTextTarget({
         text,
         from: 0,
@@ -106,12 +109,18 @@ function createRichTargets(input: {
   edits: ExactTextEdit[];
   groupId: string;
 }): AgentTextTarget[] {
+  const currentMarkdown = richMarkdownFromYDoc(input.doc);
   return input.edits.flatMap((edit, editIndex) => (
     createRichAgentTextTargets({
       doc: input.doc,
       search: edit.oldText,
       replacement: edit.newText,
-      expectedOccurrences: edit.expectedOccurrences,
+      expectedOccurrences: resolveExactTextEditMatchCount({
+        content: currentMarkdown,
+        edit,
+        label: 'live Markdown collaboration state',
+        editIndex,
+      }),
       groupId: input.groupId,
     }).map((target, occurrence) => ({
       ...target,
