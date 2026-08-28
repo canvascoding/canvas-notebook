@@ -21,7 +21,9 @@ async function main(): Promise<void> {
 
     const {
       addMemory,
+      applyMemoryReviewCandidates,
       claimDueMemoryReviewJob,
+      completeMemoryReviewJob,
       deleteMemory,
       readMemory,
       scheduleMemoryReviewForSession,
@@ -65,7 +67,33 @@ async function main(): Promise<void> {
     try {
       const job = await jobDb.get(`SELECT status FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string };
       assert.equal(job.status, 'awaiting_model_configuration');
+      await jobDb.run(`
+        INSERT INTO memory_user_settings (user_id, automatic_memory_enabled, provider_installation_id, model_id, memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at)
+        VALUES ('user-1', 1, 'aip_0123456789abcdef01234567', 'review-model', 2000, 0, 1, 1)
+      `);
     } finally { await jobDb.close(); }
+    const claim = await claimDueMemoryReviewJob(1_001);
+    assert.equal(claim?.sourceAgentId, 'canvas-agent');
+    assert.equal(claim?.modelId, 'review-model');
+    assert.deepEqual(
+      await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 1_002 }),
+      { scheduled: false, triggerType: 'turn_interval', fromMessageSequence: 1, throughMessageSequence: 20 },
+    );
+    const reviewResult = await applyMemoryReviewCandidates({
+      claim: claim!,
+      candidates: [{
+        action: 'add',
+        target: 'user',
+        category: 'preferences',
+        semanticKey: 'communication.response-length',
+        content: 'Prefers concise responses.',
+        priority: 70,
+        confidence: 0.9,
+        sourceMessageSequence: 1,
+      }],
+    });
+    assert.deepEqual(reviewResult, { added: 1, updated: 0, archived: 0, skipped: 0 });
+    await completeMemoryReviewJob(claim!.id, 1_003);
   } finally {
     moduleInternals._load = originalLoad;
     await fs.rm(dataDir, { recursive: true, force: true });

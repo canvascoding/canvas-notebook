@@ -1794,6 +1794,10 @@ class LivePiRuntime {
                 sessionId: this.sessionId,
                 userId: this.userId,
               }))
+              .then(() => import('@/app/lib/memory/review-worker'))
+              .then(({ triggerMemoryReviewWorker }) => {
+                triggerMemoryReviewWorker();
+              })
               .catch((error) => {
                 console.error('[LiveRuntime] Failed to schedule memory review:', error);
               });
