@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Save,
   Server,
+  Unplug,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -75,6 +76,14 @@ type DirectMcpRequestHistoryState = {
   entries: DirectMcpRequestHistoryEntry[];
 };
 
+type DirectMcpConnection = {
+  connectionId: string;
+  clientName: string;
+  scopes: string[];
+  connectedAt: string | null;
+  updatedAt: string | null;
+};
+
 function enabledTools(status: McpServerStatus): string[] {
   return status.capabilities
     .filter((capability) => capability.available && capability.enabled)
@@ -109,6 +118,10 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   const [requestHistory, setRequestHistory] = useState<DirectMcpRequestHistoryState | null>(null);
   const [isRequestHistoryLoading, setIsRequestHistoryLoading] = useState(false);
   const [requestHistoryError, setRequestHistoryError] = useState<string | null>(null);
+  const [connections, setConnections] = useState<DirectMcpConnection[] | null>(null);
+  const [isConnectionsLoading, setIsConnectionsLoading] = useState(false);
+  const [connectionsError, setConnectionsError] = useState<string | null>(null);
+  const [disconnectingConnectionId, setDisconnectingConnectionId] = useState<string | null>(null);
 
   const applyStatus = useCallback((nextStatus: McpServerStatus) => {
     setStatus(nextStatus);
@@ -161,6 +174,28 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
     }
   }, [t]);
 
+  const loadConnections = useCallback(async () => {
+    setIsConnectionsLoading(true);
+    setConnectionsError(null);
+    try {
+      const response = await fetch('/api/integrations/mcp-server/connections', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('connections.errors.load'));
+      }
+      setConnections(Array.isArray(payload.data?.connections)
+        ? payload.data.connections as DirectMcpConnection[]
+        : []);
+    } catch (loadError) {
+      setConnectionsError(loadError instanceof Error ? loadError.message : t('connections.errors.load'));
+    } finally {
+      setIsConnectionsLoading(false);
+    }
+  }, [t]);
+
   useEffect(() => {
     let active = true;
     void fetch('/api/integrations/mcp-server', {
@@ -181,6 +216,41 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
       active = false;
     };
   }, [applyStatus, t]);
+
+  useEffect(() => {
+    void loadConnections();
+  }, [loadConnections]);
+
+  const disconnectConnection = useCallback(async (connection: DirectMcpConnection) => {
+    if (disconnectingConnectionId || !window.confirm(
+      t('connections.disconnectConfirm', { client: connection.clientName }),
+    )) return;
+
+    setDisconnectingConnectionId(connection.connectionId);
+    setConnectionsError(null);
+    setSuccess(null);
+    try {
+      const response = await fetch('/api/integrations/mcp-server/connections', {
+        method: 'DELETE',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ connectionId: connection.connectionId }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('connections.errors.disconnect'));
+      }
+      setConnections((current) => current?.filter((item) => item.connectionId !== connection.connectionId) ?? []);
+      setSuccess(t('connections.disconnected'));
+    } catch (disconnectError) {
+      setConnectionsError(disconnectError instanceof Error
+        ? disconnectError.message
+        : t('connections.errors.disconnect'));
+    } finally {
+      setDisconnectingConnectionId(null);
+    }
+  }, [disconnectingConnectionId, t]);
 
   const savedDraft: DraftSettings | null = status ? ({
     enabled: status.desiredEnabled,
@@ -369,6 +439,76 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
             </div>
           </section>
         ) : null}
+
+        <section aria-labelledby="mcp-server-connections-title" className="space-y-3 border-t pt-6">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h3 id="mcp-server-connections-title" className="font-semibold">{t('connections.title')}</h3>
+              <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">
+                {t('connections.description')}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void loadConnections()}
+              disabled={isConnectionsLoading}
+            >
+              {isConnectionsLoading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+              {t('connections.refresh')}
+            </Button>
+          </div>
+
+          {isConnectionsLoading && !connections ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {t('connections.loading')}
+            </div>
+          ) : connectionsError ? (
+            <p role="alert" className="text-sm text-destructive">{connectionsError}</p>
+          ) : connections?.length ? (
+            <div className="divide-y overflow-hidden rounded-lg border">
+              {connections.map((connection) => {
+                const authorizedAt = connection.updatedAt || connection.connectedAt;
+                return (
+                  <div key={connection.connectionId} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="font-medium">{connection.clientName}</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {connection.scopes.map((scope) => (
+                          <Badge key={scope} variant="outline" className="font-mono font-normal">{scope}</Badge>
+                        ))}
+                      </div>
+                      {authorizedAt ? (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {t('connections.authorizedAt', { time: formatRequestTime(authorizedAt) })}
+                        </p>
+                      ) : null}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="self-start text-destructive hover:text-destructive"
+                      disabled={disconnectingConnectionId !== null}
+                      onClick={() => void disconnectConnection(connection)}
+                    >
+                      {disconnectingConnectionId === connection.connectionId
+                        ? <Loader2 className="animate-spin" />
+                        : <Unplug />}
+                      {t('connections.disconnect')}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+              {t('connections.empty')}
+            </p>
+          )}
+        </section>
 
         {isAdmin ? (
           <section aria-labelledby="mcp-server-request-history-title" className="border-t pt-6">

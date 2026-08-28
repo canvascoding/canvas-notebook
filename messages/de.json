@@ -3327,6 +3327,21 @@
         "missing": "Die öffentliche Canvas-Domain ist noch nicht konfiguriert.",
         "notConfigured": "Keine Server-Adresse verfügbar"
       },
+      "connections": {
+        "title": "Deine verbundenen Clients",
+        "description": "Zeigt die MCP-Clients, die du autorisiert hast. Beim Trennen verliert dieser Client sofort den Zugriff auf deine Canvas-Daten; andere Personen bleiben unberührt.",
+        "refresh": "Aktualisieren",
+        "loading": "Lade verbundene Clients …",
+        "empty": "Du hast noch keine MCP-Clients autorisiert.",
+        "authorizedAt": "Autorisiert {time}",
+        "disconnect": "Trennen",
+        "disconnectConfirm": "{client} trennen? Der Zugriff auf deine Canvas-Daten wird sofort entfernt.",
+        "disconnected": "MCP-Client getrennt.",
+        "errors": {
+          "load": "Deine MCP-Verbindungen konnten nicht geladen werden.",
+          "disconnect": "Dieser MCP-Client konnte nicht getrennt werden."
+        }
+      },
       "requestHistory": {
         "title": "Letzte Anfragen",
         "description": "Zeigt die letzten Anfragen an diesen Canvas-MCP-Server. Es werden nur sichere technische Metadaten gespeichert und nach {hours} Stunden automatisch gelöscht.",

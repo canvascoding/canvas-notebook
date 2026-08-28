@@ -369,6 +369,23 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_mcp_revoked_access_token_expiry
       ON mcp_revoked_access_token (expires_at);
 
+    -- Revokes one user's Direct MCP grant while preserving the public OAuth
+    -- client for other users. A timestamp lets a subsequent reauthorization
+    -- issue a new bearer token for the same browser session.
+    CREATE TABLE IF NOT EXISTS mcp_direct_grant_revocation (
+      client_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      revoked_at INTEGER NOT NULL,
+      PRIMARY KEY (client_id, session_id, user_id),
+      FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
+      FOREIGN KEY (session_id) REFERENCES session(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mcp_direct_grant_revocation_user_client
+      ON mcp_direct_grant_revocation (user_id, client_id);
+
     CREATE TABLE IF NOT EXISTS oauth_consent (
       id TEXT PRIMARY KEY NOT NULL,
       client_id TEXT NOT NULL,

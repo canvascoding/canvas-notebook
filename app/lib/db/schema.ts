@@ -391,6 +391,20 @@ export const mcpRevokedAccessToken = sqliteTable("mcp_revoked_access_token", {
   expiryIdx: index("idx_mcp_revoked_access_token_expiry").on(table.expiresAt),
 }));
 
+// A user can disconnect their own Direct MCP grant without disabling the
+// dynamically registered public client for other users. The timestamp keeps
+// bearer JWTs issued before the disconnect invalid while permitting a later,
+// explicit reauthorization for the same browser session.
+export const mcpDirectGrantRevocation = sqliteTable("mcp_direct_grant_revocation", {
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull().references(() => session.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  revokedAt: integer("revoked_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => ({
+  grantPk: primaryKey({ columns: [table.clientId, table.sessionId, table.userId] }),
+  userClientIdx: index("idx_mcp_direct_grant_revocation_user_client").on(table.userId, table.clientId),
+}));
+
 export const oauthConsent = sqliteTable("oauth_consent", {
   id: text("id").primaryKey(),
   clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),

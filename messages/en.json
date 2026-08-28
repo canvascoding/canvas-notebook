@@ -3328,6 +3328,21 @@
         "missing": "The public Canvas domain has not been configured yet.",
         "notConfigured": "No server address available"
       },
+      "connections": {
+        "title": "Your connected clients",
+        "description": "Shows the MCP clients you have authorized. Disconnecting immediately removes this client's access to your Canvas data without affecting other people.",
+        "refresh": "Refresh",
+        "loading": "Loading connected clients…",
+        "empty": "You have not authorized any MCP clients yet.",
+        "authorizedAt": "Authorized {time}",
+        "disconnect": "Disconnect",
+        "disconnectConfirm": "Disconnect {client}? This immediately removes its access to your Canvas data.",
+        "disconnected": "MCP client disconnected.",
+        "errors": {
+          "load": "Could not load your MCP connections.",
+          "disconnect": "Could not disconnect this MCP client."
+        }
+      },
       "requestHistory": {
         "title": "Recent requests",
         "description": "Shows recent requests to this Canvas MCP server. Only safe technical metadata is stored and it is deleted automatically after {hours} hours.",
