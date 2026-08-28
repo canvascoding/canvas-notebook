@@ -37,6 +37,8 @@ async function main(): Promise<void> {
       updateMemory,
     } = await import('../app/lib/memory/service');
     const { buildMemoryPromptProjection } = await import('../app/lib/memory/prompt-projection');
+    const { ensureLegacyMemoryMigrated } = await import('../app/lib/memory/legacy-migration');
+    const { writeManagedAgentFile } = await import('../app/lib/agents/storage');
     const scope = { target: 'user' as const, userId: 'user-1' };
     const added = await addMemory({ ...scope, content: 'Prefers concise answers.' });
     assert.equal(added.changed, true);
@@ -149,6 +151,12 @@ async function main(): Promise<void> {
     assert.deepEqual((await readMemory(scope)).entries, []);
     assert.deepEqual((await readMemory({ target: 'agent', userId: 'user-1', agentId: 'canvas-agent' })).entries, []);
     assert.match((await readMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1' })).entries[0]?.content ?? '', /approved brand voice/);
+    await writeManagedAgentFile('USER.md', '- [legacy-user] Prefers migration-safe context.\n', 'canvas-agent', { userId: 'user-1' });
+    await writeManagedAgentFile('MEMORY.md', '- [legacy-agent] Keep agent-specific migration context.\n', 'canvas-agent', { userId: 'user-1' });
+    await ensureLegacyMemoryMigrated('canvas-agent', { userId: 'user-1' });
+    await ensureLegacyMemoryMigrated('canvas-agent', { userId: 'user-1' });
+    assert.match((await readMemory(scope)).entries[0]?.content ?? '', /migration-safe context/);
+    assert.match((await readMemory({ target: 'agent', userId: 'user-1', agentId: 'canvas-agent' })).entries[0]?.content ?? '', /agent-specific migration context/);
   } finally {
     moduleInternals._load = originalLoad;
     await fs.rm(dataDir, { recursive: true, force: true });

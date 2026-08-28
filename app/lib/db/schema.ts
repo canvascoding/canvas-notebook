@@ -1400,6 +1400,20 @@ export const memoryEvents = sqliteTable("memory_events", {
   sessionCreatedIdx: index("idx_memory_events_session_created").on(table.sessionId, table.createdAt),
 }));
 
+export const memoryLegacyImports = sqliteTable("memory_legacy_imports", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  agentId: text("agent_id").notNull(),
+  fileName: text("file_name").notNull(),
+  contentHash: text("content_hash").notNull(),
+  entriesImported: integer("entries_imported").notNull().default(0),
+  entriesSkipped: integer("entries_skipped").notNull().default(0),
+  completedAt: integer("completed_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  scopeIdx: index("idx_memory_legacy_imports_scope").on(table.userId, table.agentId, table.fileName, table.completedAt),
+  sourceUnique: uniqueIndex("memory_legacy_imports_source_unique").on(table.userId, table.agentId, table.fileName, table.contentHash),
+}));
+
 export const memoryReviewJobs = sqliteTable("memory_review_jobs", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),

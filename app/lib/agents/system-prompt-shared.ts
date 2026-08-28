@@ -9,7 +9,9 @@ import type { AgentStorageScope } from './storage';
 import { CANVAS_MARKDOWN_AGENT_GUIDANCE } from '../markdown/canvas-markdown-agent-guidance';
 
 export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
-export const SYSTEM_PROMPT_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
+// USER.md and MEMORY.md remain readable legacy export files, but database
+// memory is the only runtime source after migration.
+export const SYSTEM_PROMPT_FILE_NAMES = ['AGENTS.md', 'SOUL.md', 'TOOLS.md'] as const;
 
 export type ManagedPromptFileName = (typeof MANAGED_PROMPT_FILE_NAMES)[number];
 export type SystemPromptFileName = (typeof SYSTEM_PROMPT_FILE_NAMES)[number];
@@ -33,8 +35,8 @@ const MANAGED_FILES_INTRO =
 export type ManagedPromptDiagnostics = {
   loadedFiles: ManagedPromptFileName[];
   includedFiles: ManagedPromptFileName[];
-  emptyFiles: ManagedPromptFileName[];
-  truncatedFiles: ManagedPromptFileName[];
+  emptyFiles: SystemPromptFileName[];
+  truncatedFiles: SystemPromptFileName[];
   usedFallback: boolean;
   fallbackReason: 'all-empty' | 'read-failed' | null;
 };

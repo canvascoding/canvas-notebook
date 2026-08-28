@@ -3609,6 +3609,21 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_memory_events_session_created
       ON memory_events (session_id, created_at);
 
+    CREATE TABLE IF NOT EXISTS memory_legacy_imports (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      entries_imported INTEGER NOT NULL DEFAULT 0,
+      entries_skipped INTEGER NOT NULL DEFAULT 0,
+      completed_at INTEGER NOT NULL,
+      UNIQUE (user_id, agent_id, file_name, content_hash),
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_legacy_imports_scope
+      ON memory_legacy_imports (user_id, agent_id, file_name, completed_at);
+
     CREATE TABLE IF NOT EXISTS memory_review_jobs (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,

@@ -1476,7 +1476,7 @@ export function AgentSettingsPanel({
           setResetTarget(null);
         }}
         onResetFile={() => void resetFile()}
-        visibleFileNames={['AGENTS.md', 'USER.md', 'SOUL.md', 'TOOLS.md']}
+        visibleFileNames={['AGENTS.md', 'SOUL.md', 'TOOLS.md']}
       />
 
       <AgentSessionsCard

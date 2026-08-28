@@ -27,6 +27,7 @@ import {
 } from '../capabilities/catalog';
 import { readOnboardingBootstrapPrompt } from '../onboarding/profile';
 import { isOnboardingComplete } from '../onboarding/status';
+import { ensureLegacyMemoryMigrated } from '../memory/legacy-migration';
 
 export {
   composeManagedAgentSystemPrompt,
@@ -140,6 +141,7 @@ export async function loadManagedAgentSystemPrompt(
       ownerUserId: agentProfile?.ownerUserId,
       organizationId: agentProfile?.organizationId || scope?.organizationId,
     };
+    await ensureLegacyMemoryMigrated(normalizedAgentId, agentStorageScope);
     const files = await readRuntimeManagedAgentFiles(normalizedAgentId, agentStorageScope);
     
     // Resolve the complete organization/user capability cascade when workspace
