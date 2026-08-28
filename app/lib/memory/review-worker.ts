@@ -14,11 +14,13 @@ import {
   loadMemoryReviewSourceMessages,
   nextMemoryReviewDueAt,
   readMemoryReviewContext,
+  resolveMemoryReviewTargets,
   runMemoryMaintenanceCycle,
   retryMemoryReviewJob,
   scheduleMemoryReviewForSession,
   type MemoryReviewCandidate,
   type MemoryReviewJobClaim,
+  type MemoryReviewScopeContext,
 } from './service';
 
 /** Reserved system identity used for audit and UI presentation, never as a chat agent. */
@@ -91,6 +93,7 @@ function buildReviewPrompt(input: {
   claim: MemoryReviewJobClaim;
   transcript: string;
   existing: Awaited<ReturnType<typeof readMemoryReviewContext>>;
+  allowedTargets: Awaited<ReturnType<typeof resolveMemoryReviewTargets>>;
 }): Extract<AgentMessage, { role: 'user' }> {
   const existing = input.existing.map((entry) => ({
     entryId: entry.id,
@@ -105,10 +108,10 @@ function buildReviewPrompt(input: {
     content: [
       'Review the user messages below for compact, durable memory facts only.',
       'Use only explicit user statements. Do not infer private facts, instructions, secrets, credentials, reasoning, or summaries of the assistant.',
-      'The available scopes are "user" and "agent". Never emit IDs for users, agents, workspaces, organizations, sessions, or collections.',
-      'For a correction, use action "update" and an existing entryId or semanticKey. Never update or archive a pinned entry. Prefer no candidate when uncertain.',
+      `The available scopes are ${input.allowedTargets.map((target) => `"${target}"`).join(', ')}. Never emit IDs for users, agents, workspaces, organizations, sessions, or collections.`,
+      'Workspace and organization candidates must use action "add" only; they become pending suggestions for a manager. For a private correction, use action "update" and an existing entryId or semanticKey. Never update or archive a pinned entry. Prefer no candidate when uncertain.',
       'Each content value must be self-contained, factual, and at most 800 characters. Sensitive content needs sensitivity "sensitive"; it may be discarded by policy.',
-      'Return JSON only, with this exact shape: {"candidates":[{"action":"add|update|archive","target":"user|agent","category":"...","semanticKey":"...","entryId":"...","content":"...","priority":0,"sensitivity":"standard|sensitive","confidence":0,"sourceMessageSequence":0}]}.',
+      'Return JSON only, with this exact shape: {"candidates":[{"action":"add|update|archive","target":"user|agent|workspace|organization","category":"...","semanticKey":"...","entryId":"...","content":"...","priority":0,"sensitivity":"standard|sensitive","confidence":0,"sourceMessageSequence":0}]}.',
       'Do not include a rationale, markdown fences, or any keys outside that schema.',
       '',
       `Review range: ${input.claim.fromMessageSequence}-${input.claim.throughMessageSequence}`,
@@ -134,7 +137,7 @@ function parseCandidates(response: string): MemoryReviewCandidate[] {
     const record = value as Record<string, unknown>;
     if (
       (record.action !== 'add' && record.action !== 'update' && record.action !== 'archive')
-      || (record.target !== 'user' && record.target !== 'agent')
+      || (record.target !== 'user' && record.target !== 'agent' && record.target !== 'workspace' && record.target !== 'organization')
     ) return [];
     return [{
       action: record.action,
@@ -184,14 +187,25 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
         thinkingLevel: 'minimal',
       },
     });
-    const [sourceMessages, existing] = await Promise.all([
+    const [sourceMessages, existing, reviewTargets] = await Promise.all([
       loadMemoryReviewSourceMessages(claim),
-      readMemoryReviewContext({ userId: claim.userId, sourceAgentId: claim.sourceAgentId }),
+      readMemoryReviewContext({
+        userId: claim.userId,
+        sourceAgentId: claim.sourceAgentId,
+        workspaceId: executionContext.workspaceId,
+        organizationId: executionContext.organizationId,
+      }),
+      resolveMemoryReviewTargets({
+        userId: claim.userId,
+        workspaceId: executionContext.workspaceId,
+        organizationId: executionContext.organizationId,
+      }),
     ]);
     const promptMessage = buildReviewPrompt({
       claim,
       transcript: compactUserTranscript(claim, sourceMessages),
       existing,
+      allowedTargets: reviewTargets,
     });
     const { agentLoop } = await import('@earendil-works/pi-agent-core');
     const context: AgentContext = { systemPrompt: [
@@ -227,7 +241,11 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
     } finally {
       clearTimeout(timeout);
     }
-    await applyMemoryReviewCandidates({ claim, candidates: parseCandidates(latestAssistantText(finalMessages)) });
+    const scopeContext: MemoryReviewScopeContext = {
+      workspaceId: executionContext.workspaceId,
+      organizationId: executionContext.organizationId,
+    };
+    await applyMemoryReviewCandidates({ claim, candidates: parseCandidates(latestAssistantText(finalMessages)), scopeContext });
     await completeMemoryReviewJob(claim.id);
     await scheduleMemoryReviewForSession({ userId: claim.userId, sessionId: claim.sessionId });
   } catch (error) {

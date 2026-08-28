@@ -238,17 +238,17 @@ async function findCollectionId(scope: MemoryServiceScope, create: boolean, cate
 
 export async function readMemory(scope: MemoryServiceScope): Promise<MemoryReadResult> {
   const permissions = await assertMemoryScopeAccess(scope, 'read');
-  const collectionId = await findCollectionId(scope, false);
-  if (!collectionId) return { target: scope.target, entries: [] };
   const connection = await openDb();
   try {
+    const where = collectionScopeWhere(scope);
     const rows = await connection.all(`
-      SELECT id, content, status, priority, pinned, collection_id, semantic_key
-      FROM memory_entries
-      WHERE collection_id = ? AND status != 'archived'
-        AND (? = 1 OR status = 'published')
-      ORDER BY pinned DESC, priority DESC, updated_at DESC, id ASC
-    `, [collectionId, permissions.canPublish ? 1 : 0]) as Record<string, unknown>[];
+      SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key
+      FROM memory_entries entry
+      INNER JOIN memory_collections collection ON collection.id = entry.collection_id
+      WHERE ${where.sql} AND collection.status = 'active' AND entry.status != 'archived'
+        AND (? = 1 OR entry.status = 'published')
+      ORDER BY entry.pinned DESC, entry.priority DESC, entry.updated_at DESC, entry.id ASC
+    `, [...where.params, permissions.canPublish ? 1 : 0]) as Record<string, unknown>[];
     return { target: scope.target, entries: rows.map(toEntry) };
   } finally {
     await connection.close();
@@ -724,26 +724,31 @@ export async function loadMemoryReviewSourceMessages(claim: MemoryReviewJobClaim
 }
 
 export type MemoryReviewContextEntry = Pick<MemoryEntry, 'id' | 'content' | 'priority' | 'pinned' | 'semanticKey'> & {
-  target: Extract<MemoryTarget, 'user' | 'agent'>;
+  target: MemoryTarget;
 };
 
 export async function readMemoryReviewContext(params: {
   userId: string;
   sourceAgentId: string;
+  workspaceId?: string | null;
+  organizationId?: string | null;
 }): Promise<MemoryReviewContextEntry[]> {
-  const [userMemory, agentMemory] = await Promise.all([
-    readMemory({ target: 'user', userId: params.userId }),
-    readMemory({ target: 'agent', userId: params.userId, agentId: params.sourceAgentId }),
-  ]);
-  return [
-    ...userMemory.entries.map((entry) => ({ ...entry, target: 'user' as const })),
-    ...agentMemory.entries.map((entry) => ({ ...entry, target: 'agent' as const })),
-  ].slice(0, 80);
+  const reads: Array<{ target: MemoryTarget; memory: Promise<MemoryReadResult> }> = [
+    { target: 'user', memory: readMemory({ target: 'user', userId: params.userId }) },
+    { target: 'agent', memory: readMemory({ target: 'agent', userId: params.userId, agentId: params.sourceAgentId }) },
+  ];
+  if (params.workspaceId) reads.push({ target: 'workspace', memory: readMemory({ target: 'workspace', userId: params.userId, workspaceId: params.workspaceId }) });
+  if (params.organizationId) reads.push({ target: 'organization', memory: readMemory({ target: 'organization', userId: params.userId, organizationId: params.organizationId }) });
+  const resolved = await Promise.all(reads.map(async ({ target, memory }) => {
+    try { return { target, result: await memory }; }
+    catch { return null; }
+  }));
+  return resolved.flatMap((item) => item ? item.result.entries.map((entry) => ({ ...entry, target: item.target })) : []).slice(0, 80);
 }
 
 export type MemoryReviewCandidate = {
   action: 'add' | 'update' | 'archive';
-  target: Extract<MemoryTarget, 'user' | 'agent'>;
+  target: MemoryTarget;
   category?: string;
   semanticKey?: string;
   entryId?: string;
@@ -753,6 +758,37 @@ export type MemoryReviewCandidate = {
   confidence?: number;
   sourceMessageSequence?: number;
 };
+
+export type MemoryReviewScopeContext = {
+  workspaceId?: string | null;
+  organizationId?: string | null;
+};
+
+/** Server-derived scopes that an automatic reviewer may propose into. */
+export async function resolveMemoryReviewTargets(params: {
+  userId: string;
+  workspaceId?: string | null;
+  organizationId?: string | null;
+}): Promise<MemoryTarget[]> {
+  const targets: MemoryTarget[] = ['user', 'agent'];
+  if (params.workspaceId) {
+    const access = await resolveMemoryScopeAccess({ target: 'workspace', userId: params.userId, workspaceId: params.workspaceId });
+    if (access.canSuggest) targets.push('workspace');
+  }
+  if (params.organizationId) {
+    const access = await resolveMemoryScopeAccess({ target: 'organization', userId: params.userId, organizationId: params.organizationId });
+    if (access.canSuggest) targets.push('organization');
+  }
+  return targets;
+}
+
+function scopeForReviewCandidate(claim: MemoryReviewJobClaim, target: MemoryTarget, context: MemoryReviewScopeContext): MemoryServiceScope | null {
+  if (target === 'user') return { target, userId: claim.userId };
+  if (target === 'agent') return { target, userId: claim.userId, agentId: claim.sourceAgentId };
+  if (target === 'workspace' && context.workspaceId) return { target, userId: claim.userId, workspaceId: context.workspaceId };
+  if (target === 'organization' && context.organizationId) return { target, userId: claim.userId, organizationId: context.organizationId };
+  return null;
+}
 
 function reviewedPriority(value: number | undefined): number {
   if (!Number.isFinite(value)) return 50;
@@ -783,6 +819,7 @@ async function sourceMessageIdForReview(
 export async function applyMemoryReviewCandidates(params: {
   claim: MemoryReviewJobClaim;
   candidates: MemoryReviewCandidate[];
+  scopeContext?: MemoryReviewScopeContext;
 }): Promise<{ added: number; updated: number; archived: number; skipped: number }> {
   const result = { added: 0, updated: 0, archived: 0, skipped: 0 };
   const connection = await openDb();
@@ -792,9 +829,17 @@ export async function applyMemoryReviewCandidates(params: {
     `, [params.claim.userId]) as { sensitive_memory_enabled?: number | boolean } | undefined;
     const sensitiveAllowed = settings?.sensitive_memory_enabled === true || settings?.sensitive_memory_enabled === 1;
     for (const candidate of params.candidates.slice(0, 20)) {
-      const scope: MemoryServiceScope = candidate.target === 'agent'
-        ? { target: 'agent', userId: params.claim.userId, agentId: params.claim.sourceAgentId }
-        : { target: 'user', userId: params.claim.userId };
+      const scope = scopeForReviewCandidate(params.claim, candidate.target, params.scopeContext ?? {});
+      if (!scope || !(await resolveMemoryScopeAccess(scope)).canSuggest) {
+        result.skipped += 1;
+        continue;
+      }
+      // Shared reviews can only create proposals. They never silently mutate
+      // context that is visible to other members.
+      if ((scope.target === 'workspace' || scope.target === 'organization') && candidate.action !== 'add') {
+        result.skipped += 1;
+        continue;
+      }
       const semanticKey = normalizedSemanticKey(candidate.semanticKey);
       const category = normalizedCategory(candidate.category);
       const collectionId = await findCollectionId(scope, candidate.action !== 'archive', category);

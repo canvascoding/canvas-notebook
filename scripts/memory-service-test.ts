@@ -36,9 +36,11 @@ async function main(): Promise<void> {
       deletePersonalMemory,
       deleteMemory,
       importPersonalMemory,
+      listMemoryCollections,
       publishMemory,
       readMemory,
       readMemoryCollection,
+      readMemoryReviewContext,
       restoreMemory,
       runMemoryMaintenanceCycle,
       scheduleMemoryReviewForSession,
@@ -157,6 +159,58 @@ async function main(): Promise<void> {
       }],
     });
     assert.deepEqual(reviewResult, { added: 1, updated: 0, archived: 0, skipped: 0 });
+    const workspaceReviewResult = await applyMemoryReviewCandidates({
+      claim: claim!,
+      scopeContext: { workspaceId: 'workspace-1', organizationId: 'org-1' },
+      candidates: [{
+        action: 'add',
+        target: 'workspace',
+        category: 'decisions',
+        semanticKey: 'workspace.brand.reviewed-tone',
+        content: 'Use the approved workspace tone in customer-facing material.',
+        priority: 60,
+        confidence: 0.9,
+        sourceMessageSequence: 1,
+      }],
+    });
+    assert.deepEqual(workspaceReviewResult, { added: 1, updated: 0, archived: 0, skipped: 0 });
+    const workspaceScope = { target: 'workspace' as const, userId: 'user-1', workspaceId: 'workspace-1' };
+    const workspaceReviewCollection = (await listMemoryCollections(workspaceScope)).find((collection) => collection.category === 'decisions');
+    assert.ok(workspaceReviewCollection);
+    const workspaceReviewEntries = await readMemoryCollection({ ...workspaceScope, collectionId: workspaceReviewCollection.id });
+    assert.equal(workspaceReviewEntries.entries.some((entry) => entry.status === 'pending' && /approved workspace tone/.test(entry.content)), true);
+    const rejectedSharedMutation = await applyMemoryReviewCandidates({
+      claim: claim!,
+      scopeContext: { workspaceId: 'workspace-1' },
+      candidates: [{
+        action: 'update', target: 'workspace', entryId: workspace.entry!.id,
+        content: 'A reviewer may not silently replace shared memory.', priority: 60,
+      }],
+    });
+    assert.deepEqual(rejectedSharedMutation, { added: 0, updated: 0, archived: 0, skipped: 1 });
+    const organizationReviewResult = await applyMemoryReviewCandidates({
+      claim: claim!,
+      scopeContext: { organizationId: 'org-1' },
+      candidates: [{
+        action: 'add',
+        target: 'organization',
+        category: 'conventions',
+        content: 'Use the approved organization terminology in published material.',
+        priority: 60,
+        confidence: 0.9,
+        sourceMessageSequence: 1,
+      }],
+    });
+    assert.deepEqual(organizationReviewResult, { added: 1, updated: 0, archived: 0, skipped: 0 });
+    const organizationReviewCollection = (await listMemoryCollections({ target: 'organization', userId: 'user-1', organizationId: 'org-1' })).find((collection) => collection.category === 'conventions');
+    assert.ok(organizationReviewCollection);
+    const organizationReviewEntries = await readMemoryCollection({ target: 'organization', userId: 'user-1', organizationId: 'org-1', collectionId: organizationReviewCollection.id });
+    assert.equal(organizationReviewEntries.entries.some((entry) => entry.status === 'pending' && /approved organization terminology/.test(entry.content)), true);
+    const reviewContext = await readMemoryReviewContext({
+      userId: 'user-1', sourceAgentId: 'canvas-agent', workspaceId: 'workspace-1', organizationId: 'org-1',
+    });
+    assert.equal(reviewContext.some((entry) => entry.target === 'workspace' && /approved workspace tone/.test(entry.content)), true);
+    assert.equal(reviewContext.some((entry) => entry.target === 'organization' && /approved organization terminology/.test(entry.content)), true);
     const projected = await buildMemoryPromptProjection({
       userId: 'user-1',
       agentId: 'canvas-agent',
@@ -173,7 +227,7 @@ async function main(): Promise<void> {
     assert.ok(personalDeletion.entries >= 2);
     assert.deepEqual((await readMemory(scope)).entries, []);
     assert.deepEqual((await readMemory({ target: 'agent', userId: 'user-1', agentId: 'canvas-agent' })).entries, []);
-    assert.match((await readMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1' })).entries[0]?.content ?? '', /approved brand voice/);
+    assert.equal((await readMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1' })).entries.some((entry) => /approved brand voice/.test(entry.content)), true);
     await writeManagedAgentFile('USER.md', '- [legacy-user] Prefers migration-safe context.\n', 'canvas-agent', { userId: 'user-1' });
     await writeManagedAgentFile('MEMORY.md', '- [legacy-agent] Keep agent-specific migration context.\n', 'canvas-agent', { userId: 'user-1' });
     await ensureLegacyMemoryMigrated('canvas-agent', { userId: 'user-1' });
