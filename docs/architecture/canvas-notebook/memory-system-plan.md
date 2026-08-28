@@ -208,14 +208,18 @@ dauerhaft eingeplant:
 ```text
 memory_review_jobs
   id, user_id, session_id, source_assistant_message_id
-  through_message_sequence, status
+  from_message_sequence, through_message_sequence
+  trigger_type: turn_interval | idle | session_close | maintenance
+  scheduled_for?, status
   attempts, lease_until?, error_code?
   created_at, started_at?, completed_at?
 ```
 
-Die Kombination aus Session und Assistant-Nachricht ist eindeutig. Ein Job
-kann nach Prozessneustart oder Providerfehler wiederholt werden, ohne
-Memory-Eintraege doppelt anzulegen.
+Die Kombination aus Session und dem geschlossenen Sequenzbereich ist eindeutig.
+Ein Job kann nach Prozessneustart oder Providerfehler wiederholt werden, ohne
+Memory-Eintraege doppelt anzulegen. Ueberlappende Turn-, Idle- und
+Session-Close-Trigger werden auf denselben noch ungeprueften Bereich
+dedupliziert.
 
 ## Automatisches Merken
 
@@ -223,23 +227,36 @@ Memory-Eintraege doppelt anzulegen.
 
 Automatisches Merken ist ein separater Hintergrundpfad nach erfolgreichen
 Antworten. Jeder geeignete Turn wird durch einen dauerhaften Review-Checkpoint
-abgedeckt; ein Modellreview kann mehrere seit dem letzten Lauf entstandene
-Turns gemeinsam verarbeiten. Er darf weder die Antwortlatenz erhoehen noch den
-aktiven Chatverlauf mutieren.
+abgedeckt. Ein Modellreview verarbeitet immer den noch ungeprueften Delta-
+Bereich seit dem letzten erfolgreichen Review und darf weder die
+Antwortlatenz erhoehen noch den aktiven Chatverlauf mutieren.
 
 Das Vorgehen ist von Hermes inspiriert, aber fuer Canvas erweitert: Hermes
 zaehlt User-Turns, startet standardmaessig nach zehn Turns einen isolierten
 Hintergrundreview nach der Antwort und erlaubt dafuer ein separates
-Provider-/Modell-Paar. Canvas uebernimmt den periodischen, isolierten Review,
-verwendet aber eine dauerhafte Job-Queue statt eines rein best-effort
-Hintergrundthreads.
+Provider-/Modell-Paar. Canvas uebernimmt verbindlich denselben Zehn-Turn-
+Rhythmus und den isolierten Review, verwendet aber eine dauerhafte Job-Queue
+statt eines rein best-effort Hintergrundthreads.
 
-Ein Review wird ausgeloest durch:
+### Review-Rhythmus
 
-- eine explizite Formulierung wie „merk dir“,
-- das konfigurierbare Turn-Intervall,
-- einen Session-Abschluss oder eine ausreichend lange Idle-Phase,
-- Memory-Druck, Konflikte oder das Erreichen eines Collection-Limits.
+- Nach jeweils zehn neuen User-Turns seit dem letzten erfolgreichen Review wird
+  sofort ein Review-Job fuer den gesamten noch ungeprueften Delta-Bereich
+  eingeplant. Tool-Loops, synthetische Fortsetzungen und Assistant-Nachrichten
+  erhoehen diesen Zaehler nicht.
+- Nach jeder erfolgreichen Assistant-Antwort wird ein Idle-Flush fuer 15
+  Minuten spaeter geplant beziehungsweise auf diesen Zeitpunkt verschoben.
+- Bleibt der Chat 15 Minuten ohne neue User-Nachricht, werden auch verbleibende
+  ein bis neun Turns reviewed.
+- Beim Archivieren oder einem expliziten Session-Close wird ein vorhandener
+  Restbereich sofort eingeplant.
+- Erreichen der Zehn-Turn-Schwelle und Idle/Close denselben Bereich, wird nur
+  ein Job ausgefuehrt.
+
+Der Zehn-Turn-Rhythmus und der 15-Minuten-Idle-Flush sind feste V1-
+Produktwerte und keine eigene User-Konfiguration. Dadurch bleibt die
+Kostenlogik fuer alle Runtimes vorhersehbar. Der User konfiguriert weiterhin
+das dafuer verwendete Memory-Manager-Modell.
 
 Ein explizites „merk dir“ darf bereits im aktiven Turn ueber das `memory`-Tool
 gespeichert werden. Der spaetere Review erkennt den bestehenden Eintrag und
@@ -285,8 +302,10 @@ Vorschlag.
 - Sensitive Fakten werden nie automatisch gespeichert, solange der User nicht
   explizit in den Memory-Einstellungen zugestimmt hat.
 - Workspace- und Organisationskandidaten werden standardmaessig `pending`.
-- Ein neuer User-Turn darf einen laufenden Review pausieren, aber nicht dauerhaft
-  verwerfen. Nicht abgeschlossene Jobs bleiben wiederaufnehmbar.
+- Ein neuer User-Turn verschiebt nur den noch nicht gestarteten Idle-Flush. Ein
+  bereits laufender Review arbeitet auf seinem unveraenderlichen
+  `through_message_sequence`-Snapshot weiter. Nicht abgeschlossene Jobs bleiben
+  wiederaufnehmbar.
 - Der Memory-Manager darf nur Fakten verwenden, die durch User-Aussagen,
   bestaetigte Entscheidungen oder verlaessliche Toolresultate belegt sind.
   Behauptungen ausschliesslich aus einer Assistant-Antwort sind keine Quelle.
@@ -379,7 +398,6 @@ Konfigurierbare User-Werte:
 automatic_memory_enabled
 provider_installation_id
 model_id
-review_turn_interval
 memory_prompt_max_tokens
 sensitive_memory_enabled
 ```
@@ -444,7 +462,8 @@ Die zentrale Seite enthaelt:
 
 - automatisches Merken an/aus,
 - Provider- und Modellauswahl fuer den Memory-Manager,
-- Review-Intervall und maximales Memory-Prompt-Budget,
+- Anzeige des festen Rhythmus: alle zehn User-Turns plus 15-Minuten-Idle-Flush,
+- maximales Memory-Prompt-Budget,
 - sensible Themen an/aus (standardmaessig aus),
 - Benachrichtigungen fuer gespeicherte und wartende Vorschlaege,
 - Export und kontrollierten Import,
@@ -510,6 +529,12 @@ naechste beginnt.
   Token-Budget.
 - Jeder eingeplante Review ist idempotent und wird nach Prozess- oder
   Providerfehler wiederaufgenommen.
+- Vor dem zehnten User-Turn erfolgt ohne Idle/Close kein periodischer
+  Modellreview; der zehnte Turn plant genau einen Delta-Review ein.
+- Ein Chat mit ein bis neun ungeprueften Turns plant nach 15 Minuten Inaktivitaet
+  genau einen Rest-Review ein; eine neue Nachricht vor Ablauf verschiebt ihn.
+- Turn-, Idle- und Session-Close-Trigger koennen denselben Nachrichtenbereich
+  nicht doppelt verarbeiten.
 - Ohne User-Modellkonfiguration wird kein verborgenes Ersatzmodell verwendet;
   der Reviewstatus bleibt sichtbar und das direkte Memory-Tool funktioniert.
 - Maintenance-Reviews koennen Eintraege kuerzen, zusammenfassen und archivieren,
@@ -537,5 +562,3 @@ Diese Punkte muessen vor der Implementierung gemeinsam entschieden werden:
    explizite Einzelbestaetigung brauchen?
 6. Soll die erste Version Topics/Areas manuell anlegen oder bereits durch den
    Review-Worker vorschlagen lassen?
-7. Welches Turn-Intervall soll die UI als Empfehlung anzeigen, ohne dem User
-   ein Memory-Manager-Modell vorzugeben?
