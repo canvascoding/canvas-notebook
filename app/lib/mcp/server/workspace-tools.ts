@@ -10,7 +10,6 @@ import {
 } from '@modelcontextprotocol/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { openDb } from '@/app/lib/db';
 import {
   getFileStats,
   listDirectory,
@@ -28,11 +27,11 @@ import {
 } from '@/app/lib/mcp/server/config';
 import { directMcpToolAuthorizationError } from '@/app/lib/mcp/server/tool-auth';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
-import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import {
-  loadWorkspaceListingForActor,
-  type WorkspaceListing,
-} from '@/app/lib/workspaces/listing-action';
+  isDirectMcpReadableWorkspace,
+  listDirectMcpAllowedWorkspaceIds,
+  loadDirectMcpWorkspaceListingForUser,
+} from '@/app/lib/mcp/server/workspace-access-policy';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 export const DIRECT_MCP_WORKSPACE_TOOL_IDS = [
@@ -139,13 +138,6 @@ function isVisibleWorkspaceNode(node: FileNode): boolean {
   return node.path.split('/').every((segment) => segment !== '.' && !segment.startsWith('.'));
 }
 
-function isReadableWorkspace(workspace: WorkspaceContext): boolean {
-  return workspace.permissions.canRead
-    && workspace.status !== 'archived'
-    && workspace.status !== 'disabled'
-    && workspace.status !== 'recovery_locked';
-}
-
 function workspaceSummary(workspace: WorkspaceContext) {
   return {
     id: workspace.workspaceId,
@@ -188,7 +180,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'List available workspaces',
-      description: 'Lists the Canvas workspaces that the signed-in user can currently access.',
+      description: 'Lists the Canvas workspaces that the signed-in user has explicitly allowed for this MCP connection.',
       inputSchema: {
         type: 'object' as const,
         properties: {},
@@ -350,26 +342,6 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
   };
 }
 
-async function loadWorkspaceListing(principal: DirectMcpAccessPrincipal): Promise<WorkspaceListing> {
-  const database = await openDb();
-  try {
-    const identity = await database.get(
-      'SELECT email, role FROM "user" WHERE id = ? LIMIT 1',
-      [principal.userId],
-    ) as { email?: unknown; role?: unknown } | undefined;
-    if (!identity || typeof identity.email !== 'string') {
-      throw new Error('The signed-in Canvas user is no longer available.');
-    }
-    return await loadWorkspaceListingForActor(resolveWorkspaceActor({
-      id: principal.userId,
-      email: identity.email,
-      role: typeof identity.role === 'string' ? identity.role : null,
-    }));
-  } finally {
-    await database.close();
-  }
-}
-
 async function authenticateForTool(
   authInfo: AuthInfo | undefined,
   scope: DirectMcpResourceScope,
@@ -389,9 +361,16 @@ async function readableWorkspace(
   principal: DirectMcpAccessPrincipal,
   workspaceId: string,
 ): Promise<WorkspaceContext> {
-  const listing = await loadWorkspaceListing(principal);
+  const [listing, allowedWorkspaceIds] = await Promise.all([
+    loadDirectMcpWorkspaceListingForUser(principal.userId),
+    listDirectMcpAllowedWorkspaceIds(principal),
+  ]);
   const workspace = listing.workspaces.find((candidate) => candidate.workspaceId === workspaceId);
-  if (!workspace || !isReadableWorkspace(workspace)) {
+  if (
+    !workspace
+    || !isDirectMcpReadableWorkspace(workspace)
+    || !allowedWorkspaceIds.has(workspaceId)
+  ) {
     throw new Error('The requested workspace is not available to this Canvas user.');
   }
   return workspace;
@@ -509,9 +488,15 @@ async function executeListWorkspaces(
   if ('result' in authorization) return authorization.result;
 
   try {
-    const listing = await loadWorkspaceListing(authorization.principal);
+    const [listing, allowedWorkspaceIds] = await Promise.all([
+      loadDirectMcpWorkspaceListingForUser(authorization.principal.userId),
+      listDirectMcpAllowedWorkspaceIds(authorization.principal),
+    ]);
     const workspaces = listing.workspaces
-      .filter(isReadableWorkspace)
+      .filter((workspace) => (
+        isDirectMcpReadableWorkspace(workspace)
+        && allowedWorkspaceIds.has(workspace.workspaceId)
+      ))
       .map(workspaceSummary);
     await auditWorkspaceToolCall({
       principal: authorization.principal,

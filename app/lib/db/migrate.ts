@@ -386,6 +386,23 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_mcp_direct_grant_revocation_user_client
       ON mcp_direct_grant_revocation (user_id, client_id);
 
+    -- A Direct MCP connection starts with no workspace data access. Rows here
+    -- are an explicit user-selected allowlist and are checked in addition to
+    -- Canvas's current workspace ACL for every tool invocation.
+    CREATE TABLE IF NOT EXISTS mcp_direct_workspace_grant (
+      client_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (client_id, user_id, workspace_id),
+      FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mcp_direct_workspace_grant_user_client
+      ON mcp_direct_workspace_grant (user_id, client_id);
+
     CREATE TABLE IF NOT EXISTS oauth_consent (
       id TEXT PRIMARY KEY NOT NULL,
       client_id TEXT NOT NULL,

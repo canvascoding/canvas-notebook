@@ -3340,6 +3340,24 @@
         "errors": {
           "load": "Deine MCP-Verbindungen konnten nicht geladen werden.",
           "disconnect": "Dieser MCP-Client konnte nicht getrennt werden."
+        },
+        "workspaceAccess": {
+          "manage": "Workspace-Zugriff verwalten",
+          "selectedCount": "{count, plural, =0 {Keine Workspaces ausgewählt} one {# Workspace ausgewählt} other {# Workspaces ausgewählt}}",
+          "title": "Workspace-Zugriff",
+          "description": "Wähle genau die Workspaces aus, auf die dieser Client zugreifen darf. Canvas prüft deine aktuellen Workspace-Rechte zusätzlich bei jeder MCP-Anfrage.",
+          "refresh": "Aktualisieren",
+          "loading": "Lade erreichbare Workspaces …",
+          "type": "{type}-Workspace",
+          "noneSelected": "Dieser Client kann erst auf Workspace-Daten zugreifen, nachdem du mindestens einen Workspace ausgewählt und gespeichert hast.",
+          "noWorkspaces": "Es gibt derzeit keine lesbaren Workspaces zur Auswahl.",
+          "save": "Zugriff speichern",
+          "saving": "Wird gespeichert …",
+          "saved": "Workspace-Zugriff gespeichert.",
+          "errors": {
+            "load": "Die verfügbaren Workspaces konnten nicht geladen werden.",
+            "save": "Der Workspace-Zugriff konnte nicht gespeichert werden."
+          }
         }
       },
       "requestHistory": {

@@ -405,6 +405,20 @@ export const mcpDirectGrantRevocation = sqliteTable("mcp_direct_grant_revocation
   userClientIdx: index("idx_mcp_direct_grant_revocation_user_client").on(table.userId, table.clientId),
 }));
 
+// Direct MCP only exposes workspace data after the signed-in person explicitly
+// selects it for that public OAuth client. Current Canvas ACL checks remain in
+// effect at every tool call, so an outdated row never grants access by itself.
+export const mcpDirectWorkspaceGrant = sqliteTable("mcp_direct_workspace_grant", {
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => ({
+  grantPk: primaryKey({ columns: [table.clientId, table.userId, table.workspaceId] }),
+  userClientIdx: index("idx_mcp_direct_workspace_grant_user_client").on(table.userId, table.clientId),
+}));
+
 export const oauthConsent = sqliteTable("oauth_consent", {
   id: text("id").primaryKey(),
   clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),

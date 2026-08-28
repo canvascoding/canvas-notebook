@@ -3341,6 +3341,24 @@
         "errors": {
           "load": "Could not load your MCP connections.",
           "disconnect": "Could not disconnect this MCP client."
+        },
+        "workspaceAccess": {
+          "manage": "Manage workspace access",
+          "selectedCount": "{count, plural, =0 {No workspaces selected} one {# workspace selected} other {# workspaces selected}}",
+          "title": "Workspace access",
+          "description": "Select exactly which workspaces this client may access. Canvas checks your current workspace permissions again for every MCP request.",
+          "refresh": "Refresh",
+          "loading": "Loading accessible workspaces…",
+          "type": "{type} workspace",
+          "noneSelected": "This client cannot access workspace data until you select and save at least one workspace.",
+          "noWorkspaces": "There are no currently readable workspaces available to select.",
+          "save": "Save access",
+          "saving": "Saving…",
+          "saved": "Workspace access saved.",
+          "errors": {
+            "load": "Could not load the available workspaces.",
+            "save": "Could not save workspace access."
+          }
         }
       },
       "requestHistory": {

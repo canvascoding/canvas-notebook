@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Save,
   Server,
+  ShieldCheck,
   Unplug,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -82,6 +83,20 @@ type DirectMcpConnection = {
   scopes: string[];
   connectedAt: string | null;
   updatedAt: string | null;
+  allowedWorkspaceCount: number;
+};
+
+type DirectMcpWorkspaceOption = {
+  workspaceId: string;
+  name: string;
+  description: string | null;
+  type: string;
+};
+
+type DirectMcpWorkspaceAccess = {
+  connectionId: string;
+  workspaces: DirectMcpWorkspaceOption[];
+  allowedWorkspaceIds: string[];
 };
 
 function enabledTools(status: McpServerStatus): string[] {
@@ -122,6 +137,11 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   const [isConnectionsLoading, setIsConnectionsLoading] = useState(false);
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
   const [disconnectingConnectionId, setDisconnectingConnectionId] = useState<string | null>(null);
+  const [expandedWorkspaceAccessConnectionId, setExpandedWorkspaceAccessConnectionId] = useState<string | null>(null);
+  const [workspaceAccess, setWorkspaceAccess] = useState<DirectMcpWorkspaceAccess | null>(null);
+  const [isWorkspaceAccessLoading, setIsWorkspaceAccessLoading] = useState(false);
+  const [workspaceAccessError, setWorkspaceAccessError] = useState<string | null>(null);
+  const [isWorkspaceAccessSaving, setIsWorkspaceAccessSaving] = useState(false);
 
   const applyStatus = useCallback((nextStatus: McpServerStatus) => {
     setStatus(nextStatus);
@@ -251,6 +271,91 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
       setDisconnectingConnectionId(null);
     }
   }, [disconnectingConnectionId, t]);
+
+  const loadWorkspaceAccess = useCallback(async (connection: DirectMcpConnection) => {
+    setIsWorkspaceAccessLoading(true);
+    setWorkspaceAccessError(null);
+    try {
+      const query = new URLSearchParams({ connection_id: connection.connectionId });
+      const response = await fetch(`/api/integrations/mcp-server/connections/workspaces?${query}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success || payload.data?.connectionId !== connection.connectionId) {
+        throw new Error(payload.error || t('connections.workspaceAccess.errors.load'));
+      }
+      setWorkspaceAccess({
+        connectionId: connection.connectionId,
+        workspaces: Array.isArray(payload.data?.workspaces) ? payload.data.workspaces : [],
+        allowedWorkspaceIds: Array.isArray(payload.data?.allowedWorkspaceIds)
+          ? payload.data.allowedWorkspaceIds.filter((workspaceId: unknown): workspaceId is string => typeof workspaceId === 'string')
+          : [],
+      });
+    } catch (loadError) {
+      setWorkspaceAccessError(loadError instanceof Error
+        ? loadError.message
+        : t('connections.workspaceAccess.errors.load'));
+    } finally {
+      setIsWorkspaceAccessLoading(false);
+    }
+  }, [t]);
+
+  const toggleWorkspaceAccess = useCallback((connection: DirectMcpConnection) => {
+    setExpandedWorkspaceAccessConnectionId((current) => {
+      const next = current === connection.connectionId ? null : connection.connectionId;
+      if (next) void loadWorkspaceAccess(connection);
+      return next;
+    });
+  }, [loadWorkspaceAccess]);
+
+  const setWorkspaceAllowed = useCallback((workspaceId: string, allowed: boolean) => {
+    setWorkspaceAccess((current) => {
+      if (!current) return current;
+      const selected = new Set(current.allowedWorkspaceIds);
+      if (allowed) selected.add(workspaceId);
+      else selected.delete(workspaceId);
+      return { ...current, allowedWorkspaceIds: [...selected].sort() };
+    });
+  }, []);
+
+  const saveWorkspaceAccess = useCallback(async () => {
+    if (!workspaceAccess || isWorkspaceAccessSaving) return;
+    setIsWorkspaceAccessSaving(true);
+    setWorkspaceAccessError(null);
+    setSuccess(null);
+    try {
+      const response = await fetch('/api/integrations/mcp-server/connections/workspaces', {
+        method: 'PUT',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          connectionId: workspaceAccess.connectionId,
+          workspaceIds: workspaceAccess.allowedWorkspaceIds,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('connections.workspaceAccess.errors.save'));
+      }
+      const allowedWorkspaceCount = typeof payload.data?.allowedWorkspaceCount === 'number'
+        ? payload.data.allowedWorkspaceCount
+        : workspaceAccess.allowedWorkspaceIds.length;
+      setConnections((current) => current?.map((connection) => (
+        connection.connectionId === workspaceAccess.connectionId
+          ? { ...connection, allowedWorkspaceCount }
+          : connection
+      )) ?? []);
+      setSuccess(t('connections.workspaceAccess.saved'));
+    } catch (saveError) {
+      setWorkspaceAccessError(saveError instanceof Error
+        ? saveError.message
+        : t('connections.workspaceAccess.errors.save'));
+    } finally {
+      setIsWorkspaceAccessSaving(false);
+    }
+  }, [isWorkspaceAccessSaving, t, workspaceAccess]);
 
   const savedDraft: DraftSettings | null = status ? ({
     enabled: status.desiredEnabled,
@@ -471,34 +576,137 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
             <div className="divide-y overflow-hidden rounded-lg border">
               {connections.map((connection) => {
                 const authorizedAt = connection.updatedAt || connection.connectedAt;
+                const isWorkspaceAccessExpanded = expandedWorkspaceAccessConnectionId === connection.connectionId;
+                const accessForConnection = workspaceAccess?.connectionId === connection.connectionId
+                  ? workspaceAccess
+                  : null;
+                const selectedWorkspaceIds = new Set(accessForConnection?.allowedWorkspaceIds ?? []);
                 return (
-                  <div key={connection.connectionId} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="font-medium">{connection.clientName}</p>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {connection.scopes.map((scope) => (
-                          <Badge key={scope} variant="outline" className="font-mono font-normal">{scope}</Badge>
-                        ))}
-                      </div>
-                      {authorizedAt ? (
+                  <div key={connection.connectionId}>
+                    <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="font-medium">{connection.clientName}</p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {connection.scopes.map((scope) => (
+                            <Badge key={scope} variant="outline" className="font-mono font-normal">{scope}</Badge>
+                          ))}
+                        </div>
                         <p className="mt-2 text-xs text-muted-foreground">
-                          {t('connections.authorizedAt', { time: formatRequestTime(authorizedAt) })}
+                          {t('connections.workspaceAccess.selectedCount', { count: connection.allowedWorkspaceCount })}
                         </p>
-                      ) : null}
+                        {authorizedAt ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t('connections.authorizedAt', { time: formatRequestTime(authorizedAt) })}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                        <Button
+                          type="button"
+                          variant={isWorkspaceAccessExpanded ? 'secondary' : 'outline'}
+                          size="sm"
+                          disabled={disconnectingConnectionId !== null || isWorkspaceAccessLoading || isWorkspaceAccessSaving}
+                          onClick={() => toggleWorkspaceAccess(connection)}
+                        >
+                          {isWorkspaceAccessLoading && isWorkspaceAccessExpanded
+                            ? <Loader2 className="animate-spin" />
+                            : <ShieldCheck />}
+                          {t('connections.workspaceAccess.manage')}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          disabled={disconnectingConnectionId !== null || isWorkspaceAccessLoading || isWorkspaceAccessSaving}
+                          onClick={() => void disconnectConnection(connection)}
+                        >
+                          {disconnectingConnectionId === connection.connectionId
+                            ? <Loader2 className="animate-spin" />
+                            : <Unplug />}
+                          {t('connections.disconnect')}
+                        </Button>
+                      </div>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="self-start text-destructive hover:text-destructive"
-                      disabled={disconnectingConnectionId !== null}
-                      onClick={() => void disconnectConnection(connection)}
-                    >
-                      {disconnectingConnectionId === connection.connectionId
-                        ? <Loader2 className="animate-spin" />
-                        : <Unplug />}
-                      {t('connections.disconnect')}
-                    </Button>
+                    {isWorkspaceAccessExpanded ? (
+                      <div className="border-t bg-muted/20 p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="font-medium">{t('connections.workspaceAccess.title')}</p>
+                            <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
+                              {t('connections.workspaceAccess.description')}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void loadWorkspaceAccess(connection)}
+                            disabled={isWorkspaceAccessLoading || isWorkspaceAccessSaving}
+                          >
+                            {isWorkspaceAccessLoading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                            {t('connections.workspaceAccess.refresh')}
+                          </Button>
+                        </div>
+
+                        {isWorkspaceAccessLoading && !accessForConnection ? (
+                          <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            {t('connections.workspaceAccess.loading')}
+                          </div>
+                        ) : workspaceAccessError ? (
+                          <p role="alert" className="mt-3 text-sm text-destructive">{workspaceAccessError}</p>
+                        ) : accessForConnection?.workspaces.length ? (
+                          <>
+                            <div className="mt-4 max-h-72 divide-y overflow-y-auto rounded-md border bg-background">
+                              {accessForConnection.workspaces.map((workspace) => {
+                                const checkboxId = `mcp-workspace-${connection.connectionId}-${workspace.workspaceId}`;
+                                return (
+                                  <label key={workspace.workspaceId} htmlFor={checkboxId} className="flex cursor-pointer items-start gap-3 p-3 hover:bg-muted/40">
+                                    <input
+                                      id={checkboxId}
+                                      type="checkbox"
+                                      className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                                      checked={selectedWorkspaceIds.has(workspace.workspaceId)}
+                                      disabled={isWorkspaceAccessSaving}
+                                      onChange={(event) => setWorkspaceAllowed(workspace.workspaceId, event.target.checked)}
+                                    />
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block truncate text-sm font-medium">{workspace.name}</span>
+                                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                                        {workspace.description || t('connections.workspaceAccess.type', { type: workspace.type })}
+                                      </span>
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                            {selectedWorkspaceIds.size === 0 ? (
+                              <p className="mt-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-foreground">
+                                {t('connections.workspaceAccess.noneSelected')}
+                              </p>
+                            ) : null}
+                            <div className="mt-4 flex justify-end">
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => void saveWorkspaceAccess()}
+                                disabled={isWorkspaceAccessSaving}
+                              >
+                                {isWorkspaceAccessSaving ? <Loader2 className="animate-spin" /> : <Save />}
+                                {isWorkspaceAccessSaving
+                                  ? t('connections.workspaceAccess.saving')
+                                  : t('connections.workspaceAccess.save')}
+                              </Button>
+                            </div>
+                          </>
+                        ) : accessForConnection ? (
+                          <p className="mt-3 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                            {t('connections.workspaceAccess.noWorkspaces')}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
