@@ -3328,6 +3328,23 @@
         "missing": "The public Canvas domain has not been configured yet.",
         "notConfigured": "No server address available"
       },
+      "requestHistory": {
+        "title": "Recent requests",
+        "description": "Shows recent requests to this Canvas MCP server. Only safe technical metadata is stored and it is deleted automatically after {hours} hours.",
+        "refresh": "Refresh",
+        "loading": "Loading recent requests…",
+        "empty": "No requests in the last {hours} hours.",
+        "requestId": "Request ID",
+        "duration": "{duration} ms",
+        "outcomes": {
+          "succeeded": "Succeeded",
+          "failed": "Failed",
+          "rejected": "Rejected"
+        },
+        "errors": {
+          "load": "Could not load recent MCP requests."
+        }
+      },
       "capabilities": {
         "title": "What clients may use",
         "description": "Only enabled tools are advertised over MCP.",

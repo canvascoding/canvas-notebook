@@ -678,6 +678,25 @@ async function main(): Promise<void> {
       },
     });
     assert.equal(disabled.status, 404);
+
+    const { listRecentDirectMcpRequestHistory } = await import(
+      '../app/lib/mcp/server/request-history'
+    );
+    const requestHistory = await listRecentDirectMcpRequestHistory();
+    assert.equal(
+      requestHistory.some((entry) => entry.operation === 'tools/list'),
+      true,
+      'Direct MCP tool-list requests should be traceable.',
+    );
+    assert.equal(
+      requestHistory.some((entry) => (
+        entry.operation === 'tools/call'
+        && entry.toolName === DIRECT_MCP_AUTH_PROBE_TOOL
+        && entry.code === 'MCP_TOOL_ERROR'
+      )),
+      true,
+      'Failed Direct MCP tool calls should retain only their safe tool metadata.',
+    );
     assert.deepEqual(
       outboundRequests,
       [],

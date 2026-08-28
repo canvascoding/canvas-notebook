@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowRight,
   Check,
+  Clock3,
   Copy,
   KeyRound,
   Link2,
@@ -54,6 +55,24 @@ type DraftSettings = {
   tools: string[];
 };
 
+type DirectMcpRequestHistoryEntry = {
+  requestId: string;
+  phase: string;
+  httpMethod: string;
+  operation: string | null;
+  toolName: string | null;
+  outcome: 'succeeded' | 'failed' | 'rejected';
+  statusCode: number | null;
+  code: string;
+  durationMs: number;
+  createdAt: string;
+};
+
+type DirectMcpRequestHistoryState = {
+  retentionHours: number;
+  entries: DirectMcpRequestHistoryEntry[];
+};
+
 function enabledTools(status: McpServerStatus): string[] {
   return status.capabilities
     .filter((capability) => capability.available && capability.enabled)
@@ -67,6 +86,15 @@ function draftsEqual(left: DraftSettings, right: DraftSettings): boolean {
     && left.tools.every((tool, index) => tool === right.tools[index]);
 }
 
+function formatRequestTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  }).format(date);
+}
+
 export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   const t = useTranslations('settings.mcpServer');
   const [status, setStatus] = useState<McpServerStatus | null>(null);
@@ -76,6 +104,9 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [copied, setCopied] = useState<'endpoint' | 'config' | null>(null);
+  const [requestHistory, setRequestHistory] = useState<DirectMcpRequestHistoryState | null>(null);
+  const [isRequestHistoryLoading, setIsRequestHistoryLoading] = useState(false);
+  const [requestHistoryError, setRequestHistoryError] = useState<string | null>(null);
 
   const applyStatus = useCallback((nextStatus: McpServerStatus) => {
     setStatus(nextStatus);
@@ -104,6 +135,29 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
       setIsLoading(false);
     }
   }, [applyStatus, t]);
+
+  const loadRequestHistory = useCallback(async () => {
+    setIsRequestHistoryLoading(true);
+    setRequestHistoryError(null);
+    try {
+      const response = await fetch('/api/integrations/mcp-server/requests', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('requestHistory.errors.load'));
+      }
+      setRequestHistory({
+        retentionHours: typeof payload.data?.retentionHours === 'number' ? payload.data.retentionHours : 24,
+        entries: Array.isArray(payload.data?.entries) ? payload.data.entries : [],
+      });
+    } catch (loadError) {
+      setRequestHistoryError(loadError instanceof Error ? loadError.message : t('requestHistory.errors.load'));
+    } finally {
+      setIsRequestHistoryLoading(false);
+    }
+  }, [t]);
 
   useEffect(() => {
     let active = true;
@@ -311,6 +365,87 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                 {copied === 'endpoint' ? t('copied') : t('copy')}
               </Button>
             </div>
+          </section>
+        ) : null}
+
+        {isAdmin ? (
+          <section aria-labelledby="mcp-server-request-history-title" className="border-t pt-6">
+            <details
+              className="group overflow-hidden rounded-lg border"
+              onToggle={(event) => {
+                if (event.currentTarget.open) void loadRequestHistory();
+              }}
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-medium marker:hidden [&::-webkit-details-marker]:hidden">
+                <span className="flex items-center gap-2">
+                  <Clock3 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  <span id="mcp-server-request-history-title">{t('requestHistory.title')}</span>
+                </span>
+                <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden="true" />
+              </summary>
+              <div className="space-y-3 border-t bg-muted/20 p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <p className="max-w-2xl text-sm leading-5 text-muted-foreground">
+                    {t('requestHistory.description', { hours: requestHistory?.retentionHours ?? 24 })}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void loadRequestHistory()}
+                    disabled={isRequestHistoryLoading}
+                  >
+                    {isRequestHistoryLoading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                    {t('requestHistory.refresh')}
+                  </Button>
+                </div>
+
+                {isRequestHistoryLoading && !requestHistory ? (
+                  <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {t('requestHistory.loading')}
+                  </div>
+                ) : requestHistoryError ? (
+                  <p role="alert" className="text-sm text-destructive">{requestHistoryError}</p>
+                ) : requestHistory?.entries.length ? (
+                  <div className="max-h-[28rem] divide-y overflow-y-auto rounded-md border bg-background">
+                    {requestHistory.entries.map((entry) => {
+                      const requestLabel = entry.toolName
+                        ? `${entry.operation || entry.httpMethod} · ${entry.toolName}`
+                        : entry.operation || entry.httpMethod;
+                      const outcomeVariant = entry.outcome === 'failed'
+                        ? 'destructive' as const
+                        : entry.outcome === 'rejected'
+                          ? 'secondary' as const
+                          : 'default' as const;
+                      return (
+                        <div key={entry.requestId} className="grid gap-2 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium">{requestLabel}</span>
+                              <Badge variant={outcomeVariant}>{t(`requestHistory.outcomes.${entry.outcome}`)}</Badge>
+                              {entry.statusCode ? <Badge variant="outline">HTTP {entry.statusCode}</Badge> : null}
+                            </div>
+                            <p className="mt-1 break-words font-mono text-xs text-muted-foreground">{entry.code}</p>
+                            <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                              {t('requestHistory.requestId')}: {entry.requestId}
+                            </p>
+                          </div>
+                          <div className="text-xs text-muted-foreground sm:text-right">
+                            <p>{formatRequestTime(entry.createdAt)}</p>
+                            <p className="mt-1">{t('requestHistory.duration', { duration: entry.durationMs })}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                    {t('requestHistory.empty', { hours: requestHistory?.retentionHours ?? 24 })}
+                  </p>
+                )}
+              </div>
+            </details>
           </section>
         ) : null}
 

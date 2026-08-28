@@ -1500,6 +1500,22 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       created_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS direct_mcp_request_history (
+      id TEXT PRIMARY KEY NOT NULL,
+      request_id TEXT NOT NULL,
+      flow_ref TEXT,
+      phase TEXT NOT NULL,
+      http_method TEXT NOT NULL,
+      operation TEXT,
+      tool_name TEXT,
+      outcome TEXT NOT NULL,
+      status_code INTEGER,
+      code TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS automation_jobs (
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
@@ -2492,6 +2508,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_audit_events_user_created ON audit_events (user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_entity_created ON audit_events (entity_type, entity_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_source_action_created ON audit_events (source, action, created_at);
+    CREATE INDEX IF NOT EXISTS idx_direct_mcp_request_history_created ON direct_mcp_request_history (created_at);
+    CREATE INDEX IF NOT EXISTS idx_direct_mcp_request_history_expires ON direct_mcp_request_history (expires_at);
   `);
 
   if (tableExists(sqlite, 'ai_sessions') && tableExists(sqlite, 'ai_messages')) {

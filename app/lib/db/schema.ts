@@ -2256,6 +2256,28 @@ export const auditEvents = sqliteTable("audit_events", {
   sourceActionCreatedIdx: index("idx_audit_events_source_action_created").on(table.source, table.action, table.createdAt),
 }));
 
+// Short-lived, metadata-only diagnostics for the public Canvas MCP server.
+// This is intentionally separate from audit_events: it is automatically
+// pruned and must never contain request bodies, OAuth material, or user data.
+export const directMcpRequestHistory = sqliteTable("direct_mcp_request_history", {
+  id: text("id").primaryKey(),
+  requestId: text("request_id").notNull(),
+  flowRef: text("flow_ref"),
+  phase: text("phase").notNull(),
+  httpMethod: text("http_method").notNull(),
+  operation: text("operation"),
+  toolName: text("tool_name"),
+  outcome: text("outcome").notNull(),
+  statusCode: integer("status_code"),
+  code: text("code").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  createdIdx: index("idx_direct_mcp_request_history_created").on(table.createdAt),
+  expiresIdx: index("idx_direct_mcp_request_history_expires").on(table.expiresAt),
+}));
+
 export const telegramActiveSession = sqliteTable("telegram_active_session", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: text("user_id").notNull().references(() => user.id),

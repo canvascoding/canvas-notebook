@@ -168,7 +168,7 @@ async function handleDirectMcpOAuthRequest(
       diagnostics.requestId,
     );
     if (response.status >= 500) {
-      completeDirectMcpDiagnostic(diagnostics, {
+      await completeDirectMcpDiagnostic(diagnostics, {
         statusCode: 503,
         code: 'OAUTH_PROVIDER_ERROR',
         startedAt,
@@ -178,14 +178,14 @@ async function handleDirectMcpOAuthRequest(
         diagnostics.requestId,
       );
     }
-    completeDirectMcpDiagnostic(diagnostics, {
+    await completeDirectMcpDiagnostic(diagnostics, {
       statusCode: response.status,
       code: 'OAUTH_REQUEST_COMPLETED',
       startedAt,
     });
     return response;
   } catch (error) {
-    failDirectMcpDiagnostic(diagnostics, {
+    await failDirectMcpDiagnostic(diagnostics, {
       code: error instanceof DirectMcpOAuthStageError
         ? error.code
         : 'OAUTH_INTERNAL_ERROR',

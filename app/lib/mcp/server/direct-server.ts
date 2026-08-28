@@ -16,6 +16,10 @@ import {
 } from '@/app/lib/mcp/server/auth-probe';
 import { getDirectMcpEnabledTools, type DirectMcpToolId } from '@/app/lib/mcp/server/config';
 import {
+  recordDirectMcpRequestOperation,
+  recordDirectMcpToolFailure,
+} from '@/app/lib/mcp/server/diagnostics';
+import {
   getDirectMcpWorkspaceToolDefinitions,
 } from '@/app/lib/mcp/server/workspace-tools';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
@@ -62,19 +66,30 @@ export function createDirectMcpServer(
     },
   );
 
-  server.setRequestHandler('tools/list', async () => ({
-    tools: tools.map((tool) => tool.descriptor),
-  }));
+  server.setRequestHandler('tools/list', async () => {
+    recordDirectMcpRequestOperation('tools/list');
+    return { tools: tools.map((tool) => tool.descriptor) };
+  });
 
   server.setRequestHandler('tools/call', async (request, context) => {
+    recordDirectMcpRequestOperation('tools/call');
     const tool = toolsById.get(request.params.name as DirectMcpToolId);
     if (!tool) {
+      recordDirectMcpToolFailure();
       throw new ProtocolError(
         ProtocolErrorCode.MethodNotFound,
         'The requested tool is not available.',
       );
     }
-    return tool.execute(request.params.arguments, context.http?.authInfo);
+    recordDirectMcpRequestOperation('tools/call', tool.id);
+    try {
+      const result = await tool.execute(request.params.arguments, context.http?.authInfo);
+      if (result.isError) recordDirectMcpToolFailure();
+      return result;
+    } catch (error) {
+      recordDirectMcpToolFailure();
+      throw error;
+    }
   });
 
   return server;

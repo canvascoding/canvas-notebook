@@ -3327,6 +3327,23 @@
         "missing": "Die öffentliche Canvas-Domain ist noch nicht konfiguriert.",
         "notConfigured": "Keine Server-Adresse verfügbar"
       },
+      "requestHistory": {
+        "title": "Letzte Anfragen",
+        "description": "Zeigt die letzten Anfragen an diesen Canvas-MCP-Server. Es werden nur sichere technische Metadaten gespeichert und nach {hours} Stunden automatisch gelöscht.",
+        "refresh": "Aktualisieren",
+        "loading": "Lade letzte Anfragen …",
+        "empty": "Keine Anfragen in den letzten {hours} Stunden.",
+        "requestId": "Request-ID",
+        "duration": "{duration} ms",
+        "outcomes": {
+          "succeeded": "Erfolgreich",
+          "failed": "Fehler",
+          "rejected": "Abgewiesen"
+        },
+        "errors": {
+          "load": "Die letzten MCP-Anfragen konnten nicht geladen werden."
+        }
+      },
       "capabilities": {
         "title": "Was Clients verwenden dürfen",
         "description": "Nur aktivierte Werkzeuge werden über MCP bekanntgegeben.",

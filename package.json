@@ -97,6 +97,7 @@
     "test:mcp:server-oauth-client": "tsx --conditions react-server scripts/mcp-server-oauth-client-test.ts",
     "test:mcp:server-auth-probe": "tsx --conditions react-server scripts/mcp-server-auth-probe-test.ts",
     "test:mcp:server-diagnostics": "tsx --conditions react-server scripts/mcp-server-diagnostics-test.ts",
+    "test:mcp:server-request-history": "tsx --conditions react-server scripts/mcp-server-request-history-test.ts",
     "test:mcp:server-settings": "node scripts/mcp-server-runtime-bootstrap-test.mjs && tsx --conditions react-server scripts/mcp-server-settings-test.ts",
     "test:mcp:server-http-smoke": "tsx scripts/mcp-server-http-smoke-test.ts",
     "test:studio:seedance": "tsx scripts/seedance-generation-test.ts",
