@@ -356,9 +356,18 @@ gesichert und nur durch einen ausdruecklichen Rollback wieder aktiviert.
 
 Der Linux-Integrationstest deckt damit Fresh Install, In-place-Upgrade,
 TypeScript-Rollback, expliziten Legacy-Rollback und eine abgewiesene falsche
-Checksumme ab. Der produktive Aufruf dieses Bootstraps aus `cli-update` und der
-Control-Plane-Canary bleiben die naechsten Schritte; die bestehende Bash-CLI wird
-noch nicht automatisch ersetzt.
+Checksumme ab. Die TypeScript-CLI erkennt das installierte Linux-Layout ueber
+`CANVAS_CLI_LINUX_ROOT`: `cli-update` laedt das passende Architekturpaket samt
+Checksumme, prueft den bisherigen Aktivierungszustand, ruft den installierten
+Bootstrap auf und startet bei einer Aenderung aus dem neuen Release neu. Der
+Reexec erhaelt dabei den aktualisierten `CANVAS_CLI_ROOT`; ein veralteter Root
+wird nicht still akzeptiert. Managed-Control-Plane-Installationen bleiben wie
+bisher vom autonomen Self-Update ausgeschlossen.
+
+Der neue Pfad wird mit einem gezielten Self-Update-Test und auf beiden nativen
+Linux-Runnern geprueft. Als naechstes muessen die beiden Architekturartefakte in
+den gegateten Release-Bundle- und Control-Plane-Metadatenpfad aufgenommen werden;
+die bestehende Bash-CLI wird bis zu diesem Gate noch nicht automatisch ersetzt.
 
 - kanonisches Linux-Artefakt fuer `amd64` und `arm64` bauen.
 - Checksum und Archiv-Allowlist pruefen.

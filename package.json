@@ -263,6 +263,7 @@
     "test:cli:service-linux-integration": "bash scripts/portable-cli-linux-service-integration-test.sh",
     "test:cli:update-rollback": "bash scripts/cli-update-rollback-test.sh",
     "test:cli:portable-update": "tsx scripts/portable-cli-self-update-test.ts",
+    "test:cli:linux-self-update": "tsx scripts/linux-cli-self-update-test.ts",
     "test:cli:portable": "tsx scripts/cross-platform-cli-test.ts",
     "test:cli:parity": "tsx scripts/cli-command-parity-test.ts",
     "test:channels": "tsx scripts/channel-architecture-test.ts",
