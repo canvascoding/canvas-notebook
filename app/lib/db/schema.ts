@@ -1120,6 +1120,7 @@ export const piSessions = sqliteTable("pi_sessions", {
   summaryUpdatedAt: integer("summary_updated_at", { mode: "timestamp" }),
   summaryThroughTimestamp: integer("summary_through_timestamp"),
   summaryThroughSequence: integer("summary_through_sequence"),
+  summaryRevision: integer("summary_revision").notNull().default(0),
   systemPromptSnapshot: text("system_prompt_snapshot"),
   systemPromptSnapshotHash: text("system_prompt_snapshot_hash"),
   systemPromptSnapshotCreatedAt: integer("system_prompt_snapshot_created_at", { mode: "timestamp" }),
@@ -1157,6 +1158,45 @@ export const piSessions = sqliteTable("pi_sessions", {
   delegationIdx: index("idx_pi_sessions_delegation").on(table.userId, table.delegationId),
   sessionKindCheck: check("pi_sessions_session_kind_check", sql`${table.sessionKind} IN ('conversation', 'delegation_worker')`),
   delegationDepthCheck: check("pi_sessions_delegation_depth_check", sql`${table.delegationDepth} IN (0, 1)`),
+}));
+
+export const piSessionCompactionAttempts = sqliteTable("pi_session_compaction_attempts", {
+  id: text("id").primaryKey(),
+  piSessionDbId: integer("pi_session_db_id").notNull().references(() => piSessions.id, { onDelete: "cascade" }),
+  attemptOrdinal: integer("attempt_ordinal").notNull().default(0),
+  trigger: text("trigger").notNull(),
+  state: text("state").notNull(),
+  reasonCode: text("reason_code"),
+  baseSummaryRevision: integer("base_summary_revision").notNull(),
+  committedSummaryRevision: integer("committed_summary_revision"),
+  baseThroughSequence: integer("base_through_sequence"),
+  committedThroughSequence: integer("committed_through_sequence"),
+  messageSequenceCheckpoint: integer("message_sequence_checkpoint").notNull(),
+  contractFingerprint: text("contract_fingerprint"),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  beforeEstimatedTokens: integer("before_estimated_tokens"),
+  afterEstimatedTokens: integer("after_estimated_tokens"),
+  beforeEstimatedBytes: integer("before_estimated_bytes"),
+  afterEstimatedBytes: integer("after_estimated_bytes"),
+  protectedUnitCount: integer("protected_unit_count"),
+  summarizedUnitCount: integer("summarized_unit_count"),
+  omittedUnitCount: integer("omitted_unit_count"),
+  startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
+  deadlineAt: integer("deadline_at", { mode: "timestamp" }).notNull(),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  retryAt: integer("retry_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  sessionStartedIdx: index("idx_pi_compaction_attempts_session_started").on(table.piSessionDbId, table.startedAt),
+  sessionOrdinalIdx: uniqueIndex("idx_pi_compaction_attempts_session_ordinal").on(table.piSessionDbId, table.attemptOrdinal),
+  stateDeadlineIdx: index("idx_pi_compaction_attempts_state_deadline").on(table.state, table.deadlineAt),
+  activeSessionIdx: uniqueIndex("idx_pi_compaction_attempts_active_session")
+    .on(table.piSessionDbId)
+    .where(sql`${table.state} = 'running'`),
+  triggerCheck: check("pi_compaction_attempts_trigger_check", sql`${table.trigger} IN ('automatic', 'manual', 'automation')`),
+  stateCheck: check("pi_compaction_attempts_state_check", sql`${table.state} IN ('running', 'succeeded', 'no_op', 'deferred', 'failed', 'aborted', 'stale', 'timed_out')`),
 }));
 
 export const piDelegations = sqliteTable("pi_delegations", {

@@ -1009,6 +1009,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       summary_updated_at INTEGER,
       summary_through_timestamp INTEGER,
       summary_through_sequence INTEGER,
+      summary_revision INTEGER NOT NULL DEFAULT 0,
       system_prompt_snapshot TEXT,
       system_prompt_snapshot_hash TEXT,
       system_prompt_snapshot_created_at INTEGER,
@@ -1034,6 +1035,44 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       runtime_selection_source TEXT,
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
+
+    CREATE TABLE IF NOT EXISTS pi_session_compaction_attempts (
+      id TEXT PRIMARY KEY NOT NULL,
+      pi_session_db_id INTEGER NOT NULL,
+      attempt_ordinal INTEGER NOT NULL DEFAULT 0,
+      trigger TEXT NOT NULL CHECK (trigger IN ('automatic', 'manual', 'automation')),
+      state TEXT NOT NULL CHECK (state IN ('running', 'succeeded', 'no_op', 'deferred', 'failed', 'aborted', 'stale', 'timed_out')),
+      reason_code TEXT,
+      base_summary_revision INTEGER NOT NULL,
+      committed_summary_revision INTEGER,
+      base_through_sequence INTEGER,
+      committed_through_sequence INTEGER,
+      message_sequence_checkpoint INTEGER NOT NULL,
+      contract_fingerprint TEXT,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      before_estimated_tokens INTEGER,
+      after_estimated_tokens INTEGER,
+      before_estimated_bytes INTEGER,
+      after_estimated_bytes INTEGER,
+      protected_unit_count INTEGER,
+      summarized_unit_count INTEGER,
+      omitted_unit_count INTEGER,
+      started_at INTEGER NOT NULL,
+      deadline_at INTEGER NOT NULL,
+      completed_at INTEGER,
+      retry_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (pi_session_db_id) REFERENCES pi_sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pi_compaction_attempts_session_started
+      ON pi_session_compaction_attempts (pi_session_db_id, started_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_compaction_attempts_state_deadline
+      ON pi_session_compaction_attempts (state, deadline_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_compaction_attempts_active_session
+      ON pi_session_compaction_attempts (pi_session_db_id) WHERE state = 'running';
 
     CREATE TABLE IF NOT EXISTS pi_delegations (
       id TEXT PRIMARY KEY NOT NULL,
@@ -2536,6 +2575,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     archived_at: 'INTEGER',
     thinking_level: 'TEXT',
     summary_through_sequence: 'INTEGER',
+    summary_revision: 'INTEGER NOT NULL DEFAULT 0',
     runtime_provider_installation_id: 'TEXT',
     runtime_catalog_revision: 'INTEGER',
     runtime_policy_revision: 'INTEGER',
@@ -2551,6 +2591,27 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   addColumns(sqlite, 'pi_messages', {
     sequence: 'INTEGER NOT NULL DEFAULT 0',
   });
+
+  addColumns(sqlite, 'pi_session_compaction_attempts', {
+    attempt_ordinal: 'INTEGER NOT NULL DEFAULT 0',
+  });
+  sqlite.exec(`
+    WITH ranked_attempts AS (
+      SELECT id,
+             ROW_NUMBER() OVER (
+               PARTITION BY pi_session_db_id
+               ORDER BY started_at ASC, created_at ASC, id ASC
+             ) AS next_ordinal
+      FROM pi_session_compaction_attempts
+    )
+    UPDATE pi_session_compaction_attempts
+    SET attempt_ordinal = (
+      SELECT next_ordinal FROM ranked_attempts
+      WHERE ranked_attempts.id = pi_session_compaction_attempts.id
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_compaction_attempts_session_ordinal
+      ON pi_session_compaction_attempts (pi_session_db_id, attempt_ordinal);
+  `);
 
   sqlite.exec(`
     WITH ordered_messages AS (
@@ -3026,6 +3087,26 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   // create duplicate records for that pair, so merge their messages before the
   // unique index below is introduced.
   deduplicatePiSessions(sqlite);
+
+  const invalidPiMessageSequenceCount = (sqlite.prepare(`
+    SELECT COUNT(*) AS count
+    FROM (
+      SELECT pi_session_db_id, sequence
+      FROM pi_messages
+      GROUP BY pi_session_db_id, sequence
+      HAVING sequence IS NULL OR sequence <= 0 OR COUNT(*) > 1
+    ) invalid_sequences
+  `).get() as { count: number }).count;
+  if (invalidPiMessageSequenceCount === 0) {
+    sqlite.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_messages_session_sequence_unique
+        ON pi_messages (pi_session_db_id, sequence);
+    `);
+  } else {
+    console.warn(
+      `[Database] PI message sequence integrity audit found ${invalidPiMessageSequenceCount} conflicting sequence group(s); unique index deferred.`,
+    );
+  }
 
   // ── Deferred indexes on columns added via ALTER TABLE ──────────────────────
   sqlite.exec(`

@@ -72,7 +72,12 @@ type UseChatControlActionsParams = {
   refreshRuntimeSelection: () => Promise<void> | void;
   activeWorkspaceId?: string | null;
   addSessionToHistory: (session: AISession) => void;
-  appendCompactionBreak: (kind: 'manual' | 'automatic', timestamp: string, omittedMessageCount: number) => void;
+  appendCompactionBreak: (
+    kind: 'manual' | 'automatic',
+    timestamp: string,
+    omittedMessageCount: number,
+    attemptId?: string,
+  ) => void;
   appendOptimisticUserMessage: (
     content: string,
     attachments: Attachment[],
@@ -538,12 +543,19 @@ export function useChatControlActions({
     if (!sessionIdRef.current) return;
     try {
       const status = await postControl(sessionIdRef.current, 'compact');
-      if (status?.lastCompactionAt && status.lastCompactionKind) {
-        if (status.lastCompactionOmittedCount === 0) {
-          appendSystemMessage(t('compactAlreadyOptimized'));
-        } else {
-          appendCompactionBreak(status.lastCompactionKind, status.lastCompactionAt, status.lastCompactionOmittedCount || 0);
-        }
+      if (status?.compactionStatus?.state === 'no_op') {
+        appendSystemMessage(t('compactAlreadyOptimized'));
+      } else if (
+        status?.compactionStatus?.state === 'succeeded'
+        && status.lastCompactionAt
+        && status.lastCompactionKind
+      ) {
+        appendCompactionBreak(
+          status.lastCompactionKind,
+          status.lastCompactionAt,
+          status.lastCompactionOmittedCount || 0,
+          status.compactionStatus.attemptId || undefined,
+        );
       }
     } catch (error) {
       appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));

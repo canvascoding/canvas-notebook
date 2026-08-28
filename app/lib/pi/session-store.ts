@@ -2,7 +2,7 @@ import { db, getDatabaseProvider, openDb, type SqlConnection } from '../db';
 import { legacyAiTablesExist } from '../db/legacy-ai-tables';
 import { toDatabaseTimestamp } from '../db/timestamps';
 import { piSessions, piMessages, aiSessions, aiMessages, sessionChannelLinks } from '../db/schema';
-import { eq, and, asc, desc, gt } from 'drizzle-orm';
+import { eq, and, asc, desc } from 'drizzle-orm';
 import { type AgentMessage } from '@earendil-works/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
 import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
@@ -370,8 +370,9 @@ export async function savePiSession(
     workspaceId?: string | null;
     runtimeSnapshot?: AiSessionRuntimeSnapshot;
     systemPromptSnapshot?: PiSystemPromptSnapshot;
+    expectedSummaryRevision?: number;
   },
-): Promise<void> {
+): Promise<PiSessionSaveResult> {
   const agentId = resolveSessionAgentId(options?.agentId);
   const session = await findUnambiguousOwnedPiSessionForRuntime({ sessionId, userId });
   if (session && session.agentId !== agentId) {
@@ -386,12 +387,32 @@ export async function savePiSession(
   let sessionDbId: number;
   let persistedTitle: string;
 
+  const summaryChanged = Boolean(summary && session && (
+    (summary.summaryText ?? null) !== (session.summaryText ?? null)
+    || (summary.summaryUpdatedAt?.getTime() ?? null) !== (session.summaryUpdatedAt?.getTime() ?? null)
+    || (summary.summaryThroughTimestamp ?? null) !== (session.summaryThroughTimestamp ?? null)
+    || (summary.summaryThroughSequence ?? null) !== (session.summaryThroughSequence ?? null)
+  ));
+  if (summaryChanged && options?.expectedSummaryRevision === undefined) {
+    throw new Error('Summary persistence requires an explicit expectedSummaryRevision fence.');
+  }
+  if (
+    summaryChanged
+    && (summary!.summaryRevision !== options?.expectedSummaryRevision
+      || options.expectedSummaryRevision !== session!.summaryRevision)
+  ) {
+    throw new Error('Summary persistence revision conflict.');
+  }
+  const insertedSummaryRevision = summary?.summaryText
+    ? summary.summaryRevision + 1
+    : summary?.summaryRevision ?? 0;
   const summaryFields = summary
     ? {
         summaryText: summary.summaryText ?? null,
         summaryUpdatedAt: summary.summaryUpdatedAt ?? null,
         summaryThroughTimestamp: summary.summaryThroughTimestamp ?? null,
         summaryThroughSequence: summary.summaryThroughSequence ?? null,
+        summaryRevision: session ? session.summaryRevision : insertedSummaryRevision,
       }
     : {};
 
@@ -448,7 +469,7 @@ export async function savePiSession(
       ? {}
       : piSessionRuntimeSnapshotDbFields(options.runtimeSnapshot);
 
-    await db.update(piSessions)
+    const updatedRows = await db.update(piSessions)
       .set({ 
         updatedAt: new Date(), 
         title: persistedTitle,
@@ -457,9 +478,10 @@ export async function savePiSession(
         ...workspaceFields,
         ...runtimeFields,
         ...promptSnapshotFields,
-        ...summaryFields 
       })
-      .where(eq(piSessions.id, sessionDbId));
+      .where(eq(piSessions.id, sessionDbId))
+      .returning({ summaryRevision: piSessions.summaryRevision });
+    if (updatedRows.length !== 1) throw new Error('Session metadata persistence conflict.');
   }
 
   const normalizedChannelId = normalizeStoredChannelId(options?.channelId ?? session?.channelId ?? 'app');
@@ -476,22 +498,138 @@ export async function savePiSession(
     outboundAt: lastMessageAt,
   });
 
-  if (startIndex === 0) {
-    await db.delete(piMessages).where(eq(piMessages.piSessionDbId, sessionDbId));
+  const projectedNewMessages = newMessages.map((message, index) => ({
+    role: message.role,
+    content: JSON.stringify(projectAgentMessageForPersistence(message)),
+    timestamp: getAgentMessageTimestamp(message),
+    sequence: startIndex + index + 1,
+  }));
+  const connection = await openDb();
+  let transactionStarted = false;
+  let sequenceCheckpoint = 0;
+  try {
+    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    transactionStarted = true;
+    const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
+    const locked = await connection.get(
+      `SELECT id FROM pi_sessions
+       WHERE id = ? AND session_id = ? AND user_id = ? AND agent_id = ?
+       LIMIT 1${forUpdate}`,
+      [sessionDbId, sessionId, userId, agentId],
+    ) as { id?: number | string } | undefined;
+    if (locked?.id === undefined) throw new PiSessionRuntimeAccessError(
+      'Agent session could not be restored while saving messages.',
+      'SESSION_NOT_FOUND',
+    );
+    const beforeAudit = await connection.get(
+      `SELECT COUNT(*) AS message_count, COUNT(DISTINCT sequence) AS distinct_sequence_count,
+              MIN(sequence) AS minimum_sequence, MAX(sequence) AS maximum_sequence,
+              SUM(CASE WHEN sequence IS NULL THEN 1 ELSE 0 END) AS null_sequence_count
+       FROM pi_messages WHERE pi_session_db_id = ?`,
+      [sessionDbId],
+    ) as Record<string, unknown>;
+    const existingCount = Number(beforeAudit.message_count ?? 0);
+    const existingDistinct = Number(beforeAudit.distinct_sequence_count ?? 0);
+    const existingMinimum = beforeAudit.minimum_sequence === null ? null : Number(beforeAudit.minimum_sequence);
+    const existingMaximum = beforeAudit.maximum_sequence === null ? null : Number(beforeAudit.maximum_sequence);
+    const existingNulls = Number(beforeAudit.null_sequence_count ?? 0);
+    const existingSequenceValid = existingCount === 0 || (
+      existingDistinct === existingCount
+      && existingMinimum === 1
+      && existingMaximum === existingCount
+      && existingNulls === 0
+    );
+    if (!existingSequenceValid) {
+      throw new Error('Persisted PI message history has a sequence integrity conflict.');
+    }
+    if (startIndex > 0 && existingCount !== startIndex) {
+      throw new Error('Persisted PI message sequence checkpoint changed before append.');
+    }
+    if (startIndex === 0) {
+      await connection.run('DELETE FROM pi_messages WHERE pi_session_db_id = ?', [sessionDbId]);
+    }
+    for (const message of projectedNewMessages) {
+      await connection.run(
+        `INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
+         VALUES (?, ?, ?, ?, ?)`,
+        [sessionDbId, message.role, message.content, message.timestamp, message.sequence],
+      );
+    }
+    const afterAudit = await connection.get(
+      `SELECT COUNT(*) AS message_count, COUNT(DISTINCT sequence) AS distinct_sequence_count,
+              MIN(sequence) AS minimum_sequence, MAX(sequence) AS maximum_sequence,
+              SUM(CASE WHEN sequence IS NULL THEN 1 ELSE 0 END) AS null_sequence_count
+       FROM pi_messages WHERE pi_session_db_id = ?`,
+      [sessionDbId],
+    ) as Record<string, unknown>;
+    const finalCount = Number(afterAudit.message_count ?? 0);
+    const finalDistinct = Number(afterAudit.distinct_sequence_count ?? 0);
+    const finalMinimum = afterAudit.minimum_sequence === null ? null : Number(afterAudit.minimum_sequence);
+    sequenceCheckpoint = afterAudit.maximum_sequence === null ? 0 : Number(afterAudit.maximum_sequence);
+    const finalNulls = Number(afterAudit.null_sequence_count ?? 0);
+    if (
+      finalCount !== sequenceCheckpoint
+      || finalDistinct !== finalCount
+      || (finalCount > 0 && finalMinimum !== 1)
+      || finalNulls !== 0
+    ) {
+      throw new Error('Persisted PI message sequence checkpoint is not durable.');
+    }
+    await connection.run('COMMIT');
+    transactionStarted = false;
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await connection.run('ROLLBACK');
+      } catch {
+        // Preserve the original message persistence error.
+      }
+    }
+    throw error;
+  } finally {
+    await connection.close();
   }
 
-  if (newMessages.length > 0) {
-    await db.insert(piMessages).values(
-      newMessages.map((m, index) => ({
-        piSessionDbId: sessionDbId,
-        role: m.role,
-        content: JSON.stringify(projectAgentMessageForPersistence(m)),
-        timestamp: getAgentMessageTimestamp(m),
-        sequence: startIndex + index + 1,
-      }))
-    );
+  const expectedCheckpoint = startIndex + newMessages.length;
+  if (sequenceCheckpoint !== expectedCheckpoint) {
+    throw new Error('Persisted PI message sequence checkpoint does not match the saved history.');
   }
+  newMessages.forEach((message, index) => {
+    (message as unknown as { sequence: number }).sequence = startIndex + index + 1;
+  });
+  if (summaryChanged) {
+    const updatedSummary = await db.update(piSessions)
+      .set({
+        summaryText: summary!.summaryText ?? null,
+        summaryUpdatedAt: summary!.summaryUpdatedAt ?? null,
+        summaryThroughTimestamp: summary!.summaryThroughTimestamp ?? null,
+        summaryThroughSequence: summary!.summaryThroughSequence ?? null,
+        summaryRevision: options!.expectedSummaryRevision! + 1,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(piSessions.id, sessionDbId),
+        eq(piSessions.summaryRevision, options!.expectedSummaryRevision!),
+      ))
+      .returning({ summaryRevision: piSessions.summaryRevision });
+    if (updatedSummary.length !== 1) throw new Error('Summary persistence revision conflict.');
+  }
+  return {
+    sessionDbId,
+    persistedMessageCount: newMessages.length,
+    sequenceCheckpoint,
+    summaryRevision: summaryChanged
+      ? options!.expectedSummaryRevision! + 1
+      : session?.summaryRevision ?? insertedSummaryRevision,
+  };
 }
+
+export type PiSessionSaveResult = Readonly<{
+  sessionDbId: number;
+  persistedMessageCount: number;
+  sequenceCheckpoint: number;
+  summaryRevision: number;
+}>;
 
 export async function finalizePiSessionAfterNoop(input: {
   sessionId: string;
@@ -502,7 +640,8 @@ export async function finalizePiSessionAfterNoop(input: {
   title?: string | null;
   titleGenerationState?: string | null;
   summary?: PiSessionSummaryState;
-}): Promise<void> {
+  expectedSummaryRevision?: number;
+}): Promise<number> {
   const agentId = resolveSessionAgentId(input.agentId);
   const session = await findUnambiguousOwnedPiSessionForRuntime({
     sessionId: input.sessionId,
@@ -522,31 +661,93 @@ export async function finalizePiSessionAfterNoop(input: {
   }
 
   const retainedMessageCount = Math.max(0, Math.floor(input.retainedMessageCount));
-  await db.delete(piMessages).where(and(
-    eq(piMessages.piSessionDbId, session.id),
-    gt(piMessages.sequence, retainedMessageCount),
-  ));
-
   if (input.deleteSessionIfEmpty && retainedMessageCount === 0) {
     await deletePiSessionsByDbIds([session.id]);
-    return;
+    return session.summaryRevision;
   }
 
-  await db.update(piSessions)
-    .set({
-      updatedAt: new Date(),
-      title: input.title === undefined ? session.title : input.title,
-      titleGenerationState: input.titleGenerationState === undefined
-        ? session.titleGenerationState
-        : input.titleGenerationState,
-      ...(input.summary ? {
-        summaryText: input.summary.summaryText ?? null,
-        summaryUpdatedAt: input.summary.summaryUpdatedAt ?? null,
-        summaryThroughTimestamp: input.summary.summaryThroughTimestamp ?? null,
-        summaryThroughSequence: input.summary.summaryThroughSequence ?? null,
-      } : {}),
-    })
-    .where(eq(piSessions.id, session.id));
+  const summaryChanged = Boolean(input.summary && (
+    (input.summary.summaryText ?? null) !== (session.summaryText ?? null)
+    || (input.summary.summaryUpdatedAt?.getTime() ?? null) !== (session.summaryUpdatedAt?.getTime() ?? null)
+    || (input.summary.summaryThroughTimestamp ?? null) !== (session.summaryThroughTimestamp ?? null)
+    || (input.summary.summaryThroughSequence ?? null) !== (session.summaryThroughSequence ?? null)
+  ));
+  if (summaryChanged && input.expectedSummaryRevision === undefined) {
+    throw new Error('Summary persistence requires an explicit expectedSummaryRevision fence.');
+  }
+  const connection = await openDb();
+  let transactionStarted = false;
+  try {
+    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    transactionStarted = true;
+    const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
+    const locked = await connection.get(
+      `SELECT id FROM pi_sessions
+       WHERE id = ? AND session_id = ? AND user_id = ? AND agent_id = ?
+       LIMIT 1${forUpdate}`,
+      [session.id, input.sessionId, input.userId, agentId],
+    ) as { id?: number | string } | undefined;
+    if (locked?.id === undefined) throw new PiSessionRuntimeAccessError(
+      'Agent session could not be restored after a no-op run.',
+      'SESSION_NOT_FOUND',
+    );
+    const now = toDatabaseTimestamp(new Date());
+    const summaryFlag = summaryChanged ? 1 : 0;
+    const titleFlag = input.title === undefined ? 0 : 1;
+    const titleStateFlag = input.titleGenerationState === undefined ? 0 : 1;
+    const expectedRevision = input.expectedSummaryRevision ?? -1;
+    const updateResult = await connection.run(
+      `UPDATE pi_sessions
+       SET updated_at = ?,
+           title = CASE WHEN ? = 1 THEN ? ELSE title END,
+           title_generation_state = CASE WHEN ? = 1 THEN ? ELSE title_generation_state END,
+           summary_text = CASE WHEN ? = 1 THEN ? ELSE summary_text END,
+           summary_updated_at = CASE WHEN ? = 1 THEN ? ELSE summary_updated_at END,
+           summary_through_timestamp = CASE WHEN ? = 1 THEN ? ELSE summary_through_timestamp END,
+           summary_through_sequence = CASE WHEN ? = 1 THEN ? ELSE summary_through_sequence END,
+           summary_revision = CASE WHEN ? = 1 THEN summary_revision + 1 ELSE summary_revision END
+       WHERE id = ? AND (? = 0 OR summary_revision = ?)`,
+      [
+        now,
+        titleFlag,
+        input.title ?? null,
+        titleStateFlag,
+        input.titleGenerationState ?? null,
+        summaryFlag,
+        input.summary?.summaryText ?? null,
+        summaryFlag,
+        input.summary?.summaryUpdatedAt ? toDatabaseTimestamp(input.summary.summaryUpdatedAt) : null,
+        summaryFlag,
+        input.summary?.summaryThroughTimestamp ?? null,
+        summaryFlag,
+        input.summary?.summaryThroughSequence ?? null,
+        summaryFlag,
+        session.id,
+        summaryFlag,
+        expectedRevision,
+      ],
+    );
+    const changed = Number((updateResult as { changes?: number }).changes ?? 0);
+    if (changed !== 1) throw new Error('Summary persistence revision conflict.');
+    await connection.run(
+      'DELETE FROM pi_messages WHERE pi_session_db_id = ? AND sequence > ?',
+      [session.id, retainedMessageCount],
+    );
+    await connection.run('COMMIT');
+    transactionStarted = false;
+    return summaryChanged ? expectedRevision + 1 : session.summaryRevision;
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await connection.run('ROLLBACK');
+      } catch {
+        // Preserve the original no-op finalization error.
+      }
+    }
+    throw error;
+  } finally {
+    await connection.close();
+  }
 }
 
 export async function loadPiSession(
@@ -637,6 +838,7 @@ export async function loadPiSessionWithSummary(
       summaryUpdatedAt: session.summaryUpdatedAt ?? null,
       summaryThroughTimestamp: session.summaryThroughTimestamp ?? null,
       summaryThroughSequence: session.summaryThroughSequence ?? null,
+      summaryRevision: session.summaryRevision,
     },
   };
 }
