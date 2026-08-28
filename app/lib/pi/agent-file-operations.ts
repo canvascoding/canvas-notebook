@@ -118,6 +118,12 @@ export type AgentPathOperationEntry = {
   files: number;
   directories: number;
   truncated: boolean;
+  verification?: {
+    destinationExists: boolean;
+    destinationTypeMatches: boolean;
+    sourceRemoved: boolean | null;
+    contentVerified: boolean;
+  };
 };
 
 export type AgentPathOperationResult = {
@@ -135,7 +141,12 @@ export type AgentPathOperationResult = {
   files: number;
   directories: number;
   truncated: boolean;
+  verified: boolean | null;
   entries: AgentPathOperationEntry[];
+};
+
+type PreparedPathOperationEntry = AgentPathOperationEntry & {
+  sourceSha256: string | null;
 };
 
 export type AgentPatchFileInput = {
@@ -1916,7 +1927,7 @@ function normalizePathList(paths: string[], fieldName: string): string[] {
 
 function pathOperationSummary(
   operation: AgentPathOperationResult['operation'],
-  entries: AgentPathOperationEntry[],
+  entries: Array<AgentPathOperationEntry & { sourceSha256?: string | null }>,
   destinationPath?: string,
   destinationResolvedPath?: string,
 ): AgentPathOperationResult {
@@ -1928,6 +1939,7 @@ function pathOperationSummary(
   const aggregateType: AgentPathType = typeSet.size === 1 ? entries[0].type : 'mixed';
   const sourcePath = entries.length === 1 ? entries[0].sourcePath : `${entries.length} paths`;
   const sourceResolvedPath = entries.length === 1 ? entries[0].sourceResolvedPath : `${entries.length} paths`;
+  const publicEntries = entries.map(({ sourceSha256: _sourceSha256, ...entry }) => entry);
 
   return {
     operation,
@@ -1944,8 +1956,66 @@ function pathOperationSummary(
     files: entries.reduce((total, entry) => total + entry.files, 0),
     directories: entries.reduce((total, entry) => total + entry.directories, 0),
     truncated: entries.some((entry) => entry.truncated),
-    entries,
+    verified: null,
+    entries: publicEntries,
   };
+}
+
+async function sha256ForPath(fullPath: string, type: AgentPathType): Promise<string | null> {
+  if (type !== 'file') return null;
+  return sha256Buffer(await fs.readFile(fullPath));
+}
+
+async function verifyPathOperationEntries(input: {
+  entries: PreparedPathOperationEntry[];
+  sourceMustBeRemoved: boolean;
+}): Promise<void> {
+  for (const entry of input.entries) {
+    if (!entry.destinationResolvedPath) {
+      throw new Error(`Missing destination path while verifying ${entry.sourcePath}.`);
+    }
+    let destinationStats: Stats;
+    try {
+      destinationStats = await fs.stat(entry.destinationResolvedPath);
+    } catch (error) {
+      if (isEnoent(error)) {
+        throw new Error(`Path operation verification failed: destination does not exist: ${entry.destinationPath}.`);
+      }
+      throw error;
+    }
+    const destinationTypeMatches = getPathType(destinationStats) === entry.type;
+    if (!destinationTypeMatches) {
+      throw new Error(`Path operation verification failed: destination type does not match source for ${entry.destinationPath}.`);
+    }
+
+    const destinationSummary = await summarizePath(entry.destinationResolvedPath);
+    const summaryMatches = !entry.truncated
+      && !destinationSummary.truncated
+      && destinationSummary.bytes === entry.bytes
+      && destinationSummary.files === entry.files
+      && destinationSummary.directories === entry.directories;
+    const destinationSha256 = await sha256ForPath(entry.destinationResolvedPath, entry.type);
+    const contentVerified = entry.type === 'file'
+      ? destinationSha256 === entry.sourceSha256
+      : summaryMatches;
+    if (!contentVerified) {
+      throw new Error(`Path operation verification failed: destination content differs from source for ${entry.destinationPath}.`);
+    }
+
+    let sourceRemoved: boolean | null = null;
+    if (input.sourceMustBeRemoved) {
+      sourceRemoved = !(await pathExists(entry.sourceResolvedPath));
+      if (!sourceRemoved) {
+        throw new Error(`Path operation verification failed: source still exists after move: ${entry.sourcePath}.`);
+      }
+    }
+    entry.verification = {
+      destinationExists: true,
+      destinationTypeMatches,
+      sourceRemoved,
+      contentVerified,
+    };
+  }
 }
 
 function getDestinationPathForSource(destinationDirectoryPath: string, sourcePath: string): string {
@@ -2017,7 +2087,7 @@ export async function copyAgentPaths(params: {
     await assertDestinationDirectoryAvailable(destinationFullPath, params.destinationPath);
   }
 
-  const entries: AgentPathOperationEntry[] = [];
+  const entries: PreparedPathOperationEntry[] = [];
   for (const sourcePath of sourcePaths) {
     const sourceFullPath = resolveAgentPath(sourcePath);
     await assertAgentPathAllowed(sourceFullPath);
@@ -2052,6 +2122,7 @@ export async function copyAgentPaths(params: {
       destinationResolvedPath: entryDestinationFullPath,
       changed: true,
       overwritten,
+      sourceSha256: await sha256ForPath(sourceFullPath, summary.type),
       ...summary,
     });
   }
@@ -2092,6 +2163,7 @@ export async function copyAgentPaths(params: {
       errorOnExist: params.overwrite !== true,
     });
   }
+  await verifyPathOperationEntries({ entries, sourceMustBeRemoved: false });
   if (copyWorkspace) {
     initializeCopiedFileCollaborationPaths({
       workspace: copyWorkspace,
@@ -2112,6 +2184,7 @@ export async function copyAgentPaths(params: {
   }
 
   const result = pathOperationSummary('copy_path', entries, params.destinationPath, destinationFullPath);
+  result.verified = entries.every((entry) => entry.verification?.contentVerified === true);
   await recordAgentPathOperationAudit(result);
   return result;
 }
@@ -2142,7 +2215,7 @@ export async function moveAgentPaths(params: {
     await assertDestinationDirectoryAvailable(destinationFullPath, params.destinationPath);
   }
 
-  const entries: AgentPathOperationEntry[] = [];
+  const entries: PreparedPathOperationEntry[] = [];
   for (const sourcePath of sourcePaths) {
     const sourceFullPath = resolveAgentPath(sourcePath);
     await assertAgentDeletablePathAllowed(sourceFullPath);
@@ -2173,6 +2246,7 @@ export async function moveAgentPaths(params: {
       destinationResolvedPath: entryDestinationFullPath,
       changed: true,
       overwritten,
+      sourceSha256: await sha256ForPath(sourceFullPath, summary.type),
       ...summary,
     });
   }
@@ -2208,6 +2282,7 @@ export async function moveAgentPaths(params: {
       await fs.rm(entry.sourceResolvedPath, { recursive: entry.type === 'directory', force: true });
     }
   }
+  await verifyPathOperationEntries({ entries, sourceMustBeRemoved: true });
   for (const entry of entries) {
     if (entry.destinationResolvedPath) {
       if (moveWorkspace) {
@@ -2226,6 +2301,7 @@ export async function moveAgentPaths(params: {
   }
 
   const result = pathOperationSummary('move_path', entries, params.destinationPath, destinationFullPath);
+  result.verified = entries.every((entry) => entry.verification?.contentVerified === true && entry.verification.sourceRemoved === true);
   await recordAgentPathOperationAudit(result);
   return result;
 }
