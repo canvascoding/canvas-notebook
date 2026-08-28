@@ -275,11 +275,17 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   }, [applyStatus, t]);
 
   useEffect(() => {
-    void loadConnections();
+    const timer = window.setTimeout(() => {
+      void loadConnections();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [loadConnections]);
 
   useEffect(() => {
-    void loadMcpWorkspaceConfigurations();
+    const timer = window.setTimeout(() => {
+      void loadMcpWorkspaceConfigurations();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [loadMcpWorkspaceConfigurations]);
 
   const disconnectConnection = useCallback(async (connection: DirectMcpConnection) => {

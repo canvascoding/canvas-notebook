@@ -19,24 +19,31 @@ export function DirectMcpWorkspaceAccessSwitch({
   canManage,
   onUpdated,
 }: DirectMcpWorkspaceAccessSwitchProps) {
+  if (enabled !== undefined) {
+    return (
+      <WorkspaceAccessSwitchControl
+        key={`${workspaceId}:${enabled}:${Boolean(canManage)}`}
+        workspaceId={workspaceId}
+        initialEnabled={enabled}
+        initialManager={Boolean(canManage)}
+        onUpdated={onUpdated}
+      />
+    );
+  }
+
+  return <WorkspaceAccessSwitchLoader workspaceId={workspaceId} onUpdated={onUpdated} />;
+}
+
+function WorkspaceAccessSwitchLoader({
+  workspaceId,
+  onUpdated,
+}: Pick<DirectMcpWorkspaceAccessSwitchProps, 'workspaceId' | 'onUpdated'>) {
   const t = useTranslations('settings.workspacePanel.management.mcp');
-  const [isEnabled, setIsEnabled] = useState(enabled ?? false);
-  const [isManager, setIsManager] = useState(canManage ?? false);
-  const [isLoading, setIsLoading] = useState(enabled === undefined);
-  const [isSaving, setIsSaving] = useState(false);
+  const [configuration, setConfiguration] = useState<{ enabled: boolean; canManage: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (enabled !== undefined) {
-      setIsEnabled(enabled);
-      setIsManager(Boolean(canManage));
-      setIsLoading(false);
-      return;
-    }
-
     let active = true;
-    setIsLoading(true);
-    setError(null);
     void fetch(`/api/integrations/mcp-server/workspaces?${new URLSearchParams({ workspace_id: workspaceId })}`, {
       credentials: 'include',
       cache: 'no-store',
@@ -46,20 +53,61 @@ export function DirectMcpWorkspaceAccessSwitch({
         throw new Error(payload.error || t('errors.load'));
       }
       if (!active) return;
-      setIsEnabled(payload.data.workspace.enabled);
-      setIsManager(payload.data.workspace.canManage === true);
+      setConfiguration({
+        enabled: payload.data.workspace.enabled,
+        canManage: payload.data.workspace.canManage === true,
+      });
     }).catch((loadError: unknown) => {
       if (active) setError(loadError instanceof Error ? loadError.message : t('errors.load'));
-    }).finally(() => {
-      if (active) setIsLoading(false);
     });
     return () => {
       active = false;
     };
-  }, [canManage, enabled, t, workspaceId]);
+  }, [t, workspaceId]);
+
+  if (!configuration) {
+    return (
+      <div className="shrink-0">
+        <div className="flex items-center justify-end gap-2">
+          {error ? null : <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />}
+          <Switch checked={false} disabled aria-label={t('switchLabel')} />
+        </div>
+        {error ? <p role="alert" className="mt-2 max-w-64 text-right text-xs text-destructive">{error}</p> : null}
+      </div>
+    );
+  }
+
+  return (
+    <WorkspaceAccessSwitchControl
+      key={`${workspaceId}:${configuration.enabled}:${configuration.canManage}`}
+      workspaceId={workspaceId}
+      initialEnabled={configuration.enabled}
+      initialManager={configuration.canManage}
+      onUpdated={onUpdated}
+    />
+  );
+}
+
+type WorkspaceAccessSwitchControlProps = {
+  workspaceId: string;
+  initialEnabled: boolean;
+  initialManager: boolean;
+  onUpdated?: (enabled: boolean) => void | Promise<void>;
+};
+
+function WorkspaceAccessSwitchControl({
+  workspaceId,
+  initialEnabled,
+  initialManager,
+  onUpdated,
+}: WorkspaceAccessSwitchControlProps) {
+  const t = useTranslations('settings.workspacePanel.management.mcp');
+  const [isEnabled, setIsEnabled] = useState(initialEnabled);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const update = async (nextEnabled: boolean) => {
-    if (!isManager || isSaving || isLoading) return;
+    if (!initialManager || isSaving) return;
     setIsSaving(true);
     setError(null);
     try {
@@ -91,11 +139,11 @@ export function DirectMcpWorkspaceAccessSwitch({
   return (
     <div className="shrink-0">
       <div className="flex items-center justify-end gap-2">
-        {isSaving || isLoading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" /> : null}
+        {isSaving ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" /> : null}
         <Switch
           checked={isEnabled}
           onCheckedChange={(nextEnabled) => void update(nextEnabled)}
-          disabled={!isManager || isSaving || isLoading}
+          disabled={!initialManager || isSaving}
           aria-label={t('switchLabel')}
         />
       </div>
