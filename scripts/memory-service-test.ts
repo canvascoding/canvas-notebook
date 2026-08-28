@@ -17,10 +17,15 @@ async function main(): Promise<void> {
     const db = await openDb();
     try {
       await db.run(`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)`, ['user-1', 'Memory User', 'memory@example.test']);
+      await db.run(`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)`, ['user-reader', 'Memory Reader', 'reader@example.test']);
+      await db.run(`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)`, ['user-external', 'External User', 'external@example.test']);
       await db.run(`INSERT INTO canvas_organization_settings (organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at) VALUES ('org-1', 'user-1', 'team', 1, 1, 1)`);
       await db.run(`INSERT INTO organization_user_permissions (organization_id, user_id, role, status, created_at, updated_at) VALUES ('org-1', 'user-1', 'member', 'active', 1, 1)`);
+      await db.run(`INSERT INTO organization_user_permissions (organization_id, user_id, role, status, created_at, updated_at) VALUES ('org-1', 'user-reader', 'member', 'active', 1, 1)`);
+      await db.run(`INSERT INTO organization_user_permissions (organization_id, user_id, role, status, created_at, updated_at) VALUES ('org-1', 'user-external', 'external', 'active', 1, 1)`);
       await db.run(`INSERT INTO canvas_workspaces (id, organization_id, type, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at) VALUES ('workspace-1', 'org-1', 'team', 'workspaces/team/org-1/workspace-1/files', 'Memory workspace', '', 'users-round', 'active', 0, 1, 1)`);
       await db.run(`INSERT INTO canvas_workspace_members (organization_id, workspace_id, user_id, role, status, can_read, can_write, can_manage, created_at, updated_at) VALUES ('org-1', 'workspace-1', 'user-1', 'member', 'active', 1, 1, 0, 1, 1)`);
+      await db.run(`INSERT INTO canvas_workspace_members (organization_id, workspace_id, user_id, role, status, can_read, can_write, can_manage, created_at, updated_at) VALUES ('org-1', 'workspace-1', 'user-reader', 'viewer', 'active', 1, 0, 0, 1, 1)`);
     } finally { await db.close(); }
 
     const {
@@ -69,6 +74,11 @@ async function main(): Promise<void> {
     } finally { await governanceDb.close(); }
     const publishedWorkspace = await publishMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     assert.equal(publishedWorkspace.entry?.status, 'published');
+    assert.match((await readMemory({ target: 'workspace', userId: 'user-reader', workspaceId: 'workspace-1' })).entries[0]?.content ?? '', /approved brand voice/);
+    await assert.rejects(
+      () => addMemory({ target: 'workspace', userId: 'user-reader', workspaceId: 'workspace-1', content: 'Readers cannot suggest memory.' }),
+      /permission to suggest workspace memory/,
+    );
 
     const organizationMemory = await addMemory({ target: 'organization', userId: 'user-1', organizationId: 'org-1', content: 'Use British spelling in organization material.' });
     assert.equal(organizationMemory.entry?.status, 'pending');
@@ -79,6 +89,10 @@ async function main(): Promise<void> {
     } finally { await organizationPermissionDb.close(); }
     const publishedOrganization = await publishMemory({ target: 'organization', userId: 'user-1', organizationId: 'org-1', id: organizationMemory.entry!.id });
     assert.equal(publishedOrganization.entry?.status, 'published');
+    await assert.rejects(
+      () => readMemory({ target: 'organization', userId: 'user-external', organizationId: 'org-1' }),
+      /permission to read organization memory/,
+    );
     const imported = await importPersonalMemory({
       userId: 'user-1',
       contents: ['Keep release notes brief.', 'Keep release notes brief.', 'Prefer UTC timestamps.'],
