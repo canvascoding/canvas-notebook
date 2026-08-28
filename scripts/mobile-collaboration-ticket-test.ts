@@ -107,10 +107,18 @@ const routeSource = readFileSync(
   path.join(root, 'app/api/mobile/v1/notebook/collaboration/session/route.ts'),
   'utf8',
 );
+const browserRouteSource = readFileSync(
+  path.join(root, 'app/api/files/collaboration/session/route.ts'),
+  'utf8',
+);
 const serverSource = readFileSync(path.join(root, 'server/collaboration-server.ts'), 'utf8');
 assert.match(routeSource, /issueMobileCollaborationTicket/u);
 assert.match(routeSource, /representation:\s*'auto'/u);
 assert.doesNotMatch(routeSource, /analyzeMarkdownRichMode/u);
+assert.doesNotMatch(routeSource, /workspaceRequiresCollaborationPolicy/u);
+assert.doesNotMatch(browserRouteSource, /workspaceRequiresCollaborationPolicy/u);
+assert.match(routeSource, /Live collaboration requires Postgres\./u);
+assert.match(browserRouteSource, /Live collaboration requires Postgres\./u);
 assert.match(routeSource, /error instanceof CollaborationSessionError && error\.code/u);
 assert.match(routeSource, /richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION/u);
 assert.equal(RICH_MARKDOWN_SCHEMA_VERSION, 3);

@@ -13,7 +13,6 @@ import {
   type CollaborationSessionResponse,
 } from '@/app/lib/collaboration/types';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
-import { workspaceRequiresCollaborationPolicy } from '@/app/lib/files/collaboration-policy';
 import {
   LicenseEntitlementError,
   licenseEntitlementErrorPayload,
@@ -35,12 +34,9 @@ export async function POST(request: NextRequest) {
   });
   if (limited) return limited;
 
-  if (
-    getDatabaseProvider() !== 'postgres'
-    || !workspaceRequiresCollaborationPolicy(workspaceResult.workspace)
-  ) {
+  if (getDatabaseProvider() !== 'postgres') {
     return NextResponse.json(
-      { success: false, error: 'Live collaboration requires a shared Postgres workspace.' },
+      { success: false, error: 'Live collaboration requires Postgres.' },
       { status: 409 },
     );
   }

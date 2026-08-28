@@ -34,7 +34,9 @@ function workspaceContext(params: {
 async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-file-collab-'));
   const dataRoot = path.join(tempRoot, 'data');
+  const originalDatabaseProvider = process.env.CANVAS_DATABASE_PROVIDER;
   process.env.DATA = dataRoot;
+  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
 
   try {
     const teamRoot = path.join(dataRoot, 'workspaces', 'team', 'org-collab', 'files');
@@ -64,6 +66,8 @@ async function main() {
     const { sha256Buffer } = await import('../app/lib/files/revision-guard');
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
     const { writeAgentTextFile } = await import('../app/lib/pi/agent-file-operations');
+
+    process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 
     assert.equal(detectFileCollaborationStrategy('notes.md'), 'crdt_text');
     assert.equal(detectFileCollaborationStrategy('notes.txt'), 'crdt_text');
@@ -95,6 +99,80 @@ async function main() {
     assert.equal(markdownState.requiresRevisionCheck, true);
     assert.equal(markdownState.document?.provider, 'yjs');
     assert.equal(markdownState.document?.snapshotRevisionId, initialRevision.id);
+
+    const personalRoot = path.join(dataRoot, 'users', 'user-personal', 'files');
+    await fs.mkdir(personalRoot, { recursive: true });
+    const personalWorkspace: WorkspaceContext = {
+      ...workspaceContext({
+        rootPath: personalRoot,
+        workspaceId: 'ws-personal',
+        workspaceType: 'personal',
+      }),
+      ownerUserId: 'user-personal',
+    };
+    await writeFile('personal.md', '# Personal\n', { workspace: personalWorkspace });
+    const personalBuffer = Buffer.from('# Personal\n');
+    process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+    const personalRevision = ensureFileRevisionForCurrentContent({
+      workspace: personalWorkspace,
+      path: 'personal.md',
+      contentHash: sha256Buffer(personalBuffer),
+      sizeBytes: personalBuffer.length,
+      actorUserId: 'user-personal',
+      actorType: 'user',
+      nowMs: 10_001,
+    });
+    const personalBeforePostgres = getFileCollaborationState({
+      workspace: personalWorkspace,
+      path: 'personal.md',
+      ensureDocument: false,
+      nowMs: 10_002,
+    });
+    assert.equal(personalBeforePostgres.crdtCapable, false);
+    assert.equal(personalBeforePostgres.document, null);
+
+    process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+    const migratedPersonalRevision = ensureFileRevisionForCurrentContent({
+      workspace: personalWorkspace,
+      path: 'personal.md',
+      contentHash: sha256Buffer(personalBuffer),
+      sizeBytes: personalBuffer.length,
+      actorUserId: 'user-personal',
+      actorType: 'user',
+      nowMs: 10_003,
+    });
+    assert.equal(migratedPersonalRevision.id, personalRevision.id);
+    const personalPostgresState = getFileCollaborationState({
+      workspace: personalWorkspace,
+      path: 'personal.md',
+      ensureDocument: false,
+      nowMs: 10_004,
+    });
+    assert.equal(personalPostgresState.crdtCapable, true);
+    assert.equal(personalPostgresState.requiresRevisionCheck, false);
+    assert.equal(personalPostgresState.lockRequired, false);
+    assert.equal(personalPostgresState.document?.provider, 'yjs');
+    assert.equal(personalPostgresState.document?.snapshotRevisionId, personalRevision.id);
+    assert.throws(
+      () => assertFileCollaborationWriteAllowed({
+        workspace: personalWorkspace,
+        path: 'personal.md',
+        actorUserId: 'user-personal',
+        baseRevisionId: personalRevision.id,
+        nowMs: 10_005,
+      }),
+      (error) => error instanceof FileCollaborationPolicyError
+        && error.code === 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED',
+    );
+
+    const personalDrawingState = getFileCollaborationState({
+      workspace: personalWorkspace,
+      path: 'personal.excalidraw',
+      ensureDocument: true,
+      nowMs: 10_006,
+    });
+    assert.equal(personalDrawingState.sceneCapable, false);
+    assert.equal(personalDrawingState.document, null);
 
     const drawingContent = '{"type":"excalidraw","version":2,"elements":[],"appState":{},"files":{}}';
     await writeFile('board.excalidraw', drawingContent, { workspace });
@@ -344,6 +422,16 @@ async function main() {
       nowMs: 90_005,
     }));
 
+    process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+    const personalSqliteState = getFileCollaborationState({
+      workspace: personalWorkspace,
+      path: 'personal.md',
+      ensureDocument: true,
+      nowMs: 90_006,
+    });
+    assert.equal(personalSqliteState.crdtCapable, false);
+    assert.equal(personalSqliteState.document, null);
+
     const agentNow = Date.now();
     await writeFile('agent.md', 'agent v1\n', { workspace });
     const agentBuffer = Buffer.from('agent v1\n');
@@ -396,6 +484,8 @@ async function main() {
 
     console.log('file-collaboration-policy-test: ok');
   } finally {
+    if (originalDatabaseProvider === undefined) delete process.env.CANVAS_DATABASE_PROVIDER;
+    else process.env.CANVAS_DATABASE_PROVIDER = originalDatabaseProvider;
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 }
