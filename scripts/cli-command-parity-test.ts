@@ -311,17 +311,62 @@ async function runDifferentialContract(): Promise<void> {
     const legacyRuntime = await prepareRuntime('legacy');
     const typescriptRuntime = await prepareRuntime('typescript');
     const tsxPath = path.join(root, 'node_modules', '.bin', 'tsx');
-
-    const legacyConfigOutput = await execFileAsync(legacyCliPath, ['config-show', '--json', '--secret-state', '--no-banner'], {
+    const runLegacy = (args: string[]) => execFileAsync(legacyCliPath, args, {
       cwd: root,
       env: legacyRuntime.env,
       maxBuffer: 1024 * 1024,
     });
-    const typescriptConfigOutput = await execFileAsync(tsxPath, [typescriptCliPath, 'config-show', '--json', '--secret-state', '--no-banner'], {
+    const runTypescript = (args: string[]) => execFileAsync(tsxPath, [typescriptCliPath, ...args], {
       cwd: root,
       env: typescriptRuntime.env,
       maxBuffer: 1024 * 1024,
     });
+
+    const configSetCases = [
+      ['swap.enabled', 'yes'],
+      ['swap.size', '512M'],
+      ['swap.file', '/swapfile'],
+      ['swap.swappiness', '25'],
+      ['autoUpdate.enabled', 'false'],
+      ['autoUpdate.schedule', '*-*-* 05:30:00'],
+    ];
+    for (const [key, value] of configSetCases) {
+      await runTypescript(['config-set', key, value, '--no-banner']);
+    }
+    const typescriptWrittenConfig = JSON.parse(await fs.promises.readFile(typescriptRuntime.configFile, 'utf8')) as {
+      swap: Record<string, unknown>;
+      autoUpdate: Record<string, unknown>;
+    };
+    assert.deepEqual(typescriptWrittenConfig.swap, {
+      enabled: true,
+      size: '512M',
+      file: '/swapfile',
+      swappiness: 25,
+    });
+    assert.deepEqual(typescriptWrittenConfig.autoUpdate, {
+      enabled: false,
+      schedule: '*-*-* 05:30:00',
+    });
+    const configBeforeRejectedWrites = await fs.promises.readFile(typescriptRuntime.configFile, 'utf8');
+
+    for (const [key, value] of [
+      ['swap.enabled', 'sometimes'],
+      ['swap.size', '17G'],
+      ['swap.file', '/tmp/not-canvas-swap'],
+      ['swap.swappiness', '201'],
+      ['autoUpdate.enabled', 'sometimes'],
+      ['autoUpdate.schedule', 'daily'],
+    ]) {
+      await assert.rejects(() => runTypescript(['config-set', key, value, '--no-banner']));
+    }
+    assert.equal(
+      await fs.promises.readFile(typescriptRuntime.configFile, 'utf8'),
+      configBeforeRejectedWrites,
+      'Rejected config-set values must not modify config.json.',
+    );
+
+    const legacyConfigOutput = await runLegacy(['config-show', '--json', '--secret-state', '--no-banner']);
+    const typescriptConfigOutput = await runTypescript(['config-show', '--json', '--secret-state', '--no-banner']);
     assert.doesNotMatch(legacyConfigOutput.stdout, new RegExp(secret, 'u'));
     assert.doesNotMatch(typescriptConfigOutput.stdout, new RegExp(secret, 'u'));
     const legacyConfig = JSON.parse(legacyConfigOutput.stdout) as Record<string, unknown>;
@@ -329,16 +374,8 @@ async function runDifferentialContract(): Promise<void> {
     assert.ok(legacyConfig.secretState);
     assert.ok(typescriptConfig.secretState);
 
-    const legacyStatusOutput = await execFileAsync(legacyCliPath, ['status', '--json', '--no-banner'], {
-      cwd: root,
-      env: legacyRuntime.env,
-      maxBuffer: 1024 * 1024,
-    });
-    const typescriptStatusOutput = await execFileAsync(tsxPath, [typescriptCliPath, 'status', '--json', '--no-banner'], {
-      cwd: root,
-      env: typescriptRuntime.env,
-      maxBuffer: 1024 * 1024,
-    });
+    const legacyStatusOutput = await runLegacy(['status', '--json', '--no-banner']);
+    const typescriptStatusOutput = await runTypescript(['status', '--json', '--no-banner']);
     const legacyStatus = requiredStatusShape(JSON.parse(legacyStatusOutput.stdout));
     const typescriptStatus = requiredStatusShape(JSON.parse(typescriptStatusOutput.stdout));
     assert.equal(legacyStatus.healthy, true);
@@ -353,7 +390,7 @@ async function main(): Promise<void> {
   await runDifferentialContract();
   console.log(JSON.stringify({
     success: true,
-    differentialContract: ['config-show --secret-state', 'status --json'],
+    differentialContract: ['config-set swap.*', 'config-set autoUpdate.*', 'config-show --secret-state', 'status --json'],
     legacyCommandCount: contract.legacyTopLevelCommands.length,
     typescriptCommandCount: contract.typescriptTopLevelCommands.length,
     missingCommands,

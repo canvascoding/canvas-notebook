@@ -118,12 +118,12 @@
     { "path": "containerPort", "typescript": "implemented" },
     { "path": "dataDir", "typescript": "implemented" },
     { "path": "env.*", "typescript": "implemented" },
-    { "path": "swap.enabled", "typescript": "missing" },
-    { "path": "swap.size", "typescript": "missing" },
-    { "path": "swap.file", "typescript": "missing" },
-    { "path": "swap.swappiness", "typescript": "missing" },
-    { "path": "autoUpdate.enabled", "typescript": "missing" },
-    { "path": "autoUpdate.schedule", "typescript": "missing" }
+    { "path": "swap.enabled", "typescript": "implemented" },
+    { "path": "swap.size", "typescript": "implemented" },
+    { "path": "swap.file", "typescript": "implemented" },
+    { "path": "swap.swappiness", "typescript": "implemented" },
+    { "path": "autoUpdate.enabled", "typescript": "implemented" },
+    { "path": "autoUpdate.schedule", "typescript": "implemented" }
   ],
   "controlPlaneInvocations": [
     { "command": "config-show", "currentlySupported": true },

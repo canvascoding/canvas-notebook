@@ -95,7 +95,7 @@ Arbeitspaket aktualisiert werden.
 | `diagnose` | noch nicht vorhanden | fehlt | tolerante Text-/JSON-Diagnose ohne Docker |
 | `config` | noch nicht vorhanden | fehlt | aktive Pfade und Plattformkonfiguration |
 | `config-show` | vorhanden | vorhanden | Maskierung und `--secret-state` |
-| `config-set` | nur Top-Level-Basiswerte und `env.*` | teilweise | `swap.*`, `autoUpdate.*` und alle freigegebenen Config-Felder |
+| `config-set` | Top-Level-Basiswerte, `env.*`, `swap.*` und `autoUpdate.*` | teilweise | verbleibende Top-Level-Semantik und alle freigegebenen Config-Felder |
 | `config-migrate` | noch nicht vorhanden | fehlt | Migration aus `manager.env` und bestehender Compose-Datei |
 | `cli-update` | vorhanden | vorhanden | Signatur/Checksum, atomarer Austausch und Re-Exec |
 | `auto-update-status`, `auto-update-enable`, `auto-update-disable`, `auto-update-sync` | noch nicht vorhanden | fehlt | Standalone-Timer und Managed-Mode-Sperre |
@@ -194,6 +194,13 @@ Gate: Der Test zeigt reproduzierbar, welche Befehle gleich, teilweise oder
 nicht implementiert sind, ohne echte Container zu starten.
 
 #### Phase 1: Config-, Env- und Version-Paritaet
+
+Teilstatus 2026-08-28: `config-set` unterstuetzt und validiert jetzt
+`swap.enabled`, `swap.size`, `swap.file`, `swap.swappiness`,
+`autoUpdate.enabled` und `autoUpdate.schedule`. Die Differentialtests decken
+gueltige Werte und abgelehnte Fehlkonfigurationen ab. Die Phase bleibt offen,
+bis auch Version, Env-Anzeige/-Edit, Config-Anzeige/-Migration und die
+verbleibende Top-Level-Semantik umgesetzt sind.
 
 - `version --json` und Capability-Vertrag.
 - `env`-Anzeige und `env --edit`.

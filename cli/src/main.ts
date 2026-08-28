@@ -625,6 +625,57 @@ function setConfigValue(config: CanvasCliConfig, key: string, value: string): Ca
     }
     return next;
   }
+  if (key === 'swap.enabled') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) next.swap.enabled = true;
+    else if (['false', '0', 'no', 'off', 'disabled'].includes(normalized)) next.swap.enabled = false;
+    else throw new Error('Swap enabled must be true or false.');
+    return next;
+  }
+  if (key === 'swap.size') {
+    const match = value.match(/^([0-9]+)([KMGT])$/iu);
+    if (!match || match[1].length > 8) {
+      throw new Error(`Invalid swap size "${value}". Expected a value between 128M and 16G.`);
+    }
+    const amount = Number(match[1]);
+    const unit = match[2].toUpperCase();
+    const sizeInKib = amount * ({ K: 1, M: 1024, G: 1024 * 1024, T: 1024 * 1024 * 1024 }[unit] || 0);
+    if (!Number.isSafeInteger(sizeInKib) || sizeInKib < 128 * 1024 || sizeInKib > 16 * 1024 * 1024) {
+      throw new Error('Swap size must be between 128M and 16G.');
+    }
+    next.swap.size = value;
+    return next;
+  }
+  if (key === 'swap.file') {
+    const managedSwapFile = process.env.CANVAS_SWAP_MANAGED_FILE || '/swapfile';
+    if (value !== managedSwapFile) {
+      throw new Error(`Canvas-managed swap file path must be ${managedSwapFile}.`);
+    }
+    next.swap.file = value;
+    return next;
+  }
+  if (key === 'swap.swappiness') {
+    const swappiness = Number(value);
+    if (!/^\d+$/u.test(value) || !Number.isInteger(swappiness) || swappiness < 0 || swappiness > 200) {
+      throw new Error('Swap swappiness must be an integer between 0 and 200.');
+    }
+    next.swap.swappiness = swappiness;
+    return next;
+  }
+  if (key === 'autoUpdate.enabled') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) next.autoUpdate.enabled = true;
+    else if (['false', '0', 'no', 'off', 'disabled'].includes(normalized)) next.autoUpdate.enabled = false;
+    else throw new Error('Auto-update enabled must be true or false.');
+    return next;
+  }
+  if (key === 'autoUpdate.schedule') {
+    if (!/^[*0-9]{1,2}-[*0-9]{1,2}-[*0-9]{1,2} [*0-9:,]+$/u.test(value)) {
+      throw new Error(`Invalid systemd schedule format "${value}". Example: "*-*-* 04:00:00".`);
+    }
+    next.autoUpdate.schedule = value;
+    return next;
+  }
   if (key.startsWith('env.')) {
     next.env[key.slice(4)] = normalizedValue;
     return next;
