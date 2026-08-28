@@ -154,10 +154,14 @@ async function main(): Promise<void> {
       `) as Array<{ status: string; metadataJson: string | null; summary: string | null }>;
       assert.equal(auditRows.length, REGISTRATION_LIMIT + 2);
       assert.equal(auditRows.at(-1)?.status, 'blocked');
-      const auditText = JSON.stringify(auditRows);
-      assert.equal(auditText.includes('Rate Limit Test Blocked'), false);
-      assert.equal(auditText.includes('Disabled Registration Test'), false);
-      assert.equal(auditText.includes(REDIRECT_URI), false);
+      for (const auditRow of auditRows) {
+        const metadata = JSON.parse(auditRow.metadataJson ?? '{}') as Record<string, unknown>;
+        assert.deepEqual(Object.keys(metadata).sort(), ['endpoint', 'rateLimited', 'statusCode']);
+        assert.equal(metadata.endpoint, '/api/auth/oauth2/register');
+        assert.equal(typeof metadata.statusCode, 'number');
+        assert.equal(metadata.rateLimited, metadata.statusCode === 429);
+        assert.match(auditRow.summary ?? '', /^Direct MCP OAuth client registration returned HTTP \d{3}\.$/u);
+      }
     } finally {
       await database.close();
     }
