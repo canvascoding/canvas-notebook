@@ -386,12 +386,18 @@ wird. Derselbe Nachweis wird als `linuxCli` im signierten Release-Webhook
 uebertragen. Die Control Plane akzeptiert und persistiert dieses Feld
 rueckwaertskompatibel; alte Releases ohne Linux-Artefakte bleiben lesbar.
 
-Die Read-only-Pruefung im Control-Plane-Repository zeigt als naechstes
-Migrationsgate: API, Release-Katalog und Agent persistieren beziehungsweise
-installieren derzeit nur `canvas-notebook-host-cli.tar.gz`. Dieser Vertrag muss
-um die beiden neuen Artefakte und eine architekturabhaengige Auswahl erweitert
-werden. Bis dieser Gegenpart implementiert und als Canary verifiziert ist, wird
-die bestehende Bash-CLI nicht automatisch ersetzt.
+Der Control-Plane-Gegenpart ist am 2026-08-28 umgesetzt worden. Der
+Release-Katalog uebernimmt nur das bereits verifizierte `linuxCli`-Feld des
+passenden CLI-Events in den Update-Run. Der Dispatch sendet beide
+architekturspezifischen, checksum-gepinnten Artefakte und weiterhin das
+bisherige Host-Artefakt fuer alte Runs. Agent `2.3.10` waehlt vor jeder Mutation
+streng nach `amd64` oder `arm64`; ist eine neue Artefaktmap vorhanden, aber fuer
+die laufende Architektur ungueltig, gibt es keinen stillen Legacy-Fallback.
+Der gemeinsame Downloader, Redirect-Schutz, Operation-Lock und die
+systemd-Cgroup-Ausfuehrung werden fuer beide Paketgenerationen wiederverwendet.
+Das Linux-Archiv erhaelt zusaetzlich eine eigene Allowlist- und
+Manifestvalidierung. Der Installer schreibt aus dem signierten Hash eine lokale
+Checksum-Datei und installiert ueber das bereits atomare Linux-Bootstrap.
 
 - kanonisches Linux-Artefakt fuer `amd64` und `arm64` bauen.
 - Checksum und Archiv-Allowlist pruefen.
@@ -403,6 +409,23 @@ Gate: Fresh Install, In-place-Upgrade und Rueckkehr zur vorherigen CLI-Version
 sind getestet.
 
 #### Phase 7: Control-Plane-Canary und Cutover
+
+Teilstatus 2026-08-28: Architekturwahl, Agent-Installation, Release-Katalog und
+Dispatch sind implementiert. Der reproduzierbare Canary
+`npm run test:agent-linux-cli-canary -- <archive>` laeuft als reines ESM gegen
+den gebauten Agent und benoetigt in der Linux-VM weder npm noch eine zweite
+plattformabhaengige `node_modules`-Installation. In der OrbStack-VM `ubuntu`
+wurde das echte ARM64-Paket mit Linux-Runtime-Validierung neu gebaut. Danach
+liefen Fresh Install, Upgrade, TypeScript- und Legacy-Rollback sowie der
+Agentpfad mit Download-Hash, Archivvalidierung, isolierter Installation, echtem
+CLI-Start und explizitem Legacy-Rollback erfolgreich. Bestehende Systempfade
+und Container der VM wurden dabei nicht veraendert.
+
+Offen bleibt der produktive Managed-Canary auf einer ausgewaehlten Test-VM.
+Er muss einen vollstaendigen Control-Plane-Run mit Update, Config-Sync, Backup,
+Datenbankoperation und Rueckkehr auf `previous` journalisieren, bevor der
+Legacy-Dispatch entfernt oder Postgres-only fuer Neuinstallationen aktiviert
+wird.
 
 - Agent erkennt CLI-Generation und Capabilities.
 - Host-CLI-Artefakt-Validator akzeptiert das neue, versionierte Layout.
