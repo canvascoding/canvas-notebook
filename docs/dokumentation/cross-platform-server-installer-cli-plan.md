@@ -370,7 +370,9 @@ jetzt an den gegateten Release-Job. Der unveraenderliche Release-Bundle und
 `canvas-notebook-release-metadata.json` enthalten Dateiname und SHA-256 fuer
 `amd64` und `arm64`; der Release-Publish-Workflow laedt beide Archive erneut und
 gleicht Inhalt, Checksumme und Metadaten ab, bevor die Control Plane informiert
-wird.
+wird. Derselbe Nachweis wird als `linuxCli` im signierten Release-Webhook
+uebertragen. Die Control Plane akzeptiert und persistiert dieses Feld
+rueckwaertskompatibel; alte Releases ohne Linux-Artefakte bleiben lesbar.
 
 Die Read-only-Pruefung im Control-Plane-Repository zeigt als naechstes
 Migrationsgate: API, Release-Katalog und Agent persistieren beziehungsweise

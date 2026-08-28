@@ -138,6 +138,8 @@ jobs:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           HOST_CLI_VERSION: ${{ steps.release.outputs.host_cli_version }}
           HOST_CLI_SHA256: ${{ steps.release.outputs.host_cli_sha256 }}
+          LINUX_CLI_AMD64_SHA256: ${{ steps.release.outputs.linux_cli_amd64_sha256 }}
+          LINUX_CLI_ARM64_SHA256: ${{ steps.release.outputs.linux_cli_arm64_sha256 }}
           RELEASE_REF: ${{ steps.release.outputs.ref }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           RELEASE_COMMIT_SHA: ${{ steps.release.outputs.commit_sha }}
