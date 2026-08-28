@@ -196,7 +196,7 @@ export async function acquireOperationLock(
 }
 
 export function commandRequiresOperationLock(command: string, args: string[]): boolean {
-  if (command === 'install' || command === 'update' || command === 'cli-update' || command === 'config-set' ||
+  if (command === 'install' || command === 'update' || command === 'cli-update' || command === 'config-set' || command === 'config-migrate' ||
     command === 'start' || command === 'restart' || command === 'stop' || command === 'down' ||
     command === 'admin' || command === 'backup') return true;
   if (command === 'env') return args.includes('--sync') || args.includes('--render') || args.includes('--edit');

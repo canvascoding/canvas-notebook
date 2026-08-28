@@ -23,6 +23,7 @@ import {
 } from './core/config';
 import { writeComposeFile } from './core/compose';
 import { DockerManager } from './core/docker';
+import { migrateLegacyConfig } from './core/legacyConfig';
 import {
   acquireOperationLock,
   commandCanRunWithPendingPostgresRecovery,
@@ -144,6 +145,8 @@ Commands:
                                   Print masked config; optionally include secret fingerprints
   config-set <key> <value> | config-set <key> --stdin
                                   Set a config value; --stdin avoids secret argv exposure
+  config [--json]                 Show active host configuration paths
+  config-migrate [--force]       Import legacy manager, Compose, and env configuration
   cli-update                      Update the portable management CLI bundle
   admin reset-password ...        Reset or create an admin in the container
   backup create [--output <path>] Create/replace the local latest full backup
@@ -739,20 +742,70 @@ async function statusJson(context: RuntimeContext, docker: DockerManager, config
   };
 }
 
+function domainFromBaseUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('Base URL must be a valid http:// or https:// URL.');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Base URL must be a valid http:// or https:// URL.');
+  }
+  return url.hostname;
+}
+
+function validateDomain(value: string): string {
+  const domain = value.trim().toLowerCase();
+  if (!domain) return '';
+  if (domain.length > 253 || !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(domain)) {
+    throw new Error(`Invalid domain: ${value}`);
+  }
+  return domain;
+}
+
+function validateImageReference(value: string): string {
+  const image = value.trim();
+  if (image.length < 1 || image.length > 512 || !/^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?\/)*[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?(?:@sha256:[a-f0-9]{64})?$/u.test(image)) {
+    throw new Error(`Invalid OCI image reference: ${value}`);
+  }
+  return image;
+}
+
+function validateDataDirectory(config: CanvasCliConfig, value: string): string {
+  const dataDirectory = value.trim();
+  const absolute = config.platform.os === 'windows'
+    ? path.win32.isAbsolute(dataDirectory)
+    : path.posix.isAbsolute(dataDirectory);
+  if (!absolute || /[\0\r\n]/u.test(dataDirectory)) {
+    throw new Error('dataDir must be an absolute path without control characters.');
+  }
+  return dataDirectory;
+}
+
 function setConfigValue(config: CanvasCliConfig, key: string, value: string): CanvasCliConfig {
   const next = structuredClone(config);
-  const normalizedValue = value === 'true' ? true : value === 'false' ? false : /^\d+$/.test(value) ? Number(value) : value;
   if (key === 'hostPort' || key === 'containerPort') {
     const port = Number(value);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Invalid port: ${value}`);
     next[key] = port;
     return next;
   }
-  if (key === 'image' || key === 'domain' || key === 'dataDir') {
-    next[key] = String(value);
-    if (key === 'dataDir') {
-      next.paths.dataDir = String(value);
+  if (key === 'image') {
+    next.image = validateImageReference(value);
+    return next;
+  }
+  if (key === 'domain') {
+    next.domain = validateDomain(value);
+    if (next.domain) {
+      next.env.BASE_URL = `https://${next.domain}`;
+      next.env.BETTER_AUTH_BASE_URL = `https://${next.domain}`;
     }
+    return next;
+  }
+  if (key === 'dataDir') {
+    next.dataDir = validateDataDirectory(config, value);
+    next.paths.dataDir = next.dataDir;
     return next;
   }
   if (key === 'swap.enabled') {
@@ -807,7 +860,37 @@ function setConfigValue(config: CanvasCliConfig, key: string, value: string): Ca
     return next;
   }
   if (key.startsWith('env.')) {
-    next.env[key.slice(4)] = normalizedValue;
+    const envKey = key.slice(4);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(envKey)) throw new Error(`Invalid environment key: ${envKey || '(empty)'}`);
+    if (envKey === 'BOOTSTRAP_ADMIN_PASSWORD') {
+      throw new Error('BOOTSTRAP_ADMIN_PASSWORD is not stored in config.json. Use admin reset-password --password-stdin.');
+    }
+    if (envKey === 'BETTER_AUTH_BASE_URL' && value) {
+      next.domain = domainFromBaseUrl(value);
+      next.env.BETTER_AUTH_BASE_URL = value;
+      next.env.BASE_URL = value;
+      return next;
+    }
+    if (envKey === 'BASE_URL' && value) {
+      next.domain = domainFromBaseUrl(value);
+      next.env.BASE_URL = value;
+      if (!String(next.env.BETTER_AUTH_BASE_URL || '').trim()) next.env.BETTER_AUTH_BASE_URL = value;
+      return next;
+    }
+    if (envKey === 'CANVAS_DATABASE_PROVIDER') {
+      next.env[envKey] = parseCliDatabaseProvider(value);
+      return next;
+    }
+    if (envKey === 'CANVAS_DEPLOYMENT_MODE') {
+      next.env[envKey] = value.trim().toLowerCase();
+      return next;
+    }
+    if (envKey === 'DATABASE_URL' && value && !/^postgres(?:ql)?:\/\//u.test(value)) {
+      throw new Error('DATABASE_URL must use postgres:// or postgresql://');
+    }
+    next.env[envKey] = isSensitiveEnvKey(envKey)
+      ? value
+      : value === 'true' ? true : value === 'false' ? false : value;
     return next;
   }
   throw new Error(`Unsupported config key: ${key}`);
@@ -1410,6 +1493,47 @@ async function main(): Promise<void> {
         ? { ...redactConfig(config), secretState: configSecretState(config) }
         : redactConfig(config);
       console.log(JSON.stringify(output, null, 2));
+      break;
+    }
+    case 'config': {
+      if (parsed.args.length > 0) throw new Error('Usage: canvas-notebook config [--json]');
+      const output = {
+        installDir: context.paths.installDir,
+        composeFile: context.paths.composeFile,
+        dataDir: config.dataDir,
+        configFile: context.paths.configFile,
+        containerEnv: context.paths.containerEnvFile,
+        composeEnv: context.paths.composeEnvFile,
+        managerLog: context.paths.logFile,
+      };
+      if (parsed.json) console.log(JSON.stringify(output));
+      else {
+        console.log(`Install dir: ${output.installDir}`);
+        console.log(`Compose file: ${output.composeFile}`);
+        console.log(`Data dir: ${output.dataDir}`);
+        console.log(`Config file: ${output.configFile}`);
+        console.log(`Container env: ${output.containerEnv}`);
+        console.log(`Compose env: ${output.composeEnv}`);
+        console.log(`Manager log: ${output.managerLog}`);
+      }
+      break;
+    }
+    case 'config-migrate': {
+      if (parsed.args.some((arg) => arg !== '--force')) throw new Error('Usage: canvas-notebook config-migrate [--force]');
+      const result = await migrateLegacyConfig({
+        context,
+        currentConfig: config,
+        force: parsed.args.includes('--force'),
+      });
+      if (!result.skipped) await writeConfig(result.config);
+      if (parsed.json) console.log(JSON.stringify({
+        success: true,
+        skipped: result.skipped,
+        configFile: result.configFile,
+        sources: result.sources,
+      }));
+      else if (result.skipped) console.log(`config.json already exists at ${result.configFile}; use --force to migrate again.`);
+      else console.log(`Migration complete: ${result.configFile}`);
       break;
     }
     case 'config-set': {

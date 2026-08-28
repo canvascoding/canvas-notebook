@@ -93,10 +93,10 @@ Arbeitspaket aktualisiert werden.
 | `swap`, `swap-sync`, `swap-apply`, `swap-enable`, `swap-disable` | noch nicht vorhanden | fehlt | Linux-Adapter, Transaktion, Ownership und Recovery |
 | `caddy`, `caddy-reload`, `caddy-fix` | noch nicht vorhanden | fehlt | Linux-Adapter, Validierung und sichere Writes |
 | `diagnose` | noch nicht vorhanden | fehlt | tolerante Text-/JSON-Diagnose ohne Docker |
-| `config` | noch nicht vorhanden | fehlt | aktive Pfade und Plattformkonfiguration |
+| `config` | vorhanden | vorhanden | aktive Pfade und Plattformkonfiguration |
 | `config-show` | vorhanden | vorhanden | Maskierung und `--secret-state` |
-| `config-set` | Top-Level-Basiswerte, `env.*`, `swap.*` und `autoUpdate.*` | teilweise | verbleibende Top-Level-Semantik und alle freigegebenen Config-Felder |
-| `config-migrate` | noch nicht vorhanden | fehlt | Migration aus `manager.env` und bestehender Compose-Datei |
+| `config-set` | Top-Level-Basiswerte, `env.*`, `swap.*` und `autoUpdate.*` | vorhanden | validierte Pfade, gekoppelte URLs und Secret-Schutz |
+| `config-migrate` | vorhanden | vorhanden | Migration aus `manager.env`, Compose- und Env-Dateien ohne Credential-Rotation |
 | `cli-update` | vorhanden | vorhanden | Signatur/Checksum, atomarer Austausch und Re-Exec |
 | `auto-update-status`, `auto-update-enable`, `auto-update-disable`, `auto-update-sync` | noch nicht vorhanden | fehlt | Standalone-Timer und Managed-Mode-Sperre |
 | `cleanup-logs` | noch nicht vorhanden | fehlt | nur eigene verwaiste Log-Follower beenden |
@@ -195,12 +195,13 @@ nicht implementiert sind, ohne echte Container zu starten.
 
 #### Phase 1: Config-, Env- und Version-Paritaet
 
-Teilstatus 2026-08-28: `config-set` unterstuetzt und validiert jetzt
+Status: Abgeschlossen am 2026-08-28. Das Gate ist durch den Paritaetstest sowie
+die portablen CLI-, Lock-, Datenbank- und Admin-Tests nachgewiesen.
+
+`config-set` unterstuetzt und validiert jetzt
 `swap.enabled`, `swap.size`, `swap.file`, `swap.swappiness`,
 `autoUpdate.enabled` und `autoUpdate.schedule`. Die Differentialtests decken
-gueltige Werte und abgelehnte Fehlkonfigurationen ab. Die Phase bleibt offen,
-bis auch Version, Env-Anzeige/-Edit, Config-Anzeige/-Migration und die
-verbleibende Top-Level-Semantik umgesetzt sind.
+gueltige Werte und abgelehnte Fehlkonfigurationen ab.
 
 Teilstatus 2026-08-28: `version`, `-V` und `--version` liefern jetzt den
 Legacy-Build-Informationsvertrag sowie `cliGeneration`,
@@ -213,6 +214,13 @@ mit maskierten Secrets. `env --edit` bearbeitet eine temporaere Datei mit
 restriktiven Rechten, uebernimmt nur eine parsebare normalisierte Konfiguration,
 schuetzt Plattform- und Zielpfade und nutzt danach denselben Apply-/Health-Pfad
 wie `env --sync`.
+
+Teilstatus 2026-08-28: `config` zeigt alle aktiven Hostpfade; `config-migrate`
+uebernimmt Legacy-Werte atomar aus `manager.env`, Compose und vorhandenen
+Env-Dateien. Bei `--force` bleiben bestehende Secrets und die Postgres-Identitaet
+erhalten. `config-set` validiert Domain, Image, Datenpfad, URLs und Env-Namen,
+verbietet die Persistenz von `BOOTSTRAP_ADMIN_PASSWORD` und behaelt numerische
+Secret-Werte als Strings bei.
 
 - `version --json` und Capability-Vertrag.
 - `env`-Anzeige und `env --edit`.

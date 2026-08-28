@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -37,6 +37,29 @@ const contractPath = path.join(root, 'scripts', 'fixtures', 'cli-command-parity.
 const legacyCliPath = path.join(root, 'install', 'bin', 'canvas-notebook');
 const typescriptCliPath = path.join(root, 'cli', 'src', 'main.ts');
 const execFileAsync = promisify(execFile);
+
+function execFileWithInput(
+  executable: string,
+  args: string[],
+  options: { cwd: string; env: NodeJS.ProcessEnv },
+  input: string,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.once('error', reject);
+    child.once('close', (code) => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(stderr || stdout || `Command exited with ${code}`));
+    });
+    child.stdin.end(input);
+  });
+}
 
 function sortedUnique(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
@@ -333,6 +356,12 @@ async function runDifferentialContract(): Promise<void> {
       env: typescriptRuntime.env,
       maxBuffer: 1024 * 1024,
     });
+    const runTypescriptWithInput = (args: string[], input: string) => execFileWithInput(
+      tsxPath,
+      [typescriptCliPath, ...args],
+      { cwd: root, env: typescriptRuntime.env },
+      input,
+    );
 
     const envJsonOutput = await runTypescript(['env', '--json', '--no-banner']);
     assert.doesNotMatch(envJsonOutput.stdout, new RegExp(secret, 'u'));
@@ -461,6 +490,109 @@ async function runDifferentialContract(): Promise<void> {
       'Rejected config-set values must not modify config.json.',
     );
 
+    await runTypescript(['config-set', 'domain', 'app.example.com', '--no-banner']);
+    await runTypescriptWithInput(['config-set', 'env.CUSTOM_TOKEN', '--stdin', '--no-banner'], '00012345');
+    const configWithCoupledValues = JSON.parse(await fs.promises.readFile(typescriptRuntime.configFile, 'utf8')) as {
+      domain: string;
+      env: Record<string, unknown>;
+    };
+    assert.equal(configWithCoupledValues.domain, 'app.example.com');
+    assert.equal(configWithCoupledValues.env.BASE_URL, 'https://app.example.com');
+    assert.equal(configWithCoupledValues.env.BETTER_AUTH_BASE_URL, 'https://app.example.com');
+    assert.equal(configWithCoupledValues.env.CUSTOM_TOKEN, '00012345');
+    await assert.rejects(() => runTypescriptWithInput(
+      ['config-set', 'env.BOOTSTRAP_ADMIN_PASSWORD', '--stdin', '--no-banner'],
+      'must-never-be-persisted',
+    ));
+    for (const [key, value] of [
+      ['domain', 'https://not-a-domain.example'],
+      ['image', 'not an image'],
+      ['dataDir', 'relative/data'],
+      ['env.BAD-KEY', 'value'],
+      ['env.BASE_URL', 'file:///tmp/canvas'],
+      ['env.CANVAS_DATABASE_PROVIDER', 'mysql'],
+    ]) {
+      await assert.rejects(() => runTypescript(['config-set', key, value, '--no-banner']));
+    }
+
+    const configPathsOutput = await runTypescript(['config', '--json', '--no-banner']);
+    const configPaths = JSON.parse(configPathsOutput.stdout) as Record<string, unknown>;
+    assert.equal(configPaths.configFile, typescriptRuntime.configFile);
+    assert.equal(configPaths.installDir, typescriptRuntime.installDir);
+
+    const migrationRuntime = await prepareRuntime('migration');
+    const managerEnvPath = path.join(tempRoot, 'migration', 'manager.env');
+    migrationRuntime.env.CANVAS_MANAGER_ENV_PATH = managerEnvPath;
+    await fs.promises.rm(migrationRuntime.configFile, { force: true });
+    await fs.promises.writeFile(managerEnvPath, [
+      'CANVAS_SWAP_ENABLED=true',
+      'CANVAS_SWAP_SIZE=1G',
+      'CANVAS_AUTO_UPDATE_ENABLED=false',
+      'CANVAS_AUTO_UPDATE_SCHEDULE="*-*-* 06:00:00"',
+      '',
+    ].join('\n'), 'utf8');
+    await fs.promises.writeFile(path.join(migrationRuntime.installDir, 'canvas-notebook-compose.yaml'), [
+      'services:',
+      '  canvas-notebook:',
+      '    image: ${CANVAS_IMAGE:-ghcr.io/canvascoding/canvas-notebook:legacy}',
+      '    environment:',
+      '      BETTER_AUTH_SECRET: "legacy-auth-secret"',
+      '      CANVAS_INTERNAL_API_KEY: "legacy-internal-key"',
+      '      BETTER_AUTH_BASE_URL: "https://legacy.example.com"',
+      '    ports:',
+      '      - "4567:3000"',
+      '    volumes:',
+      `      - "${path.join(tempRoot, 'legacy-data')}:/data"`,
+      '',
+    ].join('\n'), 'utf8');
+    await fs.promises.writeFile(path.join(migrationRuntime.installDir, '.env'), [
+      'CANVAS_DATABASE_PROVIDER=postgres',
+      'CANVAS_POSTGRES_DATA_VOLUME=legacy-postgres-volume',
+      'CANVAS_POSTGRES_DB=legacy_db',
+      'CANVAS_POSTGRES_USER=legacy_user',
+      'CANVAS_POSTGRES_PASSWORD=legacy-password-123',
+      '',
+    ].join('\n'), { encoding: 'utf8', mode: 0o600 });
+    await fs.promises.writeFile(path.join(migrationRuntime.installDir, 'canvas-notebook.env'), [
+      'CANVAS_DATABASE_PROVIDER=postgres',
+      'DATABASE_URL=postgresql://legacy_user:legacy-password-123@postgres:5432/legacy_db',
+      '',
+    ].join('\n'), { encoding: 'utf8', mode: 0o600 });
+    const runMigration = (args: string[]) => execFileAsync(tsxPath, [typescriptCliPath, ...args], {
+      cwd: root,
+      env: migrationRuntime.env,
+      maxBuffer: 1024 * 1024,
+    });
+    const migrationOutput = await runMigration(['config-migrate', '--json', '--no-banner']);
+    const migrationResult = JSON.parse(migrationOutput.stdout) as { success: boolean; skipped: boolean; sources: string[] };
+    assert.equal(migrationResult.success, true);
+    assert.equal(migrationResult.skipped, false);
+    assert.equal(migrationResult.sources.length, 4);
+    const migratedConfig = JSON.parse(await fs.promises.readFile(migrationRuntime.configFile, 'utf8')) as {
+      domain: string;
+      image: string;
+      hostPort: number;
+      dataDir: string;
+      swap: { enabled: boolean; size: string };
+      env: Record<string, unknown>;
+    };
+    assert.equal(migratedConfig.domain, 'legacy.example.com');
+    assert.equal(migratedConfig.image, 'ghcr.io/canvascoding/canvas-notebook:legacy');
+    assert.equal(migratedConfig.hostPort, 4567);
+    assert.equal(migratedConfig.dataDir, path.join(tempRoot, 'legacy-data'));
+    assert.deepEqual(migratedConfig.swap, { enabled: true, size: '1G', file: '/swapfile', swappiness: 10 });
+    assert.equal(migratedConfig.env.CANVAS_POSTGRES_PASSWORD, 'legacy-password-123');
+    assert.equal(migratedConfig.env.DATABASE_URL, 'postgresql://legacy_user:legacy-password-123@postgres:5432/legacy_db');
+    const migratedBeforeSkip = await fs.promises.readFile(migrationRuntime.configFile, 'utf8');
+    const skippedMigration = JSON.parse((await runMigration(['config-migrate', '--json', '--no-banner'])).stdout) as { skipped: boolean };
+    assert.equal(skippedMigration.skipped, true);
+    assert.equal(await fs.promises.readFile(migrationRuntime.configFile, 'utf8'), migratedBeforeSkip);
+    migratedConfig.env.CANVAS_POSTGRES_PASSWORD = 'current-password-must-survive-force';
+    await fs.promises.writeFile(migrationRuntime.configFile, `${JSON.stringify(migratedConfig, null, 2)}\n`, { mode: 0o600 });
+    await runMigration(['config-migrate', '--force', '--json', '--no-banner']);
+    const forcedConfig = JSON.parse(await fs.promises.readFile(migrationRuntime.configFile, 'utf8')) as { env: Record<string, unknown> };
+    assert.equal(forcedConfig.env.CANVAS_POSTGRES_PASSWORD, 'current-password-must-survive-force');
+
     const legacyConfigOutput = await runLegacy(['config-show', '--json', '--secret-state', '--no-banner']);
     const typescriptConfigOutput = await runTypescript(['config-show', '--json', '--secret-state', '--no-banner']);
     assert.doesNotMatch(legacyConfigOutput.stdout, new RegExp(secret, 'u'));
@@ -486,7 +618,7 @@ async function main(): Promise<void> {
   await runDifferentialContract();
   console.log(JSON.stringify({
     success: true,
-    differentialContract: ['version --json', 'env display/edit', 'config-set swap.*', 'config-set autoUpdate.*', 'config-show --secret-state', 'status --json'],
+    differentialContract: ['version --json', 'env display/edit', 'config/config-migrate', 'config-set semantics', 'config-show --secret-state', 'status --json'],
     legacyCommandCount: contract.legacyTopLevelCommands.length,
     typescriptCommandCount: contract.typescriptTopLevelCommands.length,
     missingCommands,
