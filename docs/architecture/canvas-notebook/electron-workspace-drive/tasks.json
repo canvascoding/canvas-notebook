@@ -1,0 +1,852 @@
+{
+  "schemaVersion": 1,
+  "feature": "electron-workspace-drive-v1",
+  "title": "Electron Workspace Drive V1",
+  "updatedAt": "2026-08-28",
+  "status": "planned",
+  "repository": "canvasstudios-notebook",
+  "scope": {
+    "workspaceTypes": ["personal"],
+    "maxConnectedWorkspaces": 1,
+    "syncMode": "automatic_bidirectional",
+    "localRoot": "explicit_empty_directory",
+    "conflictPolicy": "conflict_copy",
+    "backgroundSyncDefault": true,
+    "loginAutostartDefault": false,
+    "releaseChannel": "opt_in_beta"
+  },
+  "estimateEngineeringWeeksSingleExperiencedEngineer": {
+    "featureCompleteInternalV1": [7, 10],
+    "hardenedOptInBeta": [9, 13]
+  },
+  "documents": [
+    "docs/architecture/canvas-notebook/electron-workspace-drive/README.md",
+    "docs/architecture/canvas-notebook/electron-workspace-drive/plan.md",
+    "docs/architecture/canvas-notebook/electron-workspace-drive/v1-pipeline.md"
+  ],
+  "executionPolicy": {
+    "packageOrder": "strict",
+    "taskOrderWithinPackage": "strict",
+    "nextPackageRequiresPreviousGate": true,
+    "commitPolicy": "one focused commit per completed package",
+    "allowedStatuses": ["planned", "in_progress", "blocked", "completed"],
+    "rule": "Do not start the next task until the current task and its verification are complete."
+  },
+  "gates": [
+    { "id": "G0_CONTRACTS_LOCKED", "packageId": "WD-P00", "evidence": "Versioned contracts, defaults, schema and threat model approved; contract fixtures pass." },
+    { "id": "G1_JOURNAL_DURABLE", "packageId": "WD-P01", "evidence": "All writer classes produce replayable deltas; crash recovery and reconcile tests pass." },
+    { "id": "G2_REMOTE_READ_READY", "packageId": "WD-P02", "evidence": "Snapshot, paginated manifest, immutable blob and delta contract tests pass." },
+    { "id": "G3_DESKTOP_AUTH_READY", "packageId": "WD-P03", "evidence": "Scoped authorization, refresh, revoke, logout and server-switch tests pass." },
+    { "id": "G4_SYNC_CORE_READY", "packageId": "WD-P04", "evidence": "Framework-neutral state machine, queue and recovery tests pass without Electron." },
+    { "id": "G5_LOCAL_REPLICA_READY", "packageId": "WD-P05", "evidence": "Root, atomic IO, watcher, local reconcile, ignore and portability tests pass." },
+    { "id": "G6_BIDIRECTIONAL_READY", "packageId": "WD-P06", "evidence": "Automatic two-way sync, offline resume, conflict and delete safety tests pass." },
+    { "id": "G7_DESKTOP_RUNTIME_READY", "packageId": "WD-P07", "evidence": "Single-instance background runtime, tray, lifecycle and updater barrier tests pass." },
+    { "id": "G8_USER_FLOW_READY", "packageId": "WD-P08", "evidence": "Complete connect-to-recovery user flow passes approved UI and E2E checks." },
+    { "id": "G9_V1_BETA_RELEASED", "packageId": "WD-P09", "evidence": "Security, recovery, platform, release and opt-in pilot gates pass." }
+  ],
+  "packages": [
+    {
+      "id": "WD-P00",
+      "order": 0,
+      "title": "Contracts und Sicherheitsbaseline",
+      "goal": "V1-Verhalten, Protokoll, Datenmodell und Schutzgrenzen vor der Implementierung testbar festlegen.",
+      "dependsOn": [],
+      "exitGate": "G0_CONTRACTS_LOCKED",
+      "estimateEngineeringDays": [3, 5],
+      "tasks": [
+        {
+          "id": "WD-000",
+          "order": 0,
+          "title": "V1-Produktdefaults festschreiben",
+          "status": "planned",
+          "area": "product-architecture",
+          "dependsOn": [],
+          "deliverables": ["Limits fuer Dateigroesse, Dateianzahl und Gesamtgroesse", "Retention fuer Cursor, Snapshot, Deduplizierung und Papierkorb", "Background-Sync aktiv und Login-Autostart opt-in"],
+          "acceptanceCriteria": ["Keine V1-kritische Produktentscheidung bleibt implizit oder widerspruechlich."],
+          "verification": ["Dokumentenreview gegen plan.md und v1-pipeline.md"]
+        },
+        {
+          "id": "WD-001",
+          "order": 1,
+          "title": "Sync-Protokoll und Fehlerkatalog spezifizieren",
+          "status": "planned",
+          "area": "contracts",
+          "dependsOn": ["WD-000"],
+          "deliverables": ["Versionierte Request-/Response-Schemas", "Cursor-, Snapshot-, Mutation- und Conflict-Fehlercodes", "Capability-Negotiation"],
+          "acceptanceCriteria": ["Client und Server koennen gegen dieselben serialisierbaren Fixtures implementiert werden."],
+          "verification": ["Schema- und Fixture-Tests"]
+        },
+        {
+          "id": "WD-002",
+          "order": 2,
+          "title": "Identitaets- und Konsistenzmodell definieren",
+          "status": "planned",
+          "area": "contracts",
+          "dependsOn": ["WD-001"],
+          "deliverables": ["Entry-, Revision-, Replica-, Operation- und Account-Identitaeten", "Ordering- und Idempotency-Invarianten", "Rename- und Tombstone-Semantik"],
+          "acceptanceCriteria": ["Jeder Create-, Change-, Move-, Delete- und Restore-Fall besitzt eine eindeutige Identitaetsregel."],
+          "verification": ["State-transition examples", "Two-client sequence review"]
+        },
+        {
+          "id": "WD-003",
+          "order": 3,
+          "title": "Server- und lokalen Persistenzentwurf fixieren",
+          "status": "planned",
+          "area": "data-model",
+          "dependsOn": ["WD-002"],
+          "deliverables": ["Journal-, Snapshot-, Dedupe- und Entry-Tabellen", "Lokales SQLite-Schema", "Migration-, Backup- und Recovery-Regeln"],
+          "acceptanceCriteria": ["Schema deckt Crash-Recovery, Cursor-Expiry, pending Queue und Konflikte ab."],
+          "verification": ["Migration dry-run design", "Schema constraint review"]
+        },
+        {
+          "id": "WD-004",
+          "order": 4,
+          "title": "Threat Model und Datenschutzbaseline abnehmen",
+          "status": "planned",
+          "area": "security",
+          "dependsOn": ["WD-003"],
+          "deliverables": ["Threat Model fuer Token, IPC, Root Escape, Link Swap und lokale Daten", "Logging-/Telemetry-Redaction", "Revocation- und Remote-Wipe-Abgrenzung"],
+          "acceptanceCriteria": ["Alle High-Risk-Szenarien besitzen Praevention, Erkennung und Recovery."],
+          "verification": ["Security review checklist", "Abuse-case walkthrough"]
+        }
+      ]
+    },
+    {
+      "id": "WD-P01",
+      "order": 1,
+      "title": "Server-Journal und Reconcile",
+      "goal": "Alle serverseitigen Workspace-Aenderungen dauerhaft, geordnet und reparierbar erfassen.",
+      "dependsOn": ["WD-P00"],
+      "exitGate": "G1_JOURNAL_DURABLE",
+      "estimateEngineeringDays": [5, 7],
+      "tasks": [
+        {
+          "id": "WD-100",
+          "order": 0,
+          "title": "Journal- und Operation-State-Migration implementieren",
+          "status": "planned",
+          "area": "server-data",
+          "dependsOn": ["WD-004"],
+          "deliverables": ["Workspace-geordnete Cursor", "prepared/file_applied/journal_committed/failed States", "Dedupe Keys und Retention-Felder"],
+          "acceptanceCriteria": ["Migration ist vorwaerts-kompatibel und auf leerer sowie bestehender DB testbar."],
+          "verification": ["Migration tests", "Unique/foreign-key constraint tests"]
+        },
+        {
+          "id": "WD-101",
+          "order": 1,
+          "title": "SyncMutationJournal Service bauen",
+          "status": "planned",
+          "area": "server-service",
+          "dependsOn": ["WD-100"],
+          "deliverables": ["Append, read-after-cursor, dedupe and recovery capabilities", "Structured operation results"],
+          "acceptanceCriteria": ["Retries erzeugen weder doppelte Revisionen noch doppelte fachliche Mutationen."],
+          "verification": ["Unit tests", "Concurrent append tests"]
+        },
+        {
+          "id": "WD-102",
+          "order": 2,
+          "title": "Workspace-Dateiservice an Journal-Outbox anbinden",
+          "status": "planned",
+          "area": "server-orchestration",
+          "dependsOn": ["WD-101"],
+          "deliverables": ["Create/write/rename/delete/restore journal integration", "Actor, source, revision and previous path metadata"],
+          "acceptanceCriteria": ["Jede erfolgreiche File-API-Mutation ist exakt einem Journal-Ergebnis zugeordnet."],
+          "verification": ["File route integration tests", "Revision and trash regression tests"]
+        },
+        {
+          "id": "WD-103",
+          "order": 3,
+          "title": "Agent-, Automation-, Studio- und Collaboration-Writer integrieren",
+          "status": "planned",
+          "area": "server-orchestration",
+          "dependsOn": ["WD-102"],
+          "deliverables": ["Gemeinsame Journal-Integration fuer alle bekannten Writer", "Source classification"],
+          "acceptanceCriteria": ["Kein bekannter interner Writer umgeht Revision, Audit oder Journal."],
+          "verification": ["Writer inventory regression test", "Targeted integration tests"]
+        },
+        {
+          "id": "WD-104",
+          "order": 4,
+          "title": "Serverseitigen Reconcile-Scanner implementieren",
+          "status": "planned",
+          "area": "server-service",
+          "dependsOn": ["WD-103"],
+          "deliverables": ["Persistenter Scan-Cursor", "Hash-/Metadatenvergleich", "Konservative Rename-Erkennung", "Backpressure"],
+          "acceptanceCriteria": ["Verlorene Watcher- und direkte Terminal-Aenderungen werden nachtraeglich als Deltas materialisiert."],
+          "verification": ["Dropped watcher event test", "Terminal write test", "Large tree incremental scan test"]
+        },
+        {
+          "id": "WD-105",
+          "order": 5,
+          "title": "Crash-Recovery und Journal-Gate absichern",
+          "status": "planned",
+          "area": "server-recovery",
+          "dependsOn": ["WD-104"],
+          "deliverables": ["Startup recovery worker", "Repair metrics", "Journal consistency command/test helper"],
+          "acceptanceCriteria": ["Abbruch in jedem Operation-State konvergiert ohne stillen Verlust oder Doppelmutation."],
+          "verification": ["Fault injection matrix", "Restart recovery tests", "G1 gate report"]
+        }
+      ]
+    },
+    {
+      "id": "WD-P02",
+      "order": 2,
+      "title": "Snapshot-, Delta- und Blob-API",
+      "goal": "Einen konsistenten, skalierbaren und permission-geprueften Remote-Read-Pfad bereitstellen.",
+      "dependsOn": ["WD-P01"],
+      "exitGate": "G2_REMOTE_READ_READY",
+      "estimateEngineeringDays": [4, 6],
+      "tasks": [
+        {
+          "id": "WD-200",
+          "order": 0,
+          "title": "Snapshot Service mit Basis-Cursor implementieren",
+          "status": "planned",
+          "area": "server-sync",
+          "dependsOn": ["WD-105"],
+          "deliverables": ["Snapshot lifecycle", "Base cursor", "Expiry and pin accounting"],
+          "acceptanceCriteria": ["Snapshot bleibt waehrend paralleler Workspace-Mutationen logisch konsistent."],
+          "verification": ["Concurrent mutation snapshot test"]
+        },
+        {
+          "id": "WD-201",
+          "order": 1,
+          "title": "Paginiertes Manifest implementieren",
+          "status": "planned",
+          "area": "server-api",
+          "dependsOn": ["WD-200"],
+          "deliverables": ["Stable page tokens", "Entry and revision metadata", "Directory entries and portability flags"],
+          "acceptanceCriteria": ["Manifestseiten sind vollstaendig, stabil geordnet und snapshotgebunden."],
+          "verification": ["Pagination contract tests", "Large manifest test"]
+        },
+        {
+          "id": "WD-202",
+          "order": 2,
+          "title": "Immutable Revision-Blobs und Range-Download bereitstellen",
+          "status": "planned",
+          "area": "server-transfer",
+          "dependsOn": ["WD-201"],
+          "deliverables": ["Revision-addressed blobs", "Range and hash headers", "Snapshot pin and cleanup policy"],
+          "acceptanceCriteria": ["Ein Manifest-Blob kann nach spaeterer Dateianderung weiterhin exakt geladen und verifiziert werden."],
+          "verification": ["Revision replacement test", "Range resume test", "Hash mismatch test"]
+        },
+        {
+          "id": "WD-203",
+          "order": 3,
+          "title": "Delta Endpoint mit Cursor-Retention implementieren",
+          "status": "planned",
+          "area": "server-api",
+          "dependsOn": ["WD-202"],
+          "deliverables": ["Ordered delta pages", "CURSOR_EXPIRED response", "Long-poll or bounded polling contract"],
+          "acceptanceCriteria": ["Deltas sind idempotent konsumierbar und Cursor-Luecken werden explizit erkannt."],
+          "verification": ["Duplicate/out-of-order tests", "Cursor expiry test"]
+        },
+        {
+          "id": "WD-204",
+          "order": 4,
+          "title": "Sync-Capabilities und Protokollkompatibilitaet ausliefern",
+          "status": "planned",
+          "area": "server-api",
+          "dependsOn": ["WD-203"],
+          "deliverables": ["Protocol version endpoint/headers", "Feature flags", "Minimum and maximum supported clients"],
+          "acceptanceCriteria": ["Inkompatible Clients erhalten einen strukturierten read-only oder update-required Status."],
+          "verification": ["Compatibility matrix tests"]
+        },
+        {
+          "id": "WD-205",
+          "order": 5,
+          "title": "Remote-Read-Gate mit Auth, Last und Recovery abnehmen",
+          "status": "planned",
+          "area": "server-verification",
+          "dependsOn": ["WD-204"],
+          "deliverables": ["Permission checks per request", "Rate/backpressure limits", "Read-only vertical test client"],
+          "acceptanceCriteria": ["Ein Test-Client kann Snapshot, Manifest, Blobs und Deltas ohne verpasste Aenderung spiegeln."],
+          "verification": ["Contract suite", "Permission isolation tests", "Initial-sync load test", "G2 gate report"]
+        }
+      ]
+    },
+    {
+      "id": "WD-P03",
+      "order": 3,
+      "title": "Desktop-Authorization",
+      "goal": "Dem Electron Main Process eine minimale, sichere und widerrufbare Sync-Identitaet geben.",
+      "dependsOn": ["WD-P02"],
+      "exitGate": "G3_DESKTOP_AUTH_READY",
+      "estimateEngineeringDays": [3, 4],
+      "tasks": [
+        {
+          "id": "WD-300",
+          "order": 0,
+          "title": "Desktop-Authorization Flow serverseitig implementieren",
+          "status": "planned",
+          "area": "auth-server",
+          "dependsOn": ["WD-205"],
+          "deliverables": ["User-approved authorization", "Minimal personal-workspace sync scope", "Replica and server-origin binding"],
+          "acceptanceCriteria": ["Renderer kann eine Desktop-Session ausloesen, erhaelt aber kein Refresh Credential."],
+          "verification": ["Authorization route tests", "Scope escalation tests"]
+        },
+        {
+          "id": "WD-301",
+          "order": 1,
+          "title": "Rotation, Refresh und Revocation implementieren",
+          "status": "planned",
+          "area": "auth-server",
+          "dependsOn": ["WD-300"],
+          "deliverables": ["Short-lived access tokens", "Rotating refresh credential", "Session revoke and audit"],
+          "acceptanceCriteria": ["Wiederverwendung rotierter Credentials und widerrufene Sessions werden abgelehnt."],
+          "verification": ["Refresh rotation tests", "Replay and revoke tests"]
+        },
+        {
+          "id": "WD-302",
+          "order": 2,
+          "title": "Keychain Credential Adapter im Main Process bauen",
+          "status": "planned",
+          "area": "electron-security",
+          "dependsOn": ["WD-301"],
+          "deliverables": ["OS-Keychain/safeStorage adapter", "Redacted error handling", "No renderer token exposure"],
+          "acceptanceCriteria": ["Credentials erscheinen weder im Renderer, Workspace, Config-JSON noch in Logs."],
+          "verification": ["Adapter tests", "Log and IPC leak tests"]
+        },
+        {
+          "id": "WD-303",
+          "order": 3,
+          "title": "Logout, Serverwechsel und Rechteentzug absichern",
+          "status": "planned",
+          "area": "auth-lifecycle",
+          "dependsOn": ["WD-302"],
+          "deliverables": ["Immediate pause/deauthorize transitions", "Pending-change preservation", "Explicit reconnect path"],
+          "acceptanceCriteria": ["Kein Account oder Server kann eine fremde Replica-Zuordnung uebernehmen."],
+          "verification": ["Logout/server reset tests", "Permission revoke while offline test"]
+        },
+        {
+          "id": "WD-304",
+          "order": 4,
+          "title": "Desktop-Auth-Gate abnehmen",
+          "status": "planned",
+          "area": "security-verification",
+          "dependsOn": ["WD-303"],
+          "deliverables": ["Threat-model evidence", "Auth lifecycle matrix", "G3 report"],
+          "acceptanceCriteria": ["Authorization, Refresh, Revocation und lokale Credential-Aufbewahrung bestehen alle Negativtests."],
+          "verification": ["Security integration suite", "G3 gate report"]
+        }
+      ]
+    },
+    {
+      "id": "WD-P04",
+      "order": 4,
+      "title": "Frameworkneutraler Sync-Core",
+      "goal": "Deterministische Sync-Domainlogik mit persistenter Queue ausserhalb von Electron implementieren.",
+      "dependsOn": ["WD-P03"],
+      "exitGate": "G4_SYNC_CORE_READY",
+      "estimateEngineeringDays": [5, 7],
+      "tasks": [
+        {
+          "id": "WD-400",
+          "order": 0,
+          "title": "Sync-Core Modulgrenzen und Ports anlegen",
+          "status": "planned",
+          "area": "sync-core",
+          "dependsOn": ["WD-304"],
+          "deliverables": ["RemoteWorkspacePort", "LocalReplicaPort", "SyncStatePort", "Clock/Connectivity/Event ports"],
+          "acceptanceCriteria": ["Sync-Domainlogik importiert weder Electron noch konkrete HTTP-, SQLite- oder Dateisystemmodule."],
+          "verification": ["Dependency boundary test", "Type-level contract tests"]
+        },
+        {
+          "id": "WD-401",
+          "order": 1,
+          "title": "Lokalen SQLite State Store implementieren",
+          "status": "planned",
+          "area": "desktop-data",
+          "dependsOn": ["WD-400"],
+          "deliverables": ["Replica/entry/cursor/queue/conflict tables", "Transactions", "Schema migrations and backup"],
+          "acceptanceCriteria": ["Abbruch waehrend Queue- oder Cursor-Commit hinterlaesst einen recoverbaren Zustand."],
+          "verification": ["Migration tests", "Crash transaction tests", "Corruption recovery test"]
+        },
+        {
+          "id": "WD-402",
+          "order": 2,
+          "title": "Sync-State-Machine implementieren",
+          "status": "planned",
+          "area": "sync-core",
+          "dependsOn": ["WD-401"],
+          "deliverables": ["Explicit states and transitions", "Structured pause/block/error reasons", "Persisted recovery transitions"],
+          "acceptanceCriteria": ["Unerlaubte Uebergaenge sind unmoeglich und jeder Fehler besitzt einen stabilen Zustand."],
+          "verification": ["State transition table tests"]
+        },
+        {
+          "id": "WD-403",
+          "order": 3,
+          "title": "Persistente Operation Queue und Scheduler implementieren",
+          "status": "planned",
+          "area": "sync-core",
+          "dependsOn": ["WD-402"],
+          "deliverables": ["Idempotent enqueue/claim/ack", "Retry/backoff/jitter", "Priority and cancellation"],
+          "acceptanceCriteria": ["Queue setzt nach Prozessabbruch exakt an einem sicheren Punkt fort."],
+          "verification": ["Deterministic clock tests", "Retry and crash matrix"]
+        },
+        {
+          "id": "WD-404",
+          "order": 4,
+          "title": "Remote Adapter und Initial-Sync Orchestrator implementieren",
+          "status": "planned",
+          "area": "sync-core",
+          "dependsOn": ["WD-403"],
+          "deliverables": ["Snapshot/manifest/blob/delta adapter", "Cursor-expiry full reconcile", "Protocol capability handling"],
+          "acceptanceCriteria": ["Read-only Replik konvergiert nach Unterbrechung, doppelten Deltas und Cursor-Expiry."],
+          "verification": ["Mock remote integration tests", "Interrupted initial-sync tests"]
+        },
+        {
+          "id": "WD-405",
+          "order": 5,
+          "title": "Frameworkneutralen Core-Gate abnehmen",
+          "status": "planned",
+          "area": "sync-verification",
+          "dependsOn": ["WD-404"],
+          "deliverables": ["Deterministic test harness", "Recovery matrix", "G4 report"],
+          "acceptanceCriteria": ["Der komplette Read-only-Lifecycle laeuft in Tests ohne Electron und ohne reale Uhr."],
+          "verification": ["Core unit/integration suite", "G4 gate report"]
+        }
+      ]
+    },
+    {
+      "id": "WD-P05",
+      "order": 5,
+      "title": "Lokale Replik",
+      "goal": "Sicheren Root-Zugriff, atomare lokale IO und robuste Aenderungserkennung bereitstellen.",
+      "dependsOn": ["WD-P04"],
+      "exitGate": "G5_LOCAL_REPLICA_READY",
+      "estimateEngineeringDays": [4, 6],
+      "tasks": [
+        {
+          "id": "WD-500",
+          "order": 0,
+          "title": "Root-Auswahl und Volume-Validierung implementieren",
+          "status": "planned",
+          "area": "local-filesystem",
+          "dependsOn": ["WD-405"],
+          "deliverables": ["Empty-directory check", "Nested/cloud/system root blocking", "Volume identity and capabilities"],
+          "acceptanceCriteria": ["Unsichere oder mehrdeutige Roots werden vor jeder Synchronisierung abgelehnt."],
+          "verification": ["Root policy tests on macOS/Windows fixtures"]
+        },
+        {
+          "id": "WD-501",
+          "order": 1,
+          "title": "Atomic Local IO Adapter implementieren",
+          "status": "planned",
+          "area": "local-filesystem",
+          "dependsOn": ["WD-500"],
+          "deliverables": ["Staging/fsync/rename writes", "Stable upload snapshots", "No-follow and root-boundary checks"],
+          "acceptanceCriteria": ["Teil-Dateien werden nie sichtbar und Link-Swap kann den Root nicht verlassen."],
+          "verification": ["Atomicity tests", "Symlink/junction/TOCTOU tests", "Disk-full tests"]
+        },
+        {
+          "id": "WD-502",
+          "order": 2,
+          "title": "Lokalen Watcher und Own-Write Tracker implementieren",
+          "status": "planned",
+          "area": "local-filesystem",
+          "dependsOn": ["WD-501"],
+          "deliverables": ["Normalized events", "Debounce/coalescing", "Own-write suppression by operation ID"],
+          "acceptanceCriteria": ["Atomare Editor-Saves und eigene Downloads erzeugen keine Sync-Schleifen."],
+          "verification": ["Office/IDE save fixtures", "Duplicate event tests", "Self-write loop test"]
+        },
+        {
+          "id": "WD-503",
+          "order": 3,
+          "title": "Lokalen Scan und Reconcile implementieren",
+          "status": "planned",
+          "area": "local-filesystem",
+          "dependsOn": ["WD-502"],
+          "deliverables": ["Incremental hash/metadata scan", "Safe rename inference", "Missing-root detection"],
+          "acceptanceCriteria": ["Verlorene Watcher-Events werden gefunden; ein fehlender Root erzeugt niemals Delete-Mutationen."],
+          "verification": ["Dropped event test", "Root deleted/moved test", "Large tree scan test"]
+        },
+        {
+          "id": "WD-504",
+          "order": 4,
+          "title": "Ignore- und Portabilitaetspolicy implementieren",
+          "status": "planned",
+          "area": "local-policy",
+          "dependsOn": ["WD-503"],
+          "deliverables": ["Versioned .canvasignore", "Ignore-is-not-delete behavior", "Case/Unicode/Windows name blockers"],
+          "acceptanceCriteria": ["Kein Serverpfad wird still umbenannt oder durch Policy-Aenderung geloescht."],
+          "verification": ["Ignore transition tests", "Cross-platform collision fixtures"]
+        },
+        {
+          "id": "WD-505",
+          "order": 5,
+          "title": "Lokale Replik-Gate abnehmen",
+          "status": "planned",
+          "area": "local-verification",
+          "dependsOn": ["WD-504"],
+          "deliverables": ["Temporary-root integration harness", "Platform behavior matrix", "G5 report"],
+          "acceptanceCriteria": ["Root, IO, Watcher, Reconcile und Portabilitaet bestehen die definierte Fehler-Matrix."],
+          "verification": ["Local adapter integration suite", "G5 gate report"]
+        }
+      ]
+    },
+    {
+      "id": "WD-P06",
+      "order": 6,
+      "title": "Bidirektionaler automatischer Sync",
+      "goal": "Create, change, rename, move und delete automatisch, offline-faehig und konfliktgeschuetzt synchronisieren.",
+      "dependsOn": ["WD-P05"],
+      "exitGate": "G6_BIDIRECTIONAL_READY",
+      "estimateEngineeringDays": [6, 9],
+      "tasks": [
+        {
+          "id": "WD-600",
+          "order": 0,
+          "title": "Automatischen Download-Pfad implementieren",
+          "status": "planned",
+          "area": "sync-transfer",
+          "dependsOn": ["WD-505"],
+          "deliverables": ["Range resume", "Hash verification", "Atomic local apply", "Cursor ack transaction"],
+          "acceptanceCriteria": ["Remote-Aenderungen erscheinen automatisch lokal und falsche Inhalte werden nie committed."],
+          "verification": ["Interrupted/corrupt download tests"]
+        },
+        {
+          "id": "WD-601",
+          "order": 1,
+          "title": "Bestehenden Chunk-Upload fuer Sync erweitern",
+          "status": "planned",
+          "area": "sync-transfer",
+          "dependsOn": ["WD-600"],
+          "deliverables": ["Replica/operation IDs", "Base revision and hash", "Resumable stable snapshot upload"],
+          "acceptanceCriteria": ["Retry und Resume erzeugen genau eine neue Serverrevision."],
+          "verification": ["Chunk resume tests", "Idempotency tests", "Upload changed-during-transfer test"]
+        },
+        {
+          "id": "WD-602",
+          "order": 2,
+          "title": "Create-, Rename- und Move-Mutationen implementieren",
+          "status": "planned",
+          "area": "sync-domain",
+          "dependsOn": ["WD-601"],
+          "deliverables": ["Entry-aware mutations", "Preconditions", "Directory subtree handling"],
+          "acceptanceCriteria": ["Mehrere Clients konvergieren ohne Identitaetsverlust oder Pfad-Duplikate."],
+          "verification": ["Two-client create/rename/move matrix"]
+        },
+        {
+          "id": "WD-603",
+          "order": 3,
+          "title": "Delete, Trash und Massenmutationsschutz implementieren",
+          "status": "planned",
+          "area": "sync-domain",
+          "dependsOn": ["WD-602"],
+          "deliverables": ["Tombstone and restore handling", "Threshold pause", "Explicit confirmation contract"],
+          "acceptanceCriteria": ["Root-Loeschung und unbestaetigte Massenloeschung koennen keine Serverdaten entfernen."],
+          "verification": ["Root deletion test", "Mass delete confirmation tests", "Trash restore test"]
+        },
+        {
+          "id": "WD-604",
+          "order": 4,
+          "title": "Konfliktkopien und Blocked States implementieren",
+          "status": "planned",
+          "area": "sync-domain",
+          "dependsOn": ["WD-603"],
+          "deliverables": ["Text/binary conflict copies", "Deterministic portable naming", "Lock/collaboration blocked states"],
+          "acceptanceCriteria": ["Keine konkurrierende Version wird automatisch verworfen oder ueberschrieben."],
+          "verification": ["Concurrent edit tests", "Name collision tests", "Lock/collaboration response tests"]
+        },
+        {
+          "id": "WD-605",
+          "order": 5,
+          "title": "Offline-, Reconnect- und Full-Reconcile-Pfad implementieren",
+          "status": "planned",
+          "area": "sync-domain",
+          "dependsOn": ["WD-604"],
+          "deliverables": ["Persistent offline queue", "Connectivity recovery", "CURSOR_EXPIRED rebase preserving pending work"],
+          "acceptanceCriteria": ["Lokale Offline-Aenderungen konvergieren nach Reconnect oder werden als Konfliktkopie erhalten."],
+          "verification": ["Offline restart tests", "Cursor expiry with pending queue test"]
+        },
+        {
+          "id": "WD-606",
+          "order": 6,
+          "title": "Ressourcen-, Quota- und Backpressure-Regeln integrieren",
+          "status": "planned",
+          "area": "sync-runtime",
+          "dependsOn": ["WD-605"],
+          "deliverables": ["Bounded concurrency", "Disk/quota preflight", "Metered/battery policy", "Fair queue scheduling"],
+          "acceptanceCriteria": ["Sync bleibt unter Last responsiv und pausiert sichtbar vor Ressourcenverlust."],
+          "verification": ["Large workspace test", "Disk full/quota tests", "Backpressure test"]
+        },
+        {
+          "id": "WD-607",
+          "order": 7,
+          "title": "Bidirektionalen Core-Gate abnehmen",
+          "status": "planned",
+          "area": "sync-verification",
+          "dependsOn": ["WD-606"],
+          "deliverables": ["Two-client matrix", "Fault injection report", "G6 report"],
+          "acceptanceCriteria": ["Automatischer Zwei-Wege-Sync besteht Normal-, Offline-, Konflikt-, Delete- und Recovery-Faelle."],
+          "verification": ["Bidirectional integration suite", "G6 gate report"]
+        }
+      ]
+    },
+    {
+      "id": "WD-P07",
+      "order": 7,
+      "title": "Electron Main Process und Lifecycle",
+      "goal": "Den Sync-Core als genau eine sichere Hintergrund-Runtime in Electron betreiben.",
+      "dependsOn": ["WD-P06"],
+      "exitGate": "G7_DESKTOP_RUNTIME_READY",
+      "estimateEngineeringDays": [4, 6],
+      "tasks": [
+        {
+          "id": "WD-700",
+          "order": 0,
+          "title": "WorkspaceSyncService im Main Process komponieren",
+          "status": "planned",
+          "area": "electron-main",
+          "dependsOn": ["WD-607"],
+          "deliverables": ["Composition root", "Single-instance ownership", "Startup and recovery wiring"],
+          "acceptanceCriteria": ["Renderer-Neuladungen oder mehrere Fenster starten keine zweite Sync-Engine."],
+          "verification": ["Main process integration tests", "Second-instance test"]
+        },
+        {
+          "id": "WD-701",
+          "order": 1,
+          "title": "Versionierte sichere IPC-Bridge implementieren",
+          "status": "planned",
+          "area": "electron-security",
+          "dependsOn": ["WD-700"],
+          "deliverables": ["Connect/pause/resume/status/reconcile/disconnect commands", "Origin and payload validation", "No arbitrary path API"],
+          "acceptanceCriteria": ["Nur konfigurierte Canvas-Renderer koennen eng definierte Sync-Aktionen ausloesen."],
+          "verification": ["IPC contract tests", "Untrusted sender tests"]
+        },
+        {
+          "id": "WD-702",
+          "order": 2,
+          "title": "Tray und plattformuebergreifendes Close-Verhalten implementieren",
+          "status": "planned",
+          "area": "electron-lifecycle",
+          "dependsOn": ["WD-701"],
+          "deliverables": ["Tray/menu status", "Background close", "Explicit full quit", "Pause/resume actions"],
+          "acceptanceCriteria": ["Bei aktivem Hintergrund-Sync laeuft die Queue nach Fensterschluss auf macOS und Windows weiter."],
+          "verification": ["Lifecycle integration tests", "Manual macOS/Windows close test"]
+        },
+        {
+          "id": "WD-703",
+          "order": 3,
+          "title": "Autostart, Sleep/Wake und Connectivity integrieren",
+          "status": "planned",
+          "area": "electron-lifecycle",
+          "dependsOn": ["WD-702"],
+          "deliverables": ["Opt-in login start", "Power event handling", "Network reconnect trigger"],
+          "acceptanceCriteria": ["Wake und Netzwerkwechsel setzen sicher fort; Autostart folgt exakt der Nutzereinstellung."],
+          "verification": ["Power/connectivity tests", "Manual login-start test"]
+        },
+        {
+          "id": "WD-704",
+          "order": 4,
+          "title": "Quit- und Auto-Update-Barrier implementieren",
+          "status": "planned",
+          "area": "electron-lifecycle",
+          "dependsOn": ["WD-703"],
+          "deliverables": ["Stop-new-work phase", "Atomic operation drain", "Queue/SQLite flush", "Updater handoff"],
+          "acceptanceCriteria": ["Update oder Exit kann keine halb angewandte Operation oder unpersistierte Queue hinterlassen."],
+          "verification": ["Forced quit tests", "Updater restart with pending queue test"]
+        },
+        {
+          "id": "WD-705",
+          "order": 5,
+          "title": "Electron-Runtime-Gate abnehmen",
+          "status": "planned",
+          "area": "electron-verification",
+          "dependsOn": ["WD-704"],
+          "deliverables": ["Lifecycle matrix", "Packaged integration evidence", "G7 report"],
+          "acceptanceCriteria": ["Startup, window close, tray, sleep, network, update and full quit pass without data loss."],
+          "verification": ["Electron integration suite", "G7 gate report"]
+        }
+      ]
+    },
+    {
+      "id": "WD-P08",
+      "order": 8,
+      "title": "Endnutzer-UX",
+      "goal": "Den automatischen Sync transparent, kontrollierbar und recoverbar bedienen lassen.",
+      "dependsOn": ["WD-P07"],
+      "exitGate": "G8_USER_FLOW_READY",
+      "estimateEngineeringDays": [4, 6],
+      "tasks": [
+        {
+          "id": "WD-800",
+          "order": 0,
+          "title": "Workspace-Drive-Einstieg und Verbindungsflow bauen",
+          "status": "planned",
+          "area": "desktop-ui",
+          "dependsOn": ["WD-705"],
+          "deliverables": ["Desktop-only settings entry", "Workspace and root selection", "Size estimate and authorization"],
+          "acceptanceCriteria": ["Ein User kann den Personal Workspace bewusst und nachvollziehbar mit einem sicheren Root verbinden."],
+          "verification": ["Component tests", "Connect flow UI test"]
+        },
+        {
+          "id": "WD-801",
+          "order": 1,
+          "title": "Initial-Sync- und laufenden Status darstellen",
+          "status": "planned",
+          "area": "desktop-ui",
+          "dependsOn": ["WD-800"],
+          "deliverables": ["Progress and queue summary", "Synchronized/offline/paused/blocked/error states", "Tray status parity"],
+          "acceptanceCriteria": ["UI behauptet nie synchronisiert, solange Queue, Conflict oder Persistenzfehler offen sind."],
+          "verification": ["State-to-UI mapping tests"]
+        },
+        {
+          "id": "WD-802",
+          "order": 2,
+          "title": "Konflikt- und Massenmutations-UX bauen",
+          "status": "planned",
+          "area": "desktop-ui",
+          "dependsOn": ["WD-801"],
+          "deliverables": ["Conflict copy detail", "Open both versions", "Confirm/cancel mass delete", "Lock/collaboration explanation"],
+          "acceptanceCriteria": ["Riskante Mutationen und Konflikte verlangen eine explizite, reversible Nutzerentscheidung."],
+          "verification": ["Conflict and mass-delete UI tests"]
+        },
+        {
+          "id": "WD-803",
+          "order": 3,
+          "title": "Pause, Jetzt synchronisieren und sicheren Neuabgleich bauen",
+          "status": "planned",
+          "area": "desktop-ui",
+          "dependsOn": ["WD-802"],
+          "deliverables": ["Pause/resume", "Sync now", "Reconcile preview", "Progress and cancellation rules"],
+          "acceptanceCriteria": ["Manuelle Kontrollen veraendern keine Daten ausserhalb klar bestaetigter Aktionen."],
+          "verification": ["Control action integration tests"]
+        },
+        {
+          "id": "WD-804",
+          "order": 4,
+          "title": "Missing-Root, Reconnect und Disconnect Flow bauen",
+          "status": "planned",
+          "area": "desktop-ui",
+          "dependsOn": ["WD-803"],
+          "deliverables": ["Reconnect existing/new empty root", "Pending-change export/wait/discard", "Separate local-copy removal"],
+          "acceptanceCriteria": ["Root-Verlust, Logout oder Trennen loescht niemals automatisch Server- oder lokale Nutzdaten."],
+          "verification": ["Root recovery UI test", "Disconnect with pending changes test"]
+        },
+        {
+          "id": "WD-805",
+          "order": 5,
+          "title": "Diagnose und Support-Bundle integrieren",
+          "status": "planned",
+          "area": "desktop-operations",
+          "dependsOn": ["WD-804"],
+          "deliverables": ["Connection test", "Local scan", "Safe reconcile", "Redacted support export"],
+          "acceptanceCriteria": ["Support-Bundle enthaelt keine Tokens, Inhalte oder unnoetigen Vollpfade."],
+          "verification": ["Redaction tests", "Support bundle schema test"]
+        },
+        {
+          "id": "WD-806",
+          "order": 6,
+          "title": "Endnutzer-UX-Gate abnehmen",
+          "status": "planned",
+          "area": "ui-verification",
+          "dependsOn": ["WD-805"],
+          "deliverables": ["Localization and accessibility review", "Approved UI/E2E evidence", "G8 report"],
+          "acceptanceCriteria": ["Der gesamte Flow von Connect bis Recovery ist ohne interne Kenntnisse bedienbar."],
+          "verification": ["UI component suite", "Explicitly approved Playwright/Chrome E2E", "G8 gate report"]
+        }
+      ]
+    },
+    {
+      "id": "WD-P09",
+      "order": 9,
+      "title": "Hardening und V1-Beta-Release",
+      "goal": "Datenverlust-, Sicherheits-, Plattform- und Update-Risiken vor einem kleinen Opt-in-Rollout nachweislich beherrschen.",
+      "dependsOn": ["WD-P08"],
+      "exitGate": "G9_V1_BETA_RELEASED",
+      "estimateEngineeringDays": [5, 8],
+      "tasks": [
+        {
+          "id": "WD-900",
+          "order": 0,
+          "title": "Vollstaendige Recovery- und Fault-Injection-Matrix ausfuehren",
+          "status": "planned",
+          "area": "quality",
+          "dependsOn": ["WD-806"],
+          "deliverables": ["Crash points", "Network faults", "Disk/quota faults", "DB corruption and cursor expiry evidence"],
+          "acceptanceCriteria": ["Kein getesteter Abbruch fuehrt zu stillem Verlust einer bestaetigten oder pending Version."],
+          "verification": ["Automated recovery suite"]
+        },
+        {
+          "id": "WD-901",
+          "order": 1,
+          "title": "Security-Testmatrix ausfuehren",
+          "status": "planned",
+          "area": "security",
+          "dependsOn": ["WD-900"],
+          "deliverables": ["Traversal/link-swap tests", "IPC and token leak tests", "Workspace/account isolation", "Mass mutation abuse tests"],
+          "acceptanceCriteria": ["Keine offene High- oder Critical-Schwachstelle verbleibt."],
+          "verification": ["Security suite", "Manual security review"]
+        },
+        {
+          "id": "WD-902",
+          "order": 2,
+          "title": "Zwei-Client-, Last- und Langzeittests ausfuehren",
+          "status": "planned",
+          "area": "quality",
+          "dependsOn": ["WD-901"],
+          "deliverables": ["Two-client conflict/offline matrix", "Large workspace metrics", "Long-running queue and reconcile test"],
+          "acceptanceCriteria": ["Clients konvergieren und bleiben unter den festgelegten Ressourcenlimits."],
+          "verification": ["Soak test", "Load report", "Conflict rate review"]
+        },
+        {
+          "id": "WD-903",
+          "order": 3,
+          "title": "macOS-Paket und Finder-Lifecycle pruefen",
+          "status": "planned",
+          "area": "release-macos",
+          "dependsOn": ["WD-902"],
+          "deliverables": ["Signed/notarized packaged app evidence", "Finder, sleep/wake and tray checks", "Auto-update with pending queue"],
+          "acceptanceCriteria": ["Die veroeffentlichte macOS-App installiert, synchronisiert und aktualisiert ohne Datenverlust."],
+          "verification": ["Packaged macOS manual matrix", "Codesign/notarization/Gatekeeper checks"]
+        },
+        {
+          "id": "WD-904",
+          "order": 4,
+          "title": "Windows-Paket und Explorer-Lifecycle pruefen",
+          "status": "planned",
+          "area": "release-windows",
+          "dependsOn": ["WD-903"],
+          "deliverables": ["Packaged Windows app evidence", "Explorer, locked-file, path and tray checks", "Update/restart behavior"],
+          "acceptanceCriteria": ["Die veroeffentlichte Windows-App besteht die V1-Plattformmatrix."],
+          "verification": ["Packaged Windows manual matrix"]
+        },
+        {
+          "id": "WD-905",
+          "order": 5,
+          "title": "Telemetry, Kill Switch und Rollback verifizieren",
+          "status": "planned",
+          "area": "operations",
+          "dependsOn": ["WD-904"],
+          "deliverables": ["Backlog/conflict/recovery metrics", "Server kill switch", "Read-only fallback", "Rollback runbook"],
+          "acceptanceCriteria": ["Betrieb kann Writes stoppen, ohne lokale Inhalte zu verlieren, und Fehler ausreichend diagnostizieren."],
+          "verification": ["Kill-switch drill", "Rollback drill", "Telemetry dashboard review"]
+        },
+        {
+          "id": "WD-906",
+          "order": 6,
+          "title": "Kleine Opt-in-Dogfood-Phase durchfuehren",
+          "status": "planned",
+          "area": "beta",
+          "dependsOn": ["WD-905"],
+          "deliverables": ["Pilot cohort", "Explicit backups", "Incident and feedback log", "Exit metrics"],
+          "acceptanceCriteria": ["Keine ungeklärten Datenverlust- oder Sicherheitsbefunde; Backlog und Konfliktrate innerhalb der Defaults."],
+          "verification": ["Pilot report", "Go/no-go review"]
+        },
+        {
+          "id": "WD-907",
+          "order": 7,
+          "title": "V1-Beta releasen und Gate abschliessen",
+          "status": "planned",
+          "area": "release",
+          "dependsOn": ["WD-906"],
+          "deliverables": ["Release notes", "Opt-in enablement", "Support and rollback links", "G9 report"],
+          "acceptanceCriteria": ["Alle vorherigen Gates sind dokumentiert gruen und das Beta-Artefakt ist ueber den normalen Release-/Update-Pfad verfuegbar."],
+          "verification": ["Release workflow checks", "Published asset/update manifest verification", "G9 gate report"]
+        }
+      ]
+    }
+  ]
+}

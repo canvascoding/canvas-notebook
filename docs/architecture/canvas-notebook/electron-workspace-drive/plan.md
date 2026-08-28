@@ -34,7 +34,7 @@ V1 ist bewusst kleiner als die langfristige Zielarchitektur. Sie umfasst:
 - genau einen gleichzeitig verbundenen Personal Workspace pro Desktop-Installation;
 - vollstaendige lokale Spiegelung in einen explizit ausgewaehlten, leeren Ordner;
 - initialen Download und bidirektionale create-, change-, rename-, move- und
-  delete-Synchronisierung;
+  delete-Synchronisierung, die nach dem Verbinden automatisch laeuft;
 - persistente Offline-Queue, Resume, atomare Transfers und sichtbaren Status;
 - Konfliktkopien fuer Text- und Binaerdateien, aber keinen automatischen
   dreiseitigen Merge;
@@ -55,9 +55,9 @@ aufgeloeste Roots, Berechtigungen, atomare Dateiwrites, Revisionen, Locks,
 Papierkorb und File-Watcher-Hinweise. Diese Regeln bleiben verbindlich,
 insbesondere:
 
-- `team-workspace/07-filesystem-migration-and-write-policy.md` fuer
+- `../team-workspace/07-filesystem-migration-and-write-policy.md` fuer
   Workspace-Roots und Zugriffskontrolle;
-- `team-workspace/18-collaboration-and-file-conflict-policy.md` fuer
+- `../team-workspace/18-collaboration-and-file-conflict-policy.md` fuer
   Revisionen, Locks und aktive Echtzeit-Kollaboration.
 
 Der Desktop-Sync ersetzt weder den Dateibrowser noch Yjs-/Excalidraw-
@@ -295,12 +295,13 @@ Permission, lokaler Root, Speicherplatz, Protokoll, Konflikt und Serverfehler
 werden getrennt klassifiziert.
 
 Damit die Funktion einem Drive entspricht, laeuft der Main Process auf macOS,
-Windows und Linux optional nach dem Schliessen des Fensters weiter. V1 bekommt:
+Windows und Linux nach dem Schliessen des Fensters standardmaessig weiter, sobald
+ein Workspace bewusst verbunden wurde. V1 bekommt:
 
 - ein Tray-/Menueleisten-Icon mit Gesamtstatus, Pause, Fenster oeffnen und
   „Canvas vollstaendig beenden“;
-- eine explizite Einstellung „Im Hintergrund synchronisieren“ und optional
-  „Bei Anmeldung starten“;
+- eine standardmaessig aktive Einstellung „Im Hintergrund synchronisieren“ und
+  die standardmaessig deaktivierte Option „Bei Anmeldung starten“;
 - einheitliches Close-Verhalten auf allen Plattformen;
 - Sleep-/Wake-, Netzwerkwechsel- und OS-Shutdown-Hooks;
 - einen kontrollierten Update- und Quit-Barrier: keine neue Operation starten,
@@ -490,7 +491,9 @@ Ein brauchbares, bewusst begrenztes MVP fuer einen einzelnen Personal Workspace
 liegt damit bei etwa **7–10 Engineering-Wochen**. Wenn Desktop-Auth,
 Hintergrundbetrieb und bestehender Chunk-Upload ohne groessere Umbauten
 wiederverwendet werden koennen, ist ein technischer Spike in **5–8 Wochen**
-moeglich. Eine produktionsreife
+moeglich. Fuer die in `v1-pipeline.md` definierte, plattformgepruefte Opt-in-Beta
+einschliesslich Security-, Recovery- und Release-Hardening sind **9–13
+Engineering-Wochen** realistischer. Eine produktionsreife
 bidirektionale Drive-Funktion fuer Personal-, Team- und Projekt-Workspaces
 liegt realistisch bei **16–24 Engineering-Wochen**, ohne nativen virtuellen Mount.
 Ein echter Mount ist ein separates Folgeprojekt und fügt je Plattform grob
@@ -538,11 +541,9 @@ werden:
 ## Offene Produktentscheidungen vor Phase 0
 
 1. Welche Dateigroesse, Dateianzahl und Gesamtquote sind fuer V1 akzeptabel?
-2. Ist Hintergrund-Sync standardmaessig aktiv und soll Autostart opt-in oder
-   opt-out sein?
-3. Welche lokale Datenaufbewahrung wird bei Logout oder Rechteentzug angeboten,
+2. Welche lokale Datenaufbewahrung wird bei Logout oder Rechteentzug angeboten,
    ohne einen nicht garantierbaren Remote-Wipe zu versprechen?
-4. Wie lange werden Delta-Cursor, Mutation-Deduplizierung und Workspace-
+3. Wie lange werden Delta-Cursor, Mutation-Deduplizierung und Workspace-
    Papierkorb serverseitig aufbewahrt?
-5. Welche Admin- und Audit-Anforderungen gelten fuer spaetere Team-Workspaces und
+4. Welche Admin- und Audit-Anforderungen gelten fuer spaetere Team-Workspaces und
    Massenmutationen?
