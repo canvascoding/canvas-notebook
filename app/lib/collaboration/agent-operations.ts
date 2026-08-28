@@ -8,7 +8,7 @@ import { openDb, type SqlConnection } from '@/app/lib/db';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   applyExactTextEdits,
-  countExactTextOccurrences,
+  resolveExactTextEditMatchCount,
   type ExactTextEdit,
 } from '@/app/lib/files/exact-text-patch';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
@@ -432,7 +432,8 @@ export function createRichMarkdownReviewTarget(input: {
     patchEdits: input.edits.map((edit) => ({
       oldText: edit.oldText,
       newText: edit.newText,
-      expectedOccurrences: edit.expectedOccurrences ?? 1,
+      expectedOccurrences: edit.expectedOccurrences,
+      replaceAll: edit.replaceAll,
     })),
     boundaryPolicy: 'exclude_external',
   };
@@ -1642,9 +1643,19 @@ async function reviewTargets(row: AgentOperationRow): Promise<AgentOperationView
       if (isRichMarkdownPatchTarget(target)) {
         if (target.patchEdits?.length) {
           return target.patchEdits.map((edit, index) => {
-            const expectedOccurrences = edit.expectedOccurrences ?? 1;
-            const exactStillResolves = currentMarkdown !== null
-              && countExactTextOccurrences(currentMarkdown, edit.oldText) === expectedOccurrences;
+            const exactStillResolves = currentMarkdown !== null && (() => {
+              try {
+                resolveExactTextEditMatchCount({
+                  content: currentMarkdown,
+                  edit,
+                  label: 'live Markdown collaboration state',
+                  editIndex: index,
+                });
+                return true;
+              } catch {
+                return false;
+              }
+            })();
             return {
               targetId: `${target.targetId}:${index}`,
               groupId: target.groupId,
