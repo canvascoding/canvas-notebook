@@ -6,6 +6,7 @@ import { desc, inArray, lte } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { directMcpRequestHistory } from '@/app/lib/db/schema';
+import { DIRECT_MCP_SERVER_VERSION } from '@/app/lib/mcp/server/version';
 
 export const DIRECT_MCP_REQUEST_HISTORY_RETENTION_HOURS = 24;
 export const DIRECT_MCP_REQUEST_HISTORY_MAX_ENTRIES = 100;
@@ -46,6 +47,7 @@ export type DirectMcpRequestHistoryInput = {
 
 export type DirectMcpRequestHistoryEntry = {
   requestId: string;
+  serverVersion: string | null;
   flowRef: string | null;
   phase: string;
   httpMethod: string;
@@ -108,6 +110,7 @@ export async function recordDirectMcpRequestHistory(input: DirectMcpRequestHisto
     await db.insert(directMcpRequestHistory).values({
       id: `direct-mcp-request-${randomUUID()}`,
       requestId: input.requestId,
+      serverVersion: DIRECT_MCP_SERVER_VERSION,
       flowRef: toSafeFlowRef(input.flowRef),
       phase,
       httpMethod: toSafeHttpMethod(input.httpMethod),
@@ -139,6 +142,7 @@ export async function listRecentDirectMcpRequestHistory(): Promise<DirectMcpRequ
     const entries = await db
       .select({
         requestId: directMcpRequestHistory.requestId,
+        serverVersion: directMcpRequestHistory.serverVersion,
         flowRef: directMcpRequestHistory.flowRef,
         phase: directMcpRequestHistory.phase,
         httpMethod: directMcpRequestHistory.httpMethod,

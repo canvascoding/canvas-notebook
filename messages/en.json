@@ -3335,6 +3335,7 @@
         "loading": "Loading recent requests…",
         "empty": "No requests in the last {hours} hours.",
         "requestId": "Request ID",
+        "serverVersion": "Server version",
         "duration": "{duration} ms",
         "outcomes": {
           "succeeded": "Succeeded",
@@ -3402,6 +3403,7 @@
         "endpoint": "MCP endpoint",
         "issuer": "OAuth issuer",
         "protocol": "Protocol",
+        "serverVersion": "Server version",
         "authentication": "Authentication and transport",
         "scopes": "Granted permissions"
       },

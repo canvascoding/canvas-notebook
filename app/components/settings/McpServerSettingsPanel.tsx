@@ -43,6 +43,7 @@ type McpServerStatus = {
   endpoint: string | null;
   issuer: string | null;
   protocolVersion: string;
+  serverVersion: string;
   transport: 'streamable-http';
   authentication: 'oauth-2.1-pkce';
   configurationError: string | null;
@@ -57,6 +58,7 @@ type DraftSettings = {
 
 type DirectMcpRequestHistoryEntry = {
   requestId: string;
+  serverVersion: string | null;
   phase: string;
   httpMethod: string;
   operation: string | null;
@@ -430,6 +432,11 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                             <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
                               {t('requestHistory.requestId')}: {entry.requestId}
                             </p>
+                            {entry.serverVersion ? (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {t('requestHistory.serverVersion')}: {entry.serverVersion}
+                              </p>
+                            ) : null}
                           </div>
                           <div className="text-xs text-muted-foreground sm:text-right">
                             <p>{formatRequestTime(entry.createdAt)}</p>
@@ -541,6 +548,10 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                   <div>
                     <dt className="text-muted-foreground">{t('developer.protocol')}</dt>
                     <dd className="mt-1 font-mono text-xs">MCP {status?.protocolVersion}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t('developer.serverVersion')}</dt>
+                    <dd className="mt-1 font-mono text-xs">{status?.serverVersion}</dd>
                   </div>
                   <div>
                     <dt className="text-muted-foreground">{t('developer.authentication')}</dt>

@@ -12,6 +12,7 @@ import {
   resolveDirectMcpOrigin,
   type DirectMcpToolId,
 } from '@/app/lib/mcp/server/config';
+import { DIRECT_MCP_SERVER_VERSION } from '@/app/lib/mcp/server/version';
 import {
   getDirectMcpServerPreferences,
   type DirectMcpServerPreferences,
@@ -38,6 +39,7 @@ export type DirectMcpServerSettingsStatus = {
   endpoint: string | null;
   issuer: string | null;
   protocolVersion: string;
+  serverVersion: string;
   transport: 'streamable-http';
   authentication: 'oauth-2.1-pkce';
   configurationError: string | null;
@@ -127,6 +129,7 @@ export function buildDirectMcpServerSettingsStatus(
     endpoint: origin ? `${origin}/mcp` : null,
     issuer: origin ? `${origin}/api/auth` : null,
     protocolVersion: DIRECT_MCP_PROTOCOL_VERSION,
+    serverVersion: DIRECT_MCP_SERVER_VERSION,
     transport: 'streamable-http',
     authentication: 'oauth-2.1-pkce',
     configurationError,

@@ -3334,6 +3334,7 @@
         "loading": "Lade letzte Anfragen …",
         "empty": "Keine Anfragen in den letzten {hours} Stunden.",
         "requestId": "Request-ID",
+        "serverVersion": "Serverversion",
         "duration": "{duration} ms",
         "outcomes": {
           "succeeded": "Erfolgreich",
@@ -3401,6 +3402,7 @@
         "endpoint": "MCP-Endpunkt",
         "issuer": "OAuth-Aussteller",
         "protocol": "Protokoll",
+        "serverVersion": "Serverversion",
         "authentication": "Anmeldung und Transport",
         "scopes": "Freigegebene Berechtigungen"
       },

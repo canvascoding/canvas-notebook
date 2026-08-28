@@ -30,6 +30,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         maxEntries: DIRECT_MCP_REQUEST_HISTORY_MAX_ENTRIES,
         entries: entries.map((entry) => ({
           requestId: entry.requestId,
+          serverVersion: entry.serverVersion,
           phase: entry.phase,
           httpMethod: entry.httpMethod,
           operation: entry.operation,

@@ -8,7 +8,6 @@ import {
   type CallToolResult,
 } from '@modelcontextprotocol/server';
 
-import packageJson from '@/package.json';
 import {
   DIRECT_MCP_AUTH_PROBE_TOOL,
   getDirectMcpAuthProbeToolDescriptor,
@@ -23,6 +22,7 @@ import {
   getDirectMcpWorkspaceToolDefinitions,
 } from '@/app/lib/mcp/server/workspace-tools';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
+import { DIRECT_MCP_SERVER_VERSION } from '@/app/lib/mcp/server/version';
 
 type DirectMcpToolHandler = {
   id: DirectMcpToolId;
@@ -58,7 +58,7 @@ export function createDirectMcpServer(
   const server = new Server(
     {
       name: 'canvas-notebook-direct-mcp',
-      version: packageJson.version,
+      version: DIRECT_MCP_SERVER_VERSION,
     },
     {
       capabilities: { tools: {} },

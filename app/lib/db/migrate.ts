@@ -1503,6 +1503,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS direct_mcp_request_history (
       id TEXT PRIMARY KEY NOT NULL,
       request_id TEXT NOT NULL,
+      server_version TEXT,
       flow_ref TEXT,
       phase TEXT NOT NULL,
       http_method TEXT NOT NULL,
@@ -2523,6 +2524,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   // ── Column additions for existing volumes ────────────────────────────────────
   // Each block adds columns that were missing from older schema versions.
   // ALTER TABLE ADD COLUMN is idempotent here because we check PRAGMA table_info first.
+
+  addColumns(sqlite, 'direct_mcp_request_history', {
+    server_version: 'TEXT',
+  });
 
   addColumns(sqlite, 'agents', {
     scope_type: "TEXT NOT NULL DEFAULT 'user'",

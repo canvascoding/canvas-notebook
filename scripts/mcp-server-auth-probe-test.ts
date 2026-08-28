@@ -154,6 +154,7 @@ async function main(): Promise<void> {
         DIRECT_MCP_AUTH_PROBE_SCOPE,
         DIRECT_MCP_AUTH_PROBE_TOOL,
       },
+      { DIRECT_MCP_SERVER_VERSION },
       { default: appProxy },
       { NextRequest },
     ] = await Promise.all([
@@ -162,6 +163,7 @@ async function main(): Promise<void> {
       import('../app/lib/db'),
       import('../app/mcp/route'),
       import('../app/lib/mcp/server/auth-probe'),
+      import('../app/lib/mcp/server/version'),
       import('../proxy'),
       import('next/server'),
     ]);
@@ -324,6 +326,10 @@ async function main(): Promise<void> {
       (initializeResult.serverInfo as JsonRecord).name,
       'canvas-notebook-direct-mcp',
     );
+    assert.equal(
+      (initializeResult.serverInfo as JsonRecord).version,
+      DIRECT_MCP_SERVER_VERSION,
+    );
 
     const modernDiscovery = await modernRpcRequest({
       post: mcpRoute.POST,
@@ -338,6 +344,10 @@ async function main(): Promise<void> {
     assert.equal(
       ((modernDiscoveryResult._meta as JsonRecord)['io.modelcontextprotocol/serverInfo'] as JsonRecord).name,
       'canvas-notebook-direct-mcp',
+    );
+    assert.equal(
+      ((modernDiscoveryResult._meta as JsonRecord)['io.modelcontextprotocol/serverInfo'] as JsonRecord).version,
+      DIRECT_MCP_SERVER_VERSION,
     );
 
     const modernToolsList = await modernRpcRequest({

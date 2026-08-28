@@ -2262,6 +2262,7 @@ export const auditEvents = sqliteTable("audit_events", {
 export const directMcpRequestHistory = sqliteTable("direct_mcp_request_history", {
   id: text("id").primaryKey(),
   requestId: text("request_id").notNull(),
+  serverVersion: text("server_version"),
   flowRef: text("flow_ref"),
   phase: text("phase").notNull(),
   httpMethod: text("http_method").notNull(),
