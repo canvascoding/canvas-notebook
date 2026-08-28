@@ -345,8 +345,20 @@ laedt die offizielle Node-Runtime samt Hersteller-Checksum, weist eine fehlende
 Host-`libnode`-Abhaengigkeit nach und startet das Paket wirklich. Dieser Test lief
 am 2026-08-28 in der OrbStack-VM `ubuntu` auf ARM64 mit Node.js 22.23.2
 erfolgreich. Der Release-Workflow baut beide Architekturen auf nativen Runnern.
-Das Teilpaket ersetzt noch keine produktive Bash-CLI; atomare Installation,
-Aktivierung und Rueckkehr zu `previous` folgen als naechstes Teilpaket.
+Das Teilpaket ersetzt noch keine produktive Bash-CLI. Der folgende Bootstrap-
+Baustein installiert das gepruefte Paket ueber `install/linux-cli.sh`: Er prueft
+Architektur, Checksumme, Archiv-Allowlist, Manifest und einen echten CLI-Start,
+bevor Release, Runtime und Launcher installiert werden. Die Aktivierungsdateien
+werden per Rename atomar geschrieben. Beim Upgrade wird der bisher aktive Stand
+als `previous` erhalten; `rollback` tauscht `current` und `previous` explizit.
+Beim ersten Wechsel wird eine vorhandene Legacy-CLI einmalig unter `legacy/`
+gesichert und nur durch einen ausdruecklichen Rollback wieder aktiviert.
+
+Der Linux-Integrationstest deckt damit Fresh Install, In-place-Upgrade,
+TypeScript-Rollback, expliziten Legacy-Rollback und eine abgewiesene falsche
+Checksumme ab. Der produktive Aufruf dieses Bootstraps aus `cli-update` und der
+Control-Plane-Canary bleiben die naechsten Schritte; die bestehende Bash-CLI wird
+noch nicht automatisch ersetzt.
 
 - kanonisches Linux-Artefakt fuer `amd64` und `arm64` bauen.
 - Checksum und Archiv-Allowlist pruefen.

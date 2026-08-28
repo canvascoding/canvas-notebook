@@ -59,13 +59,16 @@ await rm(outputRoot, { recursive: true, force: true });
 await mkdir(path.join(packageDir, 'bin'), { recursive: true });
 await mkdir(path.join(packageDir, 'runtime', 'bin'), { recursive: true });
 await mkdir(path.join(packageDir, 'state'), { recursive: true });
+await mkdir(path.join(packageDir, 'install'), { recursive: true });
 await mkdir(releaseDir, { recursive: true });
 await cp(path.join(rootDir, 'dist-cli'), path.join(releaseDir, 'dist-cli'), { recursive: true });
 await cp(runtimeBinary, path.join(packageDir, 'runtime', 'bin', 'node'));
 await cp(path.join(rootDir, 'install', 'linux-cli-launcher.sh'), path.join(packageDir, 'bin', 'canvas-notebook'));
+await cp(path.join(rootDir, 'install', 'linux-cli.sh'), path.join(packageDir, 'install', 'linux-cli.sh'));
 await Promise.all([
   chmod(path.join(packageDir, 'runtime', 'bin', 'node'), 0o755),
   chmod(path.join(packageDir, 'bin', 'canvas-notebook'), 0o755),
+  chmod(path.join(packageDir, 'install', 'linux-cli.sh'), 0o755),
 ]);
 if (!skipRuntimeValidation) {
   const bundledNodeVersion = await run(path.join(packageDir, 'runtime', 'bin', 'node'), ['--version'], { capture: true });
@@ -85,6 +88,7 @@ await writeFile(path.join(packageDir, 'manifest.json'), `${JSON.stringify({
   nodeVersion,
   runtimeValidated: !skipRuntimeValidation,
   entrypoint: 'bin/canvas-notebook',
+  installer: 'install/linux-cli.sh',
   runtime: 'runtime/bin/node',
   activeRelease: `releases/${packageVersion}`,
 }, null, 2)}\n`, { encoding: 'utf8', mode: 0o644 });

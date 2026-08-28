@@ -68,6 +68,7 @@ for (const required of [
   `${packageName}/VERSION`,
   `${packageName}/manifest.json`,
   `${packageName}/bin/canvas-notebook`,
+  `${packageName}/install/linux-cli.sh`,
   `${packageName}/runtime/bin/node`,
   `${packageName}/state/current`,
   `${packageName}/state/previous`,

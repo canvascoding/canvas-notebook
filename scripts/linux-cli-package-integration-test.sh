@@ -41,5 +41,6 @@ if ldd "$package_root/runtime/bin/node" | grep -q 'libnode'; then
 fi
 version_json="$(CANVAS_INSTALL_DIR="$test_root/install" CANVAS_DATA_DIR="$test_root/data" "$launcher" version --json)"
 jq -e '.cliGeneration == "typescript" and (.cliVersion | length > 0)' <<<"$version_json" >/dev/null
+bash "$ROOT/scripts/linux-cli-installer-test.sh" "$package_root"
 
 printf 'linux-cli-package-integration-test: ok (%s, %s)\n' "$canvas_arch" "$("$package_root/runtime/bin/node" --version)"

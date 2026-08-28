@@ -250,6 +250,7 @@
     "test:release:host-cli": "node scripts/host-cli-package-test.mjs",
     "test:release:linux-cli": "node scripts/linux-cli-package-test.mjs",
     "test:release:linux-cli-integration": "bash scripts/linux-cli-package-integration-test.sh",
+    "test:release:linux-cli-installer": "bash scripts/linux-cli-installer-test.sh",
     "test:cli:update": "bash scripts/cli-update-reexec-test.sh",
     "test:cli:swap": "bash scripts/cli-swap-command-test.sh",
     "test:cli:swap-portable": "tsx scripts/portable-cli-swap-test.ts",
