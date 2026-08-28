@@ -29,6 +29,7 @@ async function main(): Promise<void> {
       scheduleMemoryReviewForSession,
       updateMemory,
     } = await import('../app/lib/memory/service');
+    const { buildMemoryPromptProjection } = await import('../app/lib/memory/prompt-projection');
     const scope = { target: 'user' as const, userId: 'user-1' };
     const added = await addMemory({ ...scope, content: 'Prefers concise answers.' });
     assert.equal(added.changed, true);
@@ -93,6 +94,13 @@ async function main(): Promise<void> {
       }],
     });
     assert.deepEqual(reviewResult, { added: 1, updated: 0, archived: 0, skipped: 0 });
+    const projected = await buildMemoryPromptProjection({
+      userId: 'user-1',
+      agentId: 'canvas-agent',
+      usableContextTokens: 10_000,
+    });
+    assert.match(projected, /Prefers concise responses/);
+    assert.doesNotMatch(projected, /Use the approved brand voice/);
     await completeMemoryReviewJob(claim!.id, 1_003);
   } finally {
     moduleInternals._load = originalLoad;

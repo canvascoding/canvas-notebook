@@ -98,6 +98,7 @@ import { subscribeBrowserSessionSnapshot } from '@/app/lib/pi/browser/session-st
 import { refreshBrowserSessionSnapshot } from '@/app/lib/pi/browser/session-state-service';
 import type { BrowserSessionSnapshot } from '@/app/lib/pi/browser/types';
 import type { BrowserToolMode } from '@/app/lib/pi/browser/tool';
+import { buildMemoryPromptProjection } from '@/app/lib/memory/prompt-projection';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -259,6 +260,7 @@ type RuntimeInit = {
   initialMessages: AgentMessage[];
   executionContext: AgentExecutionContext;
   workspaceFileTreePromptBlock: string;
+  memoryPromptBlock: string;
   browserSnapshot: BrowserSessionSnapshot;
 };
 
@@ -419,6 +421,7 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
 type PiRuntimePromptDispatchTarget = RuntimePromptContextTarget & {
   reloadTools: () => Promise<void>;
   refreshWorkspaceFileTreePrompt: () => Promise<void>;
+  refreshMemoryPrompt: () => Promise<void>;
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
@@ -432,6 +435,7 @@ class LivePiRuntime {
   private tools: AgentTool[];
   private readonly executionContext: AgentExecutionContext;
   private workspaceFileTreePromptBlock: string;
+  private memoryPromptBlock: string;
   readonly agent: Agent;
 
   private readonly subscribers = new Set<RuntimeSubscriber>();
@@ -489,6 +493,7 @@ class LivePiRuntime {
     this.tools = init.tools;
     this.executionContext = init.executionContext;
     this.workspaceFileTreePromptBlock = init.workspaceFileTreePromptBlock;
+    this.memoryPromptBlock = init.memoryPromptBlock;
     this.summary = init.summary;
     this.lastPersistedLength = init.initialMessages.length;
     this.agent = agent;
@@ -835,6 +840,15 @@ class LivePiRuntime {
     }
   }
 
+  async refreshMemoryPrompt(): Promise<void> {
+    this.memoryPromptBlock = await buildMemoryPromptProjection({
+      userId: this.userId,
+      agentId: this.agentId,
+      usableContextTokens: this.model.contextWindow,
+    });
+    this.lastComposition = null;
+  }
+
   async prepareNextTurnContext(
     context: PrepareNextTurnContext,
     signal?: AbortSignal,
@@ -923,6 +937,10 @@ class LivePiRuntime {
 
     if (this.workspaceFileTreePromptBlock) {
       blocks.push(this.workspaceFileTreePromptBlock);
+    }
+
+    if (this.memoryPromptBlock) {
+      blocks.push(this.memoryPromptBlock);
     }
 
     const runtimeTempBlock = this.getAgentRuntimeTempContextBlock();
@@ -1886,6 +1904,12 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       })
     : { promptBlock: '' };
   timing.mark('workspaceFileTree');
+  const memoryPromptBlock = await buildMemoryPromptProjection({
+    userId,
+    agentId,
+    usableContextTokens: model.contextWindow,
+  });
+  timing.mark('memoryPrompt');
   const toolLoopGuard = createToolLoopGuard();
   const imageNormalizationOptions = {
     workspaceImageRoot: executionContext.workspaceRoot,
@@ -1944,6 +1968,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       initialMessages,
       executionContext,
       workspaceFileTreePromptBlock: workspaceFileTreePrompt.promptBlock,
+      memoryPromptBlock,
       browserSnapshot,
     },
     agent,
@@ -2125,6 +2150,7 @@ export async function dispatchPiRuntimeUserMessage(
     if (!runtimeHandle.created) {
       await runtime.reloadTools();
     }
+    await runtime.refreshMemoryPrompt();
     await runtime.refreshWorkspaceFileTreePrompt();
     runtime.startPrompt(message, context);
     return runtime;
