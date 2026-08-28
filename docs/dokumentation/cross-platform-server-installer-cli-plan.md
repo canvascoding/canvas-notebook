@@ -421,6 +421,27 @@ Agentpfad mit Download-Hash, Archivvalidierung, isolierter Installation, echtem
 CLI-Start und explizitem Legacy-Rollback erfolgreich. Bestehende Systempfade
 und Container der VM wurden dabei nicht veraendert.
 
+Teilstatus 2026-08-28: Fuer den echten lokalen Managed-Canary existiert jetzt
+die dedizierte OrbStack-VM `canvas-managed-e2e` mit Ubuntu 24.04 ARM64 sowie
+eine vollstaendig isolierte lokale Control Plane auf den Ports 4001/4004 und
+einer eigenen PostgreSQL-Datenbank auf Port 55432. Die Control Plane erzeugt
+lokale, voneinander getrennte Produktions- und Test-Lizenzschluessel, stellt
+ein signiertes Managed-Team-Zertifikat aus und uebergibt dem Agent die
+Postgres-/pgvector-Konfiguration. Der Agent hat `database prepare-postgres`
+erfolgreich ausgefuehrt; Notebook und Postgres-Sidecar sind danach gesund und
+der Health-Endpunkt bestaetigt `provider=postgres`, `vectorProvider=pgvector`
+und `deployment.mode=managed-team`. Die Production-Environment-Dateien der
+Control Plane wurden dafuer nicht verwendet oder veraendert.
+
+Der zentrale Update-/Rollback-Schritt bleibt als Release-Gate offen: Der am
+Testtag aktuelle verifizierte Release `v2026.8.27.1` enthaelt noch kein
+`linuxCli`-Metadatenfeld und keine architekturspezifischen
+`canvas-notebook-linux-cli-{amd64,arm64}.tar.gz`-Assets. Der Control-Plane-
+Dispatch darf deshalb bewusst nicht auf einen lokalen oder ungeprueften
+Fallback ausweichen. Nach einem regulaer veroeffentlichten, vollstaendig
+verifizierten Linux-CLI-Release werden Update, Config-Sync, Backup,
+Datenbankoperation und Rueckkehr auf `previous` in derselben VM abgeschlossen.
+
 Offen bleibt der produktive Managed-Canary auf einer ausgewaehlten Test-VM.
 Er muss einen vollstaendigen Control-Plane-Run mit Update, Config-Sync, Backup,
 Datenbankoperation und Rueckkehr auf `previous` journalisieren, bevor der
