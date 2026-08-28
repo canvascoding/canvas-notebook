@@ -95,6 +95,7 @@
     "test:mcp:server-login-consent": "tsx --conditions react-server scripts/mcp-server-oauth-login-consent-test.ts",
     "test:mcp:server-resource": "tsx --conditions react-server scripts/mcp-server-protected-resource-test.ts",
     "test:mcp:server-oauth-client": "tsx --conditions react-server scripts/mcp-server-oauth-client-test.ts",
+    "test:mcp:server-oauth-hardening": "tsx --conditions react-server scripts/mcp-server-oauth-hardening-test.ts",
     "test:mcp:server-auth-probe": "tsx --conditions react-server scripts/mcp-server-auth-probe-test.ts",
     "test:mcp:server-diagnostics": "tsx --conditions react-server scripts/mcp-server-diagnostics-test.ts",
     "test:mcp:server-request-history": "tsx --conditions react-server scripts/mcp-server-request-history-test.ts",
