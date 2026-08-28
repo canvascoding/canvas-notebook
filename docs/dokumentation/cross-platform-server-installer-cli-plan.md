@@ -73,7 +73,7 @@ Arbeitspaket aktualisiert werden.
 | Legacy-Befehl | Neue CLI | Status vor Migration | Erforderlicher Nachweis |
 | --- | --- | --- | --- |
 | `help` | `help` | vorhanden | Help- und Exit-Code-Test |
-| `version` | noch nicht vorhanden | fehlt | Text- und JSON-Vertrag, CLI-Generation und Capabilities |
+| `version` | `version`, `-V`, `--version` | vorhanden | Text- und JSON-Vertrag, CLI-Generation und Capabilities |
 | `install` | `install` | Kern vorhanden | Differentialtest fuer Config, Compose, Start und Health |
 | `update` | `update` | vorhanden | Image-Pinning, Deadline, Rollback und Re-Exec |
 | `start`, `restart`, `stop`, `down` | vorhanden | vorhanden | Lifecycle- und Lock-Tests |
@@ -201,6 +201,12 @@ Teilstatus 2026-08-28: `config-set` unterstuetzt und validiert jetzt
 gueltige Werte und abgelehnte Fehlkonfigurationen ab. Die Phase bleibt offen,
 bis auch Version, Env-Anzeige/-Edit, Config-Anzeige/-Migration und die
 verbleibende Top-Level-Semantik umgesetzt sind.
+
+Teilstatus 2026-08-28: `version`, `-V` und `--version` liefern jetzt den
+Legacy-Build-Informationsvertrag sowie `cliGeneration`,
+`configSchemaVersion` und eine maschinenlesbare Command-Liste. Die gemeinsame
+Versionsauflosung behebt zugleich leere `status.image.cliVersion`-Werte in
+gepackten CLI-Bundles.
 
 - `version --json` und Capability-Vertrag.
 - `env`-Anzeige und `env --edit`.

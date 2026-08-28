@@ -61,7 +61,7 @@
   ],
   "topLevelParity": [
     { "command": "help", "legacy": "implemented", "typescript": "implemented" },
-    { "command": "version", "legacy": "implemented", "typescript": "missing" },
+    { "command": "version", "legacy": "implemented", "typescript": "implemented" },
     { "command": "install", "legacy": "implemented", "typescript": "partial" },
     { "command": "update", "legacy": "implemented", "typescript": "implemented" },
     { "command": "start", "legacy": "implemented", "typescript": "implemented" },
@@ -126,6 +126,7 @@
     { "path": "autoUpdate.schedule", "typescript": "implemented" }
   ],
   "controlPlaneInvocations": [
+    { "command": "version", "currentlySupported": true },
     { "command": "config-show", "currentlySupported": true },
     { "command": "config-set", "currentlySupported": true },
     { "command": "env", "currentlySupported": true },

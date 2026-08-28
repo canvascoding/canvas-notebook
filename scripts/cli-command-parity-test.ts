@@ -102,6 +102,7 @@ for (const command of contract.typescriptTopLevelCommands) {
 }
 
 const typescriptCommands = new Set(contract.typescriptTopLevelCommands);
+const typescriptSupportedCommands = new Set([...typescriptCommands, 'help', 'version']);
 for (const entry of contract.topLevelParity) {
   if (entry.command === 'help' || entry.command === 'version') continue;
   assert.equal(
@@ -122,7 +123,7 @@ for (const entry of contract.configurationPaths) {
 
 for (const invocation of contract.controlPlaneInvocations) {
   assert.equal(
-    typescriptCommands.has(invocation.command),
+    typescriptSupportedCommands.has(invocation.command),
     invocation.currentlySupported,
     `Control Plane command support is stale for ${invocation.command}.`,
   );
@@ -322,6 +323,59 @@ async function runDifferentialContract(): Promise<void> {
       maxBuffer: 1024 * 1024,
     });
 
+    const expectedCliVersion = '2026.8.28.99';
+    legacyRuntime.env.CANVAS_CLI_VERSION = expectedCliVersion;
+    typescriptRuntime.env.CANVAS_CLI_VERSION = expectedCliVersion;
+    const legacyVersionOutput = await runLegacy(['version', '--json', '--no-banner']);
+    const typescriptVersionOutput = await runTypescript(['version', '--json', '--no-banner']);
+    const legacyVersion = JSON.parse(legacyVersionOutput.stdout) as Record<string, unknown>;
+    const typescriptVersion = JSON.parse(typescriptVersionOutput.stdout) as Record<string, unknown>;
+    for (const key of ['configuredRef', 'localId', 'localDigest', 'localCreated', 'runningRef', 'runningImageId', 'runningStartedAt', 'appVersion', 'cliVersion']) {
+      assert.equal(typeof legacyVersion[key], 'string', `legacy version.${key} must be a string.`);
+      assert.equal(typeof typescriptVersion[key], 'string', `TypeScript version.${key} must be a string.`);
+    }
+    assert.equal(typescriptVersion.cliVersion, expectedCliVersion);
+    assert.equal(typescriptVersion.runningRef, 'ghcr.io/canvascoding/canvas-notebook:latest');
+    assert.equal(typescriptVersion.appVersion, '2026.8.28.0');
+    assert.equal(typescriptVersion.cliGeneration, 'typescript');
+    assert.equal(typescriptVersion.configSchemaVersion, 1);
+    assert.deepEqual(
+      sortedUnique(typescriptVersion.commands as string[]),
+      sortedUnique([...contract.typescriptTopLevelCommands, 'help', 'version']),
+    );
+    for (const alias of ['-V', '--version']) {
+      const aliasOutput = await runTypescript([alias, '--json']);
+      assert.equal((JSON.parse(aliasOutput.stdout) as Record<string, unknown>).cliVersion, expectedCliVersion);
+    }
+
+    const packagedRoot = path.join(tempRoot, 'packaged-cli');
+    await fs.promises.mkdir(packagedRoot, { recursive: true });
+    await fs.promises.cp(path.join(root, 'dist-cli'), path.join(packagedRoot, 'dist-cli'), { recursive: true });
+    await fs.promises.writeFile(path.join(packagedRoot, 'VERSION'), '2026.8.28.77\n', 'utf8');
+    const packagedEnv = {
+      ...typescriptRuntime.env,
+      CANVAS_CLI_VERSION: '',
+      CANVAS_CLI_ROOT: packagedRoot,
+    };
+    const runPackaged = (args: string[]) => execFileAsync(
+      process.execPath,
+      [path.join(packagedRoot, 'dist-cli', 'main.js'), ...args],
+      { cwd: tempRoot, env: packagedEnv, maxBuffer: 1024 * 1024 },
+    );
+    const packagedVersionOutput = await runPackaged(['version', '--json']);
+    assert.equal(
+      (JSON.parse(packagedVersionOutput.stdout) as Record<string, unknown>).cliVersion,
+      '2026.8.28.77',
+      'Packaged CLI must resolve its bundled VERSION file without npm environment variables.',
+    );
+    const packagedStatusOutput = await runPackaged(['status', '--json']);
+    const packagedStatus = requiredStatusShape(JSON.parse(packagedStatusOutput.stdout));
+    assert.equal(
+      (packagedStatus.image as Record<string, unknown>).cliVersion,
+      '2026.8.28.77',
+      'status --json must expose the packaged CLI version.',
+    );
+
     const configSetCases = [
       ['swap.enabled', 'yes'],
       ['swap.size', '512M'],
@@ -390,7 +444,7 @@ async function main(): Promise<void> {
   await runDifferentialContract();
   console.log(JSON.stringify({
     success: true,
-    differentialContract: ['config-set swap.*', 'config-set autoUpdate.*', 'config-show --secret-state', 'status --json'],
+    differentialContract: ['version --json', 'config-set swap.*', 'config-set autoUpdate.*', 'config-show --secret-state', 'status --json'],
     legacyCommandCount: contract.legacyTopLevelCommands.length,
     typescriptCommandCount: contract.typescriptTopLevelCommands.length,
     missingCommands,

@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   configSecretState,
   configureRuntimeAndDatabase,
+  createDefaultConfig,
   materializeConfig,
   materializePostgresInfrastructureConfig,
   isSensitiveEnvKey,
@@ -44,12 +45,14 @@ import { SpawnCommandRunner } from './core/process';
 import { reexecPortableCliIfUpdated, updatePortableCli } from './core/selfUpdate';
 import { ServiceManager } from './core/service';
 import type { CanvasCliConfig, RuntimeContext, StatusJson } from './core/types';
+import { CLI_COMMANDS, CLI_GENERATION, CONFIG_SCHEMA_VERSION, resolveCliVersion } from './core/version';
 
 interface ParsedArgs {
   command: string;
   args: string[];
   json: boolean;
   noBanner: boolean;
+  versionRequested: boolean;
 }
 
 interface InstallOptions {
@@ -84,12 +87,16 @@ function parseArgs(argv: string[]): ParsedArgs {
   const args = [...argv];
   let json = false;
   let noBanner = false;
+  let versionRequested = false;
   const filtered: string[] = [];
   for (const arg of args) {
     if (arg === '--json') {
       json = true;
       noBanner = true;
     } else if (arg === '--no-banner') {
+      noBanner = true;
+    } else if (arg === '-V' || arg === '--version') {
+      versionRequested = true;
       noBanner = true;
     } else {
       filtered.push(arg);
@@ -100,6 +107,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     args: filtered,
     json,
     noBanner,
+    versionRequested,
   };
 }
 
@@ -113,6 +121,7 @@ function printHelp(): void {
   console.log(`Usage: canvas-notebook <command> [options]
 
 Commands:
+  version [--json]                 Show CLI build information and capabilities
   install [--database sqlite|postgres] [--runtime personal|team]
                                   Generate config, pull image, start container
   update [--image <name@sha256>] [--require-pinned]
@@ -142,6 +151,50 @@ Commands:
   database migrate-sqlite-to-postgres [args]
   service status|install|uninstall
 `);
+}
+
+async function printVersion(
+  context: RuntimeContext,
+  docker: DockerManager,
+  json: boolean,
+): Promise<void> {
+  const cliVersion = await resolveCliVersion();
+  const config = await readConfig(context).catch(() => createDefaultConfig(context.paths, context.platform));
+  const containerId = await docker.containerId(config).catch(() => '');
+  const image = await docker.imageStatus(config, containerId).catch(() => ({
+    configuredRef: config.image,
+    localId: '',
+    localDigest: '',
+    localCreated: '',
+    runningRef: '',
+    runningImageId: '',
+    runningStartedAt: '',
+    appVersion: '',
+    cliVersion,
+  }));
+  const payload = {
+    ...image,
+    cliVersion,
+    cliGeneration: CLI_GENERATION,
+    configSchemaVersion: CONFIG_SCHEMA_VERSION,
+    commands: [...CLI_COMMANDS],
+  };
+  if (json) {
+    console.log(JSON.stringify(payload));
+    return;
+  }
+  console.log(`CLI version: ${payload.cliVersion}`);
+  console.log(`CLI generation: ${payload.cliGeneration}`);
+  console.log(`Config schema version: ${payload.configSchemaVersion}`);
+  console.log(`Capabilities: ${payload.commands.join(', ')}`);
+  console.log(`Configured image: ${payload.configuredRef || 'unknown'}`);
+  console.log(`Pulled image digest: ${payload.localDigest || 'unknown'}`);
+  console.log(`Pulled image ID: ${payload.localId || 'unknown'}`);
+  console.log(`Pulled image created: ${payload.localCreated || 'unknown'}`);
+  console.log(`Running image: ${payload.runningRef || 'not running'}`);
+  console.log(`Running image ID: ${payload.runningImageId || 'not running'}`);
+  console.log(`Running app version: ${payload.appVersion || 'unknown'}`);
+  console.log(`Container started: ${payload.runningStartedAt || 'not running'}`);
 }
 
 async function appendLog(context: RuntimeContext, message: string): Promise<void> {
@@ -1164,7 +1217,13 @@ async function main(): Promise<void> {
   const docker = new DockerManager(runner, context);
   const services = new ServiceManager(runner, context);
 
-  if (!parsed.noBanner && parsed.command !== 'help') printBanner(context);
+  const versionCommand = parsed.versionRequested || parsed.command === 'version';
+  if (!parsed.noBanner && parsed.command !== 'help' && !versionCommand) printBanner(context);
+
+  if (versionCommand) {
+    await printVersion(context, docker, parsed.json);
+    return;
+  }
 
   if (parsed.command === 'help' || parsed.command === '-h' || parsed.command === '--help') {
     printHelp();
