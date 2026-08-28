@@ -307,6 +307,16 @@ Gate: Caddy-Konfiguration kann ohne Aufruf der Legacy-Command-Module verwaltet w
 
 #### Phase 5: Auto-Update- und Service-Paritaet
 
+Teilstatus 2026-08-28: Die vier Auto-Update-Befehle sind in der TypeScript-CLI
+implementiert. Der Linux-Adapter rendert und validiert Timer/Service vor dem
+atomaren Write, akzeptiert nur eigene oder bekannte Legacy-Units und verwendet
+fuer alle Mutationen den globalen Operation-Lock. Managed Installationen und
+nicht per Digest gepinnte Images werden durch `auto-update-sync` sicher
+deaktiviert; ein explizites Enable wird abgelehnt. Der isolierte Linux-Test lief
+in der OrbStack-VM `ubuntu` mit echtem `systemd-analyze` erfolgreich. Die Phase
+bleibt offen, bis der allgemeine `service install/uninstall`-Adapter seine
+systemd-Unit ebenfalls selbst sicher erzeugt und entfernt.
+
 - Standalone-Auto-Update-Kommandos portieren.
 - Managed Mode verhindert weiterhin lokale autonome Updates.
 - systemd Unit und Timer koennen nicht nur aktiviert, sondern sicher erzeugt,

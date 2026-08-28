@@ -60,6 +60,10 @@
     "caddy",
     "caddy-reload",
     "caddy-fix",
+    "auto-update-status",
+    "auto-update-enable",
+    "auto-update-disable",
+    "auto-update-sync",
     "env",
     "config",
     "config-show",
@@ -104,10 +108,10 @@
     { "command": "caddy", "legacy": "implemented", "typescript": "implemented" },
     { "command": "caddy-reload", "legacy": "implemented", "typescript": "implemented" },
     { "command": "caddy-fix", "legacy": "implemented", "typescript": "implemented" },
-    { "command": "auto-update-status", "legacy": "implemented", "typescript": "missing" },
-    { "command": "auto-update-enable", "legacy": "implemented", "typescript": "missing" },
-    { "command": "auto-update-disable", "legacy": "implemented", "typescript": "missing" },
-    { "command": "auto-update-sync", "legacy": "implemented", "typescript": "missing" },
+    { "command": "auto-update-status", "legacy": "implemented", "typescript": "implemented" },
+    { "command": "auto-update-enable", "legacy": "implemented", "typescript": "implemented" },
+    { "command": "auto-update-disable", "legacy": "implemented", "typescript": "implemented" },
+    { "command": "auto-update-sync", "legacy": "implemented", "typescript": "implemented" },
     { "command": "config-migrate", "legacy": "implemented", "typescript": "implemented" },
     { "command": "service", "legacy": "missing", "typescript": "implemented" }
   ],
@@ -150,6 +154,6 @@
     { "command": "stop", "currentlySupported": true },
     { "command": "status", "currentlySupported": true },
     { "command": "health", "currentlySupported": true },
-    { "command": "auto-update-disable", "currentlySupported": false }
+    { "command": "auto-update-disable", "currentlySupported": true }
   ]
 }

@@ -384,6 +384,15 @@ async function runDifferentialContract(): Promise<void> {
         configBeforeUnsupportedSwap,
         'unsupported Caddy commands must not mutate configuration',
       );
+      await assert.rejects(
+        () => runTypescript(['auto-update-disable', '--no-banner']),
+        /only supported on Linux systemd hosts/u,
+      );
+      assert.equal(
+        await fs.promises.readFile(typescriptRuntime.configFile, 'utf8'),
+        configBeforeUnsupportedSwap,
+        'unsupported auto-update commands must not mutate configuration',
+      );
     }
 
     const envJsonOutput = await runTypescript(['env', '--json', '--no-banner']);
@@ -673,7 +682,7 @@ async function main(): Promise<void> {
   await runDifferentialContract();
   console.log(JSON.stringify({
     success: true,
-    differentialContract: ['version --json', 'env display/edit', 'config/config-migrate', 'config-set semantics', 'diagnose/cleanup-logs', 'swap/caddy platform boundaries', 'config-show --secret-state', 'status --json'],
+    differentialContract: ['version --json', 'env display/edit', 'config/config-migrate', 'config-set semantics', 'diagnose/cleanup-logs', 'swap/caddy/auto-update platform boundaries', 'config-show --secret-state', 'status --json'],
     legacyCommandCount: contract.legacyTopLevelCommands.length,
     typescriptCommandCount: contract.typescriptTopLevelCommands.length,
     missingCommands,

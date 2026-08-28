@@ -254,6 +254,8 @@
     "test:cli:swap-linux-integration": "bash scripts/portable-cli-linux-swap-integration-test.sh",
     "test:cli:caddy-portable": "tsx scripts/portable-cli-caddy-test.ts",
     "test:cli:caddy-linux-integration": "bash scripts/portable-cli-linux-caddy-integration-test.sh",
+    "test:cli:auto-update-portable": "tsx scripts/portable-cli-auto-update-test.ts",
+    "test:cli:auto-update-linux-integration": "bash scripts/portable-cli-linux-auto-update-integration-test.sh",
     "test:cli:update-rollback": "bash scripts/cli-update-rollback-test.sh",
     "test:cli:portable-update": "tsx scripts/portable-cli-self-update-test.ts",
     "test:cli:portable": "tsx scripts/cross-platform-cli-test.ts",

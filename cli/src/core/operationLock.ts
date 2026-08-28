@@ -205,6 +205,7 @@ export function commandRequiresOperationLock(command: string, args: string[]): b
   if (command === 'service') return args[0] === 'install' || args[0] === 'uninstall';
   if (command === 'swap-sync' || command === 'swap-apply' || command === 'swap-enable' || command === 'swap-disable') return true;
   if (command === 'caddy-reload' || command === 'caddy-fix') return true;
+  if (command === 'auto-update-enable' || command === 'auto-update-disable' || command === 'auto-update-sync') return true;
   return false;
 }
 

@@ -21,6 +21,7 @@ import {
   type CliDatabaseProvider,
   type CliRuntimeMode,
 } from './core/config';
+import { AutoUpdateManager, isAutoUpdateCommand, validateAutoUpdateSchedule, type AutoUpdateStatus } from './core/autoUpdate';
 import { CaddyManager, isCaddyCommand, type CaddyStatus } from './core/caddy';
 import { writeComposeFile } from './core/compose';
 import { collectHostResources } from './core/diagnostics';
@@ -151,6 +152,11 @@ Commands:
   caddy [--json]                  Show Linux Caddy status and the active Caddyfile
   caddy-reload [--json]           Validate and apply the managed Canvas Caddy site
   caddy-fix [--json]              Repair known Canvas/default Caddy configuration
+  auto-update-status [--json]     Show Linux systemd auto-update status
+  auto-update-enable [--schedule <calendar>] [--json]
+                                  Install and enable the autonomous update timer
+  auto-update-disable [--json]    Disable autonomous updates safely
+  auto-update-sync [--json]       Reconcile config and systemd timer state
   env [--json]                    Show the active configuration with secrets masked
   env --edit [--timeout <seconds>]
                                   Edit config safely, then apply and wait for health
@@ -1002,6 +1008,82 @@ function printCaddyStatus(status: CaddyStatus, json: boolean, content: string | 
   }
 }
 
+function printAutoUpdateStatus(status: AutoUpdateStatus, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify(status));
+    return;
+  }
+  console.log(`Auto-update enabled setting: ${status.configuredEnabled}`);
+  console.log(`Auto-update schedule: ${status.configuredSchedule}`);
+  console.log(`Managed by Control Plane: ${status.managedByControlPlane}`);
+  console.log(`Configured image pinned: ${status.imagePinned}`);
+  console.log(`Timer unit installed: ${status.timerUnitInstalled}`);
+  console.log(`Service unit installed: ${status.serviceUnitInstalled}`);
+  console.log(`Timer active: ${status.timerActive}`);
+  console.log(`Update service state: ${status.serviceState}`);
+  console.log(`Next scheduled run: ${status.nextRun || '(not scheduled)'}`);
+  console.log(`Auto-update in sync: ${status.inSync}`);
+  if (status.issues.length > 0) console.log(`Auto-update issues: ${status.issues.join(', ')}`);
+  if (status.error) console.error(`Auto-update error: ${status.error}`);
+}
+
+async function runAutoUpdateCommand(
+  command: string,
+  args: string[],
+  json: boolean,
+  context: RuntimeContext,
+  runner: SpawnCommandRunner,
+  currentConfig: CanvasCliConfig,
+): Promise<void> {
+  const autoUpdate = new AutoUpdateManager(runner, context);
+  if (args.includes('-h') || args.includes('--help')) {
+    if (args.length !== 1) throw new Error(`Usage: canvas-notebook ${command} [--json]`);
+    console.log(command === 'auto-update-enable'
+      ? 'Usage: canvas-notebook auto-update-enable [--schedule <calendar>] [--json]'
+      : `Usage: canvas-notebook ${command} [--json]`);
+    return;
+  }
+  const next = structuredClone(currentConfig);
+  if (command === 'auto-update-enable') {
+    let scheduleSet = false;
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg !== '--schedule' && !arg.startsWith('--schedule=')) throw new Error(`Unknown auto-update-enable option: ${arg}`);
+      if (scheduleSet) throw new Error('--schedule can only be provided once.');
+      const parsed = readOptionValue(args, index, '--schedule');
+      next.autoUpdate.schedule = validateAutoUpdateSchedule(parsed.value);
+      scheduleSet = true;
+      index = parsed.nextIndex;
+    }
+    next.autoUpdate.enabled = true;
+  } else if (args.length > 0) {
+    throw new Error(`Usage: canvas-notebook ${command} [--json]`);
+  }
+  if (command === 'auto-update-disable') next.autoUpdate.enabled = false;
+  try {
+    if (command === 'auto-update-status') {
+      printAutoUpdateStatus(await autoUpdate.status(currentConfig), json);
+      return;
+    }
+    const action = command === 'auto-update-enable' ? 'enable' : command === 'auto-update-disable' ? 'disable' : 'sync';
+    const result = await autoUpdate.apply(next, action);
+    next.autoUpdate.enabled = result.effectiveEnabled;
+    try {
+      await writeConfig(next);
+    } catch (error) {
+      await autoUpdate.apply(currentConfig, 'sync').catch(() => undefined);
+      throw error;
+    }
+    await appendLog(context, command);
+    printAutoUpdateStatus(result, json);
+  } catch (error) {
+    const latestConfig = await readConfig(context).catch(() => currentConfig);
+    const detail = error instanceof Error ? error.message : 'Auto-update operation failed.';
+    printAutoUpdateStatus(await autoUpdate.status(latestConfig, detail), json);
+    process.exitCode = 1;
+  }
+}
+
 async function runCaddyCommand(
   command: string,
   args: string[],
@@ -1626,6 +1708,14 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (isAutoUpdateCommand(parsed.command) && context.platform !== 'linux') {
+    const error = 'Auto-update management is only supported on Linux systemd hosts. No host changes were made.';
+    if (parsed.json) console.log(JSON.stringify({ success: false, error }));
+    else console.error(error);
+    process.exitCode = 1;
+    return;
+  }
+
   const operationLock = commandRequiresOperationLock(parsed.command, parsed.args)
     ? await acquireOperationLock(context, parsed.command)
     : null;
@@ -1760,6 +1850,12 @@ async function main(): Promise<void> {
     case 'caddy-reload':
     case 'caddy-fix':
       await runCaddyCommand(parsed.command, parsed.args, parsed.json, context, runner, config);
+      break;
+    case 'auto-update-status':
+    case 'auto-update-enable':
+    case 'auto-update-disable':
+    case 'auto-update-sync':
+      await runAutoUpdateCommand(parsed.command, parsed.args, parsed.json, context, runner, config);
       break;
     case 'env':
       await runEnvCommand(context, runner, docker, config, parsed.args, parsed.json);
