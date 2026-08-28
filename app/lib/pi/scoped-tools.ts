@@ -456,7 +456,13 @@ function createMemoryTool(userId?: string, agentId?: string | null): AgentTool {
           }
           const result = await addMemory({ ...scope, content: input.content });
           const prefix = result.changed ? 'Memory entry added.' : 'Memory entry already existed.';
-          return { content: [{ type: 'text', text: `${prefix}\n${formatMemoryResult(result)}` }], details: result };
+          const managerQuery = new URLSearchParams({ tab: 'memory', scope: target });
+          if (target === 'agent' && agentId) managerQuery.set('agentId', agentId);
+          if (target === 'workspace' && executionContext?.workspaceId) managerQuery.set('workspaceId', executionContext.workspaceId);
+          const reviewHint = target === 'workspace' || target === 'organization'
+            ? ' This shared memory is a pending suggestion until a manager publishes it.'
+            : '';
+          return { content: [{ type: 'text', text: `${prefix}${reviewHint}\nManage it: /settings?${managerQuery.toString()}\n${formatMemoryResult(result)}` }], details: result };
         }
 
         if (input.action === 'update') {

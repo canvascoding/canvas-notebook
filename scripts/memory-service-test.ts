@@ -28,7 +28,9 @@ async function main(): Promise<void> {
       applyMemoryReviewCandidates,
       claimDueMemoryReviewJob,
       completeMemoryReviewJob,
+      deletePersonalMemory,
       deleteMemory,
+      importPersonalMemory,
       publishMemory,
       readMemory,
       scheduleMemoryReviewForSession,
@@ -74,6 +76,12 @@ async function main(): Promise<void> {
     } finally { await organizationPermissionDb.close(); }
     const publishedOrganization = await publishMemory({ target: 'organization', userId: 'user-1', organizationId: 'org-1', id: organizationMemory.entry!.id });
     assert.equal(publishedOrganization.entry?.status, 'published');
+    const imported = await importPersonalMemory({
+      userId: 'user-1',
+      contents: ['Keep release notes brief.', 'Keep release notes brief.', 'Prefer UTC timestamps.'],
+    });
+    assert.deepEqual(imported, { added: 2, skipped: 0 });
+    assert.equal((await readMemory(scope)).entries.length, 2);
     await assert.rejects(() => addMemory({ ...scope, content: 'x'.repeat(801) }), /800 characters/);
     await assert.rejects(() => addMemory({ ...scope, content: 'API_KEY=secret-value' }), /secret or credential/);
 
@@ -135,6 +143,12 @@ async function main(): Promise<void> {
     assert.match(projected, /Use the approved brand voice/);
     assert.match(projected, /Use British spelling in organization material/);
     await completeMemoryReviewJob(claim!.id, 1_003);
+    const personalDeletion = await deletePersonalMemory('user-1');
+    assert.ok(personalDeletion.collections >= 1);
+    assert.ok(personalDeletion.entries >= 2);
+    assert.deepEqual((await readMemory(scope)).entries, []);
+    assert.deepEqual((await readMemory({ target: 'agent', userId: 'user-1', agentId: 'canvas-agent' })).entries, []);
+    assert.match((await readMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1' })).entries[0]?.content ?? '', /approved brand voice/);
   } finally {
     moduleInternals._load = originalLoad;
     await fs.rm(dataDir, { recursive: true, force: true });

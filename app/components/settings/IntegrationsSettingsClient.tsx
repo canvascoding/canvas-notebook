@@ -339,6 +339,11 @@ const AgentSettingsPanel = dynamic<AgentSettingsPanelProps>(
   { loading: SettingsTabLoader },
 );
 
+const MemorySettingsPanel = dynamic(
+  () => import('@/app/components/settings/MemorySettingsPanel').then((module) => module.MemorySettingsPanel),
+  { loading: SettingsTabLoader },
+);
+
 const AiProvidersModelsPanel = dynamic<AiProvidersModelsPanelProps>(
   () => import('@/app/components/settings/AiProvidersModelsPanel').then((module) => module.AiProvidersModelsPanel),
   { loading: SettingsTabLoader },
@@ -3200,6 +3205,8 @@ export function IntegrationsSettingsClient({
               initialTimeZone={initialTimeZone}
             />,
           )}
+
+          {renderLazyTabContent('memory', <MemorySettingsPanel />)}
 
           {renderLazyTabContent('integrations',
             <>

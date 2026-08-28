@@ -2483,6 +2483,7 @@
     "title": "Settings",
     "tabs": {
       "general": "General",
+      "memory": "Memory",
       "integrations": "Integrations",
       "secrets": "Secrets",
       "mcp": "MCP",
@@ -2517,6 +2518,7 @@
       },
       "descriptions": {
         "general": "Manage your account, language, and basic instance options.",
+        "memory": "Review persistent context and configure the dedicated memory reviewer.",
         "workspace": "Select a workspace, manage exports, and review workspace access.",
         "brandDesign": "Define the brand experience for Canvas, PDF exports, and the active agent context.",
         "knowledge": "Configure knowledge processing, resources, and feature gates.",
@@ -2909,6 +2911,7 @@
           "canDeleteTeamFiles": "Delete team files",
           "canDeleteStudioAssets": "Delete Studio assets",
           "canManageBackups": "Manage backups",
+          "canManageOrganizationMemory": "Manage organization memory",
           "canMigrateDatabase": "Database migration",
           "canEnableKnowledge": "Enable Knowledge",
           "canRecoverWorkspaces": "Recovery flow"
@@ -4081,6 +4084,7 @@
         "notCreated": "Not created in this mode",
         "permissions": {
           "canManageBackups": "Full backup",
+          "canManageOrganizationMemory": "Organization memory",
           "canMigrateDatabase": "Database migration",
           "canEnableKnowledge": "Knowledge enable",
           "canRecoverWorkspaces": "Recovery flow",

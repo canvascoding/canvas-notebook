@@ -33,10 +33,28 @@ export type MemoryReadResult = {
   entries: MemoryEntry[];
 };
 
+export type MemoryCollectionSummary = {
+  id: string;
+  category: string;
+  title: string;
+  status: 'active' | 'archived';
+  updatedAt: number;
+  entryCount: number;
+  pendingCount: number;
+};
+
 export type MemoryMutationResult = MemoryReadResult & {
   changed: boolean;
   entry?: MemoryEntry;
   archivedEntry?: MemoryEntry;
+};
+
+export type MemoryEvent = {
+  id: string;
+  action: string;
+  actorType: string;
+  decisionCode: string | null;
+  createdAt: number;
 };
 
 export type MemoryServiceScope = {
@@ -151,6 +169,11 @@ function scopeWhere(scope: MemoryServiceScope): { sql: string; params: unknown[]
   return { sql: 'scope_type = ? AND organization_id = ?', params: ['organization', scope.organizationId] };
 }
 
+function collectionScopeWhere(scope: MemoryServiceScope): { sql: string; params: unknown[] } {
+  const where = scopeWhere(scope);
+  return { sql: where.sql.replaceAll('scope_', 'collection.scope_').replaceAll('user_id', 'collection.user_id').replaceAll('agent_id', 'collection.agent_id').replaceAll('workspace_id', 'collection.workspace_id').replaceAll('organization_id', 'collection.organization_id'), params: where.params };
+}
+
 function toEntry(row: Record<string, unknown>): MemoryEntry {
   return {
     id: String(row.id),
@@ -231,6 +254,104 @@ export async function readMemory(scope: MemoryServiceScope): Promise<MemoryReadR
   }
 }
 
+/** Lists all collections in one authorized scope for the settings manager. */
+export async function listMemoryCollections(scope: MemoryServiceScope): Promise<MemoryCollectionSummary[]> {
+  const permissions = await assertMemoryScopeAccess(scope, 'read');
+  const connection = await openDb();
+  try {
+    const where = scopeWhere(scope);
+    const rows = await connection.all(`
+      SELECT collection.id, collection.category, collection.title, collection.status, collection.updated_at,
+        COUNT(entry.id) AS entry_count,
+        COALESCE(SUM(CASE WHEN entry.status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_count
+      FROM memory_collections collection
+      LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
+        AND entry.status != 'archived'
+        AND (? = 1 OR entry.status = 'published')
+      WHERE ${where.sql}
+      GROUP BY collection.id
+      ORDER BY collection.updated_at DESC, collection.id ASC
+    `, [permissions.canPublish ? 1 : 0, ...where.params]) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      category: String(row.category),
+      title: String(row.title),
+      status: row.status === 'archived' ? 'archived' : 'active',
+      updatedAt: Number(row.updated_at),
+      entryCount: Number(row.entry_count),
+      pendingCount: Number(row.pending_count),
+    }));
+  } finally { await connection.close(); }
+}
+
+/** Reads one collection after proving that it belongs to the requested scope. */
+export async function readMemoryCollection(scope: MemoryServiceScope & { collectionId: string }): Promise<MemoryReadResult> {
+  const permissions = await assertMemoryScopeAccess(scope, 'read');
+  const connection = await openDb();
+  try {
+    const where = collectionScopeWhere(scope);
+    const rows = await connection.all(`
+      SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key
+      FROM memory_entries entry
+      INNER JOIN memory_collections collection ON collection.id = entry.collection_id
+      WHERE entry.collection_id = ? AND ${where.sql} AND entry.status != 'archived'
+        AND (? = 1 OR entry.status = 'published')
+      ORDER BY entry.pinned DESC, entry.priority DESC, entry.updated_at DESC, entry.id ASC
+    `, [scope.collectionId, ...where.params, permissions.canPublish ? 1 : 0]) as Record<string, unknown>[];
+    return { target: scope.target, entries: rows.map(toEntry) };
+  } finally { await connection.close(); }
+}
+
+async function findEntryInScope(
+  connection: Awaited<ReturnType<typeof openDb>>,
+  scope: MemoryServiceScope,
+  id: string,
+): Promise<Record<string, unknown> | undefined> {
+  const where = collectionScopeWhere(scope);
+  return connection.get(`
+    SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key
+    FROM memory_entries entry
+    INNER JOIN memory_collections collection ON collection.id = entry.collection_id
+    WHERE entry.id = ? AND ${where.sql} AND entry.status != 'archived'
+    LIMIT 1
+  `, [id, ...where.params]) as Promise<Record<string, unknown> | undefined>;
+}
+
+/** Returns the compact audit trail for one entry after verifying its scope. */
+export async function readMemoryEntryHistory(
+  scope: MemoryServiceScope & { id: string },
+): Promise<MemoryEvent[]> {
+  const permissions = await assertMemoryScopeAccess(scope, 'read');
+  const connection = await openDb();
+  try {
+    const where = collectionScopeWhere(scope);
+    const entry = await connection.get(`
+      SELECT entry.id, entry.status
+      FROM memory_entries entry
+      INNER JOIN memory_collections collection ON collection.id = entry.collection_id
+      WHERE entry.id = ? AND ${where.sql}
+      LIMIT 1
+    `, [scope.id.trim(), ...where.params]) as { id?: string; status?: MemoryEntryStatus } | undefined;
+    if (!entry?.id || (!permissions.canPublish && entry.status !== 'published')) {
+      throw new Error(`Memory entry "${scope.id}" was not found.`);
+    }
+    const rows = await connection.all(`
+      SELECT id, action, actor_type, decision_code, created_at
+      FROM memory_events
+      WHERE entry_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT 20
+    `, [entry.id]) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: String(row.id),
+      action: String(row.action),
+      actorType: String(row.actor_type),
+      decisionCode: typeof row.decision_code === 'string' ? row.decision_code : null,
+      createdAt: Number(row.created_at),
+    }));
+  } finally { await connection.close(); }
+}
+
 export async function addMemory(scope: MemoryServiceScope & { content: string }): Promise<MemoryMutationResult> {
   await assertMemoryScopeAccess(scope, 'suggest');
   const content = assertMemoryContent(scope.content);
@@ -271,17 +392,87 @@ export async function addMemory(scope: MemoryServiceScope & { content: string })
   }
 }
 
+/**
+ * Imports explicit, user-owned facts from a Canvas memory export. Shared scopes
+ * deliberately cannot be imported here because they require a reviewer to
+ * evaluate each proposal in context.
+ */
+export async function importPersonalMemory(params: {
+  userId: string;
+  contents: string[];
+}): Promise<{ added: number; skipped: number }> {
+  const uniqueContents = [...new Set(params.contents.map(normalizedContent).filter(Boolean))];
+  if (uniqueContents.length === 0) throw new Error('The import does not contain any memory entries.');
+  if (uniqueContents.length > 100) throw new Error('Import at most 100 memory entries at a time.');
+
+  const scope: MemoryServiceScope = { target: 'user', userId: params.userId };
+  await assertMemoryScopeAccess(scope, 'suggest');
+  const collectionId = await findCollectionId(scope, true);
+  if (!collectionId) throw new Error('Could not resolve a personal memory collection.');
+
+  const connection = await openDb();
+  try {
+    let added = 0;
+    let skipped = 0;
+    const now = Date.now();
+    for (const candidate of uniqueContents) {
+      const content = assertMemoryContent(candidate);
+      const hash = contentHash(content);
+      const existing = await connection.get(`
+        SELECT id FROM memory_entries
+        WHERE collection_id = ? AND normalized_content_hash = ? AND status != 'archived'
+        LIMIT 1
+      `, [collectionId, hash]) as { id?: string } | undefined;
+      if (existing?.id) {
+        skipped += 1;
+        continue;
+      }
+      const id = randomUUID();
+      await connection.run(`
+        INSERT INTO memory_entries (
+          id, collection_id, content, normalized_content_hash, status, priority, pinned, sensitivity,
+          estimated_tokens, created_by_actor_type, created_by_user_id, revision, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'published', 50, 0, 'standard', ?, 'user', ?, 1, ?, ?)
+      `, [id, collectionId, content, hash, Math.max(1, Math.ceil(content.length / 4)), params.userId, now, now]);
+      await connection.run(`
+        INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at)
+        VALUES (?, ?, 'import', 'user', ?, 'manual_memory_import', ?)
+      `, [randomUUID(), id, params.userId, now]);
+      added += 1;
+    }
+    return { added, skipped };
+  } finally { await connection.close(); }
+}
+
+/** Permanently removes only the requesting user's personal and private-agent memory. */
+export async function deletePersonalMemory(userId: string): Promise<{ collections: number; entries: number }> {
+  const scope: MemoryServiceScope = { target: 'user', userId };
+  await assertMemoryScopeAccess(scope, 'archive');
+  const connection = await openDb();
+  try {
+    const totals = await connection.get(`
+      SELECT COUNT(DISTINCT collection.id) AS collections, COUNT(entry.id) AS entries
+      FROM memory_collections collection
+      LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
+      WHERE collection.user_id = ? AND collection.scope_type IN ('user', 'agent')
+    `, [userId]) as { collections?: number; entries?: number } | undefined;
+    await connection.run(`
+      DELETE FROM memory_collections
+      WHERE user_id = ? AND scope_type IN ('user', 'agent')
+    `, [userId]);
+    return { collections: Number(totals?.collections ?? 0), entries: Number(totals?.entries ?? 0) };
+  } finally { await connection.close(); }
+}
+
 export async function updateMemory(scope: MemoryServiceScope & { id: string; content: string }): Promise<MemoryMutationResult> {
   await assertMemoryScopeAccess(scope, 'update');
   const id = scope.id.trim();
   const content = assertMemoryContent(scope.content);
-  const collectionId = await findCollectionId(scope, false);
-  if (!collectionId) throw new Error(`Memory entry "${id}" was not found.`);
   const connection = await openDb();
   try {
-    const existing = await connection.get(`SELECT id, pinned FROM memory_entries WHERE id = ? AND collection_id = ? AND status != 'archived'`, [id, collectionId]) as { id?: string; pinned?: number | boolean } | undefined;
+    const existing = await findEntryInScope(connection, scope, id);
     if (!existing?.id) throw new Error(`Memory entry "${id}" was not found.`);
-    if (existing.pinned) throw new Error('Pinned memory entries cannot be changed automatically.');
+    if (existing.pinned === true || existing.pinned === 1) throw new Error('Pinned memory entries cannot be changed automatically.');
     const now = Date.now();
     await connection.run(`UPDATE memory_entries SET content = ?, normalized_content_hash = ?, estimated_tokens = ?, revision = revision + 1, updated_at = ? WHERE id = ?`, [content, contentHash(content), Math.max(1, Math.ceil(content.length / 4)), now, id]);
     await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'update', 'assistant', ?, 'explicit_memory_tool', ?)`, [randomUUID(), id, scope.userId, now]);
@@ -293,11 +484,9 @@ export async function updateMemory(scope: MemoryServiceScope & { id: string; con
 export async function deleteMemory(scope: MemoryServiceScope & { id: string }): Promise<MemoryMutationResult> {
   await assertMemoryScopeAccess(scope, 'archive');
   const id = scope.id.trim();
-  const collectionId = await findCollectionId(scope, false);
-  if (!collectionId) throw new Error(`Memory entry "${id}" was not found.`);
   const connection = await openDb();
   try {
-    const existing = await connection.get(`SELECT id, content, status, priority, pinned, collection_id, semantic_key FROM memory_entries WHERE id = ? AND collection_id = ? AND status != 'archived'`, [id, collectionId]) as Record<string, unknown> | undefined;
+    const existing = await findEntryInScope(connection, scope, id);
     if (!existing) throw new Error(`Memory entry "${id}" was not found.`);
     const entry = toEntry(existing);
     const now = Date.now();
@@ -312,15 +501,9 @@ export async function deleteMemory(scope: MemoryServiceScope & { id: string }): 
 export async function publishMemory(scope: MemoryServiceScope & { id: string }): Promise<MemoryMutationResult> {
   await assertMemoryScopeAccess(scope, 'publish');
   const id = scope.id.trim();
-  const collectionId = await findCollectionId(scope, false);
-  if (!collectionId) throw new Error(`Memory entry "${id}" was not found.`);
   const connection = await openDb();
   try {
-    const existing = await connection.get(`
-      SELECT id, content, status, priority, pinned, collection_id, semantic_key
-      FROM memory_entries
-      WHERE id = ? AND collection_id = ? AND status != 'archived'
-    `, [id, collectionId]) as Record<string, unknown> | undefined;
+    const existing = await findEntryInScope(connection, scope, id);
     if (!existing) throw new Error(`Memory entry "${id}" was not found.`);
     const entry = toEntry(existing);
     if (entry.status === 'published') {

@@ -2482,6 +2482,7 @@
     "title": "Einstellungen",
     "tabs": {
       "general": "Allgemein",
+      "memory": "Memory",
       "integrations": "Integrationen",
       "secrets": "Secrets",
       "mcp": "MCP",
@@ -2516,6 +2517,7 @@
       },
       "descriptions": {
         "general": "Konto, Sprache und grundlegende Instanzoptionen verwalten.",
+        "memory": "Dauerhaften Kontext prüfen und den dedizierten Memory-Reviewer konfigurieren.",
         "workspace": "Workspace auswählen, Exporte verwalten und Workspace-Zugriffe prüfen.",
         "brandDesign": "Markenauftritt für Canvas, PDF-Exporte und den aktiven Agent-Kontext festlegen.",
         "knowledge": "Knowledge-Verarbeitung, Ressourcen und Feature-Gates konfigurieren.",
@@ -2908,6 +2910,7 @@
           "canDeleteTeamFiles": "Team-Dateien löschen",
           "canDeleteStudioAssets": "Studio-Assets löschen",
           "canManageBackups": "Backups verwalten",
+          "canManageOrganizationMemory": "Organisations-Memory verwalten",
           "canMigrateDatabase": "Datenbank-Migration",
           "canEnableKnowledge": "Knowledge aktivieren",
           "canRecoverWorkspaces": "Recovery-Flow"
@@ -4080,6 +4083,7 @@
         "notCreated": "In diesem Modus nicht angelegt",
         "permissions": {
           "canManageBackups": "Full Backup",
+          "canManageOrganizationMemory": "Organisations-Memory",
           "canMigrateDatabase": "Datenbank-Migration",
           "canEnableKnowledge": "Knowledge aktivieren",
           "canRecoverWorkspaces": "Recovery-Flow",
