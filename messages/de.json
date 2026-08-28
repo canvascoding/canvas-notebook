@@ -2676,9 +2676,11 @@
       "save": "Postfach speichern",
       "cancel": "Abbrechen",
       "test": "Verbindung testen",
+      "testAndSave": "Testen & speichern",
       "remove": "Entfernen",
       "removeConfirm": "Postfach {address} wirklich entfernen? Die gespeicherten Zugangsdaten werden gelöscht. Bereits vorhandene Inbox-Fälle und Outbox-Einträge bleiben als Verlauf erhalten.",
       "saved": "Workspace-Postfach gespeichert.",
+      "draftTested": "Verbindung erfolgreich getestet. Noch nichts wurde gespeichert.",
       "tested": "Verbindung für {address} erfolgreich geprüft.",
       "removed": "Workspace-Postfach {address} entfernt.",
       "loading": "Workspace-Postfächer werden geladen…",
@@ -2691,6 +2693,13 @@
         "test": "Verbindung des Workspace-Postfachs konnte nicht geprüft werden.",
         "remove": "Workspace-Postfach konnte nicht entfernt werden."
       }
+    },
+    "mailboxConnection": {
+      "emailAddress": "E-Mail-Adresse", "displayName": "Anzeigename (optional)", "displayNamePlaceholder": "z. B. Kundenservice",
+      "sendingTitle": "E-Mails senden", "sendingDescription": "Diese Angaben werden zum Senden von E-Mails benötigt.",
+      "receivingTitle": "E-Mails empfangen", "receivingDescription": "Damit dieses Konto als Postfach, Inbox und für die Suche verfügbar ist.",
+      "smtpHost": "SMTP-Server", "imapHost": "IMAP-Server", "username": "Benutzername", "password": "Passwort", "port": "Port",
+      "advancedSettings": "Erweiterte Einstellungen", "useEncryption": "TLS/SSL verwenden", "keepExistingPassword": "Bestehendes Passwort beibehalten", "sendOnly": "Dieses Postfach nur zum Senden verwenden"
     },
     "users": {
       "title": "Benutzerverwaltung",
@@ -5190,6 +5199,7 @@
         "smtpSaved": "SMTP-Konto gespeichert.",
         "smtpUpdated": "SMTP/IMAP-Konto aktualisiert.",
         "smtpTested": "SMTP-Verbindung erfolgreich getestet.",
+        "connectionTested": "Verbindung erfolgreich getestet. Noch nichts wurde gespeichert.",
         "accountTested": "SMTP- und IMAP-Verbindung erfolgreich getestet.",
         "accountTestedSmtpOnly": "SMTP-Verbindung erfolgreich getestet. IMAP ist nicht konfiguriert.",
         "previewPreferencesSaved": "E-Mail-Vorschau-Einstellungen gespeichert.",

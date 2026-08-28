@@ -488,6 +488,20 @@ export async function testAdminWorkspaceMailbox(mailboxId: string, organizationI
   };
 }
 
+/** Verifies a business-mailbox draft without persisting its credentials. */
+export async function testAdminWorkspaceMailboxConnection(actorUserId: string, input: WorkspaceMailboxSmtpInput, options: { organizationId?: string | null } = {}) {
+  const organizationId = options.organizationId === undefined ? (await readOrganizationPermissionForUser(actorUserId)).organizationId : options.organizationId;
+  const accountId = typeof input.accountId === 'string' && input.accountId.trim() ? input.accountId.trim() : undefined;
+  const existingAccount = accountId ? await requireAdminWorkspaceAccount(accountId, organizationId) : undefined;
+  const existingSecret = existingAccount ? await readEmailAccountSecret(existingAccount.secretRef) : null;
+  if (existingSecret && existingSecret.authType !== 'smtp_imap') throw new Error('This workspace mailbox is not an SMTP/IMAP mailbox.');
+  const { accountId: _accountId, mailboxId: _mailboxId, workspaceId: _workspaceId, ...smtpInput } = input;
+  const normalized = normalizeSmtpAccountInput(smtpInput, existingSecret as EmailAccountSmtpSecret | null);
+  await verifySmtpAccountSecret(normalized.secret);
+  await verifyImapSecret(normalized.secret);
+  return { ok: true, smtp: { ok: true, host: normalized.secret.smtp.host, port: normalized.secret.smtp.port, secure: normalized.secret.smtp.secure }, imap: { configured: Boolean(normalized.secret.imap), ok: true, host: normalized.secret.imap?.host || null, port: normalized.secret.imap?.port || null, secure: normalized.secret.imap?.secure ?? null } };
+}
+
 export async function removeAdminWorkspaceMailbox(actorUserId: string, mailboxId: string, organizationId?: string | null) {
   const account = await requireAdminWorkspaceAccount(mailboxId, organizationId);
   const now = new Date();

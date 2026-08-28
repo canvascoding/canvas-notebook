@@ -7,6 +7,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Inbox, Loader2, Mail, MoreHorizontal, Plus, RefreshCw, Save, Search, Send, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
+import { MailboxConnectionForm } from '@/app/components/email/MailboxConnectionForm';
 import { McpServerSettingsPanel } from '@/app/components/settings/McpServerSettingsPanel';
 import { SystemEmailSettingsPanel } from '@/app/components/settings/SystemEmailSettingsPanel';
 import {
@@ -257,7 +258,7 @@ function emptyEmailSmtpDraft(): EmailSmtpDraft {
     smtpSecure: false,
     smtpUsername: '',
     smtpPassword: '',
-    imapEnabled: false,
+    imapEnabled: true,
     imapHost: '',
     imapPort: '993',
     imapSecure: true,
@@ -1718,6 +1719,22 @@ export function EmailAccountsCard({
     setIsAddingEmailAccount(true);
   };
 
+  const testSmtpDraft = async () => {
+    setActiveAction('smtp:test');
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/email/accounts/smtp/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(smtpPayload()) });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.testStoredAccount'));
+      setMessage(t('messages.connectionTested'));
+    } catch (testError) {
+      setError(testError instanceof Error ? testError.message : t('errors.testStoredAccount'));
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
   const testStoredAccount = async (accountId: string) => {
     setActiveAction(`test:${accountId}`);
     setError(null);
@@ -2040,7 +2057,13 @@ export function EmailAccountsCard({
                   <h4 className="font-semibold">{t(smtpDraft.accountId ? 'smtp.editTitle' : 'smtp.title')}</h4>
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">{t(smtpDraft.accountId ? 'smtp.editDescription' : 'smtp.description')}</p>
                 </div>
+                <MailboxConnectionForm value={smtpDraft} onChange={(draft) => setSmtpDraft((current) => ({ ...current, ...draft }))} disabled={activeAction !== null} isEditing={Boolean(smtpDraft.accountId)} />
+                <div className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-end">
+                  <Button type="button" variant="outline" onClick={() => void testSmtpDraft()} disabled={activeAction !== null || emailMode === 'unknown'}>{activeAction === 'smtp:test' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('smtp.test')}</Button>
+                  <Button type="button" onClick={() => void saveSmtp(true)} disabled={activeAction !== null || emailMode === 'unknown'}>{activeAction === 'smtp:verify-save' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}{t(smtpDraft.accountId ? 'smtp.verifyAndSaveChanges' : 'smtp.verifyAndSave')}</Button>
+                </div>
 
+                <div className="hidden">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="email-smtp-email">{t('smtp.emailAddress')}</Label>
@@ -2150,6 +2173,7 @@ export function EmailAccountsCard({
                     {activeAction === 'smtp:verify-save' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
                     {t(smtpDraft.accountId ? 'smtp.verifyAndSaveChanges' : 'smtp.verifyAndSave')}
                   </Button>
+                </div>
                 </div>
               </div>
             )}

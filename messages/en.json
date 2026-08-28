@@ -2677,9 +2677,11 @@
       "save": "Save mailbox",
       "cancel": "Cancel",
       "test": "Test connection",
+      "testAndSave": "Test & save",
       "remove": "Remove",
       "removeConfirm": "Remove mailbox {address}? Its stored credentials will be deleted. Existing Inbox cases and Outbox items remain as history.",
       "saved": "Workspace mailbox saved.",
+      "draftTested": "Connection verified. Nothing has been saved yet.",
       "tested": "Connection for {address} verified successfully.",
       "removed": "Workspace mailbox {address} removed.",
       "loading": "Loading workspace mailboxes…",
@@ -2692,6 +2694,13 @@
         "test": "Could not test workspace mailbox connection.",
         "remove": "Could not remove workspace mailbox."
       }
+    },
+    "mailboxConnection": {
+      "emailAddress": "Email address", "displayName": "Display name (optional)", "displayNamePlaceholder": "e.g. Customer support",
+      "sendingTitle": "Send email", "sendingDescription": "These details are required to send email.",
+      "receivingTitle": "Receive email", "receivingDescription": "Makes this account available as a mailbox, inbox, and for search.",
+      "smtpHost": "SMTP server", "imapHost": "IMAP server", "username": "Username", "password": "Password", "port": "Port",
+      "advancedSettings": "Advanced settings", "useEncryption": "Use TLS/SSL", "keepExistingPassword": "Keep existing password", "sendOnly": "Use this mailbox for sending only"
     },
     "users": {
       "title": "User Management",
@@ -5191,6 +5200,7 @@
         "smtpSaved": "SMTP account saved.",
         "smtpUpdated": "SMTP/IMAP account updated.",
         "smtpTested": "SMTP connection tested successfully.",
+        "connectionTested": "Connection verified. Nothing has been saved yet.",
         "accountTested": "SMTP and IMAP connections tested successfully.",
         "accountTestedSmtpOnly": "SMTP connection tested successfully. IMAP is not configured.",
         "previewPreferencesSaved": "Email preview settings saved.",
