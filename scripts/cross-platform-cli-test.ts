@@ -56,6 +56,7 @@ class UpdateRunner implements CommandRunner {
   mutableImageId = 'old-image-id';
   rolePassword = 'old-role-password';
   desiredRolePassword = '';
+  postgresInitialized = true;
   failPull = false;
   healthMode: 'healthy' | 'new-unhealthy' = 'healthy';
 
@@ -69,7 +70,19 @@ class UpdateRunner implements CommandRunner {
     this.calls.push({ args: [...args], stdinConfigured: options.stdin !== undefined, timeoutMs: options.timeoutMs });
     const joined = args.join(' ');
     if (args[0] === 'compose') {
-      if (joined.includes('ps -q postgres')) return { status: 0, stdout: 'pg-container\n', stderr: '' };
+      if (joined.includes('ps -q postgres')) {
+        return this.postgresInitialized
+          ? { status: 0, stdout: 'pg-container\n', stderr: '' }
+          : { status: 0, stdout: '', stderr: '' };
+      }
+      if (joined.includes('up -d --no-recreate postgres')) {
+        const composeEnv = await readFile(this.composeEnvFile, 'utf8');
+        this.rolePassword = composeEnv.split(/\r?\n/u)
+          .find((line) => line.startsWith('CANVAS_POSTGRES_PASSWORD='))
+          ?.slice('CANVAS_POSTGRES_PASSWORD='.length) || '';
+        this.postgresInitialized = true;
+        return { status: 0, stdout: '', stderr: '' };
+      }
       if (joined.includes('ps -q canvas-notebook')) return { status: 0, stdout: 'app-container\n', stderr: '' };
       if (joined.includes(' pull canvas-notebook')) {
         return this.failPull
@@ -92,7 +105,16 @@ class UpdateRunner implements CommandRunner {
       if (joined.includes('{{.State.Running}}')) return { status: 0, stdout: 'true\n', stderr: '' };
       if (joined.includes('{{.State.Status}}')) return { status: 0, stdout: 'running\n', stderr: '' };
       if (joined.includes('{{.State.StartedAt}}')) return { status: 0, stdout: '2026-07-11T00:00:00Z\n', stderr: '' };
-      if (joined.includes('{{.Id}}')) return { status: 0, stdout: 'pg-container\n', stderr: '' };
+      if (joined.includes('{{.Id}}')) {
+        return this.postgresInitialized
+          ? { status: 0, stdout: 'pg-container\n', stderr: '' }
+          : { status: 1, stdout: '', stderr: 'not found' };
+      }
+    }
+    if (args[0] === 'volume' && args[1] === 'inspect') {
+      return this.postgresInitialized
+        ? { status: 0, stdout: '[]\n', stderr: '' }
+        : { status: 1, stdout: '', stderr: 'not found' };
     }
     if (args[0] === 'image' && args[1] === 'inspect') {
       const image = args[2];
@@ -464,6 +486,19 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       assert.equal(JSON.parse(unhealthy.at(-1) || '{}').rolledBack, true);
       assert.equal(runner.runningImageId, 'old-image-id');
       assert.equal(runner.mutableImageId, 'old-image-id');
+
+      config = await reset();
+      const freshPostgresConfig = materializePostgresInfrastructureConfig(config);
+      await writeConfig(freshPostgresConfig);
+      runner.postgresInitialized = false;
+      runner.calls = [];
+      const freshPostgres = await captureConsole(() => update(context, docker, freshPostgresConfig, true, { image: targetImage }));
+      assert.equal(JSON.parse(freshPostgres.at(-1) || '{}').success, true);
+      assert.equal(runner.calls.some((call) => call.args[0] === 'volume' && call.args[1] === 'inspect'), true);
+      assert.equal(runner.calls.some((call) => call.args.includes('psql') && call.args.includes('-u')), false);
+      assert.match(await readFile(paths.composeEnvFile, 'utf8'), /^CANVAS_POSTGRES_PASSWORD=.+$/mu);
+      assert.equal(await readFile(path.join(paths.installDir, '.postgres-auth-reconcile.json')).then(() => true, () => false), false);
+      assert.equal(await readFile(path.join(paths.installDir, '.postgres-auth-reconcile-state')).then(() => true, () => false), false);
 
       config = await reset();
       const rollbackConfig = materializeConfig(configureRuntimeAndDatabase(config, { database: 'postgres' }));

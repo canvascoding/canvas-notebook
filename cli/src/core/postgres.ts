@@ -98,6 +98,13 @@ async function postgresContainerId(docker: DockerManager, config: CanvasCliConfi
   return inspectResult.status === 0 ? inspectResult.stdout.trim() : '';
 }
 
+export async function postgresRuntimeInitialized(docker: DockerManager, config: CanvasCliConfig): Promise<boolean> {
+  if (await postgresContainerId(docker, config)) return true;
+  const volume = runtimeValue(config, 'CANVAS_POSTGRES_DATA_VOLUME', 'canvas-postgres-data') || 'canvas-postgres-data';
+  const result = await docker.docker(['volume', 'inspect', volume]);
+  return result.status === 0;
+}
+
 async function inspectContainerStatus(docker: DockerManager, containerIdOrName: string): Promise<string> {
   if (!containerIdOrName) return '';
   const result = await docker.docker(['inspect', '--format', '{{.State.Status}}', containerIdOrName]);

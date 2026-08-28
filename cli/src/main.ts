@@ -6,6 +6,7 @@ import {
   configSecretState,
   configureRuntimeAndDatabase,
   createDefaultConfig,
+  ensurePostgresInfrastructureConfig,
   materializeConfig,
   materializePostgresInfrastructureConfig,
   isSensitiveEnvKey,
@@ -34,7 +35,7 @@ import {
   commandRequiresOperationLock,
 } from './core/operationLock';
 import { composePath, createRuntimeContext } from './core/platform';
-import { preparePostgresManagedRuntime, postgresRuntimeDesired } from './core/postgres';
+import { preparePostgresManagedRuntime, postgresRuntimeDesired, postgresRuntimeInitialized } from './core/postgres';
 import {
   assertPostgresRecoveryCompatible,
   clearPostgresRecoveryJournal,
@@ -1308,6 +1309,7 @@ async function reconcilePostgresAuth(
   let recoverySnapshot: PostgresRecoverySnapshot | null = null;
   let journalArmed = false;
   let journalWasPending = false;
+  let freshInitialization = false;
   const remainingSeconds = (target: number): number => Math.max(0, Math.ceil((target - Date.now()) / 1000));
   try {
     timeoutSeconds = parsePostgresReconcileTimeout(args);
@@ -1368,20 +1370,32 @@ async function reconcilePostgresAuth(
     const desiredUser = String(config.env.CANVAS_POSTGRES_USER || 'canvas');
     const desiredDatabase = String(config.env.CANVAS_POSTGRES_DB || 'canvas_notebook');
     if (!oldUser || !oldDatabase || oldPassword.length < 8 || oldPassword.includes('***')) {
-      throw new Error('Existing Postgres credentials are unavailable for safe rollback.');
+      if (journalWasPending || await postgresRuntimeInitialized(docker, config)) {
+        throw new Error('Existing Postgres credentials are unavailable for safe rollback.');
+      }
+      freshInitialization = true;
+    } else {
+      if (oldUser !== desiredUser || oldDatabase !== desiredDatabase) {
+        throw new Error('CANVAS_POSTGRES_USER and CANVAS_POSTGRES_DB cannot be changed after initialization.');
+      }
+      rollbackConfig ??= rollbackPostgresConfig(config, oldUser, oldDatabase, oldPassword, oldDatabaseUrl);
+      recoverySnapshot ??= { rollbackConfig, containerEnv: oldContainerEnv, composeEnv: oldComposeEnv };
     }
-    if (oldUser !== desiredUser || oldDatabase !== desiredDatabase) {
-      throw new Error('CANVAS_POSTGRES_USER and CANVAS_POSTGRES_DB cannot be changed after initialization.');
-    }
-    rollbackConfig ??= rollbackPostgresConfig(config, oldUser, oldDatabase, oldPassword, oldDatabaseUrl);
-    recoverySnapshot ??= { rollbackConfig, containerEnv: oldContainerEnv, composeEnv: oldComposeEnv };
     phase = 'compose';
     await writeComposeFile(config, context.platform);
-    if (!journalWasPending) {
-      await createPostgresRecoverySnapshot(config, recoverySnapshot);
+    if (freshInitialization) {
+      await renderEnvFiles(context, config);
     }
-    recoveryJournal = await writePostgresRecoveryJournal(config, rollbackConfig, 'forward', recoveryJournal);
-    journalArmed = true;
+    if (!freshInitialization) {
+      if (!rollbackConfig || !recoverySnapshot) {
+        throw new Error('Postgres rollback recovery state is unavailable.');
+      }
+      if (!journalWasPending) {
+        await createPostgresRecoverySnapshot(config, recoverySnapshot);
+      }
+      recoveryJournal = await writePostgresRecoveryJournal(config, rollbackConfig, 'forward', recoveryJournal);
+      journalArmed = true;
+    }
     const postgresTimeout = remainingSeconds(forwardDeadline);
     if (postgresTimeout < 1) throw new Error('Forward deadline exhausted before Postgres readiness.');
     await preparePostgresManagedRuntime({
@@ -1389,7 +1403,7 @@ async function reconcilePostgresAuth(
       config,
       stdio: json ? 'pipe' : 'inherit',
       timeoutSeconds: postgresTimeout,
-      reconcileAuth: true,
+      reconcileAuth: !freshInitialization,
       onPhase: (nextPhase) => {
         phase = nextPhase;
         if (nextPhase === 'alter_role') roleMutationStarted = true;
@@ -1406,7 +1420,7 @@ async function reconcilePostgresAuth(
     const healthTimeout = remainingSeconds(forwardDeadline);
     if (healthTimeout < 1) throw new Error('Forward deadline exhausted before health verification.');
     await docker.waitUntilHealthy(rendered.config, healthTimeout, healthTimeout * 1000);
-    await clearPostgresRecoveryJournal(config);
+    if (!freshInitialization) await clearPostgresRecoveryJournal(config);
     journalArmed = false;
     const result = {
       success: true,
@@ -1544,6 +1558,8 @@ async function database(context: RuntimeContext, docker: DockerManager, config: 
       fs.readFile(config.paths.composeEnvFile, 'utf8').catch(() => null),
     ]);
     if (existingEnvFiles.every((content) => content !== null) && postgresRuntimeDesired(config)) {
+      config = ensurePostgresInfrastructureConfig(config, { allowSecretGeneration: false });
+      await writeConfig(config);
       await reconcilePostgresAuth(context, docker, config, ['--timeout', String(timeoutSeconds)], json, true);
       config = await readConfig(context);
     }

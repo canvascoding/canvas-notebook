@@ -505,6 +505,9 @@ config_json_ensure_postgres_infrastructure_config() {
     fi
   fi
   if [[ -z "$pg_password" ]]; then
+    if [[ "${CANVAS_ALLOW_POSTGRES_SECRET_GENERATION:-true}" != "true" ]]; then
+      fail "Managed Postgres credentials are missing. Run: canvas-notebook database prepare-postgres"
+    fi
     pg_password="$(config_json_generate_secret)"
   fi
 
