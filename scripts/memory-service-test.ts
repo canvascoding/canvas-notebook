@@ -17,6 +17,10 @@ async function main(): Promise<void> {
     const db = await openDb();
     try {
       await db.run(`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)`, ['user-1', 'Memory User', 'memory@example.test']);
+      await db.run(`INSERT INTO canvas_organization_settings (organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at) VALUES ('org-1', 'user-1', 'team', 1, 1, 1)`);
+      await db.run(`INSERT INTO organization_user_permissions (organization_id, user_id, role, status, created_at, updated_at) VALUES ('org-1', 'user-1', 'member', 'active', 1, 1)`);
+      await db.run(`INSERT INTO canvas_workspaces (id, organization_id, type, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at) VALUES ('workspace-1', 'org-1', 'team', 'workspaces/team/org-1/workspace-1/files', 'Memory workspace', '', 'users-round', 'active', 0, 1, 1)`);
+      await db.run(`INSERT INTO canvas_workspace_members (organization_id, workspace_id, user_id, role, status, can_read, can_write, can_manage, created_at, updated_at) VALUES ('org-1', 'workspace-1', 'user-1', 'member', 'active', 1, 1, 0, 1, 1)`);
     } finally { await db.close(); }
 
     const {
@@ -25,6 +29,7 @@ async function main(): Promise<void> {
       claimDueMemoryReviewJob,
       completeMemoryReviewJob,
       deleteMemory,
+      publishMemory,
       readMemory,
       scheduleMemoryReviewForSession,
       updateMemory,
@@ -44,6 +49,31 @@ async function main(): Promise<void> {
 
     const workspace = await addMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', content: 'Use the approved brand voice.' });
     assert.equal(workspace.entry?.status, 'pending');
+    await assert.rejects(
+      () => updateMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id, content: 'Unapproved edit.' }),
+      /permission to update workspace memory/,
+    );
+    assert.deepEqual((await readMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1' })).entries, []);
+    await assert.rejects(
+      () => publishMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id }),
+      /permission to publish workspace memory/,
+    );
+    const governanceDb = await openDb();
+    try {
+      await governanceDb.run(`UPDATE canvas_workspace_members SET can_manage = 1 WHERE workspace_id = 'workspace-1' AND user_id = 'user-1'`);
+    } finally { await governanceDb.close(); }
+    const publishedWorkspace = await publishMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
+    assert.equal(publishedWorkspace.entry?.status, 'published');
+
+    const organizationMemory = await addMemory({ target: 'organization', userId: 'user-1', organizationId: 'org-1', content: 'Use British spelling in organization material.' });
+    assert.equal(organizationMemory.entry?.status, 'pending');
+    await assert.deepEqual((await readMemory({ target: 'organization', userId: 'user-1', organizationId: 'org-1' })).entries, []);
+    const organizationPermissionDb = await openDb();
+    try {
+      await organizationPermissionDb.run(`UPDATE organization_user_permissions SET can_manage_organization_memory = 1 WHERE organization_id = 'org-1' AND user_id = 'user-1'`);
+    } finally { await organizationPermissionDb.close(); }
+    const publishedOrganization = await publishMemory({ target: 'organization', userId: 'user-1', organizationId: 'org-1', id: organizationMemory.entry!.id });
+    assert.equal(publishedOrganization.entry?.status, 'published');
     await assert.rejects(() => addMemory({ ...scope, content: 'x'.repeat(801) }), /800 characters/);
     await assert.rejects(() => addMemory({ ...scope, content: 'API_KEY=secret-value' }), /secret or credential/);
 
@@ -97,10 +127,13 @@ async function main(): Promise<void> {
     const projected = await buildMemoryPromptProjection({
       userId: 'user-1',
       agentId: 'canvas-agent',
+      workspaceId: 'workspace-1',
+      organizationId: 'org-1',
       usableContextTokens: 10_000,
     });
     assert.match(projected, /Prefers concise responses/);
-    assert.doesNotMatch(projected, /Use the approved brand voice/);
+    assert.match(projected, /Use the approved brand voice/);
+    assert.match(projected, /Use British spelling in organization material/);
     await completeMemoryReviewJob(claim!.id, 1_003);
   } finally {
     moduleInternals._load = originalLoad;

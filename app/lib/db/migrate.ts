@@ -684,6 +684,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       can_delete_team_files INTEGER NOT NULL DEFAULT 0,
       can_delete_studio_assets INTEGER NOT NULL DEFAULT 1,
       can_manage_backups INTEGER NOT NULL DEFAULT 0,
+      can_manage_organization_memory INTEGER NOT NULL DEFAULT 0,
       can_migrate_database INTEGER NOT NULL DEFAULT 0,
       can_enable_knowledge INTEGER NOT NULL DEFAULT 0,
       can_recover_workspaces INTEGER NOT NULL DEFAULT 0,
@@ -1926,6 +1927,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   });
 
   addColumns(sqlite, 'organization_user_permissions', {
+    can_manage_organization_memory: 'INTEGER NOT NULL DEFAULT 0',
     status: "TEXT NOT NULL DEFAULT 'active'",
     disabled_at: 'INTEGER',
     archived_at: 'INTEGER',

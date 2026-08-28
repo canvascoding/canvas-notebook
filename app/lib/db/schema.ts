@@ -759,6 +759,7 @@ export const organizationUserPermissions = sqliteTable("organization_user_permis
   canDeleteTeamFiles: integer("can_delete_team_files", { mode: "boolean" }).notNull().default(false),
   canDeleteStudioAssets: integer("can_delete_studio_assets", { mode: "boolean" }).notNull().default(true),
   canManageBackups: integer("can_manage_backups", { mode: "boolean" }).notNull().default(false),
+  canManageOrganizationMemory: integer("can_manage_organization_memory", { mode: "boolean" }).notNull().default(false),
   canMigrateDatabase: integer("can_migrate_database", { mode: "boolean" }).notNull().default(false),
   canEnableKnowledge: integer("can_enable_knowledge", { mode: "boolean" }).notNull().default(false),
   canRecoverWorkspaces: integer("can_recover_workspaces", { mode: "boolean" }).notNull().default(false),

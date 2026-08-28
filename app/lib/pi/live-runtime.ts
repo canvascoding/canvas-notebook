@@ -844,6 +844,8 @@ class LivePiRuntime {
     this.memoryPromptBlock = await buildMemoryPromptProjection({
       userId: this.userId,
       agentId: this.agentId,
+      workspaceId: this.executionContext.workspaceId,
+      organizationId: this.executionContext.organizationId,
       usableContextTokens: this.model.contextWindow,
     });
     this.lastComposition = null;
@@ -1907,6 +1909,8 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const memoryPromptBlock = await buildMemoryPromptProjection({
     userId,
     agentId,
+    workspaceId: executionContext.workspaceId,
+    organizationId: executionContext.organizationId,
     usableContextTokens: model.contextWindow,
   });
   timing.mark('memoryPrompt');

@@ -6,10 +6,14 @@ import { openDb } from '@/app/lib/db';
 import {
   MEMORY_MAX_ENTRY_CHARS,
   type MemoryEntryStatus,
+  type MemoryScopePermissions,
   type MemoryScopeType,
   assertCompleteMemoryScopeIdentity,
   initialMemoryEntryStatus,
+  resolveMemoryScopePermissions,
 } from './contract';
+import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
+import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 
 export type MemoryTarget = MemoryScopeType;
 export type MemoryAction = 'read' | 'add' | 'update' | 'delete';
@@ -42,6 +46,8 @@ export type MemoryServiceScope = {
   workspaceId?: string | null;
   organizationId?: string | null;
 };
+
+type MemoryScopeAccessAction = 'read' | 'suggest' | 'publish' | 'update' | 'archive';
 
 const SECRET_PATTERNS = [
   /\b(?:api[_ -]?key|secret|token|password|passwd|credential)s?\b\s*[:=]/i,
@@ -77,6 +83,65 @@ function scopeIdentity(scope: MemoryServiceScope) {
     workspaceId: scope.workspaceId,
     organizationId: scope.organizationId,
   } as const;
+}
+
+/** Resolves shared-memory access from the server-owned workspace and organization state. */
+export async function resolveMemoryScopeAccess(scope: MemoryServiceScope): Promise<MemoryScopePermissions> {
+  assertCompleteMemoryScopeIdentity(scopeIdentity(scope));
+  if (scope.target === 'user' || scope.target === 'agent') {
+    return resolveMemoryScopePermissions({ scopeType: scope.target });
+  }
+
+  if (scope.target === 'workspace') {
+    const workspace = await resolveAgentSessionWorkspaceForUser({
+      userId: scope.userId,
+      workspaceId: scope.workspaceId,
+    });
+    if (workspace.workspaceId !== scope.workspaceId) {
+      throw new Error('Workspace memory scope does not match the effective workspace context.');
+    }
+    return resolveMemoryScopePermissions({
+      scopeType: 'workspace',
+      workspace: {
+        canRead: workspace.permissions.canRead,
+        canWrite: workspace.permissions.canWrite,
+        canManage: workspace.permissions.canManageWorkspace,
+      },
+    });
+  }
+
+  const organization = await readOrganizationPermissionForUser(scope.userId);
+  const permission = organization.permission;
+  return resolveMemoryScopePermissions({
+    scopeType: 'organization',
+    organization: {
+      isActiveInternalMember: organization.organizationId === scope.organizationId
+        && permission?.status === 'active'
+        && permission.role !== 'external',
+      isOwnerOrAdmin: permission?.role === 'owner' || permission?.role === 'admin',
+      canManageOrganizationMemory: permission?.canManageOrganizationMemory === true,
+    },
+  });
+}
+
+async function assertMemoryScopeAccess(
+  scope: MemoryServiceScope,
+  action: MemoryScopeAccessAction,
+): Promise<MemoryScopePermissions> {
+  const permissions = await resolveMemoryScopeAccess(scope);
+  const allowed = action === 'read'
+    ? permissions.canReadPublished
+    : action === 'suggest'
+      ? permissions.canSuggest
+      : action === 'publish'
+        ? permissions.canPublish
+        : action === 'update'
+          ? permissions.canUpdatePublished
+          : permissions.canArchive;
+  if (!allowed) {
+    throw new Error(`You do not have permission to ${action} ${scope.target} memory.`);
+  }
+  return permissions;
 }
 
 function scopeWhere(scope: MemoryServiceScope): { sql: string; params: unknown[] } {
@@ -148,6 +213,7 @@ async function findCollectionId(scope: MemoryServiceScope, create: boolean, cate
 }
 
 export async function readMemory(scope: MemoryServiceScope): Promise<MemoryReadResult> {
+  const permissions = await assertMemoryScopeAccess(scope, 'read');
   const collectionId = await findCollectionId(scope, false);
   if (!collectionId) return { target: scope.target, entries: [] };
   const connection = await openDb();
@@ -156,8 +222,9 @@ export async function readMemory(scope: MemoryServiceScope): Promise<MemoryReadR
       SELECT id, content, status, priority, pinned, collection_id, semantic_key
       FROM memory_entries
       WHERE collection_id = ? AND status != 'archived'
+        AND (? = 1 OR status = 'published')
       ORDER BY pinned DESC, priority DESC, updated_at DESC, id ASC
-    `, [collectionId]) as Record<string, unknown>[];
+    `, [collectionId, permissions.canPublish ? 1 : 0]) as Record<string, unknown>[];
     return { target: scope.target, entries: rows.map(toEntry) };
   } finally {
     await connection.close();
@@ -165,6 +232,7 @@ export async function readMemory(scope: MemoryServiceScope): Promise<MemoryReadR
 }
 
 export async function addMemory(scope: MemoryServiceScope & { content: string }): Promise<MemoryMutationResult> {
+  await assertMemoryScopeAccess(scope, 'suggest');
   const content = assertMemoryContent(scope.content);
   const collectionId = await findCollectionId(scope, true);
   if (!collectionId) throw new Error('Could not resolve a memory collection.');
@@ -204,6 +272,7 @@ export async function addMemory(scope: MemoryServiceScope & { content: string })
 }
 
 export async function updateMemory(scope: MemoryServiceScope & { id: string; content: string }): Promise<MemoryMutationResult> {
+  await assertMemoryScopeAccess(scope, 'update');
   const id = scope.id.trim();
   const content = assertMemoryContent(scope.content);
   const collectionId = await findCollectionId(scope, false);
@@ -222,6 +291,7 @@ export async function updateMemory(scope: MemoryServiceScope & { id: string; con
 }
 
 export async function deleteMemory(scope: MemoryServiceScope & { id: string }): Promise<MemoryMutationResult> {
+  await assertMemoryScopeAccess(scope, 'archive');
   const id = scope.id.trim();
   const collectionId = await findCollectionId(scope, false);
   if (!collectionId) throw new Error(`Memory entry "${id}" was not found.`);
@@ -235,6 +305,33 @@ export async function deleteMemory(scope: MemoryServiceScope & { id: string }): 
     await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'archive', 'assistant', ?, 'explicit_memory_tool', ?)`, [randomUUID(), id, scope.userId, now]);
     const result = await readMemory(scope);
     return { ...result, changed: true, archivedEntry: entry };
+  } finally { await connection.close(); }
+}
+
+/** Publishes a shared proposal after its workspace or organization manager reviews it. */
+export async function publishMemory(scope: MemoryServiceScope & { id: string }): Promise<MemoryMutationResult> {
+  await assertMemoryScopeAccess(scope, 'publish');
+  const id = scope.id.trim();
+  const collectionId = await findCollectionId(scope, false);
+  if (!collectionId) throw new Error(`Memory entry "${id}" was not found.`);
+  const connection = await openDb();
+  try {
+    const existing = await connection.get(`
+      SELECT id, content, status, priority, pinned, collection_id, semantic_key
+      FROM memory_entries
+      WHERE id = ? AND collection_id = ? AND status != 'archived'
+    `, [id, collectionId]) as Record<string, unknown> | undefined;
+    if (!existing) throw new Error(`Memory entry "${id}" was not found.`);
+    const entry = toEntry(existing);
+    if (entry.status === 'published') {
+      const result = await readMemory(scope);
+      return { ...result, changed: false, entry };
+    }
+    const now = Date.now();
+    await connection.run(`UPDATE memory_entries SET status = 'published', revision = revision + 1, updated_at = ? WHERE id = ?`, [now, id]);
+    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'publish', 'user', ?, 'shared_memory_manager', ?)`, [randomUUID(), id, scope.userId, now]);
+    const result = await readMemory(scope);
+    return { ...result, changed: true, entry: result.entries.find((candidate) => candidate.id === id) };
   } finally { await connection.close(); }
 }
 

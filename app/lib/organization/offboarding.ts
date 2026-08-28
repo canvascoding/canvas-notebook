@@ -995,6 +995,7 @@ export async function offboardUser(options: {
           can_delete_team_files = 0,
           can_delete_studio_assets = 0,
           can_manage_backups = 0,
+          can_manage_organization_memory = 0,
           can_migrate_database = 0,
           can_enable_knowledge = 0,
           can_recover_workspaces = 0,
