@@ -7,7 +7,6 @@ import { useTranslations } from 'next-intl';
 import { AgentCatalogModelOverrideCard } from './AgentCatalogModelOverrideEditor';
 import {
   resolveEnabledToolNames,
-  serializeEnabledToolNames,
   isDefaultToolsConfig,
   getDefaultEnabledToolNames,
   enableToolInConfig,
@@ -1061,14 +1060,21 @@ export function AgentSettingsPanel({
 
   const handleEnableAll = () => {
     const allNames = availableTools.map((t) => t.name);
-    const enabledNames = availableTools
-      .filter((tool) => tool.availability?.available !== false)
-      .map((tool) => tool.name);
-    void saveToolsConfig(serializeEnabledToolNames(enabledNames, allNames));
+    let newEnabledTools = getActiveEnabledTools();
+    for (const tool of filteredTools) {
+      if (tool.availability?.available === false) continue;
+      newEnabledTools = enableToolInConfig(tool.name, newEnabledTools, allNames);
+    }
+    void saveToolsConfig(newEnabledTools);
   };
 
   const handleDisableAll = () => {
-    void saveToolsConfig(['__none__']);
+    const allNames = availableTools.map((t) => t.name);
+    let newEnabledTools = getActiveEnabledTools();
+    for (const tool of filteredTools) {
+      newEnabledTools = disableToolInConfig(tool.name, newEnabledTools, allNames);
+    }
+    void saveToolsConfig(newEnabledTools);
   };
 
   const setToolsOverrideEnabled = async (enabled: boolean) => {
