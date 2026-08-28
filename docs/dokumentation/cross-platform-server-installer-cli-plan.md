@@ -222,6 +222,12 @@ erhalten. `config-set` validiert Domain, Image, Datenpfad, URLs und Env-Namen,
 verbietet die Persistenz von `BOOTSTRAP_ADMIN_PASSWORD` und behaelt numerische
 Secret-Werte als Strings bei.
 
+Teilstatus 2026-08-28: `version`, `-V` und `--version` liefern jetzt den
+Legacy-Build-Informationsvertrag sowie `cliGeneration`,
+`configSchemaVersion` und eine maschinenlesbare Command-Liste. Die gemeinsame
+Versionsauflosung behebt zugleich leere `status.image.cliVersion`-Werte in
+gepackten CLI-Bundles.
+
 - `version --json` und Capability-Vertrag.
 - `env`-Anzeige und `env --edit`.
 - vollstaendige freigegebene `config-set`-Pfade.
