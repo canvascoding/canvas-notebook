@@ -3327,6 +3327,73 @@
         "missing": "Die öffentliche Canvas-Domain ist noch nicht konfiguriert.",
         "notConfigured": "Keine Server-Adresse verfügbar"
       },
+      "connections": {
+        "title": "Deine verbundenen Clients",
+        "description": "Zeigt die MCP-Clients, die du autorisiert hast. Beim Trennen verliert dieser Client sofort den Zugriff auf deine Canvas-Daten; andere Personen bleiben unberührt.",
+        "refresh": "Aktualisieren",
+        "loading": "Lade verbundene Clients …",
+        "empty": "Du hast noch keine MCP-Clients autorisiert.",
+        "authorizedAt": "Autorisiert {time}",
+        "disconnect": "Trennen",
+        "disconnectConfirm": "{client} trennen? Der Zugriff auf deine Canvas-Daten wird sofort entfernt.",
+        "disconnected": "MCP-Client getrennt.",
+        "errors": {
+          "load": "Deine MCP-Verbindungen konnten nicht geladen werden.",
+          "disconnect": "Dieser MCP-Client konnte nicht getrennt werden."
+        },
+        "workspaceAccess": {
+          "manage": "Workspace-Zugriff verwalten",
+          "selectedCount": "{count, plural, =0 {Keine Workspaces ausgewählt} one {# Workspace ausgewählt} other {# Workspaces ausgewählt}}",
+          "title": "Workspace-Zugriff",
+          "description": "Wähle genau die Workspaces aus, auf die dieser Client zugreifen darf. Canvas prüft deine aktuellen Workspace-Rechte zusätzlich bei jeder MCP-Anfrage.",
+          "refresh": "Aktualisieren",
+          "loading": "Lade erreichbare Workspaces …",
+          "type": "{type}-Workspace",
+          "noneSelected": "Dieser Client kann erst auf Workspace-Daten zugreifen, nachdem du mindestens einen Workspace ausgewählt und gespeichert hast.",
+          "noWorkspaces": "Es gibt derzeit keine lesbaren Workspaces zur Auswahl.",
+          "save": "Zugriff speichern",
+          "saving": "Wird gespeichert …",
+          "saved": "Workspace-Zugriff gespeichert.",
+          "errors": {
+            "load": "Die verfügbaren Workspaces konnten nicht geladen werden.",
+            "save": "Der Workspace-Zugriff konnte nicht gespeichert werden."
+          }
+        }
+      },
+      "workspaceCatalog": {
+        "title": "Für Direct MCP verfügbare Workspaces",
+        "description": "Aktiviere einen Workspace hier, bevor du ihn einer bestimmten MCP-Verbindung zuordnen kannst. Die aktuellen Canvas-Workspace-Rechte gelten weiterhin bei jeder Anfrage.",
+        "loading": "Workspaces werden geladen …",
+        "type": "{type}-Workspace",
+        "notManager": "Nur Workspace-Manager können diesen Workspace für MCP aktivieren.",
+        "empty": "Es gibt keine aktiven Workspaces, auf die du zugreifen kannst.",
+        "connectionHint": "Wähle einen aktivierten Workspace anschließend für jede MCP-Verbindung weiter unten aus. Erst wenn beide Schritte abgeschlossen sind, kann eine Verbindung auf den Workspace zugreifen.",
+        "errors": {
+          "load": "Die MCP-Workspace-Einstellungen konnten nicht geladen werden."
+        },
+        "noneEnabled": {
+          "title": "Für Direct MCP ist noch kein Workspace aktiviert",
+          "description": "Aktiviere mindestens einen Workspace unten und ordne ihn dann der gewünschten MCP-Verbindung zu. Ohne aktivierten Workspace kann sich der Server zwar authentifizieren, aber keine Workspace-Daten zurückgeben."
+        }
+      },
+      "requestHistory": {
+        "title": "Letzte Anfragen",
+        "description": "Zeigt die letzten Anfragen an diesen Canvas-MCP-Server. Es werden nur sichere technische Metadaten gespeichert und nach {hours} Stunden automatisch gelöscht.",
+        "refresh": "Aktualisieren",
+        "loading": "Lade letzte Anfragen …",
+        "empty": "Keine Anfragen in den letzten {hours} Stunden.",
+        "requestId": "Request-ID",
+        "serverVersion": "Serverversion",
+        "duration": "{duration} ms",
+        "outcomes": {
+          "succeeded": "Erfolgreich",
+          "failed": "Fehler",
+          "rejected": "Abgewiesen"
+        },
+        "errors": {
+          "load": "Die letzten MCP-Anfragen konnten nicht geladen werden."
+        }
+      },
       "capabilities": {
         "title": "Was Clients verwenden dürfen",
         "description": "Nur aktivierte Werkzeuge werden über MCP bekanntgegeben.",
@@ -3384,6 +3451,7 @@
         "endpoint": "MCP-Endpunkt",
         "issuer": "OAuth-Aussteller",
         "protocol": "Protokoll",
+        "serverVersion": "Serverversion",
         "authentication": "Anmeldung und Transport",
         "scopes": "Freigegebene Berechtigungen"
       },
@@ -4025,6 +4093,16 @@
           "descriptionFallback": "Name, Kurzbeschreibung, Icon und Zugriff des Workspace anpassen.",
           "cancel": "Abbrechen",
           "save": "Änderungen speichern"
+        },
+        "mcp": {
+          "title": "Direct-MCP-Zugriff",
+          "description": "Erlaube, dass dieser Workspace für Direct-MCP-Verbindungen ausgewählt werden kann. Jede Verbindung benötigt zusätzlich eine eigene explizite Workspace-Auswahl.",
+          "immediate": "Dieser Schalter wird sofort gespeichert. Beim Ausschalten werden alle bisherigen MCP-Verbindungsfreigaben für diesen Workspace widerrufen.",
+          "switchLabel": "Workspace für Direct MCP aktivieren",
+          "errors": {
+            "load": "Der Direct-MCP-Zugriff für den Workspace konnte nicht geladen werden.",
+            "update": "Der Direct-MCP-Zugriff für den Workspace konnte nicht aktualisiert werden."
+          }
         },
         "typeChange": {
           "action": "Typ ändern",

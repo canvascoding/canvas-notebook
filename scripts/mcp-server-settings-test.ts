@@ -27,6 +27,9 @@ async function main(): Promise<void> {
     const { buildDirectMcpServerSettingsStatus } = await import(
       '../app/lib/mcp/server/settings-status'
     );
+    const { DIRECT_MCP_SERVER_VERSION } = await import(
+      '../app/lib/mcp/server/version'
+    );
     const { applyDirectMcpSettingsToRuntime } = await import(
       '../app/lib/mcp/server/runtime-settings'
     );
@@ -78,6 +81,7 @@ async function main(): Promise<void> {
     assert.equal(status.restartRequired, false);
     assert.equal(status.activationManagedByEnvironment, true);
     assert.equal(status.protocolVersion, '2026-07-28');
+    assert.equal(status.serverVersion, DIRECT_MCP_SERVER_VERSION);
     assert.deepEqual(
       status.capabilities.filter((capability) => capability.available),
       [

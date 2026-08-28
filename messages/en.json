@@ -3328,6 +3328,73 @@
         "missing": "The public Canvas domain has not been configured yet.",
         "notConfigured": "No server address available"
       },
+      "connections": {
+        "title": "Your connected clients",
+        "description": "Shows the MCP clients you have authorized. Disconnecting immediately removes this client's access to your Canvas data without affecting other people.",
+        "refresh": "Refresh",
+        "loading": "Loading connected clients…",
+        "empty": "You have not authorized any MCP clients yet.",
+        "authorizedAt": "Authorized {time}",
+        "disconnect": "Disconnect",
+        "disconnectConfirm": "Disconnect {client}? This immediately removes its access to your Canvas data.",
+        "disconnected": "MCP client disconnected.",
+        "errors": {
+          "load": "Could not load your MCP connections.",
+          "disconnect": "Could not disconnect this MCP client."
+        },
+        "workspaceAccess": {
+          "manage": "Manage workspace access",
+          "selectedCount": "{count, plural, =0 {No workspaces selected} one {# workspace selected} other {# workspaces selected}}",
+          "title": "Workspace access",
+          "description": "Select exactly which workspaces this client may access. Canvas checks your current workspace permissions again for every MCP request.",
+          "refresh": "Refresh",
+          "loading": "Loading accessible workspaces…",
+          "type": "{type} workspace",
+          "noneSelected": "This client cannot access workspace data until you select and save at least one workspace.",
+          "noWorkspaces": "There are no currently readable workspaces available to select.",
+          "save": "Save access",
+          "saving": "Saving…",
+          "saved": "Workspace access saved.",
+          "errors": {
+            "load": "Could not load the available workspaces.",
+            "save": "Could not save workspace access."
+          }
+        }
+      },
+      "workspaceCatalog": {
+        "title": "Workspaces available to Direct MCP",
+        "description": "Enable a workspace here before it can be granted to a specific MCP connection. Current Canvas workspace permissions still apply to every request.",
+        "loading": "Loading workspaces…",
+        "type": "{type} workspace",
+        "notManager": "Only a workspace manager can enable this workspace for MCP.",
+        "empty": "There are no active workspaces you can access.",
+        "connectionHint": "After enabling a workspace, select it for each MCP connection below. A connection cannot access a workspace until both steps are complete.",
+        "errors": {
+          "load": "Could not load MCP workspace settings."
+        },
+        "noneEnabled": {
+          "title": "No workspace is enabled for Direct MCP yet",
+          "description": "Enable at least one workspace below, then grant it to the MCP connection you want to use. Without an enabled workspace, the server can authenticate but cannot return workspace data."
+        }
+      },
+      "requestHistory": {
+        "title": "Recent requests",
+        "description": "Shows recent requests to this Canvas MCP server. Only safe technical metadata is stored and it is deleted automatically after {hours} hours.",
+        "refresh": "Refresh",
+        "loading": "Loading recent requests…",
+        "empty": "No requests in the last {hours} hours.",
+        "requestId": "Request ID",
+        "serverVersion": "Server version",
+        "duration": "{duration} ms",
+        "outcomes": {
+          "succeeded": "Succeeded",
+          "failed": "Failed",
+          "rejected": "Rejected"
+        },
+        "errors": {
+          "load": "Could not load recent MCP requests."
+        }
+      },
       "capabilities": {
         "title": "What clients may use",
         "description": "Only enabled tools are advertised over MCP.",
@@ -3385,6 +3452,7 @@
         "endpoint": "MCP endpoint",
         "issuer": "OAuth issuer",
         "protocol": "Protocol",
+        "serverVersion": "Server version",
         "authentication": "Authentication and transport",
         "scopes": "Granted permissions"
       },
@@ -4026,6 +4094,16 @@
           "descriptionFallback": "Update the workspace name, short description, icon, and access.",
           "cancel": "Cancel",
           "save": "Save changes"
+        },
+        "mcp": {
+          "title": "Direct MCP access",
+          "description": "Allow this workspace to be selected for Direct MCP connections. Each connection still needs its own explicit workspace selection.",
+          "immediate": "This switch is saved immediately. Turning it off revokes all existing MCP connection selections for this workspace.",
+          "switchLabel": "Enable workspace for Direct MCP",
+          "errors": {
+            "load": "Could not load Direct MCP workspace access.",
+            "update": "Could not update Direct MCP workspace access."
+          }
         },
         "typeChange": {
           "action": "Change type",

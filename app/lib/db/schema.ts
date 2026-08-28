@@ -391,6 +391,43 @@ export const mcpRevokedAccessToken = sqliteTable("mcp_revoked_access_token", {
   expiryIdx: index("idx_mcp_revoked_access_token_expiry").on(table.expiresAt),
 }));
 
+// A user can disconnect their own Direct MCP grant without disabling the
+// dynamically registered public client for other users. The timestamp keeps
+// bearer JWTs issued before the disconnect invalid while permitting a later,
+// explicit reauthorization for the same browser session.
+export const mcpDirectGrantRevocation = sqliteTable("mcp_direct_grant_revocation", {
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull().references(() => session.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  revokedAt: integer("revoked_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => ({
+  grantPk: primaryKey({ columns: [table.clientId, table.sessionId, table.userId] }),
+  userClientIdx: index("idx_mcp_direct_grant_revocation_user_client").on(table.userId, table.clientId),
+}));
+
+// Direct MCP only exposes workspace data after the signed-in person explicitly
+// selects it for that public OAuth client. Current Canvas ACL checks remain in
+// effect at every tool call, so an outdated row never grants access by itself.
+export const mcpDirectWorkspaceGrant = sqliteTable("mcp_direct_workspace_grant", {
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => ({
+  grantPk: primaryKey({ columns: [table.clientId, table.userId, table.workspaceId] }),
+  userClientIdx: index("idx_mcp_direct_workspace_grant_user_client").on(table.userId, table.clientId),
+}));
+
+// A workspace manager must opt a workspace into Direct MCP before an
+// individual user can grant it to one of their OAuth clients.
+export const mcpDirectWorkspaceSetting = sqliteTable("mcp_direct_workspace_setting", {
+  workspaceId: text("workspace_id").primaryKey().references(() => canvasWorkspaces.id, { onDelete: "cascade" }),
+  enabledByUserId: text("enabled_by_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  enabledAt: integer("enabled_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const oauthConsent = sqliteTable("oauth_consent", {
   id: text("id").primaryKey(),
   clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
@@ -2254,6 +2291,29 @@ export const auditEvents = sqliteTable("audit_events", {
   userCreatedIdx: index("idx_audit_events_user_created").on(table.userId, table.createdAt),
   entityCreatedIdx: index("idx_audit_events_entity_created").on(table.entityType, table.entityId, table.createdAt),
   sourceActionCreatedIdx: index("idx_audit_events_source_action_created").on(table.source, table.action, table.createdAt),
+}));
+
+// Short-lived, metadata-only diagnostics for the public Canvas MCP server.
+// This is intentionally separate from audit_events: it is automatically
+// pruned and must never contain request bodies, OAuth material, or user data.
+export const directMcpRequestHistory = sqliteTable("direct_mcp_request_history", {
+  id: text("id").primaryKey(),
+  requestId: text("request_id").notNull(),
+  serverVersion: text("server_version"),
+  flowRef: text("flow_ref"),
+  phase: text("phase").notNull(),
+  httpMethod: text("http_method").notNull(),
+  operation: text("operation"),
+  toolName: text("tool_name"),
+  outcome: text("outcome").notNull(),
+  statusCode: integer("status_code"),
+  code: text("code").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  createdIdx: index("idx_direct_mcp_request_history_created").on(table.createdAt),
+  expiresIdx: index("idx_direct_mcp_request_history_expires").on(table.expiresAt),
 }));
 
 export const telegramActiveSession = sqliteTable("telegram_active_session", {

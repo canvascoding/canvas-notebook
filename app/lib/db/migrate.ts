@@ -369,6 +369,51 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_mcp_revoked_access_token_expiry
       ON mcp_revoked_access_token (expires_at);
 
+    -- Revokes one user's Direct MCP grant while preserving the public OAuth
+    -- client for other users. A timestamp lets a subsequent reauthorization
+    -- issue a new bearer token for the same browser session.
+    CREATE TABLE IF NOT EXISTS mcp_direct_grant_revocation (
+      client_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      revoked_at INTEGER NOT NULL,
+      PRIMARY KEY (client_id, session_id, user_id),
+      FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
+      FOREIGN KEY (session_id) REFERENCES session(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mcp_direct_grant_revocation_user_client
+      ON mcp_direct_grant_revocation (user_id, client_id);
+
+    -- A Direct MCP connection starts with no workspace data access. Rows here
+    -- are an explicit user-selected allowlist and are checked in addition to
+    -- Canvas's current workspace ACL for every tool invocation.
+    CREATE TABLE IF NOT EXISTS mcp_direct_workspace_grant (
+      client_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (client_id, user_id, workspace_id),
+      FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mcp_direct_workspace_grant_user_client
+      ON mcp_direct_workspace_grant (user_id, client_id);
+
+    -- Workspace managers opt workspaces into Direct MCP before users can add
+    -- them to an individual OAuth client connection. Absence means disabled.
+    CREATE TABLE IF NOT EXISTS mcp_direct_workspace_setting (
+      workspace_id TEXT PRIMARY KEY NOT NULL,
+      enabled_by_user_id TEXT NOT NULL,
+      enabled_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
+      FOREIGN KEY (enabled_by_user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS oauth_consent (
       id TEXT PRIMARY KEY NOT NULL,
       client_id TEXT NOT NULL,
@@ -1500,6 +1545,23 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       created_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS direct_mcp_request_history (
+      id TEXT PRIMARY KEY NOT NULL,
+      request_id TEXT NOT NULL,
+      server_version TEXT,
+      flow_ref TEXT,
+      phase TEXT NOT NULL,
+      http_method TEXT NOT NULL,
+      operation TEXT,
+      tool_name TEXT,
+      outcome TEXT NOT NULL,
+      status_code INTEGER,
+      code TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS automation_jobs (
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
@@ -2492,6 +2554,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_audit_events_user_created ON audit_events (user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_entity_created ON audit_events (entity_type, entity_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_source_action_created ON audit_events (source, action, created_at);
+    CREATE INDEX IF NOT EXISTS idx_direct_mcp_request_history_created ON direct_mcp_request_history (created_at);
+    CREATE INDEX IF NOT EXISTS idx_direct_mcp_request_history_expires ON direct_mcp_request_history (expires_at);
   `);
 
   if (tableExists(sqlite, 'ai_sessions') && tableExists(sqlite, 'ai_messages')) {
@@ -2505,6 +2569,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   // ── Column additions for existing volumes ────────────────────────────────────
   // Each block adds columns that were missing from older schema versions.
   // ALTER TABLE ADD COLUMN is idempotent here because we check PRAGMA table_info first.
+
+  addColumns(sqlite, 'direct_mcp_request_history', {
+    server_version: 'TEXT',
+  });
 
   addColumns(sqlite, 'agents', {
     scope_type: "TEXT NOT NULL DEFAULT 'user'",

@@ -154,6 +154,7 @@ async function main(): Promise<void> {
         DIRECT_MCP_AUTH_PROBE_SCOPE,
         DIRECT_MCP_AUTH_PROBE_TOOL,
       },
+      { DIRECT_MCP_SERVER_VERSION },
       { default: appProxy },
       { NextRequest },
     ] = await Promise.all([
@@ -162,6 +163,7 @@ async function main(): Promise<void> {
       import('../app/lib/db'),
       import('../app/mcp/route'),
       import('../app/lib/mcp/server/auth-probe'),
+      import('../app/lib/mcp/server/version'),
       import('../proxy'),
       import('next/server'),
     ]);
@@ -324,6 +326,10 @@ async function main(): Promise<void> {
       (initializeResult.serverInfo as JsonRecord).name,
       'canvas-notebook-direct-mcp',
     );
+    assert.equal(
+      (initializeResult.serverInfo as JsonRecord).version,
+      DIRECT_MCP_SERVER_VERSION,
+    );
 
     const modernDiscovery = await modernRpcRequest({
       post: mcpRoute.POST,
@@ -338,6 +344,10 @@ async function main(): Promise<void> {
     assert.equal(
       ((modernDiscoveryResult._meta as JsonRecord)['io.modelcontextprotocol/serverInfo'] as JsonRecord).name,
       'canvas-notebook-direct-mcp',
+    );
+    assert.equal(
+      ((modernDiscoveryResult._meta as JsonRecord)['io.modelcontextprotocol/serverInfo'] as JsonRecord).version,
+      DIRECT_MCP_SERVER_VERSION,
     );
 
     const modernToolsList = await modernRpcRequest({
@@ -596,6 +606,26 @@ async function main(): Promise<void> {
     assert.equal(JSON.stringify(authenticatedBody).includes('workspace'), true);
     assert.equal(JSON.stringify(authenticatedBody).includes('knowledge'), false);
 
+    const authorizedProbe = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 51,
+        method: 'tools/call',
+        params: {
+          name: DIRECT_MCP_AUTH_PROBE_TOOL,
+          arguments: {},
+        },
+      },
+    });
+    assert.equal(authorizedProbe.status, 200);
+    const authorizedProbeResult = resultFromRpc(await readJson(authorizedProbe));
+    assert.deepEqual(
+      (authorizedProbeResult.structuredContent as JsonRecord).scopes,
+      [...DIRECT_MCP_RESOURCE_SCOPES].sort(),
+    );
+
     const foreignProbe = await rpcRequest({
       post: mcpRoute.POST,
       token: foreignToken,
@@ -678,6 +708,25 @@ async function main(): Promise<void> {
       },
     });
     assert.equal(disabled.status, 404);
+
+    const { listRecentDirectMcpRequestHistory } = await import(
+      '../app/lib/mcp/server/request-history'
+    );
+    const requestHistory = await listRecentDirectMcpRequestHistory();
+    assert.equal(
+      requestHistory.some((entry) => entry.operation === 'tools/list'),
+      true,
+      'Direct MCP tool-list requests should be traceable.',
+    );
+    assert.equal(
+      requestHistory.some((entry) => (
+        entry.operation === 'tools/call'
+        && entry.toolName === DIRECT_MCP_AUTH_PROBE_TOOL
+        && entry.code === 'MCP_TOOL_ERROR'
+      )),
+      true,
+      'Failed Direct MCP tool calls should retain only their safe tool metadata.',
+    );
     assert.deepEqual(
       outboundRequests,
       [],

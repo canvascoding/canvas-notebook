@@ -20,6 +20,11 @@ import {
   runWithDirectMcpDiagnostic,
   withDirectMcpRequestId,
 } from '@/app/lib/mcp/server/diagnostics';
+import { pruneUnusedDirectMcpDynamicClients } from '@/app/lib/mcp/server/oauth-client-maintenance';
+import { rateLimit } from '@/app/lib/utils/rate-limit';
+
+const DIRECT_MCP_DYNAMIC_CLIENT_REGISTRATION_RATE_LIMIT = 10;
+const DIRECT_MCP_DYNAMIC_CLIENT_REGISTRATION_RATE_WINDOW_MS = 60_000;
 
 function hasAuthPathSegment(pathname: string, segment: string): boolean {
   return new RegExp(`/${segment}(?:/|$)`).test(pathname);
@@ -125,6 +130,46 @@ function directMcpOAuthUnavailableResponse(): Response {
   );
 }
 
+function directMcpOAuthRegistrationRateLimitedResponse(response: Response): Response {
+  const retryAfter = response.headers.get('retry-after') || '60';
+  return NextResponse.json(
+    {
+      error: 'temporarily_unavailable',
+      error_description: 'Direct MCP client registration is temporarily rate limited. Try again later.',
+    },
+    {
+      status: 429,
+      headers: {
+        'cache-control': 'no-store',
+        pragma: 'no-cache',
+        'retry-after': retryAfter,
+      },
+    },
+  );
+}
+
+function directMcpRegistrationAuditStatus(status: number): 'success' | 'failure' | 'error' | 'blocked' {
+  if (status === 429) return 'blocked';
+  if (status >= 500) return 'error';
+  return status < 400 ? 'success' : 'failure';
+}
+
+async function recordDirectMcpRegistrationAudit(response: Response): Promise<void> {
+  await recordAuditEvent({
+    source: 'direct_mcp',
+    eventType: 'oauth_client_registration',
+    entityType: 'oauth_client',
+    action: 'direct_mcp.dynamic_client_registration',
+    status: directMcpRegistrationAuditStatus(response.status),
+    summary: `Direct MCP OAuth client registration returned HTTP ${response.status}.`,
+    metadata: {
+      endpoint: '/api/auth/oauth2/register',
+      statusCode: response.status,
+      rateLimited: response.status === 429,
+    },
+  });
+}
+
 class DirectMcpOAuthStageError extends Error {
   constructor(readonly code: string) {
     super(code);
@@ -159,6 +204,7 @@ async function handleDirectMcpOAuthRequest(
       ? 'oauth.registration'
       : 'oauth.request',
   );
+  const isRegistration = request.nextUrl.pathname === '/api/auth/oauth2/register';
   try {
     const response = withDirectMcpRequestId(
       await runWithDirectMcpDiagnostic(
@@ -168,34 +214,41 @@ async function handleDirectMcpOAuthRequest(
       diagnostics.requestId,
     );
     if (response.status >= 500) {
-      completeDirectMcpDiagnostic(diagnostics, {
+      const unavailableResponse = withDirectMcpRequestId(
+        directMcpOAuthUnavailableResponse(),
+        diagnostics.requestId,
+      );
+      if (isRegistration) await recordDirectMcpRegistrationAudit(unavailableResponse);
+      await completeDirectMcpDiagnostic(diagnostics, {
         statusCode: 503,
         code: 'OAUTH_PROVIDER_ERROR',
         startedAt,
       });
-      return withDirectMcpRequestId(
-        directMcpOAuthUnavailableResponse(),
-        diagnostics.requestId,
-      );
+      return unavailableResponse;
     }
-    completeDirectMcpDiagnostic(diagnostics, {
+    if (isRegistration) await recordDirectMcpRegistrationAudit(response);
+    await completeDirectMcpDiagnostic(diagnostics, {
       statusCode: response.status,
-      code: 'OAUTH_REQUEST_COMPLETED',
+      code: isRegistration && response.status === 429
+        ? 'OAUTH_REGISTRATION_RATE_LIMITED'
+        : 'OAUTH_REQUEST_COMPLETED',
       startedAt,
     });
     return response;
   } catch (error) {
-    failDirectMcpDiagnostic(diagnostics, {
+    const unavailableResponse = withDirectMcpRequestId(
+      directMcpOAuthUnavailableResponse(),
+      diagnostics.requestId,
+    );
+    if (isRegistration) await recordDirectMcpRegistrationAudit(unavailableResponse);
+    await failDirectMcpDiagnostic(diagnostics, {
       code: error instanceof DirectMcpOAuthStageError
         ? error.code
         : 'OAUTH_INTERNAL_ERROR',
       startedAt,
       statusCode: 503,
     });
-    return withDirectMcpRequestId(
-      directMcpOAuthUnavailableResponse(),
-      diagnostics.requestId,
-    );
+    return unavailableResponse;
   }
 }
 
@@ -226,6 +279,22 @@ export async function POST(request: NextRequest) {
       () => prepareDirectMcpOAuthRequest(request),
     );
     if (prepared.response) return prepared.response;
+    if (isRegistration) {
+      const limited = rateLimit(request, {
+        limit: DIRECT_MCP_DYNAMIC_CLIENT_REGISTRATION_RATE_LIMIT,
+        windowMs: DIRECT_MCP_DYNAMIC_CLIENT_REGISTRATION_RATE_WINDOW_MS,
+        keyPrefix: 'direct-mcp-oauth-client-registration',
+      });
+      if (!limited.ok) return directMcpOAuthRegistrationRateLimitedResponse(limited.response);
+
+      try {
+        await pruneUnusedDirectMcpDynamicClients();
+      } catch {
+        // Maintenance must never make a legitimate public client registration
+        // fail. The OAuth provider still owns the authoritative registration.
+        console.warn('[direct-mcp] Unable to prune unused OAuth clients.');
+      }
+    }
     const authRequest = prepared.request;
     const revocationCandidate = await runDirectMcpOAuthStage(
       isRegistration
