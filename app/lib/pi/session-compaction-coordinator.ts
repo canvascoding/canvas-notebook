@@ -447,9 +447,9 @@ export async function runPiSessionCompaction(
         retryAt: committed.attempt.retryAt,
       });
     }
-    if (!isAttemptCurrent(key, active, input)) {
-      return result({ state: 'stale', attemptId, reasonCode: 'stale_snapshot' });
-    }
+    // The transactional store result is authoritative once the summary commit wins.
+    // A concurrent abort/invalidation may still stop the active turn, but callers must
+    // adopt the committed revision so later saves cannot continue from stale state.
     return result({
       state: 'succeeded',
       attemptId,

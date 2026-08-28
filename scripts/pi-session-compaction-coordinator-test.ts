@@ -207,6 +207,33 @@ async function main(): Promise<void> {
 
   {
     const { store, calls } = createStore();
+    const commitStarted = deferred<void>();
+    const releaseCommit = deferred<void>();
+    const commitWinsStore: PiCompactionCoordinatorStore = {
+      ...store,
+      commit: async (input) => {
+        commitStarted.resolve();
+        await releaseCommit.promise;
+        return store.commit(input);
+      },
+    };
+    const run = runPiSessionCompaction({
+      ...baseRunInput(commitWinsStore),
+      attemptId: 'attempt-commit-wins-abort-race',
+      prepareCandidate: async () => candidate(),
+    });
+    await commitStarted.promise;
+    assert.equal(abortPiSessionCompaction(scope), true);
+    releaseCommit.resolve();
+    const committed = await run;
+    assert.equal(committed.state, 'succeeded');
+    assert.equal(committed.summary?.summaryRevision, 1);
+    assert.equal(calls.commit, 1);
+    assert.equal(calls.finish.length, 0);
+  }
+
+  {
+    const { store, calls } = createStore();
     let prepareCalls = 0;
     const staleBeforeProvider = await runPiSessionCompaction({
       ...baseRunInput(store),
