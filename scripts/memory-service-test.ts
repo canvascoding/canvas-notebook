@@ -33,6 +33,7 @@ async function main(): Promise<void> {
       importPersonalMemory,
       publishMemory,
       readMemory,
+      runMemoryMaintenanceCycle,
       scheduleMemoryReviewForSession,
       updateMemory,
     } = await import('../app/lib/memory/service');
@@ -157,6 +158,18 @@ async function main(): Promise<void> {
     await ensureLegacyMemoryMigrated('canvas-agent', { userId: 'user-1' });
     assert.match((await readMemory(scope)).entries[0]?.content ?? '', /migration-safe context/);
     assert.match((await readMemory({ target: 'agent', userId: 'user-1', agentId: 'canvas-agent' })).entries[0]?.content ?? '', /agent-specific migration context/);
+    const maintenanceDb = await openDb();
+    try {
+      const staleId = 'maintenance-stale';
+      const pinnedId = 'maintenance-pinned';
+      const collection = await maintenanceDb.get(`SELECT id FROM memory_collections WHERE user_id = 'user-1' AND scope_type = 'user' LIMIT 1`) as { id: string };
+      for (const [id, pinned] of [[staleId, 0], [pinnedId, 1]] as const) {
+        await maintenanceDb.run(`INSERT INTO memory_entries (id, collection_id, content, normalized_content_hash, status, priority, pinned, sensitivity, estimated_tokens, created_by_actor_type, created_by_user_id, revision, created_at, updated_at) VALUES (?, ?, ?, ?, 'published', 10, ?, 'standard', 4, 'memory_manager', 'user-1', 1, 1, 1)`, [id, collection.id, id, id, pinned]);
+      }
+      assert.deepEqual(await runMemoryMaintenanceCycle(100 * 24 * 60 * 60 * 1000), { archived: 1 });
+      const statuses = await maintenanceDb.all(`SELECT id, status FROM memory_entries WHERE id IN (?, ?) ORDER BY id`, [pinnedId, staleId]) as Array<{ id: string; status: string }>;
+      assert.deepEqual(statuses, [{ id: pinnedId, status: 'published' }, { id: staleId, status: 'archived' }]);
+    } finally { await maintenanceDb.close(); }
   } finally {
     moduleInternals._load = originalLoad;
     await fs.rm(dataDir, { recursive: true, force: true });

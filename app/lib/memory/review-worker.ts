@@ -14,6 +14,7 @@ import {
   loadMemoryReviewSourceMessages,
   nextMemoryReviewDueAt,
   readMemoryReviewContext,
+  runMemoryMaintenanceCycle,
   retryMemoryReviewJob,
   scheduleMemoryReviewForSession,
   type MemoryReviewCandidate,
@@ -26,6 +27,7 @@ export const MEMORY_MANAGER_AGENT_ID = 'memory-manager';
 const MAX_REVIEW_TRANSCRIPT_CHARS = 18_000;
 const MAX_REVIEW_RESPONSE_CHARS = 12_000;
 const MAX_TIMER_DELAY_MS = 2_147_000_000;
+const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 type MemoryReviewWorkerRuntime = {
   timer: ReturnType<typeof setTimeout> | null;
@@ -247,6 +249,7 @@ export async function runMemoryReviewWorkerCycle(options: { maxJobs?: number } =
       console.error('[MemoryManager] Review failed.', { jobId: claim.id, errorCode: errorCode(error) });
     }
   }
+  await runMemoryMaintenanceCycle();
   return completed;
 }
 
@@ -259,8 +262,7 @@ async function scheduleRuntime(delayMs?: number): Promise<void> {
   if (!runtime || runtime.stopped) return;
   if (runtime.timer) clearTimeout(runtime.timer);
   const dueAt = await nextMemoryReviewDueAt();
-  if (dueAt === null && delayMs === undefined) return;
-  const delay = delayMs ?? Math.max(0, Math.min(MAX_TIMER_DELAY_MS, dueAt! - Date.now()));
+  const delay = delayMs ?? Math.max(0, Math.min(MAX_TIMER_DELAY_MS, (dueAt ?? (Date.now() + MAINTENANCE_INTERVAL_MS)) - Date.now()));
   runtime.timer = setTimeout(() => {
     runtime.timer = null;
     if (runtime.running) {

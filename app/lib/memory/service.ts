@@ -876,3 +876,28 @@ export async function nextMemoryReviewDueAt(): Promise<number | null> {
     return typeof row?.scheduled_for === 'number' ? row.scheduled_for : null;
   } finally { await connection.close(); }
 }
+
+/**
+ * Conservative periodic hygiene: only archives very old, low-priority,
+ * unpinned private facts. It never mutates pinned entries or shared memory.
+ */
+export async function runMemoryMaintenanceCycle(now = Date.now()): Promise<{ archived: number }> {
+  const staleBefore = now - 90 * 24 * 60 * 60 * 1000;
+  const connection = await openDb();
+  try {
+    const rows = await connection.all(`
+      SELECT entry.id, collection.user_id
+      FROM memory_entries entry
+      INNER JOIN memory_collections collection ON collection.id = entry.collection_id
+      WHERE collection.scope_type IN ('user', 'agent')
+        AND entry.status = 'published' AND entry.pinned = 0 AND entry.priority <= 20
+        AND entry.updated_at <= ?
+      LIMIT 100
+    `, [staleBefore]) as Array<{ id: string; user_id: string }>;
+    for (const row of rows) {
+      await connection.run(`UPDATE memory_entries SET status = 'archived', revision = revision + 1, updated_at = ? WHERE id = ? AND status = 'published' AND pinned = 0`, [now, row.id]);
+      await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'archive', 'memory_manager', ?, 'automatic_maintenance_stale', ?)`, [randomUUID(), row.id, row.user_id, now]);
+    }
+    return { archived: rows.length };
+  } finally { await connection.close(); }
+}
