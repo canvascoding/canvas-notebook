@@ -3219,6 +3219,12 @@ export function IntegrationsSettingsClient({
                     onSaveRaw={saveRaw}
                   />
                 ))}
+              {isAdmin && (
+                <StudioMediaCredentialsPanel
+                  locale={locale}
+                  managedControlPlaneAvailable={isManagedControlPlane}
+                />
+              )}
             </section>,
             { id: 'onboarding-settings-secrets' },
           )}
@@ -3281,10 +3287,6 @@ export function IntegrationsSettingsClient({
               <AiProvidersModelsPanel
                 locale={locale}
                 deploymentMode={isManagedControlPlane ? 'managed' : 'self-hosted'}
-              />
-              <StudioMediaCredentialsPanel
-                locale={locale}
-                managedControlPlaneAvailable={isManagedControlPlane}
               />
             </>
           ))}
