@@ -81,6 +81,8 @@ assert.doesNotMatch(nativeWorkflow, /gh release create/u);
 assert.doesNotMatch(nativeWorkflow, /gh release upload/u);
 assert.match(nativeWorkflow, /Package immutable release metadata/u);
 assert.match(nativeWorkflow, /canvas-notebook-release-metadata\.json/u);
+assert.match(nativeWorkflow, /canvas-notebook-linux-cli-amd64\.tar\.gz/u);
+assert.match(nativeWorkflow, /canvas-notebook-linux-cli-arm64\.tar\.gz/u);
 const verifyMultiArchIndex = nativeWorkflow.indexOf('Verify multi-architecture native compliance');
 const createManifestIndex = nativeWorkflow.indexOf('Create multi-arch manifest');
 const packageMetadataIndex = nativeWorkflow.indexOf('Package immutable release metadata');
@@ -91,6 +93,8 @@ assert(uploadBundleIndex > packageMetadataIndex, 'The gated release bundle must 
 assert.match(workflow, /release:\s+types: \[published\]/su);
 assert.match(workflow, /browser_download_url/u);
 assert.match(workflow, /canvas-notebook-release-metadata\.json/u);
+assert.match(workflow, /metadata\.linuxCli\?\.amd64/u);
+assert.match(workflow, /metadata\.linuxCli\?\.arm64/u);
 assert.match(workflow, /RELEASE_BUILD_RUN_ID/u);
 assert.match(workflow, /CONTROL_PLANE_RELEASE_WEBHOOK_SECRET is required for published releases/u);
 

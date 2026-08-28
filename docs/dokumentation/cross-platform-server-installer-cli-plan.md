@@ -365,9 +365,19 @@ wird nicht still akzeptiert. Managed-Control-Plane-Installationen bleiben wie
 bisher vom autonomen Self-Update ausgeschlossen.
 
 Der neue Pfad wird mit einem gezielten Self-Update-Test und auf beiden nativen
-Linux-Runnern geprueft. Als naechstes muessen die beiden Architekturartefakte in
-den gegateten Release-Bundle- und Control-Plane-Metadatenpfad aufgenommen werden;
-die bestehende Bash-CLI wird bis zu diesem Gate noch nicht automatisch ersetzt.
+Linux-Runnern geprueft. Beide Runner liefern ihre architekturspezifischen Pakete
+jetzt an den gegateten Release-Job. Der unveraenderliche Release-Bundle und
+`canvas-notebook-release-metadata.json` enthalten Dateiname und SHA-256 fuer
+`amd64` und `arm64`; der Release-Publish-Workflow laedt beide Archive erneut und
+gleicht Inhalt, Checksumme und Metadaten ab, bevor die Control Plane informiert
+wird.
+
+Die Read-only-Pruefung im Control-Plane-Repository zeigt als naechstes
+Migrationsgate: API, Release-Katalog und Agent persistieren beziehungsweise
+installieren derzeit nur `canvas-notebook-host-cli.tar.gz`. Dieser Vertrag muss
+um die beiden neuen Artefakte und eine architekturabhaengige Auswahl erweitert
+werden. Bis dieser Gegenpart implementiert und als Canary verifiziert ist, wird
+die bestehende Bash-CLI nicht automatisch ersetzt.
 
 - kanonisches Linux-Artefakt fuer `amd64` und `arm64` bauen.
 - Checksum und Archiv-Allowlist pruefen.
