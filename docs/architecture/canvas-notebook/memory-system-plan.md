@@ -9,6 +9,11 @@ Canvas Notebook ersetzt die laufzeitrelevanten Prompt-Dateien `USER.md` und
 kuratierten, langlebigen Kontext mit eindeutiger Eigentuemlichkeit,
 Berechtigungen, Audit-Herkunft und gezielter Prompt-Einblendung.
 
+Memory wird im Normalbetrieb vollstaendig durch den Assistant und einen
+isolierten Memory-Manager gepflegt. Der User muss keine Memory-Dateien und
+keine Datenbankeintraege selbst schreiben. Die UI dient primaer der
+Inspektion, Korrektur, Freigabe und Kontrolle der Automatik.
+
 Die bisherige Dateiloesung bleibt nur als Import- und Exportformat bestehen.
 Neue Chats und Agenten lesen `USER.md` und `MEMORY.md` nach der Migration nicht
 mehr als Runtime-Quelle.
@@ -152,26 +157,93 @@ Empfohlene Kategorien:
 
 ```text
 memory_entries
-  id, collection_id, content, status: pending | published | archived
-  source_session_id?, source_agent_id?, created_by_user_id?
+  id, collection_id, semantic_key?, content
+  status: pending | published | archived
+  priority: 0..100, pinned, sensitivity, confidence?
+  estimated_tokens
+  source_session_id?, source_message_id?, source_agent_id?
+  created_by_actor_type, created_by_user_id?
+  last_confirmed_at, last_used_at?, revision
   created_at, updated_at
 
 memory_events
   id, entry_id, action, actor_type, actor_user_id?, session_id?
-  reason, evidence_reference?, created_at
+  source_message_id?, decision_code?, created_at
 ```
 
 `memory_events` wird nicht in Agent-Prompts eingeblendet. Es stellt fuer Nutzer
 und Admins nachvollziehbar dar, ob ein Eintrag manuell, durch einen Agenten,
 einen automatischen Review oder einen Import entstanden ist.
 
+`semantic_key` identifiziert eine bekannte, aktualisierbare Aussage wie
+`communication.preferred_response_language`. Eine spaetere Korrektur ersetzt
+oder archiviert den bisherigen Wert, statt einen widerspruechlichen zweiten
+Eintrag anzulegen. Fuer freie Areas darf der Memory-Service einen stabilen
+Schluessel aus Scope, Kategorie und normalisiertem Inhalt bilden.
+
+Es werden keine Gedankengaenge, Chain-of-Thought-Inhalte oder freien
+Review-Begruendungen gespeichert. `decision_code` ist lediglich ein kurzer,
+technischer Auditwert wie `explicit_user_preference`, `duplicate`,
+`superseded` oder `sensitive_without_opt_in`.
+
+### Feldverantwortung
+
+| Komponente | Schreibt |
+| --- | --- |
+| Runtime und Job-Erzeuger | Session-, Message- und Turn-Referenz sowie den Idempotency-Key |
+| isolierter Memory-Manager | strukturierte Kandidaten: Aktion, Kategorie, `semantic_key`, kompakter Inhalt, Prioritaet, Sensitivitaet und Confidence |
+| serverseitiger Memory-Service | konkrete Scope-IDs, Collection, Rechteentscheidung, Status, Deduplizierung, Revision und Audit-Event |
+| Datenbank und Service-Defaults | IDs, Zeitstempel, normalisierte Hashes und Token-Schaetzung |
+
+`userId`, `agentId`, `workspaceId` und `organizationId` stammen ausschliesslich
+aus der gespeicherten Session und dem effektiven `AgentExecutionContext`. Das
+Modell darf einen Scope vorschlagen, aber niemals verbindliche Scope-IDs oder
+Berechtigungen setzen.
+
+### Review-Jobs
+
+Automatische Reviews werden nicht nur als In-Memory-Event gestartet, sondern
+dauerhaft eingeplant:
+
+```text
+memory_review_jobs
+  id, user_id, session_id, source_assistant_message_id
+  through_message_sequence, status
+  attempts, lease_until?, error_code?
+  created_at, started_at?, completed_at?
+```
+
+Die Kombination aus Session und Assistant-Nachricht ist eindeutig. Ein Job
+kann nach Prozessneustart oder Providerfehler wiederholt werden, ohne
+Memory-Eintraege doppelt anzulegen.
+
 ## Automatisches Merken
 
 ### Prinzip
 
-Automatisches Merken ist ein separater Hintergrundpfad nach einer erfolgreichen
-Antwort. Es darf weder die Antwortlatenz erhoehen noch den aktiven Chatverlauf
-mutieren.
+Automatisches Merken ist ein separater Hintergrundpfad nach erfolgreichen
+Antworten. Jeder geeignete Turn wird durch einen dauerhaften Review-Checkpoint
+abgedeckt; ein Modellreview kann mehrere seit dem letzten Lauf entstandene
+Turns gemeinsam verarbeiten. Er darf weder die Antwortlatenz erhoehen noch den
+aktiven Chatverlauf mutieren.
+
+Das Vorgehen ist von Hermes inspiriert, aber fuer Canvas erweitert: Hermes
+zaehlt User-Turns, startet standardmaessig nach zehn Turns einen isolierten
+Hintergrundreview nach der Antwort und erlaubt dafuer ein separates
+Provider-/Modell-Paar. Canvas uebernimmt den periodischen, isolierten Review,
+verwendet aber eine dauerhafte Job-Queue statt eines rein best-effort
+Hintergrundthreads.
+
+Ein Review wird ausgeloest durch:
+
+- eine explizite Formulierung wie „merk dir“,
+- das konfigurierbare Turn-Intervall,
+- einen Session-Abschluss oder eine ausreichend lange Idle-Phase,
+- Memory-Druck, Konflikte oder das Erreichen eines Collection-Limits.
+
+Ein explizites „merk dir“ darf bereits im aktiven Turn ueber das `memory`-Tool
+gespeichert werden. Der spaetere Review erkennt den bestehenden Eintrag und
+erzeugt kein Duplikat.
 
 Der Reviewer erhaelt nur:
 
@@ -188,12 +260,14 @@ Datei-Write.
 
 ```text
 action: add | update | archive | no_op
-scope_type
+scope_hint
 collection_category
+semantic_key?
 entry_id?                 # fuer update/archive
 content
-reason
-evidence_reference
+priority
+sensitivity
+evidence_message_ids
 confidence
 ```
 
@@ -211,8 +285,116 @@ Vorschlag.
 - Sensitive Fakten werden nie automatisch gespeichert, solange der User nicht
   explizit in den Memory-Einstellungen zugestimmt hat.
 - Workspace- und Organisationskandidaten werden standardmaessig `pending`.
-- Der Hintergrundjob ist budgetiert, rate-limitiert und wird bei einer neuen
-  User-Nachricht abgebrochen.
+- Ein neuer User-Turn darf einen laufenden Review pausieren, aber nicht dauerhaft
+  verwerfen. Nicht abgeschlossene Jobs bleiben wiederaufnehmbar.
+- Der Memory-Manager darf nur Fakten verwenden, die durch User-Aussagen,
+  bestaetigte Entscheidungen oder verlaessliche Toolresultate belegt sind.
+  Behauptungen ausschliesslich aus einer Assistant-Antwort sind keine Quelle.
+
+### Bestehendes Memory-Tool
+
+Das einzelne Tool `memory` bleibt erhalten und wird auf den neuen
+datenbankbasierten Memory-Service umgestellt:
+
+- Die Aktionen `read`, `add`, `update` und `delete` bleiben fuer Kompatibilitaet
+  bestehen; serverseitig darf `delete` als archivierte, auditierbare Mutation
+  umgesetzt werden.
+- Die Targets werden auf `user`, `agent`, `workspace` und `organization`
+  erweitert. Konkrete IDs kommen immer aus dem Runtime-Kontext.
+- Workspace- und Organisationsmutationen beachten denselben Pending-/Publish-
+  Ablauf wie automatische Reviews.
+- Ein optionaler bisheriger `reason`-Parameter wird waehrend der Umstellung nur
+  noch als veraltet akzeptiert und nicht persistiert; anschliessend wird er aus
+  dem Tool-Schema entfernt.
+- Das Tool und der automatische Reviewer verwenden denselben Memory-Service,
+  dieselben Limits und dieselbe Deduplizierung.
+
+## Begrenzung, Priorisierung und laufende Pflege
+
+### Speicher und Prompt-Projektion sind getrennt
+
+Die Datenbank darf mehr Memories enthalten, als ein Agent in einem Turn sieht.
+Der Prompt-Resolver erzeugt fuer jeden Turn eine begrenzte Projektion statt
+alle aktiven Eintraege zu laden.
+
+- Ein Memory-Eintrag soll atomar sein und moeglichst unter 400 Zeichen bleiben;
+  das harte V1-Limit betraegt 800 Zeichen.
+- `estimated_tokens` wird bei jeder Mutation neu berechnet.
+- `memory_prompt_max_tokens` ist eine User-Einstellung. Der empfohlene
+  Ausgangswert ist 2.000 Tokens; effektiv gilt zusaetzlich hoechstens zehn
+  Prozent des nutzbaren Modell-Kontextfensters und ein hartes Maximum von
+  4.000 Tokens.
+- Collections liefern eine kurze Zusammenfassung und nur die am besten
+  bewerteten atomaren Eintraege.
+- Pending-, archivierte und nicht zugelassene sensible Eintraege werden nie in
+  den Prompt eingeblendet.
+
+Die Auswahl kombiniert:
+
+1. Relevanz fuer den aktuellen User-Turn,
+2. manuelles `pinned` und serverseitige Prioritaet,
+3. Aktualitaet und `last_confirmed_at`,
+4. Scope-Naehe zum aktiven Workspace und Agenten,
+5. Confidence und verbleibendes Token-Budget.
+
+Die UI kann nach Prioritaet, Aktualitaet und letzter Verwendung sortieren. Ein
+`last_used_at`-Update darf gesammelt geschrieben werden, damit Prompt-Aufbau
+nicht bei jedem Eintrag einzelne Datenbankwrites erzeugt.
+
+### Maintenance-Reviews
+
+Der Memory-Manager fuehrt neben der Erkennung neuer Fakten wiederkehrende
+Pflegelaeufe aus. Sie duerfen:
+
+- Duplikate zusammenfassen,
+- widerspruechliche Werte ueber `semantic_key` ersetzen,
+- lange Eintraege kuerzen oder in atomare Eintraege teilen,
+- Prioritaeten und `last_confirmed_at` aktualisieren,
+- alte, niedrig priorisierte Memories archivieren,
+- Collection-Zusammenfassungen neu erzeugen.
+
+Automatische Pflege loescht Eintraege nicht endgueltig. Archivierte Eintraege
+bleiben inspizierbar und koennen wiederhergestellt werden. `pinned`-Eintraege
+werden weder automatisch archiviert noch inhaltlich zusammengefuehrt.
+
+Ein Maintenance-Review startet periodisch sowie dann, wenn eine Collection
+70 Prozent ihres konfigurierten Speicher- oder Prompt-Budgets erreicht. Seine
+Aenderungen laufen durch denselben Berechtigungs- und Audit-Service wie neue
+Memories.
+
+## Memory-Manager-Modell
+
+Der Memory-Manager verwendet eine eigene, leichte Runtime-Auswahl und ist nicht
+automatisch an das Modell des aktiven Chats gebunden.
+
+Die Auswahl wird nicht global vorkonfiguriert. Jeder User muss in
+`/settings?tab=memory` explizit eine bereits installierte Provider-Verbindung
+und ein dafuer freigegebenes Modell auswaehlen. API-Keys werden nicht im
+Memory-System gespeichert; die Auswahl referenziert die bestehende zentrale
+Provider-Installation und den Runtime-Modellkatalog.
+
+Konfigurierbare User-Werte:
+
+```text
+automatic_memory_enabled
+provider_installation_id
+model_id
+review_turn_interval
+memory_prompt_max_tokens
+sensitive_memory_enabled
+```
+
+- Ohne ausgewaehltes Modell bleiben automatische Reviews sichtbar im Zustand
+  `awaiting_model_configuration`; es gibt keinen stillen Rueckfall auf das
+  teurere Chatmodell.
+- Das direkte `memory`-Tool funktioniert weiterhin, weil seine
+  Datenbankmutationen kein separates Review-Modell benoetigen.
+- Der Reviewer erhaelt nur den Delta-Ausschnitt seit dem letzten erfolgreichen
+  Review, relevante bestehende Eintraege und ein kleines strukturiertes
+  Ausgabelimit.
+- Fuer Workspace-Kandidaten gilt in V1 die Modellkonfiguration des ausloesenden
+  Users. Eine zentral finanzierte Organisationskonfiguration kann spaeter
+  ergaenzt werden.
 
 ## UI und Einstellungen
 
@@ -220,9 +402,10 @@ Vorschlag.
 
 Neue Seite: `/settings?tab=memory`.
 
-Sie ist der primaere Ort zum Anzeigen, Suchen, Bearbeiten, Archivieren,
-Exportieren und Importieren von Memory. Der neue Punkt steht in der
-Settings-Navigation unter Account.
+Sie ist der primaere Ort zum Anzeigen, Suchen, Korrigieren, Archivieren,
+Freigeben, Exportieren und Importieren von Memory. Manuelles Erstellen ist eine
+optionale Nebenfunktion, nicht der erwartete Normalfall. Der neue Punkt steht
+in der Settings-Navigation unter Account.
 
 ```text
 Memory
@@ -260,6 +443,8 @@ Eintraege, ihre Historie sowie die zulassigen Aktionen sichtbar.
 Die zentrale Seite enthaelt:
 
 - automatisches Merken an/aus,
+- Provider- und Modellauswahl fuer den Memory-Manager,
+- Review-Intervall und maximales Memory-Prompt-Budget,
 - sensible Themen an/aus (standardmaessig aus),
 - Benachrichtigungen fuer gespeicherte und wartende Vorschlaege,
 - Export und kontrollierten Import,
@@ -283,20 +468,21 @@ privaten Dateien erzeugt.
 
 ## Umsetzungsschritte
 
-1. **Memory-Vertrag und Tests:** Typen, Scope-Matrix, Statusmodell,
+1. **Memory-Vertrag und Tests:** Typen, Scope-Matrix, Statusmodell, Limits,
    Sensitivitaet und Rechte als Architektur-/Testvertrag festlegen.
-2. **Persistenz:** Datenbankschema, migrationsfaehigen Memory-Service und
-   Audit implementieren.
-3. **Runtime:** Prompt-Resolver sowie das Memory-Tool auf den neuen Service
-   umstellen; `USER.md`/`MEMORY.md` nur noch migrieren/exportieren.
-4. **Team-Governance:** Workspace-/Organisation-Resolver, Pending-/Publish-
+2. **Persistenz:** Datenbankschema, User-Modellkonfiguration, dauerhafte
+   Review-Jobs, migrationsfaehigen Memory-Service und Audit implementieren.
+3. **Automatische Runtime:** das bestehende Memory-Tool auf den Service
+   umstellen und den isolierten, wiederaufnehmbaren Review-Worker integrieren.
+4. **Prompt-Projektion:** budgetierten Relevanz-Resolver, Priorisierung und
+   stabile Memory-Snapshots pro Turn implementieren.
+5. **Team-Governance:** Workspace-/Organisation-Resolver, Pending-/Publish-
    Ablauf und neue Organisationspermission integrieren.
-5. **Zentrale UI:** Memory-Tab, Collection- und Entry-Ansichten sowie
-   Deep-Links aus Workspace, Agent Settings und Chat implementieren.
-6. **Automatischer Review:** isolierten, budgetierten Kandidaten-Worker nach
-   dem stabilen manuellen Pfad hinzufuegen.
-7. **Migration und Rollout:** Importvorschau, opt-in bzw. bestaetigte
-   Umschaltung, Export und Rueckfallstrategie bereitstellen.
+6. **Zentrale UI:** Memory-Manager-Konfiguration, Collection-/Entry-Ansichten,
+   Reviewstatus und Deep-Links aus Workspace, Agent Settings und Chat umsetzen.
+7. **Migration und Rollout:** `USER.md`/`MEMORY.md` importieren, die Runtime
+   erst nach erfolgreichem Auto-Review- und Prompt-Budget-Nachweis umstellen
+   sowie Export und Rueckfallstrategie bereitstellen.
 
 Jeder Schritt wird einzeln abgeschlossen, getestet und committed, bevor der
 naechste beginnt.
@@ -317,6 +503,17 @@ naechste beginnt.
   werden abgelehnt.
 - Ein Memory-Snapshot bleibt innerhalb eines Turns stabil und beachtet das
   Prompt-Budget.
+- Ein Eintrag ueber 800 Zeichen wird abgelehnt oder vor der Persistierung
+  atomisiert.
+- Prioritaet, Aktualitaet und Relevanz bestimmen reproduzierbar die begrenzte
+  Prompt-Projektion; die Gesamtausgabe ueberschreitet nie das effektive
+  Token-Budget.
+- Jeder eingeplante Review ist idempotent und wird nach Prozess- oder
+  Providerfehler wiederaufgenommen.
+- Ohne User-Modellkonfiguration wird kein verborgenes Ersatzmodell verwendet;
+  der Reviewstatus bleibt sichtbar und das direkte Memory-Tool funktioniert.
+- Maintenance-Reviews koennen Eintraege kuerzen, zusammenfassen und archivieren,
+  aber keine gepinnten Eintraege automatisch veraendern.
 - Migrationen sind mehrfach ausfuehrbar, ohne Duplikate zu erzeugen.
 - Die zentrale UI, Workspace-Deep-Link und Agent-Deep-Link werden per
   End-to-End-Test mit einem echten Team-Workspace und unterschiedlichen
@@ -340,3 +537,5 @@ Diese Punkte muessen vor der Implementierung gemeinsam entschieden werden:
    explizite Einzelbestaetigung brauchen?
 6. Soll die erste Version Topics/Areas manuell anlegen oder bereits durch den
    Review-Worker vorschlagen lassen?
+7. Welches Turn-Intervall soll die UI als Empfehlung anzeigen, ohne dem User
+   ein Memory-Manager-Modell vorzugeben?
