@@ -48,6 +48,7 @@ import {
 import { SpawnCommandRunner } from './core/process';
 import { reexecPortableCliIfUpdated, updatePortableCli } from './core/selfUpdate';
 import { ServiceManager } from './core/service';
+import { isSwapCommand, SwapManager, validateSwapConfig, type SwapStatus } from './core/swap';
 import type { CanvasCliConfig, RuntimeContext, StatusJson } from './core/types';
 import { CLI_COMMANDS, CLI_GENERATION, CONFIG_SCHEMA_VERSION, resolveCliVersion } from './core/version';
 
@@ -140,6 +141,12 @@ Commands:
   logs                            Follow app container logs
   manager-log                     Show host-side CLI log
   cleanup-logs [--json]           Stop only orphaned log followers for this installation
+  swap [--json]                   Show Canvas-managed Linux swap status
+  swap-sync [--json]              Reconcile Linux swap from the saved configuration
+  swap-apply --enabled <bool> --size <size> --file <path> --swappiness <0-200>
+                                  Save settings and reconcile Linux swap transactionally
+  swap-enable [--size <size>] [--file <path>] [--swappiness <0-200>]
+  swap-disable [--secure]         Disable managed swap; optionally wipe its contents
   env [--json]                    Show the active configuration with secrets masked
   env --edit [--timeout <seconds>]
                                   Edit config safely, then apply and wait for health
@@ -874,7 +881,9 @@ function setConfigValue(config: CanvasCliConfig, key: string, value: string): Ca
     return next;
   }
   if (key === 'swap.file') {
-    const managedSwapFile = process.env.CANVAS_SWAP_MANAGED_FILE || '/swapfile';
+    const managedSwapFile = process.env.CANVAS_SWAP_TEST_ROOT
+      ? path.join(path.resolve(process.env.CANVAS_SWAP_TEST_ROOT), 'swapfile')
+      : '/swapfile';
     if (value !== managedSwapFile) {
       throw new Error(`Canvas-managed swap file path must be ${managedSwapFile}.`);
     }
@@ -950,6 +959,114 @@ async function readSingleLineStdin(): Promise<string> {
     throw new Error('config-set --stdin accepts a single-line value.');
   }
   return value;
+}
+
+function printSwapStatus(status: SwapStatus, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify(status));
+    return;
+  }
+  console.log(`Canvas swap enabled setting: ${status.enabled}`);
+  console.log(`Canvas swap file: ${status.file}`);
+  console.log(`Canvas swap size: ${status.configuredSize}`);
+  console.log(`Canvas swap swappiness: ${status.configuredSwappiness}`);
+  console.log(`Canvas swap active: ${status.active}`);
+  console.log(`Canvas swap persistent: ${status.persistent}`);
+  console.log(`Canvas swap in sync: ${status.inSync}`);
+  if (status.error) console.error(`Canvas swap error: ${status.error}`);
+}
+
+function swapConfigFromCommand(
+  command: string,
+  args: string[],
+  config: CanvasCliConfig,
+  managedFile: string,
+): { config: CanvasCliConfig; secure: boolean; showHelp: boolean } {
+  if (args.includes('-h') || args.includes('--help')) {
+    return { config, secure: false, showHelp: true };
+  }
+  const next = structuredClone(config);
+  let secure = false;
+  const supplied = new Set<string>();
+  if (command === 'swap' || command === 'swap-sync') {
+    if (args.length > 0) throw new Error(`Usage: canvas-notebook ${command} [--json]`);
+    return { config: next, secure, showHelp: false };
+  }
+  if (command === 'swap-disable') {
+    for (const arg of args) {
+      if (arg === '--secure' && !secure) secure = true;
+      else throw new Error('Usage: canvas-notebook swap-disable [--secure] [--json]');
+    }
+    next.swap.enabled = false;
+    validateSwapConfig(next, managedFile);
+    return { config: next, secure, showHelp: false };
+  }
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    const option = ['--enabled', '--size', '--file', '--swappiness']
+      .find((candidate) => arg === candidate || arg.startsWith(`${candidate}=`));
+    if (!option) throw new Error(`Unknown ${command} option: ${arg}`);
+    if (supplied.has(option)) throw new Error(`${option} can only be provided once.`);
+    supplied.add(option);
+    const parsed = readOptionValue(args, i, option);
+    i = parsed.nextIndex;
+    if (option === '--enabled') {
+      const normalized = parsed.value.trim().toLowerCase();
+      if (normalized !== 'true' && normalized !== 'false') throw new Error('--enabled must be true or false.');
+      next.swap.enabled = normalized === 'true';
+    } else if (option === '--size') next.swap.size = parsed.value.toUpperCase();
+    else if (option === '--file') next.swap.file = parsed.value;
+    else next.swap.swappiness = Number(parsed.value);
+  }
+  if (command === 'swap-apply') {
+    for (const required of ['--enabled', '--size', '--file', '--swappiness']) {
+      if (!supplied.has(required)) {
+        throw new Error('swap-apply requires --enabled, --size, --file, and --swappiness.');
+      }
+    }
+  } else if (command === 'swap-enable') {
+    if (supplied.has('--enabled')) throw new Error('swap-enable does not accept --enabled.');
+    next.swap.enabled = true;
+  } else {
+    throw new Error(`Unknown swap command: ${command}`);
+  }
+  validateSwapConfig(next, managedFile);
+  return { config: next, secure, showHelp: false };
+}
+
+async function runSwapCommand(
+  command: string,
+  args: string[],
+  json: boolean,
+  context: RuntimeContext,
+  runner: SpawnCommandRunner,
+  currentConfig: CanvasCliConfig,
+): Promise<void> {
+  const swap = new SwapManager(runner, context);
+  let statusConfig = currentConfig;
+  try {
+    const parsed = swapConfigFromCommand(command, args, currentConfig, swap.managedFile());
+    if (parsed.showHelp) {
+      console.log('Usage: canvas-notebook swap|swap-sync|swap-apply|swap-enable|swap-disable [options]');
+      return;
+    }
+    if (command === 'swap') {
+      printSwapStatus(await swap.status(currentConfig), json);
+      return;
+    }
+    if (parsed.secure) await swap.journalSecureIntent(parsed.config.swap.file);
+    if (command !== 'swap-sync') {
+      await writeConfig(parsed.config);
+      statusConfig = parsed.config;
+    }
+    await appendLog(context, `${command}${parsed.secure ? ' --secure' : ''}`);
+    printSwapStatus(await swap.reconcile(parsed.config, parsed.secure), json);
+  } catch (error) {
+    statusConfig = await readConfig(context).catch(() => statusConfig);
+    const message = error instanceof Error ? error.message : 'Swap reconciliation failed';
+    printSwapStatus(await swap.status(statusConfig, message), json);
+    process.exitCode = 1;
+  }
 }
 
 function databaseStatusPayload(config: CanvasCliConfig) {
@@ -1434,6 +1551,14 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (isSwapCommand(parsed.command) && context.platform !== 'linux') {
+    const error = 'Swap management is only supported on Linux. No host changes were made.';
+    if (parsed.json) console.log(JSON.stringify({ success: false, error }));
+    else console.error(error);
+    process.exitCode = 1;
+    return;
+  }
+
   const operationLock = commandRequiresOperationLock(parsed.command, parsed.args)
     ? await acquireOperationLock(context, parsed.command)
     : null;
@@ -1557,6 +1682,13 @@ async function main(): Promise<void> {
       else console.log(`Stopped ${pids.length} orphaned compose-log follower${pids.length === 1 ? '' : 's'}.`);
       break;
     }
+    case 'swap':
+    case 'swap-sync':
+    case 'swap-apply':
+    case 'swap-enable':
+    case 'swap-disable':
+      await runSwapCommand(parsed.command, parsed.args, parsed.json, context, runner, config);
+      break;
     case 'env':
       await runEnvCommand(context, runner, docker, config, parsed.args, parsed.json);
       break;

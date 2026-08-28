@@ -364,6 +364,19 @@ async function runDifferentialContract(): Promise<void> {
       input,
     );
 
+    if (process.platform !== 'linux') {
+      const configBeforeUnsupportedSwap = await fs.promises.readFile(typescriptRuntime.configFile, 'utf8');
+      await assert.rejects(
+        () => runTypescript(['swap-enable', '--size', '128M', '--no-banner']),
+        /only supported on Linux/u,
+      );
+      assert.equal(
+        await fs.promises.readFile(typescriptRuntime.configFile, 'utf8'),
+        configBeforeUnsupportedSwap,
+        'unsupported swap commands must not mutate configuration',
+      );
+    }
+
     const envJsonOutput = await runTypescript(['env', '--json', '--no-banner']);
     assert.doesNotMatch(envJsonOutput.stdout, new RegExp(secret, 'u'));
     const displayedEnv = JSON.parse(envJsonOutput.stdout) as { env: Record<string, unknown> };
@@ -508,6 +521,15 @@ async function runDifferentialContract(): Promise<void> {
     ]) {
       await assert.rejects(() => runTypescript(['config-set', key, value, '--no-banner']));
     }
+    await assert.rejects(() => execFileAsync(
+      tsxPath,
+      [typescriptCliPath, 'config-set', 'swap.file', '/tmp/not-canvas-swap', '--no-banner'],
+      {
+        cwd: root,
+        env: { ...typescriptRuntime.env, CANVAS_SWAP_MANAGED_FILE: '/tmp/not-canvas-swap' },
+        maxBuffer: 1024 * 1024,
+      },
+    ));
     assert.equal(
       await fs.promises.readFile(typescriptRuntime.configFile, 'utf8'),
       configBeforeRejectedWrites,
@@ -642,7 +664,7 @@ async function main(): Promise<void> {
   await runDifferentialContract();
   console.log(JSON.stringify({
     success: true,
-    differentialContract: ['version --json', 'env display/edit', 'config/config-migrate', 'config-set semantics', 'diagnose/cleanup-logs', 'config-show --secret-state', 'status --json'],
+    differentialContract: ['version --json', 'env display/edit', 'config/config-migrate', 'config-set semantics', 'diagnose/cleanup-logs', 'swap platform boundary', 'config-show --secret-state', 'status --json'],
     legacyCommandCount: contract.legacyTopLevelCommands.length,
     typescriptCommandCount: contract.typescriptTopLevelCommands.length,
     missingCommands,

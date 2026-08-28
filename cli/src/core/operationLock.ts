@@ -203,6 +203,7 @@ export function commandRequiresOperationLock(command: string, args: string[]): b
   if (command === 'database') return args[0] === 'prepare-postgres' || args[0] === 'reconcile-postgres-auth' ||
     args[0] === 'migrate-sqlite-to-postgres';
   if (command === 'service') return args[0] === 'install' || args[0] === 'uninstall';
+  if (command === 'swap-sync' || command === 'swap-apply' || command === 'swap-enable' || command === 'swap-disable') return true;
   return false;
 }
 

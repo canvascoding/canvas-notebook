@@ -90,7 +90,7 @@ Arbeitspaket aktualisiert werden.
 | `database reconcile-postgres-auth` | vorhanden | vorhanden | Journal, Rollback und Wiederaufnahme |
 | `database migrate-sqlite-to-postgres` | vorhanden | vorhanden | Backup-, Copy-, Cutover- und Fehlerfall |
 | `admin reset-password` | vorhanden | vorhanden | Passwort nur ueber stdin, keine Secret-Persistenz |
-| `swap`, `swap-sync`, `swap-apply`, `swap-enable`, `swap-disable` | noch nicht vorhanden | fehlt | Linux-Adapter, Transaktion, Ownership und Recovery |
+| `swap`, `swap-sync`, `swap-apply`, `swap-enable`, `swap-disable` | vorhanden | vorhanden | Linux-Adapter, Transaktion, Ownership und Recovery |
 | `caddy`, `caddy-reload`, `caddy-fix` | noch nicht vorhanden | fehlt | Linux-Adapter, Validierung und sichere Writes |
 | `diagnose` | vorhanden | vorhanden | tolerante Text-/JSON-Diagnose ohne Docker |
 | `config` | vorhanden | vorhanden | aktive Pfade und Plattformkonfiguration |
@@ -248,6 +248,23 @@ Gate: Read-only Remote-Diagnose ist mindestens so aussagekraeftig und tolerant
 wie in der Bash-CLI.
 
 #### Phase 3: Swap-Paritaet
+
+Status: Abgeschlossen am 2026-08-28. Die neue CLI besitzt einen eigenen
+Linux-Adapter fuer Status, Sync, Apply, Enable und Disable. Der Adapter erkennt
+nur Canvas-eigene Swapdateien anhand von State-Inode oder markiertem
+`/etc/fstab`-Eintrag, lehnt fremde Dateien, Symlinks und fremde Swap-Eintraege
+ab und behaelt fremde aktive Swap-Geraete unveraendert. Resize und Disable
+verwenden Staging-/Backup-Dateien mit Rollback; `--secure` journalisiert den
+Wipe-Wunsch fuer eine spaetere Recovery. Alle schreibenden Befehle verwenden
+zusaetzlich den globalen CLI-Operation-Lock.
+
+`scripts/portable-cli-swap-test.ts` prueft die portable Mechanik mit
+isolierten Hostdateien. `scripts/portable-cli-linux-swap-integration-test.sh`
+fuehrt einen kontrollierten 128-MB-Zyklus auf einem echten Linux-Host aus,
+verweigert belegte Canvas-Pfade und verlangt danach ein unveraendertes
+`/etc/fstab`, unveraenderte Swappiness und erhaltenes Fremd-Swap. Der Test lief
+am 2026-08-28 erfolgreich in der OrbStack-VM `ubuntu` mit Ubuntu 26.04 ARM64;
+OrbStacks `/dev/zram0` und `/dev/vdc` blieben dabei aktiv.
 
 - Linux-spezifischen Swap-Service portieren.
 - bestehende Ownership-, Transaktions- und Recovery-Regeln uebernehmen.
