@@ -151,13 +151,18 @@ async function main() {
   ), 'utf8');
 
   assert.match(composerSource, /\{delegationPanel\}/u);
-  assert.match(chatSource, /<ChatDelegationPanel key=\{sessionId\} sourceSessionId=\{sessionId\}/u);
+  assert.match(chatSource, /<ChatDelegationPanel/u);
+  assert.match(chatSource, /sourceSessionId=\{sessionId\}/u);
+  assert.match(chatSource, /agents=\{chatAgentOptions\}/u);
   assert.match(panelSource, /data-testid="chat-delegation-panel"/u);
   assert.match(panelSource, /data-testid="chat-delegation-start"/u);
   assert.match(panelSource, /readChatDelegationPanelExpanded/u);
   assert.match(panelSource, /writeChatDelegationPanelExpanded/u);
   assert.match(panelSource, /<DelegationAgentPicker/u);
   assert.match(panelSource, /<DelegationToolsetPicker/u);
+  assert.match(panelSource, /<AgentAvatar/u);
+  assert.match(panelSource, /workerAgent\?\.name/u);
+  assert.match(panelSource, /visibleToolsets/u);
   assert.doesNotMatch(panelSource, /type="checkbox"/u);
   assert.match(agentPickerSource, /<AgentAvatar/u);
   assert.match(agentPickerSource, /data-testid="delegation-agent-picker"/u);

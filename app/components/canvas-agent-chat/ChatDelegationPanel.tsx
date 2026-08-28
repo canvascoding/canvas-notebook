@@ -15,7 +15,9 @@ import {
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
+import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { DelegationAgentPicker } from '@/app/components/canvas-agent-chat/DelegationAgentPicker';
+import { DelegationToolsetIcon } from '@/app/components/canvas-agent-chat/DelegationToolsetIcon';
 import { DelegationToolsetPicker } from '@/app/components/canvas-agent-chat/DelegationToolsetPicker';
 import {
   cancelChatDelegation,
@@ -29,6 +31,7 @@ import {
   readChatDelegationPanelExpanded,
   writeChatDelegationPanelExpanded,
 } from '@/app/lib/chat/delegation-panel-storage';
+import type { AgentProfile } from '@/app/lib/chat/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -68,7 +71,13 @@ function TaskStatusIcon({ task }: { task: ChatDelegation }) {
   return <XCircle className={className} />;
 }
 
-export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: string }) {
+export function ChatDelegationPanel({
+  sourceSessionId,
+  agents,
+}: {
+  sourceSessionId: string;
+  agents: AgentProfile[];
+}) {
   const t = useTranslations('chat');
   const locale = useLocale();
   const [tasks, setTasks] = useState<ChatDelegation[]>([]);
@@ -131,6 +140,10 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
   }, [refresh]);
 
   const activeCount = useMemo(() => tasks.filter(isActive).length, [tasks]);
+  const agentsById = useMemo(
+    () => new Map(agents.map((agent) => [agent.agentId, agent])),
+    [agents],
+  );
   const timeFormatter = useMemo(() => new Intl.DateTimeFormat(locale, {
     hour: '2-digit',
     minute: '2-digit',
@@ -302,9 +315,12 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
                     : task.status === 'cancelled'
                       ? 'delegationStatusCancelled'
                       : 'delegationStatusFailed';
-            const workerLabel = task.targetAgentId
-              ? task.targetAgentId
-              : task.workerRole || t('delegationEphemeralWorker');
+            const workerAgent = task.targetAgentId ? agentsById.get(task.targetAgentId) : undefined;
+            const workerLabel = workerAgent?.name
+              || task.targetAgentId
+              || task.workerRole
+              || t('delegationEphemeralWorker');
+            const visibleToolsets = task.toolsets.slice(0, 4);
             const result = task.resultText || task.errorText;
 
             return (
@@ -312,10 +328,19 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
                 key={task.id}
                 data-testid="chat-delegation-item"
                 data-status={task.status}
-                className="border-b border-border/60 px-2.5 py-2 last:border-b-0"
+                className="border-b border-border/60 px-2.5 py-2 transition-colors last:border-b-0 hover:bg-muted/25"
               >
                 <div className="flex items-start gap-2">
-                  <TaskStatusIcon task={task} />
+                  <span className="relative mt-0.5 shrink-0">
+                    <AgentAvatar
+                      iconId={workerAgent?.iconId}
+                      className="h-8 w-8 rounded-lg bg-muted/70"
+                      iconClassName="h-3.5 w-3.5"
+                    />
+                    <span className="absolute -bottom-1 -right-1 inline-flex rounded-full bg-background p-0.5 shadow-sm">
+                      <TaskStatusIcon task={task} />
+                    </span>
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-xs font-medium text-foreground" title={task.goal}>{task.goal}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[10px] text-muted-foreground">
@@ -325,6 +350,27 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
                       <span aria-hidden="true">·</span>
                       <span>{timeFormatter.format(new Date(task.createdAt))}</span>
                     </div>
+                    {visibleToolsets.length > 0 ? (
+                      <div
+                        className="mt-1.5 flex items-center gap-1"
+                        aria-label={t('delegationTools')}
+                        title={task.toolsets.join(', ')}
+                      >
+                        {visibleToolsets.map((toolset) => (
+                          <span
+                            key={toolset}
+                            className="inline-flex h-5 w-5 items-center justify-center rounded border border-border/70 bg-muted/60 text-muted-foreground"
+                          >
+                            <DelegationToolsetIcon toolset={toolset} className="h-3 w-3" />
+                          </span>
+                        ))}
+                        {task.toolsets.length > visibleToolsets.length ? (
+                          <span className="text-[10px] text-muted-foreground">
+                            +{task.toolsets.length - visibleToolsets.length}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {result ? (
                       <div className="mt-1">
                         <div className={cn(

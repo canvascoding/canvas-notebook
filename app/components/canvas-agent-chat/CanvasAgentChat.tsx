@@ -1326,7 +1326,13 @@ export default function CanvasAgentChat({
         onClearUploadError={() => setUploadError(null)}
         isWebSocketUnavailable={isWebSocketUnavailable}
         showModelRequiredNotice={showModelRequiredNotice}
-        delegationPanel={sessionId ? <ChatDelegationPanel key={sessionId} sourceSessionId={sessionId} /> : null}
+        delegationPanel={sessionId ? (
+          <ChatDelegationPanel
+            key={sessionId}
+            sourceSessionId={sessionId}
+            agents={chatAgentOptions}
+          />
+        ) : null}
         attachments={attachments}
         onRemoveAttachment={removeAttachment}
         onAttachmentOpen={handleAttachmentPreviewOpen}
