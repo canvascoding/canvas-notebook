@@ -23,6 +23,10 @@ import {
   type ChatDelegation,
   type DelegationOptions,
 } from '@/app/lib/chat/delegation-api';
+import {
+  readChatDelegationPanelExpanded,
+  writeChatDelegationPanelExpanded,
+} from '@/app/lib/chat/delegation-panel-storage';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -80,6 +84,13 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
   const [context, setContext] = useState('');
   const [selectedToolsets, setSelectedToolsets] = useState<Set<string>>(() => new Set());
   const requestInFlightRef = useRef(false);
+
+  useEffect(() => {
+    const restoreExpandedState = window.setTimeout(() => {
+      setExpanded(readChatDelegationPanelExpanded(window.localStorage));
+    }, 0);
+    return () => window.clearTimeout(restoreExpandedState);
+  }, []);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (requestInFlightRef.current) return;
@@ -204,6 +215,14 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
     });
   }, []);
 
+  const toggleExpanded = useCallback(() => {
+    setExpanded((current) => {
+      const next = !current;
+      writeChatDelegationPanelExpanded(window.localStorage, next);
+      return next;
+    });
+  }, []);
+
   return (
     <div
       data-testid="chat-delegation-panel"
@@ -213,7 +232,7 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
         <button
           type="button"
           aria-expanded={expanded}
-          onClick={() => setExpanded((current) => !current)}
+          onClick={toggleExpanded}
           className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left text-xs transition-colors hover:text-primary"
         >
           <Network className="h-4 w-4 text-primary" />
