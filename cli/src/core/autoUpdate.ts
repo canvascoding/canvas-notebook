@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { isPinnedImageReference } from './config';
-import { resolveCliPath } from './service';
+import { resolveCliPath } from './cliPath';
 import type { CanvasCliConfig, CommandResult, CommandRunner, RuntimeContext } from './types';
 
 const TIMER_UNIT = 'canvas-notebook-update.timer';
