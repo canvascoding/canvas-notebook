@@ -13,6 +13,7 @@ import {
   DirectMcpAuthorizationError,
   verifyDirectMcpAccessToken,
 } from '@/app/lib/mcp/server/access-token-verifier';
+import { DIRECT_MCP_RESOURCE_SCOPES } from '@/app/lib/mcp/server/config';
 import { directMcpToolAuthorizationError } from '@/app/lib/mcp/server/tool-auth';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
 
@@ -95,7 +96,7 @@ export async function runDirectMcpAuthProbe(
       [DIRECT_MCP_AUTH_PROBE_SCOPE],
     );
     const scopes = principal.scopes
-      .filter((scope) => scope === DIRECT_MCP_AUTH_PROBE_SCOPE)
+      .filter((scope) => (DIRECT_MCP_RESOURCE_SCOPES as readonly string[]).includes(scope))
       .sort();
     const structuredContent = {
       authenticated: true,

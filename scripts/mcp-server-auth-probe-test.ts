@@ -606,6 +606,26 @@ async function main(): Promise<void> {
     assert.equal(JSON.stringify(authenticatedBody).includes('workspace'), true);
     assert.equal(JSON.stringify(authenticatedBody).includes('knowledge'), false);
 
+    const authorizedProbe = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 51,
+        method: 'tools/call',
+        params: {
+          name: DIRECT_MCP_AUTH_PROBE_TOOL,
+          arguments: {},
+        },
+      },
+    });
+    assert.equal(authorizedProbe.status, 200);
+    const authorizedProbeResult = resultFromRpc(await readJson(authorizedProbe));
+    assert.deepEqual(
+      (authorizedProbeResult.structuredContent as JsonRecord).scopes,
+      [...DIRECT_MCP_RESOURCE_SCOPES].sort(),
+    );
+
     const foreignProbe = await rpcRequest({
       post: mcpRoute.POST,
       token: foreignToken,
