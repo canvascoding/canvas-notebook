@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, BrainCircuit, Check, Clock3, Download, Loader2, Pencil, Plus, Save, Send, Sparkles, Trash2, Upload } from 'lucide-react';
+import { Archive, BrainCircuit, Check, Clock3, Download, Loader2, Pencil, Plus, RotateCcw, Save, Send, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
@@ -58,6 +58,14 @@ type MemorySettings = {
   providers: Array<{ installationId: string; name: string; providerId: string; models: Array<{ id: string; name: string }> }>;
 };
 
+type MemoryPermissions = {
+  canReadPublished: boolean;
+  canSuggest: boolean;
+  canPublish: boolean;
+  canUpdatePublished: boolean;
+  canArchive: boolean;
+};
+
 type MemoryResponse<T> = { success?: boolean; data?: T; error?: string };
 
 const SCOPE_COPY: Record<MemoryScope, { label: string; eyebrow: string }> = {
@@ -82,11 +90,12 @@ async function readJson<T>(input: RequestInfo | URL, init?: RequestInit): Promis
   return payload.data;
 }
 
-function queryForScope(scope: MemoryScope, agentId: string, workspaceId: string | null, collectionId?: string | null) {
+function queryForScope(scope: MemoryScope, agentId: string, workspaceId: string | null, collectionId?: string | null, includeArchived = false) {
   const query = new URLSearchParams({ scope });
   if (scope === 'agent') query.set('agentId', agentId);
   if (scope === 'workspace' && workspaceId) query.set('workspaceId', workspaceId);
   if (collectionId) query.set('collectionId', collectionId);
+  if (includeArchived) query.set('includeArchived', '1');
   return query;
 }
 
@@ -99,6 +108,8 @@ export function MemorySettingsPanel() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [permissions, setPermissions] = useState<MemoryPermissions | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [entryQuery, setEntryQuery] = useState('');
   const [historyForEntryId, setHistoryForEntryId] = useState<string | null>(null);
   const [entryHistory, setEntryHistory] = useState<MemoryEvent[]>([]);
@@ -139,8 +150,9 @@ export function MemorySettingsPanel() {
       setSelectedCollectionId(null);
       return;
     }
-    const data = await readJson<{ collections: Collection[]; entries: Entry[] }>(`/api/memory?${query.toString()}`);
+    const data = await readJson<{ collections: Collection[]; entries: Entry[]; permissions: MemoryPermissions }>(`/api/memory?${query.toString()}`);
     setCollections(data.collections);
+    setPermissions(data.permissions);
     const selected = preferredCollectionId && data.collections.some((collection) => collection.id === preferredCollectionId)
       ? preferredCollectionId
       : data.collections[0]?.id ?? null;
@@ -152,9 +164,9 @@ export function MemorySettingsPanel() {
       setEntries([]);
       return;
     }
-    const data = await readJson<{ entries: Entry[] }>(`/api/memory?${queryForScope(scope, agentId, workspaceId, collectionId).toString()}`);
+    const data = await readJson<{ entries: Entry[] }>(`/api/memory?${queryForScope(scope, agentId, workspaceId, collectionId, showArchived).toString()}`);
     setEntries(data.entries);
-  }, [agentId, canUseScope, scope, workspaceId]);
+  }, [agentId, canUseScope, scope, showArchived, workspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -216,7 +228,7 @@ export function MemorySettingsPanel() {
     finally { setAdding(false); }
   };
 
-  const mutateEntry = async (entry: Entry, action: 'publish' | 'update' | 'archive') => {
+  const mutateEntry = async (entry: Entry, action: 'publish' | 'restore' | 'update' | 'archive') => {
     setError(null); setNotice(null);
     try {
       const entryQuery = queryForScope(scope, agentId, workspaceId);
@@ -228,7 +240,7 @@ export function MemorySettingsPanel() {
           body: JSON.stringify({ scope, agentId, workspaceId, action, content: action === 'update' ? editingContent : undefined }),
         });
       }
-      setEditingId(null); setNotice(action === 'publish' ? 'Suggestion published.' : action === 'archive' ? 'Memory archived.' : 'Memory updated.');
+      setEditingId(null); setNotice(action === 'publish' ? 'Suggestion published.' : action === 'restore' ? 'Memory restored.' : action === 'archive' ? 'Memory archived.' : 'Memory updated.');
       await refreshScope();
     } catch (mutationError) { setError(mutationError instanceof Error ? mutationError.message : 'Unable to update memory.'); }
   };
@@ -345,8 +357,8 @@ export function MemorySettingsPanel() {
           </Card>
 
           <div className="space-y-2">
-            {entries.length > 0 ? <Input aria-label="Search memory" value={entryQuery} onChange={(event) => setEntryQuery(event.target.value)} placeholder="Search this collection" /> : null}
-            {visibleEntries.map((entry) => <Card key={entry.id} className={entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : ''}><CardContent className="pt-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1">{editingId === entry.id ? <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} /> : <p className="whitespace-pre-wrap text-sm leading-6">{entry.content}</p>}<div className="mt-2 flex gap-2"><Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{entry.status}</Badge><span className="text-xs text-muted-foreground">Priority {entry.priority}</span></div></div><div className="flex shrink-0 flex-wrap justify-end gap-1">{entry.status === 'pending' ? <Button size="icon" variant="outline" title="Publish" onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}{editingId === entry.id ? <Button size="icon" title="Save" onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button> : <Button size="icon" variant="ghost" title="Edit" onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); }}><Pencil className="size-4" /></Button>}<Button size="icon" variant="ghost" title="Archive" onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button></div></div><Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? 'Hide history' : 'History'}</Button>{historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt)}</p>)}</div> : null}</CardContent></Card>)}
+            <div className="flex flex-wrap items-center justify-between gap-2">{entries.length > 0 ? <Input aria-label="Search memory" value={entryQuery} onChange={(event) => setEntryQuery(event.target.value)} placeholder="Search this collection" className="max-w-sm" /> : null}{permissions?.canArchive ? <Button size="sm" variant="outline" onClick={() => setShowArchived((value) => !value)}>{showArchived ? 'Hide archived' : 'Show archived'}</Button> : null}</div>
+            {visibleEntries.map((entry) => <Card key={entry.id} className={entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : ''}><CardContent className="pt-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1">{editingId === entry.id ? <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} /> : <p className="whitespace-pre-wrap text-sm leading-6">{entry.content}</p>}<div className="mt-2 flex gap-2"><Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{entry.status}</Badge><span className="text-xs text-muted-foreground">Priority {entry.priority}</span></div></div><div className="flex shrink-0 flex-wrap justify-end gap-1">{entry.status === 'pending' && permissions?.canPublish ? <Button size="icon" variant="outline" title="Publish" onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}{entry.status === 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title="Restore" onClick={() => void mutateEntry(entry, 'restore')}><RotateCcw className="size-4" /></Button> : null}{entry.status !== 'archived' && permissions?.canUpdatePublished ? editingId === entry.id ? <Button size="icon" title="Save" onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button> : <Button size="icon" variant="ghost" title="Edit" onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); }}><Pencil className="size-4" /></Button> : null}{entry.status !== 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title="Archive" onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button> : null}</div></div><Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? 'Hide history' : 'History'}</Button>{historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt)}</p>)}</div> : null}</CardContent></Card>)}
             {!loading && selectedCollectionId && entries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">This collection has no published entries you can view.</p> : null}
             {!loading && entries.length > 0 && visibleEntries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">No memory entries match this search.</p> : null}
           </div>
@@ -357,7 +369,6 @@ export function MemorySettingsPanel() {
           <div className="space-y-2"><Label htmlFor="memory-provider">Provider installation</Label><select id="memory-provider" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={settings.providerInstallationId ?? ''} onChange={(event) => setSettings({ ...settings, providerInstallationId: event.target.value || null, modelId: null })}><option value="">Choose a provider</option>{settings.providers.map((provider) => <option value={provider.installationId} key={provider.installationId}>{provider.name}</option>)}</select></div>
           <div className="space-y-2"><Label htmlFor="memory-model">Lightweight review model</Label><select id="memory-model" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={settings.modelId ?? ''} disabled={!selectedProvider} onChange={(event) => setSettings({ ...settings, modelId: event.target.value || null })}><option value="">Choose a model</option>{selectedProvider?.models.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}</select></div>
           <div className="space-y-2"><Label htmlFor="memory-budget">Prompt budget (tokens)</Label><Input id="memory-budget" type="number" min={0} max={4000} value={settings.memoryPromptMaxTokens} onChange={(event) => setSettings({ ...settings, memoryPromptMaxTokens: Number(event.target.value) })} /><p className="text-xs text-muted-foreground">Hard limit: 4,000 tokens and at most 10% of the usable context.</p></div>
-          <div className="flex items-center justify-between gap-3"><div><Label htmlFor="sensitive-memory">Sensitive facts</Label><p className="text-xs text-muted-foreground">Keep off unless you explicitly want reviewed sensitive context.</p></div><Switch id="sensitive-memory" checked={settings.sensitiveMemoryEnabled} onCheckedChange={(checked) => setSettings({ ...settings, sensitiveMemoryEnabled: checked })} /></div>
           <Button className="w-full" onClick={() => void saveSettings()} disabled={saving}>{saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}Save review settings</Button></> : <p className="text-sm text-muted-foreground">Loading settings…</p>}
         </CardContent></Card>
       </div>

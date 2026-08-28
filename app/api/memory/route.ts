@@ -10,6 +10,7 @@ import {
   importPersonalMemory,
   listMemoryCollections,
   readMemoryCollection,
+  resolveMemoryScopeAccess,
   type MemoryServiceScope,
 } from '@/app/lib/memory/service';
 import type { MemoryScopeType } from '@/app/lib/memory/contract';
@@ -96,12 +97,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: await memorySettings(session.user.id) });
     }
     const scope = await scopeFromRequest(request, session.user.id);
+    const permissions = await resolveMemoryScopeAccess(scope);
     const collections = await listMemoryCollections(scope);
     const selectedCollectionId = normalizedString(request.nextUrl.searchParams.get('collectionId'));
     const entries = selectedCollectionId
-      ? await readMemoryCollection({ ...scope, collectionId: selectedCollectionId })
+      ? await readMemoryCollection({
+        ...scope,
+        collectionId: selectedCollectionId,
+        includeArchived: request.nextUrl.searchParams.get('includeArchived') === '1',
+      })
       : { target: scope.target, entries: [] };
-    return NextResponse.json({ success: true, data: { scope: scope.target, collections, entries: entries.entries } });
+    return NextResponse.json({ success: true, data: { scope: scope.target, collections, entries: entries.entries, permissions } });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to load memory.';
     return NextResponse.json({ success: false, error: message }, { status: 400 });

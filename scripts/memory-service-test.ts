@@ -38,6 +38,8 @@ async function main(): Promise<void> {
       importPersonalMemory,
       publishMemory,
       readMemory,
+      readMemoryCollection,
+      restoreMemory,
       runMemoryMaintenanceCycle,
       scheduleMemoryReviewForSession,
       updateMemory,
@@ -56,6 +58,12 @@ async function main(): Promise<void> {
     const archived = await deleteMemory({ ...scope, id: added.entry!.id });
     assert.equal(archived.archivedEntry?.id, added.entry!.id);
     assert.deepEqual((await readMemory(scope)).entries, []);
+    const restored = await restoreMemory({ ...scope, id: added.entry!.id });
+    assert.equal(restored.entry?.status, 'published');
+    const archivedAgain = await deleteMemory({ ...scope, id: added.entry!.id });
+    const privateCollectionId = archivedAgain.archivedEntry!.collectionId;
+    assert.equal((await readMemoryCollection({ ...scope, collectionId: privateCollectionId })).entries.length, 0);
+    assert.equal((await readMemoryCollection({ ...scope, collectionId: privateCollectionId, includeArchived: true })).entries[0]?.status, 'archived');
 
     const workspace = await addMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', content: 'Use the approved brand voice.' });
     assert.equal(workspace.entry?.status, 'pending');
@@ -176,13 +184,16 @@ async function main(): Promise<void> {
     try {
       const staleId = 'maintenance-stale';
       const pinnedId = 'maintenance-pinned';
+      const pendingId = 'maintenance-pending';
       const collection = await maintenanceDb.get(`SELECT id FROM memory_collections WHERE user_id = 'user-1' AND scope_type = 'user' LIMIT 1`) as { id: string };
       for (const [id, pinned] of [[staleId, 0], [pinnedId, 1]] as const) {
         await maintenanceDb.run(`INSERT INTO memory_entries (id, collection_id, content, normalized_content_hash, status, priority, pinned, sensitivity, estimated_tokens, created_by_actor_type, created_by_user_id, revision, created_at, updated_at) VALUES (?, ?, ?, ?, 'published', 10, ?, 'standard', 4, 'memory_manager', 'user-1', 1, 1, 1)`, [id, collection.id, id, id, pinned]);
       }
-      assert.deepEqual(await runMemoryMaintenanceCycle(100 * 24 * 60 * 60 * 1000), { archived: 1 });
-      const statuses = await maintenanceDb.all(`SELECT id, status FROM memory_entries WHERE id IN (?, ?) ORDER BY id`, [pinnedId, staleId]) as Array<{ id: string; status: string }>;
-      assert.deepEqual(statuses, [{ id: pinnedId, status: 'published' }, { id: staleId, status: 'archived' }]);
+      const workspaceCollection = await maintenanceDb.get(`SELECT id FROM memory_collections WHERE workspace_id = 'workspace-1' LIMIT 1`) as { id: string };
+      await maintenanceDb.run(`INSERT INTO memory_entries (id, collection_id, content, normalized_content_hash, status, priority, pinned, sensitivity, estimated_tokens, created_by_actor_type, created_by_user_id, revision, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', 50, 0, 'standard', 4, 'user', 'user-1', 1, 1, 1)`, [pendingId, workspaceCollection.id, pendingId, pendingId]);
+      assert.deepEqual(await runMemoryMaintenanceCycle(100 * 24 * 60 * 60 * 1000), { archived: 2 });
+      const statuses = await maintenanceDb.all(`SELECT id, status FROM memory_entries WHERE id IN (?, ?, ?) ORDER BY id`, [pendingId, pinnedId, staleId]) as Array<{ id: string; status: string }>;
+      assert.deepEqual(statuses, [{ id: pendingId, status: 'archived' }, { id: pinnedId, status: 'published' }, { id: staleId, status: 'archived' }]);
     } finally { await maintenanceDb.close(); }
   } finally {
     moduleInternals._load = originalLoad;

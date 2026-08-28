@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { openDb } from '@/app/lib/db';
 import {
   MEMORY_MAX_ENTRY_CHARS,
+  MEMORY_PENDING_ARCHIVE_AFTER_MS,
   type MemoryEntryStatus,
   type MemoryScopePermissions,
   type MemoryScopeType,
@@ -285,8 +286,11 @@ export async function listMemoryCollections(scope: MemoryServiceScope): Promise<
 }
 
 /** Reads one collection after proving that it belongs to the requested scope. */
-export async function readMemoryCollection(scope: MemoryServiceScope & { collectionId: string }): Promise<MemoryReadResult> {
+export async function readMemoryCollection(
+  scope: MemoryServiceScope & { collectionId: string; includeArchived?: boolean },
+): Promise<MemoryReadResult> {
   const permissions = await assertMemoryScopeAccess(scope, 'read');
+  const includeArchived = scope.includeArchived === true && permissions.canArchive;
   const connection = await openDb();
   try {
     const where = collectionScopeWhere(scope);
@@ -294,10 +298,11 @@ export async function readMemoryCollection(scope: MemoryServiceScope & { collect
       SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
-      WHERE entry.collection_id = ? AND ${where.sql} AND entry.status != 'archived'
+      WHERE entry.collection_id = ? AND ${where.sql}
+        AND (? = 1 OR entry.status != 'archived')
         AND (? = 1 OR entry.status = 'published')
       ORDER BY entry.pinned DESC, entry.priority DESC, entry.updated_at DESC, entry.id ASC
-    `, [scope.collectionId, ...where.params, permissions.canPublish ? 1 : 0]) as Record<string, unknown>[];
+    `, [scope.collectionId, ...where.params, includeArchived ? 1 : 0, permissions.canPublish ? 1 : 0]) as Record<string, unknown>[];
     return { target: scope.target, entries: rows.map(toEntry) };
   } finally { await connection.close(); }
 }
@@ -494,6 +499,29 @@ export async function deleteMemory(scope: MemoryServiceScope & { id: string }): 
     await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'archive', 'assistant', ?, 'explicit_memory_tool', ?)`, [randomUUID(), id, scope.userId, now]);
     const result = await readMemory(scope);
     return { ...result, changed: true, archivedEntry: entry };
+  } finally { await connection.close(); }
+}
+
+/** Restores an archived entry without changing its original scope or content. */
+export async function restoreMemory(scope: MemoryServiceScope & { id: string }): Promise<MemoryMutationResult> {
+  await assertMemoryScopeAccess(scope, 'archive');
+  const id = scope.id.trim();
+  const connection = await openDb();
+  try {
+    const where = collectionScopeWhere(scope);
+    const existing = await connection.get(`
+      SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key
+      FROM memory_entries entry
+      INNER JOIN memory_collections collection ON collection.id = entry.collection_id
+      WHERE entry.id = ? AND ${where.sql} AND entry.status = 'archived'
+      LIMIT 1
+    `, [id, ...where.params]) as Record<string, unknown> | undefined;
+    if (!existing) throw new Error(`Archived memory entry "${id}" was not found.`);
+    const now = Date.now();
+    await connection.run(`UPDATE memory_entries SET status = 'published', revision = revision + 1, updated_at = ? WHERE id = ? AND status = 'archived'`, [now, id]);
+    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'restore', 'user', ?, 'explicit_memory_restore', ?)`, [randomUUID(), id, scope.userId, now]);
+    const result = await readMemory(scope);
+    return { ...result, changed: true, entry: result.entries.find((entry) => entry.id === id) };
   } finally { await connection.close(); }
 }
 
@@ -878,11 +906,13 @@ export async function nextMemoryReviewDueAt(): Promise<number | null> {
 }
 
 /**
- * Conservative periodic hygiene: only archives very old, low-priority,
- * unpinned private facts. It never mutates pinned entries or shared memory.
+ * Conservative periodic hygiene: it archives only old, low-priority unpinned
+ * private facts and expired unpinned shared proposals. Published shared memory
+ * and all pinned entries remain untouched.
  */
 export async function runMemoryMaintenanceCycle(now = Date.now()): Promise<{ archived: number }> {
   const staleBefore = now - 90 * 24 * 60 * 60 * 1000;
+  const pendingBefore = now - MEMORY_PENDING_ARCHIVE_AFTER_MS;
   const connection = await openDb();
   try {
     const rows = await connection.all(`
@@ -894,10 +924,25 @@ export async function runMemoryMaintenanceCycle(now = Date.now()): Promise<{ arc
         AND entry.updated_at <= ?
       LIMIT 100
     `, [staleBefore]) as Array<{ id: string; user_id: string }>;
+    let archived = 0;
     for (const row of rows) {
       await connection.run(`UPDATE memory_entries SET status = 'archived', revision = revision + 1, updated_at = ? WHERE id = ? AND status = 'published' AND pinned = 0`, [now, row.id]);
       await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'archive', 'memory_manager', ?, 'automatic_maintenance_stale', ?)`, [randomUUID(), row.id, row.user_id, now]);
+      archived += 1;
     }
-    return { archived: rows.length };
+    const expired = await connection.all(`
+      SELECT entry.id, collection.user_id
+      FROM memory_entries entry
+      INNER JOIN memory_collections collection ON collection.id = entry.collection_id
+      WHERE collection.scope_type IN ('workspace', 'organization')
+        AND entry.status = 'pending' AND entry.pinned = 0 AND entry.created_at <= ?
+      LIMIT 100
+    `, [pendingBefore]) as Array<{ id: string; user_id: string }>;
+    for (const row of expired) {
+      await connection.run(`UPDATE memory_entries SET status = 'archived', revision = revision + 1, updated_at = ? WHERE id = ? AND status = 'pending' AND pinned = 0`, [now, row.id]);
+      await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'archive', 'memory_manager', ?, 'automatic_maintenance_pending_expired', ?)`, [randomUUID(), row.id, row.user_id, now]);
+      archived += 1;
+    }
+    return { archived };
   } finally { await connection.close(); }
 }

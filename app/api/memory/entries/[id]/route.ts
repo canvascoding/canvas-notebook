@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { deleteMemory, publishMemory, readMemoryEntryHistory, updateMemory } from '@/app/lib/memory/service';
+import { deleteMemory, publishMemory, readMemoryEntryHistory, restoreMemory, updateMemory } from '@/app/lib/memory/service';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 
@@ -53,7 +53,9 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const scope = await scopeFromPayload(request, session.user.id, payload);
     const result = payload.action === 'publish'
       ? await publishMemory({ ...scope, id })
-      : await updateMemory({ ...scope, id, content: String(payload.content ?? '') });
+      : payload.action === 'restore'
+        ? await restoreMemory({ ...scope, id })
+        : await updateMemory({ ...scope, id, content: String(payload.content ?? '') });
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to update memory.';
