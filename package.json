@@ -252,6 +252,8 @@
     "test:cli:swap": "bash scripts/cli-swap-command-test.sh",
     "test:cli:swap-portable": "tsx scripts/portable-cli-swap-test.ts",
     "test:cli:swap-linux-integration": "bash scripts/portable-cli-linux-swap-integration-test.sh",
+    "test:cli:caddy-portable": "tsx scripts/portable-cli-caddy-test.ts",
+    "test:cli:caddy-linux-integration": "bash scripts/portable-cli-linux-caddy-integration-test.sh",
     "test:cli:update-rollback": "bash scripts/cli-update-rollback-test.sh",
     "test:cli:portable-update": "tsx scripts/portable-cli-self-update-test.ts",
     "test:cli:portable": "tsx scripts/cross-platform-cli-test.ts",

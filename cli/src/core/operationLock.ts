@@ -204,6 +204,7 @@ export function commandRequiresOperationLock(command: string, args: string[]): b
     args[0] === 'migrate-sqlite-to-postgres';
   if (command === 'service') return args[0] === 'install' || args[0] === 'uninstall';
   if (command === 'swap-sync' || command === 'swap-apply' || command === 'swap-enable' || command === 'swap-disable') return true;
+  if (command === 'caddy-reload' || command === 'caddy-fix') return true;
   return false;
 }
 

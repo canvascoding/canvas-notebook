@@ -21,6 +21,7 @@ import {
   type CliDatabaseProvider,
   type CliRuntimeMode,
 } from './core/config';
+import { CaddyManager, isCaddyCommand, type CaddyStatus } from './core/caddy';
 import { writeComposeFile } from './core/compose';
 import { collectHostResources } from './core/diagnostics';
 import { DockerManager } from './core/docker';
@@ -147,6 +148,9 @@ Commands:
                                   Save settings and reconcile Linux swap transactionally
   swap-enable [--size <size>] [--file <path>] [--swappiness <0-200>]
   swap-disable [--secure]         Disable managed swap; optionally wipe its contents
+  caddy [--json]                  Show Linux Caddy status and the active Caddyfile
+  caddy-reload [--json]           Validate and apply the managed Canvas Caddy site
+  caddy-fix [--json]              Repair known Canvas/default Caddy configuration
   env [--json]                    Show the active configuration with secrets masked
   env --edit [--timeout <seconds>]
                                   Edit config safely, then apply and wait for health
@@ -976,6 +980,61 @@ function printSwapStatus(status: SwapStatus, json: boolean): void {
   if (status.error) console.error(`Canvas swap error: ${status.error}`);
 }
 
+function printCaddyStatus(status: CaddyStatus, json: boolean, content: string | null = null): void {
+  if (json) {
+    console.log(JSON.stringify(status));
+    return;
+  }
+  console.log(`Configured base URL: ${status.configuredBaseUrl || '(not set)'}`);
+  console.log(`Caddy domain: ${status.domain || '(not set)'}`);
+  console.log(`Public domain: ${status.publicDomain}`);
+  console.log(`Caddy installed: ${status.installed}`);
+  console.log(`Caddy service active: ${status.serviceActive}`);
+  console.log(`Caddyfile: ${status.caddyfile}`);
+  console.log(`Caddyfile managed: ${status.caddyfileManaged}`);
+  console.log(`Legacy Canvas config present: ${status.legacyConfigExists}`);
+  console.log(`Caddy configuration in sync: ${status.inSync}`);
+  if (status.issues.length > 0) console.log(`Caddy issues: ${status.issues.join(', ')}`);
+  if (status.error) console.error(`Caddy error: ${status.error}`);
+  if (content !== null) {
+    console.log('');
+    console.log(content.trimEnd());
+  }
+}
+
+async function runCaddyCommand(
+  command: string,
+  args: string[],
+  json: boolean,
+  context: RuntimeContext,
+  runner: SpawnCommandRunner,
+  config: CanvasCliConfig,
+): Promise<void> {
+  const caddy = new CaddyManager(runner, context);
+  if (args.includes('-h') || args.includes('--help')) {
+    if (args.length !== 1) throw new Error(`Usage: canvas-notebook ${command} [--json]`);
+    console.log(`Usage: canvas-notebook ${command} [--json]`);
+    return;
+  }
+  if (args.length > 0) throw new Error(`Usage: canvas-notebook ${command} [--json]`);
+  try {
+    if (command === 'caddy') {
+      const [status, content] = await Promise.all([
+        caddy.status(config),
+        json ? Promise.resolve(null) : caddy.displayContent(),
+      ]);
+      printCaddyStatus(status, json, content);
+      return;
+    }
+    await appendLog(context, command);
+    printCaddyStatus(await caddy.apply(config, { repair: command === 'caddy-fix' }), json);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Caddy operation failed.';
+    printCaddyStatus(await caddy.status(config, errorMessage), json);
+    process.exitCode = 1;
+  }
+}
+
 function swapConfigFromCommand(
   command: string,
   args: string[],
@@ -1559,6 +1618,14 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (isCaddyCommand(parsed.command) && context.platform !== 'linux') {
+    const error = 'Caddy management is only supported on Linux. No host changes were made.';
+    if (parsed.json) console.log(JSON.stringify({ success: false, error }));
+    else console.error(error);
+    process.exitCode = 1;
+    return;
+  }
+
   const operationLock = commandRequiresOperationLock(parsed.command, parsed.args)
     ? await acquireOperationLock(context, parsed.command)
     : null;
@@ -1688,6 +1755,11 @@ async function main(): Promise<void> {
     case 'swap-enable':
     case 'swap-disable':
       await runSwapCommand(parsed.command, parsed.args, parsed.json, context, runner, config);
+      break;
+    case 'caddy':
+    case 'caddy-reload':
+    case 'caddy-fix':
+      await runCaddyCommand(parsed.command, parsed.args, parsed.json, context, runner, config);
       break;
     case 'env':
       await runEnvCommand(context, runner, docker, config, parsed.args, parsed.json);

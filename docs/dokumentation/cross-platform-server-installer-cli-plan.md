@@ -91,7 +91,7 @@ Arbeitspaket aktualisiert werden.
 | `database migrate-sqlite-to-postgres` | vorhanden | vorhanden | Backup-, Copy-, Cutover- und Fehlerfall |
 | `admin reset-password` | vorhanden | vorhanden | Passwort nur ueber stdin, keine Secret-Persistenz |
 | `swap`, `swap-sync`, `swap-apply`, `swap-enable`, `swap-disable` | vorhanden | vorhanden | Linux-Adapter, Transaktion, Ownership und Recovery |
-| `caddy`, `caddy-reload`, `caddy-fix` | noch nicht vorhanden | fehlt | Linux-Adapter, Validierung und sichere Writes |
+| `caddy`, `caddy-reload`, `caddy-fix` | vorhanden | vorhanden | Linux-Adapter, Validierung, atomare Writes und Rollback |
 | `diagnose` | vorhanden | vorhanden | tolerante Text-/JSON-Diagnose ohne Docker |
 | `config` | vorhanden | vorhanden | aktive Pfade und Plattformkonfiguration |
 | `config-show` | vorhanden | vorhanden | Maskierung und `--secret-state` |
@@ -273,6 +273,31 @@ OrbStacks `/dev/zram0` und `/dev/vdc` blieben dabei aktiv.
 Gate: bestehende Bash-Swap-Tests besitzen ein gleichwertiges TypeScript-Gegenstueck.
 
 #### Phase 4: Caddy-Paritaet
+
+Status: Abgeschlossen am 2026-08-28. Die neue CLI verwaltet Caddy ueber einen
+eigenen Linux-Adapter. `caddy` liefert einen stabilen Status und zeigt im
+Textmodus die aktive Caddyfile. `caddy-reload` aktualisiert nur fehlende oder
+eindeutig als Canvas erkannte Site-Konfigurationen; `caddy-fix` darf zusaetzlich
+die bekannte Caddy-Default-Site ersetzen und entfernt die alte
+`conf.d/canvas-notebook.caddy`. Fremde Caddyfiles und Symlinks werden nicht
+ueberschrieben.
+
+Jede neue Caddyfile wird zuerst in einer temporaeren Datei mit `caddy validate`
+geprueft, danach atomar aktiviert und erst dann per systemd neu geladen. Falls
+Reload und Restart fehlschlagen, werden sowohl die vorherige Caddyfile als auch
+eine verschobene Legacy-Konfiguration wiederhergestellt. Status ist read-only;
+Reload und Fix verwenden den globalen CLI-Operation-Lock. macOS und Windows
+brechen vor Config-Lesen, Lock und Hostzugriff mit einem klaren Unsupported-
+Fehler ab.
+
+`scripts/portable-cli-caddy-test.ts` deckt Domain-Prioritaet, Drift,
+Default-/Legacy-Reparatur, Validierungsfehler, Rollback, Ownership-Grenzen und
+Symlink-Schutz mit isolierten Hostpfaden ab.
+`scripts/portable-cli-linux-caddy-integration-test.sh` verwendet ebenfalls nur
+einen temporaeren Caddy-Root, validiert die erzeugte Datei aber mit einem echten
+Caddy-Binary. Der Test lief am 2026-08-28 erfolgreich in der OrbStack-VM
+`ubuntu` mit Ubuntu 26.04 ARM64 und Caddy 2.6.2; `/etc/caddy` und der reale
+systemd-Zustand wurden dabei nicht veraendert.
 
 - Status, Render/Reload und bekannte Reparaturen portieren.
 - Config-Validierung vor Reload und atomare Caddyfile-Writes.
