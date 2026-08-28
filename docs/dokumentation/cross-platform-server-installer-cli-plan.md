@@ -228,6 +228,12 @@ Legacy-Build-Informationsvertrag sowie `cliGeneration`,
 Versionsauflosung behebt zugleich leere `status.image.cliVersion`-Werte in
 gepackten CLI-Bundles.
 
+Teilstatus 2026-08-28: `env` zeigt die aktive Konfiguration in Text oder JSON
+mit maskierten Secrets. `env --edit` bearbeitet eine temporaere Datei mit
+restriktiven Rechten, uebernimmt nur eine parsebare normalisierte Konfiguration,
+schuetzt Plattform- und Zielpfade und nutzt danach denselben Apply-/Health-Pfad
+wie `env --sync`.
+
 - `version --json` und Capability-Vertrag.
 - `env`-Anzeige und `env --edit`.
 - vollstaendige freigegebene `config-set`-Pfade.
