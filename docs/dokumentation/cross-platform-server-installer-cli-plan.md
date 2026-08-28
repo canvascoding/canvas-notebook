@@ -331,6 +331,23 @@ Gate: Installer, systemd und Control Plane benoetigen keine Legacy-Befehle mehr.
 
 #### Phase 6: Linux-Paket, Bootstrap und Rollback
 
+Teilstatus 2026-08-28: Die Runtime-Entscheidung ist gefallen. Linux erhaelt ein
+architekturspezifisches CLI-Artefakt fuer `amd64` und `arm64`, das eine offizielle
+Node.js-22-Runtime selbst mitliefert. Eine zufaellig installierte Host-Node- oder
+npm-Version ist damit kein Betriebsvertrag. Das Paket besitzt einen geprueften
+Launcher, `state/current` und `state/previous` sowie versionierte Verzeichnisse
+unter `releases/`. Der Launcher akzeptiert nur release-sichere Versionswerte,
+folgt seinem eigenen Symlink sicher und startet niemals still eine andere CLI.
+
+`scripts/linux-cli-package-test.mjs` prueft deterministische Archive, Checksum,
+Manifest, Allowlist und unsichere Aktivierungswerte. Der native Integrationstest
+laedt die offizielle Node-Runtime samt Hersteller-Checksum, weist eine fehlende
+Host-`libnode`-Abhaengigkeit nach und startet das Paket wirklich. Dieser Test lief
+am 2026-08-28 in der OrbStack-VM `ubuntu` auf ARM64 mit Node.js 22.23.2
+erfolgreich. Der Release-Workflow baut beide Architekturen auf nativen Runnern.
+Das Teilpaket ersetzt noch keine produktive Bash-CLI; atomare Installation,
+Aktivierung und Rueckkehr zu `previous` folgen als naechstes Teilpaket.
+
 - kanonisches Linux-Artefakt fuer `amd64` und `arm64` bauen.
 - Checksum und Archiv-Allowlist pruefen.
 - atomaren `current`/`previous`-Launcher implementieren.
