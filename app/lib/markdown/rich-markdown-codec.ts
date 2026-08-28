@@ -28,10 +28,21 @@ export type MarkdownRichModeReason =
   | 'parse_failed'
   | 'roundtrip_changed';
 
+export type MarkdownSafeNormalization =
+  | 'ordered_list_spacing'
+  | 'hard_break_marker';
+
 export type MarkdownRichModeAnalysis =
   | {
       mode: 'rich';
       body: string;
+      prefix: string;
+    }
+  | {
+      mode: 'normalizable';
+      body: string;
+      normalizedBody: string;
+      normalizations: MarkdownSafeNormalization[];
       prefix: string;
     }
   | {
@@ -98,6 +109,64 @@ function hasMarpBodyDirective(markdown: string): boolean {
   return /<!--\s*(?:_?[a-z][\w-]*\s*:|marp\s*:)/iu.test(markdown);
 }
 
+function safeRichMarkdownNormalization(
+  markdown: string,
+  serialized: string,
+): MarkdownSafeNormalization[] | null {
+  const lines = markdown.split('\n');
+  const protectedLines = new Array<boolean>(lines.length).fill(false);
+  const normalizations = new Set<MarkdownSafeNormalization>();
+  let fence: { marker: '`' | '~'; length: number } | null = null;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const content = lines[index].replace(/\r$/u, '');
+    const openingFence = content.match(/^\s*(`{3,}|~{3,})/u)?.[1];
+    protectedLines[index] = Boolean(fence) || Boolean(openingFence);
+
+    if (openingFence) {
+      const marker = openingFence[0] as '`' | '~';
+      if (!fence) {
+        fence = { marker, length: openingFence.length };
+      } else if (marker === fence.marker && openingFence.length >= fence.length) {
+        fence = null;
+      }
+      continue;
+    }
+
+    if (fence) continue;
+    if (/(^|[^\\])\\\r?$/u.test(lines[index])) {
+      lines[index] = lines[index].replace(/\\(\r?)$/u, '  $1');
+      normalizations.add('hard_break_marker');
+    }
+  }
+
+  const orderedItem = /^(\s*)\d+[.)]\s+\S/u;
+  const compacted: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const isBlank = /^\r?$/u.test(lines[index]);
+    const previous = index > 0 ? lines[index - 1].replace(/\r$/u, '') : '';
+    const next = index + 1 < lines.length ? lines[index + 1].replace(/\r$/u, '') : '';
+    const previousItem = previous.match(orderedItem);
+    const nextItem = next.match(orderedItem);
+    if (
+      isBlank
+      && !protectedLines[index]
+      && previousItem
+      && nextItem
+      && previousItem[1] === nextItem[1]
+    ) {
+      normalizations.add('ordered_list_spacing');
+      continue;
+    }
+    compacted.push(lines[index]);
+  }
+
+  if (normalizations.size === 0 || compacted.join('\n') !== serialized) return null;
+  return (['ordered_list_spacing', 'hard_break_marker'] as const).filter((normalization) => (
+    normalizations.has(normalization)
+  ));
+}
+
 /**
  * Determines whether the rich editor can read and write a document without
  * changing its source representation. This is intentionally conservative:
@@ -121,7 +190,19 @@ export function analyzeMarkdownRichMode(markdown: string): MarkdownRichModeAnaly
 
   try {
     const serialized = serializeRichMarkdownBody(parts.body);
-    if (serialized !== parts.body) return { mode: 'source', reason: 'roundtrip_changed' };
+    if (serialized !== parts.body) {
+      const normalizations = safeRichMarkdownNormalization(parts.body, serialized);
+      if (normalizations) {
+        return {
+          mode: 'normalizable',
+          prefix: parts.prefix,
+          body: parts.body,
+          normalizedBody: serialized,
+          normalizations,
+        };
+      }
+      return { mode: 'source', reason: 'roundtrip_changed' };
+    }
   } catch {
     return { mode: 'source', reason: 'parse_failed' };
   }
