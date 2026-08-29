@@ -30,6 +30,7 @@ const TOOL_NAMES = new Set([
   'search_knowledge',
   'read_knowledge_source',
   'edit_knowledge_source',
+  'read_knowledge_asset',
 ]);
 
 export type DirectMcpRequestHistoryInput = {

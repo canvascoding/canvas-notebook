@@ -56,7 +56,7 @@ async function main(): Promise<void> {
     });
     assert.equal(preferences.enabled, true);
     assert.deepEqual(preferences.tools, ['auth_probe']);
-    assert.equal(preferences.toolsVersion, 3);
+    assert.equal(preferences.toolsVersion, 4);
     assert.equal(typeof preferences.updatedAt, 'string');
     assert.equal(preferences.updatedBy, 'admin-1');
 
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
     assert.deepEqual(await getDirectMcpServerPreferences(), {
       enabled: true,
       tools: ['auth_probe'],
-      toolsVersion: 3,
+      toolsVersion: 4,
     });
 
     await writeFile(settingsPath, JSON.stringify({
@@ -117,6 +117,17 @@ async function main(): Promise<void> {
       }),
       /unsupported value/u,
     );
+    assert.deepEqual(
+      (await setDirectMcpServerPreferences('admin-1', {
+        enabled: true,
+        tools: ['read_knowledge_asset'],
+      })).tools,
+      ['read_knowledge_asset'],
+    );
+    await setDirectMcpServerPreferences('admin-1', {
+      enabled: true,
+      tools: ['auth_probe'],
+    });
 
     const status = buildDirectMcpServerSettingsStatus(preferences, {
       NODE_ENV: 'production',
@@ -142,6 +153,7 @@ async function main(): Promise<void> {
         { id: 'search_knowledge', available: true, enabled: false, scopes: ['knowledge:search'] },
         { id: 'read_knowledge_source', available: true, enabled: false, scopes: ['knowledge:read'] },
         { id: 'edit_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
+        { id: 'read_knowledge_asset', available: true, enabled: false, scopes: ['knowledge:assets'] },
       ],
     );
 

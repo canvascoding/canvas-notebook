@@ -132,7 +132,8 @@
       "knowledgeTree": "View the folder and file structure of permitted knowledge areas",
       "knowledgeSearch": "Search permitted knowledge content",
       "knowledgeRead": "Read content from permitted knowledge sources",
-      "knowledgeWrite": "Apply exact, conflict-protected edits to permitted knowledge sources"
+      "knowledgeWrite": "Apply exact, conflict-protected edits to permitted knowledge sources",
+      "knowledgeAssets": "Read permitted images and PDFs for visual and document context"
     },
     "securityTitle": "Direct, local connection",
     "securityDescription": "Sign-in, permissions, and data stay on {instanceHost}. Access is limited by the permissions you approve and your current local workspace permissions.",
@@ -3429,6 +3430,10 @@
           "edit_knowledge_source": {
             "title": "Edit file contents",
             "description": "Allows exact, conflict-protected edits to visible text files after an explicit administrator enablement."
+          },
+          "read_knowledge_asset": {
+            "title": "Read images and PDFs",
+            "description": "Provides bounded visual and text context from visible images and PDF documents after an explicit administrator enablement."
           }
         }
       },

@@ -19,6 +19,7 @@ const DIRECT_MCP_DEFAULT_TOOLS = [
 const DIRECT_MCP_TOOLS = [
   ...DIRECT_MCP_DEFAULT_TOOLS,
   'edit_knowledge_source',
+  'read_knowledge_asset',
 ];
 const DIRECT_MCP_TOOL_SET = new Set(DIRECT_MCP_TOOLS);
 

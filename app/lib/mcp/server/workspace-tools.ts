@@ -50,6 +50,17 @@ import {
   type DirectMcpAccessPrincipal,
 } from '@/app/lib/mcp/server/access-token-verifier';
 import {
+  DIRECT_MCP_ASSET_DEFAULT_MAX_CHARACTERS,
+  DIRECT_MCP_ASSET_DEFAULT_MAX_PDF_IMAGES,
+  DIRECT_MCP_ASSET_DEFAULT_MAX_PDF_TEXT_PAGES,
+  DIRECT_MCP_ASSET_MAX_BYTES,
+  DIRECT_MCP_ASSET_MAX_CHARACTERS,
+  DIRECT_MCP_ASSET_MAX_PDF_IMAGES,
+  DIRECT_MCP_ASSET_MAX_PDF_TEXT_PAGES,
+  DirectMcpAssetReadError,
+  readDirectMcpAsset,
+} from '@/app/lib/mcp/server/asset-reader';
+import {
   type DirectMcpResourceScope,
   type DirectMcpToolId,
 } from '@/app/lib/mcp/server/config';
@@ -70,6 +81,7 @@ export const DIRECT_MCP_WORKSPACE_TOOL_IDS = [
   'search_knowledge',
   'read_knowledge_source',
   'edit_knowledge_source',
+  'read_knowledge_asset',
 ] as const satisfies readonly DirectMcpToolId[];
 
 const MAX_WORKSPACE_ID_LENGTH = 200;
@@ -162,6 +174,22 @@ function optionalBoolean(args: JsonObject, name: string): boolean | undefined {
   const value = args[name];
   if (value === undefined) return undefined;
   if (typeof value !== 'boolean') invalidParams(`${name} must be a boolean.`);
+  return value;
+}
+
+function optionalPositiveIntegerArray(
+  args: JsonObject,
+  name: string,
+  maximumLength: number,
+): number[] | undefined {
+  const value = args[name];
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > maximumLength) {
+    invalidParams(`${name} must be an array of at most ${maximumLength} positive integers.`);
+  }
+  if (value.some((entry) => !Number.isSafeInteger(entry) || entry < 1)) {
+    invalidParams(`${name} must contain only positive integers.`);
+  }
   return value;
 }
 
@@ -397,6 +425,56 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     };
   }
 
+  if (tool === 'read_knowledge_asset') {
+    return {
+      name: tool,
+      title: 'Read workspace image or PDF',
+      description: 'Returns bounded visual context for an image, or bounded text and selected rendered pages for a PDF, from a visible workspace file.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          workspace_id: { type: 'string', description: 'Workspace ID from list_workspaces.' },
+          path: { type: 'string', description: 'Workspace-relative path of a visible PNG, JPEG, GIF, WebP, or PDF file.' },
+          max_characters: { type: 'integer', minimum: 1, maximum: DIRECT_MCP_ASSET_MAX_CHARACTERS, description: 'For PDFs, maximum extracted text characters. Defaults to 24000.' },
+          max_pdf_text_pages: { type: 'integer', minimum: 1, maximum: DIRECT_MCP_ASSET_MAX_PDF_TEXT_PAGES, description: 'For PDFs, maximum pages to parse for text unless pdf_text_pages is provided. Defaults to 20.' },
+          pdf_text_pages: { type: 'array', items: { type: 'integer', minimum: 1 }, maxItems: DIRECT_MCP_ASSET_MAX_PDF_TEXT_PAGES, description: 'For PDFs, specific 1-based pages to parse for text.' },
+          include_pdf_images: { type: 'boolean', description: 'For PDFs, include rendered page images for visual analysis. Defaults to automatic inclusion for bounded PDFs.' },
+          pdf_image_pages: { type: 'array', items: { type: 'integer', minimum: 1 }, maxItems: DIRECT_MCP_ASSET_MAX_PDF_IMAGES, description: 'For PDFs, specific 1-based pages to render as images.' },
+          max_pdf_images: { type: 'integer', minimum: 1, maximum: DIRECT_MCP_ASSET_MAX_PDF_IMAGES, description: 'For PDFs, maximum rendered page images. Defaults to 2.' },
+        },
+        required: ['workspace_id', 'path'],
+        additionalProperties: false,
+      },
+      outputSchema: {
+        type: 'object' as const,
+        properties: {
+          workspace_id: { type: 'string' },
+          path: { type: 'string' },
+          type: { type: 'string', enum: ['image', 'pdf'] },
+          mime_type: { type: 'string' },
+          sha256: { type: 'string' },
+          size: { type: 'integer' },
+          modified_at: { type: ['string', 'null'] },
+          pages: { type: 'integer' },
+          text_pages_read: { type: 'array', items: { type: 'integer' } },
+          text_page_limited: { type: 'boolean' },
+          truncated: { type: 'boolean' },
+          rendered_pages: { type: 'array', items: { type: 'object' } },
+          skipped_rendered_page_count: { type: 'integer' },
+        },
+        required: ['workspace_id', 'path', 'type', 'mime_type', 'sha256', 'size', 'modified_at'],
+        additionalProperties: false,
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      ...getToolSecurity('knowledge:assets'),
+    };
+  }
+
   return {
     name: tool,
     title: 'Read workspace document',
@@ -615,6 +693,13 @@ function errorResult(message: string): CallToolResult {
   };
 }
 
+function assetResult(
+  structuredContent: Record<string, unknown>,
+  content: CallToolResult['content'],
+): CallToolResult {
+  return { content, structuredContent };
+}
+
 async function auditWorkspaceToolCall(input: {
   principal: DirectMcpAccessPrincipal;
   tool: WorkspaceToolName;
@@ -625,6 +710,10 @@ async function auditWorkspaceToolCall(input: {
   afterSha256?: string;
   changed?: boolean;
   reviewRequired?: boolean;
+  assetType?: 'image' | 'pdf';
+  mimeType?: string;
+  sizeBytes?: number;
+  pageCount?: number;
 }): Promise<void> {
   await recordAuditEvent({
     organizationId: input.workspace?.organizationId ?? null,
@@ -646,6 +735,10 @@ async function auditWorkspaceToolCall(input: {
       afterSha256: input.afterSha256 ?? null,
       changed: input.changed ?? null,
       reviewRequired: input.reviewRequired ?? null,
+      assetType: input.assetType ?? null,
+      mimeType: input.mimeType ?? null,
+      sizeBytes: input.sizeBytes ?? null,
+      pageCount: input.pageCount ?? null,
     },
   });
 }
@@ -894,6 +987,110 @@ async function executeReadKnowledgeSource(
     return result(structuredContent, `Read ${content.length} characters from ${filePath}.`);
   } catch {
     return errorResult('Could not read the Canvas workspace file.');
+  }
+}
+
+function assetErrorResult(error: unknown): CallToolResult {
+  if (error instanceof DirectMcpAssetReadError) return errorResult(error.message);
+  return errorResult('Could not read the Canvas workspace asset.');
+}
+
+async function executeReadKnowledgeAsset(
+  args: unknown,
+  authInfo?: AuthInfo,
+): Promise<CallToolResult> {
+  const parsed = parseArgs(args);
+  const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
+  const filePath = requiredString(parsed, 'path', MAX_PATH_LENGTH);
+  assertVisibleWorkspacePath(filePath);
+  const maxCharacters = optionalInteger(
+    parsed,
+    'max_characters',
+    DIRECT_MCP_ASSET_DEFAULT_MAX_CHARACTERS,
+    1,
+    DIRECT_MCP_ASSET_MAX_CHARACTERS,
+  );
+  const maxPdfTextPages = optionalInteger(
+    parsed,
+    'max_pdf_text_pages',
+    DIRECT_MCP_ASSET_DEFAULT_MAX_PDF_TEXT_PAGES,
+    1,
+    DIRECT_MCP_ASSET_MAX_PDF_TEXT_PAGES,
+  );
+  const pdfTextPages = optionalPositiveIntegerArray(
+    parsed,
+    'pdf_text_pages',
+    DIRECT_MCP_ASSET_MAX_PDF_TEXT_PAGES,
+  );
+  const includePdfImages = optionalBoolean(parsed, 'include_pdf_images');
+  const pdfImagePages = optionalPositiveIntegerArray(
+    parsed,
+    'pdf_image_pages',
+    DIRECT_MCP_ASSET_MAX_PDF_IMAGES,
+  );
+  const maxPdfImages = optionalInteger(
+    parsed,
+    'max_pdf_images',
+    DIRECT_MCP_ASSET_DEFAULT_MAX_PDF_IMAGES,
+    1,
+    DIRECT_MCP_ASSET_MAX_PDF_IMAGES,
+  );
+  const authorization = await authenticateForTool(authInfo, 'knowledge:assets');
+  if ('result' in authorization) return authorization.result;
+
+  try {
+    const workspace = await readableWorkspace(authorization.principal, workspaceId);
+    const stats = await getFileStats(filePath, { workspace });
+    if (!stats.isFile) return errorResult('The requested path is a folder, not a file.');
+    if (stats.size > DIRECT_MCP_ASSET_MAX_BYTES) {
+      return errorResult(`The requested asset is larger than the ${DIRECT_MCP_ASSET_MAX_BYTES / (1024 * 1024)} MB MCP asset limit.`);
+    }
+    const buffer = await readFile(filePath, { workspace });
+    const asset = await readDirectMcpAsset({
+      path: filePath,
+      buffer,
+      options: {
+        maxCharacters,
+        maxPdfTextPages,
+        pdfTextPages,
+        includePdfImages,
+        pdfImagePages,
+        maxPdfImages,
+      },
+    });
+    const sha256 = sha256Buffer(buffer);
+    const structuredContent = {
+      workspace_id: workspace.workspaceId,
+      path: filePath,
+      type: asset.kind.type,
+      mime_type: asset.kind.mimeType,
+      sha256,
+      size: buffer.length,
+      modified_at: toIsoDate(stats.modified),
+      ...(asset.kind.type === 'pdf' ? {
+        pages: asset.pages ?? 0,
+        text_pages_read: asset.textPagesRead ?? [],
+        text_page_limited: asset.textPageLimited ?? false,
+        truncated: asset.truncated ?? false,
+        rendered_pages: asset.images ?? [],
+        skipped_rendered_page_count: asset.skippedImageCount ?? 0,
+      } : {}),
+    };
+    await auditWorkspaceToolCall({
+      principal: authorization.principal,
+      tool: 'read_knowledge_asset',
+      workspace,
+      resultCount: asset.content.filter((part) => part.type === 'image').length,
+      path: filePath,
+      afterSha256: sha256,
+      assetType: asset.kind.type,
+      mimeType: asset.kind.mimeType,
+      sizeBytes: buffer.length,
+      pageCount: asset.pages,
+    });
+    return assetResult(structuredContent, asset.content);
+  } catch (error) {
+    return assetErrorResult(error);
   }
 }
 
@@ -1158,6 +1355,11 @@ export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDe
       id: 'edit_knowledge_source',
       descriptor: getDirectMcpWorkspaceToolDescriptor('edit_knowledge_source'),
       execute: executeEditKnowledgeSource,
+    },
+    {
+      id: 'read_knowledge_asset',
+      descriptor: getDirectMcpWorkspaceToolDescriptor('read_knowledge_asset'),
+      execute: executeReadKnowledgeAsset,
     },
   ];
 }

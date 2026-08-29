@@ -132,7 +132,8 @@
       "knowledgeTree": "Die Ordner- und Dateistruktur erlaubter Wissensbereiche anzeigen",
       "knowledgeSearch": "In erlaubten Wissensinhalten suchen",
       "knowledgeRead": "Inhalte erlaubter Wissensquellen lesen",
-      "knowledgeWrite": "Exakte, konfliktgeschützte Änderungen an erlaubten Wissensquellen vornehmen"
+      "knowledgeWrite": "Exakte, konfliktgeschützte Änderungen an erlaubten Wissensquellen vornehmen",
+      "knowledgeAssets": "Erlaubte Bilder und PDFs als visuellen und Dokument-Kontext lesen"
     },
     "securityTitle": "Direkte, lokale Verbindung",
     "securityDescription": "Anmeldung, Berechtigungen und Daten bleiben auf {instanceHost}. Der Zugriff ist auf die von dir freigegebenen Berechtigungen und deine aktuellen lokalen Workspace-Rechte begrenzt.",
@@ -3428,6 +3429,10 @@
           "edit_knowledge_source": {
             "title": "Dateiinhalte bearbeiten",
             "description": "Erlaubt exakte, konfliktgeschützte Änderungen an sichtbaren Textdateien nach einer ausdrücklichen Freigabe durch die Administration."
+          },
+          "read_knowledge_asset": {
+            "title": "Bilder und PDFs lesen",
+            "description": "Stellt begrenzten visuellen und Textkontext aus sichtbaren Bildern und PDF-Dokumenten nach einer ausdrücklichen Freigabe durch die Administration bereit."
           }
         }
       },

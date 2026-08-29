@@ -60,14 +60,14 @@ async function main() {
 
     await writePreferences(dataDir, {
       enabled: true,
-      tools: ['auth_probe', 'read_knowledge_source', 'edit_knowledge_source'],
-      toolsVersion: 3,
+      tools: ['auth_probe', 'read_knowledge_source', 'edit_knowledge_source', 'read_knowledge_asset'],
+      toolsVersion: 4,
     });
     loadAppEnv(process.cwd());
     assert.equal(process.env.CANVAS_MCP_DIRECT_ENABLED, 'true');
     assert.equal(
       process.env.CANVAS_MCP_DIRECT_TOOLS,
-      'auth_probe,read_knowledge_source,edit_knowledge_source',
+      'auth_probe,read_knowledge_source,edit_knowledge_source,read_knowledge_asset',
     );
 
     process.env.CANVAS_MCP_DIRECT_ENABLED = 'true';
