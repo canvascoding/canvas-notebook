@@ -1409,83 +1409,93 @@ export async function writeAgentBinaryFile(params: {
     };
   }
 
-  await fs.mkdir(path.dirname(fullPath), { recursive: true });
-  const executionContext = getAgentExecutionContext();
-  const workspaceContext = getAgentWorkspaceContext();
-  const baseRevision = workspaceContext && before.buffer
-    ? ensureFileRevisionForCurrentContent({
-        workspace: workspaceContext,
-        path: params.path,
-        contentHash: beforeSha256!,
-        sizeBytes: before.buffer.length,
-        actorType: 'system',
-      })
-    : null;
-
-  if (workspaceContext) {
-    assertFileCollaborationWriteAllowed({
-      workspace: workspaceContext,
-      path: params.path,
-      actorUserId: executionContext?.userId ?? null,
-      actorSessionId: executionContext?.sessionId ?? null,
-      actorType: 'agent',
-      baseRevisionId: baseRevision?.id ?? null,
-    });
-  }
-
-  const snapshot = await createSnapshotFromBuffer({
+  const mutationState: AgentPathMutationState = {
     inputPath: params.path,
     fullPath,
     existed: before.existed,
-    beforeBuffer: before.buffer,
-    operation,
-  });
-  const stagingPath = path.join(
-    path.dirname(fullPath),
-    `.${path.basename(fullPath)}.canvas-agent-${randomUUID()}.tmp`,
-  );
-  try {
-    await fs.writeFile(stagingPath, params.content, { flag: 'wx', mode: 0o600 });
-    await fs.rename(stagingPath, fullPath);
-  } finally {
-    await fs.rm(stagingPath, { force: true }).catch(() => undefined);
-  }
-
-  const readBack = await fs.readFile(fullPath);
-  const readBackSha256 = sha256Buffer(readBack);
-  if (readBack.length !== params.content.length || readBackSha256 !== afterSha256) {
-    throw new Error(`Read-after-write verification failed for ${params.path}.`);
-  }
-  if (workspaceContext) {
-    ensureFileRevisionForCurrentContent({
-      workspace: workspaceContext,
-      path: params.path,
-      contentHash: readBackSha256,
-      sizeBytes: readBack.length,
-      actorUserId: executionContext?.userId ?? null,
-      actorType: 'agent',
-      sourceSessionId: executionContext?.sessionId ?? null,
-      baseRevisionId: baseRevision?.id ?? null,
-    });
-  }
-  await syncPublicSharesAfterWrite([fullPath]);
-
-  const result: AgentFileChangeResult = {
-    path: params.path,
-    resolvedPath: fullPath,
-    changed: true,
-    snapshot,
-    beforeSha256,
-    afterSha256: readBackSha256,
-    size: readBack.length,
-    diff: before.buffer
-      ? `Binary content changed: ${before.buffer.length} -> ${readBack.length} bytes`
-      : `Binary file created: ${readBack.length} bytes`,
-    validation,
+    type: before.existed ? 'file' : 'missing',
+    sha256: beforeSha256,
   };
-  publishAgentWorkspaceMutation(fullPath, before.existed ? 'change' : 'add');
-  await recordAgentFileChangeAudit(result, operation);
-  return result;
+  return withAgentWorkspaceMutationLocks([fullPath], async () => {
+    await assertAgentPathMutationStatesUnchanged([mutationState], operation);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    const executionContext = getAgentExecutionContext();
+    const workspaceContext = getAgentWorkspaceContext();
+    const baseRevision = workspaceContext && before.buffer
+      ? ensureFileRevisionForCurrentContent({
+          workspace: workspaceContext,
+          path: params.path,
+          contentHash: beforeSha256!,
+          sizeBytes: before.buffer.length,
+          actorType: 'system',
+        })
+      : null;
+
+    if (workspaceContext) {
+      assertFileCollaborationWriteAllowed({
+        workspace: workspaceContext,
+        path: params.path,
+        actorUserId: executionContext?.userId ?? null,
+        actorSessionId: executionContext?.sessionId ?? null,
+        actorType: 'agent',
+        baseRevisionId: baseRevision?.id ?? null,
+      });
+    }
+
+    const snapshot = await createSnapshotFromBuffer({
+      inputPath: params.path,
+      fullPath,
+      existed: before.existed,
+      beforeBuffer: before.buffer,
+      operation,
+    });
+    const stagingPath = path.join(
+      path.dirname(fullPath),
+      `.${path.basename(fullPath)}.canvas-agent-${randomUUID()}.tmp`,
+    );
+    try {
+      await fs.writeFile(stagingPath, params.content, { flag: 'wx', mode: 0o600 });
+      await fs.rename(stagingPath, fullPath);
+    } finally {
+      await fs.rm(stagingPath, { force: true }).catch(() => undefined);
+    }
+
+    const readBack = await fs.readFile(fullPath);
+    const readBackSha256 = sha256Buffer(readBack);
+    if (readBack.length !== params.content.length || readBackSha256 !== afterSha256) {
+      throw new Error(`Read-after-write verification failed for ${params.path}.`);
+    }
+    if (workspaceContext) {
+      ensureFileRevisionForCurrentContent({
+        workspace: workspaceContext,
+        path: params.path,
+        contentHash: readBackSha256,
+        sizeBytes: readBack.length,
+        actorUserId: executionContext?.userId ?? null,
+        actorType: 'agent',
+        sourceSessionId: executionContext?.sessionId ?? null,
+        baseRevisionId: baseRevision?.id ?? null,
+      });
+    }
+    await syncPublicSharesAfterWrite([fullPath]);
+
+    const result: AgentFileChangeResult = {
+      path: params.path,
+      resolvedPath: fullPath,
+      changed: true,
+      snapshot,
+      beforeSha256,
+      afterSha256: readBackSha256,
+      size: readBack.length,
+      diff: before.buffer
+        ? `Binary content changed: ${before.buffer.length} -> ${readBack.length} bytes`
+        : `Binary file created: ${readBack.length} bytes`,
+      validation,
+    };
+    publishAgentWorkspaceMutation(fullPath, before.existed ? 'change' : 'add');
+    await recordAgentFileChangeAudit(result, operation);
+    return result;
+  });
 }
 
 async function applyPreparedCollaborativeFileEdit(input: {

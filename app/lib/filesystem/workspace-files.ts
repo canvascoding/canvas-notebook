@@ -76,6 +76,7 @@ function workspaceMutationLockPathHierarchy(filePath: string): string[] {
     if (nextParentPath === parentPath) break;
     parentPath = nextParentPath;
   }
+  paths.push('.');
   return paths;
 }
 

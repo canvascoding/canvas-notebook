@@ -63,7 +63,12 @@ async function main() {
     } = await import('../app/lib/files/revision-guard');
     const { writeFile } = await import('../app/lib/filesystem/workspace-files');
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
-    const { deleteAgentPath, editAgentFile, writeAgentTextFile } = await import('../app/lib/pi/agent-file-operations');
+    const {
+      deleteAgentPath,
+      editAgentFile,
+      writeAgentBinaryFile,
+      writeAgentTextFile,
+    } = await import('../app/lib/pi/agent-file-operations');
 
     await writeFile('notes.md', 'personal v1\n', { workspace: personalWorkspace });
     await assert.doesNotReject(() => assertWorkspaceFileRevisionAllowed({
@@ -191,6 +196,37 @@ async function main() {
         && error.currentSha256 !== concurrentRevision.sha256,
     );
     assert.equal(await fs.readFile(path.join(teamRoot, 'concurrent.md'), 'utf8'), 'mcp write\n');
+
+    await writeFile('concurrent-binary.md', 'before binary write\n', { workspace: teamWorkspace });
+    const concurrentBinaryRevision = await getWorkspaceFileRevision('concurrent-binary.md', { workspace: teamWorkspace });
+    assert.ok(concurrentBinaryRevision?.sha256);
+
+    let releaseMcpBinaryWrite!: () => void;
+    const mcpBinaryWriteCanFinish = new Promise<void>((resolve) => { releaseMcpBinaryWrite = resolve; });
+    let mcpBinaryWriteReady!: () => void;
+    const mcpBinaryWriteReadySignal = new Promise<void>((resolve) => { mcpBinaryWriteReady = resolve; });
+    const mcpBinaryWrite = writeFile('concurrent-binary.md', 'mcp binary write wins\n', { workspace: teamWorkspace }, async () => {
+      mcpBinaryWriteReady();
+      await mcpBinaryWriteCanFinish;
+    });
+    await mcpBinaryWriteReadySignal;
+
+    const agentBinaryWrite = runWithAgentExecutionContext(agentContext, () => writeAgentBinaryFile({
+      path: 'concurrent-binary.md',
+      content: Buffer.from('agent binary write\n'),
+      expectedSha256: concurrentBinaryRevision.sha256,
+      overwrite: true,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    releaseMcpBinaryWrite();
+    await mcpBinaryWrite;
+    await assert.rejects(
+      () => agentBinaryWrite,
+      (error) => error instanceof WorkspaceFileRevisionError
+        && error.code === 'FILE_REVISION_CONFLICT'
+        && error.currentSha256 !== concurrentBinaryRevision.sha256,
+    );
+    assert.equal(await fs.readFile(path.join(teamRoot, 'concurrent-binary.md'), 'utf8'), 'mcp binary write wins\n');
 
     await writeFile('concurrent-delete.md', 'before delete\n', { workspace: teamWorkspace });
     const concurrentDeleteRevision = await getWorkspaceFileRevision('concurrent-delete.md', { workspace: teamWorkspace });
