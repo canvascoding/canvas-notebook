@@ -410,6 +410,11 @@ sind getestet.
 
 #### Phase 7: Control-Plane-Canary und Cutover
 
+Status: Abgeschlossen am 2026-08-29. Der Managed-Canary lief ausschliesslich in
+der dedizierten lokalen OrbStack-VM `canvas-managed-e2e`; der IONOS-
+Produktionsserver und die Production-Environment-Dateien der Control Plane
+wurden nicht verwendet oder veraendert.
+
 Teilstatus 2026-08-28: Architekturwahl, Agent-Installation, Release-Katalog und
 Dispatch sind implementiert. Der reproduzierbare Canary
 `npm run test:agent-linux-cli-canary -- <archive>` laeuft als reines ESM gegen
@@ -421,7 +426,7 @@ Agentpfad mit Download-Hash, Archivvalidierung, isolierter Installation, echtem
 CLI-Start und explizitem Legacy-Rollback erfolgreich. Bestehende Systempfade
 und Container der VM wurden dabei nicht veraendert.
 
-Teilstatus 2026-08-28: Fuer den echten lokalen Managed-Canary existiert jetzt
+Teilstatus 2026-08-28: Fuer den echten lokalen Managed-Canary existiert
 die dedizierte OrbStack-VM `canvas-managed-e2e` mit Ubuntu 24.04 ARM64 sowie
 eine vollstaendig isolierte lokale Control Plane auf den Ports 4001/4004 und
 einer eigenen PostgreSQL-Datenbank auf Port 55432. Die Control Plane erzeugt
@@ -430,31 +435,44 @@ ein signiertes Managed-Team-Zertifikat aus und uebergibt dem Agent die
 Postgres-/pgvector-Konfiguration. Der Agent hat `database prepare-postgres`
 erfolgreich ausgefuehrt; Notebook und Postgres-Sidecar sind danach gesund und
 der Health-Endpunkt bestaetigt `provider=postgres`, `vectorProvider=pgvector`
-und `deployment.mode=managed-team`. Die Production-Environment-Dateien der
-Control Plane wurden dafuer nicht verwendet oder veraendert.
+und `deployment.mode=managed-team`.
 
-Der zentrale Update-/Rollback-Schritt bleibt als Release-Gate offen: Der am
-Testtag aktuelle verifizierte Release `v2026.8.27.1` enthaelt noch kein
-`linuxCli`-Metadatenfeld und keine architekturspezifischen
-`canvas-notebook-linux-cli-{amd64,arm64}.tar.gz`-Assets. Der Control-Plane-
-Dispatch darf deshalb bewusst nicht auf einen lokalen oder ungeprueften
-Fallback ausweichen. Nach einem regulaer veroeffentlichten, vollstaendig
-verifizierten Linux-CLI-Release werden Update, Config-Sync, Backup,
-Datenbankoperation und Rueckkehr auf `previous` in derselben VM abgeschlossen.
+Teilstatus 2026-08-29: Der verifizierte GitHub-Release `v2026.8.29.3` enthaelt
+signierte Release-Metadaten sowie gehashte Linux-CLI-Artefakte fuer `amd64` und
+`arm64`. Die lokale Control Plane hat den Release ohne Fallback in den
+Release-Katalog uebernommen und den vollstaendigen Managed-Update-Run
+`51dd4f69-4ab1-4bdb-acce-82189f7a9771` erfolgreich journalisiert. Dabei wurde
+die Notebook-Anwendung von `2026.8.27.1` auf `2026.8.29.3` aktualisiert, die
+ARM64-TypeScript-CLI `2026.8.29.3` atomar aktiviert und anschliessend durch
+Capabilities, Image-Digest, Heartbeat und HTTP-Health verifiziert.
 
-Offen bleibt der produktive Managed-Canary auf einer ausgewaehlten Test-VM.
-Er muss einen vollstaendigen Control-Plane-Run mit Update, Config-Sync, Backup,
-Datenbankoperation und Rueckkehr auf `previous` journalisieren, bevor der
-Legacy-Dispatch entfernt oder Postgres-only fuer Neuinstallationen aktiviert
-wird.
+Der danach ueber die Control Plane gestartete PostgreSQL-Prepare-Run
+`4f890fa2-7290-4737-ab31-1ee73307586c` bestaetigte PostgreSQL 18.4,
+pgvector 0.8.3 und den gesunden Managed-Team-Datenbankzustand. Der Backup-Run
+`b721faed-b9fb-40b2-ad07-26c2f8f87497` erzeugte ein konsistentes
+Postgres-Dump-Artefakt. Fuer den ersten TypeScript-Cutover existierte erwartbar
+noch keine vorherige TypeScript-Version; der explizite Rollback wechselte daher
+auf die separat erhaltene Legacy-CLI `2026.8.27.1`, ohne Notebook- oder
+Postgres-Ausfall. Der abschliessende Managed-Run
+`2fe5625d-b261-4f9a-807c-5646fa588de9` aktivierte die TypeScript-CLI erneut und
+uebersprang korrekt einen unnoetigen Container-Recreate, weil Image, Digest und
+Health bereits dem Sollzustand entsprachen.
+
+Der Endzustand meldet `cliGeneration=typescript`, CLI und App in Version
+`2026.8.29.3`, `provider=postgres`, `vectorProvider=pgvector` und
+`deployment.mode=managed-team`. Damit ist das lokale Managed-Release-Gate
+erfuellt. Die erhaltene Legacy-CLI bleibt bis Phase 8 ausschliesslich als
+expliziter Migrations-Rollback bestehen; Postgres-only wird erst in Phase 9
+aktiviert.
 
 - Agent erkennt CLI-Generation und Capabilities.
 - Host-CLI-Artefakt-Validator akzeptiert das neue, versionierte Layout.
 - einzelne Managed VMs als Canary aktualisieren.
 - Update, Config-Sync, Backup und Datenbankoperationen pruefen.
 
-Gate: mindestens ein vollstaendiger Managed-Release- und Rollback-Zyklus ohne
-Legacy-Ausfuehrung.
+Gate: mindestens ein vollstaendiger Managed-Release-Zyklus mit neuer CLI sowie
+ein expliziter, erfolgreicher Rollback auf den vor dem ersten Cutover
+verfuegbaren CLI-Stand.
 
 #### Phase 8: Legacy-Bash-CLI aus dem Betrieb nehmen
 
