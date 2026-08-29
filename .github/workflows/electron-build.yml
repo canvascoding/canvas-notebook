@@ -172,7 +172,7 @@ jobs:
           set -euo pipefail
 
           node scripts/sync-electron-version.mjs
-          expected_version="$(node -p \"require('./electron/package.json').version\")"
+          expected_version="$(node -p "require('./electron/package.json').version")"
           manifest_version="$(awk '/^version: / { print $2; exit }' release-artifacts/latest-mac.yml)"
           [[ "$manifest_version" == "$expected_version" ]]
 
