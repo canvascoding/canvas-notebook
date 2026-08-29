@@ -44,6 +44,14 @@ function createMockRuntimeStatus(sessionId: string, overrides: Partial<PiRuntime
     lastCompactionKind: null,
     lastCompactionOmittedCount: 0,
     ...overrides,
+    compactionStatus: overrides.compactionStatus ?? {
+      state: 'idle',
+      attemptId: null,
+      trigger: null,
+      reasonCode: null,
+      retryAfter: null,
+      omittedMessageCount: 0,
+    },
   };
 }
 
@@ -1778,6 +1786,14 @@ contentKind: document
       lastCompactionAt: '2026-03-16T16:00:00.000Z',
       lastCompactionKind: 'automatic',
       lastCompactionOmittedCount: 8,
+      compactionStatus: {
+        state: 'succeeded',
+        attemptId: 'compact-runtime-status',
+        trigger: 'automatic',
+        reasonCode: null,
+        retryAfter: null,
+        omittedMessageCount: 8,
+      },
     };
     const queuedMessages = new Map<string, Record<string, unknown>>();
     const controlActions: string[] = [];
@@ -2485,6 +2501,14 @@ contentKind: document
       lastCompactionAt: null,
       lastCompactionKind: null,
       lastCompactionOmittedCount: 0,
+      compactionStatus: {
+        state: 'idle',
+        attemptId: null,
+        trigger: null,
+        reasonCode: null,
+        retryAfter: null,
+        omittedMessageCount: 0,
+      },
     };
 
     await page.route('**/api/sessions**', async (route) => {

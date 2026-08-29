@@ -19,6 +19,7 @@ import {
   beginDirectMcpDiagnostic,
   completeDirectMcpDiagnostic,
   failDirectMcpDiagnostic,
+  runWithDirectMcpDiagnostic,
   type DirectMcpDiagnosticContext,
 } from '@/app/lib/mcp/server/diagnostics';
 import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
@@ -52,7 +53,7 @@ function createModernMcpHandler(
     {
       legacy: 'reject',
       onerror: () => {
-        failDirectMcpDiagnostic(diagnostics, {
+        void failDirectMcpDiagnostic(diagnostics, {
           code: 'MCP_TRANSPORT_ERROR',
           startedAt,
           statusCode: 500,
@@ -182,69 +183,71 @@ async function resolveAuthInfo(request: Request): Promise<AuthInfo | undefined> 
 export async function handleDirectMcpPost(request: Request): Promise<Response> {
   const startedAt = Date.now();
   const diagnostics = beginDirectMcpDiagnostic(request, 'mcp.http');
-  try {
-    const runtimeSettings = await getDirectMcpRuntimeSettings();
-    if (!runtimeSettings.enabled) {
-      const response = withDirectMcpHeaders(directMcpNotFound(), request, diagnostics.requestId);
-      completeDirectMcpDiagnostic(diagnostics, {
-        statusCode: response.status,
-        code: 'MCP_DISABLED',
-        startedAt,
-      });
-      return response;
-    }
-    const originRejection = rejectUntrustedOrigin(request);
-    if (originRejection) {
-      const response = withDirectMcpHeaders(originRejection, request, diagnostics.requestId);
-      completeDirectMcpDiagnostic(diagnostics, {
-        statusCode: response.status,
-        code: 'MCP_ORIGIN_REJECTED',
-        startedAt,
-      });
-      return response;
-    }
-
-    let authInfo: AuthInfo | undefined;
+  return runWithDirectMcpDiagnostic(diagnostics, async () => {
     try {
-      authInfo = await resolveAuthInfo(request);
-    } catch (error) {
-      if (error instanceof DirectMcpAuthorizationError) {
-        const response = withDirectMcpHeaders(error.toResponse(), request, diagnostics.requestId);
-        completeDirectMcpDiagnostic(diagnostics, {
+      const runtimeSettings = await getDirectMcpRuntimeSettings();
+      if (!runtimeSettings.enabled) {
+        const response = withDirectMcpHeaders(directMcpNotFound(), request, diagnostics.requestId);
+        await completeDirectMcpDiagnostic(diagnostics, {
           statusCode: response.status,
-          code: `MCP_${error.code.toUpperCase()}`,
+          code: 'MCP_DISABLED',
           startedAt,
         });
         return response;
       }
-      throw error;
-    }
+      const originRejection = rejectUntrustedOrigin(request);
+      if (originRejection) {
+        const response = withDirectMcpHeaders(originRejection, request, diagnostics.requestId);
+        await completeDirectMcpDiagnostic(diagnostics, {
+          statusCode: response.status,
+          code: 'MCP_ORIGIN_REJECTED',
+          startedAt,
+        });
+        return response;
+      }
 
-    const response = withDirectMcpHeaders(
-      await handleProtocolRequest(
+      let authInfo: AuthInfo | undefined;
+      try {
+        authInfo = await resolveAuthInfo(request);
+      } catch (error) {
+        if (error instanceof DirectMcpAuthorizationError) {
+          const response = withDirectMcpHeaders(error.toResponse(), request, diagnostics.requestId);
+          await completeDirectMcpDiagnostic(diagnostics, {
+            statusCode: response.status,
+            code: `MCP_${error.code.toUpperCase()}`,
+            startedAt,
+          });
+          return response;
+        }
+        throw error;
+      }
+
+      const response = withDirectMcpHeaders(
+        await handleProtocolRequest(
+          request,
+          runtimeSettings.tools,
+          authInfo,
+          diagnostics,
+          startedAt,
+        ),
         request,
-        runtimeSettings.tools,
-        authInfo,
-        diagnostics,
+        diagnostics.requestId,
+      );
+      await completeDirectMcpDiagnostic(diagnostics, {
+        statusCode: response.status,
+        code: response.status >= 500 ? 'MCP_TRANSPORT_ERROR' : 'MCP_REQUEST_COMPLETED',
         startedAt,
-      ),
-      request,
-      diagnostics.requestId,
-    );
-    completeDirectMcpDiagnostic(diagnostics, {
-      statusCode: response.status,
-      code: response.status >= 500 ? 'MCP_TRANSPORT_ERROR' : 'MCP_REQUEST_COMPLETED',
-      startedAt,
-    });
-    return response;
-  } catch {
-    failDirectMcpDiagnostic(diagnostics, {
-      code: 'MCP_INTERNAL_ERROR',
-      startedAt,
-      statusCode: 500,
-    });
-    return withDirectMcpHeaders(internalMcpErrorResponse(), request, diagnostics.requestId);
-  }
+      });
+      return response;
+    } catch {
+      await failDirectMcpDiagnostic(diagnostics, {
+        code: 'MCP_INTERNAL_ERROR',
+        startedAt,
+        statusCode: 500,
+      });
+      return withDirectMcpHeaders(internalMcpErrorResponse(), request, diagnostics.requestId);
+    }
+  });
 }
 
 export async function handleDirectMcpUnsupportedMethod(request: Request): Promise<Response> {
@@ -260,7 +263,7 @@ export async function handleDirectMcpUnsupportedMethod(request: Request): Promis
       request,
       diagnostics.requestId,
     );
-    completeDirectMcpDiagnostic(diagnostics, {
+    await completeDirectMcpDiagnostic(diagnostics, {
       statusCode: responseWithHeaders.status,
       code: responseWithHeaders.status === 404
         ? 'MCP_DISABLED'
@@ -271,7 +274,7 @@ export async function handleDirectMcpUnsupportedMethod(request: Request): Promis
     });
     return responseWithHeaders;
   } catch {
-    failDirectMcpDiagnostic(diagnostics, {
+    await failDirectMcpDiagnostic(diagnostics, {
       code: 'MCP_INTERNAL_ERROR',
       startedAt,
       statusCode: 500,
@@ -295,7 +298,7 @@ export async function handleDirectMcpOptions(request: Request): Promise<Response
         request,
         diagnostics.requestId,
       );
-      completeDirectMcpDiagnostic(diagnostics, {
+      await completeDirectMcpDiagnostic(diagnostics, {
         statusCode: response.status,
         code: 'MCP_DISABLED',
         startedAt,
@@ -309,7 +312,7 @@ export async function handleDirectMcpOptions(request: Request): Promise<Response
         request,
         diagnostics.requestId,
       );
-      completeDirectMcpDiagnostic(diagnostics, {
+      await completeDirectMcpDiagnostic(diagnostics, {
         statusCode: response.status,
         code: 'MCP_ORIGIN_REJECTED',
         startedAt,
@@ -334,14 +337,14 @@ export async function handleDirectMcpOptions(request: Request): Promise<Response
       request,
       diagnostics.requestId,
     );
-    completeDirectMcpDiagnostic(diagnostics, {
+    await completeDirectMcpDiagnostic(diagnostics, {
       statusCode: response.status,
       code: 'MCP_OPTIONS_COMPLETED',
       startedAt,
     });
     return response;
   } catch {
-    failDirectMcpDiagnostic(diagnostics, {
+    await failDirectMcpDiagnostic(diagnostics, {
       code: 'MCP_INTERNAL_ERROR',
       startedAt,
       statusCode: 500,

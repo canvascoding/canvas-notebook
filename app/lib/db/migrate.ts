@@ -369,6 +369,51 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_mcp_revoked_access_token_expiry
       ON mcp_revoked_access_token (expires_at);
 
+    -- Revokes one user's Direct MCP grant while preserving the public OAuth
+    -- client for other users. A timestamp lets a subsequent reauthorization
+    -- issue a new bearer token for the same browser session.
+    CREATE TABLE IF NOT EXISTS mcp_direct_grant_revocation (
+      client_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      revoked_at INTEGER NOT NULL,
+      PRIMARY KEY (client_id, session_id, user_id),
+      FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
+      FOREIGN KEY (session_id) REFERENCES session(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mcp_direct_grant_revocation_user_client
+      ON mcp_direct_grant_revocation (user_id, client_id);
+
+    -- A Direct MCP connection starts with no workspace data access. Rows here
+    -- are an explicit user-selected allowlist and are checked in addition to
+    -- Canvas's current workspace ACL for every tool invocation.
+    CREATE TABLE IF NOT EXISTS mcp_direct_workspace_grant (
+      client_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (client_id, user_id, workspace_id),
+      FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mcp_direct_workspace_grant_user_client
+      ON mcp_direct_workspace_grant (user_id, client_id);
+
+    -- Workspace managers opt workspaces into Direct MCP before users can add
+    -- them to an individual OAuth client connection. Absence means disabled.
+    CREATE TABLE IF NOT EXISTS mcp_direct_workspace_setting (
+      workspace_id TEXT PRIMARY KEY NOT NULL,
+      enabled_by_user_id TEXT NOT NULL,
+      enabled_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
+      FOREIGN KEY (enabled_by_user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS oauth_consent (
       id TEXT PRIMARY KEY NOT NULL,
       client_id TEXT NOT NULL,
@@ -1010,6 +1055,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       summary_updated_at INTEGER,
       summary_through_timestamp INTEGER,
       summary_through_sequence INTEGER,
+      summary_revision INTEGER NOT NULL DEFAULT 0,
       system_prompt_snapshot TEXT,
       system_prompt_snapshot_hash TEXT,
       system_prompt_snapshot_created_at INTEGER,
@@ -1035,6 +1081,44 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       runtime_selection_source TEXT,
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
+
+    CREATE TABLE IF NOT EXISTS pi_session_compaction_attempts (
+      id TEXT PRIMARY KEY NOT NULL,
+      pi_session_db_id INTEGER NOT NULL,
+      attempt_ordinal INTEGER NOT NULL DEFAULT 0,
+      trigger TEXT NOT NULL CHECK (trigger IN ('automatic', 'manual', 'automation')),
+      state TEXT NOT NULL CHECK (state IN ('running', 'succeeded', 'no_op', 'deferred', 'failed', 'aborted', 'stale', 'timed_out')),
+      reason_code TEXT,
+      base_summary_revision INTEGER NOT NULL,
+      committed_summary_revision INTEGER,
+      base_through_sequence INTEGER,
+      committed_through_sequence INTEGER,
+      message_sequence_checkpoint INTEGER NOT NULL,
+      contract_fingerprint TEXT,
+      provider TEXT NOT NULL,
+      model TEXT NOT NULL,
+      before_estimated_tokens INTEGER,
+      after_estimated_tokens INTEGER,
+      before_estimated_bytes INTEGER,
+      after_estimated_bytes INTEGER,
+      protected_unit_count INTEGER,
+      summarized_unit_count INTEGER,
+      omitted_unit_count INTEGER,
+      started_at INTEGER NOT NULL,
+      deadline_at INTEGER NOT NULL,
+      completed_at INTEGER,
+      retry_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (pi_session_db_id) REFERENCES pi_sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pi_compaction_attempts_session_started
+      ON pi_session_compaction_attempts (pi_session_db_id, started_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_compaction_attempts_state_deadline
+      ON pi_session_compaction_attempts (state, deadline_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_compaction_attempts_active_session
+      ON pi_session_compaction_attempts (pi_session_db_id) WHERE state = 'running';
 
     CREATE TABLE IF NOT EXISTS pi_delegations (
       id TEXT PRIMARY KEY NOT NULL,
@@ -1460,6 +1544,23 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       secret_ref TEXT,
       secret_scope TEXT,
       created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS direct_mcp_request_history (
+      id TEXT PRIMARY KEY NOT NULL,
+      request_id TEXT NOT NULL,
+      server_version TEXT,
+      flow_ref TEXT,
+      phase TEXT NOT NULL,
+      http_method TEXT NOT NULL,
+      operation TEXT,
+      tool_name TEXT,
+      outcome TEXT NOT NULL,
+      status_code INTEGER,
+      code TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS automation_jobs (
@@ -2455,6 +2556,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_audit_events_user_created ON audit_events (user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_entity_created ON audit_events (entity_type, entity_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_events_source_action_created ON audit_events (source, action, created_at);
+    CREATE INDEX IF NOT EXISTS idx_direct_mcp_request_history_created ON direct_mcp_request_history (created_at);
+    CREATE INDEX IF NOT EXISTS idx_direct_mcp_request_history_expires ON direct_mcp_request_history (expires_at);
   `);
 
   if (tableExists(sqlite, 'ai_sessions') && tableExists(sqlite, 'ai_messages')) {
@@ -2468,6 +2571,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   // ── Column additions for existing volumes ────────────────────────────────────
   // Each block adds columns that were missing from older schema versions.
   // ALTER TABLE ADD COLUMN is idempotent here because we check PRAGMA table_info first.
+
+  addColumns(sqlite, 'direct_mcp_request_history', {
+    server_version: 'TEXT',
+  });
 
   addColumns(sqlite, 'agents', {
     scope_type: "TEXT NOT NULL DEFAULT 'user'",
@@ -2538,6 +2645,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     archived_at: 'INTEGER',
     thinking_level: 'TEXT',
     summary_through_sequence: 'INTEGER',
+    summary_revision: 'INTEGER NOT NULL DEFAULT 0',
     runtime_provider_installation_id: 'TEXT',
     runtime_catalog_revision: 'INTEGER',
     runtime_policy_revision: 'INTEGER',
@@ -2553,6 +2661,27 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   addColumns(sqlite, 'pi_messages', {
     sequence: 'INTEGER NOT NULL DEFAULT 0',
   });
+
+  addColumns(sqlite, 'pi_session_compaction_attempts', {
+    attempt_ordinal: 'INTEGER NOT NULL DEFAULT 0',
+  });
+  sqlite.exec(`
+    WITH ranked_attempts AS (
+      SELECT id,
+             ROW_NUMBER() OVER (
+               PARTITION BY pi_session_db_id
+               ORDER BY started_at ASC, created_at ASC, id ASC
+             ) AS next_ordinal
+      FROM pi_session_compaction_attempts
+    )
+    UPDATE pi_session_compaction_attempts
+    SET attempt_ordinal = (
+      SELECT next_ordinal FROM ranked_attempts
+      WHERE ranked_attempts.id = pi_session_compaction_attempts.id
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_compaction_attempts_session_ordinal
+      ON pi_session_compaction_attempts (pi_session_db_id, attempt_ordinal);
+  `);
 
   sqlite.exec(`
     WITH ordered_messages AS (
@@ -3028,6 +3157,26 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   // create duplicate records for that pair, so merge their messages before the
   // unique index below is introduced.
   deduplicatePiSessions(sqlite);
+
+  const invalidPiMessageSequenceCount = (sqlite.prepare(`
+    SELECT COUNT(*) AS count
+    FROM (
+      SELECT pi_session_db_id, sequence
+      FROM pi_messages
+      GROUP BY pi_session_db_id, sequence
+      HAVING sequence IS NULL OR sequence <= 0 OR COUNT(*) > 1
+    ) invalid_sequences
+  `).get() as { count: number }).count;
+  if (invalidPiMessageSequenceCount === 0) {
+    sqlite.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_messages_session_sequence_unique
+        ON pi_messages (pi_session_db_id, sequence);
+    `);
+  } else {
+    console.warn(
+      `[Database] PI message sequence integrity audit found ${invalidPiMessageSequenceCount} conflicting sequence group(s); unique index deferred.`,
+    );
+  }
 
   // ── Deferred indexes on columns added via ALTER TABLE ──────────────────────
   sqlite.exec(`

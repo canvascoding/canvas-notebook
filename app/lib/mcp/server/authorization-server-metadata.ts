@@ -41,14 +41,14 @@ export async function getAuthorizationServerMetadata(request: Request): Promise<
         : await metadataHandler(request),
       diagnostics.requestId,
     );
-    completeDirectMcpDiagnostic(diagnostics, {
+    await completeDirectMcpDiagnostic(diagnostics, {
       statusCode: response.status,
       code: response.status === 404 ? 'MCP_DISABLED' : 'MCP_DISCOVERY_COMPLETED',
       startedAt,
     });
     return response;
   } catch {
-    failDirectMcpDiagnostic(diagnostics, {
+    await failDirectMcpDiagnostic(diagnostics, {
       code: 'MCP_DISCOVERY_ERROR',
       startedAt,
       statusCode: 500,

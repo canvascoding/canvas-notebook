@@ -9,6 +9,7 @@ import {
   getMaxMessageSequence,
   getMessageTimestamp,
   getUnsummarizedMessages,
+  isPiHistoryCompositionSendable,
   type PiHistoryComposition,
   type PiSessionSummaryState,
 } from './history-budget';
@@ -19,6 +20,7 @@ type PreparePiHistoryContextOptions = {
   summary: PiSessionSummaryState;
   systemPromptTokens: number;
   model: Model<Api>;
+  requestOutputTokens?: number;
   toolTokens: number;
   additionalContextTokens?: number;
   sessionId?: string;
@@ -42,6 +44,7 @@ export type PreparePiHistoryContextResult = {
   summaryUpdated: boolean;
   summaryFailed: boolean;
   unsummarizedMessageCount: number;
+  safeToSend: boolean;
 };
 
 const SUMMARY_SYSTEM_PROMPT = [
@@ -201,7 +204,9 @@ async function sanitizeMessagesForSummary(messages: AgentMessage[]): Promise<Use
     // message contains one from a legacy session, retain its text only.
     normalized = await normalizePiMessagesForLlm(messages);
   } catch (error) {
-    console.warn('[PI Summary] Falling back to text-only legacy message projection:', error);
+    console.warn('[PI Summary] Falling back to text-only legacy message projection.', {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    });
     normalized = messages
       .filter((message): message is AgentMessage & { content: unknown } => 'content' in message)
       .map((message) => ({
@@ -355,6 +360,7 @@ export async function preparePiHistoryContext({
   summary,
   systemPromptTokens,
   model,
+  requestOutputTokens,
   toolTokens,
   additionalContextTokens = 0,
   sessionId,
@@ -371,6 +377,7 @@ export async function preparePiHistoryContext({
     systemPromptTokens,
     contextWindow: model.contextWindow,
     modelMaxTokens: model.maxTokens,
+    requestOutputTokens,
     toolTokens,
     additionalContextTokens,
   });
@@ -383,6 +390,7 @@ export async function preparePiHistoryContext({
       summaryUpdated,
       summaryFailed: false,
       unsummarizedMessageCount: 0,
+      safeToSend: false,
     };
   }
 
@@ -400,6 +408,7 @@ export async function preparePiHistoryContext({
       summaryUpdated,
       summaryFailed,
       unsummarizedMessageCount: 0,
+      safeToSend: isPiHistoryCompositionSendable(composition, nextSummary),
     };
   }
 
@@ -426,6 +435,7 @@ export async function preparePiHistoryContext({
           unsummarizedMessages,
           nextSummary.summaryThroughSequence,
         ),
+        summaryRevision: nextSummary.summaryRevision,
       };
       summaryUpdated = true;
 
@@ -435,6 +445,7 @@ export async function preparePiHistoryContext({
         systemPromptTokens,
         contextWindow: model.contextWindow,
         modelMaxTokens: model.maxTokens,
+        requestOutputTokens,
         toolTokens,
         additionalContextTokens,
       });
@@ -442,13 +453,27 @@ export async function preparePiHistoryContext({
       summaryFailed = true;
     }
   } catch (error) {
+    if (signal?.aborted) throw error;
     summaryAttempted = true;
     summaryFailed = true;
-    console.warn(
-      `[PI Summary] Failed to update summary${sessionId ? ` for ${sessionId}` : ''}: ${
-        error instanceof Error ? error.message : 'unknown error'
-      }`,
-    );
+    console.warn('[PI Summary] Summary candidate generation failed.', {
+      sessionId: sessionId ?? null,
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    });
+  }
+
+  if (summaryFailed || !isPiHistoryCompositionSendable(composition, nextSummary)) {
+    composition = composePiHistoryForLlm({
+      messages,
+      summary: nextSummary,
+      systemPromptTokens,
+      contextWindow: model.contextWindow,
+      modelMaxTokens: model.maxTokens,
+      requestOutputTokens,
+      toolTokens,
+      additionalContextTokens,
+      selectionMode: 'hard_limit',
+    });
   }
 
   return {
@@ -458,5 +483,6 @@ export async function preparePiHistoryContext({
     summaryUpdated,
     summaryFailed,
     unsummarizedMessageCount: unsummarizedMessages.length,
+    safeToSend: isPiHistoryCompositionSendable(composition, nextSummary),
   };
 }

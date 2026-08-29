@@ -13,8 +13,10 @@ import {
   DirectMcpAuthorizationError,
   verifyDirectMcpAccessToken,
 } from '@/app/lib/mcp/server/access-token-verifier';
+import { DIRECT_MCP_RESOURCE_SCOPES } from '@/app/lib/mcp/server/config';
 import { directMcpToolAuthorizationError } from '@/app/lib/mcp/server/tool-auth';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
+import { listDirectMcpAllowedWorkspaceIds } from '@/app/lib/mcp/server/workspace-access-policy';
 
 export const DIRECT_MCP_AUTH_PROBE_TOOL = 'auth_probe';
 export const DIRECT_MCP_AUTH_PROBE_SCOPE = 'workspace:list';
@@ -48,8 +50,9 @@ export function getDirectMcpAuthProbeToolDescriptor(): DirectMcpToolDescriptor {
           type: 'array',
           items: { type: 'string' },
         },
+        allowed_workspace_count: { type: 'integer' },
       },
-      required: ['authenticated', 'user_ref', 'scopes'],
+      required: ['authenticated', 'user_ref', 'scopes', 'allowed_workspace_count'],
       additionalProperties: false,
     },
     annotations: {
@@ -95,12 +98,14 @@ export async function runDirectMcpAuthProbe(
       [DIRECT_MCP_AUTH_PROBE_SCOPE],
     );
     const scopes = principal.scopes
-      .filter((scope) => scope === DIRECT_MCP_AUTH_PROBE_SCOPE)
+      .filter((scope) => (DIRECT_MCP_RESOURCE_SCOPES as readonly string[]).includes(scope))
       .sort();
+    const allowedWorkspaceIds = await listDirectMcpAllowedWorkspaceIds(principal);
     const structuredContent = {
       authenticated: true,
       user_ref: redactedUserReference(principal.userId),
       scopes,
+      allowed_workspace_count: allowedWorkspaceIds.size,
     };
     return {
       content: [{

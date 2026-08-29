@@ -351,6 +351,12 @@ try {
   assert.ok(piSessionColumns.has('channel_id'));
   assert.ok(piSessionColumns.has('channel_session_key'));
   assert.ok(piSessionColumns.has('summary_through_sequence'));
+  assert.ok(piSessionColumns.has('summary_revision'));
+  const migratedSummaryRevision = sqlite.prepare(
+    "SELECT summary_revision AS summaryRevision FROM pi_sessions WHERE id = 1",
+  ).get() as { summaryRevision: number };
+  assert.equal(migratedSummaryRevision.summaryRevision, 0);
+  assert.equal(tableExists(sqlite, 'pi_session_compaction_attempts'), true);
 
   const piMessageColumns = getColumns(sqlite, 'pi_messages');
   assert.ok(piMessageColumns.has('sequence'));
@@ -437,6 +443,7 @@ try {
       .map((index) => (index as { name: string }).name),
   );
   assert.ok(messageIndexes.has('idx_pi_messages_session_sequence'));
+  assert.ok(messageIndexes.has('idx_pi_messages_session_sequence_unique'));
 
   const migratedUsage = sqlite.prepare(`
     SELECT agent_id AS agentId, organization_id AS organizationId, workspace_id AS workspaceId, workspace_type AS workspaceType

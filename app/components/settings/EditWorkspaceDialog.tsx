@@ -16,6 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { DirectMcpWorkspaceAccessSwitch } from '@/app/components/settings/DirectMcpWorkspaceAccessSwitch';
 import { WorkspaceMembersEditor } from '@/app/components/settings/WorkspaceMembersEditor';
 import { WorkspaceIconPicker } from '@/app/components/workspaces/WorkspaceIconPicker';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
@@ -163,6 +164,27 @@ function EditWorkspaceDialogContent({
               </div>
 
               <WorkspaceIconPicker value={icon} onChange={setIcon} disabled={isSubmitting} />
+
+              {workspace ? (
+                <section className="rounded-lg border bg-muted/20 p-4" aria-labelledby="workspace-mcp-access-title">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <h3 id="workspace-mcp-access-title" className="text-sm font-semibold">
+                        {t('mcp.title')}
+                      </h3>
+                      <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                        {t('mcp.description')}
+                      </p>
+                    </div>
+                    <DirectMcpWorkspaceAccessSwitch
+                      workspaceId={workspace.id}
+                      canManage={workspace.permissions.canManageWorkspace}
+                      onUpdated={() => onChanged()}
+                    />
+                  </div>
+                  <p className="mt-3 text-xs text-muted-foreground">{t('mcp.immediate')}</p>
+                </section>
+              ) : null}
 
               {error ? (
                 <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">

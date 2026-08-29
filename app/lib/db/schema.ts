@@ -391,6 +391,43 @@ export const mcpRevokedAccessToken = sqliteTable("mcp_revoked_access_token", {
   expiryIdx: index("idx_mcp_revoked_access_token_expiry").on(table.expiresAt),
 }));
 
+// A user can disconnect their own Direct MCP grant without disabling the
+// dynamically registered public client for other users. The timestamp keeps
+// bearer JWTs issued before the disconnect invalid while permitting a later,
+// explicit reauthorization for the same browser session.
+export const mcpDirectGrantRevocation = sqliteTable("mcp_direct_grant_revocation", {
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull().references(() => session.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  revokedAt: integer("revoked_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => ({
+  grantPk: primaryKey({ columns: [table.clientId, table.sessionId, table.userId] }),
+  userClientIdx: index("idx_mcp_direct_grant_revocation_user_client").on(table.userId, table.clientId),
+}));
+
+// Direct MCP only exposes workspace data after the signed-in person explicitly
+// selects it for that public OAuth client. Current Canvas ACL checks remain in
+// effect at every tool call, so an outdated row never grants access by itself.
+export const mcpDirectWorkspaceGrant = sqliteTable("mcp_direct_workspace_grant", {
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => ({
+  grantPk: primaryKey({ columns: [table.clientId, table.userId, table.workspaceId] }),
+  userClientIdx: index("idx_mcp_direct_workspace_grant_user_client").on(table.userId, table.clientId),
+}));
+
+// A workspace manager must opt a workspace into Direct MCP before an
+// individual user can grant it to one of their OAuth clients.
+export const mcpDirectWorkspaceSetting = sqliteTable("mcp_direct_workspace_setting", {
+  workspaceId: text("workspace_id").primaryKey().references(() => canvasWorkspaces.id, { onDelete: "cascade" }),
+  enabledByUserId: text("enabled_by_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  enabledAt: integer("enabled_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const oauthConsent = sqliteTable("oauth_consent", {
   id: text("id").primaryKey(),
   clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
@@ -1121,6 +1158,7 @@ export const piSessions = sqliteTable("pi_sessions", {
   summaryUpdatedAt: integer("summary_updated_at", { mode: "timestamp" }),
   summaryThroughTimestamp: integer("summary_through_timestamp"),
   summaryThroughSequence: integer("summary_through_sequence"),
+  summaryRevision: integer("summary_revision").notNull().default(0),
   systemPromptSnapshot: text("system_prompt_snapshot"),
   systemPromptSnapshotHash: text("system_prompt_snapshot_hash"),
   systemPromptSnapshotCreatedAt: integer("system_prompt_snapshot_created_at", { mode: "timestamp" }),
@@ -1158,6 +1196,45 @@ export const piSessions = sqliteTable("pi_sessions", {
   delegationIdx: index("idx_pi_sessions_delegation").on(table.userId, table.delegationId),
   sessionKindCheck: check("pi_sessions_session_kind_check", sql`${table.sessionKind} IN ('conversation', 'delegation_worker')`),
   delegationDepthCheck: check("pi_sessions_delegation_depth_check", sql`${table.delegationDepth} IN (0, 1)`),
+}));
+
+export const piSessionCompactionAttempts = sqliteTable("pi_session_compaction_attempts", {
+  id: text("id").primaryKey(),
+  piSessionDbId: integer("pi_session_db_id").notNull().references(() => piSessions.id, { onDelete: "cascade" }),
+  attemptOrdinal: integer("attempt_ordinal").notNull().default(0),
+  trigger: text("trigger").notNull(),
+  state: text("state").notNull(),
+  reasonCode: text("reason_code"),
+  baseSummaryRevision: integer("base_summary_revision").notNull(),
+  committedSummaryRevision: integer("committed_summary_revision"),
+  baseThroughSequence: integer("base_through_sequence"),
+  committedThroughSequence: integer("committed_through_sequence"),
+  messageSequenceCheckpoint: integer("message_sequence_checkpoint").notNull(),
+  contractFingerprint: text("contract_fingerprint"),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  beforeEstimatedTokens: integer("before_estimated_tokens"),
+  afterEstimatedTokens: integer("after_estimated_tokens"),
+  beforeEstimatedBytes: integer("before_estimated_bytes"),
+  afterEstimatedBytes: integer("after_estimated_bytes"),
+  protectedUnitCount: integer("protected_unit_count"),
+  summarizedUnitCount: integer("summarized_unit_count"),
+  omittedUnitCount: integer("omitted_unit_count"),
+  startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
+  deadlineAt: integer("deadline_at", { mode: "timestamp" }).notNull(),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  retryAt: integer("retry_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  sessionStartedIdx: index("idx_pi_compaction_attempts_session_started").on(table.piSessionDbId, table.startedAt),
+  sessionOrdinalIdx: uniqueIndex("idx_pi_compaction_attempts_session_ordinal").on(table.piSessionDbId, table.attemptOrdinal),
+  stateDeadlineIdx: index("idx_pi_compaction_attempts_state_deadline").on(table.state, table.deadlineAt),
+  activeSessionIdx: uniqueIndex("idx_pi_compaction_attempts_active_session")
+    .on(table.piSessionDbId)
+    .where(sql`${table.state} = 'running'`),
+  triggerCheck: check("pi_compaction_attempts_trigger_check", sql`${table.trigger} IN ('automatic', 'manual', 'automation')`),
+  stateCheck: check("pi_compaction_attempts_state_check", sql`${table.state} IN ('running', 'succeeded', 'no_op', 'deferred', 'failed', 'aborted', 'stale', 'timed_out')`),
 }));
 
 export const piDelegations = sqliteTable("pi_delegations", {
@@ -2347,6 +2424,29 @@ export const auditEvents = sqliteTable("audit_events", {
   userCreatedIdx: index("idx_audit_events_user_created").on(table.userId, table.createdAt),
   entityCreatedIdx: index("idx_audit_events_entity_created").on(table.entityType, table.entityId, table.createdAt),
   sourceActionCreatedIdx: index("idx_audit_events_source_action_created").on(table.source, table.action, table.createdAt),
+}));
+
+// Short-lived, metadata-only diagnostics for the public Canvas MCP server.
+// This is intentionally separate from audit_events: it is automatically
+// pruned and must never contain request bodies, OAuth material, or user data.
+export const directMcpRequestHistory = sqliteTable("direct_mcp_request_history", {
+  id: text("id").primaryKey(),
+  requestId: text("request_id").notNull(),
+  serverVersion: text("server_version"),
+  flowRef: text("flow_ref"),
+  phase: text("phase").notNull(),
+  httpMethod: text("http_method").notNull(),
+  operation: text("operation"),
+  toolName: text("tool_name"),
+  outcome: text("outcome").notNull(),
+  statusCode: integer("status_code"),
+  code: text("code").notNull(),
+  durationMs: integer("duration_ms").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  createdIdx: index("idx_direct_mcp_request_history_created").on(table.createdAt),
+  expiresIdx: index("idx_direct_mcp_request_history_expires").on(table.expiresAt),
 }));
 
 export const telegramActiveSession = sqliteTable("telegram_active_session", {

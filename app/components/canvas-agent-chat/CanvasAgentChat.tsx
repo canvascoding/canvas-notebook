@@ -1018,7 +1018,10 @@ export default function CanvasAgentChat({
   }, [isMobile]);
 
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
-  const isRuntimeBusy = Boolean(runtimeStatus && runtimeStatus.phase !== 'idle');
+  const isRuntimeBusy = Boolean(
+    runtimeStatus
+    && (runtimeStatus.phase !== 'idle' || runtimeStatus.compactionStatus?.state === 'running'),
+  );
   const queueItems: QueuePreviewItem[] = [
     ...(runtimeStatus?.steeringQueue || []).map((entry) => ({ ...entry, kind: 'steer' as const })),
     ...(runtimeStatus?.followUpQueue || []).map((entry) => ({ ...entry, kind: 'follow_up' as const })),
@@ -1326,7 +1329,13 @@ export default function CanvasAgentChat({
         onClearUploadError={() => setUploadError(null)}
         isWebSocketUnavailable={isWebSocketUnavailable}
         showModelRequiredNotice={showModelRequiredNotice}
-        delegationPanel={sessionId ? <ChatDelegationPanel key={sessionId} sourceSessionId={sessionId} /> : null}
+        delegationPanel={sessionId ? (
+          <ChatDelegationPanel
+            key={sessionId}
+            sourceSessionId={sessionId}
+            agents={chatAgentOptions}
+          />
+        ) : null}
         attachments={attachments}
         onRemoveAttachment={removeAttachment}
         onAttachmentOpen={handleAttachmentPreviewOpen}

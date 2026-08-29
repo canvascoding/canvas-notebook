@@ -11,9 +11,9 @@ import {
 import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-runtime-policy/runtime-snapshot';
 import { SessionRuntimeContextRevisionConflictError } from '@/app/lib/agent-runtime-policy/runtime-store';
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
-import { prepareMessagesForEffectiveModel } from '@/app/lib/pi/multimodal-preparation';
+import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
+import { getPiRequestOutputTokenCap, withPiRequestOutputTokenCap } from '@/app/lib/pi/context-budget';
 import { projectAgentEventForExternal } from '@/app/lib/pi/visual-data-projection';
-import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { estimateTextTokens } from '@/app/lib/pi/history-budget';
 import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
 import {
@@ -56,6 +56,7 @@ import {
 } from '@/app/lib/pi/effective-tool-manifest';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
+import { prepareAutomationHistoryWithCompaction } from './history-compaction';
 import { buildAutomationPrompt } from './prompt';
 import { classifyAutomationResult, NO_ACTION_TOKEN } from './result-policy';
 import {
@@ -174,19 +175,6 @@ function queueAutomationResponsePush(input: {
 function assertAutomationExecutionActive(signal: AbortSignal): void {
   if (signal.aborted) {
     throw new Error('Automation execution was aborted after exceeding its deadline.');
-  }
-}
-
-function estimateAutomationToolSchemaTokens(tools: AgentContext['tools']): number {
-  try {
-    return estimateTextTokens(JSON.stringify((tools || []).map((tool) => ({
-      name: tool.name,
-      label: tool.label,
-      description: tool.description,
-      parameters: tool.parameters,
-    }))));
-  } catch {
-    return (tools || []).reduce((total, tool) => total + estimateTextTokens(`${tool.name}\n${tool.label}\n${tool.description || ''}`), 0);
   }
 }
 
@@ -476,6 +464,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         summaryUpdatedAt: null,
         summaryThroughTimestamp: null,
         summaryThroughSequence: null,
+        summaryRevision: 0,
       };
       if (!automationWorkspace.organizationId) {
         throw new Error('Complete the app AI runtime setup before running an automation.');
@@ -565,36 +554,27 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         content: promptText,
         timestamp: Date.now(),
       };
-      const prepareHistoryForRuntime = async (runtime: ExecutableAgentRuntime) => {
-        const prepared = await preparePiHistoryContext({
-          messages: [...existingMessages, promptMessage],
-          summary: initialSessionSummary,
-          systemPromptTokens: systemPromptBudgetTokens,
-          model: runtime.model,
-          toolTokens: estimateAutomationToolSchemaTokens(tools),
+      const prepareHistoryForRuntime = (runtime: ExecutableAgentRuntime) => (
+        prepareAutomationHistoryWithCompaction({
           sessionId: piSessionId,
+          userId: automationUserId,
+          agentId: job.agentId,
+          workspaceId: automationWorkspace.workspaceId,
+          messages: [...existingMessages, promptMessage],
+          promptMessage,
+          summary: initialSessionSummary,
+          persistedMessageCheckpoint: existingMessages.length,
+          model: runtime.model,
+          tools: tools || [],
+          effectiveSystemPrompt: systemPrompt,
+          systemPromptBudgetTokens,
+          requestOutputTokens: getPiRequestOutputTokenCap(runtime.model),
+          runtimeCatalogRevision: runtime.selection.catalogRevision,
+          runtimePolicyRevision: runtime.selection.policyRevision,
           signal: executionSignal,
           streamFn: runtime.streamFn,
-        });
-        if (prepared.composition.contextBudgetExceeded) {
-          if (prepared.composition.payloadBudgetExceeded) {
-            throw new Error(
-              `Automation request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
-              'Shorten the latest prompt or attachments.',
-            );
-          }
-          throw new Error('Automation context exceeds the selected model window. Use a larger-context model or start a new automation session.');
-        }
-        if (prepared.summaryFailed && prepared.composition.omittedMessages.length > 0) {
-          throw new Error('Automation context compaction failed because its summary could not be updated.');
-        }
-        const preparedMessages = prepared.composition.llmMessages;
-        if (preparedMessages[preparedMessages.length - 1] !== promptMessage) {
-          throw new Error('Automation prompt could not be retained inside the model context budget.');
-        }
-        return prepared;
-      };
-      let sessionSummary = initialSessionSummary;
+        })
+      );
       let sessionReadyForPersistence = Boolean(persistedSession);
       try {
         if (!sessionReadyForPersistence) {
@@ -645,21 +625,40 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
         const preparedHistory = await prepareHistoryForRuntime(executableRuntime);
         assertAutomationExecutionActive(executionSignal);
-        sessionSummary = preparedHistory.summary;
         const preparedMessages = preparedHistory.composition.llmMessages;
+        const requestOutputTokenCap = getPiRequestOutputTokenCap(model);
+        const mainRequestStreamFn = withPiRequestOutputTokenCap(
+          executableRuntime.streamFn,
+          requestOutputTokenCap,
+        );
+        let currentSystemPrompt = systemPrompt;
         const config = {
           model,
           thinkingLevel: executableRuntime.selection.selection.thinkingLevel as ThinkingLevel,
-          convertToLlm: async (messages: AgentMessage[]) => prepareMessagesForEffectiveModel(
-            messages,
-            model,
-            {
+          convertToLlm: async (messages: AgentMessage[]) => {
+            const preparedPayload = await preparePiFinalPayload({
+              messages,
+              model,
+              effectiveInstructions: [{ role: 'system' as const, content: currentSystemPrompt }],
+              effectiveTools: tools || [],
+              requestOutputTokenCap,
+              runtimeContractRevision: 'canvas-pi-automation-v1',
+            }, {
               workspaceImageRoot: automationWorkspace.rootPath,
               allowedImageFileRoots: [automationWorkspace.rootPath],
               uploadOwnerUserId: runtimeContext.userId,
               uploadWorkspaceId: automationWorkspace.workspaceId,
-            },
-          ),
+            });
+            if (preparedPayload.budgetSnapshot.payloadBudgetExceeded) {
+              throw new Error(
+                `Automation request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB final LLM transfer budget.`,
+              );
+            }
+            if (preparedPayload.budgetSnapshot.contextBudgetExceeded) {
+              throw new Error('Automation final payload exceeds the selected model context window.');
+            }
+            return preparedPayload.messages;
+          },
           prepareNextTurn: async (turnContext: { context: AgentContext }) => {
             const nextWorkspaceFileTree = hasWorkspaceReadCapability
               ? await buildWorkspaceFileTreePrompt({
@@ -667,13 +666,14 @@ export async function executeAutomationRun(runId: string): Promise<void> {
                   rootPath: automationWorkspace.rootPath,
                 })
               : { promptBlock: '' };
+            currentSystemPrompt = replaceWorkspaceFileTreePromptBlock(
+              effectiveBaseSystemPrompt,
+              nextWorkspaceFileTree.promptBlock,
+            );
             return {
               context: {
                 ...turnContext.context,
-                systemPrompt: replaceWorkspaceFileTreePromptBlock(
-                  effectiveBaseSystemPrompt,
-                  nextWorkspaceFileTree.promptBlock,
-                ),
+                systemPrompt: currentSystemPrompt,
               },
             };
           },
@@ -691,7 +691,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           provider,
           model.id,
           [...existingMessages, promptMessage],
-          sessionSummary,
+          undefined,
           {
             titleOverride: piSessionTitle,
             agentId: job.agentId,
@@ -713,7 +713,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           context,
           config,
           executionSignal,
-          executableRuntime.streamFn,
+          mainRequestStreamFn,
         )) {
           if (loopEvents.length < MAX_EVENTS_LOG) {
             const json = JSON.stringify(projectAgentEventForExternal(event));
@@ -768,7 +768,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             deleteSessionIfEmpty: !persistedSession,
             title: persistedSession?.title,
             titleGenerationState: persistedSession?.titleGenerationState,
-            summary: sessionSummary,
           });
         } else {
           const persistedFinalMessages = buildPersistedAutomationMessages({
@@ -786,7 +785,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             provider,
             model.id,
             persistedFinalMessages,
-            sessionSummary,
+            undefined,
             {
               titleOverride: piSessionTitle,
               agentId: job.agentId,
@@ -876,7 +875,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             provider,
             model.id,
             persistedFailureMessages,
-            sessionSummary,
+            undefined,
             {
               titleOverride: piSessionTitle,
               agentId: job.agentId,
