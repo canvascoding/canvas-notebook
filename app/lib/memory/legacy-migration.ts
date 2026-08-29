@@ -3,7 +3,7 @@ import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
 
 import { openDb } from '@/app/lib/db';
-import { DEFAULT_MANAGED_AGENT_ID, readManagedAgentFile, type AgentStorageScope } from '@/app/lib/agents/storage';
+import { DEFAULT_MANAGED_AGENT_ID, readLegacyManagedAgentFileContents, type AgentStorageScope } from '@/app/lib/agents/storage';
 import { addMemory } from './service';
 
 type LegacyMemoryFileName = 'USER.md' | 'MEMORY.md';
@@ -76,8 +76,12 @@ export async function ensureLegacyMemoryMigrated(agentId: string, scope?: AgentS
   const userId = scope?.userId?.trim();
   if (!userId) return;
   const normalizedAgentId = agentId.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
-  const userContent = await readManagedAgentFile('USER.md', DEFAULT_MANAGED_AGENT_ID, { ...scope, agentScopeType: undefined, ownerUserId: undefined });
-  const agentContent = await readManagedAgentFile('MEMORY.md', normalizedAgentId, scope);
-  await importFile({ userId, agentId: DEFAULT_MANAGED_AGENT_ID, fileName: 'USER.md', content: userContent });
-  await importFile({ userId, agentId: normalizedAgentId, fileName: 'MEMORY.md', content: agentContent });
+  const [userContents, agentContents] = await Promise.all([
+    readLegacyManagedAgentFileContents('USER.md', DEFAULT_MANAGED_AGENT_ID),
+    readLegacyManagedAgentFileContents('MEMORY.md', normalizedAgentId),
+  ]);
+  await Promise.all([
+    ...userContents.map((content) => importFile({ userId, agentId: DEFAULT_MANAGED_AGENT_ID, fileName: 'USER.md', content })),
+    ...agentContents.map((content) => importFile({ userId, agentId: normalizedAgentId, fileName: 'MEMORY.md', content })),
+  ]);
 }

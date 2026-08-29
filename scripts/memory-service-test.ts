@@ -233,12 +233,15 @@ async function main(): Promise<void> {
     assert.deepEqual((await readMemory(scope)).entries, []);
     assert.deepEqual((await readMemory({ target: 'agent', userId: 'user-1', agentId: 'canvas-agent' })).entries, []);
     assert.equal((await readMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1' })).entries.some((entry) => /approved brand voice/.test(entry.content)), true);
-    await writeManagedAgentFile('USER.md', '- [legacy-user] Prefers migration-safe context.\n', 'canvas-agent', { userId: 'user-1' });
-    await writeManagedAgentFile('MEMORY.md', '- [legacy-agent] Keep agent-specific migration context.\n', 'canvas-agent', { userId: 'user-1' });
+    await writeManagedAgentFile('USER.md', '- [legacy-user] Prefers migration-safe context.\n', 'canvas-agent');
+    await writeManagedAgentFile('MEMORY.md', '- [legacy-agent] Keep agent-specific migration context.\n', 'canvas-agent');
+    await fs.mkdir(path.join(dataDir, 'canvas-agent'), { recursive: true });
+    await fs.writeFile(path.join(dataDir, 'canvas-agent', 'USER.md'), '- [legacy-canvas-agent] Keep pre-user-scope memory.\n');
     await ensureLegacyMemoryMigrated('canvas-agent', { userId: 'user-1' });
     await ensureLegacyMemoryMigrated('canvas-agent', { userId: 'user-1' });
-    assert.match((await readMemory(scope)).entries[0]?.content ?? '', /migration-safe context/);
-    assert.match((await readMemory({ target: 'agent', userId: 'user-1', agentId: 'canvas-agent' })).entries[0]?.content ?? '', /agent-specific migration context/);
+    assert.equal((await readMemory(scope)).entries.some((entry) => /migration-safe context/.test(entry.content)), true);
+    assert.equal((await readMemory(scope)).entries.some((entry) => /pre-user-scope memory/.test(entry.content)), true);
+    assert.equal((await readMemory({ target: 'agent', userId: 'user-1', agentId: 'canvas-agent' })).entries.some((entry) => /agent-specific migration context/.test(entry.content)), true);
     const maintenanceDb = await openDb();
     try {
       const staleId = 'maintenance-stale';

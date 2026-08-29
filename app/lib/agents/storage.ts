@@ -422,6 +422,22 @@ export async function readManagedAgentFile(
 }
 
 /**
+ * Reads prior shared storage locations without creating scoped files or seeds.
+ * This is only for one-time migrations that must preserve pre-user-scope data.
+ */
+export async function readLegacyManagedAgentFileContents(
+  fileName: AgentManagedFileName,
+  agentId?: string | null,
+): Promise<string[]> {
+  const sourcePaths = [resolveManagedFilePath(fileName, agentId)];
+  if (shouldMigrateLegacyCanvasAgentFiles(agentId)) {
+    sourcePaths.push(resolveLegacyManagedFilePath(fileName));
+  }
+  const contents = await Promise.all(sourcePaths.map((filePath) => readFileIfExists(filePath)));
+  return [...new Set(contents.filter((content): content is string => content !== null))];
+}
+
+/**
  * Reads the retired HEARTBEAT.md directly, without creating a missing file or
  * exposing it through the managed-files API. It exists only for the one-time
  * migration to workspace automations.
