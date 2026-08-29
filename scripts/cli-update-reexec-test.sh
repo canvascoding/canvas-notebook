@@ -25,6 +25,7 @@ root="$(cd "$(dirname "$0")" && pwd)"
 . "$root/install/lib/shared/config_json.sh"
 canvas_operation_lock_acquire cli-update-installer
 [[ "${CANVAS_OPERATION_LOCK_BORROWED:-false}" == "true" ]]
+[[ "${CANVAS_VERSION:-}" == "v${CANVAS_EXPECTED_LINUX_CLI_VERSION:?}" ]]
 install -m 755 "$root/install/bin/canvas-notebook" "$CANVAS_CLI_PATH"
 mkdir -p "$CANVAS_INSTALL_DIR/lib/shared" "$CANVAS_INSTALL_DIR/lib/commands" "$CANVAS_INSTALL_DIR/templates"
 cp "$root/install/lib/shared/"*.sh "$CANVAS_INSTALL_DIR/lib/shared/"
@@ -133,6 +134,7 @@ export CANVAS_TEST_LATEST_DIR="$TMP_DIR/latest"
 export CANVAS_TEST_CURL_LOG="$TMP_DIR/curl.log"
 export CANVAS_USE_COLOR=false
 export CANVAS_HOST_CLI_VERSION="v${LATEST_VERSION}"
+export CANVAS_EXPECTED_LINUX_CLI_VERSION="$LATEST_VERSION"
 export CANVAS_HOST_CLI_URL="file://$TMP_DIR/assets/canvas-notebook-host-cli.tar.gz"
 export CANVAS_HOST_CLI_SHA256_URL="file://$TMP_DIR/assets/canvas-notebook-host-cli.sha256"
 export CANVAS_HOST_CLI_ALLOW_FILE_URL=true

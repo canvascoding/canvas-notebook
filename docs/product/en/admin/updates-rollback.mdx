@@ -6,7 +6,7 @@ sectionOrder: 10
 order: 14
 locale: en
 translationKey: admin.updates-rollback
-updatedAt: 2026-07-17
+updatedAt: 2026-08-29
 ---
 
 # Updates and Rollback Behavior
@@ -43,7 +43,9 @@ Postgres credential reconciliation uses a recovery journal and reserves time for
 
 ## CLI updates
 
-`canvas-notebook cli-update` updates the portable host CLI separately. The application image and host manager do not necessarily share the same version; `status --json` reports both.
+`canvas-notebook cli-update` downloads and validates the versioned Linux CLI archive before atomically activating it. The application image and host manager do not necessarily share the same version; `status --json` reports both.
+
+During the first migration from the Bash CLI, the previous executable is retained as an explicit rollback target. After a later upgrade has established a previous TypeScript release, the installer retires the retained Bash CLI and CLI rollback switches only between the versioned TypeScript releases stored below `/opt/canvas/cli`.
 
 Automatic image rollback is not a substitute for a restore-tested backup. After success, verify login, workspaces, providers, collaboration, automations, email, and one representative agent task.
 
@@ -51,4 +53,3 @@ Automatic image rollback is not a substitute for a restore-tested backup. After 
 
 - [Full backups and restore](/docs/admin/backups)
 - [VM management CLI](/docs/admin/vm-cli)
-

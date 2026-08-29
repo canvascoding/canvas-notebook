@@ -6,7 +6,7 @@ sectionOrder: 10
 order: 11
 locale: en
 translationKey: admin.install-linux
-updatedAt: 2026-07-17
+updatedAt: 2026-08-29
 ---
 
 # Linux Installation
@@ -25,9 +25,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook
 
 ## What the installer does
 
-The installer checks that it is on the host, installs Docker when missing, generates `BETTER_AUTH_SECRET` and `CANVAS_INTERNAL_API_KEY`, writes local manager configuration, pulls the official image, creates the persistent data directory, starts the Compose service, installs the `canvas-notebook` CLI and systemd service, and optionally configures Caddy.
+The installer checks that it is on the host, installs Docker when missing, generates `BETTER_AUTH_SECRET` and `CANVAS_INTERNAL_API_KEY`, writes local manager configuration, pulls the official image, creates the persistent data directory, starts the Compose service, installs the self-contained TypeScript `canvas-notebook` CLI and systemd service, and optionally configures Caddy. The CLI archive and checksum are downloaded from the same versioned release and validated before activation.
 
-Default locations include `/opt/canvas-notebook` for manager files, the installing user's `canvas-notebook-data` directory for persistent data, and `/var/log/canvas-notebook/manager.log` for host CLI logs.
+Default locations include `/opt/canvas-notebook` for manager files, `/opt/canvas/cli` for versioned CLI releases and runtime state, the installing user's `canvas-notebook-data` directory for persistent data, and `/var/log/canvas-notebook/manager.log` for host CLI logs.
 
 ## Verify the installation
 
@@ -51,4 +51,3 @@ Open the configured HTTPS URL, or the intended port-3456 address when no proxy i
 
 - [VM management CLI](/docs/admin/vm-cli)
 - [Health checks, logs, and troubleshooting](/docs/admin/troubleshooting)
-

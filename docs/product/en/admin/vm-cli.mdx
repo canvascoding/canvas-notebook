@@ -6,12 +6,12 @@ sectionOrder: 10
 order: 15
 locale: en
 translationKey: admin.vm-cli
-updatedAt: 2026-07-17
+updatedAt: 2026-08-29
 ---
 
 # VM Management CLI
 
-`canvas-notebook` is the host-side management command installed on Linux, macOS, and Windows. Run it on the VM or local host, not inside the app container. It remembers the install directory, Compose file, data directory, and service mode.
+`canvas-notebook` is the host-side TypeScript management command installed on Linux, macOS, and Windows. Run it on the VM or local host, not inside the app container. It remembers the install directory, Compose file, data directory, and service mode. Linux packages include their own validated Node.js runtime and keep atomic `current` and `previous` release state below `/opt/canvas/cli`.
 
 ## Daily operations
 
@@ -53,4 +53,3 @@ If a command fails, check both `logs` and `manager-log`; they represent containe
 
 - [Updates and rollback behavior](/docs/admin/updates-rollback)
 - [Health checks, logs, and troubleshooting](/docs/admin/troubleshooting)
-

@@ -104,7 +104,7 @@ load_existing_swap_config() {
 resolve_support_dir() {
   local script_dir
   script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P || true)"
-  if [[ -n "$script_dir" && -x "${script_dir}/install/bin/canvas-notebook" ]]; then
+  if [[ -n "$script_dir" && -f "${script_dir}/install/linux-cli.sh" ]]; then
     SUPPORT_DIR="${script_dir}/install"
     return 0
   fi
@@ -117,7 +117,7 @@ resolve_support_dir() {
   curl -fsSL "$ARCHIVE_URL" -o "${SUPPORT_TMP_DIR}/canvas-notebook.tar.gz"
   tar -xzf "${SUPPORT_TMP_DIR}/canvas-notebook.tar.gz" -C "$SUPPORT_TMP_DIR"
   SUPPORT_DIR="${SUPPORT_TMP_DIR}/canvas-notebook-main/install"
-  if [[ ! -x "${SUPPORT_DIR}/bin/canvas-notebook" ]]; then
+  if [[ ! -f "${SUPPORT_DIR}/linux-cli.sh" ]]; then
     echo "Installer support files are missing from ${ARCHIVE_URL}." >&2
     exit 1
   fi

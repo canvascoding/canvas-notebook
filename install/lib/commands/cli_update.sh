@@ -120,6 +120,7 @@ cli_update_install_release() {
     return 1
   fi
   if ! CANVAS_OPERATION_LOCK_INHERIT_TOKEN="${CANVAS_OPERATION_LOCK_NONCE:-}" \
+    CANVAS_VERSION="$version" \
     CLI_UPDATE_ONLY=true CANVAS_CLI_SELF_UPDATE_REEXEC=true bash "${package_root}/install.sh"; then
     rm -rf "$tmp_dir"
     return 1

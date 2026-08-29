@@ -485,6 +485,16 @@ TypeScript-Releases. Der ARM64-Integrationstest in der OrbStack-VM deckt ersten
 Cutover, automatisches Legacy-Retirement und TypeScript-zu-TypeScript-Rollback
 ab.
 
+Teilstatus 2026-08-29: Der Standalone-Linux-Installer installiert fuer neue und
+bestehende Systeme jetzt den gehashten, selbstenthaltenen TypeScript-CLI-Release
+als aktiven `/usr/local/bin/canvas-notebook`-Einstiegspunkt. Die bisherigen
+Bash-Supportmodule werden in diesem Zwischenschritt nur noch eingefroren
+bereitgestellt und nicht mehr als regulaere CLI installiert. Der Legacy-
+`cli-update`-Pfad reicht die verifizierte Zielversion an den Linux-Installer
+weiter, damit der erste Standalone-Cutover exakt die zum Release gehoerenden
+Linux-Artefakte laedt. Isolierter Bootstrap-, Host-Paket- und Reexec-Test sowie
+ein echter ARM64-Release-Bootstrap in der OrbStack-VM sind erfolgreich.
+
 - Bash-Command-Module einfrieren und danach entfernen.
 - Installer-, Produkt- und Betriebsdokumentation aktualisieren.
 - Legacy-Erkennung bleibt nur so lange bestehen, wie Bestandsmigrationen sie
