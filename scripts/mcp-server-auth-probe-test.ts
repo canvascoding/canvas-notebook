@@ -22,12 +22,16 @@ const DIRECT_MCP_TOOL_NAMES = [
   'list_knowledge_tree',
   'search_knowledge',
   'read_knowledge_source',
+  'edit_knowledge_source',
+  'read_knowledge_asset',
 ] as const;
 const DIRECT_MCP_RESOURCE_SCOPES = [
   'workspace:list',
   'knowledge:tree',
   'knowledge:search',
   'knowledge:read',
+  'knowledge:write',
+  'knowledge:assets',
 ];
 
 type JsonRecord = Record<string, unknown>;
@@ -38,6 +42,7 @@ function configureRuntime(dataDir: string): void {
   environment.NODE_ENV = 'test';
   environment.CANVAS_DATABASE_PROVIDER = 'sqlite';
   environment.CANVAS_MCP_DIRECT_ENABLED = 'true';
+  environment.CANVAS_MCP_DIRECT_TOOLS = DIRECT_MCP_TOOL_NAMES.join(',');
   environment.CANVAS_INSTANCE_ID = 'mcp-auth-probe-test';
   environment.BETTER_AUTH_BASE_URL = ORIGIN;
   environment.BASE_URL = ORIGIN;
@@ -120,6 +125,28 @@ function resultFromRpc(body: JsonRecord): JsonRecord {
   assert.equal(typeof body.result, 'object');
   assert.notEqual(body.result, null);
   return body.result as JsonRecord;
+}
+
+function createPdfFixture(): Buffer {
+  const stream = 'BT /F1 12 Tf 20 100 Td (Canvas MCP PDF asset fixture.) Tj ET';
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    `<< /Length ${Buffer.byteLength(stream, 'utf8')} >>\nstream\n${stream}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let document = '%PDF-1.4\n';
+  const offsets: number[] = [];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(document, 'utf8'));
+    document += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(document, 'utf8');
+  document += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  document += offsets.map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  document += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(document, 'utf8');
 }
 
 async function main(): Promise<void> {
@@ -408,10 +435,21 @@ async function main(): Promise<void> {
       idempotentHint: true,
       openWorldHint: false,
     });
+    const assetTool = tools.find((tool) => tool.name === 'read_knowledge_asset');
+    assert.ok(assetTool);
+    assert.deepEqual(assetTool.securitySchemes, [{
+      type: 'oauth2',
+      scopes: ['knowledge:assets'],
+    }]);
+    assert.equal((assetTool.annotations as JsonRecord).readOnlyHint, true);
 
     const { loadWorkspaceListingForActor } = await import('../app/lib/workspaces/listing-action');
     const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
     const { writeFile } = await import('../app/lib/filesystem/workspace-files');
+    const {
+      replaceDirectMcpAllowedWorkspaces,
+      setDirectMcpWorkspaceEnabled,
+    } = await import('../app/lib/mcp/server/workspace-access-policy');
     const workspaceListing = await loadWorkspaceListingForActor(resolveWorkspaceActor({
       id: userId,
       email: EMAIL,
@@ -419,11 +457,28 @@ async function main(): Promise<void> {
     }));
     assert.ok(workspaceListing.defaultWorkspace);
     const workspace = workspaceListing.defaultWorkspace;
+    assert.deepEqual(await setDirectMcpWorkspaceEnabled({
+      userId,
+      workspaceId: workspace.workspaceId,
+      enabled: true,
+    }), { status: 'updated', enabled: true });
+    assert.deepEqual(await replaceDirectMcpAllowedWorkspaces({
+      clientId,
+      userId,
+      workspaceIds: [workspace.workspaceId],
+    }), { status: 'saved', allowedWorkspaceCount: 1 });
     await writeFile(
       'mcp-server-test.md',
       'Canvas MCP workspace search fixture. This document is visible to the authenticated user.',
       { workspace },
     );
+    await writeFile(
+      'mcp-server-asset.png',
+      Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9JH8sAAAAASUVORK5CYII=', 'base64'),
+      { workspace },
+    );
+    await writeFile('mcp-server-asset.pdf', createPdfFixture(), { workspace });
+    await writeFile('mcp-server-asset.bin', Buffer.from([0, 1, 2, 3]), { workspace });
 
     const listWorkspaces = await rpcRequest({
       post: mcpRoute.POST,
@@ -506,10 +561,235 @@ async function main(): Promise<void> {
       },
     });
     const sourceResult = resultFromRpc(await readJson(source));
+    const sourceContent = sourceResult.structuredContent as JsonRecord;
     assert.match(
-      String((sourceResult.structuredContent as JsonRecord).content),
+      String(sourceContent.content),
       /Canvas MCP workspace search fixture/u,
     );
+    assert.match(String(sourceContent.sha256), /^[a-f0-9]{64}$/u);
+    assert.equal(sourceContent.source, 'file');
+
+    const edit = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 27,
+        method: 'tools/call',
+        params: {
+          name: 'edit_knowledge_source',
+          arguments: {
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-test.md',
+            old_text: 'search fixture',
+            new_text: 'write fixture',
+            expected_sha256: sourceContent.sha256,
+          },
+        },
+      },
+    });
+    const editResult = resultFromRpc(await readJson(edit));
+    assert.notEqual(editResult.isError, true);
+    const editContent = editResult.structuredContent as JsonRecord;
+    assert.equal(editContent.changed, true);
+    assert.equal(editContent.review_required, false);
+    assert.equal(editContent.before_sha256, sourceContent.sha256);
+    assert.match(String(editContent.after_sha256), /^[a-f0-9]{64}$/u);
+    assert.notEqual(editContent.after_sha256, sourceContent.sha256);
+
+    const updatedSource = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 28,
+        method: 'tools/call',
+        params: {
+          name: 'read_knowledge_source',
+          arguments: { workspace_id: workspace.workspaceId, path: 'mcp-server-test.md' },
+        },
+      },
+    });
+    const updatedSourceResult = resultFromRpc(await readJson(updatedSource));
+    const updatedSourceContent = updatedSourceResult.structuredContent as JsonRecord;
+    assert.match(String(updatedSourceContent.content), /Canvas MCP workspace write fixture/u);
+    assert.equal(updatedSourceContent.sha256, editContent.after_sha256);
+
+    const imageAsset = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 32,
+        method: 'tools/call',
+        params: {
+          name: 'read_knowledge_asset',
+          arguments: { workspace_id: workspace.workspaceId, path: 'mcp-server-asset.png' },
+        },
+      },
+    });
+    const imageAssetResult = resultFromRpc(await readJson(imageAsset));
+    assert.notEqual(imageAssetResult.isError, true);
+    const imageAssetContent = imageAssetResult.structuredContent as JsonRecord;
+    assert.equal(imageAssetContent.type, 'image');
+    assert.equal(imageAssetContent.mime_type, 'image/png');
+    assert.match(String(imageAssetContent.sha256), /^[a-f0-9]{64}$/u);
+    assert.ok((imageAssetResult.content as JsonRecord[]).some((part) => (
+      part.type === 'image' && part.mimeType === 'image/png' && typeof part.data === 'string'
+    )));
+
+    const pdfAsset = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 33,
+        method: 'tools/call',
+        params: {
+          name: 'read_knowledge_asset',
+          arguments: {
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-asset.pdf',
+            pdf_text_pages: [1],
+            include_pdf_images: true,
+            pdf_image_pages: [1],
+          },
+        },
+      },
+    });
+    const pdfAssetResult = resultFromRpc(await readJson(pdfAsset));
+    assert.notEqual(pdfAssetResult.isError, true);
+    const pdfAssetContent = pdfAssetResult.structuredContent as JsonRecord;
+    assert.equal(pdfAssetContent.type, 'pdf');
+    assert.equal(pdfAssetContent.mime_type, 'application/pdf');
+    assert.equal(pdfAssetContent.pages, 1);
+    assert.deepEqual(pdfAssetContent.text_pages_read, [1]);
+    assert.ok((pdfAssetResult.content as JsonRecord[]).some((part) => (
+      part.type === 'text' && String(part.text).includes('Canvas MCP PDF asset fixture')
+    )));
+    assert.ok((pdfAssetResult.content as JsonRecord[]).some((part) => (
+      part.type === 'image' && part.mimeType === 'image/png' && typeof part.data === 'string'
+    )));
+
+    const missingAssetScope = await rpcRequest({
+      post: mcpRoute.POST,
+      token: noProbeScopeToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 34,
+        method: 'tools/call',
+        params: {
+          name: 'read_knowledge_asset',
+          arguments: { workspace_id: workspace.workspaceId, path: 'mcp-server-asset.png' },
+        },
+      },
+    });
+    const missingAssetScopeResult = resultFromRpc(await readJson(missingAssetScope));
+    assert.equal(missingAssetScopeResult.isError, true);
+    const assetScopeChallenge = (
+      missingAssetScopeResult._meta as JsonRecord
+    )['mcp/www_authenticate'] as string[];
+    assert.ok(assetScopeChallenge[0].includes('error="insufficient_scope"'));
+    assert.ok(assetScopeChallenge[0].includes('scope="knowledge:assets"'));
+
+    const unsupportedAsset = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 35,
+        method: 'tools/call',
+        params: {
+          name: 'read_knowledge_asset',
+          arguments: { workspace_id: workspace.workspaceId, path: 'mcp-server-asset.bin' },
+        },
+      },
+    });
+    const unsupportedAssetResult = resultFromRpc(await readJson(unsupportedAsset));
+    assert.equal(unsupportedAssetResult.isError, true);
+    assert.match(
+      String((unsupportedAssetResult.content as Array<{ text?: string }>)[0]?.text),
+      /Only PNG, JPEG, GIF, WebP images, and PDF documents/u,
+    );
+
+    const staleEdit = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 29,
+        method: 'tools/call',
+        params: {
+          name: 'edit_knowledge_source',
+          arguments: {
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-test.md',
+            old_text: 'write fixture',
+            new_text: 'stale write fixture',
+            expected_sha256: sourceContent.sha256,
+          },
+        },
+      },
+    });
+    const staleEditResult = resultFromRpc(await readJson(staleEdit));
+    assert.equal(staleEditResult.isError, true);
+    assert.match(
+      String((staleEditResult.content as Array<{ text?: string }>)[0]?.text),
+      /changed since it was read/u,
+    );
+
+    const noMatchEdit = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 30,
+        method: 'tools/call',
+        params: {
+          name: 'edit_knowledge_source',
+          arguments: {
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-test.md',
+            old_text: 'not present in this file',
+            new_text: 'should not be written',
+            expected_sha256: updatedSourceContent.sha256,
+          },
+        },
+      },
+    });
+    const noMatchEditResult = resultFromRpc(await readJson(noMatchEdit));
+    assert.equal(noMatchEditResult.isError, true);
+    assert.match(
+      String((noMatchEditResult.content as Array<{ text?: string }>)[0]?.text),
+      /exact text replacement no longer matches/u,
+    );
+
+    const missingWriteScopeEdit = await rpcRequest({
+      post: mcpRoute.POST,
+      token: noProbeScopeToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 31,
+        method: 'tools/call',
+        params: {
+          name: 'edit_knowledge_source',
+          arguments: {
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-test.md',
+            old_text: 'write fixture',
+            new_text: 'unauthorized write fixture',
+            expected_sha256: updatedSourceContent.sha256,
+          },
+        },
+      },
+    });
+    const missingWriteScopeResult = resultFromRpc(await readJson(missingWriteScopeEdit));
+    assert.equal(missingWriteScopeResult.isError, true);
+    const writeScopeChallenge = (
+      missingWriteScopeResult._meta as JsonRecord
+    )['mcp/www_authenticate'] as string[];
+    assert.ok(writeScopeChallenge[0].includes('error="insufficient_scope"'));
+    assert.ok(writeScopeChallenge[0].includes('scope="knowledge:write"'));
 
     process.env.CANVAS_MCP_DIRECT_TOOLS = '';
     try {

@@ -27,6 +27,8 @@ const SCOPE_TRANSLATION_KEYS: Record<DirectMcpOAuthScope, string> = {
   'knowledge:tree': 'knowledgeTree',
   'knowledge:search': 'knowledgeSearch',
   'knowledge:read': 'knowledgeRead',
+  'knowledge:write': 'knowledgeWrite',
+  'knowledge:assets': 'knowledgeAssets',
 };
 
 type OAuthConsentClientProps = {
