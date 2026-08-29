@@ -7,6 +7,7 @@ import { resolveExecutableAgentRuntime } from '@/app/lib/agent-runtime-policy/pr
 import { parsePersistedPiMessage } from '@/app/lib/pi/message-projection';
 import { prepareMessagesForEffectiveModel } from '@/app/lib/pi/multimodal-preparation';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
+import { persistPiUsageEventsWithContext } from '@/app/lib/pi/usage-events';
 import {
   applyMemoryReviewCandidates,
   claimDueMemoryReviewJob,
@@ -238,6 +239,18 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
       )) {
         if (event.type === 'agent_end') finalMessages = event.messages;
       }
+      await persistPiUsageEventsWithContext({
+        sessionId: `memory-review:${claim.id}`,
+        userId: claim.userId,
+        messages: finalMessages,
+        context: {
+          sessionTitleSnapshot: 'Memory review',
+          organizationId: executionContext.organizationId,
+          workspaceId: executionContext.workspaceId,
+          workspaceType: executionContext.workspaceType,
+          agentId: MEMORY_MANAGER_AGENT_ID,
+        },
+      });
     } finally {
       clearTimeout(timeout);
     }

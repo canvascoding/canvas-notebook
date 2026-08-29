@@ -26,6 +26,7 @@ async function main() {
     buildPiUsageFingerprint,
     extractPiUsageEventValues,
     persistPiUsageEvents,
+    persistPiUsageEventsWithContext,
   } = usageEvents;
   const {
     getUsageEvents,
@@ -534,6 +535,58 @@ async function main() {
     assert.equal(filteredEvents.rows[0]?.workspaceType, 'personal');
     assert.equal(filteredEvents.rows[0]?.agentId, 'agent-alpha');
     assert.match(filteredEvents.rows[0]?.assistantTimestamp || '', /^2026-03-10T10:15:00/);
+
+    await persistPiUsageEventsWithContext({
+      sessionId: 'memory-review:job-1',
+      userId,
+      messages: [alphaAssistant],
+      context: {
+        sessionTitleSnapshot: 'Memory review',
+        organizationId,
+        workspaceId: teamWorkspaceId,
+        workspaceType: 'team',
+        agentId: 'memory-manager',
+      },
+    });
+    await persistPiUsageEventsWithContext({
+      sessionId: 'memory-review:job-1',
+      userId,
+      messages: [alphaAssistant],
+      context: {
+        sessionTitleSnapshot: 'Memory review',
+        organizationId,
+        workspaceId: teamWorkspaceId,
+        workspaceType: 'team',
+        agentId: 'memory-manager',
+      },
+    });
+    const memoryManagerSummary = await getUsageSummary(
+      {
+        from: new Date('2026-03-01T00:00:00.000Z'),
+        to: new Date('2026-03-31T23:59:59.999Z'),
+        groupBy: 'agent',
+        agentId: 'memory-manager',
+      },
+      { id: adminId, role: 'admin' },
+    );
+    assert.equal(memoryManagerSummary.totals.totalTokens, 210);
+    assert.deepEqual(memoryManagerSummary.rows.map((row) => row.groupKey), ['memory-manager']);
+
+    const memoryManagerEvents = await getUsageEvents(
+      {
+        from: new Date('2026-03-01T00:00:00.000Z'),
+        to: new Date('2026-03-31T23:59:59.999Z'),
+        groupBy: 'day',
+        agentId: 'memory-manager',
+      },
+      { id: adminId, role: 'admin' },
+      1,
+      50,
+    );
+    assert.equal(memoryManagerEvents.rows.length, 1);
+    assert.equal(memoryManagerEvents.rows[0]?.sessionId, 'memory-review:job-1');
+    assert.equal(memoryManagerEvents.rows[0]?.sessionTitleSnapshot, 'Memory review');
+    assert.equal(memoryManagerEvents.rows[0]?.agentId, 'memory-manager');
 
     assert.equal(hasRenderableUsage(alphaAssistant.usage), true);
     assert.equal(hasRenderableUsage(noUsageAssistant.usage), false);
