@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.8.29.1",
-  "lockfileSha256": "6ebe3df5d9477b003f67aa98bec21387a5aed37e573cda3020e7d0c9ff25f1e6",
+  "packageVersion": "2026.8.29.2",
+  "lockfileSha256": "def641158bbf31399da057719fc6c4fdea9af65fed2b0dcbf40dcb684b233d82",
   "summary": {
-    "totalComponents": 2034,
-    "npmComponents": 2011,
+    "totalComponents": 2035,
+    "npmComponents": 2012,
     "nonNpmComponents": 23,
-    "runtimeComponents": 1510,
+    "runtimeComponents": 1511,
     "developmentOnlyComponents": 524,
-    "allowed": 1984,
+    "allowed": 1985,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -21581,6 +21581,30 @@
     {
       "name": "@swc/helpers",
       "versionOrCommit": "0.5.15",
+      "sourceUrl": "https://github.com/swc-project/swc",
+      "packagePathOrArtifact": "node_modules/next/node_modules/@swc/helpers",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/next/node_modules/@swc/helpers/LICENSE",
+      "licenseTextSha256": "21da174fa23042e1b27dce5a4f691c0340f8df53dbc3e435f2646a9d0ea8c3ec",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "Copyright 2024 SWC contributors.",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@swc/helpers",
+      "versionOrCommit": "0.5.23",
       "sourceUrl": "https://github.com/swc-project/swc",
       "packagePathOrArtifact": "node_modules/@swc/helpers",
       "usage": "runtime",

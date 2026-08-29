@@ -11,6 +11,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.29.2] - 2026-08-29
+
+### Fixed
+
+- Fixed release-time dependency installation for Node.js 22 Linux CLI builders.
+- Fixed Postgres URL validation reporting for unsafe encoded passwords.
+- Fixed strict TypeScript fixtures and React Compiler memoization validation in the release build.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.29.1] - 2026-08-29
 
 ### Added

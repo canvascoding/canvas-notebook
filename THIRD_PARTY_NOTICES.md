@@ -3,9 +3,9 @@
 This file is generated from `package-lock.json`, installed package license files,
 versioned overrides, and the bundled non-npm component inventory.
 
-- Canvas Notebook version: 2026.8.29.1
-- Lockfile SHA-256: `6ebe3df5d9477b003f67aa98bec21387a5aed37e573cda3020e7d0c9ff25f1e6`
-- Distributed components: 1510
+- Canvas Notebook version: 2026.8.29.2
+- Lockfile SHA-256: `def641158bbf31399da057719fc6c4fdea9af65fed2b0dcbf40dcb684b233d82`
+- Distributed components: 1511
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -495,6 +495,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @swc/core | 1.15.43 | runtime | Apache-2.0 | allowed |
 | @swc/counter | 0.1.3 | runtime | Apache-2.0 | allowed |
 | @swc/helpers | 0.5.15 | runtime | Apache-2.0 | allowed |
+| @swc/helpers | 0.5.23 | runtime | Apache-2.0 | allowed |
 | @swc/types | 0.1.27 | runtime | Apache-2.0 | allowed |
 | @testing-library/dom | 10.4.1 | runtime | MIT | allowed |
 | @testing-library/react | 16.3.2 | runtime | MIT | allowed |
@@ -5134,7 +5135,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 21da174fa230
 
-Applies to @swc/core-darwin-arm64@1.15.43, @swc/core-darwin-x64@1.15.43, @swc/core-linux-arm-gnueabihf@1.15.43, @swc/core-linux-arm64-gnu@1.15.43, @swc/core-linux-arm64-musl@1.15.43, @swc/core-linux-ppc64-gnu@1.15.43, @swc/core-linux-s390x-gnu@1.15.43, @swc/core-linux-x64-gnu@1.15.43, @swc/core-linux-x64-musl@1.15.43, @swc/core-win32-arm64-msvc@1.15.43, @swc/core-win32-ia32-msvc@1.15.43, @swc/core-win32-x64-msvc@1.15.43, @swc/core@1.15.43, @swc/counter@0.1.3, @swc/helpers@0.5.15, @swc/types@0.1.27.
+Applies to @swc/core-darwin-arm64@1.15.43, @swc/core-darwin-x64@1.15.43, @swc/core-linux-arm-gnueabihf@1.15.43, @swc/core-linux-arm64-gnu@1.15.43, @swc/core-linux-arm64-musl@1.15.43, @swc/core-linux-ppc64-gnu@1.15.43, @swc/core-linux-s390x-gnu@1.15.43, @swc/core-linux-x64-gnu@1.15.43, @swc/core-linux-x64-musl@1.15.43, @swc/core-win32-arm64-msvc@1.15.43, @swc/core-win32-ia32-msvc@1.15.43, @swc/core-win32-x64-msvc@1.15.43, @swc/core@1.15.43, @swc/counter@0.1.3, @swc/helpers@0.5.15, @swc/helpers@0.5.23, @swc/types@0.1.27.
 
 Copyright notices:
 
