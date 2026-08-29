@@ -11,6 +11,16 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.29.5] - 2026-08-29
+
+### Fixed
+
+- Made managed-environment installer permission checks dereference CLI symlinks consistently on Linux and macOS.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.29.4] - 2026-08-29
 
 ### Changed

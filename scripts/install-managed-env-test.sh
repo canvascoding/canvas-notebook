@@ -84,11 +84,11 @@ fi
 printf 'managed env CLI installation completed\n'
 
 file_mode() {
-  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+  stat -L -c '%a' "$1" 2>/dev/null || stat -L -f '%Lp' "$1"
 }
 
 file_owner() {
-  stat -c '%u:%g' "$1" 2>/dev/null || stat -f '%u:%g' "$1"
+  stat -L -c '%u:%g' "$1" 2>/dev/null || stat -L -f '%u:%g' "$1"
 }
 
 [[ "$(file_mode "$CANVAS_CONFIG_JSON")" == "600" ]]
