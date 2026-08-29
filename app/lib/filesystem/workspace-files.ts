@@ -43,7 +43,7 @@ const FILE_METADATA_CONCURRENCY = 32;
 const FILE_TREE_DIRECTORY_CONCURRENCY = 16;
 const workspaceFileMutationLocks = new Map<string, Promise<void>>();
 
-export async function withWorkspaceFileMutationLock<T>(
+async function withExactWorkspaceFileMutationLock<T>(
   filePath: string,
   options: WorkspaceFileOperationOptions | undefined,
   operation: () => Promise<T>,
@@ -64,15 +64,39 @@ export async function withWorkspaceFileMutationLock<T>(
   }
 }
 
+function workspaceMutationLockPathHierarchy(filePath: string): string[] {
+  const normalizedPath = path.posix.normalize(filePath).replace(/^\.\//, '');
+  if (normalizedPath === '.' || normalizedPath === '') return ['.'];
+
+  const paths = [normalizedPath];
+  let parentPath = path.posix.dirname(normalizedPath);
+  while (parentPath !== '.' && parentPath !== '/') {
+    paths.push(parentPath);
+    const nextParentPath = path.posix.dirname(parentPath);
+    if (nextParentPath === parentPath) break;
+    parentPath = nextParentPath;
+  }
+  return paths;
+}
+
+export async function withWorkspaceFileMutationLock<T>(
+  filePath: string,
+  options: WorkspaceFileOperationOptions | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withWorkspaceFileMutationLocks([filePath], options, operation);
+}
+
 export async function withWorkspaceFileMutationLocks<T>(
   filePaths: readonly string[],
   options: WorkspaceFileOperationOptions | undefined,
   operation: () => Promise<T>,
 ): Promise<T> {
-  const uniquePaths = [...new Set(filePaths)].sort((left, right) => left.localeCompare(right));
+  const uniquePaths = [...new Set(filePaths.flatMap(workspaceMutationLockPathHierarchy))]
+    .sort((left, right) => left.localeCompare(right));
   const runWithLocks = async (index: number): Promise<T> => {
     if (index >= uniquePaths.length) return operation();
-    return withWorkspaceFileMutationLock(uniquePaths[index], options, () => runWithLocks(index + 1));
+    return withExactWorkspaceFileMutationLock(uniquePaths[index], options, () => runWithLocks(index + 1));
   };
   return runWithLocks(0);
 }

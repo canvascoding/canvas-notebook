@@ -1093,6 +1093,31 @@ type AgentPathMutationState = {
   sha256: string | null;
 };
 
+async function sha256AgentDirectory(fullPath: string): Promise<string> {
+  const hash = createHash('sha256');
+  const visit = async (currentPath: string, relativePath: string): Promise<void> => {
+    const entries = await fs.readdir(currentPath, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const entryRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+      const entryFullPath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        hash.update(`directory\0${entryRelativePath}\0`);
+        await visit(entryFullPath, entryRelativePath);
+      } else if (entry.isFile()) {
+        hash.update(`file\0${entryRelativePath}\0`);
+        hash.update(await fs.readFile(entryFullPath));
+      } else {
+        const stats = await fs.lstat(entryFullPath);
+        hash.update(`other\0${entryRelativePath}\0${stats.size}\0`);
+      }
+    }
+  };
+
+  await visit(fullPath, '');
+  return hash.digest('hex');
+}
+
 async function captureAgentPathMutationState(inputPath: string, fullPath: string): Promise<AgentPathMutationState> {
   try {
     const stats = await fs.stat(fullPath);
@@ -1102,7 +1127,11 @@ async function captureAgentPathMutationState(inputPath: string, fullPath: string
       fullPath,
       existed: true,
       type,
-      sha256: type === 'file' ? sha256Buffer(await fs.readFile(fullPath)) : null,
+      sha256: type === 'file'
+        ? sha256Buffer(await fs.readFile(fullPath))
+        : type === 'directory'
+          ? await sha256AgentDirectory(fullPath)
+          : null,
     };
   } catch (error) {
     if (!isEnoent(error)) throw error;

@@ -28,7 +28,11 @@ async function main() {
 
   try {
     const { WorkspaceFileRevisionError, assertWorkspaceFileRevisionUnchanged, getWorkspaceFileRevision } = await import('../app/lib/files/revision-guard');
-    const { replaceWorkspaceFileFromPath, writeFile } = await import('../app/lib/filesystem/workspace-files');
+    const {
+      replaceWorkspaceFileFromPath,
+      withWorkspaceFileMutationLocks,
+      writeFile,
+    } = await import('../app/lib/filesystem/workspace-files');
     await fs.writeFile(path.join(root, 'deck.md'), 'before\n', { mode: 0o640 });
     let beforeReplaceCalled = false;
     await writeFile('deck.md', 'after\n', { workspace }, async () => {
@@ -59,6 +63,26 @@ async function main() {
     await Promise.all([firstWrite, secondWrite]);
     assert.equal(secondWriteReachedReplace, true);
     assert.equal(await fs.readFile(path.join(root, 'deck.md'), 'utf8'), 'second\n');
+
+    await fs.mkdir(path.join(root, 'folder'));
+    let releaseDirectoryMutation!: () => void;
+    const directoryMutationCanFinish = new Promise<void>((resolve) => { releaseDirectoryMutation = resolve; });
+    let directoryMutationReady!: () => void;
+    const directoryMutationReadySignal = new Promise<void>((resolve) => { directoryMutationReady = resolve; });
+    const directoryMutation = withWorkspaceFileMutationLocks(['folder'], { workspace }, async () => {
+      directoryMutationReady();
+      await directoryMutationCanFinish;
+    });
+    await directoryMutationReadySignal;
+    let childWriteReachedReplace = false;
+    const childWrite = writeFile('folder/child.md', 'child\n', { workspace }, async () => {
+      childWriteReachedReplace = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(childWriteReachedReplace, false);
+    releaseDirectoryMutation();
+    await Promise.all([directoryMutation, childWrite]);
+    assert.equal(childWriteReachedReplace, true);
 
     const uploadSource = path.join(root, 'upload-source.md');
     await fs.writeFile(uploadSource, 'uploaded\n');

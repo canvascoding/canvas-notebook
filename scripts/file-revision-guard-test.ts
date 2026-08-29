@@ -220,6 +220,35 @@ async function main() {
     );
     assert.equal(await fs.readFile(path.join(teamRoot, 'concurrent-delete.md'), 'utf8'), 'mcp write wins\n');
 
+    await fs.mkdir(path.join(teamRoot, 'concurrent-directory'));
+    await writeFile('concurrent-directory/note.md', 'before directory delete\n', { workspace: teamWorkspace });
+    let releaseMcpDirectoryWrite!: () => void;
+    const mcpDirectoryWriteCanFinish = new Promise<void>((resolve) => { releaseMcpDirectoryWrite = resolve; });
+    let mcpDirectoryWriteReady!: () => void;
+    const mcpDirectoryWriteReadySignal = new Promise<void>((resolve) => { mcpDirectoryWriteReady = resolve; });
+    const mcpDirectoryWrite = writeFile('concurrent-directory/note.md', 'mcp directory write wins\n', { workspace: teamWorkspace }, async () => {
+      mcpDirectoryWriteReady();
+      await mcpDirectoryWriteCanFinish;
+    });
+    await mcpDirectoryWriteReadySignal;
+
+    const agentDirectoryDelete = runWithAgentExecutionContext(agentContext, () => deleteAgentPath({
+      path: 'concurrent-directory',
+      recursive: true,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    releaseMcpDirectoryWrite();
+    await mcpDirectoryWrite;
+    await assert.rejects(
+      () => agentDirectoryDelete,
+      (error) => error instanceof WorkspaceFileRevisionError
+        && error.code === 'FILE_REVISION_CONFLICT',
+    );
+    assert.equal(
+      await fs.readFile(path.join(teamRoot, 'concurrent-directory', 'note.md'), 'utf8'),
+      'mcp directory write wins\n',
+    );
+
     console.log('file-revision-guard-test: ok');
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
