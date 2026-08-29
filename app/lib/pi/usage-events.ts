@@ -23,6 +23,14 @@ type PiUsageSessionContext = {
   agentId: string;
 };
 
+export type PiUsageEventContext = {
+  sessionTitleSnapshot?: string | null;
+  organizationId?: string | null;
+  workspaceId?: string | null;
+  workspaceType?: string | null;
+  agentId: string;
+};
+
 function isAssistantMessage(message: AgentMessage): message is AssistantMessage {
   return message.role === 'assistant';
 }
@@ -122,12 +130,29 @@ export async function persistPiUsageEvents({
   if (!sessionId || messages.length === 0) {
     return 0;
   }
+  const context = await loadSessionUsageContext(sessionId, userId);
+  return persistPiUsageEventsWithContext({
+    sessionId,
+    userId,
+    messages,
+    context,
+  });
+}
 
-  const sessionContext = await loadSessionUsageContext(sessionId, userId);
+export async function persistPiUsageEventsWithContext({
+  sessionId,
+  userId,
+  messages,
+  context,
+}: PersistPiUsageEventsParams & { context: PiUsageEventContext }): Promise<number> {
+  if (!sessionId || messages.length === 0) {
+    return 0;
+  }
+
   const values = extractPiUsageEventValues({
     sessionId,
     userId,
-    ...sessionContext,
+    ...context,
     messages,
   });
 

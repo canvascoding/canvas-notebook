@@ -29,13 +29,23 @@ export function buildControlPlaneReleasePayload(env, packageVersion, publishedAt
   }
 
   let cliArtifact;
+  let linuxCli;
   if (isTag) {
     const cliSha256 = String(env.HOST_CLI_SHA256 || '').trim();
+    const linuxAmd64Sha256 = String(env.LINUX_CLI_AMD64_SHA256 || '').trim();
+    const linuxArm64Sha256 = String(env.LINUX_CLI_ARM64_SHA256 || '').trim();
     const cliVersion = String(env.HOST_CLI_VERSION || mergeTag).trim();
     if (!releaseVersionPattern.test(cliVersion) || !shaPattern.test(cliSha256)) {
       throw new Error('Tagged releases require a validated host CLI version and sha256.');
     }
+    if (!shaPattern.test(linuxAmd64Sha256) || !shaPattern.test(linuxArm64Sha256)) {
+      throw new Error('Tagged releases require validated amd64 and arm64 Linux CLI sha256 values.');
+    }
     cliArtifact = { version: cliVersion, sha256: cliSha256 };
+    linuxCli = {
+      amd64: { filename: 'canvas-notebook-linux-cli-amd64.tar.gz', sha256: linuxAmd64Sha256 },
+      arm64: { filename: 'canvas-notebook-linux-cli-arm64.tar.gz', sha256: linuxArm64Sha256 },
+    };
   }
 
   return {
@@ -47,6 +57,7 @@ export function buildControlPlaneReleasePayload(env, packageVersion, publishedAt
     commitSha: releaseCommitSha,
     image: { name: imageName, tags, digest: imageDigest },
     cliArtifact,
+    linuxCli,
     workflow: {
       runId: env.RELEASE_BUILD_RUN_ID || env.GITHUB_RUN_ID,
       runNumber: env.RELEASE_BUILD_RUN_NUMBER || env.GITHUB_RUN_NUMBER,

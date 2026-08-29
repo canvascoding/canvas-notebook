@@ -796,6 +796,7 @@ export const organizationUserPermissions = sqliteTable("organization_user_permis
   canDeleteTeamFiles: integer("can_delete_team_files", { mode: "boolean" }).notNull().default(false),
   canDeleteStudioAssets: integer("can_delete_studio_assets", { mode: "boolean" }).notNull().default(true),
   canManageBackups: integer("can_manage_backups", { mode: "boolean" }).notNull().default(false),
+  canManageOrganizationMemory: integer("can_manage_organization_memory", { mode: "boolean" }).notNull().default(false),
   canMigrateDatabase: integer("can_migrate_database", { mode: "boolean" }).notNull().default(false),
   canEnableKnowledge: integer("can_enable_knowledge", { mode: "boolean" }).notNull().default(false),
   canRecoverWorkspaces: integer("can_recover_workspaces", { mode: "boolean" }).notNull().default(false),
@@ -1383,6 +1384,138 @@ export const piMessages = sqliteTable("pi_messages", {
 }, (table) => ({
   sessionTimestampIdx: index("idx_pi_messages_session_timestamp").on(table.piSessionDbId, table.timestamp, table.id),
   sessionSequenceIdx: index("idx_pi_messages_session_sequence").on(table.piSessionDbId, table.sequence, table.id),
+}));
+
+export const memoryUserSettings = sqliteTable("memory_user_settings", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: 'cascade' }),
+  automaticMemoryEnabled: integer("automatic_memory_enabled", { mode: "boolean" }).notNull().default(true),
+  providerInstallationId: text("provider_installation_id"),
+  modelId: text("model_id"),
+  memoryPromptMaxTokens: integer("memory_prompt_max_tokens").notNull().default(2_000),
+  sensitiveMemoryEnabled: integer("sensitive_memory_enabled", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  modelIdx: index("idx_memory_user_settings_provider_model").on(table.providerInstallationId, table.modelId),
+  promptBudgetCheck: check("memory_user_settings_prompt_budget_check", sql`${table.memoryPromptMaxTokens} >= 0 AND ${table.memoryPromptMaxTokens} <= 4000`),
+}));
+
+export const memoryCollections = sqliteTable("memory_collections", {
+  id: text("id").primaryKey(),
+  scopeType: text("scope_type").notNull(),
+  userId: text("user_id").references(() => user.id, { onDelete: 'cascade' }),
+  agentId: text("agent_id"),
+  organizationId: text("organization_id"),
+  workspaceId: text("workspace_id"),
+  category: text("category").notNull(),
+  title: text("title").notNull(),
+  summary: text("summary"),
+  sensitivity: text("sensitivity").notNull().default('standard'),
+  status: text("status").notNull().default('active'),
+  revision: integer("revision").notNull().default(1),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  userScopeIdx: index("idx_memory_collections_user_scope").on(table.userId, table.scopeType, table.status, table.updatedAt),
+  agentScopeIdx: index("idx_memory_collections_agent_scope").on(table.userId, table.agentId, table.status, table.updatedAt),
+  workspaceScopeIdx: index("idx_memory_collections_workspace_scope").on(table.workspaceId, table.status, table.updatedAt),
+  organizationScopeIdx: index("idx_memory_collections_organization_scope").on(table.organizationId, table.status, table.updatedAt),
+  scopeTypeCheck: check("memory_collections_scope_type_check", sql`${table.scopeType} IN ('user', 'agent', 'workspace', 'organization')`),
+  sensitivityCheck: check("memory_collections_sensitivity_check", sql`${table.sensitivity} IN ('standard', 'sensitive')`),
+  statusCheck: check("memory_collections_status_check", sql`${table.status} IN ('active', 'archived')`),
+  revisionCheck: check("memory_collections_revision_check", sql`${table.revision} >= 1`),
+}));
+
+export const memoryEntries = sqliteTable("memory_entries", {
+  id: text("id").primaryKey(),
+  collectionId: text("collection_id").notNull().references(() => memoryCollections.id, { onDelete: 'cascade' }),
+  semanticKey: text("semantic_key"),
+  content: text("content").notNull(),
+  normalizedContentHash: text("normalized_content_hash").notNull(),
+  status: text("status").notNull().default('pending'),
+  priority: integer("priority").notNull().default(50),
+  pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+  sensitivity: text("sensitivity").notNull().default('standard'),
+  confidence: real("confidence"),
+  estimatedTokens: integer("estimated_tokens").notNull(),
+  sourceSessionId: text("source_session_id"),
+  sourceMessageId: integer("source_message_id"),
+  sourceAgentId: text("source_agent_id"),
+  createdByActorType: text("created_by_actor_type").notNull(),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  lastConfirmedAt: integer("last_confirmed_at", { mode: "timestamp" }),
+  lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
+  revision: integer("revision").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  collectionStatusIdx: index("idx_memory_entries_collection_status").on(table.collectionId, table.status, table.priority, table.updatedAt),
+  semanticKeyIdx: index("idx_memory_entries_collection_semantic_key").on(table.collectionId, table.semanticKey),
+  sourceMessageIdx: index("idx_memory_entries_source_message").on(table.sourceSessionId, table.sourceMessageId),
+  contentHashIdx: index("idx_memory_entries_collection_content_hash").on(table.collectionId, table.normalizedContentHash),
+  statusCheck: check("memory_entries_status_check", sql`${table.status} IN ('pending', 'published', 'archived')`),
+  priorityCheck: check("memory_entries_priority_check", sql`${table.priority} >= 0 AND ${table.priority} <= 100`),
+  sensitivityCheck: check("memory_entries_sensitivity_check", sql`${table.sensitivity} IN ('standard', 'sensitive')`),
+  confidenceCheck: check("memory_entries_confidence_check", sql`${table.confidence} IS NULL OR (${table.confidence} >= 0 AND ${table.confidence} <= 1)`),
+  estimatedTokensCheck: check("memory_entries_estimated_tokens_check", sql`${table.estimatedTokens} >= 0`),
+  revisionCheck: check("memory_entries_revision_check", sql`${table.revision} >= 1`),
+}));
+
+export const memoryEvents = sqliteTable("memory_events", {
+  id: text("id").primaryKey(),
+  entryId: text("entry_id").notNull().references(() => memoryEntries.id, { onDelete: 'cascade' }),
+  action: text("action").notNull(),
+  actorType: text("actor_type").notNull(),
+  actorUserId: text("actor_user_id").references(() => user.id, { onDelete: 'set null' }),
+  sessionId: text("session_id"),
+  sourceMessageId: integer("source_message_id"),
+  decisionCode: text("decision_code"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  entryCreatedIdx: index("idx_memory_events_entry_created").on(table.entryId, table.createdAt),
+  sessionCreatedIdx: index("idx_memory_events_session_created").on(table.sessionId, table.createdAt),
+}));
+
+export const memoryLegacyImports = sqliteTable("memory_legacy_imports", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  agentId: text("agent_id").notNull(),
+  fileName: text("file_name").notNull(),
+  contentHash: text("content_hash").notNull(),
+  entriesImported: integer("entries_imported").notNull().default(0),
+  entriesSkipped: integer("entries_skipped").notNull().default(0),
+  completedAt: integer("completed_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  scopeIdx: index("idx_memory_legacy_imports_scope").on(table.userId, table.agentId, table.fileName, table.completedAt),
+  sourceUnique: uniqueIndex("memory_legacy_imports_source_unique").on(table.userId, table.agentId, table.fileName, table.contentHash),
+}));
+
+export const memoryReviewJobs = sqliteTable("memory_review_jobs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  sessionId: text("session_id").notNull(),
+  sourceAssistantMessageId: integer("source_assistant_message_id"),
+  fromMessageSequence: integer("from_message_sequence").notNull(),
+  throughMessageSequence: integer("through_message_sequence").notNull(),
+  triggerType: text("trigger_type").notNull(),
+  scheduledFor: integer("scheduled_for", { mode: "timestamp" }),
+  status: text("status").notNull().default('scheduled'),
+  attempts: integer("attempts").notNull().default(0),
+  leaseUntil: integer("lease_until", { mode: "timestamp" }),
+  errorCode: text("error_code"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  startedAt: integer("started_at", { mode: "timestamp" }),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+}, (table) => ({
+  sessionRangeIdx: uniqueIndex("idx_memory_review_jobs_session_range")
+    .on(table.userId, table.sessionId, table.fromMessageSequence, table.throughMessageSequence),
+  readyIdx: index("idx_memory_review_jobs_ready").on(table.status, table.scheduledFor, table.leaseUntil),
+  userSessionIdx: index("idx_memory_review_jobs_user_session").on(table.userId, table.sessionId, table.createdAt),
+  triggerCheck: check("memory_review_jobs_trigger_check", sql`${table.triggerType} IN ('turn_interval', 'idle', 'session_close', 'maintenance')`),
+  statusCheck: check("memory_review_jobs_status_check", sql`${table.status} IN ('scheduled', 'awaiting_model_configuration', 'queued', 'running', 'retry_wait', 'completed', 'failed')`),
+  sequenceRangeCheck: check("memory_review_jobs_sequence_range_check", sql`${table.fromMessageSequence} >= 1 AND ${table.throughMessageSequence} >= ${table.fromMessageSequence}`),
+  attemptsCheck: check("memory_review_jobs_attempts_check", sql`${table.attempts} >= 0`),
 }));
 
 export const piUsageEvents = sqliteTable("pi_usage_events", {

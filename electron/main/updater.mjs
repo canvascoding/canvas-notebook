@@ -70,7 +70,7 @@ export function createDesktopUpdater({
     if (!enabled) return false;
 
     autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = false;
+    autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.allowPrerelease = false;
     autoUpdater.allowDowngrade = false;
 
@@ -106,7 +106,7 @@ export function createDesktopUpdater({
         type: 'info',
         title: 'Update ready',
         message: `Canvas Notebook ${updateVersion(info)} has been downloaded.`,
-        detail: 'Restart now to install it, or install it the next time you restart the app.',
+        detail: 'Restart now to install it, or it will install automatically when you next quit the app.',
         buttons: ['Restart and Install', 'Later'],
         defaultId: 0,
         cancelId: 1,

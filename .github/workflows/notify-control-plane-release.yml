@@ -32,16 +32,31 @@ jobs:
 
           host_asset_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name == "canvas-notebook-host-cli.tar.gz") | .browser_download_url')"
           checksum_asset_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name == "canvas-notebook-host-cli.sha256") | .browser_download_url')"
+          linux_amd64_asset_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name == "canvas-notebook-linux-cli-amd64.tar.gz") | .browser_download_url')"
+          linux_amd64_checksum_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name == "canvas-notebook-linux-cli-amd64.sha256") | .browser_download_url')"
+          linux_arm64_asset_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name == "canvas-notebook-linux-cli-arm64.tar.gz") | .browser_download_url')"
+          linux_arm64_checksum_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name == "canvas-notebook-linux-cli-arm64.sha256") | .browser_download_url')"
           metadata_asset_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name == "canvas-notebook-release-metadata.json") | .browser_download_url')"
-          [[ -n "$host_asset_url" && -n "$checksum_asset_url" && -n "$metadata_asset_url" ]]
+          [[ -n "$host_asset_url" && -n "$checksum_asset_url" && -n "$linux_amd64_asset_url" && -n "$linux_amd64_checksum_url" ]]
+          [[ -n "$linux_arm64_asset_url" && -n "$linux_arm64_checksum_url" && -n "$metadata_asset_url" ]]
 
           curl --fail --location --retry 4 --output canvas-notebook-host-cli.tar.gz "$host_asset_url"
           curl --fail --location --retry 4 --output canvas-notebook-host-cli.sha256 "$checksum_asset_url"
+          curl --fail --location --retry 4 --output canvas-notebook-linux-cli-amd64.tar.gz "$linux_amd64_asset_url"
+          curl --fail --location --retry 4 --output canvas-notebook-linux-cli-amd64.sha256 "$linux_amd64_checksum_url"
+          curl --fail --location --retry 4 --output canvas-notebook-linux-cli-arm64.tar.gz "$linux_arm64_asset_url"
+          curl --fail --location --retry 4 --output canvas-notebook-linux-cli-arm64.sha256 "$linux_arm64_checksum_url"
           curl --fail --location --retry 4 --output canvas-notebook-release-metadata.json "$metadata_asset_url"
           shasum -a 256 -c canvas-notebook-host-cli.sha256
+          shasum -a 256 -c canvas-notebook-linux-cli-amd64.sha256
+          shasum -a 256 -c canvas-notebook-linux-cli-arm64.sha256
 
           expected_sha256="$(awk '$2 == "canvas-notebook-host-cli.tar.gz" { print $1 }' canvas-notebook-host-cli.sha256)"
+          linux_amd64_sha256="$(awk '$2 == "canvas-notebook-linux-cli-amd64.tar.gz" { print $1 }' canvas-notebook-linux-cli-amd64.sha256)"
+          linux_arm64_sha256="$(awk '$2 == "canvas-notebook-linux-cli-arm64.tar.gz" { print $1 }' canvas-notebook-linux-cli-arm64.sha256)"
           [[ "$expected_sha256" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$linux_amd64_sha256" =~ ^[a-f0-9]{64}$ ]]
+          [[ "$linux_arm64_sha256" =~ ^[a-f0-9]{64}$ ]]
           mkdir host-cli
           tar -xzf canvas-notebook-host-cli.tar.gz -C host-cli
           cli_path="$(find host-cli -type f -path '*/install/bin/canvas-notebook' -print -quit)"
@@ -52,7 +67,7 @@ jobs:
           release_commit_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
           [[ "$release_commit_sha" =~ ^[a-f0-9]{40,64}$ ]]
           expected_image="ghcr.io/${GITHUB_REPOSITORY,,}"
-          RELEASE_VERSION="$release_version" RELEASE_TAG="$RELEASE_TAG" RELEASE_COMMIT_SHA="$release_commit_sha" EXPECTED_IMAGE="$expected_image" HOST_CLI_SHA256="$expected_sha256" \
+          RELEASE_VERSION="$release_version" RELEASE_TAG="$RELEASE_TAG" RELEASE_COMMIT_SHA="$release_commit_sha" EXPECTED_IMAGE="$expected_image" HOST_CLI_SHA256="$expected_sha256" LINUX_CLI_AMD64_SHA256="$linux_amd64_sha256" LINUX_CLI_ARM64_SHA256="$linux_arm64_sha256" \
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
 
@@ -69,9 +84,13 @@ jobs:
             !validDigest ||
             metadata.hostCli?.filename !== 'canvas-notebook-host-cli.tar.gz' ||
             metadata.hostCli?.sha256 !== process.env.HOST_CLI_SHA256 ||
+            metadata.linuxCli?.amd64?.filename !== 'canvas-notebook-linux-cli-amd64.tar.gz' ||
+            metadata.linuxCli?.amd64?.sha256 !== process.env.LINUX_CLI_AMD64_SHA256 ||
+            metadata.linuxCli?.arm64?.filename !== 'canvas-notebook-linux-cli-arm64.tar.gz' ||
+            metadata.linuxCli?.arm64?.sha256 !== process.env.LINUX_CLI_ARM64_SHA256 ||
             !validRunId
           ) {
-            throw new Error('Published release metadata does not match the verified tag, image, host CLI, and source commit.');
+            throw new Error('Published release metadata does not match the verified tag, image, CLI artifacts, and source commit.');
           }
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `build_run_id=${metadata.build.runId}\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `build_run_number=${metadata.build.runNumber || ''}\n`);
@@ -83,6 +102,8 @@ jobs:
           echo "commit_sha=${release_commit_sha}" >> "$GITHUB_OUTPUT"
           echo "host_cli_version=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
           echo "host_cli_sha256=${expected_sha256}" >> "$GITHUB_OUTPUT"
+          echo "linux_cli_amd64_sha256=${linux_amd64_sha256}" >> "$GITHUB_OUTPUT"
+          echo "linux_cli_arm64_sha256=${linux_arm64_sha256}" >> "$GITHUB_OUTPUT"
 
       - name: Set GHCR image name
         run: echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
@@ -117,6 +138,8 @@ jobs:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           HOST_CLI_VERSION: ${{ steps.release.outputs.host_cli_version }}
           HOST_CLI_SHA256: ${{ steps.release.outputs.host_cli_sha256 }}
+          LINUX_CLI_AMD64_SHA256: ${{ steps.release.outputs.linux_cli_amd64_sha256 }}
+          LINUX_CLI_ARM64_SHA256: ${{ steps.release.outputs.linux_cli_arm64_sha256 }}
           RELEASE_REF: ${{ steps.release.outputs.ref }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           RELEASE_COMMIT_SHA: ${{ steps.release.outputs.commit_sha }}

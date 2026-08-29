@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,6 +11,7 @@ import { runOrThrow } from './process';
 
 const CLI_ASSET_NAME = 'canvas-notebook-cli.tar.gz';
 const CHECKSUM_ASSET_NAME = 'canvas-notebook-cli.sha256';
+const RELEASE_VERSION_PATTERN = /^\d{4}\.\d{1,2}\.\d{1,2}(?:\.\d+)?$/u;
 
 export interface PortableCliUpdateResult {
   skipped: boolean;
@@ -92,6 +94,109 @@ async function verifyChecksum(archivePath: string, checksumPath: string): Promis
   if (actual !== expected) throw new Error('CLI checksum verification failed.');
 }
 
+async function isWritable(filePath: string): Promise<boolean> {
+  return fs.access(filePath, fsConstants.W_OK).then(() => true, () => false);
+}
+
+function linuxArchitecture(env: NodeJS.ProcessEnv): 'amd64' | 'arm64' {
+  const architecture = env.CANVAS_LINUX_CLI_ARCH || (process.arch === 'x64'
+    ? 'amd64'
+    : process.arch === 'arm64' ? 'arm64' : '');
+  if (architecture !== 'amd64' && architecture !== 'arm64') {
+    throw new Error(`Unsupported Linux CLI architecture: ${architecture || process.arch}`);
+  }
+  return architecture;
+}
+
+function linuxAssetUrl(env: NodeJS.ProcessEnv, asset: string, archiveName: string, checksumName: string): string {
+  const repo = env.CANVAS_REPO || 'canvascoding/canvas-notebook';
+  const version = env.CANVAS_VERSION || env.CANVAS_CLI_VERSION || 'latest';
+  if (env.CANVAS_LINUX_CLI_BASE_URL) return `${env.CANVAS_LINUX_CLI_BASE_URL.replace(/\/+$/u, '')}/${asset}`;
+  if (env.CANVAS_LINUX_CLI_URL && asset === archiveName) return env.CANVAS_LINUX_CLI_URL;
+  if (env.CANVAS_LINUX_CLI_SHA256_URL && asset === checksumName) return env.CANVAS_LINUX_CLI_SHA256_URL;
+  if (!version || version === 'latest') return `https://github.com/${repo}/releases/latest/download/${asset}`;
+  return `https://github.com/${repo}/releases/download/${version.replace(/^refs\/tags\//u, '')}/${asset}`;
+}
+
+async function updateManagedLinuxCli(params: {
+  runner: CommandRunner;
+  env: NodeJS.ProcessEnv;
+  currentRoot: string;
+  beforeVersion: string;
+}): Promise<PortableCliUpdateResult> {
+  const linuxRoot = path.resolve(String(params.env.CANVAS_CLI_LINUX_ROOT || ''));
+  const currentVersion = await fs.readFile(path.join(linuxRoot, 'state', 'current'), 'utf8')
+    .then((value) => value.trim(), () => '');
+  if (!RELEASE_VERSION_PATTERN.test(currentVersion)) throw new Error('Linux CLI current activation state is invalid.');
+  const expectedCurrentRoot = path.join(linuxRoot, 'releases', currentVersion);
+  if (path.resolve(params.currentRoot) !== expectedCurrentRoot) {
+    throw new Error('Linux CLI root does not match its current activation state.');
+  }
+  const installer = path.join(linuxRoot, 'install', 'linux-cli.sh');
+  const installerStat = await fs.lstat(installer).catch(() => null);
+  if (!installerStat?.isFile() || installerStat.isSymbolicLink()) {
+    throw new Error(`Linux CLI installer is missing or unsafe: ${installer}`);
+  }
+
+  const architecture = linuxArchitecture(params.env);
+  const packageName = `canvas-notebook-linux-cli-${architecture}`;
+  const archiveName = `${packageName}.tar.gz`;
+  const checksumName = `${packageName}.sha256`;
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-linux-cli-update-'));
+  try {
+    const archivePath = path.join(tmpRoot, archiveName);
+    const checksumPath = path.join(tmpRoot, checksumName);
+    await downloadFile(linuxAssetUrl(params.env, archiveName, archiveName, checksumName), archivePath);
+    await downloadFile(linuxAssetUrl(params.env, checksumName, archiveName, checksumName), checksumPath);
+    await verifyChecksum(archivePath, checksumPath);
+    const binPath = params.env.CANVAS_LINUX_CLI_BIN_PATH || params.env.CANVAS_CLI_PATH || '/usr/local/bin/canvas-notebook';
+    const installerEnv = {
+      ...params.env,
+      CANVAS_LINUX_CLI_ROOT: linuxRoot,
+      CANVAS_LINUX_CLI_BIN_PATH: binPath,
+      CANVAS_LINUX_CLI_ARCHIVE: archivePath,
+      CANVAS_LINUX_CLI_CHECKSUM: checksumPath,
+      CANVAS_CLI_SELF_UPDATE_REEXEC: 'true',
+    };
+    const requiresSudo = typeof process.getuid === 'function' && process.getuid() !== 0 &&
+      (!await isWritable(linuxRoot) || !await isWritable(path.dirname(binPath)));
+    if (requiresSudo) {
+      await runOrThrow(params.runner, 'sudo', [
+        'env',
+        `CANVAS_LINUX_CLI_ROOT=${linuxRoot}`,
+        `CANVAS_LINUX_CLI_BIN_PATH=${binPath}`,
+        `CANVAS_LINUX_CLI_ARCHIVE=${archivePath}`,
+        `CANVAS_LINUX_CLI_CHECKSUM=${checksumPath}`,
+        'CANVAS_CLI_SELF_UPDATE_REEXEC=true',
+        'bash',
+        installer,
+        'install',
+      ], { env: params.env, stdio: 'inherit' });
+    } else {
+      await runOrThrow(params.runner, 'bash', [installer, 'install'], { env: installerEnv, stdio: 'inherit' });
+    }
+    const afterVersion = await fs.readFile(path.join(linuxRoot, 'state', 'current'), 'utf8')
+      .then((value) => value.trim(), () => '');
+    if (!RELEASE_VERSION_PATTERN.test(afterVersion)) throw new Error('Linux CLI activation did not produce a valid current version.');
+    const nextRoot = path.join(linuxRoot, 'releases', afterVersion);
+    const mainPath = path.join(nextRoot, 'dist-cli', 'main.js');
+    const mainStat = await fs.lstat(mainPath).catch(() => null);
+    if (!mainStat?.isFile() || mainStat.isSymbolicLink()) {
+      throw new Error(`Activated Linux CLI release is missing or unsafe: ${nextRoot}`);
+    }
+    return {
+      skipped: false,
+      changed: afterVersion !== currentVersion,
+      currentRoot: nextRoot,
+      mainPath,
+      beforeVersion: params.beforeVersion || currentVersion,
+      afterVersion,
+    };
+  } finally {
+    await fs.rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 async function listFiles(root: string): Promise<string[]> {
   const output: string[] = [];
   async function walk(dir: string, prefix: string): Promise<void> {
@@ -157,6 +262,9 @@ export async function updatePortableCli(params: {
   }
   if (isFalse(env.CANVAS_CLI_SELF_UPDATE) || env.CANVAS_CLI_SELF_UPDATE_REEXEC === 'true') {
     return { skipped: true, changed: false, currentRoot, mainPath, beforeVersion, afterVersion: beforeVersion };
+  }
+  if (params.context.platform === 'linux' && env.CANVAS_CLI_LINUX_ROOT) {
+    return updateManagedLinuxCli({ runner: params.runner, env, currentRoot, beforeVersion });
   }
   if (!await isPackagedPortableRoot(currentRoot, env)) {
     return { skipped: true, changed: false, currentRoot, mainPath, beforeVersion, afterVersion: beforeVersion };
@@ -238,6 +346,7 @@ export async function reexecPortableCliIfUpdated(params: {
   const child = spawn(process.execPath, [result.mainPath, ...portableCliReexecArgs(params)], {
     env: {
       ...process.env,
+      CANVAS_CLI_ROOT: result.currentRoot,
       CANVAS_CLI_SELF_UPDATE_REEXEC: 'true',
       CANVAS_OPERATION_LOCK_INHERIT_TOKEN: process.env.CANVAS_OPERATION_LOCK_NONCE,
     },

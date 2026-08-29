@@ -254,10 +254,10 @@ export function AgentToolsEditor({
               </span>
             </div>
             <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={onEnableAll} disabled={toolsSaving}>
+              <Button size="sm" variant="outline" onClick={onEnableAll} disabled={toolsSaving || filteredTools.length === 0}>
                 {t('agentPanel.tools.enableAll')}
               </Button>
-              <Button size="sm" variant="outline" onClick={onDisableAll} disabled={toolsSaving}>
+              <Button size="sm" variant="outline" onClick={onDisableAll} disabled={toolsSaving || filteredTools.length === 0}>
                 {t('agentPanel.tools.disableAll')}
               </Button>
             </div>

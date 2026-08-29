@@ -122,6 +122,7 @@ import { subscribeBrowserSessionSnapshot } from '@/app/lib/pi/browser/session-st
 import { refreshBrowserSessionSnapshot } from '@/app/lib/pi/browser/session-state-service';
 import type { BrowserSessionSnapshot } from '@/app/lib/pi/browser/types';
 import type { BrowserToolMode } from '@/app/lib/pi/browser/tool';
+import { buildMemoryPromptProjection } from '@/app/lib/memory/prompt-projection';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -271,6 +272,7 @@ type RuntimeInit = {
   initialMessages: AgentMessage[];
   executionContext: AgentExecutionContext;
   workspaceFileTreePromptBlock: string;
+  memoryPromptBlock: string;
   browserSnapshot: BrowserSessionSnapshot;
   imageNormalizationOptions: PiMessageNormalizationOptions;
   requestOutputTokenCap: number;
@@ -435,6 +437,7 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
 type PiRuntimePromptDispatchTarget = RuntimePromptContextTarget & {
   reloadTools: () => Promise<void>;
   refreshWorkspaceFileTreePrompt: () => Promise<void>;
+  refreshMemoryPrompt: () => Promise<void>;
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
@@ -448,6 +451,7 @@ export class LivePiRuntime {
   private tools: AgentTool[];
   private readonly executionContext: AgentExecutionContext;
   private workspaceFileTreePromptBlock: string;
+  private memoryPromptBlock: string;
   readonly agent: Agent;
 
   private readonly subscribers = new Set<RuntimeSubscriber>();
@@ -511,6 +515,7 @@ export class LivePiRuntime {
     this.tools = init.tools;
     this.executionContext = init.executionContext;
     this.workspaceFileTreePromptBlock = init.workspaceFileTreePromptBlock;
+    this.memoryPromptBlock = init.memoryPromptBlock;
     this.imageNormalizationOptions = init.imageNormalizationOptions;
     this.requestOutputTokenCap = init.requestOutputTokenCap;
     this.summary = init.summary;
@@ -1028,6 +1033,17 @@ export class LivePiRuntime {
     }
   }
 
+  async refreshMemoryPrompt(): Promise<void> {
+    this.memoryPromptBlock = await buildMemoryPromptProjection({
+      userId: this.userId,
+      agentId: this.agentId,
+      workspaceId: this.executionContext.workspaceId,
+      organizationId: this.executionContext.organizationId,
+      usableContextTokens: this.model.contextWindow,
+    });
+    this.lastComposition = null;
+  }
+
   async prepareNextTurnContext(
     context: PrepareNextTurnContext,
     signal?: AbortSignal,
@@ -1116,6 +1132,10 @@ export class LivePiRuntime {
 
     if (this.workspaceFileTreePromptBlock) {
       blocks.push(this.workspaceFileTreePromptBlock);
+    }
+
+    if (this.memoryPromptBlock) {
+      blocks.push(this.memoryPromptBlock);
     }
 
     const runtimeTempBlock = this.getAgentRuntimeTempContextBlock();
@@ -2054,6 +2074,22 @@ export class LivePiRuntime {
           userId: this.userId,
           messages: newMessages,
         });
+        if (newMessages.some((message) => message.role === 'assistant')) {
+          queueMicrotask(() => {
+            void import('@/app/lib/memory/service')
+              .then(({ scheduleMemoryReviewForSession }) => scheduleMemoryReviewForSession({
+                sessionId: this.sessionId,
+                userId: this.userId,
+              }))
+              .then(() => import('@/app/lib/memory/review-worker'))
+              .then(({ triggerMemoryReviewWorker }) => {
+                triggerMemoryReviewWorker();
+              })
+              .catch((error) => {
+                console.error('[LiveRuntime] Failed to schedule memory review:', error);
+              });
+          });
+        }
       }
 
       this.lastPersistedLength = allMessages.length;
@@ -2131,6 +2167,14 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       })
     : { promptBlock: '' };
   timing.mark('workspaceFileTree');
+  const memoryPromptBlock = await buildMemoryPromptProjection({
+    userId,
+    agentId,
+    workspaceId: executionContext.workspaceId,
+    organizationId: executionContext.organizationId,
+    usableContextTokens: model.contextWindow,
+  });
+  timing.mark('memoryPrompt');
   const toolLoopGuard = createToolLoopGuard();
   const imageNormalizationOptions = {
     workspaceImageRoot: executionContext.workspaceRoot,
@@ -2197,6 +2241,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       initialMessages,
       executionContext,
       workspaceFileTreePromptBlock: workspaceFileTreePrompt.promptBlock,
+      memoryPromptBlock,
       browserSnapshot,
       imageNormalizationOptions,
       requestOutputTokenCap,
@@ -2380,6 +2425,7 @@ export async function dispatchPiRuntimeUserMessage(
     if (!runtimeHandle.created) {
       await runtime.reloadTools();
     }
+    await runtime.refreshMemoryPrompt();
     await runtime.refreshWorkspaceFileTreePrompt();
     runtime.startPrompt(message, context);
     return runtime;

@@ -19,6 +19,7 @@ import {
 } from '../cli/src/core/config';
 import { renderComposeFile } from '../cli/src/core/compose';
 import { DockerManager } from '../cli/src/core/docker';
+import { orphanedComposeLogFollowerPids } from '../cli/src/core/logCleanup';
 import { composePath, resolveDefaultPaths } from '../cli/src/core/platform';
 import { preparePostgresManagedRuntime, postgresRuntimeDesired } from '../cli/src/core/postgres';
 import {
@@ -235,6 +236,13 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       CANVAS_MANAGER_LOG_FILE: path.join(root, 'logs', 'manager.log'),
     });
     const config = materializeConfig(createDefaultConfig(paths, 'linux'));
+    assert.deepEqual(orphanedComposeLogFollowerPids([
+      `101 1 docker compose -f ${paths.composeFile} --project-directory ${paths.installDir} logs -f --tail=120 canvas-notebook`,
+      `102 99 docker compose -f ${paths.composeFile} --project-directory ${paths.installDir} logs -f canvas-notebook`,
+      `103 1 docker compose -f /other/compose.yaml --project-directory ${paths.installDir} logs -f canvas-notebook`,
+      `104 1 docker compose -f ${paths.composeFile} --project-directory ${paths.installDir} ps canvas-notebook`,
+      '',
+    ].join('\n'), config, 'canvas-notebook'), [101]);
     const runner = new RecordingRunner();
     const context: RuntimeContext = {
       platform: 'linux',
@@ -539,7 +547,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
   console.log('cross-platform CLI tests passed');
 }
 
-main().catch(() => {
-  console.error('cross-platform CLI tests failed');
+main().catch((error) => {
+  console.error('cross-platform CLI tests failed', error);
   process.exitCode = 1;
 });

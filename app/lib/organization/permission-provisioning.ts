@@ -15,6 +15,7 @@ export type OrganizationPermissionDefaults = {
   canDeleteTeamFiles: boolean;
   canDeleteStudioAssets: boolean;
   canManageBackups: boolean;
+  canManageOrganizationMemory: boolean;
   canMigrateDatabase: boolean;
   canEnableKnowledge: boolean;
   canRecoverWorkspaces: boolean;
@@ -54,6 +55,7 @@ export function organizationPermissionDefaults(
     canDeleteTeamFiles: isAdminLikeRole,
     canDeleteStudioAssets: isInternal,
     canManageBackups: isAdminLikeRole,
+    canManageOrganizationMemory: false,
     canMigrateDatabase: isAdminLikeRole,
     canEnableKnowledge: isAdminLikeRole,
     canRecoverWorkspaces: isAdminLikeRole,
@@ -101,9 +103,9 @@ export async function ensureOrganizationPermissionRow(
       can_write_team_workspace, can_create_public_links,
       can_create_team_automations, can_share_plugins_and_skills,
       can_export, can_delete_team_files, can_delete_studio_assets,
-      can_manage_backups, can_migrate_database, can_enable_knowledge,
+      can_manage_backups, can_manage_organization_memory, can_migrate_database, can_enable_knowledge,
       can_recover_workspaces, created_at, updated_at
-    ) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(organization_id, user_id) DO NOTHING
   `, [
     input.organizationId,
@@ -117,6 +119,7 @@ export async function ensureOrganizationPermissionRow(
     defaults.canDeleteTeamFiles ? 1 : 0,
     defaults.canDeleteStudioAssets ? 1 : 0,
     defaults.canManageBackups ? 1 : 0,
+    defaults.canManageOrganizationMemory ? 1 : 0,
     defaults.canMigrateDatabase ? 1 : 0,
     defaults.canEnableKnowledge ? 1 : 0,
     defaults.canRecoverWorkspaces ? 1 : 0,

@@ -508,6 +508,13 @@ function scheduleBackgroundMaintenance() {
       .catch((err) => {
         console.warn('[Startup] Team license lifecycle could not be initialized:', err.message);
       });
+    import('./app/lib/memory/review-worker.ts')
+      .then(({ initializeMemoryReviewWorkerRuntime }) => {
+        initializeMemoryReviewWorkerRuntime();
+      })
+      .catch((err) => {
+        console.warn('[Startup] Memory review worker could not be initialized:', err.message);
+      });
   }, 1500);
   timer.unref?.();
   console.log('[Startup] Background maintenance scheduled');

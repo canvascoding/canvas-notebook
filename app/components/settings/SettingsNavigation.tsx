@@ -4,6 +4,7 @@ import { useMemo, useState, type ComponentType } from 'react';
 import {
   BadgeCheck,
   BarChart3,
+  BrainCircuit,
   Bot,
   Cpu,
   FolderCog,
@@ -45,6 +46,7 @@ import { cn } from '@/lib/utils';
 
 export type SettingsTab =
   | 'general'
+  | 'memory'
   | 'integrations'
   | 'secrets'
   | 'mcp'
@@ -88,6 +90,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.general',
     group: 'account',
     icon: UserRound,
+  },
+  {
+    value: 'memory',
+    labelKey: 'tabs.memory',
+    descriptionKey: 'navigation.descriptions.memory',
+    group: 'account',
+    icon: BrainCircuit,
   },
   {
     value: 'workspace',

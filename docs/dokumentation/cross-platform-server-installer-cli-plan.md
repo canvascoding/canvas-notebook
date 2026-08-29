@@ -1,5 +1,476 @@
 # Cross-Platform Server Installer CLI Plan
 
+## Verbindlicher Umsetzungsplan: Legacy-Bash-CLI zur TypeScript-CLI
+
+Stand: 2026-08-28
+
+Dieser Abschnitt ist der aktive Migrationsplan. Bei Widerspruechen mit aelteren
+Hybrid- oder Zukunftsaussagen weiter unten in diesem Dokument gilt dieser
+Abschnitt. Die Migration wird in abgeschlossenen, einzeln getesteten und einzeln
+committeten Arbeitspaketen umgesetzt.
+
+### Ziel und harte Umschaltbedingung
+
+Die TypeScript-CLI in `cli/src/` wird die kanonische Management-CLI fuer Linux,
+macOS und Windows. Der Linux-Bash-Installer darf als kleiner Bootstrapper
+erhalten bleiben, aber die dauerhafte Betriebslogik soll nicht parallel in Bash
+und TypeScript gepflegt werden.
+
+Die produktive Linux-CLI wird erst umgestellt, wenn alle folgenden Bedingungen
+erfuellt sind:
+
+1. Jeder weiterhin unterstuetzte Befehl der Bash-CLI besitzt in der
+   TypeScript-CLI dasselbe dokumentierte Verhalten oder eine bewusst
+   dokumentierte, getestete Abloesung.
+2. Alle vom Canvas Agent und von der Control Plane verwendeten Befehle,
+   Argumente, Exit Codes und JSON-Ausgaben sind kompatibel.
+3. Alle Einstellungen aus `canvas-notebook-config.json`, die ueber die alte CLI
+   verwaltet werden koennen, sind auch ueber die neue CLI verwaltbar.
+4. Bestehende Konfigurationen, Secrets, Compose-Pfade, Volumes und
+   Recovery-Journale werden ohne Datenverlust uebernommen.
+5. Installation und Update der neuen Linux-CLI sind verifiziert, atomar und
+   rollbackfaehig.
+6. Der produktive Umschaltpfad und der Rueckweg wurden gegen eine bestehende
+   Installation getestet.
+
+Bis diese Gates erfuellt sind, bleiben SQLite und Postgres im Installer
+waehlbar und die Bash-CLI bleibt der produktive Linux-Pfad.
+
+### Bestehende Implementierungen
+
+| Rolle | Aktuelle Implementierung | Ziel |
+| --- | --- | --- |
+| Legacy Linux CLI | `install/bin/canvas-notebook` und `install/lib/commands/*.sh` | nach erfolgreicher Migration entfernen oder auf einen minimalen Bootstrap-/Launcher reduzieren |
+| Neue CLI | `cli/src/main.ts` und `cli/src/core/*.ts` | kanonische Management-CLI auf allen Plattformen |
+| Linux Bootstrap | `install.sh` und `install/lib/*.sh` | Host-Voraussetzungen, CLI-Installation und initiale Service-Einrichtung; keine duplizierte Runtime-Logik |
+| Control Plane Vertrag | `/usr/local/bin/canvas-notebook`, Config JSON, Docker Compose und Health Endpoint | stabiler, versionierter CLI-Vertrag mit Capability-Ausgabe |
+| Release-Artefakte | `canvas-notebook-host-cli.tar.gz` und `canvas-notebook-cli.tar.gz` | kontrollierter Uebergang zu einem kanonischen CLI-Artefakt pro Plattform |
+
+### Architekturgrenze
+
+Die Aufteilung folgt einem Zwei-Schichten-Modell:
+
+```text
+Orchestrierung / Policy                 Gemeinsame Betriebsmechanik
+-----------------------------------     -----------------------------------
+Installer entscheidet Fresh Install    Config lesen, validieren, schreiben
+Control Plane bestimmt Sollzustand      Compose rendern und ausfuehren
+CLI Command bestimmt Workflow           Container- und Health-Pruefungen
+Agent klassifiziert Remote-Fehler        Postgres vorbereiten/reconciliieren
+Plattformadapter bestimmt Host-Policy    atomare Dateien, Locks und Prozesse
+```
+
+`cli/src/main.ts` soll Befehle orchestrieren. Wiederverwendbare Mechanik kommt
+in kleine Module unter `cli/src/core/`. Control Plane und Installer duerfen
+nicht erneut Docker-, Postgres- oder Health-Logik implementieren, wenn die neue
+CLI dafuer bereits einen stabilen Befehl anbietet.
+
+### Verbindliche Command-Parity-Matrix
+
+Der Status beschreibt den Stand zu Beginn dieser Migration und muss nach jedem
+Arbeitspaket aktualisiert werden.
+
+| Legacy-Befehl | Neue CLI | Status vor Migration | Erforderlicher Nachweis |
+| --- | --- | --- | --- |
+| `help` | `help` | vorhanden | Help- und Exit-Code-Test |
+| `version` | `version`, `-V`, `--version` | vorhanden | Text- und JSON-Vertrag, CLI-Generation und Capabilities |
+| `install` | `install` | Kern vorhanden | Differentialtest fuer Config, Compose, Start und Health |
+| `update` | `update` | vorhanden | Image-Pinning, Deadline, Rollback und Re-Exec |
+| `start`, `restart`, `stop`, `down` | vorhanden | vorhanden | Lifecycle- und Lock-Tests |
+| `status`, `ps` | vorhanden | vorhanden | stabiler JSON-Mindestvertrag auch ohne Docker |
+| `health` | vorhanden | vorhanden | Text, JSON und Exit Code bei Fehler |
+| `logs`, `container-logs` | vorhanden | vorhanden | Argument- und Prozessbeendigungs-Test |
+| `manager-log` | vorhanden | vorhanden | fehlende und vorhandene Logdatei |
+| `env` | Anzeige, `--render`, `--sync`, `--edit` | vorhanden | Maskierung, Editor-Transaktion und Sync-Vertrag |
+| `env --render`, `env --sync` | vorhanden | vorhanden | Config-, Postgres-, Restart- und JSON-Tests |
+| `env --edit` | noch nicht vorhanden | fehlt | sicherer Editor- und anschliessender Sync-Flow |
+| `backup create` | vorhanden | vorhanden | SQLite/Postgres, Output, JSON und No-Wait |
+| `database status` | vorhanden | vorhanden | stabiler JSON-Vertrag |
+| `database prepare-postgres` | vorhanden | vorhanden | Credentials, Readiness und pgvector |
+| `database reconcile-postgres-auth` | vorhanden | vorhanden | Journal, Rollback und Wiederaufnahme |
+| `database migrate-sqlite-to-postgres` | vorhanden | vorhanden | Backup-, Copy-, Cutover- und Fehlerfall |
+| `admin reset-password` | vorhanden | vorhanden | Passwort nur ueber stdin, keine Secret-Persistenz |
+| `swap`, `swap-sync`, `swap-apply`, `swap-enable`, `swap-disable` | vorhanden | vorhanden | Linux-Adapter, Transaktion, Ownership und Recovery |
+| `caddy`, `caddy-reload`, `caddy-fix` | vorhanden | vorhanden | Linux-Adapter, Validierung, atomare Writes und Rollback |
+| `diagnose` | vorhanden | vorhanden | tolerante Text-/JSON-Diagnose ohne Docker |
+| `config` | vorhanden | vorhanden | aktive Pfade und Plattformkonfiguration |
+| `config-show` | vorhanden | vorhanden | Maskierung und `--secret-state` |
+| `config-set` | Top-Level-Basiswerte, `env.*`, `swap.*` und `autoUpdate.*` | vorhanden | validierte Pfade, gekoppelte URLs und Secret-Schutz |
+| `config-migrate` | vorhanden | vorhanden | Migration aus `manager.env`, Compose- und Env-Dateien ohne Credential-Rotation |
+| `cli-update` | vorhanden | vorhanden | Signatur/Checksum, atomarer Austausch und Re-Exec |
+| `auto-update-status`, `auto-update-enable`, `auto-update-disable`, `auto-update-sync` | noch nicht vorhanden | fehlt | Standalone-Timer und Managed-Mode-Sperre |
+| `cleanup-logs` | vorhanden | vorhanden | nur eigene verwaiste Log-Follower beenden |
+| `service status/install/uninstall` | vorhanden | neue Funktion | systemd Unit muss bei Fresh Install wirklich erzeugt werden |
+
+Ein Befehl gilt nicht allein deshalb als fertig, weil sein Happy Path vorhanden
+ist. Er muss auch die relevanten Legacy-Argumente, Automatisierungsausgaben,
+Fehlercodes, Locks, Dateirechte und Recovery-Faelle abdecken.
+
+### Konfigurationsparitaet
+
+Vor der Umschaltung wird eine Allowlist aller schreibbaren Config-Pfade
+festgelegt. Mindestens abzudecken sind:
+
+- Top Level: `domain`, `image`, `hostPort`, `containerPort`, `dataDir`.
+- Runtime Environment: freigegebene `env.*`-Schluessel.
+- Sensitive Environment: ausschliesslich `config-set ... --stdin`.
+- Swap: `swap.enabled`, `swap.size`, `swap.file`, `swap.swappiness`.
+- Auto-Update: `autoUpdate.enabled`, `autoUpdate.schedule`.
+- Plattform und Pfade: nur explizit freigegebene, validierte Felder; keine
+  beliebigen absoluten Zielpfade aus untrusted Remote-Input.
+
+Die neue CLI muss dieselbe Config-Datei als Quelle der Wahrheit verwenden. Ein
+CLI-Wechsel darf keine neuen Postgres-Credentials erzeugen, bestehende Secrets
+rotieren oder eine vorhandene Postgres-Identitaet (`host`, `user`, `database`,
+`volume`, `container`) veraendern.
+
+### Control-Plane- und Agent-Vertrag
+
+Vor dem Cutover muessen mindestens diese automatisierten Aufrufe kompatibel
+sein:
+
+- `config-show --json --secret-state --no-banner`
+- `config-set <key> <value>`
+- `config-set <sensitive-key> --stdin`
+- `env --sync --timeout <seconds> --json --no-banner`
+- `database prepare-postgres --timeout <seconds> --json --no-banner`
+- `database reconcile-postgres-auth --timeout <seconds> --json --no-banner`
+- `database migrate-sqlite-to-postgres`
+- `backup create --json`
+- `update --image <pinned-ref> --no-banner`
+- `start`, `restart`, `stop`, `status`, `health`
+- vorlaeufig `auto-update-disable --no-banner`
+
+Die neue `version --json`-Ausgabe soll mindestens liefern:
+
+```json
+{
+  "cliVersion": "2026.x.x.x",
+  "cliGeneration": "typescript",
+  "configSchemaVersion": 1,
+  "commands": ["config-set", "env", "database", "update"]
+}
+```
+
+Der Agent soll Capabilities aus dieser Ausgabe lesen koennen. Help-Text bleibt
+fuer Menschen und darf nicht der langfristige Maschinenvertrag sein.
+
+### Linux Runtime und Paketierung
+
+Die aktuelle portable CLI setzt Node.js auf dem Host voraus. Der Linux-Cutover
+darf keine unbemerkte neue Runtime-Abhaengigkeit einfuehren. Vor Phase 7 wird
+deshalb verbindlich zwischen zwei Optionen entschieden und getestet:
+
+1. ein selbststaendiges Linux-Artefakt fuer `amd64` und `arm64`, oder
+2. ein versioniertes, vom Installer verwaltetes Node-Runtime-Bundle.
+
+Eine zufaellig vorhandene System-Node-Version ist kein belastbarer
+Produktionsvertrag. Der installierte Einstiegspunkt bleibt
+`/usr/local/bin/canvas-notebook`. Der eigentliche CLI-Stand wird atomar ueber
+`current` und `previous` aktiviert. Nach Beginn eines mutierenden Befehls gibt es
+keinen stillen Fallback auf die Legacy-CLI.
+
+### Arbeitspakete und Gates
+
+Es wird immer nur ein Arbeitspaket gleichzeitig umgesetzt. Das naechste Paket
+beginnt erst nach Tests, Dokumentationsupdate, GitNexus-Change-Analyse und
+separatem Commit des vorherigen Pakets.
+
+#### Phase 0: Vertrag und Differential-Testharness
+
+Status: Implementiert am 2026-08-28. Der maschinenlesbare Vertrag liegt in
+`scripts/fixtures/cli-command-parity.json`; `npm run test:cli:parity` prueft das
+Dispatcher-Inventar, Config-Set-Luecken sowie die gemeinsamen JSON-Vertraege
+von `config-show --secret-state` und `status --json` mit isolierter
+Konfiguration und Fake-Docker.
+
+- Command- und Config-Allowlist als Test-Fixtures abbilden.
+- Test-Runner fuer Legacy- und TypeScript-CLI mit isoliertem Temp-Verzeichnis
+  und Fake-Docker bereitstellen.
+- JSON-Mindestvertraege, Exit Codes und Secret-Redaction vergleichen.
+- Fehlende Paritaet als explizite erwartete Luecken markieren.
+
+Gate: Der Test zeigt reproduzierbar, welche Befehle gleich, teilweise oder
+nicht implementiert sind, ohne echte Container zu starten.
+
+#### Phase 1: Config-, Env- und Version-Paritaet
+
+Status: Abgeschlossen am 2026-08-28. Das Gate ist durch den Paritaetstest sowie
+die portablen CLI-, Lock-, Datenbank- und Admin-Tests nachgewiesen.
+
+`config-set` unterstuetzt und validiert jetzt
+`swap.enabled`, `swap.size`, `swap.file`, `swap.swappiness`,
+`autoUpdate.enabled` und `autoUpdate.schedule`. Die Differentialtests decken
+gueltige Werte und abgelehnte Fehlkonfigurationen ab.
+
+Teilstatus 2026-08-28: `version`, `-V` und `--version` liefern jetzt den
+Legacy-Build-Informationsvertrag sowie `cliGeneration`,
+`configSchemaVersion` und eine maschinenlesbare Command-Liste. Die gemeinsame
+Versionsauflosung behebt zugleich leere `status.image.cliVersion`-Werte in
+gepackten CLI-Bundles.
+
+Teilstatus 2026-08-28: `env` zeigt die aktive Konfiguration in Text oder JSON
+mit maskierten Secrets. `env --edit` bearbeitet eine temporaere Datei mit
+restriktiven Rechten, uebernimmt nur eine parsebare normalisierte Konfiguration,
+schuetzt Plattform- und Zielpfade und nutzt danach denselben Apply-/Health-Pfad
+wie `env --sync`.
+
+Teilstatus 2026-08-28: `config` zeigt alle aktiven Hostpfade; `config-migrate`
+uebernimmt Legacy-Werte atomar aus `manager.env`, Compose und vorhandenen
+Env-Dateien. Bei `--force` bleiben bestehende Secrets und die Postgres-Identitaet
+erhalten. `config-set` validiert Domain, Image, Datenpfad, URLs und Env-Namen,
+verbietet die Persistenz von `BOOTSTRAP_ADMIN_PASSWORD` und behaelt numerische
+Secret-Werte als Strings bei.
+
+- `version --json` und Capability-Vertrag.
+- `env`-Anzeige und `env --edit`.
+- vollstaendige freigegebene `config-set`-Pfade.
+- `config` und `config-migrate`.
+- sichere Dateirechte, atomare Writes und keine Secret-Ausgabe.
+
+Gate: Control-Plane-Konfiguration inklusive Swap- und Auto-Update-Feldern kann
+vollstaendig mit der neuen CLI gelesen, geschrieben und gerendert werden.
+
+#### Phase 2: Diagnose-, Log- und Host-Status-Paritaet
+
+Status: Abgeschlossen am 2026-08-28. `status --json` behaelt seinen bisherigen
+Mindestvertrag und liefert auch ohne Docker eine verwertbare Antwort.
+`diagnose` ergaenzt Host-Ressourcen und Docker-Erreichbarkeit. `cleanup-logs`
+beendet ausschliesslich verwaiste Prozesse mit PPID 1, deren Compose-Datei,
+Projektpfad, Follow-Modus und Service exakt zu dieser Installation passen.
+
+- `diagnose` Text/JSON.
+- `cleanup-logs`.
+- Status-/Health-/Version-JSON gegen Agent-Vertrag haerten.
+- Verhalten bei fehlendem oder nicht erreichbarem Docker testen.
+
+Gate: Read-only Remote-Diagnose ist mindestens so aussagekraeftig und tolerant
+wie in der Bash-CLI.
+
+#### Phase 3: Swap-Paritaet
+
+Status: Abgeschlossen am 2026-08-28. Die neue CLI besitzt einen eigenen
+Linux-Adapter fuer Status, Sync, Apply, Enable und Disable. Der Adapter erkennt
+nur Canvas-eigene Swapdateien anhand von State-Inode oder markiertem
+`/etc/fstab`-Eintrag, lehnt fremde Dateien, Symlinks und fremde Swap-Eintraege
+ab und behaelt fremde aktive Swap-Geraete unveraendert. Resize und Disable
+verwenden Staging-/Backup-Dateien mit Rollback; `--secure` journalisiert den
+Wipe-Wunsch fuer eine spaetere Recovery. Alle schreibenden Befehle verwenden
+zusaetzlich den globalen CLI-Operation-Lock.
+
+`scripts/portable-cli-swap-test.ts` prueft die portable Mechanik mit
+isolierten Hostdateien. `scripts/portable-cli-linux-swap-integration-test.sh`
+fuehrt einen kontrollierten 128-MB-Zyklus auf einem echten Linux-Host aus,
+verweigert belegte Canvas-Pfade und verlangt danach ein unveraendertes
+`/etc/fstab`, unveraenderte Swappiness und erhaltenes Fremd-Swap. Der Test lief
+am 2026-08-28 erfolgreich in der OrbStack-VM `ubuntu` mit Ubuntu 26.04 ARM64;
+OrbStacks `/dev/zram0` und `/dev/vdc` blieben dabei aktiv.
+
+- Linux-spezifischen Swap-Service portieren.
+- bestehende Ownership-, Transaktions- und Recovery-Regeln uebernehmen.
+- macOS/Windows liefern einen klaren Unsupported-Fehler ohne Seiteneffekt.
+
+Gate: bestehende Bash-Swap-Tests besitzen ein gleichwertiges TypeScript-Gegenstueck.
+
+#### Phase 4: Caddy-Paritaet
+
+Status: Abgeschlossen am 2026-08-28. Die neue CLI verwaltet Caddy ueber einen
+eigenen Linux-Adapter. `caddy` liefert einen stabilen Status und zeigt im
+Textmodus die aktive Caddyfile. `caddy-reload` aktualisiert nur fehlende oder
+eindeutig als Canvas erkannte Site-Konfigurationen; `caddy-fix` darf zusaetzlich
+die bekannte Caddy-Default-Site ersetzen und entfernt die alte
+`conf.d/canvas-notebook.caddy`. Fremde Caddyfiles und Symlinks werden nicht
+ueberschrieben.
+
+Jede neue Caddyfile wird zuerst in einer temporaeren Datei mit `caddy validate`
+geprueft, danach atomar aktiviert und erst dann per systemd neu geladen. Falls
+Reload und Restart fehlschlagen, werden sowohl die vorherige Caddyfile als auch
+eine verschobene Legacy-Konfiguration wiederhergestellt. Status ist read-only;
+Reload und Fix verwenden den globalen CLI-Operation-Lock. macOS und Windows
+brechen vor Config-Lesen, Lock und Hostzugriff mit einem klaren Unsupported-
+Fehler ab.
+
+`scripts/portable-cli-caddy-test.ts` deckt Domain-Prioritaet, Drift,
+Default-/Legacy-Reparatur, Validierungsfehler, Rollback, Ownership-Grenzen und
+Symlink-Schutz mit isolierten Hostpfaden ab.
+`scripts/portable-cli-linux-caddy-integration-test.sh` verwendet ebenfalls nur
+einen temporaeren Caddy-Root, validiert die erzeugte Datei aber mit einem echten
+Caddy-Binary. Der Test lief am 2026-08-28 erfolgreich in der OrbStack-VM
+`ubuntu` mit Ubuntu 26.04 ARM64 und Caddy 2.6.2; `/etc/caddy` und der reale
+systemd-Zustand wurden dabei nicht veraendert.
+
+- Status, Render/Reload und bekannte Reparaturen portieren.
+- Config-Validierung vor Reload und atomare Caddyfile-Writes.
+- Linux-only Verhalten explizit machen.
+
+Gate: Caddy-Konfiguration kann ohne Aufruf der Legacy-Command-Module verwaltet werden.
+
+#### Phase 5: Auto-Update- und Service-Paritaet
+
+Status: Abgeschlossen am 2026-08-28. Die vier Auto-Update-Befehle sind in der TypeScript-CLI
+implementiert. Der Linux-Adapter rendert und validiert Timer/Service vor dem
+atomaren Write, akzeptiert nur eigene oder bekannte Legacy-Units und verwendet
+fuer alle Mutationen den globalen Operation-Lock. Managed Installationen und
+nicht per Digest gepinnte Images werden durch `auto-update-sync` sicher
+deaktiviert; ein explizites Enable wird abgelehnt. Der isolierte Linux-Test lief
+in der OrbStack-VM `ubuntu` mit echtem `systemd-analyze` erfolgreich.
+
+Der allgemeine `service install/uninstall`-Adapter erzeugt beziehungsweise
+entfernt nun auch die Linux-systemd-Unit selbst. Er validiert Kandidaten vor dem
+atomaren Write, schuetzt fremde Units, escaped Pfade mit Leerzeichen korrekt und
+stellt bei Aktivierungsfehlern die vorherige Unit wieder her. Die portable
+Transaktionssuite und ein isolierter OrbStack-Lauf mit echtem
+`systemd-analyze verify` decken Installation, Entfernung und Rollback ab.
+
+- Standalone-Auto-Update-Kommandos portieren.
+- Managed Mode verhindert weiterhin lokale autonome Updates.
+- systemd Unit und Timer koennen nicht nur aktiviert, sondern sicher erzeugt,
+  aktualisiert und entfernt werden.
+
+Gate: Installer, systemd und Control Plane benoetigen keine Legacy-Befehle mehr.
+
+#### Phase 6: Linux-Paket, Bootstrap und Rollback
+
+Teilstatus 2026-08-28: Die Runtime-Entscheidung ist gefallen. Linux erhaelt ein
+architekturspezifisches CLI-Artefakt fuer `amd64` und `arm64`, das eine offizielle
+Node.js-22-Runtime selbst mitliefert. Eine zufaellig installierte Host-Node- oder
+npm-Version ist damit kein Betriebsvertrag. Das Paket besitzt einen geprueften
+Launcher, `state/current` und `state/previous` sowie versionierte Verzeichnisse
+unter `releases/`. Der Launcher akzeptiert nur release-sichere Versionswerte,
+folgt seinem eigenen Symlink sicher und startet niemals still eine andere CLI.
+
+`scripts/linux-cli-package-test.mjs` prueft deterministische Archive, Checksum,
+Manifest, Allowlist und unsichere Aktivierungswerte. Der native Integrationstest
+laedt die offizielle Node-Runtime samt Hersteller-Checksum, weist eine fehlende
+Host-`libnode`-Abhaengigkeit nach und startet das Paket wirklich. Dieser Test lief
+am 2026-08-28 in der OrbStack-VM `ubuntu` auf ARM64 mit Node.js 22.23.2
+erfolgreich. Der Release-Workflow baut beide Architekturen auf nativen Runnern.
+Das Teilpaket ersetzt noch keine produktive Bash-CLI. Der folgende Bootstrap-
+Baustein installiert das gepruefte Paket ueber `install/linux-cli.sh`: Er prueft
+Architektur, Checksumme, Archiv-Allowlist, Manifest und einen echten CLI-Start,
+bevor Release, Runtime und Launcher installiert werden. Die Aktivierungsdateien
+werden per Rename atomar geschrieben. Beim Upgrade wird der bisher aktive Stand
+als `previous` erhalten; `rollback` tauscht `current` und `previous` explizit.
+Beim ersten Wechsel wird eine vorhandene Legacy-CLI einmalig unter `legacy/`
+gesichert und nur durch einen ausdruecklichen Rollback wieder aktiviert.
+
+Der Linux-Integrationstest deckt damit Fresh Install, In-place-Upgrade,
+TypeScript-Rollback, expliziten Legacy-Rollback und eine abgewiesene falsche
+Checksumme ab. Die TypeScript-CLI erkennt das installierte Linux-Layout ueber
+`CANVAS_CLI_LINUX_ROOT`: `cli-update` laedt das passende Architekturpaket samt
+Checksumme, prueft den bisherigen Aktivierungszustand, ruft den installierten
+Bootstrap auf und startet bei einer Aenderung aus dem neuen Release neu. Der
+Reexec erhaelt dabei den aktualisierten `CANVAS_CLI_ROOT`; ein veralteter Root
+wird nicht still akzeptiert. Managed-Control-Plane-Installationen bleiben wie
+bisher vom autonomen Self-Update ausgeschlossen.
+
+Der neue Pfad wird mit einem gezielten Self-Update-Test und auf beiden nativen
+Linux-Runnern geprueft. Beide Runner liefern ihre architekturspezifischen Pakete
+jetzt an den gegateten Release-Job. Der unveraenderliche Release-Bundle und
+`canvas-notebook-release-metadata.json` enthalten Dateiname und SHA-256 fuer
+`amd64` und `arm64`; der Release-Publish-Workflow laedt beide Archive erneut und
+gleicht Inhalt, Checksumme und Metadaten ab, bevor die Control Plane informiert
+wird. Derselbe Nachweis wird als `linuxCli` im signierten Release-Webhook
+uebertragen. Die Control Plane akzeptiert und persistiert dieses Feld
+rueckwaertskompatibel; alte Releases ohne Linux-Artefakte bleiben lesbar.
+
+Die Read-only-Pruefung im Control-Plane-Repository zeigt als naechstes
+Migrationsgate: API, Release-Katalog und Agent persistieren beziehungsweise
+installieren derzeit nur `canvas-notebook-host-cli.tar.gz`. Dieser Vertrag muss
+um die beiden neuen Artefakte und eine architekturabhaengige Auswahl erweitert
+werden. Bis dieser Gegenpart implementiert und als Canary verifiziert ist, wird
+die bestehende Bash-CLI nicht automatisch ersetzt.
+
+- kanonisches Linux-Artefakt fuer `amd64` und `arm64` bauen.
+- Checksum und Archiv-Allowlist pruefen.
+- atomaren `current`/`previous`-Launcher implementieren.
+- Bash-Installer installiert die neue CLI, bleibt aber fuer bestehende Systeme
+  rollbackfaehig.
+
+Gate: Fresh Install, In-place-Upgrade und Rueckkehr zur vorherigen CLI-Version
+sind getestet.
+
+#### Phase 7: Control-Plane-Canary und Cutover
+
+- Agent erkennt CLI-Generation und Capabilities.
+- Host-CLI-Artefakt-Validator akzeptiert das neue, versionierte Layout.
+- einzelne Managed VMs als Canary aktualisieren.
+- Update, Config-Sync, Backup und Datenbankoperationen pruefen.
+
+Gate: mindestens ein vollstaendiger Managed-Release- und Rollback-Zyklus ohne
+Legacy-Ausfuehrung.
+
+#### Phase 8: Legacy-Bash-CLI aus dem Betrieb nehmen
+
+- Bash-Command-Module einfrieren und danach entfernen.
+- Installer-, Produkt- und Betriebsdokumentation aktualisieren.
+- Legacy-Erkennung bleibt nur so lange bestehen, wie Bestandsmigrationen sie
+  benoetigen.
+
+Gate: `/usr/local/bin/canvas-notebook` startet ausschliesslich die neue CLI und
+alle unterstuetzten Installationen melden die neue CLI-Generation.
+
+#### Phase 9: Postgres als Standard und spaeter einzige Neuinstallation
+
+Diese Phase beginnt erst nach dem CLI-Cutover:
+
+1. Postgres-Lifecycle ausschliesslich in der neuen CLI konsolidieren.
+2. Doppelte Postgres-Startlogik aus Control-Plane-Bootstrap entfernen.
+3. SQLite/Postgres zunaechst weiter im Standalone-Installer anbieten.
+4. Neue Managed Apps standardmaessig mit Postgres provisionieren.
+5. Standalone-Installer auf Postgres als Default umstellen.
+6. SQLite-Auswahl nach erfolgreicher Bestandsmigration ausblenden.
+7. SQLite-Migration, Backup und Restore weiter unterstuetzen, bis der
+   Bestands-Cutover abgeschlossen ist.
+
+Die Control Plane ist bei Managed Installationen fuer Sollzustand und Secrets
+zustaendig. Die neue CLI ist fuer Compose, Postgres-Readiness, pgvector und
+Credential-Reconciliation zustaendig.
+
+### Companion-Service-Erweiterung
+
+Postgres ist der erste Companion Service. Der spaetere Headful-Linux-Container
+wird nicht Bestandteil der CLI-Paritaetsmigration. Die neue CLI soll aber eine
+kleine statische Service-Grenze vorbereiten:
+
+```text
+Runtime Policy -> erlaubte Companion Services -> CLI Lifecycle/Health
+                                      |-> postgres
+                                      `-> headful (spaetere Phase)
+```
+
+Es werden keine beliebigen Docker-Definitionen aus Remote-Input akzeptiert.
+Jeder Companion besitzt eine statisch bekannte Compose-Definition, eigene
+Konfiguration, Healthchecks, Volumes und Secret-Regeln.
+
+### Teststrategie pro Arbeitspaket
+
+Pflicht vor jedem Commit mit Codeaenderungen:
+
+1. gezielte Unit-/Script-Tests fuer das Paket,
+2. `npm run cli:build`,
+3. `npm run test:cli:portable`,
+4. betroffene Legacy-CLI-Tests als Vergleich,
+5. `npm run lint`, soweit das Paket TypeScript-/Lint-Scope beruehrt,
+6. GitNexus `detect_changes()` gegen den erwarteten Scope.
+
+Container werden nur nach expliziter Freigabe gebaut oder fuer einen echten
+Container-Testlauf gestartet. Vor jedem Container-Build ist `npm run build`
+Pflicht. Es darf nie mehr als ein Test-Container parallel laufen, und jeder neue
+Testlauf muss den aktuellen Stand neu erstellen. Playwright ist fuer diese
+CLI-Arbeit nicht erforderlich; falls spaeter Installer-UI integriert wird, wird
+es nur nach expliziter Freigabe verwendet.
+
+### Commit- und Fortschrittsregeln
+
+- Ein Commit pro abgeschlossenem Arbeitspaket oder klar abgegrenztem Teilpaket.
+- Kein Misch-Commit aus Dokumentation, mehreren CLI-Subsystemen und
+  Control-Plane-Cutover.
+- Kein Push ohne expliziten Auftrag oder PR-Arbeit.
+- Nach jedem Paket wird diese Matrix aktualisiert.
+- Die produktive CLI-Umschaltung ist ein eigenes Paket und nie ein Nebeneffekt
+  eines Feature-Commits.
+
 ## Ausgangslage
 
 Canvas Notebook besteht fuer Endnutzer aus zwei getrennten Schichten:
@@ -31,7 +502,7 @@ cli/
 
 **Was bereits funktioniert:**
 
-- Kompletter portabler Kern mit allen Befehlen (`install`, `update`, `start`, `stop`, `restart`, `down`, `status`, `health`, `logs`, `admin reset-password`, `database migrate-sqlite-to-postgres`, `service install/uninstall/status`, `config-show`, `config-set`, `env --sync`)
+- Portabler Kern fuer die zentralen Befehle (`install`, `update`, `start`, `stop`, `restart`, `down`, `status`, `health`, `logs`, `admin reset-password`, `database migrate-sqlite-to-postgres`, `service install/uninstall/status`, `config-show`, eingeschraenktes `config-set`, `env --sync`). Die noch fehlende Linux-/Legacy-Paritaet ist in der verbindlichen Matrix oben festgehalten.
 - OS-spezifische Pfad-Resolution fuer Linux (`/opt/canvas-notebook`), macOS (`~/Library/Application Support/Canvas Notebook/...`), Windows (`%LOCALAPPDATA%\Canvas Notebook\...`)
 - Service-Adapter: systemd (Linux), launchd (macOS), scheduled-task (Windows)
 - Multi-Arch Docker-Image (`linux/amd64,linux/arm64`) via `build-and-push.yml`
@@ -43,8 +514,10 @@ cli/
 
 **Was noch fehlt:**
 
+- die in der verbindlichen Command-Parity-Matrix aufgefuehrten Legacy-Befehle und Config-Pfade
+- Differentialtests zwischen Bash- und TypeScript-CLI
 - Tests auf Windows und macOS Runners
-- Optionaler Linux-Hybrid fuer das portable CLI im bestehenden Bash-Installer
+- ein atomarer Linux-Cutover mit verifiziertem Runtime-Artefakt und Rollback
 
 ### Stand 2026-07-07
 

@@ -28,14 +28,15 @@ const populated = composeManagedAgentSystemPrompt(
   createFiles({
     'AGENTS.md': '  - Follow repo rules.\n  ',
     'MEMORY.md': '\nRemember the migration state.\n',
+    'USER.md': 'Legacy user context must be imported instead.',
     'SOUL.md': '',
     'TOOLS.md': 'Use filesystem and terminal carefully.\n',
   })
 );
 
 assert.equal(populated.diagnostics.usedFallback, false);
-assert.deepEqual(populated.diagnostics.includedFiles, ['AGENTS.md', 'MEMORY.md', 'TOOLS.md']);
-assert.deepEqual(populated.diagnostics.emptyFiles, ['USER.md', 'SOUL.md']);
+assert.deepEqual(populated.diagnostics.includedFiles, ['AGENTS.md', 'TOOLS.md']);
+assert.deepEqual(populated.diagnostics.emptyFiles, ['SOUL.md']);
 assert.doesNotMatch(populated.systemPrompt, /^You are an AI assistant in Canvas Notebook\./);
 assert.match(populated.systemPrompt, /^<!-- canvas-system-prompt-foundation:v2 -->\n\n# Canvas Notebook Runtime/);
 assert.match(populated.systemPrompt, new RegExp(CANVAS_MARKDOWN_GUIDANCE_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
@@ -56,7 +57,8 @@ assert.match(populated.systemPrompt, /Preserve existing frontmatter, unknown pro
 assert.match(populated.systemPrompt, /Effective Runtime Tools section as the only tool/);
 assert.doesNotMatch(populated.systemPrompt, /# Canvas Base Tool Guidance/);
 assert.match(populated.systemPrompt, /## AGENTS\.md\n\n- Follow repo rules\./);
-assert.match(populated.systemPrompt, /## MEMORY\.md\n\nRemember the migration state\./);
+assert.doesNotMatch(populated.systemPrompt, /Remember the migration state\./);
+assert.doesNotMatch(populated.systemPrompt, /Legacy user context must be imported instead\./);
 assert.doesNotMatch(populated.systemPrompt, /## SOUL\.md/);
 assert.match(populated.systemPrompt, /## TOOLS\.md\n\nUse filesystem and terminal carefully\./);
 assert.doesNotMatch(populated.systemPrompt, /HEARTBEAT\.md/);
@@ -107,7 +109,7 @@ assert.doesNotMatch(migratedGuidanceWithoutToolAnchor, /Legacy formatting instru
 
 const oversized = composeManagedAgentSystemPrompt(createFiles({
   'AGENTS.md': 'a'.repeat(20_000),
-  'USER.md': 'This content must not be silently dropped.',
+  'SOUL.md': 'This content must not be silently dropped.',
 }));
 assert.deepEqual(oversized.diagnostics.truncatedFiles, ['AGENTS.md']);
 assert.match(oversized.systemPrompt, /Content truncated to keep the runtime context within its safety budget\./);

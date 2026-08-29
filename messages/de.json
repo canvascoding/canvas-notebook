@@ -1343,6 +1343,9 @@
     "toolFileDetails": "Technische Details",
     "copy": "Kopieren",
     "copied": "Kopiert",
+    "copyFormatted": "Formatiert kopieren",
+    "copyMarkdown": "Markdown kopieren",
+    "copyOptions": "Kopieroptionen",
     "fileReferences": "Dateien",
     "openFile": "Öffnen",
     "notebookWindowBlocked": "Das Notebook-Fenster konnte nicht geöffnet werden. Erlaube Pop-ups für diese Seite und versuche es erneut.",
@@ -2491,6 +2494,7 @@
     "title": "Einstellungen",
     "tabs": {
       "general": "Allgemein",
+      "memory": "Memory",
       "integrations": "Integrationen",
       "secrets": "Secrets",
       "mcp": "MCP",
@@ -2525,6 +2529,7 @@
       },
       "descriptions": {
         "general": "Konto, Sprache und grundlegende Instanzoptionen verwalten.",
+        "memory": "Dauerhaften Kontext prüfen und den dedizierten Memory-Reviewer konfigurieren.",
         "workspace": "Workspace auswählen, Exporte verwalten und Workspace-Zugriffe prüfen.",
         "brandDesign": "Markenauftritt für Canvas, PDF-Exporte und den aktiven Agent-Kontext festlegen.",
         "knowledge": "Knowledge-Verarbeitung, Ressourcen und Feature-Gates konfigurieren.",
@@ -2685,9 +2690,11 @@
       "save": "Postfach speichern",
       "cancel": "Abbrechen",
       "test": "Verbindung testen",
+      "testAndSave": "Testen & speichern",
       "remove": "Entfernen",
       "removeConfirm": "Postfach {address} wirklich entfernen? Die gespeicherten Zugangsdaten werden gelöscht. Bereits vorhandene Inbox-Fälle und Outbox-Einträge bleiben als Verlauf erhalten.",
       "saved": "Workspace-Postfach gespeichert.",
+      "draftTested": "Verbindung erfolgreich getestet. Noch nichts wurde gespeichert.",
       "tested": "Verbindung für {address} erfolgreich geprüft.",
       "removed": "Workspace-Postfach {address} entfernt.",
       "loading": "Workspace-Postfächer werden geladen…",
@@ -2700,6 +2707,13 @@
         "test": "Verbindung des Workspace-Postfachs konnte nicht geprüft werden.",
         "remove": "Workspace-Postfach konnte nicht entfernt werden."
       }
+    },
+    "mailboxConnection": {
+      "emailAddress": "E-Mail-Adresse", "displayName": "Anzeigename (optional)", "displayNamePlaceholder": "z. B. Kundenservice",
+      "sendingTitle": "E-Mails senden", "sendingDescription": "Diese Angaben werden zum Senden von E-Mails benötigt.",
+      "receivingTitle": "E-Mails empfangen", "receivingDescription": "Damit dieses Konto als Postfach, Inbox und für die Suche verfügbar ist.",
+      "smtpHost": "SMTP-Server", "imapHost": "IMAP-Server", "username": "Benutzername", "password": "Passwort", "port": "Port",
+      "advancedSettings": "Erweiterte Einstellungen", "useEncryption": "TLS/SSL verwenden", "keepExistingPassword": "Bestehendes Passwort beibehalten", "sendOnly": "Dieses Postfach nur zum Senden verwenden"
     },
     "users": {
       "title": "Benutzerverwaltung",
@@ -2908,6 +2922,7 @@
           "canDeleteTeamFiles": "Team-Dateien löschen",
           "canDeleteStudioAssets": "Studio-Assets löschen",
           "canManageBackups": "Backups verwalten",
+          "canManageOrganizationMemory": "Organisations-Memory verwalten",
           "canMigrateDatabase": "Datenbank-Migration",
           "canEnableKnowledge": "Knowledge aktivieren",
           "canRecoverWorkspaces": "Recovery-Flow"
@@ -4158,6 +4173,7 @@
         "notCreated": "In diesem Modus nicht angelegt",
         "permissions": {
           "canManageBackups": "Full Backup",
+          "canManageOrganizationMemory": "Organisations-Memory",
           "canMigrateDatabase": "Datenbank-Migration",
           "canEnableKnowledge": "Knowledge aktivieren",
           "canRecoverWorkspaces": "Recovery-Flow",
@@ -5277,6 +5293,7 @@
         "smtpSaved": "SMTP-Konto gespeichert.",
         "smtpUpdated": "SMTP/IMAP-Konto aktualisiert.",
         "smtpTested": "SMTP-Verbindung erfolgreich getestet.",
+        "connectionTested": "Verbindung erfolgreich getestet. Noch nichts wurde gespeichert.",
         "accountTested": "SMTP- und IMAP-Verbindung erfolgreich getestet.",
         "accountTestedSmtpOnly": "SMTP-Verbindung erfolgreich getestet. IMAP ist nicht konfiguriert.",
         "previewPreferencesSaved": "E-Mail-Vorschau-Einstellungen gespeichert.",
