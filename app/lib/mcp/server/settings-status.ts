@@ -2,6 +2,7 @@ import 'server-only';
 
 import {
   DIRECT_MCP_FEATURE_ENV,
+  DIRECT_MCP_DEFAULT_TOOL_IDS,
   DIRECT_MCP_PROTOCOL_VERSION,
   DIRECT_MCP_SETTINGS_SOURCE_ENV,
   DIRECT_MCP_TOOL_IDS,
@@ -54,6 +55,7 @@ const DIRECT_MCP_CAPABILITIES: ReadonlyArray<Omit<DirectMcpCapabilityStatus, 'en
   { id: 'list_knowledge_tree', available: true, scopes: ['knowledge:tree'] },
   { id: 'search_knowledge', available: true, scopes: ['knowledge:search'] },
   { id: 'read_knowledge_source', available: true, scopes: ['knowledge:read'] },
+  { id: 'edit_knowledge_source', available: true, scopes: ['knowledge:write'] },
 ];
 
 function settingsSource(
@@ -89,7 +91,7 @@ export function buildDirectMcpServerSettingsStatus(
   );
   let configurationError: string | null = null;
   let runtimeEnabled = false;
-  let runtimeTools: DirectMcpToolId[] = [...DIRECT_MCP_TOOL_IDS];
+  let runtimeTools: DirectMcpToolId[] = [...DIRECT_MCP_DEFAULT_TOOL_IDS];
   let origin: string | null = null;
 
   try {

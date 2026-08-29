@@ -53,7 +53,9 @@ export function createDirectMcpServer(
   const toolsById = new Map(tools.map((tool) => [tool.id, tool]));
   const instructions = tools.length === 0
     ? 'No MCP tools are currently enabled for this Canvas Notebook instance.'
-    : 'Canvas Notebook provides read-only access only to workspaces the signed-in user explicitly allows for this MCP connection.';
+    : enabledTools.has('edit_knowledge_source')
+      ? 'Canvas Notebook provides read access and exact, conflict-protected text edits only for workspaces the signed-in user explicitly allows for this MCP connection.'
+      : 'Canvas Notebook provides read-only access only to workspaces the signed-in user explicitly allows for this MCP connection.';
 
   const server = new Server(
     {

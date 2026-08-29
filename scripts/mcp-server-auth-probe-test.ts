@@ -22,12 +22,14 @@ const DIRECT_MCP_TOOL_NAMES = [
   'list_knowledge_tree',
   'search_knowledge',
   'read_knowledge_source',
+  'edit_knowledge_source',
 ] as const;
 const DIRECT_MCP_RESOURCE_SCOPES = [
   'workspace:list',
   'knowledge:tree',
   'knowledge:search',
   'knowledge:read',
+  'knowledge:write',
 ];
 
 type JsonRecord = Record<string, unknown>;
@@ -38,6 +40,7 @@ function configureRuntime(dataDir: string): void {
   environment.NODE_ENV = 'test';
   environment.CANVAS_DATABASE_PROVIDER = 'sqlite';
   environment.CANVAS_MCP_DIRECT_ENABLED = 'true';
+  environment.CANVAS_MCP_DIRECT_TOOLS = DIRECT_MCP_TOOL_NAMES.join(',');
   environment.CANVAS_INSTANCE_ID = 'mcp-auth-probe-test';
   environment.BETTER_AUTH_BASE_URL = ORIGIN;
   environment.BASE_URL = ORIGIN;
@@ -412,6 +415,10 @@ async function main(): Promise<void> {
     const { loadWorkspaceListingForActor } = await import('../app/lib/workspaces/listing-action');
     const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
     const { writeFile } = await import('../app/lib/filesystem/workspace-files');
+    const {
+      replaceDirectMcpAllowedWorkspaces,
+      setDirectMcpWorkspaceEnabled,
+    } = await import('../app/lib/mcp/server/workspace-access-policy');
     const workspaceListing = await loadWorkspaceListingForActor(resolveWorkspaceActor({
       id: userId,
       email: EMAIL,
@@ -419,6 +426,16 @@ async function main(): Promise<void> {
     }));
     assert.ok(workspaceListing.defaultWorkspace);
     const workspace = workspaceListing.defaultWorkspace;
+    assert.deepEqual(await setDirectMcpWorkspaceEnabled({
+      userId,
+      workspaceId: workspace.workspaceId,
+      enabled: true,
+    }), { status: 'updated', enabled: true });
+    assert.deepEqual(await replaceDirectMcpAllowedWorkspaces({
+      clientId,
+      userId,
+      workspaceIds: [workspace.workspaceId],
+    }), { status: 'saved', allowedWorkspaceCount: 1 });
     await writeFile(
       'mcp-server-test.md',
       'Canvas MCP workspace search fixture. This document is visible to the authenticated user.',
@@ -506,10 +523,138 @@ async function main(): Promise<void> {
       },
     });
     const sourceResult = resultFromRpc(await readJson(source));
+    const sourceContent = sourceResult.structuredContent as JsonRecord;
     assert.match(
-      String((sourceResult.structuredContent as JsonRecord).content),
+      String(sourceContent.content),
       /Canvas MCP workspace search fixture/u,
     );
+    assert.match(String(sourceContent.sha256), /^[a-f0-9]{64}$/u);
+    assert.equal(sourceContent.source, 'file');
+
+    const edit = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 27,
+        method: 'tools/call',
+        params: {
+          name: 'edit_knowledge_source',
+          arguments: {
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-test.md',
+            old_text: 'search fixture',
+            new_text: 'write fixture',
+            expected_sha256: sourceContent.sha256,
+          },
+        },
+      },
+    });
+    const editResult = resultFromRpc(await readJson(edit));
+    assert.notEqual(editResult.isError, true);
+    const editContent = editResult.structuredContent as JsonRecord;
+    assert.equal(editContent.changed, true);
+    assert.equal(editContent.review_required, false);
+    assert.equal(editContent.before_sha256, sourceContent.sha256);
+    assert.match(String(editContent.after_sha256), /^[a-f0-9]{64}$/u);
+    assert.notEqual(editContent.after_sha256, sourceContent.sha256);
+
+    const updatedSource = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 28,
+        method: 'tools/call',
+        params: {
+          name: 'read_knowledge_source',
+          arguments: { workspace_id: workspace.workspaceId, path: 'mcp-server-test.md' },
+        },
+      },
+    });
+    const updatedSourceResult = resultFromRpc(await readJson(updatedSource));
+    const updatedSourceContent = updatedSourceResult.structuredContent as JsonRecord;
+    assert.match(String(updatedSourceContent.content), /Canvas MCP workspace write fixture/u);
+    assert.equal(updatedSourceContent.sha256, editContent.after_sha256);
+
+    const staleEdit = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 29,
+        method: 'tools/call',
+        params: {
+          name: 'edit_knowledge_source',
+          arguments: {
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-test.md',
+            old_text: 'write fixture',
+            new_text: 'stale write fixture',
+            expected_sha256: sourceContent.sha256,
+          },
+        },
+      },
+    });
+    const staleEditResult = resultFromRpc(await readJson(staleEdit));
+    assert.equal(staleEditResult.isError, true);
+    assert.match(
+      String((staleEditResult.content as Array<{ text?: string }>)[0]?.text),
+      /changed since it was read/u,
+    );
+
+    const noMatchEdit = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 30,
+        method: 'tools/call',
+        params: {
+          name: 'edit_knowledge_source',
+          arguments: {
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-test.md',
+            old_text: 'not present in this file',
+            new_text: 'should not be written',
+            expected_sha256: updatedSourceContent.sha256,
+          },
+        },
+      },
+    });
+    const noMatchEditResult = resultFromRpc(await readJson(noMatchEdit));
+    assert.equal(noMatchEditResult.isError, true);
+    assert.match(
+      String((noMatchEditResult.content as Array<{ text?: string }>)[0]?.text),
+      /exact text replacement no longer matches/u,
+    );
+
+    const missingWriteScopeEdit = await rpcRequest({
+      post: mcpRoute.POST,
+      token: noProbeScopeToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 31,
+        method: 'tools/call',
+        params: {
+          name: 'edit_knowledge_source',
+          arguments: {
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-test.md',
+            old_text: 'write fixture',
+            new_text: 'unauthorized write fixture',
+            expected_sha256: updatedSourceContent.sha256,
+          },
+        },
+      },
+    });
+    const missingWriteScopeResult = resultFromRpc(await readJson(missingWriteScopeEdit));
+    assert.equal(missingWriteScopeResult.isError, true);
+    const writeScopeChallenge = (
+      missingWriteScopeResult._meta as JsonRecord
+    )['mcp/www_authenticate'] as string[];
+    assert.ok(writeScopeChallenge[0].includes('error="insufficient_scope"'));
+    assert.ok(writeScopeChallenge[0].includes('scope="knowledge:write"'));
 
     process.env.CANVAS_MCP_DIRECT_TOOLS = '';
     try {

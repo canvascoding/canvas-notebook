@@ -171,6 +171,7 @@ async function main(): Promise<void> {
     'knowledge:tree',
     'knowledge:search',
     'knowledge:read',
+    'knowledge:write',
   ]) {
     assert.ok(supportedScopes.includes(scope), `Missing OAuth scope ${scope}.`);
   }

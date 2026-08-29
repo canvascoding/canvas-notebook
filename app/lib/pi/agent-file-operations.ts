@@ -3,7 +3,6 @@ import { existsSync, promises as fs, realpathSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
 
-import { parseDocument } from 'yaml';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { logger } from '@/app/lib/logging';
@@ -36,12 +35,16 @@ import {
 } from '@/app/lib/collaboration/agent-file-edits';
 import { applyExactTextEdits } from '@/app/lib/files/exact-text-patch';
 import {
+  validateTextFileContent,
+  type TextFileValidationCheck,
+  type TextFileValidationResult,
+} from '@/app/lib/files/text-content-validation';
+import {
   syncPublicSharesAfterDelete,
   syncPublicSharesAfterMove,
   syncPublicSharesAfterWrite,
 } from '@/app/lib/public-sharing/public-file-shares';
 import { publishWorkspaceFileMutation, type FileEventType } from '@/app/lib/filesystem/file-watcher';
-import { getRunawaySlashContentMessage } from '@/app/lib/editor/text-editor-guards';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { ensureAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
 import { getStudioRoot, getStudioWorkspaceRoot } from '@/app/lib/integrations/studio-workspace';
@@ -62,16 +65,8 @@ const MAX_AUDIT_PATH_ENTRIES = 100;
 const MAX_AUDIT_ENTITY_ID_LENGTH = 500;
 const agentFileAuditLogger = logger.module('AgentFileAudit');
 
-export type AgentFileValidationCheck = {
-  name: string;
-  ok: boolean;
-  message: string;
-};
-
-export type AgentFileValidationResult = {
-  ok: boolean;
-  checks: AgentFileValidationCheck[];
-};
+export type AgentFileValidationCheck = TextFileValidationCheck;
+export type AgentFileValidationResult = TextFileValidationResult;
 
 export type AgentFileSnapshotMetadata = {
   version: 1;
@@ -959,132 +954,8 @@ export function createUnifiedDiff(
   return truncateDiff(lines.join('\n'));
 }
 
-function splitMarkdownTableRow(line: string): string[] | null {
-  if (!line.includes('|')) return null;
-
-  let normalized = line.trim();
-  if (normalized.startsWith('|')) normalized = normalized.slice(1);
-  if (normalized.endsWith('|') && !normalized.endsWith('\\|')) normalized = normalized.slice(0, -1);
-
-  const cells: string[] = [];
-  let current = '';
-  let escaped = false;
-
-  for (const char of normalized) {
-    if (char === '|' && !escaped) {
-      cells.push(current.trim());
-      current = '';
-      continue;
-    }
-
-    current += char;
-    escaped = char === '\\' && !escaped;
-    if (char !== '\\') {
-      escaped = false;
-    }
-  }
-
-  cells.push(current.trim());
-  return cells.length > 1 ? cells : null;
-}
-
-function isMarkdownTableSeparator(line: string): boolean {
-  const cells = splitMarkdownTableRow(line);
-  return Boolean(cells && cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim())));
-}
-
-function validateMarkdownTables(content: string): AgentFileValidationCheck {
-  const lines = content.split('\n');
-  const errors: string[] = [];
-  let tableCount = 0;
-
-  for (let index = 1; index < lines.length; index += 1) {
-    if (!isMarkdownTableSeparator(lines[index])) continue;
-
-    const headerCells = splitMarkdownTableRow(lines[index - 1]);
-    const separatorCells = splitMarkdownTableRow(lines[index]);
-    if (!headerCells || !separatorCells) continue;
-
-    tableCount += 1;
-    const expectedColumns = headerCells.length;
-    if (separatorCells.length !== expectedColumns) {
-      errors.push(`line ${index + 1}: separator has ${separatorCells.length} column(s), expected ${expectedColumns}`);
-    }
-
-    for (let rowIndex = index + 1; rowIndex < lines.length; rowIndex += 1) {
-      const row = lines[rowIndex];
-      if (!row.trim() || !row.includes('|')) break;
-      if (isMarkdownTableSeparator(row)) break;
-
-      const rowCells = splitMarkdownTableRow(row);
-      if (!rowCells) break;
-      if (rowCells.length !== expectedColumns) {
-        errors.push(`line ${rowIndex + 1}: row has ${rowCells.length} column(s), expected ${expectedColumns}`);
-      }
-    }
-  }
-
-  return {
-    name: 'markdown-tables',
-    ok: errors.length === 0,
-    message: errors.length === 0
-      ? `Markdown table structure OK (${tableCount} table${tableCount === 1 ? '' : 's'} checked).`
-      : errors.join('; '),
-  };
-}
-
-function validateRunawaySlashContent(content: string): AgentFileValidationCheck {
-  const message = getRunawaySlashContentMessage(content);
-  return {
-    name: 'runaway-slashes',
-    ok: message === null,
-    message: message === null
-      ? 'No runaway slash/backslash sequences detected.'
-      : `${message}. This usually indicates a stuck key, model output loop, or accidental repeated slash insertion.`,
-  };
-}
-
 export function validateAgentFileContent(filePath: string, content: string): AgentFileValidationResult {
-  const extension = path.extname(filePath).toLowerCase();
-  const checks: AgentFileValidationCheck[] = [];
-
-  if (['.md', '.mdx', '.markdown'].includes(extension)) {
-    checks.push(validateRunawaySlashContent(content));
-    checks.push(validateMarkdownTables(content));
-  }
-
-  if (extension === '.json') {
-    try {
-      JSON.parse(content);
-      checks.push({ name: 'json-parse', ok: true, message: 'JSON syntax OK.' });
-    } catch (error) {
-      checks.push({
-        name: 'json-parse',
-        ok: false,
-        message: error instanceof Error ? error.message : 'Invalid JSON syntax.',
-      });
-    }
-  }
-
-  if (['.yaml', '.yml'].includes(extension)) {
-    const document = parseDocument(content, { prettyErrors: false });
-    checks.push({
-      name: 'yaml-parse',
-      ok: document.errors.length === 0,
-      message: document.errors.length === 0
-        ? 'YAML syntax OK.'
-        : document.errors.map((error) => error.message).join('; '),
-    });
-  }
-
-  if (checks.length === 0) {
-    checks.push({ name: 'read-after-write', ok: true, message: 'No file-type-specific validator configured; read-after-write will verify exact bytes.' });
-  }
-
-  return {
-    ok: checks.every((check) => check.ok),
-    checks,
-  };
+  return validateTextFileContent(filePath, content);
 }
 
 async function ensureSnapshotRoot(): Promise<string> {
