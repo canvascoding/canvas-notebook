@@ -11,6 +11,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.29.4] - 2026-08-29
+
+### Changed
+
+- Switched the Linux installer and systemd integration to the TypeScript CLI.
+- Retired the legacy Linux CLI after the TypeScript CLI migration.
+- Documented the successful managed CLI canary and updated installer/rollback guidance.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.29.3] - 2026-08-29
 
 ### Fixed
