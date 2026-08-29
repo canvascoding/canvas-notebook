@@ -84,6 +84,25 @@ async function main() {
     await Promise.all([directoryMutation, childWrite]);
     assert.equal(childWriteReachedReplace, true);
 
+    let releaseBackslashMutation!: () => void;
+    const backslashMutationCanFinish = new Promise<void>((resolve) => { releaseBackslashMutation = resolve; });
+    let backslashMutationReady!: () => void;
+    const backslashMutationReadySignal = new Promise<void>((resolve) => { backslashMutationReady = resolve; });
+    const backslashMutation = withWorkspaceFileMutationLocks(['folder'], { workspace }, async () => {
+      backslashMutationReady();
+      await backslashMutationCanFinish;
+    });
+    await backslashMutationReadySignal;
+    let backslashChildMutationRan = false;
+    const backslashChildMutation = withWorkspaceFileMutationLocks(['folder\\child.md'], { workspace }, async () => {
+      backslashChildMutationRan = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(backslashChildMutationRan, false);
+    releaseBackslashMutation();
+    await Promise.all([backslashMutation, backslashChildMutation]);
+    assert.equal(backslashChildMutationRan, true);
+
     const uploadSource = path.join(root, 'upload-source.md');
     await fs.writeFile(uploadSource, 'uploaded\n');
     let releaseUploadReplace!: () => void;

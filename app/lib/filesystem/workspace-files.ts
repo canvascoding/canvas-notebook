@@ -65,7 +65,7 @@ async function withExactWorkspaceFileMutationLock<T>(
 }
 
 function workspaceMutationLockPathHierarchy(filePath: string): string[] {
-  const normalizedPath = path.posix.normalize(filePath).replace(/^\.\//, '');
+  const normalizedPath = path.posix.normalize(filePath.replaceAll('\\', '/')).replace(/^\.\//, '');
   if (normalizedPath === '.' || normalizedPath === '') return ['.'];
 
   const paths = [normalizedPath];
