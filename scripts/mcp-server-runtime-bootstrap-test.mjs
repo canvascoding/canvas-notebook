@@ -58,6 +58,18 @@ async function main() {
     loadAppEnv(process.cwd());
     assert.equal(process.env.CANVAS_MCP_DIRECT_TOOLS, 'auth_probe');
 
+    await writePreferences(dataDir, {
+      enabled: true,
+      tools: ['auth_probe', 'read_knowledge_source', 'edit_knowledge_source'],
+      toolsVersion: 3,
+    });
+    loadAppEnv(process.cwd());
+    assert.equal(process.env.CANVAS_MCP_DIRECT_ENABLED, 'true');
+    assert.equal(
+      process.env.CANVAS_MCP_DIRECT_TOOLS,
+      'auth_probe,read_knowledge_source,edit_knowledge_source',
+    );
+
     process.env.CANVAS_MCP_DIRECT_ENABLED = 'true';
     process.env.CANVAS_MCP_DIRECT_TOOLS = '';
     delete process.env.CANVAS_MCP_DIRECT_SETTINGS_SOURCE;
