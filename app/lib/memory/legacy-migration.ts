@@ -69,12 +69,34 @@ async function importFile(input: {
 }
 
 /**
+ * Shared legacy files have no owner metadata. Importing them is safe only for
+ * an explicitly single-user installation; otherwise the source remains
+ * available for an explicit administrator-led migration.
+ */
+async function canImportSharedLegacyMemory(): Promise<boolean> {
+  const connection = await openDb();
+  try {
+    const settings = await connection.get(`
+      SELECT deployment_mode AS deploymentMode, team_features_enabled AS teamFeaturesEnabled
+      FROM canvas_organization_settings
+      LIMIT 1
+    `) as { deploymentMode?: string; teamFeaturesEnabled?: number } | undefined;
+    if (settings) {
+      return settings.deploymentMode === 'single_user' && Number(settings.teamFeaturesEnabled ?? 0) === 0;
+    }
+    const row = await connection.get('SELECT COUNT(*) AS count FROM user') as { count?: number } | undefined;
+    return Number(row?.count ?? 0) === 1;
+  } finally { await connection.close(); }
+}
+
+/**
  * Imports the legacy files once per source hash before prompt construction.
  * The source files are deliberately retained as a one-time export format.
  */
 export async function ensureLegacyMemoryMigrated(agentId: string, scope?: AgentStorageScope | null): Promise<void> {
   const userId = scope?.userId?.trim();
   if (!userId) return;
+  if (!await canImportSharedLegacyMemory()) return;
   const normalizedAgentId = agentId.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
   const [userContents, agentContents] = await Promise.all([
     readLegacyManagedAgentFileContents('USER.md', DEFAULT_MANAGED_AGENT_ID),
