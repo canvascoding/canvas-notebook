@@ -44,6 +44,7 @@ import {
   syncPublicSharesAfterMove,
   syncPublicSharesAfterWrite,
 } from '@/app/lib/public-sharing/public-file-shares';
+import { writeFile as writeWorkspaceFile } from '@/app/lib/filesystem/workspace-files';
 import { publishWorkspaceFileMutation, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { ensureAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
@@ -1081,6 +1082,28 @@ async function readExistingFile(fullPath: string): Promise<{ existed: boolean; b
   }
 }
 
+async function assertAgentFileUnchangedBeforeReplace(params: {
+  inputPath: string;
+  fullPath: string;
+  beforeExisted: boolean;
+  beforeBuffer: Buffer | null;
+  operation: string;
+}): Promise<void> {
+  const current = await readExistingFile(params.fullPath);
+  const beforeSha256 = params.beforeBuffer ? sha256Buffer(params.beforeBuffer) : null;
+  const currentSha256 = current.buffer ? sha256Buffer(current.buffer) : null;
+  if (current.existed === params.beforeExisted && currentSha256 === beforeSha256) return;
+
+  throw new WorkspaceFileRevisionError({
+    code: 'FILE_REVISION_CONFLICT',
+    status: 409,
+    path: params.inputPath,
+    expectedSha256: beforeSha256,
+    currentSha256,
+    message: `Refusing to ${params.operation} ${params.inputPath}: the file changed after it was read. Read the file again before retrying.`,
+  });
+}
+
 async function commitTextChange(params: {
   inputPath: string;
   fullPath: string;
@@ -1115,6 +1138,9 @@ async function commitTextChange(params: {
   await fs.mkdir(path.dirname(params.fullPath), { recursive: true });
   const executionContext = getAgentExecutionContext();
   const workspaceContext = getAgentWorkspaceContext();
+  const workspacePath = workspaceContext && isPathWithin(params.fullPath, workspaceContext.rootPath)
+    ? workspaceRelativeAgentPath(workspaceContext, params.fullPath)
+    : null;
   const baseRevision = workspaceContext && params.beforeBuffer
     ? ensureFileRevisionForCurrentContent({
         workspace: workspaceContext,
@@ -1144,7 +1170,19 @@ async function commitTextChange(params: {
     operation: params.operation,
   });
 
-  await fs.writeFile(params.fullPath, params.nextContent, 'utf8');
+  if (workspaceContext && workspacePath) {
+    await writeWorkspaceFile(workspacePath, params.nextContent, { workspace: workspaceContext }, async () => {
+      await assertAgentFileUnchangedBeforeReplace({
+        inputPath: params.inputPath,
+        fullPath: params.fullPath,
+        beforeExisted: params.beforeExisted,
+        beforeBuffer: params.beforeBuffer,
+        operation: params.operation,
+      });
+    });
+  } else {
+    await fs.writeFile(params.fullPath, params.nextContent, 'utf8');
+  }
   const readBack = await fs.readFile(params.fullPath);
   const readBackText = readBack.toString('utf8');
   if (readBackText !== params.nextContent) {

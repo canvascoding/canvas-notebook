@@ -162,6 +162,36 @@ async function main() {
       assert.equal(edited.changed, true);
     });
 
+    await writeFile('concurrent.md', 'before\n', { workspace: teamWorkspace });
+    const concurrentRevision = await getWorkspaceFileRevision('concurrent.md', { workspace: teamWorkspace });
+    assert.ok(concurrentRevision?.sha256);
+
+    let releaseMcpWrite!: () => void;
+    const mcpWriteCanFinish = new Promise<void>((resolve) => { releaseMcpWrite = resolve; });
+    let mcpWriteReady!: () => void;
+    const mcpWriteReadySignal = new Promise<void>((resolve) => { mcpWriteReady = resolve; });
+    const mcpWrite = writeFile('concurrent.md', 'mcp write\n', { workspace: teamWorkspace }, async () => {
+      mcpWriteReady();
+      await mcpWriteCanFinish;
+    });
+    await mcpWriteReadySignal;
+
+    const agentWrite = runWithAgentExecutionContext(agentContext, () => writeAgentTextFile({
+      path: 'concurrent.md',
+      content: 'agent write\n',
+      expectedSha256: concurrentRevision.sha256,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    releaseMcpWrite();
+    await mcpWrite;
+    await assert.rejects(
+      () => agentWrite,
+      (error) => error instanceof WorkspaceFileRevisionError
+        && error.code === 'FILE_REVISION_CONFLICT'
+        && error.currentSha256 !== concurrentRevision.sha256,
+    );
+    assert.equal(await fs.readFile(path.join(teamRoot, 'concurrent.md'), 'utf8'), 'mcp write\n');
+
     console.log('file-revision-guard-test: ok');
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
