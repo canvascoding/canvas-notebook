@@ -187,6 +187,15 @@ capture_legacy_cli() {
   fi
 }
 
+retire_legacy_cli() {
+  local previous="$1" legacy_dir="${CLI_ROOT}/legacy" legacy="${CLI_ROOT}/legacy/canvas-notebook"
+  [[ -n "$previous" ]] || return 0
+  [[ -f "${CLI_ROOT}/releases/${previous}/dist-cli/main.js" ]] || fail "Previous TypeScript CLI release is missing"
+  rm -f -- "$legacy" "${CLI_ROOT}/state/legacy-active"
+  rmdir -- "$legacy_dir" 2>/dev/null || true
+  say "Retired the preserved legacy CLI; rollback remains available through TypeScript CLI ${previous}"
+}
+
 activate_entrypoint() {
   local target="$1" tmp="${BIN_PATH}.new.$$"
   mkdir -p "$(dirname "$BIN_PATH")"
@@ -255,6 +264,7 @@ install_release() {
   fi
   activate_entrypoint "${CLI_ROOT}/bin/canvas-notebook"
   rm -f -- "${CLI_ROOT}/state/legacy-active"
+  retire_legacy_cli "$(read_state previous)"
   say "Canvas Notebook Linux CLI ${version} is active at ${BIN_PATH}"
 }
 

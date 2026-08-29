@@ -77,6 +77,7 @@ install_fixture "$assets_new" "$cli_root" "$bin_path"
 [[ "$(tr -d '\r\n' < "${cli_root}/state/current")" == 2026.8.28 ]]
 [[ "$(tr -d '\r\n' < "${cli_root}/state/previous")" == 2026.8.27 ]]
 [[ "$("$bin_path" version --json | "${cli_root}/runtime/bin/node" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(JSON.parse(s).marker))')" == new ]]
+[[ ! -e "${cli_root}/legacy/canvas-notebook" ]]
 
 CANVAS_LINUX_CLI_ROOT="$cli_root" CANVAS_LINUX_CLI_BIN_PATH="$bin_path" bash "$ROOT/install/linux-cli.sh" rollback
 [[ "$(tr -d '\r\n' < "${cli_root}/state/current")" == 2026.8.27 ]]

@@ -476,6 +476,15 @@ verfuegbaren CLI-Stand.
 
 #### Phase 8: Legacy-Bash-CLI aus dem Betrieb nehmen
 
+Teilstatus 2026-08-29: Der Linux-CLI-Installer behaelt die Legacy-Bash-CLI nur
+noch fuer den ersten TypeScript-Cutover ohne vorhandene TypeScript-
+Rueckfallversion. Sobald ein Upgrade eine gueltige vorherige TypeScript-Version
+in `state/previous` hinterlegt hat, entfernt der Installer die erhaltene
+Legacy-CLI und verwendet fuer Rollbacks ausschliesslich die atomar verwalteten
+TypeScript-Releases. Der ARM64-Integrationstest in der OrbStack-VM deckt ersten
+Cutover, automatisches Legacy-Retirement und TypeScript-zu-TypeScript-Rollback
+ab.
+
 - Bash-Command-Module einfrieren und danach entfernen.
 - Installer-, Produkt- und Betriebsdokumentation aktualisieren.
 - Legacy-Erkennung bleibt nur so lange bestehen, wie Bestandsmigrationen sie
