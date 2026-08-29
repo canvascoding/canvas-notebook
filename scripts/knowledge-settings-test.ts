@@ -26,6 +26,7 @@ function testState(databaseProvider: DatabaseProvider): OrganizationPermissionSt
       canManageBackups: true,
       canMigrateDatabase: true,
       canEnableKnowledge: true,
+      canManageOrganizationMemory: true,
       canRecoverWorkspaces: true,
     },
   };

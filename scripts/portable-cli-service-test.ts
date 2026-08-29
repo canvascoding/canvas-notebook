@@ -39,6 +39,7 @@ async function withFixture(callback: (fixture: {
     await fs.mkdir(unitRoot);
     const paths = resolveDefaultPaths('linux', {
       HOME: root,
+      NODE_ENV: 'test',
       CANVAS_INSTALL_DIR: path.join(root, 'install with spaces'),
       CANVAS_DATA_DIR: path.join(root, 'data'),
       CANVAS_MANAGER_LOG_FILE: path.join(root, 'logs', 'manager.log'),
@@ -49,6 +50,7 @@ async function withFixture(callback: (fixture: {
     const manager = new ServiceManager(runner, context, {
       CANVAS_SYSTEMD_TEST_ROOT: unitRoot,
       CANVAS_CLI_PATH: '/usr/local/bin/canvas-notebook',
+      NODE_ENV: 'test',
     });
     await callback({ root, servicePath, manager, runner, config: createDefaultConfig(paths, 'linux') });
   } finally {

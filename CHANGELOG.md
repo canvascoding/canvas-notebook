@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.29.1] - 2026-08-29
+
+### Added
+
+- Added persistent memory management with review workflows, settings, migration, and governance coverage.
+- Added Direct MCP connection/workspace controls, request history, diagnostics, and authorization hardening.
+- Added context-compaction coordination and persistence across chat and automation runtimes.
+- Added transactional cross-platform CLI management for Postgres, Linux swap, Caddy, auto-updates, diagnostics, and self-update packaging.
+
+### Changed
+
+- Improved collaboration editing, safe global replacements, rich Markdown handling, delegated-task controls, and Electron workspace-drive planning.
+- Added CLI version/capability reporting, environment editing, and managed Postgres preparation improvements.
+
+### Fixed
+
+- Fixed stale notebook tabs after external moves and several collaboration, mailbox, MCP, and compaction edge cases.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.27.1] - 2026-08-27
 
 ### Added

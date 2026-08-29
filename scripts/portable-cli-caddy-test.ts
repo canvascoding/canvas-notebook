@@ -73,6 +73,7 @@ function createFixture(root: string, platform: RuntimeContext['platform'] = 'lin
 } {
   const paths = resolveDefaultPaths(platform, {
     HOME: root,
+    NODE_ENV: 'test',
     CANVAS_INSTALL_DIR: path.join(root, 'install'),
     CANVAS_DATA_DIR: path.join(root, 'data'),
   });
@@ -80,7 +81,7 @@ function createFixture(root: string, platform: RuntimeContext['platform'] = 'lin
   const caddyfile = path.join(root, 'Caddyfile');
   const legacyConfig = path.join(root, 'conf.d', 'canvas-notebook.caddy');
   const runner = new CaddyTestRunner(caddyfile);
-  const manager = new CaddyManager(runner, context, { CANVAS_CADDY_TEST_ROOT: root });
+  const manager = new CaddyManager(runner, context, { CANVAS_CADDY_TEST_ROOT: root, NODE_ENV: 'test' });
   const config = createDefaultConfig(paths, platform);
   config.hostPort = 3456;
   config.domain = 'notebook.example.com';

@@ -79,6 +79,7 @@ function createFixture(root: string, platform: RuntimeContext['platform'] = 'lin
 } {
   const paths = resolveDefaultPaths(platform, {
     HOME: root,
+    NODE_ENV: 'test',
     CANVAS_INSTALL_DIR: path.join(root, 'install'),
     CANVAS_DATA_DIR: path.join(root, 'data'),
   });
@@ -88,6 +89,7 @@ function createFixture(root: string, platform: RuntimeContext['platform'] = 'lin
   const manager = new AutoUpdateManager(runner, context, {
     CANVAS_SYSTEMD_TEST_ROOT: unitRoot,
     CANVAS_CLI_PATH: '/usr/local/bin/canvas-notebook',
+    NODE_ENV: 'test',
   });
   const config = createDefaultConfig(paths, platform);
   config.image = `ghcr.io/canvascoding/canvas-notebook@sha256:${'a'.repeat(64)}`;

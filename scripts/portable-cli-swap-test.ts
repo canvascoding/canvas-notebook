@@ -73,12 +73,13 @@ async function main(): Promise<void> {
   await withTempRoot(async (root) => {
     const paths = resolveDefaultPaths('macos', {
       HOME: root,
+      NODE_ENV: 'test',
       CANVAS_INSTALL_DIR: path.join(root, 'install'),
       CANVAS_DATA_DIR: path.join(root, 'data'),
     });
     const context: RuntimeContext = { platform: 'macos', paths, serviceName: 'canvas-notebook', dockerBin: 'docker' };
     const runner = new SwapTestRunner(path.join(root, 'proc-swaps'));
-    const manager = new SwapManager(runner, context, { CANVAS_SWAP_TEST_ROOT: root });
+    const manager = new SwapManager(runner, context, { CANVAS_SWAP_TEST_ROOT: root, NODE_ENV: 'test' });
     const config = createDefaultConfig(paths, 'macos');
     config.swap.file = path.join(root, 'swapfile');
     await assert.rejects(() => manager.status(config), /only supported on Linux/u);
@@ -94,12 +95,13 @@ async function main(): Promise<void> {
 
     const paths = resolveDefaultPaths('linux', {
       HOME: root,
+      NODE_ENV: 'test',
       CANVAS_INSTALL_DIR: path.join(root, 'install'),
       CANVAS_DATA_DIR: path.join(root, 'data'),
     });
     const context: RuntimeContext = { platform: 'linux', paths, serviceName: 'canvas-notebook', dockerBin: 'docker' };
     const runner = new SwapTestRunner(procSwaps);
-    const manager = new SwapManager(runner, context, { CANVAS_SWAP_TEST_ROOT: root });
+    const manager = new SwapManager(runner, context, { CANVAS_SWAP_TEST_ROOT: root, NODE_ENV: 'test' });
     const config = createDefaultConfig(paths, 'linux');
     config.swap.file = path.join(root, 'swapfile');
     config.swap.size = '128M';

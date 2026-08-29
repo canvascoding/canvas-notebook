@@ -1166,22 +1166,17 @@ export function AgentSettingsPanel({
     return groups.sort();
   }, [availableTools]);
 
-  const filteredTools = useMemo(() => {
-    let result = availableTools;
-    if (activeToolGroups.size > 0) {
-      result = result.filter(t => t.group && activeToolGroups.has(t.group));
+  const filteredTools = availableTools.filter((tool) => {
+    if (activeToolGroups.size > 0 && (!tool.group || !activeToolGroups.has(tool.group))) {
+      return false;
     }
-    if (toolSearchQuery.trim()) {
-      const q = toolSearchQuery.trim().toLowerCase();
-      result = result.filter(t =>
-        t.name.toLowerCase().includes(q) ||
-        t.label.toLowerCase().includes(q) ||
-        t.description.toLowerCase().includes(q) ||
-        (t.group && t.group.toLowerCase().includes(q))
-      );
-    }
-    return result;
-  }, [availableTools, activeToolGroups, toolSearchQuery]);
+    const query = toolSearchQuery.trim().toLowerCase();
+    if (!query) return true;
+    return tool.name.toLowerCase().includes(query) ||
+      tool.label.toLowerCase().includes(query) ||
+      tool.description.toLowerCase().includes(query) ||
+      Boolean(tool.group?.toLowerCase().includes(query));
+  });
 
   const toggleToolGroup = (group: string) => {
     setActiveToolGroups((prev) => {

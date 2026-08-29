@@ -457,6 +457,7 @@ async function main() {
     canManageBackups: true,
     canMigrateDatabase: true,
     canEnableKnowledge: true,
+    canManageOrganizationMemory: true,
     canRecoverWorkspaces: true,
   } as const;
   assert.equal(isOrganizationBillingApprover(ownerPermission), true);

@@ -303,6 +303,8 @@ async function runDifferentialContract(): Promise<void> {
     });
     const address = healthServer.address();
     assert.ok(address && typeof address === 'object');
+    if (!address || typeof address !== 'object') throw new Error('Health server did not expose an address.');
+    const healthPort = address.port;
     const secret = 'parity-instance-token-must-not-leak';
     const fakeBin = path.join(tempRoot, 'bin');
     await createFakeHostTools(fakeBin);
@@ -319,10 +321,10 @@ async function runDifferentialContract(): Promise<void> {
       const configFile = path.join(installDir, 'canvas-notebook-config.json');
       await fs.promises.writeFile(
         configFile,
-        `${JSON.stringify(initialConfig(installDir, dataDir, address.port, secret), null, 2)}\n`,
+        `${JSON.stringify(initialConfig(installDir, dataDir, healthPort, secret), null, 2)}\n`,
         { mode: 0o600 },
       );
-      return {
+      const runtimeEnv = {
         installDir,
         configFile,
         env: {
@@ -340,8 +342,9 @@ async function runDifferentialContract(): Promise<void> {
           CANVAS_CONFIG_FILE_OWNER: `${process.getuid?.() ?? 0}:${process.getgid?.() ?? 0}`,
           CANVAS_HOST_CODE_OWNER: `${process.getuid?.() ?? 0}:${process.getgid?.() ?? 0}`,
           CANVAS_USE_COLOR: 'false',
-        },
+        } as NodeJS.ProcessEnv,
       };
+      return runtimeEnv;
     }
 
     const legacyRuntime = await prepareRuntime('legacy');
