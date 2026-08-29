@@ -239,14 +239,14 @@ async function main(): Promise<void> {
     await fs.writeFile(path.join(dataDir, 'canvas-agent', 'USER.md'), '- [legacy-canvas-agent] Keep pre-user-scope memory.\n');
     await ensureLegacyMemoryMigrated('canvas-agent', { userId: 'user-1' });
     assert.deepEqual((await readMemory(scope)).entries, []);
+    assert.deepEqual((await readMemory({ target: 'agent', userId: 'user-1', agentId: 'canvas-agent' })).entries, []);
     const migrationUserDb = await openDb();
     try {
       await migrationUserDb.run(`UPDATE canvas_organization_settings SET deployment_mode = 'single_user', team_features_enabled = 0 WHERE organization_id = 'org-1'`);
     } finally { await migrationUserDb.close(); }
     await ensureLegacyMemoryMigrated('canvas-agent', { userId: 'user-1' });
-    assert.equal((await readMemory(scope)).entries.some((entry) => /migration-safe context/.test(entry.content)), true);
-    assert.equal((await readMemory(scope)).entries.some((entry) => /pre-user-scope memory/.test(entry.content)), true);
-    assert.equal((await readMemory({ target: 'agent', userId: 'user-1', agentId: 'canvas-agent' })).entries.some((entry) => /agent-specific migration context/.test(entry.content)), true);
+    assert.deepEqual((await readMemory(scope)).entries, []);
+    await addMemory({ ...scope, content: 'Keep maintenance collection available.' });
     const maintenanceDb = await openDb();
     try {
       const staleId = 'maintenance-stale';

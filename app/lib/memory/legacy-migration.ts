@@ -76,6 +76,8 @@ async function importFile(input: {
 async function canImportSharedLegacyMemory(): Promise<boolean> {
   const connection = await openDb();
   try {
+    const row = await connection.get('SELECT COUNT(*) AS count FROM user') as { count?: number } | undefined;
+    if (Number(row?.count ?? 0) !== 1) return false;
     const settings = await connection.get(`
       SELECT deployment_mode AS deploymentMode, team_features_enabled AS teamFeaturesEnabled
       FROM canvas_organization_settings
@@ -84,8 +86,7 @@ async function canImportSharedLegacyMemory(): Promise<boolean> {
     if (settings) {
       return settings.deploymentMode === 'single_user' && Number(settings.teamFeaturesEnabled ?? 0) === 0;
     }
-    const row = await connection.get('SELECT COUNT(*) AS count FROM user') as { count?: number } | undefined;
-    return Number(row?.count ?? 0) === 1;
+    return true;
   } finally { await connection.close(); }
 }
 
