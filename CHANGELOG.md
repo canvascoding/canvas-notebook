@@ -11,6 +11,16 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.29.3] - 2026-08-29
+
+### Fixed
+
+- Preserve actionable Postgres URL validation errors during environment synchronization.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.29.2] - 2026-08-29
 
 ### Fixed

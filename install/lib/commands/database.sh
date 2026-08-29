@@ -467,7 +467,12 @@ _database_reconcile_postgres_auth() (
     _database_reconcile_error preflight "Managed Postgres is not enabled for this installation."
     return 1
   fi
-  if ! CANVAS_ALLOW_POSTGRES_SECRET_GENERATION=false config_json_ensure_postgres_infrastructure_config >/dev/null 2>&1; then
+  local config_ensure_error
+  if ! config_ensure_error="$(CANVAS_ALLOW_POSTGRES_SECRET_GENERATION=false config_json_ensure_postgres_infrastructure_config 2>&1)"; then
+    if [[ -n "$config_ensure_error" ]]; then
+      _database_reconcile_error preflight "$config_ensure_error"
+      return 1
+    fi
     local config_validation_error
     config_validation_error="$(postgres_assert_database_url_matches_runtime 2>&1)" || {
       _database_reconcile_error preflight "$config_validation_error"
