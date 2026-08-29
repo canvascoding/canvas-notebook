@@ -43,7 +43,7 @@ const FILE_METADATA_CONCURRENCY = 32;
 const FILE_TREE_DIRECTORY_CONCURRENCY = 16;
 const workspaceFileMutationLocks = new Map<string, Promise<void>>();
 
-async function withWorkspaceFileMutationLock<T>(
+export async function withWorkspaceFileMutationLock<T>(
   filePath: string,
   options: WorkspaceFileOperationOptions | undefined,
   operation: () => Promise<T>,
@@ -62,6 +62,19 @@ async function withWorkspaceFileMutationLock<T>(
     releaseCurrent();
     if (workspaceFileMutationLocks.get(key) === queued) workspaceFileMutationLocks.delete(key);
   }
+}
+
+export async function withWorkspaceFileMutationLocks<T>(
+  filePaths: readonly string[],
+  options: WorkspaceFileOperationOptions | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const uniquePaths = [...new Set(filePaths)].sort((left, right) => left.localeCompare(right));
+  const runWithLocks = async (index: number): Promise<T> => {
+    if (index >= uniquePaths.length) return operation();
+    return withWorkspaceFileMutationLock(uniquePaths[index], options, () => runWithLocks(index + 1));
+  };
+  return runWithLocks(0);
 }
 
 async function mapWithConcurrency<T, R>(

@@ -44,7 +44,10 @@ import {
   syncPublicSharesAfterMove,
   syncPublicSharesAfterWrite,
 } from '@/app/lib/public-sharing/public-file-shares';
-import { writeFile as writeWorkspaceFile } from '@/app/lib/filesystem/workspace-files';
+import {
+  withWorkspaceFileMutationLocks,
+  writeFile as writeWorkspaceFile,
+} from '@/app/lib/filesystem/workspace-files';
 import { publishWorkspaceFileMutation, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { ensureAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
@@ -1082,6 +1085,70 @@ async function readExistingFile(fullPath: string): Promise<{ existed: boolean; b
   }
 }
 
+type AgentPathMutationState = {
+  inputPath: string;
+  fullPath: string;
+  existed: boolean;
+  type: AgentPathType;
+  sha256: string | null;
+};
+
+async function captureAgentPathMutationState(inputPath: string, fullPath: string): Promise<AgentPathMutationState> {
+  try {
+    const stats = await fs.stat(fullPath);
+    const type = getPathType(stats);
+    return {
+      inputPath,
+      fullPath,
+      existed: true,
+      type,
+      sha256: type === 'file' ? sha256Buffer(await fs.readFile(fullPath)) : null,
+    };
+  } catch (error) {
+    if (!isEnoent(error)) throw error;
+    return { inputPath, fullPath, existed: false, type: 'missing', sha256: null };
+  }
+}
+
+async function assertAgentPathMutationStatesUnchanged(
+  states: readonly AgentPathMutationState[],
+  operation: string,
+): Promise<void> {
+  for (const state of states) {
+    const current = await captureAgentPathMutationState(state.inputPath, state.fullPath);
+    if (
+      current.existed === state.existed
+      && current.type === state.type
+      && current.sha256 === state.sha256
+    ) {
+      continue;
+    }
+    throw new WorkspaceFileRevisionError({
+      code: 'FILE_REVISION_CONFLICT',
+      status: 409,
+      path: state.inputPath,
+      expectedSha256: state.sha256,
+      currentSha256: current.sha256,
+      message: `Refusing to ${operation} ${state.inputPath}: the path changed after it was read. Read it again before retrying.`,
+    });
+  }
+}
+
+async function withAgentWorkspaceMutationLocks<T>(
+  fullPaths: readonly string[],
+  operation: () => Promise<T>,
+): Promise<T> {
+  const workspace = getAgentWorkspaceContext();
+  if (!workspace) return operation();
+
+  const workspacePaths = fullPaths
+    .filter((fullPath) => isPathWithin(fullPath, workspace.rootPath))
+    .map((fullPath) => workspaceRelativeAgentPath(workspace, fullPath));
+  if (workspacePaths.length === 0) return operation();
+
+  return withWorkspaceFileMutationLocks(workspacePaths, { workspace }, operation);
+}
+
 async function assertAgentFileUnchangedBeforeReplace(params: {
   inputPath: string;
   fullPath: string;
@@ -1678,73 +1745,84 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
   await assertAgentWritablePathAllowed(fullPath);
 
   const before = await readExistingFile(fullPath);
-  const workspaceContext = getAgentWorkspaceContext();
-  if (workspaceContext) {
-    assertFileCollaborationWriteAllowed({
-      workspace: workspaceContext,
-      path: workspaceRelativeAgentPath(workspaceContext, fullPath),
-      actorUserId: getAgentExecutionContext()?.userId ?? null,
-      actorSessionId: getAgentExecutionContext()?.sessionId ?? null,
-      actorType: 'agent',
-    });
-  }
-  const undoSnapshot = await createSnapshotFromBuffer({
+  const mutationState: AgentPathMutationState = {
     inputPath: snapshot.path,
     fullPath,
     existed: before.existed,
-    beforeBuffer: before.buffer,
-    operation: 'restore_file_snapshot',
-  });
+    type: before.existed ? 'file' : 'missing',
+    sha256: before.buffer ? sha256Buffer(before.buffer) : null,
+  };
 
-  if (!snapshot.existed) {
-    await fs.rm(fullPath, { force: true });
-    await syncPublicSharesAfterDelete([fullPath]);
+  return withAgentWorkspaceMutationLocks([fullPath], async () => {
+    await assertAgentPathMutationStatesUnchanged([mutationState], 'restore_file_snapshot');
+    const workspaceContext = getAgentWorkspaceContext();
+    if (workspaceContext) {
+      assertFileCollaborationWriteAllowed({
+        workspace: workspaceContext,
+        path: workspaceRelativeAgentPath(workspaceContext, fullPath),
+        actorUserId: getAgentExecutionContext()?.userId ?? null,
+        actorSessionId: getAgentExecutionContext()?.sessionId ?? null,
+        actorType: 'agent',
+      });
+    }
+    const undoSnapshot = await createSnapshotFromBuffer({
+      inputPath: snapshot.path,
+      fullPath,
+      existed: before.existed,
+      beforeBuffer: before.buffer,
+      operation: 'restore_file_snapshot',
+    });
+
+    if (!snapshot.existed) {
+      await fs.rm(fullPath, { force: true });
+      await syncPublicSharesAfterDelete([fullPath]);
+      const result: AgentFileChangeResult = {
+        path: snapshot.path,
+        resolvedPath: fullPath,
+        changed: before.existed,
+        snapshot: undoSnapshot,
+        beforeSha256: before.buffer ? sha256Buffer(before.buffer) : null,
+        afterSha256: sha256Text(''),
+        size: 0,
+        diff: before.buffer && !isProbablyBinary(before.buffer)
+          ? createUnifiedDiff(before.buffer.toString('utf8'), '', `${snapshot.path} (before restore)`, `${snapshot.path} (after restore)`)
+          : '(file removed; textual diff unavailable)',
+        validation: { ok: true, checks: [{ name: 'restore', ok: true, message: 'Restored snapshot by removing file that did not exist before the original edit.' }] },
+      };
+      publishAgentWorkspaceMutation(fullPath, 'unlink');
+      await recordAgentFileChangeAudit(result, 'restore_file_snapshot');
+      return result;
+    }
+
+    const content = await fs.readFile(snapshotContentPath(snapshot.id));
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, content);
+    const readBack = await fs.readFile(fullPath);
+    if (sha256Buffer(readBack) !== sha256Buffer(content)) {
+      throw new Error(`Read-after-restore verification failed for ${snapshot.path}.`);
+    }
+    await syncPublicSharesAfterWrite([fullPath]);
+
+    const beforeText = before.buffer && !isProbablyBinary(before.buffer) ? before.buffer.toString('utf8') : null;
+    const afterText = !isProbablyBinary(readBack) ? readBack.toString('utf8') : null;
+
     const result: AgentFileChangeResult = {
       path: snapshot.path,
       resolvedPath: fullPath,
-      changed: before.existed,
+      changed: true,
       snapshot: undoSnapshot,
       beforeSha256: before.buffer ? sha256Buffer(before.buffer) : null,
-      afterSha256: sha256Text(''),
-      size: 0,
-      diff: before.buffer && !isProbablyBinary(before.buffer)
-        ? createUnifiedDiff(before.buffer.toString('utf8'), '', `${snapshot.path} (before restore)`, `${snapshot.path} (after restore)`)
-        : '(file removed; textual diff unavailable)',
-      validation: { ok: true, checks: [{ name: 'restore', ok: true, message: 'Restored snapshot by removing file that did not exist before the original edit.' }] },
+      afterSha256: sha256Buffer(readBack),
+      size: readBack.length,
+      diff: beforeText !== null && afterText !== null
+        ? createUnifiedDiff(beforeText, afterText, `${snapshot.path} (before restore)`, `${snapshot.path} (after restore)`)
+        : '(binary file restored; textual diff unavailable)',
+      validation: validateAgentFileContent(snapshot.path, readBack.toString('utf8')),
     };
-    publishAgentWorkspaceMutation(fullPath, 'unlink');
+    publishAgentWorkspaceMutation(fullPath, 'change');
     await recordAgentFileChangeAudit(result, 'restore_file_snapshot');
     return result;
-  }
-
-  const content = await fs.readFile(snapshotContentPath(snapshot.id));
-  await fs.mkdir(path.dirname(fullPath), { recursive: true });
-  await fs.writeFile(fullPath, content);
-  const readBack = await fs.readFile(fullPath);
-  if (sha256Buffer(readBack) !== sha256Buffer(content)) {
-    throw new Error(`Read-after-restore verification failed for ${snapshot.path}.`);
-  }
-  await syncPublicSharesAfterWrite([fullPath]);
-
-  const beforeText = before.buffer && !isProbablyBinary(before.buffer) ? before.buffer.toString('utf8') : null;
-  const afterText = !isProbablyBinary(readBack) ? readBack.toString('utf8') : null;
-
-  const result: AgentFileChangeResult = {
-    path: snapshot.path,
-    resolvedPath: fullPath,
-    changed: true,
-    snapshot: undoSnapshot,
-    beforeSha256: before.buffer ? sha256Buffer(before.buffer) : null,
-    afterSha256: sha256Buffer(readBack),
-    size: readBack.length,
-    diff: beforeText !== null && afterText !== null
-      ? createUnifiedDiff(beforeText, afterText, `${snapshot.path} (before restore)`, `${snapshot.path} (after restore)`)
-      : '(binary file restored; textual diff unavailable)',
-    validation: validateAgentFileContent(snapshot.path, readBack.toString('utf8')),
-  };
-  publishAgentWorkspaceMutation(fullPath, 'change');
-  await recordAgentFileChangeAudit(result, 'restore_file_snapshot');
-  return result;
+  });
 }
 
 function getPathType(stats: Stats): AgentPathType {
@@ -2039,63 +2117,73 @@ export async function copyAgentPaths(params: {
   assertNoDuplicateDestinations(entries);
   assertNoNestedCopyMoveSources(entries);
 
-  const copyWorkspace = getAgentWorkspaceContext();
-  if (copyWorkspace) {
-    const overwrittenPaths: string[] = [];
-    for (const entry of entries) {
-      if (!entry.overwritten || !entry.destinationResolvedPath) continue;
-      const destinationPath = workspaceRelativeAgentPath(copyWorkspace, entry.destinationResolvedPath);
-      assertFileCollaborationWriteAllowed({
-        workspace: copyWorkspace,
-        path: destinationPath,
-        actorUserId: getAgentExecutionContext()?.userId ?? null,
-        actorSessionId: getAgentExecutionContext()?.sessionId ?? null,
-        actorType: 'agent',
-      });
-      overwrittenPaths.push(destinationPath);
-    }
-    if (overwrittenPaths.length > 0) {
-      archiveFileCollaborationPaths({ workspace: copyWorkspace, paths: overwrittenPaths.map((path) => ({ path })) });
-      await archivePersistedCollaborationPaths({ workspaceId: copyWorkspace.workspaceId, paths: overwrittenPaths });
-    }
-  }
+  const mutationStates = await Promise.all(entries.flatMap((entry) => [
+    captureAgentPathMutationState(entry.sourcePath, entry.sourceResolvedPath),
+    captureAgentPathMutationState(entry.destinationPath!, entry.destinationResolvedPath!),
+  ]));
+  return withAgentWorkspaceMutationLocks(
+    mutationStates.map((state) => state.fullPath),
+    async () => {
+      await assertAgentPathMutationStatesUnchanged(mutationStates, 'copy_path');
+      const copyWorkspace = getAgentWorkspaceContext();
+      if (copyWorkspace) {
+        const overwrittenPaths: string[] = [];
+        for (const entry of entries) {
+          if (!entry.overwritten || !entry.destinationResolvedPath) continue;
+          const destinationPath = workspaceRelativeAgentPath(copyWorkspace, entry.destinationResolvedPath);
+          assertFileCollaborationWriteAllowed({
+            workspace: copyWorkspace,
+            path: destinationPath,
+            actorUserId: getAgentExecutionContext()?.userId ?? null,
+            actorSessionId: getAgentExecutionContext()?.sessionId ?? null,
+            actorType: 'agent',
+          });
+          overwrittenPaths.push(destinationPath);
+        }
+        if (overwrittenPaths.length > 0) {
+          archiveFileCollaborationPaths({ workspace: copyWorkspace, paths: overwrittenPaths.map((path) => ({ path })) });
+          await archivePersistedCollaborationPaths({ workspaceId: copyWorkspace.workspaceId, paths: overwrittenPaths });
+        }
+      }
 
-  for (const entry of entries) {
-    if (!entry.destinationResolvedPath) continue;
-    await fs.mkdir(path.dirname(entry.destinationResolvedPath), { recursive: true });
-    if (entry.overwritten && params.overwrite) {
-      await fs.rm(entry.destinationResolvedPath, { recursive: true, force: true });
-    }
-    await fs.cp(entry.sourceResolvedPath, entry.destinationResolvedPath, {
-      recursive: entry.type === 'directory',
-      force: params.overwrite === true,
-      errorOnExist: params.overwrite !== true,
-    });
-  }
-  await verifyPathOperationEntries({ entries, sourceMustBeRemoved: false });
-  if (copyWorkspace) {
-    initializeCopiedFileCollaborationPaths({
-      workspace: copyWorkspace,
-      paths: entries
-        .map((entry) => entry.destinationResolvedPath)
-        .filter((value): value is string => Boolean(value))
-        .map((destination) => workspaceRelativeAgentPath(copyWorkspace, destination)),
-    });
-  }
-  await syncPublicSharesAfterWrite(entries.map((entry) => entry.destinationResolvedPath).filter((value): value is string => Boolean(value)));
-  for (const entry of entries) {
-    if (entry.destinationResolvedPath) {
-      publishAgentWorkspaceMutation(
-        entry.destinationResolvedPath,
-        entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
-      );
-    }
-  }
+      for (const entry of entries) {
+        if (!entry.destinationResolvedPath) continue;
+        await fs.mkdir(path.dirname(entry.destinationResolvedPath), { recursive: true });
+        if (entry.overwritten && params.overwrite) {
+          await fs.rm(entry.destinationResolvedPath, { recursive: true, force: true });
+        }
+        await fs.cp(entry.sourceResolvedPath, entry.destinationResolvedPath, {
+          recursive: entry.type === 'directory',
+          force: params.overwrite === true,
+          errorOnExist: params.overwrite !== true,
+        });
+      }
+      await verifyPathOperationEntries({ entries, sourceMustBeRemoved: false });
+      if (copyWorkspace) {
+        initializeCopiedFileCollaborationPaths({
+          workspace: copyWorkspace,
+          paths: entries
+            .map((entry) => entry.destinationResolvedPath)
+            .filter((value): value is string => Boolean(value))
+            .map((destination) => workspaceRelativeAgentPath(copyWorkspace, destination)),
+        });
+      }
+      await syncPublicSharesAfterWrite(entries.map((entry) => entry.destinationResolvedPath).filter((value): value is string => Boolean(value)));
+      for (const entry of entries) {
+        if (entry.destinationResolvedPath) {
+          publishAgentWorkspaceMutation(
+            entry.destinationResolvedPath,
+            entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
+          );
+        }
+      }
 
-  const result = pathOperationSummary('copy_path', entries, params.destinationPath, destinationFullPath);
-  result.verified = entries.every((entry) => entry.verification?.contentVerified === true);
-  await recordAgentPathOperationAudit(result);
-  return result;
+      const result = pathOperationSummary('copy_path', entries, params.destinationPath, destinationFullPath);
+      result.verified = entries.every((entry) => entry.verification?.contentVerified === true);
+      await recordAgentPathOperationAudit(result);
+      return result;
+    },
+  );
 }
 
 export async function moveAgentPath(params: {
@@ -2163,56 +2251,66 @@ export async function moveAgentPaths(params: {
   assertNoDuplicateDestinations(entries);
   assertNoNestedCopyMoveSources(entries);
 
-  const moveWorkspace = getAgentWorkspaceContext();
-  if (moveWorkspace) {
-    const overwrittenPaths = entries
-      .filter((entry) => entry.overwritten && entry.destinationResolvedPath)
-      .map((entry) => workspaceRelativeAgentPath(moveWorkspace, entry.destinationResolvedPath!));
-    if (overwrittenPaths.length > 0) {
-      archiveFileCollaborationPaths({ workspace: moveWorkspace, paths: overwrittenPaths.map((path) => ({ path })) });
-      await archivePersistedCollaborationPaths({ workspaceId: moveWorkspace.workspaceId, paths: overwrittenPaths });
-    }
-  }
-
-  for (const entry of entries) {
-    if (!entry.destinationResolvedPath) continue;
-    await fs.mkdir(path.dirname(entry.destinationResolvedPath), { recursive: true });
-    if (entry.overwritten && params.overwrite) {
-      await fs.rm(entry.destinationResolvedPath, { recursive: true, force: true });
-    }
-
-    try {
-      await fs.rename(entry.sourceResolvedPath, entry.destinationResolvedPath);
-    } catch (error) {
-      if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV')) {
-        throw error;
-      }
-      await fs.cp(entry.sourceResolvedPath, entry.destinationResolvedPath, { recursive: entry.type === 'directory', force: true });
-      await fs.rm(entry.sourceResolvedPath, { recursive: entry.type === 'directory', force: true });
-    }
-  }
-  await verifyPathOperationEntries({ entries, sourceMustBeRemoved: true });
-  for (const entry of entries) {
-    if (entry.destinationResolvedPath) {
+  const mutationStates = await Promise.all(entries.flatMap((entry) => [
+    captureAgentPathMutationState(entry.sourcePath, entry.sourceResolvedPath),
+    captureAgentPathMutationState(entry.destinationPath!, entry.destinationResolvedPath!),
+  ]));
+  return withAgentWorkspaceMutationLocks(
+    mutationStates.map((state) => state.fullPath),
+    async () => {
+      await assertAgentPathMutationStatesUnchanged(mutationStates, 'move_path');
+      const moveWorkspace = getAgentWorkspaceContext();
       if (moveWorkspace) {
-        const oldPath = workspaceRelativeAgentPath(moveWorkspace, entry.sourceResolvedPath);
-        const newPath = workspaceRelativeAgentPath(moveWorkspace, entry.destinationResolvedPath);
-        moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
-        await movePersistedCollaborationPath({ workspaceId: moveWorkspace.workspaceId, oldPath, newPath });
+        const overwrittenPaths = entries
+          .filter((entry) => entry.overwritten && entry.destinationResolvedPath)
+          .map((entry) => workspaceRelativeAgentPath(moveWorkspace, entry.destinationResolvedPath!));
+        if (overwrittenPaths.length > 0) {
+          archiveFileCollaborationPaths({ workspace: moveWorkspace, paths: overwrittenPaths.map((path) => ({ path })) });
+          await archivePersistedCollaborationPaths({ workspaceId: moveWorkspace.workspaceId, paths: overwrittenPaths });
+        }
       }
-      await syncPublicSharesAfterMove(entry.sourceResolvedPath, entry.destinationResolvedPath);
-      publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
-      publishAgentWorkspaceMutation(
-        entry.destinationResolvedPath,
-        entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
-      );
-    }
-  }
 
-  const result = pathOperationSummary('move_path', entries, params.destinationPath, destinationFullPath);
-  result.verified = entries.every((entry) => entry.verification?.contentVerified === true && entry.verification.sourceRemoved === true);
-  await recordAgentPathOperationAudit(result);
-  return result;
+      for (const entry of entries) {
+        if (!entry.destinationResolvedPath) continue;
+        await fs.mkdir(path.dirname(entry.destinationResolvedPath), { recursive: true });
+        if (entry.overwritten && params.overwrite) {
+          await fs.rm(entry.destinationResolvedPath, { recursive: true, force: true });
+        }
+
+        try {
+          await fs.rename(entry.sourceResolvedPath, entry.destinationResolvedPath);
+        } catch (error) {
+          if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV')) {
+            throw error;
+          }
+          await fs.cp(entry.sourceResolvedPath, entry.destinationResolvedPath, { recursive: entry.type === 'directory', force: true });
+          await fs.rm(entry.sourceResolvedPath, { recursive: entry.type === 'directory', force: true });
+        }
+      }
+      await verifyPathOperationEntries({ entries, sourceMustBeRemoved: true });
+      for (const entry of entries) {
+        if (entry.destinationResolvedPath) {
+          if (moveWorkspace) {
+            const oldPath = workspaceRelativeAgentPath(moveWorkspace, entry.sourceResolvedPath);
+            const newPath = workspaceRelativeAgentPath(moveWorkspace, entry.destinationResolvedPath);
+            moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
+            await movePersistedCollaborationPath({ workspaceId: moveWorkspace.workspaceId, oldPath, newPath });
+          }
+          await syncPublicSharesAfterMove(entry.sourceResolvedPath, entry.destinationResolvedPath);
+          publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
+          publishAgentWorkspaceMutation(
+            entry.destinationResolvedPath,
+            entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
+          );
+        }
+      }
+
+      const result = pathOperationSummary('move_path', entries, params.destinationPath, destinationFullPath);
+      result.verified = entries.every((entry) => entry.verification?.contentVerified === true && entry.verification.sourceRemoved === true);
+      await recordAgentPathOperationAudit(result);
+      return result;
+    },
+  );
 }
 
 export async function deleteAgentPath(params: {
@@ -2279,29 +2377,38 @@ export async function deleteAgentPaths(params: {
     .filter((entry) => entry.changed)
     .sort((a, b) => b.sourceResolvedPath.length - a.sourceResolvedPath.length);
 
-  for (const entry of deletableEntries) {
-    await fs.rm(entry.sourceResolvedPath, {
-      recursive: entry.type === 'directory',
-      force: false,
-    });
-  }
-  const deleteWorkspace = getAgentWorkspaceContext();
-  const workspaceDeletions = deleteWorkspace
-    ? deletableEntries.filter((entry) => isPathWithin(entry.sourceResolvedPath, deleteWorkspace.rootPath))
-    : [];
-  if (deleteWorkspace && workspaceDeletions.length > 0) {
-    const deletedPaths = workspaceDeletions.map((entry) => workspaceRelativeAgentPath(deleteWorkspace, entry.sourceResolvedPath));
-    archiveFileCollaborationPaths({ workspace: deleteWorkspace, paths: deletedPaths.map((path) => ({ path })) });
-    await archivePersistedCollaborationPaths({ workspaceId: deleteWorkspace.workspaceId, paths: deletedPaths });
-  }
-  await syncPublicSharesAfterDelete(deletableEntries.map((entry) => entry.sourceResolvedPath));
-  for (const entry of deletableEntries) {
-    publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
-  }
+  const mutationStates = await Promise.all(
+    deletableEntries.map((entry) => captureAgentPathMutationState(entry.sourcePath, entry.sourceResolvedPath)),
+  );
+  return withAgentWorkspaceMutationLocks(
+    mutationStates.map((state) => state.fullPath),
+    async () => {
+      await assertAgentPathMutationStatesUnchanged(mutationStates, 'delete_path');
+      for (const entry of deletableEntries) {
+        await fs.rm(entry.sourceResolvedPath, {
+          recursive: entry.type === 'directory',
+          force: false,
+        });
+      }
+      const deleteWorkspace = getAgentWorkspaceContext();
+      const workspaceDeletions = deleteWorkspace
+        ? deletableEntries.filter((entry) => isPathWithin(entry.sourceResolvedPath, deleteWorkspace.rootPath))
+        : [];
+      if (deleteWorkspace && workspaceDeletions.length > 0) {
+        const deletedPaths = workspaceDeletions.map((entry) => workspaceRelativeAgentPath(deleteWorkspace, entry.sourceResolvedPath));
+        archiveFileCollaborationPaths({ workspace: deleteWorkspace, paths: deletedPaths.map((path) => ({ path })) });
+        await archivePersistedCollaborationPaths({ workspaceId: deleteWorkspace.workspaceId, paths: deletedPaths });
+      }
+      await syncPublicSharesAfterDelete(deletableEntries.map((entry) => entry.sourceResolvedPath));
+      for (const entry of deletableEntries) {
+        publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
+      }
 
-  const result = pathOperationSummary('delete_path', entries);
-  await recordAgentPathOperationAudit(result);
-  return result;
+      const result = pathOperationSummary('delete_path', entries);
+      await recordAgentPathOperationAudit(result);
+      return result;
+    },
+  );
 }
 
 function isManagedDataPath(target: string): boolean {

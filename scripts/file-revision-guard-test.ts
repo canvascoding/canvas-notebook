@@ -63,7 +63,7 @@ async function main() {
     } = await import('../app/lib/files/revision-guard');
     const { writeFile } = await import('../app/lib/filesystem/workspace-files');
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
-    const { editAgentFile, writeAgentTextFile } = await import('../app/lib/pi/agent-file-operations');
+    const { deleteAgentPath, editAgentFile, writeAgentTextFile } = await import('../app/lib/pi/agent-file-operations');
 
     await writeFile('notes.md', 'personal v1\n', { workspace: personalWorkspace });
     await assert.doesNotReject(() => assertWorkspaceFileRevisionAllowed({
@@ -191,6 +191,34 @@ async function main() {
         && error.currentSha256 !== concurrentRevision.sha256,
     );
     assert.equal(await fs.readFile(path.join(teamRoot, 'concurrent.md'), 'utf8'), 'mcp write\n');
+
+    await writeFile('concurrent-delete.md', 'before delete\n', { workspace: teamWorkspace });
+    const concurrentDeleteRevision = await getWorkspaceFileRevision('concurrent-delete.md', { workspace: teamWorkspace });
+    assert.ok(concurrentDeleteRevision?.sha256);
+
+    let releaseMcpDeleteWrite!: () => void;
+    const mcpDeleteWriteCanFinish = new Promise<void>((resolve) => { releaseMcpDeleteWrite = resolve; });
+    let mcpDeleteWriteReady!: () => void;
+    const mcpDeleteWriteReadySignal = new Promise<void>((resolve) => { mcpDeleteWriteReady = resolve; });
+    const mcpDeleteWrite = writeFile('concurrent-delete.md', 'mcp write wins\n', { workspace: teamWorkspace }, async () => {
+      mcpDeleteWriteReady();
+      await mcpDeleteWriteCanFinish;
+    });
+    await mcpDeleteWriteReadySignal;
+
+    const agentDelete = runWithAgentExecutionContext(agentContext, () => deleteAgentPath({
+      path: 'concurrent-delete.md',
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    releaseMcpDeleteWrite();
+    await mcpDeleteWrite;
+    await assert.rejects(
+      () => agentDelete,
+      (error) => error instanceof WorkspaceFileRevisionError
+        && error.code === 'FILE_REVISION_CONFLICT'
+        && error.currentSha256 !== concurrentDeleteRevision.sha256,
+    );
+    assert.equal(await fs.readFile(path.join(teamRoot, 'concurrent-delete.md'), 'utf8'), 'mcp write wins\n');
 
     console.log('file-revision-guard-test: ok');
   } finally {
