@@ -588,6 +588,89 @@ Die Control Plane ist bei Managed Installationen fuer Sollzustand und Secrets
 zustaendig. Die neue CLI ist fuer Compose, Postgres-Readiness, pgvector und
 Credential-Reconciliation zustaendig.
 
+### Lokale Lizenz- und Team-Testumgebung
+
+Status: Verifiziert am 2026-08-30. Canvas Notebook und Canvas Control Plane
+laufen gemeinsam in einer rein lokalen Development-Umgebung. Es wurde keine
+Production-Control-Plane kontaktiert und keine Production-Environment-Datei
+veraendert. Die lokalen, von Git ignorierten Dateien
+`.env.development.local` im Notebook und `.env.managed-e2e.local` in der
+Control Plane enthalten ausschliesslich lokale Werte. Die vorhandenen
+`.env.local`- beziehungsweise Production-Env-Dateien blieben unveraendert.
+
+Die laufenden Endpunkte sind:
+
+- Canvas Notebook: `http://127.0.0.1:3000`
+- Control-Plane API: `http://127.0.0.1:4001`
+- Control-Plane Web: `http://127.0.0.1:4004`
+- Control-Plane PostgreSQL: eigener lokaler Dienst auf Port `55432`
+- Notebook PostgreSQL mit pgvector: eigene Datenbank in der OrbStack-Ubuntu-VM
+
+Port `3001` bleibt frei. Das Notebook verwendet
+`CANVAS_LICENSE_RUNTIME_ENVIRONMENT=development`, Postgres und pgvector. Die
+Control Plane verwendet `TEAM_SEAT_CONTROL_PLANE_ENVIRONMENT=development`,
+serverseitige Admin-/Ziel-User-Allowlists und begrenzte Test-Grants. Production-
+und Test-Zertifikate besitzen unterschiedliche RSA-Schluessel. Die Test-
+Audience ist `canvas-notebook-test` und unterscheidet sich damit von der
+normalen Audience. `CANVAS_LICENSE_CERT` wurde nicht als Abkuerzung benutzt.
+
+Fuer lokale Community-Aktivierungen verwendet die Control Plane
+`LICENSE_EMAIL_DELIVERY_MODE=console`. Dadurch ist kein funktionierender
+E-Mail-Client erforderlich: Der einmalige Aktivierungslink wird nur im lokalen
+Development-Prozess bereitgestellt. Registration, Preview, Approval und Polling
+laufen weiterhin ueber die echten API-Routen; der Lizenzflow wird nicht
+umgangen.
+
+Verwendete Notebook-Instance-ID:
+`self_f7ca5ed5-462e-411a-ba77-c9ab559f3b1c`.
+
+Folgende reale Szenarien wurden gegen die lokale Control Plane verifiziert:
+
+- Community-Registration, Aktivierungs-Preview, Approval, Polling und Claim.
+- Non-billable Test-Grant in `development`, zuerst mit einem Seat und danach
+  signierter Reissue mit hoeherer Entitlements-Version und zwei Seats.
+- Quote, Approval, Execute, Zertifikats-Refresh und Membership-Synchronisation
+  ohne Stripe-Objekte oder Stripe-Secrets.
+- Seat-Limit 1 blockiert den zweiten aktiven Team-User; Seat-Limit 2 aktiviert
+  ihn nach dem Reissue.
+- `requires_action` und `payment_failed` aktivieren keinen zusaetzlichen User
+  und fallen sicher auf Solo/einen Seat zurueck.
+- Revocation und Ablauf sperren die zusaetzliche Membership, erhalten aber
+  beide Benutzer, Membership-Daten und Workspaces.
+- Reaktivierung verwendet die bestehenden Daten und Memberships erneut.
+- Ein Development-Test-JWT wird in einer Production-Runtime mit
+  `LICENSE_CERT_ENVIRONMENT_INVALID` abgelehnt.
+
+Der Endzustand nach dem Ablauf-Test ist bewusst der sichere Fallback: eine
+aktive Owner-Membership, die zweite Membership suspendiert, beide Benutzer und
+beide Workspaces erhalten. Die API-/Runtime-Marker `test` und `nonBillable`
+sind verifiziert. Eine visuelle Browser-Pruefung der Anzeige `TEST LICENSE /
+NON-BILLABLE` wurde gemaess der Browser-Testregel noch nicht ausgefuehrt und
+bleibt ein separat freizugebender UI-Test.
+
+Erfolgreiche Notebook-Nachweise:
+
+- `npm run test:license-control-plane-url`
+- `npm run test:team-seat:no-stripe-license`
+- `npm run test:license-environment-isolation`
+- Team-Seat-Outbox-, Worker-, Membership-Orchestrator-, TypeScript- und
+  Produktions-Build-Tests
+
+Erfolgreiche Control-Plane-Nachweise:
+
+- TypeScript-Check sowie Grant-Policy-, Signing-, Claims-, Billing-Core-,
+  Advisory-Lock-, Contract- und Migration-Invariant-Suiten
+- kompletter Community Test Team Grant-Lifecycle ohne Stripe
+- der Lifecycle-Test lief gegen eine kurzlebige, vollstaendig migrierte
+  PostgreSQL-Datenbank auf dem bereits vorhandenen lokalen Datenbankdienst; die
+  Datenbank wurde nach dem Test entfernt
+
+Bekannte Restarbeit: Nach expliziter Freigabe einmal die sichtbaren Lizenz-
+Badges und den Membership-Flow im Browser auf `localhost:3000` pruefen. Der
+containerbasierte Migration-Runtime-Test bleibt getrennt, weil waehrend dieses
+Laufs kein zweiter Test-Container parallel gestartet werden darf. Die
+API-, Datenbank- und Lizenz-Lifecycle-Gates sind erfuellt.
+
 ### Companion-Service-Erweiterung
 
 Postgres ist der erste Companion Service. Der spaetere Headful-Linux-Container
