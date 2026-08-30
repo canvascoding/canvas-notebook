@@ -15,6 +15,7 @@ import {
   getPublicShareMimeType,
   type PublicShareAnnotation,
 } from '@/app/lib/public-sharing/public-file-shares';
+import { enrichWorkspaceFileNodes } from '@/app/lib/files/workspace-file-metadata';
 import type { FileNode } from '@/app/lib/files/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { hasMarpFileName, isMarpMarkdown } from '@/app/lib/marp/detect';
@@ -79,6 +80,13 @@ export type MobileFileEntry = {
     expiresAt: string | null;
     accessCount: number;
   } | null;
+  /** Optional custom title shared across the user's clients. */
+  title: string | null;
+  /** Human-readable file or folder format. */
+  format: string;
+  createdAt: string | null;
+  isFavorite: boolean;
+  pinnedAt: string | null;
 };
 
 export type MobileFileDetail = MobileFileEntry & {
@@ -181,6 +189,10 @@ function modifiedAt(seconds: number | undefined): string {
   return new Date(Math.max(0, seconds || 0) * 1_000).toISOString();
 }
 
+function timestampAt(milliseconds: number | null | undefined): string | null {
+  return typeof milliseconds === 'number' && milliseconds > 0 ? new Date(milliseconds).toISOString() : null;
+}
+
 function publicShareValue(annotation: PublicShareAnnotation | undefined): MobileFileEntry['publicShare'] {
   if (!annotation) return null;
   return {
@@ -211,6 +223,11 @@ function entryFor(node: FileNode, share?: PublicShareAnnotation): MobileFileEntr
     canPreview: node.type === 'file' && mode !== 'download',
     canOpenInNotebook: openKind === 'markdown',
     publicShare: publicShareValue(share),
+    title: node.title ?? null,
+    format: node.format || (node.type === 'directory' ? 'Folder' : 'File'),
+    createdAt: node.created ? modifiedAt(node.created) : null,
+    isFavorite: Boolean(node.isFavorite),
+    pinnedAt: timestampAt(node.pinnedAt),
   };
 }
 
@@ -317,11 +334,16 @@ export async function listMobileFiles(input: {
     input.baseUrl,
     input.workspace,
   );
+  const enrichedPage = await enrichWorkspaceFileNodes({
+    nodes: page,
+    workspace: input.workspace,
+    userId: input.workspace.actor?.userId,
+  });
   const nextOffset = offset + page.length;
   return {
     directory,
     breadcrumbs: breadcrumbs(directory),
-    items: page.map((node) => entryFor(node, annotations.get(node.path))),
+    items: enrichedPage.map((node) => entryFor(node, annotations.get(node.path))),
     nextCursor: nextOffset < filtered.length ? cursorFor(nextOffset, signature) : null,
     total: filtered.length,
     actions: {
@@ -359,9 +381,15 @@ export async function readMobileFileDetail(input: {
     type: 'file',
     size: stats.size,
     modified: stats.modified,
+    created: stats.created,
   };
   const annotations = await getPublicShareAnnotations([filePath], input.baseUrl, input.workspace);
-  const entry = entryFor(node, annotations.get(filePath));
+  const [enrichedNode] = await enrichWorkspaceFileNodes({
+    nodes: [node],
+    workspace: input.workspace,
+    userId: input.workspace.actor?.userId,
+  });
+  const entry = entryFor(enrichedNode, annotations.get(filePath));
   const mode = previewMode(filePath, entry.category);
   let content: string | null = null;
   let contentTruncated = false;
