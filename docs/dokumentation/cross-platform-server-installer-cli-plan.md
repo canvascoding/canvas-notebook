@@ -686,14 +686,32 @@ wirklich aktive Datenbank verwendet. Positiv- und Negativfaelle sind in der
 License-Security- und der Team-Runtime-Route-Suite abgedeckt; Foundation- und
 Model-Suiten sichern die Workspace-Logik weiterhin ab.
 
-Naechste Restarbeit: Der fruehere Workspace-API-Routentest simulierte Team-
-Funktionen auf SQLite und widersprach damit der neuen Runtime-Grenze. Er wurde
-durch den fail-closed Runtime-Guard-Vertrag ersetzt. Die vollstaendige API-
-Routenabdeckung soll im naechsten Arbeitspaket gegen eine eigene, migrierte
-lokale PostgreSQL-Testdatenbank wiederhergestellt werden. Ausserdem bleibt der
-containerbasierte Migration-Runtime-Test getrennt, weil waehrend dieses Laufs
-kein zweiter Test-Container parallel gestartet werden darf. Die API-,
-Datenbank-, UI- und Lizenz-Lifecycle-Gates sind erfuellt.
+Die vollstaendige Workspace-API-Routenabdeckung ist gegen eine eigene,
+vollstaendig migrierte PostgreSQL-Testdatenbank wiederhergestellt. Der Befehl
+`npm run test:workspace:api-routes:orbstack` uebernimmt den aktuellen
+Quellstand ohne lokale Env- oder Secret-Dateien in einen frischen Snapshot der
+bestehenden `canvas-managed-e2e`-VM. Linux-Abhaengigkeiten werden in der VM
+wiederverwendet. Ein Parent-Prozess legt ueber den lokalen PostgreSQL-Unix-
+Socket eine eindeutig benannte Datenbank an, ein Child-Prozess prueft die
+Routen und nach dessen Ende entfernt der Parent die Datenbank wieder. Geprueft
+werden Workspace-Anlage und -Aenderung, Team-Mitglieder, Rollen und
+Berechtigungen, Datei-Statistik, Export, Rename, Migrationsrechte,
+Session-Revocation und Audit-Ereignisse. Oeffentliche Datenbankziele werden
+abgelehnt; private Netzwerkziele brauchen einen expliziten Test-Opt-in.
+
+Der Test hat dabei einen PG-only-Blocker sichtbar gemacht: Datei-
+Kollaborationspfade wie Rename verwenden weiterhin
+`openOrganizationBootstrapDatabase()` und damit lokale SQLite-Tabellen wie
+`file_revisions`. Die aktuelle Suite initialisiert diesen bestehenden Sidecar
+explizit, waehrend Workspace-, Membership-, Permission- und Audit-Daten aus
+PostgreSQL gelesen und geschrieben werden. Die Impact-Analyse fuer eine
+Umstellung des gemeinsamen Openers ist kritisch: 25 direkte Aufrufer, 33
+Ablaufe, 20 Module und 415 betroffene Symbole. Deshalb wird die Entfernung des
+SQLite-Sidecars als eigenes PG-only-Arbeitspaket umgesetzt und nicht in den
+Test-Commit gemischt. Ausserdem bleibt der containerbasierte Migration-
+Runtime-Test getrennt, weil waehrend dieses Laufs kein zweiter Test-Container
+parallel gestartet werden darf. Die API-, Datenbank-, UI- und Lizenz-
+Lifecycle-Gates sind erfuellt.
 
 ### Companion-Service-Erweiterung
 
