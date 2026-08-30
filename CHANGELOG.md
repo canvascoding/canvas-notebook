@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.30.1] - 2026-08-30
+
+### Added
+
+- Added persistent workspace-file metadata with API, sorting, rename, mobile-client, and information-dialog support.
+- Added public Team invitation activation and stronger local Team-runtime verification coverage.
+- Added OrbStack PostgreSQL integration coverage for workspace API routes.
+
+### Changed
+
+- Made PostgreSQL the default database for fresh installations while retaining the documented transition path.
+- Hardened Team membership synchronization, runtime database guards, and managed CLI lifecycle handling.
+
+### Fixed
+
+- Fixed cross-database Team Seat retries, license fallback reactivation, mobile chat pagination, pinned file sorting, and custom-server module interoperability.
+- Made PostgreSQL reconciliation deadlines monotonic and kept the iOS Inbox widget refreshed.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.29.5] - 2026-08-29
 
 ### Fixed
