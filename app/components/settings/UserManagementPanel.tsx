@@ -6,6 +6,7 @@ import { AlertTriangle, Ban, CheckCircle2, Copy, ExternalLink, KeyRound, Loader2
 
 import { Link } from '@/i18n/navigation';
 import { authClient } from '@/app/lib/auth-client';
+import { includesTeamRuntimeLicense } from '@/app/lib/license/team-runtime-status';
 import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
 import { TeamSeatHealthPanel } from '@/app/components/license/TeamSeatHealthPanel';
 import { UserPermissionsDialog } from './UserPermissionsDialog';
@@ -121,6 +122,7 @@ type LicenseStatusResponse = {
   error?: string;
   licensed?: boolean;
   databaseProvider?: string | null;
+  runtimeDatabaseProvider?: string | null;
   capabilities?: Record<string, boolean>;
   features?: Record<string, boolean>;
   teamSeatHealth?: TeamSeatHealth | null;
@@ -192,15 +194,6 @@ function createEmptyDraft(): CreateUserDraft {
     email: '',
     isAdmin: false,
   };
-}
-
-function includesTeamRuntimeLicense(status: LicenseStatusResponse): boolean {
-  const multiUser = status.capabilities?.multiUser ?? status.features?.multiUser;
-  const teamWorkspace = status.capabilities?.teamWorkspace ?? status.features?.teamWorkspace;
-  return status.licensed === true
-    && multiUser === true
-    && teamWorkspace === true
-    && status.databaseProvider === 'postgres';
 }
 
 function getRoleDialogCopy(locale: string, target: RoleChangeTarget | null): {

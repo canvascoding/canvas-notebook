@@ -131,13 +131,13 @@ export function buildTeamSeatHealth(input: {
         staleAfterAt,
         now,
       }),
-      observedQuantity: state?.controlPlaneObservedQuantity
-        ?? state?.currentObservedQuantity
+      observedQuantity: state?.currentObservedQuantity
+        ?? state?.controlPlaneObservedQuantity
         ?? null,
       approvedQuantity: state?.approvedQuantity ?? null,
       billedQuantity: state?.billedQuantity ?? null,
-      licensedQuantity: state?.licensedQuantity
-        ?? input.licenseStatus.seatLimit
+      licensedQuantity: input.licenseStatus.seatLimit
+        ?? state?.licensedQuantity
         ?? null,
       lastSyncAt: isoTimestamp(state?.lastSyncAt ?? null),
       nextReportAt: isoTimestamp(state?.nextReportAt ?? null),
