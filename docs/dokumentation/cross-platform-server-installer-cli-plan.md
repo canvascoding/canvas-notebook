@@ -641,12 +641,23 @@ Folgende reale Szenarien wurden gegen die lokale Control Plane verifiziert:
 - Ein Development-Test-JWT wird in einer Production-Runtime mit
   `LICENSE_CERT_ENVIRONMENT_INVALID` abgelehnt.
 
-Der Endzustand nach dem Ablauf-Test ist bewusst der sichere Fallback: eine
-aktive Owner-Membership, die zweite Membership suspendiert, beide Benutzer und
-beide Workspaces erhalten. Die API-/Runtime-Marker `test` und `nonBillable`
-sind verifiziert. Eine visuelle Browser-Pruefung der Anzeige `TEST LICENSE /
-NON-BILLABLE` wurde gemaess der Browser-Testregel noch nicht ausgefuehrt und
-bleibt ein separat freizugebender UI-Test.
+Der sichere Fallback nach Ablauf und Revocation wurde mit einer aktiven Owner-
+Membership und einer suspendierten zweiten Membership verifiziert; Benutzer,
+Membership-Daten und Workspaces blieben dabei erhalten. Anschliessend wurde
+ein neuer, auf zwei Stunden begrenzter Development-Test-Grant ueber die echten
+lokalen Control-Plane-Routen erstellt. Der reale Reaktivierungsflow lief als
+Snapshot-Recovery, Quote `1 -> 2`, Test-Approval und Execute bis zum Status
+`applied`/`succeeded`. Im Endzustand sind beide Memberships aktiv.
+
+Der explizit freigegebene Browser-Test auf `http://127.0.0.1:3000` ist
+ebenfalls abgeschlossen. Sichtbar verifiziert wurden `TEST LICENSE`,
+`NON-BILLABLE`, `Development`, `Connected`, Seat-Limit 2, Active 2, Billed 0,
+Licensed 2 und Approved 2. Die Benutzerverwaltung zeigte beide lokalen
+Benutzer als aktiv. Dabei wurden zwei Statusfehler behoben und regressions-
+getestet: lokale beziehungsweise signierte Seat-Werte haben Vorrang vor
+veralteten Snapshot-Werten, und die UI verwendet fuer ihre Postgres-Readiness
+den tatsaechlichen Runtime-Datenbankprovider statt eines im Test-Zertifikat
+nicht gesetzten optionalen Provider-Claims.
 
 Erfolgreiche Notebook-Nachweise:
 
@@ -665,11 +676,14 @@ Erfolgreiche Control-Plane-Nachweise:
   PostgreSQL-Datenbank auf dem bereits vorhandenen lokalen Datenbankdienst; die
   Datenbank wurde nach dem Test entfernt
 
-Bekannte Restarbeit: Nach expliziter Freigabe einmal die sichtbaren Lizenz-
-Badges und den Membership-Flow im Browser auf `localhost:3000` pruefen. Der
-containerbasierte Migration-Runtime-Test bleibt getrennt, weil waehrend dieses
-Laufs kein zweiter Test-Container parallel gestartet werden darf. Die
-API-, Datenbank- und Lizenz-Lifecycle-Gates sind erfuellt.
+Bekannte Restarbeit: Der gemeinsame serverseitige Team-Runtime-Guard sollte in
+einem eigenen Arbeitspaket gegen den tatsaechlichen Runtime-Datenbankprovider
+gehaertet werden. Die Impact-Analyse dafuer ist kritisch (14 direkte Aufrufer,
+9 Ablaufe, 11 Module), weshalb diese Aenderung nicht als Nebenfix in den UI-
+Commit aufgenommen wurde. Ausserdem bleibt der containerbasierte Migration-
+Runtime-Test getrennt, weil waehrend dieses Laufs kein zweiter Test-Container
+parallel gestartet werden darf. Die API-, Datenbank-, UI- und Lizenz-
+Lifecycle-Gates sind erfuellt.
 
 ### Companion-Service-Erweiterung
 
