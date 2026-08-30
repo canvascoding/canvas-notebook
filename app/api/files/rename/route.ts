@@ -4,6 +4,7 @@ import { renameFile, checkRenameConflict, getFileStats, type RenameConflictError
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { syncPublicSharesAfterMove } from '@/app/lib/public-sharing/public-file-shares';
 import { moveFileCollaborationPath } from '@/app/lib/files/collaboration-policy';
+import { moveWorkspaceFileMetadata } from '@/app/lib/files/workspace-file-metadata';
 import { archivePersistedCollaborationPaths, movePersistedCollaborationPath } from '@/app/lib/collaboration/persistence';
 import {
   applyRateLimit,
@@ -112,6 +113,7 @@ export async function POST(request: NextRequest) {
           oldPath,
           newPath,
         });
+        await moveWorkspaceFileMetadata({ workspace: workspaceResult.workspace, oldPath, newPath });
         await archivePersistedCollaborationPaths({
           workspaceId: workspaceResult.workspace.workspaceId,
           paths: [newPath],
@@ -164,6 +166,7 @@ export async function POST(request: NextRequest) {
       oldPath,
       newPath,
     });
+    await moveWorkspaceFileMetadata({ workspace: workspaceResult.workspace, oldPath, newPath });
     await movePersistedCollaborationPath({
       workspaceId: workspaceResult.workspace.workspaceId,
       oldPath,
