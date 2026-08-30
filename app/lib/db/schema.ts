@@ -725,6 +725,32 @@ export const fileRevisions = sqliteTable("file_revisions", {
   actorCreatedIdx: index("idx_file_revisions_actor_created").on(table.createdByUserId, table.createdAt),
 }));
 
+/** Workspace-wide file annotations. Filesystem facts stay on disk; only user-authored data is stored here. */
+export const workspaceFileMetadata = sqliteTable("workspace_file_metadata", {
+  workspaceId: text("workspace_id").notNull(),
+  path: text("path").notNull(),
+  title: text("title"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.workspaceId, table.path] }),
+  workspaceUpdatedIdx: index("idx_workspace_file_metadata_workspace_updated").on(table.workspaceId, table.updatedAt),
+}));
+
+/** Personal quick-access state. Favorites and pins must never affect other workspace members. */
+export const workspaceFileUserStates = sqliteTable("workspace_file_user_states", {
+  workspaceId: text("workspace_id").notNull(),
+  userId: text("user_id").notNull(),
+  path: text("path").notNull(),
+  isFavorite: integer("is_favorite", { mode: "boolean" }).notNull().default(false),
+  pinnedAt: integer("pinned_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.workspaceId, table.userId, table.path] }),
+  workspaceUserFavoriteIdx: index("idx_workspace_file_user_state_favorite").on(table.workspaceId, table.userId, table.isFavorite, table.pinnedAt),
+}));
+
 export const fileLocks = sqliteTable("file_locks", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id"),

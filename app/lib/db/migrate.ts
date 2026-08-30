@@ -658,6 +658,26 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       created_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS workspace_file_metadata (
+      workspace_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      title TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (workspace_id, path)
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_file_user_states (
+      workspace_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      is_favorite INTEGER NOT NULL DEFAULT 0,
+      pinned_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (workspace_id, user_id, path)
+    );
+
     -- Paths can be reused after a file is deleted. A lineage keeps the active
     -- revision stream tied to a stable file identity instead of the path.
     CREATE TABLE IF NOT EXISTS file_collaboration_lineages (
@@ -3228,6 +3248,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_file_revisions_org_created ON file_revisions (organization_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_file_revisions_project_created ON file_revisions (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_file_revisions_actor_created ON file_revisions (created_by_user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_workspace_file_metadata_workspace_updated ON workspace_file_metadata (workspace_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_workspace_file_user_state_favorite ON workspace_file_user_states (workspace_id, user_id, is_favorite, pinned_at);
     CREATE INDEX IF NOT EXISTS idx_file_locks_active_path ON file_locks (workspace_id, path, status, expires_at);
     CREATE INDEX IF NOT EXISTS idx_file_locks_user_status ON file_locks (locked_by_user_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_file_locks_org_status ON file_locks (organization_id, status, updated_at);
