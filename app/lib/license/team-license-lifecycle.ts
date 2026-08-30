@@ -12,6 +12,9 @@ import {
   getActiveTeamMembershipProjection,
 } from '@/app/lib/organization/team-membership';
 import {
+  TEAM_LICENSE_FALLBACK_BAN_REASON,
+} from '@/app/lib/organization/membership-ban-reasons';
+import {
   recordTeamMembershipProjectionChange,
 } from './team-seat-outbox';
 import {
@@ -22,7 +25,6 @@ import {
 import type { LicenseStatus } from './types';
 
 const LOG_PREFIX = '[license/team-lifecycle]';
-const LICENSE_FALLBACK_BAN_REASON = 'canvas_team_license_fallback';
 const SOLO_FALLBACK_TRANSITION_REASON = 'team_license_solo_fallback';
 const SEAT_REDUCTION_TRANSITION_REASON = 'team_license_seat_limit_reduction';
 const TEAM_RESTORED_TRANSITION_REASON = 'team_license_reactivated';
@@ -233,7 +235,7 @@ async function disableUserForLicenseFallback(
     WHERE id = ?
       AND COALESCE(banned, 0) = 0
   `, [
-    LICENSE_FALLBACK_BAN_REASON,
+    TEAM_LICENSE_FALLBACK_BAN_REASON,
     input.now,
     input.userId,
   ]);
@@ -295,7 +297,7 @@ async function restoreUserFromLicenseFallback(
   `, [
     input.now,
     input.userId,
-    LICENSE_FALLBACK_BAN_REASON,
+    TEAM_LICENSE_FALLBACK_BAN_REASON,
   ]);
   if (changesFromRunResult(userResult) === 1) return true;
 
@@ -322,7 +324,7 @@ async function remainingFallbackUsers(
     WHERE COALESCE(user_account.banned, 0) != 0
       AND user_account.ban_reason = ?
   `, [
-    LICENSE_FALLBACK_BAN_REASON,
+    TEAM_LICENSE_FALLBACK_BAN_REASON,
   ]) as { count?: number | string } | undefined;
   return Number(row?.count || 0);
 }
@@ -539,7 +541,7 @@ async function reconcileWithinTransaction(
         membership.id ASC
     `, [
       organization.organization_id,
-      LICENSE_FALLBACK_BAN_REASON,
+      TEAM_LICENSE_FALLBACK_BAN_REASON,
       SOLO_FALLBACK_TRANSITION_REASON,
       SEAT_REDUCTION_TRANSITION_REASON,
     ]) as RestoreMembershipRow[];

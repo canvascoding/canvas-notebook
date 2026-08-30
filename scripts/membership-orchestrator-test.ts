@@ -1082,7 +1082,7 @@ async function main() {
   assert.match(authSource, /MEMBERSHIP_ORCHESTRATOR_REQUIRED/u);
   assert.match(authSource, /context\.path === "\/admin\/create-user"/u);
   assert.match(authSource, /assertTeamMembershipIdentityReactivatable/u);
-  assert.match(authSource, /TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX/u);
+  assert.match(authSource, /isTeamMembershipReactivationBanReason/u);
   assert.match(authSource, /auth\.api\.setUserPassword/u);
 }
 

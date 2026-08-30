@@ -5,6 +5,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type { LicenseStatus } from '../app/lib/license/types';
+import {
+  isTeamMembershipReactivationBanReason,
+  TEAM_LICENSE_FALLBACK_BAN_REASON,
+} from '../app/lib/organization/membership-ban-reasons';
 
 const dataRoot = mkdtempSync(path.join(tmpdir(), 'canvas-team-license-lifecycle-'));
 const previousEnvironment = {
@@ -66,6 +70,20 @@ function licenseStatus(input: {
 }
 
 async function main() {
+  assert.equal(
+    isTeamMembershipReactivationBanReason(TEAM_LICENSE_FALLBACK_BAN_REASON),
+    true,
+  );
+  assert.equal(
+    isTeamMembershipReactivationBanReason('canvas_team_membership_suspended:Security review'),
+    true,
+  );
+  assert.equal(isTeamMembershipReactivationBanReason('security_policy'), false);
+  assert.equal(
+    isTeamMembershipReactivationBanReason(`${TEAM_LICENSE_FALLBACK_BAN_REASON}:forged`),
+    false,
+  );
+
   const workspaceDirectory = path.join(dataRoot, 'organizations', 'organization-lifecycle', 'workspaces', 'team');
   const workspaceFile = path.join(workspaceDirectory, 'preserved.txt');
   mkdirSync(workspaceDirectory, { recursive: true });
