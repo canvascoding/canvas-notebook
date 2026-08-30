@@ -865,8 +865,23 @@ export async function sendMobileAttentionPush(input: {
          AND session.expires_at > ?`,
       [input.userId, authNow],
     ) as MobilePushDeviceRow[];
+    // A disabled alert category must stay quiet, but it must not prevent an
+    // already-authorized iOS widget from receiving its private data refresh.
+    // WidgetKit otherwise keeps the last snapshot until the user foregrounds
+    // Canvas again.
+    const widgetRows = await connection.all(
+      `SELECT mobile_push_devices.${DEVICE_SELECT.replaceAll(', ', ', mobile_push_devices.')}
+       FROM mobile_push_devices
+       INNER JOIN session ON session.id = mobile_push_devices.auth_session_id
+       WHERE mobile_push_devices.user_id = ?
+         AND mobile_push_devices.enabled = 1
+         AND mobile_push_devices.platform = 'ios'
+         AND session.user_id = mobile_push_devices.user_id
+         AND session.expires_at > ?`,
+      [input.userId, authNow],
+    ) as MobilePushDeviceRow[];
     let badge: number | undefined;
-    if (rows.length) {
+    if (rows.length || widgetRows.length) {
       try {
         badge = await countMobileAppBadgeForUserId(input.userId);
       } catch (error) {
@@ -910,10 +925,9 @@ export async function sendMobileAttentionPush(input: {
         }
       }
     }
-    const iosRows = rows.filter((row) => row.platform === 'ios');
-    if (iosRows.length) {
+    if (widgetRows.length) {
       await sendInboxWidgetRefreshPush({
-        rows: iosRows,
+        rows: widgetRows,
         instanceId,
         responseCount: badge,
         fetcher,

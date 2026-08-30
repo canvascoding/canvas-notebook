@@ -411,7 +411,14 @@ async function main() {
     },
   });
   assert.deepEqual(delivery, { attempted: 1, accepted: 1 });
-  assert.deepEqual(sentPayloads, [previewMessages, widgetRefreshMessages]);
+  assert.deepEqual(sentPayloads, [[{
+    ...previewMessages[0],
+    badge: 2,
+  }], createInboxWidgetRefreshMessages({
+    tokens: [registration.expoPushToken],
+    instanceId: 'cni_0123456789abcdef01234567',
+    responseCount: 2,
+  })]);
 
   let duplicatePushAttempts = 0;
   const duplicateFetcher = async () => {
@@ -551,6 +558,7 @@ async function main() {
     installationId: 'installation-1',
   })).lastDeliveryAt);
 
+  const mutedStudioPayloads: unknown[] = [];
   const mutedStudio = await sendMobileAttentionPush({
     userId: 'push-user',
     instanceId: 'cni_0123456789abcdef01234567',
@@ -559,11 +567,22 @@ async function main() {
       workspaceId: 'workspace-1',
       generationId: 'generation-1',
     },
-    fetcher: async () => {
-      throw new Error('Muted category must not contact Expo.');
+    fetcher: async (_url, init) => {
+      mutedStudioPayloads.push(JSON.parse(String(init?.body)));
+      return Response.json({ data: [{ status: 'ok', id: 'muted-widget-refresh-ticket' }] });
     },
   });
   assert.deepEqual(mutedStudio, { attempted: 0, accepted: 0 });
+  assert.deepEqual(mutedStudioPayloads, [[{
+    to: registration.expoPushToken,
+    data: {
+      type: 'inbox.widget_refresh',
+      instanceId: 'cni_0123456789abcdef01234567',
+      widgetRefresh: true,
+      responseCount: 2,
+    },
+    _contentAvailable: true,
+  }]]);
 
   const automationStatusPayloads: unknown[] = [];
   const automationStatusDelivery = await sendAutomationRunStatusPush({
@@ -589,6 +608,7 @@ async function main() {
       ...automationStatusMessages[0],
       title: 'Daily brief',
       body: 'Scheduled automation completed successfully.',
+      badge: 2,
       data: {
         ...automationStatusMessages[0].data,
         runId: 'run-scheduled-1',
@@ -599,7 +619,7 @@ async function main() {
         type: 'inbox.widget_refresh',
         instanceId: 'cni_0123456789abcdef01234567',
         widgetRefresh: true,
-        responseCount: 1,
+        responseCount: 2,
       },
       _contentAvailable: true,
     }]]);
