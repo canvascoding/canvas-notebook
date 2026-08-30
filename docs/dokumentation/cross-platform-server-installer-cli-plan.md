@@ -676,14 +676,24 @@ Erfolgreiche Control-Plane-Nachweise:
   PostgreSQL-Datenbank auf dem bereits vorhandenen lokalen Datenbankdienst; die
   Datenbank wurde nach dem Test entfernt
 
-Bekannte Restarbeit: Der gemeinsame serverseitige Team-Runtime-Guard sollte in
-einem eigenen Arbeitspaket gegen den tatsaechlichen Runtime-Datenbankprovider
-gehaertet werden. Die Impact-Analyse dafuer ist kritisch (14 direkte Aufrufer,
-9 Ablaufe, 11 Module), weshalb diese Aenderung nicht als Nebenfix in den UI-
-Commit aufgenommen wurde. Ausserdem bleibt der containerbasierte Migration-
-Runtime-Test getrennt, weil waehrend dieses Laufs kein zweiter Test-Container
-parallel gestartet werden darf. Die API-, Datenbank-, UI- und Lizenz-
-Lifecycle-Gates sind erfuellt.
+Der gemeinsame serverseitige Team-Runtime-Guard ist jetzt gegen den
+tatsaechlichen Runtime-Datenbankprovider gehaertet. Eine gueltige signierte
+Team-Lizenz reicht allein nicht mehr aus: SQLite, eine fehlende Postgres-URL
+oder eine anderweitig unbrauchbare Postgres-Runtime werden fail-closed mit
+`LICENSE_FEATURE_REQUIRED` abgelehnt. Der optionale `databaseProvider`-Claim
+des Zertifikats bleibt Lizenzmetadatum und wird nicht als Beweis fuer die
+wirklich aktive Datenbank verwendet. Positiv- und Negativfaelle sind in der
+License-Security- und der Team-Runtime-Route-Suite abgedeckt; Foundation- und
+Model-Suiten sichern die Workspace-Logik weiterhin ab.
+
+Naechste Restarbeit: Der fruehere Workspace-API-Routentest simulierte Team-
+Funktionen auf SQLite und widersprach damit der neuen Runtime-Grenze. Er wurde
+durch den fail-closed Runtime-Guard-Vertrag ersetzt. Die vollstaendige API-
+Routenabdeckung soll im naechsten Arbeitspaket gegen eine eigene, migrierte
+lokale PostgreSQL-Testdatenbank wiederhergestellt werden. Ausserdem bleibt der
+containerbasierte Migration-Runtime-Test getrennt, weil waehrend dieses Laufs
+kein zweiter Test-Container parallel gestartet werden darf. Die API-,
+Datenbank-, UI- und Lizenz-Lifecycle-Gates sind erfuellt.
 
 ### Companion-Service-Erweiterung
 
