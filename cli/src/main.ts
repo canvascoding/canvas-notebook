@@ -25,6 +25,7 @@ import {
 import { AutoUpdateManager, isAutoUpdateCommand, validateAutoUpdateSchedule, type AutoUpdateStatus } from './core/autoUpdate';
 import { CaddyManager, isCaddyCommand, type CaddyStatus } from './core/caddy';
 import { writeComposeFile } from './core/compose';
+import { monotonicDeadlineMs, remainingMonotonicSeconds } from './core/deadline';
 import { collectHostResources } from './core/diagnostics';
 import { DockerManager } from './core/docker';
 import { migrateLegacyConfig } from './core/legacyConfig';
@@ -1303,18 +1304,18 @@ async function reconcilePostgresAuth(
   let oldComposeEnv = '';
   let roleMutationStarted = false;
   let timeoutSeconds = 900;
-  let deadline = Date.now() + timeoutSeconds * 1000;
+  let deadline = monotonicDeadlineMs(timeoutSeconds);
   let forwardDeadline = deadline;
   let recoveryJournal: PostgresRecoveryJournal | null = null;
   let recoverySnapshot: PostgresRecoverySnapshot | null = null;
   let journalArmed = false;
   let journalWasPending = false;
   let freshInitialization = false;
-  const remainingSeconds = (target: number): number => Math.max(0, Math.ceil((target - Date.now()) / 1000));
+  const remainingSeconds = (target: number): number => remainingMonotonicSeconds(target);
   try {
     timeoutSeconds = parsePostgresReconcileTimeout(args);
     const rollbackReserve = timeoutSeconds > 1 ? Math.min(30, Math.max(1, Math.floor(timeoutSeconds / 5))) : 0;
-    deadline = Date.now() + timeoutSeconds * 1000;
+    deadline = monotonicDeadlineMs(timeoutSeconds);
     forwardDeadline = deadline - rollbackReserve * 1000;
     phase = 'preflight';
     if (!postgresRuntimeDesired(config)) throw new Error('Managed Postgres is not enabled for this installation.');

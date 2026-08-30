@@ -18,6 +18,7 @@ import {
   writeSecureFile,
 } from '../cli/src/core/config';
 import { renderComposeFile } from '../cli/src/core/compose';
+import { monotonicDeadlineMs, remainingMonotonicSeconds } from '../cli/src/core/deadline';
 import { DockerManager } from '../cli/src/core/docker';
 import { orphanedComposeLogFollowerPids } from '../cli/src/core/logCleanup';
 import { composePath, resolveDefaultPaths } from '../cli/src/core/platform';
@@ -171,6 +172,21 @@ async function withTempRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
 }
 
 async function main() {
+  let monotonicNow = 5_000;
+  const monotonicClock = () => monotonicNow;
+  const relativeDeadline = monotonicDeadlineMs(10, monotonicClock);
+  const originalDateNow = Date.now;
+  try {
+    Date.now = () => originalDateNow() + 30 * 60 * 1000;
+    assert.equal(remainingMonotonicSeconds(relativeDeadline, monotonicClock), 10);
+    monotonicNow += 1_001;
+    assert.equal(remainingMonotonicSeconds(relativeDeadline, monotonicClock), 9);
+    monotonicNow += 9_000;
+    assert.equal(remainingMonotonicSeconds(relativeDeadline, monotonicClock), 0);
+  } finally {
+    Date.now = originalDateNow;
+  }
+
   const processRunner = new SpawnCommandRunner();
   const oversizedOutput = await processRunner.run(process.execPath, [
     '-e',
