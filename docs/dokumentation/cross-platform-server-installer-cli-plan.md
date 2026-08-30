@@ -2,7 +2,7 @@
 
 ## Verbindlicher Umsetzungsplan: Legacy-Bash-CLI zur TypeScript-CLI
 
-Stand: 2026-08-28
+Stand: 2026-08-30
 
 Dieser Abschnitt ist der aktive Migrationsplan. Bei Widerspruechen mit aelteren
 Hybrid- oder Zukunftsaussagen weiter unten in diesem Dokument gilt dieser
@@ -465,6 +465,38 @@ erfuellt. Die erhaltene Legacy-CLI bleibt bis Phase 8 ausschliesslich als
 expliziter Migrations-Rollback bestehen; Postgres-only wird erst in Phase 9
 aktiviert.
 
+Ergaenzender Release-Nachweis 2026-08-30: Der Managed-Run
+`4db43259-0d98-4c28-978d-558b78c795fe` aktualisierte dieselbe isolierte
+OrbStack-VM erfolgreich von `2026.8.29.3` auf `2026.8.29.5` und verifizierte
+den gepinnten Digest
+`sha256:0c57394a000aa81f4258235115f0bf2787b07005f44c90495508b7247084b1b6`.
+Danach wechselte der explizite CLI-Rollback von `2026.8.29.5` auf die vorherige
+TypeScript-CLI `2026.8.29.3`; die Anwendung blieb auf `2026.8.29.5`, der
+Postgres-/pgvector-Health blieb gesund und eine Legacy-CLI war nicht mehr
+vorhanden. Der abschliessende Control-Plane-Lauf
+`3ba2c445-5366-48bf-8f4d-2af435131da3` aktivierte die CLI `2026.8.29.5` erneut
+und endete mit `observedVersion=2026.8.29.5`, dem erwarteten Digest und
+`observedAppHealthStatus=healthy`. `state/previous` zeigt weiterhin auf
+`2026.8.29.3`.
+
+Ein zwischenzeitlicher Lauf
+`e485d744-6198-4b23-bef2-80381c02bfa7` wurde durch einen Neustart des lokalen
+OrbStack-Backends unterbrochen und deshalb korrekt als `verification_timeout`
+journalisiert. Heartbeat und direkter VM-Check zeigten danach trotzdem die
+Zielversion, den Zieldigest und einen gesunden Dienst; der Lauf gilt daher als
+Infrastruktur-Unterbrechung und nicht als Release-Fehler. Fuer den lokalen
+LXC-Test ist Swap im isolierten VM-Sollzustand deaktiviert, weil OrbStack dort
+keinen zusaetzlichen Swap aktivieren kann. Diese Testeinstellung aendert weder
+Produktionsdefaults noch die IONOS-Konfiguration.
+
+Der Test deckte zugleich einen Uhrsprung in der OrbStack-VM auf: Nach einer
+Vorwaertskorrektur der Wall Clock konnte die relative
+Postgres-Reconcile-Deadline sofort ablaufen. Relative Reconcile-Timeouts
+verwenden deshalb nun eine monotone Uhr; ein Regressionstest simuliert einen
+Wall-Clock-Sprung von 30 Minuten. Der gepackte ARM64-Stand wurde separat in der
+VM gestartet und schloss den zuvor betroffenen Start-/Reconcile-Pfad
+erfolgreich ab.
+
 - Agent erkennt CLI-Generation und Capabilities.
 - Host-CLI-Artefakt-Validator akzeptiert das neue, versionierte Layout.
 - einzelne Managed VMs als Canary aktualisieren.
@@ -475,6 +507,12 @@ ein expliziter, erfolgreicher Rollback auf den vor dem ersten Cutover
 verfuegbaren CLI-Stand.
 
 #### Phase 8: Legacy-Bash-CLI aus dem Betrieb nehmen
+
+Status: Abgeschlossen am 2026-08-30. Der zweite verifizierte TypeScript-Release
+hat die erhaltene Legacy-CLI automatisch entfernt. Aktivierung und expliziter
+Rollback wechseln ausschliesslich zwischen den versionierten TypeScript-Staenden
+`2026.8.29.5` und `2026.8.29.3`; der kanonische Einstiegspunkt meldet
+`cliGeneration=typescript`.
 
 Teilstatus 2026-08-29: Der Linux-CLI-Installer behaelt die Legacy-Bash-CLI nur
 noch fuer den ersten TypeScript-Cutover ohne vorhandene TypeScript-
