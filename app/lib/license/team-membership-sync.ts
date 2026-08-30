@@ -253,16 +253,6 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
   limit?: number;
 } = {}): Promise<TeamMembershipSnapshotSyncResult> {
   const licenseStatus = options.licenseStatus ?? await getLicenseStatus();
-  const database = options.database ?? await openDb();
-  const closeDatabase = options.database === undefined;
-  const now = options.now ?? Date.now();
-  const databaseProvider = options.databaseProvider ?? getDatabaseProvider();
-  const sender = options.sendSnapshot ?? (
-    (request, operationId) => submitCommunityTeamMembershipSnapshot(
-      request,
-      { operationId, now: new Date(now) },
-    )
-  );
   const result: TeamMembershipSnapshotSyncResult = {
     organizations: 0,
     generated: 0,
@@ -274,6 +264,18 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
     deferred: 0,
     failed: 0,
   };
+  if (licenseStatus.edition !== 'team') return result;
+
+  const database = options.database ?? await openDb();
+  const closeDatabase = options.database === undefined;
+  const now = options.now ?? Date.now();
+  const databaseProvider = options.databaseProvider ?? getDatabaseProvider();
+  const sender = options.sendSnapshot ?? (
+    (request, operationId) => submitCommunityTeamMembershipSnapshot(
+      request,
+      { operationId, now: new Date(now) },
+    )
+  );
   try {
     const organizations = await organizationIds(database);
     result.organizations = organizations.length;
