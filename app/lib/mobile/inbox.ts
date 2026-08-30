@@ -232,13 +232,22 @@ function compareTodoSortKeys(left: TodoSortKey, right: TodoSortKey): number {
     || right.id.localeCompare(left.id);
 }
 
+function compareInboxItemRecency(
+  left: Pick<MobileInboxItem, 'id' | 'occurredAt'>,
+  right: Pick<MobileInboxItem, 'id' | 'occurredAt'>,
+): number {
+  return right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id);
+}
+
 function compareCollectedInboxItems(left: CollectedInboxItem, right: CollectedInboxItem): number {
+  return compareInboxItemRecency(left, right);
+}
+
+function compareCollectedTodoItems(left: CollectedInboxItem, right: CollectedInboxItem): number {
   if (left.target.kind === 'todo' && right.target.kind === 'todo' && left.todoSortKey && right.todoSortKey) {
     return compareTodoSortKeys(left.todoSortKey, right.todoSortKey);
   }
-  if (left.target.kind === 'todo') return -1;
-  if (right.target.kind === 'todo') return 1;
-  return right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id);
+  return compareInboxItemRecency(left, right);
 }
 
 function publicInboxItem(item: CollectedInboxItem): MobileInboxItem {
@@ -550,6 +559,7 @@ export async function listMobileInbox(input: {
     automation: allItems.filter((item) => item.target.kind === 'automation').length,
   };
   let filtered = allItems.filter((item) => matchesFilter(item, filter));
+  if (filter === 'todos') filtered.sort(compareCollectedTodoItems);
   if (cursor) {
     const cursorIndex = filtered.findIndex((item) => (
       item.occurredAt === cursor.occurredAt && item.id === cursor.id
@@ -600,14 +610,19 @@ function compareAggregateInboxItems(
   left: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId' | 'target'> & { todoSortKey?: TodoSortKey },
   right: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId' | 'target'> & { todoSortKey?: TodoSortKey },
 ): number {
-  if (left.target.kind === 'todo' && right.target.kind === 'todo' && left.todoSortKey && right.todoSortKey) {
-    return compareTodoSortKeys(left.todoSortKey, right.todoSortKey);
-  }
-  if (left.target.kind === 'todo') return -1;
-  if (right.target.kind === 'todo') return 1;
   return right.occurredAt.localeCompare(left.occurredAt)
     || right.workspaceId.localeCompare(left.workspaceId)
     || right.id.localeCompare(left.id);
+}
+
+function compareAggregateTodoItems(
+  left: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId' | 'target'> & { todoSortKey?: TodoSortKey },
+  right: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId' | 'target'> & { todoSortKey?: TodoSortKey },
+): number {
+  if (left.target.kind === 'todo' && right.target.kind === 'todo' && left.todoSortKey && right.todoSortKey) {
+    return compareTodoSortKeys(left.todoSortKey, right.todoSortKey);
+  }
+  return compareAggregateInboxItems(left, right);
 }
 
 function assignTodoPresentationGroups(
@@ -655,24 +670,32 @@ function assignTodoPresentationGroups(
 
 function createTodoPresentationEntries(
   items: GroupableAggregateInboxItem[],
+  compareItems = compareAggregateInboxItems,
 ): MobileAggregateInboxEntry[] {
+  const sortedItems = [...items].sort(compareItems);
   const groupItems = new Map<string, GroupableAggregateInboxItem[]>();
-  const entries: MobileAggregateInboxEntry[] = [];
-  for (const item of items) {
-    if (!item.todoPresentationGroupId) {
-      entries.push(publicAggregateInboxItem(item));
-      continue;
-    }
+  for (const item of sortedItems) {
+    if (!item.todoPresentationGroupId) continue;
     const members = groupItems.get(item.todoPresentationGroupId) || [];
     members.push(item);
     groupItems.set(item.todoPresentationGroupId, members);
   }
-  for (const [groupId, members] of groupItems) {
+
+  const emittedGroupIds = new Set<string>();
+  const entries: MobileAggregateInboxEntry[] = [];
+  for (const item of sortedItems) {
+    const groupId = item.todoPresentationGroupId;
+    if (!groupId) {
+      entries.push(publicAggregateInboxItem(item));
+      continue;
+    }
+    if (emittedGroupIds.has(groupId)) continue;
+    emittedGroupIds.add(groupId);
+    const members = groupItems.get(groupId) || [];
     if (members.length < 2) {
       entries.push(...members.map(publicAggregateInboxItem));
       continue;
     }
-    members.sort(compareAggregateInboxItems);
     const representative = publicAggregateInboxItem(members[0]!);
     entries.push({
       ...representative,
@@ -686,13 +709,13 @@ function createTodoPresentationEntries(
       unread: members.some((item) => item.unread),
     });
   }
-  return entries.sort(compareAggregateInboxItems);
+  return entries;
 }
 
 export function groupMobileAggregateInboxItemsForPresentation(
   items: CollectedAggregateInboxItem[],
 ): MobileAggregateInboxEntry[] {
-  return createTodoPresentationEntries(assignTodoPresentationGroups(items));
+  return createTodoPresentationEntries(assignTodoPresentationGroups(items), compareAggregateTodoItems);
 }
 
 export async function listMobileAggregateInbox(input: {
@@ -722,9 +745,10 @@ export async function listMobileAggregateInbox(input: {
     automation: allItems.filter((item) => item.target.kind === 'automation').length,
   };
   const filteredItems = allItems.filter((item) => matchesFilter(item, filter));
+  const compareItems = filter === 'todos' ? compareAggregateTodoItems : compareAggregateInboxItems;
   let filtered: MobileAggregateInboxEntry[] = groupWorkspaceTodos
-    ? createTodoPresentationEntries(filteredItems)
-    : filteredItems.map(publicAggregateInboxItem);
+    ? createTodoPresentationEntries(filteredItems, compareItems)
+    : [...filteredItems].sort(compareItems).map(publicAggregateInboxItem);
   if (cursor) {
     const cursorIndex = filtered.findIndex((item) => (
       item.occurredAt === cursor.occurredAt
