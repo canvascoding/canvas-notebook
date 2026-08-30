@@ -249,6 +249,7 @@
     "test:licenses": "tsx scripts/third-party-license-compliance-test.ts && tsx scripts/generate-third-party-notices.ts --check",
     "test:licenses:release": "tsx scripts/generate-third-party-notices.ts --check --release",
     "verify:release": "npm ci --dry-run --ignore-scripts --no-audit --no-fund && npm run test:licenses:release && npm run lint && npm run build",
+    "test:install:database-default": "bash scripts/install-database-default-test.sh",
     "test:install:managed-env": "bash scripts/install-managed-env-test.sh",
     "test:db:sqlite-to-postgres-plan": "tsx scripts/sqlite-to-postgres-migration-plan-test.ts",
     "test:db:sqlite-corruption": "tsx --conditions react-server scripts/sqlite-corruption-handling-test.ts",
