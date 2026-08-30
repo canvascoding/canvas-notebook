@@ -49,6 +49,8 @@ async function main() {
   }
 
   const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-license-security-'));
+  const originalDatabaseProvider = process.env.CANVAS_DATABASE_PROVIDER;
+  const originalDatabaseUrl = process.env.DATABASE_URL;
   process.env.DATA = dataDir;
   process.env.CANVAS_INSTANCE_ID = 'self_license_test';
 
@@ -306,6 +308,8 @@ async function main() {
   if (originalNodeEnv === undefined) Reflect.deleteProperty(process.env, 'NODE_ENV');
   else Reflect.set(process.env, 'NODE_ENV', originalNodeEnv);
 
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+  process.env.DATABASE_URL = 'postgresql://127.0.0.1/canvas_license_security_test';
   process.env.CANVAS_LICENSE_CERT = validToken;
   assert.equal((await requireLicenseFeature('teamWorkspace')).features.teamWorkspace, true);
   assert.equal((await requireLicensePlan(['managed'])).plan, 'managed');
@@ -320,6 +324,44 @@ async function main() {
   assert.equal(teamRuntimeStatus.databaseProvider, 'postgres');
   assert.equal(teamRuntimeStatus.vectorProvider, 'pgvector');
   assert.equal(teamRuntimeStatus.postgresRequired, true);
+
+  const providerOptionalInstanceId = 'runtime_provider_optional_instance';
+  const providerOptionalToken = signLicense(privateKey, {
+    ...basePayload,
+    sub: providerOptionalInstanceId,
+    databaseProvider: undefined,
+    iat: basePayload.iat + 30,
+  });
+  process.env.CANVAS_INSTANCE_ID = providerOptionalInstanceId;
+  process.env.CANVAS_LICENSE_CERT = providerOptionalToken;
+  const providerOptionalStatus = await requireTeamRuntimeLicense();
+  assert.equal(providerOptionalStatus.databaseProvider, null);
+
+  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+  await assert.rejects(
+    () => requireTeamRuntimeLicense(),
+    (error) => error instanceof LicenseEntitlementError
+      && error.code === 'LICENSE_FEATURE_REQUIRED'
+      && error.statusCode === 403
+      && error.details.runtimeDatabaseProvider === 'sqlite'
+      && Array.isArray(error.details.blockers)
+      && error.details.blockers.includes('team_requires_postgres'),
+  );
+
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+  delete process.env.DATABASE_URL;
+  await assert.rejects(
+    () => requireTeamRuntimeLicense(),
+    (error) => error instanceof LicenseEntitlementError
+      && error.code === 'LICENSE_FEATURE_REQUIRED'
+      && error.statusCode === 403
+      && error.details.runtimeDatabaseProvider === 'postgres'
+      && Array.isArray(error.details.blockers)
+      && error.details.blockers.includes('postgres_missing_database_url'),
+  );
+  process.env.DATABASE_URL = 'postgresql://127.0.0.1/canvas_license_security_test';
+  process.env.CANVAS_INSTANCE_ID = 'self_license_test';
+  process.env.CANVAS_LICENSE_CERT = validToken;
 
   await assert.rejects(
     () => requireLicenseFeature('teamKnowledgeBase'),
@@ -432,6 +474,10 @@ async function main() {
   assert.equal(expiredStatus.code, 'LICENSE_CERT_EXPIRED');
 
   delete process.env.CANVAS_LICENSE_CERT;
+  if (originalDatabaseProvider === undefined) delete process.env.CANVAS_DATABASE_PROVIDER;
+  else process.env.CANVAS_DATABASE_PROVIDER = originalDatabaseProvider;
+  if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = originalDatabaseUrl;
   rmSync(dataDir, { recursive: true, force: true });
 }
 
