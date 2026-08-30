@@ -43,7 +43,9 @@ interface FileGridViewProps {
 
 const FILE_SORT_OPTIONS: Array<{ key: FileSortKey; labelKey: string }> = [
   { key: 'name', labelKey: 'sortName' },
+  { key: 'title', labelKey: 'sortTitle' },
   { key: 'type', labelKey: 'sortType' },
+  { key: 'created', labelKey: 'sortCreated' },
   { key: 'modified', labelKey: 'sortModified' },
   { key: 'size', labelKey: 'sortSize' },
 ];
