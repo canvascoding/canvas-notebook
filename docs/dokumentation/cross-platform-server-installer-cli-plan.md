@@ -545,6 +545,17 @@ alle unterstuetzten Installationen melden die neue CLI-Generation.
 
 Diese Phase beginnt erst nach dem CLI-Cutover:
 
+Teilstatus 2026-08-30: Der Canvas Agent delegiert den Postgres-Prepare-Lifecycle
+jetzt vollstaendig an `canvas-notebook database prepare-postgres`. Der zuvor
+anschliessend wiederholte direkte Container-Inspect und das rohe
+`docker exec ... CREATE EXTENSION` wurden entfernt. Die TypeScript-CLI bleibt
+damit die einzige Stelle fuer Compose-Start, Readiness, Credential-Verifikation
+und pgvector-Aktivierung; die Control Plane beziehungsweise der Agent setzen
+weiterhin nur Sollzustand, Secrets, Timeout und Fortschritt. Der gemeinsame
+Helper bedient sowohl Managed-Prepare als auch SQLite-zu-Postgres-Migration.
+Agent-Vertragstest, Agent-Build, vollstaendiger Control-Plane-Typecheck und der
+portable CLI-Test sind erfolgreich.
+
 1. Postgres-Lifecycle ausschliesslich in der neuen CLI konsolidieren.
 2. Doppelte Postgres-Startlogik aus Control-Plane-Bootstrap entfernen.
 3. SQLite/Postgres zunaechst weiter im Standalone-Installer anbieten.
