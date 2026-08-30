@@ -565,6 +565,16 @@ Install-Skript entfernt. Der Managed-Postgres-Vertragstest verhindert ihre
 Wiedereinfuehrung; Agent-Artefakttest und vollstaendiger Control-Plane-Typecheck
 sind erfolgreich.
 
+Teilstatus 2026-08-30: Der Standalone-Linux-Installer verwendet fuer wirklich
+neue Installationen jetzt Postgres als vorausgewaehlten und non-interaktiven
+Default. SQLite bleibt als explizite Kompatibilitaetsoption waehlbar. Ein
+vorhandener SQLite- oder Postgres-Stand wird unveraendert uebernommen; das gilt
+auch fuer SQLite-Konfigurationen, die im selben Lauf aus der alten
+`manager.env` migriert werden. Ein isolierter Installer-Test deckt Fresh
+Default, explizites Fresh-SQLite, vorhandene SQLite-/Postgres-Konfiguration und
+Legacy-SQLite-Migration ab. Managed-Installer-Test, CLI-Build, portabler
+CLI-Test, Lint und Produktions-Build sind erfolgreich.
+
 1. Postgres-Lifecycle ausschliesslich in der neuen CLI konsolidieren.
 2. Doppelte Postgres-Startlogik aus Control-Plane-Bootstrap entfernen.
 3. SQLite/Postgres zunaechst weiter im Standalone-Installer anbieten.
