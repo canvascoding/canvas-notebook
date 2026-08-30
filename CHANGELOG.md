@@ -11,6 +11,16 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.30.2] - 2026-08-30
+
+### Changed
+
+- Sorted mixed mobile Inbox items consistently by recency while preserving the dedicated todo ordering for todo-only views.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.30.1] - 2026-08-30
 
 ### Added
