@@ -547,6 +547,7 @@ export async function getFileStats(filePath: string, options?: WorkspaceFileOper
   return {
     size: totalSize,
     modified: Math.floor(stats.mtimeMs / 1000),
+    created: stats.birthtimeMs > 0 ? Math.floor(stats.birthtimeMs / 1000) : undefined,
     isDirectory: stats.isDirectory(),
     isFile: stats.isFile(),
     permissions: stats.mode?.toString(8),
