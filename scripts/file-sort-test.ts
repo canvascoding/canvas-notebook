@@ -40,5 +40,9 @@ assert.deepEqual(
   sortFileNodes(nodes, 'type', 'asc').map((node) => node.name),
   ['folder-a', 'folder-b', 'unknown.bin', 'file2.md', 'file10.md', 'image.png'],
 );
+assert.deepEqual(
+  sortFileNodes(nodes, 'pinned', 'desc').map((node) => node.name),
+  ['folder-b', 'folder-a', 'image.png', 'unknown.bin', 'file10.md', 'file2.md'],
+);
 
 console.log('file sort test passed');

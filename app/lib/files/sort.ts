@@ -35,6 +35,11 @@ function compareOptionalNumber(left?: number, right?: number): number | null {
   return null;
 }
 
+function numericSortValue(node: FileNode, sortKey: 'created' | 'modified' | 'size' | 'pinned'): number | undefined {
+  const value = sortKey === 'pinned' ? node.pinnedAt : node[sortKey];
+  return value ?? undefined;
+}
+
 export function sortFileNodes(
   nodes: FileNode[],
   sortKey: FileSortKey,
@@ -48,8 +53,8 @@ export function sortFileNodes(
       const titleOrder = fileNameCollator.compare(getFileTitle(left), getFileTitle(right));
       if (titleOrder !== 0) return titleOrder * multiplier;
     } else if (sortKey === 'created' || sortKey === 'modified' || sortKey === 'size' || sortKey === 'pinned') {
-      const leftValue = left[sortKey] ?? undefined;
-      const rightValue = right[sortKey] ?? undefined;
+      const leftValue = numericSortValue(left, sortKey);
+      const rightValue = numericSortValue(right, sortKey);
       const missingOrder = compareOptionalNumber(leftValue, rightValue);
       if (missingOrder !== null && missingOrder !== 0) return missingOrder;
       if (leftValue !== undefined && rightValue !== undefined && leftValue !== rightValue) {
