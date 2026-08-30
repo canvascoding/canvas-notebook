@@ -139,6 +139,7 @@
     "test:notebook:context": "tsx scripts/notebook-chat-context-test.ts",
     "test:files:zip": "tsx --conditions react-server scripts/zip-extraction-test.ts",
     "test:files:sort": "tsx scripts/file-sort-test.ts",
+    "test:files:metadata": "tsx scripts/file-metadata-format-test.ts",
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",
     "test:editor:preservation": "tsx scripts/markdown-roundtrip-preservation-test.ts",
     "test:editor:collaboration-lifecycle": "tsx scripts/code-editor-collaboration-lifecycle-test.ts",

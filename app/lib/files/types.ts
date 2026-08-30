@@ -15,7 +15,16 @@ export interface FileNode {
   type: 'file' | 'directory';
   size?: number;
   modified?: number;
+  /** Filesystem creation time in epoch seconds when the underlying filesystem exposes one. */
+  created?: number;
   permissions?: string;
+  /** Optional workspace-wide display title. Falls back to the display name derived from `name`. */
+  title?: string | null;
+  /** Human-readable, derived file format such as "PDF (.pdf)". */
+  format?: string;
+  /** Personal state for the requesting user. These fields are additive for future clients. */
+  isFavorite?: boolean;
+  pinnedAt?: number | null;
   children?: FileNode[];
   publicShare?: PublicShareState;
 }
@@ -25,6 +34,7 @@ export type BrowserMode = 'tree' | 'list' | 'grid';
 export interface FileStats {
   size: number;
   modified: number;
+  created?: number;
   permissions: string;
   sha256?: string;
 }

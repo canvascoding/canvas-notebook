@@ -191,6 +191,7 @@ export async function listDirectory(
       ...node,
       size: stats.size,
       modified: Math.floor(stats.mtimeMs / 1000),
+      created: stats.birthtimeMs > 0 ? Math.floor(stats.birthtimeMs / 1000) : undefined,
       permissions: stats.mode?.toString(8),
     };
     },
@@ -220,6 +221,7 @@ export async function getDataFileStats(filePath: string) {
   return {
     size: totalSize,
     modified: Math.floor(stats.mtimeMs / 1000),
+    created: stats.birthtimeMs > 0 ? Math.floor(stats.birthtimeMs / 1000) : undefined,
     isDirectory: stats.isDirectory(),
     isFile: stats.isFile(),
     permissions: stats.mode?.toString(8),
@@ -891,6 +893,7 @@ export async function buildGenericFileTree(
       type: entry.isDirectory() ? 'directory' : 'file',
       size: stats?.size,
       modified: stats ? Math.floor(stats.mtimeMs / 1000) : undefined,
+      created: stats && stats.birthtimeMs > 0 ? Math.floor(stats.birthtimeMs / 1000) : undefined,
       permissions: stats?.mode?.toString(8),
     });
   }
