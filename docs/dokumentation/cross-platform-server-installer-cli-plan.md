@@ -556,6 +556,15 @@ Helper bedient sowohl Managed-Prepare als auch SQLite-zu-Postgres-Migration.
 Agent-Vertragstest, Agent-Build, vollstaendiger Control-Plane-Typecheck und der
 portable CLI-Test sind erfolgreich.
 
+Teilstatus 2026-08-30: Auch der Fresh-Provisioning-Bootstrap der Control Plane
+besitzt keine eigene Postgres-Startfunktion mehr. Nach dem sicheren Schreiben
+der Managed-Env- und Secret-Werte ruft er ausschliesslich
+`canvas-notebook env --sync` auf. Der direkte Compose-Start, die eigene
+`pg_isready`-Schleife und das direkte pgvector-SQL wurden aus dem generierten
+Install-Skript entfernt. Der Managed-Postgres-Vertragstest verhindert ihre
+Wiedereinfuehrung; Agent-Artefakttest und vollstaendiger Control-Plane-Typecheck
+sind erfolgreich.
+
 1. Postgres-Lifecycle ausschliesslich in der neuen CLI konsolidieren.
 2. Doppelte Postgres-Startlogik aus Control-Plane-Bootstrap entfernen.
 3. SQLite/Postgres zunaechst weiter im Standalone-Installer anbieten.
