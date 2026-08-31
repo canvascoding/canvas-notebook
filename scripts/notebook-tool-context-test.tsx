@@ -104,7 +104,7 @@ async function main() {
   await dispatchAgentEvent('another-session', {
     type: 'tool_execution_start',
     toolCallId: 'ignored-email',
-    toolName: 'email_search',
+    toolName: 'email_search_messages',
     args: { query: 'ignored' },
   });
   assert.equal(controller().emailContext, null);
@@ -113,9 +113,9 @@ async function main() {
   await dispatchAgentEvent(sessionA.sessionId, {
     type: 'tool_execution_start',
     toolCallId: 'email-1',
-    toolName: 'email_search',
+    toolName: 'email_search_messages',
     args: {
-      accountId: 'account-a',
+      mailboxId: 'mailbox-a',
       folder: 'INBOX',
       query: 'quarterly review',
     },
@@ -127,26 +127,42 @@ async function main() {
   await dispatchAgentEvent(sessionA.sessionId, {
     type: 'tool_execution_update',
     toolCallId: 'email-1',
-    toolName: 'email_search',
-    args: { accountId: 'account-a' },
+    toolName: 'email_search_messages',
+    args: { mailboxId: 'mailbox-a' },
     partialResult: {
       details: {
-        account: { id: 'account-a' },
+        uiIntent: {
+          view: 'message-list',
+          mailboxId: 'mailbox-a',
+          accountId: 'account-a',
+          emailAddress: 'finance@example.com',
+          scope: 'workspace',
+          workspaceId: 'workspace-a',
+        },
       },
     },
   });
   assert.equal(controller().emailContext?.folder, 'INBOX');
   assert.equal(controller().emailContext?.query, 'quarterly review');
+  assert.equal(controller().emailContext?.accountId, 'account-a');
+  assert.equal(controller().emailContext?.emailAddress, 'finance@example.com');
   assert.deepEqual(openedSurfaces, ['email'], 'updates must not steal focus again');
 
   await dispatchAgentEvent(sessionA.sessionId, {
     type: 'tool_execution_end',
     toolCallId: 'email-1',
-    toolName: 'email_search',
-    args: { accountId: 'account-a' },
+    toolName: 'email_search_messages',
+    args: { mailboxId: 'mailbox-a' },
     result: {
       details: {
-        account: { id: 'account-a' },
+        uiIntent: {
+          view: 'message-list',
+          mailboxId: 'mailbox-a',
+          accountId: 'account-a',
+          emailAddress: 'finance@example.com',
+          scope: 'workspace',
+          workspaceId: 'workspace-a',
+        },
       },
     },
   });
@@ -162,8 +178,8 @@ async function main() {
   await dispatchAgentEvent(sessionA.sessionId, {
     type: 'tool_execution_end',
     toolCallId: 'email-1',
-    toolName: 'email_search',
-    args: { accountId: 'account-a' },
+    toolName: 'email_search_messages',
+    args: { mailboxId: 'mailbox-a' },
   });
   assert.equal(
     controller().emailContext,
@@ -174,9 +190,9 @@ async function main() {
   await dispatchAgentEvent(sessionA.sessionId, {
     type: 'tool_execution_start',
     toolCallId: 'email-2',
-    toolName: 'email_read',
+    toolName: 'email_read_message',
     args: {
-      accountId: 'account-a',
+      mailboxId: 'mailbox-a',
       folder: 'Archive',
       messageId: 'message-a',
     },

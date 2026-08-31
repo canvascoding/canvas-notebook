@@ -2791,6 +2791,7 @@ export function EmailClient({
       contextIntent.accountId || '',
       contextIntent.folder || '',
       contextIntent.messageId || '',
+      contextIntent.draftId || '',
       contextIntent.query || '',
     ].join(':');
     if (appliedContextIntentRef.current === intentKey) return;
@@ -2813,7 +2814,11 @@ export function EmailClient({
         setMessagePage(0);
         return;
       }
-      if (!activeAccount && contextIntent.toolName !== 'email_list_accounts') return;
+      if (
+        !activeAccount
+        && contextIntent.toolName !== 'email_list_accounts'
+        && contextIntent.toolName !== 'email_list_mailboxes'
+      ) return;
 
       if (contextIntent.folder && activeFolder !== contextIntent.folder) {
         clearReader();
@@ -2822,7 +2827,12 @@ export function EmailClient({
         return;
       }
 
-      if (contextIntent.toolName === 'email_search' && contextIntent.query !== undefined) {
+      if (
+        (contextIntent.view === 'message-list'
+          || contextIntent.toolName === 'email_search'
+          || contextIntent.toolName === 'email_search_messages')
+        && contextIntent.query !== undefined
+      ) {
         clearReader();
         setQuery(contextIntent.query);
         setSubmittedQuery(contextIntent.query);
@@ -2832,7 +2842,9 @@ export function EmailClient({
 
       appliedContextIntentRef.current = intentKey;
       if (
-        contextIntent.toolName === 'email_read'
+        (contextIntent.view === 'message'
+          || contextIntent.toolName === 'email_read'
+          || contextIntent.toolName === 'email_read_message')
         && contextIntent.messageId
         && selectedMessage?.id !== contextIntent.messageId
       ) {
@@ -3048,6 +3060,51 @@ export function EmailClient({
     });
   }, []);
 
+  const openOutboxDraftById = useCallback(async ({
+    draftId,
+    scope,
+    workspaceId,
+  }: {
+    draftId: string;
+    scope?: 'personal' | 'workspace';
+    workspaceId?: string;
+  }) => {
+    const isWorkspaceDraft = scope === 'workspace' || Boolean(workspaceId);
+    if (isWorkspaceDraft && !workspaceId) return false;
+    const endpoint = isWorkspaceDraft
+      ? `/api/workspaces/${encodeURIComponent(workspaceId!)}/email/outbox`
+      : '/api/email/outbox';
+    const response = await fetch(endpoint, { credentials: 'include', cache: 'no-store' });
+    const payload = await response.json().catch(() => null) as { success?: boolean; data?: EmailOutboxDraft[] } | null;
+    if (!response.ok || !payload?.success) return false;
+    const draft = payload.data?.find((item) => item.id === draftId);
+    if (!draft) return false;
+    if (isWorkspaceDraft) openWorkspaceOutboxDraft(draft, workspaceId);
+    else openPersonalOutboxDraft(draft);
+    return true;
+  }, [openPersonalOutboxDraft, openWorkspaceOutboxDraft]);
+
+  useEffect(() => {
+    const draftId = contextIntent?.draftId;
+    if (
+      !draftId
+      || contextIntent.status !== 'complete'
+      || contextIntent.view !== 'review-draft'
+      || openedOutboxDraftRef.current === draftId
+      || openingOutboxDraftRef.current === draftId
+    ) return;
+    openingOutboxDraftRef.current = draftId;
+    void openOutboxDraftById({
+      draftId,
+      scope: contextIntent.scope,
+      workspaceId: contextIntent.workspaceId,
+    }).then((opened) => {
+      if (opened) openedOutboxDraftRef.current = draftId;
+    }).finally(() => {
+      if (openingOutboxDraftRef.current === draftId) openingOutboxDraftRef.current = null;
+    });
+  }, [contextIntent, openOutboxDraftById]);
+
   useEffect(() => {
     const draftId = searchParams.get('outboxDraft')?.trim();
     if (
@@ -3062,30 +3119,19 @@ export function EmailClient({
         openingOutboxDraftRef.current = null;
       }
     };
-    const endpoint = workspaceId
-      ? `/api/workspaces/${encodeURIComponent(workspaceId)}/email/outbox`
-      : '/api/email/outbox';
-    void fetch(endpoint, { credentials: 'include', cache: 'no-store' })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null) as { success?: boolean; data?: EmailOutboxDraft[] } | null;
-        if (!response.ok || !payload?.success) {
-          clearOpeningDraft();
-          return;
-        }
-        const draft = payload.data?.find((item) => item.id === draftId);
-        if (!draft) {
-          clearOpeningDraft();
-          return;
-        }
-        if (workspaceId) openWorkspaceOutboxDraft(draft, workspaceId);
-        else openPersonalOutboxDraft(draft);
-        openedOutboxDraftRef.current = draftId;
+    void openOutboxDraftById({
+      draftId,
+      scope: workspaceId ? 'workspace' : 'personal',
+      workspaceId,
+    })
+      .then((opened) => {
+        if (opened) openedOutboxDraftRef.current = draftId;
         clearOpeningDraft();
       })
       .catch(() => {
         clearOpeningDraft();
       });
-  }, [openPersonalOutboxDraft, openWorkspaceOutboxDraft, searchParams]);
+  }, [openOutboxDraftById, searchParams]);
 
   const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'bodyHtml' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>) => {
     if (Object.prototype.hasOwnProperty.call(updates, 'aiMode') || Object.prototype.hasOwnProperty.call(updates, 'contextFiles')) {

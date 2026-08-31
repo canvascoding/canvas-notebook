@@ -94,6 +94,10 @@ assert.match(emailClientSource, /aria-controls=\{regionId\} aria-expanded=\{isEx
 assert.match(emailClientSource, /canvas:email:workspace-review:v1:\$\{workspaceId \|\| 'none'\}/u);
 assert.match(emailClientSource, /canvas:email:personal-outbox:v1/u);
 assert.match(emailClientSource, /data-presentation=\{embedded \? 'embedded' : 'page'\}/u);
+assert.match(emailClientSource, /contextIntent\.toolName === 'email_search_messages'/u);
+assert.match(emailClientSource, /contextIntent\.toolName === 'email_read_message'/u);
+assert.match(emailClientSource, /contextIntent\.view !== 'review-draft'/u);
+assert.match(emailClientSource, /const openOutboxDraftById = useCallback/u);
 assert.match(emailClientSource, /key=\{`email-message-viewer:/u);
 assert.match(emailClientSource, /onClick=\{\(\) => void loadMessages\(\{ background: true \}\)\}/u);
 
