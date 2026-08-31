@@ -5564,7 +5564,22 @@ function RichMarkdownEditor({
       ) : null}
       <MarkdownFindBar editor={markdownEditor} onOpenChange={setFindOpen} open={findOpen} />
       <div ref={scrollContainerRef} data-testid="markdown-scroll-container" className="relative min-h-0 flex-1 overflow-auto">
-        <div className="pointer-events-none sticky top-3 z-30 ml-auto h-0 w-fit pr-3">
+        <div className="pointer-events-none sticky top-2 z-30 ml-auto flex h-0 w-fit items-start gap-2 pr-3">
+          {collaborationEnabled ? (
+            <div className="rounded bg-background/85 px-2 py-1 text-[10px] text-muted-foreground shadow-sm" role="status">
+              {collaboration?.status === 'degraded'
+                ? collaboration.error || t('collaboration.degraded')
+                : collaboration?.status === 'saved' || collaboration?.status === 'live'
+                  ? t('collaboration.live')
+                  : collaboration?.status === 'persisting'
+                    ? t('collaboration.persisting')
+                    : collaboration?.status === 'offline' || collaboration?.status === 'reconnecting'
+                      ? t('collaboration.offline')
+                  : collaboration?.status === 'read_only'
+                    ? t('collaboration.readOnly')
+                    : collaboration?.status || t('collaboration.connecting')}
+            </div>
+          ) : null}
           <MarkdownOutlinePanel
             editor={editor}
             onPinnedChange={setOutlinePinned}
@@ -5572,21 +5587,6 @@ function RichMarkdownEditor({
             scrollContainerRef={scrollContainerRef}
           />
         </div>
-        {collaborationEnabled ? (
-          <div className="pointer-events-none sticky right-3 top-2 z-20 ml-auto mr-3 w-fit rounded bg-background/85 px-2 py-1 text-[10px] text-muted-foreground shadow-sm" role="status">
-            {collaboration?.status === 'degraded'
-              ? collaboration.error || t('collaboration.degraded')
-              : collaboration?.status === 'saved' || collaboration?.status === 'live'
-                ? t('collaboration.live')
-                : collaboration?.status === 'persisting'
-                  ? t('collaboration.persisting')
-                  : collaboration?.status === 'offline' || collaboration?.status === 'reconnecting'
-                    ? t('collaboration.offline')
-                : collaboration?.status === 'read_only'
-                  ? t('collaboration.readOnly')
-                  : collaboration?.status || t('collaboration.connecting')}
-          </div>
-        ) : null}
         <div className={cn('min-w-0 transition-[padding] duration-200', outlinePinned && 'md:pr-[17.5rem]')}>
           {!effectiveReadOnly ? (
             <div className="hidden md:block">
