@@ -95,6 +95,8 @@ Folgende Grundlagen sind bereits vorhanden:
   beide Themes verwenden gemäß
   [Bradley Character Theme Variants](./assets/bradley/THEME-VARIANTS.md)
   denselben kanonischen Master ohne Identitätsdrift.
+- [x] Statischen Bradley-Glyph bei 16, 20, 24, 32 und 40 Pixeln gerastert und
+  abgenommen; Nachweis: [Bradley Glyph Small-Size QA](./assets/bradley/GLYPH-QA.md).
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
 der kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration
@@ -448,7 +450,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-010 | fertig | Referenzrender und Nutzungsnachweis portabel ins Projekt übernehmen; Nachweis: [Bradley Asset Provenance](./assets/bradley/PROVENANCE.md) | Masterdatei, Importherkunft, Product-Owner-Autorisierung, Nutzungsgrenzen und SHA-256-Prüfsummen liegen an einem stabilen Projektpfad. |
 | BRADLEY-011 | fertig | Transparentes Bradley-Character-Master erstellen; Nachweis: [Bradley Character Master QA](./assets/bradley/MASTER-QA.md) | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
 | BRADLEY-012 | fertig | Light- und Dark-Mode-Character-Varianten erstellen; Vertrag: [Bradley Character Theme Variants](./assets/bradley/THEME-VARIANTS.md) | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
-| BRADLEY-013 | in Arbeit | Bradley-Glyph als SVG entwerfen; v1 liegt unter `assets/bradley/glyphs/static/` | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
+| BRADLEY-013 | fertig | Bradley-Glyph als SVG entwerfen; Nachweis: [Bradley Glyph Small-Size QA](./assets/bradley/GLYPH-QA.md) | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
 | BRADLEY-014 | in Arbeit | Monochrome und High-Contrast-Varianten erstellen; monochrome v1 liegt vor | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
 | BRADLEY-015 | in Arbeit | Kleine Zustandsvarianten definieren; Generierungszustand liegt als animierter SVG-Prototyp vor | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
 | BRADLEY-016 | in Arbeit | Motion-Spezifikation inklusive Reduced Motion erstellen; erster Vertrag ist im Asset-README dokumentiert | Dauer, Easing, Bedeutung, Performance und bewegungsarme Alternative sind dokumentiert. |

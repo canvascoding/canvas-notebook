@@ -8,6 +8,7 @@ noch nicht als produktive UI-Integration freigegeben.
 
 ```text
 bradley/
+├── GLYPH-QA.md
 ├── MASTER-QA.md
 ├── PROVENANCE.md
 ├── THEME-VARIANTS.md
@@ -90,6 +91,13 @@ verbindlichen Canvas-Oberflächen und die visuellen Abnahmenachweise sind in
 [THEME-VARIANTS.md](./THEME-VARIANTS.md) dokumentiert. Damit ist BRADLEY-012
 abgeschlossen. Die PNGs unter `previews/character/` sind nur Prüfansichten und
 keine Produktions-Assets.
+
+## Glyph-Kleingrößen
+
+Der statische Farb-Glyph wurde bei 16, 20, 24, 32 und 40 Pixeln technisch und
+visuell geprüft. Sichtgrenzen, Erkennungsmerkmale und Accessibility-Regeln sind
+in [GLYPH-QA.md](./GLYPH-QA.md) festgehalten. Damit ist BRADLEY-013
+abgeschlossen; die bestehende v1-Geometrie benötigte keine Korrektur.
 
 ## Design contract
 
