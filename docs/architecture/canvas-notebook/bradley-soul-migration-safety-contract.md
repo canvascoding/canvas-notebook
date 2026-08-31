@@ -157,7 +157,8 @@ hinterlassen.
 
 ## Abgrenzung der Folgearbeiten
 
-- BRADLEY-033 migriert ausschließlich sichtbare Hauptagent-Datensätze und
+- BRADLEY-033 migriert ausschließlich sichtbare Hauptagent-Datensätze gemäß
+  [Bradley Display-Name-Migration](./bradley-display-name-migration.md) und
   verändert keine `SOUL.md`.
 - BRADLEY-034 bereinigt UI-Fallbacks und Registry-Defaults.
 - BRADLEY-035 inventarisiert sichtbare Alttexte und aktualisiert den Seed für
