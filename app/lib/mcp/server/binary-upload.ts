@@ -507,14 +507,12 @@ export async function completeDirectMcpBinaryUpload(input: {
     if (!afterRevision || afterRevision.sha256 !== handle.contentSha256) {
       throw new DirectMcpBinaryUploadError('The uploaded file could not be verified after it was saved.');
     }
-    if (!completed.alreadyCompleted) {
-      await syncPublicSharesAfterWrite([handle.targetPath], input.workspace);
-      publishWorkspaceFileMutation({
-        workspace: input.workspace,
-        type: handle.beforeSha256 ? 'change' : 'add',
-        relativePath: handle.targetPath,
-      });
-    }
+    await syncPublicSharesAfterWrite([handle.targetPath], input.workspace);
+    publishWorkspaceFileMutation({
+      workspace: input.workspace,
+      type: handle.beforeSha256 ? 'change' : 'add',
+      relativePath: handle.targetPath,
+    });
     untrackUpload(principalBinding(input.principal), handle.sessionId);
     return {
       path: handle.targetPath,

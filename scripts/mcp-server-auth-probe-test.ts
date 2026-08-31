@@ -970,6 +970,89 @@ async function main(): Promise<void> {
     assert.equal(completeUploadContent.detected_mime_type, 'image/png');
     assert.equal(completeUploadContent.already_completed, false);
 
+    const { createPublicFileShares } = await import(
+      '../app/lib/public-sharing/public-file-shares'
+    );
+    const createdUploadShare = await createPublicFileShares({
+      paths: ['mcp-server-upload.png'],
+      createdByUserId: userId,
+      workspace,
+    });
+    assert.equal(createdUploadShare.shares.length, 1);
+    const uploadShare = createdUploadShare.shares[0];
+    assert.ok(uploadShare);
+    assert.ok(uploadShare.lastKnownRevision);
+    const staleShareDatabase = await openDb();
+    try {
+      await staleShareDatabase.run(
+        'UPDATE public_file_shares SET last_known_revision = ? WHERE id = ?',
+        ['stale-upload-revision', uploadShare.id],
+      );
+    } finally {
+      await staleShareDatabase.close();
+    }
+
+    const { getFileWatcher } = await import('../app/lib/filesystem/file-watcher');
+    const uploadRetryEvents: Array<{ relativePath: string; type: string }> = [];
+    const fileWatcher = getFileWatcher();
+    const unsubscribeUploadRetry = fileWatcher.subscribe({
+      id: 'mcp-upload-retry-test',
+      workspaceId: workspace.workspaceId,
+      workspace,
+      send: (event) => uploadRetryEvents.push(event),
+    });
+    try {
+      const completeUploadRetry = await rpcRequest({
+        post: mcpRoute.POST,
+        token: workspaceToolsToken,
+        body: {
+          jsonrpc: '2.0',
+          id: 440,
+          method: 'tools/call',
+          params: {
+            name: 'upload_knowledge_asset',
+            arguments: {
+              operation: 'complete',
+              workspace_id: workspace.workspaceId,
+              upload_id: uploadId,
+            },
+          },
+        },
+      });
+      const completeUploadRetryResult = resultFromRpc(await readJson(completeUploadRetry));
+      assert.notEqual(
+        completeUploadRetryResult.isError,
+        true,
+        JSON.stringify(completeUploadRetryResult),
+      );
+      assert.equal(
+        (completeUploadRetryResult.structuredContent as JsonRecord).already_completed,
+        true,
+      );
+      assert.equal(
+        uploadRetryEvents.some((event) => (
+          event.relativePath === 'mcp-server-upload.png'
+          && event.type === 'add'
+        )),
+        true,
+        'Idempotent completion retries should republish the committed file mutation.',
+      );
+    } finally {
+      unsubscribeUploadRetry();
+      fileWatcher.stop();
+    }
+
+    const reconciledShareDatabase = await openDb();
+    try {
+      const reconciledShare = await reconciledShareDatabase.get(
+        'SELECT last_known_revision AS lastKnownRevision FROM public_file_shares WHERE id = ?',
+        [uploadShare.id],
+      ) as { lastKnownRevision: string | null } | undefined;
+      assert.equal(reconciledShare?.lastKnownRevision, uploadShare.lastKnownRevision);
+    } finally {
+      await reconciledShareDatabase.close();
+    }
+
     const readUploadedAsset = await rpcRequest({
       post: mcpRoute.POST,
       token: workspaceToolsToken,
