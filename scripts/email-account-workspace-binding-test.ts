@@ -19,6 +19,12 @@ moduleInternals._load = (request, parent, isMain) => {
 };
 
 type WorkspaceRow = { id: string };
+type SentEmailInput = { to: string[]; subject: string; body: string; attachments: Array<{ uploadId?: string }> };
+
+function requireSentEmailInput(input: SentEmailInput | null): SentEmailInput {
+  if (!input) throw new Error('Expected the workspace outbox draft to be sent.');
+  return input;
+}
 
 function verifyLegacyEmailAccountMigration() {
   const legacy = new Database(':memory:');
@@ -281,18 +287,19 @@ async function main() {
       }),
       /being reviewed by a person/i,
     );
-    let sentInput: { to: string[]; subject: string; body: string; attachments: Array<{ uploadId?: string }> } | null = null;
+    let sentInput: SentEmailInput | null = null;
     const sent = await sendWorkspaceOutboxDraft({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: edited.version,
     }, {
       sendMessage: async (input) => { sentInput = { to: input.to, subject: input.subject, body: input.body, attachments: input.attachments }; },
     });
     assert.equal(sent.status, 'sent');
-    assert.deepEqual(sentInput?.to, ['customer@example.test']);
-    assert.equal(sentInput?.subject, 'Re: Support request');
-    assert.match(sentInput?.body || '', /<strong>help shortly<\/strong>/);
-    assert.match(sentInput?.body || '', /<ul><li>Compare the offers<\/li><li>Choose a provider<\/li><\/ul>/);
-    assert.deepEqual(sentInput?.attachments, [{
+    const sentEmailInput = requireSentEmailInput(sentInput);
+    assert.deepEqual(sentEmailInput.to, ['customer@example.test']);
+    assert.equal(sentEmailInput.subject, 'Re: Support request');
+    assert.match(sentEmailInput.body, /<strong>help shortly<\/strong>/);
+    assert.match(sentEmailInput.body, /<ul><li>Compare the offers<\/li><li>Choose a provider<\/li><\/ul>/);
+    assert.deepEqual(sentEmailInput.attachments, [{
       source: 'upload', contentId: undefined, disposition: 'attachment', name: 'agent-report.pdf', mimeType: 'application/pdf',
       size: 42, path: undefined, uploadId: 'agent-report.pdf', deliveryFormat: undefined,
     }]);

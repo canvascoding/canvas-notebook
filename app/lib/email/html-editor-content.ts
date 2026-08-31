@@ -144,6 +144,6 @@ function sanitizeEmailEditorImages(value: string): string {
 function getEmailDomPurify(): EmailHtmlSanitizer {
   const purifier = DOMPurify as unknown as EmailDomPurifyFactory;
   if (typeof window !== 'undefined' && typeof purifier === 'function') return purifier(window);
-  if (typeof purifier.sanitize === 'function') return purifier as EmailDomPurify;
+  if (typeof purifier.sanitize === 'function') return purifier as EmailHtmlSanitizer;
   throw new Error('DOMPurify requires a DOM window.');
 }
