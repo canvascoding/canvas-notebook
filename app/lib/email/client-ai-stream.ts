@@ -1,5 +1,10 @@
 export type EmailAiStreamStage = 'reading_context' | 'writing' | 'ready';
 
+export type EmailComposeAgentStreamEvent = {
+  type: string;
+  [key: string]: unknown;
+};
+
 type EmailSummaryStreamEvent =
   | { type: 'start'; messageId?: string }
   | { type: 'status'; stage?: EmailAiStreamStage; label?: string }
@@ -61,6 +66,16 @@ function parseEmailAiDraftStreamEvent(rawEvent: string): EmailAiDraftStreamEvent
   if (parsed.type === 'done') return { type: 'done', body: typeof parsed.body === 'string' ? parsed.body : undefined };
   if (parsed.type === 'error' && typeof parsed.message === 'string') return { type: 'error', message: parsed.message };
   return null;
+}
+
+function parseEmailComposeAgentStreamEvent(rawEvent: string): EmailComposeAgentStreamEvent | null {
+  const data = parseStreamData(rawEvent);
+  if (!data) return null;
+
+  const parsed = JSON.parse(data) as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const event = parsed as Record<string, unknown>;
+  return typeof event.type === 'string' ? { ...event, type: event.type } : null;
 }
 
 export async function readEmailSummaryStream(
@@ -161,4 +176,31 @@ export async function readEmailAiDraftStream(
 
   if (buffer.trim()) processEvent(buffer);
   return body;
+}
+
+export async function readEmailComposeAgentStream(
+  response: Response,
+  onEvent: (event: EmailComposeAgentStreamEvent) => void,
+): Promise<void> {
+  if (!response.body) throw new Error('Email compose agent stream did not return a readable body.');
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const processEvent = (rawEvent: string) => {
+    const event = parseEmailComposeAgentStreamEvent(rawEvent);
+    if (event) onEvent(event);
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const events = buffer.split('\n\n');
+    buffer = events.pop() || '';
+    for (const event of events) processEvent(event);
+    if (done) break;
+  }
+
+  if (buffer.trim()) processEvent(buffer);
 }

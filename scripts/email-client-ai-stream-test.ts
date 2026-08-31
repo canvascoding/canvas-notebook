@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import {
   readEmailAiDraftStream,
+  readEmailComposeAgentStream,
   readEmailSummaryStream,
 } from '../app/lib/email/client-ai-stream';
 
@@ -40,6 +41,20 @@ async function main() {
 
   assert.equal(draft, 'Hello world');
   assert.deepEqual(draftBodies, ['Hello', 'Hello world']);
+
+  const agentEvents: Array<Record<string, unknown>> = [];
+  await readEmailComposeAgentStream(streamResponse([
+    'data: {"type":"status","label":"Reading context"}\n\n',
+    'data: {"type":"tool_start","id":"tool-1",',
+    '"toolName":"workspace_read_file"}\n\n',
+    'data: {"type":"final","result":{"bodyHtml":"<p>Ready</p>"}}\n\n',
+  ]), (event) => agentEvents.push(event));
+
+  assert.deepEqual(agentEvents, [
+    { type: 'status', label: 'Reading context' },
+    { type: 'tool_start', id: 'tool-1', toolName: 'workspace_read_file' },
+    { type: 'final', result: { bodyHtml: '<p>Ready</p>' } },
+  ]);
 
   await assert.rejects(
     () => readEmailSummaryStream(new Response(JSON.stringify({ error: 'Summary unavailable' }), { status: 503 }), () => undefined),

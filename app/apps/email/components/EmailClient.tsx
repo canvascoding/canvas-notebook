@@ -45,7 +45,13 @@ import type {
 import { useSetEmailChatContext } from '@/app/apps/email/context/email-chat-context';
 import { buildEmailPageChatContext } from '@/app/apps/email/context/email-route-chat-context';
 import { EmailAccountsCard } from '@/app/components/settings/IntegrationsSettingsClient';
-import { readEmailAiDraftStream, readEmailSummaryStream, type EmailAiStreamStage } from '@/app/lib/email/client-ai-stream';
+import {
+  readEmailAiDraftStream,
+  readEmailComposeAgentStream,
+  readEmailSummaryStream,
+  type EmailAiStreamStage,
+  type EmailComposeAgentStreamEvent,
+} from '@/app/lib/email/client-ai-stream';
 import { plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
 import {
   composeEmailEditorBodyValues,
@@ -942,12 +948,9 @@ export function EmailClient({
       }
       if (!response.body) throw new Error(t('errors.generateCompose'));
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
       let receivedFinal = false;
 
-      const applyAgentEvent = (event: Record<string, unknown>) => {
+      const applyAgentEvent = (event: EmailComposeAgentStreamEvent) => {
         if (event.type === 'status') {
           setComposeAgentStatus(String(event.label || ''));
           return;
@@ -1015,41 +1018,7 @@ export function EmailClient({
         }
       };
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          buffer += decoder.decode();
-          break;
-        }
-        if (value) buffer += decoder.decode(value, { stream: true });
-        let separatorIndex = buffer.indexOf('\n\n');
-        while (separatorIndex >= 0) {
-          const rawEvent = buffer.slice(0, separatorIndex);
-          buffer = buffer.slice(separatorIndex + 2);
-          const data = rawEvent
-            .split('\n')
-            .filter((line) => line.startsWith('data:'))
-            .map((line) => line.slice(5).trim())
-            .join('');
-          if (data) {
-            const parsed = JSON.parse(data) as Record<string, unknown>;
-            applyAgentEvent(parsed);
-          }
-          separatorIndex = buffer.indexOf('\n\n');
-        }
-      }
-
-      if (buffer.trim()) {
-        const data = buffer
-          .split('\n')
-          .filter((line) => line.startsWith('data:'))
-          .map((line) => line.slice(5).trim())
-          .join('');
-        if (data) {
-          const parsed = JSON.parse(data) as Record<string, unknown>;
-          applyAgentEvent(parsed);
-        }
-      }
+      await readEmailComposeAgentStream(response, applyAgentEvent);
 
       if (!receivedFinal) throw new Error(t('errors.generateCompose'));
     } catch (generateError) {
