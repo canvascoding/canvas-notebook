@@ -48,6 +48,7 @@ import {
   SEEDANCE_MAX_REFERENCE_IMAGES,
   VEO_MAX_REFERENCE_IMAGES,
   normalizeGeminiImageModelId,
+  normalizeOpenAIImageOutputFormat,
 } from '@/app/lib/integrations/image-generation-constants';
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import {
@@ -1311,6 +1312,9 @@ async function generateStudioImages(
 
   const maxRefs = provider.getMaxReferenceImages(validatedModel);
   const limitedReferences = referenceImages.slice(0, maxRefs);
+  const outputFormat = providerId === 'openai'
+    ? normalizeOpenAIImageOutputFormat(options?.background, options?.outputFormat)
+    : options?.outputFormat;
 
   await ensureStudioOutputsWorkspace(scope.storage);
 
@@ -1325,7 +1329,7 @@ async function generateStudioImages(
         aspectRatio,
         referenceImages: limitedReferences,
         quality: options?.quality,
-        outputFormat: options?.outputFormat,
+        outputFormat,
         background: options?.background,
         contextPrompt: contextText,
         imageSize: options?.imageSize,
@@ -1348,7 +1352,7 @@ async function generateStudioImages(
         model: validatedModel,
         aspectRatio,
         quality: options?.quality,
-        outputFormat: options?.outputFormat,
+        outputFormat,
         background: options?.background,
         imageSize: options?.imageSize,
         usage: result.usage,
