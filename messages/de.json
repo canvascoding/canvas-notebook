@@ -1325,6 +1325,8 @@
     "contextLabel": "{used}/{available} Budget · {window} Fenster",
     "contextCompactLabel": "{used}/{available} Budget",
     "contextTooltip": "History-Budget: {used} von {available} Tokens genutzt ({percent}%)\nModellfenster: {window} Tokens\nReserviert für System, Tools, Antwort und Sicherheit: ca. {reserved} Tokens",
+    "contextFinalLabel": "{used}/{window} serialisiert",
+    "contextFinalTooltip": "Finale serialisierte Anfrage: {used} von {window} Tokens ({percent}%)\nEnthält Anweisungen, Tools, normalisierte Anhänge, Antwortreserve und Sicherheitsmarge.",
     "noSessionYet": "Noch keine Session",
     "backToChat": "Zurück zum Chat",
     "openHistory": "Verlauf öffnen",
@@ -3523,6 +3525,10 @@
           "read_knowledge_asset": {
             "title": "Bilder und PDFs lesen",
             "description": "Stellt begrenzten visuellen und Textkontext aus sichtbaren Bildern und PDF-Dokumenten nach einer ausdrücklichen Freigabe durch die Administration bereit."
+          },
+          "upload_knowledge_asset": {
+            "title": "Binärdateien hochladen",
+            "description": "Erlaubt größenbegrenzte und per Hash geprüfte Uploads in sichtbare Workspace-Pfade nach einer ausdrücklichen Freigabe durch die Administration."
           }
         }
       },

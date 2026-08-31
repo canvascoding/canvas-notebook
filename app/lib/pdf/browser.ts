@@ -1,6 +1,7 @@
 import puppeteer, { Browser, Page } from 'puppeteer-core';
 import nodeFs from 'node:fs';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 
 import {
   buildBrowserLaunchSpec,
@@ -29,6 +30,59 @@ export function findChromiumExecutable(): string {
   return resolveChromiumExecutable().executablePath;
 }
 
+/**
+ * PDF rendering does not need browser state to survive a Node.js process.
+ * Keeping the profile process-scoped prevents multiple app workers from
+ * attempting to open Chromium with the same profile directory.
+ */
+export function getPdfBrowserProfileId(pid: number = process.pid): string {
+  return `${PDF_EXPORT_PROFILE_ID}-${pid}`;
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'EPERM');
+  }
+}
+
+export function buildPdfBrowserLaunchSpec({
+  env = process.env,
+  existsSync = nodeFs.existsSync,
+  pid = process.pid,
+}: {
+  env?: NodeJS.ProcessEnv;
+  existsSync?: (path: string) => boolean;
+  pid?: number;
+} = {}) {
+  const userDataDir = resolveBrowserUserDataDir(env, existsSync, getPdfBrowserProfileId(pid));
+  return buildBrowserLaunchSpec({ env, existsSync, forceHeadless: true, userDataDir });
+}
+
+export async function removeStalePdfBrowserProfiles(
+  profileRoot: string,
+  currentPid: number = process.pid,
+  processRunning: (pid: number) => boolean = isProcessRunning,
+): Promise<string[]> {
+  const entries = await fs.readdir(profileRoot, { withFileTypes: true });
+  const removedProfiles: string[] = [];
+
+  for (const entry of entries) {
+    const match = new RegExp(`^${PDF_EXPORT_PROFILE_ID}-(\\d+)$`).exec(entry.name);
+    if (!match || !entry.isDirectory()) continue;
+
+    const pid = Number(match[1]);
+    if (pid === currentPid || processRunning(pid)) continue;
+
+    await fs.rm(path.join(profileRoot, entry.name), { recursive: true, force: true });
+    removedProfiles.push(entry.name);
+  }
+
+  return removedProfiles;
+}
+
 export async function getBrowser(): Promise<Browser> {
   if (browser?.connected) return browser;
 
@@ -46,9 +100,12 @@ export async function getBrowser(): Promise<Browser> {
 }
 
 async function launchPdfBrowser(): Promise<Browser> {
-  const userDataDir = resolveBrowserUserDataDir(process.env, nodeFs.existsSync, PDF_EXPORT_PROFILE_ID);
-  const launchSpec = buildBrowserLaunchSpec({ forceHeadless: true, userDataDir });
+  const launchSpec = buildPdfBrowserLaunchSpec();
   await fs.mkdir(launchSpec.userDataDir, { recursive: true });
+  const removedProfiles = await removeStalePdfBrowserProfiles(path.dirname(launchSpec.userDataDir));
+  if (removedProfiles.length > 0) {
+    console.info('[PDF Browser] Removed stale Chromium profiles before launch:', { removedProfiles });
+  }
   const preparation = await prepareBrowserProfileForLaunch(launchSpec.userDataDir);
   if (preparation.removedArtifacts.length > 0) {
     console.info('[PDF Browser] Removed stale Chromium profile startup artifacts before launch:', {

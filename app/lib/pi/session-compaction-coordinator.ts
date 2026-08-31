@@ -51,6 +51,8 @@ export type PiCompactionCoordinatorStore = Readonly<{
 
 export type RunPiSessionCompactionInput = PiCompactionScope & Readonly<{
   trigger: PiCompactionTrigger;
+  /** Allows one internal exact-budget retry through an automatic cooldown. */
+  bypassCooldown?: boolean;
   generation: string;
   expectedSummaryRevision: number;
   expectedThroughSequence: number | null;
@@ -233,12 +235,15 @@ export async function runPiSessionCompaction(
       ...scope,
       attemptId,
       trigger: input.trigger,
+      bypassCooldown: input.bypassCooldown,
       expectedSummaryRevision: input.expectedSummaryRevision,
       expectedThroughSequence: input.expectedThroughSequence,
       deadlineAt,
       provider: input.provider,
       model: input.model,
-      contractFingerprint: input.contractFingerprint,
+      contractFingerprint: input.bypassCooldown
+        ? `exact-budget-retry:${input.contractFingerprint ?? input.generation}`
+        : input.contractFingerprint,
       metrics: input.metrics,
       expiredAttemptRetryAt: policy.retryDelaysMs[0] > 0
         ? new Date(now.getTime() + policy.retryDelaysMs[0])

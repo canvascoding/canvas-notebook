@@ -208,6 +208,8 @@ export type PiRuntimeStatus = {
   estimatedHistoryTokens: number;
   availableHistoryTokens: number;
   contextUsagePercent: number;
+  finalRequestTokens?: number | null;
+  finalRequestBudgetExceeded?: boolean;
   includedSummary: boolean;
   omittedMessageCount: number;
   summaryUpdatedAt: string | null;
@@ -283,6 +285,12 @@ type RuntimeOptions = {
   requiresRuntimeRecreation?: () => boolean;
   summaryStreamFn?: StreamFn;
   compactionPolicy?: PiCompactionCoordinatorPolicy;
+};
+
+type PreparedRuntimePayload = {
+  sourceMessages: AgentMessage[];
+  messages: Message[];
+  budgetSnapshot: PiContextBudgetSnapshot;
 };
 
 function isUserMessage(message: AgentMessage): message is Extract<AgentMessage, { role: 'user' }> {
@@ -423,6 +431,8 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
     estimatedHistoryTokens: status.estimatedHistoryTokens,
     availableHistoryTokens: status.availableHistoryTokens,
     contextUsagePercent: status.contextUsagePercent,
+    finalRequestTokens: status.finalRequestTokens,
+    finalRequestBudgetExceeded: status.finalRequestBudgetExceeded,
     includedSummary: status.includedSummary,
     omittedMessageCount: status.omittedMessageCount,
     summaryUpdatedAt: status.summaryUpdatedAt,
@@ -463,6 +473,7 @@ export class LivePiRuntime {
   private summary: PiSessionSummaryState;
   private lastComposition: PiHistoryComposition | null = null;
   private lastFinalPayloadBudgetSnapshot: PiContextBudgetSnapshot | null = null;
+  private preparedRuntimePayload: PreparedRuntimePayload | null = null;
   private lastProviderUsageCalibration: PiProviderUsageCalibrationEvidence | null = null;
   private readonly imageNormalizationOptions: PiMessageNormalizationOptions;
   private readonly requestOutputTokenCap: number;
@@ -548,6 +559,7 @@ export class LivePiRuntime {
     invalidatePiSessionCompaction(this.getCompactionScope());
     this.lastComposition = null;
     this.lastFinalPayloadBudgetSnapshot = null;
+    this.preparedRuntimePayload = null;
     this.lastProviderUsageCalibration = null;
   }
 
@@ -600,6 +612,7 @@ export class LivePiRuntime {
 
   private async coordinateCompaction(input: {
     kind: 'manual' | 'automatic';
+    bypassCooldown?: boolean;
     messages: AgentMessage[];
     additionalContextTokens: number;
     runtimeContext: string | null;
@@ -628,6 +641,7 @@ export class LivePiRuntime {
     const result = await runPiSessionCompaction({
       ...this.getCompactionScope(),
       trigger: input.kind,
+      bypassCooldown: input.bypassCooldown,
       attemptId,
       generation,
       expectedSummaryRevision: summarySnapshot.summaryRevision,
@@ -674,7 +688,7 @@ export class LivePiRuntime {
     return result;
   }
 
-  async prepareFinalPayload(messages: AgentMessage[]): Promise<Message[]> {
+  private async buildFinalPayload(messages: AgentMessage[]): Promise<PreparedRuntimePayload> {
     const prepared = await preparePiFinalPayload({
       messages,
       model: this.model,
@@ -685,6 +699,40 @@ export class LivePiRuntime {
     }, this.imageNormalizationOptions);
     this.lastFinalPayloadBudgetSnapshot = prepared.budgetSnapshot;
     this.lastProviderUsageCalibration = null;
+    return {
+      sourceMessages: messages,
+      messages: prepared.messages,
+      budgetSnapshot: prepared.budgetSnapshot,
+    };
+  }
+
+  private cachePreparedRuntimePayload(payload: PreparedRuntimePayload): void {
+    this.preparedRuntimePayload = payload;
+  }
+
+  private getPayloadPressure(snapshot: PiContextBudgetSnapshot): number {
+    const contextOverflow = Math.max(0, snapshot.estimatedTotalTokens - snapshot.contextWindowTokens);
+    const serializedPayloadOverflow = Math.max(0, snapshot.serializedMessageBytes - snapshot.hardHistoryBytes);
+    const imagePayloadOverflow = Math.max(0, snapshot.multimodalBytes - snapshot.totalImageBytesLimit);
+    // Image inputs are charged independently by providers. Turn the byte-only
+    // overflow into a conservative history reservation for the retry path.
+    return Math.max(
+      contextOverflow,
+      Math.ceil(serializedPayloadOverflow / 4),
+      Math.ceil(imagePayloadOverflow / 256),
+    );
+  }
+
+  private isFinalPayloadSendable(snapshot: PiContextBudgetSnapshot): boolean {
+    return !snapshot.payloadBudgetExceeded && !snapshot.contextBudgetExceeded;
+  }
+
+  async prepareFinalPayload(messages: AgentMessage[]): Promise<Message[]> {
+    const cached = this.preparedRuntimePayload;
+    const prepared = cached?.sourceMessages === messages
+      ? cached
+      : await this.buildFinalPayload(messages);
+    this.preparedRuntimePayload = null;
 
     if (prepared.budgetSnapshot.payloadBudgetExceeded) {
       throw new Error(
@@ -765,6 +813,11 @@ export class LivePiRuntime {
       });
     }
     const composition = this.lastComposition;
+    const finalPayloadBudget = this.lastFinalPayloadBudgetSnapshot;
+    const exposeFinalPayloadBudget = Boolean(
+      finalPayloadBudget
+      && (this.isRunning || !this.isFinalPayloadSendable(finalPayloadBudget)),
+    );
 
     const hasPendingReplace = this.pendingReplace !== null;
 
@@ -791,6 +844,10 @@ export class LivePiRuntime {
       estimatedHistoryTokens: composition.estimatedHistoryTokens,
       availableHistoryTokens: composition.availableHistoryTokens,
       contextUsagePercent: toPercent(composition.estimatedHistoryTokens, composition.availableHistoryTokens),
+      finalRequestTokens: exposeFinalPayloadBudget ? finalPayloadBudget!.estimatedTotalTokens : null,
+      finalRequestBudgetExceeded: exposeFinalPayloadBudget
+        ? !this.isFinalPayloadSendable(finalPayloadBudget!)
+        : false,
       includedSummary: composition.includedSummary,
       omittedMessageCount: composition.omittedMessages.length,
       summaryUpdatedAt: this.summary.summaryUpdatedAt ? this.summary.summaryUpdatedAt.toISOString() : null,
@@ -1430,6 +1487,77 @@ export class LivePiRuntime {
     return messages;
   }
 
+  private applyAutomaticCompactionResult(result: PiCompactionCoordinatorResult): boolean {
+    if (result.state !== 'succeeded' || !result.summary || !result.composition) {
+      return false;
+    }
+
+    this.summary = result.summary;
+    this.lastComposition = result.composition;
+    this.recordCompaction(result.attemptId, 'automatic', result.composition);
+    this.publishStatus();
+    return true;
+  }
+
+  private async finalizeContextCandidate(input: {
+    composition: PiHistoryComposition;
+    sourceMessages: AgentMessage[];
+    runtimeContext: string | null;
+    additionalContextTokens: number;
+    signal?: AbortSignal;
+  }): Promise<AgentMessage[]> {
+    let composition = input.composition;
+    let candidate = await this.injectRuntimeContext(composition.llmMessages, input.runtimeContext);
+    let prepared = await this.buildFinalPayload(candidate);
+    if (this.isFinalPayloadSendable(prepared.budgetSnapshot)) {
+      this.cachePreparedRuntimePayload(prepared);
+      return candidate;
+    }
+
+    this.preparedRuntimePayload = null;
+    const retry = await this.coordinateCompaction({
+      // A deferred automatic attempt has an active cooldown. Allow this one
+      // request-blocking retry through it without consuming the user's manual
+      // recovery bypass; the coordinator persists the retry marker separately.
+      kind: 'automatic',
+      bypassCooldown: true,
+      messages: input.sourceMessages,
+      additionalContextTokens: input.additionalContextTokens + Math.max(1, this.getPayloadPressure(prepared.budgetSnapshot)),
+      runtimeContext: input.runtimeContext,
+      signal: input.signal,
+    });
+
+    if (this.applyAutomaticCompactionResult(retry)) {
+      composition = retry.composition!;
+    } else if (
+      (retry.state === 'no_op' || retry.state === 'deferred')
+      && retry.composition
+      && isPiHistoryCompositionSendable(retry.composition, this.summary)
+    ) {
+      composition = retry.composition;
+      this.lastComposition = composition;
+      this.publishStatus();
+    } else {
+      throw new Error(
+        'The final request exceeds the selected model context window and cannot be reduced safely. '
+        + 'Shorten the latest message or attachments, or use a larger-context model.',
+      );
+    }
+
+    candidate = await this.injectRuntimeContext(composition.llmMessages, input.runtimeContext);
+    prepared = await this.buildFinalPayload(candidate);
+    if (this.isFinalPayloadSendable(prepared.budgetSnapshot)) {
+      this.cachePreparedRuntimePayload(prepared);
+      return candidate;
+    }
+
+    this.preparedRuntimePayload = null;
+    throw new Error(
+      'The final request still exceeds the selected model context window after automatic compaction. '
+      + 'Shorten the latest message or attachments, or use a larger-context model.',
+    );
+  }
+
   private resetRunSupervisorForUserMessage(message: Extract<AgentMessage, { role: 'user' }>): void {
     this.currentUserPromptText = extractUserMessageText(message);
     this.currentUserPromptSignature = getMessageSignature(message);
@@ -1709,7 +1837,13 @@ export class LivePiRuntime {
       && isPiHistoryCompositionSendable(preflight, this.summary)
     ) {
       this.lastComposition = preflight;
-      return this.injectRuntimeContext(preflight.llmMessages, runtimeContext);
+      return this.finalizeContextCandidate({
+        composition: preflight,
+        sourceMessages: messages,
+        runtimeContext,
+        additionalContextTokens,
+        signal,
+      });
     }
 
     const result = await this.coordinateCompaction({
@@ -1720,19 +1854,27 @@ export class LivePiRuntime {
       signal,
     });
 
-    if (result.state === 'succeeded' && result.summary && result.composition) {
-      this.summary = result.summary;
-      this.lastComposition = result.composition;
-      this.recordCompaction(result.attemptId, 'automatic', result.composition);
-      this.publishStatus();
-      return this.injectRuntimeContext(result.composition.llmMessages, runtimeContext);
+    if (this.applyAutomaticCompactionResult(result) && result.composition) {
+      return this.finalizeContextCandidate({
+        composition: result.composition,
+        sourceMessages: messages,
+        runtimeContext,
+        additionalContextTokens,
+        signal,
+      });
     }
 
     if ((result.state === 'no_op' || result.state === 'deferred') && result.composition) {
       this.lastComposition = result.composition;
       if (isPiHistoryCompositionSendable(result.composition, this.summary)) {
         this.publishStatus();
-        return this.injectRuntimeContext(result.composition.llmMessages, runtimeContext);
+        return this.finalizeContextCandidate({
+          composition: result.composition,
+          sourceMessages: messages,
+          runtimeContext,
+          additionalContextTokens,
+          signal,
+        });
       }
     }
 
@@ -1760,7 +1902,13 @@ export class LivePiRuntime {
     if (isPiHistoryCompositionSendable(fallback, this.summary)) {
       this.lastComposition = fallback;
       this.publishStatus();
-      return this.injectRuntimeContext(fallback.llmMessages, runtimeContext);
+      return this.finalizeContextCandidate({
+        composition: fallback,
+        sourceMessages: messages,
+        runtimeContext,
+        additionalContextTokens,
+        signal,
+      });
     }
     if (result.state === 'cooldown_active') {
       throw new Error(
@@ -2590,6 +2738,8 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     estimatedHistoryTokens: composition.estimatedHistoryTokens,
     availableHistoryTokens: composition.availableHistoryTokens,
     contextUsagePercent: toPercent(composition.estimatedHistoryTokens, composition.availableHistoryTokens),
+    finalRequestTokens: null,
+    finalRequestBudgetExceeded: false,
     includedSummary: composition.includedSummary,
     omittedMessageCount: composition.omittedMessages.length,
     summaryUpdatedAt: summary.summaryUpdatedAt ? summary.summaryUpdatedAt.toISOString() : null,

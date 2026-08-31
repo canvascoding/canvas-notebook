@@ -306,6 +306,43 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:06:00.000Z'),
   });
   assert.equal(automaticCooldown.status, 'cooldown_active');
+  const exactBudgetBypass = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-cooldown-exact-budget`,
+    trigger: 'automatic',
+    bypassCooldown: true,
+    expectedSummaryRevision: 2,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:12:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    contractFingerprint: 'exact-budget-retry:test-contract',
+    now: new Date('2026-08-27T10:06:00.000Z'),
+  });
+  assert.equal(exactBudgetBypass.status, 'started');
+  assert.equal(exactBudgetBypass.attempt.trigger, 'automatic');
+  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-cooldown-exact-budget`,
+    state: 'failed',
+    reasonCode: 'summary_provider_error',
+    retryAt: new Date('2026-08-27T10:16:00.000Z'),
+    now: new Date('2026-08-27T10:06:30.000Z'),
+  });
+  const secondExactBudgetBypass = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-cooldown-exact-budget-second`,
+    trigger: 'automatic',
+    bypassCooldown: true,
+    expectedSummaryRevision: 2,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:12:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    contractFingerprint: 'exact-budget-retry:test-contract',
+    now: new Date('2026-08-27T10:07:00.000Z'),
+  });
+  assert.equal(secondExactBudgetBypass.status, 'cooldown_active');
   const manualBypass = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
     ...scope,
     attemptId: `attempt-${provider}-cooldown-manual`,
@@ -340,7 +377,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   assert.equal(secondManualBypass.status, 'cooldown_active');
   assert.equal(
     await countPiSessionCompactionRetryFailuresOnConnection(connection, provider, scope),
-    2,
+    3,
   );
 
   const resetAttempt = await startPiSessionCompactionAttemptOnConnection(connection, provider, {

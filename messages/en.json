@@ -1326,6 +1326,8 @@
     "contextLabel": "{used}/{available} budget · {window} window",
     "contextCompactLabel": "{used}/{available} budget",
     "contextTooltip": "History budget: {used} of {available} tokens used ({percent}%)\nModel window: {window} tokens\nReserved for system, tools, response, and safety: approx. {reserved} tokens",
+    "contextFinalLabel": "{used}/{window} serialized",
+    "contextFinalTooltip": "Final serialized request: {used} of {window} tokens ({percent}%)\nIncludes instructions, tools, normalized attachments, output reserve, and safety margin.",
     "noSessionYet": "No session yet",
     "backToChat": "Back to chat",
     "openHistory": "Open history",
@@ -3524,6 +3526,10 @@
           "read_knowledge_asset": {
             "title": "Read images and PDFs",
             "description": "Provides bounded visual and text context from visible images and PDF documents after an explicit administrator enablement."
+          },
+          "upload_knowledge_asset": {
+            "title": "Upload binary files",
+            "description": "Allows size-limited, hash-verified uploads to visible workspace paths after an explicit administrator enablement."
           }
         }
       },

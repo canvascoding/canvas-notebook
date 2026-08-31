@@ -49,7 +49,7 @@ async function main(): Promise<void> {
       phase: 'oauth.registration',
       httpMethod: 'POST',
       operation: 'tools/call',
-      toolName: 'read_knowledge_asset',
+      toolName: 'upload_knowledge_asset',
       outcome: 'succeeded',
       statusCode: 201,
       code: 'OAUTH_REQUEST_COMPLETED',
@@ -75,7 +75,7 @@ async function main(): Promise<void> {
     assert.equal(entries[0].phase, 'oauth.registration');
     assert.equal(entries[0].httpMethod, 'POST');
     assert.equal(entries[0].operation, 'tools/call');
-    assert.equal(entries[0].toolName, 'read_knowledge_asset');
+    assert.equal(entries[0].toolName, 'upload_knowledge_asset');
     assert.equal(entries[0].outcome, 'succeeded');
     assert.equal(entries[0].statusCode, 201);
     assert.equal(entries[0].code, 'OAUTH_REQUEST_COMPLETED');
