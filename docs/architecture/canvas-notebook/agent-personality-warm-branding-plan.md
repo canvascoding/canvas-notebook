@@ -527,7 +527,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-033 | fertig | Display-Name-Migration für bestehende Hauptagent-Datensätze entwickeln; Implementierung: [Bradley Display-Name-Migration](./bradley-display-name-migration.md) | Bestehende Standardnamen werden idempotent migriert; bewusste Anpassungen bleiben erhalten. |
 | BRADLEY-034 | fertig | UI-Fallbacks und Registry-Defaults inventarisieren und aktualisieren; Inventar: [Bradley UI-Fallbacks](./bradley-ui-fallback-inventory.md) | Kein sichtbarer Standard-Fallback zeigt unbeabsichtigt „Canvas Agent“, wenn der Hauptagent Bradley ist. |
 | BRADLEY-035 | fertig | Onboarding-, Notification-, Automation- und E-Mail-Texte inventarisieren; Inventar: [Bradley sichtbare Copy](./bradley-visible-copy-inventory.md) | Alle sichtbaren Hauptagent-Referenzen sind klassifiziert und entweder migriert oder bewusst beibehalten. |
-| BRADLEY-036 | offen | Interne ID- und Pfadstabilität durch Regressionstests absichern | Tests belegen, dass `canvas-agent`, Sessions, Automationen, APIs und Speicherpfade unverändert funktionieren. |
+| BRADLEY-036 | fertig | Interne ID- und Pfadstabilität durch Regressionstests absichern; Nachweis: [Bradley Runtime-Stabilitätsregression](./bradley-runtime-stability-regression.md) | Tests belegen, dass `canvas-agent`, Sessions, Automationen, APIs und Speicherpfade unverändert funktionieren. |
 
 ### Phase E — UI-Pilot
 

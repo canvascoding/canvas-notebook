@@ -59,6 +59,29 @@ moduleInternals._load = (request, parent, isMain) => {
   if (matches(request, 'audit/audit-service')) {
     return { recordAuditEvent: async (event: unknown) => { auditEvents.push(event); } };
   }
+  if (matches(request, 'agents/registry')) {
+    return {
+      normalizeManagedAgentId: (agentId?: string | null) => {
+        const normalized = typeof agentId === 'string' ? agentId.trim().toLowerCase() : '';
+        if (!normalized) return 'canvas-agent';
+        if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(normalized)) {
+          throw new Error('Invalid agentId.');
+        }
+        return normalized;
+      },
+    };
+  }
+  if (matches(request, 'agents/access')) {
+    class AgentAccessError extends Error {
+      constructor(readonly status: number) {
+        super('Agent access denied.');
+      }
+    }
+    return {
+      AgentAccessError,
+      requireAgentAccess: async () => ({ canUse: true, canEdit: true, canManage: true }),
+    };
+  }
   if (matches(request, 'agents/storage')) {
     return {
       DEFAULT_MANAGED_AGENT_ID: 'canvas-agent',
