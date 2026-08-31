@@ -65,13 +65,14 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] **Mo** als verbindlichen sichtbaren Namen für UI, Onboarding,
   Dokumentation und Marketing festgelegt und im
   [Mo-Namensvertrag](./mo-name-contract.md) dokumentiert.
-- [x] Deutsche und englische Desk-Validierung für Aussprache, Nebenbedeutungen
-  und UI-Kontexte durchgeführt; realer Zielnutzer-Test für MO-002 vorbereitet.
+- [x] Deutsche und englische Sprach- und Namensvalidierung vom Product Owner
+  freigegeben; größere Zielnutzer-Stichprobe in die Pilot-Auswertung MO-045
+  verschoben.
 
-Noch nicht entschieden oder umgesetzt sind insbesondere die Aussprache- und
-Namensvalidierung, die Prüfung der Namensverfügbarkeit, die finale Freigabe der
-kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration bestehender
-Installationen, die vollständige Zustands-Copy und die UI-Integration.
+Noch nicht entschieden oder umgesetzt sind insbesondere die Prüfung der
+Namensverfügbarkeit, die finale Freigabe der kleinen SVG-/Icon-Variante, die
+Prompt-Hierarchie, die Migration bestehender Installationen, die vollständige
+Zustands-Copy und die UI-Integration.
 
 ## 3. Identität und Name
 
@@ -90,9 +91,9 @@ Es gilt:
 - Interne technische ID: unverändert `canvas-agent`
 - Technische Speicherpfade und API-Verträge: unverändert
 
-MO-002 und MO-003 validieren Aussprache, Wirkung und Verfügbarkeit. Ein
-auffälliges Ergebnis ändert die Entscheidung nicht still, sondern öffnet MO-001
-mit dokumentierter Begründung erneut.
+MO-002 hat Aussprache und Wirkung validiert. MO-003 prüft als Nächstes die
+Verfügbarkeit. Ein auffälliges Ergebnis ändert die Entscheidung nicht still,
+sondern öffnet MO-001 mit dokumentierter Begründung erneut.
 
 ### 3.2 Visuelle Herkunft
 
@@ -393,7 +394,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
 | MO-001 | fertig | Offiziellen Namen festlegen; Vertrag: [Mo-Namensvertrag](./mo-name-contract.md) | **Mo** ist für UI, Onboarding, Dokumentation und Marketing verbindlich dokumentiert. |
-| MO-002 | in Arbeit | Deutsche und englische Aussprache sowie Namenswirkung prüfen; Desk-Validierung und Testprotokoll: [Mo Sprach- und Namensvalidierung](./mo-name-language-validation.md) | Ergebnisse aus mindestens sechs realen Zielnutzer-Tests und die Entscheidung sind dokumentiert; auffällige Verwechslungen sind bewertet. |
+| MO-002 | fertig | Deutsche und englische Aussprache sowie Namenswirkung prüfen; Entscheidung: [Mo Sprach- und Namensvalidierung](./mo-name-language-validation.md) | Aussprache, Nebenbedeutungen, UI-Kontexte und Risiken sind dokumentiert und vom Product Owner freigegeben; größere Stichprobe folgt in MO-045. |
 | MO-003 | offen | Marken- und Namensverfügbarkeit prüfen | Relevante Produkt-, Domain- und Markenrisiken sind dokumentiert; dies ersetzt keine Rechtsberatung. |
 | MO-004 | offen | Primäre Metapher und erlaubtes Vokabular definieren | Ein kurzer Sprachleitfaden trennt Canvas-, Falt- und Mosaic-Begriffe und entfernt widersprüchliche Metaphern. |
 | MO-005 | offen | Feste, persönliche und Workspace-bezogene Identitätsebenen verbindlich festlegen | Prompt- und Copy-Hierarchie ist als implementierbarer Vertrag beschrieben. |
@@ -442,7 +443,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | MO-042 | offen | Arbeitszustand beim Antwortstart integrieren | Status bleibt semantisch korrekt, screenreader-tauglich und bewegungsarm verfügbar. |
 | MO-043 | offen | Einen Starter-/Empty-State mit Mo umsetzen | Mo unterstützt die Orientierung, ohne Inhalte oder Aktionen zu verdrängen. |
 | MO-044 | offen | UI- und End-to-End-Prüfung durchführen | Nach ausdrücklicher Playwright-/Browser-Freigabe sind Desktop, Mobile, Light, Dark und Reduced Motion geprüft. |
-| MO-045 | offen | Pilot anhand definierter Kriterien auswerten | Verständlichkeit, Agentenunterscheidung, Vertrauen und Störwirkung sind dokumentiert. |
+| MO-045 | offen | Pilot anhand definierter Kriterien einschließlich mehrsprachiger Mo-Namensstichprobe auswerten | Verständlichkeit, Namenswirkung, Agentenunterscheidung, Vertrauen und Störwirkung sind dokumentiert. |
 
 ### Phase F — Erweiterter Rollout und Marketing
 

@@ -1,8 +1,9 @@
 ---
 title: Canvas Notebook — Mo Sprach- und Namensvalidierung
-status: in-progress
+status: decided
 todo_id: MO-002
 last_updated: 2026-08-31
+decision_date: 2026-08-31
 owners:
   - Canvas Notebook
 tags:
@@ -20,9 +21,11 @@ MO-002 prüft, ob **Mo** im Deutschen und Englischen eindeutig aussprechbar,
 verständlich, merkbar sowie warm und professionell genug für den
 Canvas-Notebook-Hauptagenten ist.
 
-Die dokumentierte Desk-Validierung ist abgeschlossen. Die im Abnahmekriterium
-verlangte Prüfung mit mehreren realen Zielnutzern steht noch aus. Deshalb
-bleibt MO-002 auf `in Arbeit`.
+Die dokumentierte Desk-Validierung ist abgeschlossen und wurde am 31. August
+2026 vom Product Owner freigegeben. MO-002 ist damit abgeschlossen. Eine
+größere mehrsprachige Stichprobe bleibt sinnvoll, wird aber als Teil der
+Pilot-Auswertung MO-045 durchgeführt und blockiert die folgenden Konzeptphasen
+nicht.
 
 ## Vorgesehene Aussprache
 
@@ -80,7 +83,7 @@ separat in MO-003 geprüft.
 | Fehler | `Mo konnte diesen Schritt nicht abschließen.` | `Mo couldn't complete this step.` | Professionell, sofern Ursache und nächste Aktion folgen. |
 | Kalenderansicht | nicht isoliert als einziges Label verwenden | keine besondere Einschränkung | Deutsch benötigt Agent-Glyph oder Rollenbezug, um `Mo` von Montag zu trennen. |
 
-## Vorläufige Bewertung
+## Bewertung
 
 | Kriterium | Bewertung | Begründung |
 | --- | --- | --- |
@@ -93,13 +96,20 @@ separat in MO-003 geprüft.
 | EN-Verwechslung | niedrig | Britisch `mo` = Moment tritt üblicherweise mit Artikel oder Präposition auf. |
 | Sprachsteuerung | noch ungeprüft | Kurze Namen können akustisch leichter falsch erkannt werden; Voice ist derzeit kein primärer Anwendungsfall. |
 
-### Desk-Entscheidung
+### Entscheidung
 
 Aus sprachlicher Sicht gibt es keinen Grund, den Namensvertrag zu öffnen. Die
-Empfehlung bleibt **Mo**. Diese Empfehlung wird erst nach dem folgenden
-Zielnutzer-Test zur endgültigen MO-002-Entscheidung.
+Empfehlung bleibt **Mo**.
 
-## Zielnutzer-Test
+Der Product Owner hat die dokumentierte Aussprache, Kontextprüfung,
+Nebenbedeutungen und Risikoeinschätzung am 31. August 2026 mit „Ja, das ist
+gut“ freigegeben. Diese Freigabe ist die verbindliche MO-002-Entscheidung.
+
+## Pilot-Zielnutzer-Test für MO-045
+
+Die folgende größere Stichprobe bleibt als Produktvalidierung erhalten. Sie
+prüft die Namenswirkung gemeinsam mit Glyph, Motion und realer Oberfläche im
+UI-Pilot, statt die weitere Konzeptarbeit vorab zu blockieren.
 
 ### Stichprobe
 
@@ -109,8 +119,8 @@ Zielnutzer-Test zur endgültigen MO-002-Entscheidung.
 - mindestens zwei Personen, die Canvas Notebook vorher nicht kennen;
 - Ergebnisse anonym als `P01` bis `P06` dokumentieren.
 
-Der Product Owner kann teilnehmen, ersetzt aber nicht die mehrsprachige
-Stichprobe.
+Die Product-Owner-Freigabe ist bereits dokumentiert. Die Pilot-Stichprobe soll
+darüber hinaus unabhängige Reaktionen aus der Zielgruppe erfassen.
 
 ### Ablauf pro Person
 
@@ -124,9 +134,9 @@ Stichprobe.
 7. Offene Verwechslungen mit Montag, Moment, `no`, `more` oder anderen Namen
    protokollieren.
 
-### Abnahmekriterien
+### Pilot-Auswertungskriterien
 
-MO-002 kann auf `fertig` gesetzt werden, wenn:
+Die Namenswirkung gilt im Rahmen von MO-045 als bestätigt, wenn:
 
 - mindestens fünf von sechs Personen den Namen ohne Korrektur als eine Silbe
   mit langem `o` aussprechen;
@@ -138,7 +148,7 @@ MO-002 kann auf `fertig` gesetzt werden, wenn:
 - keine wiederkehrende Verwechslung die Bedienung oder das Markenverständnis
   beeinträchtigt.
 
-## Ergebnisprotokoll
+## Pilot-Ergebnisprotokoll
 
 | Person | Sprache | Aussprache korrekt | Rolle erkannt | Wärme 1–5 | Professionell 1–5 | Kindlich 1–5 | Nach 5 Min. erinnert | Verwechslung/Kommentar |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -149,9 +159,11 @@ MO-002 kann auf `fertig` gesetzt werden, wenn:
 | P05 |  |  |  |  |  |  |  |  |
 | P06 |  |  |  |  |  |  |  |  |
 
-## Offener Abschluss
+## MO-002-Abschluss und Pilot-Follow-up
 
-Nach Eintragung der sechs Ergebnisse werden Kennzahlen und Freitextbefunde
-zusammengefasst. Bei bestandenen Kriterien bleibt der Namensvertrag unverändert
-und MO-002 wird geschlossen. Bei einem auffälligen Ergebnis wird nicht direkt
-umbenannt, sondern MO-001 mit dokumentierter Begründung erneut geöffnet.
+MO-002 ist mit der dokumentierten Desk-Validierung und Product-Owner-Freigabe
+abgeschlossen. Nach dem späteren Eintragen der sechs Pilot-Ergebnisse werden
+Kennzahlen und Freitextbefunde in MO-045 zusammengefasst. Bei bestandenen
+Kriterien bleibt der Namensvertrag unverändert. Bei einem auffälligen Ergebnis
+wird nicht direkt umbenannt, sondern MO-001 und MO-002 mit dokumentierter
+Begründung erneut geöffnet.
