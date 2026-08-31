@@ -405,7 +405,7 @@ async function main(): Promise<void> {
         accept: true,
         oauth_query: secondConsentLocation.searchParams.toString(),
       }),
-    );
+    }));
     assert.equal(acceptResponse.status, 200);
     const acceptedRedirect = new URL(
       readRedirect(await readJson(acceptResponse)),
