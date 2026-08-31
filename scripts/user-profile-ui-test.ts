@@ -46,7 +46,7 @@ async function main() {
   assert.match(editorSource, /MAX_UPLOAD_BYTES = 5 \* 1024 \* 1024/, 'client must advertise the server upload limit');
   assert.match(editorSource, /credentials: 'include'/, 'profile mutations must use the authenticated session');
   assert.match(editorSource, /formData\.set\('avatar', file\)/, 'the editor must use the avatar upload field');
-  assert.match(editorSource, /URL\.createObjectURL\(file\)/, 'the editor must preview the selected image immediately');
+  assert.doesNotMatch(editorSource, /URL\.createObjectURL/, 'untrusted local files must not flow directly into image URLs');
   assert.doesNotMatch(editorSource, /userId/, 'profile mutations must not accept a client-selected user ID');
   assert.match(avatarSource, /failedImageUrl/, 'broken profile images must fall back locally');
   assert.match(avatarSource, /profile\.initials/, 'avatar must render initials as the final fallback');

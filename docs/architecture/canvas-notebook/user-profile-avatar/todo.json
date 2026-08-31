@@ -73,7 +73,7 @@
     {
       "id": 7,
       "title": "Final repository and UI verification",
-      "status": "completed",
+      "status": "in_progress",
       "dependsOn": [6],
       "verification": [
         "targeted tests",
@@ -82,7 +82,7 @@
         "UI/E2E on localhost:3000 after explicit browser automation approval",
         "GitNexus detect_changes against main"
       ],
-      "note": "Automated service, API, UI-contract, lint and production-build checks completed. Browser automation was not run because explicit approval was not provided."
+      "note": "Automated service, API, UI-contract, lint and production-build checks completed. Browser automation still requires explicit approval and remains open."
     }
   ]
 }

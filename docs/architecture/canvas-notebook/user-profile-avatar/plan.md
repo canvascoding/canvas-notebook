@@ -110,7 +110,7 @@ Der Server akzeptiert genau eine Datei und vertraut weder Dateiendung noch Brows
 - Zielgroesse: maximal 256 KB; bei Ueberschreitung wird mit niedrigerer Qualitaet erneut kodiert oder der Upload abgelehnt.
 - Kein Import ueber externe URLs. Dadurch entstehen weder SSRF- noch Tracking-Risiken.
 
-Ein eigenes Crop-UI ist nicht Teil von V1. Die Vorschau muss den tatsaechlichen mittigen Zuschnitt zeigen, bevor der Benutzer speichert.
+Ein eigenes Crop-UI ist nicht Teil von V1. Nach dem Upload zeigt die Vorschau ausschliesslich die bereits serverseitig normalisierte und gespeicherte Fassung.
 
 ## Icon-Katalog
 
