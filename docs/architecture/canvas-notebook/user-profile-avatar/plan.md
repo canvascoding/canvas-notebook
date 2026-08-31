@@ -1,6 +1,6 @@
 # Plan: persoenliches Benutzerprofil mit Foto, Icons und Initialen
 
-Stand: 2026-08-31  
+Stand: 2026-08-31
 Status: implementiert und technisch verifiziert
 Branch: `codex/user-profile-avatar-plan`
 
