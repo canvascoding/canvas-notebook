@@ -517,12 +517,12 @@ async function authenticateForTool(
   authInfo: AuthInfo | undefined,
   scope: DirectMcpResourceScope,
 ): Promise<{ principal: DirectMcpAccessPrincipal } | { result: CallToolResult }> {
-  if (!authInfo?.token) return { result: directMcpToolAuthorizationError() };
+  if (!authInfo?.token) return { result: directMcpToolAuthorizationError(undefined, scope) };
   try {
     return { principal: await verifyDirectMcpAccessToken(authInfo.token, [scope]) };
   } catch (error) {
     if (error instanceof DirectMcpAuthorizationError) {
-      return { result: directMcpToolAuthorizationError(error) };
+      return { result: directMcpToolAuthorizationError(error, scope) };
     }
     throw error;
   }

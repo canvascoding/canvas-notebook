@@ -13,7 +13,11 @@ import {
   getDirectMcpAuthProbeToolDescriptor,
   runDirectMcpAuthProbe,
 } from '@/app/lib/mcp/server/auth-probe';
-import { getDirectMcpEnabledTools, type DirectMcpToolId } from '@/app/lib/mcp/server/config';
+import {
+  DIRECT_MCP_TOOL_IDS,
+  getDirectMcpEnabledTools,
+  type DirectMcpToolId,
+} from '@/app/lib/mcp/server/config';
 import {
   recordDirectMcpRequestOperation,
   recordDirectMcpToolFailure,
@@ -78,9 +82,13 @@ export function createDirectMcpServer(
     const tool = toolsById.get(request.params.name as DirectMcpToolId);
     if (!tool) {
       recordDirectMcpToolFailure();
+      const requestedTool = request.params.name;
+      const isKnownCanvasTool = (DIRECT_MCP_TOOL_IDS as readonly string[]).includes(requestedTool);
       throw new ProtocolError(
         ProtocolErrorCode.MethodNotFound,
-        'The requested tool is not available.',
+        isKnownCanvasTool
+          ? `The Canvas tool "${requestedTool}" is disabled for this server. Enable it under Canvas Settings > MCP Server, then reload the MCP server in your client.`
+          : 'The requested tool is not available.',
       );
     }
     recordDirectMcpRequestOperation('tools/call', tool.id);

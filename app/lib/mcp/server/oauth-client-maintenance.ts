@@ -18,8 +18,11 @@ function changesFromRunResult(result: unknown): number {
 
 /**
  * Removes only anonymous public clients that are linked to this Direct MCP
- * resource and never received a consent or token. A client that was ever
- * used remains intact; this is intentionally not a general OAuth cleanup.
+ * resource and never received a consent or token. Public-client status is
+ * derived from no client secret plus the `none` token auth method; the legacy
+ * `public` column is deliberately ignored because deployed schemas represent
+ * it as boolean, integer, bigint, or null. A client that was ever used remains
+ * intact; this is intentionally not a general OAuth cleanup.
  */
 export async function pruneUnusedDirectMcpDynamicClients(
   now = Date.now(),
@@ -41,7 +44,6 @@ export async function pruneUnusedDirectMcpDynamicClients(
           AND stale_client.user_id IS NULL
           AND stale_client.client_secret IS NULL
           AND stale_client.token_endpoint_auth_method = 'none'
-          AND COALESCE(stale_client.public, FALSE) = TRUE
           AND NOT EXISTS (
             SELECT 1
             FROM oauth_consent consent

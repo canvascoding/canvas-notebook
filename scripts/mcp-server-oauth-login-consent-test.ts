@@ -61,6 +61,15 @@ function readSessionCookie(response: Response): string {
   return sessionCookie.split(';', 1)[0];
 }
 
+function readStoredStringArray(value: string): string[] {
+  const parsed = JSON.parse(value) as unknown;
+  const normalized = typeof parsed === 'string'
+    ? JSON.parse(parsed) as unknown
+    : parsed;
+  assert.equal(Array.isArray(normalized), true);
+  return normalized as string[];
+}
+
 function authorizationUrl(
   clientId: string,
   resource: string,
@@ -97,6 +106,7 @@ async function main(): Promise<void> {
     const [
       { auth },
       { enforceDirectMcpOAuthRequestPolicy },
+      { POST: completeConsentRedirect },
       {
         resolveDirectMcpConsentPresentation,
         verifyOAuthPageQuery,
@@ -104,6 +114,7 @@ async function main(): Promise<void> {
     ] = await Promise.all([
       import('../app/lib/auth'),
       import('../app/lib/mcp/server/oauth-request-policy'),
+      import('../app/api/auth/oauth2/consent/redirect/route'),
       import('../app/lib/mcp/server/oauth-page-query'),
     ]);
     const { issuer, resource } = resolveDirectMcpServerConfig();
@@ -220,7 +231,7 @@ async function main(): Promise<void> {
           disabled: storedClient.disabled,
           public: storedClient.public,
           tokenEndpointAuthMethod: storedClient.tokenEndpointAuthMethod,
-          scopes: JSON.parse(storedClient.scopes),
+          scopes: readStoredStringArray(storedClient.scopes),
         },
         {
           disabled: 0,
@@ -292,22 +303,43 @@ async function main(): Promise<void> {
     );
     assert.equal(secondConsentLocation.pathname, '/oauth/consent');
 
-    const acceptResponse = await dispatch(new Request(`${issuer}/oauth2/consent`, {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-        cookie: oauthCookie,
-        origin: ORIGIN,
-      },
-      body: JSON.stringify({
-        accept: true,
-        oauth_query: secondConsentLocation.searchParams.toString(),
+    const invalidOriginForm = new URLSearchParams({
+      accept: 'true',
+      oauth_query: secondConsentLocation.searchParams.toString(),
+    });
+    const invalidOriginResponse = await completeConsentRedirect(
+      new Request(`${ORIGIN}/api/auth/oauth2/consent/redirect`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie: oauthCookie,
+          origin: 'https://attacker.example.test',
+        },
+        body: invalidOriginForm,
       }),
-    }));
-    assert.equal(acceptResponse.status, 200);
+    );
+    assert.equal(invalidOriginResponse.status, 403);
+    assert.ok(invalidOriginResponse.headers.get('x-request-id'));
+
+    const acceptForm = new URLSearchParams({
+      accept: 'true',
+      oauth_query: secondConsentLocation.searchParams.toString(),
+    });
+    const acceptResponse = await completeConsentRedirect(new Request(
+      `${ORIGIN}/api/auth/oauth2/consent/redirect`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie: oauthCookie,
+          origin: ORIGIN,
+        },
+        body: acceptForm,
+      },
+    ));
+    assert.equal(acceptResponse.status, 303);
     const acceptedRedirect = new URL(
-      readRedirect(await readJson(acceptResponse)),
+      acceptResponse.headers.get('location') || '',
       ORIGIN,
     );
     assert.equal(acceptedRedirect.origin + acceptedRedirect.pathname, REDIRECT_URI);
@@ -315,21 +347,23 @@ async function main(): Promise<void> {
     assert.equal(acceptedRedirect.searchParams.get('state'), 'state-consent');
     assert.equal(acceptedRedirect.searchParams.get('iss'), issuer);
 
-    const tamperedConsent = await dispatch(new Request(`${issuer}/oauth2/consent`, {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-        cookie: oauthCookie,
-        origin: ORIGIN,
+    const tamperedConsent = await completeConsentRedirect(new Request(
+      `${ORIGIN}/api/auth/oauth2/consent/redirect`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie: oauthCookie,
+          origin: ORIGIN,
+        },
+        body: new URLSearchParams({
+          accept: 'true',
+          oauth_query: `${secondConsentLocation.searchParams.toString()}tampered`,
+        }),
       },
-      body: JSON.stringify({
-        accept: true,
-        oauth_query: `${secondConsentLocation.searchParams.toString()}tampered`,
-      }),
-    }));
+    ));
     assert.equal(tamperedConsent.status, 400);
-    assert.equal((await readJson(tamperedConsent)).error, 'invalid_signature');
+    assert.equal((await readJson(tamperedConsent)).error, 'invalid_request');
 
     console.log('mcp-server-oauth-login-consent-test: ok');
   } finally {

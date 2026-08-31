@@ -691,6 +691,12 @@ async function main(): Promise<void> {
     )['mcp/www_authenticate'] as string[];
     assert.ok(assetScopeChallenge[0].includes('error="insufficient_scope"'));
     assert.ok(assetScopeChallenge[0].includes('scope="knowledge:assets"'));
+    const assetScopeMessage = String(
+      (missingAssetScopeResult.content as Array<{ text?: string }>)[0]?.text,
+    );
+    assert.match(assetScopeMessage, /knowledge:assets/u);
+    assert.match(assetScopeMessage, /Settings > MCP Server/u);
+    assert.match(assetScopeMessage, /do not need to register a new client/u);
 
     const unsupportedAsset = await rpcRequest({
       post: mcpRoute.POST,
@@ -790,6 +796,10 @@ async function main(): Promise<void> {
     )['mcp/www_authenticate'] as string[];
     assert.ok(writeScopeChallenge[0].includes('error="insufficient_scope"'));
     assert.ok(writeScopeChallenge[0].includes('scope="knowledge:write"'));
+    assert.match(
+      String((missingWriteScopeResult.content as Array<{ text?: string }>)[0]?.text),
+      /knowledge:write/u,
+    );
 
     process.env.CANVAS_MCP_DIRECT_TOOLS = '';
     try {
@@ -805,6 +815,25 @@ async function main(): Promise<void> {
       assert.equal(disabledToolsList.status, 200);
       const disabledToolsResult = resultFromRpc(await readJson(disabledToolsList));
       assert.deepEqual(disabledToolsResult.tools, []);
+
+      const disabledToolCall = await rpcRequest({
+        post: mcpRoute.POST,
+        body: {
+          jsonrpc: '2.0',
+          id: 22,
+          method: 'tools/call',
+          params: {
+            name: 'read_knowledge_asset',
+            arguments: {},
+          },
+        },
+      });
+      const disabledToolBody = await readJson(disabledToolCall);
+      assert.equal(typeof disabledToolBody.error, 'object');
+      assert.match(
+        String((disabledToolBody.error as JsonRecord).message),
+        /disabled for this server.*Settings > MCP Server.*reload/iu,
+      );
     } finally {
       delete process.env.CANVAS_MCP_DIRECT_TOOLS;
     }

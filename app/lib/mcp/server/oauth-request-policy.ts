@@ -54,6 +54,7 @@ export function isDirectMcpOAuthPath(pathname: string): boolean {
   return [
     '/api/auth/oauth2/register',
     '/api/auth/oauth2/authorize',
+    '/api/auth/oauth2/consent',
     '/api/auth/oauth2/token',
     '/api/auth/oauth2/revoke',
     '/api/auth/oauth2/introspect',

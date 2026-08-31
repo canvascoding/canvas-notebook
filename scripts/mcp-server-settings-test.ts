@@ -33,6 +33,10 @@ async function main(): Promise<void> {
     const { getDirectMcpEnabledTools } = await import(
       '../app/lib/mcp/server/config'
     );
+    const {
+      buildCodexMcpServerConfiguration,
+      missingScopesForEnabledCapabilities,
+    } = await import('../app/lib/mcp/client-configuration');
     const { applyDirectMcpSettingsToRuntime } = await import(
       '../app/lib/mcp/server/runtime-settings'
     );
@@ -155,6 +159,31 @@ async function main(): Promise<void> {
         { id: 'edit_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
         { id: 'read_knowledge_asset', available: true, enabled: false, scopes: ['knowledge:assets'] },
       ],
+    );
+    assert.equal(
+      buildCodexMcpServerConfiguration({
+        endpoint: status.endpoint || '',
+        enabledTools: ['read_knowledge_asset', 'auth_probe', 'auth_probe'],
+      }),
+      [
+        '[mcp_servers.canvas]',
+        'url = "https://canvas.example.test/mcp"',
+        'enabled_tools = [',
+        '  "auth_probe",',
+        '  "read_knowledge_asset",',
+        ']',
+      ].join('\n'),
+    );
+    assert.deepEqual(
+      missingScopesForEnabledCapabilities({
+        grantedScopes: ['workspace:list'],
+        capabilities: status.capabilities.map((capability) => (
+          capability.id === 'read_knowledge_asset'
+            ? { ...capability, enabled: true }
+            : capability
+        )),
+      }),
+      ['knowledge:assets'],
     );
 
     const localDockerStatus = buildDirectMcpServerSettingsStatus(preferences, {

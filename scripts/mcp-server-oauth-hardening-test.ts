@@ -92,7 +92,7 @@ async function main(): Promise<void> {
           INSERT INTO oauth_client (
             id, client_id, client_secret, user_id, created_at, updated_at,
             redirect_uris, token_endpoint_auth_method, public, require_pkce
-          ) VALUES (?, ?, NULL, NULL, ?, ?, ?, 'none', TRUE, TRUE)
+          ) VALUES (?, ?, NULL, NULL, ?, ?, ?, 'none', NULL, TRUE)
         `, [
           `client-${randomUUID()}`,
           clientId,

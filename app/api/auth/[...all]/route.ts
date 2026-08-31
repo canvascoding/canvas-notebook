@@ -19,6 +19,7 @@ import {
   failDirectMcpDiagnostic,
   runWithDirectMcpDiagnostic,
   withDirectMcpRequestId,
+  type DirectMcpDiagnosticPhase,
 } from '@/app/lib/mcp/server/diagnostics';
 import { pruneUnusedDirectMcpDynamicClients } from '@/app/lib/mcp/server/oauth-client-maintenance';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -191,6 +192,37 @@ async function runDirectMcpOAuthStage<T>(
   }
 }
 
+function directMcpOAuthDiagnosticPhase(pathname: string): DirectMcpDiagnosticPhase {
+  if (pathname === '/api/auth/oauth2/register') return 'oauth.registration';
+  if (pathname === '/api/auth/oauth2/authorize') return 'oauth.authorization';
+  if (pathname === '/api/auth/oauth2/consent') return 'oauth.consent';
+  if (pathname === '/api/auth/oauth2/token') return 'oauth.token';
+  if (pathname === '/api/auth/oauth2/revoke') return 'oauth.revocation';
+  return 'oauth.introspection';
+}
+
+function directMcpOAuthCompletionCode(pathname: string, status: number): string {
+  if (pathname === '/api/auth/oauth2/register' && status === 429) {
+    return 'OAUTH_REGISTRATION_RATE_LIMITED';
+  }
+  if (status >= 400) {
+    if (pathname === '/api/auth/oauth2/register') return 'OAUTH_REGISTRATION_REJECTED';
+    if (pathname === '/api/auth/oauth2/authorize') return 'OAUTH_AUTHORIZATION_REJECTED';
+    if (pathname === '/api/auth/oauth2/consent') return 'OAUTH_CONSENT_REJECTED';
+    if (pathname === '/api/auth/oauth2/token') return 'OAUTH_TOKEN_EXCHANGE_REJECTED';
+    if (pathname === '/api/auth/oauth2/revoke') return 'OAUTH_REVOCATION_REJECTED';
+    return 'OAUTH_INTROSPECTION_REJECTED';
+  }
+  if (pathname === '/api/auth/oauth2/authorize' && status >= 300 && status < 400) {
+    return 'OAUTH_AUTHORIZATION_REDIRECT_ISSUED';
+  }
+  if (pathname === '/api/auth/oauth2/consent') return 'OAUTH_CONSENT_COMPLETED';
+  if (pathname === '/api/auth/oauth2/token') return 'OAUTH_TOKEN_EXCHANGE_COMPLETED';
+  if (pathname === '/api/auth/oauth2/revoke') return 'OAUTH_REVOCATION_COMPLETED';
+  if (pathname === '/api/auth/oauth2/introspect') return 'OAUTH_INTROSPECTION_COMPLETED';
+  return 'OAUTH_REGISTRATION_COMPLETED';
+}
+
 async function handleDirectMcpOAuthRequest(
   request: NextRequest,
   handler: () => Promise<Response>,
@@ -200,9 +232,7 @@ async function handleDirectMcpOAuthRequest(
   const startedAt = Date.now();
   const diagnostics = beginDirectMcpDiagnostic(
     request,
-    request.nextUrl.pathname === '/api/auth/oauth2/register'
-      ? 'oauth.registration'
-      : 'oauth.request',
+    directMcpOAuthDiagnosticPhase(request.nextUrl.pathname),
   );
   const isRegistration = request.nextUrl.pathname === '/api/auth/oauth2/register';
   try {
@@ -229,9 +259,7 @@ async function handleDirectMcpOAuthRequest(
     if (isRegistration) await recordDirectMcpRegistrationAudit(response);
     await completeDirectMcpDiagnostic(diagnostics, {
       statusCode: response.status,
-      code: isRegistration && response.status === 429
-        ? 'OAUTH_REGISTRATION_RATE_LIMITED'
-        : 'OAUTH_REQUEST_COMPLETED',
+      code: directMcpOAuthCompletionCode(request.nextUrl.pathname, response.status),
       startedAt,
     });
     return response;

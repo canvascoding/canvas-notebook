@@ -13,6 +13,7 @@ import {
   Save,
   Server,
   ShieldCheck,
+  TriangleAlert,
   Unplug,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -29,6 +30,10 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { DirectMcpWorkspaceAccessSwitch } from '@/app/components/settings/DirectMcpWorkspaceAccessSwitch';
+import {
+  buildCodexMcpServerConfiguration,
+  missingScopesForEnabledCapabilities,
+} from '@/app/lib/mcp/client-configuration';
 
 type McpCapabilityStatus = {
   id: string;
@@ -423,13 +428,10 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   const configuredMcpWorkspaces = mcpWorkspaceConfigurations ?? [];
   const enabledMcpWorkspaceCount = configuredMcpWorkspaces.filter((workspace) => workspace.enabled).length;
   const connectionConfig = serverIsActive && status?.endpoint
-    ? JSON.stringify({
-      mcpServers: {
-        canvas: {
-          url: status.endpoint,
-        },
-      },
-    }, null, 2)
+    ? buildCodexMcpServerConfiguration({
+      endpoint: status.endpoint,
+      enabledTools: enabledTools(status),
+    })
     : null;
 
   const statusLabel = status?.configurationError
@@ -685,6 +687,12 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
             <div className="divide-y overflow-hidden rounded-lg border">
               {connections.map((connection) => {
                 const authorizedAt = connection.updatedAt || connection.connectedAt;
+                const missingScopes = status
+                  ? missingScopesForEnabledCapabilities({
+                    grantedScopes: connection.scopes,
+                    capabilities: status.capabilities,
+                  })
+                  : [];
                 const isWorkspaceAccessExpanded = expandedWorkspaceAccessConnectionId === connection.connectionId;
                 const accessForConnection = workspaceAccess?.connectionId === connection.connectionId
                   ? workspaceAccess
@@ -700,6 +708,24 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                             <Badge key={scope} variant="outline" className="font-mono font-normal">{scope}</Badge>
                           ))}
                         </div>
+                        {missingScopes.length > 0 ? (
+                          <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-100">
+                            <p className="flex items-center gap-2 font-medium">
+                              <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />
+                              {t('connections.permissionsMissing.title')}
+                            </p>
+                            <p className="mt-1 leading-5">
+                              {t('connections.permissionsMissing.description', {
+                                scopes: missingScopes.join(', '),
+                              })}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="mt-3 flex items-center gap-2 text-xs text-primary">
+                            <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                            {t('connections.permissionsComplete')}
+                          </p>
+                        )}
                         <p className="mt-2 text-xs text-muted-foreground">
                           {t('connections.workspaceAccess.selectedCount', { count: connection.allowedWorkspaceCount })}
                         </p>
@@ -977,7 +1003,7 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                   <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
                     <div className="flex items-center gap-2 text-xs text-slate-300">
                       <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
-                      {t('developer.example')}
+                      {t('developer.codexExample')}
                     </div>
                     <Button
                       type="button"
@@ -993,6 +1019,7 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                   </div>
                   <pre className="overflow-x-auto p-4 text-xs leading-5"><code>{connectionConfig ?? t('endpoint.notConfigured')}</code></pre>
                 </div>
+                <p className="text-xs leading-5 text-muted-foreground">{t('developer.codexHint')}</p>
                 <dl className="grid gap-3 text-sm sm:grid-cols-2">
                   <div>
                     <dt className="text-muted-foreground">{t('developer.endpoint')}</dt>

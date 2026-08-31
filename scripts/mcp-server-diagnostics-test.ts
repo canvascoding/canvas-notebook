@@ -37,7 +37,7 @@ async function main(): Promise<void> {
     const request = new Request(
       `https://notebook.example.test/api/auth/oauth2/authorize?client_id=${CLIENT_ID}&state=${STATE}`,
     );
-    const diagnostics = beginDirectMcpDiagnostic(request, 'oauth.request');
+    const diagnostics = beginDirectMcpDiagnostic(request, 'oauth.authorization');
     assert.match(diagnostics.requestId, /^[0-9a-f-]{36}$/iu);
     assert.match(diagnostics.flowRef || '', /^[a-f0-9]{24}$/u);
 
@@ -68,6 +68,24 @@ async function main(): Promise<void> {
       code: 'OAUTH_PROVIDER_ERROR',
       startedAt: Date.now() - 1,
     });
+    const consentDiagnostics = beginDirectMcpDiagnostic(
+      new Request('https://notebook.example.test/api/auth/oauth2/consent/redirect', { method: 'POST' }),
+      'oauth.consent',
+    );
+    await completeDirectMcpDiagnostic(consentDiagnostics, {
+      statusCode: 303,
+      code: 'OAUTH_CONSENT_REDIRECT_ISSUED',
+      startedAt: Date.now() - 1,
+    });
+    const tokenDiagnostics = beginDirectMcpDiagnostic(
+      new Request('https://notebook.example.test/api/auth/oauth2/token', { method: 'POST' }),
+      'oauth.token',
+    );
+    await completeDirectMcpDiagnostic(tokenDiagnostics, {
+      statusCode: 200,
+      code: 'OAUTH_TOKEN_EXCHANGE_COMPLETED',
+      startedAt: Date.now() - 1,
+    });
     const failedDiagnostics = beginDirectMcpDiagnostic(
       new Request('https://notebook.example.test/mcp', { method: 'POST' }),
       'mcp.http',
@@ -84,13 +102,17 @@ async function main(): Promise<void> {
     assert.equal(output.includes(diagnostics.flowRef || ''), true);
     assert.equal(output.includes('MCP_INTERNAL_ERROR'), true);
     assert.equal(output.includes('OAUTH_PERSISTENCE_SCHEMA_ERROR'), true);
+    assert.equal(output.includes('OAUTH_CONSENT_REDIRECT_ISSUED'), true);
+    assert.equal(output.includes('OAUTH_TOKEN_EXCHANGE_COMPLETED'), true);
     assert.equal(output.includes(providerSecret), false);
 
     const history = await listRecentDirectMcpRequestHistory();
-    assert.equal(history.length, 3);
+    assert.equal(history.length, 5);
     assert.equal(history.some((entry) => entry.code === 'OAUTH_PERSISTENCE_SCHEMA_ERROR'), true);
     assert.equal(history.some((entry) => entry.code === 'MCP_INTERNAL_ERROR'), true);
     assert.equal(history.some((entry) => entry.requestId === diagnostics.requestId), true);
+    assert.equal(history.some((entry) => entry.phase === 'oauth.consent'), true);
+    assert.equal(history.some((entry) => entry.phase === 'oauth.token'), true);
     assert.equal(JSON.stringify(history).includes(STATE), false);
     assert.equal(JSON.stringify(history).includes(CLIENT_ID), false);
     assert.equal(JSON.stringify(history).includes(providerSecret), false);
