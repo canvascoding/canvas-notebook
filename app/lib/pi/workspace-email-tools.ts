@@ -20,6 +20,7 @@ import {
   updatePersonalOutboxDraft,
   updateWorkspaceOutboxDraft,
 } from '@/app/lib/email/workspace-inbox-outbox';
+import { snapshotAgentWorkspaceEmailAttachments } from '@/app/lib/email/attachments';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { getErrorMessage } from '@/app/lib/pi/tool-runtime-helpers';
 
@@ -244,29 +245,39 @@ export function createEmailAgentTools(context: EmailAgentToolsContext = {}): Age
       },
     },
     {
-      name: 'email_create_outbox_draft', label: 'Create email Outbox draft', description: 'Creates an Outbox draft in the selected mailbox for human review. It never sends email.',
-      parameters: Type.Object({ ...mailboxParameter, inboxCaseId: Type.Optional(Type.String({ minLength: 1 })), to: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }), cc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))), bcc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))), subject: Type.String({ minLength: 1 }), body: Type.String({ minLength: 1 }) }),
+      name: 'email_create_outbox_draft', label: 'Create email Outbox draft', description: 'Creates an Outbox draft in the selected mailbox for human review. It never sends email. Workspace files can be attached as stable snapshots.',
+      parameters: Type.Object({ ...mailboxParameter, inboxCaseId: Type.Optional(Type.String({ minLength: 1 })), to: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }), cc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))), bcc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))), subject: Type.String({ minLength: 1 }), body: Type.String({ minLength: 1, description: 'Plain-text fallback for the email body.' }), bodyHtml: Type.Optional(Type.String({ description: 'Optional HTML fragment. Only use editor-supported tags: p, br, strong, em, s, ul, ol, li, a, blockquote, and simple tables.' })), attachments: Type.Optional(Type.Array(Type.Object({ path: Type.String({ minLength: 1, description: 'Workspace-relative path of a file to attach.' }), name: Type.Optional(Type.String({ minLength: 1 })), deliveryFormat: Type.Optional(Type.Union([Type.Literal('original'), Type.Literal('pdf')])) }))) }),
       execute: async (_toolCallId, params) => {
         try {
-          const value = params as { mailboxId?: string; inboxCaseId?: string; to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string };
+          const value = params as { mailboxId?: string; inboxCaseId?: string; to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; bodyHtml?: string; attachments?: Array<{ path: string; name?: string; deliveryFormat?: 'original' | 'pdf' }> };
           const mailbox = await requireMailbox(context, value.mailboxId);
+          const attachments = await snapshotAgentWorkspaceEmailAttachments(
+            (value.attachments || []).map((attachment) => ({ ...attachment, source: 'workspace' as const })),
+            requireUser(context),
+          );
           const draft = mailbox.kind === 'workspace'
-            ? await createWorkspaceOutboxDraft({ userId: requireUser(context), workspaceId: mailbox.workspaceId!, mailboxId: mailbox.id, inboxCaseId: value.inboxCaseId, to: value.to, cc: value.cc, bcc: value.bcc, subject: value.subject, body: value.body, origin: bound ? 'automation' : 'agent', originAutomationJobId: bound?.automationJobId, originRunId: bound?.automationRunId, originAgentId: bound?.agentId, initialStatus: 'awaiting_review' })
-            : await createPersonalOutboxDraft({ userId: requireUser(context), accountId: mailbox.accountId, inboxCaseId: value.inboxCaseId, to: value.to, cc: value.cc, bcc: value.bcc, subject: value.subject, body: value.body, originAgentId: bound?.agentId });
+            ? await createWorkspaceOutboxDraft({ userId: requireUser(context), workspaceId: mailbox.workspaceId!, mailboxId: mailbox.id, inboxCaseId: value.inboxCaseId, to: value.to, cc: value.cc, bcc: value.bcc, subject: value.subject, body: value.body, bodyHtml: value.bodyHtml, attachments, origin: bound ? 'automation' : 'agent', originAutomationJobId: bound?.automationJobId, originRunId: bound?.automationRunId, originAgentId: bound?.agentId, initialStatus: 'awaiting_review' })
+            : await createPersonalOutboxDraft({ userId: requireUser(context), accountId: mailbox.accountId, inboxCaseId: value.inboxCaseId, to: value.to, cc: value.cc, bcc: value.bcc, subject: value.subject, body: value.body, bodyHtml: value.bodyHtml, attachments, originAgentId: bound?.agentId });
           return result(draft);
         } catch (error) { return toolError(error); }
       },
     },
     {
-      name: 'email_update_outbox_draft', label: 'Update email Outbox draft', description: 'Updates an Outbox draft for human review. It never sends email.',
-      parameters: Type.Object({ ...mailboxParameter, draftId: Type.String({ minLength: 1 }), expectedVersion: Type.Number({ minimum: 1 }), to: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }), cc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))), bcc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))), subject: Type.String({ minLength: 1 }), body: Type.String({ minLength: 1 }) }),
+      name: 'email_update_outbox_draft', label: 'Update email Outbox draft', description: 'Updates an Outbox draft for human review. It never sends email. Replaces attachments with new workspace-file snapshots when attachments are provided.',
+      parameters: Type.Object({ ...mailboxParameter, draftId: Type.String({ minLength: 1 }), expectedVersion: Type.Number({ minimum: 1 }), to: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }), cc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))), bcc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))), subject: Type.String({ minLength: 1 }), body: Type.String({ minLength: 1, description: 'Plain-text fallback for the email body.' }), bodyHtml: Type.Optional(Type.String({ description: 'Optional HTML fragment. Only use editor-supported tags: p, br, strong, em, s, ul, ol, li, a, blockquote, and simple tables.' })), attachments: Type.Optional(Type.Array(Type.Object({ path: Type.String({ minLength: 1, description: 'Workspace-relative path of a file to attach.' }), name: Type.Optional(Type.String({ minLength: 1 })), deliveryFormat: Type.Optional(Type.Union([Type.Literal('original'), Type.Literal('pdf')])) }))) }),
       execute: async (_toolCallId, params) => {
         try {
-          const value = params as { mailboxId?: string; draftId: string; expectedVersion: number; to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string };
+          const value = params as { mailboxId?: string; draftId: string; expectedVersion: number; to: string[]; cc?: string[]; bcc?: string[]; subject: string; body: string; bodyHtml?: string; attachments?: Array<{ path: string; name?: string; deliveryFormat?: 'original' | 'pdf' }> };
           const mailbox = await requireMailbox(context, value.mailboxId);
+          const attachments = value.attachments === undefined
+            ? undefined
+            : await snapshotAgentWorkspaceEmailAttachments(
+              value.attachments.map((attachment) => ({ ...attachment, source: 'workspace' as const })),
+              requireUser(context),
+            );
           return result(mailbox.kind === 'workspace'
-            ? await updateWorkspaceOutboxDraft({ userId: requireUser(context), workspaceId: mailbox.workspaceId!, ...value, status: 'awaiting_review', actor: 'agent' })
-            : await updatePersonalOutboxDraft({ userId: requireUser(context), ...value, status: 'awaiting_review', actor: 'agent' }));
+            ? await updateWorkspaceOutboxDraft({ userId: requireUser(context), workspaceId: mailbox.workspaceId!, ...value, attachments, status: 'awaiting_review', actor: 'agent' })
+            : await updatePersonalOutboxDraft({ userId: requireUser(context), ...value, attachments, status: 'awaiting_review', actor: 'agent' }));
         } catch (error) { return toolError(error); }
       },
     },

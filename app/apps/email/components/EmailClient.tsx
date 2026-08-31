@@ -109,6 +109,7 @@ type WorkspaceInboxCase = {
 type EmailOutboxDraft = {
   id: string; subject: string; status: string | null; version: number; updatedAt: string;
   body: string; to: string[]; cc: string[]; bcc: string[]; isHtml: boolean;
+  attachments?: EmailAttachmentDraft[];
   inboxCaseId?: string | null; assignedUserId?: string | null; reviewCase?: WorkspaceInboxCase | null;
   originAutomationJobId?: string | null; originRunId?: string | null; originAgentId?: string | null;
 };
@@ -3018,9 +3019,7 @@ export function EmailClient({
 
   const openWorkspaceOutboxDraft = useCallback((outboxDraft: EmailOutboxDraft, workspaceId = activeWorkspaceId) => {
     if (!workspaceId) return;
-    const bodyValues = outboxDraft.isHtml
-      ? { body: outboxDraft.body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), bodyHtml: outboxDraft.body }
-      : composeEmailEditorBodyValues(outboxDraft.body);
+    const bodyValues = composeEmailEditorBodyValues(outboxDraft.body);
     setComposeError(null);
     setError(null);
     setComposeAgentEvents([]);
@@ -3028,16 +3027,14 @@ export function EmailClient({
     setWorkspaceOutboxReviewCase(outboxDraft.reviewCase || null);
     setWorkspaceOutboxEditing({ id: outboxDraft.id, version: outboxDraft.version, scope: 'workspace', workspaceId });
     setComposeDraft({
-      aiGenerated: true, aiMode: 'workspace-agent', aiPrompt: '', aiTone: 'casual', attachments: [],
+      aiGenerated: true, aiMode: 'workspace-agent', aiPrompt: '', aiTone: 'casual', attachments: outboxDraft.attachments || [],
       ...bodyValues, ccText: composeRecipientText(outboxDraft.cc), contextFiles: [], mode: 'compose',
       subject: outboxDraft.subject, toText: composeRecipientText(outboxDraft.to), usedContext: [],
     });
   }, [activeWorkspaceId]);
 
   const openPersonalOutboxDraft = useCallback((outboxDraft: EmailOutboxDraft) => {
-    const bodyValues = outboxDraft.isHtml
-      ? { body: outboxDraft.body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), bodyHtml: outboxDraft.body }
-      : composeEmailEditorBodyValues(outboxDraft.body);
+    const bodyValues = composeEmailEditorBodyValues(outboxDraft.body);
     setComposeError(null);
     setError(null);
     setComposeAgentEvents([]);
@@ -3045,7 +3042,7 @@ export function EmailClient({
     setWorkspaceOutboxReviewCase(null);
     setWorkspaceOutboxEditing({ id: outboxDraft.id, version: outboxDraft.version, scope: 'personal' });
     setComposeDraft({
-      aiGenerated: true, aiMode: 'workspace-agent', aiPrompt: '', aiTone: 'casual', attachments: [],
+      aiGenerated: true, aiMode: 'workspace-agent', aiPrompt: '', aiTone: 'casual', attachments: outboxDraft.attachments || [],
       ...bodyValues, ccText: composeRecipientText(outboxDraft.cc), contextFiles: [], mode: 'compose',
       subject: outboxDraft.subject, toText: composeRecipientText(outboxDraft.to), usedContext: [],
     });
@@ -3298,9 +3295,6 @@ export function EmailClient({
     if (!composeDraft || !workspaceOutboxEditing) throw new Error(t('errors.updateMessage'));
     const bodyHtml = sanitizeEmailEditorHtml(composeDraft.bodyHtml) || plainTextToEmailHtml(composeDraft.body);
     const attachments = pruneUnreferencedInlineEmailAttachments(composeDraft.attachments, bodyHtml);
-    if (workspaceOutboxEditing.scope === 'workspace' && attachments.length > 0) {
-      throw new Error('Attachments are not supported for workspace outbox drafts yet.');
-    }
     const basePath = workspaceOutboxEditing.scope === 'workspace'
       ? `/api/workspaces/${encodeURIComponent(workspaceOutboxEditing.workspaceId || '')}/email/outbox/${encodeURIComponent(workspaceOutboxEditing.id)}`
       : `/api/email/outbox/${encodeURIComponent(workspaceOutboxEditing.id)}`;
@@ -3308,7 +3302,7 @@ export function EmailClient({
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({
         expectedVersion: workspaceOutboxEditing.version, subject: composeDraft.subject, body: bodyHtml,
-        to: splitRecipientInput(composeDraft.toText), cc: splitRecipientInput(composeDraft.ccText), bcc: [], status: 'editing',
+        to: splitRecipientInput(composeDraft.toText), cc: splitRecipientInput(composeDraft.ccText), bcc: [], attachments, status: 'editing',
       }),
     });
     const savedPayload = await saveResponse.json().catch(() => ({}));

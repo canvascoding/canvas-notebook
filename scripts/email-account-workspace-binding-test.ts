@@ -247,15 +247,26 @@ async function main() {
     assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).length, 1);
     const outboxDraft = await createWorkspaceOutboxDraft({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, mailboxId: activeMailbox.id, inboxCaseId: inboxCase.id,
-      subject: 'Re: Support request', body: '<p>We will help.</p>', to: ['customer@example.test'],
+      subject: 'Re: Support request', body: 'We will help.\n\nBest regards,', to: ['customer@example.test'],
+      attachments: [{ source: 'upload', uploadId: 'agent-report.pdf', name: 'agent-report.pdf', mimeType: 'application/pdf', size: 42 }],
     });
     assert.equal(outboxDraft.status, 'awaiting_review');
+    assert.equal(outboxDraft.body, '<p>We will help.</p><p>Best regards,</p>');
+    assert.deepEqual(outboxDraft.attachments, [{
+      source: 'upload', contentId: undefined, disposition: 'attachment', name: 'agent-report.pdf', mimeType: 'application/pdf',
+      size: 42, path: undefined, uploadId: 'agent-report.pdf', deliveryFormat: undefined,
+    }]);
     assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).find((item) => item.id === inboxCase.id)?.status, 'awaiting_review');
     const edited = await updateWorkspaceOutboxDraft({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: 1,
-      subject: 'Re: Support request', body: '<p>We will help shortly.</p>', to: ['customer@example.test'], status: 'editing',
+      subject: 'Re: Support request', body: 'We will help shortly.',
+      bodyHtml: '<p>We will <strong>help shortly</strong>.</p><ul><li>Compare the offers</li><li>Choose a provider</li></ul><script>alert(1)</script>',
+      to: ['customer@example.test'], status: 'editing',
     });
     assert.equal(edited.version, 2);
+    assert.match(edited.body, /<strong>help shortly<\/strong>/);
+    assert.match(edited.body, /<ul><li>Compare the offers<\/li><li>Choose a provider<\/li><\/ul>/);
+    assert.doesNotMatch(edited.body, /script|alert\(1\)/i);
     await assert.rejects(
       () => updateWorkspaceOutboxDraft({
         userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: 1,
@@ -270,14 +281,21 @@ async function main() {
       }),
       /being reviewed by a person/i,
     );
-    let sentInput: { to: string[]; subject: string; body: string } | null = null;
+    let sentInput: { to: string[]; subject: string; body: string; attachments: Array<{ uploadId?: string }> } | null = null;
     const sent = await sendWorkspaceOutboxDraft({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: edited.version,
     }, {
-      sendMessage: async (input) => { sentInput = { to: input.to, subject: input.subject, body: input.body }; },
+      sendMessage: async (input) => { sentInput = { to: input.to, subject: input.subject, body: input.body, attachments: input.attachments }; },
     });
     assert.equal(sent.status, 'sent');
-    assert.deepEqual(sentInput, { to: ['customer@example.test'], subject: 'Re: Support request', body: '<p>We will help shortly.</p>' });
+    assert.deepEqual(sentInput?.to, ['customer@example.test']);
+    assert.equal(sentInput?.subject, 'Re: Support request');
+    assert.match(sentInput?.body || '', /<strong>help shortly<\/strong>/);
+    assert.match(sentInput?.body || '', /<ul><li>Compare the offers<\/li><li>Choose a provider<\/li><\/ul>/);
+    assert.deepEqual(sentInput?.attachments, [{
+      source: 'upload', contentId: undefined, disposition: 'attachment', name: 'agent-report.pdf', mimeType: 'application/pdf',
+      size: 42, path: undefined, uploadId: 'agent-report.pdf', deliveryFormat: undefined,
+    }]);
     assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).find((item) => item.id === inboxCase.id)?.status, 'answered');
     assert.ok((await listWorkspaceOutboxDrafts('owner-user', ownerWorkspace.id)).some((draft) => draft.id === outboxDraft.id));
     await assert.rejects(

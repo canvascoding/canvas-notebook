@@ -22,6 +22,7 @@ import {
 import {
   getFileInfo as getUploadedFileInfo,
   readFile as readUploadedFile,
+  saveUploadBuffer,
 } from '@/app/lib/filesystem/upload-handler';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 
@@ -248,4 +249,45 @@ export async function resolveEmailAttachments(value: unknown): Promise<ResolvedE
   const resolved = await Promise.all(metadata.map((attachment) => readAttachmentContent(attachment, fileOptions)));
   assertAttachmentLimit(resolved);
   return resolved;
+}
+
+/**
+ * Creates stable uploaded copies of workspace files selected by an agent.
+ *
+ * Outbox drafts can be reviewed and sent after the agent execution context is
+ * gone, so keeping workspace paths would either make the attachment depend on
+ * a later workspace lookup or risk attaching a changed file. A copy makes the
+ * reviewed artifact and the eventual delivery identical.
+ */
+export async function snapshotAgentWorkspaceEmailAttachments(
+  value: unknown,
+  userId: string,
+): Promise<EmailAttachmentInput[]> {
+  const inputs = normalizeEmailAttachmentInputs(value);
+  if (inputs.length === 0) return [];
+
+  const context = getAgentExecutionContext();
+  if (!context || context.userId !== userId) {
+    throw new Error('Email agent attachments require an active agent workspace.');
+  }
+
+  if (inputs.some((attachment) => attachment.source !== 'workspace')) {
+    throw new Error('Email agents can attach workspace files only.');
+  }
+
+  const resolved = await resolveEmailAttachments(inputs);
+  return Promise.all(resolved.map(async (attachment) => {
+    const uploaded = await saveUploadBuffer(attachment.content, attachment.name, attachment.mimeType, {
+      maxBytes: EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES,
+      ownerUserId: userId,
+      workspaceId: context.workspaceId,
+    });
+    return {
+      source: 'upload' as const,
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      size: attachment.size,
+      uploadId: uploaded.id,
+    };
+  }));
 }

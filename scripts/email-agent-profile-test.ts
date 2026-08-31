@@ -72,6 +72,16 @@ async function main() {
     const { readManagedAgentFile, resetManagedAgentFile, writeManagedAgentFile } = await import('../app/lib/agents/storage');
     const { getProgressiveGatewayCapabilityNames } = await import('../app/lib/pi/progressive-tool-gateway');
     const { getPiTools } = await import('../app/lib/pi/tool-registry');
+    const { createEmailAgentTools } = await import('../app/lib/pi/workspace-email-tools');
+
+    const createDraftTool = createEmailAgentTools().find((tool) => tool.name === 'email_create_outbox_draft');
+    const updateDraftTool = createEmailAgentTools().find((tool) => tool.name === 'email_update_outbox_draft');
+    assert.ok(createDraftTool);
+    assert.ok(updateDraftTool);
+    assert.ok((createDraftTool.parameters as { properties?: Record<string, unknown> }).properties?.bodyHtml);
+    assert.ok((updateDraftTool.parameters as { properties?: Record<string, unknown> }).properties?.bodyHtml);
+    assert.ok((createDraftTool.parameters as { properties?: Record<string, unknown> }).properties?.attachments);
+    assert.ok((updateDraftTool.parameters as { properties?: Record<string, unknown> }).properties?.attachments);
 
     const emailAgent = await ensureEmailAgent();
     assert.equal(emailAgent.agentId, EMAIL_MANAGED_AGENT_ID);
