@@ -311,6 +311,7 @@ async function main(): Promise<void> {
   let preparedPayloadCount = 0;
   let retryAdditionalContextTokens = 0;
   let retryKind: 'manual' | 'automatic' | null = null;
+  let retryBypassesCooldown = false;
   Object.assign(exactBudgetRuntime, {
     summary: { ...compactedSummary, summaryText: null, summaryUpdatedAt: null, summaryThroughTimestamp: null, summaryThroughSequence: null, summaryRevision: 0 },
     lastComposition: null,
@@ -328,11 +329,12 @@ async function main(): Promise<void> {
       };
     },
     cachePreparedRuntimePayload(payload: unknown) {
-      this.preparedRuntimePayload = payload;
+      this.preparedRuntimePayload = payload as null;
     },
     getPayloadPressure: () => 1_500,
-    coordinateCompaction: async (input: { kind: 'manual' | 'automatic'; additionalContextTokens: number }) => {
+    coordinateCompaction: async (input: { kind: 'manual' | 'automatic'; bypassCooldown?: boolean; additionalContextTokens: number }) => {
       retryKind = input.kind;
+      retryBypassesCooldown = input.bypassCooldown === true;
       retryAdditionalContextTokens = input.additionalContextTokens;
       return {
         state: 'succeeded',
@@ -357,7 +359,8 @@ async function main(): Promise<void> {
     runtimeContext: null,
     additionalContextTokens: 200,
   });
-  assert.equal(retryKind, 'manual', 'an exact final-payload retry must use the coordinator\'s bounded cooldown bypass');
+  assert.equal(retryKind, 'automatic', 'an exact final-payload retry must remain an automatic compaction');
+  assert.equal(retryBypassesCooldown, true, 'an exact final-payload retry must use its dedicated bounded cooldown bypass');
   assert.equal(retryAdditionalContextTokens, 1_700, 'exact final-payload overflow must reserve room for a retry compaction');
   assert.deepEqual(recoveredCandidate, compactedCandidate, 'the retried, exact-budget-safe candidate must reach the provider');
   assert.equal(preparedPayloadCount, 2, 'the final payload must be checked before and after the retry compaction');

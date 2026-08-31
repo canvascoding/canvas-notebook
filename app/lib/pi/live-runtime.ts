@@ -612,6 +612,7 @@ export class LivePiRuntime {
 
   private async coordinateCompaction(input: {
     kind: 'manual' | 'automatic';
+    bypassCooldown?: boolean;
     messages: AgentMessage[];
     additionalContextTokens: number;
     runtimeContext: string | null;
@@ -640,6 +641,7 @@ export class LivePiRuntime {
     const result = await runPiSessionCompaction({
       ...this.getCompactionScope(),
       trigger: input.kind,
+      bypassCooldown: input.bypassCooldown,
       attemptId,
       generation,
       expectedSummaryRevision: summarySnapshot.summaryRevision,
@@ -1514,11 +1516,11 @@ export class LivePiRuntime {
 
     this.preparedRuntimePayload = null;
     const retry = await this.coordinateCompaction({
-      // A deferred automatic attempt has an active cooldown. The coordinator
-      // grants one bounded manual-priority bypass for that cooldown, so use it
-      // for this request-blocking exact-budget retry. The committed marker is
-      // still recorded as automatic below because this was not user-initiated.
-      kind: 'manual',
+      // A deferred automatic attempt has an active cooldown. Allow this one
+      // request-blocking retry through it without consuming the user's manual
+      // recovery bypass; the coordinator persists the retry marker separately.
+      kind: 'automatic',
+      bypassCooldown: true,
       messages: input.sourceMessages,
       additionalContextTokens: input.additionalContextTokens + Math.max(1, this.getPayloadPressure(prepared.budgetSnapshot)),
       runtimeContext: input.runtimeContext,
