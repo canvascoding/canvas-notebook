@@ -81,11 +81,16 @@ Datei nicht automatisch migrationsfähig.
 | Version | SHA-256 | Merkmale |
 | --- | --- | --- |
 | ursprünglicher Seed | `8e28ff43fc6bb1c1e59ffce21a7146197d231f3f8e4ab4de4a12b976ff5cfdef` | Überschrift `# SOUL`, ohne abschließenden Zeilenumbruch |
-| aktueller Legacy-Seed | `8d8b51cc83a605bf17c4bafc7074a740d16a7daf5ae8c91402e6e03666ba5f2e` | vier Präferenzzeilen, mit abschließendem Zeilenumbruch |
+| letzter Legacy-Seed vor Bradley | `8d8b51cc83a605bf17c4bafc7074a740d16a7daf5ae8c91402e6e03666ba5f2e` | vier Präferenzzeilen, mit abschließendem Zeilenumbruch |
 
 Die Hashes klassifizieren nur unveränderte Projekt-Seeds. Neue Seed-Versionen
 dürfen erst nach Review und Dokumentation in diese Allowlist aufgenommen
 werden.
+
+Der seit BRADLEY-035 ausgelieferte Bradley-neutrale Seed besitzt den Hash
+`337ffcb2862634208b92b2e8f4a943f34326425680056ba6f350fcc2feda144d`
+und enthält keine Identitätszeile. Er ist kein Migrationsziel, sondern der
+Sollzustand für künftig fehlende Dateien.
 
 ## Zulässige Transformation
 
@@ -161,9 +166,10 @@ hinterlassen.
   [Bradley Display-Name-Migration](./bradley-display-name-migration.md) und
   verändert keine `SOUL.md`.
 - BRADLEY-034 bereinigt UI-Fallbacks und Registry-Defaults.
-- BRADLEY-035 inventarisiert sichtbare Alttexte und aktualisiert den Seed für
-  künftig fehlende Dateien; vorhandene persönliche Dateien folgen weiterhin
-  diesem Schutzvertrag.
+- BRADLEY-035 hat sichtbare Alttexte inventarisiert und den Seed für künftig
+  fehlende Dateien aktualisiert; vorhandene persönliche Dateien folgen
+  weiterhin diesem Schutzvertrag. Nachweis:
+  [Bradley sichtbare Copy](./bradley-visible-copy-inventory.md).
 - BRADLEY-036 prüft Pfad-, Session-, API- und Idempotenzinvarianten.
 
 ## Abschluss BRADLEY-032

@@ -69,7 +69,7 @@ assert.equal(getKeyboardPanelResizeValue({
 
 const verticalMarkup = renderToStaticMarkup(createElement(ResizeHandle, {
   orientation: 'vertical',
-  label: 'Resize Canvas Agent chat',
+  label: 'Resize Bradley chat',
   controls: 'chat-panel',
   min: 300,
   max: 600,
@@ -79,7 +79,7 @@ const verticalMarkup = renderToStaticMarkup(createElement(ResizeHandle, {
 
 assert.match(verticalMarkup, /role="separator"/);
 assert.match(verticalMarkup, /tabindex="0"/);
-assert.match(verticalMarkup, /aria-label="Resize Canvas Agent chat"/);
+assert.match(verticalMarkup, /aria-label="Resize Bradley chat"/);
 assert.match(verticalMarkup, /aria-controls="chat-panel"/);
 assert.match(verticalMarkup, /aria-orientation="vertical"/);
 assert.match(verticalMarkup, /aria-valuemin="300"/);

@@ -94,6 +94,10 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] Sichtbare Hauptagent-Fallbacks in Registry, Chat, Home und Automationen
   auf eine gemeinsame Bradley-Konstante umgestellt; Inventar:
   [Bradley UI-Fallbacks](./bradley-ui-fallback-inventory.md).
+- [x] Onboarding-, Notification-, Automation-, E-Mail-, Tool- und
+  Settings-Texte vollständig klassifiziert und auf Bradley oder korrekte
+  generische Akteursnamen umgestellt; Inventar:
+  [Bradley sichtbare Copy](./bradley-visible-copy-inventory.md).
 - [x] Bradley, Canvas Host Agent, Canvas Control Plane und interne
   `canvas-agent`-Bezeichner im
   [Agenten-Terminologievertrag](./bradley-agent-terminology-contract.md)
@@ -522,7 +526,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-032 | fertig | Schutz vorhandener persönlicher `SOUL.md`-Inhalte konzipieren; Vertrag: [Bradley SOUL.md-Migrationsschutz](./bradley-soul-migration-safety-contract.md) | Migration überschreibt keine bestehenden Präferenzen ohne dokumentierte Regel. |
 | BRADLEY-033 | fertig | Display-Name-Migration für bestehende Hauptagent-Datensätze entwickeln; Implementierung: [Bradley Display-Name-Migration](./bradley-display-name-migration.md) | Bestehende Standardnamen werden idempotent migriert; bewusste Anpassungen bleiben erhalten. |
 | BRADLEY-034 | fertig | UI-Fallbacks und Registry-Defaults inventarisieren und aktualisieren; Inventar: [Bradley UI-Fallbacks](./bradley-ui-fallback-inventory.md) | Kein sichtbarer Standard-Fallback zeigt unbeabsichtigt „Canvas Agent“, wenn der Hauptagent Bradley ist. |
-| BRADLEY-035 | offen | Onboarding-, Notification-, Automation- und E-Mail-Texte inventarisieren | Alle sichtbaren Hauptagent-Referenzen sind klassifiziert und entweder migriert oder bewusst beibehalten. |
+| BRADLEY-035 | fertig | Onboarding-, Notification-, Automation- und E-Mail-Texte inventarisieren; Inventar: [Bradley sichtbare Copy](./bradley-visible-copy-inventory.md) | Alle sichtbaren Hauptagent-Referenzen sind klassifiziert und entweder migriert oder bewusst beibehalten. |
 | BRADLEY-036 | offen | Interne ID- und Pfadstabilität durch Regressionstests absichern | Tests belegen, dass `canvas-agent`, Sessions, Automationen, APIs und Speicherpfade unverändert funktionieren. |
 
 ### Phase E — UI-Pilot

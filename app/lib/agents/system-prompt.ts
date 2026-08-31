@@ -123,7 +123,7 @@ async function buildOnboardingBootstrapContext(normalizedAgentId: string): Promi
     return [
       '## Onboarding Bootstrap',
       '',
-      'The following setup-only instructions apply while the initial Canvas Agent onboarding is incomplete.',
+      'The following setup-only instructions apply while the initial Bradley onboarding is incomplete.',
       '',
       bootstrapPrompt,
     ].join('\n');
@@ -171,7 +171,7 @@ export async function loadManagedAgentSystemPrompt(
       ))
       .map((entry) => entry.ref.name) || [];
 
-    // The Canvas Agent receives all effectively enabled skills. Specialized
+    // Bradley receives all effectively enabled skills. Specialized
     // agents receive their selected subset after organization policy resolution.
     const promptSkills = selectPromptSkillsForAgent(
       normalizedAgentId,

@@ -149,7 +149,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   }
   if (group === 'Agents') {
     notes.push('Creates and changes personal or organization agents through the same permission, revision, policy, storage, confirmation, and audit actions as the UI/API.');
-    notes.push('Enabled by default and available only to the Canvas Agent. Agent creation or mutation requires an explicit user request.');
+    notes.push('Enabled by default and available only to Bradley, the main agent. Agent creation or mutation requires an explicit user request.');
   }
   if (group === 'Audio') {
     notes.push('Reads local audio files and may call external transcription services.');
@@ -191,7 +191,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
     notes.push('Requires plugin and skill sharing permission. Skill package contents are validated before installation and are not logged in audit metadata.');
   }
   if (group === 'Onboarding') {
-    notes.push('Only available during the initial Canvas Agent onboarding profile session.');
+    notes.push('Only available during the initial Bradley onboarding profile session.');
     notes.push('Writes user-scoped USER.md and SOUL.md. Instance completion is handled separately before the personal onboarding starts.');
   }
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots', 'transcribe_audio'].includes(tool.name)) {

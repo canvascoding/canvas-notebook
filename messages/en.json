@@ -494,7 +494,7 @@
     "home": "Home",
     "workspaceRoot": "Workspace /",
     "resizeFileTree": "Resize file tree",
-    "resizeChat": "Resize Canvas Agent chat",
+    "resizeChat": "Resize Bradley chat",
     "resizeTerminal": "Resize terminal",
     "dropFilesToUpload": "Drop files to upload",
     "actions": "Actions",
@@ -1187,7 +1187,7 @@
   "chat": {
     "metadataTitle": "Canvas Chat | Canvas Notebook",
     "metadataDescription": "Fullscreen chat app for the Canvas Notebook workspace.",
-    "resizeHandleLabel": "Resize Canvas Agent chat",
+    "resizeHandleLabel": "Resize Bradley chat",
     "resizeHistoryHandleLabel": "Resize chat history",
     "logoAlt": "Canvas Notebook logo",
     "title": "CANVAS CHAT",
@@ -4479,7 +4479,7 @@
         "defaults": "Default: {provider} / {model}",
         "inheritsDefaults": "Inherits provider and model defaults.",
         "notSet": "not set",
-        "createHint": "Special agents inherit identity and user context from the Canvas Agent. The Canvas Agent is the fixed foundation and cannot be removed.",
+        "createHint": "Special agents can inherit model, tools, and user context from Bradley while keeping their own identity. Bradley is the fixed main agent and cannot be removed.",
         "errors": {
           "load": "Failed to load agents.",
           "create": "Failed to create agent.",
@@ -4667,7 +4667,7 @@
         },
         "tools": {
           "title": "Tools",
-          "description": "Use a custom tool set instead of inheriting the Canvas Agent tools.",
+          "description": "Use a custom tool set instead of inheriting Bradley's tools.",
           "loadError": "Failed to load tools."
         },
         "connections": {
@@ -4734,12 +4734,12 @@
       },
       "inheritance": {
         "title": "Special Agent Overrides",
-        "description": "Special agents inherit model, tools, identity, and user context from the Canvas Agent by default.",
+        "description": "Special agents inherit model, tools, and user context from Bradley by default while keeping their own identity.",
         "modelOverride": "Use a dedicated model",
         "toolsOverride": "Use custom tools",
-        "inheritedModel": "Inherited from Canvas Agent: {summary}",
+        "inheritedModel": "Inherited from Bradley: {summary}",
         "customModel": "Custom default: {summary}",
-        "inheritedTools": "Inherits {count} active tools from Canvas Agent",
+        "inheritedTools": "Inherits {count} active tools from Bradley",
         "customTools": "{count} active tools for this agent",
         "modelCardTitle": "AI model",
         "modelCardDescription": "Set the model this agent starts with. A model chosen in a chat affects only that chat.",
@@ -4991,7 +4991,7 @@
         "confirmReset": "Are you sure you want to reset {fileName} to the default prompt?",
         "confirmResetAllTitle": "Reset all files?",
         "confirmResetAll": "Are you sure you want to reset all files to the default prompts?",
-        "inheritedFromCanvas": "Inherited from Canvas Agent",
+        "inheritedFromCanvas": "Inherited from Bradley",
         "emptyInherited": "No content in inherited prompt.",
         "errors": {
           "load": "Failed to load agent files.",

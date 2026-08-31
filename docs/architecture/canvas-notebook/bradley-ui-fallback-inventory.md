@@ -61,9 +61,10 @@ in BRADLEY-034 nicht geändert:
 - der exakte Legacy-Wert `Canvas Agent`, den die Datenmigration erkennen muss;
 - technische Akteurs-Fallbacks wie `Agent <interne-id>`.
 
-Diese sichtbaren Texte werden in BRADLEY-035 vollständig klassifiziert. Die
-interne technische Terminologie bleibt dort erhalten, wenn eine Umbenennung die
-Akteurs- oder Supportklarheit verschlechtern würde.
+Diese sichtbaren Texte sind im
+[Bradley sichtbaren Copy-Inventar](./bradley-visible-copy-inventory.md)
+vollständig klassifiziert. Die interne technische Terminologie bleibt erhalten,
+wenn eine Umbenennung die Akteurs- oder Supportklarheit verschlechtern würde.
 
 ## Regressionstest
 

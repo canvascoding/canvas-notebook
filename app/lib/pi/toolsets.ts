@@ -52,7 +52,7 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
   delegation: {
     name: 'delegation',
     label: 'Delegation',
-    description: 'Delegate focused tasks to another managed Canvas Agent session.',
+    description: 'Delegate focused tasks to another managed agent session.',
   },
   email: {
     name: 'email',
@@ -82,7 +82,7 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
   session_search: {
     name: 'session_search',
     label: 'Session Search',
-    description: 'Browse, search, and read previous Canvas Agent sessions.',
+    description: 'Browse, search, and read previous agent sessions.',
   },
   skills: {
     name: 'skills',

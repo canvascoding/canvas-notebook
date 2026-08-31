@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { TodoWithRelations } from '@/app/lib/todos/store';
+import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 
 import { escapeHtml, renderAppEmailTemplate } from './base';
 
@@ -10,7 +11,6 @@ type TodoNotificationCopy = {
   intlLocale: string;
   subjectPrefix: string;
   title: string;
-  intro: string;
   todoLabel: string;
   noDescription: string;
   fields: {
@@ -37,7 +37,6 @@ const COPY: Record<TodoNotificationLocale, TodoNotificationCopy> = {
     intlLocale: 'de-DE',
     subjectPrefix: 'Neues Canvas To-do',
     title: 'Neues To-do',
-    intro: 'Dein Canvas Agent hat ein neues To-do für dich angelegt.',
     todoLabel: 'To-do',
     noDescription: 'Keine Beschreibung hinterlegt.',
     fields: {
@@ -66,7 +65,6 @@ const COPY: Record<TodoNotificationLocale, TodoNotificationCopy> = {
     intlLocale: 'en-US',
     subjectPrefix: 'New Canvas to-do',
     title: 'New to-do',
-    intro: 'Your Canvas Agent created a new to-do for you.',
     todoLabel: 'To-do',
     noDescription: 'No description provided.',
     fields: {
@@ -99,6 +97,15 @@ function appBaseUrl(): string {
 
 function normalizeLocale(locale?: string | null): TodoNotificationLocale {
   return locale?.toLowerCase().startsWith('en') ? 'en' : 'de';
+}
+
+function todoIntro(todo: TodoWithRelations, locale: TodoNotificationLocale): string {
+  const sourceName = todo.sourceType === 'agent'
+    ? getAgentDisplayName(todo.sourceAgentId)
+    : 'Canvas Notebook';
+  return locale === 'de'
+    ? `${sourceName} hat ein neues To-do für dich angelegt.`
+    : `${sourceName} created a new to-do for you.`;
 }
 
 function formatDate(value: Date | string | null, copy: TodoNotificationCopy): string | null {
@@ -182,7 +189,7 @@ export function renderTodoNotificationEmail(
       locale,
       title: copy.title,
       preheader: todo.title,
-      intro: copy.intro,
+      intro: todoIntro(todo, locale),
       bodyHtml,
       action: {
         label: copy.actionLabel,

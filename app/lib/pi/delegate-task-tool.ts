@@ -1241,7 +1241,7 @@ export function createDelegateTaskTool(deps: {
     description:
       'Dispatch a focused task to a background subagent and return immediately with a persistent task handle. ' +
       'The result is delivered automatically in a later turn. By default this creates an ephemeral worker with no parent history or recursive delegation. ' +
-      'Optionally set target_agent_id to use an existing managed Canvas Agent.',
+      'Optionally set target_agent_id to use an existing managed agent.',
     parameters: Type.Object({
       target_agent_id: Type.Optional(Type.String({ description: 'Optional managed target agent ID. Omit to spawn an ephemeral worker.' })),
       goal: Type.String({ description: 'The concrete task the worker should complete.' }),
@@ -1264,7 +1264,7 @@ export function createDelegateTaskTool(deps: {
         const args = (params || {}) as DelegateTaskArgs;
         const sourceAgentId = normalizeManagedAgentId(deps.sourceAgentId);
         if (sourceAgentId !== DEFAULT_AGENT_ID) {
-          throw new Error('Only the main Canvas Agent can use delegate_task.');
+          throw new Error('Only Bradley, the main agent, can use delegate_task.');
         }
 
         const targetAgentId = args.target_agent_id?.trim()

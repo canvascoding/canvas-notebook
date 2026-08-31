@@ -543,7 +543,7 @@ export async function deleteManagedAgentDefinitionStorage(
 ): Promise<void> {
   const normalizedAgentId = normalizeManagedAgentId(agentId);
   if (normalizedAgentId === DEFAULT_MANAGED_AGENT_ID) {
-    throw new AgentConfigValidationError('Canvas Agent storage cannot be deleted.');
+    throw new AgentConfigValidationError('Bradley storage cannot be deleted.');
   }
   const sampleFile: AgentManagedFileName = scope?.agentScopeType === 'organization' ? 'AGENTS.md' : 'MEMORY.md';
   const directory = resolveAgentScopedStorageDir(sampleFile, normalizedAgentId, scope);

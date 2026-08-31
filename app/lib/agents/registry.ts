@@ -222,7 +222,7 @@ export async function ensureCanvasAgent(): Promise<AgentProfile> {
   });
 
   if (!row) {
-    throw new Error('Canvas Agent could not be loaded.');
+    throw new Error('Bradley could not be loaded.');
   }
 
   if (LEGACY_MAIN_AGENT_DISPLAY_NAMES.has(row.name)) {
@@ -242,7 +242,7 @@ export async function ensureCanvasAgent(): Promise<AgentProfile> {
       where: eq(agents.agentId, DEFAULT_MANAGED_AGENT_ID),
     });
     if (!row) {
-      throw new Error('Canvas Agent could not be loaded after its display-name migration.');
+      throw new Error('Bradley could not be loaded after the display-name migration.');
     }
   }
 

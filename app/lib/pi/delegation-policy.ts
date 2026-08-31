@@ -63,7 +63,7 @@ export async function requireDelegationSource(input: {
     throw new DelegationPolicyError('DELEGATION_NOT_ALLOWED', 'Delegating source agent does not match the stored session.');
   }
   if (source.agentId !== DEFAULT_AGENT_ID) {
-    throw new DelegationPolicyError('DELEGATION_NOT_ALLOWED', 'Only the main Canvas Agent can delegate tasks.');
+    throw new DelegationPolicyError('DELEGATION_NOT_ALLOWED', 'Only Bradley, the main agent, can delegate tasks.');
   }
   if (source.sessionKind !== 'conversation' || source.delegationDepth !== 0) {
     throw new DelegationPolicyError('DELEGATION_NOT_ALLOWED', 'Sub-agents cannot start another sub-agent.');
