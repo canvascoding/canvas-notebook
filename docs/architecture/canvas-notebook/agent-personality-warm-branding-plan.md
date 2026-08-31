@@ -106,10 +106,27 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] Dauer, Easing, Zustandswechsel, Performance, Einbettung und
   Reduced-Motion-Verhalten im
   [Bradley Motion Specification](./assets/bradley/MOTION-SPEC.md) freigegeben.
+- [x] Runtime-, Tool-, Queue-, Delegations-, Automations-, Warte-, Erfolgs- und
+  Fehlertexte in der
+  [Bradley Zustands-Copy-Matrix](./bradley-state-copy-matrix.md) zweisprachig
+  festgelegt.
+- [x] Ursache, Auswirkung, sichere Recovery-Aktion und Retry-Grenzen in den
+  [Bradley Fehler- und Recovery-Mustern](./bradley-error-recovery-patterns.md)
+  vereinheitlicht.
+- [x] Namen, Icons und Attribution für Hauptagent, Spezialagent, E-Mail-Agent,
+  Automationen, Tools und Systemkontexte in der
+  [Agenten- und Oberflächenkontextmatrix](./bradley-agent-context-matrix.md)
+  festgelegt.
+- [x] Anti-Clippy-, Unterbrechungs-, Idle-, Reduced-Motion- und
+  Accessibility-Regeln in den
+  [Bradley UI-Präsenz- und Motion-Regeln](./bradley-ui-presence-motion-rules.md)
+  spezifiziert.
+- [x] Deutsche und englische Produktstimme im
+  [Bradley DE-/EN-Sprachleitfaden](./bradley-de-en-language-style-guide.md)
+  vollständig dokumentiert.
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die Prompt-Hierarchie,
-die Migration bestehender Installationen, die Recovery- und Kontextmuster sowie
-die UI-Integration.
+die Migration bestehender Installationen und die produktive UI-Integration.
 
 ## 3. Identität und Name
 
@@ -476,7 +493,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-021 | fertig | Fehler- und Recovery-Muster definieren; Vertrag: [Bradley Fehler- und Recovery-Muster](./bradley-error-recovery-patterns.md) | Jede Fehlermeldung kann Ursache, Auswirkung und nächste Aktion sachlich anzeigen. |
 | BRADLEY-022 | fertig | Kontextmatrix für Hauptagent, Spezialagent, E-Mail-Agent und Automation erstellen; Vertrag: [Bradley Agenten- und Oberflächenkontextmatrix](./bradley-agent-context-matrix.md) | Für jede Oberfläche ist definiert, welcher Name und welches Icon erscheinen. |
 | BRADLEY-023 | fertig | Anti-Clippy- und Motion-Regeln in die UI-Spezifikation übernehmen; Vertrag: [Bradley UI-Präsenz-, Anti-Clippy- und Motion-Regeln](./bradley-ui-presence-motion-rules.md) | Review-Checkliste deckt Unterbrechungen, Idle-Animation, Reduced Motion und Barrierefreiheit ab. |
-| BRADLEY-024 | offen | DE-/EN-Sprachleitfaden für Bradley erstellen | Ton, Anrede, Pronomen, Metaphern, Fehlersprache und verbotene Formulierungen sind dokumentiert. |
+| BRADLEY-024 | fertig | DE-/EN-Sprachleitfaden für Bradley erstellen; Vertrag: [Bradley DE-/EN-Sprachleitfaden](./bradley-de-en-language-style-guide.md) | Ton, Anrede, Pronomen, Metaphern, Fehlersprache und verbotene Formulierungen sind dokumentiert. |
 
 ### Phase D — Runtime, Prompt und Migration
 

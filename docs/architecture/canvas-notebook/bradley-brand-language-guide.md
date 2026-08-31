@@ -15,6 +15,11 @@ tags:
 
 # Canvas Notebook — Bradley Metaphern- und Sprachleitfaden
 
+Der vollständige sprachspezifische Vertrag für Deutsch und Englisch steht im
+[Bradley DE-/EN-Sprachleitfaden](./bradley-de-en-language-style-guide.md). Dieses
+Dokument bleibt die verbindliche Quelle für die visuelle Metapher und das
+zugehörige Vokabular.
+
 ## Verbindliche Leitidee
 
 Die primäre visuelle Metapher ist **gefaltetes Canvas**:
