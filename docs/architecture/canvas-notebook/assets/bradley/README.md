@@ -8,6 +8,7 @@ noch nicht als produktive UI-Integration freigegeben.
 
 ```text
 bradley/
+├── MASTER-QA.md
 ├── PROVENANCE.md
 ├── checksums.sha256
 ├── glyphs/
@@ -33,7 +34,7 @@ bradley/
 
 | Datei | Rolle | Status |
 | --- | --- | --- |
-| `references/character/bradley-character-master.png` | kanonische 3D-Form | primäre Referenz |
+| `references/character/bradley-character-master.png` | kanonische 3D-Form | QA-freigegebene primäre Referenz |
 | `references/character/bradley-character-silhouette.png` | Prüfung der Außenkontur | Referenz |
 | `glyphs/static/bradley-glyph.svg` | flacher UI-Glyph | Entwurf v1 |
 | `glyphs/static/bradley-glyph-monochrome.svg` | einfarbiger UI-Glyph | Entwurf v1 |
@@ -66,6 +67,14 @@ liegen zusätzlich in [`checksums.sha256`](./checksums.sha256). Damit ist
 BRADLEY-010 abgeschlossen; eine spätere juristische Prüfung für Merchandising,
 Asset-Weiterverkauf oder einen eigenständigen internationalen Bradley-Auftritt
 bleibt davon unberührt.
+
+## Character-Master-QA
+
+Auflösung, Alpha-Kanal, Motivabstand und die Kantenwirkung des transparenten
+Masters sind in [MASTER-QA.md](./MASTER-QA.md) dokumentiert. Die technische und
+visuelle Prüfung auf dunklem, gesättigtem und kariertem Gegenhintergrund ergab
+keinen sichtbaren weißen Freistellsaum. Damit ist BRADLEY-011 abgeschlossen;
+eine destruktive Kantenkorrektur war nicht erforderlich.
 
 ## Design contract
 

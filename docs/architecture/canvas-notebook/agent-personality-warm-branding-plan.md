@@ -88,6 +88,9 @@ Folgende Grundlagen sind bereits vorhanden:
   SHA-256-Prüfsummen im
   [Bradley Asset-Provenienznachweis](./assets/bradley/PROVENANCE.md) portabel
   dokumentiert.
+- [x] Transparenten 2048-×-2048-Character-Master technisch und auf
+  kontrastreichen Hintergründen geprüft; Alpha-Messwerte und Kantenfreigabe sind
+  im [Bradley Character Master QA](./assets/bradley/MASTER-QA.md) dokumentiert.
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
 der kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration
@@ -439,7 +442,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
 | BRADLEY-010 | fertig | Referenzrender und Nutzungsnachweis portabel ins Projekt übernehmen; Nachweis: [Bradley Asset Provenance](./assets/bradley/PROVENANCE.md) | Masterdatei, Importherkunft, Product-Owner-Autorisierung, Nutzungsgrenzen und SHA-256-Prüfsummen liegen an einem stabilen Projektpfad. |
-| BRADLEY-011 | in Arbeit | Transparentes Bradley-Character-Master erstellen; aktueller PNG-Master ist portabel abgelegt | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
+| BRADLEY-011 | fertig | Transparentes Bradley-Character-Master erstellen; Nachweis: [Bradley Character Master QA](./assets/bradley/MASTER-QA.md) | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
 | BRADLEY-012 | offen | Light- und Dark-Mode-Character-Varianten erstellen | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
 | BRADLEY-013 | in Arbeit | Bradley-Glyph als SVG entwerfen; v1 liegt unter `assets/bradley/glyphs/static/` | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
 | BRADLEY-014 | in Arbeit | Monochrome und High-Contrast-Varianten erstellen; monochrome v1 liegt vor | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
