@@ -100,6 +100,9 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] Dunkle, inverse und `currentColor`-Einfarbenvarianten mit identischer
   Geometrie und dokumentierten Kontrastwerten freigegeben; Nachweis:
   [Bradley Glyph Monochrome and High-Contrast QA](./assets/bradley/GLYPH-CONTRAST-QA.md).
+- [x] Idle, Arbeit, Warten und Abschluss als nicht-anatomische Badge-Zustände
+  festgelegt und bei 16 bis 40 Pixeln geprüft; Vertrag:
+  [Bradley Small-State System](./assets/bradley/STATE-SYSTEM.md).
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
 der kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration
@@ -455,7 +458,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-012 | fertig | Light- und Dark-Mode-Character-Varianten erstellen; Vertrag: [Bradley Character Theme Variants](./assets/bradley/THEME-VARIANTS.md) | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
 | BRADLEY-013 | fertig | Bradley-Glyph als SVG entwerfen; Nachweis: [Bradley Glyph Small-Size QA](./assets/bradley/GLYPH-QA.md) | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
 | BRADLEY-014 | fertig | Monochrome und High-Contrast-Varianten erstellen; Nachweis: [Bradley Glyph Monochrome and High-Contrast QA](./assets/bradley/GLYPH-CONTRAST-QA.md) | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
-| BRADLEY-015 | in Arbeit | Kleine Zustandsvarianten definieren; Generierungszustand liegt als animierter SVG-Prototyp vor | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
+| BRADLEY-015 | fertig | Kleine Zustandsvarianten definieren; Vertrag: [Bradley Small-State System](./assets/bradley/STATE-SYSTEM.md) | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
 | BRADLEY-016 | in Arbeit | Motion-Spezifikation inklusive Reduced Motion erstellen; erster Vertrag ist im Asset-README dokumentiert | Dauer, Easing, Bedeutung, Performance und bewegungsarme Alternative sind dokumentiert. |
 
 ### Phase C — Sprache und UX

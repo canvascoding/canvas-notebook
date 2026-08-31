@@ -12,6 +12,7 @@ bradley/
 ├── GLYPH-QA.md
 ├── MASTER-QA.md
 ├── PROVENANCE.md
+├── STATE-SYSTEM.md
 ├── THEME-VARIANTS.md
 ├── checksums.sha256
 ├── glyphs/
@@ -20,10 +21,14 @@ bradley/
 │   │   ├── bradley-glyph-monochrome-inverse.svg
 │   │   ├── bradley-glyph-monochrome.svg
 │   │   └── bradley-glyph.svg
+│   ├── states/
+│   │   ├── bradley-done.svg
+│   │   └── bradley-waiting.svg
 │   └── animated/
 │       └── bradley-generating.svg
 ├── previews/
 │   ├── bradley-glyph-preview.svg
+│   ├── bradley-state-preview.png
 │   └── character/
 │       ├── bradley-character-dark-mode-preview.png
 │       └── bradley-character-light-mode-preview.png
@@ -48,7 +53,10 @@ bradley/
 | `glyphs/static/bradley-glyph-monochrome.svg` | einfarbiger UI-Glyph für Light | QA-freigegeben |
 | `glyphs/static/bradley-glyph-monochrome-inverse.svg` | einfarbiger UI-Glyph für Dark | QA-freigegeben |
 | `glyphs/static/bradley-glyph-high-contrast.svg` | `currentColor`-Glyph für Inline-/Forced-Colors | QA-freigegeben |
-| `glyphs/animated/bradley-generating.svg` | aktiver Generierungszustand | Bewegungsprototyp |
+| `glyphs/animated/bradley-generating.svg` | aktiver Arbeitszustand | Zustandsgeometrie freigegeben; Motion in BRADLEY-016 |
+| `glyphs/states/bradley-waiting.svg` | wartet auf Freigabe oder Eingabe | QA-freigegeben |
+| `glyphs/states/bradley-done.svg` | erfolgreicher Abschluss | QA-freigegeben |
+| `previews/bradley-state-preview.png` | Vier-Zustands-Prüfbogen | QA-Nachweis |
 | `previews/character/bradley-character-light-mode-preview.png` | Light-Mode-Flächenprüfung | QA-Nachweis |
 | `previews/character/bradley-character-dark-mode-preview.png` | Dark-Mode-Flächenprüfung | QA-Nachweis |
 | `references/scenes/bradley-welcome-scene.png` | Onboarding/Empty State | starke Exploration |
@@ -109,6 +117,14 @@ abgeschlossen; die bestehende v1-Geometrie benötigte keine Korrektur.
 Die feste dunkle, feste weiße und systemfarbige `currentColor`-Variante sind in
 [GLYPH-CONTRAST-QA.md](./GLYPH-CONTRAST-QA.md) technisch, visuell und anhand
 konkreter Kontrastwerte abgenommen. Damit ist BRADLEY-014 abgeschlossen.
+
+## Kleine Zustände
+
+Idle, Arbeit, Warten und Abschluss sind im
+[STATE-SYSTEM.md](./STATE-SYSTEM.md) als einheitliche 64-×-64-Familie
+festgelegt. Die Unterschiede entstehen durch sachliche Status-Badges statt
+durch Körperverformung oder Mimik. Der Arbeitszustand bleibt bei Reduced Motion
+durch drei statische Balken erkennbar. Damit ist BRADLEY-015 abgeschlossen.
 
 ## Design contract
 
