@@ -85,6 +85,10 @@ const messageReaderSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailMessageReader.tsx'),
   'utf8',
 );
+const composeDialogSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailComposeDialog.tsx'),
+  'utf8',
+);
 const messageRouteSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'api', 'email', 'accounts', '[accountId]', 'messages', '[messageId]', 'route.ts'),
   'utf8',
@@ -106,7 +110,8 @@ assert.match(emailClientSource, /data-presentation=\{embedded \? 'embedded' : 'p
 assert.match(emailClientSource, /data-layout-mode=\{layoutMode\}/u);
 assert.match(emailClientSource, /<EmailReviewCenter/u);
 assert.match(emailClientSource, /<EmailPaneResizeHandle/u);
-assert.match(emailClientSource, /import \{ EmailMessageBody, EmailMessageRowActions, EmailMessageViewer \} from/u);
+assert.match(emailClientSource, /import \{ EmailComposeDialog \} from/u);
+assert.match(emailClientSource, /import \{ EmailMessageRowActions, EmailMessageViewer \} from/u);
 assert.match(emailClientSource, /contextIntent\.toolName === 'email_search_messages'/u);
 assert.match(emailClientSource, /contextIntent\.toolName === 'email_read_message'/u);
 assert.match(emailClientSource, /contextIntent\.view !== 'review-draft'/u);
@@ -123,6 +128,8 @@ assert.match(workspaceLayoutSource, /if \(width < 600\) return 'mobile'/u);
 assert.match(workspaceLayoutSource, /if \(width < 960\) return 'compact'/u);
 assert.match(messageReaderSource, /export function EmailMessageBody/u);
 assert.match(messageReaderSource, /export function EmailMessageRowActions/u);
+assert.match(composeDialogSource, /import \{ EmailMessageBody \} from/u);
+assert.match(composeDialogSource, /export function EmailComposeDialog/u);
 assert.match(messageReaderSource, /export function EmailMessageViewer/u);
 assert.match(messageReaderSource, /DOMPurify\.sanitize/u);
 assert.match(messageReaderSource, /sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"/u);
