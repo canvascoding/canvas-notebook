@@ -143,6 +143,14 @@ export const QUALITY_OPTIONS = ['auto', 'low', 'medium', 'high'] as const;
 export const OUTPUT_FORMAT_OPTIONS = ['png', 'jpeg', 'webp'] as const;
 export const BACKGROUND_OPTIONS = ['auto', 'opaque', 'transparent'] as const;
 
+/** OpenAI only supports transparent backgrounds with PNG or WebP output. */
+export function normalizeOpenAIImageOutputFormat(
+  background: (typeof BACKGROUND_OPTIONS)[number] | undefined,
+  outputFormat: (typeof OUTPUT_FORMAT_OPTIONS)[number] | undefined,
+) {
+  return background === 'transparent' && outputFormat === 'jpeg' ? 'png' : outputFormat;
+}
+
 export const GEMINI_MAX_IMAGE_COUNT = 4;
 export const OPENAI_MAX_IMAGE_COUNT = 10;
 export const OPENAI_MAX_REFERENCE_IMAGES = 16;

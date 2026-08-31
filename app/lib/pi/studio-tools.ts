@@ -72,6 +72,7 @@ export function createStudioGenerateImageTool(
     label: 'Generating studio image',
     description:
       'Generates and edits images using the Studio system. The preferred tool for all image creation and reference-based image editing. ' +
+      'For multiple different images, issue separate studio_generate_image calls in the same assistant turn; they run concurrently with a shared system limit of five active image generations. Use count only for variations of the same prompt. ' +
       'Supports products, personas, styles, and presets for consistent branded content. ' +
       'For editing or matching existing images from file paths, put one or more image paths in extra_reference_urls; do not only mention the paths in the prompt. ' +
       'Output files are saved in the active workspace\'s Studio storage — exact workspace-scoped reference and absolute paths are returned.',
@@ -87,8 +88,8 @@ export function createStudioGenerateImageTool(
       model: Type.Optional(Type.String({ description: 'Model ID. Options: gemini-3.1-flash-image (default, best quality & features), gemini-3-pro-image (pro quality & reasoning, Nano Banana Pro), gpt-image-2 (when provider is openai). If omitted, defaults to the best model for the selected provider.' })),
       image_size: Type.Optional(Type.String({ description: 'Image resolution for Gemini models. Options: "512" (0.5K, only gemini-3.1-flash), "1K" (default), "2K", "4K". Default: "1K".' })),
       quality: Type.Optional(Type.Union([Type.Literal('low'), Type.Literal('medium'), Type.Literal('high'), Type.Literal('auto')], { description: 'Image quality. OpenAI only. Default: auto.' })),
-      output_format: Type.Optional(Type.Union([Type.Literal('png'), Type.Literal('jpeg'), Type.Literal('webp')], { description: 'Output format. OpenAI only. Default: png.' })),
-      background: Type.Optional(Type.Union([Type.Literal('transparent'), Type.Literal('opaque'), Type.Literal('auto')], { description: 'Background treatment. OpenAI only. Default: auto.' })),
+      output_format: Type.Optional(Type.Union([Type.Literal('png'), Type.Literal('jpeg'), Type.Literal('webp')], { description: 'Output format. OpenAI only. Default: png. For a transparent background, use png (recommended) or webp; jpeg does not support transparency.' })),
+      background: Type.Optional(Type.Union([Type.Literal('transparent'), Type.Literal('opaque'), Type.Literal('auto')], { description: 'Background treatment. OpenAI only. Default: auto. To request a transparent image, set this to transparent and set output_format to png (recommended) or webp.' })),
       source_output_id: Type.Optional(Type.String({ description: 'ID of a previous Studio output to use as the base image for editing or variation. Prefer this when you have the output ID.' })),
       extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Reference image file paths or URLs to load as visual input for editing, variations, style matching, or image-to-image generation. Put every local reference image path here; do not only write paths in the prompt. Accepts exact workspace-scoped Studio paths returned by Studio tools, /api/studio/media/... and /api/studio/references/... URLs, products/image.png, personas/image.png, styles/image.png, workspace paths like 09_asset-library/photo.png or /api/media/09_asset-library/photo.png, plus https image URLs.' })),
     }),
@@ -143,6 +144,7 @@ export function createStudioGenerateVideoTool(
     label: 'Generating studio video',
     description:
       'Generates videos using the Studio system. The preferred tool for all video creation. Takes 3-10 minutes. ' +
+      'For multiple different videos, issue separate studio_generate_video calls in the same assistant turn; they run concurrently with a shared system limit of two active video generations. ' +
       'Supports products, personas, styles, and presets for branded content. ' +
       'Providers: veo (default, Veo 3.1 models) or bytedance (Seedance). ' +
       'For visual reference images from file paths, put image paths in extra_reference_urls (Veo max 3, Seedance max 9). For Seedance video/audio references, use reference_video_urls and reference_audio_urls. Use start_frame_path/end_frame_path only for explicit start/end frame animation. ' +

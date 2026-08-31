@@ -48,7 +48,9 @@ import {
   SEEDANCE_MAX_REFERENCE_IMAGES,
   VEO_MAX_REFERENCE_IMAGES,
   normalizeGeminiImageModelId,
+  normalizeOpenAIImageOutputFormat,
 } from '@/app/lib/integrations/image-generation-constants';
+import { withStudioGenerationConcurrency } from '@/app/lib/integrations/studio-generation-concurrency';
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import {
   createPersistedStudioScope,
@@ -1199,7 +1201,7 @@ async function executeStudioGenerationProcessing(
     let outputs: StudioGenerationOutput[];
 
     if (mode === 'video') {
-      outputs = await generateStudioVideo(
+      outputs = await withStudioGenerationConcurrency('video', () => generateStudioVideo(
         generationId,
         composedPrompt,
         aspectRatio,
@@ -1222,7 +1224,7 @@ async function executeStudioGenerationProcessing(
         },
         storageScope,
         scope,
-      );
+      ));
     } else if (mode === 'sound') {
       outputs = await generateStudioSound(
         generationId,
@@ -1311,6 +1313,9 @@ async function generateStudioImages(
 
   const maxRefs = provider.getMaxReferenceImages(validatedModel);
   const limitedReferences = referenceImages.slice(0, maxRefs);
+  const outputFormat = providerId === 'openai'
+    ? normalizeOpenAIImageOutputFormat(options?.background, options?.outputFormat)
+    : options?.outputFormat;
 
   await ensureStudioOutputsWorkspace(scope.storage);
 
@@ -1319,18 +1324,18 @@ async function generateStudioImages(
   const generationJobs = Array.from({ length: count }, async (_, index): Promise<StudioGenerationOutput> => {
     try {
       console.log(`[Studio Generation] Generating image ${index + 1}/${count}: provider=${providerId}, model=${validatedModel}, aspectRatio=${aspectRatio}, refs=${limitedReferences.length}`);
-      const result = await provider.generate({
+      const result = await withStudioGenerationConcurrency('image', () => provider.generate({
         prompt,
         model: validatedModel,
         aspectRatio,
         referenceImages: limitedReferences,
         quality: options?.quality,
-        outputFormat: options?.outputFormat,
+        outputFormat,
         background: options?.background,
         contextPrompt: contextText,
         imageSize: options?.imageSize,
         storageScope,
-      });
+      }));
 
       const ext = extensionFromMime(result.mimeType);
       const outputFilename = generateOutputFilename(slug, index, ext);
@@ -1348,7 +1353,7 @@ async function generateStudioImages(
         model: validatedModel,
         aspectRatio,
         quality: options?.quality,
-        outputFormat: options?.outputFormat,
+        outputFormat,
         background: options?.background,
         imageSize: options?.imageSize,
         usage: result.usage,
@@ -1451,13 +1456,13 @@ async function generateStudioSound(
   const resolvedModel = model === LYRIA_PRO_MODEL_ID ? LYRIA_PRO_MODEL_ID : LYRIA_CLIP_MODEL_ID;
   const resolvedOutputFormat: SoundOutputFormat = outputFormat === 'wav' && resolvedModel === LYRIA_PRO_MODEL_ID ? 'wav' : 'mp3';
   const fullPrompt = contextText ? `${contextText}\n\n## Music prompt\n${prompt}` : prompt;
-  const result = await generateSound({
+  const result = await withStudioGenerationConcurrency('sound', () => generateSound({
     prompt: fullPrompt,
     model: resolvedModel,
     outputFormat: resolvedOutputFormat,
     referenceImages: referenceImages.slice(0, 10),
     storageScope,
-  });
+  }));
 
   await ensureStudioOutputsWorkspace(scope.storage);
 

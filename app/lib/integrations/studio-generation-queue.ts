@@ -12,9 +12,28 @@ interface QueuedStudioGeneration {
   generationId: string;
 }
 
-const queue: QueuedStudioGeneration[] = [];
-const queuedGenerationIds = new Set<string>();
-let processing = false;
+type StudioGenerationQueueStore = {
+  queue: QueuedStudioGeneration[];
+  queuedGenerationIds: Set<string>;
+  activeGenerationIds: Set<string>;
+  draining: boolean;
+};
+
+const globalQueueStore = globalThis as typeof globalThis & {
+  __canvasStudioGenerationQueue?: StudioGenerationQueueStore;
+};
+
+function getQueueStore(): StudioGenerationQueueStore {
+  if (!globalQueueStore.__canvasStudioGenerationQueue) {
+    globalQueueStore.__canvasStudioGenerationQueue = {
+      queue: [],
+      queuedGenerationIds: new Set(),
+      activeGenerationIds: new Set(),
+      draining: false,
+    };
+  }
+  return globalQueueStore.__canvasStudioGenerationQueue;
+}
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
@@ -46,18 +65,19 @@ export async function assertStudioGenerationQueueCapacity(userId: string): Promi
 }
 
 export function enqueueStudioGeneration(generationId: string): { queuePosition: number; queueLength: number } {
-  if (queuedGenerationIds.has(generationId)) {
-    const existingIndex = queue.findIndex((item) => item.generationId === generationId);
+  const store = getQueueStore();
+  if (store.queuedGenerationIds.has(generationId) || store.activeGenerationIds.has(generationId)) {
+    const existingIndex = store.queue.findIndex((item) => item.generationId === generationId);
     return {
       queuePosition: existingIndex >= 0 ? existingIndex + 1 : 0,
-      queueLength: queue.length,
+      queueLength: store.queue.length + store.activeGenerationIds.size,
     };
   }
 
-  queuedGenerationIds.add(generationId);
-  queue.push({ generationId });
-  const queuePosition = queue.length;
-  const queueLength = queue.length;
+  store.queuedGenerationIds.add(generationId);
+  store.queue.push({ generationId });
+  const queuePosition = store.activeGenerationIds.size + store.queue.length;
+  const queueLength = queuePosition;
   void drainStudioGenerationQueue();
 
   return {
@@ -67,24 +87,29 @@ export function enqueueStudioGeneration(generationId: string): { queuePosition: 
 }
 
 async function drainStudioGenerationQueue(): Promise<void> {
-  if (processing) return;
-  processing = true;
+  const store = getQueueStore();
+  if (store.draining) return;
+  store.draining = true;
 
   try {
-    while (queue.length > 0) {
-      const job = queue.shift();
+    while (store.queue.length > 0) {
+      const job = store.queue.shift();
       if (!job) continue;
-      queuedGenerationIds.delete(job.generationId);
+      store.queuedGenerationIds.delete(job.generationId);
+      store.activeGenerationIds.add(job.generationId);
 
-      try {
-        await runStudioGeneration(job.generationId);
-      } catch (error) {
-        console.error(`[Studio Generation Queue] Job failed: id=${job.generationId}`, error);
-      }
+      void runStudioGeneration(job.generationId)
+        .catch((error) => {
+          console.error(`[Studio Generation Queue] Job failed: id=${job.generationId}`, error);
+        })
+        .finally(() => {
+          store.activeGenerationIds.delete(job.generationId);
+          void drainStudioGenerationQueue();
+        });
     }
   } finally {
-    processing = false;
-    if (queue.length > 0) {
+    store.draining = false;
+    if (store.queue.length > 0) {
       void drainStudioGenerationQueue();
     }
   }
