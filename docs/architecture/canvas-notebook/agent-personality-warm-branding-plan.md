@@ -18,10 +18,10 @@ tags:
 
 Canvas Notebook soll sich weniger kalt und technisch anfühlen, ohne seine klare,
 professionelle und sicherheitsbewusste Produktsprache zu verlieren. Der
-Hauptagent erhält mit **Mo** eine erkennbare Produktidentität und ein eigenes
+Hauptagent erhält mit **Bradley** eine erkennbare Produktidentität und ein eigenes
 visuelles Motiv.
 
-Mo soll sich anfühlen wie ein ruhiger Produktionspartner in einem gut gebauten
+Bradley soll sich anfühlen wie ein ruhiger Produktionspartner in einem gut gebauten
 Atelier: aufgeräumt, stilbewusst, handgemacht und verlässlich. Persönlichkeit
 wird vor allem dort sichtbar, wo sie Orientierung schafft — im Onboarding, im
 Chat, in relevanten Arbeitszuständen und nach abgeschlossenen Aufgaben.
@@ -30,11 +30,11 @@ Chat, in relevanten Arbeitszuständen und nach abgeschlossenen Aufgaben.
 
 - **Warm, nicht verspielt:** Nähe entsteht durch Sprache, Material und Haltung,
   nicht durch Witze, Verniedlichung oder permanente Animation.
-- **Dezent präsent:** Mo ist wiedererkennbar, drängt sich aber nicht in jeden
+- **Dezent präsent:** Bradley ist wiedererkennbar, drängt sich aber nicht in jeden
   technischen oder inhaltlichen Kontext.
 - **Präzise, nicht kalt:** Status, Fehlerursache und nächste Handlung bleiben
   jederzeit verständlich.
-- **Dienstlich, nicht unterwürfig:** Mo ist Produktionspartner und Kurator,
+- **Dienstlich, nicht unterwürfig:** Bradley ist Produktionspartner und Kurator,
   nicht Assistenten-Karikatur oder virtueller Angestellter.
 - **Professionalität vor Anthropomorphisierung:** Das Produkt behauptet nicht,
   dass ein Agent denkt, fühlt oder unabhängig Verantwortung übernimmt.
@@ -46,7 +46,8 @@ Chat, in relevanten Arbeitszuständen und nach abgeschlossenen Aufgaben.
 Folgende Grundlagen sind bereits vorhanden:
 
 - [x] Strategische Richtung „warm, nicht verspielt“ ausgearbeitet.
-- [x] Arbeitsname **Mo** und Herleitung aus **Mosaic** entwickelt.
+- [x] Frühere Namensrichtung verworfen und **Bradley** ohne Kurzform als
+  verbindlichen Namen festgelegt.
 - [x] Erster hochwertiger 3D-Charakter-Render erstellt.
 - [x] Erste Einsatzfelder für Chat, Onboarding, Status, Empty States und
   Marketing beschrieben.
@@ -54,26 +55,26 @@ Folgende Grundlagen sind bereits vorhanden:
   Control-Plane-Strukturen im Repository grob abgeglichen.
 - [x] Dieses Konzept mit offenen Entscheidungen und Umsetzungsschritten im
   Repository dokumentiert.
-- [x] Erste flache Mo-Glyph-Variante einschließlich monochromer Version und
-  Größen-Prüfbogen unter `docs/architecture/canvas-notebook/assets/mo/`
+- [x] Erste flache Bradley-Glyph-Variante einschließlich monochromer Version und
+  Größen-Prüfbogen unter `docs/architecture/canvas-notebook/assets/bradley/`
   erstellt.
 - [x] Kanonisches Character-Referenzbild, Silhouette, ausgewählte
   Zustands-Explorationen und Willkommensszene in die versionierte
-  Mo-Assetstruktur übernommen.
+  Bradley-Assetstruktur übernommen.
 - [x] Ersten animierten SVG-Prototyp für den aktiven Generierungszustand mit
   Reduced-Motion-Fallback erstellt.
-- [x] **Mo** als verbindlichen sichtbaren Namen für UI, Onboarding,
+- [x] **Bradley** als verbindlichen sichtbaren Namen für UI, Onboarding,
   Dokumentation und Marketing festgelegt und im
-  [Mo-Namensvertrag](./mo-name-contract.md) dokumentiert.
+  [Bradley-Namensvertrag](./bradley-name-contract.md) dokumentiert.
 - [x] Deutsche und englische Sprach- und Namensvalidierung vom Product Owner
-  freigegeben; größere Zielnutzer-Stichprobe in die Pilot-Auswertung MO-045
+  freigegeben; größere Zielnutzer-Stichprobe in die Pilot-Auswertung BRADLEY-045
   verschoben.
-- [x] Produkt-, Domain- und Markenrisiken für Mo und Mosaic geprüft; Mo bleibt
-  als untergeordnete Identität innerhalb von Canvas Notebook zulässig, ein
-  eigenständiger Markenauftritt ist ausgeschlossen.
+- [x] Produkt-, Domain- und Markenrisiken für Bradley geprüft; Bradley bleibt
+  als eingebettete Identität innerhalb von Canvas Notebook zulässig, ein
+  eigenständiger internationaler Markenauftritt benötigt eine neue Prüfung.
 - [x] Primäre Metapher, Begriffshierarchie sowie erlaubtes und verbotenes
   Vokabular im
-  [Mo Metaphern- und Sprachleitfaden](./mo-brand-language-guide.md)
+  [Bradley Metaphern- und Sprachleitfaden](./bradley-brand-language-guide.md)
   festgelegt.
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
@@ -85,30 +86,30 @@ UI-Integration.
 
 ### 3.1 Verbindliche Produktentscheidung
 
-Der sichtbare Produktname des Hauptagenten ist **Mo**. Diese Entscheidung gilt
+Der sichtbare Produktname des Hauptagenten ist **Bradley**. Diese Entscheidung gilt
 verbindlich für UI, Onboarding, Produktdokumentation und Marketing. Der
 vollständige Oberflächen- und Schreibvertrag steht im
-[Mo-Namensvertrag](./mo-name-contract.md).
+[Bradley-Namensvertrag](./bradley-name-contract.md).
 
 Es gilt:
 
-- UI-Name: **Mo**
-- **Mosaic**: ausschließlich Herkunft des Namens, kein alternativer Produktname
-- **Mosa**: nicht verwenden
+- UI-Name: **Bradley**
+- Keine Kurzform: **Brad** nicht verwenden
+- Frühere Arbeitsnamen: **Mo**, **Mosa** und **Mosaic Agent** nicht verwenden
 - Interne technische ID: unverändert `canvas-agent`
 - Technische Speicherpfade und API-Verträge: unverändert
 
-MO-002 hat Aussprache und Wirkung validiert. MO-003 hat Produkt-, Domain- und
-Markenrisiken dokumentiert. Mo bleibt eine Identität innerhalb von Canvas
+BRADLEY-002 hat Aussprache und Wirkung validiert. BRADLEY-003 hat Produkt-, Domain- und
+Markenrisiken dokumentiert. Bradley bleibt eine Identität innerhalb von Canvas
 Notebook und wird nicht als eigenständige Software- oder Service-Marke
 positioniert. Details stehen in der
-[Mo Namens- und Verfügbarkeitsprüfung](./mo-name-availability-assessment.md).
+[Bradley Namens- und Verfügbarkeitsprüfung](./bradley-name-availability-assessment.md).
 Ein späterer auffälliger Rechtsbefund ändert die Entscheidung nicht still,
-sondern öffnet MO-001 und MO-003 mit dokumentierter Begründung erneut.
+sondern öffnet BRADLEY-001 und BRADLEY-003 mit dokumentierter Begründung erneut.
 
 ### 3.2 Visuelle Herkunft
 
-Der vorhandene Entwurf zeigt Mo als **dreidimensional gefaltete Canvas-Figur**:
+Der vorhandene Entwurf zeigt Bradley als **dreidimensional gefaltete Canvas-Figur**:
 
 - geometrischer, gefalteter Körper;
 - blaue Canvas-Textur;
@@ -118,32 +119,34 @@ Der vorhandene Entwurf zeigt Mo als **dreidimensional gefaltete Canvas-Figur**:
   oder Füße;
 - freundliche Haltung ohne Comic- oder Roboterästhetik.
 
-Der Charakter ist damit visuell stärker aus **gefaltetem Canvas** als aus einem
-wörtlichen Mosaik abgeleitet. Die primäre Markengeschichte lautet daher:
+Der Charakter ist visuell aus **gefaltetem Canvas** abgeleitet. Die primäre
+Markengeschichte lautet:
 
-> Mo ist eine gefaltete Canvas-Figur, die zum ruhigen Produktionspartner wird.
+> Bradley ist eine gefaltete Canvas-Figur, die zum ruhigen Produktionspartner wird.
 
-„Mosaic“ darf ausschließlich einmalig die Herkunft des Namens erklären. Canvas
-bleibt die einzige tägliche Bildwelt; Falten beschreiben nur Form und Bewegung.
+Bradley ist ein eigenständiger menschlicher Name und wird nicht aus Mosaic
+hergeleitet. Canvas bleibt die einzige tägliche Bildwelt; Falten beschreiben
+nur Form und Bewegung.
 Der verbindliche Wortschatz und die Regeln pro Oberfläche stehen im
-[Mo Metaphern- und Sprachleitfaden](./mo-brand-language-guide.md).
+[Bradley Metaphern- und Sprachleitfaden](./bradley-brand-language-guide.md).
 
 ### 3.3 Vorhandenes Referenzmotiv
 
 Das bereits erstellte Referenzmotiv ist die visuelle Grundlage für die weitere
-Arbeit:
+Arbeit. Sein ursprünglicher, historischer Dateiname lautet:
 
 `studio-gen-minimalist-mascot-character-mosa-for-a-0-2026-08-21T09-21-15-963Z-adbdc0c2.jpg`
 
-Die Datei liegt derzeit nicht portabel im Repository. Vor der Umsetzung müssen
-Original, Nutzungsrechte, transparenter Export und abgeleitete Varianten an
-einem stabilen Projektpfad abgelegt werden.
+Ein transparenter Character-Master und ausgewählte Ableitungen liegen
+versioniert unter `docs/architecture/canvas-notebook/assets/bradley/references/`.
+Der separate Erzeugungs- und Nutzungsrechtsnachweis für das ursprüngliche Motiv
+steht noch aus und bleibt Teil von BRADLEY-010.
 
 ## 4. Darstellungsstufen
 
-Mo benötigt zwei miteinander verwandte, technisch getrennte Darstellungen.
+Bradley benötigt zwei miteinander verwandte, technisch getrennte Darstellungen.
 
-### 4.1 Mo Character
+### 4.1 Bradley Character
 
 Der vorhandene 3D-Charakter wird für größere, emotionale Flächen verwendet:
 
@@ -155,7 +158,7 @@ Der vorhandene 3D-Charakter wird für größere, emotionale Flächen verwendet:
 
 Die Figur soll nicht dauerhaft neben jedem technischen Status erscheinen.
 
-### 4.2 Mo Glyph
+### 4.2 Bradley Glyph
 
 Für kleine UI-Flächen wird eine vereinfachte SVG-Version benötigt:
 
@@ -181,30 +184,30 @@ auch als einfarbige Silhouette erkennbar bleiben.
 
 ## 5. Identitätsebenen im Produkt
 
-Mo darf nicht als globales Etikett für jede KI-Aktivität verwendet werden.
+Bradley darf nicht als globales Etikett für jede KI-Aktivität verwendet werden.
 Canvas Notebook unterstützt den Hauptagenten, Spezialagenten, einen E-Mail-Agenten,
 Subagenten, Automationen und den technischen Canvas Agent auf dem VM-Host.
 
 | Ebene | Sichtbare Identität | Regel |
 | --- | --- | --- |
-| Hauptagent `canvas-agent` | Mo | Mo ist die Produktidentität des Hauptagenten. |
-| Eigene und spezialisierte Agenten | Eigener Name und eigenes Icon | Antworten dürfen nicht als Mo beschriftet werden. |
-| E-Mail-Agent | E-Mail-Agent beziehungsweise definierter Profilname | Keine Mo-Umbenennung. |
-| Delegierte Aufgaben | Tatsächlich verwendeter Agent | Mo kann delegieren, ist aber nicht automatisch der ausführende Agent. |
+| Hauptagent `canvas-agent` | Bradley | Bradley ist die Produktidentität des Hauptagenten. |
+| Eigene und spezialisierte Agenten | Eigener Name und eigenes Icon | Antworten dürfen nicht als Bradley beschriftet werden. |
+| E-Mail-Agent | E-Mail-Agent beziehungsweise definierter Profilname | Keine Bradley-Umbenennung. |
+| Delegierte Aufgaben | Tatsächlich verwendeter Agent | Bradley kann delegieren, ist aber nicht automatisch der ausführende Agent. |
 | Automationen | Ausgewählter Agent plus Automationsname | Der Ausführungskontext muss nachvollziehbar bleiben. |
-| Technische Runtime | Sachlicher Systemstatus | Mo darf den Status ergänzen, aber nicht verschleiern. |
-| Canvas Control Plane Agent | Technischer Host-Agent | Terminologisch klar von Mo trennen. |
+| Technische Runtime | Sachlicher Systemstatus | Bradley darf den Status ergänzen, aber nicht verschleiern. |
+| Canvas Control Plane Agent | Technischer Host-Agent | Terminologisch klar von Bradley trennen. |
 
 ### Nicht verhandelbare technische Grenze
 
 Die interne ID `canvas-agent`, Datenbankbeziehungen, Session-Zuordnungen,
 Automationen, API-Parameter und Pfade wie `/data/agents/canvas-agent` werden
-nicht aus Branding-Gründen umbenannt. Mo ist zunächst ein Display- und
+nicht aus Branding-Gründen umbenannt. Bradley ist zunächst ein Display- und
 Identitätsvertrag, keine technische ID-Migration.
 
 ## 6. Persönlichkeit und Prompt-Hierarchie
 
-### 6.1 Feste Mo-Identität
+### 6.1 Feste Bradley-Identität
 
 Folgende Eigenschaften sollen als produktseitige Grundlage stabil sein:
 
@@ -232,17 +235,17 @@ Onboarding muss diese Trennung ausdrücklich abbilden.
 ### 6.3 Workspace Brand Voice
 
 Die Brand Voice eines Workspace gilt primär für erzeugte Inhalte und
-Deliverables. Sie darf die grundlegende Identität von Mo nicht unkontrolliert
+Deliverables. Sie darf die grundlegende Identität von Bradley nicht unkontrolliert
 ersetzen.
 
 Priorität:
 
 1. System-, Sicherheits- und Berechtigungsregeln;
 2. aktuelle Nutzeranweisung;
-3. feste Mo-Identität und persönlicher Zusammenarbeitsstil;
+3. feste Bradley-Identität und persönlicher Zusammenarbeitsstil;
 4. Workspace Brand Voice für relevante Inhalte und Artefakte.
 
-Beispiel: Mo kann im Chat ruhig und knapp erklären, dass ein Kampagnentext
+Beispiel: Bradley kann im Chat ruhig und knapp erklären, dass ein Kampagnentext
 erstellt wurde. Der Kampagnentext selbst folgt der im Workspace hinterlegten
 Markensprache.
 
@@ -255,7 +258,7 @@ Markensprache.
 - Wiederkehrende Statusmeldungen bleiben stabil und werden nicht zufällig
   rotiert.
 - Fehler nennen Ursache, Auswirkung und nächste Handlung, soweit bekannt.
-- Mo übernimmt keine Schuld für Provider-, Netzwerk- oder Berechtigungsfehler.
+- Bradley übernimmt keine Schuld für Provider-, Netzwerk- oder Berechtigungsfehler.
 - Fachbegriffe wie Queue, Tool, Automation und Agent bleiben dort erhalten, wo
   sie für Bedienung oder Support wichtig sind.
 
@@ -263,15 +266,15 @@ Markensprache.
 
 | Technischer Zustand | Empfohlene sichtbare Sprache | Nicht verwenden |
 | --- | --- | --- |
-| Idle | „Bereit“ oder nur statischer Mo-Glyph | „Mo wartet auf dich“ als dauernde Aufforderung |
-| Antwortvorbereitung | „Mo bereitet die Antwort vor …“ | „Mo grübelt …“ |
-| Dateioperation | „Mo prüft die Dateien …“ | „Mo sammelt die Fäden …“ ohne Sachinformation |
-| Tool-Ausführung | „Mo führt {Aktion} aus …“ | generisches „Processing …“ |
+| Idle | „Bereit“ oder nur statischer Bradley-Glyph | „Bradley wartet auf dich“ als dauernde Aufforderung |
+| Antwortvorbereitung | „Bradley bereitet die Antwort vor …“ | „Bradley grübelt …“ |
+| Dateioperation | „Bradley prüft die Dateien …“ | „Bradley sammelt die Fäden …“ ohne Sachinformation |
+| Tool-Ausführung | „Bradley führt {Aktion} aus …“ | generisches „Processing …“ |
 | Queue | „In der Queue · wird danach ausgeführt“ | eine Pose ohne Statusbezeichnung |
-| Wartet auf Nutzer | „Deine Freigabe ist erforderlich“ | „Mo ist unsicher“ |
+| Wartet auf Nutzer | „Deine Freigabe ist erforderlich“ | „Bradley ist unsicher“ |
 | Fertig | „Fertig“ plus konkretes Ergebnis | lange selbstbezogene Erfolgsmeldung |
-| Fehler | „Mo konnte diesen Schritt nicht abschließen.“ plus Ursache und Aktion | Mosaikstein- oder Stolpermetapher als Hauptmeldung |
-| Hintergrundjob | „Automation läuft im Hintergrund“ | pauschal „Mo arbeitet, während du schläfst“ |
+| Fehler | „Bradley konnte diesen Schritt nicht abschließen.“ plus Ursache und Aktion | Mosaikstein- oder Stolpermetapher als Hauptmeldung |
+| Hintergrundjob | „Automation läuft im Hintergrund“ | pauschal „Bradley arbeitet, während du schläfst“ |
 
 ### 7.3 Beispielton
 
@@ -283,7 +286,7 @@ Geeignet:
 > Für diese Analyse ist Claude ausgewählt. Die Verbindung wird über deine
 > konfigurierte Integration hergestellt.
 
-> Mo konnte diesen Schritt nicht abschließen. Die Anthropic-Verbindung ist
+> Bradley konnte diesen Schritt nicht abschließen. Die Anthropic-Verbindung ist
 > fehlgeschlagen. Erneut versuchen · Integration prüfen
 
 Nicht geeignet:
@@ -300,8 +303,8 @@ Nicht geeignet:
 
 Der erste Rollout bleibt auf wenige klar messbare Flächen begrenzt:
 
-1. Hauptagent in Agent-Auswahl und Chat-Header als Mo anzeigen;
-2. Mo-Glyph als Avatar des Hauptagenten;
+1. Hauptagent in Agent-Auswahl und Chat-Header als Bradley anzeigen;
+2. Bradley-Glyph als Avatar des Hauptagenten;
 3. vereinfachter Arbeitszustand beim Antwortstart;
 4. ein Starter- beziehungsweise Empty State;
 5. personalisierte, aber sachliche Vorstellung im Onboarding.
@@ -322,25 +325,25 @@ Erst nach erfolgreichem Pilot folgen:
 
 ### 8.3 Anti-Clippy-Regeln
 
-- Mo öffnet keine ungefragten Hilfeblasen.
-- Mo unterbricht keine laufende Arbeit für Markenmomente.
-- Mo animiert nicht dauerhaft im Idle-Zustand.
-- Mo verdeckt keine Inhalte oder Bedienelemente.
+- Bradley öffnet keine ungefragten Hilfeblasen.
+- Bradley unterbricht keine laufende Arbeit für Markenmomente.
+- Bradley animiert nicht dauerhaft im Idle-Zustand.
+- Bradley verdeckt keine Inhalte oder Bedienelemente.
 - Animationen haben eine funktionale Bedeutung und respektieren Reduced Motion.
 
 ## 9. Onboarding und bestehende Installationen
 
 Das bestehende Onboarding erzeugt persönliche Agent-Dateien und lässt den
-Nutzer unter anderem die bisherige Agent-Identität definieren. Der Mo-Rollout
+Nutzer unter anderem die bisherige Agent-Identität definieren. Der Bradley-Rollout
 benötigt daher einen expliziten Migrationsvertrag.
 
 ### Anforderungen
 
-- Neue Installationen stellen Mo als Hauptagenten vor.
+- Neue Installationen stellen Bradley als Hauptagenten vor.
 - Persönliche Kommunikationspräferenzen bleiben konfigurierbar.
 - Bestehende `SOUL.md`-Inhalte werden nicht pauschal überschrieben.
 - Bestehende Hauptagent-Datensätze mit dem Display-Namen „Canvas Agent“ werden
-  versioniert und nachvollziehbar auf Mo migriert.
+  versioniert und nachvollziehbar auf Bradley migriert.
 - Bewusst gesetzte eigene Namen oder organisationsbezogene Anpassungen werden
   vor einer Migration erkannt und geschützt.
 - Sessions, Agent-IDs, Automationen und Speicherpfade bleiben stabil.
@@ -350,7 +353,7 @@ benötigt daher einen expliziten Migrationsvertrag.
 
 ### Kernbotschaft
 
-> Canvas Notebook ist dein Self-Hosted AI Workspace. Mo hilft dir, Ideen,
+> Canvas Notebook ist dein Self-Hosted AI Workspace. Bradley hilft dir, Ideen,
 > Dateien, Modelle und Arbeitsschritte zu einem greifbaren Ergebnis zu verbinden.
 
 ### Zulässige Aussagen
@@ -363,16 +366,16 @@ benötigt daher einen expliziten Migrationsvertrag.
 
 ### Zu vermeidende Aussagen
 
-- „Mo verlässt niemals dein Haus“ oder gleichwertige vollständige
+- „Bradley verlässt niemals dein Haus“ oder gleichwertige vollständige
   Lokalitätsversprechen bei Cloud-Modellen;
-- „Mo arbeitet immer autonom“;
+- „Bradley arbeitet immer autonom“;
 - Aussagen, die externe Provider, Integrationen oder Kosten verschweigen;
-- Formulierungen, die menschliche Verantwortung auf Mo übertragen.
+- Formulierungen, die menschliche Verantwortung auf Bradley übertragen.
 
 Empfohlene Formulierung:
 
 > Dein Workspace bleibt unter deiner Kontrolle. Du entscheidest, welche Modelle
-> und Integrationen Mo verwenden darf.
+> und Integrationen Bradley verwenden darf.
 
 ## 11. Nicht im Umfang dieses Vorhabens
 
@@ -387,14 +390,14 @@ Empfohlene Formulierung:
 
 | ID | Entscheidung | Aktueller Vorschlag | Benötigte Klärung |
 | --- | --- | --- | --- |
-| OD-01 | Offizieller Name | entschieden: Mo; Mosaic nur als Herkunft | Folgeprüfungen in MO-002 und MO-003 |
-| OD-02 | Umbenennbarkeit | Mo bleibt Produktname; Stil bleibt anpassbar | Produktentscheidung und Migrationsregel |
-| OD-03 | Primäre Metapher | entschieden: gefaltetes Canvas; Zusammenführen nur als Funktionsverb | [Mo Metaphern- und Sprachleitfaden](./mo-brand-language-guide.md) |
+| OD-01 | Offizieller Name | entschieden: Bradley, vollständig und ohne Kurzform | Folgeprüfungen in BRADLEY-002 und BRADLEY-003 |
+| OD-02 | Umbenennbarkeit | Bradley bleibt Produktname; Stil bleibt anpassbar | Produktentscheidung und Migrationsregel |
+| OD-03 | Primäre Metapher | entschieden: gefaltetes Canvas; Zusammenführen nur als Funktionsverb | [Bradley Metaphern- und Sprachleitfaden](./bradley-brand-language-guide.md) |
 | OD-04 | Glyph-Silhouette | Kontur plus Augen, ohne Textur | Designvarianten bei 16–40 px |
 | OD-05 | Animationsumfang | nur Antwortstart und echte Zustandswechsel | Prototyp, Reduced Motion und Performance |
 | OD-06 | Bestehende eigene Agentnamen | nicht überschreiben | Erkennungs- und Migrationslogik |
 | OD-07 | Host-Agent-Bezeichnung | „Canvas Host Agent“ in erklärenden Texten | Abstimmung mit Control Plane Dokumentation |
-| OD-08 | Pronomen | Mo möglichst ohne festes Pronomen benennen | DE-/EN-Sprachleitfaden |
+| OD-08 | Pronomen | Bradley möglichst ohne festes Pronomen benennen | DE-/EN-Sprachleitfaden |
 
 ## 13. To-do-Liste
 
@@ -404,79 +407,79 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| MO-001 | fertig | Offiziellen Namen festlegen; Vertrag: [Mo-Namensvertrag](./mo-name-contract.md) | **Mo** ist für UI, Onboarding, Dokumentation und Marketing verbindlich dokumentiert. |
-| MO-002 | fertig | Deutsche und englische Aussprache sowie Namenswirkung prüfen; Entscheidung: [Mo Sprach- und Namensvalidierung](./mo-name-language-validation.md) | Aussprache, Nebenbedeutungen, UI-Kontexte und Risiken sind dokumentiert und vom Product Owner freigegeben; größere Stichprobe folgt in MO-045. |
-| MO-003 | fertig | Marken- und Namensverfügbarkeit prüfen; Entscheidung: [Mo Namens- und Verfügbarkeitsprüfung](./mo-name-availability-assessment.md) | Relevante Produkt-, Domain- und Markenrisiken sowie der begrenzte Nutzungskorridor sind dokumentiert; dies ersetzt keine Rechtsberatung. |
-| MO-004 | fertig | Primäre Metapher und erlaubtes Vokabular definieren; Vertrag: [Mo Metaphern- und Sprachleitfaden](./mo-brand-language-guide.md) | Der Sprachleitfaden trennt Canvas-, Falt- und Mosaic-Begriffe und schließt widersprüchliche Metaphern aus. |
-| MO-005 | offen | Feste, persönliche und Workspace-bezogene Identitätsebenen verbindlich festlegen | Prompt- und Copy-Hierarchie ist als implementierbarer Vertrag beschrieben. |
-| MO-006 | offen | Terminologie Mo versus Canvas Control Plane Agent abstimmen | Support- und Architekturdokumente unterscheiden beide Agenten eindeutig. |
+| BRADLEY-001 | fertig | Offiziellen Namen festlegen; Vertrag: [Bradley-Namensvertrag](./bradley-name-contract.md) | **Bradley** ist für UI, Onboarding, Dokumentation und Marketing verbindlich dokumentiert. |
+| BRADLEY-002 | fertig | Deutsche und englische Aussprache sowie Namenswirkung prüfen; Entscheidung: [Bradley Sprach- und Namensvalidierung](./bradley-name-language-validation.md) | Aussprache, Nebenbedeutungen, UI-Kontexte und Risiken sind dokumentiert und vom Product Owner freigegeben; größere Stichprobe folgt in BRADLEY-045. |
+| BRADLEY-003 | fertig | Marken- und Namensverfügbarkeit prüfen; Entscheidung: [Bradley Namens- und Verfügbarkeitsprüfung](./bradley-name-availability-assessment.md) | Relevante Produkt-, Domain- und Markenrisiken sowie der begrenzte Nutzungskorridor sind dokumentiert; dies ersetzt keine Rechtsberatung. |
+| BRADLEY-004 | fertig | Primäre Metapher und erlaubtes Vokabular definieren; Vertrag: [Bradley Metaphern- und Sprachleitfaden](./bradley-brand-language-guide.md) | Der Sprachleitfaden legt Canvas und Faltflächen als einzige visuelle Begriffswelt fest und schließt widersprüchliche Metaphern aus. |
+| BRADLEY-005 | offen | Feste, persönliche und Workspace-bezogene Identitätsebenen verbindlich festlegen | Prompt- und Copy-Hierarchie ist als implementierbarer Vertrag beschrieben. |
+| BRADLEY-006 | offen | Terminologie Bradley versus Canvas Control Plane Agent abstimmen | Support- und Architekturdokumente unterscheiden beide Agenten eindeutig. |
 
 ### Phase B — Visuelles System
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| MO-010 | in Arbeit | Referenzrender und Nutzungsnachweis portabel ins Projekt übernehmen; ausgewählte Dateien liegen unter `assets/mo/references/` | Masterdatei und Herkunft liegen an einem stabilen, dokumentierten Projektpfad. |
-| MO-011 | in Arbeit | Transparentes Mo-Character-Master erstellen; aktueller PNG-Master ist portabel abgelegt | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
-| MO-012 | offen | Light- und Dark-Mode-Character-Varianten erstellen | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
-| MO-013 | in Arbeit | Mo-Glyph als SVG entwerfen; v1 liegt unter `assets/mo/glyphs/static/` | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
-| MO-014 | in Arbeit | Monochrome und High-Contrast-Varianten erstellen; monochrome v1 liegt vor | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
-| MO-015 | in Arbeit | Kleine Zustandsvarianten definieren; Generierungszustand liegt als animierter SVG-Prototyp vor | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
-| MO-016 | in Arbeit | Motion-Spezifikation inklusive Reduced Motion erstellen; erster Vertrag ist im Asset-README dokumentiert | Dauer, Easing, Bedeutung, Performance und bewegungsarme Alternative sind dokumentiert. |
+| BRADLEY-010 | in Arbeit | Referenzrender und Nutzungsnachweis portabel ins Projekt übernehmen; ausgewählte Dateien liegen unter `assets/bradley/references/` | Masterdatei und Herkunft liegen an einem stabilen, dokumentierten Projektpfad. |
+| BRADLEY-011 | in Arbeit | Transparentes Bradley-Character-Master erstellen; aktueller PNG-Master ist portabel abgelegt | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
+| BRADLEY-012 | offen | Light- und Dark-Mode-Character-Varianten erstellen | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
+| BRADLEY-013 | in Arbeit | Bradley-Glyph als SVG entwerfen; v1 liegt unter `assets/bradley/glyphs/static/` | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
+| BRADLEY-014 | in Arbeit | Monochrome und High-Contrast-Varianten erstellen; monochrome v1 liegt vor | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
+| BRADLEY-015 | in Arbeit | Kleine Zustandsvarianten definieren; Generierungszustand liegt als animierter SVG-Prototyp vor | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
+| BRADLEY-016 | in Arbeit | Motion-Spezifikation inklusive Reduced Motion erstellen; erster Vertrag ist im Asset-README dokumentiert | Dauer, Easing, Bedeutung, Performance und bewegungsarme Alternative sind dokumentiert. |
 
 ### Phase C — Sprache und UX
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| MO-020 | offen | Vollständige Zustands-Copy-Matrix erstellen | Alle Runtime-, Tool-, Queue-, Delegations-, Automation-, Warte-, Erfolgs- und Fehlerzustände besitzen DE-/EN-Texte. |
-| MO-021 | offen | Fehler- und Recovery-Muster definieren | Jede Fehlermeldung kann Ursache, Auswirkung und nächste Aktion sachlich anzeigen. |
-| MO-022 | offen | Kontextmatrix für Hauptagent, Spezialagent, E-Mail-Agent und Automation erstellen | Für jede Oberfläche ist definiert, welcher Name und welches Icon erscheinen. |
-| MO-023 | offen | Anti-Clippy- und Motion-Regeln in die UI-Spezifikation übernehmen | Review-Checkliste deckt Unterbrechungen, Idle-Animation, Reduced Motion und Barrierefreiheit ab. |
-| MO-024 | offen | DE-/EN-Sprachleitfaden für Mo erstellen | Ton, Anrede, Pronomen, Metaphern, Fehlersprache und verbotene Formulierungen sind dokumentiert. |
+| BRADLEY-020 | offen | Vollständige Zustands-Copy-Matrix erstellen | Alle Runtime-, Tool-, Queue-, Delegations-, Automation-, Warte-, Erfolgs- und Fehlerzustände besitzen DE-/EN-Texte. |
+| BRADLEY-021 | offen | Fehler- und Recovery-Muster definieren | Jede Fehlermeldung kann Ursache, Auswirkung und nächste Aktion sachlich anzeigen. |
+| BRADLEY-022 | offen | Kontextmatrix für Hauptagent, Spezialagent, E-Mail-Agent und Automation erstellen | Für jede Oberfläche ist definiert, welcher Name und welches Icon erscheinen. |
+| BRADLEY-023 | offen | Anti-Clippy- und Motion-Regeln in die UI-Spezifikation übernehmen | Review-Checkliste deckt Unterbrechungen, Idle-Animation, Reduced Motion und Barrierefreiheit ab. |
+| BRADLEY-024 | offen | DE-/EN-Sprachleitfaden für Bradley erstellen | Ton, Anrede, Pronomen, Metaphern, Fehlersprache und verbotene Formulierungen sind dokumentiert. |
 
 ### Phase D — Runtime, Prompt und Migration
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| MO-030 | offen | Feste Mo-Identität in der Prompt-Architektur verorten | Identität bleibt stabil und steht nicht im Konflikt mit Nutzeranweisung, SOUL.md oder Workspace Brand Voice. |
-| MO-031 | offen | Onboarding auf feste Identität plus persönliche Zusammenarbeit umstellen | Neue Nutzer lernen Mo kennen, können aber Kommunikationspräferenzen festlegen. |
-| MO-032 | offen | Schutz vorhandener persönlicher `SOUL.md`-Inhalte konzipieren | Migration überschreibt keine bestehenden Präferenzen ohne dokumentierte Regel. |
-| MO-033 | offen | Display-Name-Migration für bestehende Hauptagent-Datensätze entwickeln | Bestehende Standardnamen werden idempotent migriert; bewusste Anpassungen bleiben erhalten. |
-| MO-034 | offen | UI-Fallbacks und Registry-Defaults inventarisieren und aktualisieren | Kein sichtbarer Standard-Fallback zeigt unbeabsichtigt „Canvas Agent“, wenn der Hauptagent Mo ist. |
-| MO-035 | offen | Onboarding-, Notification-, Automation- und E-Mail-Texte inventarisieren | Alle sichtbaren Hauptagent-Referenzen sind klassifiziert und entweder migriert oder bewusst beibehalten. |
-| MO-036 | offen | Interne ID- und Pfadstabilität durch Regressionstests absichern | Tests belegen, dass `canvas-agent`, Sessions, Automationen, APIs und Speicherpfade unverändert funktionieren. |
+| BRADLEY-030 | offen | Feste Bradley-Identität in der Prompt-Architektur verorten | Identität bleibt stabil und steht nicht im Konflikt mit Nutzeranweisung, SOUL.md oder Workspace Brand Voice. |
+| BRADLEY-031 | offen | Onboarding auf feste Identität plus persönliche Zusammenarbeit umstellen | Neue Nutzer lernen Bradley kennen, können aber Kommunikationspräferenzen festlegen. |
+| BRADLEY-032 | offen | Schutz vorhandener persönlicher `SOUL.md`-Inhalte konzipieren | Migration überschreibt keine bestehenden Präferenzen ohne dokumentierte Regel. |
+| BRADLEY-033 | offen | Display-Name-Migration für bestehende Hauptagent-Datensätze entwickeln | Bestehende Standardnamen werden idempotent migriert; bewusste Anpassungen bleiben erhalten. |
+| BRADLEY-034 | offen | UI-Fallbacks und Registry-Defaults inventarisieren und aktualisieren | Kein sichtbarer Standard-Fallback zeigt unbeabsichtigt „Canvas Agent“, wenn der Hauptagent Bradley ist. |
+| BRADLEY-035 | offen | Onboarding-, Notification-, Automation- und E-Mail-Texte inventarisieren | Alle sichtbaren Hauptagent-Referenzen sind klassifiziert und entweder migriert oder bewusst beibehalten. |
+| BRADLEY-036 | offen | Interne ID- und Pfadstabilität durch Regressionstests absichern | Tests belegen, dass `canvas-agent`, Sessions, Automationen, APIs und Speicherpfade unverändert funktionieren. |
 
 ### Phase E — UI-Pilot
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| MO-040 | offen | Mo im Hauptagent-Selector und Chat-Header integrieren | Nur der Hauptagent erscheint als Mo; Spezialagenten behalten Name und Icon. |
-| MO-041 | offen | Mo-Glyph als Hauptagent-Avatar integrieren | Glyph ist in allen unterstützten Größen und Themes scharf und zugänglich. |
-| MO-042 | offen | Arbeitszustand beim Antwortstart integrieren | Status bleibt semantisch korrekt, screenreader-tauglich und bewegungsarm verfügbar. |
-| MO-043 | offen | Einen Starter-/Empty-State mit Mo umsetzen | Mo unterstützt die Orientierung, ohne Inhalte oder Aktionen zu verdrängen. |
-| MO-044 | offen | UI- und End-to-End-Prüfung durchführen | Nach ausdrücklicher Playwright-/Browser-Freigabe sind Desktop, Mobile, Light, Dark und Reduced Motion geprüft. |
-| MO-045 | offen | Pilot anhand definierter Kriterien einschließlich mehrsprachiger Mo-Namensstichprobe auswerten | Verständlichkeit, Namenswirkung, Agentenunterscheidung, Vertrauen und Störwirkung sind dokumentiert. |
+| BRADLEY-040 | offen | Bradley im Hauptagent-Selector und Chat-Header integrieren | Nur der Hauptagent erscheint als Bradley; Spezialagenten behalten Name und Icon. |
+| BRADLEY-041 | offen | Bradley-Glyph als Hauptagent-Avatar integrieren | Glyph ist in allen unterstützten Größen und Themes scharf und zugänglich. |
+| BRADLEY-042 | offen | Arbeitszustand beim Antwortstart integrieren | Status bleibt semantisch korrekt, screenreader-tauglich und bewegungsarm verfügbar. |
+| BRADLEY-043 | offen | Einen Starter-/Empty-State mit Bradley umsetzen | Bradley unterstützt die Orientierung, ohne Inhalte oder Aktionen zu verdrängen. |
+| BRADLEY-044 | offen | UI- und End-to-End-Prüfung durchführen | Nach ausdrücklicher Playwright-/Browser-Freigabe sind Desktop, Mobile, Light, Dark und Reduced Motion geprüft. |
+| BRADLEY-045 | offen | Pilot anhand definierter Kriterien einschließlich mehrsprachiger Bradley-Namensstichprobe auswerten | Verständlichkeit, Namenswirkung, Agentenunterscheidung, Vertrauen und Störwirkung sind dokumentiert. |
 
 ### Phase F — Erweiterter Rollout und Marketing
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| MO-050 | offen | Geeignete weitere Empty States und Fehlerseiten auswählen | Jede Fläche hat einen konkreten Orientierungsnutzen; rein dekorative Einsätze werden vermieden. |
-| MO-051 | offen | Automation- und Hintergrundkommunikation anpassen | Ausführender Agent, Status und menschliche Freigaben bleiben transparent. |
-| MO-052 | offen | Benachrichtigungen und E-Mail-Texte aktualisieren | Texte benennen Mo nur, wenn der Hauptagent tatsächlich die Quelle ist. |
-| MO-053 | offen | Produktdokumentation aktualisieren | Hauptagent, Spezialagenten und Host-Agent sind eindeutig erklärt. |
-| MO-054 | offen | Website-Copy und Launch-Story überarbeiten | Aussagen zu Self-Hosting, Cloud-Modellen, Daten und Automationen sind korrekt und überprüfbar. |
-| MO-055 | offen | Marketing-Asset-Set produzieren | Freigegebene Formate, Hintergründe, Alt-Texte und Nutzungsregeln liegen vor. |
+| BRADLEY-050 | offen | Geeignete weitere Empty States und Fehlerseiten auswählen | Jede Fläche hat einen konkreten Orientierungsnutzen; rein dekorative Einsätze werden vermieden. |
+| BRADLEY-051 | offen | Automation- und Hintergrundkommunikation anpassen | Ausführender Agent, Status und menschliche Freigaben bleiben transparent. |
+| BRADLEY-052 | offen | Benachrichtigungen und E-Mail-Texte aktualisieren | Texte benennen Bradley nur, wenn der Hauptagent tatsächlich die Quelle ist. |
+| BRADLEY-053 | offen | Produktdokumentation aktualisieren | Hauptagent, Spezialagenten und Host-Agent sind eindeutig erklärt. |
+| BRADLEY-054 | offen | Website-Copy und Launch-Story überarbeiten | Aussagen zu Self-Hosting, Cloud-Modellen, Daten und Automationen sind korrekt und überprüfbar. |
+| BRADLEY-055 | offen | Marketing-Asset-Set produzieren | Freigegebene Formate, Hintergründe, Alt-Texte und Nutzungsregeln liegen vor. |
 
 ## 14. Erfolgskriterien
 
 Der Pilot gilt als erfolgreich, wenn:
 
-- Nutzer den Hauptagenten spontan als Mo erkennen;
-- Nutzer Mo klar von eigenen Agenten, dem E-Mail-Agenten und Automationen
+- Nutzer den Hauptagenten spontan als Bradley erkennen;
+- Nutzer Bradley klar von eigenen Agenten, dem E-Mail-Agenten und Automationen
   unterscheiden können;
 - Status- und Fehlermeldungen mindestens genauso verständlich bleiben wie vor
   dem Branding;
-- Mo als warm und professionell, nicht als kindlich oder aufdringlich
+- Bradley als warm und professionell, nicht als kindlich oder aufdringlich
   wahrgenommen wird;
 - die kleine Darstellung bei 16 bis 40 Pixeln zuverlässig funktioniert;
 - Dark Mode, High Contrast, Screenreader und Reduced Motion berücksichtigt sind;
@@ -487,13 +490,13 @@ Der Pilot gilt als erfolgreich, wenn:
 
 ## 15. Empfohlene Umsetzungsreihenfolge
 
-1. MO-001 bis MO-006 abschließen.
-2. Erst danach das visuelle System MO-010 bis MO-016 finalisieren.
-3. Copy- und Kontextmatrix MO-020 bis MO-024 festlegen.
-4. Prompt-, Onboarding- und Migrationsvertrag MO-030 bis MO-036 umsetzen und
+1. BRADLEY-001 bis BRADLEY-006 abschließen.
+2. Erst danach das visuelle System BRADLEY-010 bis BRADLEY-016 finalisieren.
+3. Copy- und Kontextmatrix BRADLEY-020 bis BRADLEY-024 festlegen.
+4. Prompt-, Onboarding- und Migrationsvertrag BRADLEY-030 bis BRADLEY-036 umsetzen und
    testen.
-5. Den begrenzten UI-Pilot MO-040 bis MO-045 integrieren und auswerten.
-6. Den erweiterten Rollout MO-050 bis MO-055 erst nach erfolgreichem Pilot
+5. Den begrenzten UI-Pilot BRADLEY-040 bis BRADLEY-045 integrieren und auswerten.
+6. Den erweiterten Rollout BRADLEY-050 bis BRADLEY-055 erst nach erfolgreichem Pilot
    beginnen.
 
 Jede Phase wird vollständig abgeschlossen, geprüft und sauber committed, bevor

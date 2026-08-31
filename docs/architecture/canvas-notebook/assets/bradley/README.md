@@ -1,44 +1,44 @@
-# Mo Asset-System
+# Bradley Asset-System
 
 Dieser Ordner enthält die versionierten Referenzbilder, statischen Glyphs und
-den ersten Bewegungsprototyp für Mo. Die Assets sind weiterhin Entwürfe und
+den ersten Bewegungsprototyp für Bradley. Die Assets sind weiterhin Entwürfe und
 noch nicht als produktive UI-Integration freigegeben.
 
 ## Ordnerstruktur
 
 ```text
-mo/
+bradley/
 ├── glyphs/
 │   ├── static/
-│   │   ├── mo-glyph.svg
-│   │   └── mo-glyph-monochrome.svg
+│   │   ├── bradley-glyph.svg
+│   │   └── bradley-glyph-monochrome.svg
 │   └── animated/
-│       └── mo-generating.svg
+│       └── bradley-generating.svg
 ├── previews/
-│   └── mo-glyph-preview.svg
+│   └── bradley-glyph-preview.svg
 └── references/
     ├── character/
-    │   ├── mo-character-master.png
-    │   └── mo-character-silhouette.png
+    │   ├── bradley-character-master.png
+    │   └── bradley-character-silhouette.png
     ├── scenes/
-    │   └── mo-welcome-scene.png
+    │   └── bradley-welcome-scene.png
     └── explorations/
-        ├── mo-thinking-exploration.png
-        └── mo-done-exploration.png
+        ├── bradley-thinking-exploration.png
+        └── bradley-done-exploration.png
 ```
 
 ## Asset-Status
 
 | Datei | Rolle | Status |
 | --- | --- | --- |
-| `references/character/mo-character-master.png` | kanonische 3D-Form | primäre Referenz |
-| `references/character/mo-character-silhouette.png` | Prüfung der Außenkontur | Referenz |
-| `glyphs/static/mo-glyph.svg` | flacher UI-Glyph | Entwurf v1 |
-| `glyphs/static/mo-glyph-monochrome.svg` | einfarbiger UI-Glyph | Entwurf v1 |
-| `glyphs/animated/mo-generating.svg` | aktiver Generierungszustand | Bewegungsprototyp |
-| `references/scenes/mo-welcome-scene.png` | Onboarding/Empty State | starke Exploration |
-| `references/explorations/mo-thinking-exploration.png` | Pose-Idee | nicht formverbindlich |
-| `references/explorations/mo-done-exploration.png` | Pose-Idee | nicht formverbindlich |
+| `references/character/bradley-character-master.png` | kanonische 3D-Form | primäre Referenz |
+| `references/character/bradley-character-silhouette.png` | Prüfung der Außenkontur | Referenz |
+| `glyphs/static/bradley-glyph.svg` | flacher UI-Glyph | Entwurf v1 |
+| `glyphs/static/bradley-glyph-monochrome.svg` | einfarbiger UI-Glyph | Entwurf v1 |
+| `glyphs/animated/bradley-generating.svg` | aktiver Generierungszustand | Bewegungsprototyp |
+| `references/scenes/bradley-welcome-scene.png` | Onboarding/Empty State | starke Exploration |
+| `references/explorations/bradley-thinking-exploration.png` | Pose-Idee | nicht formverbindlich |
+| `references/explorations/bradley-done-exploration.png` | Pose-Idee | nicht formverbindlich |
 
 Die früher erzeugten Glow-Glyph-PNGs und ältere Bilddubletten wurden bewusst
 nicht übernommen. Sie weichen von der kanonischen Körperform ab oder enthalten
@@ -52,14 +52,14 @@ tatsächlichen Dateieigenschaften wurden beim Import geprüft:
 
 | Ursprungsdatei | Ziel | Tatsächliches Format |
 | --- | --- | --- |
-| `mo transparent.png` | `references/character/mo-character-master.png` | 2048 × 2048, Alpha |
-| `mo Silhouettentest.png` | `references/character/mo-character-silhouette.png` | 2048 × 2048, Alpha |
-| `mo-welcome-scene.png` | `references/scenes/mo-welcome-scene.png` | 1536 × 1024, ohne Alpha |
-| `mo-thinking-transparent.png` | `references/explorations/mo-thinking-exploration.png` | 1024 × 1024, Alpha |
-| `mo-done-transparent.png` | `references/explorations/mo-done-exploration.png` | 1024 × 1024, Alpha |
+| `mo transparent.png` | `references/character/bradley-character-master.png` | 2048 × 2048, Alpha |
+| `mo Silhouettentest.png` | `references/character/bradley-character-silhouette.png` | 2048 × 2048, Alpha |
+| `mo-welcome-scene.png` | `references/scenes/bradley-welcome-scene.png` | 1536 × 1024, ohne Alpha |
+| `mo-thinking-transparent.png` | `references/explorations/bradley-thinking-exploration.png` | 1024 × 1024, Alpha |
+| `mo-done-transparent.png` | `references/explorations/bradley-done-exploration.png` | 1024 × 1024, Alpha |
 
 Ein separater Erzeugungs- oder Nutzungsrechtsnachweis liegt noch nicht in der
-Assetstruktur. Deshalb bleibt MO-010 bis zur Dokumentation dieses Nachweises
+Assetstruktur. Deshalb bleibt BRADLEY-010 bis zur Dokumentation dieses Nachweises
 auf `in Arbeit`.
 
 ## Design contract
@@ -81,8 +81,8 @@ Für die Produktoberfläche ist eine animierte SVG geeigneter als ein GIF:
 - kann später im Inline-SVG durch die Anwendung gesteuert werden;
 - respektiert `prefers-reduced-motion` direkt im Asset.
 
-`mo-generating.svg` verwendet ausschließlich performante `transform`- und
-`opacity`-Animationen. Mo hebt sich innerhalb von 2,4 Sekunden um ungefähr eine
+`bradley-generating.svg` verwendet ausschließlich performante `transform`- und
+`opacity`-Animationen. Bradley hebt sich innerhalb von 2,4 Sekunden um ungefähr eine
 SVG-Einheit, die rechte Falte bewegt sich minimal und drei vorhandene
 Faltflächen werden nacheinander aufgehellt. Augen und Gesicht bleiben statisch,
 damit die Bewegung als Arbeitszustand und nicht als menschliche Mimik gelesen

@@ -1145,7 +1145,7 @@ try {
     '',
     '| Name | Meaning |',
     '| ---- | ------- |',
-    '| **Mosa** | Many pieces become one |',
+    '| **Bradley** | Calm help inside Canvas Notebook |',
     '| **Lino** | Woven structure |',
     '',
   ].join('\n');

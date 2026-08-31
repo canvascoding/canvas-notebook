@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="mo-glyph-title mo-glyph-desc">
-  <title id="mo-glyph-title">Mo</title>
-  <desc id="mo-glyph-desc">A compact blue folded canvas character with two dark eyes.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="bradley-glyph-title bradley-glyph-desc">
+  <title id="bradley-glyph-title">Bradley</title>
+  <desc id="bradley-glyph-desc">A compact blue folded canvas character with two dark eyes.</desc>
 
   <!-- Rear fold and right foot. -->
   <path
