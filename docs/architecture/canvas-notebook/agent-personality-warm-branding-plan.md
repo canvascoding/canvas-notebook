@@ -103,11 +103,13 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] Idle, Arbeit, Warten und Abschluss als nicht-anatomische Badge-Zustände
   festgelegt und bei 16 bis 40 Pixeln geprüft; Vertrag:
   [Bradley Small-State System](./assets/bradley/STATE-SYSTEM.md).
+- [x] Dauer, Easing, Zustandswechsel, Performance, Einbettung und
+  Reduced-Motion-Verhalten im
+  [Bradley Motion Specification](./assets/bradley/MOTION-SPEC.md) freigegeben.
 
-Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
-der kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration
-bestehender Installationen, die vollständige Zustands-Copy und die
-UI-Integration.
+Noch nicht entschieden oder umgesetzt sind insbesondere die Prompt-Hierarchie,
+die Migration bestehender Installationen, die vollständige Zustands-Copy und
+die UI-Integration.
 
 ## 3. Identität und Name
 
@@ -459,7 +461,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-013 | fertig | Bradley-Glyph als SVG entwerfen; Nachweis: [Bradley Glyph Small-Size QA](./assets/bradley/GLYPH-QA.md) | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
 | BRADLEY-014 | fertig | Monochrome und High-Contrast-Varianten erstellen; Nachweis: [Bradley Glyph Monochrome and High-Contrast QA](./assets/bradley/GLYPH-CONTRAST-QA.md) | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
 | BRADLEY-015 | fertig | Kleine Zustandsvarianten definieren; Vertrag: [Bradley Small-State System](./assets/bradley/STATE-SYSTEM.md) | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
-| BRADLEY-016 | in Arbeit | Motion-Spezifikation inklusive Reduced Motion erstellen; erster Vertrag ist im Asset-README dokumentiert | Dauer, Easing, Bedeutung, Performance und bewegungsarme Alternative sind dokumentiert. |
+| BRADLEY-016 | fertig | Motion-Spezifikation inklusive Reduced Motion erstellen; Vertrag: [Bradley Motion Specification](./assets/bradley/MOTION-SPEC.md) | Dauer, Easing, Bedeutung, Performance und bewegungsarme Alternative sind dokumentiert. |
 
 ### Phase C — Sprache und UX
 

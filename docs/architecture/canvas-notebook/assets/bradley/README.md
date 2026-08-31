@@ -11,6 +11,7 @@ bradley/
 ├── GLYPH-CONTRAST-QA.md
 ├── GLYPH-QA.md
 ├── MASTER-QA.md
+├── MOTION-SPEC.md
 ├── PROVENANCE.md
 ├── STATE-SYSTEM.md
 ├── THEME-VARIANTS.md
@@ -53,7 +54,7 @@ bradley/
 | `glyphs/static/bradley-glyph-monochrome.svg` | einfarbiger UI-Glyph für Light | QA-freigegeben |
 | `glyphs/static/bradley-glyph-monochrome-inverse.svg` | einfarbiger UI-Glyph für Dark | QA-freigegeben |
 | `glyphs/static/bradley-glyph-high-contrast.svg` | `currentColor`-Glyph für Inline-/Forced-Colors | QA-freigegeben |
-| `glyphs/animated/bradley-generating.svg` | aktiver Arbeitszustand | Zustandsgeometrie freigegeben; Motion in BRADLEY-016 |
+| `glyphs/animated/bradley-generating.svg` | aktiver Arbeitszustand | Motion-Spezifikation freigegeben; UI-Pilot ausstehend |
 | `glyphs/states/bradley-waiting.svg` | wartet auf Freigabe oder Eingabe | QA-freigegeben |
 | `glyphs/states/bradley-done.svg` | erfolgreicher Abschluss | QA-freigegeben |
 | `previews/bradley-state-preview.png` | Vier-Zustands-Prüfbogen | QA-Nachweis |
@@ -156,6 +157,10 @@ Bei Reduced Motion wird dieselbe Datei vollständig statisch dargestellt. Ein
 GIF wäre nur sinnvoll, wenn die Animation außerhalb des Produkts in einem
 Format geteilt werden muss, das SVG nicht unterstützt.
 
+Der vollständige Vertrag für Dauer, Easing, Start und Stop, Performance,
+Reduced Motion, Accessibility und Einbettung steht in
+[MOTION-SPEC.md](./MOTION-SPEC.md). Damit ist BRADLEY-016 abgeschlossen.
+
 ## Draft palette
 
 | Role | Hex |
@@ -168,13 +173,7 @@ Format geteilt werden muss, das SVG nicht unterstützt.
 
 ## Review still required
 
-- compare silhouette and proportions against the transparent character master;
-- confirm recognizability and eye clarity at 16, 20, 24, 32 and 40 px;
-- review on actual Canvas Notebook light, dark and high-contrast surfaces;
-- decide whether the smallest 16–20 px optical size needs one fewer internal
-  fold plane;
-- approve the shape before integrating it into application code.
-- test the animation in the actual Chat-Header and generation state;
-- confirm that 2.4 seconds feels calm without appearing stalled;
-- decide whether the production integration should use the SVG as an `<img>`
-  or an inline React component that can explicitly start and stop the motion.
+- integrate the work state as an inline component in BRADLEY-042;
+- test the animation in the actual Chat-Header and generation state after
+  explicit browser-test approval in BRADLEY-044;
+- validate in BRADLEY-045 that 2.4 seconds feels calm without appearing stalled.
