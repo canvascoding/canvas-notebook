@@ -97,6 +97,9 @@ Folgende Grundlagen sind bereits vorhanden:
   denselben kanonischen Master ohne Identitätsdrift.
 - [x] Statischen Bradley-Glyph bei 16, 20, 24, 32 und 40 Pixeln gerastert und
   abgenommen; Nachweis: [Bradley Glyph Small-Size QA](./assets/bradley/GLYPH-QA.md).
+- [x] Dunkle, inverse und `currentColor`-Einfarbenvarianten mit identischer
+  Geometrie und dokumentierten Kontrastwerten freigegeben; Nachweis:
+  [Bradley Glyph Monochrome and High-Contrast QA](./assets/bradley/GLYPH-CONTRAST-QA.md).
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
 der kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration
@@ -451,7 +454,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-011 | fertig | Transparentes Bradley-Character-Master erstellen; Nachweis: [Bradley Character Master QA](./assets/bradley/MASTER-QA.md) | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
 | BRADLEY-012 | fertig | Light- und Dark-Mode-Character-Varianten erstellen; Vertrag: [Bradley Character Theme Variants](./assets/bradley/THEME-VARIANTS.md) | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
 | BRADLEY-013 | fertig | Bradley-Glyph als SVG entwerfen; Nachweis: [Bradley Glyph Small-Size QA](./assets/bradley/GLYPH-QA.md) | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
-| BRADLEY-014 | in Arbeit | Monochrome und High-Contrast-Varianten erstellen; monochrome v1 liegt vor | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
+| BRADLEY-014 | fertig | Monochrome und High-Contrast-Varianten erstellen; Nachweis: [Bradley Glyph Monochrome and High-Contrast QA](./assets/bradley/GLYPH-CONTRAST-QA.md) | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
 | BRADLEY-015 | in Arbeit | Kleine Zustandsvarianten definieren; Generierungszustand liegt als animierter SVG-Prototyp vor | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
 | BRADLEY-016 | in Arbeit | Motion-Spezifikation inklusive Reduced Motion erstellen; erster Vertrag ist im Asset-README dokumentiert | Dauer, Easing, Bedeutung, Performance und bewegungsarme Alternative sind dokumentiert. |
 

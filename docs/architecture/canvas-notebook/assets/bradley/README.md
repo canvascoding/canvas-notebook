@@ -8,6 +8,7 @@ noch nicht als produktive UI-Integration freigegeben.
 
 ```text
 bradley/
+├── GLYPH-CONTRAST-QA.md
 ├── GLYPH-QA.md
 ├── MASTER-QA.md
 ├── PROVENANCE.md
@@ -15,8 +16,10 @@ bradley/
 ├── checksums.sha256
 ├── glyphs/
 │   ├── static/
-│   │   ├── bradley-glyph.svg
-│   │   └── bradley-glyph-monochrome.svg
+│   │   ├── bradley-glyph-high-contrast.svg
+│   │   ├── bradley-glyph-monochrome-inverse.svg
+│   │   ├── bradley-glyph-monochrome.svg
+│   │   └── bradley-glyph.svg
 │   └── animated/
 │       └── bradley-generating.svg
 ├── previews/
@@ -42,7 +45,9 @@ bradley/
 | `references/character/bradley-character-master.png` | kanonische 3D-Form | QA-freigegebene primäre Referenz |
 | `references/character/bradley-character-silhouette.png` | Prüfung der Außenkontur | Referenz |
 | `glyphs/static/bradley-glyph.svg` | flacher UI-Glyph | Entwurf v1 |
-| `glyphs/static/bradley-glyph-monochrome.svg` | einfarbiger UI-Glyph | Entwurf v1 |
+| `glyphs/static/bradley-glyph-monochrome.svg` | einfarbiger UI-Glyph für Light | QA-freigegeben |
+| `glyphs/static/bradley-glyph-monochrome-inverse.svg` | einfarbiger UI-Glyph für Dark | QA-freigegeben |
+| `glyphs/static/bradley-glyph-high-contrast.svg` | `currentColor`-Glyph für Inline-/Forced-Colors | QA-freigegeben |
 | `glyphs/animated/bradley-generating.svg` | aktiver Generierungszustand | Bewegungsprototyp |
 | `previews/character/bradley-character-light-mode-preview.png` | Light-Mode-Flächenprüfung | QA-Nachweis |
 | `previews/character/bradley-character-dark-mode-preview.png` | Dark-Mode-Flächenprüfung | QA-Nachweis |
@@ -98,6 +103,12 @@ Der statische Farb-Glyph wurde bei 16, 20, 24, 32 und 40 Pixeln technisch und
 visuell geprüft. Sichtgrenzen, Erkennungsmerkmale und Accessibility-Regeln sind
 in [GLYPH-QA.md](./GLYPH-QA.md) festgehalten. Damit ist BRADLEY-013
 abgeschlossen; die bestehende v1-Geometrie benötigte keine Korrektur.
+
+## Monochrome und High Contrast
+
+Die feste dunkle, feste weiße und systemfarbige `currentColor`-Variante sind in
+[GLYPH-CONTRAST-QA.md](./GLYPH-CONTRAST-QA.md) technisch, visuell und anhand
+konkreter Kontrastwerte abgenommen. Damit ist BRADLEY-014 abgeschlossen.
 
 ## Design contract
 
