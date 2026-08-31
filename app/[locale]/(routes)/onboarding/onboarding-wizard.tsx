@@ -16,6 +16,8 @@ import { AiProviderCredentialsPanel } from '@/app/components/settings/AiProvider
 import { AiProvidersModelsPanel } from '@/app/components/settings/AiProvidersModelsPanel';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
+import { ProfileAppearanceEditor } from '@/app/components/user-profile/ProfileAppearanceEditor';
+import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { DEFAULT_USER_TIME_ZONE, getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -189,12 +191,14 @@ export default function OnboardingWizard({
   initialTimeZone,
   mode,
   initialStep,
+  initialUserProfile,
 }: {
   defaultEmail: string;
   initialLicenseKey: string;
   initialTimeZone: string;
   mode: OnboardingMode;
   initialStep: Step;
+  initialUserProfile: ResolvedUserProfile;
 }) {
   const t = useTranslations('onboarding');
   const currentLocale = useLocale();
@@ -351,7 +355,7 @@ export default function OnboardingWizard({
         </div>
 
         <div className="flex flex-1 items-start justify-center py-4">
-          <div className={`w-full ${step === 'provider' || step === 'profile' || step === 'workspace' ? 'max-w-5xl' : 'max-w-lg'}`}>
+          <div className={`w-full ${step === 'provider' || step === 'profile' || step === 'workspace' || step === 'language' ? 'max-w-5xl' : 'max-w-lg'}`}>
             <div className="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8">
               <div className="mb-3 flex flex-col items-center justify-center gap-3 sm:flex-row">
                 <PublicBrandLogo
@@ -388,6 +392,7 @@ export default function OnboardingWizard({
 
               {step === 'language' && (
                 <LanguageStep
+                  initialUserProfile={initialUserProfile}
                   onContinue={() => advanceTo('workspace')}
                 />
               )}
@@ -1301,8 +1306,10 @@ function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
 }
 
 function LanguageStep({
+  initialUserProfile,
   onContinue,
 }: {
+  initialUserProfile: ResolvedUserProfile;
   onContinue: () => Promise<void> | void;
 }) {
   const t = useTranslations('onboarding');
@@ -1397,6 +1404,8 @@ function LanguageStep({
           </button>
         ))}
       </div>
+
+      <ProfileAppearanceEditor initialProfile={initialUserProfile} />
 
       <div className="flex justify-center">
         <Button onClick={handleContinue} className="min-w-[200px]" disabled={!isHydrated || isSaving || isSwitchingLocale}>

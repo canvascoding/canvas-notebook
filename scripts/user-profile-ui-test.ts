@@ -13,13 +13,24 @@ type Messages = {
 
 async function main() {
   const root = process.cwd();
-  const [english, german, editorSource, avatarSource, settingsPageSource, generalSettingsSource] = await Promise.all([
+  const [
+    english,
+    german,
+    editorSource,
+    avatarSource,
+    settingsPageSource,
+    generalSettingsSource,
+    onboardingPageSource,
+    onboardingWizardSource,
+  ] = await Promise.all([
     readFile(path.join(root, 'messages/en.json'), 'utf8').then((value) => JSON.parse(value) as Messages),
     readFile(path.join(root, 'messages/de.json'), 'utf8').then((value) => JSON.parse(value) as Messages),
     readFile(path.join(root, 'app/components/user-profile/ProfileAppearanceEditor.tsx'), 'utf8'),
     readFile(path.join(root, 'app/components/user-profile/UserAvatar.tsx'), 'utf8'),
     readFile(path.join(root, 'app/[locale]/(routes)/settings/page.tsx'), 'utf8'),
     readFile(path.join(root, 'app/components/settings/GeneralSettingsPanel.tsx'), 'utf8'),
+    readFile(path.join(root, 'app/[locale]/(routes)/onboarding/page.tsx'), 'utf8'),
+    readFile(path.join(root, 'app/[locale]/(routes)/onboarding/onboarding-wizard.tsx'), 'utf8'),
   ]);
 
   for (const messages of [english, german]) {
@@ -38,6 +49,9 @@ async function main() {
   assert.match(settingsPageSource, /resolveUserProfile/, 'settings must resolve the signed-in user profile server-side');
   assert.match(settingsPageSource, /initialUserProfile=\{initialUserProfile\}/, 'settings must pass the profile to the client');
   assert.match(generalSettingsSource, /<ProfileAppearanceEditor initialProfile=\{initialUserProfile\}/, 'general settings must render the shared editor');
+  assert.match(onboardingPageSource, /resolveUserProfile/, 'onboarding must resolve the signed-in user profile server-side');
+  assert.match(onboardingWizardSource, /step === 'language'[\s\S]*?<LanguageStep/, 'profile appearance must remain in the existing language step');
+  assert.match(onboardingWizardSource, /<ProfileAppearanceEditor initialProfile=\{initialUserProfile\}/, 'language step must render the shared editor');
 
   console.log(`User profile UI contract passed with ${USER_AVATAR_ICON_IDS.length} curated icons.`);
 }

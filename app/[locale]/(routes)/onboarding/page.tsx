@@ -7,6 +7,7 @@ import { isAdminUser } from '@/app/lib/admin-auth';
 import { getUserOnboardingState } from '@/app/lib/user-preferences';
 import { resolveOnboardingPhase } from '@/app/lib/onboarding/flow';
 import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
+import { resolveUserProfile } from '@/app/lib/user-profile/service';
 import OnboardingWizard from './onboarding-wizard';
 import { OnboardingWaitingActions } from './onboarding-waiting-actions';
 
@@ -75,6 +76,12 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
   const initialStep = instanceComplete
     ? (userOnboarding.step === 'complete' ? 'done' : userOnboarding.step)
     : await getInstanceOnboardingStep();
+  const initialUserProfile = await resolveUserProfile({
+    userId: session.user.id,
+    name: session.user.name,
+    email: session.user.email,
+    locale,
+  });
 
   return (
     <OnboardingWizard
@@ -83,6 +90,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
       initialTimeZone={initialTimeZone}
       mode={phase === 'instance' ? 'instance' : 'user'}
       initialStep={initialStep}
+      initialUserProfile={initialUserProfile}
     />
   );
 }
