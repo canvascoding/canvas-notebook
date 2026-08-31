@@ -1,5 +1,20 @@
 import type { EmailAttachmentDraft } from '@/app/lib/email/attachment-types';
 
+export type EmailAccount = {
+  id: string;
+  provider: string;
+  authType: string;
+  emailAddress: string;
+  displayName: string | null;
+  isPrimary: boolean;
+  status: string;
+  imapHost: string | null;
+  policy: {
+    readFrom: string[];
+    sendTo: string[];
+  };
+};
+
 export type WorkspaceInboxCase = {
   id: string;
   subject: string;

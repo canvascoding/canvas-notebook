@@ -89,6 +89,14 @@ const composeDialogSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailComposeDialog.tsx'),
   'utf8',
 );
+const mailboxHeaderSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailMailboxHeader.tsx'),
+  'utf8',
+);
+const mailboxNavigationSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailMailboxNavigation.tsx'),
+  'utf8',
+);
 const messageRouteSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'api', 'email', 'accounts', '[accountId]', 'messages', '[messageId]', 'route.ts'),
   'utf8',
@@ -109,15 +117,16 @@ assert.match(emailClientSource, /payload\.code === 'EMAIL_MESSAGE_NOT_FOUND'/u);
 assert.match(emailClientSource, /data-presentation=\{embedded \? 'embedded' : 'page'\}/u);
 assert.match(emailClientSource, /data-layout-mode=\{layoutMode\}/u);
 assert.match(emailClientSource, /<EmailReviewCenter/u);
-assert.match(emailClientSource, /<EmailPaneResizeHandle/u);
+assert.match(emailClientSource, /<EmailMailboxHeader/u);
+assert.match(emailClientSource, /<EmailMailboxNavigation/u);
 assert.match(emailClientSource, /import \{ EmailComposeDialog \} from/u);
-assert.match(emailClientSource, /import \{ EmailMessageRowActions, EmailMessageViewer \} from/u);
+assert.match(emailClientSource, /import \{ EmailMessageViewer \} from/u);
 assert.match(emailClientSource, /contextIntent\.toolName === 'email_search_messages'/u);
 assert.match(emailClientSource, /contextIntent\.toolName === 'email_read_message'/u);
 assert.match(emailClientSource, /contextIntent\.view !== 'review-draft'/u);
 assert.match(emailClientSource, /const openOutboxDraftById = useCallback/u);
 assert.match(emailClientSource, /key=\{`email-message-viewer:/u);
-assert.match(emailClientSource, /onClick=\{\(\) => void loadMessages\(\{ background: true \}\)\}/u);
+assert.match(emailClientSource, /onRefresh=\{\(\) => void loadMessages\(\{ background: true \}\)\}/u);
 assert.match(reviewCenterSource, /canvas:email:review-center:v1/u);
 assert.match(reviewCenterSource, /aria-controls=\{regionId\} aria-expanded=\{isExpanded\}/u);
 assert.match(reviewCenterSource, /\/api\/email\/outbox/u);
@@ -130,6 +139,10 @@ assert.match(messageReaderSource, /export function EmailMessageBody/u);
 assert.match(messageReaderSource, /export function EmailMessageRowActions/u);
 assert.match(composeDialogSource, /import \{ EmailMessageBody \} from/u);
 assert.match(composeDialogSource, /export function EmailComposeDialog/u);
+assert.match(mailboxHeaderSource, /export function EmailMailboxHeader/u);
+assert.match(mailboxNavigationSource, /<EmailPaneResizeHandle/u);
+assert.match(mailboxNavigationSource, /<EmailMessageRowActions/u);
+assert.match(mailboxNavigationSource, /export function EmailMailboxNavigation/u);
 assert.match(messageReaderSource, /export function EmailMessageViewer/u);
 assert.match(messageReaderSource, /DOMPurify\.sanitize/u);
 assert.match(messageReaderSource, /sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"/u);

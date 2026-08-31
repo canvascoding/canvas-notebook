@@ -2,29 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Folder,
-  Inbox,
   Loader2,
   MailWarning,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PenLine,
-  RefreshCw,
-  Search,
-  Star,
   Settings,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 
 import { EmailComposeDialog } from '@/app/apps/email/components/EmailComposeDialog';
-import { EmailMessageRowActions, EmailMessageViewer } from '@/app/apps/email/components/EmailMessageReader';
+import { EmailMailboxHeader } from '@/app/apps/email/components/EmailMailboxHeader';
+import { EmailMailboxNavigation } from '@/app/apps/email/components/EmailMailboxNavigation';
+import { EmailMessageViewer } from '@/app/apps/email/components/EmailMessageReader';
 import { EmailReviewCenter } from '@/app/apps/email/components/EmailReviewCenter';
-import { EmailPaneResizeHandle, useEmailWorkspaceLayout } from '@/app/apps/email/components/EmailWorkspaceLayout';
+import { useEmailWorkspaceLayout } from '@/app/apps/email/components/EmailWorkspaceLayout';
 import {
   composeRecipientText,
   extractRecipientEmailsForCompose,
@@ -35,8 +25,9 @@ import {
   splitRecipientInput,
   uniqueComposeRecipients,
 } from '@/app/apps/email/components/email-compose-utils';
-import { extractEmailAddressForCompose, formatDate } from '@/app/apps/email/components/email-client-format';
+import { extractEmailAddressForCompose } from '@/app/apps/email/components/email-client-format';
 import type {
+  EmailAccount,
   EmailComposeAgentToolEvent,
   EmailComposeDialogLabels,
   EmailComposeDraft,
@@ -63,32 +54,9 @@ import {
 import { emailMessageContentRevision, emailMessageListScopeKey } from '@/app/lib/email/reader-refresh';
 import type { NotebookEmailContextIntent } from '@/app/lib/notebook/context-surface';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-
-type EmailAccount = {
-  id: string;
-  provider: string;
-  authType: string;
-  emailAddress: string;
-  displayName: string | null;
-  isPrimary: boolean;
-  status: string;
-  imapHost: string | null;
-  policy: {
-    readFrom: string[];
-    sendTo: string[];
-  };
-};
 
 const EMAIL_BACKGROUND_REFRESH_MS = 60_000;
 
@@ -1766,78 +1734,29 @@ export function EmailClient({
         'shrink-0 flex flex-col gap-2 border border-border bg-card px-3 py-2 sm:px-4',
         embedded && 'border-x-0 border-t-0',
       )}>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
-              <Inbox className="h-5 w-5 text-primary" aria-hidden="true" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="truncate text-base font-semibold tracking-tight">{t('title')}</h2>
-              {activeAccount && (
-                <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                  <span className="min-w-0 truncate">{activeAccount.emailAddress}</span>
-                  {activeAccount.isPrimary && (
-                    <Badge variant="secondary" className="hidden gap-1 sm:inline-flex">
-                      <Star className="h-3 w-3" />
-                      {t('mainEmail')}
-                    </Badge>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {accounts.length > 1 && (
-              <>
-                <label className="sr-only" htmlFor="email-account-header-switcher">{t('accountLabel')}</label>
-                <select
-                  id="email-account-header-switcher"
-                  className="h-9 min-w-0 max-w-[min(18rem,calc(100vw-2rem))] border border-input bg-background px-2 text-sm"
-                  value={activeAccount?.id || ''}
-                  onChange={(event) => selectAccount(event.target.value)}
-                  title={t('accountLabel')}
-                >
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.isPrimary ? `${account.emailAddress} (${t('mainEmail')})` : account.emailAddress}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-            <Button type="button" size="sm" onClick={openNewComposeDraft} disabled={!activeAccount}>
-              <PenLine className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">{t('compose')}</span>
-            </Button>
-            <Button type="button" size="sm" variant="outline" aria-label={t('accountLabel')} title={t('accountLabel')} onClick={() => setAccountsOpen(true)}>
-              <Settings className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">{t('accountLabel')}</span>
-            </Button>
-            <Button
-              type="button"
-              size="icon-sm"
-              variant="outline"
-              aria-label={t('refresh')}
-              title={t('refresh')}
-              onClick={() => void loadMessages({ background: true })}
-              disabled={!canReadActiveAccount || isLoadingMessages || isRefreshingMessages}
-            >
-              {isLoadingMessages || isRefreshingMessages ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            </Button>
-          </div>
-        </div>
-
-        <form onSubmit={handleSearch} className="flex gap-2">
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('searchPlaceholder')}
-            className="h-9"
-          />
-          <Button type="submit" size="icon-sm" className="h-9 w-9 shrink-0" disabled={!canReadActiveAccount || isLoadingMessages} aria-label={t('search')} title={t('search')}>
-            <Search className="h-4 w-4" />
-          </Button>
-        </form>
+        <EmailMailboxHeader
+          accounts={accounts}
+          activeAccount={activeAccount}
+          canRead={canReadActiveAccount}
+          isLoadingMessages={isLoadingMessages}
+          isRefreshingMessages={isRefreshingMessages}
+          labels={{
+            account: t('accountLabel'),
+            compose: t('compose'),
+            mainEmail: t('mainEmail'),
+            refresh: t('refresh'),
+            search: t('search'),
+            searchPlaceholder: t('searchPlaceholder'),
+            title: t('title'),
+          }}
+          onAccountChange={selectAccount}
+          onCompose={openNewComposeDraft}
+          onManageAccounts={() => setAccountsOpen(true)}
+          onQueryChange={setQuery}
+          onRefresh={() => void loadMessages({ background: true })}
+          onSearch={handleSearch}
+          query={query}
+        />
       </section>
 
       <EmailReviewCenter
@@ -1891,236 +1810,54 @@ export function EmailClient({
             }
             : undefined}
         >
-          {layoutMode === 'wide' && isFolderSidebarOpen && (
-            <aside className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
-              <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-                <div className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  {t('folders')}
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={t('hideFolders')}
-                  aria-expanded={isFolderSidebarOpen}
-                  title={t('hideFolders')}
-                  onClick={() => setIsFolderSidebarOpen(false)}
-                >
-                  <PanelLeftClose className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-2">
-                {isLoadingFolders ? (
-                  <div className="flex items-center px-2 py-3 text-sm text-muted-foreground">
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {t('loadingFolders')}
-                  </div>
-                ) : folders.length === 0 ? (
-                  <div className="px-2 py-3 text-sm text-muted-foreground">{t('noFolders')}</div>
-                ) : (
-                  folders.map((folder) => (
-                    <button
-                      key={folder.path}
-                      type="button"
-                      className={cn(
-                        'flex w-full items-center justify-between gap-2 px-2 py-2 text-left text-sm transition-colors',
-                        activeFolder === folder.path ? 'bg-primary/10 text-primary' : 'hover:bg-muted',
-                      )}
-                      onClick={() => selectFolder(folder.path)}
-                    >
-                      <span className="min-w-0 truncate">{folder.name}</span>
-                      {folder.unseenCount ? <span className="text-xs font-medium">{folder.unseenCount}</span> : null}
-                    </button>
-                  ))
-                )}
-              </div>
-            </aside>
-          )}
-
-          <section className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
-            <div className="flex flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 items-start gap-2">
-                {layoutMode === 'wide' && !isFolderSidebarOpen && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-sm"
-                    aria-label={t('showFolders')}
-                    aria-expanded={isFolderSidebarOpen}
-                    title={t('showFolders')}
-                    onClick={() => setIsFolderSidebarOpen(true)}
-                  >
-                    <PanelLeftOpen className="h-4 w-4" />
-                  </Button>
-                )}
-                {layoutMode !== 'wide' && <DropdownMenu modal={false}>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 min-w-0 max-w-full justify-between gap-2 px-2"
-                      aria-label={t('folders')}
-                      title={activeFolderName || t('folders')}
-                    >
-                      {isLoadingFolders ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <Folder className="h-4 w-4 shrink-0" />}
-                      <span className="min-w-0 truncate">{activeFolderName || t('folders')}</span>
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" sideOffset={8} className="max-h-[55dvh] w-[min(20rem,calc(100vw-2rem))]">
-                    <div className="px-2 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      {t('folders')}
-                    </div>
-                    {isLoadingFolders ? (
-                      <div className="flex items-center px-2 py-3 text-sm text-muted-foreground">
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        {t('loadingFolders')}
-                      </div>
-                    ) : folders.length === 0 ? (
-                      <div className="px-2 py-3 text-sm text-muted-foreground">{t('noFolders')}</div>
-                    ) : (
-                      folders.map((folder) => (
-                        <DropdownMenuItem
-                          key={folder.path}
-                          className={cn(
-                            'min-w-0 justify-between gap-2',
-                            activeFolder === folder.path && 'bg-primary/10 text-primary focus:bg-primary/10 focus:text-primary',
-                          )}
-                          onSelect={() => selectFolder(folder.path)}
-                        >
-                          <Check className={cn('h-4 w-4 shrink-0', activeFolder === folder.path ? 'opacity-100' : 'opacity-0')} />
-                          <span className="min-w-0 flex-1 truncate">{folder.name}</span>
-                          {folder.unseenCount ? <span className="shrink-0 text-xs font-medium">{folder.unseenCount}</span> : null}
-                        </DropdownMenuItem>
-                      ))
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>}
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    {t('messages')}
-                  </div>
-                  <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <span>{messageRangeLabel}</span>
-                    {layoutMode === 'wide' && !isFolderSidebarOpen && activeFolderName && (
-                      <Badge variant="secondary" className="hidden max-w-full truncate sm:inline-flex" title={activeFolderName}>
-                        {activeFolderName}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <Button
-                  type="button"
-                  variant={messageFilter === 'unread' ? 'default' : 'outline'}
-                  size="sm"
-                  className="h-8"
-                  onClick={toggleUnreadFilter}
-                  disabled={isLoadingMessages}
-                  aria-pressed={messageFilter === 'unread'}
-                >
-                  <span className={cn('mr-2 h-2 w-2 rounded-full', messageFilter === 'unread' ? 'bg-primary-foreground' : 'bg-primary')} />
-                  {t('unreadOnly')}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label={t('previousPage')}
-                  onClick={() => {
-                    listRequestRef.current?.abort();
-                    clearReader();
-                    setMessagePage((current) => Math.max(0, current - 1));
-                  }}
-                  disabled={!hasPreviousMessagePage || isLoadingMessages}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label={t('nextPage')}
-                  onClick={() => {
-                    listRequestRef.current?.abort();
-                    clearReader();
-                    setMessagePage((current) => current + 1);
-                  }}
-                  disabled={!hasNextMessagePage || isLoadingMessages}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {isLoadingMessages ? (
-                <div className="flex items-center px-3 py-4 text-sm text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {t('loadingMessages')}
-                </div>
-              ) : messages.length === 0 ? (
-                <div className="px-3 py-4 text-sm text-muted-foreground">{t('noMessages')}</div>
-              ) : (
-                messages.map((message) => (
-                  <div
-                    key={`${message.folder || activeFolder}:${message.id}`}
-                    className={cn(
-                      'group/message flex w-full items-stretch border-b border-border transition-colors hover:bg-muted/60',
-                      selectedMessageId === message.id && 'bg-primary/10',
-                    )}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      setMessageContextMenu({ messageId: message.id, x: event.clientX, y: event.clientY });
-                    }}
-                  >
-                    <button
-                      type="button"
-                      className="grid min-w-0 flex-1 grid-cols-[0.75rem_minmax(0,1fr)] gap-2 px-3 py-3 text-left"
-                      onClick={() => void loadMessage(message)}
-                      onDoubleClick={() => void loadMessage(message, { openDialog: true })}
-                    >
-                      <span
-                        className={cn(
-                          'mt-1.5 h-2 w-2 rounded-full',
-                          message.isRead === false ? 'bg-primary' : 'bg-transparent',
-                        )}
-                        aria-hidden="true"
-                      />
-                      <div className="min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className={cn('min-w-0 truncate text-sm', message.isRead === false ? 'font-semibold text-foreground' : 'font-medium')}>
-                            {message.from || t('unknownSender')}
-                          </div>
-                          <div className="shrink-0 text-[11px] text-muted-foreground">{formatDate(message.date)}</div>
-                        </div>
-                        <div className={cn('mt-1 truncate text-sm', message.isRead === false ? 'font-semibold text-foreground' : 'font-medium')}>
-                          {message.subject || t('noSubject')}
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{message.snippet}</p>
-                      </div>
-                    </button>
-                    <div className="flex shrink-0 items-start px-2 py-2">
-                      <EmailMessageRowActions
-                        activeAction={activeMessageListAction}
-                        contextMenuPosition={messageContextMenu?.messageId === message.id ? messageContextMenu : null}
-                        folders={folders}
-                        labels={messageViewerLabels}
-                        message={message}
-                        onAction={handleMessageListAction}
-                        onCloseContextMenu={() => setMessageContextMenu(null)}
-                      />
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          {layoutMode === 'wide' && (
-            <EmailPaneResizeHandle label={t('resizeMessageList')} width={listWidth} onWidthChange={setListWidth} />
-          )}
+          <EmailMailboxNavigation
+            activeFolder={activeFolder}
+            activeFolderName={activeFolderName}
+            activeMessageListAction={activeMessageListAction}
+            folders={folders}
+            hasNextPage={hasNextMessagePage}
+            hasPreviousPage={hasPreviousMessagePage}
+            isFolderSidebarOpen={isFolderSidebarOpen}
+            isLoadingFolders={isLoadingFolders}
+            isLoadingMessages={isLoadingMessages}
+            labels={{
+              folders: t('folders'),
+              hideFolders: t('hideFolders'),
+              loadingFolders: t('loadingFolders'),
+              loadingMessages: t('loadingMessages'),
+              messages: t('messages'),
+              nextPage: t('nextPage'),
+              noFolders: t('noFolders'),
+              noMessages: t('noMessages'),
+              noSubject: t('noSubject'),
+              previousPage: t('previousPage'),
+              resizeMessageList: t('resizeMessageList'),
+              showFolders: t('showFolders'),
+              unknownSender: t('unknownSender'),
+              unreadOnly: t('unreadOnly'),
+            }}
+            layoutMode={layoutMode}
+            listWidth={listWidth}
+            messageContextMenu={messageContextMenu}
+            messageFilter={messageFilter}
+            messageRangeLabel={messageRangeLabel}
+            messages={messages}
+            onCloseContextMenu={() => setMessageContextMenu(null)}
+            onContextMenu={(message, position) => setMessageContextMenu({ messageId: message.id, ...position })}
+            onFolderSidebarOpenChange={setIsFolderSidebarOpen}
+            onListWidthChange={setListWidth}
+            onMessageAction={handleMessageListAction}
+            onOpenMessage={(message, openInDialog) => void loadMessage(message, openInDialog ? { openDialog: true } : undefined)}
+            onPageChange={(direction) => {
+              listRequestRef.current?.abort();
+              clearReader();
+              setMessagePage((current) => direction === 'previous' ? Math.max(0, current - 1) : current + 1);
+            }}
+            onSelectFolder={selectFolder}
+            onToggleUnreadFilter={toggleUnreadFilter}
+            selectedMessageId={selectedMessageId}
+            viewerLabels={messageViewerLabels}
+          />
 
           {layoutMode === 'wide' && <section className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
             <EmailMessageViewer
