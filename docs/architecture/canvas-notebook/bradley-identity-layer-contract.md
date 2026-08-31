@@ -138,6 +138,10 @@ Beispiel:
 | E-Mail-Agent | eigene Agentenidentität; Workspace Brand Voice darf den E-Mail-Entwurf prägen |
 | Canvas Host Agent | ausschließlich technische Host-Agent-Terminologie gemäß [Terminologievertrag](./bradley-agent-terminology-contract.md) |
 
+Die verbindliche Zuordnung von Namen, Icons, Fallbacks und verschachtelter
+Attribution pro Oberfläche steht in der
+[Bradley Agenten- und Oberflächenkontextmatrix](./bradley-agent-context-matrix.md).
+
 ## Zielbild für die Prompt-Zusammensetzung
 
 Die spätere Runtime-Implementierung muss semantisch folgende Blöcke abbilden:
