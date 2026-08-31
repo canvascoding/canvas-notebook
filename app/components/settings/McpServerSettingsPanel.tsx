@@ -529,7 +529,16 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
             <Switch
               checked={draft?.enabled ?? false}
               onCheckedChange={(enabled) => {
-                setDraft((current) => current ? { ...current, enabled } : current);
+                setDraft((current) => {
+                  if (!current) return current;
+                  return {
+                    ...current,
+                    enabled,
+                    tools: enabled && !current.enabled
+                      ? availableCapabilities.map((capability) => capability.id)
+                      : current.tools,
+                  };
+                });
                 setSuccess(null);
               }}
               disabled={!isAdmin || isSaving || status?.activationManagedByEnvironment}

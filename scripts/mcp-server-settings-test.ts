@@ -30,7 +30,7 @@ async function main(): Promise<void> {
     const { DIRECT_MCP_SERVER_VERSION } = await import(
       '../app/lib/mcp/server/version'
     );
-    const { getDirectMcpEnabledTools } = await import(
+    const { DIRECT_MCP_TOOL_IDS, getDirectMcpEnabledTools } = await import(
       '../app/lib/mcp/server/config'
     );
     const {
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
       tools: ['auth_probe'],
     });
     assert.equal(preferences.enabled, true);
-    assert.deepEqual(preferences.tools, ['auth_probe']);
+    assert.deepEqual(preferences.tools, DIRECT_MCP_TOOL_IDS);
     assert.equal(preferences.toolsVersion, 4);
     assert.equal(typeof preferences.updatedAt, 'string');
     assert.equal(preferences.updatedBy, 'admin-1');
@@ -151,13 +151,13 @@ async function main(): Promise<void> {
       status.capabilities.filter((capability) => capability.available),
       [
         { id: 'auth_probe', available: true, enabled: true, scopes: ['workspace:list'] },
-        { id: 'list_workspaces', available: true, enabled: false, scopes: ['workspace:list'] },
-        { id: 'get_workspace_overview', available: true, enabled: false, scopes: ['workspace:list'] },
-        { id: 'list_knowledge_tree', available: true, enabled: false, scopes: ['knowledge:tree'] },
-        { id: 'search_knowledge', available: true, enabled: false, scopes: ['knowledge:search'] },
-        { id: 'read_knowledge_source', available: true, enabled: false, scopes: ['knowledge:read'] },
-        { id: 'edit_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
-        { id: 'read_knowledge_asset', available: true, enabled: false, scopes: ['knowledge:assets'] },
+        { id: 'list_workspaces', available: true, enabled: true, scopes: ['workspace:list'] },
+        { id: 'get_workspace_overview', available: true, enabled: true, scopes: ['workspace:list'] },
+        { id: 'list_knowledge_tree', available: true, enabled: true, scopes: ['knowledge:tree'] },
+        { id: 'search_knowledge', available: true, enabled: true, scopes: ['knowledge:search'] },
+        { id: 'read_knowledge_source', available: true, enabled: true, scopes: ['knowledge:read'] },
+        { id: 'edit_knowledge_source', available: true, enabled: true, scopes: ['knowledge:write'] },
+        { id: 'read_knowledge_asset', available: true, enabled: true, scopes: ['knowledge:assets'] },
       ],
     );
     assert.equal(
