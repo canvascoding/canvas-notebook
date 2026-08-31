@@ -62,30 +62,35 @@ Folgende Grundlagen sind bereits vorhanden:
   Mo-Assetstruktur übernommen.
 - [x] Ersten animierten SVG-Prototyp für den aktiven Generierungszustand mit
   Reduced-Motion-Fallback erstellt.
+- [x] **Mo** als verbindlichen sichtbaren Namen für UI, Onboarding,
+  Dokumentation und Marketing festgelegt und im
+  [Mo-Namensvertrag](./mo-name-contract.md) dokumentiert.
 
-Noch nicht entschieden oder umgesetzt sind insbesondere der endgültige
-Namensvertrag, die finale Freigabe der kleinen SVG-/Icon-Variante, die
-Prompt-Hierarchie, die Migration bestehender Installationen, die vollständige
-Zustands-Copy und die UI-Integration.
+Noch nicht entschieden oder umgesetzt sind insbesondere die Aussprache- und
+Namensvalidierung, die Prüfung der Namensverfügbarkeit, die finale Freigabe der
+kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration bestehender
+Installationen, die vollständige Zustands-Copy und die UI-Integration.
 
 ## 3. Identität und Name
 
-### 3.1 Arbeitsentscheidung
+### 3.1 Verbindliche Produktentscheidung
 
-Im Interface soll der Hauptagent **Mo** heißen. **Mosaic** bleibt vorerst die
-Herleitung des Namens und kann einmalig im Onboarding oder in einer
-Markengeschichte erklärt werden.
+Der sichtbare Produktname des Hauptagenten ist **Mo**. Diese Entscheidung gilt
+verbindlich für UI, Onboarding, Produktdokumentation und Marketing. Der
+vollständige Oberflächen- und Schreibvertrag steht im
+[Mo-Namensvertrag](./mo-name-contract.md).
 
-Bis zur Namensvalidierung gilt:
+Es gilt:
 
 - UI-Name: **Mo**
-- Konzeptname: **Mosaic / Mo**
+- **Mosaic**: ausschließlich Herkunft des Namens, kein alternativer Produktname
+- **Mosa**: nicht verwenden
 - Interne technische ID: unverändert `canvas-agent`
 - Technische Speicherpfade und API-Verträge: unverändert
 
-`Mosa`, `Mosaic` und `Mo` dürfen nicht ungeplant als gleichwertige sichtbare
-Produktnamen wechseln. Vor dem Rollout muss eine Variante verbindlich
-festgelegt werden.
+MO-002 und MO-003 validieren Aussprache, Wirkung und Verfügbarkeit. Ein
+auffälliges Ergebnis ändert die Entscheidung nicht still, sondern öffnet MO-001
+mit dokumentierter Begründung erneut.
 
 ### 3.2 Visuelle Herkunft
 
@@ -368,7 +373,7 @@ Empfohlene Formulierung:
 
 | ID | Entscheidung | Aktueller Vorschlag | Benötigte Klärung |
 | --- | --- | --- | --- |
-| OD-01 | Offizieller Name | UI: Mo; Mosaic nur als Herkunft | Nutzer-, Sprach- und Namensvalidierung |
+| OD-01 | Offizieller Name | entschieden: Mo; Mosaic nur als Herkunft | Folgeprüfungen in MO-002 und MO-003 |
 | OD-02 | Umbenennbarkeit | Mo bleibt Produktname; Stil bleibt anpassbar | Produktentscheidung und Migrationsregel |
 | OD-03 | Primäre Metapher | gefaltetes Canvas und Zusammenfügen | finale Brand-Terminologie |
 | OD-04 | Glyph-Silhouette | Kontur plus Augen, ohne Textur | Designvarianten bei 16–40 px |
@@ -385,7 +390,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| MO-001 | offen | Offiziellen Namen Mo/Mosaic festlegen | Ein Name ist für UI, Onboarding, Dokumentation und Marketing verbindlich dokumentiert. |
+| MO-001 | fertig | Offiziellen Namen festlegen; Vertrag: [Mo-Namensvertrag](./mo-name-contract.md) | **Mo** ist für UI, Onboarding, Dokumentation und Marketing verbindlich dokumentiert. |
 | MO-002 | offen | Deutsche und englische Aussprache sowie Namenswirkung mit Zielnutzern prüfen | Ergebnisse und Entscheidung sind dokumentiert; auffällige Verwechslungen sind bewertet. |
 | MO-003 | offen | Marken- und Namensverfügbarkeit prüfen | Relevante Produkt-, Domain- und Markenrisiken sind dokumentiert; dies ersetzt keine Rechtsberatung. |
 | MO-004 | offen | Primäre Metapher und erlaubtes Vokabular definieren | Ein kurzer Sprachleitfaden trennt Canvas-, Falt- und Mosaic-Begriffe und entfernt widersprüchliche Metaphern. |
