@@ -1098,7 +1098,13 @@ async function main() {
   assert.deepEqual(emailMetadata.toolsets, ['email']);
   const studioMetadata = metadata.find((tool) => tool.name === 'studio_generate_image');
   assert.ok(studioMetadata);
-  assert.equal(studioMetadata.gateway?.name, 'studio');
+  assert.equal(studioMetadata.gateway, undefined);
+  const studioVideoMetadata = metadata.find((tool) => tool.name === 'studio_generate_video');
+  assert.ok(studioVideoMetadata);
+  assert.equal(studioVideoMetadata.gateway, undefined);
+  const studioSoundMetadata = metadata.find((tool) => tool.name === 'studio_generate_sound');
+  assert.ok(studioSoundMetadata);
+  assert.equal(studioSoundMetadata.gateway?.name, 'studio');
   for (const toolName of ['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages']) {
     const pdfMetadata = metadata.find((tool) => tool.name === toolName);
     assert.ok(pdfMetadata);

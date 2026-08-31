@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Type } from 'typebox';
 
 import {
+  PROGRESSIVE_GATEWAY_DEFINITIONS,
   createProgressiveGatewayTool,
   getProgressiveGatewayCapabilityNames,
   withAllowedProgressiveGatewayOperations,
@@ -14,6 +15,12 @@ function getText(result: unknown): string {
 }
 
 async function main() {
+  const studioGateway = PROGRESSIVE_GATEWAY_DEFINITIONS.find((definition) => definition.name === 'studio');
+  assert.ok(studioGateway);
+  assert.equal(studioGateway.operations.includes('studio_generate_image'), false);
+  assert.equal(studioGateway.operations.includes('studio_generate_video'), false);
+  assert.equal(studioGateway.operations.includes('studio_generate_sound'), true);
+
   const calls: Array<{ name: string; params: unknown }> = [];
   const operations = [
     {

@@ -72,6 +72,7 @@ export function createStudioGenerateImageTool(
     label: 'Generating studio image',
     description:
       'Generates and edits images using the Studio system. The preferred tool for all image creation and reference-based image editing. ' +
+      'For multiple different images, issue separate studio_generate_image calls in the same assistant turn; they run concurrently with a shared system limit of five active image generations. Use count only for variations of the same prompt. ' +
       'Supports products, personas, styles, and presets for consistent branded content. ' +
       'For editing or matching existing images from file paths, put one or more image paths in extra_reference_urls; do not only mention the paths in the prompt. ' +
       'Output files are saved in the active workspace\'s Studio storage — exact workspace-scoped reference and absolute paths are returned.',
@@ -143,6 +144,7 @@ export function createStudioGenerateVideoTool(
     label: 'Generating studio video',
     description:
       'Generates videos using the Studio system. The preferred tool for all video creation. Takes 3-10 minutes. ' +
+      'For multiple different videos, issue separate studio_generate_video calls in the same assistant turn; they run concurrently with a shared system limit of two active video generations. ' +
       'Supports products, personas, styles, and presets for branded content. ' +
       'Providers: veo (default, Veo 3.1 models) or bytedance (Seedance). ' +
       'For visual reference images from file paths, put image paths in extra_reference_urls (Veo max 3, Seedance max 9). For Seedance video/audio references, use reference_video_urls and reference_audio_urls. Use start_frame_path/end_frame_path only for explicit start/end frame animation. ' +

@@ -50,6 +50,7 @@ import {
   normalizeGeminiImageModelId,
   normalizeOpenAIImageOutputFormat,
 } from '@/app/lib/integrations/image-generation-constants';
+import { withStudioGenerationConcurrency } from '@/app/lib/integrations/studio-generation-concurrency';
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import {
   createPersistedStudioScope,
@@ -1200,7 +1201,7 @@ async function executeStudioGenerationProcessing(
     let outputs: StudioGenerationOutput[];
 
     if (mode === 'video') {
-      outputs = await generateStudioVideo(
+      outputs = await withStudioGenerationConcurrency('video', () => generateStudioVideo(
         generationId,
         composedPrompt,
         aspectRatio,
@@ -1223,7 +1224,7 @@ async function executeStudioGenerationProcessing(
         },
         storageScope,
         scope,
-      );
+      ));
     } else if (mode === 'sound') {
       outputs = await generateStudioSound(
         generationId,
@@ -1323,7 +1324,7 @@ async function generateStudioImages(
   const generationJobs = Array.from({ length: count }, async (_, index): Promise<StudioGenerationOutput> => {
     try {
       console.log(`[Studio Generation] Generating image ${index + 1}/${count}: provider=${providerId}, model=${validatedModel}, aspectRatio=${aspectRatio}, refs=${limitedReferences.length}`);
-      const result = await provider.generate({
+      const result = await withStudioGenerationConcurrency('image', () => provider.generate({
         prompt,
         model: validatedModel,
         aspectRatio,
@@ -1334,7 +1335,7 @@ async function generateStudioImages(
         contextPrompt: contextText,
         imageSize: options?.imageSize,
         storageScope,
-      });
+      }));
 
       const ext = extensionFromMime(result.mimeType);
       const outputFilename = generateOutputFilename(slug, index, ext);

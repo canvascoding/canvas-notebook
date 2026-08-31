@@ -285,10 +285,8 @@ export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinit
   {
     name: 'studio',
     label: 'Using Studio',
-    description: 'On-demand gateway for Studio media generation and library discovery. Use search, describe, then call so only the needed media schema is loaded into context.',
+    description: 'On-demand gateway for Studio library discovery, sound, and bulk generation. Image and video generation are dedicated direct tools so independent requests can run concurrently.',
     operations: [
-      'studio_generate_image',
-      'studio_generate_video',
       'studio_generate_sound',
       'studio_bulk_generate',
       'studio_list_products',
