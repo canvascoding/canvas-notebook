@@ -71,6 +71,10 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] Produkt-, Domain- und Markenrisiken für Mo und Mosaic geprüft; Mo bleibt
   als untergeordnete Identität innerhalb von Canvas Notebook zulässig, ein
   eigenständiger Markenauftritt ist ausgeschlossen.
+- [x] Primäre Metapher, Begriffshierarchie sowie erlaubtes und verbotenes
+  Vokabular im
+  [Mo Metaphern- und Sprachleitfaden](./mo-brand-language-guide.md)
+  festgelegt.
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
 der kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration
@@ -117,12 +121,12 @@ Der vorhandene Entwurf zeigt Mo als **dreidimensional gefaltete Canvas-Figur**:
 Der Charakter ist damit visuell stärker aus **gefaltetem Canvas** als aus einem
 wörtlichen Mosaik abgeleitet. Die primäre Markengeschichte lautet daher:
 
-> Mo ist ein Stück Canvas, das zum Produktionspartner wird.
+> Mo ist eine gefaltete Canvas-Figur, die zum ruhigen Produktionspartner wird.
 
-„Mosaic“ kann weiterhin erklären, wie einzelne Ideen, Dateien, Modelle und
-Arbeitsschritte zu einem Gesamtbild werden. In der täglichen Sprache soll aber
-nicht gleichzeitig mit Mosaiksteinen, Fäden, Stoff und Origami gearbeitet
-werden.
+„Mosaic“ darf ausschließlich einmalig die Herkunft des Namens erklären. Canvas
+bleibt die einzige tägliche Bildwelt; Falten beschreiben nur Form und Bewegung.
+Der verbindliche Wortschatz und die Regeln pro Oberfläche stehen im
+[Mo Metaphern- und Sprachleitfaden](./mo-brand-language-guide.md).
 
 ### 3.3 Vorhandenes Referenzmotiv
 
@@ -385,7 +389,7 @@ Empfohlene Formulierung:
 | --- | --- | --- | --- |
 | OD-01 | Offizieller Name | entschieden: Mo; Mosaic nur als Herkunft | Folgeprüfungen in MO-002 und MO-003 |
 | OD-02 | Umbenennbarkeit | Mo bleibt Produktname; Stil bleibt anpassbar | Produktentscheidung und Migrationsregel |
-| OD-03 | Primäre Metapher | gefaltetes Canvas und Zusammenfügen | finale Brand-Terminologie |
+| OD-03 | Primäre Metapher | entschieden: gefaltetes Canvas; Zusammenführen nur als Funktionsverb | [Mo Metaphern- und Sprachleitfaden](./mo-brand-language-guide.md) |
 | OD-04 | Glyph-Silhouette | Kontur plus Augen, ohne Textur | Designvarianten bei 16–40 px |
 | OD-05 | Animationsumfang | nur Antwortstart und echte Zustandswechsel | Prototyp, Reduced Motion und Performance |
 | OD-06 | Bestehende eigene Agentnamen | nicht überschreiben | Erkennungs- und Migrationslogik |
@@ -403,7 +407,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | MO-001 | fertig | Offiziellen Namen festlegen; Vertrag: [Mo-Namensvertrag](./mo-name-contract.md) | **Mo** ist für UI, Onboarding, Dokumentation und Marketing verbindlich dokumentiert. |
 | MO-002 | fertig | Deutsche und englische Aussprache sowie Namenswirkung prüfen; Entscheidung: [Mo Sprach- und Namensvalidierung](./mo-name-language-validation.md) | Aussprache, Nebenbedeutungen, UI-Kontexte und Risiken sind dokumentiert und vom Product Owner freigegeben; größere Stichprobe folgt in MO-045. |
 | MO-003 | fertig | Marken- und Namensverfügbarkeit prüfen; Entscheidung: [Mo Namens- und Verfügbarkeitsprüfung](./mo-name-availability-assessment.md) | Relevante Produkt-, Domain- und Markenrisiken sowie der begrenzte Nutzungskorridor sind dokumentiert; dies ersetzt keine Rechtsberatung. |
-| MO-004 | offen | Primäre Metapher und erlaubtes Vokabular definieren | Ein kurzer Sprachleitfaden trennt Canvas-, Falt- und Mosaic-Begriffe und entfernt widersprüchliche Metaphern. |
+| MO-004 | fertig | Primäre Metapher und erlaubtes Vokabular definieren; Vertrag: [Mo Metaphern- und Sprachleitfaden](./mo-brand-language-guide.md) | Der Sprachleitfaden trennt Canvas-, Falt- und Mosaic-Begriffe und schließt widersprüchliche Metaphern aus. |
 | MO-005 | offen | Feste, persönliche und Workspace-bezogene Identitätsebenen verbindlich festlegen | Prompt- und Copy-Hierarchie ist als implementierbarer Vertrag beschrieben. |
 | MO-006 | offen | Terminologie Mo versus Canvas Control Plane Agent abstimmen | Support- und Architekturdokumente unterscheiden beide Agenten eindeutig. |
 
