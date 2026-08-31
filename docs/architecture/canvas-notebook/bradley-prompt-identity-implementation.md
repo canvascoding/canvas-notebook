@@ -121,8 +121,8 @@ zweiten Identity Block.
 ## Abgrenzung der Folgearbeiten
 
 - BRADLEY-031 passt das Onboarding sichtbar an die feste Produktidentität an.
-- BRADLEY-032 inventarisiert und schützt bestehende persönliche `SOUL.md`-
-  Inhalte bei der inhaltlichen Migration.
+- BRADLEY-032 schützt bestehende persönliche `SOUL.md`-Inhalte durch den
+  [hashbasierten Migrationsvertrag](./bradley-soul-migration-safety-contract.md).
 - BRADLEY-033 migriert sichtbare Hauptagent-Datensätze idempotent.
 - BRADLEY-034 und BRADLEY-035 bereinigen UI-Fallbacks und sichtbare Alttexte.
 - BRADLEY-036 führt die breitere Stabilitäts- und Regressionstestmatrix aus.

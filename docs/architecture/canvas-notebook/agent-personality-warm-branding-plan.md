@@ -83,6 +83,10 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] Persönliches Onboarding auf die feste Bradley-Identität und frei
   konfigurierbare Zusammenarbeit umgestellt; Implementierung:
   [Bradley Onboarding](./bradley-onboarding-implementation.md).
+- [x] Schutzvertrag für vorhandene persönliche `SOUL.md`-Inhalte festgelegt;
+  nur bytegenau bekannte Alt-Seeds dürfen ihre obsolete Identitätszeile
+  verlieren, alle persönlichen Inhalte bleiben erhalten. Vertrag:
+  [Bradley SOUL.md-Migrationsschutz](./bradley-soul-migration-safety-contract.md).
 - [x] Bradley, Canvas Host Agent, Canvas Control Plane und interne
   `canvas-agent`-Bezeichner im
   [Agenten-Terminologievertrag](./bradley-agent-terminology-contract.md)
@@ -508,7 +512,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | --- | --- | --- | --- |
 | BRADLEY-030 | fertig | Feste Bradley-Identität in der Prompt-Architektur verorten; Implementierung: [Bradley Prompt-Identity-Implementierung](./bradley-prompt-identity-implementation.md) | Identität bleibt stabil und steht nicht im Konflikt mit Nutzeranweisung, SOUL.md oder Workspace Brand Voice. |
 | BRADLEY-031 | fertig | Onboarding auf feste Identität plus persönliche Zusammenarbeit umstellen; Implementierung: [Bradley Onboarding](./bradley-onboarding-implementation.md) | Neue Nutzer lernen Bradley kennen, können aber Kommunikationspräferenzen festlegen. |
-| BRADLEY-032 | offen | Schutz vorhandener persönlicher `SOUL.md`-Inhalte konzipieren | Migration überschreibt keine bestehenden Präferenzen ohne dokumentierte Regel. |
+| BRADLEY-032 | fertig | Schutz vorhandener persönlicher `SOUL.md`-Inhalte konzipieren; Vertrag: [Bradley SOUL.md-Migrationsschutz](./bradley-soul-migration-safety-contract.md) | Migration überschreibt keine bestehenden Präferenzen ohne dokumentierte Regel. |
 | BRADLEY-033 | offen | Display-Name-Migration für bestehende Hauptagent-Datensätze entwickeln | Bestehende Standardnamen werden idempotent migriert; bewusste Anpassungen bleiben erhalten. |
 | BRADLEY-034 | offen | UI-Fallbacks und Registry-Defaults inventarisieren und aktualisieren | Kein sichtbarer Standard-Fallback zeigt unbeabsichtigt „Canvas Agent“, wenn der Hauptagent Bradley ist. |
 | BRADLEY-035 | offen | Onboarding-, Notification-, Automation- und E-Mail-Texte inventarisieren | Alle sichtbaren Hauptagent-Referenzen sind klassifiziert und entweder migriert oder bewusst beibehalten. |

@@ -184,7 +184,10 @@ Zusammenarbeitspräferenzen. Der Nachweis
 steht in der
 [Bradley Onboarding-Implementierung](./bradley-onboarding-implementation.md).
 Bestandsmigration, Display-Name-, Fallback- und Regressionsthemen gehören zu
-BRADLEY-032 bis BRADLEY-036.
+BRADLEY-033 bis BRADLEY-036. Der Schutz vorhandener persönlicher `SOUL.md`-
+Inhalte ist im
+[Bradley SOUL.md-Migrationsschutz](./bradley-soul-migration-safety-contract.md)
+festgelegt.
 
 ## Abnahmekriterien für die spätere Implementierung
 
