@@ -13,8 +13,12 @@ export type DirectMcpDiagnosticPhase =
   | 'discovery.authorization_server'
   | 'discovery.protected_resource'
   | 'mcp.http'
+  | 'oauth.authorization'
+  | 'oauth.consent'
+  | 'oauth.introspection'
   | 'oauth.registration'
-  | 'oauth.request';
+  | 'oauth.revocation'
+  | 'oauth.token';
 
 const directMcpDiagnosticStorage = new AsyncLocalStorage<DirectMcpDiagnosticContext>();
 

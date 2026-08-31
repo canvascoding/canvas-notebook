@@ -3413,6 +3413,11 @@
         "disconnect": "Disconnect",
         "disconnectConfirm": "Disconnect {client}? This immediately removes its access to your Canvas data.",
         "disconnected": "MCP client disconnected.",
+        "permissionsComplete": "OAuth covers every tool currently enabled on the server.",
+        "permissionsMissing": {
+          "title": "Additional OAuth permission required",
+          "description": "This client is missing the following permissions for enabled tools: {scopes}. Reload the MCP server in the client and approve these permissions once. You do not need to register a new client."
+        },
         "errors": {
           "load": "Could not load your MCP connections.",
           "disconnect": "Could not disconnect this MCP client."
@@ -3532,6 +3537,8 @@
         "title": "Technical details for developers",
         "description": "This connection follows the current remote MCP standard. You only need these details for a custom client integration or troubleshooting.",
         "example": "Client configuration example",
+        "codexExample": "Codex configuration with enabled tools",
+        "codexHint": "Codex uses enabled_tools as its local tool allowlist. Copy this configuration into Codex MCP settings and reload the server there after changes. Canvas cannot read or change that local list; only a genuinely new OAuth scope needs one additional approval.",
         "endpoint": "MCP endpoint",
         "issuer": "OAuth issuer",
         "protocol": "Protocol",

@@ -3412,6 +3412,11 @@
         "disconnect": "Trennen",
         "disconnectConfirm": "{client} trennen? Der Zugriff auf deine Canvas-Daten wird sofort entfernt.",
         "disconnected": "MCP-Client getrennt.",
+        "permissionsComplete": "OAuth deckt alle derzeit auf dem Server aktivierten Werkzeuge ab.",
+        "permissionsMissing": {
+          "title": "Zusätzliche OAuth-Berechtigung erforderlich",
+          "description": "Für aktivierte Werkzeuge fehlen diesem Client: {scopes}. Lade den MCP-Server im Client neu und bestätige diese Berechtigung einmalig. Eine neue Client-Registrierung ist nicht nötig."
+        },
         "errors": {
           "load": "Deine MCP-Verbindungen konnten nicht geladen werden.",
           "disconnect": "Dieser MCP-Client konnte nicht getrennt werden."
@@ -3531,6 +3536,8 @@
         "title": "Technische Details für Entwickler",
         "description": "Die Verbindung verwendet den aktuellen Remote-MCP-Standard. Diese Angaben brauchst du nur für eine eigene Client-Integration oder die Fehlersuche.",
         "example": "Beispiel für eine Client-Konfiguration",
+        "codexExample": "Codex-Konfiguration mit aktivierten Werkzeugen",
+        "codexHint": "Codex verwendet enabled_tools als lokale Werkzeugfreigabe. Kopiere diese Konfiguration in die MCP-Einstellungen von Codex und lade den Server dort nach Änderungen neu. Canvas kann diese lokale Liste nicht auslesen oder verändern; nur ein tatsächlich neuer OAuth-Scope erfordert einmalig eine erneute Bestätigung.",
         "endpoint": "MCP-Endpunkt",
         "issuer": "OAuth-Aussteller",
         "protocol": "Protokoll",

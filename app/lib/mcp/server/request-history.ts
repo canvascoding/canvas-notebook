@@ -17,8 +17,12 @@ const PHASES = new Set([
   'discovery.authorization_server',
   'discovery.protected_resource',
   'mcp.http',
+  'oauth.authorization',
+  'oauth.consent',
+  'oauth.introspection',
   'oauth.registration',
-  'oauth.request',
+  'oauth.revocation',
+  'oauth.token',
 ]);
 const OUTCOMES = new Set(['succeeded', 'failed', 'rejected']);
 const OPERATIONS = new Set(['tools/list', 'tools/call']);
