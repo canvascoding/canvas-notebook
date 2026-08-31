@@ -16,6 +16,7 @@ import {
   type PublicShareAnnotation,
 } from '@/app/lib/public-sharing/public-file-shares';
 import { enrichWorkspaceFileNodes } from '@/app/lib/files/workspace-file-metadata';
+import { sortFileNodes } from '@/app/lib/files/sort';
 import type { FileNode } from '@/app/lib/files/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { hasMarpFileName, isMarpMarkdown } from '@/app/lib/marp/detect';
@@ -44,6 +45,8 @@ const TEXT_EXTENSIONS = new Set([
 
 export type MobileFileCategory = 'folder' | 'document' | 'image' | 'video' | 'audio' | 'archive' | 'other';
 export type MobileFileFilter = 'all' | Exclude<MobileFileCategory, 'folder'>;
+export type MobileFileSort = 'name' | 'modified' | 'size';
+export type MobileFileSortOrder = 'asc' | 'desc';
 export type MobileFileOpenKind =
   | 'folder'
   | 'markdown'
@@ -140,6 +143,24 @@ function normalizeFilter(value: unknown): MobileFileFilter {
     return filter as MobileFileFilter;
   }
   throw new MobileFilesError('File filter is invalid.', 400, 'INVALID_FILTER');
+}
+
+function normalizeSort(value: unknown): MobileFileSort | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'string' && ['name', 'modified', 'size'].includes(value)) {
+    return value as MobileFileSort;
+  }
+  throw new MobileFilesError('File sort is invalid.', 400, 'INVALID_SORT');
+}
+
+function normalizeSortOrder(value: unknown, sort: MobileFileSort | null): MobileFileSortOrder | null {
+  if (!sort) {
+    if (value === undefined || value === null || value === '') return null;
+    throw new MobileFilesError('File sort order requires a sort field.', 400, 'INVALID_SORT_ORDER');
+  }
+  if (value === undefined || value === null || value === '') return sort === 'name' ? 'asc' : 'desc';
+  if (value === 'asc' || value === 'desc') return value;
+  throw new MobileFilesError('File sort order is invalid.', 400, 'INVALID_SORT_ORDER');
 }
 
 function extensionFor(filePath: string): string {
@@ -240,9 +261,21 @@ function collectEntries(nodes: FileNode[], output: FileNode[] = []): FileNode[] 
   return output;
 }
 
-function cursorSignature(input: { directory: string; query: string; filter: MobileFileFilter }): string {
+function cursorSignature(input: {
+  directory: string;
+  query: string;
+  filter: MobileFileFilter;
+  sort: MobileFileSort | null;
+  sortOrder: MobileFileSortOrder | null;
+}): string {
   return createHash('sha256')
-    .update(`${input.directory}\u001f${input.query.toLowerCase()}\u001f${input.filter}`)
+    .update([
+      input.directory,
+      input.query.toLowerCase(),
+      input.filter,
+      input.sort || 'default',
+      input.sortOrder || 'default',
+    ].join('\u001f'))
     .digest('hex')
     .slice(0, 12);
 }
@@ -289,6 +322,8 @@ export async function listMobileFiles(input: {
   directory?: unknown;
   query?: unknown;
   filter?: unknown;
+  sort?: unknown;
+  sortOrder?: unknown;
   cursor?: unknown;
   limit?: unknown;
   baseUrl?: string | null;
@@ -296,11 +331,13 @@ export async function listMobileFiles(input: {
   const directory = normalizeMobileFilePath(input.directory, true);
   const query = normalizeQuery(input.query);
   const filter = normalizeFilter(input.filter);
+  const sort = normalizeSort(input.sort);
+  const sortOrder = normalizeSortOrder(input.sortOrder, sort);
   const requestedLimit = typeof input.limit === 'number' ? input.limit : Number(input.limit || 40);
   if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > MAX_LIST_LIMIT) {
     throw new MobileFilesError(`limit must be between 1 and ${MAX_LIST_LIMIT}.`, 400, 'INVALID_LIMIT');
   }
-  const signature = cursorSignature({ directory, query, filter });
+  const signature = cursorSignature({ directory, query, filter, sort, sortOrder });
   const offset = offsetFromCursor(input.cursor, signature);
 
   let nodes: FileNode[];
@@ -312,6 +349,7 @@ export async function listMobileFiles(input: {
       .filter((candidate) => Number.isFinite(candidate.rank))
       .sort((left, right) => left.rank - right.rank || left.node.path.localeCompare(right.node.path))
       .map((candidate) => candidate.node);
+    if (sort && sortOrder) nodes = sortFileNodes(nodes, sort, sortOrder);
   } else {
     try {
       nodes = await listDirectory(directory, { ...input.fileOptions, includeMetadata: true });
@@ -321,10 +359,7 @@ export async function listMobileFiles(input: {
       }
       throw error;
     }
-    nodes.sort((left, right) => {
-      if (left.type !== right.type) return left.type === 'directory' ? -1 : 1;
-      return left.name.localeCompare(right.name);
-    });
+    nodes = sortFileNodes(nodes, sort || 'name', sortOrder || 'asc');
   }
 
   const filtered = nodes.filter((node) => filter === 'all' || mobileFileCategory(node.path, node.type) === filter);
