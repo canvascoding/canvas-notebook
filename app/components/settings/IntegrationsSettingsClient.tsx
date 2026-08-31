@@ -7,6 +7,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Inbox, Loader2, Mail, MoreHorizontal, Plus, RefreshCw, Save, Search, Send, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
+import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { MailboxConnectionForm } from '@/app/components/email/MailboxConnectionForm';
 import { McpServerSettingsPanel } from '@/app/components/settings/McpServerSettingsPanel';
 import { SystemEmailSettingsPanel } from '@/app/components/settings/SystemEmailSettingsPanel';
@@ -2390,6 +2391,7 @@ export function IntegrationsSettingsClient({
   currentUserId = '',
   userName = '',
   userEmail = '',
+  initialUserProfile,
   isManagedControlPlane = false,
   initialTimeZone,
   initialSettingsSidebarCollapsed = false,
@@ -2399,6 +2401,7 @@ export function IntegrationsSettingsClient({
   currentUserId?: string;
   userName?: string;
   userEmail?: string;
+  initialUserProfile: ResolvedUserProfile;
   isManagedControlPlane?: boolean;
   initialTimeZone?: string;
   initialSettingsSidebarCollapsed?: boolean;
@@ -3201,6 +3204,7 @@ export function IntegrationsSettingsClient({
             <GeneralSettingsPanel
               userName={userName}
               userEmail={userEmail}
+              initialUserProfile={initialUserProfile}
               isAdmin={isAdmin}
               initialTimeZone={initialTimeZone}
             />,
