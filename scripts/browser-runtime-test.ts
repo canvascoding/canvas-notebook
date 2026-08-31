@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { lstat, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import Module from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -306,13 +306,45 @@ async function testActiveProfileLockIsPreserved() {
 
 async function testPdfRendererClosedErrorsAreClassified() {
   const {
+    buildPdfBrowserLaunchSpec,
     getPdfBrowserProfileId,
     getPdfRendererClosedMessage,
     isPdfRendererClosedError,
+    removeStalePdfBrowserProfiles,
   } = await importPdfBrowser();
 
   assert.equal(getPdfBrowserProfileId(1234), 'pdf-export-1234');
   assert.notEqual(getPdfBrowserProfileId(1234), getPdfBrowserProfileId(5678));
+  const launchSpec = buildPdfBrowserLaunchSpec({
+    env: makeEnv({
+      CANVAS_RUNTIME_ENV: 'docker',
+      CHROMIUM_PATH: '/usr/bin/chromium',
+      DATA: '/data',
+    }),
+    existsSync: makeExistsSync(['/usr/bin/chromium']),
+    pid: 1234,
+  });
+  assert.equal(launchSpec.userDataDir, '/data/cache/browser-runtime/pdf-export-1234');
+  assert.ok(launchSpec.args.includes('--user-data-dir=/data/cache/browser-runtime/pdf-export-1234'));
+
+  const profileRoot = await mkdtemp(path.join(os.tmpdir(), 'canvas-pdf-profile-test-'));
+  try {
+    await Promise.all([
+      mkdir(path.join(profileRoot, 'pdf-export-1234')),
+      mkdir(path.join(profileRoot, 'pdf-export-5678')),
+      mkdir(path.join(profileRoot, 'pdf-export-9999')),
+      mkdir(path.join(profileRoot, 'unrelated-profile')),
+    ]);
+    const removedProfiles = await removeStalePdfBrowserProfiles(profileRoot, 1234, (pid) => pid === 5678);
+    assert.deepEqual(removedProfiles, ['pdf-export-9999']);
+    assert.equal(existsSync(path.join(profileRoot, 'pdf-export-1234')), true);
+    assert.equal(existsSync(path.join(profileRoot, 'pdf-export-5678')), true);
+    assert.equal(existsSync(path.join(profileRoot, 'pdf-export-9999')), false);
+    assert.equal(existsSync(path.join(profileRoot, 'unrelated-profile')), true);
+  } finally {
+    await rm(profileRoot, { recursive: true, force: true });
+  }
+
   assert.equal(
     isPdfRendererClosedError(new Error('Protocol error (Target.setDiscoverTargets): Target closed')),
     true,
