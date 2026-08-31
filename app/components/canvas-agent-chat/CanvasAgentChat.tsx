@@ -476,6 +476,15 @@ export default function CanvasAgentChat({
     textareaRef,
   });
 
+  const handleWorkspaceFilesDrop = useCallback((paths: string[]) => {
+    const references = paths.map((path) => `@"${path}"`);
+    if (references.length === 0) return;
+
+    resetInputHistoryNavigation();
+    setInput((current) => `${current}${current.trimEnd() ? ' ' : ''}${references.join(' ')} `);
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  }, [resetInputHistoryNavigation, setInput, textareaRef]);
+
   const buildRequestContext = useCallback((activeFilePath: string | null): ChatRequestContext => ({
     activeFilePath,
     userTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -1355,6 +1364,7 @@ export default function CanvasAgentChat({
         fileInputRef={fileInputRef}
         onFileChange={onFileChange}
         onFilesDrop={uploadFiles}
+        onWorkspaceFilesDrop={handleWorkspaceFilesDrop}
         composerDisabled={composerDisabled}
         isUploading={isUploading}
         textareaRef={textareaRef}

@@ -1389,6 +1389,7 @@
     "uploading": "Uploading...",
     "uploadingFiles": "Uploading files...",
     "dropFilesHere": "Drop files here",
+    "dropWorkspaceReferencesHere": "Add files as references",
     "loadingFiles": "Loading files...",
     "loadingSkills": "Loading skills...",
     "loadingCapabilities": "Loading plugins and skills...",

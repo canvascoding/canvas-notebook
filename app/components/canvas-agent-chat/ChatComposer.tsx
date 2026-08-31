@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import { CircleHelp, Loader2, Paperclip, Settings, Square, Upload, X } from 'lucide-react';
+import { CircleHelp, FileText, Loader2, Paperclip, Settings, Square, Upload, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
@@ -22,6 +22,7 @@ import { PlanModeToggle } from '@/app/components/canvas-agent-chat/PlanModeToggl
 import { SkillReferenceChipRow } from '@/app/components/canvas-agent-chat/SkillReferenceChips';
 import { TypewriterPromptSuggestion } from '@/app/components/canvas-agent-chat/TypewriterPromptSuggestion';
 import { useChatFileDrop } from '@/app/components/canvas-agent-chat/useChatFileDrop';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type {
   AiEffectiveRuntimeResolution,
   AiRuntimeSelection,
@@ -84,6 +85,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   fileInputRef: RefObject<HTMLInputElement | null>;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onFilesDrop: (files: File[]) => void;
+  onWorkspaceFilesDrop: (paths: string[]) => void;
   composerDisabled: boolean;
   isUploading: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -144,6 +146,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   fileInputRef,
   onFileChange,
   onFilesDrop,
+  onWorkspaceFilesDrop,
   composerDisabled,
   isUploading,
   textareaRef,
@@ -185,9 +188,12 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   showPromptSuggestions,
 }, ref) {
   const t = useTranslations('chat');
-  const { isDraggingFiles, dropHandlers } = useChatFileDrop({
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const { isDraggingFiles, isDraggingWorkspaceFiles, dropHandlers } = useChatFileDrop({
     disabled: composerDisabled,
     onFiles: onFilesDrop,
+    onWorkspaceFiles: onWorkspaceFilesDrop,
+    workspaceId: activeWorkspaceId,
   });
   const showTypewriterSuggestion = showPromptSuggestions && input.length === 0 && !isWebSocketUnavailable;
 
@@ -303,7 +309,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
               className={cn(
                 'w-full resize-none border bg-background p-2.5 text-base placeholder:text-xs focus:outline-none focus:ring-1 md:text-sm sm:placeholder:text-sm',
                 planningMode ? 'border-amber-500 focus:ring-amber-500' : 'border-border focus:ring-ring',
-                isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : null,
+                isDraggingFiles || isDraggingWorkspaceFiles ? 'border-primary ring-2 ring-primary/30' : null,
                 showTypewriterSuggestion ? 'placeholder:text-transparent' : 'placeholder:text-muted-foreground',
               )}
             />
@@ -314,11 +320,11 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
                 className="left-0 right-0 top-0 overflow-hidden whitespace-nowrap px-2.5 py-2.5 text-base leading-normal md:text-sm"
               />
             ) : null}
-            {isDraggingFiles ? (
+            {isDraggingFiles || isDraggingWorkspaceFiles ? (
               <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border border-primary bg-background/90 text-xs font-medium text-primary">
                 <span className="inline-flex items-center gap-2">
-                  <Upload className="h-4 w-4" />
-                  {t('dropFilesHere')}
+                  {isDraggingWorkspaceFiles ? <FileText className="h-4 w-4" /> : <Upload className="h-4 w-4" />}
+                  {isDraggingWorkspaceFiles ? t('dropWorkspaceReferencesHere') : t('dropFilesHere')}
                 </span>
               </div>
             ) : null}

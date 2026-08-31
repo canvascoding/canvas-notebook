@@ -1388,6 +1388,7 @@
     "uploading": "Wird hochgeladen...",
     "uploadingFiles": "Dateien werden hochgeladen...",
     "dropFilesHere": "Dateien hier ablegen",
+    "dropWorkspaceReferencesHere": "Dateien als Referenz hinzufügen",
     "loadingFiles": "Dateien werden geladen...",
     "loadingSkills": "Skills werden geladen...",
     "loadingCapabilities": "Plugins und Skills werden geladen...",
