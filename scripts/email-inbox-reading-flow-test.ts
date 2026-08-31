@@ -89,6 +89,10 @@ const composeDialogSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailComposeDialog.tsx'),
   'utf8',
 );
+const composeControllerSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'useEmailComposeController.ts'),
+  'utf8',
+);
 const mailboxHeaderSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailMailboxHeader.tsx'),
   'utf8',
@@ -123,8 +127,9 @@ assert.match(emailClientSource, /import \{ EmailComposeDialog \} from/u);
 assert.match(emailClientSource, /import \{ EmailMessageViewer \} from/u);
 assert.match(emailClientSource, /contextIntent\.toolName === 'email_search_messages'/u);
 assert.match(emailClientSource, /contextIntent\.toolName === 'email_read_message'/u);
-assert.match(emailClientSource, /contextIntent\.view !== 'review-draft'/u);
-assert.match(emailClientSource, /const openOutboxDraftById = useCallback/u);
+assert.match(emailClientSource, /useEmailComposeController\(/u);
+assert.match(composeControllerSource, /contextIntent\.view !== 'review-draft'/u);
+assert.match(composeControllerSource, /const openOutboxDraftById = useCallback/u);
 assert.match(emailClientSource, /key=\{`email-message-viewer:/u);
 assert.match(emailClientSource, /onRefresh=\{\(\) => void loadMessages\(\{ background: true \}\)\}/u);
 assert.match(reviewCenterSource, /canvas:email:review-center:v1/u);
