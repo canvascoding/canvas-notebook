@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  isValidAgentSkillName,
   parseFrontmatter,
   parseSkillFile,
   validateFrontmatter,
@@ -38,6 +39,10 @@ function assertInvalid(overrides: Record<string, unknown>, expectedError: RegExp
 }
 
 async function main(): Promise<void> {
+  assert.equal(isValidAgentSkillName('example-skill'), true);
+  assert.equal(isValidAgentSkillName('überblick-2'), true);
+  assert.equal(isValidAgentSkillName('double--hyphen'), false);
+  assert.equal(isValidAgentSkillName(' example-skill '), false);
   assert.equal(validationFor({}, 'example-skill').valid, true);
   assert.equal(validationFor({
     name: 'überblick-2',

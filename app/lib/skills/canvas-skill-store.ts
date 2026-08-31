@@ -22,10 +22,12 @@ import {
 import { computeCanvasPluginChecksum } from '@/app/lib/plugins/canvas-plugin-registry';
 import {
   findSensitiveCanvasPackageFiles,
+  isValidCanvasPluginName,
   isValidCanvasPluginVersion,
 } from '@/app/lib/plugins/canvas-plugin-manifest';
 import { requirePathInside } from '@/app/lib/security/safe-paths';
 import {
+  isValidAgentSkillName,
   loadCanvasSkillInterface,
   parseSkillFile,
   type CanvasSkillInterface,
@@ -207,7 +209,7 @@ function normalizePublisher(value: unknown): CanvasSkillStorePublisher | undefin
 function normalizeSourcePlugin(value: unknown): CanvasSkillStoreSourcePlugin | undefined {
   if (!isRecord(value)) return undefined;
   const name = stringValue(value.name);
-  if (!name || !isValidCanvasSkillName(name)) return undefined;
+  if (!name || !isValidCanvasPluginName(name)) return undefined;
   return {
     name,
     displayName: stringValue(value.displayName ?? value.display_name),
@@ -217,27 +219,6 @@ function normalizeSourcePlugin(value: unknown): CanvasSkillStoreSourcePlugin | u
 
 function normalizeChecksum(value: string): string {
   return value.trim().replace(/^sha256:/i, '').toLowerCase();
-}
-
-function isValidCanvasSkillName(name: string): boolean {
-  const normalized = name.normalize('NFKC');
-  if (
-    name !== normalized
-    || Array.from(name).length === 0
-    || Array.from(name).length > 64
-    || name !== name.toLowerCase()
-    || name.startsWith('-')
-    || name.endsWith('-')
-  ) {
-    return false;
-  }
-  let previousHyphen = false;
-  for (const char of name) {
-    const allowed = char === '-' || /^[\p{L}\p{N}]$/u.test(char);
-    if (!allowed || (char === '-' && previousHyphen)) return false;
-    previousHyphen = char === '-';
-  }
-  return true;
 }
 
 function compareVersions(left: string | undefined, right: string | undefined): number {
@@ -331,7 +312,7 @@ function normalizeStoreSkill(value: unknown, registryUrl: string): CanvasSkillSt
   if (!isRecord(value)) return null;
   const name = stringValue(value.name);
   const latestVersion = stringValue(value.latestVersion ?? value.latest_version);
-  if (!name || !latestVersion || !isValidCanvasSkillName(name) || !isValidCanvasPluginVersion(latestVersion)) {
+  if (!name || !latestVersion || !isValidAgentSkillName(name) || !isValidCanvasPluginVersion(latestVersion)) {
     return null;
   }
 
@@ -446,7 +427,7 @@ async function migrateOrganizationSkillLayout(
       || typeof record.name !== 'string'
       || typeof record.version !== 'string'
       || typeof record.installDir !== 'string'
-      || !isValidCanvasSkillName(record.name)
+      || !isValidAgentSkillName(record.name)
       || record.name !== registryName
       || !isValidCanvasPluginVersion(record.version)
     ) {
@@ -961,7 +942,7 @@ export async function installCanvasSkillFromStore(
     updatedBy?: string;
   } = {},
 ): Promise<CanvasSkillStoreInstallResult> {
-  if (!isValidCanvasSkillName(skillName)) {
+  if (!isValidAgentSkillName(skillName)) {
     return { success: false, error: 'Invalid skill name' };
   }
   if (isCoreSkillName(skillName)) {
@@ -1083,7 +1064,7 @@ export async function restoreCanvasSkill(
     updatedBy?: string;
   } = {},
 ): Promise<CanvasSkillStoreInstallResult> {
-  if (!isValidCanvasSkillName(skillName)) {
+  if (!isValidAgentSkillName(skillName)) {
     return { success: false, error: 'Invalid skill name' };
   }
   if (isCoreSkillName(skillName)) {

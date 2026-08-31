@@ -8,15 +8,11 @@ import {
   readOrganizationPermissionForUser,
   requireOrganizationPermission,
 } from '@/app/lib/organization/permissions';
-import { getSkillsDir, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
+import { getSkillsDir, isValidAgentSkillName, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import { loadCapabilitySkillByReference } from '@/app/lib/skills/skill-documentation';
 import { loadSkillByName } from '@/app/lib/skills/skill-loader';
-
-function sanitizeSkillName(name: string): string {
-  return name.replace(/[^a-z0-9-]/g, '');
-}
 
 export async function GET(
   request: Request,
@@ -84,17 +80,15 @@ export async function PUT(
     if (!skillPermission.ok) return skillPermission.response;
 
     const { name } = await params;
-    const sanitizedName = sanitizeSkillName(name);
-    
-    if (!sanitizedName) {
+    if (!isValidAgentSkillName(name)) {
       return NextResponse.json(
         { success: false, error: 'Invalid skill name' },
         { status: 400 }
       );
     }
-    if (isCoreSkillName(sanitizedName)) {
+    if (isCoreSkillName(name)) {
       return NextResponse.json(
-        { success: false, error: coreSkillInstallError(sanitizedName) },
+        { success: false, error: coreSkillInstallError(name) },
         { status: 409 },
       );
     }
@@ -102,7 +96,7 @@ export async function PUT(
     const scope = { userId: skillPermission.session.user.id };
     await adoptLegacyStandaloneSkillsForScope(scope);
     const skillsDir = getSkillsDir(scope);
-    const skillMdPath = path.join(skillsDir, sanitizedName, 'SKILL.md');
+    const skillMdPath = path.join(skillsDir, name, 'SKILL.md');
     
     // Verify the path is within the skills directory (path traversal protection)
     const resolvedPath = path.resolve(/*turbopackIgnore: true*/ skillMdPath);

@@ -1,7 +1,7 @@
 ---
 name: skill-creator
 description: "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy. Triggers: create a skill, new skill, build a skill, skill creation, write a SKILL.md, evaluate skill, test skill, skill eval, benchmark skill, optimize skill description."
-compatibility: Requires Python 3 for eval scripts and skills-ref for validation
+compatibility: Requires Python 3 and PyYAML for bundled validation and evaluation scripts
 metadata:
   version: "1.0"
   author: canvas-studios
@@ -71,6 +71,8 @@ Based on the user interview, fill in these components:
 - **description**: When to trigger, what it does. This is the primary triggering mechanism - include both what the skill does AND specific contexts for when to use it. All "when to use" info goes here, not in the body. Make descriptions specific enough that the agent can confidently activate the skill. For instance, instead of "How to build a simple fast dashboard to display company data.", write "How to build a simple fast dashboard to display company data. Use this skill whenever the user mentions dashboards, data visualization, internal metrics, or wants to display any kind of company data, even if they don't explicitly ask for a 'dashboard.'"
 - **compatibility**: Required tools, dependencies (optional, rarely needed)
 - **the rest of the skill :)**
+
+Keep `name` to 1-64 lowercase Unicode letters, numbers, and single hyphens, and make it match the skill directory name.
 
 ### Skill Writing Guide
 

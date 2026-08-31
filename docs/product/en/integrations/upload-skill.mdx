@@ -6,7 +6,7 @@ sectionOrder: 8
 order: 3
 locale: en
 translationKey: integrations.upload-skill
-updatedAt: 2026-07-17
+updatedAt: 2026-08-31
 ---
 
 # Uploading a Custom Skill
@@ -15,7 +15,7 @@ Canvas accepts a standalone `SKILL.md`, a skill folder, or a ZIP archive. The im
 
 ## Package shape
 
-Every import must contain exactly one `SKILL.md`. Supporting instructions, templates, assets, and scripts may sit beside it in subdirectories. For an archive or folder, place `SKILL.md` at the package root and keep references relative to that root.
+Every import must contain exactly one `SKILL.md`. Supporting instructions, templates, assets, and scripts may sit beside it in subdirectories. For an archive or folder, place `SKILL.md` at the package root, name that parent directory exactly like the frontmatter `name`, and keep references relative to the package root.
 
 Canvas ignores common development artifacts such as `.git`, `node_modules`, and `.DS_Store`.
 
@@ -27,7 +27,7 @@ Do not put credentials in a skill package. The importer blocks secret-bearing fi
 
 ## Verification checklist
 
-- The skill name is unique and follows the lowercase hyphenated naming rules.
+- The skill name is unique, follows the lowercase Unicode alphanumeric and single-hyphen rules, and matches its parent directory.
 - `SKILL.md` has a valid name and description.
 - Every referenced file exists inside the package.
 - Scripts use only the tools and permissions you expect.
@@ -39,4 +39,3 @@ After importing, test the skill with a non-destructive task before making it bro
 
 - [Understanding SKILL.md](/docs/integrations/skill-md)
 - [Managing API keys and secrets](/docs/integrations/secrets)
-

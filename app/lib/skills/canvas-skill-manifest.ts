@@ -160,6 +160,18 @@ function isAgentSkillNameCharacter(value: string): boolean {
   return value === '-' || /^[\p{L}\p{N}]$/u.test(value);
 }
 
+export function isValidAgentSkillName(value: string): boolean {
+  const name = normalizeSkillName(value);
+  return value === name
+    && Array.from(name).length >= 1
+    && Array.from(name).length <= 64
+    && name === name.toLowerCase()
+    && !name.startsWith('-')
+    && !name.endsWith('-')
+    && !name.includes('--')
+    && Array.from(name).every(isAgentSkillNameCharacter);
+}
+
 function validatedFrontmatter(frontmatter: CanvasSkillFrontmatter): CanvasSkillFrontmatter {
   const raw = frontmatter as unknown as Record<string, unknown>;
   const metadata = isRecord(raw.metadata)

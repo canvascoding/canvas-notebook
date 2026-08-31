@@ -2,6 +2,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 
 import { isPathInside, requirePathInside, resolvePathInside } from '@/app/lib/security/safe-paths';
+import { isValidAgentSkillName } from '@/app/lib/skills/canvas-skill-manifest';
 
 export { isPathInside } from '@/app/lib/security/safe-paths';
 
@@ -565,8 +566,8 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
     }
 
     for (const [index, skillRef] of (manifest.skillRefs || []).entries()) {
-      if (!isValidCanvasPluginName(skillRef.name)) {
-        errors.push(`skillRefs[${index}].name: Must be lowercase letters, numbers, and hyphens only.`);
+      if (!isValidAgentSkillName(skillRef.name)) {
+        errors.push(`skillRefs[${index}].name: Must be a valid Agent Skills name.`);
       }
       if (skillRef.source && skillRef.source !== 'seed') {
         errors.push(`skillRefs[${index}].source: Only "seed" is supported.`);

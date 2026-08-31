@@ -6,12 +6,13 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { computeCanvasPluginChecksum } from '@/app/lib/plugins/canvas-plugin-registry';
-import { isValidCanvasPluginName, isValidCanvasPluginVersion } from '@/app/lib/plugins/canvas-plugin-manifest';
+import { isValidCanvasPluginVersion } from '@/app/lib/plugins/canvas-plugin-manifest';
 import { createAtomicTempPath, resolveScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 import { requirePathInside } from '@/app/lib/security/safe-paths';
 import {
   CANVAS_SKILL_INTERFACE_PATH,
   getSkillsDir,
+  isValidAgentSkillName,
   loadCanvasSkillInterface,
   parseSkillFile,
   type CanvasSkill,
@@ -136,8 +137,8 @@ function nowIso(): string {
 }
 
 function assertValidSkillName(skillName: string): void {
-  if (!isValidCanvasPluginName(skillName)) {
-    throw new Error('Invalid skill name. Use lowercase letters, numbers, and single hyphens only.');
+  if (!isValidAgentSkillName(skillName)) {
+    throw new Error('Invalid skill name. Use 1-64 lowercase Unicode letters or numbers separated by single hyphens.');
   }
 }
 

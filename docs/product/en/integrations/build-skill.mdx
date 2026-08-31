@@ -6,7 +6,7 @@ sectionOrder: 8
 order: 6
 locale: en
 translationKey: integrations.build-skill
-updatedAt: 2026-07-17
+updatedAt: 2026-08-31
 ---
 
 # Building a Custom Skill
@@ -31,7 +31,7 @@ Only `SKILL.md` is required. Add resources when they prevent repeated instructio
 ## Authoring workflow
 
 1. Name the task and define a concrete success condition.
-2. Write valid frontmatter and a description that makes the trigger unambiguous.
+2. Make the directory and frontmatter `name` identical, then write a description that makes the trigger unambiguous.
 3. Document inputs, sequence, branching decisions, and failure states.
 4. Declare intended tools and explain when user approval is required.
 5. Add compact references or templates.
@@ -47,4 +47,3 @@ For actions with external effects—sending, publishing, deleting, purchasing, o
 ## Distribution choice
 
 Use a standalone skill for one independent workflow. If you need multiple skills, connectors, shared metadata, and coordinated lifecycle management, package them as a [plugin](/docs/integrations/plugins-overview).
-

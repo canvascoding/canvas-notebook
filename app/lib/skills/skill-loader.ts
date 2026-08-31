@@ -4,6 +4,7 @@ import path from 'path';
 import { requirePathInside } from '@/app/lib/security/safe-paths';
 import {
   CanvasSkill,
+  isValidAgentSkillName,
   parseSkillFile,
   getSkillsDir,
   createDefaultSkillMd,
@@ -190,6 +191,9 @@ export async function createSkillDirectory(
   scope?: CanvasSkillStorageScope | null,
 ): Promise<{ success: boolean; error?: string; path?: string }> {
   try {
+    if (!isValidAgentSkillName(name)) {
+      return { success: false, error: 'Invalid skill name' };
+    }
     if (isCoreSkillName(name)) {
       return { success: false, error: coreSkillInstallError(name) };
     }
@@ -324,6 +328,9 @@ export async function deleteSkillDirectory(
   scope?: CanvasSkillStorageScope | null,
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    if (!isValidAgentSkillName(name)) {
+      return { success: false, error: 'Invalid skill name' };
+    }
     if (isCoreSkillName(name)) {
       return { success: false, error: coreSkillInstallError(name) };
     }
