@@ -121,6 +121,7 @@
     "test:skills:browser": "tsx --conditions react-server scripts/capability-skill-browser-test.ts",
     "test:skills:documentation": "tsx scripts/skill-documentation-resolution-test.ts",
     "test:skills:runtime": "tsx scripts/skills-runtime-test.ts",
+    "test:skills:spec": "tsx --conditions react-server scripts/agent-skills-spec-test.ts",
     "test:skills:seed-bootstrap": "tsx scripts/default-seed-skills-test.ts",
     "test:plugins:seed-bootstrap": "tsx scripts/default-seed-plugins-test.ts",
     "test:skills:store": "tsx --conditions react-server scripts/canvas-skill-store-test.ts",
