@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm';
 
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
 import type { AgentStorageScope } from '@/app/lib/agents/storage';
+import { ensureBradleyIdentitySystemPrompt } from '@/app/lib/agents/bradley-identity';
 import {
   SYSTEM_PROMPT_FOUNDATION_MARKER,
   truncateComposedSystemPrompt,
@@ -69,7 +70,9 @@ export async function ensurePiSessionSystemPromptSnapshot(
   const existingPrompt = session.systemPromptSnapshot;
   if (existingPrompt && existingPrompt.length > 0 && existingPrompt.includes(SYSTEM_PROMPT_FOUNDATION_MARKER)) {
     const boundedPrompt = truncateComposedSystemPrompt(
-      ensureCanvasMarkdownAgentGuidance(existingPrompt),
+      ensureCanvasMarkdownAgentGuidance(
+        ensureBradleyIdentitySystemPrompt(existingPrompt, session.agentId),
+      ),
     );
     const snapshot = buildPiSystemPromptSnapshotFromText(
       boundedPrompt,

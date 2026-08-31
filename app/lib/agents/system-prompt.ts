@@ -86,8 +86,12 @@ async function buildAuthenticatedUserContext(scope?: AgentStorageScope | null): 
   ].join('\n');
 }
 
-function buildReadFailedFallbackSystemPrompt(): ManagedSystemPromptResult {
-  const fallback = composeManagedAgentSystemPrompt(createEmptyManagedPromptFiles());
+function buildReadFailedFallbackSystemPrompt(agentId: string): ManagedSystemPromptResult {
+  const fallback = composeManagedAgentSystemPrompt(
+    createEmptyManagedPromptFiles(),
+    undefined,
+    { agentId },
+  );
   return {
     systemPrompt: fallback.systemPrompt,
     diagnostics: {
@@ -132,8 +136,8 @@ export async function loadManagedAgentSystemPrompt(
   agentId?: string | null,
   scope?: AgentStorageScope | null,
 ): Promise<ManagedSystemPromptResult> {
+  const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
   try {
-    const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
     const agentProfile = await getAgentProfile(normalizedAgentId);
     const agentStorageScope: AgentStorageScope = {
       ...scope,
@@ -197,6 +201,6 @@ export async function loadManagedAgentSystemPrompt(
     return { ...result, systemPrompt: truncateComposedSystemPrompt(systemPrompt) };
   } catch (error) {
     console.error('[system-prompt] Failed to load managed agent system prompt:', error);
-    return buildReadFailedFallbackSystemPrompt();
+    return buildReadFailedFallbackSystemPrompt(normalizedAgentId);
   }
 }

@@ -7,6 +7,7 @@ import {
 } from './managed-file-limits';
 import type { AgentStorageScope } from './storage';
 import { CANVAS_MARKDOWN_AGENT_GUIDANCE } from '../markdown/canvas-markdown-agent-guidance';
+import { getBradleyIdentitySystemPrompt } from './bradley-identity';
 
 export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 // USER.md and MEMORY.md remain readable legacy export files, but database
@@ -59,11 +60,13 @@ export function truncateComposedSystemPrompt(systemPrompt: string): string {
 export function composeManagedAgentSystemPrompt(
   files: ManagedPromptFiles,
   skillsContext?: string,
-  _source?: ManagedPromptSource,
+  source?: ManagedPromptSource,
 ): ManagedSystemPromptResult {
+  const identitySystemPrompt = getBradleyIdentitySystemPrompt(source?.agentId);
   const fixedSystemBlocks = [
     SYSTEM_PROMPT_FOUNDATION_MARKER,
     CANVAS_BASE_SYSTEM_PROMPT,
+    ...(identitySystemPrompt ? [identitySystemPrompt] : []),
     CANVAS_MARKDOWN_AGENT_GUIDANCE,
   ];
   let remainingBytes = MAX_MANAGED_SYSTEM_PROMPT_BYTES;

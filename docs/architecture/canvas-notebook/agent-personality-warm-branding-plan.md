@@ -124,9 +124,13 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] Deutsche und englische Produktstimme im
   [Bradley DE-/EN-Sprachleitfaden](./bradley-de-en-language-style-guide.md)
   vollständig dokumentiert.
+- [x] Festen, versionierten Bradley Identity Block ausschließlich für
+  `canvas-agent` in die Prompt-Architektur integriert und bestehende
+  Session-Snapshots verlustfrei ergänzt; Nachweis:
+  [Bradley Prompt-Identity-Implementierung](./bradley-prompt-identity-implementation.md).
 
-Noch nicht entschieden oder umgesetzt sind insbesondere die Prompt-Hierarchie,
-die Migration bestehender Installationen und die produktive UI-Integration.
+Noch nicht entschieden oder umgesetzt sind insbesondere die Onboarding- und
+Bestandsmigration sowie die produktive UI-Integration.
 
 ## 3. Identität und Name
 
@@ -499,7 +503,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| BRADLEY-030 | offen | Feste Bradley-Identität in der Prompt-Architektur verorten | Identität bleibt stabil und steht nicht im Konflikt mit Nutzeranweisung, SOUL.md oder Workspace Brand Voice. |
+| BRADLEY-030 | fertig | Feste Bradley-Identität in der Prompt-Architektur verorten; Implementierung: [Bradley Prompt-Identity-Implementierung](./bradley-prompt-identity-implementation.md) | Identität bleibt stabil und steht nicht im Konflikt mit Nutzeranweisung, SOUL.md oder Workspace Brand Voice. |
 | BRADLEY-031 | offen | Onboarding auf feste Identität plus persönliche Zusammenarbeit umstellen | Neue Nutzer lernen Bradley kennen, können aber Kommunikationspräferenzen festlegen. |
 | BRADLEY-032 | offen | Schutz vorhandener persönlicher `SOUL.md`-Inhalte konzipieren | Migration überschreibt keine bestehenden Präferenzen ohne dokumentierte Regel. |
 | BRADLEY-033 | offen | Display-Name-Migration für bestehende Hauptagent-Datensätze entwickeln | Bestehende Standardnamen werden idempotent migriert; bewusste Anpassungen bleiben erhalten. |
