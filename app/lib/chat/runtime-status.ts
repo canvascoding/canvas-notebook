@@ -90,5 +90,13 @@ export function isConfirmedResponsePreparation(
 
 export function isRuntimeStatusStale(current: RuntimeStatus | null, next: RuntimeStatus): boolean {
   if (!current || current.sessionId !== next.sessionId) return false;
+  if (
+    current.optimistic === true
+    && current.phase === 'aborting'
+    && next.phase !== 'aborting'
+    && next.phase !== 'idle'
+  ) {
+    return true;
+  }
   return (next.revision ?? 0) < (current.revision ?? 0);
 }

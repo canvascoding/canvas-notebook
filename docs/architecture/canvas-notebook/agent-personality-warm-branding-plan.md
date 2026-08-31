@@ -537,7 +537,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-041 | fertig | Bradley-Glyph als Hauptagent-Avatar integrieren; Implementierung: [Bradley-Glyph als Hauptagent-Avatar](./bradley-glyph-ui-integration.md) | Glyph ist in allen unterstützten Größen und Themes scharf und zugänglich. |
 | BRADLEY-042 | fertig | Arbeitszustand beim Antwortstart integrieren; Implementierung: [Bradley-Arbeitszustand beim Antwortstart](./bradley-response-start-working-state.md) | Status bleibt semantisch korrekt, screenreader-tauglich und bewegungsarm verfügbar. |
 | BRADLEY-043 | fertig | Einen Starter-/Empty-State mit Bradley umsetzen; Implementierung: [Bradley Starter-/Empty-State](./bradley-starter-empty-state.md) | Bradley unterstützt die Orientierung, ohne Inhalte oder Aktionen zu verdrängen. |
-| BRADLEY-044 | offen | UI- und End-to-End-Prüfung durchführen | Nach ausdrücklicher Playwright-/Browser-Freigabe sind Desktop, Mobile, Light, Dark und Reduced Motion geprüft. |
+| BRADLEY-044 | fertig | UI- und End-to-End-Prüfung durchführen; Nachweis: [Bradley UI- und End-to-End-Prüfung](./bradley-ui-validation-matrix.md) | Desktop, Mobile, Light, Dark und Reduced Motion sind geprüft; ein gefundener Frühabbruch-Race wurde behoben und erneut abgenommen. |
 | BRADLEY-045 | offen | Pilot anhand definierter Kriterien einschließlich mehrsprachiger Bradley-Namensstichprobe auswerten | Verständlichkeit, Namenswirkung, Agentenunterscheidung, Vertrauen und Störwirkung sind dokumentiert. |
 
 ### Phase F — Erweiterter Rollout und Marketing
