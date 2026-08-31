@@ -80,6 +80,10 @@ Folgende Grundlagen sind bereits vorhanden:
   Voice im
   [Bradley Identitätsebenen-Vertrag](./bradley-identity-layer-contract.md)
   mit klarer Priorität und prüfbaren Implementierungsgrenzen getrennt.
+- [x] Bradley, Canvas Host Agent, Canvas Control Plane und interne
+  `canvas-agent`-Bezeichner im
+  [Agenten-Terminologievertrag](./bradley-agent-terminology-contract.md)
+  eindeutig voneinander abgegrenzt.
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
 der kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration
@@ -190,7 +194,8 @@ auch als einfarbige Silhouette erkennbar bleiben.
 
 Bradley darf nicht als globales Etikett für jede KI-Aktivität verwendet werden.
 Canvas Notebook unterstützt den Hauptagenten, Spezialagenten, einen E-Mail-Agenten,
-Subagenten, Automationen und den technischen Canvas Agent auf dem VM-Host.
+Subagenten und Automationen. Auf verwalteten VMs kommt davon getrennt der
+technische Canvas Host Agent hinzu.
 
 | Ebene | Sichtbare Identität | Regel |
 | --- | --- | --- |
@@ -200,7 +205,7 @@ Subagenten, Automationen und den technischen Canvas Agent auf dem VM-Host.
 | Delegierte Aufgaben | Tatsächlich verwendeter Agent | Bradley kann delegieren, ist aber nicht automatisch der ausführende Agent. |
 | Automationen | Ausgewählter Agent plus Automationsname | Der Ausführungskontext muss nachvollziehbar bleiben. |
 | Technische Runtime | Sachlicher Systemstatus | Bradley darf den Status ergänzen, aber nicht verschleiern. |
-| Canvas Control Plane Agent | Technischer Host-Agent | Terminologisch klar von Bradley trennen. |
+| Canvas Host Agent | Technischer Verwaltungsdienst auf der VM | Nie Bradley nennen oder mit dem Bradley-Glyph darstellen; Details im [Terminologievertrag](./bradley-agent-terminology-contract.md). |
 
 ### Nicht verhandelbare technische Grenze
 
@@ -389,7 +394,7 @@ Empfohlene Formulierung:
 
 - Umbenennung der internen Agent-ID `canvas-agent`;
 - Änderung der Agent-, Subagent- oder Automationsarchitektur;
-- Umbenennung oder technische Änderung des Canvas Control Plane Host-Agenten;
+- Umbenennung oder technische Änderung des Canvas Host Agent;
 - Änderung von Tool-Berechtigungen oder Sicherheitsgrenzen;
 - vollständiges Redesign aller Canvas-Notebook-Oberflächen;
 - gleichzeitige Einführung mehrerer benannter Hauptpersönlichkeiten.
@@ -404,7 +409,7 @@ Empfohlene Formulierung:
 | OD-04 | Glyph-Silhouette | Kontur plus Augen, ohne Textur | Designvarianten bei 16–40 px |
 | OD-05 | Animationsumfang | nur Antwortstart und echte Zustandswechsel | Prototyp, Reduced Motion und Performance |
 | OD-06 | Bestehende eigene Agentnamen | nicht überschreiben | Erkennungs- und Migrationslogik |
-| OD-07 | Host-Agent-Bezeichnung | „Canvas Host Agent“ in erklärenden Texten | Abstimmung mit Control Plane Dokumentation |
+| OD-07 | Host-Agent-Bezeichnung | entschieden: „Canvas Host Agent“; Control Plane bleibt Plattformname | [Bradley und Canvas Host Agent Terminologievertrag](./bradley-agent-terminology-contract.md) |
 | OD-08 | Pronomen | Bradley möglichst ohne festes Pronomen benennen | DE-/EN-Sprachleitfaden |
 
 ## 13. To-do-Liste
@@ -420,7 +425,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-003 | fertig | Marken- und Namensverfügbarkeit prüfen; Entscheidung: [Bradley Namens- und Verfügbarkeitsprüfung](./bradley-name-availability-assessment.md) | Relevante Produkt-, Domain- und Markenrisiken sowie der begrenzte Nutzungskorridor sind dokumentiert; dies ersetzt keine Rechtsberatung. |
 | BRADLEY-004 | fertig | Primäre Metapher und erlaubtes Vokabular definieren; Vertrag: [Bradley Metaphern- und Sprachleitfaden](./bradley-brand-language-guide.md) | Der Sprachleitfaden legt Canvas und Faltflächen als einzige visuelle Begriffswelt fest und schließt widersprüchliche Metaphern aus. |
 | BRADLEY-005 | fertig | Feste, persönliche und Workspace-bezogene Identitätsebenen verbindlich festlegen; Vertrag: [Bradley Identitätsebenen-Vertrag](./bradley-identity-layer-contract.md) | Prompt- und Copy-Hierarchie ist mit Priorität, Geltungsbereich, Konfliktregeln und Tests als implementierbarer Vertrag beschrieben. |
-| BRADLEY-006 | offen | Terminologie Bradley versus Canvas Control Plane Agent abstimmen | Support- und Architekturdokumente unterscheiden beide Agenten eindeutig. |
+| BRADLEY-006 | fertig | Terminologie Bradley versus Canvas Host Agent abstimmen; Vertrag: [Bradley und Canvas Host Agent Terminologievertrag](./bradley-agent-terminology-contract.md) | Support- und Architekturdokumente unterscheiden Bradley, Host-Dienst, Control Plane und interne ID eindeutig. |
 
 ### Phase B — Visuelles System
 

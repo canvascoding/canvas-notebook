@@ -38,7 +38,7 @@ Bezeichner werden dadurch nicht umbenannt.
 | Marketing und Website | `Bradley` | Der Name erscheint mit einem klaren Canvas-Notebook-Absender, nicht als zweite eigenständige Produktmarke. |
 | Status- und Fehlermeldungen | `Bradley` oder kein Eigenname | Der Name wird nur verwendet, wenn tatsächlich der Hauptagent gemeint ist. |
 | Eigene und spezialisierte Agenten | jeweiliger eigener Name | Keine Umbenennung zu Bradley. |
-| Canvas Control Plane Agent | technische Bezeichnung | Keine Bezeichnung als Bradley; die endgültige sichtbare Terminologie folgt in BRADLEY-006. |
+| Canvas Host Agent | technische Bezeichnung | Keine Bezeichnung als Bradley; die Abgrenzung steht im [Terminologievertrag](./bradley-agent-terminology-contract.md). |
 
 ## Technische Grenzen
 

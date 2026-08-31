@@ -25,7 +25,7 @@ Fähigkeiten der Runtime.
 
 Der Vertrag gilt ausschließlich für den Hauptagenten mit der internen ID
 `canvas-agent`. Spezialisierte Agenten, der E-Mail-Agent, delegierte Agenten,
-Automationen und der Canvas Control Plane Agent behalten ihre eigene sichtbare
+Automationen und der Canvas Host Agent behalten ihre eigene sichtbare
 Identität.
 
 ## Ebenen und Verantwortlichkeiten
@@ -136,7 +136,7 @@ Beispiel:
 | delegierte Aufgabe | tatsächlich ausführenden Agenten benennen; Bradley darf nur als delegierender Hauptagent erscheinen |
 | Automation | ausgewählten Agenten und Automationsnamen anzeigen; Brand Voice nur für passende Ergebnisse |
 | E-Mail-Agent | eigene Agentenidentität; Workspace Brand Voice darf den E-Mail-Entwurf prägen |
-| Canvas Control Plane Agent | ausschließlich technische Host-Agent-Terminologie |
+| Canvas Host Agent | ausschließlich technische Host-Agent-Terminologie gemäß [Terminologievertrag](./bradley-agent-terminology-contract.md) |
 
 ## Zielbild für die Prompt-Zusammensetzung
 
