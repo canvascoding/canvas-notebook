@@ -53,6 +53,10 @@ assert.match(populated.systemPrompt, /title: Clear document title/);
 assert.match(populated.systemPrompt, /type\/note/);
 assert.match(populated.systemPrompt, /normally 2–5 specific `tags`/);
 assert.match(populated.systemPrompt, /Never use a Canvas Notebook browser URL or route as an internal document link/);
+assert.match(populated.systemPrompt, /wiki-embed form is only for Markdown documents, not images or other files/);
+assert.match(populated.systemPrompt, /Display a workspace image with ordinary Markdown image syntax/);
+assert.match(populated.systemPrompt, /do not use `!\[\[assets\/product\.png\]\]` for images/);
+assert.match(populated.systemPrompt, /`\[Visible label\]\(path\/to\/file\.ext\)`/);
 assert.match(populated.systemPrompt, /Preserve existing frontmatter, unknown properties, comments, aliases, and tags/);
 assert.match(populated.systemPrompt, /Effective Runtime Tools section as the only tool/);
 assert.doesNotMatch(populated.systemPrompt, /# Canvas Base Tool Guidance/);
@@ -71,7 +75,7 @@ assert.doesNotMatch(populated.systemPrompt, /## File Access for Uploaded Attachm
 assert.doesNotMatch(populated.systemPrompt, /Use the `read` tool first for ordinary text extraction/);
 assert.doesNotMatch(populated.systemPrompt, /Use the `pdf` skill to read and extract content/);
 
-const legacyGuidance = `<!-- canvas-markdown-guidance:v3 -->
+const legacyGuidance = `<!-- canvas-markdown-guidance:v4 -->
 ## Canvas Markdown Formatting
 
 Legacy formatting instructions that must be replaced.
@@ -83,7 +87,7 @@ const migratedGuidance = ensureCanvasMarkdownAgentGuidance(legacyGuidance);
 assert.match(migratedGuidance, new RegExp(CANVAS_MARKDOWN_GUIDANCE_MARKER));
 assert.match(migratedGuidance, /title: Clear document title/);
 assert.match(migratedGuidance, /Keep this tool guidance/);
-assert.doesNotMatch(migratedGuidance, /canvas-markdown-guidance:v3/);
+assert.doesNotMatch(migratedGuidance, /canvas-markdown-guidance:v4/);
 assert.doesNotMatch(migratedGuidance, /Legacy formatting instructions/);
 assert.equal(
   ensureCanvasMarkdownAgentGuidance(migratedGuidance),

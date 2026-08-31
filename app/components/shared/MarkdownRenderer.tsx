@@ -15,10 +15,12 @@ import {
   ObsidianInlineFootnote,
 } from '@/app/components/shared/ObsidianMarkdownElements';
 import { getWorkspaceMarkdownNavigationTarget } from '@/app/lib/markdown/obsidian-link-resolver';
+import { resolveMarkdownImageUrl } from '@/app/lib/markdown/markdown-image-url';
 import {
   markdownHeadingAnchorFromHref,
   scrollToMarkdownHeadingAnchor,
 } from '@/app/lib/markdown/heading-anchor';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 
 interface MarkdownRendererProps {
@@ -57,6 +59,7 @@ export function MarkdownRenderer({
   sourcePath,
 }: MarkdownRendererProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const ancestorPaths = useMemo(
     () => embedAncestorPaths ?? (sourcePath ? [sourcePath] : []),
     [embedAncestorPaths, sourcePath],
@@ -172,11 +175,29 @@ export function MarkdownRenderer({
       alt,
     }: React.ImgHTMLAttributes<HTMLImageElement>) => {
       if (typeof src !== 'string' || !src) return null;
+      const resolvedImage = resolveMarkdownImageUrl(src, sourcePath, {
+        workspaceId: activeWorkspaceId,
+      });
+      if (!resolvedImage.ok) {
+        return (
+          <span
+            role="img"
+            aria-label={resolvedImage.error}
+            title={src}
+            className="inline-flex max-w-full items-center rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive"
+          >
+            {resolvedImage.error}
+          </span>
+        );
+      }
       return (
         <SafeMarkdownImage
           src={src}
+          previewSrc={resolvedImage.src}
           alt={alt || ''}
           imageClassName="my-2 max-h-[320px] w-auto max-w-full rounded-lg object-contain"
+          showError
+          errorLabel={`Image could not be loaded: ${src}`}
         />
       );
     },
@@ -238,7 +259,7 @@ export function MarkdownRenderer({
         </code>
       );
     },
-  }), [ancestorPaths, sourcePath]);
+  }), [activeWorkspaceId, ancestorPaths, sourcePath]);
 
   return (
     <div

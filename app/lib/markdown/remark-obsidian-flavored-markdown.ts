@@ -5,6 +5,7 @@ import {
   getObsidianWikiDisplayLabel,
   parseObsidianWikiTarget,
 } from './obsidian-flavored-markdown';
+import { isMarkdownImagePath } from './markdown-image-types';
 
 type MarkdownNode = Content | Root;
 type NodeWithData = MarkdownNode & {
@@ -28,6 +29,15 @@ function wikiLinkNode(rawTarget: string, embed: boolean): PhrasingContent | null
   if (!target) return null;
 
   const label = getObsidianWikiDisplayLabel(target);
+  if (embed && target.path && isMarkdownImagePath(target.path)) {
+    return {
+      type: 'image',
+      url: target.path,
+      title: null,
+      alt: label,
+    };
+  }
+
   return {
     type: 'link',
     url: target.path || '#',

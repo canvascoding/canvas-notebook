@@ -29,6 +29,18 @@ Use an explicit path when two files could have the same name:
 
 Canvas Notebook resolves the workspace target and renders the referenced Markdown in context. Open the source document when you need to change the embedded material.
 
+Wiki embeds are only for Markdown documents. To display a workspace image, use ordinary Markdown image syntax instead:
+
+```md
+![Approved logo](brand/assets/approved-logo.png)
+```
+
+Use an ordinary Markdown link for a non-note file that should be opened rather than displayed:
+
+```md
+[Download the approved brief](brand/approved-brief.pdf)
+```
+
 ## When embeds help
 
 Embeds work well for approved boilerplate, product facts, audience definitions, legal language, or a shared status section. A campaign brief can embed the current brand voice while the source remains owned by the brand folder.
