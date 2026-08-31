@@ -68,7 +68,9 @@ Unverändert bleiben insbesondere:
 
 ## Abgrenzung
 
-- Die Migration bereinigt keine UI-Fallbacks; das folgt in BRADLEY-034.
+- Die UI-Fallbacks sind im
+  [Bradley UI-Fallback-Inventar](./bradley-ui-fallback-inventory.md)
+  vereinheitlicht.
 - Sie ändert keine sichtbaren Texte außerhalb des Agent-Datensatzes; deren
   Inventar folgt in BRADLEY-035.
 - Sie verändert keine internen IDs oder Speicherpfade; die breite Absicherung

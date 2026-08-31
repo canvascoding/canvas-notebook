@@ -7,12 +7,12 @@ import { agents, piSessions } from '@/app/lib/db/schema';
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ICON_ID, normalizeAgentIconId, type AgentIconId } from './icons';
+import { MAIN_AGENT_DISPLAY_NAME } from './main-agent';
 import { DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID, SYSTEM_MANAGED_AGENT_IDS } from './storage';
 import { EMAIL_AGENT_DEFAULT_ENABLED_TOOLS } from '../pi/email-agent-policy';
 
 export { EMAIL_MANAGED_AGENT_ID } from './storage';
-
-export const MAIN_AGENT_DISPLAY_NAME = 'Bradley';
+export { MAIN_AGENT_DISPLAY_NAME } from './main-agent';
 const LEGACY_MAIN_AGENT_DISPLAY_NAMES = new Set(['Canvas Agent']);
 
 const LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [

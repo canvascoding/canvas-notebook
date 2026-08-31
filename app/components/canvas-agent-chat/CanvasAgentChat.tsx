@@ -52,6 +52,7 @@ import {
 } from '@/app/lib/chat/constants';
 import { removeComposerDraft } from '@/app/lib/chat/draft-storage';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
+import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
 import { useChatAgentConfig } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
 import { useChatControlActions } from '@/app/components/canvas-agent-chat/useChatControlActions';
@@ -1090,7 +1091,7 @@ export default function CanvasAgentChat({
   const chatAgentOptions = useMemo<AgentProfile[]>(() => (
     availableAgents.length > 0
       ? availableAgents
-      : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false }]
+      : [{ agentId: CHAT_AGENT_ID, name: MAIN_AGENT_DISPLAY_NAME, iconId: 'bot', type: 'main', removable: false }]
   ), [availableAgents]);
 
   const historyPanelProps: Omit<ChatHistoryPanelProps, 'variant' | 'width' | 'onBackToChat'> = {

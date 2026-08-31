@@ -7,6 +7,7 @@ import { Send, Paperclip, Loader2, NotebookPen, Sparkles, Upload } from 'lucide-
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { clearCanvasChatActiveSessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { TypewriterPromptSuggestion } from '@/app/components/canvas-agent-chat/TypewriterPromptSuggestion';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
@@ -43,7 +44,7 @@ interface PromptHeroProps {
 
 const DEFAULT_AGENT_PROFILE: AgentProfile = {
   agentId: DEFAULT_AGENT_ID,
-  name: 'Canvas Agent',
+  name: MAIN_AGENT_DISPLAY_NAME,
   iconId: 'bot',
   type: 'main',
   removable: false,
