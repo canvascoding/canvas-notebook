@@ -27,7 +27,7 @@ async function waitFor(predicate: () => boolean, message: string): Promise<void>
 }
 
 async function assertConcurrencyLimit(
-  mediaType: 'image' | 'video',
+  mediaType: 'image' | 'video' | 'sound',
   expectedLimit: number,
 ): Promise<void> {
   const gates = Array.from({ length: expectedLimit + 2 }, deferred);
@@ -60,11 +60,14 @@ async function assertConcurrencyLimit(
 async function main() {
   process.env.STUDIO_IMAGE_GENERATION_CONCURRENCY = '5';
   process.env.STUDIO_VIDEO_GENERATION_CONCURRENCY = '2';
+  process.env.STUDIO_SOUND_GENERATION_CONCURRENCY = '1';
 
   assert.equal(getStudioGenerationConcurrencyLimit('image'), 5);
   assert.equal(getStudioGenerationConcurrencyLimit('video'), 2);
+  assert.equal(getStudioGenerationConcurrencyLimit('sound'), 1);
   await assertConcurrencyLimit('image', 5);
   await assertConcurrencyLimit('video', 2);
+  await assertConcurrencyLimit('sound', 1);
 
   console.log('studio-generation-concurrency-test: ok');
 }

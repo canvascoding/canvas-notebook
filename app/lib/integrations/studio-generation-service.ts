@@ -1456,13 +1456,13 @@ async function generateStudioSound(
   const resolvedModel = model === LYRIA_PRO_MODEL_ID ? LYRIA_PRO_MODEL_ID : LYRIA_CLIP_MODEL_ID;
   const resolvedOutputFormat: SoundOutputFormat = outputFormat === 'wav' && resolvedModel === LYRIA_PRO_MODEL_ID ? 'wav' : 'mp3';
   const fullPrompt = contextText ? `${contextText}\n\n## Music prompt\n${prompt}` : prompt;
-  const result = await generateSound({
+  const result = await withStudioGenerationConcurrency('sound', () => generateSound({
     prompt: fullPrompt,
     model: resolvedModel,
     outputFormat: resolvedOutputFormat,
     referenceImages: referenceImages.slice(0, 10),
     storageScope,
-  });
+  }));
 
   await ensureStudioOutputsWorkspace(scope.storage);
 

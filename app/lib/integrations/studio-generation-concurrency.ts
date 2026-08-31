@@ -1,13 +1,15 @@
 import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
 
-export type StudioGenerationMediaType = 'image' | 'video';
+export type StudioGenerationMediaType = 'image' | 'video' | 'sound';
 
 const DEFAULT_IMAGE_GENERATION_CONCURRENCY = 5;
 const DEFAULT_VIDEO_GENERATION_CONCURRENCY = 2;
+const DEFAULT_SOUND_GENERATION_CONCURRENCY = 1;
 
 type StudioGenerationConcurrencyStore = {
   image: { limit: number; semaphore: AsyncSemaphore } | null;
   video: { limit: number; semaphore: AsyncSemaphore } | null;
+  sound: { limit: number; semaphore: AsyncSemaphore } | null;
 };
 
 const globalConcurrencyStore = globalThis as typeof globalThis & {
@@ -21,14 +23,18 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
 }
 
 export function getStudioGenerationConcurrencyLimit(mediaType: StudioGenerationMediaType): number {
-  return mediaType === 'image'
-    ? parsePositiveInteger(process.env.STUDIO_IMAGE_GENERATION_CONCURRENCY, DEFAULT_IMAGE_GENERATION_CONCURRENCY)
-    : parsePositiveInteger(process.env.STUDIO_VIDEO_GENERATION_CONCURRENCY, DEFAULT_VIDEO_GENERATION_CONCURRENCY);
+  if (mediaType === 'image') {
+    return parsePositiveInteger(process.env.STUDIO_IMAGE_GENERATION_CONCURRENCY, DEFAULT_IMAGE_GENERATION_CONCURRENCY);
+  }
+  if (mediaType === 'video') {
+    return parsePositiveInteger(process.env.STUDIO_VIDEO_GENERATION_CONCURRENCY, DEFAULT_VIDEO_GENERATION_CONCURRENCY);
+  }
+  return parsePositiveInteger(process.env.STUDIO_SOUND_GENERATION_CONCURRENCY, DEFAULT_SOUND_GENERATION_CONCURRENCY);
 }
 
 function getConcurrencyStore(): StudioGenerationConcurrencyStore {
   if (!globalConcurrencyStore.__canvasStudioGenerationConcurrency) {
-    globalConcurrencyStore.__canvasStudioGenerationConcurrency = { image: null, video: null };
+    globalConcurrencyStore.__canvasStudioGenerationConcurrency = { image: null, video: null, sound: null };
   }
   return globalConcurrencyStore.__canvasStudioGenerationConcurrency;
 }
