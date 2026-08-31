@@ -1295,6 +1295,8 @@ export default function CanvasAgentChat({
 
             {showStarterScreen && (
             <ChatStarterScreen
+              activeAgentDisplayName={activeAgentDisplayName}
+              activeAgentId={activeSessionAgentId}
               latestSession={latestSession}
               isStudioChatContext={isStudioChatContext}
               onOpenLatestSession={openLatestSession}

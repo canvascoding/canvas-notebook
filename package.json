@@ -92,6 +92,7 @@
     "test:agent:bradley-selector": "tsx scripts/bradley-agent-selector-contract-test.ts",
     "test:agent:bradley-glyph": "tsx scripts/bradley-glyph-ui-test.tsx && npm run test:agent:bradley-selector",
     "test:agent:bradley-working-state": "tsx scripts/bradley-working-state-test.tsx && npm run test:agent:bradley-glyph",
+    "test:agent:bradley-starter": "tsx scripts/bradley-starter-state-test.tsx",
     "test:scoped-data-paths": "tsx scripts/scoped-runtime-paths-test.ts",
     "test:integrations:env-scope": "tsx scripts/scoped-env-config-test.ts",
     "test:mcp:config": "tsx scripts/mcp-config-test.ts",
