@@ -1,10 +1,7 @@
 import 'server-only';
 
 import { resolveDirectMcpOAuthConfig } from '@/app/lib/mcp/server/config';
-import {
-  type OAuthPageSearchParams,
-  verifyOAuthPageQuery,
-} from '@/app/lib/mcp/server/oauth-page-query';
+import { refreshOAuthConsentQuery } from '@/app/lib/mcp/server/oauth-page-query';
 import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
 
 const MAX_OAUTH_QUERY_LENGTH = 8_192;
@@ -33,15 +30,6 @@ function singleFormValue(form: FormData, name: string): string | null {
   return values.length === 1 && typeof values[0] === 'string'
     ? values[0]
     : null;
-}
-
-function toPageSearchParams(params: URLSearchParams): OAuthPageSearchParams {
-  const result: OAuthPageSearchParams = {};
-  for (const key of new Set(params.keys())) {
-    const values = params.getAll(key);
-    result[key] = values.length === 1 ? values[0] : values;
-  }
-  return result;
 }
 
 function readProviderRedirect(responseBody: unknown): string | null {
@@ -108,6 +96,7 @@ function copyProviderCookies(source: Response, target: Headers): void {
 export async function completeDirectMcpOAuthConsentRedirect(
   request: Request,
   oauthHandler: OAuthHandler,
+  now = Date.now(),
 ): Promise<Response> {
   if (!(await getDirectMcpRuntimeSettings()).enabled) {
     return oauthError('not_found', 'Direct MCP OAuth is not enabled.', 404);
@@ -134,10 +123,12 @@ export async function completeDirectMcpOAuthConsentRedirect(
     return oauthError('invalid_request', 'The OAuth consent form is invalid.', 400);
   }
 
-  const query = new URLSearchParams(oauthQuery);
-  const verified = await verifyOAuthPageQuery(toPageSearchParams(query));
-  const registeredRedirectUri = query.get('redirect_uri');
-  if (!verified || !registeredRedirectUri) {
+  const refreshedOAuthQuery = await refreshOAuthConsentQuery(oauthQuery, now);
+  const query = refreshedOAuthQuery
+    ? new URLSearchParams(refreshedOAuthQuery)
+    : null;
+  const registeredRedirectUri = query?.get('redirect_uri');
+  if (!refreshedOAuthQuery || !registeredRedirectUri) {
     return oauthError('invalid_request', 'The OAuth consent request is invalid or expired.', 400);
   }
 
@@ -148,7 +139,7 @@ export async function completeDirectMcpOAuthConsentRedirect(
       headers: consentRequestHeaders(request, config.origin),
       body: JSON.stringify({
         accept: acceptValue === 'true',
-        oauth_query: oauthQuery,
+        oauth_query: refreshedOAuthQuery,
       }),
     },
   ));

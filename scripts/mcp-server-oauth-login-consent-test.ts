@@ -107,6 +107,7 @@ async function main(): Promise<void> {
       { auth },
       { enforceDirectMcpOAuthRequestPolicy },
       { POST: completeConsentRedirect },
+      { completeDirectMcpOAuthConsentRedirect },
       {
         resolveDirectMcpConsentPresentation,
         verifyOAuthPageQuery,
@@ -115,6 +116,7 @@ async function main(): Promise<void> {
       import('../app/lib/auth'),
       import('../app/lib/mcp/server/oauth-request-policy'),
       import('../app/api/auth/oauth2/consent/redirect/route'),
+      import('../app/lib/mcp/server/oauth-consent-redirect'),
       import('../app/lib/mcp/server/oauth-page-query'),
     ]);
     const { issuer, resource } = resolveDirectMcpServerConfig();
@@ -325,6 +327,45 @@ async function main(): Promise<void> {
       accept: 'true',
       oauth_query: secondConsentLocation.searchParams.toString(),
     });
+    const consentIssuedAt = Number(
+      secondConsentLocation.searchParams.get('ba_iat'),
+    );
+    assert.equal(Number.isFinite(consentIssuedAt), true);
+    const delayedAcceptResponse = await completeDirectMcpOAuthConsentRedirect(
+      new Request(`${ORIGIN}/api/auth/oauth2/consent/redirect`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie: oauthCookie,
+          origin: ORIGIN,
+        },
+        body: acceptForm,
+      }),
+      auth.handler,
+      consentIssuedAt + 10 * 60 * 1_000,
+    );
+    assert.equal(delayedAcceptResponse.status, 303);
+    assert.ok(new URL(
+      delayedAcceptResponse.headers.get('location') || '',
+      ORIGIN,
+    ).searchParams.get('code'));
+
+    const staleAcceptResponse = await completeDirectMcpOAuthConsentRedirect(
+      new Request(`${ORIGIN}/api/auth/oauth2/consent/redirect`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie: oauthCookie,
+          origin: ORIGIN,
+        },
+        body: acceptForm,
+      }),
+      auth.handler,
+      consentIssuedAt + 61 * 60 * 1_000,
+    );
+    assert.equal(staleAcceptResponse.status, 400);
+    assert.equal((await readJson(staleAcceptResponse)).error, 'invalid_request');
+
     const acceptResponse = await completeConsentRedirect(new Request(
       `${ORIGIN}/api/auth/oauth2/consent/redirect`,
       {

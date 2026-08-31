@@ -28,6 +28,9 @@ export type DirectMcpConsentPresentation = VerifiedOAuthPageQuery & {
   instanceHost: string;
 };
 
+const MAX_CONSENT_DELIBERATION_MS = 60 * 60 * 1_000;
+const REFRESHED_OAUTH_QUERY_LIFETIME_MS = 5 * 60 * 1_000;
+
 function toSearchParams(searchParams: OAuthPageSearchParams): URLSearchParams {
   const result = new URLSearchParams();
   for (const [name, value] of Object.entries(searchParams)) {
@@ -63,6 +66,15 @@ function safeSignatureEqual(actual: string, expected: string): boolean {
 function readSingle(params: URLSearchParams, key: string): string | null {
   const values = params.getAll(key);
   return values.length === 1 && values[0] ? values[0] : null;
+}
+
+function fromSearchParams(params: URLSearchParams): OAuthPageSearchParams {
+  const result: OAuthPageSearchParams = {};
+  for (const key of new Set(params.keys())) {
+    const values = params.getAll(key);
+    result[key] = values.length === 1 ? values[0] : values;
+  }
+  return result;
 }
 
 export async function verifyOAuthPageQuery(
@@ -145,6 +157,47 @@ export async function verifyOAuthPageQuery(
     clientId,
     scopes: scopes as DirectMcpOAuthScope[],
   };
+}
+
+/**
+ * Re-signs a previously valid consent query with a fresh provider expiration.
+ * The original issue time remains unchanged so login-freshness semantics are
+ * preserved, while users can safely deliberate on the consent page for up to
+ * one hour without the provider's five-minute transport signature expiring.
+ */
+export async function refreshOAuthConsentQuery(
+  oauthQuery: string,
+  now = Date.now(),
+): Promise<string | null> {
+  if (!Number.isFinite(now) || oauthQuery.length > 8_192) return null;
+
+  const params = new URLSearchParams(oauthQuery);
+  const issuedAt = Number(readSingle(params, 'ba_iat'));
+  if (
+    !Number.isFinite(issuedAt)
+    || issuedAt > now + 60_000
+    || issuedAt < now - MAX_CONSENT_DELIBERATION_MS
+  ) {
+    return null;
+  }
+
+  // Verify the original signature and its bounded lifetime at the time it was
+  // issued. This deliberately does not treat normal consent deliberation as
+  // tampering, but still rejects malformed or long-lived source queries.
+  const verified = await verifyOAuthPageQuery(fromSearchParams(params), issuedAt);
+  if (!verified) return null;
+
+  params.delete('sig');
+  params.set(
+    'exp',
+    String(Math.floor((now + REFRESHED_OAUTH_QUERY_LIFETIME_MS) / 1_000)),
+  );
+  const signature = await makeSignature(
+    canonicalize(params),
+    resolveAuthSecret(process.env, { allowProductionBuildFallback: true }),
+  );
+  params.append('sig', signature);
+  return params.toString();
 }
 
 function safeClientName(value: string | null): string {
