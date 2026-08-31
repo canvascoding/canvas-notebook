@@ -296,9 +296,12 @@ async function listSkillFiles(packageRoot: string, includeSha = false): Promise<
 async function validateWorkspaceSkillPackage(
   packageRoot: string,
   expectedName?: string,
+  options: { validateDirectoryName?: boolean } = {},
 ): Promise<CanvasSkill> {
   const skillPath = requirePathInside(packageRoot, 'SKILL.md');
-  const skill = await parseSkillFile(skillPath);
+  const skill = await parseSkillFile(skillPath, {
+    validateDirectoryName: options.validateDirectoryName ?? true,
+  });
   if (!skill) {
     throw new Error('Skill package contains an invalid SKILL.md.');
   }
@@ -506,7 +509,7 @@ async function replaceSkillPackageAtomically(
       },
     });
 
-    await validateWorkspaceSkillPackage(tempDir, skillName);
+    await validateWorkspaceSkillPackage(tempDir, skillName, { validateDirectoryName: false });
     const targetExists = await fs.stat(targetDir).then(() => true).catch(() => false);
     if (targetExists) {
       await fs.rename(targetDir, backupDir);

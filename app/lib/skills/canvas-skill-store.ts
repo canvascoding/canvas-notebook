@@ -220,12 +220,20 @@ function normalizeChecksum(value: string): string {
 }
 
 function isValidCanvasSkillName(name: string): boolean {
-  if (name.length === 0 || name.length > 64 || name.startsWith('-') || name.endsWith('-')) {
+  const normalized = name.normalize('NFKC');
+  if (
+    name !== normalized
+    || Array.from(name).length === 0
+    || Array.from(name).length > 64
+    || name !== name.toLowerCase()
+    || name.startsWith('-')
+    || name.endsWith('-')
+  ) {
     return false;
   }
   let previousHyphen = false;
   for (const char of name) {
-    const allowed = (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char === '-';
+    const allowed = char === '-' || /^[\p{L}\p{N}]$/u.test(char);
     if (!allowed || (char === '-' && previousHyphen)) return false;
     previousHyphen = char === '-';
   }
@@ -421,11 +429,98 @@ async function readCanvasSkillRegistryFile(registryPath: string): Promise<Canvas
   }
 }
 
+async function migrateOrganizationSkillLayout(
+  registry: CanvasSkillRegistry,
+  scope?: CanvasSkillStoreScope | null,
+): Promise<CanvasSkillRegistry> {
+  if (resolveDataStorageScope(scope).scopeType !== 'organization') {
+    return registry;
+  }
+
+  const installedRoot = requirePathInside(resolveScopedSkillsDataDir(scope), 'installed');
+  let changed = false;
+
+  for (const [registryName, record] of Object.entries(registry.skills)) {
+    if (
+      !record
+      || typeof record.name !== 'string'
+      || typeof record.version !== 'string'
+      || typeof record.installDir !== 'string'
+      || !isValidCanvasSkillName(record.name)
+      || record.name !== registryName
+      || !isValidCanvasPluginVersion(record.version)
+    ) {
+      continue;
+    }
+
+    const legacyDir = requirePathInside(installedRoot, record.name, record.version);
+    if (path.resolve(record.installDir) !== path.resolve(legacyDir)) {
+      continue;
+    }
+
+    const canonicalDir = requirePathInside(legacyDir, record.name);
+    const canonicalSkillPath = requirePathInside(canonicalDir, 'SKILL.md');
+    const legacySkillPath = requirePathInside(legacyDir, 'SKILL.md');
+    const stagingDir = requirePathInside(
+      path.dirname(legacyDir),
+      `${path.basename(legacyDir)}.agent-skills-migration`,
+    );
+    let canonicalExists = await fs.stat(canonicalSkillPath).then((stat) => stat.isFile()).catch(() => false);
+    const legacyExists = await fs.stat(legacySkillPath).then((stat) => stat.isFile()).catch(() => false);
+    const stagingExists = await fs.stat(requirePathInside(stagingDir, 'SKILL.md'))
+      .then((stat) => stat.isFile())
+      .catch(() => false);
+
+    try {
+      if (!canonicalExists && stagingExists) {
+        await fs.mkdir(legacyDir, { recursive: true });
+        await fs.rename(stagingDir, canonicalDir);
+        canonicalExists = true;
+      } else if (!canonicalExists && legacyExists && !stagingExists) {
+        await fs.rename(legacyDir, stagingDir);
+        await fs.mkdir(legacyDir, { recursive: true });
+        await fs.rename(stagingDir, canonicalDir);
+        canonicalExists = true;
+      }
+    } catch (error) {
+      const recoverableStaging = await fs.stat(requirePathInside(stagingDir, 'SKILL.md'))
+        .then((stat) => stat.isFile())
+        .catch(() => false);
+      if (recoverableStaging) {
+        await fs.rmdir(legacyDir).catch(() => undefined);
+        await fs.rename(stagingDir, legacyDir).catch(() => undefined);
+      }
+      console.warn('[CanvasSkillRegistry] Failed to migrate organization skill layout.', {
+        skill: record.name,
+        version: record.version,
+        error,
+      });
+      continue;
+    }
+
+    if (!canonicalExists) {
+      continue;
+    }
+
+    registry.skills[registryName] = {
+      ...record,
+      installDir: canonicalDir,
+      skillPath: canonicalSkillPath,
+    };
+    changed = true;
+  }
+
+  if (changed) {
+    await writeCanvasSkillRegistry(registry, scope);
+  }
+  return registry;
+}
+
 export async function readCanvasSkillRegistry(scope?: CanvasSkillStoreScope | null): Promise<CanvasSkillRegistry> {
   const registryPath = resolveScopedSkillRegistryPath(scope);
   const registry = await readCanvasSkillRegistryFile(registryPath);
   if (registry) {
-    return registry;
+    return migrateOrganizationSkillLayout(registry, scope);
   }
 
   if (await shouldUseLegacyScopedSkillsFallback(scope)) {
@@ -684,7 +779,11 @@ async function verifyPackageChecksum(packageRoot: string, expectedChecksum: stri
   }
 }
 
-async function validateSkillPackage(packageRoot: string, expectedName: string) {
+async function validateSkillPackage(
+  packageRoot: string,
+  expectedName: string,
+  options: { validateDirectoryName?: boolean } = {},
+) {
   const sensitiveFiles = await findSensitiveCanvasPackageFiles(packageRoot);
   if (sensitiveFiles.length > 0) {
     throw new Error(`Skill packages must reference environment variable names instead of bundling secret files: ${sensitiveFiles.slice(0, 5).join(', ')}${sensitiveFiles.length > 5 ? ', ...' : ''}`);
@@ -695,7 +794,9 @@ async function validateSkillPackage(packageRoot: string, expectedName: string) {
     throw new Error('Skill package must contain SKILL.md at its root.');
   }
 
-  const skill = await parseSkillFile(skillPath);
+  const skill = await parseSkillFile(skillPath, {
+    validateDirectoryName: options.validateDirectoryName ?? false,
+  });
   if (!skill) {
     throw new Error('Skill package contains an invalid SKILL.md.');
   }
@@ -733,7 +834,7 @@ async function copySkillPackage(
   const skillsDir = resolveScopedSkillsDataDir(scope);
   const storageScope = resolveDataStorageScope(scope);
   const targetDir = storageScope.scopeType === 'organization'
-    ? requirePathInside(skillsDir, 'installed', skillName, version)
+    ? requirePathInside(skillsDir, 'installed', skillName, version, skillName)
     : requirePathInside(skillsDir, skillName);
   const resolvedTarget = path.resolve(/*turbopackIgnore: true*/ targetDir);
   const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ skillsDir);
@@ -788,7 +889,7 @@ async function writeInstalledSkillRecord(
   installDir: string,
   scope?: CanvasSkillStoreScope | null,
 ): Promise<CanvasSkillInstallRecord> {
-  const skill = await validateSkillPackage(installDir, skillName);
+  const skill = await validateSkillPackage(installDir, skillName, { validateDirectoryName: true });
   const checksum = await computeCanvasPluginChecksum(installDir);
   const registry = await readCanvasSkillRegistry(scope);
   const existing = registry.skills[skillName];

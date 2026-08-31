@@ -283,7 +283,7 @@ async function validateUploadedPackage(packageRoot: string): Promise<{
     throw new SkillPackageImportError('Skill validation failed.', 400, validation);
   }
 
-  const parsed = await parseSkillFile(skillPath);
+  const parsed = await parseSkillFile(skillPath, { validateDirectoryName: false });
   if (!parsed) {
     throw new SkillPackageImportError('Skill package contains an invalid SKILL.md.', 400, validation);
   }

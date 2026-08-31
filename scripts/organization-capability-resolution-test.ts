@@ -750,7 +750,7 @@ metadata:
     assert.equal(skillInstallV1.success, true, skillInstallV1.error || 'Skill v1 install failed.');
     assert.equal(skillInstallV1.skill?.scopeType, 'organization');
     assert.equal(skillInstallV1.skill?.revision, 1);
-    assert.match(skillInstallV1.skill?.installDir || '', /organizations\/org-one\/skills\/installed\/org-skill\/1\.0\.0$/);
+    assert.match(skillInstallV1.skill?.installDir || '', /organizations\/org-one\/skills\/installed\/org-skill\/1\.0\.0\/org-skill$/);
     const skillV1Path = skillInstallV1.skill!.installDir;
     const skillResourceId = skillInstallV1.skill!.resourceId;
 

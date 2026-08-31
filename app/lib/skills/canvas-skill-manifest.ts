@@ -295,13 +295,13 @@ export async function loadCanvasSkillInterface(skillDir: string): Promise<Canvas
 
 export async function parseSkillFile(
   skillPath: string,
-  options: { validateDirectoryName?: boolean } = {},
+  options: { validateDirectoryName?: boolean } = { validateDirectoryName: true },
 ): Promise<CanvasSkill | null> {
   try {
     const content = await fs.readFile(requirePathInside(path.dirname(skillPath), path.basename(skillPath)), 'utf-8');
     const { frontmatter, body } = parseFrontmatter(content);
     const validation = validateFrontmatter(frontmatter, {
-      expectedDirectoryName: options.validateDirectoryName ? path.basename(path.dirname(skillPath)) : undefined,
+      expectedDirectoryName: options.validateDirectoryName !== false ? path.basename(path.dirname(skillPath)) : undefined,
     });
 
     if (!validation.valid || !frontmatter) {
