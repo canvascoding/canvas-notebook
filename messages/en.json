@@ -2506,6 +2506,46 @@
       "password": "Choose a password between 8 and 128 characters."
     }
   },
+  "userProfile": {
+    "title": "Your profile appearance",
+    "description": "Choose a photo, a personal icon, or your initials. This identity appears on your Canvas home page.",
+    "previewLabel": "Profile preview",
+    "shownAs": "This is how other profile surfaces will show you.",
+    "profileLinkLabel": "Open settings for {name}",
+    "uploadTitle": "Profile photo",
+    "uploadDescription": "PNG, JPEG, WebP, HEIC, or HEIF up to 5 MB. Canvas crops it to a square and stores an optimized copy.",
+    "dropImage": "Drop one image here or choose a file.",
+    "chooseImage": "Choose image",
+    "replaceImage": "Replace image",
+    "iconsTitle": "Choose an icon",
+    "iconsDescription": "Pick one of the curated icons if you prefer not to use a photo.",
+    "initialsTitle": "Use initials",
+    "initialsDescription": "Canvas derives them automatically from your name.",
+    "useInitials": "Use initials",
+    "selected": "Selected",
+    "saving": "Saving profile appearance…",
+    "imageUpdated": "Profile photo updated.",
+    "iconUpdated": "Profile icon updated.",
+    "initialsUpdated": "Initials selected.",
+    "invalidFile": "Choose a supported image file.",
+    "fileTooLarge": "The image must be no larger than 5 MB.",
+    "singleFileOnly": "Choose exactly one image.",
+    "updateFailed": "The profile appearance could not be updated.",
+    "icons": {
+      "user-round": "Person",
+      "smile": "Smile",
+      "sparkles": "Sparkles",
+      "rocket": "Rocket",
+      "palette": "Palette",
+      "code-2": "Code",
+      "book-open": "Open book",
+      "camera": "Camera",
+      "music": "Music",
+      "coffee": "Coffee",
+      "mountain": "Mountain",
+      "leaf": "Leaf"
+    }
+  },
   "settings": {
     "title": "Settings",
     "tabs": {
