@@ -99,6 +99,10 @@ Fäden oder Weben gearbeitet.
 | Marketing | höchstens eine Bildwelt pro Abschnitt; Canvas ist primär | „Aus einer gefalteten Canvas-Fläche wird dein ruhiger Produktionspartner Bradley.“ |
 | Asset- und Motion-Spezifikation | präzise geometrische Begriffe verwenden | „Die angehobene Faltfläche bewegt sich um vier Pixel nach oben.“ |
 
+Die vollständigen wiederkehrenden UI-Zustände und ihre englischen Entsprechungen
+sind in der [Bradley Zustands-Copy-Matrix](./bradley-state-copy-matrix.md)
+verbindlich festgelegt.
+
 ## Freigegebene Kernformulierungen
 
 ### Deutsch

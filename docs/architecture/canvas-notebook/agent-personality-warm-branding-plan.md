@@ -108,7 +108,7 @@ Folgende Grundlagen sind bereits vorhanden:
   [Bradley Motion Specification](./assets/bradley/MOTION-SPEC.md) freigegeben.
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die Prompt-Hierarchie,
-die Migration bestehender Installationen, die vollständige Zustands-Copy und
+die Migration bestehender Installationen, die Recovery- und Kontextmuster sowie
 die UI-Integration.
 
 ## 3. Identität und Name
@@ -299,7 +299,12 @@ Markensprache.
 - Fachbegriffe wie Queue, Tool, Automation und Agent bleiben dort erhalten, wo
   sie für Bedienung oder Support wichtig sind.
 
-### 7.2 Vorläufige Copy-Matrix
+### 7.2 Verbindliche Copy-Matrix
+
+Die vollständigen deutschen und englischen Texte, Platzhalterregeln und
+Akteursgrenzen sind in der
+[Bradley Zustands-Copy-Matrix](./bradley-state-copy-matrix.md) festgelegt. Die
+folgende Kurzfassung dient nur der schnellen Orientierung.
 
 | Technischer Zustand | Empfohlene sichtbare Sprache | Nicht verwenden |
 | --- | --- | --- |
@@ -467,7 +472,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| BRADLEY-020 | offen | Vollständige Zustands-Copy-Matrix erstellen | Alle Runtime-, Tool-, Queue-, Delegations-, Automation-, Warte-, Erfolgs- und Fehlerzustände besitzen DE-/EN-Texte. |
+| BRADLEY-020 | fertig | Vollständige Zustands-Copy-Matrix erstellen; Vertrag: [Bradley Zustands-Copy-Matrix](./bradley-state-copy-matrix.md) | Alle Runtime-, Tool-, Queue-, Delegations-, Automation-, Warte-, Erfolgs- und Fehlerzustände besitzen DE-/EN-Texte. |
 | BRADLEY-021 | offen | Fehler- und Recovery-Muster definieren | Jede Fehlermeldung kann Ursache, Auswirkung und nächste Aktion sachlich anzeigen. |
 | BRADLEY-022 | offen | Kontextmatrix für Hauptagent, Spezialagent, E-Mail-Agent und Automation erstellen | Für jede Oberfläche ist definiert, welcher Name und welches Icon erscheinen. |
 | BRADLEY-023 | offen | Anti-Clippy- und Motion-Regeln in die UI-Spezifikation übernehmen | Review-Checkliste deckt Unterbrechungen, Idle-Animation, Reduced Motion und Barrierefreiheit ab. |
