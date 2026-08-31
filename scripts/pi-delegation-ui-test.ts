@@ -166,7 +166,8 @@ async function main() {
   assert.doesNotMatch(panelSource, /type="checkbox"/u);
   assert.match(agentPickerSource, /<AgentAvatar/u);
   assert.match(agentPickerSource, /data-testid="delegation-agent-picker"/u);
-  assert.match(agentPickerSource, /role="listbox"/u);
+  assert.match(agentPickerSource, /role="radiogroup"/u);
+  assert.match(agentPickerSource, /type="radio"/u);
   assert.doesNotMatch(agentPickerSource, /<Popover/u);
   assert.match(toolsetPickerSource, /aria-pressed=\{selected\}/u);
   assert.match(toolsetPickerSource, /<DelegationToolsetIcon/u);

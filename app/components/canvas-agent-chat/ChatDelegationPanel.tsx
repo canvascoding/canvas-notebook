@@ -433,43 +433,43 @@ export function ChatDelegationPanel({
               ) : delegationOptions ? (
                 <div className="grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:items-start">
                   <div className="grid content-start gap-4">
-                  {delegationOptions.agents.length > 0 ? (
-                    <div className="grid gap-1.5 text-sm font-medium">
-                      <span>{t('delegationTarget')}</span>
-                      <DelegationAgentPicker
-                        agents={delegationOptions.agents}
-                        value={targetAgentId}
-                        onValueChange={setTargetAgentId}
-                      />
-                    </div>
-                  ) : (
-                    <p className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
-                      {t('delegationNoAgents')}
-                    </p>
-                  )}
+                    {delegationOptions.agents.length > 0 ? (
+                      <div className="grid gap-1.5 text-sm font-medium">
+                        <span>{t('delegationTarget')}</span>
+                        <DelegationAgentPicker
+                          agents={delegationOptions.agents}
+                          value={targetAgentId}
+                          onValueChange={setTargetAgentId}
+                        />
+                      </div>
+                    ) : (
+                      <p className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
+                        {t('delegationNoAgents')}
+                      </p>
+                    )}
 
-                  <label className="grid gap-1.5 text-sm font-medium">
-                    {t('delegationGoal')}
-                    <Input value={goal} onChange={(event) => setGoal(event.target.value)} disabled={delegationOptions.agents.length === 0} />
-                  </label>
-                  <label className="grid gap-1.5 text-sm font-medium">
-                    {t('delegationContext')}
-                    <Textarea
-                      value={context}
-                      onChange={(event) => setContext(event.target.value)}
-                      disabled={delegationOptions.agents.length === 0}
-                      className="min-h-24 resize-y"
-                    />
-                  </label>
+                    <label className="grid gap-1.5 text-sm font-medium">
+                      {t('delegationGoal')}
+                      <Input value={goal} onChange={(event) => setGoal(event.target.value)} disabled={delegationOptions.agents.length === 0} />
+                    </label>
+                    <label className="grid gap-1.5 text-sm font-medium">
+                      {t('delegationContext')}
+                      <Textarea
+                        value={context}
+                        onChange={(event) => setContext(event.target.value)}
+                        disabled={delegationOptions.agents.length === 0}
+                        className="min-h-24 resize-y"
+                      />
+                    </label>
                   </div>
                   <div className="min-w-0 lg:border-l lg:border-border/70 lg:pl-5">
-                  <DelegationToolsetPicker
-                    toolsets={delegationOptions.toolsets}
-                    selectedToolsets={selectedToolsets}
-                    onToggle={toggleToolset}
-                    onSelectAll={selectAllToolsets}
-                    onClear={clearToolsets}
-                  />
+                    <DelegationToolsetPicker
+                      toolsets={delegationOptions.toolsets}
+                      selectedToolsets={selectedToolsets}
+                      onToggle={toggleToolset}
+                      onSelectAll={selectAllToolsets}
+                      onClear={clearToolsets}
+                    />
                   </div>
                 </div>
               ) : null}
