@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import type * as YTypes from 'yjs';
 
 import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { composeCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadata';
+import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
 import type { TextCollaborationRepresentation } from './types';
 import {
   createPlainTextYDoc,
@@ -528,7 +530,12 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   expectedLifecycleGeneration: number;
   representation: TextCollaborationRepresentation;
   schemaVersion: number;
-}): Promise<PersistedCollaborationState> {
+  normalizeSafeMarkdown?: boolean;
+}): Promise<{
+  canonicalContent: string;
+  checkpointRequired: boolean;
+  state: PersistedCollaborationState;
+}> {
   assertPostgres();
   if (getCollaborationRoomConnectionCount(input.documentId) > 0) {
     throw new CollaborationRepresentationMigrationError(
@@ -549,7 +556,30 @@ async function changeCollaborationRepresentationWhileLocked(input: {
       'checkpoint_stale',
     );
   }
-  const canonicalContent = canonicalContentFromState(state);
+  const currentCanonicalContent = canonicalContentFromState(state);
+  let canonicalContent = currentCanonicalContent;
+  if (input.normalizeSafeMarkdown) {
+    if (input.representation !== 'tiptap_xml') {
+      throw new CollaborationRepresentationMigrationError(
+        'Safe Markdown normalization is only available for rich-text migration.',
+        'content_unsupported',
+      );
+    }
+    const analysis = analyzeMarkdownRichMode(currentCanonicalContent);
+    if (analysis.mode === 'normalizable') {
+      canonicalContent = composeCanvasMarkdownDocument(
+        analysis.prefix,
+        analysis.normalizedBody,
+      );
+    } else if (analysis.mode !== 'rich') {
+      throw new CollaborationRepresentationMigrationError(
+        'The collaboration content cannot be normalized safely for rich text.',
+        'content_unsupported',
+      );
+    }
+  }
+  canonicalContent = encodingProfile(canonicalContent).canonical;
+  const checkpointRequired = canonicalContent !== currentCanonicalContent;
   let fresh: YTypes.Doc;
   try {
     fresh = createValidatedFreshDocument(input.representation, canonicalContent);
@@ -599,9 +629,9 @@ async function changeCollaborationRepresentationWhileLocked(input: {
         Buffer.from(update),
         Buffer.from(vector),
         nextSequence,
-        nextSequence,
+        checkpointRequired ? state.checkpointSequence : nextSequence,
         now,
-        now,
+        checkpointRequired ? state.checkpointedAt : now,
         sha256Text(canonicalContent),
         now,
         state.documentId,
@@ -615,7 +645,11 @@ async function changeCollaborationRepresentationWhileLocked(input: {
       );
     }
     await database.run('COMMIT');
-    return mapState(row);
+    return {
+      canonicalContent,
+      checkpointRequired,
+      state: mapState(row),
+    };
   } catch (error) {
     try { await database.run('ROLLBACK'); } catch {}
     throw error;
@@ -632,9 +666,30 @@ export async function changeCollaborationRepresentation(input: {
   schemaVersion: number;
 }): Promise<PersistedCollaborationState> {
   assertPostgres();
-  return withCollaborationRoomLifecycleLock(
+  const result = await withCollaborationRoomLifecycleLock(
     input.documentId,
     () => changeCollaborationRepresentationWhileLocked(input),
+  );
+  return result.state;
+}
+
+export async function changeCollaborationRepresentationWithSafeMarkdownNormalization(input: {
+  documentId: string;
+  expectedLifecycleGeneration: number;
+  schemaVersion: number;
+}): Promise<{
+  canonicalContent: string;
+  checkpointRequired: boolean;
+  state: PersistedCollaborationState;
+}> {
+  assertPostgres();
+  return withCollaborationRoomLifecycleLock(
+    input.documentId,
+    () => changeCollaborationRepresentationWhileLocked({
+      ...input,
+      representation: 'tiptap_xml',
+      normalizeSafeMarkdown: true,
+    }),
   );
 }
 

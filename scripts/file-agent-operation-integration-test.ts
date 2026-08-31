@@ -50,6 +50,8 @@ import {
   createCollaborationSessionGrant,
 } from '../app/lib/collaboration/session-service';
 import { openDb } from '../app/lib/db';
+import { composeCanvasMarkdownDocument } from '../app/lib/markdown/obsidian-metadata';
+import { analyzeMarkdownRichMode } from '../app/lib/markdown/rich-markdown-codec';
 import {
   ensureFileRevisionForCurrentContent,
   getFileCollaborationState,
@@ -76,6 +78,7 @@ let toolDocumentId: string | null = null;
 let uninitializedToolDocumentId: string | null = null;
 let representationRoutingDocumentId: string | null = null;
 let autoMigrationDocumentId: string | null = null;
+let safeNormalizationMigrationDocumentId: string | null = null;
 let concurrentAutoMigrationDocumentId: string | null = null;
 const workspace: WorkspaceContext = {
   workspaceId,
@@ -1128,6 +1131,74 @@ try {
   assert.equal(stateAfterStaleStore?.lifecycleGeneration, 2);
   assert.equal(await persistedText(autoMigrationDocumentId), autoMigrationContent);
 
+  // Serializer-only entity and table formatting changes are normalized once,
+  // checkpointed, and then promoted from source collaboration to rich text.
+  const safeNormalizationMigrationPath = `agent-safe-normalization-migration-${suffix}.md`;
+  const safeNormalizationMigrationContent = [
+    '---',
+    'title: Brand & UI options',
+    '---',
+    '',
+    '# Brand & UI options',
+    '',
+    '| Name | Meaning |',
+    '| ---- | ------- |',
+    '| **Mosa** | Many pieces become one |',
+    '| **Lino** | Woven structure |',
+    '',
+  ].join('\n');
+  const safeNormalizationAnalysis = analyzeMarkdownRichMode(safeNormalizationMigrationContent);
+  assert.equal(safeNormalizationAnalysis.mode, 'normalizable');
+  assert(safeNormalizationAnalysis.mode === 'normalizable');
+  const safeNormalizationExpected = composeCanvasMarkdownDocument(
+    safeNormalizationAnalysis.prefix,
+    safeNormalizationAnalysis.normalizedBody,
+  );
+  await fs.writeFile(
+    path.join(workspace.rootPath, safeNormalizationMigrationPath),
+    safeNormalizationMigrationContent,
+    'utf8',
+  );
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: safeNormalizationMigrationPath,
+    contentHash: createHash('sha256').update(safeNormalizationMigrationContent, 'utf8').digest('hex'),
+    sizeBytes: Buffer.byteLength(safeNormalizationMigrationContent, 'utf8'),
+    actorUserId: userId,
+    actorType: 'user',
+  });
+  const safeNormalizationProjection = getFileCollaborationState({
+    workspace,
+    path: safeNormalizationMigrationPath,
+    ensureDocument: true,
+  });
+  assert(safeNormalizationProjection.document);
+  safeNormalizationMigrationDocumentId = safeNormalizationProjection.document.id;
+  await ensureCollaborationState({
+    documentId: safeNormalizationMigrationDocumentId,
+    workspaceId,
+    organizationId: workspace.organizationId || null,
+    path: safeNormalizationMigrationPath,
+    representation: 'plain_text',
+    initialContent: safeNormalizationMigrationContent,
+  });
+  const safeNormalizationGrant = await createCollaborationSessionGrant({
+    workspace,
+    fileOptions: { workspace },
+    request: { path: safeNormalizationMigrationPath, provider: 'yjs', representation: 'auto' },
+  });
+  assert.equal(safeNormalizationGrant.representation, 'tiptap_xml');
+  assert.equal(safeNormalizationGrant.lifecycleGeneration, 2);
+  const safeNormalizationState = await loadCollaborationState(safeNormalizationMigrationDocumentId);
+  assert(safeNormalizationState);
+  assert.equal(safeNormalizationState.checkpointSequence, safeNormalizationState.documentSequence);
+  assert.equal(safeNormalizationState.degraded, false);
+  assert.equal(await persistedText(safeNormalizationMigrationDocumentId), safeNormalizationExpected);
+  assert.equal(
+    await fs.readFile(path.join(workspace.rootPath, safeNormalizationMigrationPath), 'utf8'),
+    safeNormalizationExpected,
+  );
+
   // Connected source clients block migration. Once the room is empty, two
   // simultaneous session requests converge on the same new rich lifecycle;
   // the earlier plain-text grant is stale and cannot re-enter that room.
@@ -1528,6 +1599,7 @@ try {
       ...(uninitializedToolDocumentId ? [uninitializedToolDocumentId] : []),
       ...(representationRoutingDocumentId ? [representationRoutingDocumentId] : []),
       ...(autoMigrationDocumentId ? [autoMigrationDocumentId] : []),
+      ...(safeNormalizationMigrationDocumentId ? [safeNormalizationMigrationDocumentId] : []),
       ...(concurrentAutoMigrationDocumentId ? [concurrentAutoMigrationDocumentId] : []),
     ]) {
       await database.run('DELETE FROM collaboration_agent_operations WHERE document_id = ?', [cleanupDocumentId]);

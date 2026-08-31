@@ -30,7 +30,9 @@ export type MarkdownRichModeReason =
 
 export type MarkdownSafeNormalization =
   | 'ordered_list_spacing'
-  | 'hard_break_marker';
+  | 'hard_break_marker'
+  | 'html_entity_escaping'
+  | 'table_formatting';
 
 export type MarkdownRichModeAnalysis =
   | {
@@ -109,6 +111,128 @@ function hasMarpBodyDirective(markdown: string): boolean {
   return /<!--\s*(?:_?[a-z][\w-]*\s*:|marp\s*:)/iu.test(markdown);
 }
 
+function decodeComparableHtmlEntities(markdown: string): string {
+  return markdown.replace(
+    /&(amp|lt|gt|quot|#39|#x27);/giu,
+    (entity, name: string) => {
+      switch (name.toLowerCase()) {
+        case 'amp': return '&';
+        case 'lt': return '<';
+        case 'gt': return '>';
+        case 'quot': return '"';
+        case '#39':
+        case '#x27': return "'";
+        default: return entity;
+      }
+    },
+  );
+}
+
+function simpleMarkdownTableCells(line: string): string[] | null {
+  const content = line.replace(/\r$/u, '');
+  if (!content.startsWith('|') || !content.endsWith('|')) return null;
+
+  const inner = content.slice(1, -1);
+  // Complex escaped/code-span pipes stay source-only until a Markdown-aware
+  // table tokenizer can prove that their cell boundaries are unchanged.
+  if (/\\\||`/u.test(inner)) return null;
+  return inner.split('|').map((cell) => cell.trim());
+}
+
+function simpleMarkdownTableDelimiter(cells: string[]): string[] | null {
+  if (cells.length === 0) return null;
+  const canonical: string[] = [];
+  for (const cell of cells) {
+    const match = cell.match(/^(:?)-{3,}(:?)$/u);
+    if (!match) return null;
+    canonical.push(`${match[1]}---${match[2]}`);
+  }
+  return canonical;
+}
+
+type SafeMarkdownTableToken =
+  | { kind: 'line'; value: string }
+  | { kind: 'table'; value: string };
+
+function normalizeComparableMarkdownTables(markdown: string): { changed: boolean; value: string } {
+  const lines = markdown.split('\n');
+  const tokens: SafeMarkdownTableToken[] = [];
+  let changed = false;
+  let fence: { marker: '`' | '~'; length: number } | null = null;
+
+  for (let index = 0; index < lines.length;) {
+    const content = lines[index].replace(/\r$/u, '');
+    const fenceMarker = content.match(/^\s*(`{3,}|~{3,})/u)?.[1];
+    if (fenceMarker) {
+      const marker = fenceMarker[0] as '`' | '~';
+      if (!fence) fence = { marker, length: fenceMarker.length };
+      else if (marker === fence.marker && fenceMarker.length >= fence.length) fence = null;
+      tokens.push({ kind: 'line', value: lines[index] });
+      index += 1;
+      continue;
+    }
+    if (fence) {
+      tokens.push({ kind: 'line', value: lines[index] });
+      index += 1;
+      continue;
+    }
+
+    const header = simpleMarkdownTableCells(lines[index]);
+    const delimiterCells = index + 1 < lines.length
+      ? simpleMarkdownTableCells(lines[index + 1])
+      : null;
+    const delimiter = delimiterCells ? simpleMarkdownTableDelimiter(delimiterCells) : null;
+    if (!header || !delimiter || header.length !== delimiter.length) {
+      tokens.push({ kind: 'line', value: lines[index] });
+      index += 1;
+      continue;
+    }
+
+    const rows = [header, delimiter];
+    let nextIndex = index + 2;
+    while (nextIndex < lines.length) {
+      const row = simpleMarkdownTableCells(lines[nextIndex]);
+      if (!row || row.length !== header.length) break;
+      rows.push(row);
+      nextIndex += 1;
+    }
+    const canonical = rows.map((row) => `|${row.join('|')}|`).join('\n');
+    const original = lines.slice(index, nextIndex).join('\n').replace(/\r/gu, '');
+    if (canonical !== original) changed = true;
+    tokens.push({ kind: 'table', value: canonical });
+    index = nextIndex;
+  }
+
+  const normalized: SafeMarkdownTableToken[] = [];
+  for (let index = 0; index < tokens.length;) {
+    const token = tokens[index];
+    if (token.kind !== 'line' || !/^\r?$/u.test(token.value)) {
+      normalized.push(token);
+      index += 1;
+      continue;
+    }
+
+    let nextIndex = index + 1;
+    while (
+      nextIndex < tokens.length
+      && tokens[nextIndex].kind === 'line'
+      && /^\r?$/u.test(tokens[nextIndex].value)
+    ) {
+      nextIndex += 1;
+    }
+    const touchesTable = normalized.at(-1)?.kind === 'table' || tokens[nextIndex]?.kind === 'table';
+    if (touchesTable) {
+      normalized.push({ kind: 'line', value: '' });
+      if (nextIndex - index !== 1 || token.value !== '') changed = true;
+    } else {
+      normalized.push(...tokens.slice(index, nextIndex));
+    }
+    index = nextIndex;
+  }
+
+  return { changed, value: normalized.map((token) => token.value).join('\n') };
+}
+
 function safeRichMarkdownNormalization(
   markdown: string,
   serialized: string,
@@ -140,6 +264,13 @@ function safeRichMarkdownNormalization(
     }
   }
 
+  if (lines.some((line, index) => (
+    !protectedLines[index]
+    && /<(?:!--|\/?[a-z][^>\n]*>)/iu.test(line)
+  ))) {
+    return null;
+  }
+
   const orderedItem = /^(\s*)\d+[.)]\s+\S/u;
   const compacted: string[] = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -161,8 +292,35 @@ function safeRichMarkdownNormalization(
     compacted.push(lines[index]);
   }
 
-  if (normalizations.size === 0 || compacted.join('\n') !== serialized) return null;
-  return (['ordered_list_spacing', 'hard_break_marker'] as const).filter((normalization) => (
+  let comparableMarkdown = compacted.join('\n');
+  let comparableSerialized = serialized;
+  if (comparableMarkdown === comparableSerialized) {
+    return (['ordered_list_spacing', 'hard_break_marker'] as const).filter((normalization) => (
+      normalizations.has(normalization)
+    ));
+  }
+
+  const decodedMarkdown = decodeComparableHtmlEntities(comparableMarkdown);
+  const decodedSerialized = decodeComparableHtmlEntities(comparableSerialized);
+  if (decodedMarkdown !== comparableMarkdown || decodedSerialized !== comparableSerialized) {
+    normalizations.add('html_entity_escaping');
+    comparableMarkdown = decodedMarkdown;
+    comparableSerialized = decodedSerialized;
+  }
+
+  const normalizedMarkdownTables = normalizeComparableMarkdownTables(comparableMarkdown);
+  const normalizedSerializedTables = normalizeComparableMarkdownTables(comparableSerialized);
+  if (normalizedMarkdownTables.changed || normalizedSerializedTables.changed) {
+    normalizations.add('table_formatting');
+  }
+  if (normalizedMarkdownTables.value !== normalizedSerializedTables.value) return null;
+
+  return ([
+    'ordered_list_spacing',
+    'hard_break_marker',
+    'html_entity_escaping',
+    'table_formatting',
+  ] as const).filter((normalization) => (
     normalizations.has(normalization)
   ));
 }
