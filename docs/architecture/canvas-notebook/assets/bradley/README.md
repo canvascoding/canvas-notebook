@@ -8,6 +8,8 @@ noch nicht als produktive UI-Integration freigegeben.
 
 ```text
 bradley/
+├── PROVENANCE.md
+├── checksums.sha256
 ├── glyphs/
 │   ├── static/
 │   │   ├── bradley-glyph.svg
@@ -58,9 +60,12 @@ tatsächlichen Dateieigenschaften wurden beim Import geprüft:
 | `mo-thinking-transparent.png` | `references/explorations/bradley-thinking-exploration.png` | 1024 × 1024, Alpha |
 | `mo-done-transparent.png` | `references/explorations/bradley-done-exploration.png` | 1024 × 1024, Alpha |
 
-Ein separater Erzeugungs- oder Nutzungsrechtsnachweis liegt noch nicht in der
-Assetstruktur. Deshalb bleibt BRADLEY-010 bis zur Dokumentation dieses Nachweises
-auf `in Arbeit`.
+Importkette, Product-Owner-Autorisierung, Nutzungsgrenzen und SHA-256-Nachweis
+sind portabel in [PROVENANCE.md](./PROVENANCE.md) dokumentiert. Die Prüfsummen
+liegen zusätzlich in [`checksums.sha256`](./checksums.sha256). Damit ist
+BRADLEY-010 abgeschlossen; eine spätere juristische Prüfung für Merchandising,
+Asset-Weiterverkauf oder einen eigenständigen internationalen Bradley-Auftritt
+bleibt davon unberührt.
 
 ## Design contract
 

@@ -84,6 +84,10 @@ Folgende Grundlagen sind bereits vorhanden:
   `canvas-agent`-Bezeichner im
   [Agenten-Terminologievertrag](./bradley-agent-terminology-contract.md)
   eindeutig voneinander abgegrenzt.
+- [x] Character-Master, Importkette, Product-Owner-Autorisierung und
+  SHA-256-Prüfsummen im
+  [Bradley Asset-Provenienznachweis](./assets/bradley/PROVENANCE.md) portabel
+  dokumentiert.
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
 der kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration
@@ -147,8 +151,11 @@ Arbeit. Sein ursprünglicher, historischer Dateiname lautet:
 
 Ein transparenter Character-Master und ausgewählte Ableitungen liegen
 versioniert unter `docs/architecture/canvas-notebook/assets/bradley/references/`.
-Der separate Erzeugungs- und Nutzungsrechtsnachweis für das ursprüngliche Motiv
-steht noch aus und bleibt Teil von BRADLEY-010.
+Importkette, Product-Owner-Autorisierung, Nutzungsgrenzen und Prüfsummen stehen
+im [Bradley Asset-Provenienznachweis](./assets/bradley/PROVENANCE.md). Ein
+Generatorbeleg und die damaligen Providerbedingungen lagen nicht zur
+Archivierung vor; die im Nachweis definierten erweiterten Nutzungen benötigen
+deshalb vor ihrem Start eine erneute Prüfung.
 
 ## 4. Darstellungsstufen
 
@@ -431,7 +438,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| BRADLEY-010 | in Arbeit | Referenzrender und Nutzungsnachweis portabel ins Projekt übernehmen; ausgewählte Dateien liegen unter `assets/bradley/references/` | Masterdatei und Herkunft liegen an einem stabilen, dokumentierten Projektpfad. |
+| BRADLEY-010 | fertig | Referenzrender und Nutzungsnachweis portabel ins Projekt übernehmen; Nachweis: [Bradley Asset Provenance](./assets/bradley/PROVENANCE.md) | Masterdatei, Importherkunft, Product-Owner-Autorisierung, Nutzungsgrenzen und SHA-256-Prüfsummen liegen an einem stabilen Projektpfad. |
 | BRADLEY-011 | in Arbeit | Transparentes Bradley-Character-Master erstellen; aktueller PNG-Master ist portabel abgelegt | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
 | BRADLEY-012 | offen | Light- und Dark-Mode-Character-Varianten erstellen | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
 | BRADLEY-013 | in Arbeit | Bradley-Glyph als SVG entwerfen; v1 liegt unter `assets/bradley/glyphs/static/` | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
