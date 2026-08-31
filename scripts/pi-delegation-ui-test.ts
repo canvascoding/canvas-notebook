@@ -168,6 +168,8 @@ async function main() {
   assert.match(agentPickerSource, /data-testid="delegation-agent-picker"/u);
   assert.match(agentPickerSource, /role="radiogroup"/u);
   assert.match(agentPickerSource, /type="radio"/u);
+  assert.match(agentPickerSource, /useId/u);
+  assert.match(agentPickerSource, /name=\{radioName\}/u);
   assert.doesNotMatch(agentPickerSource, /<Popover/u);
   assert.match(toolsetPickerSource, /aria-pressed=\{selected\}/u);
   assert.match(toolsetPickerSource, /<DelegationToolsetIcon/u);

@@ -2,6 +2,7 @@
 
 import { CheckCircle2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useId } from 'react';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import type { DelegationOptions } from '@/app/lib/chat/delegation-api';
@@ -19,6 +20,7 @@ export function DelegationAgentPicker({
   onValueChange: (agentId: string) => void;
 }) {
   const t = useTranslations('chat');
+  const radioName = `delegation-target-agent-${useId()}`;
 
   return (
     <div
@@ -41,7 +43,7 @@ export function DelegationAgentPicker({
           >
             <input
               type="radio"
-              name="delegation-target-agent"
+              name={radioName}
               value={agent.agentId}
               checked={selected}
               onChange={() => onValueChange(agent.agentId)}
