@@ -35,8 +35,10 @@ function main(): void {
   assert.match(homeSource, /name: getAgentProfileDisplayName\(agent\.agentId, agent\.name\)/u);
 
   const selectorSource = readProjectFile('app/components/canvas-agent-chat/ChatAgentSelector.tsx');
-  assert.match(selectorSource, /<AgentIcon iconId=\{activeAgentIconId\}/u);
-  assert.match(selectorSource, /<AgentAvatar iconId=\{agent\.iconId\}/u);
+  assert.match(selectorSource, /<AgentIdentityIcon/u);
+  assert.match(selectorSource, /agentId=\{activeAgentId\}/u);
+  assert.match(selectorSource, /<AgentIdentityAvatar/u);
+  assert.match(selectorSource, /agentId=\{agent\.agentId\}/u);
   assert.match(selectorSource, /\{agent\.name\}/u);
 
   console.log('bradley-agent-selector-contract-test: ok');

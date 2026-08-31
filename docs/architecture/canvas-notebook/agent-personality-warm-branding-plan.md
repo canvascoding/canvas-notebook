@@ -534,7 +534,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
 | BRADLEY-040 | fertig | Bradley im Hauptagent-Selector und Chat-Header integrieren; Implementierung: [Bradley im Hauptagent-Selector und Chat-Header](./bradley-main-agent-selector-integration.md) | Nur der Hauptagent erscheint als Bradley; Spezialagenten behalten Name und Icon. |
-| BRADLEY-041 | offen | Bradley-Glyph als Hauptagent-Avatar integrieren | Glyph ist in allen unterstützten Größen und Themes scharf und zugänglich. |
+| BRADLEY-041 | fertig | Bradley-Glyph als Hauptagent-Avatar integrieren; Implementierung: [Bradley-Glyph als Hauptagent-Avatar](./bradley-glyph-ui-integration.md) | Glyph ist in allen unterstützten Größen und Themes scharf und zugänglich. |
 | BRADLEY-042 | offen | Arbeitszustand beim Antwortstart integrieren | Status bleibt semantisch korrekt, screenreader-tauglich und bewegungsarm verfügbar. |
 | BRADLEY-043 | offen | Einen Starter-/Empty-State mit Bradley umsetzen | Bradley unterstützt die Orientierung, ohne Inhalte oder Aktionen zu verdrängen. |
 | BRADLEY-044 | offen | UI- und End-to-End-Prüfung durchführen | Nach ausdrücklicher Playwright-/Browser-Freigabe sind Desktop, Mobile, Light, Dark und Reduced Motion geprüft. |
