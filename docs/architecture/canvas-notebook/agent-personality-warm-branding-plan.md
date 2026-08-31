@@ -76,6 +76,10 @@ Folgende Grundlagen sind bereits vorhanden:
   Vokabular im
   [Bradley Metaphern- und Sprachleitfaden](./bradley-brand-language-guide.md)
   festgelegt.
+- [x] Feste Bradley-Identität, persönliche Zusammenarbeit und Workspace Brand
+  Voice im
+  [Bradley Identitätsebenen-Vertrag](./bradley-identity-layer-contract.md)
+  mit klarer Priorität und prüfbaren Implementierungsgrenzen getrennt.
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
 der kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration
@@ -206,6 +210,10 @@ nicht aus Branding-Gründen umbenannt. Bradley ist zunächst ein Display- und
 Identitätsvertrag, keine technische ID-Migration.
 
 ## 6. Persönlichkeit und Prompt-Hierarchie
+
+Der verbindliche Geltungsbereich, die Konfliktregeln und das Zielbild für die
+spätere Prompt-Zusammensetzung stehen im
+[Bradley Identitätsebenen-Vertrag](./bradley-identity-layer-contract.md).
 
 ### 6.1 Feste Bradley-Identität
 
@@ -411,7 +419,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-002 | fertig | Deutsche und englische Aussprache sowie Namenswirkung prüfen; Entscheidung: [Bradley Sprach- und Namensvalidierung](./bradley-name-language-validation.md) | Aussprache, Nebenbedeutungen, UI-Kontexte und Risiken sind dokumentiert und vom Product Owner freigegeben; größere Stichprobe folgt in BRADLEY-045. |
 | BRADLEY-003 | fertig | Marken- und Namensverfügbarkeit prüfen; Entscheidung: [Bradley Namens- und Verfügbarkeitsprüfung](./bradley-name-availability-assessment.md) | Relevante Produkt-, Domain- und Markenrisiken sowie der begrenzte Nutzungskorridor sind dokumentiert; dies ersetzt keine Rechtsberatung. |
 | BRADLEY-004 | fertig | Primäre Metapher und erlaubtes Vokabular definieren; Vertrag: [Bradley Metaphern- und Sprachleitfaden](./bradley-brand-language-guide.md) | Der Sprachleitfaden legt Canvas und Faltflächen als einzige visuelle Begriffswelt fest und schließt widersprüchliche Metaphern aus. |
-| BRADLEY-005 | offen | Feste, persönliche und Workspace-bezogene Identitätsebenen verbindlich festlegen | Prompt- und Copy-Hierarchie ist als implementierbarer Vertrag beschrieben. |
+| BRADLEY-005 | fertig | Feste, persönliche und Workspace-bezogene Identitätsebenen verbindlich festlegen; Vertrag: [Bradley Identitätsebenen-Vertrag](./bradley-identity-layer-contract.md) | Prompt- und Copy-Hierarchie ist mit Priorität, Geltungsbereich, Konfliktregeln und Tests als implementierbarer Vertrag beschrieben. |
 | BRADLEY-006 | offen | Terminologie Bradley versus Canvas Control Plane Agent abstimmen | Support- und Architekturdokumente unterscheiden beide Agenten eindeutig. |
 
 ### Phase B — Visuelles System
