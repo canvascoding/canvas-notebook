@@ -5,7 +5,6 @@ import {
   DIRECT_MCP_DEFAULT_TOOL_IDS,
   DIRECT_MCP_PROTOCOL_VERSION,
   DIRECT_MCP_SETTINGS_SOURCE_ENV,
-  DIRECT_MCP_TOOL_IDS,
   DIRECT_MCP_TOOLS_ENV,
   DIRECT_MCP_TOOLS_SOURCE_ENV,
   getDirectMcpEnabledTools,
@@ -57,6 +56,7 @@ const DIRECT_MCP_CAPABILITIES: ReadonlyArray<Omit<DirectMcpCapabilityStatus, 'en
   { id: 'read_knowledge_source', available: true, scopes: ['knowledge:read'] },
   { id: 'edit_knowledge_source', available: true, scopes: ['knowledge:write'] },
   { id: 'read_knowledge_asset', available: true, scopes: ['knowledge:assets'] },
+  { id: 'upload_knowledge_asset', available: true, scopes: ['knowledge:write'] },
 ];
 
 function settingsSource(

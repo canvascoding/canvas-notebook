@@ -3512,6 +3512,10 @@
           "read_knowledge_asset": {
             "title": "Bilder und PDFs lesen",
             "description": "Stellt begrenzten visuellen und Textkontext aus sichtbaren Bildern und PDF-Dokumenten nach einer ausdrücklichen Freigabe durch die Administration bereit."
+          },
+          "upload_knowledge_asset": {
+            "title": "Binärdateien hochladen",
+            "description": "Erlaubt größenbegrenzte und per Hash geprüfte Uploads in sichtbare Workspace-Pfade nach einer ausdrücklichen Freigabe durch die Administration."
           }
         }
       },

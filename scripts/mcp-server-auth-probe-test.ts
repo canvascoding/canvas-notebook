@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -24,6 +25,7 @@ const DIRECT_MCP_TOOL_NAMES = [
   'read_knowledge_source',
   'edit_knowledge_source',
   'read_knowledge_asset',
+  'upload_knowledge_asset',
 ] as const;
 const DIRECT_MCP_RESOURCE_SCOPES = [
   'workspace:list',
@@ -442,10 +444,18 @@ async function main(): Promise<void> {
       scopes: ['knowledge:assets'],
     }]);
     assert.equal((assetTool.annotations as JsonRecord).readOnlyHint, true);
+    const uploadTool = tools.find((tool) => tool.name === 'upload_knowledge_asset');
+    assert.ok(uploadTool);
+    assert.deepEqual(uploadTool.securitySchemes, [{
+      type: 'oauth2',
+      scopes: ['knowledge:write'],
+    }]);
+    assert.equal((uploadTool.annotations as JsonRecord).readOnlyHint, false);
+    assert.equal((uploadTool.annotations as JsonRecord).destructiveHint, true);
 
     const { loadWorkspaceListingForActor } = await import('../app/lib/workspaces/listing-action');
     const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
-    const { writeFile } = await import('../app/lib/filesystem/workspace-files');
+    const { readFile, writeFile } = await import('../app/lib/filesystem/workspace-files');
     const {
       grantDirectMcpDefaultWorkspaces,
       setDirectMcpWorkspaceEnabled,
@@ -715,6 +725,510 @@ async function main(): Promise<void> {
     assert.match(
       String((unsupportedAssetResult.content as Array<{ text?: string }>)[0]?.text),
       /Only PNG, JPEG, GIF, WebP images, and PDF documents/u,
+    );
+
+    const uploadedAssetBytes = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9JH8sAAAAASUVORK5CYII=',
+      'base64',
+    );
+    const uploadedAssetSha256 = createHash('sha256').update(uploadedAssetBytes).digest('hex');
+    const missingUploadScope = await rpcRequest({
+      post: mcpRoute.POST,
+      token: noProbeScopeToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 36,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'begin',
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-upload.png',
+            size: uploadedAssetBytes.length,
+            mime_type: 'image/png',
+            sha256: uploadedAssetSha256,
+          },
+        },
+      },
+    });
+    const missingUploadScopeResult = resultFromRpc(await readJson(missingUploadScope));
+    assert.equal(missingUploadScopeResult.isError, true);
+    const uploadScopeChallenge = (
+      missingUploadScopeResult._meta as JsonRecord
+    )['mcp/www_authenticate'] as string[];
+    assert.ok(uploadScopeChallenge[0].includes('error="insufficient_scope"'));
+    assert.ok(uploadScopeChallenge[0].includes('scope="knowledge:write"'));
+
+    const beginUpload = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 37,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'begin',
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-upload.png',
+            size: uploadedAssetBytes.length,
+            mime_type: 'image/png',
+            sha256: uploadedAssetSha256,
+          },
+        },
+      },
+    });
+    const beginUploadResult = resultFromRpc(await readJson(beginUpload));
+    assert.notEqual(beginUploadResult.isError, true);
+    const beginUploadContent = beginUploadResult.structuredContent as JsonRecord;
+    assert.equal(beginUploadContent.operation, 'begin');
+    assert.equal(beginUploadContent.next_offset, 0);
+    assert.equal(beginUploadContent.before_sha256, null);
+    assert.equal(beginUploadContent.total_size, uploadedAssetBytes.length);
+    assert.equal(typeof beginUploadContent.upload_id, 'string');
+    assert.ok(Number(beginUploadContent.max_chunk_bytes) >= uploadedAssetBytes.length);
+    const uploadId = String(beginUploadContent.upload_id);
+
+    const tamperedUpload = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 38,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'chunk',
+            workspace_id: workspace.workspaceId,
+            upload_id: `${uploadId.slice(0, -1)}${uploadId.endsWith('A') ? 'B' : 'A'}`,
+            offset: 0,
+            data_base64: uploadedAssetBytes.toString('base64'),
+          },
+        },
+      },
+    });
+    const tamperedUploadResult = resultFromRpc(await readJson(tamperedUpload));
+    assert.equal(tamperedUploadResult.isError, true);
+    assert.match(
+      String((tamperedUploadResult.content as Array<{ text?: string }>)[0]?.text),
+      /invalid or expired/u,
+    );
+
+    const malformedChunk = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 39,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'chunk',
+            workspace_id: workspace.workspaceId,
+            upload_id: uploadId,
+            offset: 0,
+            data_base64: `${uploadedAssetBytes.toString('base64')}\n`,
+          },
+        },
+      },
+    });
+    const malformedChunkResult = resultFromRpc(await readJson(malformedChunk));
+    assert.equal(malformedChunkResult.isError, true);
+    assert.match(
+      String((malformedChunkResult.content as Array<{ text?: string }>)[0]?.text),
+      /canonical standard Base64/u,
+    );
+
+    const splitOffset = Math.floor(uploadedAssetBytes.length / 2);
+    const offsetMismatch = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 40,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'chunk',
+            workspace_id: workspace.workspaceId,
+            upload_id: uploadId,
+            offset: 1,
+            data_base64: uploadedAssetBytes.subarray(0, splitOffset).toString('base64'),
+          },
+        },
+      },
+    });
+    const offsetMismatchResult = resultFromRpc(await readJson(offsetMismatch));
+    assert.equal(offsetMismatchResult.isError, true);
+    assert.match(
+      String((offsetMismatchResult.content as Array<{ text?: string }>)[0]?.text),
+      /expects byte 0/u,
+    );
+
+    const firstChunk = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 41,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'chunk',
+            workspace_id: workspace.workspaceId,
+            upload_id: uploadId,
+            offset: 0,
+            data_base64: uploadedAssetBytes.subarray(0, splitOffset).toString('base64'),
+          },
+        },
+      },
+    });
+    const firstChunkResult = resultFromRpc(await readJson(firstChunk));
+    assert.equal((firstChunkResult.structuredContent as JsonRecord).next_offset, splitOffset);
+
+    const duplicateChunk = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 42,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'chunk',
+            workspace_id: workspace.workspaceId,
+            upload_id: uploadId,
+            offset: 0,
+            data_base64: uploadedAssetBytes.subarray(0, splitOffset).toString('base64'),
+          },
+        },
+      },
+    });
+    const duplicateChunkResult = resultFromRpc(await readJson(duplicateChunk));
+    assert.equal((duplicateChunkResult.structuredContent as JsonRecord).already_received, true);
+    assert.equal((duplicateChunkResult.structuredContent as JsonRecord).next_offset, splitOffset);
+
+    const finalChunk = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 43,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'chunk',
+            workspace_id: workspace.workspaceId,
+            upload_id: uploadId,
+            offset: splitOffset,
+            data_base64: uploadedAssetBytes.subarray(splitOffset).toString('base64'),
+          },
+        },
+      },
+    });
+    const finalChunkResult = resultFromRpc(await readJson(finalChunk));
+    assert.equal(
+      (finalChunkResult.structuredContent as JsonRecord).next_offset,
+      uploadedAssetBytes.length,
+    );
+
+    const completeUpload = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 44,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'complete',
+            workspace_id: workspace.workspaceId,
+            upload_id: uploadId,
+          },
+        },
+      },
+    });
+    const completeUploadResult = resultFromRpc(await readJson(completeUpload));
+    assert.notEqual(
+      completeUploadResult.isError,
+      true,
+      JSON.stringify(completeUploadResult),
+    );
+    const completeUploadContent = completeUploadResult.structuredContent as JsonRecord;
+    assert.equal(completeUploadContent.path, 'mcp-server-upload.png');
+    assert.equal(completeUploadContent.after_sha256, uploadedAssetSha256);
+    assert.equal(completeUploadContent.mime_type, 'image/png');
+    assert.equal(completeUploadContent.detected_mime_type, 'image/png');
+    assert.equal(completeUploadContent.already_completed, false);
+
+    const readUploadedAsset = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 45,
+        method: 'tools/call',
+        params: {
+          name: 'read_knowledge_asset',
+          arguments: { workspace_id: workspace.workspaceId, path: 'mcp-server-upload.png' },
+        },
+      },
+    });
+    const readUploadedAssetResult = resultFromRpc(await readJson(readUploadedAsset));
+    assert.equal(
+      (readUploadedAssetResult.structuredContent as JsonRecord).sha256,
+      uploadedAssetSha256,
+    );
+
+    const overwriteWithoutRevision = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 46,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'begin',
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-upload.png',
+            size: uploadedAssetBytes.length,
+            mime_type: 'image/png',
+            sha256: uploadedAssetSha256,
+            overwrite: true,
+          },
+        },
+      },
+    });
+    const overwriteWithoutRevisionResult = resultFromRpc(await readJson(overwriteWithoutRevision));
+    assert.equal(overwriteWithoutRevisionResult.isError, true);
+    assert.match(
+      String((overwriteWithoutRevisionResult.content as Array<{ text?: string }>)[0]?.text),
+      /expected_sha256 is missing/u,
+    );
+
+    const badHashBytes = Buffer.from([0, 1, 2, 3]);
+    const beginBadHashUpload = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 47,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'begin',
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-bad-hash.bin',
+            size: badHashBytes.length,
+            sha256: '0'.repeat(64),
+          },
+        },
+      },
+    });
+    const beginBadHashResult = resultFromRpc(await readJson(beginBadHashUpload));
+    const badHashUploadId = String(
+      (beginBadHashResult.structuredContent as JsonRecord).upload_id,
+    );
+    const badHashChunk = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 48,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'chunk',
+            workspace_id: workspace.workspaceId,
+            upload_id: badHashUploadId,
+            offset: 0,
+            data_base64: badHashBytes.toString('base64'),
+          },
+        },
+      },
+    });
+    assert.notEqual(resultFromRpc(await readJson(badHashChunk)).isError, true);
+    const completeBadHash = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 49,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'complete',
+            workspace_id: workspace.workspaceId,
+            upload_id: badHashUploadId,
+          },
+        },
+      },
+    });
+    const completeBadHashResult = resultFromRpc(await readJson(completeBadHash));
+    assert.equal(completeBadHashResult.isError, true);
+    assert.match(
+      String((completeBadHashResult.content as Array<{ text?: string }>)[0]?.text),
+      /does not match the declared size or SHA-256 hash/u,
+    );
+
+    const abortedBytes = Buffer.from([0, 7]);
+    const beginAbortedUpload = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 50,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'begin',
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-aborted.bin',
+            size: abortedBytes.length,
+            sha256: createHash('sha256').update(abortedBytes).digest('hex'),
+          },
+        },
+      },
+    });
+    const abortedUploadId = String(
+      (resultFromRpc(await readJson(beginAbortedUpload)).structuredContent as JsonRecord).upload_id,
+    );
+    const abortUpload = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 52,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'abort',
+            workspace_id: workspace.workspaceId,
+            upload_id: abortedUploadId,
+          },
+        },
+      },
+    });
+    assert.equal(
+      (resultFromRpc(await readJson(abortUpload)).structuredContent as JsonRecord).operation,
+      'abort',
+    );
+    const chunkAfterAbort = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 53,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'chunk',
+            workspace_id: workspace.workspaceId,
+            upload_id: abortedUploadId,
+            offset: 0,
+            data_base64: abortedBytes.toString('base64'),
+          },
+        },
+      },
+    });
+    assert.match(
+      String((resultFromRpc(await readJson(chunkAfterAbort)).content as Array<{ text?: string }>)[0]?.text),
+      /invalid or expired/u,
+    );
+
+    const initialConflictBytes = Buffer.from([0, 1]);
+    const replacementConflictBytes = Buffer.from([0, 2]);
+    const concurrentConflictBytes = Buffer.from([0, 9]);
+    await writeFile('mcp-server-upload-conflict.bin', initialConflictBytes, { workspace });
+    const initialConflictSha256 = createHash('sha256').update(initialConflictBytes).digest('hex');
+    const beginConflictUpload = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 54,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'begin',
+            workspace_id: workspace.workspaceId,
+            path: 'mcp-server-upload-conflict.bin',
+            size: replacementConflictBytes.length,
+            sha256: createHash('sha256').update(replacementConflictBytes).digest('hex'),
+            overwrite: true,
+            expected_sha256: initialConflictSha256,
+          },
+        },
+      },
+    });
+    const conflictUploadId = String(
+      (resultFromRpc(await readJson(beginConflictUpload)).structuredContent as JsonRecord).upload_id,
+    );
+    const conflictChunk = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 55,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'chunk',
+            workspace_id: workspace.workspaceId,
+            upload_id: conflictUploadId,
+            offset: 0,
+            data_base64: replacementConflictBytes.toString('base64'),
+          },
+        },
+      },
+    });
+    assert.notEqual(resultFromRpc(await readJson(conflictChunk)).isError, true);
+    await writeFile('mcp-server-upload-conflict.bin', concurrentConflictBytes, { workspace });
+    const completeConflictUpload = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 56,
+        method: 'tools/call',
+        params: {
+          name: 'upload_knowledge_asset',
+          arguments: {
+            operation: 'complete',
+            workspace_id: workspace.workspaceId,
+            upload_id: conflictUploadId,
+          },
+        },
+      },
+    });
+    const completeConflictResult = resultFromRpc(await readJson(completeConflictUpload));
+    assert.equal(completeConflictResult.isError, true);
+    assert.match(
+      String((completeConflictResult.content as Array<{ text?: string }>)[0]?.text),
+      /destination changed while the upload was in progress/u,
+    );
+    assert.deepEqual(
+      await readFile('mcp-server-upload-conflict.bin', { workspace }),
+      concurrentConflictBytes,
     );
 
     const staleEdit = await rpcRequest({

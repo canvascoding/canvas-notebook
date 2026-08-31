@@ -3513,6 +3513,10 @@
           "read_knowledge_asset": {
             "title": "Read images and PDFs",
             "description": "Provides bounded visual and text context from visible images and PDF documents after an explicit administrator enablement."
+          },
+          "upload_knowledge_asset": {
+            "title": "Upload binary files",
+            "description": "Allows size-limited, hash-verified uploads to visible workspace paths after an explicit administrator enablement."
           }
         }
       },
