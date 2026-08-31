@@ -22,6 +22,7 @@ async function main() {
     generalSettingsSource,
     onboardingPageSource,
     onboardingWizardSource,
+    homePageSource,
   ] = await Promise.all([
     readFile(path.join(root, 'messages/en.json'), 'utf8').then((value) => JSON.parse(value) as Messages),
     readFile(path.join(root, 'messages/de.json'), 'utf8').then((value) => JSON.parse(value) as Messages),
@@ -31,6 +32,7 @@ async function main() {
     readFile(path.join(root, 'app/components/settings/GeneralSettingsPanel.tsx'), 'utf8'),
     readFile(path.join(root, 'app/[locale]/(routes)/onboarding/page.tsx'), 'utf8'),
     readFile(path.join(root, 'app/[locale]/(routes)/onboarding/onboarding-wizard.tsx'), 'utf8'),
+    readFile(path.join(root, 'app/[locale]/(routes)/page.tsx'), 'utf8'),
   ]);
 
   for (const messages of [english, german]) {
@@ -52,6 +54,8 @@ async function main() {
   assert.match(onboardingPageSource, /resolveUserProfile/, 'onboarding must resolve the signed-in user profile server-side');
   assert.match(onboardingWizardSource, /step === 'language'[\s\S]*?<LanguageStep/, 'profile appearance must remain in the existing language step');
   assert.match(onboardingWizardSource, /<ProfileAppearanceEditor initialProfile=\{initialUserProfile\}/, 'language step must render the shared editor');
+  assert.match(homePageSource, /resolveUserProfile/, 'home must resolve the signed-in user profile server-side');
+  assert.match(homePageSource, /<UserProfileBadge profile=\{userProfile\}/, 'home header must show the profile badge');
 
   console.log(`User profile UI contract passed with ${USER_AVATAR_ICON_IDS.length} curated icons.`);
 }

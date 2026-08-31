@@ -16,6 +16,8 @@ import { VersionUpdateIndicator } from '@/app/components/VersionUpdateIndicator'
 import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { WorkspaceBrandLogo } from '@/app/components/workspaces/WorkspaceBrandLogo';
 import { isBrowserLabAllowed } from '@/app/lib/pi/browser/view-access';
+import { resolveUserProfile } from '@/app/lib/user-profile/service';
+import { UserProfileBadge } from '@/app/components/user-profile/UserProfileBadge';
 
 const repositoryUrl = 'https://github.com/canvascoding/canvas-notebook';
 const releaseVersion = packageJson.version;
@@ -27,6 +29,11 @@ export default async function Home() {
   const onboardingHintsEnabled = isOnboardingHintsEnabled();
   const session = await requirePageSession();
   const userOnboarding = session ? await getUserOnboardingState(session.user.id) : null;
+  const userProfile = await resolveUserProfile({
+    userId: session.user.id,
+    name: session.user.name,
+    email: session.user.email,
+  });
   const showPersonalTour = userOnboarding?.tour === 'started';
 
   return (
@@ -58,6 +65,7 @@ export default async function Home() {
                 <div className="hidden min-[380px]:block">
                   <ThemeToggle />
                 </div>
+                <UserProfileBadge profile={userProfile} />
                 <LogoutButton />
               </div>
             </div>
