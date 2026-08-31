@@ -1293,10 +1293,6 @@ export async function ensurePostgresOrganizationBootstrapForUser(
   const ownerUser = await findPostgresUserById(database, organization.owner_user_id) || targetUser;
   await database.run('UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?', ['admin', now, ownerUser.id]);
   const ownerPermission = await ensurePermissionRow(database, organization.organization_id, ownerUser.id, 'owner');
-  if (targetUser.id !== ownerUser.id) {
-    await database.run('UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?', ['admin', now, targetUser.id]);
-    await ensurePermissionRow(database, organization.organization_id, targetUser.id, 'admin');
-  }
 
   await ensureWorkspaceRecord(database, {
     organizationId: organization.organization_id,
