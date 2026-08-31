@@ -14,4 +14,6 @@ contextBridge.exposeInMainWorld('canvasDesktop', {
   getNotificationSettings: () => invoke('desktop:get-notification-settings'),
   setNotificationSettings: settings => invoke('desktop:set-notification-settings', settings),
   showChatNotification: payload => invoke('desktop:show-chat-notification', payload),
+  prepareFileDrag: request => invoke('desktop:prepare-file-drag', request),
+  startFileDrag: request => ipcRenderer.send('desktop:start-file-drag', request),
 });
