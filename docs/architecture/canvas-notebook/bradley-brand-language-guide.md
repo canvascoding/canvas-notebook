@@ -101,7 +101,9 @@ Fäden oder Weben gearbeitet.
 
 Die vollständigen wiederkehrenden UI-Zustände und ihre englischen Entsprechungen
 sind in der [Bradley Zustands-Copy-Matrix](./bradley-state-copy-matrix.md)
-verbindlich festgelegt.
+verbindlich festgelegt. Ursache, Auswirkung, sichere nächste Aktion und
+Retry-Regeln folgen den
+[Bradley Fehler- und Recovery-Mustern](./bradley-error-recovery-patterns.md).
 
 ## Freigegebene Kernformulierungen
 

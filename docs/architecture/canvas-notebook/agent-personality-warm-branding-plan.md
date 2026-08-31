@@ -473,7 +473,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
 | BRADLEY-020 | fertig | Vollständige Zustands-Copy-Matrix erstellen; Vertrag: [Bradley Zustands-Copy-Matrix](./bradley-state-copy-matrix.md) | Alle Runtime-, Tool-, Queue-, Delegations-, Automation-, Warte-, Erfolgs- und Fehlerzustände besitzen DE-/EN-Texte. |
-| BRADLEY-021 | offen | Fehler- und Recovery-Muster definieren | Jede Fehlermeldung kann Ursache, Auswirkung und nächste Aktion sachlich anzeigen. |
+| BRADLEY-021 | fertig | Fehler- und Recovery-Muster definieren; Vertrag: [Bradley Fehler- und Recovery-Muster](./bradley-error-recovery-patterns.md) | Jede Fehlermeldung kann Ursache, Auswirkung und nächste Aktion sachlich anzeigen. |
 | BRADLEY-022 | offen | Kontextmatrix für Hauptagent, Spezialagent, E-Mail-Agent und Automation erstellen | Für jede Oberfläche ist definiert, welcher Name und welches Icon erscheinen. |
 | BRADLEY-023 | offen | Anti-Clippy- und Motion-Regeln in die UI-Spezifikation übernehmen | Review-Checkliste deckt Unterbrechungen, Idle-Animation, Reduced Motion und Barrierefreiheit ab. |
 | BRADLEY-024 | offen | DE-/EN-Sprachleitfaden für Bradley erstellen | Ton, Anrede, Pronomen, Metaphern, Fehlersprache und verbotene Formulierungen sind dokumentiert. |

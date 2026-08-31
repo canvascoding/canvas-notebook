@@ -236,8 +236,9 @@ oder eine Erfolgsanimation ohne konkrete Ergebnisinformation.
 ## Fehlerzustände
 
 Die folgende Matrix definiert die stabilen Primär- und Ursachenzeilen. Der
-vollständige Aufbau aus Ursache, Auswirkung und nächster Aktion wird in
-BRADLEY-021 als Recovery-Muster spezifiziert.
+vollständige Aufbau aus Ursache, Auswirkung und nächster Aktion ist in den
+[Bradley Fehler- und Recovery-Mustern](./bradley-error-recovery-patterns.md)
+spezifiziert.
 
 | Zustand | Deutsch | English |
 | --- | --- | --- |
@@ -305,4 +306,4 @@ folgende Fragen beantworten kann:
 Runtime-, Tool-, Datei-, Queue-, Delegations-, Automation-, Warte-, Erfolgs-
 und Fehlerzustände besitzen mit dieser Matrix verbindliche DE-/EN-Texte und
 einen stabilen Platzhaltervertrag. Die Detailstruktur für Recovery-Aktionen
-folgt unmittelbar in BRADLEY-021.
+ist im Vertrag zu BRADLEY-021 festgelegt.
