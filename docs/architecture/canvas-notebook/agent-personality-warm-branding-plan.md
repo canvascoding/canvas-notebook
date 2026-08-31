@@ -54,11 +54,14 @@ Folgende Grundlagen sind bereits vorhanden:
   Control-Plane-Strukturen im Repository grob abgeglichen.
 - [x] Dieses Konzept mit offenen Entscheidungen und Umsetzungsschritten im
   Repository dokumentiert.
+- [x] Erste flache Mo-Glyph-Variante einschließlich monochromer Version und
+  Größen-Prüfbogen unter `docs/architecture/canvas-notebook/assets/mo/`
+  erstellt.
 
 Noch nicht entschieden oder umgesetzt sind insbesondere der endgültige
-Namensvertrag, die kleine SVG-/Icon-Variante, die Prompt-Hierarchie, die
-Migration bestehender Installationen, die vollständige Zustands-Copy und die
-UI-Integration.
+Namensvertrag, die finale Freigabe der kleinen SVG-/Icon-Variante, die
+Prompt-Hierarchie, die Migration bestehender Installationen, die vollständige
+Zustands-Copy und die UI-Integration.
 
 ## 3. Identität und Name
 
@@ -391,8 +394,8 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | MO-010 | offen | Referenzrender und Nutzungsnachweis portabel ins Projekt übernehmen | Masterdatei und Herkunft liegen an einem stabilen, dokumentierten Projektpfad. |
 | MO-011 | offen | Transparentes Mo-Character-Master erstellen | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
 | MO-012 | offen | Light- und Dark-Mode-Character-Varianten erstellen | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
-| MO-013 | offen | Mo-Glyph als SVG entwerfen | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
-| MO-014 | offen | Monochrome und High-Contrast-Varianten erstellen | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
+| MO-013 | in Arbeit | Mo-Glyph als SVG entwerfen; v1 liegt unter `docs/architecture/canvas-notebook/assets/mo/` | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
+| MO-014 | in Arbeit | Monochrome und High-Contrast-Varianten erstellen; monochrome v1 liegt vor | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
 | MO-015 | offen | Kleine Zustandsvarianten definieren | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
 | MO-016 | offen | Motion-Spezifikation inklusive Reduced Motion erstellen | Dauer, Easing, Bedeutung, Performance und bewegungsarme Alternative sind dokumentiert. |
 
