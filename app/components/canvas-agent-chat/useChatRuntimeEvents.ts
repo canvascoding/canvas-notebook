@@ -281,6 +281,8 @@ export function useChatRuntimeEvents({
         estimatedHistoryTokens: 0,
         availableHistoryTokens: 0,
         contextUsagePercent: 0,
+        finalRequestTokens: null,
+        finalRequestBudgetExceeded: false,
         includedSummary: false,
         omittedMessageCount: 0,
         summaryUpdatedAt: null,

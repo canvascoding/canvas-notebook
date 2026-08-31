@@ -1325,6 +1325,8 @@
     "contextLabel": "{used}/{available} budget · {window} window",
     "contextCompactLabel": "{used}/{available} budget",
     "contextTooltip": "History budget: {used} of {available} tokens used ({percent}%)\nModel window: {window} tokens\nReserved for system, tools, response, and safety: approx. {reserved} tokens",
+    "contextFinalLabel": "{used}/{window} serialized",
+    "contextFinalTooltip": "Final serialized request: {used} of {window} tokens ({percent}%)\nIncludes instructions, tools, normalized attachments, output reserve, and safety margin.",
     "noSessionYet": "No session yet",
     "backToChat": "Back to chat",
     "openHistory": "Open history",
