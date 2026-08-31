@@ -24,7 +24,7 @@ import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/cl
 import { prepareImageFilesForUpload, serializeUploadConvertParams } from '@/app/lib/images/client-upload-conversion';
 import { fetchChatAgents } from '@/app/lib/chat/agent-api';
 import { fetchLastActiveAgentId, saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
-import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
+import { getAgentProfileDisplayName } from '@/app/lib/chat/agent-display';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import { listWorkspaceFileReferences, type WorkspaceFileReferenceEntry } from '@/app/lib/files/client';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
@@ -100,11 +100,15 @@ export function PromptHero({ onModeChange }: PromptHeroProps = {}) {
     agentListState.workspaceId === activeWorkspaceId ? agentListState.agents : []
   ), [activeWorkspaceId, agentListState]);
   const agentOptions = useMemo(() => (
-    availableAgents.length > 0 ? availableAgents : [DEFAULT_AGENT_PROFILE]
+    (availableAgents.length > 0 ? availableAgents : [DEFAULT_AGENT_PROFILE])
+      .map((agent) => ({
+        ...agent,
+        name: getAgentProfileDisplayName(agent.agentId, agent.name),
+      }))
   ), [availableAgents]);
   const selectedAgent = agentOptions.find((agent) => agent.agentId === selectedAgentId);
   const effectiveSelectedAgentId = selectedAgent?.agentId || DEFAULT_AGENT_ID;
-  const selectedAgentName = selectedAgent?.name || getAgentDisplayName(effectiveSelectedAgentId);
+  const selectedAgentName = getAgentProfileDisplayName(effectiveSelectedAgentId, selectedAgent?.name);
   const promptSuggestions = useMemo(() => (
     isStudioMode
       ? [

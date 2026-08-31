@@ -51,7 +51,7 @@ import {
   writeCanvasChatActiveSessionStorage,
 } from '@/app/lib/chat/constants';
 import { removeComposerDraft } from '@/app/lib/chat/draft-storage';
-import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
+import { getAgentProfileDisplayName } from '@/app/lib/chat/agent-display';
 import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
 import { useChatAgentConfig } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
@@ -1087,11 +1087,15 @@ export default function CanvasAgentChat({
   useEffect(() => () => onSessionContextChange?.(null), [onSessionContextChange]);
   const isSessionTitleGenerating = activeSession?.titleGenerationState === 'pending' || activeSession?.titleGenerationState === 'generating';
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
-  const activeAgentDisplayName = activeAgentProfile?.name || getAgentDisplayName(activeSessionAgentId);
+  const activeAgentDisplayName = getAgentProfileDisplayName(activeSessionAgentId, activeAgentProfile?.name);
   const chatAgentOptions = useMemo<AgentProfile[]>(() => (
-    availableAgents.length > 0
+    (availableAgents.length > 0
       ? availableAgents
       : [{ agentId: CHAT_AGENT_ID, name: MAIN_AGENT_DISPLAY_NAME, iconId: 'bot', type: 'main', removable: false }]
+    ).map((agent) => ({
+      ...agent,
+      name: getAgentProfileDisplayName(agent.agentId, agent.name),
+    }))
   ), [availableAgents]);
 
   const historyPanelProps: Omit<ChatHistoryPanelProps, 'variant' | 'width' | 'onBackToChat'> = {
