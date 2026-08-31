@@ -29,6 +29,15 @@ export function findChromiumExecutable(): string {
   return resolveChromiumExecutable().executablePath;
 }
 
+/**
+ * PDF rendering does not need browser state to survive a Node.js process.
+ * Keeping the profile process-scoped prevents multiple app workers from
+ * attempting to open Chromium with the same profile directory.
+ */
+export function getPdfBrowserProfileId(pid: number = process.pid): string {
+  return `${PDF_EXPORT_PROFILE_ID}-${pid}`;
+}
+
 export async function getBrowser(): Promise<Browser> {
   if (browser?.connected) return browser;
 
@@ -46,7 +55,7 @@ export async function getBrowser(): Promise<Browser> {
 }
 
 async function launchPdfBrowser(): Promise<Browser> {
-  const userDataDir = resolveBrowserUserDataDir(process.env, nodeFs.existsSync, PDF_EXPORT_PROFILE_ID);
+  const userDataDir = resolveBrowserUserDataDir(process.env, nodeFs.existsSync, getPdfBrowserProfileId());
   const launchSpec = buildBrowserLaunchSpec({ forceHeadless: true, userDataDir });
   await fs.mkdir(launchSpec.userDataDir, { recursive: true });
   const preparation = await prepareBrowserProfileForLaunch(launchSpec.userDataDir);

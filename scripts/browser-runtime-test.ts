@@ -305,8 +305,14 @@ async function testActiveProfileLockIsPreserved() {
 }
 
 async function testPdfRendererClosedErrorsAreClassified() {
-  const { getPdfRendererClosedMessage, isPdfRendererClosedError } = await importPdfBrowser();
+  const {
+    getPdfBrowserProfileId,
+    getPdfRendererClosedMessage,
+    isPdfRendererClosedError,
+  } = await importPdfBrowser();
 
+  assert.equal(getPdfBrowserProfileId(1234), 'pdf-export-1234');
+  assert.notEqual(getPdfBrowserProfileId(1234), getPdfBrowserProfileId(5678));
   assert.equal(
     isPdfRendererClosedError(new Error('Protocol error (Target.setDiscoverTargets): Target closed')),
     true,
