@@ -263,6 +263,45 @@ async function main(): Promise<void> {
     'message_end must immediately expose provider-reported input usage to the runtime status',
   );
 
+  const calibratedPreflight = {
+    softThresholdExceeded: true,
+    contextBudgetExceeded: false,
+    omittedMessages: [],
+  };
+  const calibrationRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
+  Object.assign(calibrationRuntime, {
+    provider: 'test-provider',
+    model,
+    summary: { summaryText: null, summaryThroughSequence: null },
+    lastProviderUsageCalibration: {
+      provider: 'test-provider',
+      model: 'test-model',
+      relativeDelta: -0.12,
+    },
+    messageContextSnapshots: new Map(),
+    getRuntimeContextBlock: async () => null,
+    composeHistory: () => calibratedPreflight,
+    finalizeContextCandidate: async ({ sourceMessages }: { sourceMessages: AgentMessage[] }) => sourceMessages,
+    coordinateCompaction: async () => {
+      throw new Error('a conservative provider calibration must defer soft-threshold compaction');
+    },
+  });
+  const calibrationCandidate = [{ role: 'user', content: 'calibrated prompt', timestamp: now.getTime() }] as AgentMessage[];
+  assert.deepEqual(await (calibrationRuntime as {
+    transformContext: (messages: AgentMessage[]) => Promise<AgentMessage[]>;
+  }).transformContext(calibrationCandidate), calibrationCandidate);
+  calibrationRuntime.lastProviderUsageCalibration = {
+    provider: 'test-provider', model: 'test-model', relativeDelta: -0.12,
+  };
+  calibratedPreflight.contextBudgetExceeded = true;
+  assert.equal(
+    (calibrationRuntime as { shouldDeferSoftThresholdCompaction: (preflight: unknown) => boolean })
+      .shouldDeferSoftThresholdCompaction(calibratedPreflight),
+    false,
+    'provider calibration must never bypass a hard context limit',
+  );
+  calibratedPreflight.contextBudgetExceeded = false;
+
   const compactPromise = runtime.compactNow();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(summaryCalls, 1);
