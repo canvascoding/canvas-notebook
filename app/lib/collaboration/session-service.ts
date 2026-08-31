@@ -9,7 +9,11 @@ import {
   loadExcalidrawScene,
 } from '@/app/lib/excalidraw-collaboration/repository';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
-import { materializeCollaborationCheckpoint } from './checkpoint';
+import {
+  finalizeCollaborationCheckpointProjection,
+  materializeCollaborationCheckpoint,
+  writeCollaborationCheckpointFile,
+} from './checkpoint';
 import {
   CollaborationDocumentStateError,
   resolveTextCollaborationState,
@@ -19,7 +23,6 @@ import {
   CollaborationRepresentationMigrationError,
   changeCollaborationRepresentation,
   changeCollaborationRepresentationWithSafeMarkdownNormalization,
-  loadCollaborationState,
   loadCollaborationStateIncludingArchived,
 } from './persistence';
 import { COLLABORATION_SCHEMA_VERSION } from './types';
@@ -197,17 +200,32 @@ export async function createCollaborationSessionGrant(input: {
               documentId: resolved.state.documentId,
               expectedLifecycleGeneration: resolved.state.lifecycleGeneration,
               schemaVersion: COLLABORATION_SCHEMA_VERSION,
+              checkpoint: {
+                write: ({ state, canonicalContent }) => writeCollaborationCheckpointFile({
+                  state,
+                  workspace,
+                  canonicalContent,
+                  actorType: 'system',
+                }),
+                restore: async ({ state, canonicalContent }) => {
+                  await materializeCollaborationCheckpoint({
+                    state,
+                    workspace,
+                    canonicalContent,
+                    actorType: 'system',
+                  });
+                },
+                finalize: ({ state, fileWrite }) => {
+                  finalizeCollaborationCheckpointProjection({
+                    state,
+                    workspace,
+                    revisionId: fileWrite.revisionId,
+                  });
+                },
+              },
             });
-            if (migration.checkpointRequired) {
-              await materializeCollaborationCheckpoint({
-                state: migration.state,
-                workspace,
-                canonicalContent: migration.canonicalContent,
-                actorType: 'system',
-              });
-            }
             resolved = {
-              state: await loadCollaborationState(migration.state.documentId) || migration.state,
+              state: migration.state,
               initialized: false,
             };
           } else {

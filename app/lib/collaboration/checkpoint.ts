@@ -25,6 +25,80 @@ export class CollaborationCheckpointSupersededError extends Error {
   }
 }
 
+export type CollaborationCheckpointFileWrite = {
+  content: string;
+  revisionId: string;
+  serializedContent: string;
+};
+
+export async function writeCollaborationCheckpointFile(input: {
+  state: PersistedCollaborationState;
+  workspace: WorkspaceContext;
+  canonicalContent: string;
+  actorUserId?: string | null;
+  actorType?: 'user' | 'agent' | 'system';
+  sourceSessionId?: string | null;
+}): Promise<CollaborationCheckpointFileWrite> {
+  if (input.state.workspaceId !== input.workspace.workspaceId) {
+    throw new Error('Collaboration checkpoint workspace mismatch.');
+  }
+  if (Buffer.byteLength(input.canonicalContent, 'utf8') > 5 * 1024 * 1024) {
+    throw new Error('Collaboration checkpoint exceeds the 5 MiB text limit.');
+  }
+
+  const canonical = input.canonicalContent.replace(/\r\n?/gu, '\n');
+  const serialized = serializeCanonicalText(canonical, input.state);
+  const fileOptions = workspaceFileOptions(input.workspace);
+  await writeFile(input.state.path, serialized, fileOptions);
+  const fileRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
+  if (!fileRevision) throw new Error('Collaboration checkpoint could not be read after write.');
+
+  const revision = ensureFileRevisionForCurrentContent({
+    workspace: input.workspace,
+    path: input.state.path,
+    contentHash: fileRevision.sha256,
+    sizeBytes: fileRevision.stats.size,
+    actorUserId: input.actorUserId ?? null,
+    actorType: input.actorType ?? 'system',
+    sourceSessionId: input.sourceSessionId ?? null,
+  });
+  return {
+    content: serialized,
+    revisionId: revision.id,
+    serializedContent: serialized,
+  };
+}
+
+export function finalizeCollaborationCheckpointProjection(input: {
+  state: PersistedCollaborationState;
+  workspace: WorkspaceContext;
+  revisionId: string;
+}): void {
+  const projectedDocument = markCollaborationDocumentCheckpoint({
+    workspace: input.workspace,
+    path: input.state.path,
+    documentId: input.state.documentId,
+    stateVersion: input.state.checkpointSequence,
+    snapshotRevisionId: input.revisionId,
+  });
+  if (
+    !projectedDocument
+    || projectedDocument.id !== input.state.documentId
+    || projectedDocument.stateVersion !== input.state.checkpointSequence
+    || projectedDocument.snapshotRevisionId !== input.revisionId
+  ) {
+    throw new Error('Collaboration checkpoint could not update the authoritative file projection.');
+  }
+
+  const fileOptions = workspaceFileOptions(input.workspace);
+  invalidateWorkspaceFileViews({
+    fileOptions,
+    subtreeDirs: [getParentDirectory(input.state.path)],
+    mutations: [{ path: input.state.path, type: 'change' }],
+  });
+  queuePublicSharesAfterWrite([input.state.path], input.workspace);
+}
+
 export async function materializeCollaborationCheckpoint(input: {
   state: PersistedCollaborationState;
   workspace: WorkspaceContext;
@@ -51,22 +125,11 @@ export async function materializeCollaborationCheckpoint(input: {
       input.state.documentSequence,
     );
   }
-  if (Buffer.byteLength(input.canonicalContent, 'utf8') > 5 * 1024 * 1024) {
-    throw new Error('Collaboration checkpoint exceeds the 5 MiB text limit.');
-  }
-
   const canonical = input.canonicalContent.replace(/\r\n?/gu, '\n');
-  const serialized = serializeCanonicalText(canonical, input.state);
-  const fileOptions = workspaceFileOptions(input.workspace);
-  await writeFile(input.state.path, serialized, fileOptions);
-  const fileRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
-  if (!fileRevision) throw new Error('Collaboration checkpoint could not be read after write.');
-
-  const revision = ensureFileRevisionForCurrentContent({
+  const fileWrite = await writeCollaborationCheckpointFile({
+    state: input.state,
     workspace: input.workspace,
-    path: input.state.path,
-    contentHash: fileRevision.sha256,
-    sizeBytes: fileRevision.stats.size,
+    canonicalContent: canonical,
     actorUserId: input.actorUserId ?? null,
     actorType: input.actorType ?? 'system',
     sourceSessionId: input.sourceSessionId ?? null,
@@ -79,7 +142,7 @@ export async function materializeCollaborationCheckpoint(input: {
     schemaVersion: input.state.schemaVersion,
     sequence: input.state.documentSequence,
     canonicalContent: canonical,
-    serializedContent: serialized,
+    serializedContent: fileWrite.serializedContent,
   });
   if (!checkpointedState) {
     throw new CollaborationCheckpointSupersededError(
@@ -87,27 +150,10 @@ export async function materializeCollaborationCheckpoint(input: {
       input.state.documentSequence,
     );
   }
-  const projectedDocument = markCollaborationDocumentCheckpoint({
+  finalizeCollaborationCheckpointProjection({
+    state: checkpointedState,
     workspace: input.workspace,
-    path: checkpointedState.path,
-    documentId: checkpointedState.documentId,
-    stateVersion: checkpointedState.checkpointSequence,
-    snapshotRevisionId: revision.id,
+    revisionId: fileWrite.revisionId,
   });
-  if (
-    !projectedDocument
-    || projectedDocument.id !== checkpointedState.documentId
-    || projectedDocument.stateVersion !== checkpointedState.checkpointSequence
-    || projectedDocument.snapshotRevisionId !== revision.id
-  ) {
-    throw new Error('Collaboration checkpoint could not update the authoritative file projection.');
-  }
-
-  invalidateWorkspaceFileViews({
-    fileOptions,
-    subtreeDirs: [getParentDirectory(input.state.path)],
-    mutations: [{ path: input.state.path, type: 'change' }],
-  });
-  queuePublicSharesAfterWrite([input.state.path], input.workspace);
-  return { content: serialized, revisionId: revision.id };
+  return { content: fileWrite.content, revisionId: fileWrite.revisionId };
 }

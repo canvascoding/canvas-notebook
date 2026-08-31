@@ -46,6 +46,30 @@ export interface PersistedCollaborationState {
   status: 'active' | 'archived';
 }
 
+export type SafeMarkdownNormalizationCheckpoint = {
+  write: (input: {
+    state: PersistedCollaborationState;
+    canonicalContent: string;
+  }) => Promise<{
+    content: string;
+    revisionId: string;
+    serializedContent: string;
+  }>;
+  restore: (input: {
+    state: PersistedCollaborationState;
+    canonicalContent: string;
+  }) => Promise<void>;
+  finalize: (input: {
+    state: PersistedCollaborationState;
+    canonicalContent: string;
+    fileWrite: {
+      content: string;
+      revisionId: string;
+      serializedContent: string;
+    };
+  }) => Promise<void> | void;
+};
+
 type StateRow = {
   document_id: string;
   workspace_id: string;
@@ -403,7 +427,8 @@ export class CollaborationRepresentationMigrationError extends Error {
       | 'checkpoint_stale'
       | 'content_unsupported'
       | 'agent_operation_pending'
-      | 'state_changed',
+      | 'state_changed'
+      | 'checkpoint_failed',
   ) {
     super(message);
     this.name = 'CollaborationRepresentationMigrationError';
@@ -531,6 +556,7 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   representation: TextCollaborationRepresentation;
   schemaVersion: number;
   normalizeSafeMarkdown?: boolean;
+  checkpoint?: SafeMarkdownNormalizationCheckpoint;
 }): Promise<{
   canonicalContent: string;
   checkpointRequired: boolean;
@@ -594,6 +620,9 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   const now = Date.now();
   const nextSequence = state.documentSequence + 1;
   const database = await openDb();
+  let checkpointAttempted = false;
+  let checkpointFileWrite: Awaited<ReturnType<SafeMarkdownNormalizationCheckpoint['write']>> | null = null;
+  let committed = false;
   try {
     await database.run('BEGIN');
     const applying = await database.get(
@@ -644,14 +673,80 @@ async function changeCollaborationRepresentationWhileLocked(input: {
         'state_changed',
       );
     }
+    let migratedState = mapState(row);
+    if (checkpointRequired && input.checkpoint) {
+      checkpointAttempted = true;
+      checkpointFileWrite = await input.checkpoint.write({
+        state: migratedState,
+        canonicalContent,
+      });
+      const checkpointedRow = await database.get(
+        `UPDATE collaboration_yjs_states
+         SET checkpointed_at = ?, checkpoint_sequence = ?, canonical_hash = ?,
+             serialized_hash = ?, degraded = 0
+         WHERE document_id = ? AND status = 'active' AND lifecycle_generation = ?
+           AND schema_version = ? AND document_sequence = ?
+         RETURNING *`,
+        [
+          now,
+          nextSequence,
+          sha256Text(canonicalContent),
+          sha256Text(checkpointFileWrite.serializedContent),
+          state.documentId,
+          migratedState.lifecycleGeneration,
+          input.schemaVersion,
+          nextSequence,
+        ],
+      ) as StateRow | undefined;
+      if (!checkpointedRow) {
+        throw new CollaborationRepresentationMigrationError(
+          'Collaboration state changed before the normalized checkpoint could be confirmed.',
+          'state_changed',
+        );
+      }
+      migratedState = mapState(checkpointedRow);
+    }
     await database.run('COMMIT');
+    committed = true;
+    if (checkpointFileWrite && input.checkpoint) {
+      await input.checkpoint.finalize({
+        state: migratedState,
+        canonicalContent,
+        fileWrite: checkpointFileWrite,
+      });
+    }
     return {
       canonicalContent,
       checkpointRequired,
-      state: mapState(row),
+      state: migratedState,
     };
   } catch (error) {
-    try { await database.run('ROLLBACK'); } catch {}
+    if (!committed) {
+      try { await database.run('ROLLBACK'); } catch {}
+    }
+    if (!committed && checkpointAttempted && input.checkpoint) {
+      try {
+        await input.checkpoint.restore({
+          state,
+          canonicalContent: currentCanonicalContent,
+        });
+      } catch (restoreError) {
+        await markCollaborationDegraded(state.documentId, state.lifecycleGeneration);
+        throw new AggregateError(
+          [error, restoreError],
+          'Normalized collaboration migration failed and its file checkpoint could not be restored.',
+        );
+      }
+      if (!(error instanceof CollaborationRepresentationMigrationError)) {
+        throw new CollaborationRepresentationMigrationError(
+          error instanceof Error ? error.message : 'The normalized file checkpoint failed.',
+          'checkpoint_failed',
+        );
+      }
+    }
+    if (committed) {
+      await markCollaborationDegraded(state.documentId, state.lifecycleGeneration + 1);
+    }
     throw error;
   } finally {
     fresh.destroy();
@@ -677,6 +772,7 @@ export async function changeCollaborationRepresentationWithSafeMarkdownNormaliza
   documentId: string;
   expectedLifecycleGeneration: number;
   schemaVersion: number;
+  checkpoint: SafeMarkdownNormalizationCheckpoint;
 }): Promise<{
   canonicalContent: string;
   checkpointRequired: boolean;
@@ -689,6 +785,7 @@ export async function changeCollaborationRepresentationWithSafeMarkdownNormaliza
       ...input,
       representation: 'tiptap_xml',
       normalizeSafeMarkdown: true,
+      checkpoint: input.checkpoint,
     }),
   );
 }

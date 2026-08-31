@@ -30,11 +30,13 @@ import {
 import { installCollaborationDirectConnection } from '../app/lib/collaboration/direct-connection';
 import { installCollaborationDocumentReader } from '../app/lib/collaboration/document-access';
 import {
+  CollaborationRepresentationMigrationError,
   CollaborationStateInactiveError,
   CollaborationStateStaleError,
   archivePersistedCollaborationPaths,
   ensureCollaborationState,
   changeCollaborationRepresentation,
+  changeCollaborationRepresentationWithSafeMarkdownNormalization,
   compactCollaborationState,
   loadCollaborationState,
   markCollaborationCheckpoint,
@@ -1182,6 +1184,59 @@ try {
     representation: 'plain_text',
     initialContent: safeNormalizationMigrationContent,
   });
+  const safeNormalizationStateBeforeFailedCheckpoint = await loadCollaborationState(
+    safeNormalizationMigrationDocumentId,
+  );
+  assert(safeNormalizationStateBeforeFailedCheckpoint);
+  let restoredFailedNormalizationCheckpoint = false;
+  await assert.rejects(
+    () => changeCollaborationRepresentationWithSafeMarkdownNormalization({
+      documentId: safeNormalizationMigrationDocumentId!,
+      expectedLifecycleGeneration: safeNormalizationStateBeforeFailedCheckpoint.lifecycleGeneration,
+      schemaVersion: 1,
+      checkpoint: {
+        write: async ({ canonicalContent }) => {
+          await fs.writeFile(
+            path.join(workspace.rootPath, safeNormalizationMigrationPath),
+            canonicalContent,
+            'utf8',
+          );
+          throw new Error('synthetic normalized checkpoint failure');
+        },
+        restore: async ({ canonicalContent }) => {
+          restoredFailedNormalizationCheckpoint = true;
+          await fs.writeFile(
+            path.join(workspace.rootPath, safeNormalizationMigrationPath),
+            canonicalContent,
+            'utf8',
+          );
+        },
+        finalize: () => {
+          assert.fail('A failed normalized checkpoint must not finalize its file projection.');
+        },
+      },
+    }),
+    (error: unknown) => error instanceof CollaborationRepresentationMigrationError
+      && error.code === 'checkpoint_failed',
+  );
+  assert.equal(restoredFailedNormalizationCheckpoint, true);
+  const safeNormalizationStateAfterFailedCheckpoint = await loadCollaborationState(
+    safeNormalizationMigrationDocumentId,
+  );
+  assert(safeNormalizationStateAfterFailedCheckpoint);
+  assert.equal(safeNormalizationStateAfterFailedCheckpoint.representation, 'plain_text');
+  assert.equal(
+    safeNormalizationStateAfterFailedCheckpoint.lifecycleGeneration,
+    safeNormalizationStateBeforeFailedCheckpoint.lifecycleGeneration,
+  );
+  assert.equal(
+    safeNormalizationStateAfterFailedCheckpoint.documentSequence,
+    safeNormalizationStateBeforeFailedCheckpoint.documentSequence,
+  );
+  assert.equal(
+    await fs.readFile(path.join(workspace.rootPath, safeNormalizationMigrationPath), 'utf8'),
+    safeNormalizationMigrationContent,
+  );
   const safeNormalizationGrant = await createCollaborationSessionGrant({
     workspace,
     fileOptions: { workspace },
