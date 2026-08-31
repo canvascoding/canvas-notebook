@@ -182,6 +182,28 @@ export async function resolveOwnedDirectMcpConnectionClientId(
   }
 }
 
+export async function hasDirectMcpConnectionConsent(input: {
+  clientId: string;
+  userId: string;
+}): Promise<boolean> {
+  const database = await openDb();
+  try {
+    const connection = await database.get(`
+      SELECT 1
+      FROM oauth_consent
+      INNER JOIN oauth_client_resource
+        ON oauth_client_resource.client_id = oauth_consent.client_id
+      WHERE oauth_consent.client_id = ?
+        AND oauth_consent.user_id = ?
+        AND oauth_client_resource.resource_id = ?
+      LIMIT 1
+    `, [input.clientId, input.userId, directMcpResource()]);
+    return Boolean(connection);
+  } finally {
+    await database.close();
+  }
+}
+
 export async function listDirectMcpConnections(
   userId: string,
 ): Promise<DirectMcpConnection[]> {

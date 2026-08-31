@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { NextRequest } from 'next/server';
 
 import {
   DIRECT_MCP_OAUTH_SCOPES,
@@ -97,7 +98,7 @@ async function main(): Promise<void> {
 
   try {
     const { createInitialOwner } = await import('../app/lib/auth-setup');
-    await createInitialOwner({
+    const owner = await createInitialOwner({
       name: 'OAuth Owner',
       email: EMAIL,
       password: PASSWORD,
@@ -112,14 +113,40 @@ async function main(): Promise<void> {
         resolveDirectMcpConsentPresentation,
         verifyOAuthPageQuery,
       },
+      { POST: postAuthRoute },
     ] = await Promise.all([
       import('../app/lib/auth'),
       import('../app/lib/mcp/server/oauth-request-policy'),
       import('../app/api/auth/oauth2/consent/redirect/route'),
       import('../app/lib/mcp/server/oauth-consent-redirect'),
       import('../app/lib/mcp/server/oauth-page-query'),
+      import('../app/api/auth/[...all]/route'),
     ]);
     const { issuer, resource } = resolveDirectMcpServerConfig();
+    const [
+      { loadWorkspaceListingForActor },
+      { resolveWorkspaceActor },
+      {
+        listDirectMcpAllowedWorkspaceIds,
+        setDirectMcpWorkspaceEnabled,
+      },
+    ] = await Promise.all([
+      import('../app/lib/workspaces/listing-action'),
+      import('../app/lib/workspaces/context'),
+      import('../app/lib/mcp/server/workspace-access-policy'),
+    ]);
+    const workspaceListing = await loadWorkspaceListingForActor(resolveWorkspaceActor({
+      id: owner.id,
+      email: EMAIL,
+      role: 'admin',
+    }));
+    assert.ok(workspaceListing.defaultWorkspace);
+    const workspaceId = workspaceListing.defaultWorkspace.workspaceId;
+    assert.deepEqual(await setDirectMcpWorkspaceEnabled({
+      userId: owner.id,
+      workspaceId,
+      enabled: true,
+    }), { status: 'updated', enabled: true });
 
     async function dispatch(request: Request): Promise<Response> {
       return (await enforceDirectMcpOAuthRequestPolicy(request))
@@ -366,45 +393,48 @@ async function main(): Promise<void> {
     assert.equal(staleAcceptResponse.status, 400);
     assert.equal((await readJson(staleAcceptResponse)).error, 'invalid_request');
 
-    const acceptResponse = await completeConsentRedirect(new Request(
-      `${ORIGIN}/api/auth/oauth2/consent/redirect`,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/x-www-form-urlencoded',
-          cookie: oauthCookie,
-          origin: ORIGIN,
-        },
-        body: acceptForm,
+    const acceptResponse = await postAuthRoute(new NextRequest(`${issuer}/oauth2/consent`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        cookie: oauthCookie,
+        origin: ORIGIN,
       },
-    ));
-    assert.equal(acceptResponse.status, 303);
+      body: JSON.stringify({
+        accept: true,
+        oauth_query: secondConsentLocation.searchParams.toString(),
+      }),
+    );
+    assert.equal(acceptResponse.status, 200);
     const acceptedRedirect = new URL(
-      acceptResponse.headers.get('location') || '',
+      readRedirect(await readJson(acceptResponse)),
       ORIGIN,
     );
     assert.equal(acceptedRedirect.origin + acceptedRedirect.pathname, REDIRECT_URI);
     assert.ok(acceptedRedirect.searchParams.get('code'));
     assert.equal(acceptedRedirect.searchParams.get('state'), 'state-consent');
     assert.equal(acceptedRedirect.searchParams.get('iss'), issuer);
+    assert.deepEqual(
+      [...await listDirectMcpAllowedWorkspaceIds({ clientId, userId: owner.id })],
+      [workspaceId],
+    );
 
-    const tamperedConsent = await completeConsentRedirect(new Request(
-      `${ORIGIN}/api/auth/oauth2/consent/redirect`,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/x-www-form-urlencoded',
-          cookie: oauthCookie,
-          origin: ORIGIN,
-        },
-        body: new URLSearchParams({
-          accept: 'true',
-          oauth_query: `${secondConsentLocation.searchParams.toString()}tampered`,
-        }),
+    const tamperedConsent = await dispatch(new Request(`${issuer}/oauth2/consent`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        cookie: oauthCookie,
+        origin: ORIGIN,
       },
-    ));
+      body: JSON.stringify({
+        accept: true,
+        oauth_query: `${secondConsentLocation.searchParams.toString()}tampered`,
+      }),
+    }));
     assert.equal(tamperedConsent.status, 400);
-    assert.equal((await readJson(tamperedConsent)).error, 'invalid_request');
+    assert.equal((await readJson(tamperedConsent)).error, 'invalid_signature');
 
     console.log('mcp-server-oauth-login-consent-test: ok');
   } finally {

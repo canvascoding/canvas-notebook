@@ -156,6 +156,22 @@ export async function listDirectMcpSelectableWorkspaces(
     .map(({ enabled: _enabled, canManage: _canManage, ...workspace }) => workspace);
 }
 
+/**
+ * Gives a newly authorized MCP client access to every workspace that is
+ * currently enabled for Direct MCP and readable by its owner. Subsequent
+ * per-client changes continue to use replaceDirectMcpAllowedWorkspaces.
+ */
+export async function grantDirectMcpDefaultWorkspaces(input: {
+  clientId: string;
+  userId: string;
+}): Promise<ReplaceDirectMcpWorkspaceAccessResult> {
+  const workspaces = await listDirectMcpSelectableWorkspaces(input.userId);
+  return replaceDirectMcpAllowedWorkspaces({
+    ...input,
+    workspaceIds: workspaces.map((workspace) => workspace.workspaceId),
+  });
+}
+
 export async function setDirectMcpWorkspaceEnabled(input: {
   userId: string;
   workspaceId: string;

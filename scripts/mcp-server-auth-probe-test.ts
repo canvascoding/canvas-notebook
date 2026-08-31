@@ -447,7 +447,7 @@ async function main(): Promise<void> {
     const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
     const { writeFile } = await import('../app/lib/filesystem/workspace-files');
     const {
-      replaceDirectMcpAllowedWorkspaces,
+      grantDirectMcpDefaultWorkspaces,
       setDirectMcpWorkspaceEnabled,
     } = await import('../app/lib/mcp/server/workspace-access-policy');
     const workspaceListing = await loadWorkspaceListingForActor(resolveWorkspaceActor({
@@ -462,10 +462,9 @@ async function main(): Promise<void> {
       workspaceId: workspace.workspaceId,
       enabled: true,
     }), { status: 'updated', enabled: true });
-    assert.deepEqual(await replaceDirectMcpAllowedWorkspaces({
+    assert.deepEqual(await grantDirectMcpDefaultWorkspaces({
       clientId,
       userId,
-      workspaceIds: [workspace.workspaceId],
     }), { status: 'saved', allowedWorkspaceCount: 1 });
     await writeFile(
       'mcp-server-test.md',

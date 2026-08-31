@@ -22,10 +22,19 @@ import {
   type DirectMcpDiagnosticPhase,
 } from '@/app/lib/mcp/server/diagnostics';
 import { pruneUnusedDirectMcpDynamicClients } from '@/app/lib/mcp/server/oauth-client-maintenance';
+import { hasDirectMcpConnectionConsent } from '@/app/lib/mcp/server/connection-management';
+import { verifyOAuthPageQuery } from '@/app/lib/mcp/server/oauth-page-query';
+import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
+import { grantDirectMcpDefaultWorkspaces } from '@/app/lib/mcp/server/workspace-access-policy';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 const DIRECT_MCP_DYNAMIC_CLIENT_REGISTRATION_RATE_LIMIT = 10;
 const DIRECT_MCP_DYNAMIC_CLIENT_REGISTRATION_RATE_WINDOW_MS = 60_000;
+
+type PendingDirectMcpDefaultWorkspaceGrant = {
+  clientId: string;
+  userId: string;
+};
 
 function hasAuthPathSegment(pathname: string, segment: string): boolean {
   return new RegExp(`/${segment}(?:/|$)`).test(pathname);
@@ -113,6 +122,53 @@ async function initializeCreatedUserOnboarding(pathname: string, response: Respo
   const userId = await getAuthResponseUserId(response);
   if (!userId) return;
   await initializeUserOnboarding(userId);
+}
+
+function parseOAuthPageQuery(value: string): Record<string, string | string[]> {
+  const result: Record<string, string | string[]> = {};
+  for (const [key, item] of new URLSearchParams(value)) {
+    const existing = result[key];
+    result[key] = existing === undefined
+      ? item
+      : Array.isArray(existing)
+        ? [...existing, item]
+        : [existing, item];
+  }
+  return result;
+}
+
+async function prepareDirectMcpDefaultWorkspaceGrant(
+  request: NextRequest,
+): Promise<PendingDirectMcpDefaultWorkspaceGrant | null> {
+  if (request.nextUrl.pathname !== '/api/auth/oauth2/consent') return null;
+  if (!(await getDirectMcpRuntimeSettings()).enabled) return null;
+
+  let payload: { accept?: unknown; oauth_query?: unknown };
+  try {
+    payload = await request.clone().json() as { accept?: unknown; oauth_query?: unknown };
+  } catch {
+    return null;
+  }
+  if (payload.accept !== true || typeof payload.oauth_query !== 'string') return null;
+
+  const verified = await verifyOAuthPageQuery(
+    parseOAuthPageQuery(payload.oauth_query),
+  );
+  const userId = await getCurrentAuthUserId(request);
+  if (!verified || !userId) return null;
+  if (await hasDirectMcpConnectionConsent({ clientId: verified.clientId, userId })) return null;
+  return { clientId: verified.clientId, userId };
+}
+
+async function grantDirectMcpDefaultWorkspacesAfterConsent(
+  pendingGrant: PendingDirectMcpDefaultWorkspaceGrant | null,
+  response: Response,
+): Promise<void> {
+  if (!pendingGrant || response.status >= 400) return;
+  const result = await grantDirectMcpDefaultWorkspaces(pendingGrant);
+  if (result.status !== 'saved') {
+    throw new Error('Direct MCP default workspace access could not be initialized.');
+  }
 }
 
 function directMcpOAuthUnavailableResponse(): Response {
@@ -361,6 +417,8 @@ export async function POST(request: NextRequest) {
       if (licenseResponse) return licenseResponse;
     }
 
+    const pendingDefaultWorkspaceGrant = await prepareDirectMcpDefaultWorkspaceGrant(request);
+
     const response = await runDirectMcpOAuthStage(
       isRegistration
         ? 'OAUTH_REGISTRATION_PROVIDER_THROWN'
@@ -373,6 +431,14 @@ export async function POST(request: NextRequest) {
       // Account creation must keep Better Auth's response semantics. The admin
       // UI retries the explicit initializer if persistence briefly fails.
       console.error('[auth] Failed to initialize personal onboarding for created user:', error);
+    }
+    try {
+      await grantDirectMcpDefaultWorkspacesAfterConsent(pendingDefaultWorkspaceGrant, response);
+    } catch (error) {
+      // The OAuth provider has already completed the consent transaction. Keep
+      // its protocol response intact; a later consent attempt can retry the
+      // idempotent default workspace grant.
+      console.error('[auth] Failed to initialize default Direct MCP workspace access:', error);
     }
     if (action) await recordAuthRequestAudit(request, action, response, beforeUserId);
     return response;
