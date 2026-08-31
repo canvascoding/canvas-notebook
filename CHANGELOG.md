@@ -11,6 +11,30 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.31.1] - 2026-08-31
+
+### Added
+
+- Added user profile appearance and avatar management across onboarding, settings, and the home header.
+- Added native Electron file-drag export and richer file references in agent chat.
+- Added Bradley agent identity, terminology, branding guidance, and reference assets.
+- Added default workspace access for newly authorized Direct MCP clients.
+
+### Changed
+
+- Improved collaborative rich Markdown preservation, rendering, and editor behavior.
+- Enabled all configured MCP tools on activation and strengthened Agent Skills manifest compliance.
+- Added concurrent Studio media generation and expanded mobile file-sorting and collaboration coverage.
+
+### Fixed
+
+- Hardened MCP OAuth consent, client permissions, and workspace access initialization.
+- Fixed team-memory bootstrap permissions, transparent image-output handling, and workspace image links.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.30.2] - 2026-08-30
 
 ### Changed
