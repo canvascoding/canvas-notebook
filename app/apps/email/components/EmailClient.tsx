@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import DOMPurify from 'dompurify';
 import {
   Archive,
@@ -14,8 +14,6 @@ import {
   FolderInput,
   Image as ImageIcon,
   Inbox,
-  Layers3,
-  ListChecks,
   Loader2,
   Mail,
   MailOpen,
@@ -32,7 +30,6 @@ import {
   Star,
   Settings,
   Trash2,
-  UserRound,
   Wrench,
   X,
   XCircle,
@@ -41,6 +38,9 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 
 import { EmailAttachmentPanel } from '@/app/apps/email/components/EmailAttachmentPanel';
+import { EmailReviewCenter } from '@/app/apps/email/components/EmailReviewCenter';
+import { EmailPaneResizeHandle, useEmailWorkspaceLayout } from '@/app/apps/email/components/EmailWorkspaceLayout';
+import type { EmailOutboxDraft, WorkspaceInboxCase } from '@/app/apps/email/components/email-client-types';
 import { useSetEmailChatContext } from '@/app/apps/email/context/email-chat-context';
 import { buildEmailPageChatContext } from '@/app/apps/email/context/email-route-chat-context';
 import {
@@ -96,226 +96,7 @@ type EmailAccount = {
   };
 };
 
-type WorkspaceInboxCase = {
-  id: string;
-  subject: string;
-  status: string;
-  priority: string;
-  requesterAddress?: string | null;
-  requesterName?: string | null;
-  assigneeUserId?: string | null;
-  updatedAt: string;
-};
-type EmailOutboxDraft = {
-  id: string; subject: string; status: string | null; version: number; updatedAt: string;
-  body: string; to: string[]; cc: string[]; bcc: string[]; isHtml: boolean;
-  attachments?: EmailAttachmentDraft[];
-  inboxCaseId?: string | null; assignedUserId?: string | null; reviewCase?: WorkspaceInboxCase | null;
-  originAutomationJobId?: string | null; originRunId?: string | null; originAgentId?: string | null;
-};
-
-const ACTIONABLE_OUTBOX_STATUSES = new Set(['prepared', 'awaiting_review', 'editing', 'send_failed']);
 const EMAIL_BACKGROUND_REFRESH_MS = 60_000;
-
-function readSessionDisclosure(key: string): boolean {
-  try {
-    return typeof window !== 'undefined' && window.sessionStorage.getItem(key) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function writeSessionDisclosure(key: string, isOpen: boolean): void {
-  try {
-    window.sessionStorage.setItem(key, isOpen ? '1' : '0');
-  } catch {
-    // The disclosure remains usable when browser storage is unavailable.
-  }
-}
-
-function queueItemTitle(draft: EmailOutboxDraft, inboxCase: WorkspaceInboxCase | null) {
-  return inboxCase?.requesterName || inboxCase?.requesterAddress || draft.to[0] || draft.subject;
-}
-
-function WorkspaceReviewQueue({ workspaceId, t, onOpenOutboxDraft, refreshKey }: {
-  workspaceId: string | null;
-  t: ReturnType<typeof useTranslations>;
-  onOpenOutboxDraft(draft: EmailOutboxDraft): void;
-  refreshKey: number;
-}) {
-  const [inboxCases, setInboxCases] = useState<WorkspaceInboxCase[]>([]);
-  const [outboxDrafts, setOutboxDrafts] = useState<EmailOutboxDraft[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [queueOpen, setQueueOpen] = useState(false);
-  const requestControllerRef = useRef<AbortController | null>(null);
-  const regionId = useId();
-  const disclosureKey = `canvas:email:workspace-review:v1:${workspaceId || 'none'}`;
-
-  useEffect(() => {
-    requestControllerRef.current?.abort();
-    const timeout = window.setTimeout(() => {
-      if (!workspaceId) {
-        setInboxCases([]);
-        setOutboxDrafts([]);
-        setError(null);
-        setIsExpanded(false);
-        return;
-      }
-      setIsExpanded(readSessionDisclosure(disclosureKey));
-    }, 0);
-    return () => {
-      window.clearTimeout(timeout);
-      requestControllerRef.current?.abort();
-    };
-  }, [disclosureKey, workspaceId]);
-
-  const load = useCallback(async () => {
-    if (!workspaceId) return;
-    requestControllerRef.current?.abort();
-    const controller = new AbortController();
-    requestControllerRef.current = controller;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const [inboxResponse, outboxResponse] = await Promise.all([
-        fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/email/inbox`, { credentials: 'include', cache: 'no-store', signal: controller.signal }),
-        fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/email/outbox`, { credentials: 'include', cache: 'no-store', signal: controller.signal }),
-      ]);
-      const [inboxPayload, outboxPayload] = await Promise.all([inboxResponse.json(), outboxResponse.json()]);
-      if (requestControllerRef.current !== controller) return;
-      if (inboxResponse.ok && inboxPayload.success) setInboxCases(Array.isArray(inboxPayload.data) ? inboxPayload.data : []);
-      if (outboxResponse.ok && outboxPayload.success) setOutboxDrafts(Array.isArray(outboxPayload.data) ? outboxPayload.data : []);
-      if (!inboxResponse.ok || !inboxPayload.success || !outboxResponse.ok || !outboxPayload.success) {
-        setError(t('workspaceQueue.loadError'));
-      }
-    } catch (loadError) {
-      if (controller.signal.aborted || requestControllerRef.current !== controller) return;
-      setError(loadError instanceof Error ? loadError.message : t('workspaceQueue.loadError'));
-    } finally {
-      if (requestControllerRef.current === controller) setIsLoading(false);
-    }
-  }, [t, workspaceId]);
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => { void load(); }, 0);
-    return () => window.clearTimeout(timeout);
-  }, [load, refreshKey]);
-  if (!workspaceId) return null;
-  const inboxCaseById = new Map(inboxCases.map((item) => [item.id, item]));
-  const actionableDrafts = outboxDrafts.filter((item) => ACTIONABLE_OUTBOX_STATUSES.has(item.status || 'prepared'));
-  const nextDraft = actionableDrafts[0] || null;
-  const nextCase = nextDraft?.inboxCaseId ? inboxCaseById.get(nextDraft.inboxCaseId) || null : null;
-  const openDraft = (draft: EmailOutboxDraft) => {
-    const inboxCase = draft.inboxCaseId ? inboxCaseById.get(draft.inboxCaseId) || null : null;
-    setQueueOpen(false);
-    onOpenOutboxDraft({ ...draft, reviewCase: inboxCase });
-  };
-  const toggleExpanded = () => {
-    setIsExpanded((current) => {
-      const next = !current;
-      writeSessionDisclosure(disclosureKey, next);
-      return next;
-    });
-  };
-
-  return (
-    <section className="shrink-0 overflow-hidden rounded-xl border border-primary/20 bg-card shadow-sm" aria-label={t('workspaceQueue.title')}>
-      <div className="flex items-center gap-2 bg-primary/[0.035] px-3 py-2.5 sm:px-4">
-        <button type="button" className="flex min-w-0 flex-1 items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" onClick={toggleExpanded} aria-controls={regionId} aria-expanded={isExpanded}>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm"><Layers3 className="h-4 w-4" /></div>
-          <div className="min-w-0"><p className="text-sm font-semibold">{t('workspaceQueue.reviewTitle')}</p><p className="truncate text-xs text-muted-foreground">{isExpanded ? t('workspaceQueue.reviewSubtitle') : t('workspaceQueue.collapsedHint')}</p></div>
-          <ChevronDown className={cn('ml-auto h-4 w-4 shrink-0 transition-transform', !isExpanded && '-rotate-90')} aria-hidden="true" />
-        </button>
-        <Badge variant={actionableDrafts.length > 0 ? 'default' : 'secondary'}>{t('workspaceQueue.remaining', { count: actionableDrafts.length })}</Badge>
-        <Button type="button" size="sm" variant="ghost" onClick={() => void load()} disabled={isLoading} aria-label={t('refresh')} title={t('refresh')}><RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /></Button>
-      </div>
-      {isExpanded && <div id={regionId} className="border-t border-primary/10" aria-busy={isLoading}>
-      {error && <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive sm:px-4">{error}</div>}
-      {nextDraft ? (
-        <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-4">
-          <button type="button" onClick={() => openDraft(nextDraft)} className="group relative min-h-28 min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-            <div className="absolute inset-x-2 top-3 h-full rounded-xl border border-primary/10 bg-primary/[0.04] transition-transform duration-200 group-hover:translate-y-1" />
-            <div className="absolute inset-x-1 top-1.5 h-full rounded-xl border border-primary/15 bg-primary/[0.07] transition-transform duration-200 group-hover:translate-y-0.5" />
-            <article className="relative rounded-xl border border-primary/20 bg-background px-3 py-3 shadow-sm transition-all duration-200 group-hover:-translate-y-0.5 group-hover:border-primary/40 group-hover:shadow-md sm:px-4">
-              <div className="flex items-center justify-between gap-3"><span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">{t('workspaceQueue.nextUp')}</span><span className="text-[11px] text-muted-foreground">{t('workspaceQueue.position', { current: 1, total: actionableDrafts.length })}</span></div>
-              <div className="mt-2 flex min-w-0 items-start gap-3"><div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"><UserRound className="h-3.5 w-3.5" /></div><div className="min-w-0"><p className="truncate text-sm font-medium">{queueItemTitle(nextDraft, nextCase)}</p><p className="mt-0.5 truncate text-sm text-muted-foreground">{nextDraft.subject}</p><div className="mt-2 flex flex-wrap items-center gap-1.5"><Badge variant="outline">{nextCase?.priority || t('workspaceQueue.prepared')}</Badge><span className="text-xs text-muted-foreground">{formatDate(nextDraft.updatedAt)}</span></div></div></div>
-            </article>
-          </button>
-          <div className="flex flex-wrap gap-2 sm:flex-col sm:items-stretch"><Button type="button" onClick={() => openDraft(nextDraft)}><PenLine className="mr-2 h-4 w-4" />{t('workspaceQueue.reviewNext')}</Button><Button type="button" variant="outline" onClick={() => setQueueOpen(true)}><ListChecks className="mr-2 h-4 w-4" />{t('workspaceQueue.openQueue')}</Button></div>
-        </div>
-      ) : (
-        <div className="flex min-h-24 items-center gap-3 px-4 py-4 text-sm text-muted-foreground"><div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted"><Check className="h-4 w-4" /></div><p>{t('workspaceQueue.emptyOutbox')}</p></div>
-      )}
-      </div>}
-      <Dialog open={queueOpen} onOpenChange={setQueueOpen}>
-        <DialogContent className="max-h-[85dvh] max-w-2xl overflow-y-auto">
-          <DialogHeader><DialogTitle>{t('workspaceQueue.fullQueueTitle')}</DialogTitle><DialogDescription>{t('workspaceQueue.fullQueueDescription')}</DialogDescription></DialogHeader>
-          <div className="space-y-2">{actionableDrafts.map((draft, index) => { const inboxCase = draft.inboxCaseId ? inboxCaseById.get(draft.inboxCaseId) || null : null; return <button type="button" key={draft.id} onClick={() => openDraft(draft)} className="flex w-full items-center gap-3 rounded-lg border bg-card px-3 py-3 text-left transition-colors hover:border-primary/45 hover:bg-primary/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">{index + 1}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-medium">{queueItemTitle(draft, inboxCase)}</p><p className="mt-0.5 truncate text-xs text-muted-foreground">{draft.subject}</p></div><div className="hidden shrink-0 text-right sm:block"><Badge variant="outline">{inboxCase?.priority || draft.status || t('workspaceQueue.prepared')}</Badge><p className="mt-1 text-[11px] text-muted-foreground">{formatDate(draft.updatedAt)}</p></div></button>; })}</div>
-        </DialogContent>
-      </Dialog>
-    </section>
-  );
-}
-
-function PersonalOutboxPanel({ t, onOpenOutboxDraft }: {
-  t: ReturnType<typeof useTranslations>;
-  onOpenOutboxDraft(draft: EmailOutboxDraft): void;
-}) {
-  const [drafts, setDrafts] = useState<EmailOutboxDraft[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isExpanded, setIsExpanded] = useState(false);
-  const requestControllerRef = useRef<AbortController | null>(null);
-  const regionId = useId();
-  const disclosureKey = 'canvas:email:personal-outbox:v1';
-
-  useEffect(() => {
-    const timeout = window.setTimeout(() => setIsExpanded(readSessionDisclosure(disclosureKey)), 0);
-    return () => {
-      window.clearTimeout(timeout);
-      requestControllerRef.current?.abort();
-    };
-  }, []);
-
-  const load = useCallback(async () => {
-    requestControllerRef.current?.abort();
-    const controller = new AbortController();
-    requestControllerRef.current = controller;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/email/outbox', { credentials: 'include', cache: 'no-store', signal: controller.signal });
-      const payload = await response.json();
-      if (requestControllerRef.current !== controller) return;
-      if (response.ok && payload.success) setDrafts(Array.isArray(payload.data) ? payload.data : []);
-      else setError(t('workspaceQueue.loadError'));
-    } catch (loadError) {
-      if (controller.signal.aborted || requestControllerRef.current !== controller) return;
-      setError(loadError instanceof Error ? loadError.message : t('workspaceQueue.loadError'));
-    } finally {
-      if (requestControllerRef.current === controller) setIsLoading(false);
-    }
-  }, [t]);
-  useEffect(() => {
-    const timeout = window.setTimeout(() => { void load(); }, 0);
-    return () => window.clearTimeout(timeout);
-  }, [load]);
-  const toggleExpanded = () => {
-    setIsExpanded((current) => {
-      const next = !current;
-      writeSessionDisclosure(disclosureKey, next);
-      return next;
-    });
-  };
-  return (
-    <section className="shrink-0 rounded-lg border border-border bg-card p-3" aria-label={t('workspaceQueue.outboxTitle')}>
-      <div className="flex items-center gap-2"><button type="button" className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" onClick={toggleExpanded} aria-controls={regionId} aria-expanded={isExpanded}><span className="text-sm font-semibold">{t('workspaceQueue.outboxTitle')}</span><ChevronDown className={cn('ml-auto h-4 w-4 shrink-0 transition-transform', !isExpanded && '-rotate-90')} aria-hidden="true" /></button><Badge variant="secondary">{drafts.length}</Badge><Button type="button" size="sm" variant="ghost" onClick={() => void load()} disabled={isLoading} aria-label={t('refresh')} title={t('refresh')}><RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /></Button></div>
-      {isExpanded && <div id={regionId} className="mt-2" aria-busy={isLoading}>{error && <p className="mb-2 text-xs text-destructive">{error}</p>}<p className="text-xs text-muted-foreground">{t('workspaceQueue.humanReview')}</p><div className="mt-2 max-h-44 space-y-1 overflow-y-auto">{drafts.slice(0, 3).map((item) => <button key={item.id} type="button" className="flex w-full items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-left text-xs transition-colors hover:text-primary" onClick={() => onOpenOutboxDraft(item)}><span className="min-w-0 truncate">{item.subject}</span><Badge variant="outline">{item.status || t('workspaceQueue.prepared')}</Badge></button>)}{drafts.length === 0 && <p className="text-xs text-muted-foreground">{t('workspaceQueue.emptyOutbox')}</p>}</div></div>}
-    </section>
-  );
-}
 
 type EmailFolder = {
   id: string;
@@ -398,7 +179,6 @@ type EmailComposeDraft = {
 };
 
 const MESSAGE_PAGE_SIZE = 20;
-const COMPACT_VIEWPORT_QUERY = '(max-width: 1023px)';
 const EMAIL_CONTEXT_FILE_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'csv', 'json', 'pdf']);
 const EMAIL_HTML_SANITIZE_CONFIG = {
   ALLOWED_TAGS: [
@@ -2345,6 +2125,7 @@ export function EmailClient({
   const setEmailChatContext = useSetEmailChatContext();
   const searchParams = useSearchParams();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const { containerRef, listWidth, mode: layoutMode, setListWidth } = useEmailWorkspaceLayout();
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [emailAllowRemoteImages, setEmailAllowRemoteImages] = useState(false);
@@ -2361,7 +2142,6 @@ export function EmailClient({
   const [pendingMessageUpdate, setPendingMessageUpdate] = useState<EmailMessageDetail | null>(null);
   const [messageUnavailable, setMessageUnavailable] = useState<EmailMessageSummary | null>(null);
   const [readerRevision, setReaderRevision] = useState(0);
-  const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [messageDialogOpen, setMessageDialogOpen] = useState(false);
   const [isFolderSidebarOpen, setIsFolderSidebarOpen] = useState(false);
   const [messageFilter, setMessageFilter] = useState<'all' | 'unread'>('all');
@@ -2748,7 +2528,7 @@ export function EmailClient({
     setError(null);
     setMessageActionNotice(null);
     clearMessageSummary();
-    if (isCompactViewport || options?.openDialog) setMessageDialogOpen(true);
+    if (layoutMode !== 'wide' || options?.openDialog) setMessageDialogOpen(true);
     try {
       const params = new URLSearchParams();
       params.set('folder', folder);
@@ -2778,7 +2558,7 @@ export function EmailClient({
     } finally {
       if (detailRequestRef.current === controller) setIsLoadingMessage(false);
     }
-  }, [activeAccount, activeFolder, clearMessageSummary, isCompactViewport, markMessageReadOnOpen, t]);
+  }, [activeAccount, activeFolder, clearMessageSummary, layoutMode, markMessageReadOnOpen, t]);
 
   useEffect(() => {
     if (!contextIntent) {
@@ -2889,18 +2669,10 @@ export function EmailClient({
   }, [loadEmailPreferences]);
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia(COMPACT_VIEWPORT_QUERY);
-    const updateViewport = () => {
-      setIsCompactViewport(mediaQuery.matches);
-      if (!mediaQuery.matches) {
-        setMessageDialogOpen(false);
-      }
-    };
-
-    updateViewport();
-    mediaQuery.addEventListener('change', updateViewport);
-    return () => mediaQuery.removeEventListener('change', updateViewport);
-  }, []);
+    if (layoutMode !== 'wide') return;
+    const timeout = window.setTimeout(() => setMessageDialogOpen(false), 0);
+    return () => window.clearTimeout(timeout);
+  }, [layoutMode]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -3817,9 +3589,11 @@ export function EmailClient({
 
   return (
     <div
+      ref={containerRef}
       data-presentation={embedded ? 'embedded' : 'page'}
+      data-layout-mode={layoutMode}
       className={cn(
-        'mx-auto flex h-full min-h-0 w-full flex-col overflow-y-auto lg:overflow-hidden',
+        'mx-auto flex h-full min-h-0 w-full flex-col overflow-hidden',
         embedded
           ? 'max-w-none gap-2 px-0 py-0'
           : 'max-w-7xl gap-3 px-3 py-3 sm:px-6 sm:py-5',
@@ -3903,8 +3677,16 @@ export function EmailClient({
         </form>
       </section>
 
-      <WorkspaceReviewQueue workspaceId={activeWorkspaceId} t={t} onOpenOutboxDraft={openWorkspaceOutboxDraft} refreshKey={workspaceOutboxRevision} />
-      <PersonalOutboxPanel t={t} onOpenOutboxDraft={openPersonalOutboxDraft} />
+      <EmailReviewCenter
+        focusRequestKey={contextIntent?.view === 'review-center'
+          ? `${contextIntent.toolCallId || contextIntent.toolName}:${contextIntent.mailboxId || ''}`
+          : undefined}
+        onOpenPersonalDraft={openPersonalOutboxDraft}
+        onOpenWorkspaceDraft={openWorkspaceOutboxDraft}
+        refreshKey={workspaceOutboxRevision}
+        t={t}
+        workspaceId={activeWorkspaceId}
+      />
 
       {error && (
         <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -3935,14 +3717,19 @@ export function EmailClient({
       ) : (
         <div
           className={cn(
-            'grid flex-none gap-3 lg:min-h-0 lg:flex-1 lg:overflow-hidden',
-            isFolderSidebarOpen
-              ? 'lg:grid-cols-[220px_minmax(280px,380px)_minmax(0,1fr)]'
-              : 'lg:grid-cols-[minmax(300px,420px)_minmax(0,1fr)]',
+            'min-h-0 flex-1 overflow-hidden',
+            layoutMode === 'wide' ? 'grid' : 'flex flex-col',
           )}
+          style={layoutMode === 'wide'
+            ? {
+              gridTemplateColumns: isFolderSidebarOpen
+                ? `220px minmax(280px, ${listWidth}px) 8px minmax(0, 1fr)`
+                : `minmax(280px, ${listWidth}px) 8px minmax(0, 1fr)`,
+            }
+            : undefined}
         >
-          {isFolderSidebarOpen && (
-            <aside className="hidden min-h-0 flex-col overflow-hidden border border-border bg-card lg:flex">
+          {layoutMode === 'wide' && isFolderSidebarOpen && (
+            <aside className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
               <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
                 <div className="min-w-0 truncate text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                   {t('folders')}
@@ -3959,7 +3746,7 @@ export function EmailClient({
                   <PanelLeftClose className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="max-h-44 overflow-y-auto p-2 lg:max-h-none lg:flex-1">
+              <div className="min-h-0 flex-1 overflow-y-auto p-2">
                 {isLoadingFolders ? (
                   <div className="flex items-center px-2 py-3 text-sm text-muted-foreground">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -3990,12 +3777,11 @@ export function EmailClient({
           <section className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
             <div className="flex flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 items-start gap-2">
-                {!isFolderSidebarOpen && (
+                {layoutMode === 'wide' && !isFolderSidebarOpen && (
                   <Button
                     type="button"
                     variant="outline"
                     size="icon-sm"
-                    className="hidden lg:inline-flex"
                     aria-label={t('showFolders')}
                     aria-expanded={isFolderSidebarOpen}
                     title={t('showFolders')}
@@ -4004,13 +3790,13 @@ export function EmailClient({
                     <PanelLeftOpen className="h-4 w-4" />
                   </Button>
                 )}
-                <DropdownMenu modal={false}>
+                {layoutMode !== 'wide' && <DropdownMenu modal={false}>
                   <DropdownMenuTrigger asChild>
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-8 min-w-0 max-w-full justify-between gap-2 px-2 lg:hidden"
+                      className="h-8 min-w-0 max-w-full justify-between gap-2 px-2"
                       aria-label={t('folders')}
                       title={activeFolderName || t('folders')}
                     >
@@ -4047,15 +3833,15 @@ export function EmailClient({
                       ))
                     )}
                   </DropdownMenuContent>
-                </DropdownMenu>
+                </DropdownMenu>}
                 <div className="min-w-0">
                   <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                     {t('messages')}
                   </div>
                   <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <span>{messageRangeLabel}</span>
-                    {!isFolderSidebarOpen && activeFolderName && (
-                      <Badge variant="secondary" className="hidden max-w-full truncate lg:inline-flex" title={activeFolderName}>
+                    {layoutMode === 'wide' && !isFolderSidebarOpen && activeFolderName && (
+                      <Badge variant="secondary" className="hidden max-w-full truncate sm:inline-flex" title={activeFolderName}>
                         {activeFolderName}
                       </Badge>
                     )}
@@ -4105,7 +3891,7 @@ export function EmailClient({
                 </Button>
               </div>
             </div>
-            <div className="min-h-0 max-h-[52dvh] overflow-y-auto lg:max-h-none lg:flex-1">
+            <div className="min-h-0 flex-1 overflow-y-auto">
               {isLoadingMessages ? (
                 <div className="flex items-center px-3 py-4 text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -4169,7 +3955,11 @@ export function EmailClient({
             </div>
           </section>
 
-          <section className="hidden min-h-0 flex-col overflow-hidden border border-border bg-card lg:flex">
+          {layoutMode === 'wide' && (
+            <EmailPaneResizeHandle label={t('resizeMessageList')} width={listWidth} onWidthChange={setListWidth} />
+          )}
+
+          {layoutMode === 'wide' && <section className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
             <EmailMessageViewer
               key={`email-message-viewer:${activeAccount?.id || ''}:${selectedMessage?.folder || activeFolder}:${selectedMessage?.id || 'empty'}:${readerRevision}`}
               actions={selectedMessage ? { activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
@@ -4189,7 +3979,7 @@ export function EmailClient({
               summaryStatus={messageSummaryStatus}
               unavailable={Boolean(messageUnavailable)}
             />
-          </section>
+          </section>}
         </div>
       )}
 

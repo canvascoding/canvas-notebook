@@ -73,6 +73,14 @@ const notebookShellSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'components', 'DashboardShell.tsx'),
   'utf8',
 );
+const reviewCenterSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailReviewCenter.tsx'),
+  'utf8',
+);
+const workspaceLayoutSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailWorkspaceLayout.tsx'),
+  'utf8',
+);
 const messageRouteSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'api', 'email', 'accounts', '[accountId]', 'messages', '[messageId]', 'route.ts'),
   'utf8',
@@ -90,16 +98,24 @@ assert.match(emailClientSource, /signal: controller\.signal/u);
 assert.match(emailClientSource, /emailMessageListScopeKey\(/u);
 assert.match(emailClientSource, /setPendingMessageUpdate\(nextMessage\)/u);
 assert.match(emailClientSource, /payload\.code === 'EMAIL_MESSAGE_NOT_FOUND'/u);
-assert.match(emailClientSource, /aria-controls=\{regionId\} aria-expanded=\{isExpanded\}/u);
-assert.match(emailClientSource, /canvas:email:workspace-review:v1:\$\{workspaceId \|\| 'none'\}/u);
-assert.match(emailClientSource, /canvas:email:personal-outbox:v1/u);
 assert.match(emailClientSource, /data-presentation=\{embedded \? 'embedded' : 'page'\}/u);
+assert.match(emailClientSource, /data-layout-mode=\{layoutMode\}/u);
+assert.match(emailClientSource, /<EmailReviewCenter/u);
+assert.match(emailClientSource, /<EmailPaneResizeHandle/u);
 assert.match(emailClientSource, /contextIntent\.toolName === 'email_search_messages'/u);
 assert.match(emailClientSource, /contextIntent\.toolName === 'email_read_message'/u);
 assert.match(emailClientSource, /contextIntent\.view !== 'review-draft'/u);
 assert.match(emailClientSource, /const openOutboxDraftById = useCallback/u);
 assert.match(emailClientSource, /key=\{`email-message-viewer:/u);
 assert.match(emailClientSource, /onClick=\{\(\) => void loadMessages\(\{ background: true \}\)\}/u);
+assert.match(reviewCenterSource, /canvas:email:review-center:v1/u);
+assert.match(reviewCenterSource, /aria-controls=\{regionId\} aria-expanded=\{isExpanded\}/u);
+assert.match(reviewCenterSource, /\/api\/email\/outbox/u);
+assert.match(reviewCenterSource, /\/email\/inbox/u);
+assert.match(reviewCenterSource, /\/email\/outbox/u);
+assert.match(workspaceLayoutSource, /new ResizeObserver\(update\)/u);
+assert.match(workspaceLayoutSource, /if \(width < 600\) return 'mobile'/u);
+assert.match(workspaceLayoutSource, /if \(width < 960\) return 'compact'/u);
 
 assert.match(notebookShellSource, /role="tabpanel"/u);
 assert.match(notebookShellSource, /aria-hidden=\{!active\}/u);

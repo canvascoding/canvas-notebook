@@ -281,18 +281,19 @@ async function main() {
       }),
       /being reviewed by a person/i,
     );
-    let sentInput: { to: string[]; subject: string; body: string; attachments: Array<{ uploadId?: string }> } | null = null;
+    const sentCapture: { current: { to: string[]; subject: string; body: string; attachments: Array<{ uploadId?: string }> } | null } = { current: null };
     const sent = await sendWorkspaceOutboxDraft({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: edited.version,
     }, {
-      sendMessage: async (input) => { sentInput = { to: input.to, subject: input.subject, body: input.body, attachments: input.attachments }; },
+      sendMessage: async (input) => { sentCapture.current = { to: input.to, subject: input.subject, body: input.body, attachments: input.attachments }; },
     });
     assert.equal(sent.status, 'sent');
-    assert.deepEqual(sentInput?.to, ['customer@example.test']);
-    assert.equal(sentInput?.subject, 'Re: Support request');
-    assert.match(sentInput?.body || '', /<strong>help shortly<\/strong>/);
-    assert.match(sentInput?.body || '', /<ul><li>Compare the offers<\/li><li>Choose a provider<\/li><\/ul>/);
-    assert.deepEqual(sentInput?.attachments, [{
+    assert.ok(sentCapture.current);
+    assert.deepEqual(sentCapture.current.to, ['customer@example.test']);
+    assert.equal(sentCapture.current.subject, 'Re: Support request');
+    assert.match(sentCapture.current.body, /<strong>help shortly<\/strong>/);
+    assert.match(sentCapture.current.body, /<ul><li>Compare the offers<\/li><li>Choose a provider<\/li><\/ul>/);
+    assert.deepEqual(sentCapture.current.attachments, [{
       source: 'upload', contentId: undefined, disposition: 'attachment', name: 'agent-report.pdf', mimeType: 'application/pdf',
       size: 42, path: undefined, uploadId: 'agent-report.pdf', deliveryFormat: undefined,
     }]);
