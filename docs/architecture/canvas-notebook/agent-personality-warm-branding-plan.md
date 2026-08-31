@@ -65,6 +65,8 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] **Mo** als verbindlichen sichtbaren Namen für UI, Onboarding,
   Dokumentation und Marketing festgelegt und im
   [Mo-Namensvertrag](./mo-name-contract.md) dokumentiert.
+- [x] Deutsche und englische Desk-Validierung für Aussprache, Nebenbedeutungen
+  und UI-Kontexte durchgeführt; realer Zielnutzer-Test für MO-002 vorbereitet.
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die Aussprache- und
 Namensvalidierung, die Prüfung der Namensverfügbarkeit, die finale Freigabe der
@@ -391,7 +393,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
 | MO-001 | fertig | Offiziellen Namen festlegen; Vertrag: [Mo-Namensvertrag](./mo-name-contract.md) | **Mo** ist für UI, Onboarding, Dokumentation und Marketing verbindlich dokumentiert. |
-| MO-002 | offen | Deutsche und englische Aussprache sowie Namenswirkung mit Zielnutzern prüfen | Ergebnisse und Entscheidung sind dokumentiert; auffällige Verwechslungen sind bewertet. |
+| MO-002 | in Arbeit | Deutsche und englische Aussprache sowie Namenswirkung prüfen; Desk-Validierung und Testprotokoll: [Mo Sprach- und Namensvalidierung](./mo-name-language-validation.md) | Ergebnisse aus mindestens sechs realen Zielnutzer-Tests und die Entscheidung sind dokumentiert; auffällige Verwechslungen sind bewertet. |
 | MO-003 | offen | Marken- und Namensverfügbarkeit prüfen | Relevante Produkt-, Domain- und Markenrisiken sind dokumentiert; dies ersetzt keine Rechtsberatung. |
 | MO-004 | offen | Primäre Metapher und erlaubtes Vokabular definieren | Ein kurzer Sprachleitfaden trennt Canvas-, Falt- und Mosaic-Begriffe und entfernt widersprüchliche Metaphern. |
 | MO-005 | offen | Feste, persönliche und Workspace-bezogene Identitätsebenen verbindlich festlegen | Prompt- und Copy-Hierarchie ist als implementierbarer Vertrag beschrieben. |
