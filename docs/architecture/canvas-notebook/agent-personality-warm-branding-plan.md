@@ -68,11 +68,14 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] Deutsche und englische Sprach- und Namensvalidierung vom Product Owner
   freigegeben; größere Zielnutzer-Stichprobe in die Pilot-Auswertung MO-045
   verschoben.
+- [x] Produkt-, Domain- und Markenrisiken für Mo und Mosaic geprüft; Mo bleibt
+  als untergeordnete Identität innerhalb von Canvas Notebook zulässig, ein
+  eigenständiger Markenauftritt ist ausgeschlossen.
 
-Noch nicht entschieden oder umgesetzt sind insbesondere die Prüfung der
-Namensverfügbarkeit, die finale Freigabe der kleinen SVG-/Icon-Variante, die
-Prompt-Hierarchie, die Migration bestehender Installationen, die vollständige
-Zustands-Copy und die UI-Integration.
+Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
+der kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration
+bestehender Installationen, die vollständige Zustands-Copy und die
+UI-Integration.
 
 ## 3. Identität und Name
 
@@ -91,9 +94,13 @@ Es gilt:
 - Interne technische ID: unverändert `canvas-agent`
 - Technische Speicherpfade und API-Verträge: unverändert
 
-MO-002 hat Aussprache und Wirkung validiert. MO-003 prüft als Nächstes die
-Verfügbarkeit. Ein auffälliges Ergebnis ändert die Entscheidung nicht still,
-sondern öffnet MO-001 mit dokumentierter Begründung erneut.
+MO-002 hat Aussprache und Wirkung validiert. MO-003 hat Produkt-, Domain- und
+Markenrisiken dokumentiert. Mo bleibt eine Identität innerhalb von Canvas
+Notebook und wird nicht als eigenständige Software- oder Service-Marke
+positioniert. Details stehen in der
+[Mo Namens- und Verfügbarkeitsprüfung](./mo-name-availability-assessment.md).
+Ein späterer auffälliger Rechtsbefund ändert die Entscheidung nicht still,
+sondern öffnet MO-001 und MO-003 mit dokumentierter Begründung erneut.
 
 ### 3.2 Visuelle Herkunft
 
@@ -395,7 +402,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | --- | --- | --- | --- |
 | MO-001 | fertig | Offiziellen Namen festlegen; Vertrag: [Mo-Namensvertrag](./mo-name-contract.md) | **Mo** ist für UI, Onboarding, Dokumentation und Marketing verbindlich dokumentiert. |
 | MO-002 | fertig | Deutsche und englische Aussprache sowie Namenswirkung prüfen; Entscheidung: [Mo Sprach- und Namensvalidierung](./mo-name-language-validation.md) | Aussprache, Nebenbedeutungen, UI-Kontexte und Risiken sind dokumentiert und vom Product Owner freigegeben; größere Stichprobe folgt in MO-045. |
-| MO-003 | offen | Marken- und Namensverfügbarkeit prüfen | Relevante Produkt-, Domain- und Markenrisiken sind dokumentiert; dies ersetzt keine Rechtsberatung. |
+| MO-003 | fertig | Marken- und Namensverfügbarkeit prüfen; Entscheidung: [Mo Namens- und Verfügbarkeitsprüfung](./mo-name-availability-assessment.md) | Relevante Produkt-, Domain- und Markenrisiken sowie der begrenzte Nutzungskorridor sind dokumentiert; dies ersetzt keine Rechtsberatung. |
 | MO-004 | offen | Primäre Metapher und erlaubtes Vokabular definieren | Ein kurzer Sprachleitfaden trennt Canvas-, Falt- und Mosaic-Begriffe und entfernt widersprüchliche Metaphern. |
 | MO-005 | offen | Feste, persönliche und Workspace-bezogene Identitätsebenen verbindlich festlegen | Prompt- und Copy-Hierarchie ist als implementierbarer Vertrag beschrieben. |
 | MO-006 | offen | Terminologie Mo versus Canvas Control Plane Agent abstimmen | Support- und Architekturdokumente unterscheiden beide Agenten eindeutig. |

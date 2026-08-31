@@ -60,19 +60,25 @@ Vorhabens.
 - „Mosaic“ niemals ohne erklärenden Herkunftskontext als sichtbaren Namen
   verwenden.
 
-## Noch ausstehende Validierung
+## Abgeschlossene Validierung und Grenzen
 
-MO-001 legt den Produktnamen verbindlich fest, ersetzt aber nicht die folgenden
-Prüfungen:
+Der Namensvertrag wurde durch die folgenden Prüfungen ergänzt:
 
-- MO-002 prüft Aussprache, Verständnis und Verwechslungsrisiken auf Deutsch
-  und Englisch;
-- MO-003 prüft Produkt-, Domain- und Markenrisiken und ersetzt keine
-  Rechtsberatung.
+- [MO-002](./mo-name-language-validation.md) bestätigt Aussprache, Verständnis
+  und Namenswirkung auf Deutsch und Englisch;
+- [MO-003](./mo-name-availability-assessment.md) dokumentiert Produkt-, Domain-
+  und Markenrisiken.
 
-Ein auffälliges Ergebnis aus diesen Prüfungen ändert den Namen nicht still.
-Stattdessen wird MO-001 mit dokumentierter Begründung wieder geöffnet und eine
-neue Namensentscheidung versioniert.
+Mo bleibt deshalb der Display-Name innerhalb von Canvas Notebook, wird aber
+nicht als eigenständige Software-, Firmen- oder Service-Marke positioniert.
+Die erste externe Nennung enthält immer den Canvas-Notebook-Absender. Mosaic
+bleibt ausschließlich Herkunftsgeschichte.
+
+Die Verfügbarkeitsprüfung ersetzt keine Rechtsberatung. Vor einer
+Markenanmeldung oder einem eigenständigen Mo-Launch ist eine professionelle
+Ähnlichkeitsrecherche erforderlich. Ein späterer auffälliger Befund ändert den
+Namen nicht still. Stattdessen werden MO-001 und MO-003 mit dokumentierter
+Begründung wieder geöffnet und eine neue Namensentscheidung versioniert.
 
 ## Abnahme
 
