@@ -10,6 +10,7 @@ noch nicht als produktive UI-Integration freigegeben.
 bradley/
 ├── MASTER-QA.md
 ├── PROVENANCE.md
+├── THEME-VARIANTS.md
 ├── checksums.sha256
 ├── glyphs/
 │   ├── static/
@@ -18,7 +19,10 @@ bradley/
 │   └── animated/
 │       └── bradley-generating.svg
 ├── previews/
-│   └── bradley-glyph-preview.svg
+│   ├── bradley-glyph-preview.svg
+│   └── character/
+│       ├── bradley-character-dark-mode-preview.png
+│       └── bradley-character-light-mode-preview.png
 └── references/
     ├── character/
     │   ├── bradley-character-master.png
@@ -39,6 +43,8 @@ bradley/
 | `glyphs/static/bradley-glyph.svg` | flacher UI-Glyph | Entwurf v1 |
 | `glyphs/static/bradley-glyph-monochrome.svg` | einfarbiger UI-Glyph | Entwurf v1 |
 | `glyphs/animated/bradley-generating.svg` | aktiver Generierungszustand | Bewegungsprototyp |
+| `previews/character/bradley-character-light-mode-preview.png` | Light-Mode-Flächenprüfung | QA-Nachweis |
+| `previews/character/bradley-character-dark-mode-preview.png` | Dark-Mode-Flächenprüfung | QA-Nachweis |
 | `references/scenes/bradley-welcome-scene.png` | Onboarding/Empty State | starke Exploration |
 | `references/explorations/bradley-thinking-exploration.png` | Pose-Idee | nicht formverbindlich |
 | `references/explorations/bradley-done-exploration.png` | Pose-Idee | nicht formverbindlich |
@@ -75,6 +81,15 @@ Masters sind in [MASTER-QA.md](./MASTER-QA.md) dokumentiert. Die technische und
 visuelle Prüfung auf dunklem, gesättigtem und kariertem Gegenhintergrund ergab
 keinen sichtbaren weißen Freistellsaum. Damit ist BRADLEY-011 abgeschlossen;
 eine destruktive Kantenkorrektur war nicht erforderlich.
+
+## Theme-Varianten
+
+Light und Dark Mode verwenden bewusst denselben transparenten Character-Master
+ohne Farbfilter oder neu generierte Form. Die beiden Theme-Profile, die
+verbindlichen Canvas-Oberflächen und die visuellen Abnahmenachweise sind in
+[THEME-VARIANTS.md](./THEME-VARIANTS.md) dokumentiert. Damit ist BRADLEY-012
+abgeschlossen. Die PNGs unter `previews/character/` sind nur Prüfansichten und
+keine Produktions-Assets.
 
 ## Design contract
 

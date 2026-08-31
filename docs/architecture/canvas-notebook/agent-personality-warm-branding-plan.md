@@ -91,6 +91,10 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] Transparenten 2048-×-2048-Character-Master technisch und auf
   kontrastreichen Hintergründen geprüft; Alpha-Messwerte und Kantenfreigabe sind
   im [Bradley Character Master QA](./assets/bradley/MASTER-QA.md) dokumentiert.
+- [x] Light- und Dark-Mode-Darstellung auf den echten Canvas-Tokens validiert;
+  beide Themes verwenden gemäß
+  [Bradley Character Theme Variants](./assets/bradley/THEME-VARIANTS.md)
+  denselben kanonischen Master ohne Identitätsdrift.
 
 Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
 der kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration
@@ -443,7 +447,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | --- | --- | --- | --- |
 | BRADLEY-010 | fertig | Referenzrender und Nutzungsnachweis portabel ins Projekt übernehmen; Nachweis: [Bradley Asset Provenance](./assets/bradley/PROVENANCE.md) | Masterdatei, Importherkunft, Product-Owner-Autorisierung, Nutzungsgrenzen und SHA-256-Prüfsummen liegen an einem stabilen Projektpfad. |
 | BRADLEY-011 | fertig | Transparentes Bradley-Character-Master erstellen; Nachweis: [Bradley Character Master QA](./assets/bradley/MASTER-QA.md) | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
-| BRADLEY-012 | offen | Light- und Dark-Mode-Character-Varianten erstellen | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
+| BRADLEY-012 | fertig | Light- und Dark-Mode-Character-Varianten erstellen; Vertrag: [Bradley Character Theme Variants](./assets/bradley/THEME-VARIANTS.md) | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
 | BRADLEY-013 | in Arbeit | Bradley-Glyph als SVG entwerfen; v1 liegt unter `assets/bradley/glyphs/static/` | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
 | BRADLEY-014 | in Arbeit | Monochrome und High-Contrast-Varianten erstellen; monochrome v1 liegt vor | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
 | BRADLEY-015 | in Arbeit | Kleine Zustandsvarianten definieren; Generierungszustand liegt als animierter SVG-Prototyp vor | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
