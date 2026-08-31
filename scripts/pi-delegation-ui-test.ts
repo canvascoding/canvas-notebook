@@ -166,9 +166,15 @@ async function main() {
   assert.doesNotMatch(panelSource, /type="checkbox"/u);
   assert.match(agentPickerSource, /<AgentAvatar/u);
   assert.match(agentPickerSource, /data-testid="delegation-agent-picker"/u);
+  assert.match(agentPickerSource, /role="listbox"/u);
+  assert.doesNotMatch(agentPickerSource, /<Popover/u);
   assert.match(toolsetPickerSource, /aria-pressed=\{selected\}/u);
   assert.match(toolsetPickerSource, /<DelegationToolsetIcon/u);
+  assert.match(toolsetPickerSource, /delegationSearchTools/u);
+  assert.match(toolsetPickerSource, /filteredToolsets/u);
   assert.match(panelSource, /<Dialog open=\{dialogOpen\}/u);
+  assert.match(panelSource, /overflow-y-auto/u);
+  assert.match(panelSource, /lg:grid-cols/u);
   assert.match(panelSource, /cancelChatDelegation/u);
   assert.match(panelSource, /startChatDelegation/u);
   assert.match(panelSource, /delegationShowResult/u);
