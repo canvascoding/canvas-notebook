@@ -250,7 +250,7 @@
     "workspaceChecking": "Workspaces werden vorbereitet …",
     "workspaceLoadFailed": "Die Workspaces konnten nicht vorbereitet werden.",
     "workspaceRetry": "Erneut versuchen",
-    "workspaceContinue": "Weiter zum Agent-Profil",
+    "workspaceContinue": "Weiter zu Bradley",
     "workspaceContinueReview": "Weiter zur Instanzprüfung",
     "personalWorkspaceCardTitle": "Persönlicher Workspace",
     "personalWorkspaceCardDescription": "Hier liegen deine privaten Dateien, Einstellungen und persönlichen Automationen.",
@@ -272,28 +272,28 @@
     "instanceReviewCatalogModel": "App-Standard-Modell",
     "instanceCompleteAction": "Instanz abschließen und persönlichen Workspace einrichten",
     "instanceCompleteError": "Die Instanz konnte noch nicht abgeschlossen werden.",
-    "profileTitle": "Canvas Agent kennenlernen",
-    "profileDescription": "Der Agent stellt dir ein paar kurze Fragen, damit USER.md und SOUL.md für deine dauerhaften Präferenzen gefüllt werden können.",
-    "profileSessionError": "Der Agent-Profil-Chat konnte nicht vorbereitet werden.",
-    "profileSessionPreparing": "Agent-Profil-Chat wird vorbereitet",
+    "profileTitle": "Bradley kennenlernen",
+    "profileDescription": "Bradley ist dein fester Hauptagent in Canvas Notebook. Bradley stellt dir ein paar kurze Fragen dazu, wie du arbeiten und kommunizieren möchtest; diese Präferenzen kannst du später ändern.",
+    "profileSessionError": "Der Bradley-Onboarding-Chat konnte nicht vorbereitet werden.",
+    "profileSessionPreparing": "Bradley wird vorbereitet",
     "profileSessionPreparingDescription": "Canvas prüft deinen persönlichen Workspace und den verfügbaren Agent-Provider.",
-    "profileSessionPreparingAction": "Chat vorbereiten",
+    "profileSessionPreparingAction": "Mit Bradley starten",
     "profileSessionRetry": "Erneut versuchen",
-    "profileSkip": "Später einrichten",
-    "profileSkipping": "Wird übersprungen...",
-    "profileSkipped": "Agent-Profil wurde übersprungen.",
-    "profileSkipError": "Der Profil-Schritt konnte nicht übersprungen werden.",
-    "profileCompleteDetected": "Agent-Profil wurde abgeschlossen.",
+    "profileSkip": "Präferenzen später festlegen",
+    "profileSkipping": "Wird für später gespeichert …",
+    "profileSkipped": "Bradley-Präferenzen wurden übersprungen.",
+    "profileSkipError": "Der Schritt für Bradley-Präferenzen konnte nicht übersprungen werden.",
+    "profileCompleteDetected": "Bradley-Präferenzen wurden gespeichert.",
     "tourTitle": "Lerne deinen Workspace kennen",
-    "tourDescription": "Canvas Notebook verbindet deinen persönlichen Workspace, den Agenten und wiederkehrende Abläufe an einem Ort. Starte die kurze Tour oder springe direkt in die App.",
-    "tourWorkspaceTitle": "Workspace & Agent",
-    "tourWorkspaceDescription": "Verwalte Dateien im Notebook und arbeite direkt mit dem Agenten an deinen Inhalten.",
+    "tourDescription": "Canvas Notebook verbindet deinen persönlichen Workspace, Bradley und wiederkehrende Abläufe an einem Ort. Starte die kurze Tour oder springe direkt in die App.",
+    "tourWorkspaceTitle": "Workspace & Bradley",
+    "tourWorkspaceDescription": "Verwalte Dateien im Notebook und arbeite direkt mit Bradley an deinen Inhalten.",
     "tourAutomationsTitle": "Automationen",
     "tourAutomationsDescription": "Plane wiederkehrende Aufgaben, damit Routinearbeit automatisch erledigt wird.",
     "tourSettingsTitle": "Einstellungen",
     "tourSettingsDescription": "Passe Provider, Tools und Integrationen an, wenn du mehr Kontrolle brauchst.",
     "tourNotebookTitle": "Notebook öffnen",
-    "tourNotebookDescription": "Dateien sammeln, bearbeiten und den Agenten direkt im Kontext einsetzen.",
+    "tourNotebookDescription": "Dateien sammeln, bearbeiten und direkt mit Bradley im Kontext arbeiten.",
     "tourAutomationTitle": "Abläufe planen",
     "tourAutomationDescription": "Wiederkehrende Aufgaben terminieren und Ergebnisse zuverlässig ablegen.",
     "tourHomeTitle": "Dein Startpunkt in Canvas",
@@ -325,7 +325,7 @@
         },
         "workspace": {
           "title": "Workspace",
-          "description": "Dein Workspace: Im Notebook verwaltest du Dateien und chattest mit dem Agent. Automations plant wiederkehrende Aufträge."
+          "description": "Dein Workspace: Im Notebook verwaltest du Dateien und chattest mit Bradley. Automations plant wiederkehrende Aufträge."
         },
         "create": {
           "title": "Direkt erstellen",
@@ -346,8 +346,8 @@
           "description": "Oben rechts kannst du zwischen Editor, Editor mit Vorschau und reiner Vorschau umschalten."
         },
         "chat": {
-          "title": "Agent-Chat",
-          "description": "Chatte mit dem Agent, lade Dateien per @-Referenz, oder starte mit einem Prompt-Vorschlag."
+          "title": "Bradley-Chat",
+          "description": "Chatte mit Bradley, lade Dateien per @-Referenz oder starte mit einem Prompt-Vorschlag."
         }
       },
       "studio": {

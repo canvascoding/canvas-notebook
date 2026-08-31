@@ -178,9 +178,13 @@ technische Nachweis steht in der
 
 Das Workspace Brand Profile erklärt weiterhin, dass es nur Inhalts- und
 Designpräferenzen liefert und keine System-, Sicherheits-, Tool-, Identitäts-
-oder Workspace-Regeln überschreibt. Die verbleibenden Onboarding-, Seed-,
-Display-Name-, Fallback- und Regressionsthemen gehören zu BRADLEY-031 bis
-BRADLEY-036.
+oder Workspace-Regeln überschreibt. Das persönliche Onboarding stellt Bradley
+inzwischen als feste Identität vor und speichert nur Nutzerkontext sowie
+Zusammenarbeitspräferenzen. Der Nachweis
+steht in der
+[Bradley Onboarding-Implementierung](./bradley-onboarding-implementation.md).
+Bestandsmigration, Display-Name-, Fallback- und Regressionsthemen gehören zu
+BRADLEY-032 bis BRADLEY-036.
 
 ## Abnahmekriterien für die spätere Implementierung
 

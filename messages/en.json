@@ -250,7 +250,7 @@
     "workspaceChecking": "Preparing workspaces …",
     "workspaceLoadFailed": "Could not prepare the workspaces.",
     "workspaceRetry": "Try again",
-    "workspaceContinue": "Continue to agent profile",
+    "workspaceContinue": "Continue to Bradley",
     "workspaceContinueReview": "Continue to instance review",
     "personalWorkspaceCardTitle": "Personal workspace",
     "personalWorkspaceCardDescription": "Your private files, preferences, and personal automations live here.",
@@ -272,28 +272,28 @@
     "instanceReviewCatalogModel": "App-default model",
     "instanceCompleteAction": "Complete instance and set up personal workspace",
     "instanceCompleteError": "The instance could not be completed yet.",
-    "profileTitle": "Get the Canvas Agent ready",
-    "profileDescription": "The agent will ask a few short questions so USER.md and SOUL.md can capture your durable preferences.",
-    "profileSessionError": "Could not prepare the agent profile chat.",
-    "profileSessionPreparing": "Preparing the agent profile chat",
+    "profileTitle": "Meet Bradley",
+    "profileDescription": "Bradley is your fixed main agent in Canvas Notebook. Bradley will ask a few short questions about how you prefer to work and communicate; you can change these preferences later.",
+    "profileSessionError": "Could not prepare the Bradley onboarding chat.",
+    "profileSessionPreparing": "Preparing Bradley",
     "profileSessionPreparingDescription": "Canvas is checking your personal workspace and the available agent provider.",
-    "profileSessionPreparingAction": "Prepare chat",
+    "profileSessionPreparingAction": "Start with Bradley",
     "profileSessionRetry": "Try again",
-    "profileSkip": "Set up later",
-    "profileSkipping": "Skipping...",
-    "profileSkipped": "Agent profile skipped.",
-    "profileSkipError": "Could not skip the profile step.",
-    "profileCompleteDetected": "Agent profile completed.",
+    "profileSkip": "Set preferences later",
+    "profileSkipping": "Saving for later…",
+    "profileSkipped": "Bradley preferences skipped.",
+    "profileSkipError": "Could not skip the Bradley preferences step.",
+    "profileCompleteDetected": "Bradley preferences saved.",
     "tourTitle": "Get to know your workspace",
-    "tourDescription": "Canvas Notebook brings your personal workspace, agent, and recurring work together. Start a short tour or go straight to the app.",
-    "tourWorkspaceTitle": "Workspace & agent",
-    "tourWorkspaceDescription": "Manage files in Notebook and work with the agent directly on your content.",
+    "tourDescription": "Canvas Notebook brings your personal workspace, Bradley, and recurring work together. Start a short tour or go straight to the app.",
+    "tourWorkspaceTitle": "Workspace & Bradley",
+    "tourWorkspaceDescription": "Manage files in Notebook and work with Bradley directly on your content.",
     "tourAutomationsTitle": "Automations",
     "tourAutomationsDescription": "Schedule recurring work so routine tasks can run automatically.",
     "tourSettingsTitle": "Settings",
     "tourSettingsDescription": "Adjust providers, tools, and integrations whenever you need more control.",
     "tourNotebookTitle": "Open Notebook",
-    "tourNotebookDescription": "Collect and edit files, then use the agent directly in context.",
+    "tourNotebookDescription": "Collect and edit files, then work with Bradley directly in context.",
     "tourAutomationTitle": "Plan workflows",
     "tourAutomationDescription": "Schedule recurring work and store results reliably.",
     "tourHomeTitle": "Your Canvas starting point",
@@ -325,7 +325,7 @@
         },
         "workspace": {
           "title": "Workspace",
-          "description": "Your workspace: manage files and chat with the agent in Notebook. Automations schedules recurring tasks."
+          "description": "Your workspace: manage files and chat with Bradley in Notebook. Automations schedules recurring tasks."
         },
         "create": {
           "title": "Create directly",
@@ -346,8 +346,8 @@
           "description": "Switch between editor, editor with preview, and pure preview in the top-right corner."
         },
         "chat": {
-          "title": "Agent chat",
-          "description": "Chat with the agent, reference files with @, or start with a prompt suggestion."
+          "title": "Bradley chat",
+          "description": "Chat with Bradley, reference files with @, or start with a prompt suggestion."
         }
       },
       "studio": {
