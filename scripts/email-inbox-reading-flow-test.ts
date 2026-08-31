@@ -81,6 +81,10 @@ const workspaceLayoutSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailWorkspaceLayout.tsx'),
   'utf8',
 );
+const messageReaderSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailMessageReader.tsx'),
+  'utf8',
+);
 const messageRouteSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'api', 'email', 'accounts', '[accountId]', 'messages', '[messageId]', 'route.ts'),
   'utf8',
@@ -102,6 +106,7 @@ assert.match(emailClientSource, /data-presentation=\{embedded \? 'embedded' : 'p
 assert.match(emailClientSource, /data-layout-mode=\{layoutMode\}/u);
 assert.match(emailClientSource, /<EmailReviewCenter/u);
 assert.match(emailClientSource, /<EmailPaneResizeHandle/u);
+assert.match(emailClientSource, /import \{ EmailMessageBody, EmailMessageRowActions, EmailMessageViewer \} from/u);
 assert.match(emailClientSource, /contextIntent\.toolName === 'email_search_messages'/u);
 assert.match(emailClientSource, /contextIntent\.toolName === 'email_read_message'/u);
 assert.match(emailClientSource, /contextIntent\.view !== 'review-draft'/u);
@@ -116,6 +121,11 @@ assert.match(reviewCenterSource, /\/email\/outbox/u);
 assert.match(workspaceLayoutSource, /new ResizeObserver\(update\)/u);
 assert.match(workspaceLayoutSource, /if \(width < 600\) return 'mobile'/u);
 assert.match(workspaceLayoutSource, /if \(width < 960\) return 'compact'/u);
+assert.match(messageReaderSource, /export function EmailMessageBody/u);
+assert.match(messageReaderSource, /export function EmailMessageRowActions/u);
+assert.match(messageReaderSource, /export function EmailMessageViewer/u);
+assert.match(messageReaderSource, /DOMPurify\.sanitize/u);
+assert.match(messageReaderSource, /sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"/u);
 
 assert.match(notebookShellSource, /role="tabpanel"/u);
 assert.match(notebookShellSource, /aria-hidden=\{!active\}/u);
