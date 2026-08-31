@@ -1,5 +1,10 @@
 # Bradley Motion Specification
 
+Die produktseitigen Präsenz-, Start-, Stop-, Unterbrechungs- und
+Accessibility-Regeln sind ergänzend in den
+[Bradley UI-Präsenz-, Anti-Clippy- und Motion-Regeln](../../bradley-ui-presence-motion-rules.md)
+festgelegt.
+
 Status: freigegeben für den UI-Pilot
 
 Geprüft: 2026-08-31

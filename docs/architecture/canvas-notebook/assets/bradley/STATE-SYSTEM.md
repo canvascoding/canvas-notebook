@@ -1,5 +1,9 @@
 # Bradley Small-State System
 
+Wann diese Zustände in der Produktoberfläche erscheinen und wann Bewegung
+startet oder stoppt, regeln die
+[Bradley UI-Präsenz-, Anti-Clippy- und Motion-Regeln](../../bradley-ui-presence-motion-rules.md).
+
 Status: bestanden
 
 Geprüft: 2026-08-31

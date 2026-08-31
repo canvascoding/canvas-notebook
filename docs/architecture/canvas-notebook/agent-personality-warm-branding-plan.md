@@ -475,7 +475,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-020 | fertig | Vollständige Zustands-Copy-Matrix erstellen; Vertrag: [Bradley Zustands-Copy-Matrix](./bradley-state-copy-matrix.md) | Alle Runtime-, Tool-, Queue-, Delegations-, Automation-, Warte-, Erfolgs- und Fehlerzustände besitzen DE-/EN-Texte. |
 | BRADLEY-021 | fertig | Fehler- und Recovery-Muster definieren; Vertrag: [Bradley Fehler- und Recovery-Muster](./bradley-error-recovery-patterns.md) | Jede Fehlermeldung kann Ursache, Auswirkung und nächste Aktion sachlich anzeigen. |
 | BRADLEY-022 | fertig | Kontextmatrix für Hauptagent, Spezialagent, E-Mail-Agent und Automation erstellen; Vertrag: [Bradley Agenten- und Oberflächenkontextmatrix](./bradley-agent-context-matrix.md) | Für jede Oberfläche ist definiert, welcher Name und welches Icon erscheinen. |
-| BRADLEY-023 | offen | Anti-Clippy- und Motion-Regeln in die UI-Spezifikation übernehmen | Review-Checkliste deckt Unterbrechungen, Idle-Animation, Reduced Motion und Barrierefreiheit ab. |
+| BRADLEY-023 | fertig | Anti-Clippy- und Motion-Regeln in die UI-Spezifikation übernehmen; Vertrag: [Bradley UI-Präsenz-, Anti-Clippy- und Motion-Regeln](./bradley-ui-presence-motion-rules.md) | Review-Checkliste deckt Unterbrechungen, Idle-Animation, Reduced Motion und Barrierefreiheit ab. |
 | BRADLEY-024 | offen | DE-/EN-Sprachleitfaden für Bradley erstellen | Ton, Anrede, Pronomen, Metaphern, Fehlersprache und verbotene Formulierungen sind dokumentiert. |
 
 ### Phase D — Runtime, Prompt und Migration
