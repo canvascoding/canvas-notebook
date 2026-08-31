@@ -10,6 +10,7 @@ import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import { getUserOnboardingState } from '@/app/lib/user-preferences';
 import { SETTINGS_SIDEBAR_COLLAPSED_COOKIE } from '@/app/lib/settings-navigation';
 import { isOnboardingLicenseRecoveryRequest } from '@/app/lib/onboarding/flow';
+import { resolveUserProfile } from '@/app/lib/user-profile/service';
 import { cookies } from 'next/headers';
 
 type SettingsPageProps = {
@@ -33,6 +34,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const initialTimeZone = await getServerPreferredTimeZone();
   const initialSettingsSidebarCollapsed = cookieStore.get(SETTINGS_SIDEBAR_COLLAPSED_COOKIE)?.value === 'true';
   const userOnboarding = currentUserId ? await getUserOnboardingState(currentUserId) : null;
+  const initialUserProfile = await resolveUserProfile({
+    userId: currentUserId,
+    name: userName,
+    email: userEmail,
+  });
   let organizationPermission = null;
   if (currentUserId) {
     try {
@@ -49,6 +55,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           currentUserId={currentUserId}
           userName={userName}
           userEmail={userEmail}
+          initialUserProfile={initialUserProfile}
           isManagedControlPlane={isManagedControlPlane}
           initialTimeZone={initialTimeZone}
           initialSettingsSidebarCollapsed={initialSettingsSidebarCollapsed}

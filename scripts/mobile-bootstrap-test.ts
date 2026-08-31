@@ -47,16 +47,29 @@ const bootstrap = createMobileBootstrap({
     serverVersion: '2026.7.19',
     deploymentMode: 'managed-team',
   }),
+  request: {
+    headers: new Headers({
+      host: 'internal-canvas:3000',
+      'x-forwarded-host': 'canvas.example.test',
+      'x-forwarded-proto': 'https',
+    }),
+    url: 'http://internal-canvas:3000/api/mobile/v1/bootstrap',
+  },
   user: {
     id: 'user-1',
     name: 'Mobile User',
     email: 'mobile@example.test',
+    image: '/api/account/profile/avatar?v=3',
     role: 'admin',
   },
   listing,
 });
 
 assert.equal(bootstrap.product, 'canvas-notebook');
+assert.equal(
+  bootstrap.user.image,
+  'https://canvas.example.test/api/account/profile/avatar?v=3',
+);
 assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'account.preferences',
   'workspace.read',

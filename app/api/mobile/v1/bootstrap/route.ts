@@ -54,7 +54,7 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.json(
-      createMobileBootstrap({ compatibility, user: session.user, listing }),
+      createMobileBootstrap({ compatibility, request, user: session.user, listing }),
       { headers: responseHeaders },
     );
   } catch (error) {
