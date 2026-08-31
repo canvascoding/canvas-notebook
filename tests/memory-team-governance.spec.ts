@@ -85,7 +85,8 @@ test.describe('Memory team governance', () => {
       const writerPage = await writerContext.newPage();
       await login(writerPage, WRITER_EMAIL!, WRITER_PASSWORD!);
       await writerPage.goto(`/en/settings?tab=memory&scope=workspace&workspaceId=${encodeURIComponent(workspaceId!)}`);
-      await writerPage.getByRole('textbox', { name: /prefers short, decisive/i }).fill('Writer suggestions are reviewed before publication.');
+      await expect(writerPage.getByText('The team uses approved terminology in customer-facing material.')).toBeVisible();
+      await writerPage.getByPlaceholder('e.g. Prefers short, decisive weekly updates.').fill('Writer suggestions are reviewed before publication.');
       await writerPage.getByRole('button', { name: 'Suggest memory' }).click();
       await expect(writerPage.getByText('Memory suggestion created for review.')).toBeVisible();
       await expect(writerPage.getByRole('button', { name: 'Publish' })).toHaveCount(0);

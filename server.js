@@ -808,7 +808,7 @@ async function startServer() {
   ]);
   console.log('[Startup] Next.js app prepared');
 
-  server.listen(port, (err) => {
+  server.listen(port, hostname, (err) => {
     if (err) throw err;
     console.log(`> Ready on http://localhost:${port}`);
     scheduleBackgroundMaintenance();
