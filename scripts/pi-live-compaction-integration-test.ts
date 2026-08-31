@@ -41,6 +41,7 @@ async function main(): Promise<void> {
   const { LivePiRuntime } = await import('../app/lib/pi/live-runtime');
   const { buildPiSystemPromptSnapshotFromText } = await import('../app/lib/pi/system-prompt-snapshot');
   const { loadPiSessionWithSummary, savePiSession } = await import('../app/lib/pi/session-store');
+  const { loadLatestPiSessionInputUsage, persistPiUsageEvents } = await import('../app/lib/pi/usage-events');
   const now = new Date('2026-08-27T14:00:00.000Z');
   const userId = 'user-live-compaction';
   const sessionId = 'session-live-compaction';
@@ -80,6 +81,29 @@ async function main(): Promise<void> {
   assert.ok(session?.workspaceId);
   const loaded = await loadPiSessionWithSummary(sessionId, userId, session?.agentId);
   assert.ok(loaded);
+
+  const providerUsageMessage = {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Provider usage anchor.' }],
+    api: 'openai-completions',
+    provider: 'test-provider',
+    model: 'test-model',
+    usage: {
+      input: 1_420,
+      output: 12,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 1_432,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: 'stop',
+    timestamp: now.getTime() + 99,
+  } as AssistantMessage;
+  await persistPiUsageEvents({ sessionId, userId, messages: [providerUsageMessage] });
+  assert.deepEqual(await loadLatestPiSessionInputUsage(sessionId, userId), {
+    inputTokens: 1_420,
+    assistantTimestamp: new Date(Math.floor(providerUsageMessage.timestamp / 1_000) * 1_000),
+  }, 'the last provider-reported input usage must survive runtime recreation');
 
   const model = {
     id: 'test-model',
@@ -136,6 +160,7 @@ async function main(): Promise<void> {
     lastComposition: null,
     lastFinalPayloadBudgetSnapshot: null,
     lastProviderUsageCalibration: null,
+    lastProviderInputUsage: null,
     lastPersistedLength: loaded?.messages.length,
     messageSequenceCheckpoint: loaded?.messages.length,
     compactionGeneration: 0,
@@ -165,6 +190,78 @@ async function main(): Promise<void> {
     getStatus: () => ({ sessionId }),
     touch: () => undefined,
   });
+
+  const statusRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
+  Object.assign(statusRuntime, {
+    sessionId,
+    userId,
+    model: { contextWindow: 262_000 },
+    summary: { summaryUpdatedAt: null },
+    lastComposition: {
+      estimatedHistoryTokens: 100_000,
+      availableHistoryTokens: 200_000,
+      includedSummary: false,
+      omittedMessages: [],
+    },
+    lastFinalPayloadBudgetSnapshot: {
+      estimatedTotalTokens: 185_000,
+      contextBudgetExceeded: false,
+      payloadBudgetExceeded: false,
+    },
+    lastProviderInputUsage: {
+      inputTokens: 140_000,
+      assistantTimestamp: now,
+    },
+    isRunning: false,
+    abortRequested: false,
+    activeTool: null,
+    pendingReplace: null,
+    agent: { state: { pendingToolCalls: new Set() } },
+    compactionStatus: {
+      state: 'idle', attemptId: null, trigger: null, reasonCode: null, retryAfter: null, omittedMessageCount: 0,
+    },
+    lastCompactionAt: null,
+    lastCompactionKind: null,
+    lastCompactionOmittedCount: 0,
+    statusRevision: 1,
+    getCompactionScope: () => ({ sessionId, userId, agentId: 'canvas-agent', workspaceId: null }),
+  });
+  Object.defineProperties(statusRuntime, {
+    followUpQueue: { value: [] },
+    steeringQueue: { value: [] },
+  });
+  const idleStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
+  assert.equal(idleStatus.lastProviderInputTokens, 140_000);
+  assert.equal(idleStatus.nextRequestEstimatedTokens, null, 'idle status must prefer actual provider usage over an old payload estimate');
+  statusRuntime.isRunning = true;
+  const activeStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
+  assert.equal(activeStatus.lastProviderInputTokens, 140_000);
+  assert.equal(activeStatus.nextRequestEstimatedTokens, 185_000, 'active status must expose the next serialized-request estimate separately');
+
+  const eventRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
+  Object.assign(eventRuntime, {
+    model,
+    sessionId,
+    userId,
+    lastFinalPayloadBudgetSnapshot: {
+      estimatedInputTokens: 1_000,
+      contractFingerprint: 'provider-usage-test',
+    },
+    lastProviderUsageCalibration: null,
+    lastProviderInputUsage: null,
+    thinkingFilterState: { buffer: '', inThinkingBlock: false, thinkingContent: '' },
+    touch: () => undefined,
+    publishStatus: () => undefined,
+  });
+  await (eventRuntime as { onAgentEvent: (event: unknown) => Promise<void> }).onAgentEvent({
+    type: 'message_end',
+    message: providerUsageMessage,
+  });
+  assert.equal(
+    (eventRuntime.lastProviderInputUsage as { inputTokens: number } | null)?.inputTokens,
+    1_420,
+    'message_end must immediately expose provider-reported input usage to the runtime status',
+  );
 
   const compactPromise = runtime.compactNow();
   await new Promise((resolve) => setTimeout(resolve, 0));

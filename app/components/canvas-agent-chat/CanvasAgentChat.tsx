@@ -74,6 +74,7 @@ import type {
   QueuePreviewItem,
 } from '@/app/lib/chat/types';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { getContextStatusDisplay } from '@/app/components/canvas-agent-chat/contextStatusDisplay';
 
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
 
@@ -1036,37 +1037,58 @@ export default function CanvasAgentChat({
     ...(runtimeStatus?.followUpQueue || []).map((entry) => ({ ...entry, kind: 'follow_up' as const })),
   ];
   const activeToolDisplay = runtimeStatus?.activeTool ? getToolDisplayInfo(runtimeStatus.activeTool.name, locale) : null;
-  const hasFinalRequestBudget = runtimeStatus?.finalRequestTokens !== null && runtimeStatus?.finalRequestTokens !== undefined;
-  const contextDetailedLabel = runtimeStatus
-    ? hasFinalRequestBudget
-      ? t('contextFinalLabel', {
-        used: formatContextTokens(runtimeStatus.finalRequestTokens!),
-        window: formatContextTokens(runtimeStatus.contextWindow),
+  const contextStatusDisplay = getContextStatusDisplay(runtimeStatus);
+  const contextDetailedLabel = contextStatusDisplay.source === 'next_request'
+      ? t('contextNextRequestLabel', {
+        used: formatContextTokens(contextStatusDisplay.usedTokens),
+        window: formatContextTokens(contextStatusDisplay.contextWindow),
       })
-      : t('contextLabel', {
-        used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
-        available: formatContextTokens(runtimeStatus.availableHistoryTokens),
-        window: formatContextTokens(runtimeStatus.contextWindow),
+      : contextStatusDisplay.source === 'actual'
+        ? t('contextActualLabel', {
+          used: formatContextTokens(contextStatusDisplay.usedTokens),
+          window: formatContextTokens(contextStatusDisplay.contextWindow),
+        })
+      : contextStatusDisplay.source === 'history'
+        ? t('contextLabel', {
+          used: formatContextTokens(contextStatusDisplay.usedTokens),
+          available: formatContextTokens(contextStatusDisplay.availableTokens),
+          window: formatContextTokens(contextStatusDisplay.contextWindow),
+        })
+        : t('noSessionYet');
+  const contextTooltip = contextStatusDisplay.source === 'next_request'
+    ? runtimeStatus?.lastProviderInputTokens !== null && runtimeStatus?.lastProviderInputTokens !== undefined
+      ? t('contextNextRequestTooltipWithActual', {
+        used: formatContextTokens(contextStatusDisplay.usedTokens),
+        window: formatContextTokens(contextStatusDisplay.contextWindow),
+        percent: Math.round((contextStatusDisplay.usedTokens / Math.max(1, contextStatusDisplay.contextWindow)) * 100),
+        actual: formatContextTokens(runtimeStatus.lastProviderInputTokens),
       })
-    : t('noSessionYet');
-  const contextTooltip = runtimeStatus
-    ? hasFinalRequestBudget
-      ? t('contextFinalTooltip', {
-        used: formatContextTokens(runtimeStatus.finalRequestTokens!),
-        window: formatContextTokens(runtimeStatus.contextWindow),
-        percent: Math.round((runtimeStatus.finalRequestTokens! / Math.max(1, runtimeStatus.contextWindow)) * 100),
+      : t('contextNextRequestTooltip', {
+        used: formatContextTokens(contextStatusDisplay.usedTokens),
+        window: formatContextTokens(contextStatusDisplay.contextWindow),
+        percent: Math.round((contextStatusDisplay.usedTokens / Math.max(1, contextStatusDisplay.contextWindow)) * 100),
       })
-      : t('contextTooltip', {
-        percent: runtimeStatus.contextUsagePercent,
-        used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
-        available: formatContextTokens(runtimeStatus.availableHistoryTokens),
-        window: formatContextTokens(runtimeStatus.contextWindow),
-        reserved: formatContextTokens(Math.max(0, runtimeStatus.contextWindow - runtimeStatus.availableHistoryTokens)),
+    : contextStatusDisplay.source === 'actual'
+      ? t('contextActualTooltip', {
+        used: formatContextTokens(contextStatusDisplay.usedTokens),
+        window: formatContextTokens(contextStatusDisplay.contextWindow),
       })
-    : t('noSessionYet');
-  const contextProgressPercent = Math.min(100, Math.max(0, hasFinalRequestBudget
-    ? Math.round((runtimeStatus!.finalRequestTokens! / Math.max(1, runtimeStatus!.contextWindow)) * 100)
-    : runtimeStatus?.contextUsagePercent ?? 0));
+      : contextStatusDisplay.source === 'history'
+        ? t('contextTooltip', {
+          percent: contextStatusDisplay.percent,
+          used: formatContextTokens(contextStatusDisplay.usedTokens),
+          available: formatContextTokens(contextStatusDisplay.availableTokens),
+          window: formatContextTokens(contextStatusDisplay.contextWindow),
+          reserved: formatContextTokens(Math.max(0, contextStatusDisplay.contextWindow - contextStatusDisplay.availableTokens)),
+        })
+        : t('noSessionYet');
+  const contextProgressPercent = Math.min(100, Math.max(0,
+    contextStatusDisplay.source === 'next_request' || contextStatusDisplay.source === 'actual'
+      ? Math.round((contextStatusDisplay.usedTokens / Math.max(1, contextStatusDisplay.contextWindow)) * 100)
+      : contextStatusDisplay.source === 'history'
+        ? contextStatusDisplay.percent
+        : 0,
+  ));
   const sessionDisplayLabel = getSessionDisplayTitle(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const primaryActionIsStop = isRuntimeBusy && !hasComposerContent;
