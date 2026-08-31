@@ -39,11 +39,10 @@ import {
   reserveCollaborationRoomAdmission,
   withCollaborationRoomLifecycleLock,
 } from '@/app/lib/collaboration/runtime-state';
+import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import type { CollaborationTicketClaims, FilePresenceEntry } from '@/app/lib/collaboration/types';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
-import { requireRuntimeCapability, requireTeamRuntimeLicense } from '@/app/lib/license/entitlements';
 import {
   consumeMobileCollaborationTicket,
   hasMobileCollaborationProtocol,
@@ -128,9 +127,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     maxDebounce: 2_000,
     timeout: 30_000,
     async onAuthenticate({ token, documentName, requestHeaders, connectionConfig }) {
-      if (getDatabaseProvider() !== 'postgres') throw new Error('Collaboration requires Postgres.');
-      await requireTeamRuntimeLicense();
-      await requireRuntimeCapability('liveCollaboration');
+      if (!liveCollaborationRuntimeAvailable()) throw new Error('Collaboration requires Postgres.');
       const protocols = requestHeaders.get('sec-websocket-protocol')
         ?.split(',')
         .map((value) => value.trim()) ?? [];

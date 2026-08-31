@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { applyRateLimit, readJsonBody } from '@/app/lib/api/route-helpers';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 import { issueCollaborationTicket } from '@/app/lib/collaboration/ticket';
 import { collaborationUserColors } from '@/app/lib/collaboration/identity';
+import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import {
   CollaborationSessionError,
   createCollaborationSessionGrant,
   parseCollaborationSessionRequest,
 } from '@/app/lib/collaboration/session-service';
-import {
-  LicenseEntitlementError,
-  licenseEntitlementErrorPayload,
-  requireRuntimeCapability,
-  requireTeamRuntimeLicense,
-} from '@/app/lib/license/entitlements';
 import {
   COLLABORATION_SCHEMA_VERSION,
   RICH_MARKDOWN_SCHEMA_VERSION,
@@ -34,18 +28,8 @@ export async function POST(request: NextRequest) {
   });
   if (rateLimitResponse) return rateLimitResponse;
 
-  if (getDatabaseProvider() !== 'postgres') {
+  if (!liveCollaborationRuntimeAvailable()) {
     return NextResponse.json({ success: false, error: 'Live collaboration requires Postgres.' }, { status: 409 });
-  }
-
-  try {
-    await requireTeamRuntimeLicense();
-    await requireRuntimeCapability('liveCollaboration');
-  } catch (error) {
-    if (error instanceof LicenseEntitlementError) {
-      return NextResponse.json(licenseEntitlementErrorPayload(error), { status: error.statusCode });
-    }
-    throw error;
   }
 
   const body = await readJsonBody<{

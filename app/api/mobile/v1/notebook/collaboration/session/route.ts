@@ -12,13 +12,7 @@ import {
   RICH_MARKDOWN_SCHEMA_VERSION,
   type CollaborationSessionResponse,
 } from '@/app/lib/collaboration/types';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
-import {
-  LicenseEntitlementError,
-  licenseEntitlementErrorPayload,
-  requireRuntimeCapability,
-  requireTeamRuntimeLicense,
-} from '@/app/lib/license/entitlements';
+import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { issueMobileCollaborationTicket } from '@/app/lib/mobile/collaboration-ticket';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
@@ -34,21 +28,11 @@ export async function POST(request: NextRequest) {
   });
   if (limited) return limited;
 
-  if (getDatabaseProvider() !== 'postgres') {
+  if (!liveCollaborationRuntimeAvailable()) {
     return NextResponse.json(
       { success: false, error: 'Live collaboration requires Postgres.' },
       { status: 409 },
     );
-  }
-
-  try {
-    await requireTeamRuntimeLicense();
-    await requireRuntimeCapability('liveCollaboration');
-  } catch (error) {
-    if (error instanceof LicenseEntitlementError) {
-      return NextResponse.json(licenseEntitlementErrorPayload(error), { status: error.statusCode });
-    }
-    throw error;
   }
 
   const body = await readJsonBody<{ path?: unknown }>(request);
