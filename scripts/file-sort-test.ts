@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import { filterFileNodes, sortFileNodes } from '../app/lib/files/sort';
+import { sortFileReferenceEntries } from '../app/lib/filesystem/file-reference-search';
 import type { FileNode } from '../app/lib/files/types';
 
 const nodes: FileNode[] = [
@@ -43,6 +44,21 @@ assert.deepEqual(
 assert.deepEqual(
   sortFileNodes(nodes, 'pinned', 'desc').map((node) => node.name),
   ['folder-b', 'folder-a', 'image.png', 'unknown.bin', 'file10.md', 'file2.md'],
+);
+
+const referenceEntries = [
+  { name: 'older.pdf', path: 'contracts/older.pdf', type: 'file' as const, isImage: false, size: 10, created: 100, modified: 200 },
+  { name: 'newer.pdf', path: 'contracts/newer.pdf', type: 'file' as const, isImage: false, size: 30, created: 300, modified: 400 },
+  { name: 'unknown.pdf', path: 'contracts/unknown.pdf', type: 'file' as const, isImage: false },
+];
+
+assert.deepEqual(
+  sortFileReferenceEntries(referenceEntries, 'modified').map((entry) => entry.name),
+  ['newer.pdf', 'older.pdf', 'unknown.pdf'],
+);
+assert.deepEqual(
+  sortFileReferenceEntries(referenceEntries, 'size').map((entry) => entry.name),
+  ['newer.pdf', 'older.pdf', 'unknown.pdf'],
 );
 
 console.log('file sort test passed');

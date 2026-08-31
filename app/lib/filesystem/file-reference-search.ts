@@ -5,7 +5,16 @@ export interface FileReferenceEntry {
   extension?: string;
   isImage: boolean;
   size?: number;
+  created?: number;
+  modified?: number;
 }
+
+export type FileReferenceSortKey = 'name' | 'created' | 'modified' | 'size';
+
+const fileNameCollator = new Intl.Collator('en', {
+  numeric: true,
+  sensitivity: 'base',
+});
 
 function normalizeSearchValue(value: string): string {
   return value.trim().toLowerCase();
@@ -85,4 +94,23 @@ export function searchFileReferenceEntries(
       return left.entry.path.localeCompare(right.entry.path);
     })
     .map((candidate) => candidate.entry);
+}
+
+export function sortFileReferenceEntries(
+  entries: FileReferenceEntry[],
+  sortKey: FileReferenceSortKey,
+): FileReferenceEntry[] {
+  return [...entries].sort((left, right) => {
+    if (sortKey === 'name') return fileNameCollator.compare(left.path, right.path);
+
+    const leftValue = left[sortKey];
+    const rightValue = right[sortKey];
+    if (leftValue === undefined && rightValue === undefined) {
+      return fileNameCollator.compare(left.path, right.path);
+    }
+    if (leftValue === undefined) return 1;
+    if (rightValue === undefined) return -1;
+    if (leftValue !== rightValue) return rightValue - leftValue;
+    return fileNameCollator.compare(left.path, right.path);
+  });
 }

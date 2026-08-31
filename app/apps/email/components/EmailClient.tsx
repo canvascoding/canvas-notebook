@@ -1146,6 +1146,7 @@ type EmailMessageViewerLabels = {
 
 type EmailComposeDialogLabels = Pick<EmailMessageViewerLabels, 'cc' | 'date' | 'emptyBody' | 'from' | 'noSubject' | 'remoteImagesBlocked' | 'showRemoteImages' | 'to'> & {
   attachmentsAdd: string;
+  attachmentsAllFiles: string;
   attachmentsAttached: string;
   attachmentsCancel: string;
   attachmentsConfirm: string;
@@ -1154,9 +1155,15 @@ type EmailComposeDialogLabels = Pick<EmailMessageViewerLabels, 'cc' | 'date' | '
   attachmentsEmpty: string;
   attachmentsLimitExceeded: string;
   attachmentsLoading: string;
+  attachmentsFolders: string;
   attachmentsRefresh: string;
   attachmentsRemove: string;
   attachmentsSearchPlaceholder: string;
+  attachmentsSortBy: string;
+  attachmentsSortCreated: string;
+  attachmentsSortModified: string;
+  attachmentsSortName: string;
+  attachmentsSortSize: string;
   attachmentsSelectFiles: string;
   attachmentsSendMarkdownAsPdf: string;
   attachmentsSendMarkdownAsPdfShort: string;
@@ -3664,6 +3671,7 @@ export function EmailClient({
   };
   const composeDialogLabels: EmailComposeDialogLabels = {
     attachmentsAdd: t('attachmentsAdd'),
+    attachmentsAllFiles: t('attachmentsAllFiles'),
     attachmentsAttached: t('attachmentsAttached'),
     attachmentsCancel: t('attachmentsCancel'),
     attachmentsConfirm: t('attachmentsConfirm'),
@@ -3672,9 +3680,15 @@ export function EmailClient({
     attachmentsEmpty: t('attachmentsEmpty'),
     attachmentsLimitExceeded: t('attachmentsLimitExceeded'),
     attachmentsLoading: t('attachmentsLoading'),
+    attachmentsFolders: t('attachmentsFolders'),
     attachmentsRefresh: t('attachmentsRefresh'),
     attachmentsRemove: t('attachmentsRemove'),
     attachmentsSearchPlaceholder: t('attachmentsSearchPlaceholder'),
+    attachmentsSortBy: t('attachmentsSortBy'),
+    attachmentsSortCreated: t('attachmentsSortCreated'),
+    attachmentsSortModified: t('attachmentsSortModified'),
+    attachmentsSortName: t('attachmentsSortName'),
+    attachmentsSortSize: t('attachmentsSortSize'),
     attachmentsSelectFiles: t('attachmentsSelectFiles'),
     attachmentsSendMarkdownAsPdf: t('attachmentsSendMarkdownAsPdf', { name: '{name}' }),
     attachmentsSendMarkdownAsPdfShort: t('attachmentsSendMarkdownAsPdfShort'),
