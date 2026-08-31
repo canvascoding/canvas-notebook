@@ -1514,7 +1514,11 @@ export class LivePiRuntime {
 
     this.preparedRuntimePayload = null;
     const retry = await this.coordinateCompaction({
-      kind: 'automatic',
+      // A deferred automatic attempt has an active cooldown. The coordinator
+      // grants one bounded manual-priority bypass for that cooldown, so use it
+      // for this request-blocking exact-budget retry. The committed marker is
+      // still recorded as automatic below because this was not user-initiated.
+      kind: 'manual',
       messages: input.sourceMessages,
       additionalContextTokens: input.additionalContextTokens + Math.max(1, this.getPayloadPressure(prepared.budgetSnapshot)),
       runtimeContext: input.runtimeContext,
