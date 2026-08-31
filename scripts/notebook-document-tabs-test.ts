@@ -59,8 +59,20 @@ for (let index = 0; index < NOTEBOOK_MAX_OPEN_DOCUMENTS; index += 1) {
   limitedState = openNotebookDocumentTab(limitedState, `doc-${index}.md`).state;
 }
 const limitedResult = openNotebookDocumentTab(limitedState, 'one-too-many.md');
-assert.equal(limitedResult.status, 'limit-reached');
-assert.equal(limitedResult.state, limitedState, 'the limit must never evict a background document');
+assert.equal(limitedResult.status, 'opened');
+assert.deepEqual(limitedResult.state, {
+  activePath: 'one-too-many.md',
+  openPaths: [
+    'doc-1.md',
+    'doc-2.md',
+    'doc-3.md',
+    'doc-4.md',
+    'doc-5.md',
+    'doc-6.md',
+    'doc-7.md',
+    'one-too-many.md',
+  ],
+}, 'opening a ninth document must evict the oldest background document');
 
 const renamed = renameNotebookDocumentTabs({
   activePath: 'notes/daily/today.md',

@@ -85,7 +85,13 @@ export function openNotebookDocumentTab(
   }
 
   if (state.openPaths.length >= NOTEBOOK_MAX_OPEN_DOCUMENTS) {
-    return { state, status: 'limit-reached' };
+    return {
+      status: 'opened',
+      state: {
+        activePath: normalizedPath,
+        openPaths: [...state.openPaths.slice(1), normalizedPath],
+      },
+    };
   }
 
   return {
