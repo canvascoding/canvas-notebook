@@ -54,6 +54,8 @@ export function getRuntimeCompactionStatusTranslationKey(
 
 export type RuntimeStatus = {
   sessionId: string;
+  /** Client-only marker for a phase shown before the runtime confirms it. */
+  optimistic?: boolean;
   /** Server-assigned monotonic revision used to reject stale transport paths. */
   revision?: number;
   browser?: BrowserSessionSnapshot;
@@ -75,6 +77,16 @@ export type RuntimeStatus = {
   lastCompactionOmittedCount: number;
   compactionStatus?: RuntimeCompactionStatus;
 };
+
+export function isConfirmedResponsePreparation(
+  status: RuntimeStatus | null | undefined,
+  assistantBubble: { present: boolean; hasVisibleOutput: boolean },
+): boolean {
+  return status?.phase === 'streaming'
+    && status.optimistic !== true
+    && assistantBubble.present
+    && !assistantBubble.hasVisibleOutput;
+}
 
 export function isRuntimeStatusStale(current: RuntimeStatus | null, next: RuntimeStatus): boolean {
   if (!current || current.sessionId !== next.sessionId) return false;

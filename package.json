@@ -91,6 +91,7 @@
     "test:agent:bradley-stability": "tsx --conditions react-server scripts/bradley-runtime-stability-test.ts && npm run test:agent:tools-route && npm run test:agent:bradley-display-name",
     "test:agent:bradley-selector": "tsx scripts/bradley-agent-selector-contract-test.ts",
     "test:agent:bradley-glyph": "tsx scripts/bradley-glyph-ui-test.tsx && npm run test:agent:bradley-selector",
+    "test:agent:bradley-working-state": "tsx scripts/bradley-working-state-test.tsx && npm run test:agent:bradley-glyph",
     "test:scoped-data-paths": "tsx scripts/scoped-runtime-paths-test.ts",
     "test:integrations:env-scope": "tsx scripts/scoped-env-config-test.ts",
     "test:mcp:config": "tsx scripts/mcp-config-test.ts",

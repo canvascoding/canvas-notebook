@@ -1194,6 +1194,7 @@
     "usage": "Usage",
     "userLabel": "User",
     "working": "Working",
+    "preparingResponse": "Bradley is preparing the response…",
     "stopping": "Stopping",
     "ready": "Ready",
     "noOutputYet": "No output yet",

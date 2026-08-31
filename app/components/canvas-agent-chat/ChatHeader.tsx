@@ -39,6 +39,7 @@ type ChatHeaderProps = {
   isCompactView: boolean;
   isHistoryOverlayOpen: boolean;
   isMobile: boolean;
+  isPreparingResponse: boolean;
   isSessionTitleGenerating: boolean;
   onCompact: () => void;
   onSelectAgent: (agentId: string) => void;
@@ -70,6 +71,7 @@ export function ChatHeader({
   isCompactView,
   isHistoryOverlayOpen,
   isMobile,
+  isPreparingResponse,
   isSessionTitleGenerating,
   onCompact,
   onSelectAgent,
@@ -233,7 +235,12 @@ export function ChatHeader({
         <div data-testid="chat-runtime-banner" className="border-t border-border/50 px-3 py-1.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div data-testid="chat-runtime-status" className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex-initial">
-              <ChatRuntimeActivityBadge status={runtimeStatus} className="h-7" />
+              <ChatRuntimeActivityBadge
+                agentId={activeSessionAgentId}
+                isPreparingResponse={isPreparingResponse}
+                status={runtimeStatus}
+                className="h-7"
+              />
 
               {runtimeStatus && totalQueuedMessages > 0 && (
                 <span className="inline-flex h-7 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 text-[10px] text-muted-foreground">

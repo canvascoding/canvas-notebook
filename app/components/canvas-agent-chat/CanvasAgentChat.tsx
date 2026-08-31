@@ -22,7 +22,10 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
 import { useChatComposerLayout } from '@/app/components/canvas-agent-chat/useChatComposerLayout';
 import { useChatScrollController } from '@/app/components/canvas-agent-chat/useChatScrollController';
-import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
+import {
+  isConfirmedResponsePreparation,
+  type RuntimeStatus,
+} from '@/app/lib/chat/runtime-status';
 import {
   removeCachedChatSession,
   updateCachedChatSessionTitle,
@@ -1088,6 +1091,11 @@ export default function CanvasAgentChat({
   const isSessionTitleGenerating = activeSession?.titleGenerationState === 'pending' || activeSession?.titleGenerationState === 'generating';
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
   const activeAgentDisplayName = getAgentProfileDisplayName(activeSessionAgentId, activeAgentProfile?.name);
+  const latestMessage = messages.at(-1);
+  const isPreparingResponse = isConfirmedResponsePreparation(runtimeStatus, {
+    present: latestMessage?.role === 'assistant',
+    hasVisibleOutput: Boolean(latestMessage?.content.trim() || latestMessage?.attachments?.length),
+  });
   const chatAgentOptions = useMemo<AgentProfile[]>(() => (
     (availableAgents.length > 0
       ? availableAgents
@@ -1192,6 +1200,7 @@ export default function CanvasAgentChat({
         isCompactView={isCompactView}
         isHistoryOverlayOpen={isHistoryOverlayOpen}
         isMobile={isMobile}
+        isPreparingResponse={isPreparingResponse}
         isSessionTitleGenerating={isSessionTitleGenerating}
         onCompact={() => void handleCompact()}
         onSelectAgent={(agentId) => {

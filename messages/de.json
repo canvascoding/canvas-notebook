@@ -1193,6 +1193,7 @@
     "usage": "Nutzung",
     "userLabel": "Benutzer",
     "working": "In Arbeit",
+    "preparingResponse": "Bradley bereitet die Antwort vor …",
     "stopping": "Wird gestoppt",
     "ready": "Bereit",
     "noOutputYet": "Noch keine Ausgabe",
