@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import type * as YTypes from 'yjs';
 
 import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { composeCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadata';
+import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
 import type { TextCollaborationRepresentation } from './types';
 import {
   createPlainTextYDoc,
@@ -43,6 +45,30 @@ export interface PersistedCollaborationState {
   degraded: boolean;
   status: 'active' | 'archived';
 }
+
+export type SafeMarkdownNormalizationCheckpoint = {
+  write: (input: {
+    state: PersistedCollaborationState;
+    canonicalContent: string;
+  }) => Promise<{
+    content: string;
+    revisionId: string;
+    serializedContent: string;
+  }>;
+  restore: (input: {
+    state: PersistedCollaborationState;
+    canonicalContent: string;
+  }) => Promise<void>;
+  finalize: (input: {
+    state: PersistedCollaborationState;
+    canonicalContent: string;
+    fileWrite: {
+      content: string;
+      revisionId: string;
+      serializedContent: string;
+    };
+  }) => Promise<void> | void;
+};
 
 type StateRow = {
   document_id: string;
@@ -401,7 +427,8 @@ export class CollaborationRepresentationMigrationError extends Error {
       | 'checkpoint_stale'
       | 'content_unsupported'
       | 'agent_operation_pending'
-      | 'state_changed',
+      | 'state_changed'
+      | 'checkpoint_failed',
   ) {
     super(message);
     this.name = 'CollaborationRepresentationMigrationError';
@@ -528,7 +555,13 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   expectedLifecycleGeneration: number;
   representation: TextCollaborationRepresentation;
   schemaVersion: number;
-}): Promise<PersistedCollaborationState> {
+  normalizeSafeMarkdown?: boolean;
+  checkpoint?: SafeMarkdownNormalizationCheckpoint;
+}): Promise<{
+  canonicalContent: string;
+  checkpointRequired: boolean;
+  state: PersistedCollaborationState;
+}> {
   assertPostgres();
   if (getCollaborationRoomConnectionCount(input.documentId) > 0) {
     throw new CollaborationRepresentationMigrationError(
@@ -549,7 +582,30 @@ async function changeCollaborationRepresentationWhileLocked(input: {
       'checkpoint_stale',
     );
   }
-  const canonicalContent = canonicalContentFromState(state);
+  const currentCanonicalContent = canonicalContentFromState(state);
+  let canonicalContent = currentCanonicalContent;
+  if (input.normalizeSafeMarkdown) {
+    if (input.representation !== 'tiptap_xml') {
+      throw new CollaborationRepresentationMigrationError(
+        'Safe Markdown normalization is only available for rich-text migration.',
+        'content_unsupported',
+      );
+    }
+    const analysis = analyzeMarkdownRichMode(currentCanonicalContent);
+    if (analysis.mode === 'normalizable') {
+      canonicalContent = composeCanvasMarkdownDocument(
+        analysis.prefix,
+        analysis.normalizedBody,
+      );
+    } else if (analysis.mode !== 'rich') {
+      throw new CollaborationRepresentationMigrationError(
+        'The collaboration content cannot be normalized safely for rich text.',
+        'content_unsupported',
+      );
+    }
+  }
+  canonicalContent = encodingProfile(canonicalContent).canonical;
+  const checkpointRequired = canonicalContent !== currentCanonicalContent;
   let fresh: YTypes.Doc;
   try {
     fresh = createValidatedFreshDocument(input.representation, canonicalContent);
@@ -564,6 +620,9 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   const now = Date.now();
   const nextSequence = state.documentSequence + 1;
   const database = await openDb();
+  let checkpointAttempted = false;
+  let checkpointFileWrite: Awaited<ReturnType<SafeMarkdownNormalizationCheckpoint['write']>> | null = null;
+  let committed = false;
   try {
     await database.run('BEGIN');
     const applying = await database.get(
@@ -599,9 +658,9 @@ async function changeCollaborationRepresentationWhileLocked(input: {
         Buffer.from(update),
         Buffer.from(vector),
         nextSequence,
-        nextSequence,
+        checkpointRequired ? state.checkpointSequence : nextSequence,
         now,
-        now,
+        checkpointRequired ? state.checkpointedAt : now,
         sha256Text(canonicalContent),
         now,
         state.documentId,
@@ -614,10 +673,80 @@ async function changeCollaborationRepresentationWhileLocked(input: {
         'state_changed',
       );
     }
+    let migratedState = mapState(row);
+    if (checkpointRequired && input.checkpoint) {
+      checkpointAttempted = true;
+      checkpointFileWrite = await input.checkpoint.write({
+        state: migratedState,
+        canonicalContent,
+      });
+      const checkpointedRow = await database.get(
+        `UPDATE collaboration_yjs_states
+         SET checkpointed_at = ?, checkpoint_sequence = ?, canonical_hash = ?,
+             serialized_hash = ?, degraded = 0
+         WHERE document_id = ? AND status = 'active' AND lifecycle_generation = ?
+           AND schema_version = ? AND document_sequence = ?
+         RETURNING *`,
+        [
+          now,
+          nextSequence,
+          sha256Text(canonicalContent),
+          sha256Text(checkpointFileWrite.serializedContent),
+          state.documentId,
+          migratedState.lifecycleGeneration,
+          input.schemaVersion,
+          nextSequence,
+        ],
+      ) as StateRow | undefined;
+      if (!checkpointedRow) {
+        throw new CollaborationRepresentationMigrationError(
+          'Collaboration state changed before the normalized checkpoint could be confirmed.',
+          'state_changed',
+        );
+      }
+      migratedState = mapState(checkpointedRow);
+    }
     await database.run('COMMIT');
-    return mapState(row);
+    committed = true;
+    if (checkpointFileWrite && input.checkpoint) {
+      await input.checkpoint.finalize({
+        state: migratedState,
+        canonicalContent,
+        fileWrite: checkpointFileWrite,
+      });
+    }
+    return {
+      canonicalContent,
+      checkpointRequired,
+      state: migratedState,
+    };
   } catch (error) {
-    try { await database.run('ROLLBACK'); } catch {}
+    if (!committed) {
+      try { await database.run('ROLLBACK'); } catch {}
+    }
+    if (!committed && checkpointAttempted && input.checkpoint) {
+      try {
+        await input.checkpoint.restore({
+          state,
+          canonicalContent: currentCanonicalContent,
+        });
+      } catch (restoreError) {
+        await markCollaborationDegraded(state.documentId, state.lifecycleGeneration);
+        throw new AggregateError(
+          [error, restoreError],
+          'Normalized collaboration migration failed and its file checkpoint could not be restored.',
+        );
+      }
+      if (!(error instanceof CollaborationRepresentationMigrationError)) {
+        throw new CollaborationRepresentationMigrationError(
+          error instanceof Error ? error.message : 'The normalized file checkpoint failed.',
+          'checkpoint_failed',
+        );
+      }
+    }
+    if (committed) {
+      await markCollaborationDegraded(state.documentId, state.lifecycleGeneration + 1);
+    }
     throw error;
   } finally {
     fresh.destroy();
@@ -632,9 +761,32 @@ export async function changeCollaborationRepresentation(input: {
   schemaVersion: number;
 }): Promise<PersistedCollaborationState> {
   assertPostgres();
-  return withCollaborationRoomLifecycleLock(
+  const result = await withCollaborationRoomLifecycleLock(
     input.documentId,
     () => changeCollaborationRepresentationWhileLocked(input),
+  );
+  return result.state;
+}
+
+export async function changeCollaborationRepresentationWithSafeMarkdownNormalization(input: {
+  documentId: string;
+  expectedLifecycleGeneration: number;
+  schemaVersion: number;
+  checkpoint: SafeMarkdownNormalizationCheckpoint;
+}): Promise<{
+  canonicalContent: string;
+  checkpointRequired: boolean;
+  state: PersistedCollaborationState;
+}> {
+  assertPostgres();
+  return withCollaborationRoomLifecycleLock(
+    input.documentId,
+    () => changeCollaborationRepresentationWhileLocked({
+      ...input,
+      representation: 'tiptap_xml',
+      normalizeSafeMarkdown: true,
+      checkpoint: input.checkpoint,
+    }),
   );
 }
 

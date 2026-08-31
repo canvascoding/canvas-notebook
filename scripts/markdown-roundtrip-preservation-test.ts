@@ -85,6 +85,43 @@ assert.deepEqual(analyzeMarkdownRichMode('1. Item\n\n   continuation paragraph\n
   reason: 'roundtrip_changed',
 });
 
+const entityFixture = '# Research & Development\n\nA < B > C\n';
+assert.deepEqual(analyzeMarkdownRichMode(entityFixture), {
+  mode: 'normalizable',
+  prefix: '',
+  body: entityFixture,
+  normalizedBody: serializeRichMarkdownBody(entityFixture),
+  normalizations: ['html_entity_escaping'],
+});
+
+const tableFixture = [
+  '# Options',
+  '',
+  '| Name | Meaning |',
+  '| ---- | ------- |',
+  '| **Mosa** | Many pieces become one |',
+  '| **Lino** | Woven structure |',
+  '',
+].join('\n');
+assert.deepEqual(analyzeMarkdownRichMode(tableFixture), {
+  mode: 'normalizable',
+  prefix: '',
+  body: tableFixture,
+  normalizedBody: serializeRichMarkdownBody(tableFixture),
+  normalizations: ['table_formatting'],
+});
+
+const brandedTableFixture = tableFixture.replace('# Options', '# Brand & UI options');
+const brandedTableNormalized = serializeRichMarkdownBody(brandedTableFixture);
+assert.deepEqual(analyzeMarkdownRichMode(brandedTableFixture), {
+  mode: 'normalizable',
+  prefix: '',
+  body: brandedTableFixture,
+  normalizedBody: brandedTableNormalized,
+  normalizations: ['html_entity_escaping', 'table_formatting'],
+});
+assert.equal(analyzeMarkdownRichMode(brandedTableNormalized).mode, 'rich');
+
 const markdownEditorSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'components', 'editor', 'MarkdownEditor.tsx'),
   'utf8',
