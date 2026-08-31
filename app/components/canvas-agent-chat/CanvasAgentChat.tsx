@@ -1036,15 +1036,27 @@ export default function CanvasAgentChat({
     ...(runtimeStatus?.followUpQueue || []).map((entry) => ({ ...entry, kind: 'follow_up' as const })),
   ];
   const activeToolDisplay = runtimeStatus?.activeTool ? getToolDisplayInfo(runtimeStatus.activeTool.name, locale) : null;
+  const hasFinalRequestBudget = runtimeStatus?.finalRequestTokens !== null && runtimeStatus?.finalRequestTokens !== undefined;
   const contextDetailedLabel = runtimeStatus
-    ? t('contextLabel', {
+    ? hasFinalRequestBudget
+      ? t('contextFinalLabel', {
+        used: formatContextTokens(runtimeStatus.finalRequestTokens!),
+        window: formatContextTokens(runtimeStatus.contextWindow),
+      })
+      : t('contextLabel', {
         used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
         available: formatContextTokens(runtimeStatus.availableHistoryTokens),
         window: formatContextTokens(runtimeStatus.contextWindow),
       })
     : t('noSessionYet');
   const contextTooltip = runtimeStatus
-    ? t('contextTooltip', {
+    ? hasFinalRequestBudget
+      ? t('contextFinalTooltip', {
+        used: formatContextTokens(runtimeStatus.finalRequestTokens!),
+        window: formatContextTokens(runtimeStatus.contextWindow),
+        percent: Math.round((runtimeStatus.finalRequestTokens! / Math.max(1, runtimeStatus.contextWindow)) * 100),
+      })
+      : t('contextTooltip', {
         percent: runtimeStatus.contextUsagePercent,
         used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
         available: formatContextTokens(runtimeStatus.availableHistoryTokens),
@@ -1052,7 +1064,9 @@ export default function CanvasAgentChat({
         reserved: formatContextTokens(Math.max(0, runtimeStatus.contextWindow - runtimeStatus.availableHistoryTokens)),
       })
     : t('noSessionYet');
-  const contextProgressPercent = Math.min(100, Math.max(0, runtimeStatus?.contextUsagePercent ?? 0));
+  const contextProgressPercent = Math.min(100, Math.max(0, hasFinalRequestBudget
+    ? Math.round((runtimeStatus!.finalRequestTokens! / Math.max(1, runtimeStatus!.contextWindow)) * 100)
+    : runtimeStatus?.contextUsagePercent ?? 0));
   const sessionDisplayLabel = getSessionDisplayTitle(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const primaryActionIsStop = isRuntimeBusy && !hasComposerContent;

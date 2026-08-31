@@ -67,6 +67,13 @@ export type RuntimeStatus = {
   estimatedHistoryTokens: number;
   availableHistoryTokens: number;
   contextUsagePercent: number;
+  /**
+   * Exact final request size, including instructions, tools, normalized images,
+   * output reserve, and safety margin. Null until a provider-ready payload has
+   * been built for the current turn.
+   */
+  finalRequestTokens?: number | null;
+  finalRequestBudgetExceeded?: boolean;
   includedSummary: boolean;
   omittedMessageCount: number;
   summaryUpdatedAt: string | null;

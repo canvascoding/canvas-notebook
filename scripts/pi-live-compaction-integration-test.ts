@@ -296,6 +296,69 @@ async function main(): Promise<void> {
   )));
   assert.equal((await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision, 1);
 
+  const exactBudgetRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
+  const initialCandidate = [{ role: 'user', content: 'original candidate', timestamp: 1 }] as unknown as AgentMessage[];
+  const compactedCandidate = [{ role: 'user', content: 'compacted candidate', timestamp: 2 }] as unknown as AgentMessage[];
+  const compactedSummary = {
+    summaryText: 'Exact final payload was compacted.',
+    summaryUpdatedAt: new Date(),
+    summaryThroughTimestamp: 1,
+    summaryThroughSequence: 1,
+    summaryRevision: 1,
+  };
+  const initialComposition = { llmMessages: initialCandidate };
+  const retryComposition = { llmMessages: compactedCandidate };
+  let preparedPayloadCount = 0;
+  let retryAdditionalContextTokens = 0;
+  Object.assign(exactBudgetRuntime, {
+    summary: { ...compactedSummary, summaryText: null, summaryUpdatedAt: null, summaryThroughTimestamp: null, summaryThroughSequence: null, summaryRevision: 0 },
+    lastComposition: null,
+    preparedRuntimePayload: null,
+    injectRuntimeContext: async (candidate: AgentMessage[]) => candidate,
+    buildFinalPayload: async (candidate: AgentMessage[]) => {
+      const exceeds = preparedPayloadCount++ === 0;
+      return {
+        sourceMessages: candidate,
+        messages: candidate,
+        budgetSnapshot: {
+          contextBudgetExceeded: exceeds,
+          payloadBudgetExceeded: false,
+        },
+      };
+    },
+    cachePreparedRuntimePayload(payload: unknown) {
+      this.preparedRuntimePayload = payload;
+    },
+    getPayloadPressure: () => 1_500,
+    coordinateCompaction: async (input: { additionalContextTokens: number }) => {
+      retryAdditionalContextTokens = input.additionalContextTokens;
+      return {
+        state: 'succeeded',
+        attemptId: 'exact-payload-retry',
+        summary: compactedSummary,
+        composition: retryComposition,
+      };
+    },
+    recordCompaction: () => undefined,
+    publishStatus: () => undefined,
+  });
+  const recoveredCandidate = await (exactBudgetRuntime as unknown as {
+    finalizeContextCandidate: (input: {
+      composition: unknown;
+      sourceMessages: AgentMessage[];
+      runtimeContext: null;
+      additionalContextTokens: number;
+    }) => Promise<AgentMessage[]>;
+  }).finalizeContextCandidate({
+    composition: initialComposition,
+    sourceMessages: initialCandidate,
+    runtimeContext: null,
+    additionalContextTokens: 200,
+  });
+  assert.equal(retryAdditionalContextTokens, 1_700, 'exact final-payload overflow must reserve room for a retry compaction');
+  assert.deepEqual(recoveredCandidate, compactedCandidate, 'the retried, exact-budget-safe candidate must reach the provider');
+  assert.equal(preparedPayloadCount, 2, 'the final payload must be checked before and after the retry compaction');
+
   const finalAttempts = await db.select().from(piSessionCompactionAttempts);
   assert.deepEqual(finalAttempts.map((attempt) => attempt.state), ['succeeded', 'aborted', 'stale', 'timed_out']);
   console.log('pi-live-compaction-integration-test: ok');
