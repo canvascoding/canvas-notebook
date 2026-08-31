@@ -45,6 +45,7 @@ export function ProfileAppearanceEditor({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [profile, setProfile] = useState(initialProfile);
   const [pendingChoice, setPendingChoice] = useState<string | null>(null);
+  const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const updateChoice = async (avatarKind: 'icon' | 'initials', iconId?: UserAvatarIconId) => {
@@ -79,6 +80,8 @@ export function ProfileAppearanceEditor({
       return;
     }
 
+    const previewUrl = URL.createObjectURL(file);
+    setPendingImageUrl(previewUrl);
     setPendingChoice('image');
     try {
       const formData = new FormData();
@@ -94,6 +97,8 @@ export function ProfileAppearanceEditor({
       console.warn('[UserProfile] Failed to upload avatar image.', error);
       toast.error(t('updateFailed'));
     } finally {
+      URL.revokeObjectURL(previewUrl);
+      setPendingImageUrl(null);
       setPendingChoice(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -110,6 +115,9 @@ export function ProfileAppearanceEditor({
   };
 
   const isBusy = Boolean(pendingChoice);
+  const previewProfile: ResolvedUserProfile = pendingImageUrl
+    ? { ...profile, avatarKind: 'image', iconId: null, imageUrl: pendingImageUrl }
+    : profile;
 
   return (
     <section
@@ -123,7 +131,7 @@ export function ProfileAppearanceEditor({
             <p className="mb-4 text-xs font-semibold tracking-[0.14em] text-muted-foreground uppercase">
               {t('previewLabel')}
             </p>
-            <UserAvatar profile={profile} className="size-20 text-4xl" />
+            <UserAvatar profile={previewProfile} className="size-20 text-4xl" />
           </div>
           <div className="relative mt-6 min-w-0">
             <p className="truncate text-lg font-semibold">{profile.name}</p>

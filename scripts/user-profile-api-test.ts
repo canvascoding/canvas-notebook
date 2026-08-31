@@ -28,7 +28,10 @@ async function importServerModule<T>(specifier: string): Promise<T> {
   }
 }
 
-function request(url: string, init?: RequestInit): NextRequest {
+function request(
+  url: string,
+  init?: { body?: BodyInit | null; headers?: HeadersInit; method?: string },
+): NextRequest {
   const headers = new Headers(init?.headers);
   if (init?.method && init.method !== 'GET') {
     headers.set('Origin', 'http://localhost:3000');
@@ -139,7 +142,7 @@ async function main() {
       assert.equal(oversized.status, 413);
 
       const invalidForm = new FormData();
-      invalidForm.append('file', new File([Buffer.from('not an image')], 'avatar.png', { type: 'image/png' }));
+      invalidForm.append('avatar', new File([Buffer.from('not an image')], 'avatar.png', { type: 'image/png' }));
       const invalidImage = await avatarRoute.POST(request('http://localhost:3000/api/account/profile/avatar', {
         method: 'POST',
         body: invalidForm,
@@ -155,7 +158,7 @@ async function main() {
         },
       }).png().toBuffer();
       const form = new FormData();
-      form.append('file', new File([sourceImage], 'alex.png', { type: 'image/png' }));
+      form.append('avatar', new File([sourceImage], 'alex.png', { type: 'image/png' }));
       const uploaded = await avatarRoute.POST(request('http://localhost:3000/api/account/profile/avatar', {
         method: 'POST',
         body: form,

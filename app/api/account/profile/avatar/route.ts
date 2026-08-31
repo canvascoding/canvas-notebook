@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
   try {
     const parsed = await parseMultipartFormData(request);
     if (!parsed.ok) return parsed.response;
-    const files = parsed.formData.getAll('file').filter((value): value is File => value instanceof File);
+    const files = parsed.formData.getAll('avatar').filter((value): value is File => value instanceof File);
     if (files.length !== 1) {
       return NextResponse.json(
         { success: false, error: 'Upload exactly one profile image.' },

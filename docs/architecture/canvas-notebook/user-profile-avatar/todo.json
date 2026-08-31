@@ -6,7 +6,7 @@
     {
       "id": 1,
       "title": "User-profile domain model, icon catalog, initials helper and persistent storage service",
-      "status": "pending",
+      "status": "completed",
       "dependsOn": [],
       "verification": [
         "service tests",
@@ -17,7 +17,7 @@
     {
       "id": 2,
       "title": "Authenticated self-scoped profile metadata and avatar API",
-      "status": "pending",
+      "status": "completed",
       "dependsOn": [1],
       "verification": [
         "authentication and same-origin tests",
@@ -29,7 +29,7 @@
     {
       "id": 3,
       "title": "Shared UserAvatar, UserProfileBadge and ProfileAppearanceEditor components",
-      "status": "pending",
+      "status": "completed",
       "dependsOn": [2],
       "verification": [
         "photo, icon and initials rendering",
@@ -41,7 +41,7 @@
     {
       "id": 4,
       "title": "Personal profile editor in General Settings",
-      "status": "pending",
+      "status": "completed",
       "dependsOn": [3],
       "verification": [
         "switch photo, icon and initials",
@@ -51,7 +51,7 @@
     {
       "id": 5,
       "title": "Optional profile personalization inside the onboarding language step",
-      "status": "pending",
+      "status": "completed",
       "dependsOn": [4],
       "verification": [
         "onboarding continues without explicit selection",
@@ -62,7 +62,7 @@
     {
       "id": 6,
       "title": "Avatar and user name badge on the home page",
-      "status": "pending",
+      "status": "completed",
       "dependsOn": [5],
       "verification": [
         "server-rendered initial state",
@@ -73,7 +73,7 @@
     {
       "id": 7,
       "title": "Final repository and UI verification",
-      "status": "pending",
+      "status": "completed",
       "dependsOn": [6],
       "verification": [
         "targeted tests",
@@ -81,7 +81,8 @@
         "npm run build",
         "UI/E2E on localhost:3000 after explicit browser automation approval",
         "GitNexus detect_changes against main"
-      ]
+      ],
+      "note": "Automated service, API, UI-contract, lint and production-build checks completed. Browser automation was not run because explicit approval was not provided."
     }
   ]
 }

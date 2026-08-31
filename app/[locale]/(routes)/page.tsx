@@ -28,7 +28,8 @@ export default async function Home() {
   const tHome = await getTranslations('home');
   const onboardingHintsEnabled = isOnboardingHintsEnabled();
   const session = await requirePageSession();
-  const userOnboarding = session ? await getUserOnboardingState(session.user.id) : null;
+  if (!session) return null;
+  const userOnboarding = await getUserOnboardingState(session.user.id);
   const userProfile = await resolveUserProfile({
     userId: session.user.id,
     name: session.user.name,
@@ -76,7 +77,7 @@ export default async function Home() {
               {showPersonalTour && <GettingStartedCard />}
 
               <HomeWorkspaceView
-                showBrowserLab={Boolean(session && isBrowserLabAllowed(session.user))}
+                showBrowserLab={isBrowserLabAllowed(session.user)}
               />
             </div>
           </main>
