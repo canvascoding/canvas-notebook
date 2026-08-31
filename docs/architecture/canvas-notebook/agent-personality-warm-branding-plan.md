@@ -57,6 +57,11 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] Erste flache Mo-Glyph-Variante einschließlich monochromer Version und
   Größen-Prüfbogen unter `docs/architecture/canvas-notebook/assets/mo/`
   erstellt.
+- [x] Kanonisches Character-Referenzbild, Silhouette, ausgewählte
+  Zustands-Explorationen und Willkommensszene in die versionierte
+  Mo-Assetstruktur übernommen.
+- [x] Ersten animierten SVG-Prototyp für den aktiven Generierungszustand mit
+  Reduced-Motion-Fallback erstellt.
 
 Noch nicht entschieden oder umgesetzt sind insbesondere der endgültige
 Namensvertrag, die finale Freigabe der kleinen SVG-/Icon-Variante, die
@@ -391,13 +396,13 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| MO-010 | offen | Referenzrender und Nutzungsnachweis portabel ins Projekt übernehmen | Masterdatei und Herkunft liegen an einem stabilen, dokumentierten Projektpfad. |
-| MO-011 | offen | Transparentes Mo-Character-Master erstellen | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
+| MO-010 | in Arbeit | Referenzrender und Nutzungsnachweis portabel ins Projekt übernehmen; ausgewählte Dateien liegen unter `assets/mo/references/` | Masterdatei und Herkunft liegen an einem stabilen, dokumentierten Projektpfad. |
+| MO-011 | in Arbeit | Transparentes Mo-Character-Master erstellen; aktueller PNG-Master ist portabel abgelegt | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
 | MO-012 | offen | Light- und Dark-Mode-Character-Varianten erstellen | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
-| MO-013 | in Arbeit | Mo-Glyph als SVG entwerfen; v1 liegt unter `docs/architecture/canvas-notebook/assets/mo/` | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
+| MO-013 | in Arbeit | Mo-Glyph als SVG entwerfen; v1 liegt unter `assets/mo/glyphs/static/` | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
 | MO-014 | in Arbeit | Monochrome und High-Contrast-Varianten erstellen; monochrome v1 liegt vor | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
-| MO-015 | offen | Kleine Zustandsvarianten definieren | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
-| MO-016 | offen | Motion-Spezifikation inklusive Reduced Motion erstellen | Dauer, Easing, Bedeutung, Performance und bewegungsarme Alternative sind dokumentiert. |
+| MO-015 | in Arbeit | Kleine Zustandsvarianten definieren; Generierungszustand liegt als animierter SVG-Prototyp vor | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
+| MO-016 | in Arbeit | Motion-Spezifikation inklusive Reduced Motion erstellen; erster Vertrag ist im Asset-README dokumentiert | Dauer, Easing, Bedeutung, Performance und bewegungsarme Alternative sind dokumentiert. |
 
 ### Phase C — Sprache und UX
 
