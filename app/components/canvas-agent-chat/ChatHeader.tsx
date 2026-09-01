@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   ArrowLeft,
@@ -8,6 +9,7 @@ import {
   History,
   Lightbulb,
   MoreHorizontal,
+  PanelsTopLeft,
   Plus,
   Settings,
   Sparkles,
@@ -89,6 +91,8 @@ export function ChatHeader({
 }: ChatHeaderProps) {
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
+  const tWorkspaces = useTranslations('workspaces');
+  const [workspaceSheetOpen, setWorkspaceSheetOpen] = useState(false);
   const canShowWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
   const showWorkspaceSwitcher = showWorkspaceSwitcherEnabled && canShowWorkspaceSwitcher;
   const compactionStatus = runtimeStatus?.compactionStatus;
@@ -254,13 +258,10 @@ export function ChatHeader({
             <DropdownMenuContent data-testid="chat-header-menu" align="end" className="w-72">
               {showWorkspaceSwitcher ? (
                 <>
-                  <div className="px-1 py-1">
-                    <WorkspaceSwitcher
-                      source="chat"
-                      variant="mobile-sheet"
-                      className="h-9 border-0 bg-transparent shadow-none hover:bg-accent"
-                    />
-                  </div>
+                  <DropdownMenuItem onSelect={() => setWorkspaceSheetOpen(true)}>
+                    <PanelsTopLeft />
+                    <span>{tWorkspaces('label')}</span>
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                 </>
               ) : null}
@@ -325,6 +326,15 @@ export function ChatHeader({
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
+          {showWorkspaceSwitcher ? (
+            <WorkspaceSwitcher
+              source="chat"
+              variant="mobile-sheet"
+              mobileSheetOpen={workspaceSheetOpen}
+              onMobileSheetOpenChange={setWorkspaceSheetOpen}
+              hideMobileSheetTrigger
+            />
+          ) : null}
         </div>
       </div>
     </>

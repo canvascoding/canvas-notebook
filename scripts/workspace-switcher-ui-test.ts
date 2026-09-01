@@ -172,13 +172,23 @@ async function main() {
     path.join(process.cwd(), 'app', 'components', 'canvas-agent-chat', 'ChatHeader.tsx'),
     'utf8',
   );
+  const workspaceSwitcherSource = fs.readFileSync(
+    path.join(process.cwd(), 'app', 'components', 'workspaces', 'WorkspaceSwitcher.tsx'),
+    'utf8',
+  );
   assert.match(chatHeaderSource, /@container relative z-10/u);
   assert.match(chatHeaderSource, /\{sessionId \? \(/u);
   assert.match(chatHeaderSource, /hidden @\[44rem\]:inline-flex/u);
   assert.match(
     chatHeaderSource,
-    /<DropdownMenuContent[\s\S]*?<WorkspaceSwitcher[\s\S]*?variant="mobile-sheet"[\s\S]*?data-testid="chat-context-details"/u,
+    /<DropdownMenuItem onSelect=\{\(\) => setWorkspaceSheetOpen\(true\)\}>/u,
   );
+  assert.match(
+    chatHeaderSource,
+    /<\/DropdownMenu>\s*\{showWorkspaceSwitcher \? \(\s*<WorkspaceSwitcher[\s\S]*?mobileSheetOpen=\{workspaceSheetOpen\}[\s\S]*?hideMobileSheetTrigger/u,
+  );
+  assert.match(workspaceSwitcherSource, /const mobileSheetOpen = controlledMobileSheetOpen \?\? internalMobileSheetOpen/u);
+  assert.match(workspaceSwitcherSource, /\{!hideMobileSheetTrigger \? \(\s*<SheetTrigger asChild>/u);
 
   const {
     WORKSPACE_CHANGED_EVENT,
