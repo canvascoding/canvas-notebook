@@ -20,13 +20,13 @@ async function main() {
       assert.equal(input, '/api/files/collaboration/operations?documentId=document%2Fwith%20spaces');
       assert.equal(init?.cache, 'no-store');
       assert.deepEqual(init?.headers, { 'X-Workspace-Id': 'workspace-1' });
-      return Response.json({ operations: Array.from({ length: 7 }, (_, index) => ({
+      return Response.json({ operations: Array.from({ length: 24 }, (_, index) => ({
         ...operation,
         operationId: `operation-${index + 1}`,
       })) });
     },
   });
-  assert.equal(successfulOperations?.length, 5, 'successful polling should keep the five newest operations');
+  assert.equal(successfulOperations?.length, 20, 'successful polling should keep enough history for the activity panel');
 
   const rejectedRequest = await loadCollaborationAgentOperations({
     documentId: 'document-1',

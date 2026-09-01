@@ -10,6 +10,7 @@ interface EditorState {
   saveError: string | null;
   setActiveFile: (path: string, content: string) => void;
   updateDraft: (content: string) => void;
+  syncCollaborativeDraft: (content: string) => void;
   markSaving: () => void;
   markSaved: () => void;
   setSaveError: (error: string | null) => void;
@@ -37,6 +38,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   updateDraft: (content: string) => {
     if (content === get().draft) return;
     set({ draft: content, isDirty: true, saveError: null });
+  },
+  syncCollaborativeDraft: (content: string) => {
+    if (content === get().draft) return;
+    set({
+      draft: content,
+      baseContent: content,
+      isDirty: false,
+      isSaving: false,
+      saveError: null,
+    });
   },
   markSaving: () => set({ isSaving: true, saveError: null }),
   markSaved: () =>

@@ -15,6 +15,9 @@ import {
 } from '@/app/lib/files/client';
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { useEditorStore } from '@/app/store/editor-store';
+import type { CollaborationDocument } from '@/app/lib/collaboration/client';
+import type { CollaborationAgentOperation } from '@/app/lib/collaboration/agent-operations-client';
+import { visibleAgentTargetAnchors } from '@/app/lib/collaboration/agent-target-decorations';
 import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
 import { MarkdownEditor } from './MarkdownEditorClient';
@@ -441,6 +444,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     saveError,
     setActiveFile,
     updateDraft,
+    syncCollaborativeDraft,
     markSaving,
     markSaved,
     setSaveError,
@@ -467,6 +471,24 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const [externalTextChange, setExternalTextChange] = useState<ExternalTextChange | null>(null);
   const [isResolvingExternalTextChange, setIsResolvingExternalTextChange] = useState(false);
   const currentFilePath = currentFile?.path ?? null;
+  const [collaborationDocumentState, setCollaborationDocumentState] = useState<{
+    path: string;
+    document: CollaborationDocument;
+  } | null>(null);
+  const [agentOperationState, setAgentOperationState] = useState<{
+    documentId: string;
+    operations: CollaborationAgentOperation[];
+  } | null>(null);
+  const handleCollaborationChange = useCallback((document: CollaborationDocument | null) => {
+    if (!currentFilePath) return;
+    setCollaborationDocumentState((current) => {
+      if (document) return { path: currentFilePath, document };
+      return current?.path === currentFilePath ? null : current;
+    });
+  }, [currentFilePath]);
+  const activeCollaborationDocument = collaborationDocumentState?.path === currentFilePath
+    ? collaborationDocumentState.document
+    : null;
   const activeExternalTextChange = externalTextChange &&
     externalTextChange.path === activePath &&
     externalTextChange.path === currentFilePath
@@ -654,11 +676,25 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                     ? 'binary'
                     : 'code';
   const collaboration = currentFile?.collaboration ?? null;
+  const collaborationDocumentId = collaboration?.crdtCapable ? collaboration.document?.id ?? null : null;
+  const agentTargets = useMemo(() => visibleAgentTargetAnchors(
+    agentOperationState?.documentId === collaborationDocumentId
+      ? agentOperationState.operations
+      : [],
+  ), [agentOperationState, collaborationDocumentId]);
+  const handleAgentOperationsChange = useCallback((operations: CollaborationAgentOperation[]) => {
+    if (!collaborationDocumentId) return;
+    setAgentOperationState({ documentId: collaborationDocumentId, operations });
+  }, [collaborationDocumentId]);
   const isSceneCollaboration = Boolean(collaboration?.sceneCapable);
+  const isCrdtCollaboration = Boolean(collaboration?.crdtCapable);
   const updateCollaborativeDraft = useCallback((value: string) => {
+    if (isCrdtCollaboration) {
+      syncCollaborativeDraft(value);
+      return;
+    }
     updateDraft(value);
-    if (collaboration?.crdtCapable) markSaved();
-  }, [collaboration?.crdtCapable, markSaved, updateDraft]);
+  }, [isCrdtCollaboration, syncCollaborativeDraft, updateDraft]);
   const collaborationLabel = useMemo(() => {
     if (!collaboration) return null;
     if (collaboration.activeLock) return t('collaboration.locked');
@@ -690,8 +726,37 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [currentFile?.path]);
 
   const savedTime = formatTimestamp(lastSavedAt);
-  const displaySaveError = saveError ?? null;
-  const saveStatusLabel = displaySaveError
+  const displaySaveError = isCrdtCollaboration
+    ? activeCollaborationDocument?.error ?? null
+    : saveError ?? null;
+  const collaborativeSavePending = isCrdtCollaboration && (
+    !activeCollaborationDocument
+    || activeCollaborationDocument.durability !== 'checkpointed_file'
+  );
+  const collaborationSaveStatus = isCrdtCollaboration
+    ? !activeCollaborationDocument
+      ? t('collaboration.connecting')
+      : activeCollaborationDocument.connection === 'offline'
+        ? activeCollaborationDocument.durability === 'local_pending'
+          ? t('collaboration.offlineLocal')
+          : t('collaboration.offline')
+        : activeCollaborationDocument.connection === 'reconnecting'
+          ? t('collaboration.reconnecting')
+          : activeCollaborationDocument.connection === 'denied'
+            ? t('collaboration.denied')
+            : activeCollaborationDocument.durability === 'local_pending'
+              ? t('collaboration.localPending')
+              : activeCollaborationDocument.durability === 'server_received'
+                ? t('collaboration.serverReceived')
+                : activeCollaborationDocument.durability === 'persisted_yjs'
+                  ? t('collaboration.persistedYjs')
+                  : activeCollaborationDocument.durability === 'checkpoint_pending'
+                    ? t('collaboration.checkpointPending')
+                    : activeCollaborationDocument.durability === 'checkpointed_file'
+                      ? t('collaboration.checkpointedFile')
+                      : t('collaboration.degraded')
+    : null;
+  const saveStatusLabel = collaborationSaveStatus || (displaySaveError
     ? displaySaveError
     : isSaving
       ? t('saving')
@@ -699,15 +764,21 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         ? t('unsavedChanges')
         : savedTime
           ? t('savedAt', { time: savedTime })
-          : t('saved');
-  const saveStatusInlineText = displaySaveError
+          : t('saved'));
+  const saveStatusInlineText = collaborationSaveStatus || (displaySaveError
     ? displaySaveError
     : isSaving
       ? t('saving')
       : isDirty
         ? t('unsavedChanges')
-        : savedTime ?? t('saved');
-  const saveStatusTone = displaySaveError ? 'text-destructive' : !isSaving && !isDirty ? 'text-primary' : 'text-muted-foreground';
+        : savedTime ?? t('saved'));
+  const saveStatusTone = displaySaveError
+    ? 'text-destructive'
+    : isCrdtCollaboration && activeCollaborationDocument?.connection === 'offline'
+      ? 'text-amber-600 dark:text-amber-400'
+      : isCrdtCollaboration
+        ? collaborativeSavePending ? 'text-muted-foreground' : 'text-primary'
+        : !isSaving && !isDirty ? 'text-primary' : 'text-muted-foreground';
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const currentFileNode = useMemo<FileNode | null>(() => {
     if (!currentFile) return null;
@@ -876,7 +947,20 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         saveTimeoutRef.current = null;
       }
 
-      if (pathToSave && hasUnsavedChanges && !isSceneCollaboration) {
+      if (pathToSave && isCrdtCollaboration && activeCollaborationDocument) {
+        if (
+          activeCollaborationDocument.connection === 'offline'
+          || activeCollaborationDocument.connection === 'denied'
+          || activeCollaborationDocument.durability === 'degraded'
+        ) {
+          const message = t('collaboration.closeBlocked');
+          toast.error(message);
+          return;
+        }
+        if (activeCollaborationDocument.durability !== 'checkpointed_file') {
+          await activeCollaborationDocument.requestCheckpoint();
+        }
+      } else if (pathToSave && hasUnsavedChanges && !isSceneCollaboration) {
         if (activeExternalTextChangePath === pathToSave) {
           const message = t('externalChangeSaveBlocked');
           setSaveError(message);
@@ -907,7 +991,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     } finally {
       setIsClosingPreview(false);
     }
-  }, [activeExternalTextChangePath, getSaveErrorMessage, handleSaveError, isClosingPreview, isSceneCollaboration, markSaved, markSaving, onClosePreview, saveTrackedFile, setSaveError, t]);
+  }, [activeCollaborationDocument, activeExternalTextChangePath, getSaveErrorMessage, handleSaveError, isClosingPreview, isCrdtCollaboration, isSceneCollaboration, markSaved, markSaving, onClosePreview, saveTrackedFile, setSaveError, t]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -917,6 +1001,16 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           useEditorStore.getState();
         if (!pathToSave) return;
         if (isSceneCollaboration && currentFilePath === pathToSave) return;
+        if (isCrdtCollaboration && currentFilePath === pathToSave) {
+          if (!activeCollaborationDocument) {
+            toast.error(t('collaboration.connecting'));
+            return;
+          }
+          void activeCollaborationDocument.requestCheckpoint().catch((error) => {
+            toast.error(error instanceof Error ? error.message : t('collaboration.checkpointFailed'));
+          });
+          return;
+        }
         if (activeExternalTextChangePath === pathToSave) {
           const message = t('externalChangeSaveBlocked');
           setSaveError(message);
@@ -942,7 +1036,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [activeExternalTextChangePath, currentFilePath, handleSaveError, isSceneCollaboration, markSaved, markSaving, saveTrackedFile, setSaveError, t]);
+  }, [activeCollaborationDocument, activeExternalTextChangePath, currentFilePath, handleSaveError, isCrdtCollaboration, isSceneCollaboration, markSaved, markSaving, saveTrackedFile, setSaveError, t]);
 
   useEffect(() => {
     if (!isImage) return;
@@ -1260,6 +1354,12 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                 </Button>
               </FileHeaderTooltip>
             )}
+            {collaboration?.crdtCapable && collaboration.document?.id ? (
+              <CollaborationAgentOperations
+                documentId={collaboration.document.id}
+                onOperationsChange={handleAgentOperationsChange}
+              />
+            ) : null}
             <FileHeaderTooltip label={saveStatusLabel}>
               <span
                 className={`flex h-6 w-6 shrink-0 items-center justify-center gap-1 rounded-sm px-0 text-xs 2xl:w-auto 2xl:max-w-36 2xl:px-1.5 ${saveStatusTone}`}
@@ -1267,7 +1367,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               >
                 {displaySaveError ? (
                   <AlertCircle className="h-3.5 w-3.5" />
-                ) : isSaving || isDirty ? (
+                ) : isSaving || isDirty || collaborativeSavePending ? (
                   <Save className="h-3.5 w-3.5" />
                 ) : (
                   <CheckCircle2 className="h-3.5 w-3.5" />
@@ -1355,9 +1455,6 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             </Button>
           </div>
         </div>
-      ) : null}
-      {collaboration?.crdtCapable && collaboration.document?.id ? (
-        <CollaborationAgentOperations documentId={collaboration.document.id} />
       ) : null}
       <div className={isImage || isVideo || isMarkdown || isHtml || isExcalidraw ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
         <EditorErrorBoundary editorKind={editorKind} resetKey={currentFile.path}>
@@ -1447,11 +1544,21 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                 onChange={updateCollaborativeDraft}
                 filePath={currentFile.path}
                 collaborationEnabled={Boolean(collaboration?.crdtCapable)}
+                onCollaborationChange={handleCollaborationChange}
+                agentTargets={agentTargets}
                 showNotebookMetadata
               />
             )
           ) : (
-            <CodeEditor value={draft} onChange={updateCollaborativeDraft} readOnly={false} />
+            <CodeEditor
+              value={draft}
+              onChange={updateCollaborativeDraft}
+              readOnly={false}
+              path={currentFile.path}
+              collaborationEnabled={Boolean(collaboration?.crdtCapable)}
+              onCollaborationChange={handleCollaborationChange}
+              agentTargets={agentTargets}
+            />
           )}
         </EditorErrorBoundary>
       </div>

@@ -338,7 +338,7 @@
     "test:files:collaboration": "tsx --conditions react-server scripts/file-collaboration-policy-test.ts",
     "test:collaboration:live": "tsx --conditions react-server scripts/file-live-collaboration-test.ts",
     "test:collaboration:presence": "tsx --conditions react-server scripts/file-presence-policy-test.ts",
-    "test:collaboration:agent": "tsx --conditions react-server scripts/file-agent-coauthoring-test.ts",
+    "test:collaboration:agent": "tsx --conditions react-server scripts/file-agent-coauthoring-test.ts && tsx scripts/collaboration-agent-operations-client-test.ts && tsx scripts/collaboration-agent-target-decorations-test.ts",
     "test:collaboration:operations": "tsx --conditions react-server scripts/file-agent-operation-integration-test.ts && tsx --conditions react-server scripts/personal-workspace-collaboration-integration-test.ts",
     "test:collaboration:hardening": "tsx --conditions react-server scripts/file-collaboration-hardening-test.ts",
     "test:collaboration:excalidraw:spike": "tsx --conditions react-server scripts/excalidraw-collaboration-spike.ts",

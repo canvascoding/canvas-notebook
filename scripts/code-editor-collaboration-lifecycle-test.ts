@@ -4,6 +4,11 @@ import path from 'node:path';
 import { JSDOM } from 'jsdom';
 
 import { getCodeEditorLifecycleKey } from '../app/lib/collaboration/code-editor-lifecycle';
+import {
+  createInitialTextCollaborationClientState,
+  reduceTextCollaborationClientState,
+  textCollaborationLegacyStatus,
+} from '../app/lib/collaboration/client-state';
 
 const root = process.cwd();
 const source = fs.readFileSync(
@@ -61,6 +66,95 @@ assert.match(
   /<CodeMirror[\s\S]*?key=\{codeEditorLifecycleKey\}/u,
   'CodeMirror must remount when its authoritative Y.Text binding changes',
 );
+
+let collaborationState = createInitialTextCollaborationClientState({
+  permission: 'write',
+  documentSequence: 5,
+  checkpointSequence: 5,
+  stateVector: 'initial-vector',
+});
+assert.equal(collaborationState.durability, 'checkpointed_file');
+assert.equal(collaborationState.checkpointStateVector, 'initial-vector');
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'indexeddb_hydrated',
+});
+assert.equal(collaborationState.ready, false, 'IndexedDB hydration alone must not mount an editor');
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'remote_synced',
+  permission: 'write',
+});
+assert.equal(collaborationState.ready, true, 'the editor may mount only after local hydration and remote sync');
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'unsynced_changes',
+  count: 1,
+});
+assert.equal(collaborationState.durability, 'local_pending');
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'checkpointed',
+  sequence: 6,
+  stateVector: 'older-vector',
+  matchesCurrentDocument: false,
+});
+assert.equal(
+  collaborationState.durability,
+  'local_pending',
+  'a checkpoint for a different state vector must not clear local pending changes',
+);
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'unsynced_changes',
+  count: 0,
+});
+assert.equal(collaborationState.durability, 'server_received');
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'checkpoint_superseded',
+  sequence: 7,
+});
+assert.equal(collaborationState.durability, 'checkpoint_pending');
+assert.equal(textCollaborationLegacyStatus(collaborationState), 'persisting');
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'checkpointed',
+  sequence: 6,
+  stateVector: 'stale-vector',
+  matchesCurrentDocument: true,
+});
+assert.equal(
+  collaborationState.durability,
+  'checkpoint_pending',
+  'an out-of-order checkpoint must not change the pending status of a newer document sequence',
+);
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'checkpointed',
+  sequence: 7,
+  stateVector: 'current-vector',
+  matchesCurrentDocument: true,
+});
+assert.equal(collaborationState.durability, 'checkpointed_file');
+assert.equal(textCollaborationLegacyStatus(collaborationState), 'saved');
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'authoritative_snapshot',
+  documentSequence: 8,
+  checkpointSequence: 7,
+  stateVector: 'persisted-vector',
+  matchesCurrentDocument: true,
+});
+assert.equal(collaborationState.durability, 'persisted_yjs');
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'authoritative_snapshot',
+  documentSequence: 8,
+  checkpointSequence: 8,
+  stateVector: 'checkpointed-vector',
+  matchesCurrentDocument: true,
+});
+assert.equal(collaborationState.durability, 'checkpointed_file');
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'authoritative_snapshot',
+  documentSequence: 7,
+  checkpointSequence: 7,
+  stateVector: 'out-of-order-vector',
+  matchesCurrentDocument: true,
+});
+assert.equal(collaborationState.documentSequence, 8, 'out-of-order server snapshots must not regress durability');
+assert.equal(collaborationState.checkpointStateVector, 'checkpointed-vector');
 
 const pendingKey = getCodeEditorLifecycleKey({
   workspaceId: 'workspace-1',

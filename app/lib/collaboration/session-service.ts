@@ -67,6 +67,9 @@ export type CollaborationSessionGrant = {
   documentName: string;
   lifecycleGeneration: number;
   permission: CollaborationPermission;
+  documentSequence?: number;
+  checkpointSequence?: number;
+  stateVector?: string;
 };
 
 function extension(path: string): string {
@@ -207,11 +210,10 @@ export async function createCollaborationSessionGrant(input: {
                   canonicalContent,
                   actorType: 'system',
                 }),
-                restore: async ({ state, canonicalContent }) => {
+                restore: async ({ state }) => {
                   await materializeCollaborationCheckpoint({
                     state,
                     workspace,
-                    canonicalContent,
                     actorType: 'system',
                   });
                 },
@@ -282,6 +284,9 @@ export async function createCollaborationSessionGrant(input: {
       documentName: collaboration.document.id,
       lifecycleGeneration,
       permission: workspace.permissions.canWrite ? 'write' : 'read',
+      documentSequence: state.documentSequence,
+      checkpointSequence: state.checkpointSequence,
+      stateVector: Buffer.from(state.stateVector).toString('base64'),
     };
   }
 
