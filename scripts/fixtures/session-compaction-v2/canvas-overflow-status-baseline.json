@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-01",
+  "canvasBaseCommit": "0b8fda3f43e36ad165e559b8f0d155755cc1296f",
+  "purpose": "Diagnostic baseline of current Canvas behavior before Hermes policy parity. These values are not the target policy.",
+  "budgetCases": [
+    {
+      "id": "serialized-request-overflow",
+      "recipe": {
+        "contextWindow": 10000,
+        "maxTokens": 5000,
+        "instructionCharacters": 8000,
+        "messageCharacters": 32000,
+        "toolDescriptionCharacters": 1280,
+        "imageBytes": 12000
+      },
+      "measurement": {
+        "effectiveInstructionTokens": 2008,
+        "serializedMessageTokens": 8036,
+        "toolSchemaTokens": 354,
+        "runtimeProviderOverheadTokens": 64,
+        "multimodalTokens": 512,
+        "outputReserveTokens": 2000,
+        "safetyReserveTokens": 549,
+        "estimatedInputTokens": 10974,
+        "estimatedTotalTokens": 13523,
+        "hardHistoryTokens": 5025,
+        "triggerHistoryTokens": 4020,
+        "targetTailTokens": 3015,
+        "serializedMessageBytes": 48119,
+        "multimodalBytes": 12000,
+        "contextBudgetExceeded": true,
+        "payloadBudgetExceeded": false
+      }
+    },
+    {
+      "id": "half-window-not-overflow",
+      "recipe": {
+        "contextWindow": 262000,
+        "maxTokens": 8192,
+        "instructionCharacters": 20000,
+        "messageCharacters": 500000,
+        "toolDescriptionCharacters": 4000,
+        "imageBytes": 0
+      },
+      "measurement": {
+        "effectiveInstructionTokens": 5008,
+        "serializedMessageTokens": 125011,
+        "toolSchemaTokens": 1034,
+        "runtimeProviderOverheadTokens": 64,
+        "multimodalTokens": 0,
+        "outputReserveTokens": 8192,
+        "safetyReserveTokens": 6556,
+        "estimatedInputTokens": 131117,
+        "estimatedTotalTokens": 145865,
+        "hardHistoryTokens": 241146,
+        "triggerHistoryTokens": 192916,
+        "targetTailTokens": 144687,
+        "serializedMessageBytes": 500044,
+        "multimodalBytes": 0,
+        "contextBudgetExceeded": false,
+        "payloadBudgetExceeded": false
+      }
+    }
+  ],
+  "statusBase": {
+    "sessionId": "sanitized-context-status",
+    "phase": "idle",
+    "activeTool": null,
+    "pendingToolCalls": 0,
+    "followUpQueue": [],
+    "steeringQueue": [],
+    "canAbort": false,
+    "contextWindow": 262000,
+    "estimatedHistoryTokens": 100000,
+    "availableHistoryTokens": 200000,
+    "contextUsagePercent": 50,
+    "includedSummary": false,
+    "omittedMessageCount": 0,
+    "summaryUpdatedAt": null,
+    "lastCompactionAt": null,
+    "lastCompactionKind": null,
+    "lastCompactionOmittedCount": 0
+  },
+  "statusCases": [
+    {
+      "id": "idle-provider-actual",
+      "input": {
+        "lastProviderInputTokens": 140000,
+        "nextRequestEstimatedTokens": 185000
+      },
+      "expectedDisplay": {
+        "source": "actual",
+        "usedTokens": 140000,
+        "contextWindow": 262000
+      }
+    },
+    {
+      "id": "active-next-request-estimate",
+      "input": {
+        "phase": "streaming",
+        "lastProviderInputTokens": 140000,
+        "nextRequestEstimatedTokens": 185000
+      },
+      "expectedDisplay": {
+        "source": "next_request",
+        "usedTokens": 185000,
+        "contextWindow": 262000
+      }
+    },
+    {
+      "id": "idle-overflow-recovery",
+      "input": {
+        "nextRequestEstimatedTokens": 285000,
+        "nextRequestBudgetExceeded": true
+      },
+      "expectedDisplay": {
+        "source": "next_request",
+        "usedTokens": 285000,
+        "contextWindow": 262000
+      }
+    },
+    {
+      "id": "aborted-request-cleared",
+      "input": {
+        "lastProviderInputTokens": 140000,
+        "nextRequestEstimatedTokens": null,
+        "nextRequestBudgetExceeded": false
+      },
+      "expectedDisplay": {
+        "source": "actual",
+        "usedTokens": 140000,
+        "contextWindow": 262000
+      }
+    },
+    {
+      "id": "history-estimate-fallback",
+      "input": {},
+      "expectedDisplay": {
+        "source": "history",
+        "usedTokens": 100000,
+        "availableTokens": 200000,
+        "contextWindow": 262000,
+        "percent": 50
+      }
+    }
+  ]
+}

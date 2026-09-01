@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/NousResearch/hermes-agent",
+  "commit": "f293e7206b4ddd66042329442c6afebc19a8808d",
+  "license": "MIT",
+  "licenseTextPath": "docs/compliance/license-texts/hermes-agent-f293e720-MIT.txt",
+  "compressionDefaults": {
+    "enabled": true,
+    "thresholdRatio": 0.5,
+    "smallContextWindowLimitTokens": 512000,
+    "smallContextThresholdFloorRatio": 0.75,
+    "targetRatioOfThreshold": 0.2,
+    "tailMode": "legacy",
+    "protectFirstMessages": 3,
+    "protectLastMessages": 20,
+    "minimumTailUserMessages": 1,
+    "maxAttempts": 3,
+    "maxAttemptsHardCap": 10,
+    "abortOnSummaryFailure": false
+  },
+  "sources": {
+    "defaults": "hermes_cli/config_defaults.py:743-875",
+    "smallContextFloor": "agent/context_compressor.py:1231-1239,2999-3014",
+    "effectiveInputBudget": "agent/context_compressor.py:3016-3056",
+    "attemptValidation": "agent/agent_init.py:2151-2177"
+  }
+}

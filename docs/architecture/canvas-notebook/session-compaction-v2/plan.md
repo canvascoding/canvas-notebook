@@ -65,7 +65,7 @@ Aufnahme permissiv lizenzierten MIT-Codes nicht. Fuer jede direkte oder
 substanzielle Hermes-Uebernahme gelten aber folgende Gates:
 
 1. Vor der ersten Codeuebernahme wird der unveraenderte Hermes-MIT-Text unter
-   `docs/compliance/licenses/hermes-agent-MIT.txt` versioniert.
+   `docs/compliance/license-texts/hermes-agent-f293e720-MIT.txt` versioniert.
 2. `docs/compliance/third-party-license-policy.json` erhaelt Hermes Agent als
    versionierte `additionalComponent` mit Commit, Quell-URL, MIT-Lizenz,
    Modifikationshinweis und den tatsaechlichen Auslieferungszielen.
@@ -191,6 +191,14 @@ Gate:
 - Lizenz- und Notice-Tests sind gruen.
 - Jede spaetere Task besitzt eine Hermes-Referenz und eine Portierungsstufe.
 - Provider-Ist-Nutzung und Next-Request-Schaetzung sind getrennt.
+
+Umsetzungsstand 2026-09-01: abgeschlossen. PR `#106` ist als
+`0b8fda3f43e36ad165e559b8f0d155755cc1296f` gemergt. Der Hermes-MIT-Text,
+die zusaetzliche Compliance-Komponente, die gepinnten Hermes-Defaults und die
+bereinigten Canvas-Baselines sind versioniert und durch
+`test:pi:compaction-v2-baseline`, `test:licenses`,
+`test:pi:context-budget`, `test:pi:compaction-ui` und
+`test:pi:live-compaction` abgesichert.
 
 ### SC-P01: Policy und Pressure Engine portieren
 

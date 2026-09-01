@@ -653,6 +653,29 @@
   },
   "additionalComponents": [
     {
+      "name": "NousResearch/hermes-agent session-compaction reference",
+      "versionOrCommit": "f293e7206b4ddd66042329442c6afebc19a8808d",
+      "sourceUrl": "https://github.com/NousResearch/hermes-agent/tree/f293e7206b4ddd66042329442c6afebc19a8808d",
+      "packagePathOrArtifact": "Hermes-adapted session-compaction portions in app/lib/pi and scripts/fixtures/session-compaction-v2",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/hermes-agent-f293e720-MIT.txt",
+      "copyrightNotices": [
+        "Copyright (c) 2025 Nous Research"
+      ],
+      "modified": true,
+      "modificationNotice": "Canvas translates and adapts selected session-compaction algorithms, prompts and behavioral tests to its TypeScript message model, provider contracts and transactional persistence layer.",
+      "policyDecision": "allowed",
+      "reviewNotes": "Pinned to the immutable reference commit. Every substantive port must retain a short source header and be mapped in docs/architecture/canvas-notebook/session-compaction-v2/plan.md."
+    },
+    {
       "name": "@excalidraw/excalidraw-font-assets",
       "versionOrCommit": "0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84",
       "sourceUrl": "https://github.com/excalidraw/excalidraw/tree/v0.18.1/packages/excalidraw/fonts",

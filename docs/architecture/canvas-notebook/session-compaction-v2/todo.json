@@ -3,7 +3,7 @@
   "feature": "hermes-aligned-session-compaction-v2",
   "title": "Hermes-aligned Session Compaction V2",
   "updatedAt": "2026-09-01",
-  "status": "planned",
+  "status": "in_progress",
   "repository": "canvasstudios-notebook",
   "reference": {
     "repository": "https://github.com/NousResearch/hermes-agent",
@@ -87,7 +87,8 @@
       "id": "SC-P00",
       "order": 0,
       "title": "Hermes reference, MIT attribution and Canvas baseline",
-      "status": "planned",
+      "status": "completed",
+      "completedAt": "2026-09-01",
       "dependsOn": [],
       "hermesReferences": [
         "LICENSE",
@@ -106,6 +107,12 @@
         "third-party license compliance test",
         "baseline context-budget and compaction tests",
         "review that every later package has Hermes references and a porting mode"
+      ],
+      "completionEvidence": [
+        "PR #106 merged as 0b8fda3f43e36ad165e559b8f0d155755cc1296f",
+        "Hermes MIT license and additional component are present in generated notices with zero release blockers",
+        "Pinned Hermes defaults plus sanitized Canvas overflow, status and compaction baselines pass test:pi:compaction-v2-baseline",
+        "Existing context-budget, compaction UI and live-compaction tests pass"
       ],
       "exitGate": "SC-G00_REFERENCE_LOCKED"
     },
