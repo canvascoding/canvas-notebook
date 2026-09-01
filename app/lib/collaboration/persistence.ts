@@ -398,6 +398,80 @@ export async function confirmCheckpointMaterialization<T, R>(input: {
   }
 }
 
+export type CheckpointCommitRecoveryDecision =
+  | 'committed'
+  | 'superseded'
+  | 'rollback'
+  | 'degraded';
+
+export function checkpointCommitRecoveryDecision(input: {
+  expectedSequence: number;
+  expectedCanonicalHash: string;
+  expectedSerializedHash: string;
+  checkpointSequence: number;
+  canonicalHash: string | null;
+  serializedHash: string | null;
+}): CheckpointCommitRecoveryDecision {
+  if (input.checkpointSequence > input.expectedSequence) return 'superseded';
+  if (input.checkpointSequence < input.expectedSequence) return 'rollback';
+  return input.canonicalHash === input.expectedCanonicalHash
+    && input.serializedHash === input.expectedSerializedHash
+    ? 'committed'
+    : 'degraded';
+}
+
+async function recoverIndeterminateCheckpointCommit<T>(input: {
+  documentId: string;
+  sequence: number;
+  canonicalHash: string;
+  serializedHash: string;
+  materialized: CompensatableCheckpointMaterialization<T>;
+}): Promise<{ decision: CheckpointCommitRecoveryDecision; state: PersistedCollaborationState | null }> {
+  const recoveryDatabase = await openDb();
+  let recoveryTransactionOpen = false;
+  try {
+    await recoveryDatabase.run('BEGIN');
+    recoveryTransactionOpen = true;
+    const row = await recoveryDatabase.get(
+      'SELECT * FROM collaboration_yjs_states WHERE document_id = ? FOR UPDATE',
+      [input.documentId],
+    ) as StateRow | undefined;
+    if (!row) {
+      await input.materialized.rollback();
+      await recoveryDatabase.run('COMMIT');
+      recoveryTransactionOpen = false;
+      return { decision: 'rollback', state: null };
+    }
+    const state = mapState(row);
+    const decision = checkpointCommitRecoveryDecision({
+      expectedSequence: input.sequence,
+      expectedCanonicalHash: input.canonicalHash,
+      expectedSerializedHash: input.serializedHash,
+      checkpointSequence: state.checkpointSequence,
+      canonicalHash: state.canonicalHash,
+      serializedHash: state.serializedHash,
+    });
+    if (decision === 'rollback') {
+      await input.materialized.rollback();
+    } else if (decision === 'degraded') {
+      await recoveryDatabase.run(
+        'UPDATE collaboration_yjs_states SET degraded = 1 WHERE document_id = ?',
+        [input.documentId],
+      );
+    }
+    await recoveryDatabase.run('COMMIT');
+    recoveryTransactionOpen = false;
+    return { decision, state };
+  } catch (error) {
+    if (recoveryTransactionOpen) {
+      try { await recoveryDatabase.run('ROLLBACK'); } catch {}
+    }
+    throw error;
+  } finally {
+    await recoveryDatabase.close();
+  }
+}
+
 /**
  * Holds the collaboration state row lock across file materialization and
  * checkpoint confirmation. A concurrent Yjs persist or lifecycle update must
@@ -419,6 +493,7 @@ export async function withCollaborationCheckpointFence<T>(input: {
 }): Promise<{ result: T; state: PersistedCollaborationState } | null> {
   assertPostgres();
   const database = await openDb();
+  let databaseClosed = false;
   let transactionOpen = false;
   try {
     await database.run('BEGIN');
@@ -460,10 +535,13 @@ export async function withCollaborationCheckpointFence<T>(input: {
       return null;
     }
 
-    return await confirmCheckpointMaterialization({
-      materialize: () => input.materialize(lockedState),
-      confirm: async (materialized) => {
-        const checkpointedRow = await database.get(
+    const materialized = await input.materialize(lockedState);
+    const expectedCanonicalHash = sha256Text(materialized.canonicalContent);
+    const expectedSerializedHash = sha256Text(materialized.serializedContent);
+    const checkpointedRow = await confirmCheckpointMaterialization({
+      materialize: async () => materialized,
+      confirm: async () => {
+        const row = await database.get(
           `
             UPDATE collaboration_yjs_states
             SET checkpointed_at = ?, checkpoint_sequence = ?, canonical_hash = ?, serialized_hash = ?, degraded = 0
@@ -475,28 +553,62 @@ export async function withCollaborationCheckpointFence<T>(input: {
           [
             Date.now(),
             input.sequence,
-            sha256Text(materialized.canonicalContent),
-            sha256Text(materialized.serializedContent),
+            expectedCanonicalHash,
+            expectedSerializedHash,
             input.documentId,
             input.sequence,
             input.sequence,
           ],
         ) as StateRow | undefined;
-        if (!checkpointedRow) {
+        if (!row) {
           throw new Error('Collaboration checkpoint row changed while its write fence was held.');
         }
-        await database.run('COMMIT');
-        transactionOpen = false;
-        return { result: materialized.result, state: mapState(checkpointedRow) };
+        return row;
       },
     });
+    try {
+      await database.run('COMMIT');
+      transactionOpen = false;
+      return { result: materialized.result, state: mapState(checkpointedRow) };
+    } catch (commitError) {
+      try { await database.run('ROLLBACK'); } catch {}
+      transactionOpen = false;
+      await database.close();
+      databaseClosed = true;
+      let recovery: Awaited<ReturnType<typeof recoverIndeterminateCheckpointCommit<T>>>;
+      try {
+        recovery = await recoverIndeterminateCheckpointCommit({
+          documentId: input.documentId,
+          sequence: input.sequence,
+          canonicalHash: expectedCanonicalHash,
+          serializedHash: expectedSerializedHash,
+          materialized,
+        });
+      } catch (recoveryError) {
+        throw new AggregateError(
+          [commitError, recoveryError],
+          'Collaboration checkpoint commit failed and its durable outcome could not be recovered.',
+        );
+      }
+      if (recovery.decision === 'committed') {
+        return { result: materialized.result, state: mapState(checkpointedRow) };
+      }
+      if (recovery.decision === 'superseded') return null;
+      if (recovery.decision === 'degraded') {
+        throw new AggregateError(
+          [commitError],
+          'Collaboration checkpoint commit outcome conflicts with its persisted hashes.',
+        );
+      }
+      throw commitError;
+    }
   } catch (error) {
     if (transactionOpen) {
       try { await database.run('ROLLBACK'); } catch {}
     }
     throw error;
   } finally {
-    await database.close();
+    if (!databaseClosed) await database.close();
   }
 }
 

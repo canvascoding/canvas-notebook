@@ -9,6 +9,7 @@ import {
   createRichMarkdownReviewTarget,
 } from '../app/lib/collaboration/agent-operations';
 import {
+  checkpointCommitRecoveryDecision,
   confirmCheckpointMaterialization,
 } from '../app/lib/collaboration/persistence';
 import {
@@ -254,6 +255,36 @@ async function assertCheckpointConfirmationCompensation(): Promise<void> {
   });
   assert.equal(confirmed, 'write-result');
   assert.equal(rollbackCount, 1, 'a confirmed database checkpoint must not roll back its file projection');
+
+  const expected = {
+    expectedSequence: 4,
+    expectedCanonicalHash: 'canonical-4',
+    expectedSerializedHash: 'serialized-4',
+  };
+  assert.equal(checkpointCommitRecoveryDecision({
+    ...expected,
+    checkpointSequence: 4,
+    canonicalHash: 'canonical-4',
+    serializedHash: 'serialized-4',
+  }), 'committed', 'a lost acknowledgment must keep the file when the exact checkpoint committed');
+  assert.equal(checkpointCommitRecoveryDecision({
+    ...expected,
+    checkpointSequence: 5,
+    canonicalHash: 'canonical-5',
+    serializedHash: 'serialized-5',
+  }), 'superseded', 'a later checkpoint must never be overwritten by compensation');
+  assert.equal(checkpointCommitRecoveryDecision({
+    ...expected,
+    checkpointSequence: 3,
+    canonicalHash: 'canonical-3',
+    serializedHash: 'serialized-3',
+  }), 'rollback', 'an uncommitted checkpoint must restore the previous file');
+  assert.equal(checkpointCommitRecoveryDecision({
+    ...expected,
+    checkpointSequence: 4,
+    canonicalHash: 'unexpected',
+    serializedHash: 'serialized-4',
+  }), 'degraded', 'same-sequence hash divergence must be surfaced instead of overwritten');
 }
 
 void Promise.all([
