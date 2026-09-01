@@ -557,6 +557,80 @@ export type MemoryReviewScheduleResult = {
   throughMessageSequence: number;
 };
 
+export type MemoryReviewSettingsUpdate = {
+  automaticMemoryEnabled: boolean;
+  providerInstallationId: string | null;
+  modelId: string | null;
+  memoryPromptMaxTokens: number;
+  sensitiveMemoryEnabled: boolean;
+};
+
+/**
+ * Persists the reviewer configuration and reconciles parked jobs in the same
+ * database transaction. A newly valid configuration makes every parked review
+ * immediately due; disabling it parks all unclaimed work without losing it.
+ */
+export async function updateMemoryReviewSettings(
+  userId: string,
+  settings: MemoryReviewSettingsUpdate,
+  now = Date.now(),
+): Promise<{ reactivatedJobs: number; parkedJobs: number }> {
+  const connection = await openDb();
+  try {
+    await connection.run('BEGIN');
+    try {
+      await connection.run(`
+        INSERT INTO memory_user_settings (
+          user_id, automatic_memory_enabled, provider_installation_id, model_id,
+          memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+          automatic_memory_enabled = excluded.automatic_memory_enabled,
+          provider_installation_id = excluded.provider_installation_id,
+          model_id = excluded.model_id,
+          memory_prompt_max_tokens = excluded.memory_prompt_max_tokens,
+          sensitive_memory_enabled = excluded.sensitive_memory_enabled,
+          updated_at = excluded.updated_at
+      `, [
+        userId,
+        settings.automaticMemoryEnabled ? 1 : 0,
+        settings.providerInstallationId,
+        settings.modelId,
+        settings.memoryPromptMaxTokens,
+        settings.sensitiveMemoryEnabled ? 1 : 0,
+        now,
+        now,
+      ]);
+
+      let reactivatedJobs = 0;
+      let parkedJobs = 0;
+      if (settings.automaticMemoryEnabled && settings.providerInstallationId && settings.modelId) {
+        const result = await connection.run(`
+          UPDATE memory_review_jobs
+          SET status = 'scheduled', scheduled_for = ?, lease_until = NULL, error_code = NULL
+          WHERE user_id = ? AND status = 'awaiting_model_configuration'
+        `, [now, userId]) as { changes?: number };
+        reactivatedJobs = Number(result.changes ?? 0);
+      } else {
+        const errorCode = settings.automaticMemoryEnabled ? 'model_not_configured' : 'automatic_memory_disabled';
+        const result = await connection.run(`
+          UPDATE memory_review_jobs
+          SET status = 'awaiting_model_configuration', scheduled_for = NULL, lease_until = NULL, error_code = ?
+          WHERE user_id = ? AND status IN ('scheduled', 'queued', 'retry_wait')
+        `, [errorCode, userId]) as { changes?: number };
+        parkedJobs = Number(result.changes ?? 0);
+      }
+      await connection.run('COMMIT');
+      return { reactivatedJobs, parkedJobs };
+    } catch (error) {
+      await connection.run('ROLLBACK');
+      throw error;
+    }
+  } finally {
+    await connection.close();
+  }
+}
+
 /**
  * Creates or moves the single unstarted review range for a session. The worker
  * later claims this durable snapshot; the active chat never awaits model work.

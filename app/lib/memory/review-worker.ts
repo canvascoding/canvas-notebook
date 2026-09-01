@@ -4,6 +4,7 @@ import type { AgentContext, AgentMessage, ThinkingLevel } from '@earendil-works/
 
 import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
 import { resolveExecutableAgentRuntime } from '@/app/lib/agent-runtime-policy/provider-runtime';
+import { ensureMemoryManagerAgent } from '@/app/lib/agents/registry';
 import { parsePersistedPiMessage } from '@/app/lib/pi/message-projection';
 import { prepareMessagesForEffectiveModel } from '@/app/lib/pi/multimodal-preparation';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
@@ -23,9 +24,9 @@ import {
   type MemoryReviewJobClaim,
   type MemoryReviewScopeContext,
 } from './service';
+import { MEMORY_MANAGER_AGENT_ID } from './constants';
 
-/** Reserved system identity used for audit and UI presentation, never as a chat agent. */
-export const MEMORY_MANAGER_AGENT_ID = 'memory-manager';
+export { MEMORY_MANAGER_AGENT_ID } from './constants';
 
 const MAX_REVIEW_TRANSCRIPT_CHARS = 18_000;
 const MAX_REVIEW_RESPONSE_CHARS = 12_000;
@@ -162,6 +163,7 @@ function errorCode(error: unknown): string {
 
 async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
   try {
+    await ensureMemoryManagerAgent();
     const executionContext = await resolveAgentExecutionContextForSession({
       sessionId: claim.sessionId,
       userId: claim.userId,
@@ -178,7 +180,7 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
       userId: claim.userId,
       workspaceId: executionContext.workspaceId,
       workspaceType: executionContext.workspaceType,
-      agentId: claim.sourceAgentId,
+      agentId: MEMORY_MANAGER_AGENT_ID,
       sessionId: null,
       executionMode: executionContext.workspaceType === 'personal' ? 'personal_automation' : 'organization_automation',
       requestedSelection: {
