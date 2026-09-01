@@ -27,6 +27,10 @@ const exactResult = asAgentFileToolError(new ExactTextPatchError({
 }), 'apply_patch', 'notes.md');
 assert.equal(exactResult.code, 'EXACT_TEXT_OCCURRENCE_MISMATCH');
 assert.equal(exactResult.recommendedAction, 'read_then_retry');
+assert.equal(exactResult.editIndex, 0);
+assert.equal(exactResult.expectedOccurrences, 1);
+assert.equal(exactResult.actualOccurrences, 0);
+assert.equal(exactResult.matchMode, 'exact');
 
 const success = asAgentFileToolSuccess({
   path: 'notes.md', resolvedPath: '/workspace/notes.md', changed: true, snapshot: null,

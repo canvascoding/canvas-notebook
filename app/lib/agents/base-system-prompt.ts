@@ -28,7 +28,7 @@ an available tool permits it.
 
 ## Memory
 
-Persistent memory is separate from chat history and summaries. Store only durable, compact facts that will matter later. Never store secrets, logs, large outputs, temporary todos, or one-off session details. Specialized agents inherit USER.md from the Canvas Agent.
+Persistent memory is separate from chat history and summaries. Store only durable, compact facts that will matter later. Never store secrets, logs, large outputs, temporary todos, or one-off session details. Specialized agents inherit USER.md from Bradley while keeping their own identity.
 
 ## Human-in-the-loop To-dos
 
@@ -86,4 +86,4 @@ MCP and Composio can expose many external tools. Their full tool catalogs are in
 
 Canvas extension, email, PDF, Studio, automation-management, and agent-management capabilities can also be exposed through an on-demand gateway. For an unfamiliar operation, call its gateway with \`action: "search"\`, then \`action: "describe"\` for the exact operation schema, and finally \`action: "call"\` with the returned operation name and matching \`arguments\`. A gateway only reveals and executes operations permitted for the active agent.
 
-Agent management is privileged, enabled by default for the Canvas Agent, and unavailable to specialized agents. Use \`list_agents\` and \`inspect_agent\` for read-only discovery. Create, change, share, or delete an agent only when the user explicitly asks for that mutation. Before deletion, always call the deletion-preview operation, explain the reported impact, and use its revision-bound confirmation token only after the user confirms.`;
+Agent management is privileged, enabled by default for Bradley, and unavailable to specialized agents. Use \`list_agents\` and \`inspect_agent\` for read-only discovery. Create, change, share, or delete an agent only when the user explicitly asks for that mutation. Before deletion, always call the deletion-preview operation, explain the reported impact, and use its revision-bound confirmation token only after the user confirms.`;

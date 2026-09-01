@@ -1,13 +1,10 @@
 'use client';
 
-import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Check, LoaderCircle, ShieldCheck } from 'lucide-react';
-import { toast } from 'sonner';
+import { Check, ShieldCheck } from 'lucide-react';
 
 import { LanguageSwitcher } from '@/app/components/language-switcher';
 import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
-import { authClient } from '@/app/lib/auth-client';
 import type { DirectMcpOAuthScope } from '@/app/lib/mcp/server/config';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -27,6 +24,8 @@ const SCOPE_TRANSLATION_KEYS: Record<DirectMcpOAuthScope, string> = {
   'knowledge:tree': 'knowledgeTree',
   'knowledge:search': 'knowledgeSearch',
   'knowledge:read': 'knowledgeRead',
+  'knowledge:write': 'knowledgeWrite',
+  'knowledge:assets': 'knowledgeAssets',
 };
 
 type OAuthConsentClientProps = {
@@ -36,14 +35,6 @@ type OAuthConsentClientProps = {
   scopes: DirectMcpOAuthScope[];
 };
 
-function readRedirectUrl(data: unknown): string | null {
-  if (!data || typeof data !== 'object') return null;
-  const record = data as Record<string, unknown>;
-  return record.redirect === true && typeof record.url === 'string' && record.url
-    ? record.url
-    : null;
-}
-
 export function OAuthConsentClient({
   clientName,
   instanceHost,
@@ -51,36 +42,14 @@ export function OAuthConsentClient({
   scopes,
 }: OAuthConsentClientProps) {
   const t = useTranslations('oauthConsent');
-  const [submitting, setSubmitting] = useState<'accept' | 'deny' | null>(null);
-
-  async function submitConsent(accept: boolean) {
-    if (submitting) return;
-    setSubmitting(accept ? 'accept' : 'deny');
-    try {
-      const { data, error } = await authClient.oauth2.consent({
-        accept,
-        oauth_query: oauthQuery,
-      });
-      if (error) {
-        toast.error(t('requestFailed'));
-        setSubmitting(null);
-        return;
-      }
-      const redirectUrl = readRedirectUrl(data);
-      if (!redirectUrl) {
-        toast.error(t('requestFailed'));
-        setSubmitting(null);
-        return;
-      }
-      window.location.assign(redirectUrl);
-    } catch {
-      toast.error(t('requestFailed'));
-      setSubmitting(null);
-    }
-  }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-background px-4 py-10">
+    <form
+      action="/api/auth/oauth2/consent/redirect"
+      method="post"
+      className="relative flex min-h-screen items-center justify-center bg-background px-4 py-10"
+    >
+      <input type="hidden" name="oauth_query" value={oauthQuery} />
       <div className="absolute right-4 top-4">
         <LanguageSwitcher preserveSearch />
       </div>
@@ -140,26 +109,24 @@ export function OAuthConsentClient({
 
         <CardFooter className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <Button
-            type="button"
+            type="submit"
+            name="accept"
+            value="false"
             variant="outline"
             className="w-full sm:w-auto"
-            disabled={submitting !== null}
-            onClick={() => void submitConsent(false)}
           >
-            {submitting === 'deny' && <LoaderCircle className="animate-spin" />}
             {t('deny')}
           </Button>
           <Button
-            type="button"
+            type="submit"
+            name="accept"
+            value="true"
             className="w-full sm:w-auto"
-            disabled={submitting !== null}
-            onClick={() => void submitConsent(true)}
           >
-            {submitting === 'accept' && <LoaderCircle className="animate-spin" />}
             {t('accept')}
           </Button>
         </CardFooter>
       </Card>
-    </main>
+    </form>
   );
 }

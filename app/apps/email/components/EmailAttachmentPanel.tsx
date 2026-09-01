@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { CheckSquare2, Loader2, Paperclip, RefreshCw, Search, Square, Upload, X } from 'lucide-react';
+import { CheckSquare2, Folder, Loader2, Paperclip, RefreshCw, Search, Square, Upload, X } from 'lucide-react';
 
 import type { FilePickerFile } from '@/app/components/canvas-agent-chat/ChatComposer';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
@@ -31,8 +31,11 @@ type WorkspaceAttachmentFile = FilePickerFile & {
   size?: number;
 };
 
+type WorkspaceAttachmentSort = 'modified' | 'created' | 'name' | 'size';
+
 export type EmailAttachmentPanelLabels = {
   attachmentsAdd: string;
+  attachmentsAllFiles: string;
   attachmentsAttached: string;
   attachmentsCancel: string;
   attachmentsConfirm: string;
@@ -41,9 +44,15 @@ export type EmailAttachmentPanelLabels = {
   attachmentsEmpty: string;
   attachmentsLimitExceeded: string;
   attachmentsLoading: string;
+  attachmentsFolders: string;
   attachmentsRefresh: string;
   attachmentsRemove: string;
   attachmentsSearchPlaceholder: string;
+  attachmentsSortBy: string;
+  attachmentsSortCreated: string;
+  attachmentsSortModified: string;
+  attachmentsSortName: string;
+  attachmentsSortSize: string;
   attachmentsSelectFiles: string;
   attachmentsSendMarkdownAsPdf: string;
   attachmentsSendMarkdownAsPdfShort: string;
@@ -204,6 +213,8 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<'workspace' | 'upload'>('workspace');
   const [search, setSearch] = useState('');
+  const [workspaceSort, setWorkspaceSort] = useState<WorkspaceAttachmentSort>('modified');
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [workspaceFiles, setWorkspaceFiles] = useState<EmailAttachmentDraft[]>([]);
   const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -228,14 +239,29 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
   const selectedUsage = emailAttachmentLimitUsageBytes(selectedPreview);
   const isSelectionOverLimit = selectedUsage > EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES;
 
-  const loadWorkspaceFiles = useCallback(async (query = search) => {
+  const workspaceFolders = useMemo(() => Array.from(new Set(workspaceFiles.flatMap((file) => {
+    const segments = (file.path || '').split('/').filter(Boolean);
+    return segments.slice(0, -1).map((_, index) => segments.slice(0, index + 1).join('/'));
+  })))
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }))
+    .map((path) => ({
+      path,
+      name: path.split('/').pop() || path,
+      depth: path.split('/').length - 1,
+    })), [workspaceFiles]);
+
+  const visibleWorkspaceFiles = useMemo(() => selectedFolder
+    ? workspaceFiles.filter((file) => file.path?.startsWith(`${selectedFolder}/`))
+    : workspaceFiles, [selectedFolder, workspaceFiles]);
+
+  const loadWorkspaceFiles = useCallback(async (query = search, sort = workspaceSort) => {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     setIsWorkspaceLoading(true);
     setError(null);
     try {
       if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
-      const files = await listWorkspaceFileReferences({ query, limit: 100, workspaceId: activeWorkspaceId });
+      const files = await listWorkspaceFileReferences({ query, limit: 500, sort, workspaceId: activeWorkspaceId });
       if (requestId !== requestIdRef.current) return;
       setWorkspaceFiles(files.filter((file) => file.type === 'file').map((file) => makeWorkspaceAttachment(file as WorkspaceAttachmentFile)));
     } catch (err) {
@@ -245,11 +271,12 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
     } finally {
       if (requestId === requestIdRef.current) setIsWorkspaceLoading(false);
     }
-  }, [activeWorkspaceId, search]);
+  }, [activeWorkspaceId, search, workspaceSort]);
 
   const openAttachmentDialog = useCallback(() => {
     setSelected([]);
     setSearch('');
+    setSelectedFolder(null);
     setError(null);
     setOpen(true);
     void loadWorkspaceFiles('');
@@ -402,7 +429,7 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
             </TabsList>
 
             <TabsContent value="workspace" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="flex gap-2 py-3">
+              <div className="flex flex-wrap gap-2 py-3">
                 <div className="relative min-w-0 flex-1">
                   <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -419,32 +446,76 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
                   <RefreshCw className={cn('mr-2 h-4 w-4', isWorkspaceLoading && 'animate-spin')} />
                   {labels.attachmentsRefresh}
                 </Button>
+                <select
+                  aria-label={labels.attachmentsSortBy}
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  value={workspaceSort}
+                  onChange={(event) => {
+                    const nextSort = event.target.value as WorkspaceAttachmentSort;
+                    setWorkspaceSort(nextSort);
+                    void loadWorkspaceFiles(search, nextSort);
+                  }}
+                  disabled={isWorkspaceLoading}
+                >
+                  <option value="modified">{labels.attachmentsSortModified}</option>
+                  <option value="created">{labels.attachmentsSortCreated}</option>
+                  <option value="name">{labels.attachmentsSortName}</option>
+                  <option value="size">{labels.attachmentsSortSize}</option>
+                </select>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto border border-border bg-background p-2">
-                {isWorkspaceLoading ? (
-                  <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {labels.attachmentsLoading}
+              <div className="flex min-h-0 flex-1 overflow-hidden border border-border bg-background">
+                <aside className="hidden w-48 shrink-0 border-r border-border bg-muted/20 p-2 sm:block">
+                  <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{labels.attachmentsFolders}</div>
+                  <div className="max-h-full space-y-0.5 overflow-y-auto">
+                    <button
+                      type="button"
+                      className={cn('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted', !selectedFolder && 'bg-primary/10 text-primary')}
+                      onClick={() => setSelectedFolder(null)}
+                    >
+                      <Folder className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{labels.attachmentsAllFiles}</span>
+                    </button>
+                    {workspaceFolders.map((folder) => (
+                      <button
+                        key={folder.path}
+                        type="button"
+                        className={cn('flex w-full items-center gap-2 rounded py-1.5 pr-2 text-left text-xs hover:bg-muted', selectedFolder === folder.path && 'bg-primary/10 text-primary')}
+                        style={{ paddingLeft: `${8 + folder.depth * 12}px` }}
+                        title={folder.path}
+                        onClick={() => setSelectedFolder(folder.path)}
+                      >
+                        <Folder className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{folder.name}</span>
+                      </button>
+                    ))}
                   </div>
-                ) : workspaceFiles.length === 0 ? (
-                  <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">{labels.attachmentsEmpty}</div>
-                ) : (
-                  <div className="space-y-1">
-                    {workspaceFiles.map((attachment) => {
-                      const key = attachmentKey(attachment);
-                      const isSelected = selected.some((item) => attachmentKey(item) === key)
-                        || attachments.some((item) => attachmentKey(item) === key);
-                      return (
-                        <AttachmentRow
-                          key={key}
-                          attachment={attachment}
-                          isSelected={isSelected}
-                          onClick={() => toggleSelected(attachment)}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
+                </aside>
+                <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                  {isWorkspaceLoading ? (
+                    <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      {labels.attachmentsLoading}
+                    </div>
+                  ) : visibleWorkspaceFiles.length === 0 ? (
+                    <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">{labels.attachmentsEmpty}</div>
+                  ) : (
+                    <div className="space-y-1">
+                      {visibleWorkspaceFiles.map((attachment) => {
+                        const key = attachmentKey(attachment);
+                        const isSelected = selected.some((item) => attachmentKey(item) === key)
+                          || attachments.some((item) => attachmentKey(item) === key);
+                        return (
+                          <AttachmentRow
+                            key={key}
+                            attachment={attachment}
+                            isSelected={isSelected}
+                            onClick={() => toggleSelected(attachment)}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             </TabsContent>
 

@@ -44,6 +44,7 @@ import {
 import {
   AGENT_MANAGED_FILE_NAMES,
   DEFAULT_MANAGED_AGENT_ID,
+  EMAIL_MANAGED_AGENT_ID,
   deleteManagedAgentDefinitionStorage,
   isManagedAgentFileName,
   isWritableManagedAgentFileName,
@@ -59,7 +60,6 @@ import type { EffectiveCapabilitySnapshot } from '@/app/lib/capabilities/types';
 import { openDb } from '@/app/lib/db';
 import { isOrganizationAdminLike, readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { assertBrowserToolCanBeEnabled } from '@/app/lib/pi/browser/settings-service';
-import { emailAgentDisallowedToolNames } from '@/app/lib/pi/email-agent-policy';
 
 export type AgentManagementSource = 'api' | 'tool' | 'ui' | 'system';
 
@@ -345,19 +345,6 @@ async function validateSpecialAgentTools(enabledTools: string[] | null | undefin
   }
 }
 
-function validateBuiltInAgentToolPolicy(agentId: string, enabledTools: string[] | null | undefined): void {
-  if (normalizeManagedAgentId(agentId) !== 'email-agent' || !enabledTools) return;
-  const deniedToolNames = emailAgentDisallowedToolNames(enabledTools);
-  if (deniedToolNames.length > 0) {
-    throw new AgentManagementError(
-      'AGENT_TOOL_POLICY_DENIED',
-      `Email Agent cannot enable: ${deniedToolNames.join(', ')}`,
-      403,
-      { agentId: 'email-agent', deniedToolNames },
-    );
-  }
-}
-
 function readinessForBindings(
   bindings: AgentCapabilityBinding[],
   snapshot: EffectiveCapabilitySnapshot | null,
@@ -561,7 +548,7 @@ export async function updateManagedAgentProfile(input: {
   iconId?: AgentIconId | string | null;
 }) {
   const existing = await requireProfile(input.actor, input.agentId, 'canEdit');
-  if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Canvas Agent profile is protected.', 403);
+  if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley\'s profile is protected.', 403);
   ensureExpectedRevision(existing, input.expectedRevision);
   const agent = await updateAgentProfile({
     agentId: existing.agentId,
@@ -585,12 +572,14 @@ export async function updateManagedAgentRuntime(input: {
   expectedCatalogRevision?: unknown;
 }) {
   const existing = await requireProfile(input.actor, input.agentId, 'canEdit');
-  if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Canvas Agent runtime is configured in app settings.', 403);
+  if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley\'s runtime is configured in app settings.', 403);
   ensureExpectedRevision(existing, input.expectedRevision);
   const nextEnabledTools = input.enabledTools === undefined ? existing.enabledTools : input.enabledTools;
   if (input.enabledTools !== undefined) {
+    if (existing.agentId === EMAIL_MANAGED_AGENT_ID) {
+      await requireOrganizationAdmin(input.actor);
+    }
     await validateSpecialAgentTools(input.enabledTools);
-    validateBuiltInAgentToolPolicy(existing.agentId, input.enabledTools);
   }
   await assertBrowserToolCanBeEnabled({ previousEnabledTools: existing.enabledTools, nextEnabledTools });
   const changesDefault = [
@@ -639,7 +628,7 @@ export async function updateManagedAgentCapabilities(input: {
   relevantConnections?: string[] | null;
 }) {
   const existing = await requireProfile(input.actor, input.agentId, 'canEdit');
-  if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Canvas Agent capabilities are managed by organization policy.', 403);
+  if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley\'s capabilities are managed by organization policy.', 403);
   ensureExpectedRevision(existing, input.expectedRevision);
   const previous = await listAgentCapabilityBindings(existing.agentId);
   const relevantSkills = input.relevantSkills === undefined
@@ -704,7 +693,7 @@ export async function updateManagedAgentFile(input: {
   content: string;
 }) {
   const existing = await requireProfile(input.actor, input.agentId, 'canEdit');
-  if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Canvas Agent files are configured through the existing settings editor.', 403);
+  if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley\'s files are configured through the existing settings editor.', 403);
   ensureExpectedRevision(existing, input.expectedRevision);
   if (!isManagedAgentFileName(input.fileName) || !isWritableManagedAgentFileName(input.fileName, existing.agentId)) {
     throw new AgentManagementError('AGENT_FILE_INVALID', 'This managed agent file cannot be changed.');
@@ -738,7 +727,7 @@ export async function resetManagedAgentFiles(input: {
 }) {
   const existing = await requireProfile(input.actor, input.agentId, 'canEdit');
   if (existing.type === 'main') {
-    throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Canvas Agent files are configured through the existing settings editor.', 403);
+    throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley\'s files are configured through the existing settings editor.', 403);
   }
   ensureExpectedRevision(existing, input.expectedRevision);
   const fileNames = input.fileName
@@ -839,21 +828,30 @@ export async function removeManagedAgentGrant(input: {
 export async function previewManagedAgentDeletion(actor: AgentManagementActor, agentId: string) {
   const profile = await requireProfile(actor, agentId, 'canManage');
   if (profile.agentId === DEFAULT_MANAGED_AGENT_ID || !profile.removable) {
-    throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Canvas Agent cannot be deleted.', 403);
+    throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley cannot be deleted.', 403);
   }
   const database = await openDb();
   try {
-    const [sessions, members, grants, bindings] = await Promise.all([
+    const [sessions, members, grants, bindings, memoryCollections, memoryEntries] = await Promise.all([
       database.get(`SELECT COUNT(*) AS count FROM pi_sessions WHERE agent_id = ?`, [profile.agentId]),
       database.get(`SELECT COUNT(*) AS count FROM agent_members WHERE agent_id = ?`, [profile.agentId]),
       database.get(`SELECT COUNT(*) AS count FROM agent_grants WHERE agent_id = ?`, [profile.agentId]),
       database.get(`SELECT COUNT(*) AS count FROM agent_capability_bindings WHERE agent_id = ?`, [profile.agentId]),
+      database.get(`SELECT COUNT(*) AS count FROM memory_collections WHERE scope_type = 'agent' AND agent_id = ?`, [profile.agentId]),
+      database.get(`
+        SELECT COUNT(entry.id) AS count FROM memory_entries entry
+        INNER JOIN memory_collections collection ON collection.id = entry.collection_id
+        WHERE collection.scope_type = 'agent' AND collection.agent_id = ?
+      `, [profile.agentId]),
     ]) as Array<{ count?: number | string }>;
     const impacts = {
       sessions: Number(sessions?.count || 0),
       members: Number(members?.count || 0),
       grants: Number(grants?.count || 0),
       capabilityBindings: Number(bindings?.count || 0),
+      memoryCollections: Number(memoryCollections?.count || 0),
+      memoryEntries: Number(memoryEntries?.count || 0),
+      memoryPolicy: 'retained' as const,
       managedFiles: AGENT_MANAGED_FILE_NAMES.filter((fileName) => isWritableManagedAgentFileName(fileName, profile.agentId)),
     };
     return {
@@ -879,7 +877,7 @@ export async function deleteManagedAgent(input: {
 }) {
   const profile = await requireProfile(input.actor, input.agentId, 'canManage');
   if (profile.agentId === DEFAULT_MANAGED_AGENT_ID || !profile.removable) {
-    throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Canvas Agent cannot be deleted.', 403);
+    throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Bradley cannot be deleted.', 403);
   }
   ensureExpectedRevision(profile, input.expectedRevision);
   verifyAgentDeleteConfirmationToken(input.confirmationToken, {

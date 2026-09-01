@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 import {
   AlertTriangle,
   Bot,
@@ -28,6 +29,7 @@ import { WorkspaceExportCard } from '@/app/components/settings/WorkspaceExportCa
 import { ChatDisplayCard } from '@/app/components/settings/ChatDisplayCard';
 import { TeamModeHostedOnlyNotice } from '@/app/components/team/TeamModeHostedOnlyNotice';
 import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
+import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import {
   DEFAULT_MIGRATION_COMPONENTS,
   MIGRATION_COMPONENT_KEYS,
@@ -73,6 +75,7 @@ interface OrganizationBootstrapStatus {
     canDeleteTeamFiles: boolean;
     canDeleteStudioAssets: boolean;
     canManageBackups: boolean;
+    canManageOrganizationMemory: boolean;
     canMigrateDatabase: boolean;
     canEnableKnowledge: boolean;
     canRecoverWorkspaces: boolean;
@@ -138,6 +141,7 @@ function SettingsDataContent({
   createWorkspaceOpen = false,
 }: SettingsDataContentProps) {
   const t = useTranslations('settings');
+  const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
   const toolVerbosity = useToolVerbosityStore((state) => state.toolVerbosity);
   const setToolVerbosity = useToolVerbosityStore((state) => state.setToolVerbosity);
   const [chatDisplayOpen, setChatDisplayOpen] = useState(false);
@@ -452,6 +456,7 @@ function SettingsDataContent({
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                       {[
                         ['canManageBackups', organizationStatus.permission.canManageBackups],
+                        ['canManageOrganizationMemory', organizationStatus.permission.canManageOrganizationMemory],
                         ['canMigrateDatabase', organizationStatus.permission.canMigrateDatabase],
                         ['canEnableKnowledge', organizationStatus.permission.canEnableKnowledge],
                         ['canRecoverWorkspaces', organizationStatus.permission.canRecoverWorkspaces],
@@ -509,6 +514,18 @@ function SettingsDataContent({
 
       {section === 'workspace' ? (
         <>
+          <Card className="border-primary/20 bg-primary/5">
+            <CardHeader className="px-4 sm:px-6">
+              <CardTitle>Workspace Memory</CardTitle>
+              <CardDescription>Review the published context and approve suggestions for the active workspace.</CardDescription>
+            </CardHeader>
+            <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
+              {activeWorkspace ? (
+                <Link className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90" href={`/settings?tab=memory&scope=workspace&workspaceId=${encodeURIComponent(activeWorkspace.id)}`}>Open Workspace Memory</Link>
+              ) : <p className="text-sm text-muted-foreground">Select a workspace to manage its memory.</p>}
+            </CardContent>
+          </Card>
+
           <WorkspaceManagementCard
             isAdmin={isAdmin}
             teamFeaturesEnabled={organizationStatus?.teamFeaturesEnabled ?? false}

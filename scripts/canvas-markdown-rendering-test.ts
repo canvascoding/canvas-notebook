@@ -81,6 +81,19 @@ const standaloneEmbedMarkdown = renderMarkdown('![[Plan#Outcome]]');
 assert.match(standaloneEmbedMarkdown, /data-canvas-wiki-transclude="true"/);
 assert.match(standaloneEmbedMarkdown, /canvas-wiki-embed-container/);
 
+const legacyWikiImageEmbedMarkdown = renderMarkdown(
+  '![[02_brand/bradley-explorations/bradley-thinking-transparent.png|bradley-thinking-transparent.png]] Standard avatar.',
+);
+assert.match(
+  legacyWikiImageEmbedMarkdown,
+  /<img src="02_brand\/bradley-explorations\/bradley-thinking-transparent\.png" alt="bradley-thinking-transparent\.png"\/?>/,
+);
+assert.doesNotMatch(legacyWikiImageEmbedMarkdown, /data-canvas-wiki-target|canvas-wiki-embed/);
+
+const standaloneLegacyWikiImageEmbedMarkdown = renderMarkdown('![[assets/chart.png|Chart]]');
+assert.match(standaloneLegacyWikiImageEmbedMarkdown, /<img src="assets\/chart\.png" alt="Chart"\/?>/);
+assert.doesNotMatch(standaloneLegacyWikiImageEmbedMarkdown, /data-canvas-wiki-transclude/);
+
 const headingAnchorMarkdown = renderMarkdown(`# Einführung & Überblick
 
 [Zum Überblick](#einführung-überblick)

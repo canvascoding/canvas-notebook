@@ -150,10 +150,21 @@ async function main() {
     session: { id: 'admin-session' },
   };
   let registrationBody: Record<string, unknown> | null = null;
+  const emailActivationPollToken = `lep_${'b'.repeat(64)}`;
   globalThis.fetch = async (input, init) => {
     assert.equal(String(input), 'https://api.canvasnotebook.app/v1/license/register');
     registrationBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    return Response.json({ ok: true, status: 'issued', expiresAt: '2027-07-23T00:00:00.000Z' });
+    return Response.json({
+      ok: true,
+      status: 'issued',
+      expiresAt: '2027-07-23T00:00:00.000Z',
+      activation: {
+        id: '88a79dcb-b35a-4c33-b82a-6e11f7a5f9aa',
+        pollToken: emailActivationPollToken,
+        expiresAt: '2027-07-23T00:00:00.000Z',
+        pollIntervalSeconds: 5,
+      },
+    });
   };
   const registrationResponse = await registerRoute.POST(new Request(
     'https://internal.invalid/api/mobile/v1/license/register',
@@ -168,12 +179,17 @@ async function main() {
     },
   ) as never);
   assert.equal(registrationResponse.status, 202);
+  const registrationPayload = await registrationResponse.json() as Record<string, unknown>;
+  assert.equal(JSON.stringify(registrationPayload).includes(emailActivationPollToken), false);
+  assert.equal((registrationPayload.activation as Record<string, unknown>).state, 'authorization_pending');
   assert.deepEqual(registrationBody, {
     email: 'admin@example.test',
     instanceId,
     activationUrl: 'https://notebook.example/settings?tab=license&source=mobile',
     marketingOptIn: true,
   });
+  const { loadPendingLicenseEmailActivation } = await import('../app/lib/license/email-activation-storage');
+  assert.equal((await loadPendingLicenseEmailActivation())?.pollToken, emailActivationPollToken);
 
   const certificate = signLicense(privateKey, instanceId);
   globalThis.fetch = async (input, init) => {

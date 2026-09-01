@@ -112,6 +112,8 @@ export interface WorkspaceFileReferenceEntry {
   extension?: string;
   isImage: boolean;
   size?: number;
+  created?: number;
+  modified?: number;
   publicShare?: FileNode['publicShare'];
 }
 
@@ -123,6 +125,7 @@ export interface WorkspaceFileReferencePage {
 export interface ListWorkspaceFileReferencesOptions {
   query?: string;
   limit?: number;
+  sort?: 'name' | 'created' | 'modified' | 'size';
   workspaceId: string;
   signal?: AbortSignal;
   cache?: RequestCache;
@@ -208,6 +211,7 @@ export async function readApiError(response: Response, fallbackMessage: string) 
 export async function searchWorkspaceFileReferences({
   query = '',
   limit = 50,
+  sort,
   workspaceId,
   signal,
   cache = 'no-store',
@@ -221,6 +225,7 @@ export async function searchWorkspaceFileReferences({
     limit: String(limit),
     workspaceId: normalizedWorkspaceId,
   });
+  if (sort) params.set('sort', sort);
   const normalizedQuery = query.trim();
   if (normalizedQuery) params.set('q', normalizedQuery);
 

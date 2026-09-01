@@ -8,7 +8,7 @@ import { openDb, type SqlConnection } from '@/app/lib/db';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   applyExactTextEdits,
-  countExactTextOccurrences,
+  resolveExactTextEditMatchCount,
   type ExactTextEdit,
 } from '@/app/lib/files/exact-text-patch';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
@@ -20,6 +20,7 @@ import {
 import { loadCollaborationState } from './persistence';
 import {
   createRichMarkdownYDoc,
+  replaceRichMarkdownInYDoc,
   richMarkdownFromYDoc,
   validateRichMarkdownYDoc,
 } from './markdown-state';
@@ -126,6 +127,7 @@ export interface AgentOperationView extends PersistedAgentApplyResult {
   initiatedByUserId: string;
   initiatedByDisplayName: string;
   initiatedByCurrentUser: boolean;
+  actionsAllowed: boolean;
   actorId: string;
   operationType: 'apply' | 'revert';
   requestedMode: 'direct_apply' | 'review';
@@ -139,6 +141,12 @@ export interface AgentOperationView extends PersistedAgentApplyResult {
     proposedReplacement: string;
     currentText: string | null;
     currentTargetHash: string | null;
+  }>;
+  targetAnchors: Array<{
+    targetId: string;
+    groupId: string;
+    startAnchor: string;
+    endAnchor: string;
   }>;
 }
 
@@ -432,7 +440,8 @@ export function createRichMarkdownReviewTarget(input: {
     patchEdits: input.edits.map((edit) => ({
       oldText: edit.oldText,
       newText: edit.newText,
-      expectedOccurrences: edit.expectedOccurrences ?? 1,
+      expectedOccurrences: edit.expectedOccurrences,
+      replaceAll: edit.replaceAll,
     })),
     boundaryPolicy: 'exclude_external',
   };
@@ -466,20 +475,7 @@ function replaceRichMarkdownDocument(
     if (!validation.valid || validation.markdown !== markdown) {
       return validation.code || 'roundtrip_unstable';
     }
-    const nextFrontmatter = fresh.getText('frontmatter').toString();
-    const nextBody = fresh.getXmlFragment('body').toArray()
-      .filter((node): node is YTypes.XmlElement | YTypes.XmlText => (
-        node instanceof Y.XmlElement || node instanceof Y.XmlText
-      ))
-      .map((node) => node.clone());
-    doc.transact(() => {
-      const frontmatter = doc.getText('frontmatter');
-      if (frontmatter.length > 0) frontmatter.delete(0, frontmatter.length);
-      if (nextFrontmatter) frontmatter.insert(0, nextFrontmatter);
-      const body = doc.getXmlFragment('body');
-      if (body.length > 0) body.delete(0, body.length);
-      if (nextBody.length > 0) body.insert(0, nextBody);
-    }, origin);
+    replaceRichMarkdownInYDoc(doc, markdown, origin);
     return null;
   } finally {
     fresh.destroy();
@@ -1604,10 +1600,27 @@ export async function applyPersistedAgentTextOperation(input: {
   });
 }
 
-function canInspectOperation(row: AgentOperationRow, workspace: WorkspaceContext, userId: string): boolean {
+function canManageOperation(row: AgentOperationRow, workspace: WorkspaceContext, userId: string): boolean {
   return row.workspace_id === workspace.workspaceId
     && workspace.permissions.canRead
     && (row.initiated_by_user_id === userId || workspace.permissions.canManageWorkspace);
+}
+
+function canViewOperation(row: AgentOperationRow, workspace: WorkspaceContext): boolean {
+  return row.workspace_id === workspace.workspaceId && workspace.permissions.canRead;
+}
+
+function operationTargetAnchors(row: AgentOperationRow): AgentOperationView['targetAnchors'] {
+  return (openPayload<AgentTextTarget[]>(row.operation_payload) || []).flatMap((target) => (
+    target.startAnchor && target.endAnchor
+      ? [{
+          targetId: target.targetId,
+          groupId: target.groupId,
+          startAnchor: target.startAnchor,
+          endAnchor: target.endAnchor,
+        }]
+      : []
+  ));
 }
 
 async function reviewTargets(row: AgentOperationRow): Promise<AgentOperationView['reviewTargets']> {
@@ -1642,9 +1655,19 @@ async function reviewTargets(row: AgentOperationRow): Promise<AgentOperationView
       if (isRichMarkdownPatchTarget(target)) {
         if (target.patchEdits?.length) {
           return target.patchEdits.map((edit, index) => {
-            const expectedOccurrences = edit.expectedOccurrences ?? 1;
-            const exactStillResolves = currentMarkdown !== null
-              && countExactTextOccurrences(currentMarkdown, edit.oldText) === expectedOccurrences;
+            const exactStillResolves = currentMarkdown !== null && (() => {
+              try {
+                resolveExactTextEditMatchCount({
+                  content: currentMarkdown,
+                  edit,
+                  label: 'live Markdown collaboration state',
+                  editIndex: index,
+                });
+                return true;
+              } catch {
+                return false;
+              }
+            })();
             return {
               targetId: `${target.targetId}:${index}`,
               groupId: target.groupId,
@@ -1690,6 +1713,7 @@ function toOperationView(
   row: AgentOperationRow,
   review: AgentOperationView['reviewTargets'],
   currentUserId: string,
+  actionsAllowed: boolean,
 ): AgentOperationView {
   return {
     ...parseResult(row),
@@ -1698,6 +1722,7 @@ function toOperationView(
     initiatedByUserId: row.initiated_by_user_id,
     initiatedByDisplayName: row.initiated_by_display_name || row.initiated_by_user_id,
     initiatedByCurrentUser: row.initiated_by_user_id === currentUserId,
+    actionsAllowed,
     actorId: row.actor_id,
     operationType: row.operation_type,
     requestedMode: row.requested_mode,
@@ -1706,6 +1731,7 @@ function toOperationView(
     updatedAt: Number(row.updated_at),
     expiresAt: row.expires_at === null ? null : Number(row.expires_at),
     reviewTargets: review,
+    targetAnchors: operationTargetAnchors(row),
   };
 }
 
@@ -1718,8 +1744,13 @@ export async function getAgentOperation(input: {
   const database = await openDb();
   try {
     const row = await readOperation(database, input.operationId);
-    if (!row || !canInspectOperation(row, input.workspace, input.userId)) return null;
-    return toOperationView(row, await reviewTargets(row), input.userId);
+    if (!row || !canViewOperation(row, input.workspace)) return null;
+    return toOperationView(
+      row,
+      await reviewTargets(row),
+      input.userId,
+      canManageOperation(row, input.workspace, input.userId),
+    );
   } finally {
     await database.close();
   }
@@ -1739,18 +1770,20 @@ export async function listAgentOperations(input: {
        FROM collaboration_agent_operations operation
        LEFT JOIN "user" initiator ON initiator.id = operation.initiated_by_user_id
        WHERE operation.document_id = ? AND operation.workspace_id = ?
-         AND (? = 1 OR operation.initiated_by_user_id = ?)
          AND (? = 0 OR operation.status IN ('needs_review', 'partially_applied', 'semantic_conflict', 'cancel_requested'))
        ORDER BY operation.updated_at DESC LIMIT 50`,
       [
         input.documentId,
         input.workspace.workspaceId,
-        input.workspace.permissions.canManageWorkspace ? 1 : 0,
-        input.userId,
         input.pendingOnly ? 1 : 0,
       ],
     ) as AgentOperationRow[];
-    return Promise.all(rows.map(async (row) => toOperationView(row, await reviewTargets(row), input.userId)));
+    return Promise.all(rows.map(async (row) => toOperationView(
+      row,
+      await reviewTargets(row),
+      input.userId,
+      canManageOperation(row, input.workspace, input.userId),
+    )));
   } finally {
     await database.close();
   }
@@ -1785,7 +1818,7 @@ async function authorizedActionRow(database: SqlConnection, input: {
   userId: string;
 }): Promise<AgentOperationRow> {
   const row = await readOperation(database, input.operationId);
-  if (!row || !canInspectOperation(row, input.workspace, input.userId)) throw new Error('Agent operation was not found.');
+  if (!row || !canManageOperation(row, input.workspace, input.userId)) throw new Error('Agent operation was not found.');
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write permission is required.');
   return row;
 }

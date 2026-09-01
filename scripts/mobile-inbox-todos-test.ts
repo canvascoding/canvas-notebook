@@ -170,6 +170,10 @@ async function main() {
     const inbox = await listMobileInbox({ userId: 'mobile-attention-user', workspace, limit: 20 });
     assert.equal(inbox.counts.unread, 5);
     assert.equal(inbox.counts.todoUnread, 1);
+    assert.deepEqual(
+      inbox.items.map((item) => item.occurredAt),
+      inbox.items.map((item) => item.occurredAt).sort((left, right) => right.localeCompare(left)),
+    );
     assert.equal(await countMobileUnreadMessages({ userId: 'mobile-attention-user', workspaces: [workspace] }), 2);
     assert.equal(inbox.items.some((item) => item.id === 'chat:attention-session'), true);
     assert.equal(inbox.items.some((item) => item.id === 'chat:historic-unread-session'), true);
@@ -205,6 +209,7 @@ async function main() {
     assert.equal(todoAttentionInbox.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
     assert.equal(todoAttentionInbox.items.every((item) => item.todoStatus === 'open'), true);
     assert.equal(todoAttentionInbox.items.some((item) => item.id === `todo:${completedTodo.id}`), false);
+    assert.equal(todoAttentionInbox.items[0]?.id, `todo:${firstTodo.id}`);
     assert.equal(
       inbox.items.find((item) => item.id === 'studio:generation-ready')?.previewUrl,
       '/api/mobile/v1/studio/outputs/generation-preview-output/preview',
@@ -270,6 +275,24 @@ async function main() {
     assert.equal(aggregateInbox.counts.unread, inbox.counts.unread);
     assert.equal(aggregateInbox.items.every((item) => item.workspaceId === workspace.workspaceId), true);
     assert.ok(aggregateInbox.nextCursor);
+    const aggregateMixedInbox = await listMobileAggregateInbox({
+      userId: 'mobile-attention-user',
+      workspaces: [workspace],
+      groupWorkspaceTodos: true,
+      limit: 20,
+    });
+    assert.deepEqual(
+      aggregateMixedInbox.items.map((item) => item.occurredAt),
+      aggregateMixedInbox.items.map((item) => item.occurredAt).sort((left, right) => right.localeCompare(left)),
+    );
+    const aggregateTodoInbox = await listMobileAggregateInbox({
+      userId: 'mobile-attention-user',
+      workspaces: [workspace],
+      filter: 'todos',
+      groupWorkspaceTodos: true,
+      limit: 20,
+    });
+    assert.equal(aggregateTodoInbox.items[0]?.id, `todo:${firstTodo.id}`);
     const aggregateNextPage = await listMobileAggregateInbox({
       userId: 'mobile-attention-user',
       workspaces: [workspace],

@@ -27,7 +27,7 @@ async function collectFilesRecursive(
   try {
     const entries = await semaphore.run(() => listDirectory(dirPath, {
       ...options,
-      includeMetadata: false,
+      includeMetadata: true,
     }));
     const files: FileReferenceEntry[] = [];
     const directories = [];
@@ -46,6 +46,8 @@ async function collectFilesRecursive(
         extension,
         isImage: extension ? IMAGE_EXTENSIONS.has(extension) : false,
         size: entry.size,
+        created: entry.created,
+        modified: entry.modified,
       });
     }
 

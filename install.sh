@@ -104,7 +104,7 @@ load_existing_swap_config() {
 resolve_support_dir() {
   local script_dir
   script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P || true)"
-  if [[ -n "$script_dir" && -x "${script_dir}/install/bin/canvas-notebook" ]]; then
+  if [[ -n "$script_dir" && -f "${script_dir}/install/linux-cli.sh" ]]; then
     SUPPORT_DIR="${script_dir}/install"
     return 0
   fi
@@ -117,7 +117,7 @@ resolve_support_dir() {
   curl -fsSL "$ARCHIVE_URL" -o "${SUPPORT_TMP_DIR}/canvas-notebook.tar.gz"
   tar -xzf "${SUPPORT_TMP_DIR}/canvas-notebook.tar.gz" -C "$SUPPORT_TMP_DIR"
   SUPPORT_DIR="${SUPPORT_TMP_DIR}/canvas-notebook-main/install"
-  if [[ ! -x "${SUPPORT_DIR}/bin/canvas-notebook" ]]; then
+  if [[ ! -f "${SUPPORT_DIR}/linux-cli.sh" ]]; then
     echo "Installer support files are missing from ${ARCHIVE_URL}." >&2
     exit 1
   fi
@@ -307,17 +307,19 @@ configure_compose_values() {
 }
 
 configure_database_values() {
-  local current_deployment current_provider deployment_mode provider provider_choice deployment_choice team_features
+  local current_deployment current_provider deployment_mode provider provider_choice deployment_choice team_features provider_default
   local deployment_choice_default provider_choice_default database_env_key
 
   current_deployment="$(config_json_read env.CANVAS_DEPLOYMENT_MODE)"
   current_deployment="${current_deployment:-single_user}"
   current_provider="$(config_json_read env.CANVAS_DATABASE_PROVIDER)"
   current_provider="$(config_json_normalize_database_provider "${current_provider:-sqlite}")"
+  provider_default="postgres"
+  [[ "$CONFIG_JSON_WAS_PRESENT" == "true" ]] && provider_default="$current_provider"
 
   if [[ "$NONINTERACTIVE" == "true" ]]; then
     deployment_mode="${CANVAS_DEPLOYMENT_MODE:-$current_deployment}"
-    provider="${CANVAS_DATABASE_PROVIDER:-$current_provider}"
+    provider="${CANVAS_DATABASE_PROVIDER:-$provider_default}"
   else
     section "Database"
     echo "Choose the deployment scope:"
@@ -340,11 +342,11 @@ configure_database_values() {
       echo
       echo "Choose the database provider:"
       echo
-      echo "  1) SQLite    (recommended for single-user installs)"
-      echo "  2) Postgres  (required later for team, RAG, and collaboration)"
+      echo "  1) SQLite    (lightweight compatibility option)"
+      echo "  2) Postgres  (recommended; required later for team, RAG, and collaboration)"
       echo
-      provider_choice_default="1"
-      [[ "$current_provider" == "postgres" ]] && provider_choice_default="2"
+      provider_choice_default="2"
+      [[ "$CONFIG_JSON_WAS_PRESENT" == "true" && "$current_provider" == "sqlite" ]] && provider_choice_default="1"
       ask "Choice [1/2, default ${provider_choice_default}]: " provider_choice "$provider_choice_default"
       if [[ "$provider_choice" == "2" ]]; then
         provider="postgres"
@@ -451,6 +453,7 @@ run_prebuilt_install() {
   if [[ "$CONFIG_JSON_WAS_PRESENT" == "false" && -f "/etc/canvas-notebook/manager.env" ]]; then
     info "Migrating legacy config..."
     config_json_migrate --force
+    CONFIG_JSON_WAS_PRESENT=true
   else
     config_json_init
   fi

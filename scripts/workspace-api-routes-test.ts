@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import Database from 'better-sqlite3';
 import { NextRequest } from 'next/server';
+import { Pool } from 'pg';
 
 type RouteSession = {
   user: {
@@ -72,19 +73,22 @@ function installTeamRuntimeLicense() {
   });
 }
 
-function insertUser(sqlite: Database.Database, userId: string, name: string, email: string, role = 'user') {
+async function insertUser(pool: Pool, userId: string, name: string, email: string, role = 'user') {
   const now = Date.now();
-  sqlite.prepare(`
-    INSERT INTO user (
+  await pool.query(`
+    INSERT INTO "user" (
       id, name, email, email_verified, image, role, banned, ban_reason, ban_expires, created_at, updated_at
-    ) VALUES (?, ?, ?, 1, NULL, ?, NULL, NULL, NULL, ?, ?)
-  `).run(userId, name, email, role, now, now);
+    ) VALUES ($1, $2, $3, 1, NULL, $4, NULL, NULL, NULL, $5, $6)
+  `, [userId, name, email, role, now, now]);
 }
 
 function request(url: string, init: RouteRequestInit = {}) {
   const headers = new Headers(init.headers);
   if (!headers.has('content-type')) {
     headers.set('content-type', 'application/json');
+  }
+  if (!headers.has('origin')) {
+    headers.set('origin', new URL(url).origin);
   }
   return new NextRequest(url, {
     ...init,
@@ -123,31 +127,71 @@ function workspaceByType(payload: JsonObject, type: string) {
 }
 
 async function main() {
+  assert.equal(
+    process.env.CANVAS_WORKSPACE_API_TEST_CHILD,
+    'true',
+    'Run this integration suite through workspace-api-routes-postgres-runner.ts.',
+  );
+  const environmentKeys = [
+    'DATA',
+    'DATABASE_URL',
+    'BASE_URL',
+    'BETTER_AUTH_BASE_URL',
+    'CANVAS_DATABASE_PROVIDER',
+    'CANVAS_DATABASE_MIGRATIONS_COMPLETED',
+    'CANVAS_DEPLOYMENT_MODE',
+    'CANVAS_EXTERNAL_USERS_ENABLED',
+    'CANVAS_INSTANCE_ID',
+    'CANVAS_LICENSE_CERT',
+    'CANVAS_LICENSE_PUBLIC_KEY',
+    'CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS',
+    'CANVAS_POSTGRES_VECTOR_ENABLED',
+    'CANVAS_TEAM_FEATURES_ENABLED',
+    'CANVAS_VECTOR_PROVIDER',
+  ] as const;
+  const originalEnvironment = new Map(
+    environmentKeys.map((key) => [key, process.env[key]] as const),
+  );
+  const configuredDatabaseUrl = process.env.DATABASE_URL?.trim();
+  assert(configuredDatabaseUrl, 'Workspace API route tests require a local PostgreSQL DATABASE_URL.');
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-workspace-api-routes-'));
   const dataRoot = path.join(tempRoot, 'data');
-  process.env.DATA = dataRoot;
-  process.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
-  process.env.CANVAS_TEAM_FEATURES_ENABLED = 'true';
-  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
-  process.env.CANVAS_INSTANCE_ID = 'self_workspace_api_routes_test';
-  process.env.CANVAS_EXTERNAL_USERS_ENABLED = 'false';
-
-  installTeamRuntimeLicense();
-  await fs.mkdir(dataRoot, { recursive: true });
-
-  const { runMigrations } = await import('../app/lib/db/migrate');
-  const sqlite = new Database(path.join(dataRoot, 'sqlite.db'));
+  let testPoolForCleanup: Pool | null = null;
+  let closeRuntimeDatabase: (() => Promise<void>) | null = null;
   try {
-    runMigrations(sqlite);
-    insertUser(sqlite, 'owner-user', 'Owner User', 'owner@example.test', 'admin');
-    insertUser(sqlite, 'member-user', 'Member User', 'member@example.test', 'user');
-  } finally {
-    sqlite.close();
-  }
+    process.env.DATA = dataRoot;
+    process.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
+    process.env.CANVAS_TEAM_FEATURES_ENABLED = 'true';
+    process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+    process.env.CANVAS_INSTANCE_ID = 'self_workspace_api_routes_test';
+    process.env.CANVAS_EXTERNAL_USERS_ENABLED = 'false';
+    process.env.CANVAS_POSTGRES_VECTOR_ENABLED = 'false';
+    process.env.CANVAS_VECTOR_PROVIDER = 'none';
+    process.env.BASE_URL = 'http://localhost';
+    process.env.BETTER_AUTH_BASE_URL = 'http://localhost';
+    installTeamRuntimeLicense();
+    await fs.mkdir(dataRoot, { recursive: true });
 
-  const { requireTeamRuntimeLicense } = await import('../app/lib/license/entitlements');
-  await requireTeamRuntimeLicense();
-  delete process.env.CANVAS_LICENSE_CERT;
+    const testPool = new Pool({ connectionString: configuredDatabaseUrl, max: 4 });
+    testPoolForCleanup = testPool;
+    const { runPostgresMigrations } = await import('../app/lib/db/postgres');
+    await runPostgresMigrations(testPool);
+    const { runMigrations } = await import('../app/lib/db/migrate');
+    const collaborationSidecar = new Database(path.join(dataRoot, 'sqlite.db'));
+    try {
+      runMigrations(collaborationSidecar);
+    } finally {
+      collaborationSidecar.close();
+    }
+    process.env.CANVAS_DATABASE_MIGRATIONS_COMPLETED = 'true';
+    await insertUser(testPool, 'owner-user', 'Owner User', 'owner@example.test', 'admin');
+    await insertUser(testPool, 'member-user', 'Member User', 'member@example.test', 'user');
+
+    const { requireTeamRuntimeLicense } = await import('../app/lib/license/entitlements');
+    await requireTeamRuntimeLicense();
+
+    const databaseModule = await import('../app/lib/db');
+    closeRuntimeDatabase = databaseModule.closeDatabaseConnections;
 
   const { auth } = await import('../app/lib/auth');
   let currentSession: RouteSession | null = {
@@ -207,6 +251,26 @@ async function main() {
   );
   assert.equal(initialList.canCreateSharedWorkspaces, true);
   assert.equal(typeof initialList.organizationId, 'string');
+  const organizationId = initialList.organizationId as string;
+  const membershipCreatedAt = Date.now();
+  for (const membership of [
+    { id: 'membership-owner-route-test', userId: 'owner-user', email: 'owner@example.test', role: 'owner' },
+    { id: 'membership-member-route-test', userId: 'member-user', email: 'member@example.test', role: 'member' },
+  ]) {
+    await testPool.query(`
+      INSERT INTO team_memberships (
+        id, organization_id, candidate_email, user_id, role, status,
+        invited_at, accepted_at, activated_at, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, 'active', $6, $6, $6, $6, $6)
+    `, [
+      membership.id,
+      organizationId,
+      membership.email,
+      membership.userId,
+      membership.role,
+      membershipCreatedAt,
+    ]);
+  }
 
   const organizationCreateResponse = await workspacesRoute.POST(jsonRequest('http://localhost/api/workspaces', 'POST', {
     type: 'organization',
@@ -247,19 +311,18 @@ async function main() {
     'Shared planning and delivery workspace for the route team.',
   );
 
-  const workspacePathsDb = new Database(path.join(dataRoot, 'sqlite.db'));
-  let personalWorkspacePath = '';
-  let teamWorkspacePath = '';
-  try {
-    personalWorkspacePath = (workspacePathsDb.prepare(
-      'SELECT root_relative_path AS rootRelativePath FROM canvas_workspaces WHERE id = ?',
-    ).get(personalDefault.id) as { rootRelativePath: string }).rootRelativePath;
-    teamWorkspacePath = (workspacePathsDb.prepare(
-      'SELECT root_relative_path AS rootRelativePath FROM canvas_workspaces WHERE id = ?',
-    ).get(teamWorkspaceId) as { rootRelativePath: string }).rootRelativePath;
-  } finally {
-    workspacePathsDb.close();
-  }
+  const personalWorkspacePathResult = await testPool.query<{ rootRelativePath: string }>(
+    'SELECT root_relative_path AS "rootRelativePath" FROM canvas_workspaces WHERE id = $1',
+    [personalDefault.id],
+  );
+  const teamWorkspacePathResult = await testPool.query<{ rootRelativePath: string }>(
+    'SELECT root_relative_path AS "rootRelativePath" FROM canvas_workspaces WHERE id = $1',
+    [teamWorkspaceId],
+  );
+  const personalWorkspacePath = personalWorkspacePathResult.rows[0]?.rootRelativePath;
+  const teamWorkspacePath = teamWorkspacePathResult.rows[0]?.rootRelativePath;
+  assert(personalWorkspacePath);
+  assert(teamWorkspacePath);
   await fs.mkdir(path.join(dataRoot, personalWorkspacePath), { recursive: true });
   await fs.mkdir(path.join(dataRoot, teamWorkspacePath), { recursive: true });
   await fs.writeFile(path.join(dataRoot, personalWorkspacePath, 'personal-only.txt'), 'personal export');
@@ -482,15 +545,11 @@ async function main() {
   assert.equal(permissionGet.success, true);
   assert.equal(expectObject(permissionGet.user, 'permission user').role, 'member');
 
-  const sessionDb = new Database(path.join(dataRoot, 'sqlite.db'));
-  try {
-    sessionDb.prepare(`
-      INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
-      VALUES ('member-session-route-test', ?, 'member-token-route-test', ?, ?, 'member-user')
-    `).run(Date.now() + 60_000, Date.now(), Date.now());
-  } finally {
-    sessionDb.close();
-  }
+  const sessionCreatedAt = Date.now();
+  await testPool.query(`
+    INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
+    VALUES ('member-session-route-test', $1, 'member-token-route-test', $2, $3, 'member-user')
+  `, [sessionCreatedAt + 60_000, sessionCreatedAt, sessionCreatedAt]);
 
   const permissionPatchResponse = await permissionsRoute.PATCH(
     jsonRequest('http://localhost/api/admin/organization/users/member-user/permissions', 'PATCH', {
@@ -499,8 +558,8 @@ async function main() {
     }),
     { params: Promise.resolve({ userId: 'member-user' }) },
   );
-  assert.equal(permissionPatchResponse.status, 200);
   const permissionPatch = await responseJson(permissionPatchResponse);
+  assert.equal(permissionPatchResponse.status, 200, JSON.stringify(permissionPatch));
   assert.equal(permissionPatch.success, true);
   assert.equal(permissionPatch.sessionsRevoked, 1);
   assert.equal(expectObject(expectObject(permissionPatch.user, 'patched user').permissions, 'patched permissions').canExport, true);
@@ -619,29 +678,49 @@ async function main() {
   );
   assert.equal(deleteChangedWorkspaceResponse.status, 200);
 
-  const finalDb = new Database(path.join(dataRoot, 'sqlite.db'));
-  try {
-    const disabled = finalDb.prepare('SELECT status FROM canvas_workspaces WHERE id = ?').get(extraPersonalId) as { status: string };
-    assert.equal(disabled.status, 'disabled');
-    const disabledOrganization = finalDb.prepare(
-      'SELECT status, is_default AS isDefault FROM canvas_workspaces WHERE id = ?',
-    ).get(organizationWorkspaceId) as { status: string; isDefault: number };
-    assert.deepEqual(disabledOrganization, { status: 'disabled', isDefault: 0 });
-    const auditCount = finalDb.prepare(`
-      SELECT COUNT(*) AS count
-      FROM audit_events
-      WHERE entity_id = 'member-user'
-        AND action IN ('organization.permissions.update', 'organization.role.update')
-    `).get() as { count: number };
-    assert.equal(auditCount.count >= 2, true);
-  } finally {
-    finalDb.close();
-  }
+  const disabledResult = await testPool.query<{ status: string }>(
+    'SELECT status FROM canvas_workspaces WHERE id = $1',
+    [extraPersonalId],
+  );
+  assert.equal(disabledResult.rows[0]?.status, 'disabled');
+  const disabledOrganizationResult = await testPool.query<{ status: string; isDefault: number | string }>(
+    'SELECT status, is_default AS "isDefault" FROM canvas_workspaces WHERE id = $1',
+    [organizationWorkspaceId],
+  );
+  assert.deepEqual(
+    {
+      status: disabledOrganizationResult.rows[0]?.status,
+      isDefault: Number(disabledOrganizationResult.rows[0]?.isDefault),
+    },
+    { status: 'disabled', isDefault: 0 },
+  );
+  const auditCountResult = await testPool.query<{ count: number | string }>(`
+    SELECT COUNT(*) AS count
+    FROM audit_events
+    WHERE entity_id = 'member-user'
+      AND action IN ('organization.permissions.update', 'organization.role.update')
+  `);
+  assert.equal(Number(auditCountResult.rows[0]?.count) >= 2, true);
 
-  console.log('workspace api route tests passed');
+    console.log('workspace api route PostgreSQL tests passed');
+  } finally {
+    try {
+      await closeRuntimeDatabase?.();
+    } finally {
+      await testPoolForCleanup?.end();
+      await fs.rm(tempRoot, { recursive: true, force: true });
+      for (const [key, value] of originalEnvironment) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+void main().then(
+  () => process.exit(0),
+  (error) => {
+    console.error(error);
+    process.exit(1);
+  },
+);

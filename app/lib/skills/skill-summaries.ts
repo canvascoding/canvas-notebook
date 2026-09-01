@@ -6,6 +6,7 @@ import path from 'path';
 import {
   loadCanvasSkillInterface,
   parseFrontmatter,
+  validateFrontmatter,
   type CanvasSkillInterface,
   type CanvasSkillStorageScope,
 } from './canvas-skill-manifest';
@@ -31,12 +32,13 @@ export type SkillSummary = {
 
 function parseSkillSummary(content: string, fallbackName: string): Omit<SkillSummary, 'enabled'> | null {
   const { frontmatter } = parseFrontmatter(content);
-  if (!frontmatter?.name || !frontmatter.description) return null;
+  const validation = validateFrontmatter(frontmatter, { expectedDirectoryName: fallbackName });
+  if (!validation.valid || !frontmatter) return null;
 
   return {
-    name: frontmatter.name || fallbackName,
-    title: frontmatter.name || fallbackName,
-    description: frontmatter.description || '',
+    name: frontmatter.name.trim().normalize('NFKC'),
+    title: frontmatter.name.trim().normalize('NFKC'),
+    description: frontmatter.description.trim(),
     version: frontmatter.metadata?.version,
   };
 }

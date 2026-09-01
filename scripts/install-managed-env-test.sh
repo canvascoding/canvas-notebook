@@ -10,6 +10,8 @@ export CANVAS_CONFIG_JSON="$TMP_DIR/canvas-notebook-config.json"
 export CANVAS_CONFIG_ENV="$TMP_DIR/canvas-notebook.env"
 export CANVAS_COMPOSE_ENV="$TMP_DIR/.env"
 export CANVAS_CLI_PATH="$CANVAS_INSTALL_DIR/bin/canvas-notebook"
+export CANVAS_LINUX_CLI_ROOT="$TMP_DIR/linux-cli"
+export CANVAS_LINUX_CLI_INSTALLER_PATH="$TMP_DIR/fake-linux-cli-installer.sh"
 export CANVAS_CONFIG_FILE_OWNER="$(id -u):$(id -g)"
 export CANVAS_HOST_CODE_OWNER="$(id -u):$(id -g)"
 export CANVAS_USE_COLOR=false
@@ -41,6 +43,20 @@ export CANVAS_POSTGRES_PASSWORD="safe-postgres-password"
 export DATABASE_URL="postgresql://canvas:safe-postgres-password@postgres:5432/canvas_notebook"
 
 mkdir -p "$CANVAS_INSTALL_DIR"
+mkdir -p "$CANVAS_LINUX_CLI_ROOT" "$(dirname "$CANVAS_CLI_PATH")"
+
+cat > "$CANVAS_LINUX_CLI_INSTALLER_PATH" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${1:-}" == "install" ]]
+[[ -n "${CANVAS_LINUX_CLI_ROOT:-}" ]]
+[[ -n "${CANVAS_LINUX_CLI_BIN_PATH:-}" ]]
+mkdir -p "${CANVAS_LINUX_CLI_ROOT}/bin" "$(dirname "$CANVAS_LINUX_CLI_BIN_PATH")"
+printf '#!/usr/bin/env bash\nprintf '\''{"cliGeneration":"typescript"}\\n'\''\n' > "${CANVAS_LINUX_CLI_ROOT}/bin/canvas-notebook"
+chmod 755 "${CANVAS_LINUX_CLI_ROOT}/bin/canvas-notebook"
+ln -sfn "${CANVAS_LINUX_CLI_ROOT}/bin/canvas-notebook" "$CANVAS_LINUX_CLI_BIN_PATH"
+EOF
+chmod 755 "$CANVAS_LINUX_CLI_INSTALLER_PATH"
 
 INSTALL_FUNCTIONS="$TMP_DIR/install-functions.sh"
 sed '/^if \[\[ "$(uname -s)" != "Linux" \]\]/,$d' "$ROOT_DIR/install.sh" > "$INSTALL_FUNCTIONS"
@@ -68,17 +84,18 @@ fi
 printf 'managed env CLI installation completed\n'
 
 file_mode() {
-  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+  stat -L -c '%a' "$1" 2>/dev/null || stat -L -f '%Lp' "$1"
 }
 
 file_owner() {
-  stat -c '%u:%g' "$1" 2>/dev/null || stat -f '%u:%g' "$1"
+  stat -L -c '%u:%g' "$1" 2>/dev/null || stat -L -f '%u:%g' "$1"
 }
 
 [[ "$(file_mode "$CANVAS_CONFIG_JSON")" == "600" ]]
 [[ "$(file_mode "$CANVAS_CONFIG_ENV")" == "600" ]]
 [[ "$(file_mode "$CANVAS_COMPOSE_ENV")" == "600" ]]
 [[ "$(file_mode "$CANVAS_CLI_PATH")" == "755" ]]
+[[ "$("$CANVAS_CLI_PATH")" == '{"cliGeneration":"typescript"}' ]]
 [[ "$(file_mode "$CANVAS_INSTALL_DIR/lib")" == "755" ]]
 [[ "$(file_mode "$CANVAS_INSTALL_DIR/lib/shared")" == "755" ]]
 [[ "$(file_mode "$CANVAS_INSTALL_DIR/lib/commands")" == "755" ]]

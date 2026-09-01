@@ -57,6 +57,7 @@ import {
   useShouldShowWorkspaceSwitcher,
 } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
+import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import {
   getNotebookNavigationIntent,
@@ -106,6 +107,7 @@ import type {
 } from '@/app/lib/notebook/context-surface';
 import {
   NOTEBOOK_MAX_OPEN_DOCUMENTS,
+  closeNotebookDocumentTabsAtPaths,
   closeNotebookDocumentTab,
   emptyNotebookDocumentTabsState,
   openNotebookDocumentTab,
@@ -316,11 +318,18 @@ function EmailContextHeader({
 }) {
   const t = useTranslations('notebook');
   const toolLabels: Record<string, string> = {
+    email_list_mailboxes: t('emailToolAccounts'),
     email_list_accounts: t('emailToolAccounts'),
+    email_search_messages: t('emailToolSearch'),
     email_search: t('emailToolSearch'),
+    email_read_message: t('emailToolRead'),
     email_read: t('emailToolRead'),
+    email_list_thread_messages: t('emailToolRead'),
+    email_create_outbox_draft: t('emailToolCreateDraft'),
     email_create_draft: t('emailToolCreateDraft'),
+    email_update_outbox_draft: t('emailToolUpdateDraft'),
     email_update_draft: t('emailToolUpdateDraft'),
+    email_list_outbox_drafts: t('emailToolCreateDraft'),
     email_send_draft: t('emailToolSendDraft'),
   };
   const detail = intent.subject || intent.query || intent.folder;
@@ -343,7 +352,12 @@ function EmailContextHeader({
           {intent.status === 'running' ? t('contextToolRunning') : t('contextToolComplete')}
         </span>
       </div>
-      {detail ? <span className="min-w-0 truncate text-muted-foreground">{detail}</span> : null}
+      <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+        {intent.emailAddress ? (
+          <span className="hidden max-w-48 truncate font-mono sm:inline">{intent.emailAddress}</span>
+        ) : null}
+        {detail ? <span className="min-w-0 truncate">{detail}</span> : null}
+      </div>
     </div>
   );
 }
@@ -843,25 +857,29 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [handleCloseDocumentTab]);
 
   useEffect(() => {
-    const handlePathsDeleted = (event: Event) => {
+    const closeDocumentTabsAtPaths = (paths: Iterable<string>) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
-      const { paths } = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
-      const shouldRemove = (openPath: string) => paths.some((deletedPath) => (
-        openPath === deletedPath || openPath.startsWith(`${deletedPath}/`)
-      ));
-      let nextTabs = documentTabsRef.current;
-      for (const openPath of nextTabs.openPaths.filter(shouldRemove)) {
-        nextTabs = closeNotebookDocumentTab(nextTabs, openPath);
-      }
+      const closedPaths = Array.from(paths);
+      const nextTabs = closeNotebookDocumentTabsAtPaths(documentTabsRef.current, closedPaths);
       if (nextTabs === documentTabsRef.current) return;
+
+      const currentFilePath = useFileStore.getState().currentFile?.path ?? null;
       replaceDocumentTabs(activeWorkspaceId, nextTabs);
       if (nextTabs.activePath) {
-        if (useFileStore.getState().currentFile?.path !== nextTabs.activePath) {
+        if (currentFilePath !== nextTabs.activePath) {
           void openNotebookFile(nextTabs.activePath);
         }
-      } else {
-        dispatch({ type: 'DOCUMENT_CLOSED' });
+        return;
       }
+
+      useFileStore.getState().clearCurrentFile();
+      useEditorStore.getState().clear();
+      openedPathRef.current = null;
+      dispatch({ type: 'DOCUMENT_CLOSED' });
+    };
+    const handlePathsDeleted = (event: Event) => {
+      const { paths } = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
+      closeDocumentTabsAtPaths(paths);
     };
     const handlePathRenamed = (event: Event) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
@@ -871,11 +889,25 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         renameNotebookDocumentTabs(documentTabsRef.current, oldPath, newPath),
       );
     };
+    const handleWatcherFileChange = (event: Event) => {
+      const detail = (event as CustomEvent<FileEvent>).detail;
+      if (
+        !detail
+        || (detail.type !== 'unlink' && detail.type !== 'unlinkDir')
+        || (detail.workspaceId && detail.workspaceId !== activeWorkspaceId)
+      ) {
+        return;
+      }
+      closeDocumentTabsAtPaths([detail.relativePath]);
+    };
+    const fileWatcher = getFileWatcherClient();
     window.addEventListener(WORKSPACE_PATHS_DELETED_EVENT, handlePathsDeleted);
     window.addEventListener(WORKSPACE_PATH_RENAMED_EVENT, handlePathRenamed);
+    fileWatcher.addEventListener('filechange', handleWatcherFileChange);
     return () => {
       window.removeEventListener(WORKSPACE_PATHS_DELETED_EVENT, handlePathsDeleted);
       window.removeEventListener(WORKSPACE_PATH_RENAMED_EVENT, handlePathRenamed);
+      fileWatcher.removeEventListener('filechange', handleWatcherFileChange);
     };
   }, [activeWorkspaceId, dispatch, openNotebookFile, replaceDocumentTabs]);
 

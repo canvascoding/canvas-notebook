@@ -79,6 +79,7 @@ type PermissionRow = {
   can_delete_team_files: number;
   can_delete_studio_assets: number;
   can_manage_backups: number;
+  can_manage_organization_memory: number;
   can_migrate_database: number;
   can_enable_knowledge: number;
   can_recover_workspaces: number;
@@ -201,6 +202,7 @@ function permissionDefaults(role: OrganizationPermissionSnapshot['role']): Organ
     canDeleteTeamFiles: isAdminLike,
     canDeleteStudioAssets: isInternal,
     canManageBackups: isAdminLike,
+    canManageOrganizationMemory: false,
     canMigrateDatabase: isAdminLike,
     canEnableKnowledge: isAdminLike,
     canRecoverWorkspaces: isAdminLike,
@@ -223,6 +225,7 @@ function rowToPermissionSnapshot(row: PermissionRow | null): OrganizationPermiss
     canDeleteTeamFiles: enabled && booleanFromDb(row.can_delete_team_files),
     canDeleteStudioAssets: enabled && booleanFromDb(row.can_delete_studio_assets),
     canManageBackups: enabled && booleanFromDb(row.can_manage_backups),
+    canManageOrganizationMemory: enabled && booleanFromDb(row.can_manage_organization_memory),
     canMigrateDatabase: enabled && booleanFromDb(row.can_migrate_database),
     canEnableKnowledge: enabled && booleanFromDb(row.can_enable_knowledge),
     canRecoverWorkspaces: enabled && booleanFromDb(row.can_recover_workspaces),
@@ -480,7 +483,7 @@ async function getPermissionRow(
     `
       SELECT role, status, can_write_team_workspace, can_create_public_links, can_create_team_automations,
         can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
-        can_manage_backups, can_migrate_database, can_enable_knowledge, can_recover_workspaces
+        can_manage_backups, can_manage_organization_memory, can_migrate_database, can_enable_knowledge, can_recover_workspaces
       FROM organization_user_permissions
       WHERE organization_id = ? AND user_id = ?
       LIMIT 1
@@ -509,9 +512,9 @@ async function ensurePermissionRow(
         organization_id, user_id, role,
         can_write_team_workspace, can_create_public_links, can_create_team_automations,
         can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
-        can_manage_backups, can_migrate_database, can_enable_knowledge, can_recover_workspaces,
+        can_manage_backups, can_manage_organization_memory, can_migrate_database, can_enable_knowledge, can_recover_workspaces,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(organization_id, user_id) DO UPDATE SET
         role = excluded.role,
         updated_at = excluded.updated_at
@@ -528,6 +531,7 @@ async function ensurePermissionRow(
       defaults.canDeleteTeamFiles ? 1 : 0,
       defaults.canDeleteStudioAssets ? 1 : 0,
       defaults.canManageBackups ? 1 : 0,
+      defaults.canManageOrganizationMemory ? 1 : 0,
       defaults.canMigrateDatabase ? 1 : 0,
       defaults.canEnableKnowledge ? 1 : 0,
       defaults.canRecoverWorkspaces ? 1 : 0,
@@ -1289,10 +1293,6 @@ export async function ensurePostgresOrganizationBootstrapForUser(
   const ownerUser = await findPostgresUserById(database, organization.owner_user_id) || targetUser;
   await database.run('UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?', ['admin', now, ownerUser.id]);
   const ownerPermission = await ensurePermissionRow(database, organization.organization_id, ownerUser.id, 'owner');
-  if (targetUser.id !== ownerUser.id) {
-    await database.run('UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?', ['admin', now, targetUser.id]);
-    await ensurePermissionRow(database, organization.organization_id, targetUser.id, 'admin');
-  }
 
   await ensureWorkspaceRecord(database, {
     organizationId: organization.organization_id,

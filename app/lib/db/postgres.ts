@@ -681,6 +681,62 @@ async function deduplicatePiSessions(pool: PgQueryable): Promise<void> {
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_sessions_user_client_request ON pi_sessions (user_id, client_request_id)');
 }
 
+async function ensurePostgresPiMessageSequenceIntegrityIndex(pool: PgQueryable): Promise<void> {
+  const audit = await pool.query(`
+    SELECT COUNT(*)::text AS count
+    FROM (
+      SELECT pi_session_db_id, sequence
+      FROM pi_messages
+      GROUP BY pi_session_db_id, sequence
+      HAVING sequence IS NULL OR sequence <= 0 OR COUNT(*) > 1
+    ) invalid_sequences
+  `);
+  const invalidGroupCount = Number.parseInt(String(audit.rows[0]?.count ?? '0'), 10);
+  if (invalidGroupCount === 0) {
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_messages_session_sequence_unique
+      ON pi_messages (pi_session_db_id, sequence)
+    `);
+    return;
+  }
+  console.warn(
+    `[Database] PostgreSQL PI message sequence integrity audit found ${invalidGroupCount} conflicting sequence group(s); unique index deferred.`,
+  );
+}
+
+async function ensurePostgresCompactionAttemptIndexes(pool: PgQueryable): Promise<void> {
+  await pool.query(`
+    WITH ranked_attempts AS (
+      SELECT id,
+             ROW_NUMBER() OVER (
+               PARTITION BY pi_session_db_id
+               ORDER BY started_at ASC, created_at ASC, id ASC
+             ) AS next_ordinal
+      FROM pi_session_compaction_attempts
+    )
+    UPDATE pi_session_compaction_attempts AS attempts
+    SET attempt_ordinal = ranked_attempts.next_ordinal
+    FROM ranked_attempts
+    WHERE ranked_attempts.id = attempts.id
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_pi_compaction_attempts_session_started
+    ON pi_session_compaction_attempts (pi_session_db_id, started_at)
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_compaction_attempts_session_ordinal
+    ON pi_session_compaction_attempts (pi_session_db_id, attempt_ordinal)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_pi_compaction_attempts_state_deadline
+    ON pi_session_compaction_attempts (state, deadline_at)
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_compaction_attempts_active_session
+    ON pi_session_compaction_attempts (pi_session_db_id) WHERE state = 'running'
+  `);
+}
+
 export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   if (process.env.CANVAS_POSTGRES_VECTOR_ENABLED === 'true') {
     await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
@@ -1135,6 +1191,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     }
   }
 
+  await ensurePostgresCompactionAttemptIndexes(pool);
+
   await pool.query(`
     UPDATE todo_items
     SET scope_kind = CASE
@@ -1147,6 +1205,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   `);
 
   await deduplicatePiSessions(pool);
+  await ensurePostgresPiMessageSequenceIntegrityIndex(pool);
 
   // Deduplicate license certs that were repeatedly inserted by older code.
   // Keep the newest row per (instance_id, cert) so the unique index from the
@@ -1231,7 +1290,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query(
     `
       INSERT INTO agents (agent_id, name, type, removable, created_at, updated_at)
-      VALUES ('canvas-agent', 'Canvas Agent', 'main', 0, $1, $2)
+      VALUES ('canvas-agent', 'Bradley', 'main', 0, $1, $2)
       ON CONFLICT (agent_id) DO NOTHING
     `,
     [now, now],

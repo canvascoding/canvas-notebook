@@ -7,6 +7,7 @@ import { Send, Paperclip, Loader2, NotebookPen, Sparkles, Upload } from 'lucide-
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { clearCanvasChatActiveSessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { TypewriterPromptSuggestion } from '@/app/components/canvas-agent-chat/TypewriterPromptSuggestion';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
@@ -23,7 +24,7 @@ import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/cl
 import { prepareImageFilesForUpload, serializeUploadConvertParams } from '@/app/lib/images/client-upload-conversion';
 import { fetchChatAgents } from '@/app/lib/chat/agent-api';
 import { fetchLastActiveAgentId, saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
-import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
+import { getAgentProfileDisplayName } from '@/app/lib/chat/agent-display';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import { listWorkspaceFileReferences, type WorkspaceFileReferenceEntry } from '@/app/lib/files/client';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
@@ -35,11 +36,15 @@ type UploadProgressOptions = {
 };
 
 type FilePickerFile = WorkspaceFileReferenceEntry;
-type HomePromptMode = 'notebook' | 'studio';
+export type HomePromptMode = 'notebook' | 'studio';
+
+interface PromptHeroProps {
+  onModeChange?: (mode: HomePromptMode) => void;
+}
 
 const DEFAULT_AGENT_PROFILE: AgentProfile = {
   agentId: DEFAULT_AGENT_ID,
-  name: 'Canvas Agent',
+  name: MAIN_AGENT_DISPLAY_NAME,
   iconId: 'bot',
   type: 'main',
   removable: false,
@@ -53,7 +58,7 @@ function createProgressItems(files: File[]): ImagePreprocessProgressItem[] {
   }));
 }
 
-export function PromptHero() {
+export function PromptHero({ onModeChange }: PromptHeroProps = {}) {
   const locale = useLocale();
   const tHome = useTranslations('home');
   const tChat = useTranslations('chat');
@@ -87,15 +92,23 @@ export function PromptHero() {
   const notebookHref = getPathname({ href: '/notebook', locale });
   const studioHref = getPathname({ href: '/studio', locale });
   const isStudioMode = mode === 'studio';
+  const handleModeChange = (nextMode: HomePromptMode) => {
+    setMode(nextMode);
+    onModeChange?.(nextMode);
+  };
   const availableAgents = useMemo(() => (
     agentListState.workspaceId === activeWorkspaceId ? agentListState.agents : []
   ), [activeWorkspaceId, agentListState]);
   const agentOptions = useMemo(() => (
-    availableAgents.length > 0 ? availableAgents : [DEFAULT_AGENT_PROFILE]
+    (availableAgents.length > 0 ? availableAgents : [DEFAULT_AGENT_PROFILE])
+      .map((agent) => ({
+        ...agent,
+        name: getAgentProfileDisplayName(agent.agentId, agent.name),
+      }))
   ), [availableAgents]);
   const selectedAgent = agentOptions.find((agent) => agent.agentId === selectedAgentId);
   const effectiveSelectedAgentId = selectedAgent?.agentId || DEFAULT_AGENT_ID;
-  const selectedAgentName = selectedAgent?.name || getAgentDisplayName(effectiveSelectedAgentId);
+  const selectedAgentName = getAgentProfileDisplayName(effectiveSelectedAgentId, selectedAgent?.name);
   const promptSuggestions = useMemo(() => (
     isStudioMode
       ? [
@@ -475,7 +488,7 @@ export function PromptHero() {
               type="button"
               role="tab"
               aria-selected={false}
-              onClick={() => setMode('notebook')}
+              onClick={() => handleModeChange('notebook')}
               className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               <NotebookPen className="h-3.5 w-3.5" />
@@ -508,7 +521,7 @@ export function PromptHero() {
             type="button"
             role="tab"
             aria-selected={!isStudioMode}
-            onClick={() => setMode('notebook')}
+            onClick={() => handleModeChange('notebook')}
             className={`inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors ${!isStudioMode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
           >
             <NotebookPen className="h-3.5 w-3.5" />
@@ -518,7 +531,7 @@ export function PromptHero() {
             type="button"
             role="tab"
             aria-selected={isStudioMode}
-            onClick={() => setMode('studio')}
+            onClick={() => handleModeChange('studio')}
             className={`inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors ${isStudioMode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
           >
             <Sparkles className="h-3.5 w-3.5" />

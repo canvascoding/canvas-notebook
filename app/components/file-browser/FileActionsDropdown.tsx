@@ -14,6 +14,7 @@ import {
   Globe2,
   ImagePlus,
   Images,
+  Info,
   Loader2,
   Maximize2,
   Move,
@@ -67,6 +68,7 @@ import { WorkspaceDestinationPicker } from '@/app/components/workspaces/Workspac
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { useShallow } from 'zustand/react/shallow';
 import { useTrashUndo } from './useTrashUndo';
+import { FileInfoDialog } from './FileInfoDialog';
 
 type DropdownMenuContentProps = ComponentProps<typeof DropdownMenuContent>;
 
@@ -118,6 +120,7 @@ export function FileActionsDropdown({
   const [copyTargetWorkspaceId, setCopyTargetWorkspaceId] = useState<string | null>(null);
   const [copyTargetDir, setCopyTargetDir] = useState('.');
   const [isCopyingToWorkspace, setIsCopyingToWorkspace] = useState(false);
+  const [fileInfoOpen, setFileInfoOpen] = useState(false);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
 
   const {
@@ -360,6 +363,12 @@ export function FileActionsDropdown({
     closeMenu();
   };
 
+  const handleShowFileInfo = () => {
+    if (!node) return;
+    setFileInfoOpen(true);
+    closeMenu();
+  };
+
   const handleCopy = () => {
     if (!node) return;
     if (showMultiSelectOptions) {
@@ -566,6 +575,10 @@ export function FileActionsDropdown({
             <Copy className="h-4 w-4" />
             {t('copyPath')}
           </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handleShowFileInfo} disabled={!node}>
+            <Info className="h-4 w-4" />
+            {t('fileInfoAction')}
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={handleCopy} disabled={!node}>
             <ClipboardCopy className="h-4 w-4" />
             {t('copy')}
@@ -653,6 +666,8 @@ export function FileActionsDropdown({
         skippedCount={0}
         onConfirm={handleConfirmDelete}
       />
+
+      <FileInfoDialog node={node} open={fileInfoOpen} onOpenChange={setFileInfoOpen} />
 
       <Dialog
         open={renameOpen}

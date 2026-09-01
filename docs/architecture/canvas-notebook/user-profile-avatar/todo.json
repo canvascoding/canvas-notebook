@@ -1,0 +1,88 @@
+{
+  "updatedAt": "2026-08-31",
+  "source": "User profile avatar plan",
+  "branch": "codex/user-profile-avatar-plan",
+  "tasks": [
+    {
+      "id": 1,
+      "title": "User-profile domain model, icon catalog, initials helper and persistent storage service",
+      "status": "completed",
+      "dependsOn": [],
+      "verification": [
+        "service tests",
+        "concurrency and recovery tests",
+        "no changes to central onboarding or preferences state"
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Authenticated self-scoped profile metadata and avatar API",
+      "status": "completed",
+      "dependsOn": [1],
+      "verification": [
+        "authentication and same-origin tests",
+        "cross-user isolation tests",
+        "image validation and normalization tests",
+        "cache revision tests"
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Shared UserAvatar, UserProfileBadge and ProfileAppearanceEditor components",
+      "status": "completed",
+      "dependsOn": [2],
+      "verification": [
+        "photo, icon and initials rendering",
+        "keyboard and screen-reader behavior",
+        "responsive and theme states",
+        "German and English copy"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Personal profile editor in General Settings",
+      "status": "completed",
+      "dependsOn": [3],
+      "verification": [
+        "switch photo, icon and initials",
+        "state persists after reload"
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Optional profile personalization inside the onboarding language step",
+      "status": "completed",
+      "dependsOn": [4],
+      "verification": [
+        "onboarding continues without explicit selection",
+        "selection survives locale reload",
+        "existing agent profile step remains unchanged"
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Avatar and user name badge on the home page",
+      "status": "completed",
+      "dependsOn": [5],
+      "verification": [
+        "server-rendered initial state",
+        "photo, icon and initials fallback",
+        "mobile and desktop header layout"
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Final repository and UI verification",
+      "status": "in_progress",
+      "dependsOn": [6],
+      "verification": [
+        "targeted tests",
+        "npm run lint",
+        "npm run build",
+        "UI/E2E on localhost:3000 after explicit browser automation approval",
+        "GitNexus detect_changes against main"
+      ],
+      "note": "Automated service, API, UI-contract, lint and production-build checks completed. Browser automation still requires explicit approval and remains open."
+    }
+  ]
+}

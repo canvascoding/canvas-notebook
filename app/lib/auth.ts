@@ -11,7 +11,9 @@ import { oauthProvider } from "@better-auth/oauth-provider";
 import { expo } from '@better-auth/expo';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 import { getConfiguredTrustedOrigins } from '@/app/lib/security/trusted-origins';
-import { TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX } from '@/app/lib/organization/membership-ban-reasons';
+import {
+  isTeamMembershipReactivationBanReason,
+} from '@/app/lib/organization/membership-ban-reasons';
 import {
   DIRECT_MCP_OAUTH_SCOPES,
   resolveDirectMcpOAuthConfig,
@@ -252,7 +254,7 @@ export async function assertTeamMembershipIdentityReactivatable(
     !existing
     || existing.id !== userId
     || !existing.banned
-    || !existing.banReason?.startsWith(TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX)
+    || !isTeamMembershipReactivationBanReason(existing.banReason)
   ) {
     throw new MembershipIdentityError(
       "MEMBERSHIP_IDENTITY_ACTIVATION_DENIED",
@@ -348,7 +350,7 @@ export async function activatePendingTeamMembershipIdentity(userId: string): Pro
   if (identity.banned !== true) return;
   if (
     identity.banReason !== PENDING_TEAM_MEMBERSHIP_BAN_REASON
-    && !identity.banReason?.startsWith(TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX)
+    && !isTeamMembershipReactivationBanReason(identity.banReason)
   ) {
     throw new MembershipIdentityError(
       "MEMBERSHIP_IDENTITY_ACTIVATION_DENIED",

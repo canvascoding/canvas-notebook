@@ -14,6 +14,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
+import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
+import { ProfileAppearanceEditor } from '@/app/components/user-profile/ProfileAppearanceEditor';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
 
 async function saveUserPreferences(payload: { locale?: string }): Promise<void> {
@@ -73,11 +75,13 @@ async function updatePassword(payload: { currentPassword: string; newPassword: s
 export function GeneralSettingsPanel({
   userName = '',
   userEmail = '',
+  initialUserProfile,
   isAdmin = false,
   initialTimeZone,
 }: {
   userName?: string;
   userEmail?: string;
+  initialUserProfile: ResolvedUserProfile;
   isAdmin?: boolean;
   initialTimeZone?: string;
 }) {
@@ -295,6 +299,8 @@ export function GeneralSettingsPanel({
             </div>
           </form>
       </SettingsAccordionCard>
+
+      <ProfileAppearanceEditor initialProfile={initialUserProfile} />
 
       <Card>
         <CardHeader className="px-4 sm:px-6">

@@ -2,12 +2,18 @@ import 'server-only';
 
 import { readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
+import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
 import { importPortableExcalidrawAssets } from '@/app/lib/excalidraw-collaboration/assets';
 import {
   ensureExcalidrawScene,
   loadExcalidrawScene,
 } from '@/app/lib/excalidraw-collaboration/repository';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import {
+  finalizeCollaborationCheckpointProjection,
+  materializeCollaborationCheckpoint,
+  writeCollaborationCheckpointFile,
+} from './checkpoint';
 import {
   CollaborationDocumentStateError,
   resolveTextCollaborationState,
@@ -16,6 +22,7 @@ import {
 import {
   CollaborationRepresentationMigrationError,
   changeCollaborationRepresentation,
+  changeCollaborationRepresentationWithSafeMarkdownNormalization,
   loadCollaborationStateIncludingArchived,
 } from './persistence';
 import { COLLABORATION_SCHEMA_VERSION } from './types';
@@ -60,6 +67,9 @@ export type CollaborationSessionGrant = {
   documentName: string;
   lifecycleGeneration: number;
   permission: CollaborationPermission;
+  documentSequence?: number;
+  checkpointSequence?: number;
+  stateVector?: string;
 };
 
 function extension(path: string): string {
@@ -151,11 +161,18 @@ export async function createCollaborationSessionGrant(input: {
   } else {
     const initialContent = (await readFile(request.path, fileOptions)).toString('utf8');
     const selectedInitialRepresentation = selectInitialTextCollaborationRepresentation(request.path, initialContent);
+    const richModeAnalysis = extension(request.path) === 'txt'
+      ? null
+      : analyzeMarkdownRichMode(initialContent);
+    const selectedTargetRepresentation: TextCollaborationRepresentation = richModeAnalysis
+      && richModeAnalysis.mode !== 'source'
+      ? 'tiptap_xml'
+      : selectedInitialRepresentation;
     const existingState = await loadCollaborationStateIncludingArchived(collaboration.document.id);
     if (
       !existingState
       && request.representation === 'tiptap_xml'
-      && selectedInitialRepresentation !== 'tiptap_xml'
+      && selectedTargetRepresentation !== 'tiptap_xml'
     ) {
       throw new CollaborationSessionError(
         'This Markdown document can only collaborate in source mode so its representation is preserved.',
@@ -177,20 +194,53 @@ export async function createCollaborationSessionGrant(input: {
       });
       if (
         request.representation === 'auto'
-        && !resolved.initialized
         && resolved.state.representation === 'plain_text'
-        && selectedInitialRepresentation === 'tiptap_xml'
+        && selectedTargetRepresentation === 'tiptap_xml'
       ) {
         try {
-          resolved = {
-            state: await changeCollaborationRepresentation({
+          if (richModeAnalysis?.mode === 'normalizable') {
+            const migration = await changeCollaborationRepresentationWithSafeMarkdownNormalization({
               documentId: resolved.state.documentId,
               expectedLifecycleGeneration: resolved.state.lifecycleGeneration,
-              representation: 'tiptap_xml',
               schemaVersion: COLLABORATION_SCHEMA_VERSION,
-            }),
-            initialized: false,
-          };
+              checkpoint: {
+                write: ({ state, canonicalContent }) => writeCollaborationCheckpointFile({
+                  state,
+                  workspace,
+                  canonicalContent,
+                  actorType: 'system',
+                }),
+                restore: async ({ state }) => {
+                  await materializeCollaborationCheckpoint({
+                    state,
+                    workspace,
+                    actorType: 'system',
+                  });
+                },
+                finalize: ({ state, fileWrite }) => {
+                  finalizeCollaborationCheckpointProjection({
+                    state,
+                    workspace,
+                    revisionId: fileWrite.revisionId,
+                  });
+                },
+              },
+            });
+            resolved = {
+              state: migration.state,
+              initialized: false,
+            };
+          } else {
+            resolved = {
+              state: await changeCollaborationRepresentation({
+                documentId: resolved.state.documentId,
+                expectedLifecycleGeneration: resolved.state.lifecycleGeneration,
+                representation: 'tiptap_xml',
+                schemaVersion: COLLABORATION_SCHEMA_VERSION,
+              }),
+              initialized: false,
+            };
+          }
         } catch (error) {
           if (!(error instanceof CollaborationRepresentationMigrationError)) throw error;
           // Migration is opportunistic: active clients, pending checkpoints,
@@ -234,6 +284,9 @@ export async function createCollaborationSessionGrant(input: {
       documentName: collaboration.document.id,
       lifecycleGeneration,
       permission: workspace.permissions.canWrite ? 'write' : 'read',
+      documentSequence: state.documentSequence,
+      checkpointSequence: state.checkpointSequence,
+      stateVector: Buffer.from(state.stateVector).toString('base64'),
     };
   }
 

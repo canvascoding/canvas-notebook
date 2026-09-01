@@ -495,18 +495,37 @@ function scheduleBackgroundMaintenance() {
     runStudioPresetSeeding();
     scheduleExpiredSessionCleanup();
     import('./app/lib/license/refresh.ts')
-      .then(({ initializeCommunityLicenseRefreshRuntime }) => {
-        initializeCommunityLicenseRefreshRuntime();
+      .then((refreshModule) => {
+        resolveImportedServerModule(
+          refreshModule,
+          ['initializeCommunityLicenseRefreshRuntime'],
+          'Community license refresh',
+        ).initializeCommunityLicenseRefreshRuntime();
       })
       .catch((err) => {
         console.warn('[Startup] Community license refresh could not be initialized:', err.message);
       });
     import('./app/lib/license/team-license-lifecycle.ts')
-      .then(({ initializeTeamLicenseLifecycleRuntime }) => {
-        initializeTeamLicenseLifecycleRuntime();
+      .then((lifecycleModule) => {
+        resolveImportedServerModule(
+          lifecycleModule,
+          ['initializeTeamLicenseLifecycleRuntime'],
+          'Team license lifecycle',
+        ).initializeTeamLicenseLifecycleRuntime();
       })
       .catch((err) => {
         console.warn('[Startup] Team license lifecycle could not be initialized:', err.message);
+      });
+    import('./app/lib/memory/review-worker.ts')
+      .then((memoryReviewModule) => {
+        resolveImportedServerModule(
+          memoryReviewModule,
+          ['initializeMemoryReviewWorkerRuntime'],
+          'Memory review worker',
+        ).initializeMemoryReviewWorkerRuntime();
+      })
+      .catch((err) => {
+        console.warn('[Startup] Memory review worker could not be initialized:', err.message);
       });
   }, 1500);
   timer.unref?.();
@@ -662,6 +681,22 @@ function installChatUpgradeGuard(targetServer) {
   };
 }
 
+function resolveImportedServerModule(importedModule, requiredFunctions, label) {
+  const candidates = [
+    importedModule,
+    importedModule?.default,
+    importedModule?.['module.exports'],
+  ];
+  const resolved = candidates.find((candidate) => (
+    candidate
+    && requiredFunctions.every((name) => typeof candidate[name] === 'function')
+  ));
+  if (!resolved) {
+    throw new Error(`${label} module did not expose expected functions`);
+  }
+  return resolved;
+}
+
 async function startServer() {
   try {
     await runStartupDatabaseMigrations();
@@ -686,30 +721,20 @@ async function startServer() {
   console.log('[Startup] Initializing WebSocket Server...');
   try {
     const websocketModule = await import('./server/websocket-server.ts');
-    const websocketServer = websocketModule.createWebSocketServer
-      ? websocketModule
-      : websocketModule.default || websocketModule['module.exports'];
-    if (
-      !websocketServer ||
-      typeof websocketServer.createWebSocketServer !== 'function' ||
-      typeof websocketServer.isChatWebSocketRequest !== 'function'
-    ) {
-      throw new Error('WebSocket server module did not expose expected functions');
-    }
+    const websocketServer = resolveImportedServerModule(
+      websocketModule,
+      ['createWebSocketServer', 'isChatWebSocketRequest'],
+      'WebSocket server',
+    );
     const chatWebSocketServer = websocketServer.createWebSocketServer(server);
     closeChatWebSocketServer = () => websocketServer.closeWebSocketServer(chatWebSocketServer);
     console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
     const browserViewModule = await import('./server/browser-view-server.ts');
-    const browserViewServer = browserViewModule.createBrowserViewServer
-      ? browserViewModule
-      : browserViewModule.default || browserViewModule['module.exports'];
-    if (
-      !browserViewServer
-      || typeof browserViewServer.createBrowserViewServer !== 'function'
-      || typeof browserViewServer.isBrowserViewWebSocketRequest !== 'function'
-    ) {
-      throw new Error('Browser view server module did not expose expected functions');
-    }
+    const browserViewServer = resolveImportedServerModule(
+      browserViewModule,
+      ['createBrowserViewServer', 'isBrowserViewWebSocketRequest'],
+      'Browser view server',
+    );
     browserViewServer.createBrowserViewServer(server);
     console.log('[Startup] Browser View WebSocket ready on ws://localhost:' + port + '/ws/browser');
     // Keep the custom server and Next server externals on the CommonJS Yjs
@@ -728,12 +753,24 @@ async function startServer() {
     );
     console.log('[Startup] Collaboration WebSocket ready on ws://localhost:' + port + '/ws/collaboration');
     console.log('[Startup] Excalidraw Collaboration WebSocket ready on ws://localhost:' + port + '/ws/collaboration/excalidraw');
-    const { preloadAgentRuntimeModules } = await import('./server/agent-runtime-loader.ts');
+    const agentRuntimeLoaderModule = await import('./server/agent-runtime-loader.ts');
+    const agentRuntimeLoader = resolveImportedServerModule(
+      agentRuntimeLoaderModule,
+      ['preloadAgentRuntimeModules'],
+      'Agent runtime loader',
+    );
+    const { preloadAgentRuntimeModules } = agentRuntimeLoader;
     agentRuntimeWarmupPromise = preloadAgentRuntimeModules().then((result) => {
       console.log('[Startup] Agent runtime modules preloaded', result);
       return result;
     });
-    const { primeCanvasControlPlaneCatalog } = await import('./app/lib/managed/control-plane-models.ts');
+    const managedCatalogModule = await import('./app/lib/managed/control-plane-models.ts');
+    const managedCatalog = resolveImportedServerModule(
+      managedCatalogModule,
+      ['primeCanvasControlPlaneCatalog'],
+      'Managed Control Plane catalog',
+    );
+    const { primeCanvasControlPlaneCatalog } = managedCatalog;
     managedCatalogWarmupPromise = primeCanvasControlPlaneCatalog().then((catalog) => {
       console.log('[Startup] Managed model catalog warmup finished', {
         status: catalog.status,
@@ -771,7 +808,7 @@ async function startServer() {
   ]);
   console.log('[Startup] Next.js app prepared');
 
-  server.listen(port, (err) => {
+  server.listen(port, hostname, (err) => {
     if (err) throw err;
     console.log(`> Ready on http://localhost:${port}`);
     scheduleBackgroundMaintenance();

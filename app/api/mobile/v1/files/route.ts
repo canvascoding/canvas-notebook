@@ -24,6 +24,8 @@ export async function GET(request: NextRequest) {
       directory: request.nextUrl.searchParams.get('directory'),
       query: request.nextUrl.searchParams.get('query'),
       filter: request.nextUrl.searchParams.get('filter'),
+      sort: request.nextUrl.searchParams.get('sort'),
+      sortOrder: request.nextUrl.searchParams.get('sortOrder'),
       cursor: request.nextUrl.searchParams.get('cursor'),
       limit: request.nextUrl.searchParams.get('limit'),
       baseUrl: getPublicRequestOrigin(request),

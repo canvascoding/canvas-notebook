@@ -34,6 +34,7 @@ export const ORGANIZATION_PERMISSION_KEYS = [
   'canDeleteTeamFiles',
   'canDeleteStudioAssets',
   'canManageBackups',
+  'canManageOrganizationMemory',
   'canMigrateDatabase',
   'canEnableKnowledge',
   'canRecoverWorkspaces',
@@ -100,6 +101,7 @@ type PermissionDetailsRow = {
   can_delete_team_files: number | boolean | null;
   can_delete_studio_assets: number | boolean | null;
   can_manage_backups: number | boolean | null;
+  can_manage_organization_memory: number | boolean | null;
   can_migrate_database: number | boolean | null;
   can_enable_knowledge: number | boolean | null;
   can_recover_workspaces: number | boolean | null;
@@ -123,6 +125,7 @@ const PERMISSION_COLUMNS: Record<OrganizationPermissionKey, string> = {
   canDeleteTeamFiles: 'can_delete_team_files',
   canDeleteStudioAssets: 'can_delete_studio_assets',
   canManageBackups: 'can_manage_backups',
+  canManageOrganizationMemory: 'can_manage_organization_memory',
   canMigrateDatabase: 'can_migrate_database',
   canEnableKnowledge: 'can_enable_knowledge',
   canRecoverWorkspaces: 'can_recover_workspaces',
@@ -139,6 +142,7 @@ const LEGACY_ADMIN_PERMISSION: OrganizationPermissionSnapshot = {
   canDeleteTeamFiles: true,
   canDeleteStudioAssets: true,
   canManageBackups: true,
+  canManageOrganizationMemory: true,
   canMigrateDatabase: true,
   canEnableKnowledge: true,
   canRecoverWorkspaces: true,
@@ -375,6 +379,7 @@ function detailsFromRow(row: PermissionDetailsRow): OrganizationPermissionUserDe
     canDeleteTeamFiles: enabled && booleanFromDb(row.can_delete_team_files),
     canDeleteStudioAssets: enabled && booleanFromDb(row.can_delete_studio_assets),
     canManageBackups: enabled && booleanFromDb(row.can_manage_backups),
+    canManageOrganizationMemory: enabled && booleanFromDb(row.can_manage_organization_memory),
     canMigrateDatabase: enabled && booleanFromDb(row.can_migrate_database),
     canEnableKnowledge: enabled && booleanFromDb(row.can_enable_knowledge),
     canRecoverWorkspaces: enabled && booleanFromDb(row.can_recover_workspaces),
@@ -447,6 +452,7 @@ async function getPermissionDetails(
       p.can_delete_team_files,
       p.can_delete_studio_assets,
       p.can_manage_backups,
+      p.can_manage_organization_memory,
       p.can_migrate_database,
       p.can_enable_knowledge,
       p.can_recover_workspaces,
@@ -722,6 +728,7 @@ export async function updateOrganizationRole(params: {
           can_delete_team_files = ?,
           can_delete_studio_assets = ?,
           can_manage_backups = ?,
+          can_manage_organization_memory = ?,
           can_migrate_database = ?,
           can_enable_knowledge = ?,
           can_recover_workspaces = ?,
@@ -737,6 +744,7 @@ export async function updateOrganizationRole(params: {
         defaults.canDeleteTeamFiles ? 1 : 0,
         defaults.canDeleteStudioAssets ? 1 : 0,
         defaults.canManageBackups ? 1 : 0,
+        defaults.canManageOrganizationMemory ? 1 : 0,
         defaults.canMigrateDatabase ? 1 : 0,
         defaults.canEnableKnowledge ? 1 : 0,
         defaults.canRecoverWorkspaces ? 1 : 0,

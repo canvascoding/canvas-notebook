@@ -15,6 +15,8 @@ import {
   getPublicShareMimeType,
   type PublicShareAnnotation,
 } from '@/app/lib/public-sharing/public-file-shares';
+import { enrichWorkspaceFileNodes } from '@/app/lib/files/workspace-file-metadata';
+import { sortFileNodes } from '@/app/lib/files/sort';
 import type { FileNode } from '@/app/lib/files/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { hasMarpFileName, isMarpMarkdown } from '@/app/lib/marp/detect';
@@ -43,6 +45,8 @@ const TEXT_EXTENSIONS = new Set([
 
 export type MobileFileCategory = 'folder' | 'document' | 'image' | 'video' | 'audio' | 'archive' | 'other';
 export type MobileFileFilter = 'all' | Exclude<MobileFileCategory, 'folder'>;
+export type MobileFileSort = 'name' | 'modified' | 'size';
+export type MobileFileSortOrder = 'asc' | 'desc';
 export type MobileFileOpenKind =
   | 'folder'
   | 'markdown'
@@ -79,6 +83,13 @@ export type MobileFileEntry = {
     expiresAt: string | null;
     accessCount: number;
   } | null;
+  /** Optional custom title shared across the user's clients. */
+  title: string | null;
+  /** Human-readable file or folder format. */
+  format: string;
+  createdAt: string | null;
+  isFavorite: boolean;
+  pinnedAt: string | null;
 };
 
 export type MobileFileDetail = MobileFileEntry & {
@@ -134,6 +145,24 @@ function normalizeFilter(value: unknown): MobileFileFilter {
   throw new MobileFilesError('File filter is invalid.', 400, 'INVALID_FILTER');
 }
 
+function normalizeSort(value: unknown): MobileFileSort | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'string' && ['name', 'modified', 'size'].includes(value)) {
+    return value as MobileFileSort;
+  }
+  throw new MobileFilesError('File sort is invalid.', 400, 'INVALID_SORT');
+}
+
+function normalizeSortOrder(value: unknown, sort: MobileFileSort | null): MobileFileSortOrder | null {
+  if (!sort) {
+    if (value === undefined || value === null || value === '') return null;
+    throw new MobileFilesError('File sort order requires a sort field.', 400, 'INVALID_SORT_ORDER');
+  }
+  if (value === undefined || value === null || value === '') return sort === 'name' ? 'asc' : 'desc';
+  if (value === 'asc' || value === 'desc') return value;
+  throw new MobileFilesError('File sort order is invalid.', 400, 'INVALID_SORT_ORDER');
+}
+
 function extensionFor(filePath: string): string {
   return path.posix.extname(filePath).slice(1).toLowerCase();
 }
@@ -181,6 +210,10 @@ function modifiedAt(seconds: number | undefined): string {
   return new Date(Math.max(0, seconds || 0) * 1_000).toISOString();
 }
 
+function timestampAt(milliseconds: number | null | undefined): string | null {
+  return typeof milliseconds === 'number' && milliseconds > 0 ? new Date(milliseconds).toISOString() : null;
+}
+
 function publicShareValue(annotation: PublicShareAnnotation | undefined): MobileFileEntry['publicShare'] {
   if (!annotation) return null;
   return {
@@ -211,6 +244,11 @@ function entryFor(node: FileNode, share?: PublicShareAnnotation): MobileFileEntr
     canPreview: node.type === 'file' && mode !== 'download',
     canOpenInNotebook: openKind === 'markdown',
     publicShare: publicShareValue(share),
+    title: node.title ?? null,
+    format: node.format || (node.type === 'directory' ? 'Folder' : 'File'),
+    createdAt: node.created ? modifiedAt(node.created) : null,
+    isFavorite: Boolean(node.isFavorite),
+    pinnedAt: timestampAt(node.pinnedAt),
   };
 }
 
@@ -223,9 +261,21 @@ function collectEntries(nodes: FileNode[], output: FileNode[] = []): FileNode[] 
   return output;
 }
 
-function cursorSignature(input: { directory: string; query: string; filter: MobileFileFilter }): string {
+function cursorSignature(input: {
+  directory: string;
+  query: string;
+  filter: MobileFileFilter;
+  sort: MobileFileSort | null;
+  sortOrder: MobileFileSortOrder | null;
+}): string {
   return createHash('sha256')
-    .update(`${input.directory}\u001f${input.query.toLowerCase()}\u001f${input.filter}`)
+    .update([
+      input.directory,
+      input.query.toLowerCase(),
+      input.filter,
+      input.sort || 'default',
+      input.sortOrder || 'default',
+    ].join('\u001f'))
     .digest('hex')
     .slice(0, 12);
 }
@@ -272,6 +322,8 @@ export async function listMobileFiles(input: {
   directory?: unknown;
   query?: unknown;
   filter?: unknown;
+  sort?: unknown;
+  sortOrder?: unknown;
   cursor?: unknown;
   limit?: unknown;
   baseUrl?: string | null;
@@ -279,11 +331,13 @@ export async function listMobileFiles(input: {
   const directory = normalizeMobileFilePath(input.directory, true);
   const query = normalizeQuery(input.query);
   const filter = normalizeFilter(input.filter);
+  const sort = normalizeSort(input.sort);
+  const sortOrder = normalizeSortOrder(input.sortOrder, sort);
   const requestedLimit = typeof input.limit === 'number' ? input.limit : Number(input.limit || 40);
   if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > MAX_LIST_LIMIT) {
     throw new MobileFilesError(`limit must be between 1 and ${MAX_LIST_LIMIT}.`, 400, 'INVALID_LIMIT');
   }
-  const signature = cursorSignature({ directory, query, filter });
+  const signature = cursorSignature({ directory, query, filter, sort, sortOrder });
   const offset = offsetFromCursor(input.cursor, signature);
 
   let nodes: FileNode[];
@@ -295,6 +349,7 @@ export async function listMobileFiles(input: {
       .filter((candidate) => Number.isFinite(candidate.rank))
       .sort((left, right) => left.rank - right.rank || left.node.path.localeCompare(right.node.path))
       .map((candidate) => candidate.node);
+    if (sort && sortOrder) nodes = sortFileNodes(nodes, sort, sortOrder);
   } else {
     try {
       nodes = await listDirectory(directory, { ...input.fileOptions, includeMetadata: true });
@@ -304,10 +359,7 @@ export async function listMobileFiles(input: {
       }
       throw error;
     }
-    nodes.sort((left, right) => {
-      if (left.type !== right.type) return left.type === 'directory' ? -1 : 1;
-      return left.name.localeCompare(right.name);
-    });
+    nodes = sortFileNodes(nodes, sort || 'name', sortOrder || 'asc');
   }
 
   const filtered = nodes.filter((node) => filter === 'all' || mobileFileCategory(node.path, node.type) === filter);
@@ -317,11 +369,16 @@ export async function listMobileFiles(input: {
     input.baseUrl,
     input.workspace,
   );
+  const enrichedPage = await enrichWorkspaceFileNodes({
+    nodes: page,
+    workspace: input.workspace,
+    userId: input.workspace.actor?.userId,
+  });
   const nextOffset = offset + page.length;
   return {
     directory,
     breadcrumbs: breadcrumbs(directory),
-    items: page.map((node) => entryFor(node, annotations.get(node.path))),
+    items: enrichedPage.map((node) => entryFor(node, annotations.get(node.path))),
     nextCursor: nextOffset < filtered.length ? cursorFor(nextOffset, signature) : null,
     total: filtered.length,
     actions: {
@@ -359,9 +416,15 @@ export async function readMobileFileDetail(input: {
     type: 'file',
     size: stats.size,
     modified: stats.modified,
+    created: stats.created,
   };
   const annotations = await getPublicShareAnnotations([filePath], input.baseUrl, input.workspace);
-  const entry = entryFor(node, annotations.get(filePath));
+  const [enrichedNode] = await enrichWorkspaceFileNodes({
+    nodes: [node],
+    workspace: input.workspace,
+    userId: input.workspace.actor?.userId,
+  });
+  const entry = entryFor(enrichedNode, annotations.get(filePath));
   const mode = previewMode(filePath, entry.category);
   let content: string | null = null;
   let contentTruncated = false;

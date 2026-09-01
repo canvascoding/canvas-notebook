@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { applyRateLimit } from '@/app/lib/api/route-helpers';
+import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { storeExcalidrawAsset } from '@/app/lib/excalidraw-collaboration/assets';
-import {
-  LicenseEntitlementError,
-  licenseEntitlementErrorPayload,
-  requireRuntimeCapability,
-  requireTeamRuntimeLicense,
-} from '@/app/lib/license/entitlements';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 
 const MAX_ASSET_BYTES = 20 * 1024 * 1024;
@@ -17,14 +12,11 @@ export async function POST(request: NextRequest) {
   if (workspaceResult.response) return workspaceResult.response;
   const rateLimit = applyRateLimit(request, { limit: 120, windowMs: 60_000, keyPrefix: 'excalidraw-asset-upload' });
   if (rateLimit) return rateLimit;
-  try {
-    await requireTeamRuntimeLicense();
-    await requireRuntimeCapability('liveCollaboration');
-  } catch (error) {
-    if (error instanceof LicenseEntitlementError) {
-      return NextResponse.json(licenseEntitlementErrorPayload(error), { status: error.statusCode });
-    }
-    throw error;
+  if (!liveCollaborationRuntimeAvailable()) {
+    return NextResponse.json(
+      { success: false, error: 'Excalidraw collaboration requires Postgres.' },
+      { status: 409 },
+    );
   }
   const fileId = request.headers.get('x-excalidraw-file-id')?.trim() || '';
   const mimeType = request.headers.get('content-type')?.split(';', 1)[0].trim() || '';

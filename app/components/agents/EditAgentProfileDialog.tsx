@@ -55,7 +55,6 @@ import {
   getDefaultEnabledToolNames,
   isDefaultToolsConfig,
   resolveEnabledToolNames,
-  serializeEnabledToolNames,
 } from '@/app/lib/pi/enabled-tools';
 import {
   AlertDialog,
@@ -120,6 +119,9 @@ type AgentDeletionPreview = {
     grants: number;
     capabilityBindings: number;
     managedFiles: string[];
+    memoryCollections: number;
+    memoryEntries: number;
+    memoryPolicy: 'retained';
   };
   confirmationToken: string;
 };
@@ -443,11 +445,22 @@ export function EditAgentProfileDialog({
 
   const handleEnableAllTools = useCallback(() => {
     const allNames = availableTools.map((tool) => tool.name);
-    const enabledNames = availableTools
-      .filter((tool) => tool.availability?.available !== false)
-      .map((tool) => tool.name);
-    setCustomEnabledTools(serializeEnabledToolNames(enabledNames, allNames));
-  }, [availableTools]);
+    let newEnabledTools = customEnabledTools ?? [];
+    for (const tool of filteredTools) {
+      if (tool.availability?.available === false) continue;
+      newEnabledTools = enableToolInConfig(tool.name, newEnabledTools, allNames);
+    }
+    setCustomEnabledTools(newEnabledTools);
+  }, [availableTools, customEnabledTools, filteredTools]);
+
+  const handleDisableAllTools = useCallback(() => {
+    const allNames = availableTools.map((tool) => tool.name);
+    let newEnabledTools = customEnabledTools ?? [];
+    for (const tool of filteredTools) {
+      newEnabledTools = disableToolInConfig(tool.name, newEnabledTools, allNames);
+    }
+    setCustomEnabledTools(newEnabledTools);
+  }, [availableTools, customEnabledTools, filteredTools]);
 
   const toggleToolGroup = useCallback((group: string) => {
     setActiveToolGroups((current) => {
@@ -748,7 +761,7 @@ export function EditAgentProfileDialog({
                         onToolRowOpenChange={(toolName, rowOpen) => setOpenToolRows((current) => ({ ...current, [toolName]: rowOpen }))}
                         onToolToggle={handleToolToggle}
                         onEnableAll={handleEnableAllTools}
-                        onDisableAll={() => setCustomEnabledTools(['__none__'])}
+                        onDisableAll={handleDisableAllTools}
                         compact
                       />
                     </AgentFormSection>
@@ -937,6 +950,7 @@ export function EditAgentProfileDialog({
                     grants: deletePreview.impacts.grants + deletePreview.impacts.members,
                     capabilities: deletePreview.impacts.capabilityBindings,
                     files: deletePreview.impacts.managedFiles.length,
+                    memoryEntries: deletePreview.impacts.memoryEntries,
                   })
                 : t('dangerDescription')}
             </AlertDialogDescription>

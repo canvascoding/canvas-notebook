@@ -30,6 +30,7 @@ const PERMISSION_KEYS = [
   'canDeleteTeamFiles',
   'canDeleteStudioAssets',
   'canManageBackups',
+  'canManageOrganizationMemory',
   'canMigrateDatabase',
   'canEnableKnowledge',
   'canRecoverWorkspaces',
@@ -76,7 +77,7 @@ const PERMISSION_GROUPS: Array<{
   },
   {
     key: 'admin',
-    permissions: ['canExport', 'canManageBackups', 'canMigrateDatabase', 'canEnableKnowledge', 'canRecoverWorkspaces'],
+    permissions: ['canExport', 'canManageBackups', 'canManageOrganizationMemory', 'canMigrateDatabase', 'canEnableKnowledge', 'canRecoverWorkspaces'],
   },
 ];
 
@@ -92,6 +93,7 @@ function defaultPermissionsForRole(role: OrganizationRole): PermissionDraft {
     canDeleteTeamFiles: isAdminLike,
     canDeleteStudioAssets: isInternal,
     canManageBackups: isAdminLike,
+    canManageOrganizationMemory: false,
     canMigrateDatabase: isAdminLike,
     canEnableKnowledge: isAdminLike,
     canRecoverWorkspaces: isAdminLike,

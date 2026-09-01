@@ -1,4 +1,4 @@
-export const CANVAS_MARKDOWN_GUIDANCE_REVISION = 4;
+export const CANVAS_MARKDOWN_GUIDANCE_REVISION = 6;
 export const CANVAS_MARKDOWN_GUIDANCE_MARKER =
   `<!-- canvas-markdown-guidance:v${CANVAS_MARKDOWN_GUIDANCE_REVISION} -->`;
 
@@ -10,10 +10,15 @@ Canvas renders GitHub Flavored Markdown plus Obsidian-style workspace notation a
 - In saved Markdown documents, link workspace notes with \`[[path/to/note]]\`, sections with \`[[path/to/note#Heading]]\`, block IDs with \`[[path/to/note#^block-id]]\`, and optional labels with \`[[path/to/note|Label]]\`. Paths are workspace-relative and normally omit the \`.md\` suffix.
 - For a jump to a heading in the same Markdown document, use \`[Visible link label](#heading-anchor)\`. Canvas derives \`heading-anchor\` from the visible heading: lowercase it, keep letters and numbers (including characters such as ä, ö, and ü), remove punctuation, and replace one or more spaces or hyphens with one hyphen. Example: \`## Installation & Setup\` is linked as \`[Go to setup](#installation-setup)\`.
 - Repeated headings receive unique suffixes in document order: \`#topic\`, \`#topic-1\`, \`#topic-2\`, and so on. Prefer unique heading text when creating a table of contents. Use the exact generated anchor after \`#\`; do not put the visible heading text or a Canvas browser URL there.
-- Never use a Canvas Notebook browser URL or route as an internal document link. Use wiki-links for other workspace documents, document-local anchors for jumps within the current document, and ordinary Markdown links for external websites or non-note files.
-- Embed workspace content with \`![[path/to/file]]\`. Use \`==highlight==\` for highlighted text and \`> [!note] Title\` for callouts.
+- Never use a Canvas Notebook browser URL or route as an internal document link. Use wiki-links for other workspace Markdown documents, document-local anchors for jumps within the current document, ordinary Markdown links such as \`[Brief PDF](assets/brief.pdf)\` for non-note workspace files, and ordinary Markdown links for external websites.
+- Embed another workspace Markdown document with \`![[path/to/note]]\`. This wiki-embed form is only for Markdown documents, not images or other files.
+- Display a workspace image with ordinary Markdown image syntax such as \`![Product photo](assets/product.png)\`. Always include the workspace-relative path; do not use \`![[assets/product.png]]\` for images. In chat replies, use \`[Visible label](path/to/file.ext)\` for workspace files that should be linked without being displayed inline.
+- Use \`==highlight==\` for highlighted text and \`> [!note] Title\` for callouts.
 - Use collapsible sections with \`<details>\`, a \`<summary>Visible title</summary>\` on the next line, the section content, and a closing \`</details>\`. Do not put blank lines between the opening tag and the summary.
 - Add a footnote reference with \`[^source]\` and its definition on a separate line as \`[^source]: Footnote content\`. Keep every footnote identifier unique within the document.
+- Write bare email addresses without escaping the \`@\` character, for example \`name@example.com\`. Use an explicit link such as \`[name@example.com](mailto:name@example.com)\` only when the address should be clickable.
+- For an intentional hard line break, end the line with two spaces. Do not use a trailing backslash as a line-break marker in saved Markdown documents.
+- Do not wrap a saved document body in escaped separator lines such as \`\\---\`. Use \`---\` only for YAML frontmatter delimiters or when an actual thematic break is intended.
 - Write inline math as \`$E = mc^2$\`. Write display math with opening and closing \`$$\` delimiters on separate lines. Escape a literal currency dollar as \`\\$\` when it could be mistaken for math.
 - Keep every Markdown fence, wiki-link bracket, and math delimiter balanced. Do not put formulas in code fences unless the user wants literal LaTeX source.
 - Mermaid diagrams use fenced \`mermaid\` code blocks.

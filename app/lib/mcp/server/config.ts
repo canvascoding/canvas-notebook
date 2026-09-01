@@ -3,7 +3,7 @@ export const DIRECT_MCP_TOOLS_ENV = 'CANVAS_MCP_DIRECT_TOOLS';
 export const DIRECT_MCP_SETTINGS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_SETTINGS_SOURCE';
 export const DIRECT_MCP_TOOLS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_TOOLS_SOURCE';
 export const DIRECT_MCP_PROTOCOL_VERSION = '2026-07-28';
-export const DIRECT_MCP_TOOL_CONFIGURATION_VERSION = 2;
+export const DIRECT_MCP_TOOL_CONFIGURATION_VERSION = 4;
 
 export const DIRECT_MCP_TOOL_IDS = [
   'auth_probe',
@@ -12,8 +12,22 @@ export const DIRECT_MCP_TOOL_IDS = [
   'list_knowledge_tree',
   'search_knowledge',
   'read_knowledge_source',
+  'edit_knowledge_source',
+  'read_knowledge_asset',
+  'upload_knowledge_asset',
 ] as const;
 export type DirectMcpToolId = (typeof DIRECT_MCP_TOOL_IDS)[number];
+
+// Writing is opt-in. Existing Direct MCP installations keep their established
+// read-only capability set until an administrator explicitly enables editing.
+export const DIRECT_MCP_DEFAULT_TOOL_IDS = [
+  'auth_probe',
+  'list_workspaces',
+  'get_workspace_overview',
+  'list_knowledge_tree',
+  'search_knowledge',
+  'read_knowledge_source',
+] as const satisfies readonly DirectMcpToolId[];
 
 export const DIRECT_MCP_OAUTH_SCOPES = [
   'openid',
@@ -22,6 +36,8 @@ export const DIRECT_MCP_OAUTH_SCOPES = [
   'knowledge:tree',
   'knowledge:search',
   'knowledge:read',
+  'knowledge:write',
+  'knowledge:assets',
 ] as const;
 
 export const DIRECT_MCP_RESOURCE_SCOPES = [
@@ -29,6 +45,8 @@ export const DIRECT_MCP_RESOURCE_SCOPES = [
   'knowledge:tree',
   'knowledge:search',
   'knowledge:read',
+  'knowledge:write',
+  'knowledge:assets',
 ] as const;
 
 export type DirectMcpOAuthScope = (typeof DIRECT_MCP_OAUTH_SCOPES)[number];
@@ -119,7 +137,7 @@ export function getDirectMcpEnabledTools(
   environment: DirectMcpEnvironment = process.env,
 ): DirectMcpToolId[] {
   const configured = environment[DIRECT_MCP_TOOLS_ENV];
-  if (configured === undefined) return [...DIRECT_MCP_TOOL_IDS];
+  if (configured === undefined) return [...DIRECT_MCP_DEFAULT_TOOL_IDS];
 
   const requested = configured
     .split(',')

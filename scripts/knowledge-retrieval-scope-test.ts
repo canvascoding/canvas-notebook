@@ -62,6 +62,7 @@ function organizationPermission(
     canManageBackups: role === 'owner' || role === 'admin',
     canMigrateDatabase: role === 'owner' || role === 'admin',
     canEnableKnowledge: role === 'owner' || role === 'admin',
+    canManageOrganizationMemory: role === 'owner' || role === 'admin',
     canRecoverWorkspaces: role === 'owner' || role === 'admin',
     ...overrides,
   };

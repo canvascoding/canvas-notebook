@@ -94,11 +94,11 @@ Vor jedem Build eines Container-Images muss `npm run build` erfolgreich sein. Te
 
 ### 6.2 Managed-Installationen
 
-Bei Managed-VMs kann der vorhandene Canvas Agent auf dem Host die eng begrenzten CLI-Aktionen fuer Health, Restart und optionales Start-on-Demand ausfuehren. Er bleibt ein Betriebswerkzeug; Bild, Maus und Tastatur fliessen nicht durch den Agenten.
+Bei Managed-VMs kann der vorhandene Canvas Host Agent die eng begrenzten CLI-Aktionen fuer Health, Restart und optionales Start-on-Demand ausfuehren. Er bleibt ein technischer Verwaltungsdienst; Bild, Maus und Tastatur fliessen nicht durch den Agenten.
 
 ### 6.3 Self-Hosted-Installationen
 
-Self-Hosted-Installationen haben keinen Canvas Control-Plane-Agenten. Die erste Version darf deshalb keinen Host-Agenten voraussetzen:
+Self-Hosted-Installationen haben keinen Canvas Host Agent. Die erste Version darf deshalb keinen solchen Host-Dienst voraussetzen:
 
 - Der `browser-desktop`-Dienst bleibt als Compose-Service verfuegbar.
 - Bei Inaktivitaet beendet ein Dienst-internes Idle-Management Chromium bzw. die Desktop-Sitzung; das persistente Profil bleibt erhalten.
@@ -138,12 +138,12 @@ Eine Einzel-User-Referenzinstallation mit Canvas Notebook, Postgres und aktivem 
 - Per-User-Profilauflosung, Download-Grenzen, Profil-Lifecycle und sichere Loeschaktion implementieren.
 - Dienst-internes Chromium-Idle-Management bauen und Ressourcen bei Inaktivitaet messen.
 - CLI-Status, Healthcheck und Logs um den optionalen Dienst erweitern.
-- Managed-Statusreporting ueber den bestehenden Host-Agenten ergaenzen, ohne Self-Hosted davon abhaengig zu machen.
+- Managed-Statusreporting ueber den bestehenden Canvas Host Agent ergaenzen, ohne Self-Hosted davon abhaengig zu machen.
 
 ### P4: Optionales Start-on-Demand
 
 - Nur nach gemessener Notwendigkeit bewerten.
-- Managed: Allowlist-Aktion ueber den bestehenden Host-Agenten und die Canvas-CLI.
+- Managed: Allowlist-Aktion ueber den bestehenden Canvas Host Agent und die Canvas-CLI.
 - Self-Hosted: optionaler lokaler Supervisor oder bewusst manuelle CLI-Verwaltung; keine versteckte Docker-API aus der Web-App.
 
 ## 9. Verifikation

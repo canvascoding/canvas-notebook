@@ -116,6 +116,9 @@ _database_prepare_postgres() {
   fi
   if [[ -f "$CONFIG_ENV_PATH" && -f "$COMPOSE_ENV_PATH" ]]; then
     if postgres_runtime_desired; then
+      if ! CANVAS_ALLOW_POSTGRES_SECRET_GENERATION=false config_json_ensure_postgres_infrastructure_config; then
+        _database_json_error "Desired Postgres credentials are incomplete, masked, or inconsistent."
+      fi
       _database_reconcile_postgres_auth_quiet --timeout "$timeout_seconds" || return 1
     else
       snapshot_dir="$(mktemp -d)"
@@ -444,7 +447,7 @@ _database_reconcile_postgres_auth() (
   local timeout_seconds provider snapshot_dir old_user old_db old_password old_database_url desired_user desired_db
   local container before_container before_started after_container after_started app_restarted=false rolled_back=false
   local started_at deadline rollback_reserve forward_deadline remaining
-  local journal_path journal_state journal_pending=false journal_armed=false target_fingerprint rollback_fingerprint snapshot_is_temporary=false
+  local journal_path journal_state journal_pending=false journal_armed=false target_fingerprint rollback_fingerprint snapshot_is_temporary=false fresh_initialization=false
   local desired_config_output
   if ! timeout_seconds="$(_database_reconcile_timeout "$@")"; then
     _database_reconcile_error arguments "--timeout must be an integer from 1 to 7200 seconds."
@@ -462,6 +465,20 @@ _database_reconcile_postgres_auth() (
   provider="$(_database_provider)"
   if ! postgres_runtime_desired; then
     _database_reconcile_error preflight "Managed Postgres is not enabled for this installation."
+    return 1
+  fi
+  local config_ensure_error
+  if ! config_ensure_error="$(CANVAS_ALLOW_POSTGRES_SECRET_GENERATION=false config_json_ensure_postgres_infrastructure_config 2>&1)"; then
+    if [[ -n "$config_ensure_error" ]]; then
+      _database_reconcile_error preflight "$config_ensure_error"
+      return 1
+    fi
+    local config_validation_error
+    config_validation_error="$(postgres_assert_database_url_matches_runtime 2>&1)" || {
+      _database_reconcile_error preflight "$config_validation_error"
+      return 1
+    }
+    _database_reconcile_error preflight "Desired Postgres credentials are incomplete, masked, or inconsistent."
     return 1
   fi
   journal_path="$(_database_recovery_journal_path)"
@@ -527,17 +544,21 @@ _database_reconcile_postgres_auth() (
   fi
   desired_user="$(postgres_runtime_user)"
   desired_db="$(postgres_runtime_database)"
-  target_fingerprint="$(_database_credentials_fingerprint "$desired_user" "$desired_db" "$(postgres_runtime_password)" "$(config_json_read env.DATABASE_URL)")"
-  rollback_fingerprint="$(_database_credentials_fingerprint "$old_user" "$old_db" "$old_password" "$old_database_url")"
   if [[ -z "$old_user" || -z "$old_db" ]] || postgres_secret_is_invalid "$old_password"; then
-    _database_reconcile_error preflight "Existing Postgres credentials are unavailable for safe rollback."
-    return 1
+    if [[ "$journal_pending" == "true" ]] || postgres_runtime_initialized; then
+      _database_reconcile_error preflight "Existing Postgres credentials are unavailable for safe rollback."
+      return 1
+    fi
+    fresh_initialization=true
+  else
+    if [[ "$old_user" != "$desired_user" || "$old_db" != "$desired_db" ]]; then
+      _database_reconcile_error preflight "CANVAS_POSTGRES_USER and CANVAS_POSTGRES_DB cannot be changed after initialization."
+      return 1
+    fi
+    target_fingerprint="$(_database_credentials_fingerprint "$desired_user" "$desired_db" "$(postgres_runtime_password)" "$(config_json_read env.DATABASE_URL)")"
+    rollback_fingerprint="$(_database_credentials_fingerprint "$old_user" "$old_db" "$old_password" "$old_database_url")"
   fi
-  if [[ "$old_user" != "$desired_user" || "$old_db" != "$desired_db" ]]; then
-    _database_reconcile_error preflight "CANVAS_POSTGRES_USER and CANVAS_POSTGRES_DB cannot be changed after initialization."
-    return 1
-  fi
-  if [[ "$journal_pending" != "true" ]]; then
+  if [[ "$fresh_initialization" != "true" && "$journal_pending" != "true" ]]; then
     if ! _database_recovery_state_create "$snapshot_dir" "$old_user" "$old_db" "$old_password" "$old_database_url"; then
       _database_reconcile_error recovery "Postgres rollback recovery state could not be persisted."
       return 1
@@ -554,6 +575,10 @@ _database_reconcile_postgres_auth() (
     _database_reconcile_error compose "Compose configuration failed."
     return 1
   fi
+  if [[ "$fresh_initialization" == "true" ]] && ! (CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE=true config_json_to_env) >/dev/null 2>&1; then
+    _database_reconcile_error render "Environment render failed before initial Postgres startup."
+    return 1
+  fi
   if ! (postgres_start_profile) >/dev/null 2>&1; then
     _database_reconcile_error postgres_start "Postgres service could not be started without recreation."
     return 1
@@ -564,21 +589,23 @@ _database_reconcile_postgres_auth() (
     _database_reconcile_error postgres_ready "Postgres did not become ready within the configured timeout."
     return 1
   fi
-  if ! _database_recovery_journal_write forward "$target_fingerprint" "$rollback_fingerprint"; then
-    _database_reconcile_error recovery "Postgres recovery journal could not be persisted before role mutation."
-    return 1
-  fi
-  journal_armed=true
-  if ! postgres_sync_role_password "$container" >/dev/null 2>&1; then
-    if _database_rollback_postgres_auth_with_journal "$target_fingerprint" "$rollback_fingerprint" "$container" "$old_user" "$old_db" "$old_password" "$old_database_url" "$snapshot_dir" "$deadline" false; then
-      rolled_back=true
-      journal_armed=false
+  if [[ "$fresh_initialization" != "true" ]]; then
+    if ! _database_recovery_journal_write forward "$target_fingerprint" "$rollback_fingerprint"; then
+      _database_reconcile_error recovery "Postgres recovery journal could not be persisted before role mutation."
+      return 1
     fi
-    _database_reconcile_error alter_role "Postgres role password reconciliation failed." "$rolled_back"
-    return 1
+    journal_armed=true
+    if ! postgres_sync_role_password "$container" >/dev/null 2>&1; then
+      if _database_rollback_postgres_auth_with_journal "$target_fingerprint" "$rollback_fingerprint" "$container" "$old_user" "$old_db" "$old_password" "$old_database_url" "$snapshot_dir" "$deadline" false; then
+        rolled_back=true
+        journal_armed=false
+      fi
+      _database_reconcile_error alter_role "Postgres role password reconciliation failed." "$rolled_back"
+      return 1
+    fi
   fi
   if ! postgres_verify_runtime_password "$container" >/dev/null 2>&1; then
-    if _database_rollback_postgres_auth_with_journal "$target_fingerprint" "$rollback_fingerprint" "$container" "$old_user" "$old_db" "$old_password" "$old_database_url" "$snapshot_dir" "$deadline" false; then
+    if [[ "$fresh_initialization" != "true" ]] && _database_rollback_postgres_auth_with_journal "$target_fingerprint" "$rollback_fingerprint" "$container" "$old_user" "$old_db" "$old_password" "$old_database_url" "$snapshot_dir" "$deadline" false; then
       rolled_back=true
       journal_armed=false
     fi
@@ -586,7 +613,7 @@ _database_reconcile_postgres_auth() (
     return 1
   fi
   if ! (config_json_to_env) >/dev/null 2>&1; then
-    if _database_rollback_postgres_auth_with_journal "$target_fingerprint" "$rollback_fingerprint" "$container" "$old_user" "$old_db" "$old_password" "$old_database_url" "$snapshot_dir" "$deadline" true; then
+    if [[ "$fresh_initialization" != "true" ]] && _database_rollback_postgres_auth_with_journal "$target_fingerprint" "$rollback_fingerprint" "$container" "$old_user" "$old_db" "$old_password" "$old_database_url" "$snapshot_dir" "$deadline" true; then
       rolled_back=true
       journal_armed=false
     fi
@@ -596,7 +623,7 @@ _database_reconcile_postgres_auth() (
   before_container="$(container_id)"
   before_started="$(container_started_at "$before_container")"
   if ! (compose up -d --no-deps "$SERVICE") >/dev/null 2>&1; then
-    if _database_rollback_postgres_auth_with_journal "$target_fingerprint" "$rollback_fingerprint" "$container" "$old_user" "$old_db" "$old_password" "$old_database_url" "$snapshot_dir" "$deadline" true; then
+    if [[ "$fresh_initialization" != "true" ]] && _database_rollback_postgres_auth_with_journal "$target_fingerprint" "$rollback_fingerprint" "$container" "$old_user" "$old_db" "$old_password" "$old_database_url" "$snapshot_dir" "$deadline" true; then
       rolled_back=true
       journal_armed=false
     fi
@@ -610,14 +637,16 @@ _database_reconcile_postgres_auth() (
   fi
   remaining="$(_database_remaining_seconds "$forward_deadline")" || true
   if [[ -z "$remaining" ]] || ! _database_wait_app_health "$remaining"; then
-    if _database_rollback_postgres_auth_with_journal "$target_fingerprint" "$rollback_fingerprint" "$container" "$old_user" "$old_db" "$old_password" "$old_database_url" "$snapshot_dir" "$deadline" true; then
+    if [[ "$fresh_initialization" != "true" ]] && _database_rollback_postgres_auth_with_journal "$target_fingerprint" "$rollback_fingerprint" "$container" "$old_user" "$old_db" "$old_password" "$old_database_url" "$snapshot_dir" "$deadline" true; then
       rolled_back=true
       journal_armed=false
     fi
     _database_reconcile_error health "Canvas Notebook did not become healthy within the configured timeout." "$rolled_back"
     return 1
   fi
-  _database_recovery_journal_clear
+  if [[ "$fresh_initialization" != "true" ]]; then
+    _database_recovery_journal_clear
+  fi
   journal_armed=false
   if [[ "${OUTPUT_JSON:-false}" == "true" ]]; then
     jq -nc \

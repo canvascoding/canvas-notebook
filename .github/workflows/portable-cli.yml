@@ -42,3 +42,42 @@ jobs:
             dist-portable-cli/canvas-notebook-cli
             dist-portable-cli/canvas-notebook-cli.tar.gz
             dist-portable-cli/canvas-notebook-cli.sha256
+
+  linux-cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and test Linux CLI package
+        run: |
+          npm run cli:build
+          npm run test:cli:linux-self-update
+          npm run test:release:linux-cli-integration
+
+      - name: Upload Linux CLI artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: canvas-notebook-linux-cli-${{ matrix.architecture }}
+          if-no-files-found: error
+          path: |
+            dist-linux-cli/${{ matrix.architecture }}/canvas-notebook-linux-cli-${{ matrix.architecture }}
+            dist-linux-cli/${{ matrix.architecture }}/canvas-notebook-linux-cli-${{ matrix.architecture }}.tar.gz
+            dist-linux-cli/${{ matrix.architecture }}/canvas-notebook-linux-cli-${{ matrix.architecture }}.sha256

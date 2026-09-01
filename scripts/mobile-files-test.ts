@@ -15,6 +15,10 @@ async function main() {
     await fs.mkdir(path.join(workspaceRoot, 'Projects', 'assets'), { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, 'Readme.txt'), 'Mobile file preview.');
     await fs.writeFile(path.join(workspaceRoot, 'Cover.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    await fs.writeFile(path.join(workspaceRoot, 'A-small.bin'), Buffer.from([0x00]));
+    await fs.writeFile(path.join(workspaceRoot, 'Z-large.bin'), Buffer.alloc(2_048, 0x01));
+    await fs.utimes(path.join(workspaceRoot, 'A-small.bin'), new Date('2024-01-01'), new Date('2024-01-01'));
+    await fs.utimes(path.join(workspaceRoot, 'Z-large.bin'), new Date('2025-01-01'), new Date('2025-01-01'));
     await fs.writeFile(path.join(workspaceRoot, 'Projects', 'Brief.md'), '# Brief');
     await fs.writeFile(path.join(workspaceRoot, 'Projects', 'MobileDeck.marp.md'), '---\nmarp: true\n---\n\n# Deck');
     await fs.writeFile(
@@ -68,6 +72,62 @@ async function main() {
     assert.equal(root.actions.canCopy, true);
     assert.equal(root.actions.canExport, true);
     assert.deepEqual(root.breadcrumbs, [{ name: 'Workspace', path: '.' }]);
+
+    const nameDescending = await listMobileFiles({
+      workspace,
+      fileOptions,
+      directory: '.',
+      sort: 'name',
+      sortOrder: 'desc',
+      limit: 20,
+    });
+    assert.equal(nameDescending.items[0]?.type, 'directory');
+    assert.equal(nameDescending.items.find((entry) => entry.type === 'file')?.path, 'Z-large.bin');
+
+    const sizeAscending = await listMobileFiles({
+      workspace,
+      fileOptions,
+      directory: '.',
+      sort: 'size',
+      sortOrder: 'asc',
+      limit: 20,
+    });
+    assert.equal(sizeAscending.items[0]?.type, 'directory');
+    assert.equal(sizeAscending.items.find((entry) => entry.type === 'file')?.path, 'A-small.bin');
+
+    const sortedFirstPage = await listMobileFiles({
+      workspace,
+      fileOptions,
+      directory: '.',
+      sort: 'name',
+      sortOrder: 'asc',
+      limit: 1,
+    });
+    await assert.rejects(() => listMobileFiles({
+      workspace,
+      fileOptions,
+      directory: '.',
+      sort: 'modified',
+      sortOrder: 'desc',
+      cursor: sortedFirstPage.nextCursor,
+      limit: 1,
+    }), (error: unknown) => Boolean(
+      error
+      && typeof error === 'object'
+      && 'code' in error
+      && error.code === 'INVALID_CURSOR'
+    ));
+    await assert.rejects(() => listMobileFiles({
+      workspace,
+      fileOptions,
+      sort: 'unknown',
+      limit: 20,
+    }), (error: unknown) => Boolean(
+      error
+      && typeof error === 'object'
+      && 'code' in error
+      && error.code === 'INVALID_SORT'
+    ));
 
     const imageOnly = await listMobileFiles({ workspace, fileOptions, filter: 'image', limit: 20 });
     assert.deepEqual(imageOnly.items.map((entry) => entry.path), ['Cover.png']);

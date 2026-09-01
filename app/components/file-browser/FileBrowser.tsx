@@ -410,6 +410,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       onDrop={handleDrop}
       onDragStart={fileMoveDrag.handlers.onDragStart}
       onDragEnd={fileMoveDrag.handlers.onDragEnd}
+      onPointerMove={fileMoveDrag.handlers.onPointerMove}
     >
       {isDragging && (
         <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center border-2 border-dashed border-border bg-background/95 text-sm text-foreground">

@@ -15,6 +15,10 @@ import {
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
+import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
+import { DelegationAgentPicker } from '@/app/components/canvas-agent-chat/DelegationAgentPicker';
+import { DelegationToolsetIcon } from '@/app/components/canvas-agent-chat/DelegationToolsetIcon';
+import { DelegationToolsetPicker } from '@/app/components/canvas-agent-chat/DelegationToolsetPicker';
 import {
   cancelChatDelegation,
   fetchChatDelegations,
@@ -23,6 +27,11 @@ import {
   type ChatDelegation,
   type DelegationOptions,
 } from '@/app/lib/chat/delegation-api';
+import {
+  readChatDelegationPanelExpanded,
+  writeChatDelegationPanelExpanded,
+} from '@/app/lib/chat/delegation-panel-storage';
+import type { AgentProfile } from '@/app/lib/chat/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -61,7 +70,13 @@ function TaskStatusIcon({ task }: { task: ChatDelegation }) {
   return <XCircle className={className} />;
 }
 
-export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: string }) {
+export function ChatDelegationPanel({
+  sourceSessionId,
+  agents,
+}: {
+  sourceSessionId: string;
+  agents: AgentProfile[];
+}) {
   const t = useTranslations('chat');
   const locale = useLocale();
   const [tasks, setTasks] = useState<ChatDelegation[]>([]);
@@ -80,6 +95,13 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
   const [context, setContext] = useState('');
   const [selectedToolsets, setSelectedToolsets] = useState<Set<string>>(() => new Set());
   const requestInFlightRef = useRef(false);
+
+  useEffect(() => {
+    const restoreExpandedState = window.setTimeout(() => {
+      setExpanded(readChatDelegationPanelExpanded(window.localStorage));
+    }, 0);
+    return () => window.clearTimeout(restoreExpandedState);
+  }, []);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (requestInFlightRef.current) return;
@@ -117,6 +139,10 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
   }, [refresh]);
 
   const activeCount = useMemo(() => tasks.filter(isActive).length, [tasks]);
+  const agentsById = useMemo(
+    () => new Map(agents.map((agent) => [agent.agentId, agent])),
+    [agents],
+  );
   const timeFormatter = useMemo(() => new Intl.DateTimeFormat(locale, {
     hour: '2-digit',
     minute: '2-digit',
@@ -195,11 +221,27 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
     });
   }, []);
 
+  const selectAllToolsets = useCallback(() => {
+    setSelectedToolsets(new Set(delegationOptions?.toolsets.map((toolset) => toolset.name) || []));
+  }, [delegationOptions]);
+
+  const clearToolsets = useCallback(() => {
+    setSelectedToolsets(new Set());
+  }, []);
+
   const toggleResult = useCallback((id: string) => {
     setExpandedResultIds((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleExpanded = useCallback(() => {
+    setExpanded((current) => {
+      const next = !current;
+      writeChatDelegationPanelExpanded(window.localStorage, next);
       return next;
     });
   }, []);
@@ -213,7 +255,7 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
         <button
           type="button"
           aria-expanded={expanded}
-          onClick={() => setExpanded((current) => !current)}
+          onClick={toggleExpanded}
           className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left text-xs transition-colors hover:text-primary"
         >
           <Network className="h-4 w-4 text-primary" />
@@ -272,9 +314,12 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
                     : task.status === 'cancelled'
                       ? 'delegationStatusCancelled'
                       : 'delegationStatusFailed';
-            const workerLabel = task.targetAgentId
-              ? task.targetAgentId
-              : task.workerRole || t('delegationEphemeralWorker');
+            const workerAgent = task.targetAgentId ? agentsById.get(task.targetAgentId) : undefined;
+            const workerLabel = workerAgent?.name
+              || task.targetAgentId
+              || task.workerRole
+              || t('delegationEphemeralWorker');
+            const visibleToolsets = task.toolsets.slice(0, 4);
             const result = task.resultText || task.errorText;
 
             return (
@@ -282,10 +327,19 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
                 key={task.id}
                 data-testid="chat-delegation-item"
                 data-status={task.status}
-                className="border-b border-border/60 px-2.5 py-2 last:border-b-0"
+                className="border-b border-border/60 px-2.5 py-2 transition-colors last:border-b-0 hover:bg-muted/25"
               >
                 <div className="flex items-start gap-2">
-                  <TaskStatusIcon task={task} />
+                  <span className="relative mt-0.5 shrink-0">
+                    <AgentAvatar
+                      iconId={workerAgent?.iconId}
+                      className="h-8 w-8 rounded-lg bg-muted/70"
+                      iconClassName="h-3.5 w-3.5"
+                    />
+                    <span className="absolute -bottom-1 -right-1 inline-flex rounded-full bg-background p-0.5 shadow-sm">
+                      <TaskStatusIcon task={task} />
+                    </span>
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-xs font-medium text-foreground" title={task.goal}>{task.goal}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[10px] text-muted-foreground">
@@ -295,6 +349,27 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
                       <span aria-hidden="true">·</span>
                       <span>{timeFormatter.format(new Date(task.createdAt))}</span>
                     </div>
+                    {visibleToolsets.length > 0 ? (
+                      <div
+                        className="mt-1.5 flex items-center gap-1"
+                        aria-label={t('delegationTools')}
+                        title={task.toolsets.join(', ')}
+                      >
+                        {visibleToolsets.map((toolset) => (
+                          <span
+                            key={toolset}
+                            className="inline-flex h-5 w-5 items-center justify-center rounded border border-border/70 bg-muted/60 text-muted-foreground"
+                          >
+                            <DelegationToolsetIcon toolset={toolset} className="h-3 w-3" />
+                          </span>
+                        ))}
+                        {task.toolsets.length > visibleToolsets.length ? (
+                          <span className="text-[10px] text-muted-foreground">
+                            +{task.toolsets.length - visibleToolsets.length}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {result ? (
                       <div className="mt-1">
                         <div className={cn(
@@ -342,67 +417,67 @@ export function ChatDelegationPanel({ sourceSessionId }: { sourceSessionId: stri
       ) : null}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="flex h-[min(92dvh,780px)] max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
+          <DialogHeader className="shrink-0 border-b border-border/70 px-4 py-4 pr-12 sm:px-6">
             <DialogTitle>{t('delegationStart')}</DialogTitle>
             <DialogDescription>{t('delegationStartDescription')}</DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-4 py-2">
-            {optionsLoading ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {t('delegationStarting')}
-              </div>
-            ) : delegationOptions ? (
-              <>
-                {delegationOptions.agents.length > 0 ? (
-                  <label className="grid gap-1.5 text-sm font-medium">
-                    {t('delegationTarget')}
-                    <select
-                      value={targetAgentId}
-                      onChange={(event) => setTargetAgentId(event.target.value)}
-                      className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                    >
-                      {delegationOptions.agents.map((agent) => (
-                        <option key={agent.agentId} value={agent.agentId}>{agent.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                ) : (
-                  <p className="text-sm text-muted-foreground">{t('delegationNoAgents')}</p>
-                )}
-
-                <label className="grid gap-1.5 text-sm font-medium">
-                  {t('delegationGoal')}
-                  <Input value={goal} onChange={(event) => setGoal(event.target.value)} disabled={delegationOptions.agents.length === 0} />
-                </label>
-                <label className="grid gap-1.5 text-sm font-medium">
-                  {t('delegationContext')}
-                  <Textarea value={context} onChange={(event) => setContext(event.target.value)} disabled={delegationOptions.agents.length === 0} />
-                </label>
-                <fieldset className="grid gap-2">
-                  <legend className="text-sm font-medium">{t('delegationTools')}</legend>
-                  <div className="grid gap-1.5">
-                    {delegationOptions.toolsets.map((toolset) => (
-                      <label key={toolset.name} className="flex cursor-pointer items-start gap-2 text-sm text-muted-foreground">
-                        <input
-                          type="checkbox"
-                          checked={selectedToolsets.has(toolset.name)}
-                          onChange={() => toggleToolset(toolset.name)}
-                          className="mt-0.5 h-3.5 w-3.5 accent-primary"
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <div className="grid gap-5 px-4 py-4 sm:px-6">
+              {optionsLoading ? (
+                <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t('delegationStarting')}
+                </div>
+              ) : delegationOptions ? (
+                <div className="grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:items-start">
+                  <div className="grid content-start gap-4">
+                    {delegationOptions.agents.length > 0 ? (
+                      <div className="grid gap-1.5 text-sm font-medium">
+                        <span>{t('delegationTarget')}</span>
+                        <DelegationAgentPicker
+                          agents={delegationOptions.agents}
+                          value={targetAgentId}
+                          onValueChange={setTargetAgentId}
                         />
-                        <span><span className="font-medium text-foreground">{toolset.label}</span> · {toolset.description}</span>
-                      </label>
-                    ))}
+                      </div>
+                    ) : (
+                      <p className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
+                        {t('delegationNoAgents')}
+                      </p>
+                    )}
+
+                    <label className="grid gap-1.5 text-sm font-medium">
+                      {t('delegationGoal')}
+                      <Input value={goal} onChange={(event) => setGoal(event.target.value)} disabled={delegationOptions.agents.length === 0} />
+                    </label>
+                    <label className="grid gap-1.5 text-sm font-medium">
+                      {t('delegationContext')}
+                      <Textarea
+                        value={context}
+                        onChange={(event) => setContext(event.target.value)}
+                        disabled={delegationOptions.agents.length === 0}
+                        className="min-h-24 resize-y"
+                      />
+                    </label>
                   </div>
-                </fieldset>
-              </>
-            ) : null}
-            {startError ? <p className="text-sm text-destructive">{startError}</p> : null}
+                  <div className="min-w-0 lg:border-l lg:border-border/70 lg:pl-5">
+                    <DelegationToolsetPicker
+                      toolsets={delegationOptions.toolsets}
+                      selectedToolsets={selectedToolsets}
+                      onToggle={toggleToolset}
+                      onSelectAll={selectAllToolsets}
+                      onClear={clearToolsets}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              {startError ? <p className="text-sm text-destructive">{startError}</p> : null}
+            </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-border/70 bg-background/95 px-4 py-3 sm:px-6">
             <Button
               type="button"
               onClick={() => void submitDelegation()}

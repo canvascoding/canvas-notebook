@@ -11,12 +11,12 @@ import { ChatDelegationPanel } from '@/app/components/canvas-agent-chat/ChatDele
 import { ChatHeader } from '@/app/components/canvas-agent-chat/ChatHeader';
 import { ChatHistoryPanel, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { ChatMessageList } from '@/app/components/canvas-agent-chat/ChatMessageList';
+import { ChatRuntimeNotice } from '@/app/components/canvas-agent-chat/ChatRuntimeNotice';
 import { ChatStarterScreen } from '@/app/components/canvas-agent-chat/ChatStarterScreen';
 import { ResizeHandle, usePanelResize } from '@/app/components/layout/ResizeHandle';
 import { useFileStore } from '@/app/store/file-store';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { usePathname as useLocalePathname } from '@/i18n/navigation';
-import { useLocale } from 'next-intl';
 
 import { useIsMobile } from '@/hooks/use-mobile';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
@@ -42,7 +42,6 @@ import {
   WORKSPACE_CHANGED_EVENT,
   type WorkspaceChangedDetail,
 } from '@/app/store/workspace-store';
-import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
 import type { AiEffectiveRuntimeResolution, AiRuntimeSelection } from '@/app/lib/agent-runtime-policy/types';
 
 import {
@@ -51,7 +50,8 @@ import {
   writeCanvasChatActiveSessionStorage,
 } from '@/app/lib/chat/constants';
 import { removeComposerDraft } from '@/app/lib/chat/draft-storage';
-import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
+import { getAgentProfileDisplayName } from '@/app/lib/chat/agent-display';
+import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
 import { useChatAgentConfig } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
 import { useChatControlActions } from '@/app/components/canvas-agent-chat/useChatControlActions';
@@ -74,6 +74,7 @@ import type {
   QueuePreviewItem,
 } from '@/app/lib/chat/types';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { getContextStatusDisplay } from '@/app/components/canvas-agent-chat/contextStatusDisplay';
 
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
 
@@ -150,7 +151,6 @@ export default function CanvasAgentChat({
   onMediaClick,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
-  const locale = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
@@ -475,6 +475,15 @@ export default function CanvasAgentChat({
     setInput,
     textareaRef,
   });
+
+  const handleWorkspaceFilesDrop = useCallback((paths: string[]) => {
+    const references = paths.map((path) => `@"${path}"`);
+    if (references.length === 0) return;
+
+    resetInputHistoryNavigation();
+    setInput((current) => `${current}${current.trimEnd() ? ' ' : ''}${references.join(' ')} `);
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  }, [resetInputHistoryNavigation, setInput, textareaRef]);
 
   const buildRequestContext = useCallback((activeFilePath: string | null): ChatRequestContext => ({
     activeFilePath,
@@ -1018,29 +1027,66 @@ export default function CanvasAgentChat({
   }, [isMobile]);
 
   const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
-  const isRuntimeBusy = Boolean(runtimeStatus && runtimeStatus.phase !== 'idle');
+  const isRuntimeBusy = Boolean(
+    runtimeStatus
+    && (runtimeStatus.phase !== 'idle' || runtimeStatus.compactionStatus?.state === 'running'),
+  );
   const queueItems: QueuePreviewItem[] = [
     ...(runtimeStatus?.steeringQueue || []).map((entry) => ({ ...entry, kind: 'steer' as const })),
     ...(runtimeStatus?.followUpQueue || []).map((entry) => ({ ...entry, kind: 'follow_up' as const })),
   ];
-  const activeToolDisplay = runtimeStatus?.activeTool ? getToolDisplayInfo(runtimeStatus.activeTool.name, locale) : null;
-  const contextDetailedLabel = runtimeStatus
-    ? t('contextLabel', {
-        used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
-        available: formatContextTokens(runtimeStatus.availableHistoryTokens),
-        window: formatContextTokens(runtimeStatus.contextWindow),
+  const contextStatusDisplay = getContextStatusDisplay(runtimeStatus);
+  const contextDetailedLabel = contextStatusDisplay.source === 'next_request'
+      ? t('contextNextRequestLabel', {
+        used: formatContextTokens(contextStatusDisplay.usedTokens),
+        window: formatContextTokens(contextStatusDisplay.contextWindow),
       })
-    : t('noSessionYet');
-  const contextTooltip = runtimeStatus
-    ? t('contextTooltip', {
-        percent: runtimeStatus.contextUsagePercent,
-        used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
-        available: formatContextTokens(runtimeStatus.availableHistoryTokens),
-        window: formatContextTokens(runtimeStatus.contextWindow),
-        reserved: formatContextTokens(Math.max(0, runtimeStatus.contextWindow - runtimeStatus.availableHistoryTokens)),
+      : contextStatusDisplay.source === 'actual'
+        ? t('contextActualLabel', {
+          used: formatContextTokens(contextStatusDisplay.usedTokens),
+          window: formatContextTokens(contextStatusDisplay.contextWindow),
+        })
+      : contextStatusDisplay.source === 'history'
+        ? t('contextLabel', {
+          used: formatContextTokens(contextStatusDisplay.usedTokens),
+          available: formatContextTokens(contextStatusDisplay.availableTokens),
+          window: formatContextTokens(contextStatusDisplay.contextWindow),
+        })
+        : t('noSessionYet');
+  const contextTooltip = contextStatusDisplay.source === 'next_request'
+    ? runtimeStatus?.lastProviderInputTokens !== null && runtimeStatus?.lastProviderInputTokens !== undefined
+      ? t('contextNextRequestTooltipWithActual', {
+        used: formatContextTokens(contextStatusDisplay.usedTokens),
+        window: formatContextTokens(contextStatusDisplay.contextWindow),
+        percent: Math.round((contextStatusDisplay.usedTokens / Math.max(1, contextStatusDisplay.contextWindow)) * 100),
+        actual: formatContextTokens(runtimeStatus.lastProviderInputTokens),
       })
-    : t('noSessionYet');
-  const contextProgressPercent = Math.min(100, Math.max(0, runtimeStatus?.contextUsagePercent ?? 0));
+      : t('contextNextRequestTooltip', {
+        used: formatContextTokens(contextStatusDisplay.usedTokens),
+        window: formatContextTokens(contextStatusDisplay.contextWindow),
+        percent: Math.round((contextStatusDisplay.usedTokens / Math.max(1, contextStatusDisplay.contextWindow)) * 100),
+      })
+    : contextStatusDisplay.source === 'actual'
+      ? t('contextActualTooltip', {
+        used: formatContextTokens(contextStatusDisplay.usedTokens),
+        window: formatContextTokens(contextStatusDisplay.contextWindow),
+      })
+      : contextStatusDisplay.source === 'history'
+        ? t('contextTooltip', {
+          percent: contextStatusDisplay.percent,
+          used: formatContextTokens(contextStatusDisplay.usedTokens),
+          available: formatContextTokens(contextStatusDisplay.availableTokens),
+          window: formatContextTokens(contextStatusDisplay.contextWindow),
+          reserved: formatContextTokens(Math.max(0, contextStatusDisplay.contextWindow - contextStatusDisplay.availableTokens)),
+        })
+        : t('noSessionYet');
+  const contextProgressPercent = Math.min(100, Math.max(0,
+    contextStatusDisplay.source === 'next_request' || contextStatusDisplay.source === 'actual'
+      ? Math.round((contextStatusDisplay.usedTokens / Math.max(1, contextStatusDisplay.contextWindow)) * 100)
+      : contextStatusDisplay.source === 'history'
+        ? contextStatusDisplay.percent
+        : 0,
+  ));
   const sessionDisplayLabel = getSessionDisplayTitle(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const primaryActionIsStop = isRuntimeBusy && !hasComposerContent;
@@ -1074,11 +1120,15 @@ export default function CanvasAgentChat({
   useEffect(() => () => onSessionContextChange?.(null), [onSessionContextChange]);
   const isSessionTitleGenerating = activeSession?.titleGenerationState === 'pending' || activeSession?.titleGenerationState === 'generating';
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
-  const activeAgentDisplayName = activeAgentProfile?.name || getAgentDisplayName(activeSessionAgentId);
+  const activeAgentDisplayName = getAgentProfileDisplayName(activeSessionAgentId, activeAgentProfile?.name);
   const chatAgentOptions = useMemo<AgentProfile[]>(() => (
-    availableAgents.length > 0
+    (availableAgents.length > 0
       ? availableAgents
-      : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false }]
+      : [{ agentId: CHAT_AGENT_ID, name: MAIN_AGENT_DISPLAY_NAME, iconId: 'bot', type: 'main', removable: false }]
+    ).map((agent) => ({
+      ...agent,
+      name: getAgentProfileDisplayName(agent.agentId, agent.name),
+    }))
   ), [availableAgents]);
 
   const historyPanelProps: Omit<ChatHistoryPanelProps, 'variant' | 'width' | 'onBackToChat'> = {
@@ -1166,13 +1216,11 @@ export default function CanvasAgentChat({
         activeAgentDisplayName={activeAgentDisplayName}
         activeAgentIconId={activeAgentProfile?.iconId}
         activeSessionAgentId={activeSessionAgentId}
-        activeToolLabel={activeToolDisplay?.label}
         chatAgentOptions={chatAgentOptions}
         contextDetailedLabel={contextDetailedLabel}
         contextProgressPercent={contextProgressPercent}
         contextTooltip={contextTooltip}
         hideNavHeader={hideNavHeader}
-        isCompactView={isCompactView}
         isHistoryOverlayOpen={isHistoryOverlayOpen}
         isMobile={isMobile}
         isSessionTitleGenerating={isSessionTitleGenerating}
@@ -1191,8 +1239,6 @@ export default function CanvasAgentChat({
         showHistory={showHistory}
         showSkillsLink={showSkillsLink}
         showWorkspaceSwitcher={showWorkspaceSwitcher}
-        toolVerbosity={toolVerbosity}
-        totalQueuedMessages={totalQueuedMessages}
         totalUnreadCount={totalUnreadCount}
       />
 
@@ -1269,6 +1315,8 @@ export default function CanvasAgentChat({
 
             {showStarterScreen && (
             <ChatStarterScreen
+              activeAgentDisplayName={activeAgentDisplayName}
+              activeAgentId={activeSessionAgentId}
               latestSession={latestSession}
               isStudioChatContext={isStudioChatContext}
               onOpenLatestSession={openLatestSession}
@@ -1303,6 +1351,7 @@ export default function CanvasAgentChat({
               onMediaClick={handleMediaPreviewClick}
               onAttachmentOpen={handleAttachmentPreviewOpen}
             />
+            <ChatRuntimeNotice status={runtimeStatus} />
             <div ref={messagesEndRef} />
           </div>
         </div>
@@ -1326,7 +1375,13 @@ export default function CanvasAgentChat({
         onClearUploadError={() => setUploadError(null)}
         isWebSocketUnavailable={isWebSocketUnavailable}
         showModelRequiredNotice={showModelRequiredNotice}
-        delegationPanel={sessionId ? <ChatDelegationPanel key={sessionId} sourceSessionId={sessionId} /> : null}
+        delegationPanel={sessionId ? (
+          <ChatDelegationPanel
+            key={sessionId}
+            sourceSessionId={sessionId}
+            agents={chatAgentOptions}
+          />
+        ) : null}
         attachments={attachments}
         onRemoveAttachment={removeAttachment}
         onAttachmentOpen={handleAttachmentPreviewOpen}
@@ -1346,6 +1401,7 @@ export default function CanvasAgentChat({
         fileInputRef={fileInputRef}
         onFileChange={onFileChange}
         onFilesDrop={uploadFiles}
+        onWorkspaceFilesDrop={handleWorkspaceFilesDrop}
         composerDisabled={composerDisabled}
         isUploading={isUploading}
         textareaRef={textareaRef}

@@ -2,12 +2,17 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { SystemdUnitStore } from './autoUpdate';
+import { resolveCliPath } from './cliPath';
 import { runOrThrow } from './process';
 import type { CanvasCliConfig, CommandRunner, RuntimeContext } from './types';
+
+export { resolveCliPath } from './cliPath';
 
 const MACOS_LABEL = 'io.canvasstudios.notebook';
 const WINDOWS_TASK_NAME = 'Canvas Notebook';
 const LINUX_SERVICE_NAME = 'canvas-notebook.service';
+const MANAGED_MARKER = '# Managed by Canvas Notebook';
 
 function xmlEscape(value: string): string {
   return value
@@ -18,8 +23,24 @@ function xmlEscape(value: string): string {
     .replace(/'/g, '&apos;');
 }
 
-export function resolveCliPath(env: NodeJS.ProcessEnv = process.env): string {
-  return env.CANVAS_CLI_PATH || process.argv[1] || 'canvas-notebook';
+function systemdQuote(value: string): string {
+  if (!value || /[\0\r\n]/u.test(value)) throw new Error('systemd value contains unsupported control characters.');
+  return `"${value.replace(/\\/gu, '\\\\').replace(/"/gu, '\\"')}"`;
+}
+
+function systemdPath(value: string): string {
+  if (!path.isAbsolute(value) || /[\0\r\n]/u.test(value)) throw new Error('systemd paths must be absolute and contain no control characters.');
+  return value.replace(/[\\\s"']/gu, (character) => `\\x${character.charCodeAt(0).toString(16).padStart(2, '0')}`);
+}
+
+export function renderLinuxSystemdService(config: CanvasCliConfig, cliPath: string): string {
+  return `${MANAGED_MARKER}\n[Unit]\nDescription=Canvas Notebook\nRequires=docker.service\nAfter=docker.service network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nWorkingDirectory=${systemdPath(config.paths.installDir)}\nEnvironment=${systemdQuote(`CANVAS_MANAGER_LOG_DIR=${path.dirname(config.paths.logFile)}`)}\nExecStart=${systemdQuote(cliPath)} start --no-banner\nExecStop=${systemdQuote(cliPath)} stop --no-banner\nExecReload=${systemdQuote(cliPath)} restart --no-banner\nTimeoutStartSec=10800\nTimeoutStopSec=120\n\n[Install]\nWantedBy=multi-user.target\n`;
+}
+
+function recognizedLinuxService(content: string): boolean {
+  return content.includes(MANAGED_MARKER) ||
+    (content.includes('Description=Canvas Notebook') && content.includes('RemainAfterExit=yes') &&
+      /ExecStart=.*canvas-notebook.* start --no-banner/u.test(content) && content.includes('WantedBy=multi-user.target'));
 }
 
 export function macosLaunchAgentPath(homeDir = os.homedir()): string {
@@ -81,7 +102,24 @@ export class ServiceManager {
   constructor(
     private readonly runner: CommandRunner,
     private readonly context: RuntimeContext,
+    private readonly env: NodeJS.ProcessEnv = process.env,
   ) {}
+
+  private async validateLinuxUnit(content: string): Promise<void> {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-service-verify-'));
+    const candidate = path.join(directory, LINUX_SERVICE_NAME);
+    const dockerStub = path.join(directory, 'docker.service');
+    try {
+      await Promise.all([
+        fs.writeFile(candidate, content, { encoding: 'utf8', mode: 0o600 }),
+        fs.writeFile(dockerStub, '[Service]\nType=oneshot\nExecStart=/bin/true\n', { encoding: 'utf8', mode: 0o600 }),
+      ]);
+      const result = await this.runner.run('systemd-analyze', ['verify', candidate, dockerStub]);
+      if (result.status !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || 'systemd service validation failed.');
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  }
 
   async status(config: CanvasCliConfig): Promise<string> {
     if (config.platform.serviceMode === 'systemd') {
@@ -100,11 +138,27 @@ export class ServiceManager {
   }
 
   async install(config: CanvasCliConfig): Promise<string> {
-    const cliPath = resolveCliPath();
+    const cliPath = resolveCliPath(this.env);
     if (config.platform.serviceMode === 'systemd') {
-      await runOrThrow(this.runner, 'systemctl', ['enable', LINUX_SERVICE_NAME]);
-      await runOrThrow(this.runner, 'systemctl', ['start', LINUX_SERVICE_NAME]);
-      return `systemd service enabled: ${LINUX_SERVICE_NAME}`;
+      const units = new SystemdUnitStore(this.runner, this.env);
+      await units.assertSafeRoot();
+      const previous = await units.read(LINUX_SERVICE_NAME);
+      if (previous !== null && !recognizedLinuxService(previous)) {
+        throw new Error(`Refusing to overwrite unmanaged systemd unit: ${units.path(LINUX_SERVICE_NAME)}`);
+      }
+      const desired = renderLinuxSystemdService(config, cliPath);
+      await this.validateLinuxUnit(desired);
+      try {
+        if (previous !== desired) await units.write(LINUX_SERVICE_NAME, desired);
+        if (previous !== desired) await units.runRootOrThrow('systemctl', ['daemon-reload']);
+        await units.runRootOrThrow('systemctl', ['enable', LINUX_SERVICE_NAME]);
+        await units.runRootOrThrow('systemctl', ['start', LINUX_SERVICE_NAME]);
+        return `systemd service installed and enabled: ${units.path(LINUX_SERVICE_NAME)}`;
+      } catch (error) {
+        await units.restore(LINUX_SERVICE_NAME, previous).catch(() => undefined);
+        await units.runRoot('systemctl', ['daemon-reload']);
+        throw error;
+      }
     }
     if (config.platform.serviceMode === 'launchd') {
       const plistPath = macosLaunchAgentPath();
@@ -132,9 +186,18 @@ export class ServiceManager {
 
   async uninstall(config: CanvasCliConfig): Promise<string> {
     if (config.platform.serviceMode === 'systemd') {
-      await this.runner.run('systemctl', ['stop', LINUX_SERVICE_NAME]);
-      await this.runner.run('systemctl', ['disable', LINUX_SERVICE_NAME]);
-      return `systemd service disabled: ${LINUX_SERVICE_NAME}`;
+      const units = new SystemdUnitStore(this.runner, this.env);
+      await units.assertSafeRoot();
+      const current = await units.read(LINUX_SERVICE_NAME);
+      if (current !== null && !recognizedLinuxService(current)) {
+        throw new Error(`Refusing to remove unmanaged systemd unit: ${units.path(LINUX_SERVICE_NAME)}`);
+      }
+      await units.runRoot('systemctl', ['stop', LINUX_SERVICE_NAME]);
+      await units.runRoot('systemctl', ['disable', LINUX_SERVICE_NAME]);
+      if (current !== null) await units.remove(LINUX_SERVICE_NAME);
+      await units.runRootOrThrow('systemctl', ['daemon-reload']);
+      await units.runRoot('systemctl', ['reset-failed', LINUX_SERVICE_NAME]);
+      return `systemd service removed: ${units.path(LINUX_SERVICE_NAME)}`;
     }
     if (config.platform.serviceMode === 'launchd') {
       const plistPath = macosLaunchAgentPath();

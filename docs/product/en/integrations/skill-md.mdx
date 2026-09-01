@@ -6,7 +6,7 @@ sectionOrder: 8
 order: 4
 locale: en
 translationKey: integrations.skill-md
-updatedAt: 2026-07-17
+updatedAt: 2026-08-31
 ---
 
 # Understanding SKILL.md
@@ -22,11 +22,11 @@ description: Review a campaign brief for missing inputs and delivery risks.
 ---
 ```
 
-`name` must be lowercase letters, numbers, and single hyphens. It cannot start or end with a hyphen, contain consecutive hyphens, or exceed 64 characters. `description` must be non-empty, no longer than 1,024 characters, and cannot contain angle brackets.
+`name` must contain 1-64 lowercase Unicode letters, numbers, or single hyphens. It cannot start or end with a hyphen, contain consecutive hyphens, and it must match the parent directory name. `description` must contain 1-1,024 characters and explain both what the skill does and when to use it. The Markdown body has no format restrictions.
 
 ## Optional fields
 
-You can add `license`, `compatibility`, `allowed-tools`, and string-valued `metadata`. Compatibility text is limited to 500 characters. Use `allowed-tools` to document the intended tool surface, but remember that runtime policy remains authoritative.
+You can add `license`, `compatibility`, `allowed-tools`, and string-valued `metadata`. No other top-level frontmatter fields are allowed. Compatibility text must contain 1-500 characters when present. `metadata` must map string keys to string values. `allowed-tools` is an experimental, space-separated string; runtime policy remains authoritative.
 
 An optional `agents/canvas.yaml` can describe the Canvas interface with a display name, short description, icon paths, brand color, default prompt, and version.
 
@@ -47,4 +47,3 @@ Avoid embedding secrets, user-specific paths, or claims that a tool is always av
 
 - [Building a custom skill](/docs/integrations/build-skill)
 - [Uploading a custom skill](/docs/integrations/upload-skill)
-

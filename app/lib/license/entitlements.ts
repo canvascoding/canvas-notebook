@@ -9,6 +9,7 @@ import {
   type NotebookRuntimeCapabilityKey,
   type NotebookVectorProvider,
 } from '@/app/lib/runtime/notebook-runtime';
+import { resolveDatabaseProviderGate } from '@/app/lib/db/provider';
 
 export type LicenseEntitlementErrorCode =
   | 'LICENSE_REQUIRED'
@@ -229,6 +230,35 @@ export async function requireTeamRuntimeLicense(): Promise<LicenseStatus> {
         vectorProvider: status.vectorProvider,
         postgresRequired: status.postgresRequired,
         blockers: profile.blockers.map((blocker) => blocker.code),
+      },
+    );
+  }
+
+  const runtimeDatabase = resolveDatabaseProviderGate({
+    runtimeMode: 'team',
+    teamFeaturesEnabled: true,
+    requiredCapabilities: ['multiUser', 'teamWorkspace'],
+    postgresRuntimeAdapterAvailable: true,
+  });
+  if (
+    runtimeDatabase.provider !== 'postgres'
+    || runtimeDatabase.runtimeAdapter !== 'postgres'
+    || runtimeDatabase.ok !== true
+  ) {
+    throw new LicenseEntitlementError(
+      'The configured runtime does not support Team access',
+      'LICENSE_FEATURE_REQUIRED',
+      403,
+      {
+        feature: 'teamWorkspace',
+        plan: status.plan,
+        hostingMode: status.hostingMode,
+        edition: status.edition,
+        licenseClass: status.licenseClass,
+        licenseEnvironment: status.licenseEnvironment,
+        runtimeDatabaseProvider: runtimeDatabase.provider,
+        runtimeDatabaseAdapter: runtimeDatabase.runtimeAdapter,
+        blockers: runtimeDatabase.blockers.map((blocker) => blocker.code),
       },
     );
   }

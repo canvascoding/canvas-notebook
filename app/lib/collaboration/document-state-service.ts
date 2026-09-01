@@ -39,7 +39,7 @@ export function selectInitialTextCollaborationRepresentation(
   content: string,
 ): TextCollaborationRepresentation {
   return path.posix.extname(filePath).toLowerCase() === '.txt'
-    || analyzeMarkdownRichMode(content).mode === 'source'
+    || analyzeMarkdownRichMode(content).mode !== 'rich'
     ? 'plain_text'
     : 'tiptap_xml';
 }

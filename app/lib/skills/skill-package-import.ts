@@ -258,7 +258,10 @@ async function resolveSkillPackageRoot(extractRoot: string): Promise<string> {
   return requirePathInside(extractRoot, path.dirname(skillFiles[0]));
 }
 
-async function validateUploadedPackage(packageRoot: string): Promise<{
+async function validateUploadedPackage(
+  packageRoot: string,
+  expectedDirectoryName?: string,
+): Promise<{
   skillName: string;
   validation: ValidationResult;
 }> {
@@ -278,12 +281,12 @@ async function validateUploadedPackage(packageRoot: string): Promise<{
     );
   }
 
-  const validation = validateFrontmatter(frontmatter);
+  const validation = validateFrontmatter(frontmatter, { expectedDirectoryName });
   if (!validation.valid) {
     throw new SkillPackageImportError('Skill validation failed.', 400, validation);
   }
 
-  const parsed = await parseSkillFile(skillPath);
+  const parsed = await parseSkillFile(skillPath, { validateDirectoryName: false });
   if (!parsed) {
     throw new SkillPackageImportError('Skill package contains an invalid SKILL.md.', 400, validation);
   }
@@ -409,7 +412,10 @@ export async function importSkillPackage(
     const created = await createTempPackageRoot(source);
     tempRoot = created.tempRoot;
     const packageRoot = await resolveSkillPackageRoot(created.extractRoot);
-    const { skillName, validation } = await validateUploadedPackage(packageRoot);
+    const expectedDirectoryName = path.resolve(packageRoot) === path.resolve(created.extractRoot)
+      ? undefined
+      : path.basename(packageRoot);
+    const { skillName, validation } = await validateUploadedPackage(packageRoot, expectedDirectoryName);
 
     await ensureSkillCanBeInstalled(skillName, options.scope);
     const registryBeforeInstall = await readCanvasSkillRegistry(options.scope);

@@ -35,6 +35,7 @@ import type {
   StudioUsageDashboardResponse,
   StudioUsageMediaType,
 } from '@/app/lib/integrations/studio-usage-types';
+import { MEMORY_MANAGER_AGENT_ID } from '@/app/lib/memory/constants';
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -270,6 +271,7 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
     { value: 'day', label: t('groupBy.day') },
     { value: 'provider', label: t('groupBy.provider') },
     { value: 'model', label: t('groupBy.model') },
+    { value: 'agent', label: t('groupBy.agent') },
     { value: 'session', label: t('groupBy.session') },
     { value: 'user', label: t('groupBy.user') },
   ];
@@ -758,7 +760,44 @@ export function UsageAnalyticsClient({ isAdmin }: UsageAnalyticsClientProps) {
                 <div className="flex items-center gap-2"><Button type="button" variant="outline" size="sm" disabled={page === 1} onClick={() => setPage((prev) => prev - 1)}>{t('events.previous')}</Button><span className="text-xs text-muted-foreground">{t('events.page', { page })}</span><Button type="button" variant="outline" size="sm" disabled={!canGoNext} onClick={() => setPage((prev) => prev + 1)}>{t('events.next')}</Button></div>
               </div>
               <div className="p-3 sm:p-4">
-                {events?.rows.length ? <ScrollArea className="h-[25rem] sm:h-[30rem]"><div className="space-y-3 pr-3">{events.rows.map((row) => <div key={row.id} data-testid="usage-event-row" className="border border-border/70 bg-card p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div className="space-y-1"><div className="font-medium">{row.sessionTitleSnapshot || row.sessionId}</div><div className="text-xs text-muted-foreground">{row.provider} / {row.model}{isAdmin ? ` / ${row.userLabel}` : ''}</div></div><div className="text-right text-sm font-medium tabular-nums">{formatCost(row.totalCost)}</div></div><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span>{formatTimestamp(row.assistantTimestamp)}</span><span>{t('events.tokens', { count: formatInteger(row.totalTokens) })}</span><span>{t('events.inputOutput', { input: formatInteger(row.inputTokens), output: formatInteger(row.outputTokens) })}</span><span>{t('events.cache', { count: formatInteger(row.cacheTokens) })}</span><span>{row.stopReason}</span></div></div>)}</div></ScrollArea> : <div className="py-6 text-sm text-muted-foreground">{isLoading ? t('events.loading') : t('events.empty')}</div>}
+                {events?.rows.length ? (
+                  <ScrollArea className="h-[25rem] sm:h-[30rem]">
+                    <div className="space-y-3 pr-3">
+                      {events.rows.map((row) => (
+                        <div key={row.id} data-testid="usage-event-row" className="border border-border/70 bg-card p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <div className="font-medium">{row.sessionTitleSnapshot || row.sessionId}</div>
+                              <div className="text-xs text-muted-foreground">{row.provider} / {row.model}{isAdmin ? ` / ${row.userLabel}` : ''}</div>
+                            </div>
+                            <div className="text-right text-sm font-medium tabular-nums">{formatCost(row.totalCost)}</div>
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                            <span data-testid="usage-event-agent" className="border border-border bg-muted/55 px-2 py-1 text-muted-foreground">
+                              {t('events.executionAgent', { agent: row.agentId })}
+                            </span>
+                            {isAdmin && row.agentId === MEMORY_MANAGER_AGENT_ID ? (
+                              <span data-testid="usage-event-source-agent" className="border border-primary/30 bg-primary/5 px-2 py-1 text-primary">
+                                {row.sourceAgentId
+                                  ? t('events.reviewForAgent', { agent: row.sourceAgentId })
+                                  : t('events.reviewForUnknownAgent')}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            <span>{formatTimestamp(row.assistantTimestamp)}</span>
+                            <span>{t('events.tokens', { count: formatInteger(row.totalTokens) })}</span>
+                            <span>{t('events.inputOutput', { input: formatInteger(row.inputTokens), output: formatInteger(row.outputTokens) })}</span>
+                            <span>{t('events.cache', { count: formatInteger(row.cacheTokens) })}</span>
+                            <span>{row.stopReason}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                ) : (
+                  <div className="py-6 text-sm text-muted-foreground">{isLoading ? t('events.loading') : t('events.empty')}</div>
+                )}
               </div>
             </section>
           </div>

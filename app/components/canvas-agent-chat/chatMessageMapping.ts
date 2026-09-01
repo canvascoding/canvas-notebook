@@ -40,6 +40,7 @@ export function mapPersistedChatMessage(
       status: 'sent',
       piMessage: rawMessage,
       compactMeta: {
+        attemptId: cb.attemptId,
         kind: cb.kind,
         timestamp: cb.timestamp,
         omittedMessageCount: cb.omittedMessageCount,

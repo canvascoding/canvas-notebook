@@ -32,7 +32,7 @@ export function WorkspaceMailboxAssignmentDialog({
   onOpenChange: (open: boolean) => void;
   workspace: { id: string; name: string } | null;
 }) {
-  const t = useTranslations('settings.workspacePanel.mailbox');
+  const t = useTranslations('settings.workspacePanel.management.mailbox');
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [isLoading, setIsLoading] = useState(false);

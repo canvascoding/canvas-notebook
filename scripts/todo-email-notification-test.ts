@@ -152,7 +152,7 @@ async function main() {
   assert.match(sentMessages[0].subject, /^Neues Canvas To-do:/);
   assert.match(sentMessages[0].subject, /\[CTD-[A-F0-9]{8}\]$/);
   assert.match(sentMessages[0].body, /<html lang="de">/);
-  assert.match(sentMessages[0].body, /für dich angelegt/);
+  assert.match(sentMessages[0].body, /Bradley hat ein neues To-do für dich angelegt\./);
   assert.match(sentMessages[0].body, /Priorität/);
   assert.match(sentMessages[0].body, /Fällig/);
   assert.match(sentMessages[0].body, /Antwort-Code/);
@@ -199,7 +199,7 @@ async function main() {
   assert.equal(sentMessages.length, 2);
   assert.match(sentMessages[1].subject, /^New Canvas to-do:/);
   assert.match(sentMessages[1].body, /<html lang="en">/);
-  assert.match(sentMessages[1].body, /Your Canvas Agent created a new to-do for you\./);
+  assert.match(sentMessages[1].body, /Bradley created a new to-do for you\./);
   assert.match(sentMessages[1].body, /Priority/);
   assert.match(sentMessages[1].body, /Due/);
   assert.match(sentMessages[1].body, /Reply code/);

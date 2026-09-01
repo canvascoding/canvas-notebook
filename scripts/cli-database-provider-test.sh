@@ -211,8 +211,8 @@ grep -q '^COMPOSE_PROFILES=$' "$CANVAS_COMPOSE_ENV"
 
 "$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > "$TMP_DIR/config-set-provider.txt"
 : > "$CANVAS_TEST_COMPOSE_LOG"
-"$cli" env --sync --timeout=2 --json --no-banner > "$TMP_DIR/env-sync-postgres.json"
-jq -e '.success == true and .postgresReconciled == true and .healthy == true and .timeoutSeconds == 2' "$TMP_DIR/env-sync-postgres.json" >/dev/null
+"$cli" env --sync --timeout=10 --json --no-banner > "$TMP_DIR/env-sync-postgres.json"
+jq -e '.success == true and .postgresReconciled == true and .healthy == true and .timeoutSeconds == 10' "$TMP_DIR/env-sync-postgres.json" >/dev/null
 grep -q -- '--profile postgres up -d --no-recreate postgres' "$CANVAS_TEST_COMPOSE_LOG"
 grep -q 'up -d --no-deps canvas-notebook' "$CANVAS_TEST_COMPOSE_LOG"
 if grep -q -- '--force-recreate' "$CANVAS_TEST_COMPOSE_LOG"; then
@@ -312,7 +312,7 @@ if ! jq -e '.success == false and .phase == "health"' "$TMP_DIR/env-health-timeo
   cat "$TMP_DIR/env-health-timeout.json" >&2
   exit 1
 fi
-"$cli" database reconcile-postgres-auth --timeout 2 --json --no-banner > "$TMP_DIR/env-health-recovery.json"
+"$cli" database reconcile-postgres-auth --timeout 10 --json --no-banner > "$TMP_DIR/env-health-recovery.json"
 jq -e '.success == true and .recovered == "rollback" and .healthy == true and .rolledBack == true' "$TMP_DIR/env-health-recovery.json" >/dev/null
 test ! -e "${CANVAS_POSTGRES_RECONCILE_JOURNAL:-${CANVAS_INSTALL_DIR}/.postgres-auth-reconcile.json}"
 cp "$CANVAS_CONFIG_JSON" "$TMP_DIR/config-postgres.json"

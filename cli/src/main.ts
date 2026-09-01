@@ -5,11 +5,14 @@ import path from 'node:path';
 import {
   configSecretState,
   configureRuntimeAndDatabase,
+  createDefaultConfig,
+  ensurePostgresInfrastructureConfig,
   materializeConfig,
   materializePostgresInfrastructureConfig,
   isSensitiveEnvKey,
   isPinnedImageReference,
   loadConfig,
+  normalizeConfig,
   parseCliDatabaseProvider,
   parseCliRuntimeMode,
   redactConfig,
@@ -19,15 +22,21 @@ import {
   type CliDatabaseProvider,
   type CliRuntimeMode,
 } from './core/config';
+import { AutoUpdateManager, isAutoUpdateCommand, validateAutoUpdateSchedule, type AutoUpdateStatus } from './core/autoUpdate';
+import { CaddyManager, isCaddyCommand, type CaddyStatus } from './core/caddy';
 import { writeComposeFile } from './core/compose';
+import { monotonicDeadlineMs, remainingMonotonicSeconds } from './core/deadline';
+import { collectHostResources } from './core/diagnostics';
 import { DockerManager } from './core/docker';
+import { migrateLegacyConfig } from './core/legacyConfig';
+import { cleanupOrphanedLogFollowers } from './core/logCleanup';
 import {
   acquireOperationLock,
   commandCanRunWithPendingPostgresRecovery,
   commandRequiresOperationLock,
 } from './core/operationLock';
 import { composePath, createRuntimeContext } from './core/platform';
-import { preparePostgresManagedRuntime, postgresRuntimeDesired } from './core/postgres';
+import { preparePostgresManagedRuntime, postgresRuntimeDesired, postgresRuntimeInitialized } from './core/postgres';
 import {
   assertPostgresRecoveryCompatible,
   clearPostgresRecoveryJournal,
@@ -43,13 +52,16 @@ import {
 import { SpawnCommandRunner } from './core/process';
 import { reexecPortableCliIfUpdated, updatePortableCli } from './core/selfUpdate';
 import { ServiceManager } from './core/service';
+import { isSwapCommand, SwapManager, validateSwapConfig, type SwapStatus } from './core/swap';
 import type { CanvasCliConfig, RuntimeContext, StatusJson } from './core/types';
+import { CLI_COMMANDS, CLI_GENERATION, CONFIG_SCHEMA_VERSION, resolveCliVersion } from './core/version';
 
 interface ParsedArgs {
   command: string;
   args: string[];
   json: boolean;
   noBanner: boolean;
+  versionRequested: boolean;
 }
 
 interface InstallOptions {
@@ -64,7 +76,7 @@ interface BackupCreateOptions {
 }
 
 interface EnvOptions {
-  mode: 'render' | 'sync';
+  mode: 'display' | 'render' | 'sync' | 'edit';
   timeoutSeconds: number;
 }
 
@@ -84,12 +96,16 @@ function parseArgs(argv: string[]): ParsedArgs {
   const args = [...argv];
   let json = false;
   let noBanner = false;
+  let versionRequested = false;
   const filtered: string[] = [];
   for (const arg of args) {
     if (arg === '--json') {
       json = true;
       noBanner = true;
     } else if (arg === '--no-banner') {
+      noBanner = true;
+    } else if (arg === '-V' || arg === '--version') {
+      versionRequested = true;
       noBanner = true;
     } else {
       filtered.push(arg);
@@ -100,6 +116,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     args: filtered,
     json,
     noBanner,
+    versionRequested,
   };
 }
 
@@ -113,6 +130,7 @@ function printHelp(): void {
   console.log(`Usage: canvas-notebook <command> [options]
 
 Commands:
+  version [--json]                 Show CLI build information and capabilities
   install [--database sqlite|postgres] [--runtime personal|team]
                                   Generate config, pull image, start container
   update [--image <name@sha256>] [--require-pinned]
@@ -123,14 +141,35 @@ Commands:
   down                            Stop and remove the compose project
   status [--json]                 Show compose/container status
   health [--json]                 Check /api/health
+  diagnose [--json]               Show tolerant host, Docker, and app diagnostics
   logs                            Follow app container logs
   manager-log                     Show host-side CLI log
+  cleanup-logs [--json]           Stop only orphaned log followers for this installation
+  swap [--json]                   Show Canvas-managed Linux swap status
+  swap-sync [--json]              Reconcile Linux swap from the saved configuration
+  swap-apply --enabled <bool> --size <size> --file <path> --swappiness <0-200>
+                                  Save settings and reconcile Linux swap transactionally
+  swap-enable [--size <size>] [--file <path>] [--swappiness <0-200>]
+  swap-disable [--secure]         Disable managed swap; optionally wipe its contents
+  caddy [--json]                  Show Linux Caddy status and the active Caddyfile
+  caddy-reload [--json]           Validate and apply the managed Canvas Caddy site
+  caddy-fix [--json]              Repair known Canvas/default Caddy configuration
+  auto-update-status [--json]     Show Linux systemd auto-update status
+  auto-update-enable [--schedule <calendar>] [--json]
+                                  Install and enable the autonomous update timer
+  auto-update-disable [--json]    Disable autonomous updates safely
+  auto-update-sync [--json]       Reconcile config and systemd timer state
+  env [--json]                    Show the active configuration with secrets masked
+  env --edit [--timeout <seconds>]
+                                  Edit config safely, then apply and wait for health
   env --render | env --sync --timeout <seconds>
                                   Render only, or apply safely and wait for health
   config-show --json --secret-state
                                   Print masked config; optionally include secret fingerprints
   config-set <key> <value> | config-set <key> --stdin
                                   Set a config value; --stdin avoids secret argv exposure
+  config [--json]                 Show active host configuration paths
+  config-migrate [--force]       Import legacy manager, Compose, and env configuration
   cli-update                      Update the portable management CLI bundle
   admin reset-password ...        Reset or create an admin in the container
   backup create [--output <path>] Create/replace the local latest full backup
@@ -142,6 +181,50 @@ Commands:
   database migrate-sqlite-to-postgres [args]
   service status|install|uninstall
 `);
+}
+
+async function printVersion(
+  context: RuntimeContext,
+  docker: DockerManager,
+  json: boolean,
+): Promise<void> {
+  const cliVersion = await resolveCliVersion();
+  const config = await readConfig(context).catch(() => createDefaultConfig(context.paths, context.platform));
+  const containerId = await docker.containerId(config).catch(() => '');
+  const image = await docker.imageStatus(config, containerId).catch(() => ({
+    configuredRef: config.image,
+    localId: '',
+    localDigest: '',
+    localCreated: '',
+    runningRef: '',
+    runningImageId: '',
+    runningStartedAt: '',
+    appVersion: '',
+    cliVersion,
+  }));
+  const payload = {
+    ...image,
+    cliVersion,
+    cliGeneration: CLI_GENERATION,
+    configSchemaVersion: CONFIG_SCHEMA_VERSION,
+    commands: [...CLI_COMMANDS],
+  };
+  if (json) {
+    console.log(JSON.stringify(payload));
+    return;
+  }
+  console.log(`CLI version: ${payload.cliVersion}`);
+  console.log(`CLI generation: ${payload.cliGeneration}`);
+  console.log(`Config schema version: ${payload.configSchemaVersion}`);
+  console.log(`Capabilities: ${payload.commands.join(', ')}`);
+  console.log(`Configured image: ${payload.configuredRef || 'unknown'}`);
+  console.log(`Pulled image digest: ${payload.localDigest || 'unknown'}`);
+  console.log(`Pulled image ID: ${payload.localId || 'unknown'}`);
+  console.log(`Pulled image created: ${payload.localCreated || 'unknown'}`);
+  console.log(`Running image: ${payload.runningRef || 'not running'}`);
+  console.log(`Running image ID: ${payload.runningImageId || 'not running'}`);
+  console.log(`Running app version: ${payload.appVersion || 'unknown'}`);
+  console.log(`Container started: ${payload.runningStartedAt || 'not running'}`);
 }
 
 async function appendLog(context: RuntimeContext, message: string): Promise<void> {
@@ -226,16 +309,20 @@ function parseInstallOptions(args: string[]): InstallOptions {
   return options;
 }
 
-function parseEnvOptions(args: string[]): EnvOptions {
-  let mode: EnvOptions['mode'] | undefined;
+function parseEnvOptions(args: string[], json: boolean): EnvOptions {
+  let render = false;
+  let sync = false;
+  let edit = false;
   let timeoutSeconds = Number(process.env.CANVAS_ENV_SYNC_TIMEOUT || 900);
   let timeoutSet = false;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (arg === '--render' || arg === '--sync') {
-      const nextMode = arg === '--render' ? 'render' : 'sync';
-      if (mode && mode !== nextMode) throw new Error('--render and --sync are mutually exclusive.');
-      mode = nextMode;
+    if (arg === '--render') {
+      render = true;
+    } else if (arg === '--sync') {
+      sync = true;
+    } else if (arg === '--edit') {
+      edit = true;
     } else if (arg === '--timeout' || arg.startsWith('--timeout=')) {
       const parsed = readOptionValue(args, i, '--timeout');
       timeoutSeconds = Number(parsed.value);
@@ -245,8 +332,11 @@ function parseEnvOptions(args: string[]): EnvOptions {
       throw new Error(`Unknown env option: ${arg}`);
     }
   }
-  if (!mode) throw new Error('Usage: canvas-notebook env --render|--sync [--timeout <seconds>]');
-  if (timeoutSet && mode !== 'sync') throw new Error('--timeout requires --sync.');
+  if (render && sync) throw new Error('--render and --sync are mutually exclusive.');
+  if (render && edit) throw new Error('--edit cannot be combined with --render.');
+  if (edit && json) throw new Error('--edit cannot be combined with --json.');
+  const mode: EnvOptions['mode'] = edit ? 'edit' : sync ? 'sync' : render ? 'render' : 'display';
+  if (timeoutSet && mode !== 'sync' && mode !== 'edit') throw new Error('--timeout requires --sync or --edit.');
   if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 7200) {
     throw new Error('--timeout must be an integer from 1 to 7200 seconds.');
   }
@@ -316,8 +406,65 @@ function managedByControlPlane(config: CanvasCliConfig): boolean {
   return ['true', '1', 'yes', 'on'].includes(managed) || String(config.env.CANVAS_CONTROL_PLANE_URL || '').trim().length > 0;
 }
 
+function printEnvironment(config: CanvasCliConfig, json: boolean): void {
+  const masked = redactConfig(config);
+  if (json) {
+    console.log(JSON.stringify(masked));
+    return;
+  }
+  console.log(`Config: ${config.paths.configFile}`);
+  console.log(`Container env: ${config.paths.containerEnvFile}`);
+  console.log(`Compose env: ${config.paths.composeEnvFile}`);
+  console.log('');
+  for (const key of ['domain', 'image', 'hostPort', 'containerPort', 'dataDir'] as const) {
+    console.log(`${key}=${String(masked[key] || '(not set)')}`);
+  }
+  for (const [key, value] of Object.entries(masked.env).sort(([left], [right]) => left.localeCompare(right))) {
+    console.log(`${key}=${String(value || '(not set)')}`);
+  }
+  console.log(`swap.enabled=${masked.swap.enabled}`);
+  console.log(`swap.size=${masked.swap.size}`);
+  console.log(`swap.file=${masked.swap.file}`);
+  console.log(`swap.swappiness=${masked.swap.swappiness}`);
+  console.log(`autoUpdate.enabled=${masked.autoUpdate.enabled}`);
+  console.log(`autoUpdate.schedule=${masked.autoUpdate.schedule}`);
+}
+
+async function editConfig(
+  context: RuntimeContext,
+  runner: SpawnCommandRunner,
+  config: CanvasCliConfig,
+): Promise<CanvasCliConfig> {
+  const explicitEditor = String(process.env.VISUAL || process.env.EDITOR || '').trim();
+  const editor = explicitEditor || (context.platform === 'windows' ? 'notepad.exe' : 'vi');
+  if (/\0|\r|\n/u.test(editor)) throw new Error('EDITOR contains unsupported control characters.');
+
+  await fs.mkdir(config.paths.installDir, { recursive: true });
+  const temporaryDirectory = await fs.mkdtemp(path.join(config.paths.installDir, '.canvas-env-edit-'));
+  const temporaryConfig = path.join(temporaryDirectory, 'canvas-notebook-config.json');
+  try {
+    await fs.chmod(temporaryDirectory, 0o700);
+    await writeSecureFile(temporaryConfig, `${JSON.stringify(config, null, 2)}\n`);
+    const result = await runner.run(editor, [temporaryConfig], { stdio: 'inherit' });
+    if (result.status !== 0) throw new Error(`Editor exited with status ${result.status}.`);
+
+    const edited = JSON.parse(await fs.readFile(temporaryConfig, 'utf8')) as unknown;
+    const next = normalizeConfig(edited, config);
+    next.platform = { ...config.platform };
+    next.paths = { ...config.paths, dataDir: next.dataDir };
+    await writeConfig(next);
+    return next;
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error('Edited configuration is not valid JSON.');
+    throw error;
+  } finally {
+    await fs.rm(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
 async function runEnvCommand(
   context: RuntimeContext,
+  runner: SpawnCommandRunner,
   docker: DockerManager,
   config: CanvasCliConfig,
   args: string[],
@@ -326,9 +473,13 @@ async function runEnvCommand(
   let phase = 'arguments';
   let postgresAuthReconciled = false;
   try {
-    const options = parseEnvOptions(args);
+    const options = parseEnvOptions(args, json);
+    if (options.mode === 'display') {
+      printEnvironment(config, json);
+      return;
+    }
     if (await hasPostgresRecoveryJournal(config)) {
-      if (options.mode !== 'sync') {
+      if (options.mode !== 'sync' && options.mode !== 'edit') {
         phase = 'recovery';
         throw new Error('An interrupted Postgres auth reconciliation is pending; env --render is blocked.');
       }
@@ -336,7 +487,7 @@ async function runEnvCommand(
       await reconcilePostgresAuth(context, docker, config, ['--timeout', String(options.timeoutSeconds)], json, true);
       config = await readConfig(context);
       postgresAuthReconciled = true;
-    } else if (options.mode === 'sync' && postgresRuntimeDesired(config)) {
+    } else if ((options.mode === 'sync' || options.mode === 'edit') && postgresRuntimeDesired(config)) {
       const existingEnvFiles = await Promise.all([
         fs.access(config.paths.containerEnvFile).then(() => true, () => false),
         fs.access(config.paths.composeEnvFile).then(() => true, () => false),
@@ -347,6 +498,10 @@ async function runEnvCommand(
         config = await readConfig(context);
         postgresAuthReconciled = true;
       }
+    }
+    if (options.mode === 'edit') {
+      phase = 'edit';
+      config = await editConfig(context, runner, config);
     }
     phase = 'render';
     const rendered = await renderEnvFiles(context, config);
@@ -391,6 +546,7 @@ async function runEnvCommand(
       compose: 'Compose configuration failed.',
       postgres: 'Postgres credential reconciliation failed.',
       recovery: error instanceof Error ? error.message : 'Interrupted Postgres auth reconciliation could not be completed.',
+      edit: error instanceof Error ? error.message : 'Configuration edit failed.',
       app: 'Canvas Notebook apply failed.',
       health: 'Canvas Notebook did not become healthy within the configured timeout.',
     };
@@ -591,42 +747,215 @@ export async function update(
   }
 }
 
-async function statusJson(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig): Promise<StatusJson> {
-  const [healthy, container] = await Promise.all([
+async function statusJson(
+  context: RuntimeContext,
+  docker: DockerManager,
+  services: ServiceManager,
+  config: CanvasCliConfig,
+): Promise<StatusJson> {
+  const [healthy, dockerReachable, serviceStatus, cliVersion] = await Promise.all([
     docker.isHealthy(config),
-    docker.inspectContainer(config),
+    docker.isReachable().catch(() => false),
+    services.status(config).catch(() => 'service: unknown'),
+    resolveCliVersion(),
   ]);
-  const image = await docker.imageStatus(config, container?.id || '');
+  const container = dockerReachable ? await docker.inspectContainer(config).catch(() => null) : null;
+  const image = dockerReachable
+    ? await docker.imageStatus(config, container?.id || '').catch(() => null)
+    : null;
   return {
     healthy,
-    serviceActive: config.platform.serviceMode,
+    serviceActive: serviceStatus.includes(':') ? serviceStatus.slice(serviceStatus.indexOf(':') + 1).trim() : serviceStatus,
     installDir: config.paths.installDir,
     composeFile: config.paths.composeFile,
     dataDir: config.dataDir,
     managerLog: context.paths.logFile,
-    image,
+    image: image || {
+      configuredRef: config.image,
+      localId: '',
+      localDigest: '',
+      localCreated: '',
+      runningRef: '',
+      runningImageId: '',
+      runningStartedAt: '',
+      appVersion: '',
+      cliVersion,
+    },
     container,
   };
 }
 
+async function diagnosePayload(
+  context: RuntimeContext,
+  docker: DockerManager,
+  services: ServiceManager,
+  config: CanvasCliConfig,
+) {
+  const [status, vm, dockerReachable] = await Promise.all([
+    statusJson(context, docker, services, config),
+    collectHostResources(config.paths.installDir),
+    docker.isReachable().catch(() => false),
+  ]);
+  return {
+    status,
+    vm,
+    platform: context.platform,
+    dockerReachable,
+    healthUrl: docker.healthUrl(config),
+  };
+}
+
+function domainFromBaseUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('Base URL must be a valid http:// or https:// URL.');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Base URL must be a valid http:// or https:// URL.');
+  }
+  return url.hostname;
+}
+
+function validateDomain(value: string): string {
+  const domain = value.trim().toLowerCase();
+  if (!domain) return '';
+  if (domain.length > 253 || !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(domain)) {
+    throw new Error(`Invalid domain: ${value}`);
+  }
+  return domain;
+}
+
+function validateImageReference(value: string): string {
+  const image = value.trim();
+  if (image.length < 1 || image.length > 512 || !/^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?\/)*[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?(?:@sha256:[a-f0-9]{64})?$/u.test(image)) {
+    throw new Error(`Invalid OCI image reference: ${value}`);
+  }
+  return image;
+}
+
+function validateDataDirectory(config: CanvasCliConfig, value: string): string {
+  const dataDirectory = value.trim();
+  const absolute = config.platform.os === 'windows'
+    ? path.win32.isAbsolute(dataDirectory)
+    : path.posix.isAbsolute(dataDirectory);
+  if (!absolute || /[\0\r\n]/u.test(dataDirectory)) {
+    throw new Error('dataDir must be an absolute path without control characters.');
+  }
+  return dataDirectory;
+}
+
 function setConfigValue(config: CanvasCliConfig, key: string, value: string): CanvasCliConfig {
   const next = structuredClone(config);
-  const normalizedValue = value === 'true' ? true : value === 'false' ? false : /^\d+$/.test(value) ? Number(value) : value;
   if (key === 'hostPort' || key === 'containerPort') {
     const port = Number(value);
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Invalid port: ${value}`);
     next[key] = port;
     return next;
   }
-  if (key === 'image' || key === 'domain' || key === 'dataDir') {
-    next[key] = String(value);
-    if (key === 'dataDir') {
-      next.paths.dataDir = String(value);
+  if (key === 'image') {
+    next.image = validateImageReference(value);
+    return next;
+  }
+  if (key === 'domain') {
+    next.domain = validateDomain(value);
+    if (next.domain) {
+      next.env.BASE_URL = `https://${next.domain}`;
+      next.env.BETTER_AUTH_BASE_URL = `https://${next.domain}`;
     }
     return next;
   }
+  if (key === 'dataDir') {
+    next.dataDir = validateDataDirectory(config, value);
+    next.paths.dataDir = next.dataDir;
+    return next;
+  }
+  if (key === 'swap.enabled') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) next.swap.enabled = true;
+    else if (['false', '0', 'no', 'off', 'disabled'].includes(normalized)) next.swap.enabled = false;
+    else throw new Error('Swap enabled must be true or false.');
+    return next;
+  }
+  if (key === 'swap.size') {
+    const match = value.match(/^([0-9]+)([KMGT])$/iu);
+    if (!match || match[1].length > 8) {
+      throw new Error(`Invalid swap size "${value}". Expected a value between 128M and 16G.`);
+    }
+    const amount = Number(match[1]);
+    const unit = match[2].toUpperCase();
+    const sizeInKib = amount * ({ K: 1, M: 1024, G: 1024 * 1024, T: 1024 * 1024 * 1024 }[unit] || 0);
+    if (!Number.isSafeInteger(sizeInKib) || sizeInKib < 128 * 1024 || sizeInKib > 16 * 1024 * 1024) {
+      throw new Error('Swap size must be between 128M and 16G.');
+    }
+    next.swap.size = value;
+    return next;
+  }
+  if (key === 'swap.file') {
+    const managedSwapFile = process.env.CANVAS_SWAP_TEST_ROOT
+      ? path.join(path.resolve(process.env.CANVAS_SWAP_TEST_ROOT), 'swapfile')
+      : '/swapfile';
+    if (value !== managedSwapFile) {
+      throw new Error(`Canvas-managed swap file path must be ${managedSwapFile}.`);
+    }
+    next.swap.file = value;
+    return next;
+  }
+  if (key === 'swap.swappiness') {
+    const swappiness = Number(value);
+    if (!/^\d+$/u.test(value) || !Number.isInteger(swappiness) || swappiness < 0 || swappiness > 200) {
+      throw new Error('Swap swappiness must be an integer between 0 and 200.');
+    }
+    next.swap.swappiness = swappiness;
+    return next;
+  }
+  if (key === 'autoUpdate.enabled') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) next.autoUpdate.enabled = true;
+    else if (['false', '0', 'no', 'off', 'disabled'].includes(normalized)) next.autoUpdate.enabled = false;
+    else throw new Error('Auto-update enabled must be true or false.');
+    return next;
+  }
+  if (key === 'autoUpdate.schedule') {
+    if (!/^[*0-9]{1,2}-[*0-9]{1,2}-[*0-9]{1,2} [*0-9:,]+$/u.test(value)) {
+      throw new Error(`Invalid systemd schedule format "${value}". Example: "*-*-* 04:00:00".`);
+    }
+    next.autoUpdate.schedule = value;
+    return next;
+  }
   if (key.startsWith('env.')) {
-    next.env[key.slice(4)] = normalizedValue;
+    const envKey = key.slice(4);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(envKey)) throw new Error(`Invalid environment key: ${envKey || '(empty)'}`);
+    if (envKey === 'BOOTSTRAP_ADMIN_PASSWORD') {
+      throw new Error('BOOTSTRAP_ADMIN_PASSWORD is not stored in config.json. Use admin reset-password --password-stdin.');
+    }
+    if (envKey === 'BETTER_AUTH_BASE_URL' && value) {
+      next.domain = domainFromBaseUrl(value);
+      next.env.BETTER_AUTH_BASE_URL = value;
+      next.env.BASE_URL = value;
+      return next;
+    }
+    if (envKey === 'BASE_URL' && value) {
+      next.domain = domainFromBaseUrl(value);
+      next.env.BASE_URL = value;
+      if (!String(next.env.BETTER_AUTH_BASE_URL || '').trim()) next.env.BETTER_AUTH_BASE_URL = value;
+      return next;
+    }
+    if (envKey === 'CANVAS_DATABASE_PROVIDER') {
+      next.env[envKey] = parseCliDatabaseProvider(value);
+      return next;
+    }
+    if (envKey === 'CANVAS_DEPLOYMENT_MODE') {
+      next.env[envKey] = value.trim().toLowerCase();
+      return next;
+    }
+    if (envKey === 'DATABASE_URL' && value && !/^postgres(?:ql)?:\/\//u.test(value)) {
+      throw new Error('DATABASE_URL must use postgres:// or postgresql://');
+    }
+    next.env[envKey] = isSensitiveEnvKey(envKey)
+      ? value
+      : value === 'true' ? true : value === 'false' ? false : value;
     return next;
   }
   throw new Error(`Unsupported config key: ${key}`);
@@ -642,6 +971,245 @@ async function readSingleLineStdin(): Promise<string> {
     throw new Error('config-set --stdin accepts a single-line value.');
   }
   return value;
+}
+
+function printSwapStatus(status: SwapStatus, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify(status));
+    return;
+  }
+  console.log(`Canvas swap enabled setting: ${status.enabled}`);
+  console.log(`Canvas swap file: ${status.file}`);
+  console.log(`Canvas swap size: ${status.configuredSize}`);
+  console.log(`Canvas swap swappiness: ${status.configuredSwappiness}`);
+  console.log(`Canvas swap active: ${status.active}`);
+  console.log(`Canvas swap persistent: ${status.persistent}`);
+  console.log(`Canvas swap in sync: ${status.inSync}`);
+  if (status.error) console.error(`Canvas swap error: ${status.error}`);
+}
+
+function printCaddyStatus(status: CaddyStatus, json: boolean, content: string | null = null): void {
+  if (json) {
+    console.log(JSON.stringify(status));
+    return;
+  }
+  console.log(`Configured base URL: ${status.configuredBaseUrl || '(not set)'}`);
+  console.log(`Caddy domain: ${status.domain || '(not set)'}`);
+  console.log(`Public domain: ${status.publicDomain}`);
+  console.log(`Caddy installed: ${status.installed}`);
+  console.log(`Caddy service active: ${status.serviceActive}`);
+  console.log(`Caddyfile: ${status.caddyfile}`);
+  console.log(`Caddyfile managed: ${status.caddyfileManaged}`);
+  console.log(`Legacy Canvas config present: ${status.legacyConfigExists}`);
+  console.log(`Caddy configuration in sync: ${status.inSync}`);
+  if (status.issues.length > 0) console.log(`Caddy issues: ${status.issues.join(', ')}`);
+  if (status.error) console.error(`Caddy error: ${status.error}`);
+  if (content !== null) {
+    console.log('');
+    console.log(content.trimEnd());
+  }
+}
+
+function printAutoUpdateStatus(status: AutoUpdateStatus, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify(status));
+    return;
+  }
+  console.log(`Auto-update enabled setting: ${status.configuredEnabled}`);
+  console.log(`Auto-update schedule: ${status.configuredSchedule}`);
+  console.log(`Managed by Control Plane: ${status.managedByControlPlane}`);
+  console.log(`Configured image pinned: ${status.imagePinned}`);
+  console.log(`Timer unit installed: ${status.timerUnitInstalled}`);
+  console.log(`Service unit installed: ${status.serviceUnitInstalled}`);
+  console.log(`Timer active: ${status.timerActive}`);
+  console.log(`Update service state: ${status.serviceState}`);
+  console.log(`Next scheduled run: ${status.nextRun || '(not scheduled)'}`);
+  console.log(`Auto-update in sync: ${status.inSync}`);
+  if (status.issues.length > 0) console.log(`Auto-update issues: ${status.issues.join(', ')}`);
+  if (status.error) console.error(`Auto-update error: ${status.error}`);
+}
+
+async function runAutoUpdateCommand(
+  command: string,
+  args: string[],
+  json: boolean,
+  context: RuntimeContext,
+  runner: SpawnCommandRunner,
+  currentConfig: CanvasCliConfig,
+): Promise<void> {
+  const autoUpdate = new AutoUpdateManager(runner, context);
+  if (args.includes('-h') || args.includes('--help')) {
+    if (args.length !== 1) throw new Error(`Usage: canvas-notebook ${command} [--json]`);
+    console.log(command === 'auto-update-enable'
+      ? 'Usage: canvas-notebook auto-update-enable [--schedule <calendar>] [--json]'
+      : `Usage: canvas-notebook ${command} [--json]`);
+    return;
+  }
+  const next = structuredClone(currentConfig);
+  if (command === 'auto-update-enable') {
+    let scheduleSet = false;
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg !== '--schedule' && !arg.startsWith('--schedule=')) throw new Error(`Unknown auto-update-enable option: ${arg}`);
+      if (scheduleSet) throw new Error('--schedule can only be provided once.');
+      const parsed = readOptionValue(args, index, '--schedule');
+      next.autoUpdate.schedule = validateAutoUpdateSchedule(parsed.value);
+      scheduleSet = true;
+      index = parsed.nextIndex;
+    }
+    next.autoUpdate.enabled = true;
+  } else if (args.length > 0) {
+    throw new Error(`Usage: canvas-notebook ${command} [--json]`);
+  }
+  if (command === 'auto-update-disable') next.autoUpdate.enabled = false;
+  try {
+    if (command === 'auto-update-status') {
+      printAutoUpdateStatus(await autoUpdate.status(currentConfig), json);
+      return;
+    }
+    const action = command === 'auto-update-enable' ? 'enable' : command === 'auto-update-disable' ? 'disable' : 'sync';
+    const result = await autoUpdate.apply(next, action);
+    next.autoUpdate.enabled = result.effectiveEnabled;
+    try {
+      await writeConfig(next);
+    } catch (error) {
+      await autoUpdate.apply(currentConfig, 'sync').catch(() => undefined);
+      throw error;
+    }
+    await appendLog(context, command);
+    printAutoUpdateStatus(result, json);
+  } catch (error) {
+    const latestConfig = await readConfig(context).catch(() => currentConfig);
+    const detail = error instanceof Error ? error.message : 'Auto-update operation failed.';
+    printAutoUpdateStatus(await autoUpdate.status(latestConfig, detail), json);
+    process.exitCode = 1;
+  }
+}
+
+async function runCaddyCommand(
+  command: string,
+  args: string[],
+  json: boolean,
+  context: RuntimeContext,
+  runner: SpawnCommandRunner,
+  config: CanvasCliConfig,
+): Promise<void> {
+  const caddy = new CaddyManager(runner, context);
+  if (args.includes('-h') || args.includes('--help')) {
+    if (args.length !== 1) throw new Error(`Usage: canvas-notebook ${command} [--json]`);
+    console.log(`Usage: canvas-notebook ${command} [--json]`);
+    return;
+  }
+  if (args.length > 0) throw new Error(`Usage: canvas-notebook ${command} [--json]`);
+  try {
+    if (command === 'caddy') {
+      const [status, content] = await Promise.all([
+        caddy.status(config),
+        json ? Promise.resolve(null) : caddy.displayContent(),
+      ]);
+      printCaddyStatus(status, json, content);
+      return;
+    }
+    await appendLog(context, command);
+    printCaddyStatus(await caddy.apply(config, { repair: command === 'caddy-fix' }), json);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Caddy operation failed.';
+    printCaddyStatus(await caddy.status(config, errorMessage), json);
+    process.exitCode = 1;
+  }
+}
+
+function swapConfigFromCommand(
+  command: string,
+  args: string[],
+  config: CanvasCliConfig,
+  managedFile: string,
+): { config: CanvasCliConfig; secure: boolean; showHelp: boolean } {
+  if (args.includes('-h') || args.includes('--help')) {
+    return { config, secure: false, showHelp: true };
+  }
+  const next = structuredClone(config);
+  let secure = false;
+  const supplied = new Set<string>();
+  if (command === 'swap' || command === 'swap-sync') {
+    if (args.length > 0) throw new Error(`Usage: canvas-notebook ${command} [--json]`);
+    return { config: next, secure, showHelp: false };
+  }
+  if (command === 'swap-disable') {
+    for (const arg of args) {
+      if (arg === '--secure' && !secure) secure = true;
+      else throw new Error('Usage: canvas-notebook swap-disable [--secure] [--json]');
+    }
+    next.swap.enabled = false;
+    validateSwapConfig(next, managedFile);
+    return { config: next, secure, showHelp: false };
+  }
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    const option = ['--enabled', '--size', '--file', '--swappiness']
+      .find((candidate) => arg === candidate || arg.startsWith(`${candidate}=`));
+    if (!option) throw new Error(`Unknown ${command} option: ${arg}`);
+    if (supplied.has(option)) throw new Error(`${option} can only be provided once.`);
+    supplied.add(option);
+    const parsed = readOptionValue(args, i, option);
+    i = parsed.nextIndex;
+    if (option === '--enabled') {
+      const normalized = parsed.value.trim().toLowerCase();
+      if (normalized !== 'true' && normalized !== 'false') throw new Error('--enabled must be true or false.');
+      next.swap.enabled = normalized === 'true';
+    } else if (option === '--size') next.swap.size = parsed.value.toUpperCase();
+    else if (option === '--file') next.swap.file = parsed.value;
+    else next.swap.swappiness = Number(parsed.value);
+  }
+  if (command === 'swap-apply') {
+    for (const required of ['--enabled', '--size', '--file', '--swappiness']) {
+      if (!supplied.has(required)) {
+        throw new Error('swap-apply requires --enabled, --size, --file, and --swappiness.');
+      }
+    }
+  } else if (command === 'swap-enable') {
+    if (supplied.has('--enabled')) throw new Error('swap-enable does not accept --enabled.');
+    next.swap.enabled = true;
+  } else {
+    throw new Error(`Unknown swap command: ${command}`);
+  }
+  validateSwapConfig(next, managedFile);
+  return { config: next, secure, showHelp: false };
+}
+
+async function runSwapCommand(
+  command: string,
+  args: string[],
+  json: boolean,
+  context: RuntimeContext,
+  runner: SpawnCommandRunner,
+  currentConfig: CanvasCliConfig,
+): Promise<void> {
+  const swap = new SwapManager(runner, context);
+  let statusConfig = currentConfig;
+  try {
+    const parsed = swapConfigFromCommand(command, args, currentConfig, swap.managedFile());
+    if (parsed.showHelp) {
+      console.log('Usage: canvas-notebook swap|swap-sync|swap-apply|swap-enable|swap-disable [options]');
+      return;
+    }
+    if (command === 'swap') {
+      printSwapStatus(await swap.status(currentConfig), json);
+      return;
+    }
+    if (parsed.secure) await swap.journalSecureIntent(parsed.config.swap.file);
+    if (command !== 'swap-sync') {
+      await writeConfig(parsed.config);
+      statusConfig = parsed.config;
+    }
+    await appendLog(context, `${command}${parsed.secure ? ' --secure' : ''}`);
+    printSwapStatus(await swap.reconcile(parsed.config, parsed.secure), json);
+  } catch (error) {
+    statusConfig = await readConfig(context).catch(() => statusConfig);
+    const message = error instanceof Error ? error.message : 'Swap reconciliation failed';
+    printSwapStatus(await swap.status(statusConfig, message), json);
+    process.exitCode = 1;
+  }
 }
 
 function databaseStatusPayload(config: CanvasCliConfig) {
@@ -736,17 +1304,18 @@ async function reconcilePostgresAuth(
   let oldComposeEnv = '';
   let roleMutationStarted = false;
   let timeoutSeconds = 900;
-  let deadline = Date.now() + timeoutSeconds * 1000;
+  let deadline = monotonicDeadlineMs(timeoutSeconds);
   let forwardDeadline = deadline;
   let recoveryJournal: PostgresRecoveryJournal | null = null;
   let recoverySnapshot: PostgresRecoverySnapshot | null = null;
   let journalArmed = false;
   let journalWasPending = false;
-  const remainingSeconds = (target: number): number => Math.max(0, Math.ceil((target - Date.now()) / 1000));
+  let freshInitialization = false;
+  const remainingSeconds = (target: number): number => remainingMonotonicSeconds(target);
   try {
     timeoutSeconds = parsePostgresReconcileTimeout(args);
     const rollbackReserve = timeoutSeconds > 1 ? Math.min(30, Math.max(1, Math.floor(timeoutSeconds / 5))) : 0;
-    deadline = Date.now() + timeoutSeconds * 1000;
+    deadline = monotonicDeadlineMs(timeoutSeconds);
     forwardDeadline = deadline - rollbackReserve * 1000;
     phase = 'preflight';
     if (!postgresRuntimeDesired(config)) throw new Error('Managed Postgres is not enabled for this installation.');
@@ -802,20 +1371,32 @@ async function reconcilePostgresAuth(
     const desiredUser = String(config.env.CANVAS_POSTGRES_USER || 'canvas');
     const desiredDatabase = String(config.env.CANVAS_POSTGRES_DB || 'canvas_notebook');
     if (!oldUser || !oldDatabase || oldPassword.length < 8 || oldPassword.includes('***')) {
-      throw new Error('Existing Postgres credentials are unavailable for safe rollback.');
+      if (journalWasPending || await postgresRuntimeInitialized(docker, config)) {
+        throw new Error('Existing Postgres credentials are unavailable for safe rollback.');
+      }
+      freshInitialization = true;
+    } else {
+      if (oldUser !== desiredUser || oldDatabase !== desiredDatabase) {
+        throw new Error('CANVAS_POSTGRES_USER and CANVAS_POSTGRES_DB cannot be changed after initialization.');
+      }
+      rollbackConfig ??= rollbackPostgresConfig(config, oldUser, oldDatabase, oldPassword, oldDatabaseUrl);
+      recoverySnapshot ??= { rollbackConfig, containerEnv: oldContainerEnv, composeEnv: oldComposeEnv };
     }
-    if (oldUser !== desiredUser || oldDatabase !== desiredDatabase) {
-      throw new Error('CANVAS_POSTGRES_USER and CANVAS_POSTGRES_DB cannot be changed after initialization.');
-    }
-    rollbackConfig ??= rollbackPostgresConfig(config, oldUser, oldDatabase, oldPassword, oldDatabaseUrl);
-    recoverySnapshot ??= { rollbackConfig, containerEnv: oldContainerEnv, composeEnv: oldComposeEnv };
     phase = 'compose';
     await writeComposeFile(config, context.platform);
-    if (!journalWasPending) {
-      await createPostgresRecoverySnapshot(config, recoverySnapshot);
+    if (freshInitialization) {
+      await renderEnvFiles(context, config);
     }
-    recoveryJournal = await writePostgresRecoveryJournal(config, rollbackConfig, 'forward', recoveryJournal);
-    journalArmed = true;
+    if (!freshInitialization) {
+      if (!rollbackConfig || !recoverySnapshot) {
+        throw new Error('Postgres rollback recovery state is unavailable.');
+      }
+      if (!journalWasPending) {
+        await createPostgresRecoverySnapshot(config, recoverySnapshot);
+      }
+      recoveryJournal = await writePostgresRecoveryJournal(config, rollbackConfig, 'forward', recoveryJournal);
+      journalArmed = true;
+    }
     const postgresTimeout = remainingSeconds(forwardDeadline);
     if (postgresTimeout < 1) throw new Error('Forward deadline exhausted before Postgres readiness.');
     await preparePostgresManagedRuntime({
@@ -823,7 +1404,7 @@ async function reconcilePostgresAuth(
       config,
       stdio: json ? 'pipe' : 'inherit',
       timeoutSeconds: postgresTimeout,
-      reconcileAuth: true,
+      reconcileAuth: !freshInitialization,
       onPhase: (nextPhase) => {
         phase = nextPhase;
         if (nextPhase === 'alter_role') roleMutationStarted = true;
@@ -840,7 +1421,7 @@ async function reconcilePostgresAuth(
     const healthTimeout = remainingSeconds(forwardDeadline);
     if (healthTimeout < 1) throw new Error('Forward deadline exhausted before health verification.');
     await docker.waitUntilHealthy(rendered.config, healthTimeout, healthTimeout * 1000);
-    await clearPostgresRecoveryJournal(config);
+    if (!freshInitialization) await clearPostgresRecoveryJournal(config);
     journalArmed = false;
     const result = {
       success: true,
@@ -978,6 +1559,8 @@ async function database(context: RuntimeContext, docker: DockerManager, config: 
       fs.readFile(config.paths.composeEnvFile, 'utf8').catch(() => null),
     ]);
     if (existingEnvFiles.every((content) => content !== null) && postgresRuntimeDesired(config)) {
+      config = ensurePostgresInfrastructureConfig(config, { allowSecretGeneration: false });
+      await writeConfig(config);
       await reconcilePostgresAuth(context, docker, config, ['--timeout', String(timeoutSeconds)], json, true);
       config = await readConfig(context);
     }
@@ -1113,10 +1696,40 @@ async function main(): Promise<void> {
   const docker = new DockerManager(runner, context);
   const services = new ServiceManager(runner, context);
 
-  if (!parsed.noBanner && parsed.command !== 'help') printBanner(context);
+  const versionCommand = parsed.versionRequested || parsed.command === 'version';
+  if (!parsed.noBanner && parsed.command !== 'help' && !versionCommand) printBanner(context);
+
+  if (versionCommand) {
+    await printVersion(context, docker, parsed.json);
+    return;
+  }
 
   if (parsed.command === 'help' || parsed.command === '-h' || parsed.command === '--help') {
     printHelp();
+    return;
+  }
+
+  if (isSwapCommand(parsed.command) && context.platform !== 'linux') {
+    const error = 'Swap management is only supported on Linux. No host changes were made.';
+    if (parsed.json) console.log(JSON.stringify({ success: false, error }));
+    else console.error(error);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (isCaddyCommand(parsed.command) && context.platform !== 'linux') {
+    const error = 'Caddy management is only supported on Linux. No host changes were made.';
+    if (parsed.json) console.log(JSON.stringify({ success: false, error }));
+    else console.error(error);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (isAutoUpdateCommand(parsed.command) && context.platform !== 'linux') {
+    const error = 'Auto-update management is only supported on Linux systemd hosts. No host changes were made.';
+    if (parsed.json) console.log(JSON.stringify({ success: false, error }));
+    else console.error(error);
+    process.exitCode = 1;
     return;
   }
 
@@ -1193,16 +1806,40 @@ async function main(): Promise<void> {
     case 'status':
     case 'ps':
       if (parsed.json) {
-        console.log(JSON.stringify(await statusJson(context, docker, config)));
+        console.log(JSON.stringify(await statusJson(context, docker, services, config)));
       } else {
-        await docker.composeOrThrow(config, ['ps'], 'inherit');
+        const status = await statusJson(context, docker, services, config);
+        console.log(`Health: ${status.healthy ? 'ok' : 'failed'}`);
+        console.log(`Service: ${status.serviceActive}`);
+        console.log(`Container: ${status.container?.status || 'not available'}`);
+        console.log(`Configured image: ${status.image.configuredRef}`);
       }
       break;
     case 'health': {
-      const healthy = await docker.isHealthy(config);
+      const healthy = await docker.isHealthy(config).catch(() => false);
       if (parsed.json) console.log(JSON.stringify({ healthy }));
       else if (healthy) console.log(`ok ${docker.healthUrl(config)}`);
       if (!healthy) process.exitCode = 1;
+      break;
+    }
+    case 'diagnose': {
+      if (parsed.args.length > 0) throw new Error('Usage: canvas-notebook diagnose [--json]');
+      const diagnosis = await diagnosePayload(context, docker, services, config);
+      if (parsed.json) console.log(JSON.stringify(diagnosis));
+      else {
+        console.log('== Canvas Notebook ==');
+        console.log(`Install dir: ${diagnosis.status.installDir}`);
+        console.log(`Compose file: ${diagnosis.status.composeFile}`);
+        console.log(`Health URL: ${diagnosis.healthUrl}`);
+        console.log(`Health: ${diagnosis.status.healthy ? 'ok' : 'failed'}`);
+        console.log(`Docker: ${diagnosis.dockerReachable ? 'reachable' : 'not reachable'}`);
+        console.log(`Container: ${diagnosis.status.container?.status || 'not available'}`);
+        console.log('');
+        console.log('== Host resources ==');
+        console.log(`Memory: ${diagnosis.vm.memoryAvailableBytes}/${diagnosis.vm.memoryTotalBytes} bytes available`);
+        console.log(`Disk: ${diagnosis.vm.diskAvailableBytes}/${diagnosis.vm.diskTotalBytes} bytes available`);
+        console.log(`Uptime: ${Math.floor(diagnosis.vm.uptimeSeconds)} seconds`);
+      }
       break;
     }
     case 'logs':
@@ -1212,8 +1849,33 @@ async function main(): Promise<void> {
     case 'manager-log':
       console.log(await fs.readFile(context.paths.logFile, 'utf8').catch(() => ''));
       break;
+    case 'cleanup-logs': {
+      if (parsed.args.length > 0) throw new Error('Usage: canvas-notebook cleanup-logs [--json]');
+      const pids = await cleanupOrphanedLogFollowers({ runner, context, config });
+      if (parsed.json) console.log(JSON.stringify({ success: true, killed: pids.length, pids }));
+      else console.log(`Stopped ${pids.length} orphaned compose-log follower${pids.length === 1 ? '' : 's'}.`);
+      break;
+    }
+    case 'swap':
+    case 'swap-sync':
+    case 'swap-apply':
+    case 'swap-enable':
+    case 'swap-disable':
+      await runSwapCommand(parsed.command, parsed.args, parsed.json, context, runner, config);
+      break;
+    case 'caddy':
+    case 'caddy-reload':
+    case 'caddy-fix':
+      await runCaddyCommand(parsed.command, parsed.args, parsed.json, context, runner, config);
+      break;
+    case 'auto-update-status':
+    case 'auto-update-enable':
+    case 'auto-update-disable':
+    case 'auto-update-sync':
+      await runAutoUpdateCommand(parsed.command, parsed.args, parsed.json, context, runner, config);
+      break;
     case 'env':
-      await runEnvCommand(context, docker, config, parsed.args, parsed.json);
+      await runEnvCommand(context, runner, docker, config, parsed.args, parsed.json);
       break;
     case 'config-show': {
       const includeSecretState = parsed.args.includes('--secret-state');
@@ -1223,6 +1885,47 @@ async function main(): Promise<void> {
         ? { ...redactConfig(config), secretState: configSecretState(config) }
         : redactConfig(config);
       console.log(JSON.stringify(output, null, 2));
+      break;
+    }
+    case 'config': {
+      if (parsed.args.length > 0) throw new Error('Usage: canvas-notebook config [--json]');
+      const output = {
+        installDir: context.paths.installDir,
+        composeFile: context.paths.composeFile,
+        dataDir: config.dataDir,
+        configFile: context.paths.configFile,
+        containerEnv: context.paths.containerEnvFile,
+        composeEnv: context.paths.composeEnvFile,
+        managerLog: context.paths.logFile,
+      };
+      if (parsed.json) console.log(JSON.stringify(output));
+      else {
+        console.log(`Install dir: ${output.installDir}`);
+        console.log(`Compose file: ${output.composeFile}`);
+        console.log(`Data dir: ${output.dataDir}`);
+        console.log(`Config file: ${output.configFile}`);
+        console.log(`Container env: ${output.containerEnv}`);
+        console.log(`Compose env: ${output.composeEnv}`);
+        console.log(`Manager log: ${output.managerLog}`);
+      }
+      break;
+    }
+    case 'config-migrate': {
+      if (parsed.args.some((arg) => arg !== '--force')) throw new Error('Usage: canvas-notebook config-migrate [--force]');
+      const result = await migrateLegacyConfig({
+        context,
+        currentConfig: config,
+        force: parsed.args.includes('--force'),
+      });
+      if (!result.skipped) await writeConfig(result.config);
+      if (parsed.json) console.log(JSON.stringify({
+        success: true,
+        skipped: result.skipped,
+        configFile: result.configFile,
+        sources: result.sources,
+      }));
+      else if (result.skipped) console.log(`config.json already exists at ${result.configFile}; use --force to migrate again.`);
+      else console.log(`Migration complete: ${result.configFile}`);
       break;
     }
     case 'config-set': {

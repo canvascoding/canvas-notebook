@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent, type PointerEvent } from 'react';
 import { useTranslations } from 'next-intl';
 import { useFileStore } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
@@ -13,9 +13,11 @@ import {
   validateWorkspaceFileDrop,
   type WorkspaceFileDragPayload,
 } from '@/app/lib/files/file-drag';
+import { getCanvasDesktopFileDragBridge } from '@/app/lib/desktop/file-drag';
 import type { WorkspaceMoveController } from './useWorkspaceMove';
 
 const TREE_AUTO_EXPAND_DELAY_MS = 650;
+const DESKTOP_FILE_DRAG_PREPARE_TTL_MS = 8 * 60 * 1000;
 const DROP_TARGET_SELECTOR = '[data-file-drop-path]';
 
 interface UseFileMoveDragOptions {
@@ -43,6 +45,7 @@ export function useFileMoveDrag({ controller }: UseFileMoveDragOptions) {
   const dragPayloadRef = useRef<WorkspaceFileDragPayload | null>(null);
   const dropTargetPathRef = useRef<string | null>(null);
   const autoExpandTimerRef = useRef<number | null>(null);
+  const preparedDesktopPathsRef = useRef(new Map<string, number>());
 
   const stopAutoExpand = useCallback(() => {
     if (autoExpandTimerRef.current !== null) {
@@ -120,12 +123,39 @@ export function useFileMoveDrag({ controller }: UseFileMoveDragOptions) {
     event.dataTransfer.setData(WORKSPACE_FILE_DRAG_TYPE, encodeWorkspaceFileDrag(payload));
     event.dataTransfer.setData('text/plain', paths.join('\n'));
 
+    if (payload.workspaceId) {
+      const desktopBridge = getCanvasDesktopFileDragBridge();
+      if (desktopBridge) {
+        const desktopRequest = { workspaceId: payload.workspaceId, paths: payload.paths };
+        void desktopBridge.prepareFileDrag(desktopRequest).catch(() => undefined);
+        desktopBridge.startFileDrag(desktopRequest);
+      }
+    }
+
     const preview = createDragPreview(t('selectedCount', { count: paths.length }));
     event.dataTransfer.setDragImage(preview, 16, 16);
     window.setTimeout(() => preview.remove(), 0);
     state.closeContextMenu();
     state.closeBackgroundContextMenu();
   }, [controller.isMoving, t]);
+
+  const handlePointerMove = useCallback((event: PointerEvent<HTMLElement>) => {
+    const item = event.target instanceof Element
+      ? event.target.closest<HTMLElement>('[data-file-path]')
+      : null;
+    const sourcePath = item?.dataset.filePath;
+    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    if (!sourcePath || !workspaceId) return;
+    const preparedAt = preparedDesktopPathsRef.current.get(sourcePath);
+    if (preparedAt !== undefined && Date.now() - preparedAt < DESKTOP_FILE_DRAG_PREPARE_TTL_MS) return;
+
+    const desktopBridge = getCanvasDesktopFileDragBridge();
+    if (!desktopBridge) return;
+    preparedDesktopPathsRef.current.set(sourcePath, Date.now());
+    void desktopBridge.prepareFileDrag({ workspaceId, paths: [sourcePath] }).catch(() => {
+      preparedDesktopPathsRef.current.delete(sourcePath);
+    });
+  }, []);
 
   const handleDragOver = useCallback((event: DragEvent<HTMLElement>) => {
     if (!hasWorkspaceFileDragType(event.dataTransfer.types)) return;
@@ -199,6 +229,7 @@ export function useFileMoveDrag({ controller }: UseFileMoveDragOptions) {
     ),
     handlers: {
       onDragStart: handleDragStart,
+      onPointerMove: handlePointerMove,
       onDragOver: handleDragOver,
       onDragLeave: handleDragLeave,
       onDrop: handleDrop,

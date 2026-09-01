@@ -28,9 +28,8 @@ import {
   type PersistedExcalidrawScene,
 } from '@/app/lib/excalidraw-collaboration/repository';
 import { installExcalidrawCollaborationRuntime } from '@/app/lib/excalidraw-collaboration/runtime';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
+import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
-import { requireRuntimeCapability, requireTeamRuntimeLicense } from '@/app/lib/license/entitlements';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { resolvePostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
@@ -249,9 +248,7 @@ async function authenticateConnection(
   if (authMessage.type !== 'authenticate' || typeof authMessage.token !== 'string' || authMessage.token.length > 8_192) {
     throw new Error('Invalid Excalidraw authentication message.');
   }
-  if (getDatabaseProvider() !== 'postgres') throw new Error('Excalidraw collaboration requires Postgres.');
-  await requireTeamRuntimeLicense();
-  await requireRuntimeCapability('liveCollaboration');
+  if (!liveCollaborationRuntimeAvailable()) throw new Error('Excalidraw collaboration requires Postgres.');
   const claims = verifyCollaborationTicket(authMessage.token);
   if (claims.provider !== 'excalidraw' || claims.representation !== 'excalidraw_scene') throw new Error('Ticket is not valid for Excalidraw collaboration.');
   const session = await auth.api.getSession({ headers });

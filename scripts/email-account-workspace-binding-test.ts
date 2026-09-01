@@ -19,6 +19,12 @@ moduleInternals._load = (request, parent, isMain) => {
 };
 
 type WorkspaceRow = { id: string };
+type SentEmailInput = { to: string[]; subject: string; body: string; attachments: Array<{ uploadId?: string }> };
+
+function requireSentEmailInput(input: SentEmailInput | null): SentEmailInput {
+  if (!input) throw new Error('Expected the workspace outbox draft to be sent.');
+  return input;
+}
 
 function verifyLegacyEmailAccountMigration() {
   const legacy = new Database(':memory:');
@@ -247,15 +253,26 @@ async function main() {
     assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).length, 1);
     const outboxDraft = await createWorkspaceOutboxDraft({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, mailboxId: activeMailbox.id, inboxCaseId: inboxCase.id,
-      subject: 'Re: Support request', body: '<p>We will help.</p>', to: ['customer@example.test'],
+      subject: 'Re: Support request', body: 'We will help.\n\nBest regards,', to: ['customer@example.test'],
+      attachments: [{ source: 'upload', uploadId: 'agent-report.pdf', name: 'agent-report.pdf', mimeType: 'application/pdf', size: 42 }],
     });
     assert.equal(outboxDraft.status, 'awaiting_review');
+    assert.equal(outboxDraft.body, '<p>We will help.</p><p>Best regards,</p>');
+    assert.deepEqual(outboxDraft.attachments, [{
+      source: 'upload', contentId: undefined, disposition: 'attachment', name: 'agent-report.pdf', mimeType: 'application/pdf',
+      size: 42, path: undefined, uploadId: 'agent-report.pdf', deliveryFormat: undefined,
+    }]);
     assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).find((item) => item.id === inboxCase.id)?.status, 'awaiting_review');
     const edited = await updateWorkspaceOutboxDraft({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: 1,
-      subject: 'Re: Support request', body: '<p>We will help shortly.</p>', to: ['customer@example.test'], status: 'editing',
+      subject: 'Re: Support request', body: 'We will help shortly.',
+      bodyHtml: '<p>We will <strong>help shortly</strong>.</p><ul><li>Compare the offers</li><li>Choose a provider</li></ul><script>alert(1)</script>',
+      to: ['customer@example.test'], status: 'editing',
     });
     assert.equal(edited.version, 2);
+    assert.match(edited.body, /<strong>help shortly<\/strong>/);
+    assert.match(edited.body, /<ul><li>Compare the offers<\/li><li>Choose a provider<\/li><\/ul>/);
+    assert.doesNotMatch(edited.body, /script|alert\(1\)/i);
     await assert.rejects(
       () => updateWorkspaceOutboxDraft({
         userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: 1,
@@ -270,16 +287,25 @@ async function main() {
       }),
       /being reviewed by a person/i,
     );
-    let sentInput: { to: string[]; subject: string; body: string } | null = null;
+    let sentInput: SentEmailInput | null = null;
     const sent = await sendWorkspaceOutboxDraft({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: edited.version,
     }, {
-      sendMessage: async (input) => { sentInput = { to: input.to, subject: input.subject, body: input.body }; },
+      sendMessage: async (input) => { sentInput = { to: input.to, subject: input.subject, body: input.body, attachments: input.attachments }; },
     });
     assert.equal(sent.status, 'sent');
-    assert.deepEqual(sentInput, { to: ['customer@example.test'], subject: 'Re: Support request', body: '<p>We will help shortly.</p>' });
+    const sentEmailInput = requireSentEmailInput(sentInput);
+    assert.deepEqual(sentEmailInput.to, ['customer@example.test']);
+    assert.equal(sentEmailInput.subject, 'Re: Support request');
+    assert.match(sentEmailInput.body, /<strong>help shortly<\/strong>/);
+    assert.match(sentEmailInput.body, /<ul><li>Compare the offers<\/li><li>Choose a provider<\/li><\/ul>/);
+    assert.deepEqual(sentEmailInput.attachments, [{
+      source: 'upload', contentId: undefined, disposition: 'attachment', name: 'agent-report.pdf', mimeType: 'application/pdf',
+      size: 42, path: undefined, uploadId: 'agent-report.pdf', deliveryFormat: undefined,
+    }]);
     assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).find((item) => item.id === inboxCase.id)?.status, 'answered');
-    assert.ok((await listWorkspaceOutboxDrafts('owner-user', ownerWorkspace.id)).some((draft) => draft.id === outboxDraft.id));
+    const listedWorkspaceDraft = (await listWorkspaceOutboxDrafts('owner-user', ownerWorkspace.id)).find((draft) => draft.id === outboxDraft.id);
+    assert.equal(listedWorkspaceDraft?.senderAddress, 'owner@example.test');
     await assert.rejects(
       () => listWorkspaceInboxCases('owner-user', otherWorkspace.id),
       /workspace|permission|access/i,
@@ -329,7 +355,8 @@ async function main() {
       sendMessage: async () => undefined,
     });
     assert.equal(sentPersonal.status, 'sent');
-    assert.ok((await listPersonalOutboxDrafts('owner-user')).some((draft) => draft.id === personalDraft.id));
+    const listedPersonalDraft = (await listPersonalOutboxDrafts('owner-user')).find((draft) => draft.id === personalDraft.id);
+    assert.equal(listedPersonalDraft?.senderAddress, 'owner@example.test');
     await assert.rejects(
       () => requireActiveWorkspaceMailboxForAutomation({
         emailAccountId: created.id,
@@ -379,6 +406,24 @@ async function main() {
     assert.equal(sharedMailbox.emailAddress, 'support@example.test');
     assert.equal(sharedMailbox.imapHost, 'imap.example.test');
     assert.equal((await listAdminWorkspaceMailboxes()).some((mailbox) => mailbox.id === sharedMailbox.id), true);
+    const savedAgain = await saveAdminWorkspaceMailbox('owner-user', {
+      emailAddress: 'support@example.test',
+      displayName: 'Support desk',
+      smtpHost: 'smtp.example.test',
+      smtpPort: 587,
+      smtpSecure: false,
+      smtpUsername: 'support@example.test',
+      smtpPassword: 'rotated-workspace-secret',
+      imapHost: 'imap.example.test',
+      imapPort: 993,
+      imapSecure: true,
+      imapUsername: 'support@example.test',
+      imapPassword: 'rotated-workspace-secret',
+    });
+    assert.equal(savedAgain.id, sharedMailbox.id);
+    assert.equal(savedAgain.accountId, sharedMailbox.accountId);
+    assert.equal(savedAgain.displayName, 'Support desk');
+    assert.equal((await listAdminWorkspaceMailboxes()).filter((mailbox) => mailbox.emailAddress === 'support@example.test').length, 1);
     const assignedSharedMailbox = await assignAdminWorkspaceMailbox({
       actorUserId: 'owner-user', accountId: sharedMailbox.id, workspaceId: ownerWorkspace.id,
     });

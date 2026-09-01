@@ -44,6 +44,14 @@ function createMockRuntimeStatus(sessionId: string, overrides: Partial<PiRuntime
     lastCompactionKind: null,
     lastCompactionOmittedCount: 0,
     ...overrides,
+    compactionStatus: overrides.compactionStatus ?? {
+      state: 'idle',
+      attemptId: null,
+      trigger: null,
+      reasonCode: null,
+      retryAfter: null,
+      omittedMessageCount: 0,
+    },
   };
 }
 
@@ -1757,7 +1765,7 @@ contentKind: document
     await expect(runDisclosure.getByTestId('chat-tool-subtle')).toHaveCount(1);
   });
 
-  test('should show runtime status, queue state, and context budget in the chat UI', async ({ page }) => {
+  test('should keep runtime details progressively disclosed while queue state stays in the chat UI', async ({ page }) => {
     const sessionId = 'sess-runtime-status';
     let currentStatus: PiRuntimeStatus = {
       sessionId,
@@ -1769,15 +1777,23 @@ contentKind: document
       steeringQueue: [{ id: 'steer-1', text: 'Stop and inspect README', attachmentCount: 0 }],
       canAbort: true,
       contextWindow: 128000,
-      estimatedHistoryTokens: 14600,
+      estimatedHistoryTokens: 22560,
       availableHistoryTokens: 23500,
-      contextUsagePercent: 62,
+      contextUsagePercent: 96,
       includedSummary: true,
       omittedMessageCount: 8,
       summaryUpdatedAt: '2026-03-16T16:00:00.000Z',
       lastCompactionAt: '2026-03-16T16:00:00.000Z',
       lastCompactionKind: 'automatic',
       lastCompactionOmittedCount: 8,
+      compactionStatus: {
+        state: 'succeeded',
+        attemptId: 'compact-runtime-status',
+        trigger: 'automatic',
+        reasonCode: null,
+        retryAfter: null,
+        omittedMessageCount: 8,
+      },
     };
     const queuedMessages = new Map<string, Record<string, unknown>>();
     const controlActions: string[] = [];
@@ -1946,15 +1962,18 @@ contentKind: document
     await page.goto('/notebook?chat=open');
     await page.getByRole('button', { name: /Open latest session Busy runtime session/i }).click();
 
-    await expect(page.getByTestId('chat-runtime-banner')).toBeVisible();
-    await expect
-      .poll(async () => (await page.getByTestId('chat-runtime-status').textContent()) || '', { timeout: 15000 })
-      .toContain('Read a file');
-    await expect(page.getByTestId('chat-runtime-status')).toContainText('2 queued');
-    await expect(page.getByTestId('chat-runtime-status')).toContainText('Summary');
-    await expect(page.getByTestId('chat-context-meter')).toContainText('15k/24k', { timeout: 15000 });
-    await expect(page.getByTestId('chat-context-meter')).not.toContainText('~62%');
-    await expect(page.getByTestId('chat-context-meter')).toContainText('128k');
+    await expect(page.getByTestId('chat-session-title')).toContainText('Busy runtime session');
+    await expect(page.getByTestId('chat-runtime-banner')).toHaveCount(0);
+    await expect(page.getByTestId('chat-runtime-busy-badge')).toHaveCount(0);
+    await expect(page.getByTestId('chat-context-meter')).toHaveCount(0);
+    await page.getByTestId('chat-header-menu-trigger').click();
+    await expect(page.getByTestId('chat-context-details')).toContainText('23k/24k', { timeout: 15000 });
+    await expect(page.getByTestId('chat-context-details')).toContainText('128k');
+    await expect(page.getByTestId('chat-context-details')).toContainText('96% used');
+    await expect(page.getByTestId('chat-context-details')).toContainText('Earlier messages are available as a summary.');
+    await expect(page.getByTestId('chat-compact')).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('chat-runtime-notice')).toContainText('Context is almost full (96% used).');
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Summarize afterwards', { timeout: 15000 });
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Stop and inspect README');
 
@@ -2430,10 +2449,12 @@ contentKind: document
 
     await page.goto('/notebook?chat=open');
 
-    await expect(page.getByTestId('chat-runtime-banner')).toBeVisible();
-    await expect(page.getByTestId('chat-runtime-busy-badge')).toContainText('Ready');
+    await expect(page.getByTestId('chat-session-title')).toContainText('New chat');
+    await expect(page.getByTestId('chat-runtime-banner')).toHaveCount(0);
+    await expect(page.getByTestId('chat-runtime-busy-badge')).toHaveCount(0);
     await expect(page.getByTestId('chat-agent-id')).toBeVisible();
     await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', /Canvas Agent/);
+    await expect(page.getByTestId('chat-header-menu-trigger')).toBeVisible();
     await expect(page.getByTestId('chat-mobile-details-toggle')).toHaveCount(0);
 
     includeCreatedAgent = true;
@@ -2485,6 +2506,14 @@ contentKind: document
       lastCompactionAt: null,
       lastCompactionKind: null,
       lastCompactionOmittedCount: 0,
+      compactionStatus: {
+        state: 'idle',
+        attemptId: null,
+        trigger: null,
+        reasonCode: null,
+        retryAfter: null,
+        omittedMessageCount: 0,
+      },
     };
 
     await page.route('**/api/sessions**', async (route) => {
@@ -2558,6 +2587,7 @@ contentKind: document
     await page.goto('/notebook?chat=open');
     await page.getByRole('button', { name: /Open latest session Compact session/i }).click();
 
+    await page.getByTestId('chat-header-menu-trigger').click();
     await expect(page.getByTestId('chat-compact')).toBeEnabled({ timeout: 15000 });
     await page.getByTestId('chat-compact').click();
 
@@ -2677,6 +2707,8 @@ contentKind: document
                 id: 1,
                 userId: 'user-main',
                 userLabel: 'Main User',
+                agentId: 'memory-manager',
+                sourceAgentId: 'research-agent',
                 sessionId: 'sess-openai',
                 sessionTitleSnapshot: 'OpenAI Session',
                 provider: 'openai',
@@ -2712,6 +2744,8 @@ contentKind: document
                 id: 1,
                 userId: 'user-main',
                 userLabel: 'Main User',
+                agentId: 'canvas-agent',
+                sourceAgentId: null,
                 sessionId: 'sess-1',
                 sessionTitleSnapshot: 'Daily Session',
                 provider: 'anthropic',
@@ -2746,6 +2780,9 @@ contentKind: document
 
     await expect(page.getByTestId('usage-summary-table')).toContainText('openai');
     await expect(page.getByTestId('usage-event-row')).toContainText('OpenAI Session');
+    await expect(page.getByTestId('usage-event-agent')).toContainText('memory-manager');
+    await expect(page.getByTestId('usage-event-source-agent')).toContainText('research-agent');
+    await expect(page.getByRole('option', { name: 'Agent' })).toBeAttached();
     await expect(page.getByText('$1.23').first()).toBeVisible();
   });
 

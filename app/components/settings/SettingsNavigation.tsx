@@ -4,6 +4,7 @@ import { useMemo, useState, type ComponentType } from 'react';
 import {
   BadgeCheck,
   BarChart3,
+  BrainCircuit,
   Bot,
   Cpu,
   FolderCog,
@@ -12,6 +13,7 @@ import {
   Scale,
   Mail,
   Menu,
+  KeyRound,
   PanelLeftClose,
   PanelLeftOpen,
   Palette,
@@ -44,7 +46,9 @@ import { cn } from '@/lib/utils';
 
 export type SettingsTab =
   | 'general'
+  | 'memory'
   | 'integrations'
+  | 'secrets'
   | 'mcp'
   | 'agent-settings'
   | 'browser'
@@ -86,6 +90,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.general',
     group: 'account',
     icon: UserRound,
+  },
+  {
+    value: 'memory',
+    labelKey: 'tabs.memory',
+    descriptionKey: 'navigation.descriptions.memory',
+    group: 'account',
+    icon: BrainCircuit,
   },
   {
     value: 'workspace',
@@ -130,6 +141,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     icon: Plug,
   },
   {
+    value: 'secrets',
+    labelKey: 'tabs.secrets',
+    descriptionKey: 'navigation.descriptions.secrets',
+    group: 'system',
+    icon: KeyRound,
+  },
+  {
     value: 'mcp',
     labelKey: 'tabs.mcp',
     descriptionKey: 'navigation.descriptions.mcp',
@@ -147,7 +165,7 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     value: 'system-email',
     labelKey: 'tabs.systemEmail',
     descriptionKey: 'navigation.descriptions.systemEmail',
-    group: 'system',
+    group: 'connections',
     icon: Mail,
   },
   {

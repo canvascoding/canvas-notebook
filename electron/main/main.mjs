@@ -14,6 +14,7 @@ import { classifyServerLoadFailure } from './connection-errors.mjs';
 import { createAppMenu } from './menu.mjs';
 import { showChatNotification } from './notifications.mjs';
 import { createDesktopUpdater } from './updater.mjs';
+import { createDesktopFileDragCache } from './file-drag.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ICON_PATH = path.join(__dirname, '../assets/icon.png');
@@ -30,6 +31,7 @@ const desktopUpdater = createDesktopUpdater({
   dialog,
   getParentWindow: getMainWindow,
 });
+let desktopFileDragCache = null;
 
 app.setName('Canvas Notebook');
 app.setAppUserModelId?.('io.canvasstudios.notebook');
@@ -45,6 +47,16 @@ function getMainWindow() {
 
 function getConfiguredServerUrl() {
   return readDesktopConfig(app).serverUrl;
+}
+
+function getDesktopFileDragCache() {
+  if (!desktopFileDragCache) {
+    desktopFileDragCache = createDesktopFileDragCache({
+      tempRoot: path.join(app.getPath('temp'), 'canvas-notebook-file-drag'),
+      iconPath: ICON_PATH,
+    });
+  }
+  return desktopFileDragCache;
 }
 
 function isSetupSender(event) {
@@ -347,6 +359,22 @@ function registerIpcHandlers() {
       targetUrl,
     });
   });
+
+  ipcMain.handle('desktop:prepare-file-drag', async (event, request) => {
+    if (!isConfiguredRendererSender(event)) {
+      throw new Error('This action is only available from Canvas Notebook.');
+    }
+    const serverUrl = getConfiguredServerUrl();
+    if (!serverUrl) {
+      throw new Error('Canvas Notebook is not connected to a server.');
+    }
+    await getDesktopFileDragCache().prepare(event.sender, serverUrl, request);
+  });
+
+  ipcMain.on('desktop:start-file-drag', (event, request) => {
+    if (!isConfiguredRendererSender(event)) return;
+    getDesktopFileDragCache().start(event.sender, request);
+  });
 }
 
 registerIpcHandlers();
@@ -391,4 +419,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  void desktopFileDragCache?.dispose();
 });

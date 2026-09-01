@@ -32,6 +32,7 @@ import {
   getVideoResolutionsForModel,
   getVideoDurationsForModel,
   getImageSizesForModel,
+  normalizeOpenAIImageOutputFormat,
   GEMINI_FLASH_IMAGE_MODEL_ID,
   GEMINI_PRO_IMAGE_MODEL_ID,
   type VideoResolution,
@@ -167,6 +168,13 @@ export function ControlBar({
   const isVideo = mode === 'video';
   const isSound = mode === 'sound';
   const isSeedance = isVideo && provider === 'bytedance';
+  const openAIOutputFormat = normalizeOpenAIImageOutputFormat(
+    isOpenAI && mode === 'image' ? background : undefined,
+    outputFormat === 'mp3' || outputFormat === 'wav' ? undefined : outputFormat,
+  ) ?? 'png';
+  const availableOpenAIOutputFormats = background === 'transparent'
+    ? OUTPUT_FORMAT_OPTIONS.filter((format) => format !== 'jpeg')
+    : OUTPUT_FORMAT_OPTIONS;
 
   const videoResolutions = isVideo ? getVideoResolutionsForModel(model) : [];
   const videoDurations = isVideo ? getVideoDurationsForModel(model) : [];
@@ -315,8 +323,8 @@ export function ControlBar({
                   ))}
                 </SelectField>
 
-                <SelectField label="Output Format" value={outputFormat} onChange={(value) => onOutputFormatChange(value as typeof outputFormat)}>
-                  {OUTPUT_FORMAT_OPTIONS.map((fmt) => (
+                <SelectField label="Output Format" value={openAIOutputFormat} onChange={(value) => onOutputFormatChange(value as typeof outputFormat)}>
+                  {availableOpenAIOutputFormats.map((fmt) => (
                     <option key={fmt} value={fmt}>
                       {fmt.toUpperCase()}
                     </option>
@@ -348,7 +356,17 @@ export function ControlBar({
             ) : null}
 
             {isOpenAI && mode === 'image' ? (
-              <SelectField label="Background" value={background} onChange={(value) => onBackgroundChange(value as typeof background)}>
+              <SelectField
+                label="Background"
+                value={background}
+                onChange={(value) => {
+                  const nextBackground = value as typeof background;
+                  if (nextBackground === 'transparent' && outputFormat === 'jpeg') {
+                    onOutputFormatChange('png');
+                  }
+                  onBackgroundChange(nextBackground);
+                }}
+              >
                 {BACKGROUND_OPTIONS.map((bg) => (
                   <option key={bg} value={bg}>
                     {bg.charAt(0).toUpperCase() + bg.slice(1)}

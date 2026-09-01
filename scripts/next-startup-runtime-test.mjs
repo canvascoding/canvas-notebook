@@ -59,6 +59,21 @@ assert.ok(
 );
 assert.match(serverSource, /CANVAS_DATABASE_MIGRATIONS_COMPLETED === 'true'/u);
 assert.match(serverSource, /startup-migrations/u);
+assert.match(
+  serverSource,
+  /function resolveImportedServerModule\(importedModule, requiredFunctions, label\)/u,
+  'server.js must centralize dynamic TS module export normalization',
+);
+assert.match(
+  serverSource,
+  /importedModule\?\.default[\s\S]*importedModule\?\.\['module\.exports'\]/u,
+  'server.js must support ESM and CommonJS dynamic import shapes',
+);
+assert.match(serverSource, /resolveImportedServerModule\([\s\S]*agentRuntimeLoaderModule/u);
+assert.match(serverSource, /resolveImportedServerModule\([\s\S]*managedCatalogModule/u);
+assert.match(serverSource, /resolveImportedServerModule\([\s\S]*refreshModule/u);
+assert.match(serverSource, /resolveImportedServerModule\([\s\S]*lifecycleModule/u);
+assert.match(serverSource, /resolveImportedServerModule\([\s\S]*memoryReviewModule/u);
 assert.match(startupMigrationSource, /await runPostgresMigrations\(migrationPool\)/u);
 assert.match(startupMigrationSource, /await migrationPool\.end\(\)/u);
 assert.match(startupMigrationSource, /runMigrations\(migrationDatabase\)/u);

@@ -416,7 +416,7 @@ async function main(): Promise<void> {
       clientId,
       resource,
       state: 'unknown-scope',
-      scopes: ['openid', 'knowledge:write'],
+      scopes: ['openid', 'knowledge:delete'],
     }), {
       headers: { cookie: sessionCookie },
     }));

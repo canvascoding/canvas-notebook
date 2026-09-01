@@ -166,7 +166,7 @@ async function main() {
     });
     assert.match(
       getText(await nonMainTool.execute('non-main', { goal: 'Try recursion' })),
-      /Only the main Canvas Agent can use delegate_task/,
+      /Only Bradley, the main agent, can use delegate_task/,
     );
 
     const missingUserTool = createDelegateTaskTool({ sourceAgentId: 'canvas-agent' });

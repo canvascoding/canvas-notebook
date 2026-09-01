@@ -64,25 +64,16 @@ install_manager_config_unlocked() {
 }
 
 install_management_cli() {
-  local bin_path fallback_bin_path shared_dir code_owner
+  local bin_path fallback_bin_path shared_dir code_owner linux_cli_root linux_cli_installer env_name
+  local -a linux_cli_env
   bin_path="${CANVAS_CLI_PATH:-/usr/local/bin/canvas-notebook}"
   fallback_bin_path="/usr/bin/canvas-notebook"
   code_owner="$(_host_code_owner)"
+  linux_cli_root="${CANVAS_LINUX_CLI_ROOT:-/opt/canvas/cli}"
+  linux_cli_installer="${CANVAS_LINUX_CLI_INSTALLER_PATH:-${SUPPORT_DIR}/linux-cli.sh}"
 
   section "Management CLI"
-  if [[ "$code_owner" != "root:root" && -w "$(dirname "$bin_path")" ]]; then
-    install -m 755 "${SUPPORT_DIR}/bin/canvas-notebook" "$bin_path"
-  else
-    run_root install -o "${code_owner%%:*}" -g "${code_owner#*:}" -m 755 "${SUPPORT_DIR}/bin/canvas-notebook" "$bin_path"
-  fi
-
-  if [[ "$bin_path" != "$fallback_bin_path" ]]; then
-    if [[ "$code_owner" != "root:root" && -w "$(dirname "$fallback_bin_path")" ]]; then
-      ln -sf "$bin_path" "$fallback_bin_path" 2>/dev/null || true
-    else
-      run_root ln -sf "$bin_path" "$fallback_bin_path" 2>/dev/null || true
-    fi
-  fi
+  [[ -f "$linux_cli_installer" && ! -L "$linux_cli_installer" ]] || fail "Linux CLI installer is missing or unsafe: ${linux_cli_installer}"
 
   shared_dir="${INSTALL_DIR}/lib/shared"
   _ensure_dir_writable "$shared_dir"
@@ -112,12 +103,39 @@ install_management_cli() {
   done
   unset _tpl_file
 
+  linux_cli_env=(
+    "CANVAS_LINUX_CLI_ROOT=${linux_cli_root}"
+    "CANVAS_LINUX_CLI_BIN_PATH=${bin_path}"
+  )
+  for env_name in \
+    CANVAS_REPO \
+    CANVAS_VERSION \
+    CANVAS_CLI_VERSION \
+    CANVAS_LINUX_CLI_ALLOW_FILE_URL \
+    CANVAS_LINUX_CLI_ARCHIVE \
+    CANVAS_LINUX_CLI_CHECKSUM \
+    CANVAS_LINUX_CLI_BASE_URL \
+    CANVAS_LINUX_CLI_URL \
+    CANVAS_LINUX_CLI_SHA256_URL; do
+    if [[ -n "${!env_name+x}" ]]; then
+      linux_cli_env+=("${env_name}=${!env_name}")
+    fi
+  done
+  if [[ "$code_owner" != "root:root" && -w "$(dirname "$bin_path")" && -w "$(dirname "$linux_cli_root")" ]]; then
+    env "${linux_cli_env[@]}" bash "$linux_cli_installer" install
+  else
+    run_root env "${linux_cli_env[@]}" bash "$linux_cli_installer" install
+  fi
+
+  if [[ "$bin_path" == "/usr/local/bin/canvas-notebook" ]]; then
+    run_root ln -sf "$bin_path" "$fallback_bin_path" 2>/dev/null || true
+  fi
+
   require_jq
 
-  ok "Installed management CLI: ${bin_path}"
-  ok "Deployed shared libraries to ${shared_dir}"
-  ok "Deployed templates to ${template_dir}"
-  [[ -x "$fallback_bin_path" ]] && info "Also available as: ${fallback_bin_path}"
+  ok "Installed TypeScript management CLI: ${bin_path}"
+  info "Legacy support libraries remain frozen for first-cutover rollback compatibility."
+  [[ "$bin_path" == "/usr/local/bin/canvas-notebook" && -x "$fallback_bin_path" ]] && info "Also available as: ${fallback_bin_path}"
   info "Run: canvas-notebook help"
 }
 

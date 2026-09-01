@@ -6,12 +6,18 @@ import { useSearchParams } from 'next/navigation';
 import { routing } from '@/i18n/routing';
 import { buildLocalePath } from '@/app/lib/locale-path';
 import { scrubLicenseKeyFromBrowserUrl } from '@/app/lib/license/browser-url';
+import {
+  useLicenseEmailActivation,
+  type PublicLicenseEmailActivation,
+} from '@/app/components/license/useLicenseEmailActivation';
 
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { AiProviderCredentialsPanel } from '@/app/components/settings/AiProviderCredentialsPanel';
 import { AiProvidersModelsPanel } from '@/app/components/settings/AiProvidersModelsPanel';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
+import { ProfileAppearanceEditor } from '@/app/components/user-profile/ProfileAppearanceEditor';
+import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { DEFAULT_USER_TIME_ZONE, getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -185,12 +191,14 @@ export default function OnboardingWizard({
   initialTimeZone,
   mode,
   initialStep,
+  initialUserProfile,
 }: {
   defaultEmail: string;
   initialLicenseKey: string;
   initialTimeZone: string;
   mode: OnboardingMode;
   initialStep: Step;
+  initialUserProfile: ResolvedUserProfile;
 }) {
   const t = useTranslations('onboarding');
   const currentLocale = useLocale();
@@ -347,7 +355,7 @@ export default function OnboardingWizard({
         </div>
 
         <div className="flex flex-1 items-start justify-center py-4">
-          <div className={`w-full ${step === 'provider' || step === 'profile' || step === 'workspace' ? 'max-w-5xl' : 'max-w-lg'}`}>
+          <div className={`w-full ${step === 'provider' || step === 'profile' || step === 'workspace' || step === 'language' ? 'max-w-5xl' : 'max-w-lg'}`}>
             <div className="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8">
               <div className="mb-3 flex flex-col items-center justify-center gap-3 sm:flex-row">
                 <PublicBrandLogo
@@ -384,6 +392,7 @@ export default function OnboardingWizard({
 
               {step === 'language' && (
                 <LanguageStep
+                  initialUserProfile={initialUserProfile}
                   onContinue={() => advanceTo('workspace')}
                 />
               )}
@@ -797,6 +806,14 @@ function LicenseStep({
     storeOnboardingLicenseKey(key);
   }, [key]);
 
+  const { beginPolling, pendingActivation } = useLicenseEmailActivation({
+    licensed: Boolean(status?.licensed),
+    onActivated: async () => {
+      await fetchLicenseStatus();
+      toast.success(t('licenseActivatedAutomatically'));
+    },
+  });
+
   async function requestLicense() {
     setRegistering(true);
     try {
@@ -805,10 +822,16 @@ function LicenseStep({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, activationPath: getLicenseRegistrationActivationPath('/onboarding'), marketingOptIn }),
       });
-      const payload = await response.json().catch(() => ({})) as { success?: boolean; error?: string; code?: string };
+      const payload = await response.json().catch(() => ({})) as {
+        success?: boolean;
+        error?: string;
+        code?: string;
+        activation?: PublicLicenseEmailActivation | null;
+      };
       if (!response.ok || !payload.success) {
         throw new Error(payload.code ? `${payload.error || t('licenseRequestFailed')} (${payload.code})` : payload.error || t('licenseRequestFailed'));
       }
+      beginPolling(payload.activation || null);
       toast.success(t('licenseEmailSent'));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('licenseRequestFailed'));
@@ -908,6 +931,18 @@ function LicenseStep({
               </Button>
             </div>
           </div>
+
+          {pendingActivation ? (
+            <div className="flex items-start gap-3 border border-border bg-muted/30 p-3 text-sm">
+              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+              <div>
+                <p className="font-medium">{t('licenseActivationPendingTitle')}</p>
+                <p className="mt-1 leading-5 text-muted-foreground">
+                  {t('licenseActivationPendingDescription')}
+                </p>
+              </div>
+            </div>
+          ) : null}
 
           <div className="flex items-start gap-3 border border-border bg-muted/20 p-3">
             <Switch
@@ -1271,8 +1306,10 @@ function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
 }
 
 function LanguageStep({
+  initialUserProfile,
   onContinue,
 }: {
+  initialUserProfile: ResolvedUserProfile;
   onContinue: () => Promise<void> | void;
 }) {
   const t = useTranslations('onboarding');
@@ -1367,6 +1404,8 @@ function LanguageStep({
           </button>
         ))}
       </div>
+
+      <ProfileAppearanceEditor initialProfile={initialUserProfile} />
 
       <div className="flex justify-center">
         <Button onClick={handleContinue} className="min-w-[200px]" disabled={!isHydrated || isSaving || isSwitchingLocale}>

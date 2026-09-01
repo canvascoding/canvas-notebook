@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { parseCollaborationSessionRequest } from '@/app/lib/collaboration/session-service';
 import { RICH_MARKDOWN_SCHEMA_VERSION } from '@/app/lib/collaboration/types';
 import {
@@ -107,13 +108,47 @@ const routeSource = readFileSync(
   path.join(root, 'app/api/mobile/v1/notebook/collaboration/session/route.ts'),
   'utf8',
 );
+const browserRouteSource = readFileSync(
+  path.join(root, 'app/api/files/collaboration/session/route.ts'),
+  'utf8',
+);
 const serverSource = readFileSync(path.join(root, 'server/collaboration-server.ts'), 'utf8');
+const excalidrawServerSource = readFileSync(
+  path.join(root, 'server/excalidraw-collaboration/server.ts'),
+  'utf8',
+);
+const excalidrawAssetsRouteSource = readFileSync(
+  path.join(root, 'app/api/files/excalidraw-assets/route.ts'),
+  'utf8',
+);
+const workspaceMembersRouteSource = readFileSync(
+  path.join(root, 'app/api/workspaces/[id]/members/route.ts'),
+  'utf8',
+);
 assert.match(routeSource, /issueMobileCollaborationTicket/u);
 assert.match(routeSource, /representation:\s*'auto'/u);
 assert.doesNotMatch(routeSource, /analyzeMarkdownRichMode/u);
+assert.doesNotMatch(routeSource, /workspaceRequiresCollaborationPolicy/u);
+assert.doesNotMatch(browserRouteSource, /workspaceRequiresCollaborationPolicy/u);
+assert.match(routeSource, /Live collaboration requires Postgres\./u);
+assert.match(browserRouteSource, /Live collaboration requires Postgres\./u);
+for (const collaborationTransportSource of [
+  routeSource,
+  browserRouteSource,
+  serverSource,
+  excalidrawServerSource,
+  excalidrawAssetsRouteSource,
+]) {
+  assert.doesNotMatch(collaborationTransportSource, /requireTeamRuntimeLicense/u);
+  assert.doesNotMatch(collaborationTransportSource, /requireRuntimeCapability/u);
+}
+assert.match(excalidrawAssetsRouteSource, /Excalidraw collaboration requires Postgres\./u);
+assert.match(workspaceMembersRouteSource, /requireTeamRuntimeLicense/u);
 assert.match(routeSource, /error instanceof CollaborationSessionError && error\.code/u);
 assert.match(routeSource, /richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION/u);
 assert.equal(RICH_MARKDOWN_SCHEMA_VERSION, 3);
+assert.equal(liveCollaborationRuntimeAvailable('postgres'), true);
+assert.equal(liveCollaborationRuntimeAvailable('sqlite'), false);
 assert.match(serverSource, /consumeMobileCollaborationTicket/u);
 assert.match(serverSource, /hasMobileCollaborationProtocol/u);
 assert.match(serverSource, /MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL/u);

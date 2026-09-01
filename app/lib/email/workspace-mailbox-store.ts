@@ -302,16 +302,41 @@ export async function saveAdminWorkspaceMailbox(
   }
   const { accountId: _accountId, mailboxId: _mailboxId, workspaceId: _workspaceId, ...smtpInput } = input;
   const normalized = normalizeSmtpAccountInput(smtpInput, existingSecret as EmailAccountSmtpSecret | null);
+  const sameUserAccountForAddress = await db.query.emailAccounts.findFirst({
+    where: and(
+      eq(emailAccounts.userId, actorUserId),
+      eq(emailAccounts.provider, 'smtp_imap'),
+      eq(emailAccounts.emailAddress, normalized.emailAddress),
+    ),
+  });
+  const existingWorkspaceAccountForAddress = await db.query.emailAccounts.findFirst({
+    where: and(
+      eq(emailAccounts.provider, 'smtp_imap'),
+      eq(emailAccounts.emailAddress, normalized.emailAddress),
+      eq(emailAccounts.accountScope, WORKSPACE_ACCOUNT_SCOPE),
+      organizationId ? eq(emailAccounts.organizationId, organizationId) : isNull(emailAccounts.organizationId),
+    ),
+  });
+  if (existingAccount && existingWorkspaceAccountForAddress && existingWorkspaceAccountForAddress.id !== existingAccount.id) {
+    throw new Error('A different System Email mailbox already uses this email address.');
+  }
+  const accountToSave = existingAccount || existingWorkspaceAccountForAddress;
+  if (sameUserAccountForAddress && sameUserAccountForAddress.id !== accountToSave?.id && sameUserAccountForAddress.accountScope !== WORKSPACE_ACCOUNT_SCOPE) {
+    throw new Error('An SMTP/IMAP account with this email address already exists as a personal account. Remove it from Email Accounts before connecting it as a System Email mailbox.');
+  }
+  if (accountToSave && accountToSave.organizationId !== organizationId) {
+    throw new Error('This System Email mailbox belongs to a different organization.');
+  }
   if (options.verify) {
     await verifySmtpAccountSecret(normalized.secret);
     await verifyImapSecret(normalized.secret);
   }
 
   const now = new Date();
-  const accountId = existingAccount?.id || `workspace-smtp-${randomUUID()}`;
-  const previousSecretRef = existingAccount?.secretRef || null;
+  const accountId = accountToSave?.id || `workspace-smtp-${randomUUID()}`;
+  const previousSecretRef = accountToSave?.secretRef || null;
   const secretRef = workspaceEmailAccountSecretRef(accountId);
-  if (existingAccount) {
+  if (accountToSave) {
     await db.update(emailAccounts).set({
       provider: 'smtp_imap', authType: 'smtp_imap', emailAddress: normalized.emailAddress,
       displayName: normalized.displayName, providerAccountId: normalized.emailAddress,
@@ -461,6 +486,20 @@ export async function testAdminWorkspaceMailbox(mailboxId: string, organizationI
     imapPort: secret.imap?.port || null,
     imapSecure: secret.imap?.secure ?? null,
   };
+}
+
+/** Verifies a business-mailbox draft without persisting its credentials. */
+export async function testAdminWorkspaceMailboxConnection(actorUserId: string, input: WorkspaceMailboxSmtpInput, options: { organizationId?: string | null } = {}) {
+  const organizationId = options.organizationId === undefined ? (await readOrganizationPermissionForUser(actorUserId)).organizationId : options.organizationId;
+  const accountId = typeof input.accountId === 'string' && input.accountId.trim() ? input.accountId.trim() : undefined;
+  const existingAccount = accountId ? await requireAdminWorkspaceAccount(accountId, organizationId) : undefined;
+  const existingSecret = existingAccount ? await readEmailAccountSecret(existingAccount.secretRef) : null;
+  if (existingSecret && existingSecret.authType !== 'smtp_imap') throw new Error('This workspace mailbox is not an SMTP/IMAP mailbox.');
+  const { accountId: _accountId, mailboxId: _mailboxId, workspaceId: _workspaceId, ...smtpInput } = input;
+  const normalized = normalizeSmtpAccountInput(smtpInput, existingSecret as EmailAccountSmtpSecret | null);
+  await verifySmtpAccountSecret(normalized.secret);
+  await verifyImapSecret(normalized.secret);
+  return { ok: true, smtp: { ok: true, host: normalized.secret.smtp.host, port: normalized.secret.smtp.port, secure: normalized.secret.smtp.secure }, imap: { configured: Boolean(normalized.secret.imap), ok: true, host: normalized.secret.imap?.host || null, port: normalized.secret.imap?.port || null, secure: normalized.secret.imap?.secure ?? null } };
 }
 
 export async function removeAdminWorkspaceMailbox(actorUserId: string, mailboxId: string, organizationId?: string | null) {

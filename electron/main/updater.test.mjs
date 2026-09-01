@@ -33,7 +33,7 @@ test('configures signed release updates only for packaged applications', () => {
 
   assert.equal(service.configure(), true);
   assert.equal(updater.autoDownload, false);
-  assert.equal(updater.autoInstallOnAppQuit, false);
+  assert.equal(updater.autoInstallOnAppQuit, true);
   assert.equal(updater.allowPrerelease, false);
   assert.equal(updater.allowDowngrade, false);
 

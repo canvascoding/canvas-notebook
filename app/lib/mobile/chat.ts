@@ -284,7 +284,7 @@ export async function listMobileChat(input: ChatActor & {
   const agentIds = agents.map((agent) => agent.agentId);
   const limit = normalizeLimit(input.limit, 30, 50);
   const cursor = decodeMobileSessionCursor(input.cursor || null);
-  const activity = sql<Date>`coalesce(${piSessions.lastMessageAt}, ${piSessions.createdAt})`;
+  const activity = sql<number>`coalesce(${piSessions.lastMessageAt}, ${piSessions.createdAt})`;
   const conditions: SQL[] = [
     eq(piSessions.userId, input.userId),
     eq(piSessions.sessionKind, 'conversation'),
@@ -298,7 +298,9 @@ export async function listMobileChat(input: ChatActor & {
     conditions.push(sql`lower(coalesce(${piSessions.title}, '')) LIKE ${pattern} ESCAPE '\\'`);
   }
   if (cursor) {
-    const activityAt = new Date(cursor.activityAt);
+    // `piSessions` stores `timestamp` columns as Unix seconds. Keep the cursor
+    // comparison in that unit; milliseconds would select the first page again.
+    const activityAt = Math.floor(new Date(cursor.activityAt).getTime() / 1_000);
     conditions.push(or(
       lt(activity, activityAt),
       and(eq(activity, activityAt), lt(piSessions.id, cursor.id)),

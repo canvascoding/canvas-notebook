@@ -64,7 +64,7 @@ function actor(userId: string, sessionId?: string | null): AgentManagementActor 
 
 function ensureMainAgent(agentId?: string | null): void {
   if ((agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID) !== DEFAULT_MANAGED_AGENT_ID) {
-    throw new Error('Full agent management tools are available only to the Canvas Agent.');
+    throw new Error('Full agent management tools are available only to Bradley, the main agent.');
   }
 }
 
@@ -91,7 +91,7 @@ export function createAgentManagementTools(
   const listAgents: AgentTool = {
     name: 'list_agents',
     label: 'List agents',
-    description: 'Lists the Canvas Agent plus personal and organization agents available to this user, including scope, revision, and effective access. This is read-only and planning-safe.',
+    description: 'Lists Bradley plus personal and organization agents available to this user, including scope, revision, and effective access. This is read-only and planning-safe.',
     parameters: Type.Object({}),
     execute: async () => {
       const agents = await listManagedAgents(actor(userId, sessionId));
@@ -282,7 +282,7 @@ export function createAgentManagementTools(
   const deleteAgent: AgentTool = {
     name: 'delete_agent',
     label: 'Delete agent',
-    description: 'Deletes a removable agent only after preview_agent_deletion supplied a matching unexpired confirmation token. Canvas Agent is always protected.',
+    description: 'Deletes a removable agent only after preview_agent_deletion supplied a matching unexpired confirmation token. Bradley is always protected.',
     parameters: Type.Object({
       agentId: Type.String(),
       expectedRevision: Type.Number(),

@@ -24,13 +24,13 @@ import {
   detectLateAgentSemanticConflicts,
   recoverCollaborationAgentOperations,
 } from '@/app/lib/collaboration/agent-operations';
-import { richMarkdownFromYDoc } from '@/app/lib/collaboration/markdown-state';
 import {
   CollaborationStateInactiveError,
   CollaborationStateStaleError,
   loadCollaborationState,
   markCollaborationDegraded,
   persistCollaborationYDoc,
+  type PersistedCollaborationState,
 } from '@/app/lib/collaboration/persistence';
 import { replaceDocumentPresence } from '@/app/lib/collaboration/presence';
 import { verifyCollaborationTicket } from '@/app/lib/collaboration/ticket';
@@ -39,11 +39,10 @@ import {
   reserveCollaborationRoomAdmission,
   withCollaborationRoomLifecycleLock,
 } from '@/app/lib/collaboration/runtime-state';
+import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import type { CollaborationTicketClaims, FilePresenceEntry } from '@/app/lib/collaboration/types';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
-import { requireRuntimeCapability, requireTeamRuntimeLicense } from '@/app/lib/license/entitlements';
 import {
   consumeMobileCollaborationTicket,
   hasMobileCollaborationProtocol,
@@ -56,6 +55,17 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const COLLABORATION_PATH = '/ws/collaboration';
 const MAX_UPDATE_BYTES = 1024 * 1024;
+
+function durabilitySnapshotPayload(state: PersistedCollaborationState) {
+  return {
+    type: 'durability_snapshot' as const,
+    documentId: state.documentId,
+    lifecycleGeneration: state.lifecycleGeneration,
+    documentSequence: state.documentSequence,
+    checkpointSequence: state.checkpointSequence,
+    stateVector: Buffer.from(state.stateVector).toString('base64'),
+  };
+}
 
 type CollaborationContext = {
   claims: CollaborationTicketClaims;
@@ -128,9 +138,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     maxDebounce: 2_000,
     timeout: 30_000,
     async onAuthenticate({ token, documentName, requestHeaders, connectionConfig }) {
-      if (getDatabaseProvider() !== 'postgres') throw new Error('Collaboration requires Postgres.');
-      await requireTeamRuntimeLicense();
-      await requireRuntimeCapability('liveCollaboration');
+      if (!liveCollaborationRuntimeAvailable()) throw new Error('Collaboration requires Postgres.');
       const protocols = requestHeaders.get('sec-websocket-protocol')
         ?.split(',')
         .map((value) => value.trim()) ?? [];
@@ -200,9 +208,25 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         releaseRoomAdmission,
       };
     },
-    async connected({ context }) {
+    async connected({ context, connection }) {
       context.releaseRoomAdmission?.();
       context.releaseRoomAdmission = null;
+      const state = await loadCollaborationState(context.claims.documentId);
+      if (
+        !state
+        || state.workspaceId !== context.claims.workspaceId
+        || state.path !== context.claims.path
+        || state.lifecycleGeneration !== context.claims.lifecycleGeneration
+        || state.representation !== context.claims.representation
+      ) {
+        connection.sendStateless(JSON.stringify({
+          type: 'degraded',
+          message: 'The collaboration document generation changed. Reload to use the current document state.',
+        }));
+        connection.close();
+        return;
+      }
+      connection.sendStateless(JSON.stringify(durabilitySnapshotPayload(state)));
     },
     async onLoadDocument({ documentName }) {
       const state = await loadCollaborationState(documentName);
@@ -329,27 +353,26 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         }));
         throw error;
       }
+      document.broadcastStateless(JSON.stringify(durabilitySnapshotPayload(state)));
       try {
-        const canonicalContent = state.representation === 'plain_text'
-          ? document.getText('content').toString()
-          : richMarkdownFromYDoc(document);
         const result = await materializeCollaborationCheckpoint({
           state,
           workspace: lastContext.workspace,
-          canonicalContent,
           actorUserId: lastContext.actorType === 'agent' ? lastContext.initiatedByUserId : lastContext.user.id,
           actorType: lastContext.actorType,
           sourceSessionId: lastContext.operationId || lastContext.claims.sessionId,
         });
         document.broadcastStateless(JSON.stringify({
+          ...durabilitySnapshotPayload(result.state),
           type: 'checkpointed',
-          sequence: state.documentSequence,
-          stateVector: Buffer.from(state.stateVector).toString('base64'),
+          sequence: result.state.documentSequence,
           revisionId: result.revisionId,
         }));
       } catch (error) {
         if (error instanceof CollaborationCheckpointSupersededError) {
+          const currentState = await loadCollaborationState(documentName);
           document.broadcastStateless(JSON.stringify({
+            ...(currentState ? durabilitySnapshotPayload(currentState) : {}),
             type: 'checkpoint_superseded',
             sequence: error.sequence,
           }));

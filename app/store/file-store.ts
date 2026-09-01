@@ -191,7 +191,8 @@ function readClientFileSort(): { sortKey: FileSortKey; sortDirection: FileSortDi
   if (typeof window === 'undefined') return { sortKey: 'name', sortDirection: 'asc' };
   const storedKey = window.localStorage.getItem('canvas-file-sort-key');
   const storedDirection = window.localStorage.getItem('canvas-file-sort-direction');
-  const sortKey: FileSortKey = storedKey === 'type' || storedKey === 'modified' || storedKey === 'size'
+  const sortKey: FileSortKey = storedKey === 'title' || storedKey === 'type' || storedKey === 'created'
+    || storedKey === 'modified' || storedKey === 'size' || storedKey === 'favorite' || storedKey === 'pinned'
     ? storedKey
     : 'name';
   const sortDirection: FileSortDirection = storedDirection === 'desc' ? 'desc' : 'asc';
@@ -402,7 +403,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     set((state) => {
       const fileSortDirection = state.fileSortKey === sortKey
         ? (state.fileSortDirection === 'asc' ? 'desc' : 'asc')
-        : (sortKey === 'modified' ? 'desc' : 'asc');
+        : (sortKey === 'created' || sortKey === 'modified' || sortKey === 'pinned' ? 'desc' : 'asc');
       if (typeof window !== 'undefined') {
         window.localStorage.setItem('canvas-file-sort-key', sortKey);
         window.localStorage.setItem('canvas-file-sort-direction', fileSortDirection);

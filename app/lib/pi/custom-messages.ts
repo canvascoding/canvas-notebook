@@ -10,17 +10,19 @@ declare module '@earendil-works/pi-agent-core' {
 
 export interface CompactBreakMessage {
   role: 'compact-break';
+  attemptId: string;
   kind: 'manual' | 'automatic';
   timestamp: string;
   omittedMessageCount: number;
 }
 
 export function createCompactBreakMessage(
+  attemptId: string,
   kind: 'manual' | 'automatic',
   timestamp: string,
   omittedMessageCount: number,
 ): CompactBreakMessage {
-  return { role: 'compact-break', kind, timestamp, omittedMessageCount };
+  return { role: 'compact-break', attemptId, kind, timestamp, omittedMessageCount };
 }
 
 export function isCompactBreakMessage(m: AgentMessage): m is CompactBreakMessage {

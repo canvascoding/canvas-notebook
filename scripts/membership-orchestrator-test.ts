@@ -457,6 +457,7 @@ async function main() {
     canManageBackups: true,
     canMigrateDatabase: true,
     canEnableKnowledge: true,
+    canManageOrganizationMemory: true,
     canRecoverWorkspaces: true,
   } as const;
   assert.equal(isOrganizationBillingApprover(ownerPermission), true);
@@ -1081,7 +1082,7 @@ async function main() {
   assert.match(authSource, /MEMBERSHIP_ORCHESTRATOR_REQUIRED/u);
   assert.match(authSource, /context\.path === "\/admin\/create-user"/u);
   assert.match(authSource, /assertTeamMembershipIdentityReactivatable/u);
-  assert.match(authSource, /TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX/u);
+  assert.match(authSource, /isTeamMembershipReactivationBanReason/u);
   assert.match(authSource, /auth\.api\.setUserPassword/u);
 }
 

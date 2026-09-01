@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { NextRequest } from 'next/server';
 
 import {
   DIRECT_MCP_OAUTH_SCOPES,
@@ -61,6 +62,15 @@ function readSessionCookie(response: Response): string {
   return sessionCookie.split(';', 1)[0];
 }
 
+function readStoredStringArray(value: string): string[] {
+  const parsed = JSON.parse(value) as unknown;
+  const normalized = typeof parsed === 'string'
+    ? JSON.parse(parsed) as unknown
+    : parsed;
+  assert.equal(Array.isArray(normalized), true);
+  return normalized as string[];
+}
+
 function authorizationUrl(
   clientId: string,
   resource: string,
@@ -88,7 +98,7 @@ async function main(): Promise<void> {
 
   try {
     const { createInitialOwner } = await import('../app/lib/auth-setup');
-    await createInitialOwner({
+    const owner = await createInitialOwner({
       name: 'OAuth Owner',
       email: EMAIL,
       password: PASSWORD,
@@ -97,16 +107,46 @@ async function main(): Promise<void> {
     const [
       { auth },
       { enforceDirectMcpOAuthRequestPolicy },
+      { POST: completeConsentRedirect },
+      { completeDirectMcpOAuthConsentRedirect },
       {
         resolveDirectMcpConsentPresentation,
         verifyOAuthPageQuery,
       },
+      { POST: postAuthRoute },
     ] = await Promise.all([
       import('../app/lib/auth'),
       import('../app/lib/mcp/server/oauth-request-policy'),
+      import('../app/api/auth/oauth2/consent/redirect/route'),
+      import('../app/lib/mcp/server/oauth-consent-redirect'),
       import('../app/lib/mcp/server/oauth-page-query'),
+      import('../app/api/auth/[...all]/route'),
     ]);
     const { issuer, resource } = resolveDirectMcpServerConfig();
+    const [
+      { loadWorkspaceListingForActor },
+      { resolveWorkspaceActor },
+      {
+        listDirectMcpAllowedWorkspaceIds,
+        setDirectMcpWorkspaceEnabled,
+      },
+    ] = await Promise.all([
+      import('../app/lib/workspaces/listing-action'),
+      import('../app/lib/workspaces/context'),
+      import('../app/lib/mcp/server/workspace-access-policy'),
+    ]);
+    const workspaceListing = await loadWorkspaceListingForActor(resolveWorkspaceActor({
+      id: owner.id,
+      email: EMAIL,
+      role: 'admin',
+    }));
+    assert.ok(workspaceListing.defaultWorkspace);
+    const workspaceId = workspaceListing.defaultWorkspace.workspaceId;
+    assert.deepEqual(await setDirectMcpWorkspaceEnabled({
+      userId: owner.id,
+      workspaceId,
+      enabled: true,
+    }), { status: 'updated', enabled: true });
 
     async function dispatch(request: Request): Promise<Response> {
       return (await enforceDirectMcpOAuthRequestPolicy(request))
@@ -220,7 +260,7 @@ async function main(): Promise<void> {
           disabled: storedClient.disabled,
           public: storedClient.public,
           tokenEndpointAuthMethod: storedClient.tokenEndpointAuthMethod,
-          scopes: JSON.parse(storedClient.scopes),
+          scopes: readStoredStringArray(storedClient.scopes),
         },
         {
           disabled: 0,
@@ -292,7 +332,68 @@ async function main(): Promise<void> {
     );
     assert.equal(secondConsentLocation.pathname, '/oauth/consent');
 
-    const acceptResponse = await dispatch(new Request(`${issuer}/oauth2/consent`, {
+    const invalidOriginForm = new URLSearchParams({
+      accept: 'true',
+      oauth_query: secondConsentLocation.searchParams.toString(),
+    });
+    const invalidOriginResponse = await completeConsentRedirect(
+      new Request(`${ORIGIN}/api/auth/oauth2/consent/redirect`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie: oauthCookie,
+          origin: 'https://attacker.example.test',
+        },
+        body: invalidOriginForm,
+      }),
+    );
+    assert.equal(invalidOriginResponse.status, 403);
+    assert.ok(invalidOriginResponse.headers.get('x-request-id'));
+
+    const acceptForm = new URLSearchParams({
+      accept: 'true',
+      oauth_query: secondConsentLocation.searchParams.toString(),
+    });
+    const consentIssuedAt = Number(
+      secondConsentLocation.searchParams.get('ba_iat'),
+    );
+    assert.equal(Number.isFinite(consentIssuedAt), true);
+    const delayedAcceptResponse = await completeDirectMcpOAuthConsentRedirect(
+      new Request(`${ORIGIN}/api/auth/oauth2/consent/redirect`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie: oauthCookie,
+          origin: ORIGIN,
+        },
+        body: acceptForm,
+      }),
+      auth.handler,
+      consentIssuedAt + 10 * 60 * 1_000,
+    );
+    assert.equal(delayedAcceptResponse.status, 303);
+    assert.ok(new URL(
+      delayedAcceptResponse.headers.get('location') || '',
+      ORIGIN,
+    ).searchParams.get('code'));
+
+    const staleAcceptResponse = await completeDirectMcpOAuthConsentRedirect(
+      new Request(`${ORIGIN}/api/auth/oauth2/consent/redirect`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie: oauthCookie,
+          origin: ORIGIN,
+        },
+        body: acceptForm,
+      }),
+      auth.handler,
+      consentIssuedAt + 61 * 60 * 1_000,
+    );
+    assert.equal(staleAcceptResponse.status, 400);
+    assert.equal((await readJson(staleAcceptResponse)).error, 'invalid_request');
+
+    const acceptResponse = await postAuthRoute(new NextRequest(`${issuer}/oauth2/consent`, {
       method: 'POST',
       headers: {
         accept: 'application/json',
@@ -314,6 +415,10 @@ async function main(): Promise<void> {
     assert.ok(acceptedRedirect.searchParams.get('code'));
     assert.equal(acceptedRedirect.searchParams.get('state'), 'state-consent');
     assert.equal(acceptedRedirect.searchParams.get('iss'), issuer);
+    assert.deepEqual(
+      [...await listDirectMcpAllowedWorkspaceIds({ clientId, userId: owner.id })],
+      [workspaceId],
+    );
 
     const tamperedConsent = await dispatch(new Request(`${issuer}/oauth2/consent`, {
       method: 'POST',

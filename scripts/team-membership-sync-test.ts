@@ -77,6 +77,15 @@ function teamLicenseStatus(seatLimit: number): LicenseStatus {
   };
 }
 
+function soloLicenseStatus(): LicenseStatus {
+  return {
+    ...teamLicenseStatus(1),
+    edition: 'solo',
+    capabilities: { multiUser: false, teamWorkspace: false },
+    features: { multiUser: false, teamWorkspace: false },
+  };
+}
+
 function insertUser(id: string, email: string, role = 'user'): void {
   sqlite.prepare(`
     INSERT INTO "user" (
@@ -145,6 +154,40 @@ async function main(): Promise<void> {
     databaseProvider: 'sqlite',
     now: 1_100,
   });
+  const snapshotBeforeInactive = await getLatestTeamMembershipSnapshotOperation(
+    connection,
+    'organization-1',
+  );
+  assert.ok(snapshotBeforeInactive);
+
+  const inactive = await runTeamMembershipSnapshotSyncCycle({
+    database: connection,
+    databaseProvider: 'sqlite',
+    sendSnapshot: async () => {
+      throw new Error('Solo licenses must not send Team membership snapshots.');
+    },
+    licenseStatus: soloLicenseStatus(),
+    now: 1_500,
+    forceReport: true,
+  });
+  assert.deepEqual(inactive, {
+    organizations: 0,
+    generated: 0,
+    requeued: 0,
+    attempted: 0,
+    acknowledged: 0,
+    reconciled: 0,
+    reconciliationFailed: 0,
+    deferred: 0,
+    failed: 0,
+  });
+  const snapshotAfterInactive = await getLatestTeamMembershipSnapshotOperation(
+    connection,
+    'organization-1',
+  );
+  assert.equal(snapshotAfterInactive?.operationId, snapshotBeforeInactive.operationId);
+  assert.equal(snapshotAfterInactive?.status, 'pending');
+  assert.equal(snapshotAfterInactive?.attemptCount, 0);
 
   const sent: Array<{
     request: TeamSeatSnapshotRequest;

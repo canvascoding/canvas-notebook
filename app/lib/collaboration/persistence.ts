@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import type * as YTypes from 'yjs';
 
 import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { composeCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadata';
+import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
 import type { TextCollaborationRepresentation } from './types';
 import {
   createPlainTextYDoc,
@@ -43,6 +45,30 @@ export interface PersistedCollaborationState {
   degraded: boolean;
   status: 'active' | 'archived';
 }
+
+export type SafeMarkdownNormalizationCheckpoint = {
+  write: (input: {
+    state: PersistedCollaborationState;
+    canonicalContent: string;
+  }) => Promise<{
+    content: string;
+    revisionId: string;
+    serializedContent: string;
+  }>;
+  restore: (input: {
+    state: PersistedCollaborationState;
+    canonicalContent: string;
+  }) => Promise<void>;
+  finalize: (input: {
+    state: PersistedCollaborationState;
+    canonicalContent: string;
+    fileWrite: {
+      content: string;
+      revisionId: string;
+      serializedContent: string;
+    };
+  }) => Promise<void> | void;
+};
 
 type StateRow = {
   document_id: string;
@@ -339,6 +365,253 @@ export async function markCollaborationCheckpoint(input: {
   }
 }
 
+export type CompensatableCheckpointMaterialization<T> = {
+  canonicalContent: string;
+  serializedContent: string;
+  result: T;
+  rollback: () => Promise<void>;
+};
+
+/**
+ * Couples an external checkpoint projection with its database confirmation.
+ * The compensation runs before the surrounding transaction releases its row
+ * lock, so a failed confirmation cannot leave the workspace file ahead of the
+ * authoritative checkpoint metadata.
+ */
+export async function confirmCheckpointMaterialization<T, R>(input: {
+  materialize: () => Promise<CompensatableCheckpointMaterialization<T>>;
+  confirm: (materialized: CompensatableCheckpointMaterialization<T>) => Promise<R>;
+}): Promise<R> {
+  const materialized = await input.materialize();
+  try {
+    return await input.confirm(materialized);
+  } catch (confirmationError) {
+    try {
+      await materialized.rollback();
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [confirmationError, rollbackError],
+        'Collaboration checkpoint confirmation and file rollback both failed.',
+      );
+    }
+    throw confirmationError;
+  }
+}
+
+export type CheckpointCommitRecoveryDecision =
+  | 'committed'
+  | 'superseded'
+  | 'rollback'
+  | 'degraded';
+
+export function checkpointCommitRecoveryDecision(input: {
+  expectedSequence: number;
+  expectedCanonicalHash: string;
+  expectedSerializedHash: string;
+  checkpointSequence: number;
+  canonicalHash: string | null;
+  serializedHash: string | null;
+}): CheckpointCommitRecoveryDecision {
+  if (input.checkpointSequence > input.expectedSequence) return 'superseded';
+  if (input.checkpointSequence < input.expectedSequence) return 'rollback';
+  return input.canonicalHash === input.expectedCanonicalHash
+    && input.serializedHash === input.expectedSerializedHash
+    ? 'committed'
+    : 'degraded';
+}
+
+async function recoverIndeterminateCheckpointCommit<T>(input: {
+  documentId: string;
+  sequence: number;
+  canonicalHash: string;
+  serializedHash: string;
+  materialized: CompensatableCheckpointMaterialization<T>;
+}): Promise<{ decision: CheckpointCommitRecoveryDecision; state: PersistedCollaborationState | null }> {
+  const recoveryDatabase = await openDb();
+  let recoveryTransactionOpen = false;
+  try {
+    await recoveryDatabase.run('BEGIN');
+    recoveryTransactionOpen = true;
+    const row = await recoveryDatabase.get(
+      'SELECT * FROM collaboration_yjs_states WHERE document_id = ? FOR UPDATE',
+      [input.documentId],
+    ) as StateRow | undefined;
+    if (!row) {
+      await input.materialized.rollback();
+      await recoveryDatabase.run('COMMIT');
+      recoveryTransactionOpen = false;
+      return { decision: 'rollback', state: null };
+    }
+    const state = mapState(row);
+    const decision = checkpointCommitRecoveryDecision({
+      expectedSequence: input.sequence,
+      expectedCanonicalHash: input.canonicalHash,
+      expectedSerializedHash: input.serializedHash,
+      checkpointSequence: state.checkpointSequence,
+      canonicalHash: state.canonicalHash,
+      serializedHash: state.serializedHash,
+    });
+    if (decision === 'rollback') {
+      await input.materialized.rollback();
+    } else if (decision === 'degraded') {
+      await recoveryDatabase.run(
+        'UPDATE collaboration_yjs_states SET degraded = 1 WHERE document_id = ?',
+        [input.documentId],
+      );
+    }
+    await recoveryDatabase.run('COMMIT');
+    recoveryTransactionOpen = false;
+    return { decision, state };
+  } catch (error) {
+    if (recoveryTransactionOpen) {
+      try { await recoveryDatabase.run('ROLLBACK'); } catch {}
+    }
+    throw error;
+  } finally {
+    await recoveryDatabase.close();
+  }
+}
+
+/**
+ * Holds the collaboration state row lock across file materialization and
+ * checkpoint confirmation. A concurrent Yjs persist or lifecycle update must
+ * therefore happen entirely before this fence (and fail the identity check)
+ * or after the checkpoint metadata and workspace projection agree.
+ */
+export async function withCollaborationCheckpointFence<T>(input: {
+  documentId: string;
+  workspaceId: string;
+  path: string;
+  representation: TextCollaborationRepresentation;
+  lifecycleGeneration: number;
+  schemaVersion: number;
+  sequence: number;
+  stateVector: Uint8Array;
+  materialize: (
+    state: PersistedCollaborationState,
+  ) => Promise<CompensatableCheckpointMaterialization<T>>;
+}): Promise<{ result: T; state: PersistedCollaborationState } | null> {
+  assertPostgres();
+  const database = await openDb();
+  let databaseClosed = false;
+  let transactionOpen = false;
+  try {
+    await database.run('BEGIN');
+    transactionOpen = true;
+    const lockedRow = await database.get(
+      `
+        SELECT * FROM collaboration_yjs_states
+        WHERE document_id = ?
+          AND workspace_id = ?
+          AND path = ?
+          AND representation = ?
+          AND status = 'active'
+          AND lifecycle_generation = ?
+          AND schema_version = ?
+          AND document_sequence = ?
+          AND checkpoint_sequence <= ?
+        FOR UPDATE
+      `,
+      [
+        input.documentId,
+        input.workspaceId,
+        input.path,
+        input.representation,
+        input.lifecycleGeneration,
+        input.schemaVersion,
+        input.sequence,
+        input.sequence,
+      ],
+    ) as StateRow | undefined;
+    if (!lockedRow) {
+      await database.run('ROLLBACK');
+      transactionOpen = false;
+      return null;
+    }
+    const lockedState = mapState(lockedRow);
+    if (!Buffer.from(lockedState.stateVector).equals(Buffer.from(input.stateVector))) {
+      await database.run('ROLLBACK');
+      transactionOpen = false;
+      return null;
+    }
+
+    const materialized = await input.materialize(lockedState);
+    const expectedCanonicalHash = sha256Text(materialized.canonicalContent);
+    const expectedSerializedHash = sha256Text(materialized.serializedContent);
+    const checkpointedRow = await confirmCheckpointMaterialization({
+      materialize: async () => materialized,
+      confirm: async () => {
+        const row = await database.get(
+          `
+            UPDATE collaboration_yjs_states
+            SET checkpointed_at = ?, checkpoint_sequence = ?, canonical_hash = ?, serialized_hash = ?, degraded = 0
+            WHERE document_id = ?
+              AND document_sequence = ?
+              AND checkpoint_sequence <= ?
+            RETURNING *
+          `,
+          [
+            Date.now(),
+            input.sequence,
+            expectedCanonicalHash,
+            expectedSerializedHash,
+            input.documentId,
+            input.sequence,
+            input.sequence,
+          ],
+        ) as StateRow | undefined;
+        if (!row) {
+          throw new Error('Collaboration checkpoint row changed while its write fence was held.');
+        }
+        return row;
+      },
+    });
+    try {
+      await database.run('COMMIT');
+      transactionOpen = false;
+      return { result: materialized.result, state: mapState(checkpointedRow) };
+    } catch (commitError) {
+      try { await database.run('ROLLBACK'); } catch {}
+      transactionOpen = false;
+      await database.close();
+      databaseClosed = true;
+      let recovery: Awaited<ReturnType<typeof recoverIndeterminateCheckpointCommit<T>>>;
+      try {
+        recovery = await recoverIndeterminateCheckpointCommit({
+          documentId: input.documentId,
+          sequence: input.sequence,
+          canonicalHash: expectedCanonicalHash,
+          serializedHash: expectedSerializedHash,
+          materialized,
+        });
+      } catch (recoveryError) {
+        throw new AggregateError(
+          [commitError, recoveryError],
+          'Collaboration checkpoint commit failed and its durable outcome could not be recovered.',
+        );
+      }
+      if (recovery.decision === 'committed') {
+        return { result: materialized.result, state: mapState(checkpointedRow) };
+      }
+      if (recovery.decision === 'superseded') return null;
+      if (recovery.decision === 'degraded') {
+        throw new AggregateError(
+          [commitError],
+          'Collaboration checkpoint commit outcome conflicts with its persisted hashes.',
+        );
+      }
+      throw commitError;
+    }
+  } catch (error) {
+    if (transactionOpen) {
+      try { await database.run('ROLLBACK'); } catch {}
+    }
+    throw error;
+  } finally {
+    if (!databaseClosed) await database.close();
+  }
+}
+
 export async function markCollaborationDegraded(
   documentId: string,
   expectedLifecycleGeneration: number,
@@ -401,7 +674,8 @@ export class CollaborationRepresentationMigrationError extends Error {
       | 'checkpoint_stale'
       | 'content_unsupported'
       | 'agent_operation_pending'
-      | 'state_changed',
+      | 'state_changed'
+      | 'checkpoint_failed',
   ) {
     super(message);
     this.name = 'CollaborationRepresentationMigrationError';
@@ -528,7 +802,13 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   expectedLifecycleGeneration: number;
   representation: TextCollaborationRepresentation;
   schemaVersion: number;
-}): Promise<PersistedCollaborationState> {
+  normalizeSafeMarkdown?: boolean;
+  checkpoint?: SafeMarkdownNormalizationCheckpoint;
+}): Promise<{
+  canonicalContent: string;
+  checkpointRequired: boolean;
+  state: PersistedCollaborationState;
+}> {
   assertPostgres();
   if (getCollaborationRoomConnectionCount(input.documentId) > 0) {
     throw new CollaborationRepresentationMigrationError(
@@ -549,7 +829,30 @@ async function changeCollaborationRepresentationWhileLocked(input: {
       'checkpoint_stale',
     );
   }
-  const canonicalContent = canonicalContentFromState(state);
+  const currentCanonicalContent = canonicalContentFromState(state);
+  let canonicalContent = currentCanonicalContent;
+  if (input.normalizeSafeMarkdown) {
+    if (input.representation !== 'tiptap_xml') {
+      throw new CollaborationRepresentationMigrationError(
+        'Safe Markdown normalization is only available for rich-text migration.',
+        'content_unsupported',
+      );
+    }
+    const analysis = analyzeMarkdownRichMode(currentCanonicalContent);
+    if (analysis.mode === 'normalizable') {
+      canonicalContent = composeCanvasMarkdownDocument(
+        analysis.prefix,
+        analysis.normalizedBody,
+      );
+    } else if (analysis.mode !== 'rich') {
+      throw new CollaborationRepresentationMigrationError(
+        'The collaboration content cannot be normalized safely for rich text.',
+        'content_unsupported',
+      );
+    }
+  }
+  canonicalContent = encodingProfile(canonicalContent).canonical;
+  const checkpointRequired = canonicalContent !== currentCanonicalContent;
   let fresh: YTypes.Doc;
   try {
     fresh = createValidatedFreshDocument(input.representation, canonicalContent);
@@ -564,6 +867,9 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   const now = Date.now();
   const nextSequence = state.documentSequence + 1;
   const database = await openDb();
+  let checkpointAttempted = false;
+  let checkpointFileWrite: Awaited<ReturnType<SafeMarkdownNormalizationCheckpoint['write']>> | null = null;
+  let committed = false;
   try {
     await database.run('BEGIN');
     const applying = await database.get(
@@ -599,9 +905,9 @@ async function changeCollaborationRepresentationWhileLocked(input: {
         Buffer.from(update),
         Buffer.from(vector),
         nextSequence,
-        nextSequence,
+        checkpointRequired ? state.checkpointSequence : nextSequence,
         now,
-        now,
+        checkpointRequired ? state.checkpointedAt : now,
         sha256Text(canonicalContent),
         now,
         state.documentId,
@@ -614,10 +920,80 @@ async function changeCollaborationRepresentationWhileLocked(input: {
         'state_changed',
       );
     }
+    let migratedState = mapState(row);
+    if (checkpointRequired && input.checkpoint) {
+      checkpointAttempted = true;
+      checkpointFileWrite = await input.checkpoint.write({
+        state: migratedState,
+        canonicalContent,
+      });
+      const checkpointedRow = await database.get(
+        `UPDATE collaboration_yjs_states
+         SET checkpointed_at = ?, checkpoint_sequence = ?, canonical_hash = ?,
+             serialized_hash = ?, degraded = 0
+         WHERE document_id = ? AND status = 'active' AND lifecycle_generation = ?
+           AND schema_version = ? AND document_sequence = ?
+         RETURNING *`,
+        [
+          now,
+          nextSequence,
+          sha256Text(canonicalContent),
+          sha256Text(checkpointFileWrite.serializedContent),
+          state.documentId,
+          migratedState.lifecycleGeneration,
+          input.schemaVersion,
+          nextSequence,
+        ],
+      ) as StateRow | undefined;
+      if (!checkpointedRow) {
+        throw new CollaborationRepresentationMigrationError(
+          'Collaboration state changed before the normalized checkpoint could be confirmed.',
+          'state_changed',
+        );
+      }
+      migratedState = mapState(checkpointedRow);
+    }
     await database.run('COMMIT');
-    return mapState(row);
+    committed = true;
+    if (checkpointFileWrite && input.checkpoint) {
+      await input.checkpoint.finalize({
+        state: migratedState,
+        canonicalContent,
+        fileWrite: checkpointFileWrite,
+      });
+    }
+    return {
+      canonicalContent,
+      checkpointRequired,
+      state: migratedState,
+    };
   } catch (error) {
-    try { await database.run('ROLLBACK'); } catch {}
+    if (!committed) {
+      try { await database.run('ROLLBACK'); } catch {}
+    }
+    if (!committed && checkpointAttempted && input.checkpoint) {
+      try {
+        await input.checkpoint.restore({
+          state,
+          canonicalContent: currentCanonicalContent,
+        });
+      } catch (restoreError) {
+        await markCollaborationDegraded(state.documentId, state.lifecycleGeneration);
+        throw new AggregateError(
+          [error, restoreError],
+          'Normalized collaboration migration failed and its file checkpoint could not be restored.',
+        );
+      }
+      if (!(error instanceof CollaborationRepresentationMigrationError)) {
+        throw new CollaborationRepresentationMigrationError(
+          error instanceof Error ? error.message : 'The normalized file checkpoint failed.',
+          'checkpoint_failed',
+        );
+      }
+    }
+    if (committed) {
+      await markCollaborationDegraded(state.documentId, state.lifecycleGeneration + 1);
+    }
     throw error;
   } finally {
     fresh.destroy();
@@ -632,9 +1008,32 @@ export async function changeCollaborationRepresentation(input: {
   schemaVersion: number;
 }): Promise<PersistedCollaborationState> {
   assertPostgres();
-  return withCollaborationRoomLifecycleLock(
+  const result = await withCollaborationRoomLifecycleLock(
     input.documentId,
     () => changeCollaborationRepresentationWhileLocked(input),
+  );
+  return result.state;
+}
+
+export async function changeCollaborationRepresentationWithSafeMarkdownNormalization(input: {
+  documentId: string;
+  expectedLifecycleGeneration: number;
+  schemaVersion: number;
+  checkpoint: SafeMarkdownNormalizationCheckpoint;
+}): Promise<{
+  canonicalContent: string;
+  checkpointRequired: boolean;
+  state: PersistedCollaborationState;
+}> {
+  assertPostgres();
+  return withCollaborationRoomLifecycleLock(
+    input.documentId,
+    () => changeCollaborationRepresentationWhileLocked({
+      ...input,
+      representation: 'tiptap_xml',
+      normalizeSafeMarkdown: true,
+      checkpoint: input.checkpoint,
+    }),
   );
 }
 

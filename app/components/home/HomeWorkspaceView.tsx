@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 
 import { readNotificationSummary, type NotificationSummary } from '@/app/components/notifications/notification-summary';
-import { PromptHero } from './PromptHero';
+import { PromptHero, type HomePromptMode } from './PromptHero';
 import { CategoryPills, type CategoryId } from './CategoryPills';
 import { InspirationPanel } from './InspirationPanel';
 import { HomeAttentionPanel } from './HomeAttentionPanel';
@@ -19,6 +19,7 @@ export function HomeWorkspaceView({
 }) {
   const t = useTranslations('home');
   const [activeCategory, setActiveCategory] = useState<CategoryId | null>(null);
+  const [promptMode, setPromptMode] = useState<HomePromptMode>('notebook');
   const [summary, setSummary] = useState<NotificationSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(true);
   const refreshSummary = useCallback(async () => {
@@ -78,14 +79,18 @@ export function HomeWorkspaceView({
             <h1 id="home-workspace-prompt" className="mt-2 text-[1.65rem] font-semibold leading-tight tracking-tight sm:text-3xl">{t('focus.promptTitle')}</h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">{t('focus.promptDescription')}</p>
           </div>
-          <PromptHero />
-          <CategoryPills activeCategory={activeCategory} onCategoryClick={handleCategoryClick} />
-          {activeCategory ? (
-            <InspirationPanel
-              category={activeCategory}
-              onClose={() => setActiveCategory(null)}
-              onPromptSelect={handlePromptSelect}
-            />
+          <PromptHero onModeChange={setPromptMode} />
+          {promptMode === 'notebook' ? (
+            <>
+              <CategoryPills activeCategory={activeCategory} onCategoryClick={handleCategoryClick} />
+              {activeCategory ? (
+                <InspirationPanel
+                  category={activeCategory}
+                  onClose={() => setActiveCategory(null)}
+                  onPromptSelect={handlePromptSelect}
+                />
+              ) : null}
+            </>
           ) : null}
         </section>
 

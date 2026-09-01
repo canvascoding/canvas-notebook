@@ -5,6 +5,7 @@ import path from 'node:path';
 import { buildTeamSeatHealth } from '../app/lib/license/team-seat-health';
 import { codeFromLicenseStatus } from '../app/lib/license/error-codes';
 import { publicLicenseStatus } from '../app/lib/license/status-response';
+import { includesTeamRuntimeLicense } from '../app/lib/license/team-runtime-status';
 import type { TeamSeatSyncDiagnostics } from '../app/lib/license/team-seat-outbox';
 import type { LicenseStatus } from '../app/lib/license/types';
 
@@ -207,6 +208,33 @@ function main(): void {
     billingMode: 'test_grant',
   });
 
+  const authoritativeRuntime = buildTeamSeatHealth({
+    organizationId: 'organization-health',
+    diagnostics: diagnostics({
+      currentRevision: 8,
+      acknowledgedRevision: 7,
+      currentObservedQuantity: 1,
+      controlPlaneObservedQuantity: 2,
+      approvedQuantity: 2,
+      licensedQuantity: 2,
+    }),
+    claim: { state: 'connected', claimId: 'claim-id', organizationId: 'control-plane-organization', token: {
+      configured: true,
+      expiresAt: new Date(now + 3_600_000).toISOString(),
+      expired: false,
+    } },
+    licenseStatus: licenseStatus({
+      licenseClass: 'test',
+      licenseEnvironment: 'development',
+      seatLimit: 1,
+    }),
+    now,
+  });
+  assert.equal(authoritativeRuntime.sync.observedQuantity, 1);
+  assert.equal(authoritativeRuntime.sync.approvedQuantity, 2);
+  assert.equal(authoritativeRuntime.sync.licensedQuantity, 1);
+  assert.equal(authoritativeRuntime.license.seatLimit, 1);
+
   const manualGrant = buildTeamSeatHealth({
     organizationId: 'organization-health',
     diagnostics: diagnostics(),
@@ -228,6 +256,20 @@ function main(): void {
     /licenseClass|licenseEnvironment|seatLimit|organizationId|entitlementsVersion|graceExpiresAt|refresh|quotas|source/u,
   );
 
+  assert.equal(includesTeamRuntimeLicense({
+    licensed: true,
+    databaseProvider: null,
+    runtimeDatabaseProvider: 'postgres',
+    capabilities: {},
+    features: { multiUser: true, teamWorkspace: true },
+  }), true);
+  assert.equal(includesTeamRuntimeLicense({
+    licensed: true,
+    databaseProvider: 'postgres',
+    runtimeDatabaseProvider: 'sqlite',
+    capabilities: { multiUser: true, teamWorkspace: true },
+  }), false);
+
   const unavailableStatus: LicenseStatus = {
     ...licenseStatus(),
     licensed: false,
@@ -243,6 +285,7 @@ function main(): void {
   assert.match(statusRoute, /isOrganizationBillingApprover/u);
   assert.match(statusRoute, /teamSeatHealth:\s*buildTeamSeatHealth/u);
   assert.match(statusRoute, /publicLicenseStatus\(status,\s*code\)/u);
+  assert.match(statusRoute, /runtimeDatabaseProvider:\s*getDatabaseProvider\(\)/u);
   assert.doesNotMatch(statusRoute, /\.\.\.status/u);
   assert.doesNotMatch(statusRoute, /instanceToken|tokenPrefix|deviceCode/u);
 

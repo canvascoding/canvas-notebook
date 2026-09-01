@@ -7,6 +7,7 @@ import { resolveSystemSettingsDir } from '@/app/lib/runtime-data-paths';
 import { DEFAULT_USER_TIME_ZONE, isValidTimeZone, normalizeTimeZone } from '@/app/lib/time-zones';
 import {
   DIRECT_MCP_TOOL_CONFIGURATION_VERSION,
+  DIRECT_MCP_DEFAULT_TOOL_IDS,
   DIRECT_MCP_TOOL_IDS,
   type DirectMcpToolId,
 } from '@/app/lib/mcp/server/config';
@@ -113,10 +114,11 @@ function normalizeDirectMcpPreferences(value: unknown): DirectMcpServerPreferenc
     : 1;
   // Before version 2, auth_probe was the only available tool. Treat the old
   // one-tool default as an upgrade, while preserving an explicit empty list.
-  const upgradedTools = configuredVersion < DIRECT_MCP_TOOL_CONFIGURATION_VERSION
+  // New mutating capabilities are deliberately excluded from this migration.
+  const upgradedTools = configuredVersion < 2
     && tools.length === 1
     && tools[0] === 'auth_probe'
-    ? [...DIRECT_MCP_TOOL_IDS]
+    ? [...DIRECT_MCP_DEFAULT_TOOL_IDS]
     : tools;
   return {
     enabled: record.enabled,
@@ -236,9 +238,15 @@ export async function setDirectMcpServerPreferences(
 
   const file = await readServerSettingsFile();
   const now = new Date().toISOString();
+  // A server activation should be immediately useful. Preserve intentional
+  // capability changes while it remains active, but enable every available
+  // tool when the server is turned on from an inactive state.
+  const enabledTools = input.enabled && !file.settings.directMcp?.enabled
+    ? [...DIRECT_MCP_TOOL_IDS]
+    : tools;
   const directMcp: DirectMcpServerPreferences = {
     enabled: input.enabled,
-    tools,
+    tools: enabledTools,
     toolsVersion: DIRECT_MCP_TOOL_CONFIGURATION_VERSION,
     updatedAt: now,
     updatedBy: userId,

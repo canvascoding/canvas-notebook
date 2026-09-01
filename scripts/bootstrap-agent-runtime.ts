@@ -534,6 +534,18 @@ function isValidCanvasPackageName(name: string): boolean {
   return /^[a-z0-9]+([a-z0-9-]*[a-z0-9]+)?$/.test(name);
 }
 
+function isValidAgentSkillName(name: string): boolean {
+  const normalized = name.trim().normalize('NFKC');
+  return name === normalized
+    && Array.from(name).length >= 1
+    && Array.from(name).length <= 64
+    && name === name.toLowerCase()
+    && !name.startsWith('-')
+    && !name.endsWith('-')
+    && !name.includes('--')
+    && Array.from(name).every((character) => character === '-' || /^[\p{L}\p{N}]$/u.test(character));
+}
+
 function isValidCanvasVersion(version: string): boolean {
   return /^[0-9]+(?:\.[0-9]+){0,2}(?:[-+][a-z0-9.-]+)?$/i.test(version);
 }
@@ -670,7 +682,7 @@ async function discoverSeedPluginSkills(pluginRoot: string, manifest: SeedPlugin
 
       const skillFrontmatter = parseSimpleSkillFrontmatter(await fs.readFile(skillPath, 'utf8'));
       const skillName = skillFrontmatter.name || entry.name;
-      if (!isValidCanvasPackageName(skillName) || seen.has(skillName)) continue;
+      if (!isValidAgentSkillName(skillName) || skillName !== entry.name || seen.has(skillName)) continue;
       seen.add(skillName);
 
       records.push({
@@ -690,7 +702,7 @@ async function discoverSeedPluginSkills(pluginRoot: string, manifest: SeedPlugin
   }
 
   for (const ref of manifest.skillRefs || []) {
-    if (!isValidCanvasPackageName(ref.name) || seen.has(ref.name)) continue;
+    if (!isValidAgentSkillName(ref.name) || seen.has(ref.name)) continue;
     const skillDir = path.join(SEED_SKILLS_DIR, ref.name);
     const skillPath = path.join(skillDir, 'SKILL.md');
     const stat = await fs.stat(skillPath).catch(() => null);
@@ -698,7 +710,7 @@ async function discoverSeedPluginSkills(pluginRoot: string, manifest: SeedPlugin
 
     const skillFrontmatter = parseSimpleSkillFrontmatter(await fs.readFile(skillPath, 'utf8'));
     const skillName = skillFrontmatter.name || ref.name;
-    if (!isValidCanvasPackageName(skillName) || seen.has(skillName)) continue;
+    if (!isValidAgentSkillName(skillName) || skillName !== ref.name || seen.has(skillName)) continue;
     seen.add(skillName);
 
     records.push({

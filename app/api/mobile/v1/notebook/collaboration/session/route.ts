@@ -12,14 +12,7 @@ import {
   RICH_MARKDOWN_SCHEMA_VERSION,
   type CollaborationSessionResponse,
 } from '@/app/lib/collaboration/types';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
-import { workspaceRequiresCollaborationPolicy } from '@/app/lib/files/collaboration-policy';
-import {
-  LicenseEntitlementError,
-  licenseEntitlementErrorPayload,
-  requireRuntimeCapability,
-  requireTeamRuntimeLicense,
-} from '@/app/lib/license/entitlements';
+import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { issueMobileCollaborationTicket } from '@/app/lib/mobile/collaboration-ticket';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
@@ -35,24 +28,11 @@ export async function POST(request: NextRequest) {
   });
   if (limited) return limited;
 
-  if (
-    getDatabaseProvider() !== 'postgres'
-    || !workspaceRequiresCollaborationPolicy(workspaceResult.workspace)
-  ) {
+  if (!liveCollaborationRuntimeAvailable()) {
     return NextResponse.json(
-      { success: false, error: 'Live collaboration requires a shared Postgres workspace.' },
+      { success: false, error: 'Live collaboration requires Postgres.' },
       { status: 409 },
     );
-  }
-
-  try {
-    await requireTeamRuntimeLicense();
-    await requireRuntimeCapability('liveCollaboration');
-  } catch (error) {
-    if (error instanceof LicenseEntitlementError) {
-      return NextResponse.json(licenseEntitlementErrorPayload(error), { status: error.statusCode });
-    }
-    throw error;
   }
 
   const body = await readJsonBody<{ path?: unknown }>(request);
@@ -111,6 +91,9 @@ export async function POST(request: NextRequest) {
       schemaVersion: COLLABORATION_SCHEMA_VERSION,
       richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION,
       permission: grant.permission,
+      documentSequence: grant.documentSequence,
+      checkpointSequence: grant.checkpointSequence,
+      stateVector: grant.stateVector,
       token: ticket.token,
       expiresAt: ticket.expiresAt,
       websocketUrl: '/ws/collaboration',

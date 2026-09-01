@@ -39,7 +39,7 @@ async function main() {
     const draft = await createCanvasPluginDraft({
       workspaceRoot,
       pluginName: 'agent-plugin-test',
-      description: 'Exercises the Canvas Agent plugin lifecycle.',
+      description: 'Exercises the Bradley plugin lifecycle.',
       draftId: 'lifecycle',
     });
     assert.equal(draft.packagePath, '.canvas-plugin-drafts/lifecycle/agent-plugin-test');

@@ -3,6 +3,7 @@ import 'server-only';
 import type { MobileCompatibility } from './compatibility';
 import type { WorkspaceListing } from '@/app/lib/workspaces/listing-action';
 import type { WorkspaceContext, WorkspacePermissions, WorkspaceUserRole } from '@/app/lib/workspaces/types';
+import { buildPublicRequestUrl } from '@/app/lib/utils/request-origin';
 
 export type MobileWorkspaceAccess = 'manage' | 'edit' | 'read';
 
@@ -71,6 +72,10 @@ function normalizeRole(value: string | null | undefined): WorkspaceUserRole {
 
 export function createMobileBootstrap(input: {
   compatibility: MobileCompatibility;
+  request: {
+    headers: Pick<Headers, 'get'>;
+    url: string | URL;
+  };
   user: {
     id: string;
     name?: string | null;
@@ -114,6 +119,7 @@ export function createMobileBootstrap(input: {
     'notebook.collaboration.yjs',
     'notebook.collaboration.session.v1',
     'files.browse',
+    'files.sort.v1',
     'files.html_preview',
     'files.marp_preview.v1',
     'files.mutate',
@@ -169,7 +175,7 @@ export function createMobileBootstrap(input: {
       id: input.user.id,
       name: input.user.name?.trim() || input.user.email,
       email: input.user.email,
-      image: input.user.image || null,
+      image: resolveMobileUserImageUrl(input.user.image, input.request),
       role: normalizeRole(input.user.role),
     },
     workspace: {
@@ -181,4 +187,23 @@ export function createMobileBootstrap(input: {
       items: input.listing.workspaces.map(serializeMobileWorkspace),
     },
   };
+}
+
+function resolveMobileUserImageUrl(
+  value: string | null | undefined,
+  request: { headers: Pick<Headers, 'get'>; url: string | URL },
+): string | null {
+  const imageUrl = value?.trim();
+  if (!imageUrl) return null;
+  if (imageUrl.startsWith('/')) {
+    return buildPublicRequestUrl(request, imageUrl).toString();
+  }
+  try {
+    const parsed = new URL(imageUrl);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+      ? parsed.toString()
+      : null;
+  } catch {
+    return null;
+  }
 }

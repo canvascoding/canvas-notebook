@@ -273,7 +273,7 @@ async function assertRegistrationPolicy(
     token_endpoint_auth_method: 'none',
     grant_types: ['authorization_code'],
     response_types: ['code'],
-    scope: 'openid knowledge:write',
+    scope: 'openid knowledge:delete',
   }, prepareRequest);
   assert.equal(invalidScope.status, 400);
   assert.equal((await readJson(invalidScope)).error, 'invalid_scope');
@@ -367,7 +367,7 @@ async function assertAuthorizePolicy(
   assert.match(pkceError.searchParams.get('error_description') || '', /pkce is required/u);
 
   const unknownScope = await auth.handler(new Request(authorizeUrl(clientId, {
-    scope: 'openid knowledge:write',
+    scope: 'openid knowledge:delete',
   })));
   assert.equal(unknownScope.status, 302);
   assert.equal(

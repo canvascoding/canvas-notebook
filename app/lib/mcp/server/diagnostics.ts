@@ -3,14 +3,22 @@ import 'server-only';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHmac, randomUUID } from 'node:crypto';
 
+import {
+  recordDirectMcpRequestHistory,
+  type DirectMcpRequestHistoryEntry,
+} from '@/app/lib/mcp/server/request-history';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 
 export type DirectMcpDiagnosticPhase =
   | 'discovery.authorization_server'
   | 'discovery.protected_resource'
   | 'mcp.http'
+  | 'oauth.authorization'
+  | 'oauth.consent'
+  | 'oauth.introspection'
   | 'oauth.registration'
-  | 'oauth.request';
+  | 'oauth.revocation'
+  | 'oauth.token';
 
 const directMcpDiagnosticStorage = new AsyncLocalStorage<DirectMcpDiagnosticContext>();
 
@@ -19,6 +27,10 @@ export type DirectMcpDiagnosticContext = {
   flowRef: string | null;
   phase: DirectMcpDiagnosticPhase;
   method: string;
+  operation?: 'tools/list' | 'tools/call';
+  toolName?: string;
+  historyCode?: string;
+  historyRecorded?: boolean;
 };
 
 type DirectMcpDiagnosticOutcome = 'started' | 'succeeded' | 'failed';
@@ -83,14 +95,51 @@ export function beginDirectMcpDiagnostic(
   return context;
 }
 
-export function completeDirectMcpDiagnostic(
+function historyOutcome(
+  statusCode: number,
+  historyCode: string,
+): DirectMcpRequestHistoryEntry['outcome'] {
+  if (statusCode >= 500 || historyCode === 'MCP_TOOL_ERROR' || historyCode.startsWith('OAUTH_PERSISTENCE_')) {
+    return 'failed';
+  }
+  if (statusCode >= 400) return 'rejected';
+  return 'succeeded';
+}
+
+async function recordRequestHistory(
+  context: DirectMcpDiagnosticContext,
+  input: {
+    statusCode?: number;
+    code: string;
+    startedAt: number;
+    outcome: DirectMcpRequestHistoryEntry['outcome'];
+  },
+): Promise<void> {
+  if (context.historyRecorded) return;
+  context.historyRecorded = true;
+  await recordDirectMcpRequestHistory({
+    requestId: context.requestId,
+    flowRef: context.flowRef,
+    phase: context.phase,
+    httpMethod: context.method,
+    operation: context.operation,
+    toolName: context.toolName,
+    outcome: input.outcome,
+    statusCode: input.statusCode,
+    code: input.code,
+    durationMs: Math.max(0, Date.now() - input.startedAt),
+  });
+}
+
+export async function completeDirectMcpDiagnostic(
   context: DirectMcpDiagnosticContext,
   input: {
     statusCode: number;
     code: string;
     startedAt: number;
   },
-): void {
+): Promise<void> {
+  const historyCode = context.historyCode ?? input.code;
   emitDiagnostic({
     event: 'direct_mcp_diagnostic',
     requestId: context.requestId,
@@ -102,16 +151,22 @@ export function completeDirectMcpDiagnostic(
     code: input.code,
     durationMs: Math.max(0, Date.now() - input.startedAt),
   });
+  await recordRequestHistory(context, {
+    statusCode: input.statusCode,
+    code: historyCode,
+    startedAt: input.startedAt,
+    outcome: historyOutcome(input.statusCode, historyCode),
+  });
 }
 
-export function failDirectMcpDiagnostic(
+export async function failDirectMcpDiagnostic(
   context: DirectMcpDiagnosticContext,
   input: {
     code: string;
     startedAt: number;
     statusCode?: number;
   },
-): void {
+): Promise<void> {
   emitDiagnostic({
     event: 'direct_mcp_diagnostic',
     requestId: context.requestId,
@@ -123,6 +178,28 @@ export function failDirectMcpDiagnostic(
     code: input.code,
     durationMs: Math.max(0, Date.now() - input.startedAt),
   });
+  await recordRequestHistory(context, {
+    statusCode: input.statusCode,
+    code: input.code,
+    startedAt: input.startedAt,
+    outcome: 'failed',
+  });
+}
+
+export function recordDirectMcpRequestOperation(
+  operation: 'tools/list' | 'tools/call',
+  toolName?: string,
+): void {
+  const context = directMcpDiagnosticStorage.getStore();
+  if (!context) return;
+  context.operation = operation;
+  if (toolName) context.toolName = toolName;
+}
+
+export function recordDirectMcpToolFailure(): void {
+  const context = directMcpDiagnosticStorage.getStore();
+  if (!context) return;
+  context.historyCode = 'MCP_TOOL_ERROR';
 }
 
 export function withDirectMcpRequestId(
@@ -178,6 +255,7 @@ export function recordDirectMcpOAuthProviderError(
 
   // Keep production diagnostics correlatable without recording client metadata,
   // credentials, authorization codes, tokens, or provider error text.
+  const code = classifyProviderError(error);
   emitDiagnostic({
     event: 'direct_mcp_diagnostic',
     requestId: context.requestId,
@@ -185,7 +263,8 @@ export function recordDirectMcpOAuthProviderError(
     phase: context.phase,
     outcome: 'failed',
     method: context.method,
-    code: classifyProviderError(error),
+    code,
   });
+  context.historyCode = code;
   return true;
 }

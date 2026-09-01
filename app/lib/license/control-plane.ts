@@ -15,6 +15,11 @@ import { getLicenseInstanceId } from './instance';
 import { LicenseCertificateValidationError } from './jwt';
 import { logLicenseError } from './logging';
 import {
+  loadPendingLicenseEmailActivation,
+  removePendingLicenseEmailActivation,
+  type PendingLicenseEmailActivation,
+} from './email-activation-storage';
+import {
   getCommunityTeamRuntimeReadiness,
   withCommunityTeamVersionReadiness,
   type TeamRuntimeReadinessStatus,
@@ -186,12 +191,46 @@ async function getLicenseControlPlane(
 export type CommunityLicenseRegistration = {
   status: string;
   expiresAt: string | null;
+  activation: Pick<
+    PendingLicenseEmailActivation,
+    'activationId' | 'pollToken' | 'expiresAt' | 'pollIntervalSeconds'
+  > | null;
 };
+
+function parseCommunityLicenseRegistrationActivation(value: unknown): CommunityLicenseRegistration['activation'] {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new LicenseControlPlaneError('License registration returned an invalid activation request.', 502, 'LICENSE_EMAIL_ACTIVATION_CONTRACT_INVALID', false, null, 'contract');
+  }
+  const activation = value as Record<string, unknown>;
+  if (
+    typeof activation.id !== 'string'
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(activation.id)
+    || typeof activation.pollToken !== 'string'
+    || !/^lep_[0-9a-f]{64}$/u.test(activation.pollToken)
+    || typeof activation.expiresAt !== 'string'
+    || !Number.isFinite(Date.parse(activation.expiresAt))
+    || typeof activation.pollIntervalSeconds !== 'number'
+    || !Number.isSafeInteger(activation.pollIntervalSeconds)
+    || activation.pollIntervalSeconds < 1
+    || activation.pollIntervalSeconds > 300
+  ) {
+    throw new LicenseControlPlaneError('License registration returned an invalid activation request.', 502, 'LICENSE_EMAIL_ACTIVATION_CONTRACT_INVALID', false, null, 'contract');
+  }
+  return {
+    activationId: activation.id,
+    pollToken: activation.pollToken,
+    expiresAt: activation.expiresAt,
+    pollIntervalSeconds: activation.pollIntervalSeconds,
+  };
+}
 
 export async function requestCommunityLicenseRegistration(input: {
   email: string;
   activationUrl: string;
   marketingOptIn: boolean;
+}, options?: {
+  fetchImpl?: typeof fetch;
 }): Promise<CommunityLicenseRegistration> {
   const instanceId = getLicenseInstanceId();
   const { response, payload } = await postLicenseControlPlane('/v1/license/register', {
@@ -199,7 +238,7 @@ export async function requestCommunityLicenseRegistration(input: {
     instanceId,
     activationUrl: input.activationUrl,
     marketingOptIn: input.marketingOptIn,
-  });
+  }, { fetchImpl: options?.fetchImpl });
   if (!response.ok) {
     const message = typeof payload.error === 'string'
       ? redactTeamControlPlaneLogText(payload.error, [input.email])
@@ -213,7 +252,143 @@ export async function requestCommunityLicenseRegistration(input: {
   return {
     status: typeof payload.status === 'string' ? payload.status : 'issued',
     expiresAt: typeof payload.expiresAt === 'string' ? payload.expiresAt : null,
+    activation: parseCommunityLicenseRegistrationActivation(payload.activation),
   };
+}
+
+export type CommunityLicenseEmailActivationStatus =
+  | { state: 'idle' }
+  | {
+      state: 'authorization_pending';
+      expiresAt: string;
+      pollIntervalSeconds: number;
+    }
+  | {
+      state: 'activated';
+      license: LicenseStatus;
+    };
+
+function pendingEmailActivationStatus(pending: PendingLicenseEmailActivation): CommunityLicenseEmailActivationStatus {
+  return {
+    state: 'authorization_pending',
+    expiresAt: pending.expiresAt,
+    pollIntervalSeconds: pending.pollIntervalSeconds,
+  };
+}
+
+export async function pollPendingLicenseEmailActivation(options?: {
+  fetchImpl?: typeof fetch;
+}): Promise<CommunityLicenseEmailActivationStatus> {
+  const pending = await loadPendingLicenseEmailActivation();
+  if (!pending) return { state: 'idle' };
+  const instanceId = getLicenseInstanceId();
+  if (pending.instanceId !== instanceId) {
+    await removePendingLicenseEmailActivation();
+    throw new LicenseControlPlaneError(
+      'The stored license activation belongs to another instance.',
+      409,
+      'LICENSE_EMAIL_ACTIVATION_INSTANCE_MISMATCH',
+    );
+  }
+  if (Date.parse(pending.expiresAt) <= Date.now()) {
+    await removePendingLicenseEmailActivation();
+    throw new LicenseControlPlaneError(
+      'The license activation request has expired.',
+      410,
+      'LICENSE_EMAIL_ACTIVATION_EXPIRED',
+    );
+  }
+
+  let response: Response;
+  let payload: Record<string, unknown>;
+  try {
+    const result = await requestTeamControlPlane({
+      baseUrl: getLicenseControlPlaneUrl(),
+      path: '/v1/license/activation/v1/poll',
+      method: 'POST',
+      body: {
+        activationId: pending.activationId,
+        pollToken: pending.pollToken,
+        instanceId,
+      },
+      fetchImpl: options?.fetchImpl,
+      maxAttempts: 1,
+    });
+    response = result.response;
+    payload = result.payload;
+  } catch (error) {
+    logLicenseError('[license/email-activation]', 'Control Plane activation poll failed', {
+      endpoint: '/v1/license/activation/v1/poll',
+    }, error, {
+      knownSecrets: [pending.pollToken],
+    });
+    throw new LicenseControlPlaneError(
+      'The license service is unavailable.',
+      503,
+      'LICENSE_CONTROL_PLANE_UNREACHABLE',
+      true,
+      null,
+      'temporary',
+    );
+  }
+
+  const activation = payload.activation && typeof payload.activation === 'object' && !Array.isArray(payload.activation)
+    ? payload.activation as Record<string, unknown>
+    : null;
+  const errorCode = typeof payload.code === 'string' ? payload.code : 'LICENSE_EMAIL_ACTIVATION_FAILED';
+  if (response.status === 429 && errorCode === 'LICENSE_EMAIL_ACTIVATION_PENDING') {
+    return pendingEmailActivationStatus(pending);
+  }
+  if (!response.ok) {
+    if ([401, 404, 409, 410].includes(response.status)) {
+      await removePendingLicenseEmailActivation();
+    }
+    const message = typeof payload.error === 'string'
+      ? redactTeamControlPlaneLogText(payload.error, [pending.pollToken])
+      : 'License activation failed.';
+    throw new LicenseControlPlaneError(
+      message,
+      response.status,
+      errorCode,
+      payload.retryable === true,
+    );
+  }
+  if (activation?.status === 'authorization_pending') {
+    return {
+      state: 'authorization_pending',
+      expiresAt: typeof activation.expiresAt === 'string' ? activation.expiresAt : pending.expiresAt,
+      pollIntervalSeconds: typeof activation.pollIntervalSeconds === 'number'
+        ? activation.pollIntervalSeconds
+        : pending.pollIntervalSeconds,
+    };
+  }
+  if (activation?.status !== 'activated' || typeof activation.license !== 'string') {
+    throw new LicenseControlPlaneError(
+      'The license service returned an invalid activation response.',
+      502,
+      'LICENSE_EMAIL_ACTIVATION_CONTRACT_INVALID',
+      false,
+      null,
+      'contract',
+    );
+  }
+  try {
+    const license = await activateLicenseCert(activation.license);
+    await removePendingLicenseEmailActivation();
+    return { state: 'activated', license };
+  } catch (error) {
+    if (
+      error instanceof LicenseCertificateValidationError
+      || error instanceof LicenseCertificateStorageError
+    ) {
+      throw new LicenseControlPlaneError(error.message, 400, error.code);
+    }
+    throw new LicenseControlPlaneError(
+      'The activated license could not be stored.',
+      503,
+      'LICENSE_EMAIL_ACTIVATION_STORAGE_FAILED',
+    );
+  }
 }
 
 export async function activateInstanceLicense(key: string): Promise<LicenseStatus> {

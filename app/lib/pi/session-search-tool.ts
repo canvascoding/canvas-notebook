@@ -337,7 +337,7 @@ export function createSessionSearchTool(deps: {
     name: 'session_search',
     label: 'Searching session history',
     description:
-      'Browse, search, and read previous Canvas Agent conversations for this user, agent, and current workspace. ' +
+      'Browse, search, and read previous conversations for this user, active agent, and current workspace. ' +
       'Call with no arguments to browse recent sessions. Call with query to discover matching sessions. ' +
       'Call with session_id and around_message_id to scroll a concrete message window. This tool is read-only.',
     parameters: Type.Object({

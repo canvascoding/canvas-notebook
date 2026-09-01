@@ -524,15 +524,27 @@ async function main() {
     destinationPath: 'bulk-copy',
   });
   assert.match(getText(copyResult), /Operation: copy_path/);
+  assert.match(getText(copyResult), /Verification: passed/);
   assert.match(getText(copyResult), /Snapshot: none/);
+  assert.equal((copyResult.details as { verified?: boolean }).verified, true);
+  assert.equal('sourceSha256' in (copyResult.details as { entries: Array<Record<string, unknown>> }).entries[0], false);
   assert.equal(await fs.readFile(path.join(workspaceDir, 'bulk-copy', 'nested', 'a.txt'), 'utf8'), 'alpha\n');
+  const copiedReadResult = await readTool.execute('read-copied-file', { path: 'bulk-copy/b.txt' });
+  assert.match(getText(copiedReadResult), /beta/);
 
   const moveResult = await movePathTool.execute('move-file', {
     sourcePath: 'bulk-copy/b.txt',
     destinationPath: 'bulk-copy/c.txt',
   });
   assert.match(getText(moveResult), /Operation: move_path/);
+  assert.match(getText(moveResult), /Verification: passed/);
+  assert.equal((moveResult.details as { verified?: boolean }).verified, true);
+  assert.equal('sourceSha256' in (moveResult.details as { entries: Array<Record<string, unknown>> }).entries[0], false);
   assert.equal(await fs.readFile(path.join(workspaceDir, 'bulk-copy', 'c.txt'), 'utf8'), 'beta\n');
+  const movedReadResult = await readTool.execute('read-moved-file', { path: 'bulk-copy/c.txt' });
+  assert.match(getText(movedReadResult), /beta/);
+  const oldPathReadResult = await readTool.execute('read-moved-source', { path: 'bulk-copy/b.txt' });
+  assert.match(getText(oldPathReadResult), /ENOENT|no such file|does not exist/i);
 
   const deleteFileResult = await deletePathTool.execute('delete-file', {
     path: 'bulk-copy/c.txt',
@@ -1086,7 +1098,13 @@ async function main() {
   assert.deepEqual(emailMetadata.toolsets, ['email']);
   const studioMetadata = metadata.find((tool) => tool.name === 'studio_generate_image');
   assert.ok(studioMetadata);
-  assert.equal(studioMetadata.gateway?.name, 'studio');
+  assert.equal(studioMetadata.gateway, undefined);
+  const studioVideoMetadata = metadata.find((tool) => tool.name === 'studio_generate_video');
+  assert.ok(studioVideoMetadata);
+  assert.equal(studioVideoMetadata.gateway, undefined);
+  const studioSoundMetadata = metadata.find((tool) => tool.name === 'studio_generate_sound');
+  assert.ok(studioSoundMetadata);
+  assert.equal(studioSoundMetadata.gateway?.name, 'studio');
   for (const toolName of ['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages']) {
     const pdfMetadata = metadata.find((tool) => tool.name === toolName);
     assert.ok(pdfMetadata);

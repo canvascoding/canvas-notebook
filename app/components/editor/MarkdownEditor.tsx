@@ -16,7 +16,6 @@ import {
   type NodeViewProps,
 } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
-import { Markdown } from '@tiptap/markdown';
 import { Link } from '@tiptap/extension-link';
 import { Mathematics } from '@tiptap/extension-mathematics';
 import { Image } from '@tiptap/extension-image';
@@ -151,6 +150,7 @@ import {
 } from '@/app/lib/editor/reorderable-blocks';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
+import { createCanvasMarkdownExtension } from '@/app/lib/markdown/canvas-marked';
 import { canvasRichMarkdownExtensions } from '@/app/lib/markdown/canvas-rich-markdown-extensions';
 import {
   createMarkdownHeadingAnchorFactory,
@@ -215,6 +215,11 @@ import {
   type CollaborationDocument,
 } from '@/app/lib/collaboration/client';
 import type { CollaborationSessionResponse } from '@/app/lib/collaboration/types';
+import {
+  createAgentTargetDecorationExtension,
+  updateAgentTargetDecorations,
+  type CollaborationAgentTargetAnchor,
+} from '@/app/lib/collaboration/agent-target-decorations';
 
 export interface MarkdownEditorProps {
   value: string;
@@ -224,6 +229,8 @@ export interface MarkdownEditorProps {
   externalValueSync?: 'always' | 'when-blurred';
   collaborationEnabled?: boolean;
   collaborationSession?: CollaborationSessionResponse | null;
+  onCollaborationChange?: (document: CollaborationDocument | null) => void;
+  agentTargets?: CollaborationAgentTargetAnchor[];
   showNotebookMetadata?: boolean;
 }
 
@@ -2170,16 +2177,7 @@ function createEditorExtensions(
     createMarkdownMentionSuggestions({ labels: mentionLabels, workspaceId }),
     ...createObsidianWikiLinkExtensions({ filePath, labels: wikiLabels, workspaceId }),
     ObsidianInlineFootnoteExtension,
-    Markdown.configure({
-      markedOptions: {
-        gfm: true,
-        breaks: false,
-      },
-      indentation: {
-        style: 'space',
-        size: 2,
-      },
-    }),
+    createCanvasMarkdownExtension(),
   ];
   if (collaboration?.provider && collaboration.session) {
     extensions.push(
@@ -2245,6 +2243,7 @@ function createEditorExtensions(
           style: `--collaboration-user-color: ${typeof user.color === 'string' ? user.color : '#2563eb'};`,
         }),
       }),
+      createAgentTargetDecorationExtension(collaboration.doc),
     );
   }
   return extensions;
@@ -4832,12 +4831,14 @@ function RichMarkdownEditor({
   onSourceMode,
   markdownNavigationTarget,
   collaborationEnabled = false,
-  collaborationSession,
+  collaborationDocument,
+  agentTargets = [],
   showNotebookMetadata = false,
 }: MarkdownEditorProps & {
   isMobileKeyboardActive: boolean;
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   onSourceMode: () => void;
+  collaborationDocument?: CollaborationDocument | null;
 }) {
   const t = useTranslations('notebook');
   const documentParts = useMemo(() => splitCanvasMarkdownForRichEditor(value), [value]);
@@ -4858,13 +4859,7 @@ function RichMarkdownEditor({
   const [findOpen, setFindOpen] = useState(false);
   const [outlinePinned, setOutlinePinned] = useState(false);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const collaboration = useCollaborationDocument({
-    enabled: collaborationEnabled,
-    workspaceId: activeWorkspaceId,
-    path: filePath,
-    representation: 'tiptap_xml',
-    session: collaborationSession,
-  });
+  const collaboration = collaborationDocument;
   const collaborationReadOnly = collaborationEnabled && (
     !collaboration?.session
     || collaboration.session.permission !== 'write'
@@ -5078,6 +5073,11 @@ function RichMarkdownEditor({
       }
     },
   }, [collaboration?.provider]);
+
+  useEffect(() => {
+    if (!editor || !collaboration) return;
+    updateAgentTargetDecorations(editor, agentTargets);
+  }, [agentTargets, collaboration, editor]);
 
   const openRichBlockDialogFromToolbar = useCallback((kind: RichBlockKind, range?: Range) => {
     if (!editor) return;
@@ -5564,7 +5564,22 @@ function RichMarkdownEditor({
       ) : null}
       <MarkdownFindBar editor={markdownEditor} onOpenChange={setFindOpen} open={findOpen} />
       <div ref={scrollContainerRef} data-testid="markdown-scroll-container" className="relative min-h-0 flex-1 overflow-auto">
-        <div className="pointer-events-none sticky top-3 z-30 ml-auto h-0 w-fit pr-3">
+        <div className="pointer-events-none sticky top-2 z-30 ml-auto flex h-0 w-fit items-start gap-2 pr-3">
+          {collaborationEnabled ? (
+            <div className="rounded bg-background/85 px-2 py-1 text-[10px] text-muted-foreground shadow-sm" role="status">
+              {collaboration?.status === 'degraded'
+                ? collaboration.error || t('collaboration.degraded')
+                : collaboration?.status === 'saved' || collaboration?.status === 'live'
+                  ? t('collaboration.live')
+                  : collaboration?.status === 'persisting'
+                    ? t('collaboration.persisting')
+                    : collaboration?.status === 'offline' || collaboration?.status === 'reconnecting'
+                      ? t('collaboration.offline')
+                  : collaboration?.status === 'read_only'
+                    ? t('collaboration.readOnly')
+                    : collaboration?.status || t('collaboration.connecting')}
+            </div>
+          ) : null}
           <MarkdownOutlinePanel
             editor={editor}
             onPinnedChange={setOutlinePinned}
@@ -5572,21 +5587,6 @@ function RichMarkdownEditor({
             scrollContainerRef={scrollContainerRef}
           />
         </div>
-        {collaborationEnabled ? (
-          <div className="pointer-events-none sticky right-3 top-2 z-20 ml-auto mr-3 w-fit rounded bg-background/85 px-2 py-1 text-[10px] text-muted-foreground shadow-sm" role="status">
-            {collaboration?.status === 'degraded'
-              ? collaboration.error || t('collaboration.degraded')
-              : collaboration?.status === 'saved' || collaboration?.status === 'live'
-                ? t('collaboration.live')
-                : collaboration?.status === 'persisting'
-                  ? t('collaboration.persisting')
-                  : collaboration?.status === 'offline' || collaboration?.status === 'reconnecting'
-                    ? t('collaboration.offline')
-                : collaboration?.status === 'read_only'
-                  ? t('collaboration.readOnly')
-                  : collaboration?.status || t('collaboration.connecting')}
-          </div>
-        ) : null}
         <div className={cn('min-w-0 transition-[padding] duration-200', outlinePinned && 'md:pr-[17.5rem]')}>
           {!effectiveReadOnly ? (
             <div className="hidden md:block">
@@ -5644,7 +5644,11 @@ function SourceMarkdownEditor({
   markdownNavigationTarget,
   collaborationEnabled = false,
   collaborationSession,
+  collaborationDocument,
+  agentTargets = [],
   sourceModeReason,
+  normalizationAvailable,
+  onNormalizeToRichMode,
   isPresentationDocument,
 }: MarkdownEditorProps & {
   initiallyShowMobileToolbar?: boolean;
@@ -5653,7 +5657,10 @@ function SourceMarkdownEditor({
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   onRichMode: () => void;
   sourceModeReason?: MarkdownRichModeReason;
+  normalizationAvailable: boolean;
+  onNormalizeToRichMode: () => void;
   isPresentationDocument: boolean;
+  collaborationDocument?: CollaborationDocument | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const t = useTranslations('notebook');
@@ -5729,6 +5736,29 @@ function SourceMarkdownEditor({
             : 'markdownEditorSourcePreservationNotice')}</span>
         </div>
       ) : null}
+      {normalizationAvailable ? (
+        <div
+          className="mx-3 mt-3 flex flex-col gap-2 rounded-md border border-primary/35 bg-primary/8 px-3 py-2.5 text-sm text-foreground sm:flex-row sm:items-center sm:justify-between"
+          data-testid="markdown-safe-normalization-notice"
+          role="status"
+        >
+          <div className="flex min-w-0 items-start gap-2">
+            <BadgeInfo aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
+            <span>{t('markdownEditorSafeNormalizationNotice')}</span>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 shrink-0 self-start bg-background/80 sm:self-auto"
+            data-testid="markdown-normalize-rich-text"
+            onClick={onNormalizeToRichMode}
+          >
+            <Pencil aria-hidden="true" className="size-3.5" />
+            {t('markdownEditorNormalizeAndOpenRichText')}
+          </Button>
+        </div>
+      ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
         <CodeEditor
           value={value}
@@ -5740,6 +5770,8 @@ function SourceMarkdownEditor({
           markdownNavigationTarget={markdownNavigationTarget}
           collaborationEnabled={collaborationEnabled}
           collaborationSession={collaborationSession}
+          collaborationDocument={collaborationDocument}
+          agentTargets={agentTargets}
         />
       </div>
       <MarkdownDocumentStatus value={value} />
@@ -5754,6 +5786,8 @@ export function MarkdownEditor({
   filePath,
   externalValueSync = 'always',
   collaborationEnabled = false,
+  onCollaborationChange,
+  agentTargets = [],
   showNotebookMetadata = false,
 }: MarkdownEditorProps) {
   useVisualViewportBottomOffset();
@@ -5765,10 +5799,20 @@ export function MarkdownEditor({
     workspaceId: activeWorkspaceId,
     path: filePath,
   });
+  const resolvedCollaborationSession = collaborationSession.session;
+  const collaborationDocument = useCollaborationDocument({
+    enabled: collaborationEnabled && Boolean(resolvedCollaborationSession),
+    workspaceId: activeWorkspaceId,
+    path: filePath,
+    representation: resolvedCollaborationSession?.representation === 'plain_text'
+      ? 'plain_text'
+      : 'tiptap_xml',
+    session: resolvedCollaborationSession,
+  });
   const isMobileKeyboardActive = useMobileKeyboardActive();
   const parsedDocument = useMemo(() => parseCanvasMarkdownDocument(value), [value]);
   const richModeAnalysis = useMemo(() => analyzeMarkdownRichMode(value), [value]);
-  const sourceModeRequired = richModeAnalysis.mode === 'source';
+  const sourceModeRequired = richModeAnalysis.mode !== 'rich';
   const isPresentationDocument = useMemo(
     () => Boolean(filePath && isMarpMarkdown(filePath, value)),
     [filePath, value],
@@ -5784,6 +5828,11 @@ export function MarkdownEditor({
   const effectiveMode: EditorMode = collaborationEnabled && authoritativeRepresentation
     ? authoritativeRepresentation === 'plain_text' ? 'source' : 'rich'
     : sourceModeRequired ? 'source' : mode;
+
+  useEffect(() => {
+    onCollaborationChange?.(collaborationDocument);
+    return () => onCollaborationChange?.(null);
+  }, [collaborationDocument, onCollaborationChange]);
 
   useEffect(() => {
     if (!filePath) return;
@@ -5817,7 +5866,18 @@ export function MarkdownEditor({
     setMode('rich');
   }, [collaborationEnabled, sourceModeRequired]);
 
-  if (collaborationEnabled && !collaborationSession.session) {
+  const normalizeToRichMode = useCallback(() => {
+    if (readOnly || collaborationEnabled || richModeAnalysis.mode !== 'normalizable') return;
+    onChange?.(composeCanvasMarkdownDocument(
+      richModeAnalysis.prefix,
+      richModeAnalysis.normalizedBody,
+    ));
+    setSourceModeRequested(false);
+    setMode('rich');
+    toast.success(t('markdownEditorNormalizedForRichText'));
+  }, [collaborationEnabled, onChange, readOnly, richModeAnalysis, t]);
+
+  if (collaborationEnabled && (!collaborationSession.session || !collaborationDocument?.ready)) {
     return (
       <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 bg-background p-6 text-center">
         <p className="text-sm text-muted-foreground" role="status">
@@ -5866,7 +5926,11 @@ export function MarkdownEditor({
         markdownNavigationTarget={markdownNavigationTarget}
         collaborationEnabled={collaborationEnabled}
         collaborationSession={collaborationSession.session}
+        collaborationDocument={collaborationDocument}
+        agentTargets={agentTargets}
         sourceModeReason={richModeAnalysis.mode === 'source' ? richModeAnalysis.reason : undefined}
+        normalizationAvailable={richModeAnalysis.mode === 'normalizable' && !readOnly && !collaborationEnabled}
+        onNormalizeToRichMode={normalizeToRichMode}
         isPresentationDocument={isPresentationDocument}
       />
     );
@@ -5883,7 +5947,8 @@ export function MarkdownEditor({
       onSourceMode={switchToSourceMode}
       markdownNavigationTarget={markdownNavigationTarget}
       collaborationEnabled={collaborationEnabled}
-      collaborationSession={collaborationSession.session}
+      collaborationDocument={collaborationDocument}
+      agentTargets={agentTargets}
       showNotebookMetadata={showNotebookMetadata}
     />
   );

@@ -27,6 +27,7 @@ type DirectMcpGrantStateRow = {
   client_id: string;
   client_disabled: unknown;
   revoked_token_hash: string | null;
+  grant_revoked_at: unknown;
 };
 
 export type DirectMcpJwtClaims = {
@@ -252,7 +253,8 @@ export async function loadDirectMcpGrantState(
         local_user.banned AS user_banned,
         oauth_client.client_id AS client_id,
         oauth_client.disabled AS client_disabled,
-        revoked_access_token.token_hash AS revoked_token_hash
+        revoked_access_token.token_hash AS revoked_token_hash,
+        grant_revocation.revoked_at AS grant_revoked_at
       FROM "session" auth_session
       INNER JOIN "user" local_user
         ON local_user.id = auth_session.user_id
@@ -263,6 +265,10 @@ export async function loadDirectMcpGrantState(
        AND revoked_access_token.client_id = oauth_client.client_id
        AND revoked_access_token.session_id = auth_session.id
        AND revoked_access_token.user_id = local_user.id
+      LEFT JOIN mcp_direct_grant_revocation grant_revocation
+        ON grant_revocation.client_id = oauth_client.client_id
+       AND grant_revocation.session_id = auth_session.id
+       AND grant_revocation.user_id = local_user.id
       WHERE auth_session.id = ?
         AND auth_session.user_id = ?
       LIMIT 1
@@ -283,6 +289,8 @@ function assertGrantStateActive(
   claims: DirectMcpJwtClaims,
 ): void {
   const sessionExpiresAt = timestampToMilliseconds(state?.session_expires_at);
+  const grantRevokedAt = timestampToMilliseconds(state?.grant_revoked_at);
+  const tokenIssuedAt = claims.issuedAt * 1000;
   if (
     !state
     || state.session_id !== claims.sessionId
@@ -293,6 +301,7 @@ function assertGrantStateActive(
     || sessionExpiresAt === null
     || sessionExpiresAt <= Date.now()
     || state.revoked_token_hash !== null
+    || (grantRevokedAt !== null && tokenIssuedAt <= grantRevokedAt)
   ) {
     throw invalidToken();
   }

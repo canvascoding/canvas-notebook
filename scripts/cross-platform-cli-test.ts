@@ -18,7 +18,9 @@ import {
   writeSecureFile,
 } from '../cli/src/core/config';
 import { renderComposeFile } from '../cli/src/core/compose';
+import { monotonicDeadlineMs, remainingMonotonicSeconds } from '../cli/src/core/deadline';
 import { DockerManager } from '../cli/src/core/docker';
+import { orphanedComposeLogFollowerPids } from '../cli/src/core/logCleanup';
 import { composePath, resolveDefaultPaths } from '../cli/src/core/platform';
 import { preparePostgresManagedRuntime, postgresRuntimeDesired } from '../cli/src/core/postgres';
 import {
@@ -55,6 +57,7 @@ class UpdateRunner implements CommandRunner {
   mutableImageId = 'old-image-id';
   rolePassword = 'old-role-password';
   desiredRolePassword = '';
+  postgresInitialized = true;
   failPull = false;
   healthMode: 'healthy' | 'new-unhealthy' = 'healthy';
 
@@ -68,7 +71,19 @@ class UpdateRunner implements CommandRunner {
     this.calls.push({ args: [...args], stdinConfigured: options.stdin !== undefined, timeoutMs: options.timeoutMs });
     const joined = args.join(' ');
     if (args[0] === 'compose') {
-      if (joined.includes('ps -q postgres')) return { status: 0, stdout: 'pg-container\n', stderr: '' };
+      if (joined.includes('ps -q postgres')) {
+        return this.postgresInitialized
+          ? { status: 0, stdout: 'pg-container\n', stderr: '' }
+          : { status: 0, stdout: '', stderr: '' };
+      }
+      if (joined.includes('up -d --no-recreate postgres')) {
+        const composeEnv = await readFile(this.composeEnvFile, 'utf8');
+        this.rolePassword = composeEnv.split(/\r?\n/u)
+          .find((line) => line.startsWith('CANVAS_POSTGRES_PASSWORD='))
+          ?.slice('CANVAS_POSTGRES_PASSWORD='.length) || '';
+        this.postgresInitialized = true;
+        return { status: 0, stdout: '', stderr: '' };
+      }
       if (joined.includes('ps -q canvas-notebook')) return { status: 0, stdout: 'app-container\n', stderr: '' };
       if (joined.includes(' pull canvas-notebook')) {
         return this.failPull
@@ -91,7 +106,16 @@ class UpdateRunner implements CommandRunner {
       if (joined.includes('{{.State.Running}}')) return { status: 0, stdout: 'true\n', stderr: '' };
       if (joined.includes('{{.State.Status}}')) return { status: 0, stdout: 'running\n', stderr: '' };
       if (joined.includes('{{.State.StartedAt}}')) return { status: 0, stdout: '2026-07-11T00:00:00Z\n', stderr: '' };
-      if (joined.includes('{{.Id}}')) return { status: 0, stdout: 'pg-container\n', stderr: '' };
+      if (joined.includes('{{.Id}}')) {
+        return this.postgresInitialized
+          ? { status: 0, stdout: 'pg-container\n', stderr: '' }
+          : { status: 1, stdout: '', stderr: 'not found' };
+      }
+    }
+    if (args[0] === 'volume' && args[1] === 'inspect') {
+      return this.postgresInitialized
+        ? { status: 0, stdout: '[]\n', stderr: '' }
+        : { status: 1, stdout: '', stderr: 'not found' };
     }
     if (args[0] === 'image' && args[1] === 'inspect') {
       const image = args[2];
@@ -148,6 +172,21 @@ async function withTempRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
 }
 
 async function main() {
+  let monotonicNow = 5_000;
+  const monotonicClock = () => monotonicNow;
+  const relativeDeadline = monotonicDeadlineMs(10, monotonicClock);
+  const originalDateNow = Date.now;
+  try {
+    Date.now = () => originalDateNow() + 30 * 60 * 1000;
+    assert.equal(remainingMonotonicSeconds(relativeDeadline, monotonicClock), 10);
+    monotonicNow += 1_001;
+    assert.equal(remainingMonotonicSeconds(relativeDeadline, monotonicClock), 9);
+    monotonicNow += 9_000;
+    assert.equal(remainingMonotonicSeconds(relativeDeadline, monotonicClock), 0);
+  } finally {
+    Date.now = originalDateNow;
+  }
+
   const processRunner = new SpawnCommandRunner();
   const oversizedOutput = await processRunner.run(process.execPath, [
     '-e',
@@ -235,6 +274,13 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       CANVAS_MANAGER_LOG_FILE: path.join(root, 'logs', 'manager.log'),
     });
     const config = materializeConfig(createDefaultConfig(paths, 'linux'));
+    assert.deepEqual(orphanedComposeLogFollowerPids([
+      `101 1 docker compose -f ${paths.composeFile} --project-directory ${paths.installDir} logs -f --tail=120 canvas-notebook`,
+      `102 99 docker compose -f ${paths.composeFile} --project-directory ${paths.installDir} logs -f canvas-notebook`,
+      `103 1 docker compose -f /other/compose.yaml --project-directory ${paths.installDir} logs -f canvas-notebook`,
+      `104 1 docker compose -f ${paths.composeFile} --project-directory ${paths.installDir} ps canvas-notebook`,
+      '',
+    ].join('\n'), config, 'canvas-notebook'), [101]);
     const runner = new RecordingRunner();
     const context: RuntimeContext = {
       platform: 'linux',
@@ -458,6 +504,19 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       assert.equal(runner.mutableImageId, 'old-image-id');
 
       config = await reset();
+      const freshPostgresConfig = materializePostgresInfrastructureConfig(config);
+      await writeConfig(freshPostgresConfig);
+      runner.postgresInitialized = false;
+      runner.calls = [];
+      const freshPostgres = await captureConsole(() => update(context, docker, freshPostgresConfig, true, { image: targetImage }));
+      assert.equal(JSON.parse(freshPostgres.at(-1) || '{}').success, true);
+      assert.equal(runner.calls.some((call) => call.args[0] === 'volume' && call.args[1] === 'inspect'), true);
+      assert.equal(runner.calls.some((call) => call.args.includes('psql') && call.args.includes('-u')), false);
+      assert.match(await readFile(paths.composeEnvFile, 'utf8'), /^CANVAS_POSTGRES_PASSWORD=.+$/mu);
+      assert.equal(await readFile(path.join(paths.installDir, '.postgres-auth-reconcile.json')).then(() => true, () => false), false);
+      assert.equal(await readFile(path.join(paths.installDir, '.postgres-auth-reconcile-state')).then(() => true, () => false), false);
+
+      config = await reset();
       const rollbackConfig = materializeConfig(configureRuntimeAndDatabase(config, { database: 'postgres' }));
       rollbackConfig.env.CANVAS_POSTGRES_PASSWORD = 'portable-old-password-123';
       rollbackConfig.env.DATABASE_URL = 'postgresql://canvas:portable-old-password-123@postgres:5432/canvas_notebook';
@@ -539,7 +598,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
   console.log('cross-platform CLI tests passed');
 }
 
-main().catch(() => {
-  console.error('cross-platform CLI tests failed');
+main().catch((error) => {
+  console.error('cross-platform CLI tests failed', error);
   process.exitCode = 1;
 });

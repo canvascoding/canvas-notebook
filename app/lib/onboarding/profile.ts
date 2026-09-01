@@ -34,7 +34,7 @@ import { createPiSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapsho
 import { getUserOnboardingState, updateUserOnboardingState } from '@/app/lib/user-preferences';
 
 export const ONBOARDING_BOOTSTRAP_FILE_NAME = 'BOOTSTRAP.md';
-export const ONBOARDING_PROFILE_SESSION_TITLE = 'Canvas Agent Onboarding';
+export const ONBOARDING_PROFILE_SESSION_TITLE = 'Bradley Onboarding';
 export const ONBOARDING_PROFILE_TOOL_NAME = 'complete_onboarding_profile';
 
 const MAX_PROFILE_FILE_CHARS = 16_000;
@@ -80,10 +80,10 @@ function normalizeLocale(locale?: string | null): 'de' | 'en' {
 
 export function getOnboardingProfileWelcomeMessage(locale?: string | null): string {
   if (normalizeLocale(locale) === 'de') {
-    return 'Ich bin dein Canvas Agent. Ich kann dir beim Arbeiten mit Dateien, Notizen, Aufgaben, Tools und Automationen helfen. Wie heißt du, und wofür möchtest du Canvas hauptsächlich nutzen?';
+    return 'Ich bin Bradley, dein Hauptagent in Canvas Notebook. Mein Name und meine Rolle bleiben fest, aber du kannst festlegen, wie wir zusammenarbeiten – zum Beispiel Anrede, Detailgrad, Rückfragen und Ton. Wie heißt du, und wofür möchtest du Canvas hauptsächlich nutzen?';
   }
 
-  return 'I am your Canvas Agent. I can help you work with files, notes, tasks, tools, and automations. What is your name, and what do you mainly want to use Canvas for?';
+  return 'I am Bradley, your main agent in Canvas Notebook. My name and role stay fixed, but you can choose how we work together—for example, formality, level of detail, follow-up questions, and tone. What is your name, and what do you mainly want to use Canvas for?';
 }
 
 export function buildOnboardingProfileSessionId(userId: string): string {

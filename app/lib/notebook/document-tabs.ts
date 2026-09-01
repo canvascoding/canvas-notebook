@@ -85,7 +85,13 @@ export function openNotebookDocumentTab(
   }
 
   if (state.openPaths.length >= NOTEBOOK_MAX_OPEN_DOCUMENTS) {
-    return { state, status: 'limit-reached' };
+    return {
+      status: 'opened',
+      state: {
+        activePath: normalizedPath,
+        openPaths: [...state.openPaths.slice(1), normalizedPath],
+      },
+    };
   }
 
   return {
@@ -127,6 +133,24 @@ export function closeNotebookDocumentTab(
     // Prefer the former right-hand neighbor, then the left-hand neighbor.
     activePath: openPaths[closedIndex] ?? openPaths[closedIndex - 1] ?? null,
   };
+}
+
+export function closeNotebookDocumentTabsAtPaths(
+  state: NotebookDocumentTabsState,
+  paths: Iterable<string>,
+): NotebookDocumentTabsState {
+  const closedPaths = new Set(normalizeOpenPaths(Array.from(paths)));
+  if (closedPaths.size === 0) return state;
+
+  const shouldClose = (openPath: string) => Array.from(closedPaths).some((closedPath) => (
+    openPath === closedPath || openPath.startsWith(`${closedPath}/`)
+  ));
+
+  let nextState = state;
+  for (const openPath of state.openPaths.filter(shouldClose)) {
+    nextState = closeNotebookDocumentTab(nextState, openPath);
+  }
+  return nextState;
 }
 
 export function renameNotebookDocumentTabs(

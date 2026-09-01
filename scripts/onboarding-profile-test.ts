@@ -86,7 +86,9 @@ async function main() {
       buildOnboardingProfileSessionId,
       completeOnboardingProfile,
       ensureOnboardingProfileSession,
+      getOnboardingProfileWelcomeMessage,
       getOnboardingBootstrapPath,
+      ONBOARDING_PROFILE_SESSION_TITLE,
       readOnboardingBootstrapPrompt,
       skipOnboardingProfile,
     } = await import('../app/lib/onboarding/profile');
@@ -187,6 +189,13 @@ async function main() {
     await initializeUserOnboarding(userId);
     await updateUserOnboardingState(userId, { step: 'workspace' });
     await updateUserOnboardingState(userId, { step: 'profile' });
+    assert.equal(ONBOARDING_PROFILE_SESSION_TITLE, 'Bradley Onboarding');
+    assert.match(getOnboardingProfileWelcomeMessage('de'), /Bradley/);
+    assert.match(getOnboardingProfileWelcomeMessage('de'), /Hauptagent/);
+    assert.match(getOnboardingProfileWelcomeMessage('de'), /Name und meine Rolle bleiben fest/);
+    assert.match(getOnboardingProfileWelcomeMessage('en'), /Bradley/);
+    assert.match(getOnboardingProfileWelcomeMessage('en'), /main agent/);
+    assert.match(getOnboardingProfileWelcomeMessage('en'), /name and role stay fixed/);
     const profileSession = await ensureOnboardingProfileSession({ userId, locale: 'de' });
     assert.equal(profileSession.sessionId, buildOnboardingProfileSessionId(userId));
 
@@ -223,7 +232,9 @@ async function main() {
       .where(eq(piMessages.piSessionDbId, dbSession!.id));
     const welcome = JSON.parse(welcomeRow.content) as AssistantMessage;
     assert.equal(welcome.role, 'assistant');
-    assert.match(welcome.content.map((part) => part.type === 'text' ? part.text : '').join('\n'), /Wie heißt du/);
+    const welcomeText = welcome.content.map((part) => part.type === 'text' ? part.text : '').join('\n');
+    assert.match(welcomeText, /Bradley/);
+    assert.match(welcomeText, /Wie heißt du/);
 
     await assert.rejects(
       () => completeOnboardingProfile({
@@ -237,15 +248,18 @@ async function main() {
     const completed = await completeOnboardingProfile({
       userId,
       userMd: '# User\n\n- Name: Frank\n- Goal: Build Canvas workflows',
-      soulMd: '# Soul\n\n- Name: Canvas Agent\n- Style: concise',
-      summary: 'Captured user and agent profile.',
+      soulMd: '# Collaboration Preferences\n\n- Style: concise\n- Ask before consequential actions',
+      summary: 'Captured user context and Bradley collaboration preferences.',
     });
     assert.equal(completed.success, true);
     assert.equal(completed.deletedBootstrap, false);
     assert.match(await fs.readFile(bootstrapPath, 'utf8'), /Bootstrap setup/);
     const scopedCanvasAgentPath = path.join(dataDir, 'users', userId, 'agents', 'canvas-agent');
     assert.match(await fs.readFile(path.join(scopedCanvasAgentPath, 'USER.md'), 'utf8'), /Frank/);
-    assert.match(await fs.readFile(path.join(scopedCanvasAgentPath, 'SOUL.md'), 'utf8'), /Canvas Agent/);
+    const savedSoul = await fs.readFile(path.join(scopedCanvasAgentPath, 'SOUL.md'), 'utf8');
+    assert.match(savedSoul, /Style: concise/);
+    assert.match(savedSoul, /Ask before consequential actions/);
+    assert.doesNotMatch(savedSoul, /Canvas Agent/);
     assert.equal(await isOnboardingComplete(), false);
 
     await updateUserOnboardingState(userId, { step: 'profile', runtime: 'skipped', profile: 'pending', tour: 'pending' });

@@ -224,6 +224,19 @@ async function main() {
       },
     }, organizationScope);
 
+    const migratedOrganizationRegistry = await readCanvasSkillRegistry(organizationScope);
+    const migratedOrganizationRecord = migratedOrganizationRegistry.skills['organization-writing'];
+    assert.equal(
+      migratedOrganizationRecord.installDir,
+      path.join(organizationSkillDir, 'organization-writing'),
+    );
+    assert.equal(
+      migratedOrganizationRecord.skillPath,
+      path.join(organizationSkillDir, 'organization-writing', 'SKILL.md'),
+    );
+    assert.equal(await fs.stat(migratedOrganizationRecord.skillPath).then((stat) => stat.isFile()), true);
+    assert.equal(await fs.stat(path.join(organizationSkillDir, 'SKILL.md')).then(() => true).catch(() => false), false);
+
     const organizationAgentScope = { userId: scope.userId, organizationId };
     const organizationInspection = await inspectCanvasSkillForAgent({
       scope: organizationAgentScope,

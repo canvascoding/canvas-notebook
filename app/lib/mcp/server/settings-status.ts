@@ -2,9 +2,9 @@ import 'server-only';
 
 import {
   DIRECT_MCP_FEATURE_ENV,
+  DIRECT_MCP_DEFAULT_TOOL_IDS,
   DIRECT_MCP_PROTOCOL_VERSION,
   DIRECT_MCP_SETTINGS_SOURCE_ENV,
-  DIRECT_MCP_TOOL_IDS,
   DIRECT_MCP_TOOLS_ENV,
   DIRECT_MCP_TOOLS_SOURCE_ENV,
   getDirectMcpEnabledTools,
@@ -12,6 +12,7 @@ import {
   resolveDirectMcpOrigin,
   type DirectMcpToolId,
 } from '@/app/lib/mcp/server/config';
+import { DIRECT_MCP_SERVER_VERSION } from '@/app/lib/mcp/server/version';
 import {
   getDirectMcpServerPreferences,
   type DirectMcpServerPreferences,
@@ -38,6 +39,7 @@ export type DirectMcpServerSettingsStatus = {
   endpoint: string | null;
   issuer: string | null;
   protocolVersion: string;
+  serverVersion: string;
   transport: 'streamable-http';
   authentication: 'oauth-2.1-pkce';
   configurationError: string | null;
@@ -52,6 +54,9 @@ const DIRECT_MCP_CAPABILITIES: ReadonlyArray<Omit<DirectMcpCapabilityStatus, 'en
   { id: 'list_knowledge_tree', available: true, scopes: ['knowledge:tree'] },
   { id: 'search_knowledge', available: true, scopes: ['knowledge:search'] },
   { id: 'read_knowledge_source', available: true, scopes: ['knowledge:read'] },
+  { id: 'edit_knowledge_source', available: true, scopes: ['knowledge:write'] },
+  { id: 'read_knowledge_asset', available: true, scopes: ['knowledge:assets'] },
+  { id: 'upload_knowledge_asset', available: true, scopes: ['knowledge:write'] },
 ];
 
 function settingsSource(
@@ -87,7 +92,7 @@ export function buildDirectMcpServerSettingsStatus(
   );
   let configurationError: string | null = null;
   let runtimeEnabled = false;
-  let runtimeTools: DirectMcpToolId[] = [...DIRECT_MCP_TOOL_IDS];
+  let runtimeTools: DirectMcpToolId[] = [...DIRECT_MCP_DEFAULT_TOOL_IDS];
   let origin: string | null = null;
 
   try {
@@ -127,6 +132,7 @@ export function buildDirectMcpServerSettingsStatus(
     endpoint: origin ? `${origin}/mcp` : null,
     issuer: origin ? `${origin}/api/auth` : null,
     protocolVersion: DIRECT_MCP_PROTOCOL_VERSION,
+    serverVersion: DIRECT_MCP_SERVER_VERSION,
     transport: 'streamable-http',
     authentication: 'oauth-2.1-pkce',
     configurationError,

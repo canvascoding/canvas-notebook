@@ -1,7 +1,7 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Copy, ExternalLink, Lock } from 'lucide-react';
+import { createRef, Fragment, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronDown, Copy, ExternalLink, Lock } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
@@ -25,6 +25,12 @@ import { contentToString, isAbortedAssistantPiMessage } from '@/app/lib/chat/mes
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import type { ToolVerbosity } from '@/app/store/tool-verbosity-store';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
@@ -148,12 +154,60 @@ async function writeMessageTextToClipboard(text: string): Promise<void> {
   }
 }
 
+function getRichClipboardHtml(contentElement: HTMLElement): string {
+  const copy = contentElement.cloneNode(true) as HTMLElement;
+
+  copy.querySelectorAll('button').forEach((button) => {
+    const text = button.textContent?.trim();
+    if (!text) {
+      button.remove();
+      return;
+    }
+    const replacement = document.createElement('span');
+    replacement.textContent = text;
+    button.replaceWith(replacement);
+  });
+  copy.querySelectorAll('svg').forEach((icon) => icon.remove());
+  copy.querySelectorAll<HTMLElement>('*').forEach((element) => {
+    element.removeAttribute('class');
+    element.removeAttribute('style');
+  });
+
+  return copy.innerHTML;
+}
+
+async function writeRichMessageToClipboard(text: string, contentElement: HTMLElement | null): Promise<void> {
+  const html = contentElement ? getRichClipboardHtml(contentElement) : '';
+
+  if (html && navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+        }),
+      ]);
+      return;
+    } catch {
+      // Fall back to the plain-text clipboard API for browsers that reject HTML clipboard data.
+    }
+  }
+
+  await writeMessageTextToClipboard(text);
+}
+
 function MessageActionBar({
   align,
   text,
+  markdownText,
+  isRichCopy,
+  richContentRef,
 }: {
   align: 'start' | 'end';
   text: string;
+  markdownText?: string;
+  isRichCopy: boolean;
+  richContentRef?: RefObject<HTMLDivElement | null>;
 }) {
   const t = useTranslations('chat');
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -175,21 +229,39 @@ function MessageActionBar({
     resetTimerRef.current = window.setTimeout(() => setCopyState('idle'), 1400);
   }, []);
 
-  const handleCopy = useCallback(async () => {
+  const handleMarkdownCopy = useCallback(async () => {
     if (!canCopy) {
       return;
     }
 
     try {
-      await writeMessageTextToClipboard(text);
+      await writeMessageTextToClipboard(markdownText ?? text);
       setCopyState('copied');
     } catch {
       setCopyState('failed');
     }
     scheduleReset();
-  }, [canCopy, scheduleReset, text]);
+  }, [canCopy, markdownText, scheduleReset, text]);
 
-  const copyLabel = copyState === 'copied' ? t('copied') : t('copy');
+  const handleFormattedCopy = useCallback(async () => {
+    if (!canCopy) {
+      return;
+    }
+
+    try {
+      await writeRichMessageToClipboard(text, richContentRef?.current ?? null);
+      setCopyState('copied');
+    } catch {
+      setCopyState('failed');
+    }
+    scheduleReset();
+  }, [canCopy, richContentRef, scheduleReset, text]);
+
+  const copyLabel = copyState === 'copied'
+    ? t('copied')
+    : isRichCopy
+      ? t('copyFormatted')
+      : t('copy');
   const CopyIcon = copyState === 'copied' ? Check : Copy;
 
   return (
@@ -207,8 +279,11 @@ function MessageActionBar({
             type="button"
             variant="ghost"
             size="icon-xs"
-            className="border border-transparent bg-background/70 text-muted-foreground shadow-none hover:border-border/70 hover:bg-accent hover:text-foreground"
-            onClick={() => void handleCopy()}
+            className={cn(
+              'border border-transparent bg-background/70 text-muted-foreground shadow-none hover:border-border/70 hover:bg-accent hover:text-foreground',
+              isRichCopy && 'rounded-r-none border-r-border/70',
+            )}
+            onClick={() => void (isRichCopy ? handleFormattedCopy() : handleMarkdownCopy())}
             disabled={!canCopy}
             aria-label={copyLabel}
             title={copyLabel}
@@ -220,6 +295,29 @@ function MessageActionBar({
           {copyLabel}
         </TooltipContent>
       </Tooltip>
+      {isRichCopy ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="rounded-l-none border border-l-0 border-transparent bg-background/70 text-muted-foreground shadow-none hover:border-border/70 hover:bg-accent hover:text-foreground"
+              disabled={!canCopy}
+              aria-label={t('copyOptions')}
+              title={t('copyOptions')}
+            >
+              <ChevronDown data-icon="inline-end" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" side="top">
+            <DropdownMenuItem onSelect={() => void handleMarkdownCopy()}>
+              <Copy />
+              {t('copyMarkdown')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
     </div>
   );
 }
@@ -375,6 +473,7 @@ export function ChatMessageList({
           : bodyContent;
         const copyContent = isAssistant ? displayBodyContent : bodyContent;
         const showMessageActions = (isUser || isAssistant) && !isStreamingAssistant && copyContent.trim().length > 0;
+        const richContentRef = isAssistant ? createRef<HTMLDivElement>() : undefined;
         const renderedMessage = (
           <div
             data-testid={`chat-message-${message.role}`}
@@ -410,7 +509,9 @@ export function ChatMessageList({
                       <StreamingMessageIndicator />
                     ) : (
                       <>
-                        <MarkdownMessage content={displayBodyContent} variant="assistant" onMediaClick={onMediaClick} />
+                        <div ref={richContentRef}>
+                          <MarkdownMessage content={displayBodyContent} variant="assistant" onMediaClick={onMediaClick} />
+                        </div>
                         <SkillReferenceChipRow
                           content={bodyContent}
                           skillsByName={skillReferenceCatalog}
@@ -457,7 +558,13 @@ export function ChatMessageList({
               })()}
             </div>
             {showMessageActions ? (
-              <MessageActionBar align={isUser ? 'end' : 'start'} text={copyContent} />
+              <MessageActionBar
+                align={isUser ? 'end' : 'start'}
+                text={copyContent}
+                markdownText={isAssistant ? bodyContent : undefined}
+                isRichCopy={isAssistant}
+                richContentRef={richContentRef}
+              />
             ) : null}
           </div>
         );

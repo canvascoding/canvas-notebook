@@ -107,6 +107,7 @@ export interface ChatMessage {
   autoCollapsedAtEnd?: boolean;
   previewText?: string;
   compactMeta?: {
+    attemptId?: string;
     kind: 'manual' | 'automatic';
     timestamp: string;
     omittedMessageCount: number;
@@ -199,6 +200,7 @@ export interface ChatEvent {
   kind?: 'manual' | 'automatic';
   omittedMessageCount?: number;
   includedSummary?: boolean;
+  attemptId?: string;
 }
 
 export type PersistedChatMessage = AgentMessage & {

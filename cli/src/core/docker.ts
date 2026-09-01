@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { runOrThrow } from './process';
 import type { CanvasCliConfig, CommandRunner, RuntimeContext, StatusJson } from './types';
+import { resolveCliVersion } from './version';
 
 export class DockerManager {
   constructor(
@@ -154,7 +155,7 @@ export class DockerManager {
   }
 
   async imageStatus(config: CanvasCliConfig, containerId: string): Promise<StatusJson['image']> {
-    const [localId, localDigest, localCreated, runningRef, runningId, runningStartedAt, appVersion] = await Promise.all([
+    const [localId, localDigest, localCreated, runningRef, runningId, runningStartedAt, appVersion, cliVersion] = await Promise.all([
       this.docker(['image', 'inspect', config.image, '--format', '{{.Id}}']),
       this.docker(['image', 'inspect', config.image, '--format', '{{range .RepoDigests}}{{println .}}{{end}}']),
       this.docker(['image', 'inspect', config.image, '--format', '{{.Created}}']),
@@ -162,6 +163,7 @@ export class DockerManager {
       containerId ? this.docker(['inspect', '--format', '{{.Image}}', containerId]) : Promise.resolve({ status: 1, stdout: '', stderr: '' }),
       containerId ? this.docker(['inspect', '--format', '{{.State.StartedAt}}', containerId]) : Promise.resolve({ status: 1, stdout: '', stderr: '' }),
       containerId ? this.docker(['exec', containerId, 'node', '-p', "require('/app/package.json').version"]) : Promise.resolve({ status: 1, stdout: '', stderr: '' }),
+      resolveCliVersion(),
     ]);
 
     return {
@@ -173,7 +175,7 @@ export class DockerManager {
       runningImageId: runningId.status === 0 ? runningId.stdout.trim() : '',
       runningStartedAt: runningStartedAt.status === 0 ? runningStartedAt.stdout.trim() : '',
       appVersion: appVersion.status === 0 ? appVersion.stdout.trim() : '',
-      cliVersion: process.env.npm_package_version || '',
+      cliVersion,
     };
   }
 }

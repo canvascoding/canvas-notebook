@@ -7,6 +7,8 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Inbox, Loader2, Mail, MoreHorizontal, Plus, RefreshCw, Save, Search, Send, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
+import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
+import { MailboxConnectionForm } from '@/app/components/email/MailboxConnectionForm';
 import { McpServerSettingsPanel } from '@/app/components/settings/McpServerSettingsPanel';
 import { SystemEmailSettingsPanel } from '@/app/components/settings/SystemEmailSettingsPanel';
 import {
@@ -257,7 +259,7 @@ function emptyEmailSmtpDraft(): EmailSmtpDraft {
     smtpSecure: false,
     smtpUsername: '',
     smtpPassword: '',
-    imapEnabled: false,
+    imapEnabled: true,
     imapHost: '',
     imapPort: '993',
     imapSecure: true,
@@ -335,6 +337,11 @@ function SettingsTabLoader() {
 
 const AgentSettingsPanel = dynamic<AgentSettingsPanelProps>(
   () => import('@/app/components/settings/AgentSettingsPanel').then((module) => module.AgentSettingsPanel),
+  { loading: SettingsTabLoader },
+);
+
+const MemorySettingsPanel = dynamic(
+  () => import('@/app/components/settings/MemorySettingsPanel').then((module) => module.MemorySettingsPanel),
   { loading: SettingsTabLoader },
 );
 
@@ -1718,6 +1725,22 @@ export function EmailAccountsCard({
     setIsAddingEmailAccount(true);
   };
 
+  const testSmtpDraft = async () => {
+    setActiveAction('smtp:test');
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/email/accounts/smtp/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(smtpPayload()) });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.testStoredAccount'));
+      setMessage(t('messages.connectionTested'));
+    } catch (testError) {
+      setError(testError instanceof Error ? testError.message : t('errors.testStoredAccount'));
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
   const testStoredAccount = async (accountId: string) => {
     setActiveAction(`test:${accountId}`);
     setError(null);
@@ -2040,7 +2063,13 @@ export function EmailAccountsCard({
                   <h4 className="font-semibold">{t(smtpDraft.accountId ? 'smtp.editTitle' : 'smtp.title')}</h4>
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">{t(smtpDraft.accountId ? 'smtp.editDescription' : 'smtp.description')}</p>
                 </div>
+                <MailboxConnectionForm value={smtpDraft} onChange={(draft) => setSmtpDraft((current) => ({ ...current, ...draft }))} disabled={activeAction !== null} isEditing={Boolean(smtpDraft.accountId)} />
+                <div className="flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-end">
+                  <Button type="button" variant="outline" onClick={() => void testSmtpDraft()} disabled={activeAction !== null || emailMode === 'unknown'}>{activeAction === 'smtp:test' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('smtp.test')}</Button>
+                  <Button type="button" onClick={() => void saveSmtp(true)} disabled={activeAction !== null || emailMode === 'unknown'}>{activeAction === 'smtp:verify-save' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}{t(smtpDraft.accountId ? 'smtp.verifyAndSaveChanges' : 'smtp.verifyAndSave')}</Button>
+                </div>
 
+                <div className="hidden">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="email-smtp-email">{t('smtp.emailAddress')}</Label>
@@ -2150,6 +2179,7 @@ export function EmailAccountsCard({
                     {activeAction === 'smtp:verify-save' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
                     {t(smtpDraft.accountId ? 'smtp.verifyAndSaveChanges' : 'smtp.verifyAndSave')}
                   </Button>
+                </div>
                 </div>
               </div>
             )}
@@ -2361,6 +2391,7 @@ export function IntegrationsSettingsClient({
   currentUserId = '',
   userName = '',
   userEmail = '',
+  initialUserProfile,
   isManagedControlPlane = false,
   initialTimeZone,
   initialSettingsSidebarCollapsed = false,
@@ -2370,6 +2401,7 @@ export function IntegrationsSettingsClient({
   currentUserId?: string;
   userName?: string;
   userEmail?: string;
+  initialUserProfile: ResolvedUserProfile;
   isManagedControlPlane?: boolean;
   initialTimeZone?: string;
   initialSettingsSidebarCollapsed?: boolean;
@@ -2380,16 +2412,20 @@ export function IntegrationsSettingsClient({
   const searchParams = useSearchParams();
 
   const requestedTabParam = searchParams.get('tab');
+  const requestedIntegrationsSection = normalizeIntegrationsSection(searchParams.get('section'));
   const requestedTab = requestedTabParam === 'integrations'
-    && normalizeIntegrationsSection(searchParams.get('section')) === 'mcpConfig'
-    ? 'mcp'
+    ? requestedIntegrationsSection === 'mcpConfig'
+      ? 'mcp'
+      : requestedIntegrationsSection === 'emailAccounts'
+        ? 'system-email'
+        : requestedTabParam
     : requestedTabParam;
   const initialTab = getInitialSettingsTab(requestedTab);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(initialTab);
   const [loadedTabs, setLoadedTabs] = useState<Set<SettingsTab>>(() => new Set([initialTab]));
   const [settingsSidebarCollapsed, setSettingsSidebarCollapsed] = useState(initialSettingsSidebarCollapsed);
   const { activeTabOverride } = useHintContext();
-  const integrationsInitialLoadStartedRef = useRef(false);
+  const secretsInitialLoadStartedRef = useRef(false);
   const mcpInitialLoadStartedRef = useRef(false);
 
   const effectiveTab = normalizeSettingsTab(activeTabOverride) ?? settingsTab;
@@ -2410,8 +2446,7 @@ export function IntegrationsSettingsClient({
       if (tab.value === 'user-management') return isAdmin;
       if (tab.value === 'data-migration') return isAdmin;
       if (tab.value === 'ai-providers') return isAdmin;
-      if (tab.value === 'system-email') return isAdmin || canManageWorkspaceMailboxes;
-      return true;
+        return true;
     }),
     [canManageWorkspaceMailboxes, isAdmin],
   );
@@ -2680,11 +2715,11 @@ export function IntegrationsSettingsClient({
   }, [loadMcpConfig, loadMcpStatus, pollMcpAuthorizationStatus, t]);
 
   useEffect(() => {
-    if (effectiveTab !== 'integrations' || integrationsInitialLoadStartedRef.current) {
+    if (effectiveTab !== 'secrets' || secretsInitialLoadStartedRef.current) {
       return;
     }
 
-    integrationsInitialLoadStartedRef.current = true;
+    secretsInitialLoadStartedRef.current = true;
     startTransition(() => {
       void Promise.all([
         ...SCOPE_CARDS.map((card) => loadState(card.scope)),
@@ -2709,9 +2744,13 @@ export function IntegrationsSettingsClient({
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
+    const integrationsSection = normalizeIntegrationsSection(searchParams.get('section'));
     const tab = tabParam === 'integrations'
-      && normalizeIntegrationsSection(searchParams.get('section')) === 'mcpConfig'
-      ? 'mcp'
+      ? integrationsSection === 'mcpConfig'
+        ? 'mcp'
+        : integrationsSection === 'emailAccounts'
+          ? 'system-email'
+          : tabParam
       : tabParam;
     const requestedNextTab = normalizeSettingsTab(tab) ?? getStoredSettingsTab() ?? DEFAULT_SETTINGS_TAB;
     const nextTab = visibleSettingsTabs.has(requestedNextTab) ? requestedNextTab : DEFAULT_SETTINGS_TAB;
@@ -3165,10 +3204,13 @@ export function IntegrationsSettingsClient({
             <GeneralSettingsPanel
               userName={userName}
               userEmail={userEmail}
+              initialUserProfile={initialUserProfile}
               isAdmin={isAdmin}
               initialTimeZone={initialTimeZone}
             />,
           )}
+
+          {renderLazyTabContent('memory', <MemorySettingsPanel />)}
 
           {renderLazyTabContent('integrations',
             <>
@@ -3182,36 +3224,19 @@ export function IntegrationsSettingsClient({
                 onOpenChange={(isOpen) => setIntegrationsSectionOpen('connectedApps', isOpen)}
                 isAdmin={isAdmin}
               />
-              <EmailAccountsCard
-                isOpen={integrationsSectionOpenById.emailAccounts}
-                onOpenChange={(isOpen) => setIntegrationsSectionOpen('emailAccounts', isOpen)}
-              />
-              {SCOPE_CARDS.filter((card) => card.scope === 'integrations').map((card) => (
-                <EnvEditorCard
-                  key={card.scope}
-                  card={card}
-                  editor={editors[card.scope]}
-                  isOpen={envCardOpenByScope[card.scope]}
-                  onOpenChange={setEnvCardOpen}
-                  onActiveTabChange={setActiveTab}
-                  onLoad={loadState}
-                  onAddEntry={addDraftEntry}
-                  onRemoveEntry={removeDraftEntry}
-                  onUpdateEntry={updateDraftEntry}
-                  onToggleSecret={toggleSecretVisibility}
-                  onRawChange={setRawContent}
-                  onSaveKeyValue={saveKeyValue}
-                  onSaveRaw={saveRaw}
-                />
-              ))}
-              <section className="space-y-3 pt-3" aria-labelledby="developer-settings-heading">
-                <div className="border-t border-border/70 pt-5">
-                  <p id="developer-settings-heading" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                    {t('envCard.developerSectionTitle')}
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">{t('envCard.developerSectionDescription')}</p>
-                </div>
-                {SCOPE_CARDS.filter((card) => card.scope === 'agents').map((card) => (
+            </>,
+            { id: 'onboarding-settings-integrations' },
+          )}
+
+          {renderLazyTabContent('secrets',
+            <section className="space-y-3" aria-labelledby="secrets-heading">
+              <div className="border-b border-border/70 pb-5">
+                <p id="secrets-heading" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  {t('secrets.sectionTitle')}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">{t('secrets.sectionDescription')}</p>
+              </div>
+              {SCOPE_CARDS.map((card) => (
                   <EnvEditorCard
                     key={card.scope}
                     card={card}
@@ -3229,9 +3254,14 @@ export function IntegrationsSettingsClient({
                     onSaveRaw={saveRaw}
                   />
                 ))}
-              </section>
-            </>,
-            { id: 'onboarding-settings-integrations' },
+              {isAdmin && (
+                <StudioMediaCredentialsPanel
+                  locale={locale}
+                  managedControlPlaneAvailable={isManagedControlPlane}
+                />
+              )}
+            </section>,
+            { id: 'onboarding-settings-secrets' },
           )}
 
           {renderLazyTabContent('mcp',
@@ -3293,18 +3323,22 @@ export function IntegrationsSettingsClient({
                 locale={locale}
                 deploymentMode={isManagedControlPlane ? 'managed' : 'self-hosted'}
               />
-              <StudioMediaCredentialsPanel
-                locale={locale}
-                managedControlPlaneAvailable={isManagedControlPlane}
-              />
             </>
           ))}
 
           {renderLazyTabContent('system-email', (
-            <SystemEmailSettingsPanel
-              canManageSystemEmail={isAdmin}
-              canManageWorkspaceMailboxes={canManageWorkspaceMailboxes}
-            />
+            <>
+              <EmailAccountsCard
+                isOpen={integrationsSectionOpenById.emailAccounts}
+                onOpenChange={(isOpen) => setIntegrationsSectionOpen('emailAccounts', isOpen)}
+              />
+              {(isAdmin || canManageWorkspaceMailboxes) && (
+                <SystemEmailSettingsPanel
+                  canManageSystemEmail={isAdmin}
+                  canManageWorkspaceMailboxes={canManageWorkspaceMailboxes}
+                />
+              )}
+            </>
           ))}
 
           {renderLazyTabContent('data-migration', <SystemMigrationPanel isAdmin={isAdmin} />)}

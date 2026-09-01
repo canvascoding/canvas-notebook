@@ -239,7 +239,12 @@ RUN mkdir -p /home/${APP_USER}/.npm-global
 # Create and set permissions for Next.js cache directory
 RUN mkdir -p /app/.next/cache && chown -R ${APP_USER}:${APP_USER} /app/.next
 
-# Only chown /data and /home (not /app to avoid layer duplication)
+# Next.js development mode generates next-env.d.ts at the project root and can
+# update tsconfig.json. Keep the runtime user able to make those small updates
+# without recursively copying the whole application layer.
+RUN chown ${APP_USER}:${APP_USER} /app /app/tsconfig.json
+
+# Only chown /data and /home recursively (not /app to avoid layer duplication)
 RUN chown -R ${APP_USER}:${APP_USER} /data /home/${APP_USER} /tmp
 
 USER ${APP_USER}

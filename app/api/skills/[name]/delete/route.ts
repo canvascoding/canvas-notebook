@@ -3,6 +3,7 @@ import { requireOrganizationPermission } from '@/app/lib/organization/permission
 import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
 import { deleteSkillDirectory } from '@/app/lib/skills/skill-loader';
 import { removeCanvasSkillRegistryRecord } from '@/app/lib/skills/canvas-skill-store';
+import { isValidAgentSkillName } from '@/app/lib/skills/canvas-skill-manifest';
 
 export async function DELETE(
   request: Request,
@@ -17,7 +18,7 @@ export async function DELETE(
     const { name } = await params;
     const scope = { userId: skillPermission.session.user.id };
 
-    if (!name || !/^[a-z0-9]+([a-z0-9-]*[a-z0-9]+)?$/.test(name)) {
+    if (!isValidAgentSkillName(name)) {
       return NextResponse.json(
         { success: false, error: 'Invalid skill name' },
         { status: 400 }

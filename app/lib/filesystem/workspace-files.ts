@@ -43,7 +43,7 @@ const FILE_METADATA_CONCURRENCY = 32;
 const FILE_TREE_DIRECTORY_CONCURRENCY = 16;
 const workspaceFileMutationLocks = new Map<string, Promise<void>>();
 
-async function withWorkspaceFileMutationLock<T>(
+async function withExactWorkspaceFileMutationLock<T>(
   filePath: string,
   options: WorkspaceFileOperationOptions | undefined,
   operation: () => Promise<T>,
@@ -62,6 +62,44 @@ async function withWorkspaceFileMutationLock<T>(
     releaseCurrent();
     if (workspaceFileMutationLocks.get(key) === queued) workspaceFileMutationLocks.delete(key);
   }
+}
+
+function workspaceMutationLockPathHierarchy(filePath: string): string[] {
+  const normalizedPath = path.posix.normalize(filePath.replaceAll('\\', '/')).replace(/^\.\//, '');
+  if (normalizedPath === '.' || normalizedPath === '') return ['.'];
+
+  const paths = [normalizedPath];
+  let parentPath = path.posix.dirname(normalizedPath);
+  while (parentPath !== '.' && parentPath !== '/') {
+    paths.push(parentPath);
+    const nextParentPath = path.posix.dirname(parentPath);
+    if (nextParentPath === parentPath) break;
+    parentPath = nextParentPath;
+  }
+  paths.push('.');
+  return paths;
+}
+
+export async function withWorkspaceFileMutationLock<T>(
+  filePath: string,
+  options: WorkspaceFileOperationOptions | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withWorkspaceFileMutationLocks([filePath], options, operation);
+}
+
+export async function withWorkspaceFileMutationLocks<T>(
+  filePaths: readonly string[],
+  options: WorkspaceFileOperationOptions | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const uniquePaths = [...new Set(filePaths.flatMap(workspaceMutationLockPathHierarchy))]
+    .sort((left, right) => left.localeCompare(right));
+  const runWithLocks = async (index: number): Promise<T> => {
+    if (index >= uniquePaths.length) return operation();
+    return withExactWorkspaceFileMutationLock(uniquePaths[index], options, () => runWithLocks(index + 1));
+  };
+  return runWithLocks(0);
 }
 
 async function mapWithConcurrency<T, R>(
@@ -153,6 +191,7 @@ export async function listDirectory(
       ...node,
       size: stats.size,
       modified: Math.floor(stats.mtimeMs / 1000),
+      created: stats.birthtimeMs > 0 ? Math.floor(stats.birthtimeMs / 1000) : undefined,
       permissions: stats.mode?.toString(8),
     };
     },
@@ -182,6 +221,7 @@ export async function getDataFileStats(filePath: string) {
   return {
     size: totalSize,
     modified: Math.floor(stats.mtimeMs / 1000),
+    created: stats.birthtimeMs > 0 ? Math.floor(stats.birthtimeMs / 1000) : undefined,
     isDirectory: stats.isDirectory(),
     isFile: stats.isFile(),
     permissions: stats.mode?.toString(8),
@@ -507,6 +547,7 @@ export async function getFileStats(filePath: string, options?: WorkspaceFileOper
   return {
     size: totalSize,
     modified: Math.floor(stats.mtimeMs / 1000),
+    created: stats.birthtimeMs > 0 ? Math.floor(stats.birthtimeMs / 1000) : undefined,
     isDirectory: stats.isDirectory(),
     isFile: stats.isFile(),
     permissions: stats.mode?.toString(8),
@@ -853,6 +894,7 @@ export async function buildGenericFileTree(
       type: entry.isDirectory() ? 'directory' : 'file',
       size: stats?.size,
       modified: stats ? Math.floor(stats.mtimeMs / 1000) : undefined,
+      created: stats && stats.birthtimeMs > 0 ? Math.floor(stats.birthtimeMs / 1000) : undefined,
       permissions: stats?.mode?.toString(8),
     });
   }

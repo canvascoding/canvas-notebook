@@ -521,7 +521,7 @@ async function main() {
 
   assert.deepEqual(toolCalls, [{ userId, agentId, sessionId: `auto-${run.id.replace(/^run-/, '')}` }]);
   assert.deepEqual(agentLoopToolNames, ['studio_generate_image', 'email_send_draft', 'mcp', 'bash']);
-  assert.equal(agentLoopStreamFns[0], testStreamFn);
+  assert.notEqual(agentLoopStreamFns[0], testStreamFn, 'automation must wrap the provider stream with its explicit output cap');
   assert.equal(agentLoopThinkingLevels[0], 'off');
   assert.match(agentLoopSystemPrompts[0] || '', /<!-- canvas-effective-tools:v1 -->/);
   assert.match(agentLoopSystemPrompts[0] || '', /`studio_generate_image`/);
@@ -897,7 +897,7 @@ async function main() {
     where: eq(piSessions.sessionId, failingSessionId),
   });
   assert.equal(retrySessions.length, 1);
-  assert.equal(agentLoopStreamFns.at(-1), testStreamFn);
+  assert.notEqual(agentLoopStreamFns.at(-1), testStreamFn, 'each automation run must use an output-capped stream');
   assert.equal(agentResponsePushCalls.length, 2, 'a successful retry must emit one unread-aware response push');
 
   const scheduledSuccessJob = await createAutomationJob(

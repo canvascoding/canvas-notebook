@@ -75,7 +75,7 @@ export function HomeStudioPrompt({ studioHref }: HomeStudioPromptProps) {
   }, [activeWorkspaceId, canGenerate, store, studioHref]);
 
   return (
-    <div className="rounded-[28px] border border-border/80 bg-card/90 p-3 shadow-xl backdrop-blur-xl">
+    <div className="rounded-lg border border-border bg-background p-3">
       <StudioPromptComposer
         state={store}
         products={productsHook.products}

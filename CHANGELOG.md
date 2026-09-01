@@ -11,6 +11,190 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.1.1] - 2026-09-01
+
+### Added
+
+- Added a responsive email workspace with extracted mailbox, message-reader, composer, and AI-streaming capabilities.
+- Added reliable agent-memory ownership, review flows, and usage reporting coverage.
+
+### Changed
+
+- Improved rich-Markdown email round trips and made chat-header workspace navigation progressively disclosed while preserving compact switching.
+- Externalized the PDF parser from Next.js bundles and expanded release/runtime regression coverage.
+
+### Fixed
+
+- Fixed email workspace activation, compose regular expressions, draft-sender handling, and mobile chat pagination cursor units.
+
+### Verification
+
+- `CANVAS_DATABASE_PROVIDER=sqlite DATABASE_URL= npm run verify:release` (passed; 16 existing lint warnings)
+
+## [2026.8.31.2] - 2026-08-31
+
+### Added
+
+- Introduced Bradley as the main agent identity across onboarding, prompts, selectors, chat states, glyph assets, themes, and motion.
+- Added workspace-scoped email inbox/outbox workflows, attachment selection, draft review, and file-reference support.
+- Added secure MCP binary uploads and expanded MCP request-history and workspace-tool coverage.
+
+### Changed
+
+- Improved exact context-compaction cooldown handling and isolated PDF browser profiles.
+- Documented the PostgreSQL-only CLI migration and made local Sentry behavior quieter during development.
+
+### Fixed
+
+- Fixed MCP upload completion retries and release-build type errors in email attachment, HTML sanitization, and workspace-mail tests.
+
+### Verification
+
+- `npm run verify:release` (passed; 2 existing lint warnings)
+
+## [2026.8.31.1] - 2026-08-31
+
+### Added
+
+- Added user profile appearance and avatar management across onboarding, settings, and the home header.
+- Added native Electron file-drag export and richer file references in agent chat.
+- Added Bradley agent identity, terminology, branding guidance, and reference assets.
+- Added default workspace access for newly authorized Direct MCP clients.
+
+### Changed
+
+- Improved collaborative rich Markdown preservation, rendering, and editor behavior.
+- Enabled all configured MCP tools on activation and strengthened Agent Skills manifest compliance.
+- Added concurrent Studio media generation and expanded mobile file-sorting and collaboration coverage.
+
+### Fixed
+
+- Hardened MCP OAuth consent, client permissions, and workspace access initialization.
+- Fixed team-memory bootstrap permissions, transparent image-output handling, and workspace image links.
+
+### Verification
+
+- `npm run verify:release`
+
+## [2026.8.30.2] - 2026-08-30
+
+### Changed
+
+- Sorted mixed mobile Inbox items consistently by recency while preserving the dedicated todo ordering for todo-only views.
+
+### Verification
+
+- `npm run verify:release`
+
+## [2026.8.30.1] - 2026-08-30
+
+### Added
+
+- Added persistent workspace-file metadata with API, sorting, rename, mobile-client, and information-dialog support.
+- Added public Team invitation activation and stronger local Team-runtime verification coverage.
+- Added OrbStack PostgreSQL integration coverage for workspace API routes.
+
+### Changed
+
+- Made PostgreSQL the default database for fresh installations while retaining the documented transition path.
+- Hardened Team membership synchronization, runtime database guards, and managed CLI lifecycle handling.
+
+### Fixed
+
+- Fixed cross-database Team Seat retries, license fallback reactivation, mobile chat pagination, pinned file sorting, and custom-server module interoperability.
+- Made PostgreSQL reconciliation deadlines monotonic and kept the iOS Inbox widget refreshed.
+
+### Verification
+
+- `npm run verify:release`
+
+## [2026.8.29.5] - 2026-08-29
+
+### Fixed
+
+- Made managed-environment installer permission checks dereference CLI symlinks consistently on Linux and macOS.
+
+### Verification
+
+- `npm run verify:release`
+
+## [2026.8.29.4] - 2026-08-29
+
+### Changed
+
+- Switched the Linux installer and systemd integration to the TypeScript CLI.
+- Retired the legacy Linux CLI after the TypeScript CLI migration.
+- Documented the successful managed CLI canary and updated installer/rollback guidance.
+
+### Verification
+
+- `npm run verify:release`
+
+## [2026.8.29.3] - 2026-08-29
+
+### Fixed
+
+- Preserve actionable Postgres URL validation errors during environment synchronization.
+
+### Verification
+
+- `npm run verify:release`
+
+## [2026.8.29.2] - 2026-08-29
+
+### Fixed
+
+- Fixed release-time dependency installation for Node.js 22 Linux CLI builders.
+- Fixed Postgres URL validation reporting for unsafe encoded passwords.
+- Fixed strict TypeScript fixtures and React Compiler memoization validation in the release build.
+
+### Verification
+
+- `npm run verify:release`
+
+## [2026.8.29.1] - 2026-08-29
+
+### Added
+
+- Added persistent memory management with review workflows, settings, migration, and governance coverage.
+- Added Direct MCP connection/workspace controls, request history, diagnostics, and authorization hardening.
+- Added context-compaction coordination and persistence across chat and automation runtimes.
+- Added transactional cross-platform CLI management for Postgres, Linux swap, Caddy, auto-updates, diagnostics, and self-update packaging.
+
+### Changed
+
+- Improved collaboration editing, safe global replacements, rich Markdown handling, delegated-task controls, and Electron workspace-drive planning.
+- Added CLI version/capability reporting, environment editing, and managed Postgres preparation improvements.
+
+### Fixed
+
+- Fixed stale notebook tabs after external moves and several collaboration, mailbox, MCP, and compaction edge cases.
+
+### Verification
+
+- `npm run verify:release`
+
+## [2026.8.27.1] - 2026-08-27
+
+### Added
+
+- Added rich-mode collaboration for eligible documents and stabilized collaborative editor synchronization and migration.
+- Added an improved email inbox reading flow and automatic email license activation.
+
+### Changed
+
+- Improved system email settings, workspace mailbox configuration and translations, and admin-configurable Email Agent tools.
+- Refined Home/Studio prompt styling and development startup behavior.
+- Improved streamed MCP registration handling and disabled Sentry session replay.
+
+### Fixed
+
+- Fixed collaboration migration race conditions, duplicate mailbox saves, and markdown source-mode notice behavior.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.25.2] - 2026-08-25
 
 ### Added

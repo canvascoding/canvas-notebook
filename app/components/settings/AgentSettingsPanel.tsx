@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 
 import { AgentCatalogModelOverrideCard } from './AgentCatalogModelOverrideEditor';
 import {
   resolveEnabledToolNames,
-  serializeEnabledToolNames,
   isDefaultToolsConfig,
   getDefaultEnabledToolNames,
   enableToolInConfig,
@@ -23,6 +23,7 @@ import { AgentGrantsEditor } from '@/app/components/agents/AgentGrantsEditor';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 import { AgentRuntimePreferenceCard } from './AgentRuntimePreferenceCard';
+import { MemoryReviewAgentCard } from './MemoryReviewAgentCard';
 import type { CreateAgentInput } from './CreateAgentDialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -502,7 +503,7 @@ export function AgentSettingsPanel({
     try {
       const preview = await fetchJson<{
         agent: AgentProfileItem;
-        impacts: { sessions: number; members: number; grants: number; capabilityBindings: number; managedFiles: string[] };
+        impacts: { sessions: number; members: number; grants: number; capabilityBindings: number; managedFiles: string[]; memoryCollections: number; memoryEntries: number; memoryPolicy: 'retained' };
         confirmationToken: string;
       }>('/api/agents/delete-preview', {
         method: 'POST',
@@ -514,6 +515,7 @@ export function AgentSettingsPanel({
         grants: preview.impacts.grants + preview.impacts.members,
         capabilities: preview.impacts.capabilityBindings,
         files: preview.impacts.managedFiles.length,
+        memoryEntries: preview.impacts.memoryEntries,
       }));
       if (!confirmed) return;
       const response = await fetch('/api/agents', {
@@ -1061,14 +1063,21 @@ export function AgentSettingsPanel({
 
   const handleEnableAll = () => {
     const allNames = availableTools.map((t) => t.name);
-    const enabledNames = availableTools
-      .filter((tool) => tool.availability?.available !== false)
-      .map((tool) => tool.name);
-    void saveToolsConfig(serializeEnabledToolNames(enabledNames, allNames));
+    let newEnabledTools = getActiveEnabledTools();
+    for (const tool of filteredTools) {
+      if (tool.availability?.available === false) continue;
+      newEnabledTools = enableToolInConfig(tool.name, newEnabledTools, allNames);
+    }
+    void saveToolsConfig(newEnabledTools);
   };
 
   const handleDisableAll = () => {
-    void saveToolsConfig(['__none__']);
+    const allNames = availableTools.map((t) => t.name);
+    let newEnabledTools = getActiveEnabledTools();
+    for (const tool of filteredTools) {
+      newEnabledTools = disableToolInConfig(tool.name, newEnabledTools, allNames);
+    }
+    void saveToolsConfig(newEnabledTools);
   };
 
   const setToolsOverrideEnabled = async (enabled: boolean) => {
@@ -1159,22 +1168,17 @@ export function AgentSettingsPanel({
     return groups.sort();
   }, [availableTools]);
 
-  const filteredTools = useMemo(() => {
-    let result = availableTools;
-    if (activeToolGroups.size > 0) {
-      result = result.filter(t => t.group && activeToolGroups.has(t.group));
+  const filteredTools = availableTools.filter((tool) => {
+    if (activeToolGroups.size > 0 && (!tool.group || !activeToolGroups.has(tool.group))) {
+      return false;
     }
-    if (toolSearchQuery.trim()) {
-      const q = toolSearchQuery.trim().toLowerCase();
-      result = result.filter(t =>
-        t.name.toLowerCase().includes(q) ||
-        t.label.toLowerCase().includes(q) ||
-        t.description.toLowerCase().includes(q) ||
-        (t.group && t.group.toLowerCase().includes(q))
-      );
-    }
-    return result;
-  }, [availableTools, activeToolGroups, toolSearchQuery]);
+    const query = toolSearchQuery.trim().toLowerCase();
+    if (!query) return true;
+    return tool.name.toLowerCase().includes(query) ||
+      tool.label.toLowerCase().includes(query) ||
+      tool.description.toLowerCase().includes(query) ||
+      Boolean(tool.group?.toLowerCase().includes(query));
+  });
 
   const toggleToolGroup = (group: string) => {
     setActiveToolGroups((prev) => {
@@ -1242,6 +1246,8 @@ export function AgentSettingsPanel({
 
   return (
     <div className="space-y-4">
+      <MemoryReviewAgentCard />
+
       <AgentSelectorCard
         agents={agents}
         selectedAgentId={selectedAgentId}
@@ -1429,6 +1435,16 @@ export function AgentSettingsPanel({
         </AgentSettingsAccordionCard>
       )}
 
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-medium">Agent Memory</p>
+            <p className="mt-1 text-sm text-muted-foreground">Persistent agent context is managed centrally with review history and a scoped prompt budget.</p>
+          </div>
+          <Link className="inline-flex h-9 shrink-0 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90" href={`/settings?tab=memory&scope=agent&agentId=${encodeURIComponent(selectedAgentId)}`}>Manage Agent Memory</Link>
+        </CardContent>
+      </Card>
+
       <AgentManagedFilesCard
         isMainAgent={isMainAgent}
         files={files}
@@ -1459,6 +1475,7 @@ export function AgentSettingsPanel({
           setResetTarget(null);
         }}
         onResetFile={() => void resetFile()}
+        visibleFileNames={['AGENTS.md', 'SOUL.md', 'TOOLS.md']}
       />
 
       <AgentSessionsCard

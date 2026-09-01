@@ -158,8 +158,8 @@ export function useChatRuntimeEvents({
     }
   }, []);
 
-  const setLastCompactionMarker = useCallback((timestamp: string | null | undefined) => {
-    lastCompactionMarkerRef.current = timestamp || null;
+  const setLastCompactionMarker = useCallback((marker: string | null | undefined) => {
+    lastCompactionMarkerRef.current = marker || null;
   }, []);
 
   const reconcileQueuedMessages = useCallback((status: RuntimeStatus) => {
@@ -281,6 +281,12 @@ export function useChatRuntimeEvents({
         estimatedHistoryTokens: 0,
         availableHistoryTokens: 0,
         contextUsagePercent: 0,
+        finalRequestTokens: null,
+        finalRequestBudgetExceeded: false,
+        lastProviderInputTokens: null,
+        lastProviderInputAt: null,
+        nextRequestEstimatedTokens: null,
+        nextRequestBudgetExceeded: false,
         includedSummary: false,
         omittedMessageCount: 0,
         summaryUpdatedAt: null,
@@ -292,6 +298,7 @@ export function useChatRuntimeEvents({
       const nextStatus: RuntimeStatus = {
         ...baseStatus,
         sessionId,
+        optimistic: true,
         phase,
         activeTool: phase === 'running_tool' ? baseStatus.activeTool : null,
         pendingToolCalls: phase === 'idle' ? 0 : baseStatus.pendingToolCalls,
@@ -316,12 +323,18 @@ export function useChatRuntimeEvents({
     ]);
   }, [setMessages]);
 
-  const appendCompactionBreak = useCallback((kind: 'manual' | 'automatic', timestamp: string, omittedMessageCount: number) => {
-    if (lastCompactionMarkerRef.current === timestamp) {
+  const appendCompactionBreak = useCallback((
+    kind: 'manual' | 'automatic',
+    timestamp: string,
+    omittedMessageCount: number,
+    attemptId?: string,
+  ) => {
+    const marker = attemptId || timestamp;
+    if (lastCompactionMarkerRef.current === marker) {
       return;
     }
 
-    lastCompactionMarkerRef.current = timestamp;
+    lastCompactionMarkerRef.current = marker;
     setMessages((prev) => [
       ...prev,
       {
@@ -331,6 +344,7 @@ export function useChatRuntimeEvents({
         type: 'compact_break',
         status: 'sent',
         compactMeta: {
+          attemptId,
           kind,
           timestamp,
           omittedMessageCount,
@@ -612,7 +626,7 @@ export function useChatRuntimeEvents({
         nextAssistantId = message.id;
       }
       if (message.compactMeta?.timestamp) {
-        nextCompactionMarker = message.compactMeta.timestamp;
+        nextCompactionMarker = message.compactMeta.attemptId || message.compactMeta.timestamp;
       }
     }
 
@@ -629,7 +643,7 @@ export function useChatRuntimeEvents({
     }
 
     if (event.type === 'context_compacted' && event.timestamp && event.kind) {
-      appendCompactionBreak(event.kind, event.timestamp, event.omittedMessageCount || 0);
+      appendCompactionBreak(event.kind, event.timestamp, event.omittedMessageCount || 0, event.attemptId);
       return;
     }
 

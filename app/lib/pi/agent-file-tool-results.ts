@@ -23,6 +23,12 @@ export type AgentFileToolError = {
   code: string;
   path: string | null;
   message: string;
+  editIndex: number | null;
+  expectedOccurrences: number | null;
+  actualOccurrences: number | null;
+  matchMode: 'exact' | 'all' | null;
+  oldTextPreview: string | null;
+  occurrenceLines: number[];
   expectedSha256: string | null;
   currentSha256: string | null;
   recommendedAction: 'read_then_retry' | 'inspect_error';
@@ -68,6 +74,12 @@ export function asAgentFileToolError(
       code: error.code,
       path: error.path || fallbackPath || null,
       message,
+      editIndex: null,
+      expectedOccurrences: null,
+      actualOccurrences: null,
+      matchMode: null,
+      oldTextPreview: null,
+      occurrenceLines: [],
       expectedSha256: error.expectedSha256,
       currentSha256: error.currentSha256,
       recommendedAction: 'read_then_retry',
@@ -85,6 +97,12 @@ export function asAgentFileToolError(
       code: `EXACT_TEXT_${error.code.toUpperCase()}`,
       path: fallbackPath || null,
       message,
+      editIndex: error.editIndex,
+      expectedOccurrences: error.expectedOccurrences,
+      actualOccurrences: error.actualOccurrences,
+      matchMode: error.matchMode,
+      oldTextPreview: error.oldTextPreview || null,
+      occurrenceLines: error.occurrenceLines,
       expectedSha256: null,
       currentSha256: null,
       recommendedAction: 'read_then_retry',
@@ -101,6 +119,12 @@ export function asAgentFileToolError(
     code: 'FILE_OPERATION_FAILED',
     path: fallbackPath || null,
     message,
+    editIndex: null,
+    expectedOccurrences: null,
+    actualOccurrences: null,
+    matchMode: null,
+    oldTextPreview: null,
+    occurrenceLines: [],
     expectedSha256: null,
     currentSha256: null,
     recommendedAction: 'inspect_error',

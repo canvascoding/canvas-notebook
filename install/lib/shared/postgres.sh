@@ -115,6 +115,15 @@ postgres_container_id() {
   printf '%s\n' "$cid"
 }
 
+postgres_runtime_initialized() {
+  local container volume
+  container="$(postgres_container_id)"
+  [[ -n "$container" ]] && return 0
+  volume="$(postgres_load_runtime_env_unredacted CANVAS_POSTGRES_DATA_VOLUME)"
+  volume="${volume:-canvas-postgres-data}"
+  docker_cmd volume inspect "$volume" >/dev/null 2>&1
+}
+
 postgres_wait_ready() {
   local container="$1" timeout_seconds="${2:-60}" attempt status pg_user pg_db
   pg_user="$(postgres_runtime_user)"

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CheckCircle2, Loader2, Mail, RefreshCw, Save, ShieldAlert, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -252,7 +251,7 @@ export function SystemEmailSettingsPanel({
         )}
         {!isManagedMode && !configured && !status?.configurationError && (
           <div className="border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-            {t('missingConfiguration')} <Link className="font-medium text-primary underline-offset-4 hover:underline" href="/settings?tab=integrations">{t('openIntegrations')}</Link>
+            {t('missingConfiguration')}
           </div>
         )}
         {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}

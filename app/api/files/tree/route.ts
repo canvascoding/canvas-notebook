@@ -4,6 +4,8 @@ import { buildFileTreeCacheKey, fileTreeCache } from '@/app/lib/utils/file-tree-
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { getPublicShareAnnotations } from '@/app/lib/public-sharing/public-file-shares';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { enrichWorkspaceFileNodes } from '@/app/lib/files/workspace-file-metadata';
+import type { FileNode } from '@/app/lib/files/types';
 
 const DEFAULT_TREE_DEPTH = 4;
 const MAX_TREE_DEPTH = 6;
@@ -71,25 +73,33 @@ export async function GET(request: NextRequest) {
     const includeStats = searchParams.get('stats') !== '0';
 
     const cacheKey = buildFileTreeCacheKey(path, depth, workspaceResult.workspace.workspaceId, includeStats);
+    let tree: FileNode[] | null = null;
     if (!noCache) {
       const cached = fileTreeCache.get(cacheKey);
       if (cached) {
-        return NextResponse.json({ success: true, data: cached, cached: true });
+        tree = cached;
       }
     }
 
-    const tree = await buildFileTree(path, depth, 0, {
-      ...fileOptions,
-      includeMetadata: includeStats,
+    if (!tree) {
+      tree = await buildFileTree(path, depth, 0, {
+        ...fileOptions,
+        includeMetadata: includeStats,
+      });
+      const annotations = await getPublicShareAnnotations(collectFilePaths(tree), null, workspaceResult.workspace);
+      attachPublicShareAnnotations(tree, annotations);
+      fileTreeCache.set(cacheKey, tree);
+    }
+    const enrichedTree = await enrichWorkspaceFileNodes({
+      nodes: tree,
+      workspace: workspaceResult.workspace,
+      userId: workspaceResult.session.user.id,
     });
-    const annotations = await getPublicShareAnnotations(collectFilePaths(tree), null, workspaceResult.workspace);
-    attachPublicShareAnnotations(tree, annotations);
-    fileTreeCache.set(cacheKey, tree);
 
     const headers = new Headers();
     headers.set('Cache-Control', 'no-store, max-age=0, must-revalidate');
 
-    return NextResponse.json({ success: true, data: tree }, { headers });
+    return NextResponse.json({ success: true, data: enrichedTree }, { headers });
   } catch (error) {
     // If the directory doesn't exist, it's not a server error, just return an empty tree.
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {

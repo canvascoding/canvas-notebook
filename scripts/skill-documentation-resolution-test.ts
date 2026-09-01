@@ -26,7 +26,7 @@ function skillReference(
 }
 
 async function writeSkill(root: string, directory: string, marker: string): Promise<string> {
-  const skillPath = path.join(root, directory, 'SKILL.md');
+  const skillPath = path.join(root, directory, 'xlsx', 'SKILL.md');
   await fs.mkdir(path.dirname(skillPath), { recursive: true });
   await fs.writeFile(skillPath, `---
 name: xlsx

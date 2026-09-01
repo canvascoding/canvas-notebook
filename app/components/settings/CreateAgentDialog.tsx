@@ -36,7 +36,6 @@ import {
   getDefaultEnabledToolNames,
   isDefaultToolsConfig,
   resolveEnabledToolNames,
-  serializeEnabledToolNames,
 } from '@/app/lib/pi/enabled-tools';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { Button } from '@/components/ui/button';
@@ -391,15 +390,22 @@ export function CreateAgentDialog({
 
   const handleEnableAllTools = useCallback(() => {
     const allNames = availableTools.map((tool) => tool.name);
-    const enabledNames = availableTools
-      .filter((tool) => tool.availability?.available !== false)
-      .map((tool) => tool.name);
-    saveCreateToolsConfig(serializeEnabledToolNames(enabledNames, allNames));
-  }, [availableTools, saveCreateToolsConfig]);
+    let newEnabledTools = customEnabledTools ?? [];
+    for (const tool of filteredTools) {
+      if (tool.availability?.available === false) continue;
+      newEnabledTools = enableToolInConfig(tool.name, newEnabledTools, allNames);
+    }
+    saveCreateToolsConfig(newEnabledTools);
+  }, [availableTools, customEnabledTools, filteredTools, saveCreateToolsConfig]);
 
   const handleDisableAllTools = useCallback(() => {
-    saveCreateToolsConfig(['__none__']);
-  }, [saveCreateToolsConfig]);
+    const allNames = availableTools.map((tool) => tool.name);
+    let newEnabledTools = customEnabledTools ?? [];
+    for (const tool of filteredTools) {
+      newEnabledTools = disableToolInConfig(tool.name, newEnabledTools, allNames);
+    }
+    saveCreateToolsConfig(newEnabledTools);
+  }, [availableTools, customEnabledTools, filteredTools, saveCreateToolsConfig]);
 
   const toggleToolGroup = useCallback((group: string) => {
     setActiveToolGroups((current) => {

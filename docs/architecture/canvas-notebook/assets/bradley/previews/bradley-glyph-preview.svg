@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" role="img" aria-labelledby="preview-title preview-desc">
+  <title id="preview-title">Bradley Glyph version 1 review sheet</title>
+  <desc id="preview-desc">The Bradley glyph shown in UI sizes, on light and dark backgrounds, and as a monochrome mark.</desc>
+  <defs>
+    <symbol id="bradley-color" viewBox="0 0 64 64">
+      <path d="M35.5 31.5 55.7 31.1c2.1 0 3.8 1.8 3.6 3.9l-1.8 20.7a3.4 3.4 0 0 1-3.6 3.1l-10.7-.6-10.6-8.5Z" fill="#1469D3" />
+      <path d="M15.3 8.9 48.1 4.4a3.6 3.6 0 0 1 4 3l4 26.2-13 12.8-13.9 12.9H11.4a3.5 3.5 0 0 1-3.5-3.8l2.7-38.8a8.5 8.5 0 0 1 4.7-7.8Z" fill="#2F8CFF" />
+      <path d="m15.3 8.9-4.7 7.8-2.7 38.8a3.5 3.5 0 0 0 3.5 3.8h3.1l2.4-43.7Z" fill="#63B1FF" />
+      <path d="m8 55.5 35.1-9.1-13.9 12.9H11.4A3.5 3.5 0 0 1 8 55.5Z" fill="#1876E4" />
+      <path d="m41.4 27.1 14.1 5.1a5.8 5.8 0 0 1 3.8 6.1l-1.2 11.1-12.7-5.6-8.3-9.8 2.2-5.5a1.8 1.8 0 0 1 2.1-1.4Z" fill="#4DA3FF" />
+      <path d="m39.3 28.5-2.2 5.5 7.1 2.7-2.8-9.6a1.8 1.8 0 0 0-2.1 1.4Z" fill="#79BCFF" />
+      <circle cx="27.1" cy="22.1" r="2.6" fill="#172033" />
+      <circle cx="39.4" cy="20.4" r="2.6" fill="#172033" />
+    </symbol>
+    <symbol id="bradley-mono" viewBox="0 0 64 64">
+      <defs>
+        <mask id="preview-eye-cutouts" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+          <rect width="64" height="64" fill="#fff" />
+          <circle cx="27.1" cy="22.1" r="2.6" fill="#000" />
+          <circle cx="39.4" cy="20.4" r="2.6" fill="#000" />
+        </mask>
+      </defs>
+      <g mask="url(#preview-eye-cutouts)">
+        <path d="M35.5 31.5 55.7 31.1c2.1 0 3.8 1.8 3.6 3.9l-1.8 20.7a3.4 3.4 0 0 1-3.6 3.1l-10.7-.6-10.6-8.5Z" />
+        <path d="M15.3 8.9 48.1 4.4a3.6 3.6 0 0 1 4 3l4 26.2-13 12.8-13.9 12.9H11.4a3.5 3.5 0 0 1-3.5-3.8l2.7-38.8a8.5 8.5 0 0 1 4.7-7.8Z" />
+        <path d="m41.4 27.1 14.1 5.1a5.8 5.8 0 0 1 3.8 6.1l-1.2 11.1-12.7-5.6-8.3-9.8 2.2-5.5a1.8 1.8 0 0 1 2.1-1.4Z" />
+      </g>
+    </symbol>
+    <style>
+      .label { fill: #172033; font: 600 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .caption { fill: #687386; font: 500 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    </style>
+  </defs>
+
+  <rect width="960" height="560" rx="28" fill="#F5F7FA" />
+  <text x="48" y="58" class="label" font-size="24">Bradley Glyph · v1</text>
+  <text x="48" y="84" class="caption">Folded canvas silhouette · flat color · transparent master</text>
+
+  <rect x="40" y="112" width="560" height="188" rx="20" fill="#fff" />
+  <text x="64" y="148" class="label">UI size check</text>
+  <g>
+    <use href="#bradley-color" x="72" y="188" width="16" height="16" />
+    <use href="#bradley-color" x="132" y="184" width="20" height="20" />
+    <use href="#bradley-color" x="196" y="180" width="24" height="24" />
+    <use href="#bradley-color" x="268" y="172" width="32" height="32" />
+    <use href="#bradley-color" x="352" y="164" width="40" height="40" />
+    <use href="#bradley-color" x="456" y="140" width="64" height="64" />
+    <text x="70" y="238" class="caption">16</text>
+    <text x="132" y="238" class="caption">20</text>
+    <text x="198" y="238" class="caption">24</text>
+    <text x="272" y="238" class="caption">32</text>
+    <text x="358" y="238" class="caption">40</text>
+    <text x="476" y="238" class="caption">64 px</text>
+  </g>
+
+  <rect x="624" y="112" width="296" height="404" rx="20" fill="#172033" />
+  <text x="656" y="154" fill="#fff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" font-weight="600">Dark surface</text>
+  <use href="#bradley-color" x="676" y="188" width="192" height="192" />
+  <text x="656" y="438" fill="#AEB9CA" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="14">Color master</text>
+  <use href="#bradley-mono" x="792" y="412" width="64" height="64" fill="#fff" />
+
+  <rect x="40" y="324" width="560" height="192" rx="20" fill="#fff" />
+  <text x="64" y="364" class="label">Monochrome / high contrast</text>
+  <use href="#bradley-mono" x="76" y="396" width="88" height="88" fill="#172033" />
+  <rect x="204" y="388" width="112" height="104" rx="16" fill="#172033" />
+  <use href="#bradley-mono" x="224" y="396" width="88" height="88" fill="#fff" />
+  <text x="356" y="424" class="caption">Eye cutouts keep the face</text>
+  <text x="356" y="448" class="caption">visible in one-color usage.</text>
+</svg>

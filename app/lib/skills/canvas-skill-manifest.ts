@@ -68,20 +68,25 @@ export interface ValidationResult {
   warnings?: string[];
 }
 
+export interface SkillFrontmatterValidationOptions {
+  expectedDirectoryName?: string;
+}
+
+const AGENT_SKILL_FRONTMATTER_FIELDS = new Set([
+  'name',
+  'description',
+  'license',
+  'compatibility',
+  'allowed-tools',
+  'metadata',
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-function normalizeStringRecord(value: unknown): Record<string, string> | undefined {
-  if (!isRecord(value)) return undefined;
-  const entries = Object.entries(value)
-    .map(([key, entryValue]) => [key, stringValue(entryValue)] as const)
-    .filter((entry): entry is readonly [string, string] => Boolean(entry[1]));
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function normalizeInterface(value: unknown): CanvasSkillInterface | undefined {
@@ -128,17 +133,10 @@ export function parseFrontmatter(content: string): {
       return { frontmatter: null, body: match[2].trim() };
     }
 
-    const frontmatter: Partial<CanvasSkillFrontmatter> = {
-      name: stringValue(parsed.name) || '',
-      description: stringValue(parsed.description) || '',
-      license: stringValue(parsed.license),
-      compatibility: stringValue(parsed.compatibility),
-      'allowed-tools': stringValue(parsed['allowed-tools']),
-      metadata: normalizeStringRecord(parsed.metadata),
-    };
-
     return {
-      frontmatter: frontmatter as CanvasSkillFrontmatter,
+      // Parsing intentionally preserves raw values and unknown keys. Validation
+      // must see the original YAML shape instead of a normalized subset.
+      frontmatter: parsed as unknown as CanvasSkillFrontmatter,
       body: match[2].trim(),
     };
   } catch {
@@ -154,7 +152,46 @@ export function extractTitle(skillName: string): string {
     .join(' ');
 }
 
-export function validateFrontmatter(frontmatter: CanvasSkillFrontmatter | null): ValidationResult {
+function normalizeSkillName(value: string): string {
+  return value.trim().normalize('NFKC');
+}
+
+function isAgentSkillNameCharacter(value: string): boolean {
+  return value === '-' || /^[\p{L}\p{N}]$/u.test(value);
+}
+
+export function isValidAgentSkillName(value: string): boolean {
+  const name = normalizeSkillName(value);
+  return value === name
+    && Array.from(name).length >= 1
+    && Array.from(name).length <= 64
+    && name === name.toLowerCase()
+    && !name.startsWith('-')
+    && !name.endsWith('-')
+    && !name.includes('--')
+    && Array.from(name).every(isAgentSkillNameCharacter);
+}
+
+function validatedFrontmatter(frontmatter: CanvasSkillFrontmatter): CanvasSkillFrontmatter {
+  const raw = frontmatter as unknown as Record<string, unknown>;
+  const metadata = isRecord(raw.metadata)
+    ? Object.fromEntries(Object.entries(raw.metadata).map(([key, value]) => [key, value as string]))
+    : undefined;
+
+  return {
+    name: normalizeSkillName(raw.name as string),
+    description: (raw.description as string).trim(),
+    license: typeof raw.license === 'string' ? raw.license.trim() : undefined,
+    compatibility: typeof raw.compatibility === 'string' ? raw.compatibility.trim() : undefined,
+    'allowed-tools': typeof raw['allowed-tools'] === 'string' ? raw['allowed-tools'].trim() : undefined,
+    metadata,
+  };
+}
+
+export function validateFrontmatter(
+  frontmatter: CanvasSkillFrontmatter | null,
+  options: SkillFrontmatterValidationOptions = {},
+): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -163,52 +200,76 @@ export function validateFrontmatter(frontmatter: CanvasSkillFrontmatter | null):
     return { valid: false, errors, warnings };
   }
 
-  if (!frontmatter.name) {
+  const raw = frontmatter as unknown as Record<string, unknown>;
+  const unexpectedFields = Object.keys(raw).filter((field) => !AGENT_SKILL_FRONTMATTER_FIELDS.has(field));
+  if (unexpectedFields.length > 0) {
+    errors.push(`Unexpected fields in frontmatter: ${unexpectedFields.sort().join(', ')}.`);
+  }
+
+  if (!Object.hasOwn(raw, 'name')) {
     errors.push('Missing required field: name');
+  } else if (typeof raw.name !== 'string' || raw.name.trim().length === 0) {
+    errors.push('name: Must be a non-empty string.');
   } else {
-    if (frontmatter.name.length > 64) {
-      errors.push(`name: Too long (${frontmatter.name.length} chars). Maximum is 64 characters.`);
+    const name = normalizeSkillName(raw.name);
+    const nameLength = Array.from(name).length;
+    if (nameLength > 64) {
+      errors.push(`name: Too long (${nameLength} chars). Maximum is 64 characters.`);
     }
-    if (!/^[a-z0-9]+([a-z0-9-]*[a-z0-9]+)?$/.test(frontmatter.name)) {
-      errors.push('name: Must be lowercase letters, numbers, and hyphens only. Cannot start or end with a hyphen or contain consecutive hyphens.');
+    if (name !== name.toLowerCase()) {
+      errors.push('name: Must be lowercase.');
+    }
+    if (name.startsWith('-') || name.endsWith('-')) {
+      errors.push('name: Cannot start or end with a hyphen.');
+    }
+    if (name.includes('--')) {
+      errors.push('name: Cannot contain consecutive hyphens.');
+    }
+    if (!Array.from(name).every(isAgentSkillNameCharacter)) {
+      errors.push('name: Only letters, numbers, and hyphens are allowed.');
+    }
+    if (options.expectedDirectoryName) {
+      const directoryName = options.expectedDirectoryName.normalize('NFKC');
+      if (directoryName !== name) {
+        errors.push(`Directory name "${options.expectedDirectoryName}" must match skill name "${name}".`);
+      }
     }
   }
 
-  if (!frontmatter.description) {
+  if (!Object.hasOwn(raw, 'description')) {
     errors.push('Missing required field: description');
+  } else if (typeof raw.description !== 'string' || raw.description.trim().length === 0) {
+    errors.push('description: Must be a non-empty string.');
   } else {
-    if (frontmatter.description.trim().length === 0) {
-      errors.push('description: Must not be empty.');
-    }
-    if (frontmatter.description.length > 1024) {
-      errors.push(`description: Too long (${frontmatter.description.length} chars). Maximum is 1024 characters.`);
-    }
-    if (/<|>/.test(frontmatter.description)) {
-      errors.push('description: Cannot contain angle brackets (< or >).');
+    const descriptionLength = Array.from(raw.description).length;
+    if (descriptionLength > 1024) {
+      errors.push(`description: Too long (${descriptionLength} chars). Maximum is 1024 characters.`);
     }
   }
 
-  if (frontmatter.license !== undefined && typeof frontmatter.license !== 'string') {
+  if (raw.license !== undefined && typeof raw.license !== 'string') {
     errors.push('license: Must be a string if provided.');
   }
 
-  if (frontmatter.compatibility !== undefined) {
-    if (typeof frontmatter.compatibility !== 'string') {
+  if (raw.compatibility !== undefined) {
+    if (typeof raw.compatibility !== 'string') {
       errors.push('compatibility: Must be a string if provided.');
-    } else if (frontmatter.compatibility.length > 500) {
-      errors.push(`compatibility: Too long (${frontmatter.compatibility.length} chars). Maximum is 500 characters.`);
+    } else if (raw.compatibility.trim().length === 0) {
+      errors.push('compatibility: Must not be empty if provided.');
+    } else if (Array.from(raw.compatibility).length > 500) {
+      errors.push(`compatibility: Too long (${Array.from(raw.compatibility).length} chars). Maximum is 500 characters.`);
     }
   }
 
-  if (frontmatter['allowed-tools'] !== undefined && typeof frontmatter['allowed-tools'] !== 'string') {
+  if (raw['allowed-tools'] !== undefined && typeof raw['allowed-tools'] !== 'string') {
     errors.push('allowed-tools: Must be a string if provided.');
   }
 
-  if (frontmatter.metadata !== undefined) {
-    if (!isRecord(frontmatter.metadata)) {
+  if (raw.metadata !== undefined) {
+    if (!isRecord(raw.metadata)) {
       errors.push('metadata: Must be a key-value mapping if provided.');
     } else {
-      for (const [key, val] of Object.entries(frontmatter.metadata)) {
+      for (const [key, val] of Object.entries(raw.metadata)) {
         if (typeof val !== 'string') {
           errors.push(`metadata: Value for key "${key}" must be a string, got ${typeof val}.`);
         }
@@ -244,21 +305,27 @@ export async function loadCanvasSkillInterface(skillDir: string): Promise<Canvas
   }
 }
 
-export async function parseSkillFile(skillPath: string): Promise<CanvasSkill | null> {
+export async function parseSkillFile(
+  skillPath: string,
+  options: { validateDirectoryName?: boolean } = { validateDirectoryName: true },
+): Promise<CanvasSkill | null> {
   try {
     const content = await fs.readFile(requirePathInside(path.dirname(skillPath), path.basename(skillPath)), 'utf-8');
     const { frontmatter, body } = parseFrontmatter(content);
-    const validation = validateFrontmatter(frontmatter);
+    const validation = validateFrontmatter(frontmatter, {
+      expectedDirectoryName: options.validateDirectoryName !== false ? path.basename(path.dirname(skillPath)) : undefined,
+    });
 
-    if (!validation.valid) {
+    if (!validation.valid || !frontmatter) {
       console.warn('[CanvasSkillParser] Invalid skill.', { path: skillPath, errors: validation.errors });
       return null;
     }
 
-    const skillName = frontmatter!.name;
+    const manifest = validatedFrontmatter(frontmatter);
+    const skillName = manifest.name;
     const directory = path.dirname(skillPath);
     const iface = await loadCanvasSkillInterface(directory);
-    const frontmatterVersion = frontmatter!.metadata?.version;
+    const frontmatterVersion = manifest.metadata?.version;
     const canvasVersion = iface?.version;
 
     if (frontmatterVersion && canvasVersion && frontmatterVersion !== canvasVersion) {
@@ -272,9 +339,9 @@ export async function parseSkillFile(skillPath: string): Promise<CanvasSkill | n
 
     return {
       name: skillName,
-      description: frontmatter!.description,
-      license: frontmatter!.license,
-      compatibility: frontmatter!.compatibility,
+      description: manifest.description,
+      license: manifest.license,
+      compatibility: manifest.compatibility,
       version: frontmatterVersion || canvasVersion,
       title: iface?.displayName || extractTitle(skillName),
       content: body,

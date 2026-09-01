@@ -19,6 +19,7 @@ import {
   createRichAgentTextTargets,
   detectLateAgentSemanticConflicts,
   getAgentOperation,
+  listAgentOperations,
   recoverCollaborationAgentOperations,
   rejectAgentOperation,
   revertAgentOperation,
@@ -30,17 +31,20 @@ import {
 import { installCollaborationDirectConnection } from '../app/lib/collaboration/direct-connection';
 import { installCollaborationDocumentReader } from '../app/lib/collaboration/document-access';
 import {
+  CollaborationRepresentationMigrationError,
   CollaborationStateInactiveError,
   CollaborationStateStaleError,
   archivePersistedCollaborationPaths,
   ensureCollaborationState,
   changeCollaborationRepresentation,
+  changeCollaborationRepresentationWithSafeMarkdownNormalization,
   compactCollaborationState,
   loadCollaborationState,
   markCollaborationCheckpoint,
   persistCollaborationYDoc,
   reactivatePersistedCollaborationPath,
   serializeCanonicalText,
+  withCollaborationCheckpointFence,
 } from '../app/lib/collaboration/persistence';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
 import { removeDocumentPresenceEntry, upsertDocumentPresenceEntry } from '../app/lib/collaboration/presence';
@@ -50,6 +54,8 @@ import {
   createCollaborationSessionGrant,
 } from '../app/lib/collaboration/session-service';
 import { openDb } from '../app/lib/db';
+import { composeCanvasMarkdownDocument } from '../app/lib/markdown/obsidian-metadata';
+import { analyzeMarkdownRichMode } from '../app/lib/markdown/rich-markdown-codec';
 import {
   ensureFileRevisionForCurrentContent,
   getFileCollaborationState,
@@ -70,12 +76,14 @@ const compactionDocumentId = `agent-operation-compaction-test-${suffix}`;
 const sagaFirstDocumentId = `agent-operation-saga-first-${suffix}`;
 const sagaSecondDocumentId = `agent-operation-saga-second-${suffix}`;
 const archivedDocumentId = `agent-operation-archived-${suffix}`;
+const checkpointRaceDocumentId = `agent-operation-checkpoint-race-${suffix}`;
 const workspaceId = `agent-operation-workspace-${suffix}`;
 const userId = `agent-operation-user-${suffix}`;
 let toolDocumentId: string | null = null;
 let uninitializedToolDocumentId: string | null = null;
 let representationRoutingDocumentId: string | null = null;
 let autoMigrationDocumentId: string | null = null;
+let safeNormalizationMigrationDocumentId: string | null = null;
 let concurrentAutoMigrationDocumentId: string | null = null;
 const workspace: WorkspaceContext = {
   workspaceId,
@@ -111,7 +119,7 @@ const agentExecutionContext: AgentExecutionContext = {
 };
 
 async function runPiTool(
-  name: 'read' | 'edit_file' | 'apply_patch',
+  name: 'read' | 'edit_file' | 'apply_patch' | 'move_path',
   toolCallId: string,
   params: Record<string, unknown>,
 ) {
@@ -240,7 +248,6 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
       await materializeCollaborationCheckpoint({
         state: persisted,
         workspace: input.workspace,
-        canonicalContent: canonical,
         actorUserId: input.initiatedByUserId,
         actorType: input.actorType || 'agent',
         sourceSessionId: input.actorSessionId || input.operationId,
@@ -270,6 +277,88 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
 });
 
 try {
+  await ensureCollaborationState({
+    documentId: checkpointRaceDocumentId,
+    workspaceId,
+    organizationId: workspace.organizationId || null,
+    path: `agent-operation-checkpoint-race-${suffix}.txt`,
+    representation: 'plain_text',
+    initialContent: 'Checkpoint sequence N',
+  });
+  const checkpointRaceInitial = await loadCollaborationState(checkpointRaceDocumentId);
+  assert(checkpointRaceInitial);
+  const checkpointRaceDoc = new Y.Doc({ gc: true });
+  Y.applyUpdate(checkpointRaceDoc, checkpointRaceInitial.yjsState);
+  checkpointRaceDoc.getText('content').insert(checkpointRaceDoc.getText('content').length, ' persisted');
+  const checkpointRacePersisted = await persistCollaborationYDoc(
+    checkpointRaceDocumentId,
+    checkpointRaceInitial.lifecycleGeneration,
+    checkpointRaceDoc,
+  );
+  let releaseCheckpointMaterialization!: () => void;
+  let reportCheckpointMaterialization!: () => void;
+  const checkpointMaterializationReleased = new Promise<void>((resolve) => {
+    releaseCheckpointMaterialization = resolve;
+  });
+  const checkpointMaterializationStarted = new Promise<void>((resolve) => {
+    reportCheckpointMaterialization = resolve;
+  });
+  const fencedCheckpoint = withCollaborationCheckpointFence({
+    documentId: checkpointRaceDocumentId,
+    workspaceId,
+    path: checkpointRacePersisted.path,
+    representation: checkpointRacePersisted.representation,
+    lifecycleGeneration: checkpointRacePersisted.lifecycleGeneration,
+    schemaVersion: checkpointRacePersisted.schemaVersion,
+    sequence: checkpointRacePersisted.documentSequence,
+    stateVector: checkpointRacePersisted.stateVector,
+    materialize: async (lockedState) => {
+      reportCheckpointMaterialization();
+      await checkpointMaterializationReleased;
+      const canonicalContent = 'Checkpoint sequence N persisted';
+      return {
+        canonicalContent,
+        serializedContent: serializeCanonicalText(canonicalContent, lockedState),
+        result: canonicalContent,
+        rollback: async () => {},
+      };
+    },
+  });
+  await checkpointMaterializationStarted;
+  const checkpointRaceNextDoc = new Y.Doc({ gc: true });
+  Y.applyUpdate(checkpointRaceNextDoc, checkpointRacePersisted.yjsState);
+  checkpointRaceNextDoc.getText('content').insert(
+    checkpointRaceNextDoc.getText('content').length,
+    ' plus sequence N+1',
+  );
+  const concurrentPersist = persistCollaborationYDoc(
+    checkpointRaceDocumentId,
+    checkpointRacePersisted.lifecycleGeneration,
+    checkpointRaceNextDoc,
+  );
+  assert.equal(
+    await Promise.race([
+      concurrentPersist.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
+    ]),
+    false,
+    'a newer Yjs persist must wait while the checkpoint file/CAS fence holds the document row',
+  );
+  releaseCheckpointMaterialization();
+  const checkpointRaceConfirmed = await fencedCheckpoint;
+  assert(checkpointRaceConfirmed);
+  assert.equal(
+    checkpointRaceConfirmed.state.checkpointSequence,
+    checkpointRacePersisted.documentSequence,
+  );
+  const checkpointRaceAdvanced = await concurrentPersist;
+  assert.equal(
+    checkpointRaceAdvanced.documentSequence,
+    checkpointRacePersisted.documentSequence + 1,
+  );
+  checkpointRaceDoc.destroy();
+  checkpointRaceNextDoc.destroy();
+
   let state = await loadCollaborationState(documentId);
   const betaTarget = targetFor(state, 'Beta', 'Beta by agent');
   const idempotencyKey = `direct-${suffix}`;
@@ -414,6 +503,36 @@ try {
     explicitUserRequest: false,
   });
   assert.equal(autonomous.operationStatus, 'needs_review', 'autonomous work must default to review while a human is active');
+  const collaboratorWorkspace: WorkspaceContext = {
+    ...workspace,
+    permissions: { ...workspace.permissions, canManageWorkspace: false },
+  };
+  const collaboratorView = await getAgentOperation({
+    operationId: autonomous.operationId,
+    workspace: collaboratorWorkspace,
+    userId: `agent-operation-collaborator-${suffix}`,
+  });
+  assert.equal(collaboratorView?.initiatedByCurrentUser, false);
+  assert.equal(collaboratorView?.actionsAllowed, false);
+  assert.equal(collaboratorView?.targetAnchors.length, 1, 'collaborators must receive stable target anchors for inline activity');
+  assert.ok(
+    (await listAgentOperations({
+      documentId,
+      workspace: collaboratorWorkspace,
+      userId: `agent-operation-collaborator-${suffix}`,
+    })).some((operation) => operation.operationId === autonomous.operationId),
+    'workspace readers must see agent activity from other collaborators',
+  );
+  await assert.rejects(
+    rejectAgentOperation({
+      operationId: autonomous.operationId,
+      workspace: collaboratorWorkspace,
+      userId: `agent-operation-collaborator-${suffix}`,
+      idempotencyKey: `reject-other-${suffix}`,
+    }),
+    /not found/i,
+    'a reader must not be able to act on another collaborator\'s operation',
+  );
   removeDocumentPresenceEntry({ workspaceId, documentId, userId: 'active-human', actorType: 'user' });
   await rejectAgentOperation({ operationId: autonomous.operationId, workspace, userId, idempotencyKey: `reject-autonomous-${suffix}` });
 
@@ -952,6 +1071,56 @@ try {
   assert.equal(initializedEditDetails.collaboration?.durability, 'checkpointed_file');
   assert.equal(await persistedText(uninitializedToolDocumentId), '# Existing note\n\nParagraph updated by agent');
 
+  // Global replacements retain the same semantics when Markdown is backed by
+  // an active Yjs document rather than a materialized file checkpoint.
+  const replaceAllToolPath = `agent-tool-replace-all-${suffix}.md`;
+  const replaceAllToolContent = 'Status: draft\n\nStatus: draft\n';
+  await fs.writeFile(path.join(workspace.rootPath, replaceAllToolPath), replaceAllToolContent, 'utf8');
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: replaceAllToolPath,
+    contentHash: createHash('sha256').update(replaceAllToolContent, 'utf8').digest('hex'),
+    sizeBytes: Buffer.byteLength(replaceAllToolContent, 'utf8'),
+    actorUserId: userId,
+    actorType: 'user',
+  });
+  const replaceAllRead = await runPiTool('read', `tool-replace-all-read-${suffix}`, { path: replaceAllToolPath });
+  const replaceAllReadDetails = replaceAllRead.details as {
+    sha256?: string;
+    collaboration?: { documentId?: string; source?: string };
+  };
+  assert.equal(replaceAllReadDetails.collaboration?.source, 'live_yjs');
+  assert(replaceAllReadDetails.collaboration?.documentId);
+  const replaceAllEdit = await runPiTool('edit_file', `tool-replace-all-edit-${suffix}`, {
+    path: replaceAllToolPath,
+    expectedSha256: replaceAllReadDetails.sha256,
+    oldText: 'Status: draft',
+    newText: 'Status: ready',
+    replaceAll: true,
+  });
+  assert.equal((replaceAllEdit.details as { collaboration?: { operationStatus?: string } }).collaboration?.operationStatus, 'checkpointed_file');
+  assert.equal(
+    await persistedText(replaceAllReadDetails.collaboration!.documentId),
+    'Status: ready\n\nStatus: ready\n',
+  );
+  const movedReplaceAllPath = `agent-tool-replace-all-moved-${suffix}.md`;
+  const moveLiveMarkdown = await runPiTool('move_path', `tool-replace-all-move-${suffix}`, {
+    sourcePath: replaceAllToolPath,
+    destinationPath: movedReplaceAllPath,
+  });
+  assert.equal((moveLiveMarkdown.details as { verified?: boolean }).verified, true);
+  const movedReplaceAllRead = await runPiTool('read', `tool-replace-all-moved-read-${suffix}`, {
+    path: movedReplaceAllPath,
+  });
+  const movedReplaceAllDetails = movedReplaceAllRead.details as {
+    collaboration?: { documentId?: string; source?: string };
+  };
+  assert.equal(movedReplaceAllDetails.collaboration?.documentId, replaceAllReadDetails.collaboration?.documentId);
+  assert.equal(movedReplaceAllDetails.collaboration?.source, 'live_yjs');
+  assert.match(String((movedReplaceAllRead.content[0] as { text?: string } | undefined)?.text || ''), /Status: ready\n\nStatus: ready/u);
+  const oldReplaceAllRead = await runPiTool('read', `tool-replace-all-old-read-${suffix}`, { path: replaceAllToolPath });
+  assert.match(String((oldReplaceAllRead.content[0] as { text?: string } | undefined)?.text || ''), /ENOENT|no such file|does not exist/i);
+
   // The durable Yjs representation must win over a source-only checkpoint.
   // This is the regression path for a document that an agent has changed
   // before a browser opens it again.
@@ -1077,6 +1246,127 @@ try {
   assert.equal(stateAfterStaleStore?.representation, 'tiptap_xml');
   assert.equal(stateAfterStaleStore?.lifecycleGeneration, 2);
   assert.equal(await persistedText(autoMigrationDocumentId), autoMigrationContent);
+
+  // Serializer-only entity and table formatting changes are normalized once,
+  // checkpointed, and then promoted from source collaboration to rich text.
+  const safeNormalizationMigrationPath = `agent-safe-normalization-migration-${suffix}.md`;
+  const safeNormalizationMigrationContent = [
+    '---',
+    'title: Brand & UI options',
+    '---',
+    '',
+    '# Brand & UI options',
+    '',
+    '| Name | Meaning |',
+    '| ---- | ------- |',
+    '| **Bradley** | Calm help inside Canvas Notebook |',
+    '| **Lino** | Woven structure |',
+    '',
+  ].join('\n');
+  const safeNormalizationAnalysis = analyzeMarkdownRichMode(safeNormalizationMigrationContent);
+  assert.equal(safeNormalizationAnalysis.mode, 'normalizable');
+  assert(safeNormalizationAnalysis.mode === 'normalizable');
+  const safeNormalizationExpected = composeCanvasMarkdownDocument(
+    safeNormalizationAnalysis.prefix,
+    safeNormalizationAnalysis.normalizedBody,
+  );
+  await fs.writeFile(
+    path.join(workspace.rootPath, safeNormalizationMigrationPath),
+    safeNormalizationMigrationContent,
+    'utf8',
+  );
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: safeNormalizationMigrationPath,
+    contentHash: createHash('sha256').update(safeNormalizationMigrationContent, 'utf8').digest('hex'),
+    sizeBytes: Buffer.byteLength(safeNormalizationMigrationContent, 'utf8'),
+    actorUserId: userId,
+    actorType: 'user',
+  });
+  const safeNormalizationProjection = getFileCollaborationState({
+    workspace,
+    path: safeNormalizationMigrationPath,
+    ensureDocument: true,
+  });
+  assert(safeNormalizationProjection.document);
+  safeNormalizationMigrationDocumentId = safeNormalizationProjection.document.id;
+  await ensureCollaborationState({
+    documentId: safeNormalizationMigrationDocumentId,
+    workspaceId,
+    organizationId: workspace.organizationId || null,
+    path: safeNormalizationMigrationPath,
+    representation: 'plain_text',
+    initialContent: safeNormalizationMigrationContent,
+  });
+  const safeNormalizationStateBeforeFailedCheckpoint = await loadCollaborationState(
+    safeNormalizationMigrationDocumentId,
+  );
+  assert(safeNormalizationStateBeforeFailedCheckpoint);
+  let restoredFailedNormalizationCheckpoint = false;
+  await assert.rejects(
+    () => changeCollaborationRepresentationWithSafeMarkdownNormalization({
+      documentId: safeNormalizationMigrationDocumentId!,
+      expectedLifecycleGeneration: safeNormalizationStateBeforeFailedCheckpoint.lifecycleGeneration,
+      schemaVersion: 1,
+      checkpoint: {
+        write: async ({ canonicalContent }) => {
+          await fs.writeFile(
+            path.join(workspace.rootPath, safeNormalizationMigrationPath),
+            canonicalContent,
+            'utf8',
+          );
+          throw new Error('synthetic normalized checkpoint failure');
+        },
+        restore: async ({ canonicalContent }) => {
+          restoredFailedNormalizationCheckpoint = true;
+          await fs.writeFile(
+            path.join(workspace.rootPath, safeNormalizationMigrationPath),
+            canonicalContent,
+            'utf8',
+          );
+        },
+        finalize: () => {
+          assert.fail('A failed normalized checkpoint must not finalize its file projection.');
+        },
+      },
+    }),
+    (error: unknown) => error instanceof CollaborationRepresentationMigrationError
+      && error.code === 'checkpoint_failed',
+  );
+  assert.equal(restoredFailedNormalizationCheckpoint, true);
+  const safeNormalizationStateAfterFailedCheckpoint = await loadCollaborationState(
+    safeNormalizationMigrationDocumentId,
+  );
+  assert(safeNormalizationStateAfterFailedCheckpoint);
+  assert.equal(safeNormalizationStateAfterFailedCheckpoint.representation, 'plain_text');
+  assert.equal(
+    safeNormalizationStateAfterFailedCheckpoint.lifecycleGeneration,
+    safeNormalizationStateBeforeFailedCheckpoint.lifecycleGeneration,
+  );
+  assert.equal(
+    safeNormalizationStateAfterFailedCheckpoint.documentSequence,
+    safeNormalizationStateBeforeFailedCheckpoint.documentSequence,
+  );
+  assert.equal(
+    await fs.readFile(path.join(workspace.rootPath, safeNormalizationMigrationPath), 'utf8'),
+    safeNormalizationMigrationContent,
+  );
+  const safeNormalizationGrant = await createCollaborationSessionGrant({
+    workspace,
+    fileOptions: { workspace },
+    request: { path: safeNormalizationMigrationPath, provider: 'yjs', representation: 'auto' },
+  });
+  assert.equal(safeNormalizationGrant.representation, 'tiptap_xml');
+  assert.equal(safeNormalizationGrant.lifecycleGeneration, 2);
+  const safeNormalizationState = await loadCollaborationState(safeNormalizationMigrationDocumentId);
+  assert(safeNormalizationState);
+  assert.equal(safeNormalizationState.checkpointSequence, safeNormalizationState.documentSequence);
+  assert.equal(safeNormalizationState.degraded, false);
+  assert.equal(await persistedText(safeNormalizationMigrationDocumentId), safeNormalizationExpected);
+  assert.equal(
+    await fs.readFile(path.join(workspace.rootPath, safeNormalizationMigrationPath), 'utf8'),
+    safeNormalizationExpected,
+  );
 
   // Connected source clients block migration. Once the room is empty, two
   // simultaneous session requests converge on the same new rich lifecycle;
@@ -1474,10 +1764,12 @@ try {
       sagaFirstDocumentId,
       sagaSecondDocumentId,
       archivedDocumentId,
+      checkpointRaceDocumentId,
       ...(toolDocumentId ? [toolDocumentId] : []),
       ...(uninitializedToolDocumentId ? [uninitializedToolDocumentId] : []),
       ...(representationRoutingDocumentId ? [representationRoutingDocumentId] : []),
       ...(autoMigrationDocumentId ? [autoMigrationDocumentId] : []),
+      ...(safeNormalizationMigrationDocumentId ? [safeNormalizationMigrationDocumentId] : []),
       ...(concurrentAutoMigrationDocumentId ? [concurrentAutoMigrationDocumentId] : []),
     ]) {
       await database.run('DELETE FROM collaboration_agent_operations WHERE document_id = ?', [cleanupDocumentId]);

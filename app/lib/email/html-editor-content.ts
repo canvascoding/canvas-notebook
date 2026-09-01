@@ -48,17 +48,21 @@ export type EmailEditorBodyValues = {
   bodyHtml: string;
 };
 
-type EmailDomPurify = {
+export type EmailHtmlSanitizer = {
   sanitize: (value: string, config: Record<string, unknown>) => string;
 };
 
-type EmailDomPurifyFactory = ((window: Window) => EmailDomPurify) & Partial<EmailDomPurify>;
+type EmailDomPurifyFactory = ((window: Window) => EmailHtmlSanitizer) & Partial<EmailHtmlSanitizer>;
 
 export function sanitizeEmailEditorHtml(value: string): string {
+  return sanitizeEmailEditorHtmlWithSanitizer(value, getEmailDomPurify());
+}
+
+export function sanitizeEmailEditorHtmlWithSanitizer(value: string, purifier: EmailHtmlSanitizer): string {
   const normalized = normalizeEmailHtmlContent(value);
   if (!normalized) return '';
 
-  const sanitized = getEmailDomPurify().sanitize(normalizeEmailTableCellAlignment(normalized), {
+  const sanitized = purifier.sanitize(normalizeEmailTableCellAlignment(normalized), {
     ALLOWED_ATTR: EMAIL_EDITOR_ALLOWED_ATTRS,
     ALLOWED_TAGS: EMAIL_EDITOR_ALLOWED_TAGS,
   });
@@ -137,9 +141,9 @@ function sanitizeEmailEditorImages(value: string): string {
   });
 }
 
-function getEmailDomPurify(): EmailDomPurify {
+function getEmailDomPurify(): EmailHtmlSanitizer {
   const purifier = DOMPurify as unknown as EmailDomPurifyFactory;
   if (typeof window !== 'undefined' && typeof purifier === 'function') return purifier(window);
-  if (typeof purifier.sanitize === 'function') return purifier as EmailDomPurify;
+  if (typeof purifier.sanitize === 'function') return purifier as EmailHtmlSanitizer;
   throw new Error('DOMPurify requires a DOM window.');
 }

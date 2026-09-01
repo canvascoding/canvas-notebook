@@ -51,4 +51,139 @@ assert.deepEqual(analyzeMarkdownRichMode(invalidFrontmatter), {
 const crlfBody = '---\r\nmarp: true\r\n---\r\n\r\n# Slide\r\n';
 assert.equal(analyzeMarkdownRichMode(crlfBody).mode, 'rich');
 
+const bareEmailFixture = '**An:** online.vertrieb@ista.de  \n**Betreff:** Angebot\n';
+assert.deepEqual(analyzeMarkdownRichMode(bareEmailFixture), {
+  mode: 'rich',
+  prefix: '',
+  body: bareEmailFixture,
+});
+
+const explicitEmailLink = '[online.vertrieb@ista.de](mailto:online.vertrieb@ista.de)\n';
+assert.deepEqual(analyzeMarkdownRichMode(explicitEmailLink), {
+  mode: 'rich',
+  prefix: '',
+  body: explicitEmailLink,
+});
+
+const literalThematicBreak = '\\---\n';
+assert.deepEqual(analyzeMarkdownRichMode(literalThematicBreak), {
+  mode: 'rich',
+  prefix: '',
+  body: literalThematicBreak,
+});
+
+const normalizableFixture = readFixture('techem-safe-normalization.md');
+const normalizableParts = splitCanvasMarkdownForRichEditor(normalizableFixture);
+const normalizedBody = serializeRichMarkdownBody(normalizableParts.body);
+assert.notEqual(normalizedBody, normalizableParts.body);
+assert.deepEqual(analyzeMarkdownRichMode(normalizableFixture), {
+  mode: 'normalizable',
+  prefix: normalizableParts.prefix,
+  body: normalizableParts.body,
+  normalizedBody,
+  normalizations: ['ordered_list_spacing', 'hard_break_marker'],
+});
+assert.deepEqual(
+  analyzeMarkdownRichMode(composeCanvasMarkdownDocument(normalizableParts.prefix, normalizedBody)),
+  {
+    mode: 'rich',
+    prefix: normalizableParts.prefix,
+    body: normalizedBody,
+  },
+);
+
+assert.deepEqual(analyzeMarkdownRichMode('```text\nvalue\\\n```\n'), {
+  mode: 'rich',
+  prefix: '',
+  body: '```text\nvalue\\\n```\n',
+});
+assert.deepEqual(analyzeMarkdownRichMode('# Raw HTML\n\n<div>keep exactly</div>\n'), {
+  mode: 'source',
+  reason: 'roundtrip_changed',
+});
+assert.deepEqual(analyzeMarkdownRichMode('1. Item\n\n   continuation paragraph\n'), {
+  mode: 'source',
+  reason: 'roundtrip_changed',
+});
+
+const entityFixture = '# Research & Development\n\nA < B > C\n';
+assert.deepEqual(analyzeMarkdownRichMode(entityFixture), {
+  mode: 'normalizable',
+  prefix: '',
+  body: entityFixture,
+  normalizedBody: serializeRichMarkdownBody(entityFixture),
+  normalizations: ['html_entity_escaping'],
+});
+
+const tableFixture = [
+  '# Options',
+  '',
+  '| Name | Meaning |',
+  '| ---- | ------- |',
+  '| **Bradley** | Calm help inside Canvas Notebook |',
+  '| **Lino** | Woven structure |',
+  '',
+].join('\n');
+assert.deepEqual(analyzeMarkdownRichMode(tableFixture), {
+  mode: 'normalizable',
+  prefix: '',
+  body: tableFixture,
+  normalizedBody: serializeRichMarkdownBody(tableFixture),
+  normalizations: ['table_formatting'],
+});
+
+const brandedTableFixture = tableFixture.replace('# Options', '# Brand & UI options');
+const brandedTableNormalized = serializeRichMarkdownBody(brandedTableFixture);
+assert.deepEqual(analyzeMarkdownRichMode(brandedTableFixture), {
+  mode: 'normalizable',
+  prefix: '',
+  body: brandedTableFixture,
+  normalizedBody: brandedTableNormalized,
+  normalizations: ['html_entity_escaping', 'table_formatting'],
+});
+assert.equal(analyzeMarkdownRichMode(brandedTableNormalized).mode, 'rich');
+
+const koenenstrasseFixture = readFixture('koenenstrasse-email-roundtrip.md');
+const koenenstrasseParts = splitCanvasMarkdownForRichEditor(koenenstrasseFixture);
+const koenenstrasseNormalizedBody = serializeRichMarkdownBody(koenenstrasseParts.body);
+assert.deepEqual(analyzeMarkdownRichMode(koenenstrasseFixture), {
+  mode: 'normalizable',
+  prefix: koenenstrasseParts.prefix,
+  body: koenenstrasseParts.body,
+  normalizedBody: koenenstrasseNormalizedBody,
+  normalizations: ['escaped_email_address', 'hard_break_marker', 'table_formatting'],
+});
+assert.deepEqual(
+  analyzeMarkdownRichMode(composeCanvasMarkdownDocument(
+    koenenstrasseParts.prefix,
+    koenenstrasseNormalizedBody,
+  )),
+  {
+    mode: 'rich',
+    prefix: koenenstrasseParts.prefix,
+    body: koenenstrasseNormalizedBody,
+  },
+);
+
+const markdownEditorSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'components', 'editor', 'MarkdownEditor.tsx'),
+  'utf8',
+);
+assert.match(markdownEditorSource, /data-testid="markdown-safe-normalization-notice"/u);
+assert.match(markdownEditorSource, /data-testid="markdown-normalize-rich-text"/u);
+assert.match(
+  markdownEditorSource,
+  /composeCanvasMarkdownDocument\(\s*richModeAnalysis\.prefix,\s*richModeAnalysis\.normalizedBody/u,
+);
+
+for (const locale of ['en', 'de']) {
+  const messages = JSON.parse(fs.readFileSync(
+    path.join(process.cwd(), 'messages', `${locale}.json`),
+    'utf8',
+  )) as { notebook?: Record<string, string> };
+  assert.ok(messages.notebook?.markdownEditorSafeNormalizationNotice);
+  assert.ok(messages.notebook?.markdownEditorNormalizeAndOpenRichText);
+  assert.ok(messages.notebook?.markdownEditorNormalizedForRichText);
+}
+
 console.log('markdown-roundtrip-preservation-test: ok');

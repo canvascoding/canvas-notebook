@@ -13,6 +13,7 @@
 # testing
 /coverage
 /.playwright-mcp
+/tmp
 
 # next.js
 /.next/
@@ -23,6 +24,7 @@
 /dist-cli/
 /dist-portable-cli/
 /dist-host-cli/
+/dist-linux-cli/
 /dist-electron/
 
 # misc

@@ -68,6 +68,7 @@ export function formatPathOperationResult(result: AgentPathOperationResult): str
     `Files: ${result.files}`,
     `Directories: ${result.directories}`,
     `Bytes: ${result.bytes}`,
+    result.verified === true ? 'Verification: passed' : result.verified === false ? 'Verification: failed' : 'Verification: not applicable',
     result.truncated ? 'Summary truncated: yes' : 'Summary truncated: no',
     'Snapshot: none (path copy/move/delete operations do not snapshot file contents)',
     ...entryLines,

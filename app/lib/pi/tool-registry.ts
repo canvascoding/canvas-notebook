@@ -17,7 +17,7 @@ import {
 } from '@/app/lib/onboarding/profile';
 import { createOnboardingProfileTool, createUserScopedTools } from '@/app/lib/pi/scoped-tools';
 import { createAgentManagementTools } from '@/app/lib/pi/agent-management-tools';
-import { DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
+import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import {
   EMAIL_AGENT_ALLOWED_TOOL_NAME_SET,
   filterToolsToAllowedNames,
@@ -149,7 +149,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   }
   if (group === 'Agents') {
     notes.push('Creates and changes personal or organization agents through the same permission, revision, policy, storage, confirmation, and audit actions as the UI/API.');
-    notes.push('Enabled by default and available only to the Canvas Agent. Agent creation or mutation requires an explicit user request.');
+    notes.push('Enabled by default and available only to Bradley, the main agent. Agent creation or mutation requires an explicit user request.');
   }
   if (group === 'Audio') {
     notes.push('Reads local audio files and may call external transcription services.');
@@ -191,7 +191,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
     notes.push('Requires plugin and skill sharing permission. Skill package contents are validated before installation and are not logged in audit metadata.');
   }
   if (group === 'Onboarding') {
-    notes.push('Only available during the initial Canvas Agent onboarding profile session.');
+    notes.push('Only available during the initial Bradley onboarding profile session.');
     notes.push('Writes user-scoped USER.md and SOUL.md. Instance completion is handled separately before the personal onboarding starts.');
   }
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots', 'transcribe_audio'].includes(tool.name)) {
@@ -439,13 +439,6 @@ export async function getPiTools(
     if (onboardingProfileToolAvailable && !allTools.some((tool) => tool.name === ONBOARDING_PROFILE_TOOL_NAME)) {
       allTools.push(createOnboardingProfileTool(userId, agentId, sessionId));
     }
-  }
-
-  // Persisted preferences are never an authority for the built-in email
-  // agent. Reapply its narrow ceiling after normal configuration/default
-  // resolution so a modified database row cannot add a capability.
-  if (agentId?.trim().toLowerCase() === EMAIL_MANAGED_AGENT_ID) {
-    allTools = filterToolsToAllowedNames(allTools, EMAIL_AGENT_ALLOWED_TOOL_NAME_SET);
   }
 
   if (resolvedExecutionContext) {

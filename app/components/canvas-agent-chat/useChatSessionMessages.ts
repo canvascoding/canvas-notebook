@@ -419,7 +419,8 @@ export function useChatSessionMessages({
 
         if (statusPayload?.success && statusPayload.status) {
           setRuntimeStatusWithReconciliation(statusPayload.status as RuntimeStatus);
-          setLastCompactionMarker((statusPayload.status as RuntimeStatus).lastCompactionAt);
+          const status = statusPayload.status as RuntimeStatus;
+          setLastCompactionMarker(status.compactionStatus?.attemptId || status.lastCompactionAt);
         } else {
           setRuntimeStatus(null);
         }

@@ -16,6 +16,32 @@ async function main() {
   } = await import(
     '../app/lib/chat/delegation-api'
   );
+  const {
+    CHAT_DELEGATION_PANEL_EXPANDED_STORAGE_KEY,
+    readChatDelegationPanelExpanded,
+    writeChatDelegationPanelExpanded,
+  } = await import(
+    '../app/lib/chat/delegation-panel-storage'
+  );
+
+  const storedPanelState = new Map<string, string>();
+  const panelStorage = {
+    getItem: (key: string) => storedPanelState.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      storedPanelState.set(key, value);
+    },
+  };
+  assert.equal(readChatDelegationPanelExpanded(panelStorage), true);
+  writeChatDelegationPanelExpanded(panelStorage, false);
+  assert.equal(
+    storedPanelState.get(CHAT_DELEGATION_PANEL_EXPANDED_STORAGE_KEY),
+    'false',
+  );
+  assert.equal(readChatDelegationPanelExpanded(panelStorage), false);
+  writeChatDelegationPanelExpanded(panelStorage, true);
+  assert.equal(readChatDelegationPanelExpanded(panelStorage), true);
+  assert.equal(readChatDelegationPanelExpanded({ getItem: () => 'invalid' }), true);
+  assert.equal(readChatDelegationPanelExpanded({ getItem: () => { throw new Error('blocked'); } }), true);
 
   const hiddenCompletion = {
     role: 'user',
@@ -111,16 +137,47 @@ async function main() {
     root,
     'app/components/canvas-agent-chat/ChatDelegationPanel.tsx',
   ), 'utf8');
+  const agentPickerSource = fs.readFileSync(path.join(
+    root,
+    'app/components/canvas-agent-chat/DelegationAgentPicker.tsx',
+  ), 'utf8');
+  const toolsetPickerSource = fs.readFileSync(path.join(
+    root,
+    'app/components/canvas-agent-chat/DelegationToolsetPicker.tsx',
+  ), 'utf8');
   const runtimeEventsSource = fs.readFileSync(path.join(
     root,
     'app/components/canvas-agent-chat/useChatRuntimeEvents.ts',
   ), 'utf8');
 
   assert.match(composerSource, /\{delegationPanel\}/u);
-  assert.match(chatSource, /<ChatDelegationPanel key=\{sessionId\} sourceSessionId=\{sessionId\}/u);
+  assert.match(chatSource, /<ChatDelegationPanel/u);
+  assert.match(chatSource, /sourceSessionId=\{sessionId\}/u);
+  assert.match(chatSource, /agents=\{chatAgentOptions\}/u);
   assert.match(panelSource, /data-testid="chat-delegation-panel"/u);
   assert.match(panelSource, /data-testid="chat-delegation-start"/u);
+  assert.match(panelSource, /readChatDelegationPanelExpanded/u);
+  assert.match(panelSource, /writeChatDelegationPanelExpanded/u);
+  assert.match(panelSource, /<DelegationAgentPicker/u);
+  assert.match(panelSource, /<DelegationToolsetPicker/u);
+  assert.match(panelSource, /<AgentAvatar/u);
+  assert.match(panelSource, /workerAgent\?\.name/u);
+  assert.match(panelSource, /visibleToolsets/u);
+  assert.doesNotMatch(panelSource, /type="checkbox"/u);
+  assert.match(agentPickerSource, /<AgentAvatar/u);
+  assert.match(agentPickerSource, /data-testid="delegation-agent-picker"/u);
+  assert.match(agentPickerSource, /role="radiogroup"/u);
+  assert.match(agentPickerSource, /type="radio"/u);
+  assert.match(agentPickerSource, /useId/u);
+  assert.match(agentPickerSource, /name=\{radioName\}/u);
+  assert.doesNotMatch(agentPickerSource, /<Popover/u);
+  assert.match(toolsetPickerSource, /aria-pressed=\{selected\}/u);
+  assert.match(toolsetPickerSource, /<DelegationToolsetIcon/u);
+  assert.match(toolsetPickerSource, /delegationSearchTools/u);
+  assert.match(toolsetPickerSource, /filteredToolsets/u);
   assert.match(panelSource, /<Dialog open=\{dialogOpen\}/u);
+  assert.match(panelSource, /overflow-y-auto/u);
+  assert.match(panelSource, /lg:grid-cols/u);
   assert.match(panelSource, /cancelChatDelegation/u);
   assert.match(panelSource, /startChatDelegation/u);
   assert.match(panelSource, /delegationShowResult/u);

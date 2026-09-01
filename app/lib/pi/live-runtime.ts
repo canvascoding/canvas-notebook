@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
   Agent,
@@ -11,7 +12,7 @@ import {
   type StreamFn,
   type ThinkingLevel,
 } from '@earendil-works/pi-agent-core';
-import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
+import type { Api, AssistantMessage, Message, Model } from '@earendil-works/pi-ai';
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
@@ -24,10 +25,21 @@ import {
 import {
   composePiHistoryForLlm,
   estimateTextTokens,
+  isPiHistoryCompositionSendable,
   type PiHistoryComposition,
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
-import { prepareMessagesForEffectiveModel } from '@/app/lib/pi/multimodal-preparation';
+import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
+import type { PiMessageNormalizationOptions } from '@/app/lib/pi/message-normalization';
+import {
+  createPiProviderUsageCalibrationEvidence,
+  estimatePiToolSchemaTokens,
+  getPiRequestOutputTokenCap,
+  serializePiEffectiveToolSchemas,
+  withPiRequestOutputTokenCap,
+  type PiContextBudgetSnapshot,
+  type PiProviderUsageCalibrationEvidence,
+} from '@/app/lib/pi/context-budget';
 import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
 import { createCompactBreakMessage, createRuntimeContinuationMessage, type RuntimeContinuationReason } from '@/app/lib/pi/custom-messages';
 import {
@@ -41,6 +53,14 @@ import {
   isImageInputUnsupportedError,
 } from '@/app/lib/pi/model-resolver';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
+import {
+  abortPiSessionCompaction,
+  getActivePiSessionCompaction,
+  invalidatePiSessionCompaction,
+  runPiSessionCompaction,
+  type PiCompactionCoordinatorPolicy,
+  type PiCompactionCoordinatorResult,
+} from '@/app/lib/pi/session-compaction-coordinator';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
 import { generatePendingPiSessionTitle } from '@/app/lib/pi/session-title-generator';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
@@ -54,7 +74,7 @@ import { replaceNextTurnContext } from '@/app/lib/pi/next-turn-context';
 import { getChannelSystemPromptBlock } from '@/app/lib/agents/channel-system-prompt';
 import { formatZonedDateTimeForPrompt } from '@/app/lib/time-zones';
 import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
-import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
+import { loadLatestPiSessionInputUsage, persistPiUsageEvents } from '@/app/lib/pi/usage-events';
 import {
   getStudioOutputsRoot,
   resolveStudioFilePath,
@@ -64,6 +84,10 @@ import { DEFAULT_AGENT_ID, normalizeStoredChannelId, WEB_CHANNEL_ID } from '@/ap
 import { buildWorkspaceFileTreePrompt } from '@/app/lib/agents/workspace-file-tree-context';
 import { buildReferencedPluginRuntimeContext } from '@/app/lib/plugins/plugin-reference-context';
 import { createToolLoopGuard } from '@/app/lib/pi/tool-loop-guard';
+import {
+  IDLE_RUNTIME_COMPACTION_STATUS,
+  type RuntimeCompactionStatus,
+} from '@/app/lib/chat/runtime-status';
 import {
   createToolTailContinuationDecision,
   extractAgentMessageText,
@@ -98,6 +122,7 @@ import { subscribeBrowserSessionSnapshot } from '@/app/lib/pi/browser/session-st
 import { refreshBrowserSessionSnapshot } from '@/app/lib/pi/browser/session-state-service';
 import type { BrowserSessionSnapshot } from '@/app/lib/pi/browser/types';
 import type { BrowserToolMode } from '@/app/lib/pi/browser/tool';
+import { buildMemoryPromptProjection } from '@/app/lib/memory/prompt-projection';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -115,20 +140,6 @@ function runtimeExecutionModeForSession(session: Pick<typeof piSessions.$inferSe
   return normalizeStoredChannelId(session.channelId ?? 'app') === WEB_CHANNEL_ID
     ? 'interactive' as const
     : 'external_channel' as const;
-}
-
-function estimatePiToolSchemaTokens(tools: AgentTool[]): number {
-  try {
-    return estimateTextTokens(JSON.stringify(tools.map((tool) => ({
-      name: tool.name,
-      label: tool.label,
-      description: tool.description,
-      parameters: tool.parameters,
-    }))));
-  } catch {
-    // Keep a conservative fallback if an extension supplies a non-serializable schema.
-    return tools.reduce((total, tool) => total + estimateTextTokens(`${tool.name}\n${tool.label}\n${tool.description || ''}`), 0);
-  }
 }
 
 function getStudioOutputReferencePaths(outputFilePath: string) {
@@ -197,12 +208,19 @@ export type PiRuntimeStatus = {
   estimatedHistoryTokens: number;
   availableHistoryTokens: number;
   contextUsagePercent: number;
+  finalRequestTokens?: number | null;
+  finalRequestBudgetExceeded?: boolean;
+  lastProviderInputTokens?: number | null;
+  lastProviderInputAt?: string | null;
+  nextRequestEstimatedTokens?: number | null;
+  nextRequestBudgetExceeded?: boolean;
   includedSummary: boolean;
   omittedMessageCount: number;
   summaryUpdatedAt: string | null;
   lastCompactionAt: string | null;
   lastCompactionKind: 'manual' | 'automatic' | null;
   lastCompactionOmittedCount: number;
+  compactionStatus: RuntimeCompactionStatus;
 };
 
 export type RuntimeStatusEvent = {
@@ -212,6 +230,7 @@ export type RuntimeStatusEvent = {
 
 export type ContextCompactedEvent = {
   type: 'context_compacted';
+  attemptId: string;
   timestamp: string;
   kind: 'manual' | 'automatic';
   omittedMessageCount: number;
@@ -259,13 +278,27 @@ type RuntimeInit = {
   initialMessages: AgentMessage[];
   executionContext: AgentExecutionContext;
   workspaceFileTreePromptBlock: string;
+  memoryPromptBlock: string;
   browserSnapshot: BrowserSessionSnapshot;
+  imageNormalizationOptions: PiMessageNormalizationOptions;
+  requestOutputTokenCap: number;
+  lastProviderInputUsage: {
+    inputTokens: number;
+    assistantTimestamp: Date;
+  } | null;
 };
 
 type RuntimeOptions = {
   resetToolLoopGuard?: () => void;
   requiresRuntimeRecreation?: () => boolean;
   summaryStreamFn?: StreamFn;
+  compactionPolicy?: PiCompactionCoordinatorPolicy;
+};
+
+type PreparedRuntimePayload = {
+  sourceMessages: AgentMessage[];
+  messages: Message[];
+  budgetSnapshot: PiContextBudgetSnapshot;
 };
 
 function isUserMessage(message: AgentMessage): message is Extract<AgentMessage, { role: 'user' }> {
@@ -406,12 +439,19 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
     estimatedHistoryTokens: status.estimatedHistoryTokens,
     availableHistoryTokens: status.availableHistoryTokens,
     contextUsagePercent: status.contextUsagePercent,
+    finalRequestTokens: status.finalRequestTokens,
+    finalRequestBudgetExceeded: status.finalRequestBudgetExceeded,
+    lastProviderInputTokens: status.lastProviderInputTokens,
+    lastProviderInputAt: status.lastProviderInputAt,
+    nextRequestEstimatedTokens: status.nextRequestEstimatedTokens,
+    nextRequestBudgetExceeded: status.nextRequestBudgetExceeded,
     includedSummary: status.includedSummary,
     omittedMessageCount: status.omittedMessageCount,
     summaryUpdatedAt: status.summaryUpdatedAt,
     lastCompactionAt: status.lastCompactionAt,
     lastCompactionKind: status.lastCompactionKind,
     lastCompactionOmittedCount: status.lastCompactionOmittedCount,
+    compactionStatus: status.compactionStatus,
     browser: status.browser,
   });
 }
@@ -419,10 +459,11 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
 type PiRuntimePromptDispatchTarget = RuntimePromptContextTarget & {
   reloadTools: () => Promise<void>;
   refreshWorkspaceFileTreePrompt: () => Promise<void>;
+  refreshMemoryPrompt: () => Promise<void>;
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
-class LivePiRuntime {
+export class LivePiRuntime {
   readonly sessionId: string;
   readonly userId: string;
   readonly agentId: string;
@@ -432,6 +473,7 @@ class LivePiRuntime {
   private tools: AgentTool[];
   private readonly executionContext: AgentExecutionContext;
   private workspaceFileTreePromptBlock: string;
+  private memoryPromptBlock: string;
   readonly agent: Agent;
 
   private readonly subscribers = new Set<RuntimeSubscriber>();
@@ -442,11 +484,20 @@ class LivePiRuntime {
   private isRunning = false;
   private summary: PiSessionSummaryState;
   private lastComposition: PiHistoryComposition | null = null;
+  private lastFinalPayloadBudgetSnapshot: PiContextBudgetSnapshot | null = null;
+  private preparedRuntimePayload: PreparedRuntimePayload | null = null;
+  private lastProviderUsageCalibration: PiProviderUsageCalibrationEvidence | null = null;
+  private lastProviderInputUsage: RuntimeInit['lastProviderInputUsage'];
+  private readonly imageNormalizationOptions: PiMessageNormalizationOptions;
+  private readonly requestOutputTokenCap: number;
   private lastPersistedLength: number;
+  private messageSequenceCheckpoint: number;
+  private compactionGeneration = 0;
   private lastAccessAt = Date.now();
   private lastCompactionAt: Date | null;
   private lastCompactionKind: 'manual' | 'automatic' | null;
   private lastCompactionOmittedCount: number;
+  private compactionStatus: RuntimeCompactionStatus = IDLE_RUNTIME_COMPACTION_STATUS;
   private channelId: string | null = null;
   private timeZoneContext: { timeZone: string; currentTime: string } | null = null;
   private activeFileContext: string | null = null;
@@ -457,8 +508,7 @@ class LivePiRuntime {
   private studioContext: PiRuntimePromptContext['studioContext'] | null = null;
   private emailContext: PiRuntimePromptContext['emailContext'] | null = null;
   private workspaceContext: PiRuntimePromptContext['workspace'] | null = null;
-  private persistLock = false;
-  private persistPending: 'turn_end' | 'agent_end' | 'error' | null = null;
+  private persistPromise: Promise<number> | null = null;
   private lastBroadcastStatusSignature: string | null = null;
   private statusRevision = 0;
   private currentUserPromptText = '';
@@ -489,8 +539,13 @@ class LivePiRuntime {
     this.tools = init.tools;
     this.executionContext = init.executionContext;
     this.workspaceFileTreePromptBlock = init.workspaceFileTreePromptBlock;
+    this.memoryPromptBlock = init.memoryPromptBlock;
+    this.imageNormalizationOptions = init.imageNormalizationOptions;
+    this.requestOutputTokenCap = init.requestOutputTokenCap;
+    this.lastProviderInputUsage = init.lastProviderInputUsage;
     this.summary = init.summary;
     this.lastPersistedLength = init.initialMessages.length;
+    this.messageSequenceCheckpoint = init.initialMessages.length;
     this.agent = agent;
     this.lastCompactionAt = init.summary.summaryUpdatedAt;
     this.lastCompactionKind = init.summary.summaryUpdatedAt ? 'automatic' : null;
@@ -504,13 +559,235 @@ class LivePiRuntime {
         if (this.disposed) return;
         const nextMode: BrowserToolMode = snapshot.running ? 'active' : 'dormant';
         this.browserSnapshot = snapshot.running ? snapshot : null;
-        this.lastComposition = null;
+        this.invalidateContextBudget();
         if (nextMode !== this.browserToolMode) {
           this.browserToolsNeedRefresh = true;
         }
         this.publishStatus();
       },
     );
+  }
+
+  private invalidateContextBudget(): void {
+    this.compactionGeneration += 1;
+    invalidatePiSessionCompaction(this.getCompactionScope());
+    this.lastComposition = null;
+    this.lastFinalPayloadBudgetSnapshot = null;
+    this.preparedRuntimePayload = null;
+  }
+
+  private getCompactionScope() {
+    return {
+      sessionId: this.sessionId,
+      userId: this.userId,
+      agentId: this.agentId,
+      workspaceId: this.executionContext.workspaceId ?? null,
+    };
+  }
+
+  private createCompactionGeneration(runtimeContext: string | null): string {
+    const hash = createHash('sha256');
+    hash.update(JSON.stringify({
+      generation: this.compactionGeneration,
+      provider: this.provider,
+      model: this.model.id,
+      contextWindow: this.model.contextWindow,
+      modelMaxTokens: this.model.maxTokens,
+      requestOutputTokenCap: this.requestOutputTokenCap,
+      summaryRevision: this.summary.summaryRevision,
+      summaryThroughSequence: this.summary.summaryThroughSequence,
+      messageSequenceCheckpoint: this.messageSequenceCheckpoint,
+      workspaceId: this.executionContext.workspaceId ?? null,
+    }));
+    hash.update(this.getEffectiveSystemPrompt());
+    hash.update(serializePiEffectiveToolSchemas(this.getEffectiveTools()));
+    hash.update(runtimeContext ?? '');
+    return hash.digest('hex');
+  }
+
+  private composeHistory(
+    messages: AgentMessage[],
+    additionalContextTokens: number,
+    selectionMode: 'automatic' | 'hard_limit' = 'automatic',
+  ): PiHistoryComposition {
+    return composePiHistoryForLlm({
+      messages,
+      summary: this.summary,
+      systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
+      contextWindow: this.model.contextWindow,
+      modelMaxTokens: this.model.maxTokens,
+      requestOutputTokens: this.requestOutputTokenCap,
+      toolTokens: estimatePiToolSchemaTokens(this.getEffectiveTools()),
+      additionalContextTokens,
+      selectionMode,
+    });
+  }
+
+  private async coordinateCompaction(input: {
+    kind: 'manual' | 'automatic';
+    bypassCooldown?: boolean;
+    messages: AgentMessage[];
+    additionalContextTokens: number;
+    runtimeContext: string | null;
+    signal?: AbortSignal;
+  }): Promise<PiCompactionCoordinatorResult> {
+    await this.persistMessages('turn_end');
+    const summarySnapshot = { ...this.summary };
+    const generation = this.createCompactionGeneration(input.runtimeContext);
+    const systemPromptTokens = estimateTextTokens(this.getEffectiveSystemPrompt());
+    const toolTokens = estimatePiToolSchemaTokens(this.getEffectiveTools());
+    const before = this.composeHistory(input.messages, input.additionalContextTokens);
+    const activeAttempt = getActivePiSessionCompaction(this.getCompactionScope());
+    const attemptId = activeAttempt?.attemptId ?? `compact-${randomUUID()}`;
+    const ownsStatus = activeAttempt === null;
+    if (ownsStatus) {
+      this.compactionStatus = {
+        state: 'running',
+        attemptId,
+        trigger: input.kind,
+        reasonCode: null,
+        retryAfter: null,
+        omittedMessageCount: 0,
+      };
+      this.publishStatus();
+    }
+    const result = await runPiSessionCompaction({
+      ...this.getCompactionScope(),
+      trigger: input.kind,
+      bypassCooldown: input.bypassCooldown,
+      attemptId,
+      generation,
+      expectedSummaryRevision: summarySnapshot.summaryRevision,
+      expectedThroughSequence: summarySnapshot.summaryThroughSequence,
+      provider: this.provider,
+      model: this.model.id,
+      contractFingerprint: generation,
+      metrics: {
+        beforeEstimatedTokens: before.estimatedHistoryTokens,
+        beforeEstimatedBytes: before.estimatedHistoryBytes,
+      },
+      policy: this.options.compactionPolicy,
+      signal: input.signal,
+      isGenerationCurrent: (candidateGeneration) => (
+        !this.disposed
+        && candidateGeneration === this.createCompactionGeneration(input.runtimeContext)
+      ),
+      prepareCandidate: (candidateSignal) => preparePiHistoryContext({
+        messages: input.messages.slice(),
+        summary: summarySnapshot,
+        systemPromptTokens,
+        model: this.model,
+        requestOutputTokens: this.requestOutputTokenCap,
+        toolTokens,
+        additionalContextTokens: input.additionalContextTokens,
+        sessionId: this.sessionId,
+        signal: candidateSignal,
+        streamFn: this.options.summaryStreamFn,
+      }),
+    });
+    if (ownsStatus && this.compactionStatus.attemptId === result.attemptId) {
+      this.compactionStatus = {
+        state: result.state === 'cooldown_active' || result.state === 'already_running'
+          ? 'deferred'
+          : result.state,
+        attemptId: result.attemptId,
+        trigger: input.kind,
+        reasonCode: result.reasonCode,
+        retryAfter: result.retryAt?.toISOString() ?? null,
+        omittedMessageCount: result.composition?.omittedMessages.length ?? 0,
+      };
+      this.publishStatus();
+    }
+    return result;
+  }
+
+  private async buildFinalPayload(messages: AgentMessage[]): Promise<PreparedRuntimePayload> {
+    const prepared = await preparePiFinalPayload({
+      messages,
+      model: this.model,
+      effectiveInstructions: [{ role: 'system', content: this.getEffectiveSystemPrompt() }],
+      effectiveTools: this.getEffectiveTools(),
+      requestOutputTokenCap: this.requestOutputTokenCap,
+      runtimeContractRevision: 'canvas-pi-runtime-v1',
+    }, this.imageNormalizationOptions);
+    this.lastFinalPayloadBudgetSnapshot = prepared.budgetSnapshot;
+    return {
+      sourceMessages: messages,
+      messages: prepared.messages,
+      budgetSnapshot: prepared.budgetSnapshot,
+    };
+  }
+
+  private cachePreparedRuntimePayload(payload: PreparedRuntimePayload): void {
+    this.preparedRuntimePayload = payload;
+  }
+
+  private getPayloadPressure(snapshot: PiContextBudgetSnapshot): number {
+    const contextOverflow = Math.max(0, snapshot.estimatedTotalTokens - snapshot.contextWindowTokens);
+    const serializedPayloadOverflow = Math.max(0, snapshot.serializedMessageBytes - snapshot.hardHistoryBytes);
+    const imagePayloadOverflow = Math.max(0, snapshot.multimodalBytes - snapshot.totalImageBytesLimit);
+    // Image inputs are charged independently by providers. Turn the byte-only
+    // overflow into a conservative history reservation for the retry path.
+    return Math.max(
+      contextOverflow,
+      Math.ceil(serializedPayloadOverflow / 4),
+      Math.ceil(imagePayloadOverflow / 256),
+    );
+  }
+
+  private isFinalPayloadSendable(snapshot: PiContextBudgetSnapshot): boolean {
+    return !snapshot.payloadBudgetExceeded && !snapshot.contextBudgetExceeded;
+  }
+
+  /**
+   * A provider measurement may show that our rough history estimate is
+   * conservative. It can defer only an early soft-threshold compaction: the
+   * fully serialized request is still checked (and compacted) before send.
+   */
+  private shouldDeferSoftThresholdCompaction(preflight: PiHistoryComposition): boolean {
+    const calibration = this.lastProviderUsageCalibration;
+    return Boolean(
+      calibration
+      && calibration.provider === this.provider
+      && calibration.model === this.model.id
+      && calibration.relativeDelta !== null
+      && calibration.relativeDelta <= -0.05
+      && preflight.softThresholdExceeded
+      && !preflight.contextBudgetExceeded
+      && isPiHistoryCompositionSendable(preflight, this.summary),
+    );
+  }
+
+  async prepareFinalPayload(messages: AgentMessage[]): Promise<Message[]> {
+    const cached = this.preparedRuntimePayload;
+    const prepared = cached?.sourceMessages === messages
+      ? cached
+      : await this.buildFinalPayload(messages);
+    this.preparedRuntimePayload = null;
+
+    if (prepared.budgetSnapshot.payloadBudgetExceeded) {
+      throw new Error(
+        `The final request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget after image compression. `
+        + 'Shorten the latest message or attachments.',
+      );
+    }
+    if (prepared.budgetSnapshot.contextBudgetExceeded) {
+      throw new Error(
+        'The final serialized request exceeds the selected model context window after instructions, tools, provider overhead, output reserve, multimodal input, and safety margin.',
+      );
+    }
+
+    return prepared.messages;
+  }
+
+  getContextBudgetEvidence(): Readonly<{
+    snapshot: PiContextBudgetSnapshot | null;
+    calibration: PiProviderUsageCalibrationEvidence | null;
+  }> {
+    return Object.freeze({
+      snapshot: this.lastFinalPayloadBudgetSnapshot,
+      calibration: this.lastProviderUsageCalibration,
+    });
   }
 
   touch() {
@@ -561,13 +838,20 @@ class LivePiRuntime {
         systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
         contextWindow: this.model.contextWindow,
         modelMaxTokens: this.model.maxTokens,
+        requestOutputTokens: this.requestOutputTokenCap,
         toolTokens: estimatePiToolSchemaTokens(this.tools),
         additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
       });
     }
     const composition = this.lastComposition;
-
+    const finalPayloadBudget = this.lastFinalPayloadBudgetSnapshot;
     const hasPendingReplace = this.pendingReplace !== null;
+    const exposeFinalPayloadBudget = Boolean(
+      finalPayloadBudget
+      && !this.abortRequested
+      && !hasPendingReplace
+      && (this.isRunning || !this.isFinalPayloadSendable(finalPayloadBudget)),
+    );
 
     return {
       sessionId: this.sessionId,
@@ -584,17 +868,31 @@ class LivePiRuntime {
       pendingToolCalls: this.agent.state.pendingToolCalls.size,
       followUpQueue: this.followUpQueue.map((entry) => entry.preview),
       steeringQueue: this.steeringQueue.map((entry) => entry.preview),
-      canAbort: this.isRunning || this.abortRequested || hasPendingReplace,
+      canAbort: this.isRunning
+        || this.abortRequested
+        || hasPendingReplace
+        || getActivePiSessionCompaction(this.getCompactionScope()) !== null,
       contextWindow: this.model.contextWindow,
       estimatedHistoryTokens: composition.estimatedHistoryTokens,
       availableHistoryTokens: composition.availableHistoryTokens,
       contextUsagePercent: toPercent(composition.estimatedHistoryTokens, composition.availableHistoryTokens),
+      finalRequestTokens: exposeFinalPayloadBudget ? finalPayloadBudget!.estimatedTotalTokens : null,
+      finalRequestBudgetExceeded: exposeFinalPayloadBudget
+        ? !this.isFinalPayloadSendable(finalPayloadBudget!)
+        : false,
+      lastProviderInputTokens: this.lastProviderInputUsage?.inputTokens ?? null,
+      lastProviderInputAt: this.lastProviderInputUsage?.assistantTimestamp.toISOString() ?? null,
+      nextRequestEstimatedTokens: exposeFinalPayloadBudget ? finalPayloadBudget!.estimatedTotalTokens : null,
+      nextRequestBudgetExceeded: exposeFinalPayloadBudget
+        ? !this.isFinalPayloadSendable(finalPayloadBudget!)
+        : false,
       includedSummary: composition.includedSummary,
       omittedMessageCount: composition.omittedMessages.length,
       summaryUpdatedAt: this.summary.summaryUpdatedAt ? this.summary.summaryUpdatedAt.toISOString() : null,
       lastCompactionAt: this.lastCompactionAt ? this.lastCompactionAt.toISOString() : null,
       lastCompactionKind: this.lastCompactionKind,
       lastCompactionOmittedCount: this.lastCompactionOmittedCount,
+      compactionStatus: this.compactionStatus,
     };
   }
 
@@ -675,6 +973,7 @@ class LivePiRuntime {
     this.pendingReplace = this.createQueueEntry(sanitized, context);
     this.rememberMessageContext(sanitized, context);
     this.abortRequested = true;
+    this.invalidateContextBudget();
     this.touch();
     this.publishStatus();
     this.agent.abort();
@@ -682,11 +981,16 @@ class LivePiRuntime {
   }
 
   async abort() {
+    const compactionAborted = abortPiSessionCompaction(this.getCompactionScope());
     if (this.isRunning || this.agent.state.isStreaming || this.abortRequested) {
       this.abortRequested = true;
+      this.invalidateContextBudget();
       this.touch();
       this.publishStatus();
       this.agent.abort();
+    } else if (compactionAborted) {
+      this.touch();
+      this.publishStatus();
     }
 
     return this.getStatus();
@@ -697,80 +1001,63 @@ class LivePiRuntime {
       throw new Error('Cannot compact while the agent is processing.');
     }
 
-    const result = await preparePiHistoryContext({
+    const additionalContextTokens = this.getBrowserRuntimeContextTokenEstimate();
+    const result = await this.coordinateCompaction({
+      kind: 'manual',
       messages: this.agent.state.messages,
-      summary: this.summary,
-      systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
-      model: this.model,
-      toolTokens: estimatePiToolSchemaTokens(this.tools),
-      additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
-      sessionId: this.sessionId,
-      streamFn: this.options.summaryStreamFn,
+      additionalContextTokens,
+      runtimeContext: null,
     });
 
-    if (result.composition.contextBudgetExceeded) {
-      if (result.composition.payloadBudgetExceeded) {
-        throw new Error(
-          `Context compaction cannot run because the latest message exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
-          'Shorten the latest message or attachments.',
-        );
-      }
-      throw new Error(
-        'Context compaction cannot run because the system prompt, tools, output reserve, or latest message already exceeds the selected model context window.',
-      );
-    }
-
-    if (result.summaryFailed && result.composition.omittedMessages.length > 0) {
-      this.lastComposition = composePiHistoryForLlm({
-        messages: this.agent.state.messages,
-        summary: this.summary,
-        systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
-        contextWindow: this.model.contextWindow,
-        modelMaxTokens: this.model.maxTokens,
-        toolTokens: estimatePiToolSchemaTokens(this.tools),
-        additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
-      });
+    if (result.state === 'succeeded' && result.summary && result.composition) {
+      this.summary = result.summary;
+      this.lastComposition = result.composition;
+      this.recordCompaction(result.attemptId, 'manual', result.composition);
+      await this.persistMessages('turn_end');
+      this.lastComposition = this.composeHistory(this.agent.state.messages, additionalContextTokens);
       this.touch();
       this.publishStatus();
-      throw new Error(
-        'Context compaction failed because the summary could not be updated. No messages were removed.',
-      );
+      return this.getStatus();
     }
 
-    const omittedCount = result.composition.omittedMessages.length;
-    if (omittedCount === 0) {
+    if (result.state === 'no_op' && result.composition) {
       this.lastComposition = result.composition;
       this.touch();
       this.publishStatus();
       return this.getStatus();
     }
 
-    this.summary = result.summary;
-    this.recordCompaction('manual', result.composition);
-
-    await savePiSession(
-      this.sessionId,
-      this.userId,
-      this.provider,
-      this.model.id,
-      this.agent.state.messages,
-      this.summary,
-      { agentId: this.agentId },
-    );
-    this.lastPersistedLength = this.agent.state.messages.length;
-    this.lastComposition = composePiHistoryForLlm({
-      messages: this.agent.state.messages,
-      summary: this.summary,
-      systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
-      contextWindow: this.model.contextWindow,
-      modelMaxTokens: this.model.maxTokens,
-      toolTokens: estimatePiToolSchemaTokens(this.tools),
-      additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
-    });
-
-    this.touch();
-    this.publishStatus();
-    return this.getStatus();
+    if (result.reasonCode === 'payload_bytes_exceeded') {
+        throw new Error(
+          `Context compaction cannot run because the latest message exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
+          'Shorten the latest message or attachments.',
+        );
+    }
+    if (result.reasonCode === 'fixed_context_too_large') {
+      throw new Error(
+        'Context compaction cannot run because the system prompt, tools, output reserve, or latest message already exceeds the selected model context window.',
+      );
+    }
+    if (result.state === 'cooldown_active') {
+      throw new Error(
+        `Context compaction is cooling down${result.retryAt ? ` until ${result.retryAt.toISOString()}` : ''}. No messages were removed.`,
+      );
+    }
+    if (result.state === 'already_running') {
+      throw new Error('Context compaction is already running for this session.');
+    }
+    if (result.state === 'aborted') {
+      throw new Error('Context compaction was aborted. No messages were removed.');
+    }
+    if (result.state === 'stale') {
+      throw new Error('Context compaction became stale after the runtime context changed. No messages were removed.');
+    }
+    if (result.state === 'deferred' || result.reasonCode === 'summary_provider_error' || result.reasonCode === 'summary_timeout') {
+      throw new Error(
+        'Context compaction failed because the summary could not be updated. No messages were removed.',
+      );
+    }
+    throw new Error('Context compaction could not commit a safe session summary. No messages were removed.');
   }
 
   setChannelContext(channelId: string | undefined) {
@@ -780,45 +1067,53 @@ class LivePiRuntime {
     }
 
     this.channelId = nextChannelId;
-    this.lastComposition = null;
+    this.invalidateContextBudget();
   }
 
   setTimeZoneContext(timeZone: string, currentTime: string) {
     this.timeZoneContext = { timeZone, currentTime };
+    this.invalidateContextBudget();
   }
 
   setActiveFileContext(path: string | null) {
     this.activeFileContext = path;
+    this.invalidateContextBudget();
   }
 
   setPlanningMode(enabled: boolean) {
     this.planningMode = enabled;
+    this.invalidateContextBudget();
   }
 
   setPageContext(page: string | undefined): void {
     this.pageContext = page ?? null;
+    this.invalidateContextBudget();
   }
 
   setNotebookContext(context: PiRuntimePromptContext['notebookContext']) {
     this.notebookContext = context ?? null;
+    this.invalidateContextBudget();
   }
 
   setStudioContext(context: PiRuntimePromptContext['studioContext']) {
     this.studioContext = context ?? null;
+    this.invalidateContextBudget();
   }
 
   setEmailContext(context: PiRuntimePromptContext['emailContext']) {
     this.emailContext = context ?? null;
+    this.invalidateContextBudget();
   }
 
   setWorkspaceContext(context: PiRuntimePromptContext['workspace']) {
     this.workspaceContext = context ?? null;
+    this.invalidateContextBudget();
   }
 
   async refreshWorkspaceFileTreePrompt(): Promise<void> {
     if (!this.hasWorkspaceReadCapability()) {
       this.workspaceFileTreePromptBlock = '';
-      this.lastComposition = null;
+      this.invalidateContextBudget();
       if (!this.isRunning && !this.agent.state.isStreaming) {
         this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
       }
@@ -829,10 +1124,21 @@ class LivePiRuntime {
       rootPath: this.executionContext.workspaceRoot,
     });
     this.workspaceFileTreePromptBlock = result.promptBlock;
-    this.lastComposition = null;
+    this.invalidateContextBudget();
     if (!this.isRunning && !this.agent.state.isStreaming) {
       this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
     }
+  }
+
+  async refreshMemoryPrompt(): Promise<void> {
+    this.memoryPromptBlock = await buildMemoryPromptProjection({
+      userId: this.userId,
+      agentId: this.agentId,
+      workspaceId: this.executionContext.workspaceId,
+      organizationId: this.executionContext.organizationId,
+      usableContextTokens: this.model.contextWindow,
+    });
+    this.lastComposition = null;
   }
 
   async prepareNextTurnContext(
@@ -868,7 +1174,7 @@ class LivePiRuntime {
     });
     this.browserToolMode = browserMode;
     this.browserToolsNeedRefresh = false;
-    this.lastComposition = null;
+    this.invalidateContextBudget();
     this.agent.state.tools = this.getEffectiveTools();
     if (!this.isRunning && !this.agent.state.isStreaming) {
       this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
@@ -897,7 +1203,7 @@ class LivePiRuntime {
     });
     this.systemPrompt = snapshot.systemPrompt;
     this.systemPromptRefreshRequested = false;
-    this.lastComposition = null;
+    this.invalidateContextBudget();
     this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
     await db
       .update(piSessions)
@@ -923,6 +1229,10 @@ class LivePiRuntime {
 
     if (this.workspaceFileTreePromptBlock) {
       blocks.push(this.workspaceFileTreePromptBlock);
+    }
+
+    if (this.memoryPromptBlock) {
+      blocks.push(this.memoryPromptBlock);
     }
 
     const runtimeTempBlock = this.getAgentRuntimeTempContextBlock();
@@ -1217,6 +1527,77 @@ class LivePiRuntime {
     return messages;
   }
 
+  private applyAutomaticCompactionResult(result: PiCompactionCoordinatorResult): boolean {
+    if (result.state !== 'succeeded' || !result.summary || !result.composition) {
+      return false;
+    }
+
+    this.summary = result.summary;
+    this.lastComposition = result.composition;
+    this.recordCompaction(result.attemptId, 'automatic', result.composition);
+    this.publishStatus();
+    return true;
+  }
+
+  private async finalizeContextCandidate(input: {
+    composition: PiHistoryComposition;
+    sourceMessages: AgentMessage[];
+    runtimeContext: string | null;
+    additionalContextTokens: number;
+    signal?: AbortSignal;
+  }): Promise<AgentMessage[]> {
+    let composition = input.composition;
+    let candidate = await this.injectRuntimeContext(composition.llmMessages, input.runtimeContext);
+    let prepared = await this.buildFinalPayload(candidate);
+    if (this.isFinalPayloadSendable(prepared.budgetSnapshot)) {
+      this.cachePreparedRuntimePayload(prepared);
+      return candidate;
+    }
+
+    this.preparedRuntimePayload = null;
+    const retry = await this.coordinateCompaction({
+      // A deferred automatic attempt has an active cooldown. Allow this one
+      // request-blocking retry through it without consuming the user's manual
+      // recovery bypass; the coordinator persists the retry marker separately.
+      kind: 'automatic',
+      bypassCooldown: true,
+      messages: input.sourceMessages,
+      additionalContextTokens: input.additionalContextTokens + Math.max(1, this.getPayloadPressure(prepared.budgetSnapshot)),
+      runtimeContext: input.runtimeContext,
+      signal: input.signal,
+    });
+
+    if (this.applyAutomaticCompactionResult(retry)) {
+      composition = retry.composition!;
+    } else if (
+      (retry.state === 'no_op' || retry.state === 'deferred')
+      && retry.composition
+      && isPiHistoryCompositionSendable(retry.composition, this.summary)
+    ) {
+      composition = retry.composition;
+      this.lastComposition = composition;
+      this.publishStatus();
+    } else {
+      throw new Error(
+        'The final request exceeds the selected model context window and cannot be reduced safely. '
+        + 'Shorten the latest message or attachments, or use a larger-context model.',
+      );
+    }
+
+    candidate = await this.injectRuntimeContext(composition.llmMessages, input.runtimeContext);
+    prepared = await this.buildFinalPayload(candidate);
+    if (this.isFinalPayloadSendable(prepared.budgetSnapshot)) {
+      this.cachePreparedRuntimePayload(prepared);
+      return candidate;
+    }
+
+    this.preparedRuntimePayload = null;
+    throw new Error(
+      'The final request still exceeds the selected model context window after automatic compaction. '
+      + 'Shorten the latest message or attachments, or use a larger-context model.',
+    );
+  }
+
   private resetRunSupervisorForUserMessage(message: Extract<AgentMessage, { role: 'user' }>): void {
     this.currentUserPromptText = extractUserMessageText(message);
     this.currentUserPromptSignature = getMessageSignature(message);
@@ -1330,6 +1711,7 @@ class LivePiRuntime {
     });
     
     this.touch();
+    this.invalidateContextBudget();
     this.options.resetToolLoopGuard?.();
     this.abortRequested = false;
     this.isRunning = true;
@@ -1408,6 +1790,26 @@ class LivePiRuntime {
     }
 
     if (event.type === 'message_end' && event.message?.role === 'assistant') {
+      const providerReportedInputTokens = event.message.usage?.input;
+      if (typeof providerReportedInputTokens === 'number' && providerReportedInputTokens > 0) {
+        const assistantTimestamp = new Date(event.message.timestamp);
+        this.lastProviderInputUsage = {
+          inputTokens: Math.floor(providerReportedInputTokens),
+          assistantTimestamp: Number.isNaN(assistantTimestamp.getTime()) ? new Date() : assistantTimestamp,
+        };
+      }
+      if (
+        this.lastFinalPayloadBudgetSnapshot
+        && typeof providerReportedInputTokens === 'number'
+        && providerReportedInputTokens > 0
+      ) {
+        this.lastProviderUsageCalibration = createPiProviderUsageCalibrationEvidence({
+          snapshot: this.lastFinalPayloadBudgetSnapshot,
+          provider: event.message.provider,
+          model: event.message.model,
+          providerReportedInputTokens,
+        });
+      }
       const flushed = flushThinkingFilter(this.thinkingFilterState);
       this.thinkingFilterState = createThinkingFilterState();
       if (flushed.text) {
@@ -1474,49 +1876,110 @@ class LivePiRuntime {
       latestUserMessageText,
       latestUserMessageContext,
     );
-    const result = await preparePiHistoryContext({
+    const additionalContextTokens = runtimeContext ? estimateTextTokens(runtimeContext) : 0;
+    const preflight = this.composeHistory(messages, additionalContextTokens);
+    if (
+      (
+        !preflight.softThresholdExceeded
+        && !preflight.contextBudgetExceeded
+        && isPiHistoryCompositionSendable(preflight, this.summary)
+      )
+      || this.shouldDeferSoftThresholdCompaction(preflight)
+    ) {
+      this.lastComposition = preflight;
+      return this.finalizeContextCandidate({
+        composition: preflight,
+        sourceMessages: messages,
+        runtimeContext,
+        additionalContextTokens,
+        signal,
+      });
+    }
+
+    const result = await this.coordinateCompaction({
+      kind: 'automatic',
       messages,
-      summary: this.summary,
-      systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
-      model: this.model,
-      toolTokens: estimatePiToolSchemaTokens(this.tools),
-      additionalContextTokens: runtimeContext ? estimateTextTokens(runtimeContext) : 0,
-      sessionId: this.sessionId,
+      additionalContextTokens,
+      runtimeContext,
       signal,
-      streamFn: this.options.summaryStreamFn,
     });
 
-    if (result.composition.contextBudgetExceeded) {
-      if (result.composition.payloadBudgetExceeded) {
+    if (this.applyAutomaticCompactionResult(result) && result.composition) {
+      return this.finalizeContextCandidate({
+        composition: result.composition,
+        sourceMessages: messages,
+        runtimeContext,
+        additionalContextTokens,
+        signal,
+      });
+    }
+
+    if ((result.state === 'no_op' || result.state === 'deferred') && result.composition) {
+      this.lastComposition = result.composition;
+      if (isPiHistoryCompositionSendable(result.composition, this.summary)) {
+        this.publishStatus();
+        return this.finalizeContextCandidate({
+          composition: result.composition,
+          sourceMessages: messages,
+          runtimeContext,
+          additionalContextTokens,
+          signal,
+        });
+      }
+    }
+
+    if (result.reasonCode === 'payload_bytes_exceeded') {
         throw new Error(
           `The current request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget after image compression. ` +
           'Shorten the latest message or attachments.',
         );
-      }
+    }
+    if (result.reasonCode === 'fixed_context_too_large') {
       throw new Error(
         `The current request is too large for the selected model context window. ` +
-        `It requires at least ${result.composition.minimumRequiredTokens.toLocaleString()} history tokens after system, tool, and output reserves. ` +
+        `It requires at least ${preflight.minimumRequiredTokens.toLocaleString()} history tokens after system, tool, and output reserves. ` +
         'Use a larger-context model or shorten the latest message/attachments.',
       );
     }
-
-    const previousSummaryThroughTimestamp = this.summary.summaryThroughTimestamp ?? null;
-    const previousSummaryUpdatedAt = this.summary.summaryUpdatedAt?.getTime() ?? null;
-    this.summary = result.summary;
-    this.lastComposition = result.composition;
-    const nextSummaryThroughTimestamp = result.summary.summaryThroughTimestamp ?? null;
-    const nextSummaryUpdatedAt = result.summary.summaryUpdatedAt?.getTime() ?? null;
-
-    if (
-      result.summaryUpdated &&
-      (nextSummaryThroughTimestamp !== previousSummaryThroughTimestamp || nextSummaryUpdatedAt !== previousSummaryUpdatedAt) &&
-      (result.composition.includedSummary || result.composition.omittedMessages.length > 0)
-    ) {
-      this.recordCompaction('automatic', result.composition);
+    if (result.state === 'aborted') {
+      throw new Error('Context compaction was aborted before the model request.');
+    }
+    if (result.state === 'stale') {
+      throw new Error('Context compaction was invalidated because the runtime context changed. Retry the request.');
     }
 
-    this.publishStatus();
-    return this.injectRuntimeContext(result.composition.llmMessages, runtimeContext);
+    const fallback = this.composeHistory(messages, additionalContextTokens, 'hard_limit');
+    if (isPiHistoryCompositionSendable(fallback, this.summary)) {
+      this.lastComposition = fallback;
+      this.publishStatus();
+      return this.finalizeContextCandidate({
+        composition: fallback,
+        sourceMessages: messages,
+        runtimeContext,
+        additionalContextTokens,
+        signal,
+      });
+    }
+    if (result.state === 'cooldown_active') {
+      throw new Error(
+        `Context compaction is cooling down${result.retryAt ? ` until ${result.retryAt.toISOString()}` : ''}, and the complete history no longer fits.`,
+      );
+    }
+    if (result.state === 'already_running') {
+      throw new Error('Context compaction is already running, and the complete history cannot be sent safely yet.');
+    }
+    if (result.reasonCode === 'summary_timeout') {
+      throw new Error('Context compaction timed out, and the complete history cannot be sent safely. Retry or use a larger-context model.');
+    }
+    if (result.reasonCode === 'summary_provider_error') {
+      throw new Error(
+        'Context compaction could not update the summary, and the complete history cannot be sent safely. Retry or use a larger-context model.',
+      );
+    }
+    throw new Error(
+      'The current request cannot be sent safely because context compaction did not preserve complete history coverage. ' +
+      'Use a larger-context model, shorten the request, or retry compaction.',
+    );
   }
 
   private rememberMessageContext(
@@ -1674,12 +2137,17 @@ class LivePiRuntime {
     });
   }
 
-  private recordCompaction(kind: 'manual' | 'automatic', composition: PiHistoryComposition) {
+  private recordCompaction(
+    attemptId: string,
+    kind: 'manual' | 'automatic',
+    composition: PiHistoryComposition,
+  ) {
     this.lastCompactionAt = new Date();
     this.lastCompactionKind = kind;
     this.lastCompactionOmittedCount = composition.omittedMessages.length;
     this.publish({
       type: 'context_compacted',
+      attemptId,
       timestamp: this.lastCompactionAt.toISOString(),
       kind,
       omittedMessageCount: composition.omittedMessages.length,
@@ -1687,7 +2155,7 @@ class LivePiRuntime {
     });
     this.agent.state.messages = [
       ...this.agent.state.messages,
-      createCompactBreakMessage(kind, this.lastCompactionAt.toISOString(), composition.omittedMessages.length),
+      createCompactBreakMessage(attemptId, kind, this.lastCompactionAt.toISOString(), composition.omittedMessages.length),
     ];
   }
 
@@ -1745,6 +2213,7 @@ class LivePiRuntime {
 
   dispose(): void {
     this.disposed = true;
+    abortPiSessionCompaction(this.getCompactionScope());
     if (this.browserSnapshotUnsubscribe) {
       this.browserSnapshotUnsubscribe();
       this.browserSnapshotUnsubscribe = null;
@@ -1757,28 +2226,44 @@ class LivePiRuntime {
   }
 
   private async persistMessages(reason: 'turn_end' | 'agent_end' | 'error'): Promise<number> {
-    if (this.persistLock) {
-      this.persistPending = reason;
-      return 0;
-    }
-    this.persistLock = true;
-    try {
-      const allMessages = this.agent.state.messages.slice();
-      const startIndex = this.lastPersistedLength;
-
-      if (allMessages.length <= startIndex) {
-        return 0;
+    if (this.persistPromise) {
+      const pending = this.persistPromise;
+      const persistedCount = await pending;
+      if (this.agent.state.messages.length > this.lastPersistedLength) {
+        return persistedCount + await this.persistMessages(reason);
       }
+      return persistedCount;
+    }
+    const operation = this.persistMessagesOnce(reason);
+    this.persistPromise = operation;
+    try {
+      return await operation;
+    } finally {
+      if (this.persistPromise === operation) this.persistPromise = null;
+    }
+  }
 
-      await savePiSession(
+  private async persistMessagesOnce(reason: 'turn_end' | 'agent_end' | 'error'): Promise<number> {
+    const allMessages = this.agent.state.messages.slice();
+    const startIndex = this.lastPersistedLength;
+    if (allMessages.length <= startIndex) return 0;
+
+    try {
+      const saveResult = await savePiSession(
         this.sessionId,
         this.userId,
         this.provider,
         this.model.id,
         allMessages,
         this.summary,
-        { agentId: this.agentId, persistedLength: startIndex },
+        {
+          agentId: this.agentId,
+          persistedLength: startIndex,
+          expectedSummaryRevision: this.summary.summaryRevision,
+        },
       );
+      this.summary = { ...this.summary, summaryRevision: saveResult.summaryRevision };
+      this.messageSequenceCheckpoint = saveResult.sequenceCheckpoint;
 
       const newMessages = allMessages.slice(startIndex);
       if (newMessages.length > 0) {
@@ -1787,6 +2272,22 @@ class LivePiRuntime {
           userId: this.userId,
           messages: newMessages,
         });
+        if (newMessages.some((message) => message.role === 'assistant')) {
+          queueMicrotask(() => {
+            void import('@/app/lib/memory/service')
+              .then(({ scheduleMemoryReviewForSession }) => scheduleMemoryReviewForSession({
+                sessionId: this.sessionId,
+                userId: this.userId,
+              }))
+              .then(() => import('@/app/lib/memory/review-worker'))
+              .then(({ triggerMemoryReviewWorker }) => {
+                triggerMemoryReviewWorker();
+              })
+              .catch((error) => {
+                console.error('[LiveRuntime] Failed to schedule memory review:', error);
+              });
+          });
+        }
       }
 
       this.lastPersistedLength = allMessages.length;
@@ -1794,13 +2295,6 @@ class LivePiRuntime {
     } catch (error) {
       console.error(`[LiveRuntime] Failed to persist messages during ${reason}:`, error);
       throw error;
-    } finally {
-      this.persistLock = false;
-      if (this.persistPending) {
-        const pendingReason = this.persistPending;
-        this.persistPending = null;
-        return this.persistMessages(pendingReason);
-      }
     }
   }
 }
@@ -1842,7 +2336,10 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const provider = executableRuntime.selection.selection.providerId;
   const thinkingLevel = executableRuntime.selection.selection.thinkingLevel as ThinkingLevel;
   const model = executableRuntime.model;
-  const loadedSession = await loadPiSessionWithSummary(sessionId, userId, agentId);
+  const [loadedSession, lastProviderInputUsage] = await Promise.all([
+    loadPiSessionWithSummary(sessionId, userId, agentId),
+    loadLatestPiSessionInputUsage(sessionId, userId),
+  ]);
   timing.mark('sessionHistory');
   const initialMessages = loadedSession?.messages || [];
   const summary = loadedSession?.summary || {
@@ -1850,6 +2347,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     summaryUpdatedAt: null,
     summaryThroughTimestamp: null,
     summaryThroughSequence: null,
+    summaryRevision: 0,
   };
   const promptSnapshot = sessionRecord
     ? await ensurePiSessionSystemPromptSnapshot(sessionRecord)
@@ -1870,6 +2368,14 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       })
     : { promptBlock: '' };
   timing.mark('workspaceFileTree');
+  const memoryPromptBlock = await buildMemoryPromptProjection({
+    userId,
+    agentId,
+    workspaceId: executionContext.workspaceId,
+    organizationId: executionContext.organizationId,
+    usableContextTokens: model.contextWindow,
+  });
+  timing.mark('memoryPrompt');
   const toolLoopGuard = createToolLoopGuard();
   const imageNormalizationOptions = {
     workspaceImageRoot: executionContext.workspaceRoot,
@@ -1885,6 +2391,11 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     uploadOwnerUserId: userId,
     uploadWorkspaceId: executionContext.workspaceId,
   };
+  const requestOutputTokenCap = getPiRequestOutputTokenCap(model);
+  const mainRequestStreamFn = withPiRequestOutputTokenCap(
+    executableRuntime.streamFn,
+    requestOutputTokenCap,
+  );
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
   const agent = new Agent({
@@ -1896,7 +2407,10 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       messages: initialMessages,
     },
     convertToLlm: async (messages) => {
-      return prepareMessagesForEffectiveModel(messages, model, imageNormalizationOptions);
+      if (!runtimeRef.current) {
+        throw new Error('PI runtime not initialized');
+      }
+      return runtimeRef.current.prepareFinalPayload(messages);
     },
     transformContext: async (messages, signal) => {
       if (!runtimeRef.current) {
@@ -1905,7 +2419,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
 
       return runtimeRef.current.transformContext(messages, signal);
     },
-    streamFn: executableRuntime.streamFn,
+    streamFn: mainRequestStreamFn,
     afterToolCall: async (context) => toolLoopGuard.afterToolCall(context),
     prepareNextTurnWithContext: async (context, signal) => {
       if (!runtimeRef.current) return undefined;
@@ -1928,7 +2442,11 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       initialMessages,
       executionContext,
       workspaceFileTreePromptBlock: workspaceFileTreePrompt.promptBlock,
+      memoryPromptBlock,
       browserSnapshot,
+      imageNormalizationOptions,
+      requestOutputTokenCap,
+      lastProviderInputUsage,
     },
     agent,
     {
@@ -2109,6 +2627,7 @@ export async function dispatchPiRuntimeUserMessage(
     if (!runtimeHandle.created) {
       await runtime.reloadTools();
     }
+    await runtime.refreshMemoryPrompt();
     await runtime.refreshWorkspaceFileTreePrompt();
     runtime.startPrompt(message, context);
     return runtime;
@@ -2205,13 +2724,17 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     return null;
   }
 
-  const loadedSession = await loadPiSessionWithSummary(sessionId, userId, sessionRecord.agentId);
+  const [loadedSession, lastProviderInputUsage] = await Promise.all([
+    loadPiSessionWithSummary(sessionId, userId, sessionRecord.agentId),
+    loadLatestPiSessionInputUsage(sessionId, userId),
+  ]);
   const messages = loadedSession?.messages || [];
   const summary = loadedSession?.summary || {
     summaryText: null,
     summaryUpdatedAt: null,
     summaryThroughTimestamp: null,
     summaryThroughSequence: null,
+    summaryRevision: 0,
   };
   const promptSnapshot = await ensurePiSessionSystemPromptSnapshot(sessionRecord);
   const systemPrompt = promptSnapshot.systemPrompt;
@@ -2251,6 +2774,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     systemPromptTokens: estimateTextTokens(systemPrompt),
     contextWindow: model.contextWindow,
     modelMaxTokens: model.maxTokens,
+    requestOutputTokens: getPiRequestOutputTokenCap(model),
     toolTokens: estimatePiToolSchemaTokens(tools),
     additionalContextTokens: browserRuntimeContextBlock
       ? estimateTextTokens(browserRuntimeContextBlock)
@@ -2271,11 +2795,18 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     estimatedHistoryTokens: composition.estimatedHistoryTokens,
     availableHistoryTokens: composition.availableHistoryTokens,
     contextUsagePercent: toPercent(composition.estimatedHistoryTokens, composition.availableHistoryTokens),
+    finalRequestTokens: null,
+    finalRequestBudgetExceeded: false,
+    lastProviderInputTokens: lastProviderInputUsage?.inputTokens ?? null,
+    lastProviderInputAt: lastProviderInputUsage?.assistantTimestamp.toISOString() ?? null,
+    nextRequestEstimatedTokens: null,
+    nextRequestBudgetExceeded: false,
     includedSummary: composition.includedSummary,
     omittedMessageCount: composition.omittedMessages.length,
     summaryUpdatedAt: summary.summaryUpdatedAt ? summary.summaryUpdatedAt.toISOString() : null,
     lastCompactionAt: summary.summaryUpdatedAt ? summary.summaryUpdatedAt.toISOString() : null,
     lastCompactionKind: summary.summaryUpdatedAt ? 'automatic' : null,
     lastCompactionOmittedCount: summary.summaryUpdatedAt ? composition.omittedMessages.length : 0,
+    compactionStatus: IDLE_RUNTIME_COMPACTION_STATUS,
   };
 }

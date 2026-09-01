@@ -15,6 +15,27 @@ const moduleInternals = Module as typeof Module & {
 const originalLoad = moduleInternals._load;
 moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
+  if (request === '@earendil-works/pi-agent-core') return {};
+  if (request === '@earendil-works/pi-ai') {
+    return {
+      completeSimple: async () => ({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'unused' }],
+        stopReason: 'stop',
+      }),
+      getModels: () => [],
+      getProviders: () => [],
+      isContextOverflow: () => false,
+      registerBuiltInApiProviders: () => undefined,
+    };
+  }
+  if (request === '@earendil-works/pi-ai/compat') {
+    return {
+      getModels: () => [],
+      getProviders: () => [],
+      registerBuiltInApiProviders: () => undefined,
+    };
+  }
   return originalLoad(request, parent, isMain);
 };
 
@@ -47,7 +68,20 @@ async function main() {
       updateAgentProfile,
     } = await import('../app/lib/agents/registry');
     const { getAgentAccess } = await import('../app/lib/agents/access');
+    const { updateManagedAgentRuntime } = await import('../app/lib/agents/management-actions');
     const { readManagedAgentFile, resetManagedAgentFile, writeManagedAgentFile } = await import('../app/lib/agents/storage');
+    const { getProgressiveGatewayCapabilityNames } = await import('../app/lib/pi/progressive-tool-gateway');
+    const { getPiTools } = await import('../app/lib/pi/tool-registry');
+    const { createEmailAgentTools } = await import('../app/lib/pi/workspace-email-tools');
+
+    const createDraftTool = createEmailAgentTools().find((tool) => tool.name === 'email_create_outbox_draft');
+    const updateDraftTool = createEmailAgentTools().find((tool) => tool.name === 'email_update_outbox_draft');
+    assert.ok(createDraftTool);
+    assert.ok(updateDraftTool);
+    assert.ok((createDraftTool.parameters as { properties?: Record<string, unknown> }).properties?.bodyHtml);
+    assert.ok((updateDraftTool.parameters as { properties?: Record<string, unknown> }).properties?.bodyHtml);
+    assert.ok((createDraftTool.parameters as { properties?: Record<string, unknown> }).properties?.attachments);
+    assert.ok((updateDraftTool.parameters as { properties?: Record<string, unknown> }).properties?.attachments);
 
     const emailAgent = await ensureEmailAgent();
     assert.equal(emailAgent.agentId, EMAIL_MANAGED_AGENT_ID);
@@ -76,6 +110,28 @@ async function main() {
       canUse: true, canEdit: true, canManage: true,
     });
 
+    const runtimeUpdated = await updateManagedAgentRuntime({
+      actor: { userId: 'owner-user', source: 'system' },
+      agentId: EMAIL_MANAGED_AGENT_ID,
+      expectedRevision: emailAgent.revision,
+      enabledTools: ['email_list_mailboxes', 'write'],
+    });
+    assert.deepEqual(runtimeUpdated.enabledTools, ['email_list_mailboxes', 'write']);
+    assert.equal(
+      getProgressiveGatewayCapabilityNames(await getPiTools('owner-user', EMAIL_MANAGED_AGENT_ID)).includes('write'),
+      true,
+    );
+    sqlite.prepare(`UPDATE organization_user_permissions SET role = 'member' WHERE user_id = ?`).run('owner-user');
+    await assert.rejects(
+      () => updateManagedAgentRuntime({
+        actor: { userId: 'owner-user', source: 'system' },
+        agentId: EMAIL_MANAGED_AGENT_ID,
+        expectedRevision: runtimeUpdated.revision,
+        enabledTools: ['email_list_mailboxes'],
+      }),
+      /Organization owner or admin permission is required/i,
+    );
+
     const seed = await readManagedAgentFile('AGENTS.md', EMAIL_MANAGED_AGENT_ID, { userId: 'owner-user', agentScopeType: 'system' });
     assert.match(seed, /You prepare clear, accurate, and helpful email work/i);
     await writeManagedAgentFile('AGENTS.md', '# Custom Email Agent', EMAIL_MANAGED_AGENT_ID, { userId: 'owner-user', agentScopeType: 'system' });
@@ -88,7 +144,7 @@ async function main() {
     const updated = await updateAgentProfile({
       agentId: EMAIL_MANAGED_AGENT_ID,
       name: 'Workspace Mail Agent',
-      expectedRevision: emailAgent.revision,
+      expectedRevision: runtimeUpdated.revision,
     });
     assert.equal(updated.name, 'Workspace Mail Agent');
     assert.equal(updated.scopeType, 'system');

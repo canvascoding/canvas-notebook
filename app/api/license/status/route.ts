@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { openDb } from '@/app/lib/db';
+import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { getLicenseStatus } from '@/app/lib/license';
 import { getCommunityLicenseClaimStatus } from '@/app/lib/license/control-plane';
 import { codeFromLicenseStatus } from '@/app/lib/license/error-codes';
@@ -74,6 +75,7 @@ export async function GET(request: NextRequest) {
     {
       success: true,
       ...publicLicenseStatus(status, code),
+      runtimeDatabaseProvider: getDatabaseProvider(),
       teamSeatRollout,
       ...ownerHealth,
     },
