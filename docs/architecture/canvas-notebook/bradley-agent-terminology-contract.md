@@ -93,6 +93,12 @@ Produktname kapitalisiert oder in Marketing-Copy übernommen.
 
 ## Regeln pro Oberfläche
 
+Die vollständige Zuordnung aller Agenten-, E-Mail-, Automations-, Tool- und
+Systemkontexte ist in der
+[Bradley Agenten- und Oberflächenkontextmatrix](./bradley-agent-context-matrix.md)
+festgelegt. Die folgende Tabelle konkretisiert insbesondere die Trennung vom
+Canvas Host Agent.
+
 | Oberfläche | Regel | Beispiel |
 | --- | --- | --- |
 | Chat-Header und Agent-Auswahl | Hauptagent ausschließlich Bradley nennen | `Bradley` |

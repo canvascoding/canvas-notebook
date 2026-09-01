@@ -37,7 +37,17 @@ test.describe('Memory Manager settings', () => {
 
     await scopeTabs.getByRole('button', { name: 'Agent memory' }).click();
     await expect(page.getByText('Private agent context. Published shared memory is visible to readers; pending suggestions need a manager’s approval.')).toBeVisible();
+    await expect(page.getByTestId('agent-memory-owner-card')).toBeVisible();
+    await expect(page.getByTestId('agent-memory-owner-select')).toBeVisible();
+    await expect(page.getByTestId('agent-memory-owner-select')).not.toHaveValue('');
     await expect(page.getByText('Loading memory…')).not.toBeVisible();
+
+    const missingAgentResponse = await page.request.get('/api/memory?scope=agent');
+    expect(missingAgentResponse.ok()).toBe(false);
+
+    await page.goto('/en/settings?tab=agent-settings', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('memory-review-agent-card')).toBeVisible();
+    await expect(page.getByText('memory-manager', { exact: true })).toBeVisible();
 
     await page.screenshot({ path: testInfo.outputPath('memory-manager.png'), fullPage: true });
   });

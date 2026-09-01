@@ -26,6 +26,15 @@
     .bradley-scan-b { animation-delay: .28s; }
     .bradley-scan-c { animation-delay: .56s; }
 
+    .bradley-activity-bar {
+      animation: bradley-activity 1.2s ease-in-out infinite;
+      opacity: .45;
+      will-change: opacity;
+    }
+
+    .bradley-activity-b { animation-delay: .16s; }
+    .bradley-activity-c { animation-delay: .32s; }
+
     @keyframes bradley-hover {
       0%, 100% { transform: translateY(0) scale(1); }
       50% { transform: translateY(-1.15px) scale(1.008); }
@@ -41,15 +50,22 @@
       23% { opacity: .22; }
     }
 
+    @keyframes bradley-activity {
+      0%, 100% { opacity: .4; }
+      50% { opacity: 1; }
+    }
+
     @media (prefers-reduced-motion: reduce) {
       .bradley-character,
       .bradley-raised-fold,
-      .bradley-scan {
+      .bradley-scan,
+      .bradley-activity-bar {
         animation: none !important;
         transform: none !important;
       }
 
       .bradley-scan { opacity: 0; }
+      .bradley-activity-bar { opacity: 1; }
     }
   </style>
 
@@ -80,5 +96,13 @@
       <circle cx="27.1" cy="22.1" r="2.6" />
       <circle cx="39.4" cy="20.4" r="2.6" />
     </g>
+  </g>
+
+  <!-- A non-anatomical activity badge remains legible when motion is reduced. -->
+  <g aria-hidden="true">
+    <rect x="44.5" y="43" width="15" height="15" rx="2.5" fill="#172033" />
+    <rect class="bradley-activity-bar bradley-activity-a" x="48" y="49" width="1.8" height="5" rx=".9" fill="#fff" />
+    <rect class="bradley-activity-bar bradley-activity-b" x="51.2" y="47" width="1.8" height="7" rx=".9" fill="#fff" />
+    <rect class="bradley-activity-bar bradley-activity-c" x="54.4" y="45" width="1.8" height="9" rx=".9" fill="#fff" />
   </g>
 </svg>

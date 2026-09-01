@@ -1,6 +1,6 @@
 # Collaboration und File Conflict Policy
 
-Stand: 2026-07-17
+Stand: 2026-09-01
 
 ## Zweck
 
@@ -19,9 +19,9 @@ Excalidraw-Live-Collaboration ist als eigene Aufgabe `52` gemaess `22-excalidraw
 
 ## Verbindliche Statusabgrenzung
 
-Der bisherige Implementierungsstand ist eine Collaboration Foundation, aber noch keine echte Real-Time Collaboration.
+Aufgabe `48` hat die echte Yjs-basierte Real-Time Collaboration implementiert. Die produktive Abnahme bleibt jedoch erst dann vollstaendig, wenn die in diesem Dokument definierten Durability-, Agent-UX-, Snapshot- und Multi-Actor-Hardening-Kriterien nachweislich erfuellt sind.
 
-Bereits vorhanden:
+Implementiert:
 
 - workspace-aware File Reads und Writes,
 - Datei-Revisionen und `baseRevisionId`-Pruefungen,
@@ -30,20 +30,36 @@ Bereits vorhanden:
 - `collaboration_documents`-Metadaten mit `provider=yjs`,
 - File-Watcher-/SSE-Hinweise auf externe Dateiaenderungen,
 - Collaboration-/Revision-Hinweise im Editor Header,
-- Agent-Pruefungen gegen Revisionen und aktive Locks.
-
-Noch nicht vorhanden und Teil der spaeteren Aufgabe `48`:
-
+- Agent-Pruefungen gegen Revisionen und aktive Locks,
 - ein echter `Y.Doc` als gemeinsamer Dokumentzustand,
 - Tiptap-/CodeMirror-Bindings an Yjs,
 - ein Collaboration-WebSocket-Backend,
 - persistierter binaerer Yjs-State in Postgres,
 - Awareness, Live-Cursor und Selections,
-- aktive Nutzer im File Tree vor dem Oeffnen der Datei,
-- CRDT-basierte Agent-Aenderungen oder Review-Patches,
-- robuste Checkpoint-Synchronisation zwischen Yjs-State und Workspace-Datei.
+- aktive Nutzer im File Tree vor dem Oeffnen einer Datei,
+- CRDT-basierte Agent-Aenderungen und Review-Patches,
+- versionierte Checkpoint-Synchronisation zwischen Yjs-State und Workspace-Datei.
 
-Todo `44` gilt deshalb nur fuer die abgeschlossene Foundation aus Revisionen, Locks, Metadaten und Guards. Echte Live-Collaboration bleibt eine eigene geplante Aufgabe.
+Im Hardening vom 2026-09-01 umgesetzt:
+
+- getrennte monotone Client-Zustaende fuer Verbindung, lokale Uebergabe, Serverempfang, Postgres-Yjs-Persistenz und Datei-Checkpoint; die alte einzelne `saved`-Aussage ist im Collaboration-Modus nicht mehr die Quelle der Wahrheit,
+- Editor-Freigabe erst nach lokaler IndexedDB-Hydration und initialem Provider-Sync,
+- ein kompakter, nicht layoutverschiebender Agent-Aktivitaets-/Review-Popover im Editor-Header sowie direkt im Tiptap-/CodeMirror-Dokument verankerte Zielmarkierungen,
+- Owner-/Manager-gepruefte Accept-, Reject- und Revert-Aktionen; reine Reader sehen Aktivitaet und Historie, koennen aber keine Operation entscheiden,
+- strukturelle Rich-Markdown-Reviews ueber den gemeinsamen Y-ProseMirror-Diff statt Loeschen und Neuklonen des gesamten `Y.XmlFragment`,
+- struktur- und positionsbewusster Erhalt bestehender Tiptap-Node-IDs; neue Bloecke erhalten neue IDs und bestehende Yjs Relative Positions in unberuehrten Bloecken bleiben aufloesbar,
+- serverseitig aus dem persistierten binaeren Yjs-State abgeleitete autoritative Markdown-/Text-Snapshots; Client-Markdown ist keine zweite Checkpoint-Wahrheit,
+- monotone `documentSequence`/`checkpointSequence` plus State Vector in Session, WebSocket-Durability-Snapshot und Checkpoint-Antwort,
+- Checkpoint-Fencing gegen User, Session, Workspace, Dokument-ID, Lifecycle-Generation, Representation, Pfad und erwarteten State Vector,
+- explizite `checkpoint_superseded`-/HTTP-409-Reconciliation statt eines irrefuehrenden 500-Fehlers bei einem legitimen Concurrent-Checkpoint.
+
+Noch produktiv erneut abzunehmen:
+
+- echter Postgres-/WebSocket-Multi-User-E2E-Lauf mit User A, User B und Agent im Auftrag von User B,
+- Browser-Abnahme fuer Reconnect, Tab-Sleep, Offline-Queue und simulierten Persistence-/Checkpoint-Fehler,
+- Betriebsabnahme fuer Shutdown-Flush, Backup/Restore und Compaction mit realem Postgres-Profil.
+
+Todo `44` bleibt die abgeschlossene Foundation aus Revisionen, Locks, Metadaten und Guards. Todo `48` bezeichnet die implementierte Live-Collaboration-Basis; diese Statusangabe ersetzt nicht die noch offenen Hardening- und Abnahmekriterien dieses Dokuments.
 
 Bewusst nicht Teil von Aufgabe `48` ist die inzwischen in Aufgabe `52`
 implementierte Excalidraw-spezifische Scene-Collaboration. Sie verwendet einen
@@ -396,6 +412,44 @@ Der bisherige lokale `dirty`-State wird im Collaboration-Modus ersetzt durch:
 - Workspace-Datei noch nicht materialisiert.
 
 Ein einzelnes "gespeichert" darf erst angezeigt werden, wenn der definierte Persistenzzustand erreicht ist.
+
+### Verbindlicher Client-Durability-Vertrag
+
+Der Editor fuehrt Connection und Durability getrennt. Die Connection kann bereits `synced` sein, waehrend der neueste lokale Inhalt noch nicht in Postgres oder noch nicht als Workspace-Datei materialisiert ist.
+
+Die Durability-Abfolge ist monoton pro `documentSequence`:
+
+```txt
+local_pending
+  -> server_received
+  -> persisted_yjs
+  -> checkpoint_pending
+  -> checkpointed_file
+```
+
+Regeln:
+
+- Ein `durability_snapshot` vom Server enthaelt Dokument-ID, Lifecycle-Generation, `documentSequence`, `checkpointSequence` und den State Vector des persistierten Yjs-State.
+- Der Client wartet vor der State-Vector-Bewertung auf Provider-Sync und vergleicht den Snapshot mit dem lokal konvergierten `Y.Doc`.
+- Ein alter Snapshot darf keine neuere lokale oder serverseitige Sequenz zurueckstufen.
+- `persisted_yjs` bedeutet dauerhaft in Postgres, aber noch nicht zwingend aktueller Download-/File-Watcher-Inhalt.
+- `checkpointed_file` darf nur fuer denselben autoritativen State Vector oder eine serverseitig bestaetigte neuere Sequenz angezeigt werden.
+- `Cmd/Ctrl+S` fordert im Collaboration-Modus einen Checkpoint an; es schreibt keinen vom Client serialisierten Whole-File-Snapshot.
+- Beim Schliessen wird ein noch nicht an den Provider uebergebenes lokales Update nicht als gespeichert markiert.
+
+### Verbindlicher Checkpoint-Vertrag
+
+Die Workspace-Datei ist eine abgeleitete Projektion. `POST /api/files/collaboration/checkpoint` uebermittelt daher keinen kanonischen Markdown-Inhalt, sondern nur Identitaet und erwarteten State Vector. Der Server:
+
+1. revalidiert Ticket, Session, Workspace, Permission, Dokument-ID, Lifecycle, Pfad und Representation,
+2. laedt den aktuell persistierten binaeren Yjs-State,
+3. prueft dessen State Vector gegen die Erwartung des Aufrufers,
+4. validiert bei Rich Markdown Schema, Stable IDs und exakten Markdown-Roundtrip,
+5. leitet den Dateiinhalt ausschliesslich aus diesem persistierten State ab,
+6. materialisiert Revision und Checkpoint mit Sequenz-Fencing,
+7. liefert den autoritativen Durability-Snapshot zur Client-Reconciliation zurueck.
+
+Ein inzwischen ueberholter Checkpoint ist ein erwarteter Concurrent-Fall und antwortet mit `409`, nicht mit einem generischen Serverfehler.
 
 ## Locks und Check-out
 

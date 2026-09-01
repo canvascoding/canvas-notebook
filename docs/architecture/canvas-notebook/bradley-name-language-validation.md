@@ -41,6 +41,12 @@ Vollform ist Teil der bewussten, ruhigen und professionellen Wirkung.
 
 ## Kontextprüfung
 
+Die endgültigen Formulierungs-, Anrede-, Pronomen- und Zeichensetzungsregeln
+sind im
+[Bradley DE-/EN-Sprachleitfaden](./bradley-de-en-language-style-guide.md)
+festgelegt. Die folgende frühe Kontextprüfung bleibt als Nachweis der
+Namensentscheidung erhalten.
+
 | Oberfläche | Deutsch | Englisch | Einschätzung |
 | --- | --- | --- | --- |
 | Agent-Auswahl | `Bradley` | `Bradley` | Eigenname ist mit Glyph und Rollenbezeichnung eindeutig. |

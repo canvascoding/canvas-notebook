@@ -138,6 +138,10 @@ Beispiel:
 | E-Mail-Agent | eigene Agentenidentität; Workspace Brand Voice darf den E-Mail-Entwurf prägen |
 | Canvas Host Agent | ausschließlich technische Host-Agent-Terminologie gemäß [Terminologievertrag](./bradley-agent-terminology-contract.md) |
 
+Die verbindliche Zuordnung von Namen, Icons, Fallbacks und verschachtelter
+Attribution pro Oberfläche steht in der
+[Bradley Agenten- und Oberflächenkontextmatrix](./bradley-agent-context-matrix.md).
+
 ## Zielbild für die Prompt-Zusammensetzung
 
 Die spätere Runtime-Implementierung muss semantisch folgende Blöcke abbilden:
@@ -162,21 +166,28 @@ frei editierbaren `SOUL.md`. Er wird nur für `canvas-agent` eingebunden. Dadurc
 können Spezialagenten ihre eigene Identität behalten und Nutzer können ihre
 Zusammenarbeit anpassen, ohne den Produktnamen versehentlich zu überschreiben.
 
-## Bestehender Runtime-Stand und Folgearbeiten
+## Runtime-Stand und Folgearbeiten
 
-Der aktuelle Prompt-Composer lädt die feste Canvas Runtime Foundation und
-danach die bearbeitbaren Dateien `AGENTS.md`, `SOUL.md` und `TOOLS.md`. Er
-kennzeichnet diese bereits als nachrangige, begrenzte Anweisungen. Das
-Workspace Brand Profile erklärt ebenfalls, dass es nur Inhalts- und
-Designpräferenzen liefert und keine System-, Sicherheits-, Tool- oder
-Workspace-Regeln überschreibt.
+Der Prompt-Composer lädt die feste Canvas Runtime Foundation, danach den nur an
+`canvas-agent` gebundenen Bradley Identity Block und anschließend die
+bearbeitbaren Dateien `AGENTS.md`, `SOUL.md` und `TOOLS.md`. Bestehende
+Session-Prompt-Snapshots werden anhand eines versionierten Markers idempotent
+ergänzt, ohne ihre gespeicherten persönlichen Inhalte neu zu laden. Der
+technische Nachweis steht in der
+[Bradley Prompt-Identity-Implementierung](./bradley-prompt-identity-implementation.md).
 
-Noch nicht umgesetzt ist ein eigener produktseitiger Bradley Identity Block.
-Die Seed-Dateien verwenden außerdem noch die sichtbaren Bezeichnungen „Canvas
-Agent“ beziehungsweise `canvas-agent`. Diese Runtime- und Migrationsänderungen
-gehören zu BRADLEY-030 bis BRADLEY-036 und werden nicht still im Rahmen dieses
-Dokumentationsschritts vorgenommen. Bestehende Session-Prompt-Snapshots müssen
-bei der späteren Einführung ausdrücklich berücksichtigt werden.
+Das Workspace Brand Profile erklärt weiterhin, dass es nur Inhalts- und
+Designpräferenzen liefert und keine System-, Sicherheits-, Tool-, Identitäts-
+oder Workspace-Regeln überschreibt. Das persönliche Onboarding stellt Bradley
+inzwischen als feste Identität vor und speichert nur Nutzerkontext sowie
+Zusammenarbeitspräferenzen. Der Nachweis
+steht in der
+[Bradley Onboarding-Implementierung](./bradley-onboarding-implementation.md).
+Bestandsmigration, Display-Name-, Fallback- und Regressionsthemen gehören zu
+BRADLEY-033 bis BRADLEY-036. Der Schutz vorhandener persönlicher `SOUL.md`-
+Inhalte ist im
+[Bradley SOUL.md-Migrationsschutz](./bradley-soul-migration-safety-contract.md)
+festgelegt.
 
 ## Abnahmekriterien für die spätere Implementierung
 

@@ -298,7 +298,9 @@ export async function listMobileChat(input: ChatActor & {
     conditions.push(sql`lower(coalesce(${piSessions.title}, '')) LIKE ${pattern} ESCAPE '\\'`);
   }
   if (cursor) {
-    const activityAt = new Date(cursor.activityAt).getTime();
+    // `piSessions` stores `timestamp` columns as Unix seconds. Keep the cursor
+    // comparison in that unit; milliseconds would select the first page again.
+    const activityAt = Math.floor(new Date(cursor.activityAt).getTime() / 1_000);
     conditions.push(or(
       lt(activity, activityAt),
       and(eq(activity, activityAt), lt(piSessions.id, cursor.id)),

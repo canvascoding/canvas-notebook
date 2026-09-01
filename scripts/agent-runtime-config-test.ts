@@ -4,6 +4,11 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import {
+  BRADLEY_IDENTITY_PROMPT_MARKER,
+  BRADLEY_IDENTITY_SYSTEM_PROMPT,
+} from '../app/lib/agents/bradley-identity';
+
 type OpenAICompletionsCompatProbe = {
   compat?: {
     supportsDeveloperRole?: boolean;
@@ -204,6 +209,11 @@ async function main() {
   assert.match(scopedPrompt.systemPrompt, /## Authenticated User Context/);
   assert.match(scopedPrompt.systemPrompt, /User display name: "Runtime User A"/);
   assert.match(scopedPrompt.systemPrompt, /## AGENTS\.md\n\nScoped runtime prompt\./);
+  assert.match(scopedPrompt.systemPrompt, /canvas-bradley-identity:v1/);
+  assert.ok(
+    scopedPrompt.systemPrompt.indexOf(BRADLEY_IDENTITY_SYSTEM_PROMPT)
+      < scopedPrompt.systemPrompt.indexOf('## AGENTS.md'),
+  );
   assert.doesNotMatch(scopedPrompt.systemPrompt, /Source: /);
   const providedNamePrompt = await loadManagedAgentSystemPrompt(DEFAULT_MANAGED_AGENT_ID, {
     userId: scopedUserId,
@@ -224,7 +234,19 @@ async function main() {
   }
   assert.equal(invalidPromptFallback.diagnostics.usedFallback, true);
   assert.match(invalidPromptFallback.systemPrompt, /^<!-- canvas-system-prompt-foundation:v2 -->\n\n# Canvas Notebook Runtime/);
+  assert.doesNotMatch(invalidPromptFallback.systemPrompt, /canvas-bradley-identity/u);
   assert.doesNotMatch(invalidPromptFallback.systemPrompt, /## File Access for Uploaded Attachments/);
+  let canvasPromptFallback: Awaited<ReturnType<typeof loadManagedAgentSystemPrompt>>;
+  try {
+    console.error = () => undefined;
+    canvasPromptFallback = await loadManagedAgentSystemPrompt(DEFAULT_MANAGED_AGENT_ID, {
+      userId: '../invalid-user',
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+  assert.equal(canvasPromptFallback.diagnostics.usedFallback, true);
+  assert.match(canvasPromptFallback.systemPrompt, /canvas-bradley-identity:v1/u);
   await assert.rejects(
     () => writeManagedAgentFile('AGENTS.md', 'Invalid scoped prompt.\n', DEFAULT_MANAGED_AGENT_ID, {
       userId: '../other-user',
@@ -386,6 +408,7 @@ async function main() {
   const canvasPrompt = await loadManagedAgentSystemPrompt(DEFAULT_MANAGED_AGENT_ID);
   assert.match(canvasPrompt.systemPrompt, /## Skill: research-notes/);
   assert.match(canvasPrompt.systemPrompt, /## Skill: general-helper/);
+  assert.match(canvasPrompt.systemPrompt, /canvas-bradley-identity:v1/u);
 
   await writeManagedAgentFile('AGENTS.md', 'Original session prompt.\n', customAgent.agentId);
   const originalSnapshot = await createPiSystemPromptSnapshot(customAgent.agentId);
@@ -452,6 +475,39 @@ async function main() {
   assert.match(migratedGuidanceSnapshot.systemPrompt, new RegExp(CANVAS_MARKDOWN_GUIDANCE_MARKER));
   assert.match(migratedGuidanceSnapshot.systemPrompt, /Original session prompt/);
   assert.doesNotMatch(migratedGuidanceSnapshot.systemPrompt, /Changed after session start/);
+
+  const preBradleyIdentityPrompt = canvasPrompt.systemPrompt.replace(
+    `${BRADLEY_IDENTITY_SYSTEM_PROMPT}\n\n`,
+    '',
+  );
+  assert.doesNotMatch(preBradleyIdentityPrompt, /canvas-bradley-identity/u);
+  await db.insert(piSessions).values({
+    sessionId: 'pre-bradley-identity-session',
+    userId: 'snapshot-user',
+    agentId: DEFAULT_MANAGED_AGENT_ID,
+    provider: 'google',
+    model: 'gemini-1.5-pro',
+    thinkingLevel: 'off',
+    title: 'Bradley Identity Migration Test',
+    channelId: 'app',
+    channelSessionKey: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    systemPromptSnapshot: preBradleyIdentityPrompt,
+    systemPromptSnapshotHash: hashPiSystemPrompt(preBradleyIdentityPrompt),
+    systemPromptSnapshotCreatedAt: new Date(),
+  });
+  const preBradleyIdentitySession = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, 'pre-bradley-identity-session'),
+  });
+  assert.ok(preBradleyIdentitySession);
+  const migratedBradleySnapshot = await ensurePiSessionSystemPromptSnapshot(preBradleyIdentitySession);
+  assert.match(migratedBradleySnapshot.systemPrompt, new RegExp(BRADLEY_IDENTITY_PROMPT_MARKER));
+  assert.match(migratedBradleySnapshot.systemPrompt, /## Skill: research-notes/u);
+  assert.equal(
+    migratedBradleySnapshot.systemPrompt.split(BRADLEY_IDENTITY_SYSTEM_PROMPT).length - 1,
+    1,
+  );
 
   const oversizedStoredPrompt = 'x'.repeat(MAX_COMPOSED_SYSTEM_PROMPT_BYTES + 1_024);
   await db.insert(piSessions).values({

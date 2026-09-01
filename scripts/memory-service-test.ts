@@ -33,22 +33,39 @@ async function main(): Promise<void> {
       applyMemoryReviewCandidates,
       claimDueMemoryReviewJob,
       completeMemoryReviewJob,
+      deleteAgentMemory,
       deletePersonalMemory,
       deleteMemory,
+      exportAgentMemory,
       importPersonalMemory,
       listMemoryCollections,
       publishMemory,
       readMemory,
+      readAgentMemoryOwnerStats,
       readMemoryCollection,
       readMemoryReviewContext,
+      resolveAgentMemoryOwnerForUser,
       restoreMemory,
       runMemoryMaintenanceCycle,
       scheduleMemoryReviewForSession,
+      setAgentMemoryArchived,
+      transferAgentMemory,
+      updateMemoryReviewSettings,
       updateMemory,
     } = await import('../app/lib/memory/service');
     const { buildMemoryPromptProjection } = await import('../app/lib/memory/prompt-projection');
     const { ensureLegacyMemoryMigrated } = await import('../app/lib/memory/legacy-migration');
     const { writeManagedAgentFile } = await import('../app/lib/agents/storage');
+    const { createAgentProfile, deleteAgentProfile, ensureMemoryManagerAgent } = await import('../app/lib/agents/registry');
+    const memoryManager = await ensureMemoryManagerAgent();
+    assert.equal(memoryManager.agentId, 'memory-manager');
+    assert.equal(memoryManager.type, 'system-worker');
+    assert.equal(memoryManager.removable, false);
+    assert.deepEqual(memoryManager.enabledTools, ['__none__']);
+    await assert.rejects(
+      () => createAgentProfile({ name: 'Memory collision', agentId: 'memory-manager' }),
+      /Built-in agents cannot be recreated/,
+    );
     const scope = { target: 'user' as const, userId: 'user-1' };
     const added = await addMemory({ ...scope, content: 'Prefers concise answers.' });
     assert.equal(added.changed, true);
@@ -112,6 +129,38 @@ async function main(): Promise<void> {
     await assert.rejects(() => addMemory({ ...scope, content: 'x'.repeat(801) }), /800 characters/);
     await assert.rejects(() => addMemory({ ...scope, content: 'API_KEY=secret-value' }), /secret or credential/);
 
+    await createAgentProfile({ name: 'Research Agent', agentId: 'research-agent', accessPolicy: 'restricted', ownerUserId: 'user-1' });
+    await createAgentProfile({ name: 'Writing Agent', agentId: 'writing-agent', accessPolicy: 'restricted', ownerUserId: 'user-1' });
+    const researchScope = { target: 'agent' as const, userId: 'user-1', agentId: 'research-agent' };
+    const writingScope = { target: 'agent' as const, userId: 'user-1', agentId: 'writing-agent' };
+    await addMemory({ ...researchScope, content: 'Research sources must include publication dates.' });
+    await addMemory({ ...writingScope, content: 'Writing should use short section headings.' });
+    assert.deepEqual((await readMemory(researchScope)).entries.map((entry) => entry.content), ['Research sources must include publication dates.']);
+    assert.deepEqual((await readMemory(writingScope)).entries.map((entry) => entry.content), ['Writing should use short section headings.']);
+    assert.deepEqual(await setAgentMemoryArchived({ userId: 'user-1', agentId: 'research-agent', archived: true }), { collections: 1, archived: true });
+    assert.deepEqual((await readMemory(researchScope)).entries, []);
+    assert.deepEqual(await setAgentMemoryArchived({ userId: 'user-1', agentId: 'research-agent', archived: false }), { collections: 1, archived: false });
+    await deleteAgentProfile('research-agent');
+    assert.deepEqual(
+      await resolveAgentMemoryOwnerForUser({ userId: 'user-1', agentId: 'research-agent', allowDeleted: true }),
+      { agentId: 'research-agent', status: 'deleted' },
+    );
+    await assert.rejects(
+      () => resolveAgentMemoryOwnerForUser({ userId: 'user-1', agentId: 'research-agent', allowDeleted: false }),
+      /was not found/,
+    );
+    const exportedResearch = await exportAgentMemory('user-1', 'research-agent');
+    assert.equal(exportedResearch.ownerStatus, 'deleted');
+    assert.equal(exportedResearch.collections[0]?.entries[0]?.content, 'Research sources must include publication dates.');
+    assert.equal((await readAgentMemoryOwnerStats('user-1')).find((owner) => owner.agentId === 'research-agent')?.agentExists, false);
+    assert.deepEqual(await transferAgentMemory({ userId: 'user-1', sourceAgentId: 'research-agent', targetAgentId: 'writing-agent' }), { collections: 1, entries: 1 });
+    assert.deepEqual(
+      new Set((await readMemory(writingScope)).entries.map((entry) => entry.content)),
+      new Set(['Writing should use short section headings.', 'Research sources must include publication dates.']),
+    );
+    assert.deepEqual(await deleteAgentMemory('user-1', 'writing-agent'), { collections: 2, entries: 2 });
+    assert.deepEqual((await readMemory(writingScope)).entries, []);
+
     const sessionDb = await openDb();
     try {
       await sessionDb.run(`
@@ -131,14 +180,61 @@ async function main(): Promise<void> {
     assert.equal(await claimDueMemoryReviewJob(1_000), null);
     const jobDb = await openDb();
     try {
-      const job = await jobDb.get(`SELECT status FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string };
+      const job = await jobDb.get(`SELECT status, scheduled_for FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string; scheduled_for: number | null };
       assert.equal(job.status, 'awaiting_model_configuration');
-      await jobDb.run(`
-        INSERT INTO memory_user_settings (user_id, automatic_memory_enabled, provider_installation_id, model_id, memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at)
-        VALUES ('user-1', 1, 'aip_0123456789abcdef01234567', 'review-model', 2000, 0, 1, 1)
-      `);
+      assert.equal(job.scheduled_for, null);
     } finally { await jobDb.close(); }
-    const claim = await claimDueMemoryReviewJob(1_001);
+    assert.deepEqual(await updateMemoryReviewSettings('user-1', {
+      automaticMemoryEnabled: false,
+      providerInstallationId: null,
+      modelId: null,
+      memoryPromptMaxTokens: 2_000,
+      sensitiveMemoryEnabled: false,
+    }, 1_001), { reactivatedJobs: 0, parkedJobs: 1 });
+    assert.deepEqual(
+      await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 1_002 }),
+      { scheduled: false, triggerType: 'turn_interval', fromMessageSequence: 1, throughMessageSequence: 20 },
+    );
+    const disabledDb = await openDb();
+    try {
+      const job = await disabledDb.get(`SELECT status, scheduled_for, error_code FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string; scheduled_for: number | null; error_code: string | null };
+      assert.deepEqual(job, { status: 'awaiting_model_configuration', scheduled_for: null, error_code: 'automatic_memory_disabled' });
+    } finally { await disabledDb.close(); }
+    const runnableDb = await openDb();
+    try {
+      await runnableDb.run(`
+        INSERT INTO pi_sessions (session_id, user_id, agent_id, provider, model, created_at, updated_at)
+        VALUES ('runnable-review-session', 'user-reader', 'reader-agent', 'test', 'test-model', 1, 1)
+      `);
+      await runnableDb.run(`
+        INSERT INTO memory_user_settings (
+          user_id, automatic_memory_enabled, provider_installation_id, model_id,
+          memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at
+        ) VALUES ('user-reader', 1, 'aip_0123456789abcdef01234567', 'review-model', 2000, 0, 1, 1)
+      `);
+      await runnableDb.run(`
+        INSERT INTO memory_review_jobs (
+          id, user_id, session_id, from_message_sequence, through_message_sequence,
+          trigger_type, scheduled_for, status, attempts, created_at
+        ) VALUES ('runnable-review-job', 'user-reader', 'runnable-review-session', 1, 2, 'turn_interval', 1002, 'scheduled', 0, 1)
+      `);
+    } finally { await runnableDb.close(); }
+    const runnableClaim = await claimDueMemoryReviewJob(1_002);
+    assert.equal(runnableClaim?.id, 'runnable-review-job');
+    await completeMemoryReviewJob('runnable-review-job');
+    assert.deepEqual(await updateMemoryReviewSettings('user-1', {
+      automaticMemoryEnabled: true,
+      providerInstallationId: 'aip_0123456789abcdef01234567',
+      modelId: 'review-model',
+      memoryPromptMaxTokens: 2_000,
+      sensitiveMemoryEnabled: false,
+    }, 1_003), { reactivatedJobs: 1, parkedJobs: 0 });
+    const reactivatedDb = await openDb();
+    try {
+      const job = await reactivatedDb.get(`SELECT status, scheduled_for, error_code FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string; scheduled_for: number | null; error_code: string | null };
+      assert.deepEqual(job, { status: 'scheduled', scheduled_for: 1_003, error_code: null });
+    } finally { await reactivatedDb.close(); }
+    const claim = await claimDueMemoryReviewJob(1_003);
     assert.equal(claim?.sourceAgentId, 'canvas-agent');
     assert.equal(claim?.modelId, 'review-model');
     assert.deepEqual(

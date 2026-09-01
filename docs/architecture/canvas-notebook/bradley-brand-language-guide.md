@@ -15,6 +15,11 @@ tags:
 
 # Canvas Notebook — Bradley Metaphern- und Sprachleitfaden
 
+Der vollständige sprachspezifische Vertrag für Deutsch und Englisch steht im
+[Bradley DE-/EN-Sprachleitfaden](./bradley-de-en-language-style-guide.md). Dieses
+Dokument bleibt die verbindliche Quelle für die visuelle Metapher und das
+zugehörige Vokabular.
+
 ## Verbindliche Leitidee
 
 Die primäre visuelle Metapher ist **gefaltetes Canvas**:
@@ -98,6 +103,12 @@ Fäden oder Weben gearbeitet.
 | Produktdokumentation | sichtbaren Namen und technische ID eindeutig trennen | „Bradley ist der Display-Name des Hauptagenten `canvas-agent`.“ |
 | Marketing | höchstens eine Bildwelt pro Abschnitt; Canvas ist primär | „Aus einer gefalteten Canvas-Fläche wird dein ruhiger Produktionspartner Bradley.“ |
 | Asset- und Motion-Spezifikation | präzise geometrische Begriffe verwenden | „Die angehobene Faltfläche bewegt sich um vier Pixel nach oben.“ |
+
+Die vollständigen wiederkehrenden UI-Zustände und ihre englischen Entsprechungen
+sind in der [Bradley Zustands-Copy-Matrix](./bradley-state-copy-matrix.md)
+verbindlich festgelegt. Ursache, Auswirkung, sichere nächste Aktion und
+Retry-Regeln folgen den
+[Bradley Fehler- und Recovery-Mustern](./bradley-error-recovery-patterns.md).
 
 ## Freigegebene Kernformulierungen
 

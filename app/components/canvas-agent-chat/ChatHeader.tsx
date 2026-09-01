@@ -1,42 +1,50 @@
 'use client';
 
+import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   ArrowLeft,
   ChevronLeft,
+  Gauge,
   History,
   Lightbulb,
+  MoreHorizontal,
+  PanelsTopLeft,
   Plus,
   Settings,
   Sparkles,
-  Wrench,
+  WandSparkles,
 } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { ChatLiveBrowserLink } from '@/app/components/canvas-agent-chat/ChatLiveBrowserLink';
-import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import {
   getRuntimeCompactionStatusTranslationKey,
   type RuntimeStatus,
 } from '@/app/lib/chat/runtime-status';
 import type { AgentProfile } from '@/app/lib/chat/types';
-import type { ToolVerbosity } from '@/app/store/tool-verbosity-store';
 import { cn } from '@/lib/utils';
 
 type ChatHeaderProps = {
   activeAgentDisplayName: string;
   activeAgentIconId?: string | null;
   activeSessionAgentId: string;
-  activeToolLabel?: string;
   chatAgentOptions: AgentProfile[];
   contextDetailedLabel: string;
   contextProgressPercent: number;
   contextTooltip: string;
   hideNavHeader: boolean;
-  isCompactView: boolean;
   isHistoryOverlayOpen: boolean;
   isMobile: boolean;
   isSessionTitleGenerating: boolean;
@@ -52,8 +60,6 @@ type ChatHeaderProps = {
   showHistory: boolean;
   showSkillsLink: boolean;
   showWorkspaceSwitcher: boolean;
-  toolVerbosity: ToolVerbosity;
-  totalQueuedMessages: number;
   totalUnreadCount: number;
 };
 
@@ -61,13 +67,11 @@ export function ChatHeader({
   activeAgentDisplayName,
   activeAgentIconId,
   activeSessionAgentId,
-  activeToolLabel,
   chatAgentOptions,
   contextDetailedLabel,
   contextProgressPercent,
   contextTooltip,
   hideNavHeader,
-  isCompactView,
   isHistoryOverlayOpen,
   isMobile,
   isSessionTitleGenerating,
@@ -83,18 +87,32 @@ export function ChatHeader({
   showHistory,
   showSkillsLink,
   showWorkspaceSwitcher: showWorkspaceSwitcherEnabled,
-  toolVerbosity,
-  totalQueuedMessages,
   totalUnreadCount,
 }: ChatHeaderProps) {
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
+  const tWorkspaces = useTranslations('workspaces');
+  const [workspaceSheetOpen, setWorkspaceSheetOpen] = useState(false);
   const canShowWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
   const showWorkspaceSwitcher = showWorkspaceSwitcherEnabled && canShowWorkspaceSwitcher;
-  const compactSelectors = isCompactView || (!isMobile && showWorkspaceSwitcher);
   const compactionStatus = runtimeStatus?.compactionStatus;
   const compactionTranslationKey = getRuntimeCompactionStatusTranslationKey(compactionStatus);
   const compactionLabel = compactionTranslationKey ? t(compactionTranslationKey) : null;
+  const canCompact = Boolean(
+    sessionId
+    && runtimeStatus?.phase === 'idle'
+    && compactionStatus?.state !== 'running',
+  );
+  const contextWarningLevel = contextProgressPercent >= 95
+    ? 'critical'
+    : contextProgressPercent >= 80
+      ? 'warning'
+      : null;
+  const contextProgressClass = contextWarningLevel === 'critical'
+    ? 'bg-rose-500'
+    : contextWarningLevel === 'warning'
+      ? 'bg-amber-500'
+      : 'bg-cyan-500';
 
   return (
     <>
@@ -120,227 +138,203 @@ export function ChatHeader({
         </header>
       )}
 
-      <div className={cn('@container relative z-10 border-b border-border bg-background/95', isHistoryOverlayOpen ? 'hidden' : null)}>
-        <div className="flex min-w-0 items-center gap-2 px-3 py-2 md:flex-wrap">
-          <div className="flex min-w-0 flex-1 items-center gap-1.5">
-            {showHistory ? (
-              <button
-                type="button"
-                aria-label={t('backToChat')}
-                onClick={() => onSetShowHistory(false)}
-                className="relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors hover:border-border hover:bg-accent"
-                title={t('backToChat')}
-              >
-                <ChevronLeft size={18} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                data-testid="chat-history-toggle"
-                aria-label={t('toggleSidebar')}
-                onClick={() => onSetShowHistory(true)}
-                className="relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent transition-colors hover:border-border hover:bg-accent"
-                title={t('toggleSidebar')}
-              >
-                <History size={18} />
-                {totalUnreadCount > 0 && (
-                  <span className="absolute -right-1 -top-1 z-20 flex h-4 w-4 items-center justify-center rounded-full bg-blue-500 text-[9px] font-bold text-white">
-                    {totalUnreadCount > 9 ? '9+' : totalUnreadCount}
-                  </span>
-                )}
-              </button>
-            )}
-            <div className="@container flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-              {sessionId ? (
-                <div
-                  data-testid="chat-session-id"
-                  title={sessionId}
-                  className="inline-flex h-7 min-w-0 max-w-[min(12rem,100%)] flex-1 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground sm:max-w-[min(16rem,45vw)] lg:max-w-[min(18rem,100%)]"
-                >
-                  <span className="hidden text-[9px] uppercase tracking-[0.15em] text-muted-foreground sm:inline">{t('sessionLabel')}</span>
-                  {isSessionTitleGenerating && (
-                    <Sparkles
-                      aria-hidden="true"
-                      className="h-3 w-3 shrink-0 animate-pulse text-primary/75 motion-reduce:animate-none"
-                    />
-                  )}
-                  <span
-                    key={sessionDisplayLabel}
-                    aria-live="polite"
-                    className="min-w-0 truncate animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none"
-                  >
-                    {sessionDisplayLabel}
-                  </span>
-                  {isSessionTitleGenerating && <span className="sr-only">{t('sessionTitleGenerating')}</span>}
-                </div>
-              ) : null}
-              <ChatAgentSelector
-                variant={isMobile ? 'mobile' : compactSelectors ? 'compact' : 'desktop'}
-                activeAgentId={activeSessionAgentId}
-                activeAgentName={activeAgentDisplayName}
-                activeAgentIconId={activeAgentIconId}
-                agents={chatAgentOptions}
-                onSelectAgent={onSelectAgent}
-                onReloadAgents={onReloadAgents}
-                adaptiveMobileLabel={isMobile}
-              />
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1 md:ml-auto">
-            <ChatLiveBrowserLink
-              agentId={activeSessionAgentId}
-              onOpen={onOpenLiveBrowser}
-              runtimeStatus={runtimeStatus}
-              sessionId={sessionId}
-            />
-            {showWorkspaceSwitcher ? (
-              <WorkspaceSwitcher
-                source="chat"
-                variant={compactSelectors ? 'chat-compact' : 'compact'}
-                className="hidden @[44rem]:inline-flex"
-              />
-            ) : null}
+      <div className={cn(
+        '@container relative z-10 flex h-12 shrink-0 items-center border-b border-border bg-background/95 px-2.5',
+        isHistoryOverlayOpen ? 'hidden' : null,
+      )}>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          {showHistory ? (
             <button
               type="button"
-              aria-label={t('newChatTitle')}
-              onClick={onStartNewChat}
-              className="group inline-flex h-7 w-7 items-center justify-center rounded-md border border-primary/30 bg-primary/15 text-primary transition-all hover:bg-primary/25"
-              title={t('newChatTitle')}
+              aria-label={t('backToChat')}
+              onClick={() => onSetShowHistory(false)}
+              className="relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              title={t('backToChat')}
             >
-              <Plus size={16} />
-              <span className="sr-only">{t('newChatShort')}</span>
+              <ChevronLeft size={18} />
             </button>
-            {showSkillsLink && (
-              <Link
-                href="/settings?tab=plugins"
-                aria-label={t('viewSkills')}
-                className="group inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-muted/50 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-                title={t('viewSkills')}
+          ) : (
+            <button
+              type="button"
+              data-testid="chat-history-toggle"
+              aria-label={t('toggleSidebar')}
+              onClick={() => onSetShowHistory(true)}
+              className="relative z-10 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              title={t('toggleSidebar')}
+            >
+              <History size={18} />
+              {totalUnreadCount > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 z-20 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500 px-0.5 text-[9px] font-bold text-white">
+                  {totalUnreadCount > 9 ? '9+' : totalUnreadCount}
+                </span>
+              )}
+            </button>
+          )}
+
+          <div data-testid="chat-session-title" className="flex min-w-0 flex-1 items-center gap-1.5 px-1">
+            {isSessionTitleGenerating ? (
+              <Sparkles
+                aria-hidden="true"
+                className="h-3.5 w-3.5 shrink-0 animate-pulse text-primary/75 motion-reduce:animate-none"
+              />
+            ) : null}
+            {sessionId ? (
+              <span
+                key={sessionDisplayLabel}
+                data-testid="chat-session-id"
+                title={sessionId}
+                aria-live="polite"
+                className="min-w-0 truncate text-sm font-semibold tracking-tight text-foreground animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none sm:text-[15px]"
               >
-                <Lightbulb size={16} />
-                <span className="sr-only">{t('skills')}</span>
-              </Link>
+                {sessionDisplayLabel}
+              </span>
+            ) : (
+              <span className="min-w-0 truncate text-sm font-semibold tracking-tight text-foreground sm:text-[15px]">
+                {sessionDisplayLabel}
+              </span>
             )}
+            {isSessionTitleGenerating ? <span className="sr-only">{t('sessionTitleGenerating')}</span> : null}
           </div>
+
+          <ChatAgentSelector
+            variant={isMobile ? 'mobile' : 'compact'}
+            activeAgentId={activeSessionAgentId}
+            activeAgentName={activeAgentDisplayName}
+            activeAgentIconId={activeAgentIconId}
+            agents={chatAgentOptions}
+            onSelectAgent={onSelectAgent}
+            onReloadAgents={onReloadAgents}
+            iconOnly={isMobile}
+            className="border-transparent bg-transparent px-1.5 hover:border-border/60 hover:bg-accent"
+          />
         </div>
 
-        {showWorkspaceSwitcher ? (
-          <div className="border-t border-border/50 px-3 py-2 @[44rem]:hidden">
-            <WorkspaceSwitcher source="chat" variant="mobile-sheet" />
-          </div>
-        ) : null}
+        <div className="ml-1 flex shrink-0 items-center gap-0.5">
+          <ChatLiveBrowserLink
+            agentId={activeSessionAgentId}
+            onOpen={onOpenLiveBrowser}
+            runtimeStatus={runtimeStatus}
+            sessionId={sessionId}
+          />
+          {showWorkspaceSwitcher ? (
+            <WorkspaceSwitcher
+              source="chat"
+              variant="chat-compact"
+              className="hidden @[44rem]:inline-flex"
+            />
+          ) : null}
+          <button
+            type="button"
+            aria-label={t('newChatTitle')}
+            onClick={onStartNewChat}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/10"
+            title={t('newChatTitle')}
+          >
+            <Plus size={18} />
+            <span className="sr-only">{t('newChatShort')}</span>
+          </button>
 
-        <div data-testid="chat-runtime-banner" className="border-t border-border/50 px-3 py-1.5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div data-testid="chat-runtime-status" className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:flex-initial">
-              <ChatRuntimeActivityBadge status={runtimeStatus} className="h-7" />
-
-              {runtimeStatus && totalQueuedMessages > 0 && (
-                <span className="inline-flex h-7 items-center gap-1 border border-border/60 bg-muted/40 px-1.5 text-[10px] text-muted-foreground">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                  {t('queuedCount', { count: totalQueuedMessages })}
-                </span>
-              )}
-
-              {!isMobile && runtimeStatus?.includedSummary && (
-                <span className="inline-flex h-7 items-center border border-border/60 bg-muted/40 px-1.5 text-[10px] text-muted-foreground">
-                  {t('summary')}
-                </span>
-              )}
-
-              {compactionLabel ? (
-                <span
-                  data-testid="chat-compaction-status"
-                  aria-live="polite"
-                  className="inline-flex h-7 items-center border border-cyan-500/30 bg-cyan-500/10 px-1.5 text-[10px] text-cyan-700 dark:text-cyan-300"
-                >
-                  {compactionLabel}
-                </span>
-              ) : null}
-
-              {!isMobile && runtimeStatus?.activeTool && toolVerbosity !== 'minimal' && (
-                <span className="inline-flex h-7 items-center gap-1 border border-amber-500/30 bg-amber-500/10 px-1.5 text-[10px] text-amber-600">
-                  <Wrench size={10} />
-                  {toolVerbosity === 'verbose' ? runtimeStatus.activeTool.name : activeToolLabel}
-                </span>
-              )}
-            </div>
-
-            <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-initial">
-              {!isMobile && runtimeStatus ? (
-                <span
-                  data-testid="chat-context-meter"
-                  title={contextTooltip}
-                  className="inline-flex h-7 min-w-0 max-w-full items-center rounded-md border border-border/60 bg-muted/40 px-2.5 text-[10px] font-medium text-muted-foreground md:max-w-[min(20rem,40vw)]"
-                >
-                  <span className="min-w-0 truncate">{contextDetailedLabel}</span>
-                </span>
-              ) : null}
-              {!isMobile && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                data-testid="chat-header-menu-trigger"
+                aria-label={t('moreChatActions')}
+                className="relative inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                title={t('moreChatActions')}
+              >
+                <MoreHorizontal size={18} />
+                {contextWarningLevel ? (
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      'absolute right-1 top-1 h-1.5 w-1.5 rounded-full ring-2 ring-background',
+                      contextWarningLevel === 'critical' ? 'bg-rose-500' : 'bg-amber-500',
+                    )}
+                  />
+                ) : null}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent data-testid="chat-header-menu" align="end" className="w-72">
+              {showWorkspaceSwitcher ? (
                 <>
-                  <button
-                    type="button"
-                    data-testid="chat-compact"
-                    onClick={onCompact}
-                    disabled={!sessionId || runtimeStatus?.phase !== 'idle' || compactionStatus?.state === 'running'}
-                    className="h-7 rounded-md border border-border bg-muted/50 px-2.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {t('compact')}
-                  </button>
-                  <Link
-                    href="/settings?tab=agent"
-                    aria-label={t('openAgentSettings')}
-                    className="inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-muted/40 px-2.5 text-[11px] font-medium text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-                    title={t('openAgentSettings')}
-                  >
-                    <Settings className="h-3 w-3" />
-                    {!isCompactView ? <span>{t('settings')}</span> : null}
-                  </Link>
+                  <DropdownMenuItem onSelect={() => setWorkspaceSheetOpen(true)}>
+                    <PanelsTopLeft />
+                    <span>{tWorkspaces('label')}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                 </>
-              )}
-              {isMobile && (
-                <>
-                  <button
-                    type="button"
-                    data-testid="chat-compact"
-                    onClick={onCompact}
-                    disabled={!sessionId || runtimeStatus?.phase !== 'idle' || compactionStatus?.state === 'running'}
-                    className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/50 px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
-                    title={t('compact')}
-                  >
-                    {t('compact')}
-                  </button>
-                  <Link
-                    href="/settings?tab=agent"
-                    data-testid="chat-mobile-agent-settings"
-                    aria-label={t('openAgentSettings')}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground transition-all hover:bg-accent hover:text-foreground"
-                    title={t('openAgentSettings')}
-                  >
-                    <Settings className="h-3 w-3" />
+              ) : null}
+              <DropdownMenuLabel
+                data-testid="chat-context-details"
+                className="space-y-2 px-2 py-2 font-normal"
+                title={contextTooltip}
+              >
+                <div className="flex items-center gap-2">
+                  <Gauge className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs font-semibold text-foreground">{t('contextDetails')}</span>
+                  {runtimeStatus ? (
+                    <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
+                      {t('contextUsagePercent', { percent: contextProgressPercent })}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  {contextDetailedLabel}
+                </p>
+                {runtimeStatus ? (
+                  <div className="h-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      data-testid="chat-context-progress"
+                      className={cn('h-full rounded-full transition-all', contextProgressClass)}
+                      style={{ width: `${contextProgressPercent}%` }}
+                    />
+                  </div>
+                ) : null}
+                {runtimeStatus?.includedSummary ? (
+                  <p className="text-[10px] text-muted-foreground">{t('summaryIncluded')}</p>
+                ) : null}
+                {compactionLabel ? (
+                  <p data-testid="chat-menu-compaction-status" className="text-[10px] text-muted-foreground">
+                    {compactionLabel}
+                  </p>
+                ) : null}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem data-testid="chat-compact" onSelect={onCompact} disabled={!canCompact}>
+                <WandSparkles />
+                <span>{t('compact')}</span>
+                {!canCompact ? (
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    {!sessionId ? t('noSessionYet') : compactionLabel || t('working')}
+                  </span>
+                ) : null}
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/settings?tab=agent">
+                  <Settings />
+                  <span>{t('openAgentSettings')}</span>
+                </Link>
+              </DropdownMenuItem>
+              {showSkillsLink ? (
+                <DropdownMenuItem asChild>
+                  <Link href="/settings?tab=plugins">
+                    <Lightbulb />
+                    <span>{t('viewSkills')}</span>
                   </Link>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-1.5 flex items-center gap-2" title={contextTooltip}>
-            <div className="h-1 flex-1 overflow-hidden rounded-full bg-black/5 dark:bg-gray-700">
-              <div
-                data-testid="chat-context-progress"
-                className={`h-full rounded-full transition-all ${
-                  compactionStatus?.state === 'running'
-                    ? 'bg-violet-400'
-                    : runtimeStatus?.phase === 'aborting'
-                    ? 'bg-rose-400'
-                    : runtimeStatus?.phase === 'running_tool'
-                      ? 'bg-amber-400'
-                      : 'bg-cyan-400'
-                }`}
-                style={{ width: `${contextProgressPercent}%` }}
-              />
-            </div>
-          </div>
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {showWorkspaceSwitcher ? (
+            <WorkspaceSwitcher
+              source="chat"
+              variant="mobile-sheet"
+              mobileSheetOpen={workspaceSheetOpen}
+              onMobileSheetOpenChange={setWorkspaceSheetOpen}
+              hideMobileSheetTrigger
+            />
+          ) : null}
         </div>
       </div>
     </>

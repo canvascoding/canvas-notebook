@@ -298,6 +298,7 @@ export function useChatRuntimeEvents({
       const nextStatus: RuntimeStatus = {
         ...baseStatus,
         sessionId,
+        optimistic: true,
         phase,
         activeTool: phase === 'running_tool' ? baseStatus.activeTool : null,
         pendingToolCalls: phase === 'idle' ? 0 : baseStatus.pendingToolCalls,

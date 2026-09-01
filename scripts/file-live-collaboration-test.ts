@@ -6,7 +6,8 @@ import {
   replaceRichMarkdownInYDoc,
   richMarkdownFromYDoc,
 } from '../app/lib/collaboration/markdown-state';
-import { serializeCanonicalText } from '../app/lib/collaboration/persistence';
+import { authoritativeCollaborationSnapshot } from '../app/lib/collaboration/checkpoint';
+import { serializeCanonicalText, type PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import {
   getCollaborationRoomConnectionCount,
   reserveCollaborationRoomAdmission,
@@ -18,6 +19,38 @@ process.env.CANVAS_COLLABORATION_TICKET_SECRET = 'test-only-collaboration-ticket
 
 const plain = createPlainTextYDoc('one\ntwo\n');
 const update = Y.encodeStateAsUpdate(plain);
+const plainState: PersistedCollaborationState = {
+  documentId: 'plain-document',
+  workspaceId: 'workspace-a',
+  organizationId: 'org-a',
+  path: 'notes.txt',
+  representation: 'plain_text',
+  lifecycleGeneration: 1,
+  schemaVersion: 1,
+  yjsState: update,
+  stateVector: Y.encodeStateVector(plain),
+  documentSequence: 4,
+  persistedAt: Date.now(),
+  checkpointedAt: null,
+  checkpointSequence: 3,
+  canonicalHash: null,
+  serializedHash: null,
+  newlineStyle: 'lf',
+  hasBom: false,
+  degraded: false,
+  status: 'active',
+};
+assert.deepEqual(authoritativeCollaborationSnapshot(plainState), {
+  canonicalContent: 'one\ntwo\n',
+  checkpointSequence: 3,
+  documentSequence: 4,
+  stateVector: Buffer.from(plainState.stateVector).toString('base64'),
+});
+assert.throws(
+  () => authoritativeCollaborationSnapshot({ ...plainState, stateVector: new Uint8Array([0]) }),
+  /state and state vector do not match/i,
+  'checkpoint materialization must reject a forged or corrupt snapshot identity',
+);
 const restored = new Y.Doc({ gc: true });
 Y.applyUpdate(restored, update);
 assert.equal(restored.getText('content').toString(), 'one\ntwo\n');

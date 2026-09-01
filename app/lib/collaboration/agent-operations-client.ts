@@ -24,6 +24,7 @@ export type CollaborationAgentOperation = {
   actorId: string;
   initiatedByDisplayName?: string;
   initiatedByCurrentUser?: boolean;
+  actionsAllowed: boolean;
   appliedTargetIds: string[];
   conflicts: Array<{ targetId: string; groupId: string; code: string }>;
   reviewTargets?: Array<{
@@ -31,6 +32,12 @@ export type CollaborationAgentOperation = {
     groupId: string;
     proposedReplacement: string;
     currentText: string | null;
+  }>;
+  targetAnchors: Array<{
+    targetId: string;
+    groupId: string;
+    startAnchor: string;
+    endAnchor: string;
   }>;
 };
 
@@ -56,7 +63,7 @@ export async function loadCollaborationAgentOperations({
     const payload = await response.json() as { operations?: unknown };
     if (signal?.aborted) return null;
     return Array.isArray(payload.operations)
-      ? (payload.operations as CollaborationAgentOperation[]).slice(0, 5)
+      ? (payload.operations as CollaborationAgentOperation[]).slice(0, 20)
       : [];
   } catch {
     // Polling is best-effort. Mobile browsers commonly reject fetches while the

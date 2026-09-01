@@ -11,6 +11,47 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.1.1] - 2026-09-01
+
+### Added
+
+- Added a responsive email workspace with extracted mailbox, message-reader, composer, and AI-streaming capabilities.
+- Added reliable agent-memory ownership, review flows, and usage reporting coverage.
+
+### Changed
+
+- Improved rich-Markdown email round trips and made chat-header workspace navigation progressively disclosed while preserving compact switching.
+- Externalized the PDF parser from Next.js bundles and expanded release/runtime regression coverage.
+
+### Fixed
+
+- Fixed email workspace activation, compose regular expressions, draft-sender handling, and mobile chat pagination cursor units.
+
+### Verification
+
+- `CANVAS_DATABASE_PROVIDER=sqlite DATABASE_URL= npm run verify:release` (passed; 16 existing lint warnings)
+
+## [2026.8.31.2] - 2026-08-31
+
+### Added
+
+- Introduced Bradley as the main agent identity across onboarding, prompts, selectors, chat states, glyph assets, themes, and motion.
+- Added workspace-scoped email inbox/outbox workflows, attachment selection, draft review, and file-reference support.
+- Added secure MCP binary uploads and expanded MCP request-history and workspace-tool coverage.
+
+### Changed
+
+- Improved exact context-compaction cooldown handling and isolated PDF browser profiles.
+- Documented the PostgreSQL-only CLI migration and made local Sentry behavior quieter during development.
+
+### Fixed
+
+- Fixed MCP upload completion retries and release-build type errors in email attachment, HTML sanitization, and workspace-mail tests.
+
+### Verification
+
+- `npm run verify:release` (passed; 2 existing lint warnings)
+
 ## [2026.8.31.1] - 2026-08-31
 
 ### Added

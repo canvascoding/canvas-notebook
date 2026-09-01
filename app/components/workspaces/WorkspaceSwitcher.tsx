@@ -45,6 +45,9 @@ type WorkspaceSwitcherProps = {
   source: WorkspaceSwitchSource;
   variant?: WorkspaceSwitcherVariant;
   className?: string;
+  mobileSheetOpen?: boolean;
+  onMobileSheetOpenChange?: (open: boolean) => void;
+  hideMobileSheetTrigger?: boolean;
 };
 
 type WorkspaceAccessLabels = {
@@ -86,9 +89,16 @@ export function useShouldShowWorkspaceSwitcher() {
     || hasWorkspaceManagementControls(workspaces);
 }
 
-export function WorkspaceSwitcher({ source, variant = 'default', className }: WorkspaceSwitcherProps) {
+export function WorkspaceSwitcher({
+  source,
+  variant = 'default',
+  className,
+  mobileSheetOpen: controlledMobileSheetOpen,
+  onMobileSheetOpenChange,
+  hideMobileSheetTrigger = false,
+}: WorkspaceSwitcherProps) {
   const t = useTranslations('workspaces');
-  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const [internalMobileSheetOpen, setInternalMobileSheetOpen] = useState(false);
   const [desktopMenuOpen, setDesktopMenuOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ClientWorkspaceSummary | null>(null);
@@ -104,6 +114,13 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const refreshWorkspaces = useWorkspaceStore((state) => state.refreshWorkspaces);
   const setActiveWorkspace = useWorkspaceStore((state) => state.setActiveWorkspace);
+  const mobileSheetOpen = controlledMobileSheetOpen ?? internalMobileSheetOpen;
+  const setMobileSheetOpen = useCallback((open: boolean) => {
+    if (controlledMobileSheetOpen === undefined) {
+      setInternalMobileSheetOpen(open);
+    }
+    onMobileSheetOpenChange?.(open);
+  }, [controlledMobileSheetOpen, onMobileSheetOpenChange]);
 
   useEffect(() => {
     void hydrateWorkspaces();
@@ -177,35 +194,37 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
     return (
       <>
       <Sheet open={mobileSheetOpen} onOpenChange={setMobileSheetOpen}>
-        <SheetTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={isLoading && !initialized}
-            data-testid="workspace-switcher"
-            data-active-workspace-id={activeWorkspace?.id ?? ''}
-            data-active-workspace-type={activeWorkspace?.type ?? ''}
-            className={cn('h-10 w-full justify-between gap-2 px-3 text-left', className)}
-            title={buttonTitle}
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              {isLoading && !initialized ? (
-                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-              ) : (
-                renderWorkspaceIcon(activeWorkspace, 'h-4 w-4 shrink-0')
-              )}
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-semibold">{activeLabel}</span>
-                {activeWorkspace ? (
-                  <span className="block truncate text-[11px] font-normal text-muted-foreground">
-                    {getWorkspaceKindLabel(activeWorkspace, kindLabels)} · {getAccessLabel(activeWorkspace, accessLabels)}
-                  </span>
-                ) : null}
+        {!hideMobileSheetTrigger ? (
+          <SheetTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isLoading && !initialized}
+              data-testid="workspace-switcher"
+              data-active-workspace-id={activeWorkspace?.id ?? ''}
+              data-active-workspace-type={activeWorkspace?.type ?? ''}
+              className={cn('h-10 w-full justify-between gap-2 px-3 text-left', className)}
+              title={buttonTitle}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                {isLoading && !initialized ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                ) : (
+                  renderWorkspaceIcon(activeWorkspace, 'h-4 w-4 shrink-0')
+                )}
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold">{activeLabel}</span>
+                  {activeWorkspace ? (
+                    <span className="block truncate text-[11px] font-normal text-muted-foreground">
+                      {getWorkspaceKindLabel(activeWorkspace, kindLabels)} · {getAccessLabel(activeWorkspace, accessLabels)}
+                    </span>
+                  ) : null}
+                </span>
               </span>
-            </span>
-            <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-          </Button>
-        </SheetTrigger>
+              <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            </Button>
+          </SheetTrigger>
+        ) : null}
         <SheetContent
           side="bottom"
           showCloseButton={false}

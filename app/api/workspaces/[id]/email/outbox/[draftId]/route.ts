@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { normalizeEmailAttachmentInputs } from '@/app/lib/email/attachments';
 import { updateWorkspaceOutboxDraft } from '@/app/lib/email/workspace-inbox-outbox';
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string; draftId: string }> }) {
@@ -17,6 +18,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       to: Array.isArray(value.to) ? value.to.filter((item): item is string => typeof item === 'string') : [],
       cc: Array.isArray(value.cc) ? value.cc.filter((item): item is string => typeof item === 'string') : [],
       bcc: Array.isArray(value.bcc) ? value.bcc.filter((item): item is string => typeof item === 'string') : [],
+      attachments: value.attachments === undefined ? undefined : normalizeEmailAttachmentInputs(value.attachments),
       status: value.status === 'awaiting_review' || value.status === 'editing' || value.status === 'discarded' ? value.status : undefined,
     });
     return NextResponse.json({ success: true, data: updated });

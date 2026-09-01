@@ -78,6 +78,7 @@ export type UsageEventRow = {
   workspaceId: string | null;
   workspaceType: string | null;
   agentId: string;
+  sourceAgentId: string | null;
   sessionId: string;
   sessionTitleSnapshot: string | null;
   provider: string;

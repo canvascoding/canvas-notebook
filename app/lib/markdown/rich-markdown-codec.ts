@@ -5,10 +5,16 @@ import { TableKit } from '@tiptap/extension-table';
 import TaskItem from '@tiptap/extension-task-item';
 import TaskList from '@tiptap/extension-task-list';
 import UniqueID from '@tiptap/extension-unique-id';
-import { Markdown, MarkdownManager } from '@tiptap/markdown';
+import { MarkdownManager } from '@tiptap/markdown';
 import StarterKit from '@tiptap/starter-kit';
 
 import { getMarkdownSourceModeReason } from '@/app/lib/editor/text-editor-guards';
+import {
+  CANVAS_MARKDOWN_INDENTATION,
+  CANVAS_MARKED_OPTIONS,
+  createCanvasMarkedInstance,
+  createCanvasMarkdownExtension,
+} from '@/app/lib/markdown/canvas-marked';
 import { canvasRichMarkdownExtensions } from '@/app/lib/markdown/canvas-rich-markdown-extensions';
 import { hasObsidianRichEditorUnsupportedSyntax } from '@/app/lib/markdown/obsidian-flavored-markdown';
 import {
@@ -29,6 +35,7 @@ export type MarkdownRichModeReason =
   | 'roundtrip_changed';
 
 export type MarkdownSafeNormalization =
+  | 'escaped_email_address'
   | 'ordered_list_spacing'
   | 'hard_break_marker'
   | 'html_entity_escaping'
@@ -63,18 +70,16 @@ export function richMarkdownCodecExtensions() {
     TaskItem.configure({ nested: true }),
     TableKit,
     UniqueID.configure({ types: RICH_MARKDOWN_UNIQUE_ID_TYPES }),
-    Markdown.configure({
-      markedOptions: { gfm: true, breaks: false },
-      indentation: { style: 'space', size: 2 },
-    }),
+    createCanvasMarkdownExtension(),
   ];
 }
 
 export function createRichMarkdownManager() {
   return new MarkdownManager({
     extensions: richMarkdownCodecExtensions(),
-    markedOptions: { gfm: true, breaks: false },
-    indentation: { style: 'space', size: 2 },
+    indentation: CANVAS_MARKDOWN_INDENTATION,
+    marked: createCanvasMarkedInstance(),
+    markedOptions: CANVAS_MARKED_OPTIONS,
   });
 }
 
@@ -237,6 +242,8 @@ function safeRichMarkdownNormalization(
   markdown: string,
   serialized: string,
 ): MarkdownSafeNormalization[] | null {
+  if (serializeRichMarkdownBody(serialized) !== serialized) return null;
+
   const lines = markdown.split('\n');
   const protectedLines = new Array<boolean>(lines.length).fill(false);
   const normalizations = new Set<MarkdownSafeNormalization>();
@@ -258,6 +265,20 @@ function safeRichMarkdownNormalization(
     }
 
     if (fence) continue;
+    if (!lines[index].includes('`')) {
+      const normalizedEmails = lines[index].replace(
+        /(^|[^\\\w])([A-Z0-9._%+-]+)\\@([A-Z0-9.-]+\.[A-Z]{2,})/giu,
+        (match, prefix: string, local: string, domain: string, offset: number, line: string) => {
+          const addressStart = offset + prefix.length;
+          if (line.slice(Math.max(0, addressStart - 7), addressStart).toLowerCase() === 'mailto:') {
+            return match;
+          }
+          normalizations.add('escaped_email_address');
+          return `${prefix}${local}@${domain}`;
+        },
+      );
+      lines[index] = normalizedEmails;
+    }
     if (/(^|[^\\])\\\r?$/u.test(lines[index])) {
       lines[index] = lines[index].replace(/\\(\r?)$/u, '  $1');
       normalizations.add('hard_break_marker');
@@ -295,7 +316,7 @@ function safeRichMarkdownNormalization(
   let comparableMarkdown = compacted.join('\n');
   let comparableSerialized = serialized;
   if (comparableMarkdown === comparableSerialized) {
-    return (['ordered_list_spacing', 'hard_break_marker'] as const).filter((normalization) => (
+    return (['escaped_email_address', 'ordered_list_spacing', 'hard_break_marker'] as const).filter((normalization) => (
       normalizations.has(normalization)
     ));
   }
@@ -316,6 +337,7 @@ function safeRichMarkdownNormalization(
   if (normalizedMarkdownTables.value !== normalizedSerializedTables.value) return null;
 
   return ([
+    'escaped_email_address',
     'ordered_list_spacing',
     'hard_break_marker',
     'html_entity_escaping',

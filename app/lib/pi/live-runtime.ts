@@ -845,12 +845,13 @@ export class LivePiRuntime {
     }
     const composition = this.lastComposition;
     const finalPayloadBudget = this.lastFinalPayloadBudgetSnapshot;
+    const hasPendingReplace = this.pendingReplace !== null;
     const exposeFinalPayloadBudget = Boolean(
       finalPayloadBudget
+      && !this.abortRequested
+      && !hasPendingReplace
       && (this.isRunning || !this.isFinalPayloadSendable(finalPayloadBudget)),
     );
-
-    const hasPendingReplace = this.pendingReplace !== null;
 
     return {
       sessionId: this.sessionId,
@@ -972,6 +973,7 @@ export class LivePiRuntime {
     this.pendingReplace = this.createQueueEntry(sanitized, context);
     this.rememberMessageContext(sanitized, context);
     this.abortRequested = true;
+    this.invalidateContextBudget();
     this.touch();
     this.publishStatus();
     this.agent.abort();
@@ -982,6 +984,7 @@ export class LivePiRuntime {
     const compactionAborted = abortPiSessionCompaction(this.getCompactionScope());
     if (this.isRunning || this.agent.state.isStreaming || this.abortRequested) {
       this.abortRequested = true;
+      this.invalidateContextBudget();
       this.touch();
       this.publishStatus();
       this.agent.abort();

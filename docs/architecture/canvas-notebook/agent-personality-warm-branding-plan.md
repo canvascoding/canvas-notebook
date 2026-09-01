@@ -80,6 +80,24 @@ Folgende Grundlagen sind bereits vorhanden:
   Voice im
   [Bradley Identitätsebenen-Vertrag](./bradley-identity-layer-contract.md)
   mit klarer Priorität und prüfbaren Implementierungsgrenzen getrennt.
+- [x] Persönliches Onboarding auf die feste Bradley-Identität und frei
+  konfigurierbare Zusammenarbeit umgestellt; Implementierung:
+  [Bradley Onboarding](./bradley-onboarding-implementation.md).
+- [x] Schutzvertrag für vorhandene persönliche `SOUL.md`-Inhalte festgelegt;
+  nur bytegenau bekannte Alt-Seeds dürfen ihre obsolete Identitätszeile
+  verlieren, alle persönlichen Inhalte bleiben erhalten. Vertrag:
+  [Bradley SOUL.md-Migrationsschutz](./bradley-soul-migration-safety-contract.md).
+- [x] Sichtbaren Hauptagent-Datensatz idempotent von `Canvas Agent` auf
+  `Bradley` migriert, ohne andere Namen oder die interne ID anzutasten;
+  Implementierung:
+  [Bradley Display-Name-Migration](./bradley-display-name-migration.md).
+- [x] Sichtbare Hauptagent-Fallbacks in Registry, Chat, Home und Automationen
+  auf eine gemeinsame Bradley-Konstante umgestellt; Inventar:
+  [Bradley UI-Fallbacks](./bradley-ui-fallback-inventory.md).
+- [x] Onboarding-, Notification-, Automation-, E-Mail-, Tool- und
+  Settings-Texte vollständig klassifiziert und auf Bradley oder korrekte
+  generische Akteursnamen umgestellt; Inventar:
+  [Bradley sichtbare Copy](./bradley-visible-copy-inventory.md).
 - [x] Bradley, Canvas Host Agent, Canvas Control Plane und interne
   `canvas-agent`-Bezeichner im
   [Agenten-Terminologievertrag](./bradley-agent-terminology-contract.md)
@@ -88,11 +106,49 @@ Folgende Grundlagen sind bereits vorhanden:
   SHA-256-Prüfsummen im
   [Bradley Asset-Provenienznachweis](./assets/bradley/PROVENANCE.md) portabel
   dokumentiert.
+- [x] Transparenten 2048-×-2048-Character-Master technisch und auf
+  kontrastreichen Hintergründen geprüft; Alpha-Messwerte und Kantenfreigabe sind
+  im [Bradley Character Master QA](./assets/bradley/MASTER-QA.md) dokumentiert.
+- [x] Light- und Dark-Mode-Darstellung auf den echten Canvas-Tokens validiert;
+  beide Themes verwenden gemäß
+  [Bradley Character Theme Variants](./assets/bradley/THEME-VARIANTS.md)
+  denselben kanonischen Master ohne Identitätsdrift.
+- [x] Statischen Bradley-Glyph bei 16, 20, 24, 32 und 40 Pixeln gerastert und
+  abgenommen; Nachweis: [Bradley Glyph Small-Size QA](./assets/bradley/GLYPH-QA.md).
+- [x] Dunkle, inverse und `currentColor`-Einfarbenvarianten mit identischer
+  Geometrie und dokumentierten Kontrastwerten freigegeben; Nachweis:
+  [Bradley Glyph Monochrome and High-Contrast QA](./assets/bradley/GLYPH-CONTRAST-QA.md).
+- [x] Idle, Arbeit, Warten und Abschluss als nicht-anatomische Badge-Zustände
+  festgelegt und bei 16 bis 40 Pixeln geprüft; Vertrag:
+  [Bradley Small-State System](./assets/bradley/STATE-SYSTEM.md).
+- [x] Dauer, Easing, Zustandswechsel, Performance, Einbettung und
+  Reduced-Motion-Verhalten im
+  [Bradley Motion Specification](./assets/bradley/MOTION-SPEC.md) freigegeben.
+- [x] Runtime-, Tool-, Queue-, Delegations-, Automations-, Warte-, Erfolgs- und
+  Fehlertexte in der
+  [Bradley Zustands-Copy-Matrix](./bradley-state-copy-matrix.md) zweisprachig
+  festgelegt.
+- [x] Ursache, Auswirkung, sichere Recovery-Aktion und Retry-Grenzen in den
+  [Bradley Fehler- und Recovery-Mustern](./bradley-error-recovery-patterns.md)
+  vereinheitlicht.
+- [x] Namen, Icons und Attribution für Hauptagent, Spezialagent, E-Mail-Agent,
+  Automationen, Tools und Systemkontexte in der
+  [Agenten- und Oberflächenkontextmatrix](./bradley-agent-context-matrix.md)
+  festgelegt.
+- [x] Anti-Clippy-, Unterbrechungs-, Idle-, Reduced-Motion- und
+  Accessibility-Regeln in den
+  [Bradley UI-Präsenz- und Motion-Regeln](./bradley-ui-presence-motion-rules.md)
+  spezifiziert.
+- [x] Deutsche und englische Produktstimme im
+  [Bradley DE-/EN-Sprachleitfaden](./bradley-de-en-language-style-guide.md)
+  vollständig dokumentiert.
+- [x] Festen, versionierten Bradley Identity Block ausschließlich für
+  `canvas-agent` in die Prompt-Architektur integriert und bestehende
+  Session-Snapshots verlustfrei ergänzt; Nachweis:
+  [Bradley Prompt-Identity-Implementierung](./bradley-prompt-identity-implementation.md).
 
-Noch nicht entschieden oder umgesetzt sind insbesondere die finale Freigabe
-der kleinen SVG-/Icon-Variante, die Prompt-Hierarchie, die Migration
-bestehender Installationen, die vollständige Zustands-Copy und die
-UI-Integration.
+Noch nicht entschieden oder umgesetzt sind insbesondere die Onboarding- und
+Bestandsmigration sowie die produktive UI-Integration.
 
 ## 3. Identität und Name
 
@@ -282,7 +338,12 @@ Markensprache.
 - Fachbegriffe wie Queue, Tool, Automation und Agent bleiben dort erhalten, wo
   sie für Bedienung oder Support wichtig sind.
 
-### 7.2 Vorläufige Copy-Matrix
+### 7.2 Verbindliche Copy-Matrix
+
+Die vollständigen deutschen und englischen Texte, Platzhalterregeln und
+Akteursgrenzen sind in der
+[Bradley Zustands-Copy-Matrix](./bradley-state-copy-matrix.md) festgelegt. Die
+folgende Kurzfassung dient nur der schnellen Orientierung.
 
 | Technischer Zustand | Empfohlene sichtbare Sprache | Nicht verwenden |
 | --- | --- | --- |
@@ -439,44 +500,44 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
 | BRADLEY-010 | fertig | Referenzrender und Nutzungsnachweis portabel ins Projekt übernehmen; Nachweis: [Bradley Asset Provenance](./assets/bradley/PROVENANCE.md) | Masterdatei, Importherkunft, Product-Owner-Autorisierung, Nutzungsgrenzen und SHA-256-Prüfsummen liegen an einem stabilen Projektpfad. |
-| BRADLEY-011 | in Arbeit | Transparentes Bradley-Character-Master erstellen; aktueller PNG-Master ist portabel abgelegt | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
-| BRADLEY-012 | offen | Light- und Dark-Mode-Character-Varianten erstellen | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
-| BRADLEY-013 | in Arbeit | Bradley-Glyph als SVG entwerfen; v1 liegt unter `assets/bradley/glyphs/static/` | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
-| BRADLEY-014 | in Arbeit | Monochrome und High-Contrast-Varianten erstellen; monochrome v1 liegt vor | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
-| BRADLEY-015 | in Arbeit | Kleine Zustandsvarianten definieren; Generierungszustand liegt als animierter SVG-Prototyp vor | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
-| BRADLEY-016 | in Arbeit | Motion-Spezifikation inklusive Reduced Motion erstellen; erster Vertrag ist im Asset-README dokumentiert | Dauer, Easing, Bedeutung, Performance und bewegungsarme Alternative sind dokumentiert. |
+| BRADLEY-011 | fertig | Transparentes Bradley-Character-Master erstellen; Nachweis: [Bradley Character Master QA](./assets/bradley/MASTER-QA.md) | Freigestellte hochauflösende Datei besitzt keine weißen Randartefakte. |
+| BRADLEY-012 | fertig | Light- und Dark-Mode-Character-Varianten erstellen; Vertrag: [Bradley Character Theme Variants](./assets/bradley/THEME-VARIANTS.md) | Beide Varianten funktionieren auf realen Canvas-Flächen und erfüllen die Kontrastanforderungen. |
+| BRADLEY-013 | fertig | Bradley-Glyph als SVG entwerfen; Nachweis: [Bradley Glyph Small-Size QA](./assets/bradley/GLYPH-QA.md) | SVG ist bei 16, 20, 24, 32 und 40 px eindeutig erkennbar. |
+| BRADLEY-014 | fertig | Monochrome und High-Contrast-Varianten erstellen; Nachweis: [Bradley Glyph Monochrome and High-Contrast QA](./assets/bradley/GLYPH-CONTRAST-QA.md) | Glyph bleibt ohne Farbe und Textur unterscheidbar. |
+| BRADLEY-015 | fertig | Kleine Zustandsvarianten definieren; Vertrag: [Bradley Small-State System](./assets/bradley/STATE-SYSTEM.md) | Idle, Arbeit, Warten und Abschluss sind unterscheidbar, ohne anatomische oder Comic-Mimik. |
+| BRADLEY-016 | fertig | Motion-Spezifikation inklusive Reduced Motion erstellen; Vertrag: [Bradley Motion Specification](./assets/bradley/MOTION-SPEC.md) | Dauer, Easing, Bedeutung, Performance und bewegungsarme Alternative sind dokumentiert. |
 
 ### Phase C — Sprache und UX
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| BRADLEY-020 | offen | Vollständige Zustands-Copy-Matrix erstellen | Alle Runtime-, Tool-, Queue-, Delegations-, Automation-, Warte-, Erfolgs- und Fehlerzustände besitzen DE-/EN-Texte. |
-| BRADLEY-021 | offen | Fehler- und Recovery-Muster definieren | Jede Fehlermeldung kann Ursache, Auswirkung und nächste Aktion sachlich anzeigen. |
-| BRADLEY-022 | offen | Kontextmatrix für Hauptagent, Spezialagent, E-Mail-Agent und Automation erstellen | Für jede Oberfläche ist definiert, welcher Name und welches Icon erscheinen. |
-| BRADLEY-023 | offen | Anti-Clippy- und Motion-Regeln in die UI-Spezifikation übernehmen | Review-Checkliste deckt Unterbrechungen, Idle-Animation, Reduced Motion und Barrierefreiheit ab. |
-| BRADLEY-024 | offen | DE-/EN-Sprachleitfaden für Bradley erstellen | Ton, Anrede, Pronomen, Metaphern, Fehlersprache und verbotene Formulierungen sind dokumentiert. |
+| BRADLEY-020 | fertig | Vollständige Zustands-Copy-Matrix erstellen; Vertrag: [Bradley Zustands-Copy-Matrix](./bradley-state-copy-matrix.md) | Alle Runtime-, Tool-, Queue-, Delegations-, Automation-, Warte-, Erfolgs- und Fehlerzustände besitzen DE-/EN-Texte. |
+| BRADLEY-021 | fertig | Fehler- und Recovery-Muster definieren; Vertrag: [Bradley Fehler- und Recovery-Muster](./bradley-error-recovery-patterns.md) | Jede Fehlermeldung kann Ursache, Auswirkung und nächste Aktion sachlich anzeigen. |
+| BRADLEY-022 | fertig | Kontextmatrix für Hauptagent, Spezialagent, E-Mail-Agent und Automation erstellen; Vertrag: [Bradley Agenten- und Oberflächenkontextmatrix](./bradley-agent-context-matrix.md) | Für jede Oberfläche ist definiert, welcher Name und welches Icon erscheinen. |
+| BRADLEY-023 | fertig | Anti-Clippy- und Motion-Regeln in die UI-Spezifikation übernehmen; Vertrag: [Bradley UI-Präsenz-, Anti-Clippy- und Motion-Regeln](./bradley-ui-presence-motion-rules.md) | Review-Checkliste deckt Unterbrechungen, Idle-Animation, Reduced Motion und Barrierefreiheit ab. |
+| BRADLEY-024 | fertig | DE-/EN-Sprachleitfaden für Bradley erstellen; Vertrag: [Bradley DE-/EN-Sprachleitfaden](./bradley-de-en-language-style-guide.md) | Ton, Anrede, Pronomen, Metaphern, Fehlersprache und verbotene Formulierungen sind dokumentiert. |
 
 ### Phase D — Runtime, Prompt und Migration
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| BRADLEY-030 | offen | Feste Bradley-Identität in der Prompt-Architektur verorten | Identität bleibt stabil und steht nicht im Konflikt mit Nutzeranweisung, SOUL.md oder Workspace Brand Voice. |
-| BRADLEY-031 | offen | Onboarding auf feste Identität plus persönliche Zusammenarbeit umstellen | Neue Nutzer lernen Bradley kennen, können aber Kommunikationspräferenzen festlegen. |
-| BRADLEY-032 | offen | Schutz vorhandener persönlicher `SOUL.md`-Inhalte konzipieren | Migration überschreibt keine bestehenden Präferenzen ohne dokumentierte Regel. |
-| BRADLEY-033 | offen | Display-Name-Migration für bestehende Hauptagent-Datensätze entwickeln | Bestehende Standardnamen werden idempotent migriert; bewusste Anpassungen bleiben erhalten. |
-| BRADLEY-034 | offen | UI-Fallbacks und Registry-Defaults inventarisieren und aktualisieren | Kein sichtbarer Standard-Fallback zeigt unbeabsichtigt „Canvas Agent“, wenn der Hauptagent Bradley ist. |
-| BRADLEY-035 | offen | Onboarding-, Notification-, Automation- und E-Mail-Texte inventarisieren | Alle sichtbaren Hauptagent-Referenzen sind klassifiziert und entweder migriert oder bewusst beibehalten. |
-| BRADLEY-036 | offen | Interne ID- und Pfadstabilität durch Regressionstests absichern | Tests belegen, dass `canvas-agent`, Sessions, Automationen, APIs und Speicherpfade unverändert funktionieren. |
+| BRADLEY-030 | fertig | Feste Bradley-Identität in der Prompt-Architektur verorten; Implementierung: [Bradley Prompt-Identity-Implementierung](./bradley-prompt-identity-implementation.md) | Identität bleibt stabil und steht nicht im Konflikt mit Nutzeranweisung, SOUL.md oder Workspace Brand Voice. |
+| BRADLEY-031 | fertig | Onboarding auf feste Identität plus persönliche Zusammenarbeit umstellen; Implementierung: [Bradley Onboarding](./bradley-onboarding-implementation.md) | Neue Nutzer lernen Bradley kennen, können aber Kommunikationspräferenzen festlegen. |
+| BRADLEY-032 | fertig | Schutz vorhandener persönlicher `SOUL.md`-Inhalte konzipieren; Vertrag: [Bradley SOUL.md-Migrationsschutz](./bradley-soul-migration-safety-contract.md) | Migration überschreibt keine bestehenden Präferenzen ohne dokumentierte Regel. |
+| BRADLEY-033 | fertig | Display-Name-Migration für bestehende Hauptagent-Datensätze entwickeln; Implementierung: [Bradley Display-Name-Migration](./bradley-display-name-migration.md) | Bestehende Standardnamen werden idempotent migriert; bewusste Anpassungen bleiben erhalten. |
+| BRADLEY-034 | fertig | UI-Fallbacks und Registry-Defaults inventarisieren und aktualisieren; Inventar: [Bradley UI-Fallbacks](./bradley-ui-fallback-inventory.md) | Kein sichtbarer Standard-Fallback zeigt unbeabsichtigt „Canvas Agent“, wenn der Hauptagent Bradley ist. |
+| BRADLEY-035 | fertig | Onboarding-, Notification-, Automation- und E-Mail-Texte inventarisieren; Inventar: [Bradley sichtbare Copy](./bradley-visible-copy-inventory.md) | Alle sichtbaren Hauptagent-Referenzen sind klassifiziert und entweder migriert oder bewusst beibehalten. |
+| BRADLEY-036 | fertig | Interne ID- und Pfadstabilität durch Regressionstests absichern; Nachweis: [Bradley Runtime-Stabilitätsregression](./bradley-runtime-stability-regression.md) | Tests belegen, dass `canvas-agent`, Sessions, Automationen, APIs und Speicherpfade unverändert funktionieren. |
 
 ### Phase E — UI-Pilot
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| BRADLEY-040 | offen | Bradley im Hauptagent-Selector und Chat-Header integrieren | Nur der Hauptagent erscheint als Bradley; Spezialagenten behalten Name und Icon. |
-| BRADLEY-041 | offen | Bradley-Glyph als Hauptagent-Avatar integrieren | Glyph ist in allen unterstützten Größen und Themes scharf und zugänglich. |
-| BRADLEY-042 | offen | Arbeitszustand beim Antwortstart integrieren | Status bleibt semantisch korrekt, screenreader-tauglich und bewegungsarm verfügbar. |
-| BRADLEY-043 | offen | Einen Starter-/Empty-State mit Bradley umsetzen | Bradley unterstützt die Orientierung, ohne Inhalte oder Aktionen zu verdrängen. |
-| BRADLEY-044 | offen | UI- und End-to-End-Prüfung durchführen | Nach ausdrücklicher Playwright-/Browser-Freigabe sind Desktop, Mobile, Light, Dark und Reduced Motion geprüft. |
+| BRADLEY-040 | fertig | Bradley im Hauptagent-Selector und Chat-Header integrieren; Implementierung: [Bradley im Hauptagent-Selector und Chat-Header](./bradley-main-agent-selector-integration.md) | Nur der Hauptagent erscheint als Bradley; Spezialagenten behalten Name und Icon. |
+| BRADLEY-041 | fertig | Bradley-Glyph als Hauptagent-Avatar integrieren; Implementierung: [Bradley-Glyph als Hauptagent-Avatar](./bradley-glyph-ui-integration.md) | Glyph ist in allen unterstützten Größen und Themes scharf und zugänglich. |
+| BRADLEY-042 | fertig | Arbeitszustand beim Antwortstart integrieren; Implementierung: [Bradley-Arbeitszustand beim Antwortstart](./bradley-response-start-working-state.md) | Status bleibt semantisch korrekt, screenreader-tauglich und bewegungsarm verfügbar. |
+| BRADLEY-043 | fertig | Einen Starter-/Empty-State mit Bradley umsetzen; Implementierung: [Bradley Starter-/Empty-State](./bradley-starter-empty-state.md) | Bradley unterstützt die Orientierung, ohne Inhalte oder Aktionen zu verdrängen. |
+| BRADLEY-044 | fertig | UI- und End-to-End-Prüfung durchführen; Nachweis: [Bradley UI- und End-to-End-Prüfung](./bradley-ui-validation-matrix.md) | Desktop, Mobile, Light, Dark und Reduced Motion sind geprüft; ein gefundener Frühabbruch-Race wurde behoben und erneut abgenommen. |
 | BRADLEY-045 | offen | Pilot anhand definierter Kriterien einschließlich mehrsprachiger Bradley-Namensstichprobe auswerten | Verständlichkeit, Namenswirkung, Agentenunterscheidung, Vertrauen und Störwirkung sind dokumentiert. |
 
 ### Phase F — Erweiterter Rollout und Marketing

@@ -237,6 +237,16 @@ async function main(): Promise<void> {
   const activeStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
   assert.equal(activeStatus.lastProviderInputTokens, 140_000);
   assert.equal(activeStatus.nextRequestEstimatedTokens, 185_000, 'active status must expose the next serialized-request estimate separately');
+  statusRuntime.abortRequested = true;
+  const abortingStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
+  assert.equal(abortingStatus.nextRequestEstimatedTokens, null, 'an aborted request payload must not be presented as the next request');
+  assert.equal(abortingStatus.finalRequestTokens, null, 'an aborted request payload must not remain exposed as the final request');
+  statusRuntime.abortRequested = false;
+  statusRuntime.pendingReplace = { id: 'replacement-request' };
+  const replacingStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
+  assert.equal(replacingStatus.nextRequestEstimatedTokens, null, 'the replaced request payload must not be presented as the replacement request');
+  assert.equal(replacingStatus.finalRequestTokens, null, 'the replaced request payload must not remain exposed during replacement');
+  statusRuntime.pendingReplace = null;
 
   const eventRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
   Object.assign(eventRuntime, {

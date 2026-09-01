@@ -499,16 +499,16 @@ function createMemoryTool(userId?: string, agentId?: string | null): AgentTool {
 export function createOnboardingProfileTool(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool {
   return {
     name: ONBOARDING_PROFILE_TOOL_NAME,
-    label: 'Completing onboarding profile',
+    label: 'Saving Bradley preferences',
     description:
-      'Call this tool ONCE when the onboarding conversation has gathered enough information about the user and agent preferences. ' +
+      'Call this tool ONCE when the onboarding conversation has gathered enough information about the user and their collaboration preferences for working with Bradley. ' +
       'It writes the user-scoped USER.md and SOUL.md and completes that user profile. ' +
       'Do NOT call this tool before you have asked the user at least one question and received a real answer. ' +
       'Do NOT call this tool repeatedly. If the tool returns an error, explain the issue to the user and try once more with corrected parameters. ' +
       'After a successful call, give a brief confirmation in natural language. Do not output code, logs, or technical artifacts after the call.',
     parameters: Type.Object({
       userMd: Type.String({ description: 'Complete Markdown content for USER.md. Include durable user facts, preferences, context, and goals. Do not include secrets.' }),
-      soulMd: Type.String({ description: 'Complete Markdown content for SOUL.md. Include durable agent identity, communication style, boundaries, and collaboration preferences. Do not include secrets.' }),
+      soulMd: Type.String({ description: 'Complete Markdown content for SOUL.md. Include durable communication style, formality, response detail, initiative, boundaries, and collaboration preferences. Do not define or rename Bradley\'s identity. Do not include secrets.' }),
       summary: Type.Optional(Type.String({ description: 'Short one-sentence summary of what was captured.' })),
     }),
     execute: async (_toolCallId, params) => {
@@ -516,7 +516,7 @@ export function createOnboardingProfileTool(userId?: string, agentId?: string | 
         const scopedUserId = requireToolUserId(userId, ONBOARDING_PROFILE_TOOL_NAME);
         const available = await isOnboardingProfileToolAvailable({ userId: scopedUserId, agentId, sessionId });
         if (!available) {
-          throw new Error('This tool is only available during the initial Canvas Agent onboarding profile session.');
+          throw new Error('This tool is only available during the initial Bradley onboarding profile session.');
         }
 
         const input = params as {
@@ -541,7 +541,7 @@ export function createOnboardingProfileTool(userId?: string, agentId?: string | 
         return {
           content: [{
             type: 'text',
-            text: 'Your onboarding profile is complete. Next, continue with the workspace tour.',
+            text: 'Your Bradley preferences are saved. Next, continue with the workspace tour.',
           }],
           details: result,
         };

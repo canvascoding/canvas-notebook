@@ -7,6 +7,11 @@ import { and, desc, eq, inArray, isNull, notInArray } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { emailAccounts, emailDrafts, emailInboxCases, personalEmailInboxCases, workspaceEmailMailboxes } from '@/app/lib/db/schema';
 import { getEmailAccountForUser } from '@/app/lib/email/account-store';
+import { normalizeEmailAttachmentInputs } from '@/app/lib/email/attachments';
+import type { EmailAttachmentInput } from '@/app/lib/email/attachment-types';
+import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
+import { plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
+import { sanitizeServerEmailEditorHtml } from '@/app/lib/email/server-html-editor-content';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 
@@ -22,12 +27,44 @@ function parseRecipients(value: string): string[] {
   }
 }
 
-function publicOutboxDraft(draft: typeof emailDrafts.$inferSelect) {
+function parseAttachments(value: string): EmailAttachmentInput[] {
+  try {
+    return normalizeEmailAttachmentInputs(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
+function normalizeOutboxAttachments(value: unknown): EmailAttachmentInput[] {
+  const attachments = normalizeEmailAttachmentInputs(value);
+  if (attachments.some((attachment) => attachment.source !== 'upload')) {
+    throw new Error('Outbox drafts accept uploaded attachment snapshots only.');
+  }
+  if (attachments.some((attachment) => attachment.disposition === 'inline')) {
+    throw new Error('Outbox drafts do not support inline attachments.');
+  }
+  return attachments;
+}
+
+function prepareOutboxBody(body: string, bodyHtml?: string): string {
+  const htmlCandidate = bodyHtml?.trim() || '';
+  if (isLikelyHtmlEmailContent(normalizeEmailHtmlContent(htmlCandidate))) {
+    return sanitizeServerEmailEditorHtml(htmlCandidate);
+  }
+  if (isLikelyHtmlEmailContent(normalizeEmailHtmlContent(body))) {
+    return sanitizeServerEmailEditorHtml(body);
+  }
+  return plainTextToEmailHtml(body);
+}
+
+function publicOutboxDraft(draft: typeof emailDrafts.$inferSelect, senderAddress?: string | null) {
   return {
     id: draft.id, accountId: draft.accountId, workspaceId: draft.workspaceId, mailboxId: draft.mailboxId, inboxCaseId: draft.inboxCaseId,
     personalInboxCaseId: draft.personalInboxCaseId,
+    senderAddress: senderAddress || null,
     status: draft.outboxStatus as OutboxStatus | null, version: draft.version, subject: draft.subject, body: draft.body,
     to: parseRecipients(draft.toJson), cc: parseRecipients(draft.ccJson), bcc: parseRecipients(draft.bccJson),
+    attachments: parseAttachments(draft.attachmentsJson || '[]'),
     isHtml: draft.isHtml, origin: draft.origin, assignedUserId: draft.assignedUserId,
     originAutomationJobId: draft.originAutomationJobId, originRunId: draft.originRunId, originAgentId: draft.originAgentId,
     editingByUserId: draft.editingByUserId, editingStartedAt: draft.editingStartedAt?.toISOString() || null,
@@ -71,11 +108,12 @@ export async function listWorkspaceInboxCases(userId: string, workspaceId: strin
 
 export async function listWorkspaceOutboxDrafts(userId: string, workspaceId: string) {
   await requireWorkspace(userId, workspaceId, 'canRead');
-  const rows = await db.query.emailDrafts.findMany({
-    where: and(eq(emailDrafts.workspaceId, workspaceId), inArray(emailDrafts.origin, ['automation', 'agent'])),
-    orderBy: [desc(emailDrafts.updatedAt)],
-  });
-  return rows.map(publicOutboxDraft);
+  const rows = await db.select({ draft: emailDrafts, senderAddress: emailAccounts.emailAddress })
+    .from(emailDrafts)
+    .innerJoin(emailAccounts, eq(emailAccounts.id, emailDrafts.accountId))
+    .where(and(eq(emailDrafts.workspaceId, workspaceId), inArray(emailDrafts.origin, ['automation', 'agent'])))
+    .orderBy(desc(emailDrafts.updatedAt));
+  return rows.map(({ draft, senderAddress }) => publicOutboxDraft(draft, senderAddress));
 }
 
 export async function listPersonalInboxCases(userId: string) {
@@ -87,11 +125,12 @@ export async function listPersonalInboxCases(userId: string) {
 }
 
 export async function listPersonalOutboxDrafts(userId: string) {
-  const rows = await db.query.emailDrafts.findMany({
-    where: and(eq(emailDrafts.userId, userId), isNull(emailDrafts.workspaceId), eq(emailDrafts.origin, 'agent')),
-    orderBy: [desc(emailDrafts.updatedAt)],
-  });
-  return rows.map(publicOutboxDraft);
+  const rows = await db.select({ draft: emailDrafts, senderAddress: emailAccounts.emailAddress })
+    .from(emailDrafts)
+    .innerJoin(emailAccounts, eq(emailAccounts.id, emailDrafts.accountId))
+    .where(and(eq(emailDrafts.userId, userId), isNull(emailDrafts.workspaceId), eq(emailDrafts.origin, 'agent')))
+    .orderBy(desc(emailDrafts.updatedAt));
+  return rows.map(({ draft, senderAddress }) => publicOutboxDraft(draft, senderAddress));
 }
 
 /**
@@ -198,6 +237,8 @@ export async function createPersonalInboxCase(input: {
 export async function createWorkspaceOutboxDraft(input: {
   userId: string; workspaceId: string; mailboxId: string; inboxCaseId?: string | null;
   subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[];
+  bodyHtml?: string;
+  attachments?: EmailAttachmentInput[];
   originAutomationJobId?: string | null; originRunId?: string | null; originAgentId?: string | null; assignedUserId?: string | null;
   origin?: 'automation' | 'agent';
   initialStatus?: Extract<OutboxStatus, 'prepared' | 'awaiting_review'>;
@@ -226,12 +267,14 @@ export async function createWorkspaceOutboxDraft(input: {
     });
     if (existing) return publicOutboxDraft(existing);
   }
+  const attachments = normalizeOutboxAttachments(input.attachments);
+  const preparedBody = prepareOutboxBody(input.body, input.bodyHtml);
   const now = new Date();
   const id = `draft_${randomUUID()}`;
   await db.insert(emailDrafts).values({
     id, userId: mailbox.accountOwnerId, accountId: mailbox.accountId, status: 'draft',
     toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []),
-    subject: input.subject.trim(), body: input.body, isHtml: true, attachmentsJson: '[]', providerDraftId: null,
+    subject: input.subject.trim(), body: preparedBody, isHtml: true, attachmentsJson: JSON.stringify(attachments), providerDraftId: null,
     workspaceId: input.workspaceId, mailboxId: input.mailboxId, inboxCaseId: input.inboxCaseId || null,
     origin: input.origin || 'agent', originAutomationJobId: input.originAutomationJobId || null,
     originRunId: input.originRunId || null, originAgentId: input.originAgentId || null,
@@ -265,6 +308,8 @@ export async function createWorkspaceOutboxDraft(input: {
 export async function createPersonalOutboxDraft(input: {
   userId: string; accountId: string; inboxCaseId?: string | null;
   subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[];
+  bodyHtml?: string;
+  attachments?: EmailAttachmentInput[];
   originAgentId?: string | null;
 }) {
   await getEmailAccountForUser(input.userId, input.accountId);
@@ -275,12 +320,14 @@ export async function createPersonalOutboxDraft(input: {
     });
     if (!inboxCase) throw new Error('Personal inbox case does not belong to this mailbox.');
   }
+  const attachments = normalizeOutboxAttachments(input.attachments);
+  const preparedBody = prepareOutboxBody(input.body, input.bodyHtml);
   const now = new Date();
   const id = `draft_${randomUUID()}`;
   await db.insert(emailDrafts).values({
     id, userId: input.userId, accountId: input.accountId, status: 'draft',
     toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []),
-    subject: input.subject.trim(), body: input.body, isHtml: true, attachmentsJson: '[]', providerDraftId: null,
+    subject: input.subject.trim(), body: preparedBody, isHtml: true, attachmentsJson: JSON.stringify(attachments), providerDraftId: null,
     workspaceId: null, mailboxId: null, inboxCaseId: null, personalInboxCaseId: input.inboxCaseId || null,
     origin: 'agent', originAutomationJobId: null, originRunId: null, originAgentId: input.originAgentId || null,
     outboxStatus: 'awaiting_review', version: 1, assignedUserId: input.userId, editingByUserId: null, editingStartedAt: null,
@@ -299,6 +346,8 @@ export async function createPersonalOutboxDraft(input: {
 export async function updateWorkspaceOutboxDraft(input: {
   userId: string; workspaceId: string; draftId: string; expectedVersion: number; subject: string; body: string;
   to: string[]; cc?: string[]; bcc?: string[]; status?: Extract<OutboxStatus, 'awaiting_review' | 'editing' | 'discarded'>;
+  bodyHtml?: string;
+  attachments?: EmailAttachmentInput[];
   actor?: 'human' | 'agent';
 }) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
@@ -309,10 +358,14 @@ export async function updateWorkspaceOutboxDraft(input: {
   if (input.actor === 'agent' && current.editingByUserId) {
     throw new Error('This outbox draft is being reviewed by a person. Create a new draft instead of overwriting it.');
   }
+  const attachments = input.attachments === undefined
+    ? parseAttachments(current.attachmentsJson || '[]')
+    : normalizeOutboxAttachments(input.attachments);
+  const preparedBody = prepareOutboxBody(input.body, input.bodyHtml);
   const nextStatus = input.status || 'editing';
   const now = new Date();
   const [updated] = await db.update(emailDrafts).set({
-    subject: input.subject.trim(), body: input.body, toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []),
+    subject: input.subject.trim(), body: preparedBody, toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []), attachmentsJson: JSON.stringify(attachments),
     outboxStatus: nextStatus, version: current.version + 1,
     editingByUserId: input.actor === 'agent' ? null : input.userId,
     editingStartedAt: input.actor === 'agent' ? null : now,
@@ -331,6 +384,8 @@ export async function updateWorkspaceOutboxDraft(input: {
 export async function updatePersonalOutboxDraft(input: {
   userId: string; draftId: string; expectedVersion: number; subject: string; body: string;
   to: string[]; cc?: string[]; bcc?: string[]; status?: Extract<OutboxStatus, 'awaiting_review' | 'editing' | 'discarded'>;
+  bodyHtml?: string;
+  attachments?: EmailAttachmentInput[];
   actor?: 'human' | 'agent';
 }) {
   const current = await db.query.emailDrafts.findFirst({
@@ -342,9 +397,13 @@ export async function updatePersonalOutboxDraft(input: {
   if (input.actor === 'agent' && current.editingByUserId) {
     throw new Error('This outbox draft is being reviewed by a person. Create a new draft instead of overwriting it.');
   }
+  const attachments = input.attachments === undefined
+    ? parseAttachments(current.attachmentsJson || '[]')
+    : normalizeOutboxAttachments(input.attachments);
+  const preparedBody = prepareOutboxBody(input.body, input.bodyHtml);
   const now = new Date();
   const [updated] = await db.update(emailDrafts).set({
-    subject: input.subject.trim(), body: input.body, toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []),
+    subject: input.subject.trim(), body: preparedBody, toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []), attachmentsJson: JSON.stringify(attachments),
     outboxStatus: input.status || 'editing', version: current.version + 1,
     editingByUserId: input.actor === 'agent' ? null : input.userId,
     editingStartedAt: input.actor === 'agent' ? null : now,
@@ -376,6 +435,7 @@ export async function sendPersonalOutboxDraft(input: {
     const sendInput = {
       userId: input.userId, accountId: current.accountId, to: parseRecipients(current.toJson), cc: parseRecipients(current.ccJson),
       bcc: parseRecipients(current.bccJson), subject: current.subject, body: current.body, isHtml: current.isHtml,
+      attachments: parseAttachments(current.attachmentsJson || '[]'),
     };
     if (dependencies.sendMessage) {
       await dependencies.sendMessage(sendInput);
@@ -384,6 +444,7 @@ export async function sendPersonalOutboxDraft(input: {
       await sendEmailMessage(input.userId, {
         accountId: current.accountId, to: sendInput.to, cc: sendInput.cc, bcc: sendInput.bcc,
         subject: current.subject, body: current.body, is_HTML: current.isHtml,
+        attachments: sendInput.attachments,
       }, { deliveryOrigin: 'human' });
     }
     const sentAt = new Date();
@@ -411,6 +472,7 @@ type WorkspaceOutboxSendDependencies = {
     subject: string;
     body: string;
     isHtml: boolean;
+    attachments: EmailAttachmentInput[];
   }) => Promise<unknown>;
 };
 
@@ -454,6 +516,7 @@ export async function sendWorkspaceOutboxDraft(input: {
       subject: current.subject,
       body: current.body,
       isHtml: current.isHtml,
+      attachments: parseAttachments(current.attachmentsJson || '[]'),
     };
     if (dependencies.sendMessage) {
       await dependencies.sendMessage(sendInput);
@@ -467,6 +530,7 @@ export async function sendWorkspaceOutboxDraft(input: {
         subject: sendInput.subject,
         body: sendInput.body,
         is_HTML: sendInput.isHtml,
+        attachments: sendInput.attachments,
       }, { deliveryOrigin: 'human' });
     }
     const sentAt = new Date();

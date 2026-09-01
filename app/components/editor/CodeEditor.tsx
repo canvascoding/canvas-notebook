@@ -19,8 +19,12 @@ import {
   type CompletionContext,
   type CompletionResult,
 } from '@codemirror/autocomplete';
-import type { Extension as CodeMirrorExtension } from '@codemirror/state';
-import { EditorView } from '@codemirror/view';
+import {
+  StateEffect,
+  StateField,
+  type Extension as CodeMirrorExtension,
+} from '@codemirror/state';
+import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import { toast } from 'sonner';
 import { WorkspaceDocumentPreviewDialog } from '@/app/components/shared/WorkspaceDocumentPreviewDialog';
 import { useFileStore } from '@/app/store/file-store';
@@ -40,9 +44,17 @@ import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { WorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
 import { useTranslations } from 'next-intl';
 import { yCollab } from 'y-codemirror.next';
-import { useCollaborationDocument } from '@/app/lib/collaboration/client';
+import {
+  useCollaborationDocument,
+  type CollaborationDocument,
+} from '@/app/lib/collaboration/client';
 import { getCodeEditorLifecycleKey } from '@/app/lib/collaboration/code-editor-lifecycle';
 import type { CollaborationSessionResponse } from '@/app/lib/collaboration/types';
+import {
+  resolveAgentTextTargetRanges,
+  type CollaborationAgentTargetAnchor,
+  type CollaborationAgentTargetRange,
+} from '@/app/lib/collaboration/agent-target-decorations';
 
 export interface CodeEditorProps {
   value: string;
@@ -52,7 +64,53 @@ export interface CodeEditorProps {
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   collaborationEnabled?: boolean;
   collaborationSession?: CollaborationSessionResponse | null;
+  collaborationDocument?: CollaborationDocument | null;
+  onCollaborationChange?: (document: CollaborationDocument | null) => void;
+  agentTargets?: CollaborationAgentTargetAnchor[];
 }
+
+class AgentTargetWidget extends WidgetType {
+  constructor(private readonly target: CollaborationAgentTargetRange) {
+    super();
+  }
+
+  toDOM() {
+    const marker = document.createElement('span');
+    marker.className = 'collaboration-agent-target-caret';
+    marker.dataset.agentOperationId = this.target.operationId;
+    marker.dataset.agentTargetId = this.target.targetId;
+    marker.setAttribute('aria-hidden', 'true');
+    return marker;
+  }
+}
+
+const setAgentTargetRanges = StateEffect.define<CollaborationAgentTargetRange[]>();
+const codeMirrorAgentTargetDecorations = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update: (decorations, transaction) => {
+    let nextDecorations = decorations.map(transaction.changes);
+    for (const effect of transaction.effects) {
+      if (!effect.is(setAgentTargetRanges)) continue;
+      const ranges = effect.value.flatMap((target) => {
+        const from = Math.max(0, Math.min(target.from, transaction.state.doc.length));
+        const to = Math.max(from, Math.min(target.to, transaction.state.doc.length));
+        if (from < to) {
+          return [Decoration.mark({
+            class: 'collaboration-agent-target',
+            attributes: {
+              'data-agent-operation-id': target.operationId,
+              'data-agent-target-id': target.targetId,
+            },
+          }).range(from, to)];
+        }
+        return [Decoration.widget({ widget: new AgentTargetWidget(target), side: 1 }).range(from)];
+      });
+      nextDecorations = Decoration.set(ranges, true);
+    }
+    return nextDecorations;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
 
 const CODE_MIRROR_BASIC_SETUP = {
   lineNumbers: true,
@@ -296,6 +354,9 @@ export function CodeEditor({
   markdownNavigationTarget,
   collaborationEnabled,
   collaborationSession,
+  collaborationDocument,
+  onCollaborationChange,
+  agentTargets = [],
 }: CodeEditorProps) {
   const t = useTranslations('notebook');
   const { currentFile } = useFileStore();
@@ -305,13 +366,14 @@ export function CodeEditor({
   const extension = languagePath?.split('.').pop()?.toLowerCase();
   const supportsCollaboration = extension === 'md' || extension === 'markdown' || extension === 'txt';
   const shouldCollaborate = collaborationEnabled ?? Boolean(currentFile?.collaboration?.crdtCapable && supportsCollaboration);
-  const collaboration = useCollaborationDocument({
-    enabled: shouldCollaborate,
+  const internalCollaboration = useCollaborationDocument({
+    enabled: shouldCollaborate && !collaborationDocument,
     workspaceId: activeWorkspaceId,
     path: languagePath,
     representation: 'plain_text',
     session: collaborationSession,
   });
+  const collaboration = collaborationDocument ?? internalCollaboration;
   const collaborationText = collaboration?.doc.getText('content') ?? null;
   const collaborationAwareness = collaboration?.provider?.awareness ?? null;
   const setCollaborationComposition = collaboration?.setComposition ?? null;
@@ -347,6 +409,11 @@ export function CodeEditor({
     onChangeRef.current = onChange;
   }, [onChange]);
 
+  useEffect(() => {
+    onCollaborationChange?.(collaboration);
+    return () => onCollaborationChange?.(null);
+  }, [collaboration, onCollaborationChange]);
+
   const handleChange = useCallback((nextValue: string) => {
     onChangeRef.current(nextValue);
   }, []);
@@ -374,7 +441,7 @@ export function CodeEditor({
   }, [collaborationAwareness, collaborationText, setCollaborationComposition]);
 
   const extensions = useMemo(() => {
-    const nextExtensions: CodeMirrorExtension[] = [];
+    const nextExtensions: CodeMirrorExtension[] = [codeMirrorAgentTargetDecorations];
     if (languagePath && !performanceProfile.disableLanguageExtension) {
       nextExtensions.push(getLanguageExtension(languagePath));
     }
@@ -441,6 +508,24 @@ export function CodeEditor({
     });
     editorView.focus();
   }, [editorView, markdownNavigationTarget]);
+
+  useEffect(() => {
+    if (!editorView) return;
+    const ranges = collaboration
+      ? resolveAgentTextTargetRanges(collaboration.doc, 'content', agentTargets)
+      : [];
+    editorView.dispatch({ effects: setAgentTargetRanges.of(ranges) });
+  }, [agentTargets, collaboration, editorView]);
+
+  if (shouldCollaborate && !collaboration?.ready) {
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center bg-background p-6 text-center">
+        <p className="text-sm text-muted-foreground" role="status">
+          {collaboration?.error || t('collaboration.connecting')}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-full w-full">

@@ -15,6 +15,8 @@ import {
 } from './contract';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
+import { getAgentAccess } from '@/app/lib/agents/access';
+import { getAgentProfile } from '@/app/lib/agents/registry';
 
 export type MemoryTarget = MemoryScopeType;
 export type MemoryAction = 'read' | 'add' | 'update' | 'delete';
@@ -68,6 +70,29 @@ export type MemoryServiceScope = {
   organizationId?: string | null;
 };
 
+export type AgentMemoryOwnerStats = {
+  agentId: string;
+  agentExists: boolean;
+  collectionCount: number;
+  archivedCollectionCount: number;
+  entryCount: number;
+  updatedAt: number;
+};
+
+export type AgentMemoryExport = {
+  format: 'canvas-agent-memory-v1';
+  exportedAt: number;
+  agentId: string;
+  ownerStatus: 'active' | 'deleted';
+  collections: Array<{
+    id: string;
+    category: string;
+    title: string;
+    status: 'active' | 'archived';
+    entries: Array<MemoryEntry & { sensitivity: 'standard' | 'sensitive' }>;
+  }>;
+};
+
 type MemoryScopeAccessAction = 'read' | 'suggest' | 'publish' | 'update' | 'archive';
 
 const SECRET_PATTERNS = [
@@ -75,6 +100,172 @@ const SECRET_PATTERNS = [
   /\bsk-[A-Za-z0-9_-]{20,}\b/,
   /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/,
 ];
+
+/**
+ * Proves that an agent-memory owner is either currently usable by the user or
+ * is a deleted-agent tombstone backed by retained collections owned by them.
+ */
+export async function resolveAgentMemoryOwnerForUser(input: {
+  userId: string;
+  agentId: string;
+  allowDeleted: boolean;
+}): Promise<{ agentId: string; status: 'active' | 'deleted' }> {
+  const profile = await getAgentProfile(input.agentId);
+  if (profile) {
+    const access = await getAgentAccess(input.userId, profile.agentId);
+    if (!access.canUse) throw new Error(`Agent "${profile.agentId}" is not available to this user.`);
+    return { agentId: profile.agentId, status: 'active' };
+  }
+  if (input.allowDeleted) {
+    const connection = await openDb();
+    try {
+      const retained = await connection.get(`
+        SELECT id FROM memory_collections
+        WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+        LIMIT 1
+      `, [input.userId, input.agentId]) as { id?: string } | undefined;
+      if (retained?.id) return { agentId: input.agentId, status: 'deleted' };
+    } finally {
+      await connection.close();
+    }
+  }
+  throw new Error(`Agent "${input.agentId}" was not found.`);
+}
+
+/** Returns counts for active and retained deleted-agent memory owners. */
+export async function readAgentMemoryOwnerStats(userId: string): Promise<AgentMemoryOwnerStats[]> {
+  const connection = await openDb();
+  try {
+    const rows = await connection.all(`
+      SELECT collection.agent_id,
+        MAX(CASE WHEN agent.agent_id IS NULL THEN 0 ELSE 1 END) AS agent_exists,
+        COUNT(DISTINCT collection.id) AS collection_count,
+        COUNT(DISTINCT CASE WHEN collection.status = 'archived' THEN collection.id ELSE NULL END) AS archived_collection_count,
+        COUNT(entry.id) AS entry_count,
+        MAX(collection.updated_at) AS updated_at
+      FROM memory_collections collection
+      LEFT JOIN agents agent ON agent.agent_id = collection.agent_id
+      LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
+      WHERE collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id IS NOT NULL
+      GROUP BY collection.agent_id
+      ORDER BY MAX(collection.updated_at) DESC, collection.agent_id ASC
+    `, [userId]) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      agentId: String(row.agent_id),
+      agentExists: Number(row.agent_exists ?? 0) > 0,
+      collectionCount: Number(row.collection_count ?? 0),
+      archivedCollectionCount: Number(row.archived_collection_count ?? 0),
+      entryCount: Number(row.entry_count ?? 0),
+      updatedAt: Number(row.updated_at ?? 0),
+    }));
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function exportAgentMemory(userId: string, agentId: string): Promise<AgentMemoryExport> {
+  const owner = await resolveAgentMemoryOwnerForUser({ userId, agentId, allowDeleted: true });
+  const connection = await openDb();
+  try {
+    const collections = await connection.all(`
+      SELECT id, category, title, status FROM memory_collections
+      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+      ORDER BY updated_at DESC, id ASC
+    `, [userId, owner.agentId]) as Array<Record<string, unknown>>;
+    const result: AgentMemoryExport['collections'] = [];
+    for (const collection of collections) {
+      const rows = await connection.all(`
+        SELECT id, content, status, priority, pinned, collection_id, semantic_key,
+          sensitivity, updated_at, last_used_at
+        FROM memory_entries WHERE collection_id = ?
+        ORDER BY pinned DESC, priority DESC, updated_at DESC, id ASC
+      `, [collection.id]) as Array<Record<string, unknown>>;
+      result.push({
+        id: String(collection.id),
+        category: String(collection.category),
+        title: String(collection.title),
+        status: collection.status === 'archived' ? 'archived' : 'active',
+        entries: rows.map((row) => ({
+          ...toEntry(row),
+          sensitivity: row.sensitivity === 'sensitive' ? 'sensitive' : 'standard',
+        })),
+      });
+    }
+    return {
+      format: 'canvas-agent-memory-v1',
+      exportedAt: Date.now(),
+      agentId: owner.agentId,
+      ownerStatus: owner.status,
+      collections: result,
+    };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function setAgentMemoryArchived(input: {
+  userId: string;
+  agentId: string;
+  archived: boolean;
+}): Promise<{ collections: number; archived: boolean }> {
+  const owner = await resolveAgentMemoryOwnerForUser({ ...input, allowDeleted: true });
+  const connection = await openDb();
+  try {
+    const result = await connection.run(`
+      UPDATE memory_collections SET status = ?, revision = revision + 1, updated_at = ?
+      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ? AND status != ?
+    `, [input.archived ? 'archived' : 'active', Date.now(), input.userId, owner.agentId, input.archived ? 'archived' : 'active']) as { changes?: number };
+    return { collections: Number(result.changes ?? 0), archived: input.archived };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function transferAgentMemory(input: {
+  userId: string;
+  sourceAgentId: string;
+  targetAgentId: string;
+}): Promise<{ collections: number; entries: number }> {
+  const source = await resolveAgentMemoryOwnerForUser({ userId: input.userId, agentId: input.sourceAgentId, allowDeleted: true });
+  const target = await resolveAgentMemoryOwnerForUser({ userId: input.userId, agentId: input.targetAgentId, allowDeleted: false });
+  if (source.agentId === target.agentId) throw new Error('Choose a different target agent for the transfer.');
+  const connection = await openDb();
+  try {
+    const counts = await connection.get(`
+      SELECT COUNT(DISTINCT collection.id) AS collections, COUNT(entry.id) AS entries
+      FROM memory_collections collection
+      LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
+      WHERE collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id = ?
+    `, [input.userId, source.agentId]) as Record<string, unknown> | undefined;
+    await connection.run(`
+      UPDATE memory_collections SET agent_id = ?, revision = revision + 1, updated_at = ?
+      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+    `, [target.agentId, Date.now(), input.userId, source.agentId]);
+    return { collections: Number(counts?.collections ?? 0), entries: Number(counts?.entries ?? 0) };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function deleteAgentMemory(userId: string, agentId: string): Promise<{ collections: number; entries: number }> {
+  const owner = await resolveAgentMemoryOwnerForUser({ userId, agentId, allowDeleted: true });
+  const connection = await openDb();
+  try {
+    const counts = await connection.get(`
+      SELECT COUNT(DISTINCT collection.id) AS collections, COUNT(entry.id) AS entries
+      FROM memory_collections collection
+      LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
+      WHERE collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id = ?
+    `, [userId, owner.agentId]) as Record<string, unknown> | undefined;
+    await connection.run(`
+      DELETE FROM memory_collections
+      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+    `, [userId, owner.agentId]);
+    return { collections: Number(counts?.collections ?? 0), entries: Number(counts?.entries ?? 0) };
+  } finally {
+    await connection.close();
+  }
+}
 
 function normalizedContent(content: string): string {
   return content.replace(/\s+/g, ' ').trim();
@@ -557,6 +748,80 @@ export type MemoryReviewScheduleResult = {
   throughMessageSequence: number;
 };
 
+export type MemoryReviewSettingsUpdate = {
+  automaticMemoryEnabled: boolean;
+  providerInstallationId: string | null;
+  modelId: string | null;
+  memoryPromptMaxTokens: number;
+  sensitiveMemoryEnabled: boolean;
+};
+
+/**
+ * Persists the reviewer configuration and reconciles parked jobs in the same
+ * database transaction. A newly valid configuration makes every parked review
+ * immediately due; disabling it parks all unclaimed work without losing it.
+ */
+export async function updateMemoryReviewSettings(
+  userId: string,
+  settings: MemoryReviewSettingsUpdate,
+  now = Date.now(),
+): Promise<{ reactivatedJobs: number; parkedJobs: number }> {
+  const connection = await openDb();
+  try {
+    await connection.run('BEGIN');
+    try {
+      await connection.run(`
+        INSERT INTO memory_user_settings (
+          user_id, automatic_memory_enabled, provider_installation_id, model_id,
+          memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+          automatic_memory_enabled = excluded.automatic_memory_enabled,
+          provider_installation_id = excluded.provider_installation_id,
+          model_id = excluded.model_id,
+          memory_prompt_max_tokens = excluded.memory_prompt_max_tokens,
+          sensitive_memory_enabled = excluded.sensitive_memory_enabled,
+          updated_at = excluded.updated_at
+      `, [
+        userId,
+        settings.automaticMemoryEnabled ? 1 : 0,
+        settings.providerInstallationId,
+        settings.modelId,
+        settings.memoryPromptMaxTokens,
+        settings.sensitiveMemoryEnabled ? 1 : 0,
+        now,
+        now,
+      ]);
+
+      let reactivatedJobs = 0;
+      let parkedJobs = 0;
+      if (settings.automaticMemoryEnabled && settings.providerInstallationId && settings.modelId) {
+        const result = await connection.run(`
+          UPDATE memory_review_jobs
+          SET status = 'scheduled', scheduled_for = ?, lease_until = NULL, error_code = NULL
+          WHERE user_id = ? AND status = 'awaiting_model_configuration'
+        `, [now, userId]) as { changes?: number };
+        reactivatedJobs = Number(result.changes ?? 0);
+      } else {
+        const errorCode = settings.automaticMemoryEnabled ? 'model_not_configured' : 'automatic_memory_disabled';
+        const result = await connection.run(`
+          UPDATE memory_review_jobs
+          SET status = 'awaiting_model_configuration', scheduled_for = NULL, lease_until = NULL, error_code = ?
+          WHERE user_id = ? AND status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration')
+        `, [errorCode, userId]) as { changes?: number };
+        parkedJobs = Number(result.changes ?? 0);
+      }
+      await connection.run('COMMIT');
+      return { reactivatedJobs, parkedJobs };
+    } catch (error) {
+      await connection.run('ROLLBACK');
+      throw error;
+    }
+  } finally {
+    await connection.close();
+  }
+}
+
 /**
  * Creates or moves the single unstarted review range for a session. The worker
  * later claims this durable snapshot; the active chat never awaits model work.
@@ -570,6 +835,13 @@ export async function scheduleMemoryReviewForSession(params: {
   try {
     const session = await connection.get(`SELECT id FROM pi_sessions WHERE user_id = ? AND session_id = ? LIMIT 1`, [params.userId, params.sessionId]) as { id?: number } | undefined;
     if (!session?.id) return null;
+    const reviewSettings = await connection.get(`
+      SELECT automatic_memory_enabled
+      FROM memory_user_settings
+      WHERE user_id = ?
+      LIMIT 1
+    `, [params.userId]) as { automatic_memory_enabled?: number | boolean } | undefined;
+    const automaticMemoryDisabled = reviewSettings?.automatic_memory_enabled === false || reviewSettings?.automatic_memory_enabled === 0;
     const completed = await connection.get(`
       SELECT COALESCE(MAX(through_message_sequence), 0) AS sequence
       FROM memory_review_jobs
@@ -619,20 +891,40 @@ export async function scheduleMemoryReviewForSession(params: {
       ORDER BY created_at ASC LIMIT 1
     `, [params.userId, params.sessionId, fromMessageSequence]) as { id?: string } | undefined;
     if (existing?.id) {
-      await connection.run(`
-        UPDATE memory_review_jobs
-        SET through_message_sequence = ?, trigger_type = ?, scheduled_for = ?, status = 'scheduled', lease_until = NULL, error_code = NULL
-        WHERE id = ?
-      `, [throughMessageSequence, triggerType, scheduledFor, existing.id]);
+      if (automaticMemoryDisabled) {
+        await connection.run(`
+          UPDATE memory_review_jobs
+          SET through_message_sequence = ?, trigger_type = ?, scheduled_for = NULL,
+              status = 'awaiting_model_configuration', lease_until = NULL, error_code = 'automatic_memory_disabled'
+          WHERE id = ?
+        `, [throughMessageSequence, triggerType, existing.id]);
+      } else {
+        await connection.run(`
+          UPDATE memory_review_jobs
+          SET through_message_sequence = ?, trigger_type = ?, scheduled_for = ?, status = 'scheduled', lease_until = NULL, error_code = NULL
+          WHERE id = ?
+        `, [throughMessageSequence, triggerType, scheduledFor, existing.id]);
+      }
     } else {
       await connection.run(`
         INSERT INTO memory_review_jobs (
           id, user_id, session_id, from_message_sequence, through_message_sequence,
-          trigger_type, scheduled_for, status, attempts, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', 0, ?)
-      `, [randomUUID(), params.userId, params.sessionId, fromMessageSequence, throughMessageSequence, triggerType, scheduledFor, now]);
+          trigger_type, scheduled_for, status, attempts, error_code, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+      `, [
+        randomUUID(),
+        params.userId,
+        params.sessionId,
+        fromMessageSequence,
+        throughMessageSequence,
+        triggerType,
+        automaticMemoryDisabled ? null : scheduledFor,
+        automaticMemoryDisabled ? 'awaiting_model_configuration' : 'scheduled',
+        automaticMemoryDisabled ? 'automatic_memory_disabled' : null,
+        now,
+      ]);
     }
-    return { scheduled: true, triggerType, fromMessageSequence, throughMessageSequence };
+    return { scheduled: !automaticMemoryDisabled, triggerType, fromMessageSequence, throughMessageSequence };
   } finally { await connection.close(); }
 }
 
@@ -661,8 +953,8 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
         session.agent_id
       FROM memory_review_jobs job
       INNER JOIN pi_sessions session ON session.user_id = job.user_id AND session.session_id = job.session_id
-      WHERE job.status IN ('scheduled', 'retry_wait', 'awaiting_model_configuration')
-        AND (scheduled_for IS NULL OR scheduled_for <= ?)
+      WHERE job.status IN ('scheduled', 'retry_wait')
+        AND scheduled_for <= ?
       ORDER BY job.scheduled_for ASC, job.created_at ASC
       LIMIT 1
     `, [now]) as Record<string, unknown> | undefined;
@@ -687,7 +979,7 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
     const changes = await connection.run(`
       UPDATE memory_review_jobs
       SET status = 'running', attempts = attempts + 1, started_at = ?, lease_until = ?
-      WHERE id = ? AND status IN ('scheduled', 'retry_wait', 'awaiting_model_configuration')
+      WHERE id = ? AND status IN ('scheduled', 'retry_wait')
     `, [now, now + 5 * 60 * 1000, candidate.id]) as { changes?: number };
     if (!changes.changes) return null;
     return {
