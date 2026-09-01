@@ -3,9 +3,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
-const ADMIN_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
-const ADMIN_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 const WORKSPACE_ID_HEADER = 'x-canvas-workspace-id';
+
+function requireBootstrapCredential(name: 'BOOTSTRAP_ADMIN_EMAIL' | 'BOOTSTRAP_ADMIN_PASSWORD') {
+  const value = process.env[name];
+  if (!value?.trim()) {
+    throw new Error(`${name} must be configured for the Markdown email Playwright test.`);
+  }
+  return value;
+}
+
+const ADMIN_EMAIL = requireBootstrapCredential('BOOTSTRAP_ADMIN_EMAIL');
+const ADMIN_PASSWORD = requireBootstrapCredential('BOOTSTRAP_ADMIN_PASSWORD');
 const FIXTURE = fs.readFileSync(
   path.join(process.cwd(), 'tests', 'fixtures', 'markdown-roundtrip', 'koenenstrasse-email-roundtrip.md'),
   'utf8',
