@@ -20,6 +20,7 @@ import {
 import { loadCollaborationState } from './persistence';
 import {
   createRichMarkdownYDoc,
+  replaceRichMarkdownInYDoc,
   richMarkdownFromYDoc,
   validateRichMarkdownYDoc,
 } from './markdown-state';
@@ -474,20 +475,7 @@ function replaceRichMarkdownDocument(
     if (!validation.valid || validation.markdown !== markdown) {
       return validation.code || 'roundtrip_unstable';
     }
-    const nextFrontmatter = fresh.getText('frontmatter').toString();
-    const nextBody = fresh.getXmlFragment('body').toArray()
-      .filter((node): node is YTypes.XmlElement | YTypes.XmlText => (
-        node instanceof Y.XmlElement || node instanceof Y.XmlText
-      ))
-      .map((node) => node.clone());
-    doc.transact(() => {
-      const frontmatter = doc.getText('frontmatter');
-      if (frontmatter.length > 0) frontmatter.delete(0, frontmatter.length);
-      if (nextFrontmatter) frontmatter.insert(0, nextFrontmatter);
-      const body = doc.getXmlFragment('body');
-      if (body.length > 0) body.delete(0, body.length);
-      if (nextBody.length > 0) body.insert(0, nextBody);
-    }, origin);
+    replaceRichMarkdownInYDoc(doc, markdown, origin);
     return null;
   } finally {
     fresh.destroy();

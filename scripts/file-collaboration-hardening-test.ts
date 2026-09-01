@@ -10,9 +10,11 @@ import {
 } from '../app/lib/collaboration/agent-operations';
 import {
   createRichMarkdownYDoc,
+  replaceRichMarkdownInYDoc,
   richMarkdownFromYDoc,
   validateRichMarkdownYDoc,
 } from '../app/lib/collaboration/markdown-state';
+import { TiptapTransformer } from '../app/lib/collaboration/server-runtime';
 import { readCollaborationOperationIdempotencyKey } from '../app/lib/collaboration/operation-route';
 import { isCollaborationWebSocketRequest } from '../server/collaboration-server';
 
@@ -114,7 +116,78 @@ assert.throws(
   'structural review patches must never enter the direct text-target path',
 );
 
-unicodeDoc.destroy(); duplicateDoc.destroy(); richDoc.destroy(); invalidRichDoc.destroy();
+type RichJsonNode = {
+  attrs?: { id?: unknown };
+  content?: RichJsonNode[];
+  text?: string;
+};
+
+function richJsonText(node: RichJsonNode): string {
+  return typeof node.text === 'string'
+    ? node.text
+    : (node.content || []).map(richJsonText).join('');
+}
+
+function richTopLevelBlocks(doc: Y.Doc): Array<{ id: string; text: string }> {
+  const json = TiptapTransformer.fromYdoc(doc, 'body') as RichJsonNode;
+  return (json.content || []).map((node) => ({
+    id: typeof node.attrs?.id === 'string' ? node.attrs.id : '',
+    text: richJsonText(node),
+  }));
+}
+
+const structuralDoc = createRichMarkdownYDoc(
+  '# Stable heading\n\nEditable paragraph.\n\nUntouched paragraph.\n',
+);
+const anchoredUntouchedTarget = createRichAgentTextTargets({
+  doc: structuralDoc,
+  search: 'Untouched',
+  replacement: 'Anchored',
+});
+const blocksBeforeStructuralEdit = richTopLevelBlocks(structuralDoc);
+replaceRichMarkdownInYDoc(
+  structuralDoc,
+  '# Stable heading\n\nInserted paragraph.\n\nEditable paragraph changed.\n\nUntouched paragraph.\n',
+  { actorType: 'agent', actorId: 'structural-agent' },
+);
+const blocksAfterStructuralEdit = richTopLevelBlocks(structuralDoc);
+for (const [beforeText, afterText] of [
+  ['Stable heading', 'Stable heading'],
+  ['Editable paragraph.', 'Editable paragraph changed.'],
+  ['Untouched paragraph.', 'Untouched paragraph.'],
+] as const) {
+  assert.equal(
+    blocksAfterStructuralEdit.find((block) => block.text === afterText)?.id,
+    blocksBeforeStructuralEdit.find((block) => block.text === beforeText)?.id,
+    `a structurally corresponding ${beforeText} block must retain its stable ID`,
+  );
+}
+assert.equal(
+  blocksBeforeStructuralEdit.some((block) => (
+    block.id === blocksAfterStructuralEdit.find((candidate) => candidate.text === 'Inserted paragraph.')?.id
+  )),
+  false,
+  'a newly inserted rich block must receive a fresh stable ID',
+);
+const anchoredAfterStructuralEdit = applyAgentTextTargets({
+  doc: structuralDoc,
+  targets: anchoredUntouchedTarget,
+  validateClone: (clone) => validateRichMarkdownYDoc(clone).valid ? null : 'schema_invalid',
+  origin: {
+    actorType: 'agent',
+    actorId: 'anchored-agent',
+    initiatedByUserId: 'user',
+    operationId: 'anchored-after-structural-edit',
+  },
+});
+assert.equal(
+  anchoredAfterStructuralEdit.status,
+  'applied_to_ydoc',
+  'an agent RelativePosition in an untouched rich block must survive a structural review edit',
+);
+assert.match(richMarkdownFromYDoc(structuralDoc), /Anchored paragraph\./u);
+
+unicodeDoc.destroy(); duplicateDoc.destroy(); richDoc.destroy(); invalidRichDoc.destroy(); structuralDoc.destroy();
 
 async function assertOperationBodyHardening(): Promise<void> {
   const empty = await readCollaborationOperationIdempotencyKey(
