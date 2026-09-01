@@ -13,6 +13,7 @@ import {
 } from '@/app/lib/license/seat-limit';
 import { createMobileBootstrap } from '@/app/lib/mobile/bootstrap';
 import { createMobileCompatibility } from '@/app/lib/mobile/compatibility';
+import { resolveMobileUserProfile } from '@/app/lib/mobile/user-profile';
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
 import { getDeploymentMode } from '@/app/lib/organization/bootstrap';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
@@ -52,9 +53,14 @@ export async function GET(request: Request) {
       serverVersion: getCurrentAppVersion(),
       deploymentMode: getDeploymentMode(),
     });
+    const profile = await resolveMobileUserProfile({
+      userId: session.user.id,
+      name: session.user.name,
+      email: session.user.email,
+    });
 
     return NextResponse.json(
-      createMobileBootstrap({ compatibility, request, user: session.user, listing }),
+      createMobileBootstrap({ compatibility, request, user: session.user, profile, listing }),
       { headers: responseHeaders },
     );
   } catch (error) {

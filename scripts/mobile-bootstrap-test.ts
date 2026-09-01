@@ -62,6 +62,14 @@ const bootstrap = createMobileBootstrap({
     image: '/api/account/profile/avatar?v=3',
     role: 'admin',
   },
+  profile: {
+    name: 'Mobile User',
+    avatarKind: 'icon',
+    iconId: 'rocket',
+    initials: 'MU',
+    imagePath: null,
+    revision: 3,
+  },
   listing,
 });
 
@@ -72,6 +80,9 @@ assert.equal(
 );
 assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'account.preferences',
+  'account.profile.read',
+  'account.profile.update',
+  'account.profile.avatar',
   'workspace.read',
   'workspace.switch',
   'workspace.update',
@@ -148,6 +159,14 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'integrations.composio_mobile_auth',
   'workspace.create',
 ]);
+assert.deepEqual(bootstrap.user.profile, {
+  name: 'Mobile User',
+  avatarKind: 'icon',
+  iconId: 'rocket',
+  initials: 'MU',
+  imagePath: null,
+  revision: 3,
+});
 assert.equal(bootstrap.user.role, 'admin');
 assert.equal(bootstrap.workspace.activeWorkspaceId, workspace.workspaceId);
 assert.equal(bootstrap.workspace.items[0]?.access, 'manage');
