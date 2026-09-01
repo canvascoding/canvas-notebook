@@ -33,24 +33,30 @@ async function main(): Promise<void> {
       applyMemoryReviewCandidates,
       claimDueMemoryReviewJob,
       completeMemoryReviewJob,
+      deleteAgentMemory,
       deletePersonalMemory,
       deleteMemory,
+      exportAgentMemory,
       importPersonalMemory,
       listMemoryCollections,
       publishMemory,
       readMemory,
+      readAgentMemoryOwnerStats,
       readMemoryCollection,
       readMemoryReviewContext,
+      resolveAgentMemoryOwnerForUser,
       restoreMemory,
       runMemoryMaintenanceCycle,
       scheduleMemoryReviewForSession,
+      setAgentMemoryArchived,
+      transferAgentMemory,
       updateMemoryReviewSettings,
       updateMemory,
     } = await import('../app/lib/memory/service');
     const { buildMemoryPromptProjection } = await import('../app/lib/memory/prompt-projection');
     const { ensureLegacyMemoryMigrated } = await import('../app/lib/memory/legacy-migration');
     const { writeManagedAgentFile } = await import('../app/lib/agents/storage');
-    const { createAgentProfile, ensureMemoryManagerAgent } = await import('../app/lib/agents/registry');
+    const { createAgentProfile, deleteAgentProfile, ensureMemoryManagerAgent } = await import('../app/lib/agents/registry');
     const memoryManager = await ensureMemoryManagerAgent();
     assert.equal(memoryManager.agentId, 'memory-manager');
     assert.equal(memoryManager.type, 'system-worker');
@@ -122,6 +128,38 @@ async function main(): Promise<void> {
     assert.equal((await readMemory(scope)).entries.length, 2);
     await assert.rejects(() => addMemory({ ...scope, content: 'x'.repeat(801) }), /800 characters/);
     await assert.rejects(() => addMemory({ ...scope, content: 'API_KEY=secret-value' }), /secret or credential/);
+
+    await createAgentProfile({ name: 'Research Agent', agentId: 'research-agent', accessPolicy: 'restricted', ownerUserId: 'user-1' });
+    await createAgentProfile({ name: 'Writing Agent', agentId: 'writing-agent', accessPolicy: 'restricted', ownerUserId: 'user-1' });
+    const researchScope = { target: 'agent' as const, userId: 'user-1', agentId: 'research-agent' };
+    const writingScope = { target: 'agent' as const, userId: 'user-1', agentId: 'writing-agent' };
+    await addMemory({ ...researchScope, content: 'Research sources must include publication dates.' });
+    await addMemory({ ...writingScope, content: 'Writing should use short section headings.' });
+    assert.deepEqual((await readMemory(researchScope)).entries.map((entry) => entry.content), ['Research sources must include publication dates.']);
+    assert.deepEqual((await readMemory(writingScope)).entries.map((entry) => entry.content), ['Writing should use short section headings.']);
+    assert.deepEqual(await setAgentMemoryArchived({ userId: 'user-1', agentId: 'research-agent', archived: true }), { collections: 1, archived: true });
+    assert.deepEqual((await readMemory(researchScope)).entries, []);
+    assert.deepEqual(await setAgentMemoryArchived({ userId: 'user-1', agentId: 'research-agent', archived: false }), { collections: 1, archived: false });
+    await deleteAgentProfile('research-agent');
+    assert.deepEqual(
+      await resolveAgentMemoryOwnerForUser({ userId: 'user-1', agentId: 'research-agent', allowDeleted: true }),
+      { agentId: 'research-agent', status: 'deleted' },
+    );
+    await assert.rejects(
+      () => resolveAgentMemoryOwnerForUser({ userId: 'user-1', agentId: 'research-agent', allowDeleted: false }),
+      /was not found/,
+    );
+    const exportedResearch = await exportAgentMemory('user-1', 'research-agent');
+    assert.equal(exportedResearch.ownerStatus, 'deleted');
+    assert.equal(exportedResearch.collections[0]?.entries[0]?.content, 'Research sources must include publication dates.');
+    assert.equal((await readAgentMemoryOwnerStats('user-1')).find((owner) => owner.agentId === 'research-agent')?.agentExists, false);
+    assert.deepEqual(await transferAgentMemory({ userId: 'user-1', sourceAgentId: 'research-agent', targetAgentId: 'writing-agent' }), { collections: 1, entries: 1 });
+    assert.deepEqual(
+      new Set((await readMemory(writingScope)).entries.map((entry) => entry.content)),
+      new Set(['Writing should use short section headings.', 'Research sources must include publication dates.']),
+    );
+    assert.deepEqual(await deleteAgentMemory('user-1', 'writing-agent'), { collections: 2, entries: 2 });
+    assert.deepEqual((await readMemory(writingScope)).entries, []);
 
     const sessionDb = await openDb();
     try {

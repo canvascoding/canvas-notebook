@@ -832,17 +832,26 @@ export async function previewManagedAgentDeletion(actor: AgentManagementActor, a
   }
   const database = await openDb();
   try {
-    const [sessions, members, grants, bindings] = await Promise.all([
+    const [sessions, members, grants, bindings, memoryCollections, memoryEntries] = await Promise.all([
       database.get(`SELECT COUNT(*) AS count FROM pi_sessions WHERE agent_id = ?`, [profile.agentId]),
       database.get(`SELECT COUNT(*) AS count FROM agent_members WHERE agent_id = ?`, [profile.agentId]),
       database.get(`SELECT COUNT(*) AS count FROM agent_grants WHERE agent_id = ?`, [profile.agentId]),
       database.get(`SELECT COUNT(*) AS count FROM agent_capability_bindings WHERE agent_id = ?`, [profile.agentId]),
+      database.get(`SELECT COUNT(*) AS count FROM memory_collections WHERE scope_type = 'agent' AND agent_id = ?`, [profile.agentId]),
+      database.get(`
+        SELECT COUNT(entry.id) AS count FROM memory_entries entry
+        INNER JOIN memory_collections collection ON collection.id = entry.collection_id
+        WHERE collection.scope_type = 'agent' AND collection.agent_id = ?
+      `, [profile.agentId]),
     ]) as Array<{ count?: number | string }>;
     const impacts = {
       sessions: Number(sessions?.count || 0),
       members: Number(members?.count || 0),
       grants: Number(grants?.count || 0),
       capabilityBindings: Number(bindings?.count || 0),
+      memoryCollections: Number(memoryCollections?.count || 0),
+      memoryEntries: Number(memoryEntries?.count || 0),
+      memoryPolicy: 'retained' as const,
       managedFiles: AGENT_MANAGED_FILE_NAMES.filter((fileName) => isWritableManagedAgentFileName(fileName, profile.agentId)),
     };
     return {

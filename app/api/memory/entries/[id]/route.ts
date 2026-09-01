@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { deleteMemory, publishMemory, readMemoryEntryHistory, restoreMemory, updateMemory } from '@/app/lib/memory/service';
+import { resolveAgentMemoryOwnerForUser } from '@/app/lib/memory/service';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 
@@ -12,7 +13,13 @@ function normalizedString(value: unknown): string | null {
 async function scopeFromPayload(request: NextRequest, userId: string, payload: Record<string, unknown>) {
   const target = normalizedString(payload.scope) ?? 'user';
   if (target === 'user') return { target: 'user' as const, userId };
-  if (target === 'agent') return { target: 'agent' as const, userId, agentId: normalizeManagedAgentId(normalizedString(payload.agentId)) };
+  if (target === 'agent') {
+    const agentId = normalizedString(payload.agentId);
+    if (!agentId) throw new Error('agentId is required for agent memory.');
+    const normalizedAgentId = normalizeManagedAgentId(agentId);
+    await resolveAgentMemoryOwnerForUser({ userId, agentId: normalizedAgentId, allowDeleted: true });
+    return { target: 'agent' as const, userId, agentId: normalizedAgentId };
+  }
   if (target === 'workspace') {
     const workspaceId = normalizedString(payload.workspaceId);
     if (!workspaceId) throw new Error('workspaceId is required for workspace memory.');

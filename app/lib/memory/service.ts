@@ -15,6 +15,8 @@ import {
 } from './contract';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
+import { getAgentAccess } from '@/app/lib/agents/access';
+import { getAgentProfile } from '@/app/lib/agents/registry';
 
 export type MemoryTarget = MemoryScopeType;
 export type MemoryAction = 'read' | 'add' | 'update' | 'delete';
@@ -68,6 +70,29 @@ export type MemoryServiceScope = {
   organizationId?: string | null;
 };
 
+export type AgentMemoryOwnerStats = {
+  agentId: string;
+  agentExists: boolean;
+  collectionCount: number;
+  archivedCollectionCount: number;
+  entryCount: number;
+  updatedAt: number;
+};
+
+export type AgentMemoryExport = {
+  format: 'canvas-agent-memory-v1';
+  exportedAt: number;
+  agentId: string;
+  ownerStatus: 'active' | 'deleted';
+  collections: Array<{
+    id: string;
+    category: string;
+    title: string;
+    status: 'active' | 'archived';
+    entries: Array<MemoryEntry & { sensitivity: 'standard' | 'sensitive' }>;
+  }>;
+};
+
 type MemoryScopeAccessAction = 'read' | 'suggest' | 'publish' | 'update' | 'archive';
 
 const SECRET_PATTERNS = [
@@ -75,6 +100,172 @@ const SECRET_PATTERNS = [
   /\bsk-[A-Za-z0-9_-]{20,}\b/,
   /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/,
 ];
+
+/**
+ * Proves that an agent-memory owner is either currently usable by the user or
+ * is a deleted-agent tombstone backed by retained collections owned by them.
+ */
+export async function resolveAgentMemoryOwnerForUser(input: {
+  userId: string;
+  agentId: string;
+  allowDeleted: boolean;
+}): Promise<{ agentId: string; status: 'active' | 'deleted' }> {
+  const profile = await getAgentProfile(input.agentId);
+  if (profile) {
+    const access = await getAgentAccess(input.userId, profile.agentId);
+    if (!access.canUse) throw new Error(`Agent "${profile.agentId}" is not available to this user.`);
+    return { agentId: profile.agentId, status: 'active' };
+  }
+  if (input.allowDeleted) {
+    const connection = await openDb();
+    try {
+      const retained = await connection.get(`
+        SELECT id FROM memory_collections
+        WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+        LIMIT 1
+      `, [input.userId, input.agentId]) as { id?: string } | undefined;
+      if (retained?.id) return { agentId: input.agentId, status: 'deleted' };
+    } finally {
+      await connection.close();
+    }
+  }
+  throw new Error(`Agent "${input.agentId}" was not found.`);
+}
+
+/** Returns counts for active and retained deleted-agent memory owners. */
+export async function readAgentMemoryOwnerStats(userId: string): Promise<AgentMemoryOwnerStats[]> {
+  const connection = await openDb();
+  try {
+    const rows = await connection.all(`
+      SELECT collection.agent_id,
+        MAX(CASE WHEN agent.agent_id IS NULL THEN 0 ELSE 1 END) AS agent_exists,
+        COUNT(DISTINCT collection.id) AS collection_count,
+        COUNT(DISTINCT CASE WHEN collection.status = 'archived' THEN collection.id ELSE NULL END) AS archived_collection_count,
+        COUNT(entry.id) AS entry_count,
+        MAX(collection.updated_at) AS updated_at
+      FROM memory_collections collection
+      LEFT JOIN agents agent ON agent.agent_id = collection.agent_id
+      LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
+      WHERE collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id IS NOT NULL
+      GROUP BY collection.agent_id
+      ORDER BY MAX(collection.updated_at) DESC, collection.agent_id ASC
+    `, [userId]) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      agentId: String(row.agent_id),
+      agentExists: Number(row.agent_exists ?? 0) > 0,
+      collectionCount: Number(row.collection_count ?? 0),
+      archivedCollectionCount: Number(row.archived_collection_count ?? 0),
+      entryCount: Number(row.entry_count ?? 0),
+      updatedAt: Number(row.updated_at ?? 0),
+    }));
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function exportAgentMemory(userId: string, agentId: string): Promise<AgentMemoryExport> {
+  const owner = await resolveAgentMemoryOwnerForUser({ userId, agentId, allowDeleted: true });
+  const connection = await openDb();
+  try {
+    const collections = await connection.all(`
+      SELECT id, category, title, status FROM memory_collections
+      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+      ORDER BY updated_at DESC, id ASC
+    `, [userId, owner.agentId]) as Array<Record<string, unknown>>;
+    const result: AgentMemoryExport['collections'] = [];
+    for (const collection of collections) {
+      const rows = await connection.all(`
+        SELECT id, content, status, priority, pinned, collection_id, semantic_key,
+          sensitivity, updated_at, last_used_at
+        FROM memory_entries WHERE collection_id = ?
+        ORDER BY pinned DESC, priority DESC, updated_at DESC, id ASC
+      `, [collection.id]) as Array<Record<string, unknown>>;
+      result.push({
+        id: String(collection.id),
+        category: String(collection.category),
+        title: String(collection.title),
+        status: collection.status === 'archived' ? 'archived' : 'active',
+        entries: rows.map((row) => ({
+          ...toEntry(row),
+          sensitivity: row.sensitivity === 'sensitive' ? 'sensitive' : 'standard',
+        })),
+      });
+    }
+    return {
+      format: 'canvas-agent-memory-v1',
+      exportedAt: Date.now(),
+      agentId: owner.agentId,
+      ownerStatus: owner.status,
+      collections: result,
+    };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function setAgentMemoryArchived(input: {
+  userId: string;
+  agentId: string;
+  archived: boolean;
+}): Promise<{ collections: number; archived: boolean }> {
+  const owner = await resolveAgentMemoryOwnerForUser({ ...input, allowDeleted: true });
+  const connection = await openDb();
+  try {
+    const result = await connection.run(`
+      UPDATE memory_collections SET status = ?, revision = revision + 1, updated_at = ?
+      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ? AND status != ?
+    `, [input.archived ? 'archived' : 'active', Date.now(), input.userId, owner.agentId, input.archived ? 'archived' : 'active']) as { changes?: number };
+    return { collections: Number(result.changes ?? 0), archived: input.archived };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function transferAgentMemory(input: {
+  userId: string;
+  sourceAgentId: string;
+  targetAgentId: string;
+}): Promise<{ collections: number; entries: number }> {
+  const source = await resolveAgentMemoryOwnerForUser({ userId: input.userId, agentId: input.sourceAgentId, allowDeleted: true });
+  const target = await resolveAgentMemoryOwnerForUser({ userId: input.userId, agentId: input.targetAgentId, allowDeleted: false });
+  if (source.agentId === target.agentId) throw new Error('Choose a different target agent for the transfer.');
+  const connection = await openDb();
+  try {
+    const counts = await connection.get(`
+      SELECT COUNT(DISTINCT collection.id) AS collections, COUNT(entry.id) AS entries
+      FROM memory_collections collection
+      LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
+      WHERE collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id = ?
+    `, [input.userId, source.agentId]) as Record<string, unknown> | undefined;
+    await connection.run(`
+      UPDATE memory_collections SET agent_id = ?, revision = revision + 1, updated_at = ?
+      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+    `, [target.agentId, Date.now(), input.userId, source.agentId]);
+    return { collections: Number(counts?.collections ?? 0), entries: Number(counts?.entries ?? 0) };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function deleteAgentMemory(userId: string, agentId: string): Promise<{ collections: number; entries: number }> {
+  const owner = await resolveAgentMemoryOwnerForUser({ userId, agentId, allowDeleted: true });
+  const connection = await openDb();
+  try {
+    const counts = await connection.get(`
+      SELECT COUNT(DISTINCT collection.id) AS collections, COUNT(entry.id) AS entries
+      FROM memory_collections collection
+      LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
+      WHERE collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id = ?
+    `, [userId, owner.agentId]) as Record<string, unknown> | undefined;
+    await connection.run(`
+      DELETE FROM memory_collections
+      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+    `, [userId, owner.agentId]);
+    return { collections: Number(counts?.collections ?? 0), entries: Number(counts?.entries ?? 0) };
+  } finally {
+    await connection.close();
+  }
+}
 
 function normalizedContent(content: string): string {
   return content.replace(/\s+/g, ' ').trim();

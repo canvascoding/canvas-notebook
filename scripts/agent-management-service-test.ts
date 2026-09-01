@@ -58,6 +58,7 @@ async function main() {
   const { listAgentGrantTargets } = await import('../app/lib/agents/grants');
   const { AgentRevisionConflictError } = await import('../app/lib/agents/registry');
   const { getAgentAccess } = await import('../app/lib/agents/access');
+  const { addMemory, exportAgentMemory } = await import('../app/lib/memory/service');
 
   const owner = await createInitialOwner({
     name: 'Agent Management Owner',
@@ -313,8 +314,18 @@ async function main() {
   });
   assert.equal(readFileSync(definitionPath, 'utf8').trim(), '# Updated organization marketing instructions');
 
+  await addMemory({
+    target: 'agent',
+    userId: owner.id,
+    agentId: organizationAgent.agent.agentId,
+    content: 'Keep the retained campaign vocabulary after agent deletion.',
+  });
+
   const preview = await previewManagedAgentDeletion(ownerActor, organizationAgent.agent.agentId);
   assert.equal(preview.impacts.grants, 1);
+  assert.equal(preview.impacts.memoryCollections, 1);
+  assert.equal(preview.impacts.memoryEntries, 1);
+  assert.equal(preview.impacts.memoryPolicy, 'retained');
   assert.equal(preview.agent.revision, fileUpdate.agent.revision);
   await assert.rejects(
     () => deleteManagedAgent({
@@ -332,6 +343,9 @@ async function main() {
     confirmationToken: preview.confirmationToken,
   });
   assert.equal(existsSync(path.dirname(path.dirname(definitionPath))), false);
+  const retainedMemory = await exportAgentMemory(owner.id, organizationAgent.agent.agentId);
+  assert.equal(retainedMemory.ownerStatus, 'deleted');
+  assert.equal(retainedMemory.collections[0]?.entries.length, 1);
 
   const personalPreview = await previewManagedAgentDeletion(memberActor, personal.agent.agentId);
   await deleteManagedAgent({

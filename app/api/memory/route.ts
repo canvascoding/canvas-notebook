@@ -6,16 +6,23 @@ import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-st
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import {
   addMemory,
+  deleteAgentMemory,
   deletePersonalMemory,
+  exportAgentMemory,
   importPersonalMemory,
   listMemoryCollections,
+  readAgentMemoryOwnerStats,
   readMemoryCollection,
+  resolveAgentMemoryOwnerForUser,
   resolveMemoryScopeAccess,
+  setAgentMemoryArchived,
+  transferAgentMemory,
   updateMemoryReviewSettings,
   type MemoryServiceScope,
 } from '@/app/lib/memory/service';
 import type { MemoryScopeType } from '@/app/lib/memory/contract';
 import { ensureMemoryManagerAgent, normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { listManagedAgents } from '@/app/lib/agents/management-actions';
 
 const MAX_MEMORY_PROMPT_TOKENS = 4_000;
 
@@ -40,7 +47,9 @@ async function scopeFromRequest(
     throw new Error('scope must be user, agent, workspace, or organization.');
   }
   if (target === 'agent') {
-    return { target, userId, agentId: normalizeManagedAgentId(value('agentId')) };
+    const agentId = value('agentId');
+    if (!agentId) throw new Error('agentId is required for agent memory.');
+    return { target, userId, agentId: normalizeManagedAgentId(agentId) };
   }
   if (target === 'workspace') {
     const workspaceId = value('workspaceId');
@@ -135,7 +144,46 @@ export async function GET(request: NextRequest) {
     if (request.nextUrl.searchParams.get('settings') === '1') {
       return NextResponse.json({ success: true, data: await memorySettings(session.user.id) });
     }
+    if (request.nextUrl.searchParams.get('owners') === '1') {
+      const [agents, stats] = await Promise.all([
+        listManagedAgents({ userId: session.user.id, sessionId: session.session.id, source: 'ui' }),
+        readAgentMemoryOwnerStats(session.user.id),
+      ]);
+      const statsByAgentId = new Map(stats.map((entry) => [entry.agentId, entry]));
+      const activeAgentIds = new Set(agents.map((agent) => agent.agentId));
+      const owners = [
+        ...agents.map((agent) => ({
+          agentId: agent.agentId,
+          name: agent.name,
+          iconId: agent.iconId,
+          scopeType: agent.scopeType,
+          status: 'active' as const,
+          collectionCount: statsByAgentId.get(agent.agentId)?.collectionCount ?? 0,
+          archivedCollectionCount: statsByAgentId.get(agent.agentId)?.archivedCollectionCount ?? 0,
+          entryCount: statsByAgentId.get(agent.agentId)?.entryCount ?? 0,
+          updatedAt: statsByAgentId.get(agent.agentId)?.updatedAt ?? 0,
+        })),
+        ...stats.filter((entry) => !entry.agentExists && !activeAgentIds.has(entry.agentId)).map((entry) => ({
+          agentId: entry.agentId,
+          name: 'Deleted agent',
+          iconId: 'bot',
+          scopeType: 'deleted' as const,
+          status: 'deleted' as const,
+          collectionCount: entry.collectionCount,
+          archivedCollectionCount: entry.archivedCollectionCount,
+          entryCount: entry.entryCount,
+          updatedAt: entry.updatedAt,
+        })),
+      ];
+      return NextResponse.json({ success: true, data: { owners } });
+    }
     const scope = await scopeFromRequest(request, session.user.id);
+    if (scope.target === 'agent') {
+      await resolveAgentMemoryOwnerForUser({ userId: session.user.id, agentId: scope.agentId!, allowDeleted: true });
+      if (request.nextUrl.searchParams.get('export') === '1') {
+        return NextResponse.json({ success: true, data: await exportAgentMemory(session.user.id, scope.agentId!) });
+      }
+    }
     const permissions = await resolveMemoryScopeAccess(scope);
     const collections = await listMemoryCollections(scope);
     const selectedCollectionId = normalizedString(request.nextUrl.searchParams.get('collectionId'));
@@ -204,6 +252,27 @@ export async function POST(request: NextRequest) {
   const payload = await request.json().catch(() => null) as Record<string, unknown> | null;
   if (!payload) return NextResponse.json({ success: false, error: 'Invalid JSON body.' }, { status: 400 });
   try {
+    if (payload.action === 'transfer-agent-memory') {
+      const sourceAgentId = normalizedString(payload.agentId);
+      const targetAgentId = normalizedString(payload.targetAgentId);
+      if (!sourceAgentId || !targetAgentId) throw new Error('agentId and targetAgentId are required for a transfer.');
+      const result = await transferAgentMemory({
+        userId: session.user.id,
+        sourceAgentId: normalizeManagedAgentId(sourceAgentId),
+        targetAgentId: normalizeManagedAgentId(targetAgentId),
+      });
+      return NextResponse.json({ success: true, data: result });
+    }
+    if (payload.action === 'archive-agent-memory' || payload.action === 'restore-agent-memory') {
+      const agentId = normalizedString(payload.agentId);
+      if (!agentId) throw new Error('agentId is required for agent memory.');
+      const result = await setAgentMemoryArchived({
+        userId: session.user.id,
+        agentId: normalizeManagedAgentId(agentId),
+        archived: payload.action === 'archive-agent-memory',
+      });
+      return NextResponse.json({ success: true, data: result });
+    }
     if (payload.action === 'import') {
       if (!Array.isArray(payload.entries) || !payload.entries.every((entry) => typeof entry === 'string')) {
         throw new Error('entries must be an array of memory strings.');
@@ -214,6 +283,9 @@ export async function POST(request: NextRequest) {
     const content = normalizedString(payload.content);
     if (!content) throw new Error('content is required.');
     const scope = await scopeFromRequest(request, session.user.id, payload);
+    if (scope.target === 'agent') {
+      await resolveAgentMemoryOwnerForUser({ userId: session.user.id, agentId: scope.agentId!, allowDeleted: false });
+    }
     const result = await addMemory({ ...scope, content });
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
@@ -226,6 +298,15 @@ export async function DELETE(request: NextRequest) {
   const session = await requireSession(request);
   if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   try {
+    if (request.nextUrl.searchParams.get('scope') === 'agent') {
+      const agentId = normalizedString(request.nextUrl.searchParams.get('agentId'));
+      if (!agentId) throw new Error('agentId is required for agent memory.');
+      if (request.nextUrl.searchParams.get('confirm') !== 'delete-agent-memory') {
+        throw new Error('Explicit confirmation is required to delete agent memory.');
+      }
+      const result = await deleteAgentMemory(session.user.id, normalizeManagedAgentId(agentId));
+      return NextResponse.json({ success: true, data: result });
+    }
     if (request.nextUrl.searchParams.get('confirm') !== 'delete-personal-memory') {
       throw new Error('Explicit confirmation is required to delete personal memory.');
     }
