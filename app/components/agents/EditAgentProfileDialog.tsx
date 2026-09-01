@@ -119,6 +119,9 @@ type AgentDeletionPreview = {
     grants: number;
     capabilityBindings: number;
     managedFiles: string[];
+    memoryCollections: number;
+    memoryEntries: number;
+    memoryPolicy: 'retained';
   };
   confirmationToken: string;
 };
@@ -947,6 +950,7 @@ export function EditAgentProfileDialog({
                     grants: deletePreview.impacts.grants + deletePreview.impacts.members,
                     capabilities: deletePreview.impacts.capabilityBindings,
                     files: deletePreview.impacts.managedFiles.length,
+                    memoryEntries: deletePreview.impacts.memoryEntries,
                   })
                 : t('dangerDescription')}
             </AlertDialogDescription>

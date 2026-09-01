@@ -1262,7 +1262,7 @@
       "dangerDescription": "Beim Löschen werden Sessions, Zugriffszuweisungen, Capability-Bindings und verwaltete Dateien dieses Agenten dauerhaft entfernt.",
       "deleteAgent": "Agent löschen",
       "deleteTitle": "Agent dauerhaft löschen?",
-      "deleteImpact": "Dabei werden {sessions} Sessions, {grants} Zugriffszuweisungen, {capabilities} Capability-Bindings und {files} verwaltete Dateien dauerhaft entfernt.",
+      "deleteImpact": "Dabei werden {sessions} Sessions, {grants} Zugriffszuweisungen, {capabilities} Capability-Bindings und {files} verwaltete Dateien dauerhaft entfernt. Die {memoryEntries} Memory-Einträge des Agenten bleiben erhalten und sind weiter unter seiner gelöschten Agent-ID verfügbar.",
       "deleteConfirmationLabel": "Gib zur Bestätigung „{name}“ ein.",
       "deleting": "Agent wird gelöscht...",
       "errors": {
@@ -4449,6 +4449,22 @@
       }
     },
     "agentPanel": {
+      "memoryReviewer": {
+        "name": "Memory-Review-Agent",
+        "reserved": "Reservierter System-Agent",
+        "nonChat": "Nicht im Chat auswählbar",
+        "description": "Prüft neue Nutzernachrichten isoliert und schreibt bestätigte dauerhafte Fakten in den Memory-Bereich des ursprünglichen Agenten.",
+        "provider": "Provider",
+        "model": "Modell",
+        "queue": "Review-Warteschlange",
+        "jobs": "{count, plural, one {# Job} other {# Jobs}}",
+        "ready": "Bereit",
+        "running": "Läuft",
+        "setupNeeded": "Einrichtung nötig",
+        "notConfigured": "Nicht konfiguriert",
+        "configure": "Memory-Reviews konfigurieren",
+        "loadError": "Der Status des Memory-Reviewers konnte nicht geladen werden."
+      },
       "runtimePreference": {
         "title": "KI-Modell",
         "description": "Lege Provider, Modell und Intelligence für {agentName} fest.",
@@ -4482,7 +4498,7 @@
         "createPlaceholder": "Name des neuen Spezial-Agenten",
         "delete": "Agent löschen",
         "confirmDelete": "Diesen Spezial-Agenten inklusive seiner Sessions löschen?",
-        "confirmDeleteImpact": "Diesen Agenten löschen? Dabei werden {sessions} Sessions, {grants} Zugriffszuweisungen, {capabilities} Capability-Bindings und {files} verwaltete Dateien entfernt. Das kann nicht rückgängig gemacht werden.",
+        "confirmDeleteImpact": "Diesen Agenten löschen? Dabei werden {sessions} Sessions, {grants} Zugriffszuweisungen, {capabilities} Capability-Bindings und {files} verwaltete Dateien entfernt. Die {memoryEntries} Memory-Einträge bleiben unter der gelöschten Agent-ID erhalten. Die Agent-Löschung kann nicht rückgängig gemacht werden.",
         "loading": "Lade Agenten...",
         "empty": "Keine Agenten gefunden.",
         "mainAgent": "Main",

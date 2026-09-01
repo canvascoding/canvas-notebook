@@ -1263,7 +1263,7 @@
       "dangerDescription": "Deleting this agent removes its sessions, access assignments, capability bindings, and managed files permanently.",
       "deleteAgent": "Delete agent",
       "deleteTitle": "Permanently delete agent?",
-      "deleteImpact": "This permanently removes {sessions} sessions, {grants} access assignments, {capabilities} capability bindings, and {files} managed files.",
+      "deleteImpact": "This permanently removes {sessions} sessions, {grants} access assignments, {capabilities} capability bindings, and {files} managed files. The agent’s {memoryEntries} memory entries are retained and remain available under the deleted agent ID.",
       "deleteConfirmationLabel": "Type “{name}” to confirm.",
       "deleting": "Deleting agent...",
       "errors": {
@@ -4450,6 +4450,22 @@
       }
     },
     "agentPanel": {
+      "memoryReviewer": {
+        "name": "Memory Review Agent",
+        "reserved": "Reserved system agent",
+        "nonChat": "Not available in chat",
+        "description": "Reviews new user turns in isolation and writes approved durable facts to the originating agent’s memory.",
+        "provider": "Provider",
+        "model": "Model",
+        "queue": "Review queue",
+        "jobs": "{count, plural, one {# job} other {# jobs}}",
+        "ready": "Ready",
+        "running": "Running",
+        "setupNeeded": "Setup needed",
+        "notConfigured": "Not configured",
+        "configure": "Configure memory reviews",
+        "loadError": "Memory reviewer status could not be loaded."
+      },
       "runtimePreference": {
         "title": "AI model",
         "description": "Set the provider, model, and intelligence for {agentName}.",
@@ -4483,7 +4499,7 @@
         "createPlaceholder": "Name of the new special agent",
         "delete": "Delete agent",
         "confirmDelete": "Delete this special agent including its sessions?",
-        "confirmDeleteImpact": "Delete this agent? This removes {sessions} sessions, {grants} access assignments, {capabilities} capability bindings, and {files} managed files. This cannot be undone.",
+        "confirmDeleteImpact": "Delete this agent? This removes {sessions} sessions, {grants} access assignments, {capabilities} capability bindings, and {files} managed files. The agent’s {memoryEntries} memory entries are retained under its deleted ID. The agent deletion cannot be undone.",
         "loading": "Loading agents...",
         "empty": "No agents found.",
         "mainAgent": "Main",
