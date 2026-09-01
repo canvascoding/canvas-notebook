@@ -70,6 +70,7 @@ export interface CollaborationSessionResponse {
   permission: CollaborationPermission;
   documentSequence?: number;
   checkpointSequence?: number;
+  stateVector?: string;
   token: string;
   expiresAt: string;
   websocketUrl: string;

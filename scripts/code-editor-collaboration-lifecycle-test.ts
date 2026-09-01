@@ -71,8 +71,10 @@ let collaborationState = createInitialTextCollaborationClientState({
   permission: 'write',
   documentSequence: 5,
   checkpointSequence: 5,
+  stateVector: 'initial-vector',
 });
 assert.equal(collaborationState.durability, 'checkpointed_file');
+assert.equal(collaborationState.checkpointStateVector, 'initial-vector');
 collaborationState = reduceTextCollaborationClientState(collaborationState, {
   type: 'indexeddb_hydrated',
 });
@@ -117,8 +119,8 @@ collaborationState = reduceTextCollaborationClientState(collaborationState, {
 });
 assert.equal(
   collaborationState.durability,
-  'server_received',
-  'an out-of-order checkpoint must not claim that a newer document sequence is checkpointed',
+  'checkpoint_pending',
+  'an out-of-order checkpoint must not change the pending status of a newer document sequence',
 );
 collaborationState = reduceTextCollaborationClientState(collaborationState, {
   type: 'checkpointed',
@@ -128,6 +130,31 @@ collaborationState = reduceTextCollaborationClientState(collaborationState, {
 });
 assert.equal(collaborationState.durability, 'checkpointed_file');
 assert.equal(textCollaborationLegacyStatus(collaborationState), 'saved');
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'authoritative_snapshot',
+  documentSequence: 8,
+  checkpointSequence: 7,
+  stateVector: 'persisted-vector',
+  matchesCurrentDocument: true,
+});
+assert.equal(collaborationState.durability, 'persisted_yjs');
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'authoritative_snapshot',
+  documentSequence: 8,
+  checkpointSequence: 8,
+  stateVector: 'checkpointed-vector',
+  matchesCurrentDocument: true,
+});
+assert.equal(collaborationState.durability, 'checkpointed_file');
+collaborationState = reduceTextCollaborationClientState(collaborationState, {
+  type: 'authoritative_snapshot',
+  documentSequence: 7,
+  checkpointSequence: 7,
+  stateVector: 'out-of-order-vector',
+  matchesCurrentDocument: true,
+});
+assert.equal(collaborationState.documentSequence, 8, 'out-of-order server snapshots must not regress durability');
+assert.equal(collaborationState.checkpointStateVector, 'checkpointed-vector');
 
 const pendingKey = getCodeEditorLifecycleKey({
   workspaceId: 'workspace-1',

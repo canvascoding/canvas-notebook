@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
       permission: grant.permission,
       documentSequence: grant.documentSequence,
       checkpointSequence: grant.checkpointSequence,
+      stateVector: grant.stateVector,
       token: issued.token,
       expiresAt: new Date(issued.claims.expiresAt).toISOString(),
       websocketUrl: grant.provider === 'excalidraw' ? '/ws/collaboration/excalidraw' : '/ws/collaboration',

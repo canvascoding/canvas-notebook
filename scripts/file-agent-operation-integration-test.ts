@@ -246,7 +246,6 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
       await materializeCollaborationCheckpoint({
         state: persisted,
         workspace: input.workspace,
-        canonicalContent: canonical,
         actorUserId: input.initiatedByUserId,
         actorType: input.actorType || 'agent',
         sourceSessionId: input.actorSessionId || input.operationId,

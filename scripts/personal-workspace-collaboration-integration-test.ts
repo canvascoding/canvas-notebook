@@ -112,7 +112,6 @@ async function main(): Promise<void> {
       const checkpoint = await materializeCollaborationCheckpoint({
         state: persisted,
         workspace,
-        canonicalContent,
         actorUserId: workspace.ownerUserId,
         actorType: 'user',
         sourceSessionId: `personal-session-${suffix}`,

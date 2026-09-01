@@ -11,12 +11,14 @@ import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { queuePublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { workspaceFileOptions } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { validateRichMarkdownYDoc } from './markdown-state';
 import {
   markCollaborationCheckpoint,
   loadCollaborationState,
   serializeCanonicalText,
   type PersistedCollaborationState,
 } from './persistence';
+import { Y } from './server-runtime';
 
 export class CollaborationCheckpointSupersededError extends Error {
   constructor(readonly documentId: string, readonly sequence: number) {
@@ -30,6 +32,49 @@ export type CollaborationCheckpointFileWrite = {
   revisionId: string;
   serializedContent: string;
 };
+
+export type AuthoritativeCollaborationSnapshot = {
+  canonicalContent: string;
+  checkpointSequence: number;
+  documentSequence: number;
+  stateVector: string;
+};
+
+/**
+ * Serializes only the persisted Yjs snapshot. Callers cannot supply a second
+ * text truth that happens to share the same sequence or state vector.
+ */
+export function authoritativeCollaborationSnapshot(
+  state: PersistedCollaborationState,
+): AuthoritativeCollaborationSnapshot {
+  const doc = new Y.Doc({ gc: true });
+  try {
+    Y.applyUpdate(doc, state.yjsState);
+    const encodedVector = Buffer.from(Y.encodeStateVector(doc));
+    if (!encodedVector.equals(Buffer.from(state.stateVector))) {
+      throw new Error('Persisted collaboration state and state vector do not match.');
+    }
+
+    let canonicalContent: string;
+    if (state.representation === 'plain_text') {
+      canonicalContent = doc.getText('content').toString();
+    } else {
+      const validation = validateRichMarkdownYDoc(doc);
+      if (!validation.valid || validation.markdown === undefined) {
+        throw new Error(`Rich collaboration checkpoint validation failed (${validation.code || 'schema_invalid'}).`);
+      }
+      canonicalContent = validation.markdown;
+    }
+    return {
+      canonicalContent: canonicalContent.replace(/\r\n?/gu, '\n'),
+      checkpointSequence: state.checkpointSequence,
+      documentSequence: state.documentSequence,
+      stateVector: encodedVector.toString('base64'),
+    };
+  } finally {
+    doc.destroy();
+  }
+}
 
 export async function writeCollaborationCheckpointFile(input: {
   state: PersistedCollaborationState;
@@ -102,11 +147,10 @@ export function finalizeCollaborationCheckpointProjection(input: {
 export async function materializeCollaborationCheckpoint(input: {
   state: PersistedCollaborationState;
   workspace: WorkspaceContext;
-  canonicalContent: string;
   actorUserId?: string | null;
   actorType?: 'user' | 'agent' | 'system';
   sourceSessionId?: string | null;
-}): Promise<{ content: string; revisionId: string }> {
+}): Promise<{ content: string; revisionId: string; state: PersistedCollaborationState }> {
   if (input.state.workspaceId !== input.workspace.workspaceId) {
     throw new Error('Collaboration checkpoint workspace mismatch.');
   }
@@ -125,9 +169,10 @@ export async function materializeCollaborationCheckpoint(input: {
       input.state.documentSequence,
     );
   }
-  const canonical = input.canonicalContent.replace(/\r\n?/gu, '\n');
+  const snapshot = authoritativeCollaborationSnapshot(currentState);
+  const canonical = snapshot.canonicalContent;
   const fileWrite = await writeCollaborationCheckpointFile({
-    state: input.state,
+    state: currentState,
     workspace: input.workspace,
     canonicalContent: canonical,
     actorUserId: input.actorUserId ?? null,
@@ -135,19 +180,19 @@ export async function materializeCollaborationCheckpoint(input: {
     sourceSessionId: input.sourceSessionId ?? null,
   });
   const checkpointedState = await markCollaborationCheckpoint({
-    documentId: input.state.documentId,
-    workspaceId: input.state.workspaceId,
-    path: input.state.path,
-    lifecycleGeneration: input.state.lifecycleGeneration,
-    schemaVersion: input.state.schemaVersion,
-    sequence: input.state.documentSequence,
+    documentId: currentState.documentId,
+    workspaceId: currentState.workspaceId,
+    path: currentState.path,
+    lifecycleGeneration: currentState.lifecycleGeneration,
+    schemaVersion: currentState.schemaVersion,
+    sequence: currentState.documentSequence,
     canonicalContent: canonical,
     serializedContent: fileWrite.serializedContent,
   });
   if (!checkpointedState) {
     throw new CollaborationCheckpointSupersededError(
-      input.state.documentId,
-      input.state.documentSequence,
+      currentState.documentId,
+      currentState.documentSequence,
     );
   }
   finalizeCollaborationCheckpointProjection({
@@ -155,5 +200,5 @@ export async function materializeCollaborationCheckpoint(input: {
     workspace: input.workspace,
     revisionId: fileWrite.revisionId,
   });
-  return { content: fileWrite.content, revisionId: fileWrite.revisionId };
+  return { content: fileWrite.content, revisionId: fileWrite.revisionId, state: checkpointedState };
 }

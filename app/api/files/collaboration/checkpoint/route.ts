@@ -2,12 +2,43 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { applyRateLimit, readJsonBody } from '@/app/lib/api/route-helpers';
-import { materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
-import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
+import {
+  CollaborationCheckpointSupersededError,
+  materializeCollaborationCheckpoint,
+} from '@/app/lib/collaboration/checkpoint';
+import {
+  loadCollaborationState,
+  type PersistedCollaborationState,
+} from '@/app/lib/collaboration/persistence';
 import { verifyCollaborationTicket } from '@/app/lib/collaboration/ticket';
-import { richMarkdownFromYDoc } from '@/app/lib/collaboration/markdown-state';
-import { Y } from '@/app/lib/collaboration/server-runtime';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
+
+function checkpointResponse(
+  state: PersistedCollaborationState,
+  input: { revisionId: string | null; alreadyCheckpointed?: boolean },
+) {
+  return {
+    success: true,
+    documentId: state.documentId,
+    lifecycleGeneration: state.lifecycleGeneration,
+    documentSequence: state.documentSequence,
+    checkpointSequence: state.checkpointSequence,
+    stateVector: Buffer.from(state.stateVector).toString('base64'),
+    sequence: state.documentSequence,
+    revisionId: input.revisionId,
+    ...(input.alreadyCheckpointed ? { alreadyCheckpointed: true } : {}),
+  };
+}
+
+function decodeStateVector(value: string): Buffer | null {
+  if (value.length > 64 * 1024 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(value)) return null;
+  try {
+    const decoded = Buffer.from(value, 'base64');
+    return decoded.length > 0 ? decoded : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(request: NextRequest) {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
@@ -31,7 +62,9 @@ export async function POST(request: NextRequest) {
     const claims = verifyCollaborationTicket(body.token);
     const sessionId = String((workspaceResult.session.session as { id?: string }).id || '');
     if (
-      claims.permission !== 'write'
+      claims.provider !== 'yjs'
+      || claims.representation === 'excalidraw_scene'
+      || claims.permission !== 'write'
       || claims.userId !== workspaceResult.session.user.id
       || claims.sessionId !== sessionId
       || claims.workspaceId !== workspaceResult.workspace.workspaceId
@@ -39,31 +72,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Collaboration ticket scope mismatch.' }, { status: 403 });
     }
     const state = await loadCollaborationState(claims.documentId);
-    if (!state || state.lifecycleGeneration !== claims.lifecycleGeneration || state.path !== claims.path) {
+    if (
+      !state
+      || state.workspaceId !== claims.workspaceId
+      || state.organizationId !== claims.organizationId
+      || state.lifecycleGeneration !== claims.lifecycleGeneration
+      || state.path !== claims.path
+      || state.representation !== claims.representation
+    ) {
       return NextResponse.json({ success: false, error: 'Collaboration document generation is stale.' }, { status: 409 });
     }
-    const suppliedVector = Buffer.from(body.stateVector, 'base64');
-    if (!Buffer.from(state.stateVector).equals(suppliedVector)) {
+    const suppliedVector = decodeStateVector(body.stateVector);
+    if (!suppliedVector || !Buffer.from(state.stateVector).equals(suppliedVector)) {
       return NextResponse.json({ success: false, error: 'Checkpoint is not based on the latest persisted Yjs state.' }, { status: 409 });
     }
     if (state.checkpointSequence >= state.documentSequence) {
-      return NextResponse.json({
-        success: true,
-        sequence: state.documentSequence,
+      return NextResponse.json(checkpointResponse(state, {
         revisionId: null,
         alreadyCheckpointed: true,
-      });
+      }));
     }
-    const doc = new Y.Doc({ gc: true });
-    Y.applyUpdate(doc, state.yjsState);
-    const canonicalContent = state.representation === 'plain_text'
-      ? doc.getText('content').toString()
-      : richMarkdownFromYDoc(doc);
-    doc.destroy();
     const result = await materializeCollaborationCheckpoint({
       state,
       workspace: workspaceResult.workspace,
-      canonicalContent,
       actorUserId: workspaceResult.session.user.id,
       actorType: 'user',
       sourceSessionId: sessionId,
@@ -81,15 +112,15 @@ export async function POST(request: NextRequest) {
       summary: `Collaboration checkpoint materialized for ${state.path}.`,
       metadata: {
         path: state.path,
-        documentSequence: state.documentSequence,
+        documentSequence: result.state.documentSequence,
         revisionId: result.revisionId,
       },
     });
-    return NextResponse.json({ success: true, sequence: state.documentSequence, revisionId: result.revisionId });
+    return NextResponse.json(checkpointResponse(result.state, { revisionId: result.revisionId }));
   } catch (error) {
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Checkpoint failed.',
-    }, { status: 500 });
+    }, { status: error instanceof CollaborationCheckpointSupersededError ? 409 : 500 });
   }
 }

@@ -30,6 +30,14 @@ type CollaborationCompositionRange = {
 
 type SetCollaborationComposition = (range: CollaborationCompositionRange) => void;
 
+type CollaborationDurabilitySnapshot = {
+  documentId: string;
+  lifecycleGeneration: number;
+  documentSequence: number;
+  checkpointSequence: number;
+  stateVector: string;
+};
+
 type RegistryEntry = {
   key: string;
   refs: number;
@@ -42,6 +50,7 @@ type RegistryEntry = {
   cleanupTimer?: ReturnType<typeof setTimeout>;
   startPromise: Promise<void>;
   checkpointPromise?: Promise<void>;
+  pendingAuthoritativeSnapshot?: CollaborationDurabilitySnapshot;
   setComposition: SetCollaborationComposition;
   requestCheckpoint: () => Promise<void>;
 };
@@ -78,6 +87,24 @@ function bytesToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
   }
   return window.btoa(binary);
+}
+
+function durabilitySnapshot(value: unknown): CollaborationDurabilitySnapshot | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<CollaborationDurabilitySnapshot>;
+  if (
+    typeof candidate.documentId !== 'string'
+    || !Number.isSafeInteger(candidate.lifecycleGeneration)
+    || !Number.isSafeInteger(candidate.documentSequence)
+    || !Number.isSafeInteger(candidate.checkpointSequence)
+    || (candidate.lifecycleGeneration ?? -1) < 0
+    || (candidate.documentSequence ?? -1) < 0
+    || (candidate.checkpointSequence ?? -1) < 0
+    || (candidate.checkpointSequence ?? 0) > (candidate.documentSequence ?? -1)
+    || typeof candidate.stateVector !== 'string'
+    || candidate.stateVector.length === 0
+  ) return null;
+  return candidate as CollaborationDurabilitySnapshot;
 }
 
 function waitForEntryState(
@@ -152,6 +179,7 @@ function createEntry(
       permission: initialSession?.permission,
       documentSequence: initialSession?.documentSequence,
       checkpointSequence: initialSession?.checkpointSequence,
+      stateVector: initialSession?.stateVector,
     }),
     listeners: new Set(),
     startPromise: Promise.resolve(),
@@ -181,7 +209,15 @@ function createEntry(
         permission: session.permission,
         documentSequence: session.documentSequence,
         checkpointSequence: session.checkpointSequence,
+        stateVector: session.stateVector,
       });
+      entry.pendingAuthoritativeSnapshot = durabilitySnapshot({
+        documentId: session.documentId,
+        lifecycleGeneration: session.lifecycleGeneration,
+        documentSequence: session.documentSequence,
+        checkpointSequence: session.checkpointSequence,
+        stateVector: session.stateVector,
+      }) ?? undefined;
       const persistence = new IndexeddbPersistence(
         `canvas:${session.documentId}:${session.lifecycleGeneration}:${representation}`,
         entry.doc,
@@ -190,6 +226,32 @@ function createEntry(
       await persistence.whenSynced;
       transition(entry, { type: 'indexeddb_hydrated' });
       if (entry.refs === 0 && !registry.has(key)) return;
+      const reconcileAuthoritativeSnapshot = (snapshot: CollaborationDurabilitySnapshot) => {
+        if (
+          !entry.doc
+          || !entry.session
+          || snapshot.documentId !== entry.session.documentId
+          || snapshot.lifecycleGeneration !== entry.session.lifecycleGeneration
+        ) return;
+        entry.pendingAuthoritativeSnapshot = snapshot;
+        if (!entry.clientState.remoteSynced) return;
+        const currentStateVector = bytesToBase64(Y.encodeStateVector(entry.doc));
+        transition(entry, {
+          type: 'authoritative_snapshot',
+          documentSequence: snapshot.documentSequence,
+          checkpointSequence: snapshot.checkpointSequence,
+          stateVector: snapshot.stateVector,
+          matchesCurrentDocument: currentStateVector === snapshot.stateVector,
+        });
+        if (snapshot.checkpointSequence > 0) {
+          entry.provider?.sendStateless(JSON.stringify({
+            type: 'checkpoint_ack',
+            documentId: snapshot.documentId,
+            lifecycleGeneration: snapshot.lifecycleGeneration,
+            sequence: snapshot.checkpointSequence,
+          }));
+        }
+      };
       const provider = new HocuspocusProvider({
         url: websocketUrl(session.websocketUrl),
         preserveTrailingSlash: true,
@@ -219,6 +281,9 @@ function createEntry(
         },
         onSynced: () => {
           transition(entry, { type: 'remote_synced', permission: session.permission });
+          if (entry.pendingAuthoritativeSnapshot) {
+            reconcileAuthoritativeSnapshot(entry.pendingAuthoritativeSnapshot);
+          }
         },
         onUnsyncedChanges: ({ number }) => {
           transition(entry, { type: 'unsynced_changes', count: number });
@@ -236,9 +301,18 @@ function createEntry(
               message?: string;
               sequence?: number;
               stateVector?: string;
+              documentId?: string;
+              lifecycleGeneration?: number;
+              documentSequence?: number;
+              checkpointSequence?: number;
             };
             if (message.type === 'degraded') {
               transition(entry, { type: 'degraded', message: message.message || 'Checkpoint failed.' });
+              return;
+            }
+            if (message.type === 'durability_snapshot') {
+              const snapshot = durabilitySnapshot(message);
+              if (snapshot) reconcileAuthoritativeSnapshot(snapshot);
               return;
             }
             if (
@@ -247,23 +321,19 @@ function createEntry(
               && typeof message.stateVector === 'string'
               && entry.doc
             ) {
-              const currentStateVector = bytesToBase64(Y.encodeStateVector(entry.doc));
-              transition(entry, {
-                type: 'checkpointed',
-                sequence: message.sequence as number,
+              reconcileAuthoritativeSnapshot({
+                documentId: message.documentId || session.documentId,
+                lifecycleGeneration: message.lifecycleGeneration ?? session.lifecycleGeneration,
+                documentSequence: message.documentSequence ?? message.sequence as number,
+                checkpointSequence: message.checkpointSequence ?? message.sequence as number,
                 stateVector: message.stateVector,
-                matchesCurrentDocument: currentStateVector === message.stateVector,
               });
-              entry.provider?.sendStateless(JSON.stringify({
-                type: 'checkpoint_ack',
-                documentId: session.documentId,
-                lifecycleGeneration: session.lifecycleGeneration,
-                sequence: message.sequence,
-              }));
               return;
             }
             if (message.type === 'checkpoint_superseded' && Number.isSafeInteger(message.sequence)) {
-              transition(entry, {
+              const snapshot = durabilitySnapshot(message);
+              if (snapshot) reconcileAuthoritativeSnapshot(snapshot);
+              else transition(entry, {
                 type: 'checkpoint_superseded',
                 sequence: message.sequence as number,
               });
@@ -309,20 +379,22 @@ function createEntry(
               headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
               body: JSON.stringify({ token: entry.session.token, stateVector }),
             });
-            const payload = await response.json().catch(() => ({})) as {
+            const payload = await response.json().catch(() => ({})) as Record<string, unknown> & {
               error?: string;
-              sequence?: number;
             };
-            if (response.ok && Number.isSafeInteger(payload.sequence)) {
-              transition(entry, {
-                type: 'checkpointed',
-                sequence: payload.sequence as number,
-                stateVector,
-                matchesCurrentDocument: true,
-              });
+            const snapshot = durabilitySnapshot(payload);
+            if (
+              response.ok
+              && snapshot
+              && snapshot.documentId === entry.session.documentId
+              && snapshot.lifecycleGeneration === entry.session.lifecycleGeneration
+            ) {
+              reconcileAuthoritativeSnapshot(snapshot);
               return;
             }
-            lastError = payload.error || lastError;
+            lastError = response.ok
+              ? 'Checkpoint response did not contain a valid authoritative collaboration snapshot.'
+              : payload.error || lastError;
             if (response.status !== 409) break;
             await new Promise((resolve) => window.setTimeout(resolve, 200));
           }
