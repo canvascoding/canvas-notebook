@@ -3,7 +3,7 @@
 # Sourced by both install/bin/canvas-notebook and install/lib/common.sh
 
 [[ -n "${_SHARED_OUTPUT_LOADED:-}" ]] && return 0
-CANVAS_CLI_VERSION="${CANVAS_CLI_VERSION:-2026.8.31.2}"
+CANVAS_CLI_VERSION="${CANVAS_CLI_VERSION:-2026.9.1.1}"
 _SHARED_OUTPUT_LOADED=1
 
 CANVAS_USE_COLOR="${CANVAS_USE_COLOR:-true}"
