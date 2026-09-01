@@ -34,6 +34,9 @@ assert.deepEqual(compatibility, {
     capabilities: [
       'auth.email_password',
       'account.preferences',
+      'account.profile.read',
+      'account.profile.update',
+      'account.profile.avatar',
       'workspace.bootstrap',
       'license.status',
       'license.register',

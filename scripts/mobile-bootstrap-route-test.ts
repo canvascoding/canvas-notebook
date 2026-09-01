@@ -81,6 +81,14 @@ async function main() {
   assert.equal(payload.product, 'canvas-notebook');
   const user = payload.user as Record<string, unknown>;
   assert.equal(user.email, 'mobile@example.test');
+  assert.deepEqual(user.profile, {
+    name: 'Mobile User',
+    avatarKind: 'initials',
+    iconId: null,
+    initials: 'MU',
+    imagePath: null,
+    revision: 0,
+  });
   const workspace = payload.workspace as Record<string, unknown>;
   assert.equal(typeof workspace.activeWorkspaceId, 'string');
   assert.equal(Array.isArray(workspace.items), true);

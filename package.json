@@ -219,7 +219,7 @@
     "test:auth:seat-limit": "tsx --conditions react-server scripts/auth-seat-limit-test.ts",
     "test:mobile:compatibility": "tsx --conditions react-server scripts/mobile-compatibility-test.ts && tsx --conditions react-server scripts/mobile-compatibility-route-test.ts",
     "test:mobile:bootstrap": "tsx --conditions react-server scripts/mobile-bootstrap-test.ts && tsx --conditions react-server scripts/mobile-bootstrap-route-test.ts",
-    "test:mobile:account": "tsx --conditions react-server scripts/mobile-account-preferences-test.ts",
+    "test:mobile:account": "tsx --conditions react-server scripts/mobile-account-preferences-test.ts && tsx --conditions react-server scripts/mobile-account-profile-test.ts",
     "test:mobile:brand": "tsx --conditions react-server scripts/mobile-workspace-brand-route-test.ts",
     "test:mobile:license": "tsx --conditions react-server scripts/mobile-license-test.ts",
     "test:license-email-activation": "CANVAS_DATABASE_PROVIDER=sqlite tsx --conditions react-server scripts/license-email-activation-test.ts && CANVAS_DATABASE_PROVIDER=postgres DATABASE_URL=postgresql://canvas:canvas@127.0.0.1:1/canvas tsx --conditions react-server scripts/license-email-activation-test.ts",

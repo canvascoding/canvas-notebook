@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { MobileCompatibility } from './compatibility';
+import type { MobileUserProfile } from './user-profile';
 import type { WorkspaceListing } from '@/app/lib/workspaces/listing-action';
 import type { WorkspaceContext, WorkspacePermissions, WorkspaceUserRole } from '@/app/lib/workspaces/types';
 import { buildPublicRequestUrl } from '@/app/lib/utils/request-origin';
@@ -32,6 +33,7 @@ export type MobileBootstrap = {
     name: string;
     email: string;
     image: string | null;
+    profile: MobileUserProfile;
     role: WorkspaceUserRole;
   };
   workspace: {
@@ -83,10 +85,14 @@ export function createMobileBootstrap(input: {
     image?: string | null;
     role?: string | null;
   };
+  profile: MobileUserProfile;
   listing: WorkspaceListing;
 }): MobileBootstrap {
   const capabilities = [
     'account.preferences',
+    'account.profile.read',
+    'account.profile.update',
+    'account.profile.avatar',
     'workspace.read',
     'workspace.switch',
     'workspace.update',
@@ -176,6 +182,7 @@ export function createMobileBootstrap(input: {
       name: input.user.name?.trim() || input.user.email,
       email: input.user.email,
       image: resolveMobileUserImageUrl(input.user.image, input.request),
+      profile: input.profile,
       role: normalizeRole(input.user.role),
     },
     workspace: {
