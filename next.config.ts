@@ -12,6 +12,7 @@ const externalPackages = [
   '@earendil-works/pi-ai',
   '@earendil-works/pi-agent-core',
   '@eigenpal/docx-js-editor',
+  'pdf-parse',
   'file-type',
   '@hocuspocus/server',
   '@hocuspocus/transformer',

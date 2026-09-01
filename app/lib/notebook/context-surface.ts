@@ -1,4 +1,8 @@
 import type { ChatEvent } from '@/app/lib/chat/types';
+import type {
+  EmailAgentUiScope,
+  EmailAgentUiView,
+} from '@/app/lib/email/agent-ui-intent';
 import type { BrowserSessionSnapshot } from '@/app/lib/pi/browser/types';
 
 export type NotebookChatContext = {
@@ -11,10 +15,16 @@ export type NotebookEmailContextIntent = {
   toolCallId: string | null;
   toolName: string;
   status: 'running' | 'complete';
+  view?: EmailAgentUiView;
+  mailboxId?: string;
   accountId?: string;
+  emailAddress?: string;
+  scope?: EmailAgentUiScope;
+  workspaceId?: string;
   draftId?: string;
   folder?: string;
   messageId?: string;
+  threadId?: string;
   query?: string;
   subject?: string;
 };
@@ -48,12 +58,32 @@ function stringValue(...values: unknown[]): string | undefined {
   return undefined;
 }
 
+function emailView(value: unknown): EmailAgentUiView | undefined {
+  return typeof value === 'string' && [
+    'mailboxes',
+    'message-list',
+    'message',
+    'thread',
+    'cases',
+    'case',
+    'review-draft',
+    'review-center',
+  ].includes(value)
+    ? value as EmailAgentUiView
+    : undefined;
+}
+
+function emailScope(value: unknown): EmailAgentUiScope | undefined {
+  return value === 'personal' || value === 'workspace' ? value : undefined;
+}
+
 function emailIntent(
   event: ChatEvent,
   status: NotebookEmailContextIntent['status'],
 ): NotebookEmailContextIntent {
   const args = record(event.args);
   const details = record(event.result?.details ?? event.partialResult?.details);
+  const uiIntent = record(details.uiIntent);
   const account = record(details.account);
   const message = record(details.message);
   const draft = record(details.draft);
@@ -63,12 +93,18 @@ function emailIntent(
     toolCallId: event.toolCallId || null,
     toolName: event.toolName || 'email',
     status,
-    accountId: stringValue(args.accountId, account.id, details.accountId),
-    draftId: stringValue(args.draftId, draft.id, details.draftId),
-    folder: stringValue(args.folder, message.folder, details.folder),
-    messageId: stringValue(args.messageId, message.id, details.messageId),
-    query: stringValue(args.query),
-    subject: stringValue(args.subject, message.subject, draft.subject),
+    view: emailView(uiIntent.view),
+    mailboxId: stringValue(uiIntent.mailboxId, args.mailboxId, details.mailboxId),
+    accountId: stringValue(uiIntent.accountId, args.accountId, account.id, details.accountId),
+    emailAddress: stringValue(uiIntent.emailAddress, account.emailAddress, details.emailAddress),
+    scope: emailScope(uiIntent.scope),
+    workspaceId: stringValue(uiIntent.workspaceId, details.workspaceId),
+    draftId: stringValue(uiIntent.draftId, args.draftId, draft.id, details.draftId, details.id),
+    folder: stringValue(uiIntent.folder, args.folder, message.folder, details.folder),
+    messageId: stringValue(uiIntent.messageId, args.messageId, message.id, details.messageId),
+    threadId: stringValue(uiIntent.threadId, args.threadId, args.providerThreadId, message.threadId, details.threadId),
+    query: stringValue(uiIntent.query, args.query),
+    subject: stringValue(uiIntent.subject, args.subject, message.subject, draft.subject, details.subject),
   };
 }
 

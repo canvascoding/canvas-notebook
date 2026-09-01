@@ -1331,6 +1331,8 @@
     "contextUsageCritical": "Der Kontext ist fast vollständig belegt ({percent} % genutzt).",
     "summaryIncluded": "Ältere Nachrichten sind als Zusammenfassung verfügbar.",
     "contextTooltip": "History-Budget: {used} von {available} Tokens genutzt ({percent}%)\nModellfenster: {window} Tokens\nReserviert für System, Tools, Antwort und Sicherheit: ca. {reserved} Tokens",
+    "contextFinalLabel": "{used}/{window} serialisiert",
+    "contextFinalTooltip": "Finale serialisierte Anfrage: {used} von {window} Tokens ({percent}%)\nEnthält Anweisungen, Tools, normalisierte Anhänge, Antwortreserve und Sicherheitsmarge.",
     "noSessionYet": "Noch keine Session",
     "backToChat": "Zurück zum Chat",
     "openHistory": "Verlauf öffnen",
@@ -1970,16 +1972,16 @@
     "manageAccounts": "Accounts verwalten",
     "manageAccountsDescription": "Verbinde, teste und bearbeite E-Mail-Accounts sowie Read-/Send-Policies.",
     "workspaceQueue": {
-      "title": "Antworten zur Prüfung",
-      "reviewTitle": "Antworten zur Prüfung",
-      "reviewSubtitle": "Arbeite den Stapel in deinem Tempo ab.",
+      "title": "E-Mail-Review-Center",
+      "reviewTitle": "Review-Center",
+      "reviewSubtitle": "Persönliche und Workspace-Entwürfe in einer fokussierten Liste.",
       "remaining": "{count} offen",
       "nextUp": "Als Nächstes",
       "position": "{current} von {total}",
       "reviewNext": "Jetzt prüfen",
       "openQueue": "Stapel öffnen",
-      "fullQueueTitle": "Review-Stapel",
-      "fullQueueDescription": "Wähle eine vorbereitete Antwort aus. Erst im nächsten Schritt kann sie bearbeitet und manuell versendet werden.",
+      "fullQueueTitle": "E-Mail-Review-Center",
+      "fullQueueDescription": "Wähle eine vorbereitete E-Mail aus. Erst im nächsten Schritt kann sie bearbeitet und manuell versendet werden.",
       "inboxTitle": "Inbox-Fälle",
       "outboxTitle": "Outbox zur Prüfung",
       "humanReview": "Entwürfe werden erst nach deiner Prüfung und einem manuellen Versand gesendet.",
@@ -1987,10 +1989,13 @@
       "loadError": "Der Bereich konnte nicht aktualisiert werden.",
       "emptyInbox": "Keine offenen Inbox-Fälle.",
       "emptyOutbox": "Keine Entwürfe zur Prüfung.",
-      "prepared": "Vorbereitet"
+      "prepared": "Vorbereitet",
+      "personalScope": "Persönlich",
+      "workspaceScope": "Workspace"
     },
     "refresh": "Aktualisieren",
     "search": "Suchen",
+    "resizeMessageList": "Nachrichtenliste in der Breite ändern",
     "searchPlaceholder": "Nach Absender, Betreff oder Inhalt suchen...",
     "compose": "Verfassen",
     "folders": "Folder",
@@ -3529,6 +3534,10 @@
           "read_knowledge_asset": {
             "title": "Bilder und PDFs lesen",
             "description": "Stellt begrenzten visuellen und Textkontext aus sichtbaren Bildern und PDF-Dokumenten nach einer ausdrücklichen Freigabe durch die Administration bereit."
+          },
+          "upload_knowledge_asset": {
+            "title": "Binärdateien hochladen",
+            "description": "Erlaubt größenbegrenzte und per Hash geprüfte Uploads in sichtbare Workspace-Pfade nach einer ausdrücklichen Freigabe durch die Administration."
           }
         }
       },

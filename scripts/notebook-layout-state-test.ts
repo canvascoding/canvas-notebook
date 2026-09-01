@@ -163,9 +163,9 @@ assert.equal(JSON.parse(values.get(NOTEBOOK_LAYOUT_STORAGE_KEY) || '{}').chatDoc
 const emailStart = notebookContextIntentFromAgentEvent({
   type: 'tool_execution_start',
   toolCallId: 'email-1',
-  toolName: 'email_read',
+  toolName: 'email_read_message',
   args: {
-    accountId: 'account-a',
+    mailboxId: 'mailbox-a',
     messageId: 'message-a',
     folder: 'INBOX',
   },
@@ -173,11 +173,17 @@ const emailStart = notebookContextIntentFromAgentEvent({
 assert.deepEqual(emailStart, {
   kind: 'email',
   toolCallId: 'email-1',
-  toolName: 'email_read',
+  toolName: 'email_read_message',
   status: 'running',
-  accountId: 'account-a',
+  view: undefined,
+  mailboxId: 'mailbox-a',
+  accountId: undefined,
+  emailAddress: undefined,
+  scope: undefined,
+  workspaceId: undefined,
   folder: 'INBOX',
   messageId: 'message-a',
+  threadId: undefined,
   draftId: undefined,
   query: undefined,
   subject: undefined,
@@ -186,15 +192,23 @@ assert.deepEqual(emailStart, {
 const emailEnd = notebookContextIntentFromAgentEvent({
   type: 'tool_execution_end',
   toolCallId: 'email-1',
-  toolName: 'email_read',
+  toolName: 'email_read_message',
   args: {
-    accountId: 'account-a',
+    mailboxId: 'mailbox-a',
     messageId: 'message-a',
   },
   result: {
     details: {
-      message: {
-        id: 'message-a',
+      id: 'message-a',
+      subject: 'Quarterly review',
+      uiIntent: {
+        view: 'message',
+        mailboxId: 'mailbox-a',
+        accountId: 'account-a',
+        emailAddress: 'finance@example.com',
+        scope: 'workspace',
+        workspaceId: 'workspace-a',
+        messageId: 'message-a',
         folder: 'Archive',
         subject: 'Quarterly review',
       },
@@ -205,6 +219,41 @@ assert.equal(emailEnd?.kind, 'email');
 assert.equal(emailEnd?.status, 'complete');
 assert.equal(emailEnd?.folder, 'Archive');
 assert.equal(emailEnd?.subject, 'Quarterly review');
+assert.equal(emailEnd?.view, 'message');
+assert.equal(emailEnd?.mailboxId, 'mailbox-a');
+assert.equal(emailEnd?.accountId, 'account-a');
+assert.equal(emailEnd?.emailAddress, 'finance@example.com');
+assert.equal(emailEnd?.scope, 'workspace');
+assert.equal(emailEnd?.workspaceId, 'workspace-a');
+
+const draftEnd = notebookContextIntentFromAgentEvent({
+  type: 'tool_execution_end',
+  toolCallId: 'email-2',
+  toolName: 'email_create_outbox_draft',
+  args: {
+    mailboxId: 'mailbox-a',
+    subject: 'Prepared response',
+  },
+  result: {
+    details: {
+      id: 'draft-a',
+      subject: 'Prepared response',
+      uiIntent: {
+        view: 'review-draft',
+        mailboxId: 'mailbox-a',
+        accountId: 'account-a',
+        emailAddress: 'finance@example.com',
+        scope: 'workspace',
+        workspaceId: 'workspace-a',
+        draftId: 'draft-a',
+        subject: 'Prepared response',
+      },
+    },
+  },
+} satisfies ChatEvent, null);
+assert.equal(draftEnd?.kind, 'email');
+assert.equal(draftEnd?.view, 'review-draft');
+assert.equal(draftEnd?.draftId, 'draft-a');
 
 const browserStart = notebookContextIntentFromAgentEvent({
   type: 'tool_execution_start',

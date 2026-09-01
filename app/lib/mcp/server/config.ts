@@ -14,6 +14,7 @@ export const DIRECT_MCP_TOOL_IDS = [
   'read_knowledge_source',
   'edit_knowledge_source',
   'read_knowledge_asset',
+  'upload_knowledge_asset',
 ] as const;
 export type DirectMcpToolId = (typeof DIRECT_MCP_TOOL_IDS)[number];
 

@@ -1332,6 +1332,8 @@
     "contextUsageCritical": "Context is almost full ({percent}% used).",
     "summaryIncluded": "Earlier messages are available as a summary.",
     "contextTooltip": "History budget: {used} of {available} tokens used ({percent}%)\nModel window: {window} tokens\nReserved for system, tools, response, and safety: approx. {reserved} tokens",
+    "contextFinalLabel": "{used}/{window} serialized",
+    "contextFinalTooltip": "Final serialized request: {used} of {window} tokens ({percent}%)\nIncludes instructions, tools, normalized attachments, output reserve, and safety margin.",
     "noSessionYet": "No session yet",
     "backToChat": "Back to chat",
     "openHistory": "Open history",
@@ -1971,16 +1973,16 @@
     "manageAccounts": "Manage accounts",
     "manageAccountsDescription": "Connect, test, and edit email accounts plus read/send policies.",
     "workspaceQueue": {
-      "title": "Replies for review",
-      "reviewTitle": "Replies for review",
-      "reviewSubtitle": "Work through the stack at your own pace.",
+      "title": "Email review center",
+      "reviewTitle": "Review center",
+      "reviewSubtitle": "Personal and workspace drafts in one focused queue.",
       "remaining": "{count} open",
       "nextUp": "Up next",
       "position": "{current} of {total}",
       "reviewNext": "Review now",
       "openQueue": "Open stack",
-      "fullQueueTitle": "Review stack",
-      "fullQueueDescription": "Choose a prepared reply. You can edit it and manually send it in the next step.",
+      "fullQueueTitle": "Email review center",
+      "fullQueueDescription": "Choose a prepared email. You can edit it and manually send it in the next step.",
       "inboxTitle": "Inbox cases",
       "outboxTitle": "Outbox for review",
       "humanReview": "Drafts are only sent after your review and a manual send action.",
@@ -1988,10 +1990,13 @@
       "loadError": "This section could not be refreshed.",
       "emptyInbox": "No open inbox cases.",
       "emptyOutbox": "No drafts awaiting review.",
-      "prepared": "Prepared"
+      "prepared": "Prepared",
+      "personalScope": "Personal",
+      "workspaceScope": "Workspace"
     },
     "refresh": "Refresh",
     "search": "Search",
+    "resizeMessageList": "Resize message list",
     "searchPlaceholder": "Search sender, subject, or content...",
     "compose": "Compose",
     "folders": "Folders",
@@ -3530,6 +3535,10 @@
           "read_knowledge_asset": {
             "title": "Read images and PDFs",
             "description": "Provides bounded visual and text context from visible images and PDF documents after an explicit administrator enablement."
+          },
+          "upload_knowledge_asset": {
+            "title": "Upload binary files",
+            "description": "Allows size-limited, hash-verified uploads to visible workspace paths after an explicit administrator enablement."
           }
         }
       },

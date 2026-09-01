@@ -1,6 +1,6 @@
 {
   "name": "canvas-notebook",
-  "version": "2026.8.31.1",
+  "version": "2026.8.31.2",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "engines": {
@@ -211,6 +211,7 @@
     "test:email:system": "tsx --conditions react-server scripts/system-email-notification-test.ts",
     "test:email:ai-request-body": "tsx --conditions react-server scripts/email-ai-request-body-test.ts",
     "test:email:ai-runtime-scope": "tsx --conditions react-server scripts/email-ai-runtime-scope-test.ts",
+    "test:email:client-ai-stream": "tsx scripts/email-client-ai-stream-test.ts",
     "test:email:chat-context": "tsx scripts/email-chat-context-test.ts",
     "test:email:inbox-flow": "tsx --conditions react-server scripts/email-inbox-reading-flow-test.ts",
     "test:composio:user-scope": "tsx scripts/composio-user-scope-test.ts",
