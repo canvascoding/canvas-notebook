@@ -200,6 +200,28 @@ async function main(): Promise<void> {
       const job = await disabledDb.get(`SELECT status, scheduled_for, error_code FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string; scheduled_for: number | null; error_code: string | null };
       assert.deepEqual(job, { status: 'awaiting_model_configuration', scheduled_for: null, error_code: 'automatic_memory_disabled' });
     } finally { await disabledDb.close(); }
+    const runnableDb = await openDb();
+    try {
+      await runnableDb.run(`
+        INSERT INTO pi_sessions (session_id, user_id, agent_id, provider, model, created_at, updated_at)
+        VALUES ('runnable-review-session', 'user-reader', 'reader-agent', 'test', 'test-model', 1, 1)
+      `);
+      await runnableDb.run(`
+        INSERT INTO memory_user_settings (
+          user_id, automatic_memory_enabled, provider_installation_id, model_id,
+          memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at
+        ) VALUES ('user-reader', 1, 'aip_0123456789abcdef01234567', 'review-model', 2000, 0, 1, 1)
+      `);
+      await runnableDb.run(`
+        INSERT INTO memory_review_jobs (
+          id, user_id, session_id, from_message_sequence, through_message_sequence,
+          trigger_type, scheduled_for, status, attempts, created_at
+        ) VALUES ('runnable-review-job', 'user-reader', 'runnable-review-session', 1, 2, 'turn_interval', 1002, 'scheduled', 0, 1)
+      `);
+    } finally { await runnableDb.close(); }
+    const runnableClaim = await claimDueMemoryReviewJob(1_002);
+    assert.equal(runnableClaim?.id, 'runnable-review-job');
+    await completeMemoryReviewJob('runnable-review-job');
     assert.deepEqual(await updateMemoryReviewSettings('user-1', {
       automaticMemoryEnabled: true,
       providerInstallationId: 'aip_0123456789abcdef01234567',

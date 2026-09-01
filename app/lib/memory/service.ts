@@ -953,8 +953,8 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
         session.agent_id
       FROM memory_review_jobs job
       INNER JOIN pi_sessions session ON session.user_id = job.user_id AND session.session_id = job.session_id
-      WHERE job.status IN ('scheduled', 'retry_wait', 'awaiting_model_configuration')
-        AND (scheduled_for IS NULL OR scheduled_for <= ?)
+      WHERE job.status IN ('scheduled', 'retry_wait')
+        AND scheduled_for <= ?
       ORDER BY job.scheduled_for ASC, job.created_at ASC
       LIMIT 1
     `, [now]) as Record<string, unknown> | undefined;
@@ -979,7 +979,7 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
     const changes = await connection.run(`
       UPDATE memory_review_jobs
       SET status = 'running', attempts = attempts + 1, started_at = ?, lease_until = ?
-      WHERE id = ? AND status IN ('scheduled', 'retry_wait', 'awaiting_model_configuration')
+      WHERE id = ? AND status IN ('scheduled', 'retry_wait')
     `, [now, now + 5 * 60 * 1000, candidate.id]) as { changes?: number };
     if (!changes.changes) return null;
     return {
