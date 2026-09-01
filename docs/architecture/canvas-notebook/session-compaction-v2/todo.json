@@ -1,0 +1,375 @@
+{
+  "schemaVersion": 1,
+  "feature": "hermes-aligned-session-compaction-v2",
+  "title": "Hermes-aligned Session Compaction V2",
+  "updatedAt": "2026-09-01",
+  "status": "planned",
+  "repository": "canvasstudios-notebook",
+  "reference": {
+    "repository": "https://github.com/NousResearch/hermes-agent",
+    "commit": "f293e7206b4ddd66042329442c6afebc19a8808d",
+    "license": "MIT",
+    "rule": "Every implementation task must name its Hermes source symbol or document an intentional Canvas divergence."
+  },
+  "documents": [
+    "docs/architecture/canvas-notebook/session-compaction-v2/plan.md",
+    "docs/architecture/canvas-notebook/session-compaction-v2/todo.json"
+  ],
+  "executionPolicy": {
+    "packageOrder": "strict",
+    "nextPackageRequiresPreviousGate": true,
+    "commitPolicy": "one focused commit per completed package",
+    "impactPolicy": "Run GitNexus upstream impact before editing every symbol and warn on HIGH or CRITICAL risk.",
+    "changePolicy": "Run GitNexus detect_changes against main before every commit.",
+    "browserPolicy": "Playwright or Chrome testing requires explicit user approval and must use localhost:3000.",
+    "containerPolicy": "Do not build or start containers unless explicitly requested."
+  },
+  "portingModes": [
+    "DIRECT_PORT",
+    "ADAPTED_PORT",
+    "INVARIANT_ONLY",
+    "DO_NOT_PORT"
+  ],
+  "gates": [
+    {
+      "id": "SC-G00_REFERENCE_LOCKED",
+      "packageId": "SC-P00",
+      "evidence": "Hermes commit and MIT license are pinned, compliance artifacts pass, PR #106 is merged, and parity fixtures exist."
+    },
+    {
+      "id": "SC-G01_POLICY_PARITY",
+      "packageId": "SC-P01",
+      "evidence": "Threshold, effective-input-budget, cheap-gate and greater-than-five-percent progress tests match Hermes semantics."
+    },
+    {
+      "id": "SC-G02_SELECTION_SAFE",
+      "packageId": "SC-P02",
+      "evidence": "Active user and assistant anchors survive, tool groups are atomic, and every cut is token-budgeted."
+    },
+    {
+      "id": "SC-G03_PRUNING_SAFE",
+      "packageId": "SC-P03",
+      "evidence": "Pruning is idempotent, savings-gated, media-safe and skill-aware."
+    },
+    {
+      "id": "SC-G04_RECOVERY_COMPLETE",
+      "packageId": "SC-P04",
+      "evidence": "Exact non-sensitive anchors, verbatim user messages, chunk digests and authorized session_search recovery pass."
+    },
+    {
+      "id": "SC-G05_SUMMARY_VALIDATED",
+      "packageId": "SC-P05",
+      "evidence": "Rolling summary, focus, feasibility, redaction and fail-closed behavior pass multi-cycle tests."
+    },
+    {
+      "id": "SC-G06_COORDINATOR_DURABLE",
+      "packageId": "SC-P06",
+      "evidence": "SQLite and PostgreSQL pass lock, watermark, stale, timeout, anti-thrash and late-worker tests."
+    },
+    {
+      "id": "SC-G07_RUNTIME_SENDABLE",
+      "packageId": "SC-P07",
+      "evidence": "Live, automation, manual, idle, pre-send and overflow paths use one engine and never knowingly send an oversized request."
+    },
+    {
+      "id": "SC-G08_UI_TRUTHFUL",
+      "packageId": "SC-P08",
+      "evidence": "Provider actual, next estimate, effective budget, trigger and target are distinct and UI-tested after approval."
+    },
+    {
+      "id": "SC-G09_V2_READY",
+      "packageId": "SC-P09",
+      "evidence": "Shadow rollout, default decision, rollback, compliance, tests, lint, build and approved E2E are complete."
+    }
+  ],
+  "packages": [
+    {
+      "id": "SC-P00",
+      "order": 0,
+      "title": "Hermes reference, MIT attribution and Canvas baseline",
+      "status": "planned",
+      "dependsOn": [],
+      "hermesReferences": [
+        "LICENSE",
+        "hermes_cli/config_defaults.py:compression",
+        "agent/context_compressor.py:ContextCompressor.__init__"
+      ],
+      "portingMode": "INVARIANT_ONLY",
+      "deliverables": [
+        "Merge PR #106 and branch from updated main",
+        "Versioned Hermes MIT license and additional-component inventory entry",
+        "Generated notices and component inventory",
+        "Pinned Hermes default-policy fixture",
+        "Sanitized Canvas overflow, status and compaction baseline fixtures"
+      ],
+      "verification": [
+        "third-party license compliance test",
+        "baseline context-budget and compaction tests",
+        "review that every later package has Hermes references and a porting mode"
+      ],
+      "exitGate": "SC-G00_REFERENCE_LOCKED"
+    },
+    {
+      "id": "SC-P01",
+      "order": 1,
+      "title": "Port Hermes pressure and trigger policy",
+      "status": "planned",
+      "dependsOn": ["SC-P00"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_effective_threshold_percent",
+        "agent/context_compressor.py:_compute_threshold_tokens",
+        "agent/turn_context.py:_should_run_preflight_estimate",
+        "agent/turn_context.py:compression_made_progress",
+        "agent/turn_context.py:_compression_warrants_another_preflight_pass"
+      ],
+      "portingMode": "DIRECT_PORT",
+      "deliverables": [
+        "Pure compaction policy capability",
+        "Effective input budget including output reserve and Canvas fixed costs",
+        "Small-context threshold floor and model overrides",
+        "Cheap estimate gate and authoritative request-pressure decision",
+        "Greater-than-five-percent retry progress rule"
+      ],
+      "verification": [
+        "32K, 128K, 262K, 512K and 1M policy fixtures",
+        "few-large-message regression",
+        "output-reserve degeneracy regression",
+        "provider actual versus next-request calibration tests"
+      ],
+      "exitGate": "SC-G01_POLICY_PARITY"
+    },
+    {
+      "id": "SC-P02",
+      "order": 2,
+      "title": "Port Hermes head, middle and coherent-tail selection",
+      "status": "planned",
+      "dependsOn": ["SC-P01"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_effective_protect_first_n",
+        "agent/context_compressor.py:_protect_head_size",
+        "agent/context_compressor.py:_find_tail_cut_by_tokens",
+        "agent/context_compressor.py:_ensure_last_user_message_in_tail",
+        "agent/context_compressor.py:_ensure_last_assistant_message_in_tail"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Pure coherent-history units and selection capabilities",
+        "Decaying protected head",
+        "Token-budgeted tail with soft ceiling and minimum recent floor",
+        "Verbatim active-user and last-assistant anchors",
+        "Legacy and lean tail policy variants"
+      ],
+      "verification": [
+        "actionable user anchor tests",
+        "assistant anchor tests",
+        "tool-call and tool-result atomicity tests",
+        "tail cut out-of-bounds and no-compressible-middle tests"
+      ],
+      "exitGate": "SC-G02_SELECTION_SAFE"
+    },
+    {
+      "id": "SC-P03",
+      "order": 3,
+      "title": "Adapt Hermes deterministic pruning",
+      "status": "planned",
+      "dependsOn": ["SC-P02"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_prune_old_tool_results",
+        "agent/context_compressor.py:prune_tool_results_only",
+        "agent/context_compressor.py:SKILL_PRUNED_MARKER_PREFIX"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Savings-gated old-tool-result pruning",
+        "Low-signal tool-row filtering",
+        "Historical image and stale replay pruning",
+        "Canonical skill reload markers",
+        "Prompt-cache re-arm runway"
+      ],
+      "verification": [
+        "idempotence tests",
+        "minimum reclaim tests",
+        "historical media and stale image tests",
+        "ghost skill tests",
+        "active tool-chain preservation tests"
+      ],
+      "exitGate": "SC-G03_PRUNING_SAFE"
+    },
+    {
+      "id": "SC-P04",
+      "order": 4,
+      "title": "Port Hermes exact anchors, user transcript, digests and recovery",
+      "status": "planned",
+      "dependsOn": ["SC-P03"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_build_anchor_index",
+        "agent/context_compressor.py:_build_verbatim_user_section",
+        "agent/context_compressor.py:_build_recovery_footer",
+        "agent/context_compressor.py:_build_chunk_digests",
+        "agent/context_compressor.py:_bound_summary_input"
+      ],
+      "portingMode": "DIRECT_PORT",
+      "deliverables": [
+        "Mechanically extracted exact anchor index",
+        "Newest-first verbatim real-user section",
+        "Chronological chunk digests",
+        "Bounded summary input with omitted-middle marker",
+        "Authorized Canvas session_search recovery footer",
+        "Pre-persistence secret redaction"
+      ],
+      "verification": [
+        "100 percent supported non-sensitive anchor retention",
+        "secret and URL credential redaction tests",
+        "large transcript chunk-order tests",
+        "session authorization and recovery pointer tests"
+      ],
+      "exitGate": "SC-G04_RECOVERY_COMPLETE"
+    },
+    {
+      "id": "SC-P05",
+      "order": 5,
+      "title": "Adapt Hermes rolling LLM summary and focus",
+      "status": "planned",
+      "dependsOn": ["SC-P04"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_generate_summary",
+        "agent/context_compressor.py:_derive_auto_focus_topic",
+        "agent/context_compressor.py:compress",
+        "agent/context_compressor.py:_build_static_fallback_summary"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "intentionalDivergence": "Do not commit static fallback text as complete semantic coverage when the LLM summary fails.",
+      "deliverables": [
+        "Versioned rolling summary contract",
+        "Aux-model feasibility and bounded prompts",
+        "Optional focus topic",
+        "Progress-aware summary streaming",
+        "Anchor, task and prompt-injection validation",
+        "Fail-closed summary boundary"
+      ],
+      "verification": [
+        "multi-compaction continuity tests",
+        "focus retention tests",
+        "zero-real-user provenance tests",
+        "summary timeout, empty result and provider failure tests",
+        "prompt injection and signal leakage tests"
+      ],
+      "exitGate": "SC-G05_SUMMARY_VALIDATED"
+    },
+    {
+      "id": "SC-P06",
+      "order": 6,
+      "title": "Apply Hermes durability and anti-thrash invariants to Canvas coordinator",
+      "status": "planned",
+      "dependsOn": ["SC-P05"],
+      "hermesReferences": [
+        "agent/conversation_compression.py:CompressionCommitFence",
+        "agent/conversation_compression.py:compress_context lock and watermark flow",
+        "tests/test_compression_watermark_commit.py",
+        "tests/agent/test_compaction_anti_thrash.py"
+      ],
+      "portingMode": "INVARIANT_ONLY",
+      "deliverables": [
+        "Idle and total deadlines",
+        "Concurrent live-tail watermark adoption",
+        "Durable ineffectiveness and failure breakers",
+        "Manual one-shot cooldown bypass without lock bypass",
+        "Content-free per-attempt telemetry"
+      ],
+      "verification": [
+        "SQLite and PostgreSQL parity",
+        "concurrent fork and live-tail tests",
+        "late worker and stale generation tests",
+        "progress timeout tests",
+        "anti-thrash persistence and recovery tests"
+      ],
+      "exitGate": "SC-G06_COORDINATOR_DURABLE"
+    },
+    {
+      "id": "SC-P07",
+      "order": 7,
+      "title": "Integrate Hermes trigger topology into live runtime and automations",
+      "status": "planned",
+      "dependsOn": ["SC-P06"],
+      "hermesReferences": [
+        "agent/turn_context.py preflight and idle compaction flow",
+        "agent/conversation_loop.py pre-API request pressure flow",
+        "agent/conversation_compression.py:compress_context force behavior"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Shared live and automation compaction engine",
+        "Automatic preflight",
+        "Final normalized-request hard gate",
+        "Provider overflow recovery",
+        "Early manual compaction",
+        "Optional idle compaction"
+      ],
+      "verification": [
+        "final serialized request overflow regression",
+        "manual-before-threshold tests",
+        "idle lock and breaker tests",
+        "automation versus live parity tests",
+        "maximum attempt cap tests"
+      ],
+      "exitGate": "SC-G07_RUNTIME_SENDABLE"
+    },
+    {
+      "id": "SC-P08",
+      "order": 8,
+      "title": "Expose Hermes-equivalent truthful context and compaction status",
+      "status": "planned",
+      "dependsOn": ["SC-P07"],
+      "hermesReferences": [
+        "agent/context_breakdown.py provider actual usage preference",
+        "agent/codex_runtime.py tokenUsage update flow",
+        "gateway and TUI compaction status tests"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Separate provider actual and next-request estimate",
+        "Effective budget, trigger and target markers",
+        "Compaction before and after metrics",
+        "Optional focus interaction",
+        "Specific localized outcome and error states"
+      ],
+      "verification": [
+        "UI contract tests",
+        "German and English copy tests",
+        "desktop and mobile responsive checks",
+        "Playwright on localhost:3000 after explicit approval"
+      ],
+      "exitGate": "SC-G08_UI_TRUTHFUL"
+    },
+    {
+      "id": "SC-P09",
+      "order": 9,
+      "title": "Shadow rollout, default decision and final verification",
+      "status": "planned",
+      "dependsOn": ["SC-P08"],
+      "hermesReferences": [
+        "hermes_cli/config_defaults.py legacy and lean tail modes",
+        "evals/compaction/policies.py",
+        "tests/run_agent/test_infinite_compaction_loop.py"
+      ],
+      "portingMode": "INVARIANT_ONLY",
+      "deliverables": [
+        "Selection and savings shadow mode",
+        "Legacy versus lean evaluation",
+        "Measured default policy",
+        "V1 rollback path",
+        "No micro-compaction default",
+        "Final compliance and operations documentation"
+      ],
+      "verification": [
+        "targeted compaction and session tests",
+        "third-party compliance test",
+        "npm run lint",
+        "npm run build",
+        "GitNexus detect_changes against main",
+        "approved UI and E2E verification"
+      ],
+      "exitGate": "SC-G09_V2_READY"
+    }
+  ]
+}
