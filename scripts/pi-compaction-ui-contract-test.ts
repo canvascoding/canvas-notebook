@@ -5,7 +5,9 @@ import { mapPersistedChatMessage } from '../app/components/canvas-agent-chat/cha
 import {
   getRuntimeCompactionStatusTranslationKey,
   type RuntimeCompactionStatus,
+  type RuntimeStatus,
 } from '../app/lib/chat/runtime-status';
+import { getContextStatusDisplay } from '../app/components/canvas-agent-chat/contextStatusDisplay';
 
 const baseStatus: Omit<RuntimeCompactionStatus, 'state' | 'reasonCode'> = {
   attemptId: 'compact-contract-test',
@@ -55,5 +57,48 @@ const publicStatus = {
 assert.equal('summaryText' in publicStatus, false);
 assert.equal('prompt' in publicStatus, false);
 assert.equal('messages' in publicStatus, false);
+
+const baseRuntimeStatus = {
+  sessionId: 'context-status-contract',
+  phase: 'idle',
+  activeTool: null,
+  pendingToolCalls: 0,
+  followUpQueue: [],
+  steeringQueue: [],
+  canAbort: false,
+  contextWindow: 262_000,
+  estimatedHistoryTokens: 100_000,
+  availableHistoryTokens: 200_000,
+  contextUsagePercent: 50,
+  includedSummary: false,
+  omittedMessageCount: 0,
+  summaryUpdatedAt: null,
+  lastCompactionAt: null,
+  lastCompactionKind: null,
+  lastCompactionOmittedCount: 0,
+} satisfies RuntimeStatus;
+
+assert.deepEqual(getContextStatusDisplay({
+  ...baseRuntimeStatus,
+  lastProviderInputTokens: 140_000,
+  nextRequestEstimatedTokens: 185_000,
+}), {
+  source: 'actual', usedTokens: 140_000, contextWindow: 262_000,
+}, 'idle status must never present a stale next-request estimate as actual usage');
+assert.deepEqual(getContextStatusDisplay({
+  ...baseRuntimeStatus,
+  phase: 'streaming',
+  lastProviderInputTokens: 140_000,
+  nextRequestEstimatedTokens: 185_000,
+}), {
+  source: 'next_request', usedTokens: 185_000, contextWindow: 262_000,
+}, 'active status must present the current serialized-request estimate separately');
+assert.deepEqual(getContextStatusDisplay({
+  ...baseRuntimeStatus,
+  nextRequestEstimatedTokens: 285_000,
+  nextRequestBudgetExceeded: true,
+}), {
+  source: 'next_request', usedTokens: 285_000, contextWindow: 262_000,
+}, 'an idle overflow must retain the failing next-request estimate for recovery');
 
 console.log('pi-compaction-ui-contract-test: ok');

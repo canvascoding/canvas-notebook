@@ -1127,7 +1127,7 @@ function McpConfigCard(props: {
     <SettingsAccordionCard
       id="onboarding-settings-mcp-config"
       title={t('mcpConfig.title')}
-      description={`${t('mcpConfig.description')} ${t('envCard.fileLocatedAt')} ${editor.state?.path || '/data/canvas-agent/mcp.json'}.`}
+      description={t('mcpConfig.description')}
       icon={Settings}
       isOpen={isOpen}
       onOpenChange={onOpenChange}

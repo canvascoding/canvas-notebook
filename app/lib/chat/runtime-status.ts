@@ -76,6 +76,18 @@ export type RuntimeStatus = {
    */
   finalRequestTokens?: number | null;
   finalRequestBudgetExceeded?: boolean;
+  /**
+   * The provider-reported input usage for the most recently completed request.
+   * This is an observed value, not a local token estimate.
+   */
+  lastProviderInputTokens?: number | null;
+  lastProviderInputAt?: string | null;
+  /**
+   * Estimated size of the next fully serialized provider request. This uses the
+   * exact payload shape, but token accounting remains an estimate.
+   */
+  nextRequestEstimatedTokens?: number | null;
+  nextRequestBudgetExceeded?: boolean;
   includedSummary: boolean;
   omittedMessageCount: number;
   summaryUpdatedAt: string | null;

@@ -74,7 +74,7 @@ import { replaceNextTurnContext } from '@/app/lib/pi/next-turn-context';
 import { getChannelSystemPromptBlock } from '@/app/lib/agents/channel-system-prompt';
 import { formatZonedDateTimeForPrompt } from '@/app/lib/time-zones';
 import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
-import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
+import { loadLatestPiSessionInputUsage, persistPiUsageEvents } from '@/app/lib/pi/usage-events';
 import {
   getStudioOutputsRoot,
   resolveStudioFilePath,
@@ -210,6 +210,10 @@ export type PiRuntimeStatus = {
   contextUsagePercent: number;
   finalRequestTokens?: number | null;
   finalRequestBudgetExceeded?: boolean;
+  lastProviderInputTokens?: number | null;
+  lastProviderInputAt?: string | null;
+  nextRequestEstimatedTokens?: number | null;
+  nextRequestBudgetExceeded?: boolean;
   includedSummary: boolean;
   omittedMessageCount: number;
   summaryUpdatedAt: string | null;
@@ -278,6 +282,10 @@ type RuntimeInit = {
   browserSnapshot: BrowserSessionSnapshot;
   imageNormalizationOptions: PiMessageNormalizationOptions;
   requestOutputTokenCap: number;
+  lastProviderInputUsage: {
+    inputTokens: number;
+    assistantTimestamp: Date;
+  } | null;
 };
 
 type RuntimeOptions = {
@@ -433,6 +441,10 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
     contextUsagePercent: status.contextUsagePercent,
     finalRequestTokens: status.finalRequestTokens,
     finalRequestBudgetExceeded: status.finalRequestBudgetExceeded,
+    lastProviderInputTokens: status.lastProviderInputTokens,
+    lastProviderInputAt: status.lastProviderInputAt,
+    nextRequestEstimatedTokens: status.nextRequestEstimatedTokens,
+    nextRequestBudgetExceeded: status.nextRequestBudgetExceeded,
     includedSummary: status.includedSummary,
     omittedMessageCount: status.omittedMessageCount,
     summaryUpdatedAt: status.summaryUpdatedAt,
@@ -475,6 +487,7 @@ export class LivePiRuntime {
   private lastFinalPayloadBudgetSnapshot: PiContextBudgetSnapshot | null = null;
   private preparedRuntimePayload: PreparedRuntimePayload | null = null;
   private lastProviderUsageCalibration: PiProviderUsageCalibrationEvidence | null = null;
+  private lastProviderInputUsage: RuntimeInit['lastProviderInputUsage'];
   private readonly imageNormalizationOptions: PiMessageNormalizationOptions;
   private readonly requestOutputTokenCap: number;
   private lastPersistedLength: number;
@@ -529,6 +542,7 @@ export class LivePiRuntime {
     this.memoryPromptBlock = init.memoryPromptBlock;
     this.imageNormalizationOptions = init.imageNormalizationOptions;
     this.requestOutputTokenCap = init.requestOutputTokenCap;
+    this.lastProviderInputUsage = init.lastProviderInputUsage;
     this.summary = init.summary;
     this.lastPersistedLength = init.initialMessages.length;
     this.messageSequenceCheckpoint = init.initialMessages.length;
@@ -560,7 +574,6 @@ export class LivePiRuntime {
     this.lastComposition = null;
     this.lastFinalPayloadBudgetSnapshot = null;
     this.preparedRuntimePayload = null;
-    this.lastProviderUsageCalibration = null;
   }
 
   private getCompactionScope() {
@@ -698,7 +711,6 @@ export class LivePiRuntime {
       runtimeContractRevision: 'canvas-pi-runtime-v1',
     }, this.imageNormalizationOptions);
     this.lastFinalPayloadBudgetSnapshot = prepared.budgetSnapshot;
-    this.lastProviderUsageCalibration = null;
     return {
       sourceMessages: messages,
       messages: prepared.messages,
@@ -725,6 +737,25 @@ export class LivePiRuntime {
 
   private isFinalPayloadSendable(snapshot: PiContextBudgetSnapshot): boolean {
     return !snapshot.payloadBudgetExceeded && !snapshot.contextBudgetExceeded;
+  }
+
+  /**
+   * A provider measurement may show that our rough history estimate is
+   * conservative. It can defer only an early soft-threshold compaction: the
+   * fully serialized request is still checked (and compacted) before send.
+   */
+  private shouldDeferSoftThresholdCompaction(preflight: PiHistoryComposition): boolean {
+    const calibration = this.lastProviderUsageCalibration;
+    return Boolean(
+      calibration
+      && calibration.provider === this.provider
+      && calibration.model === this.model.id
+      && calibration.relativeDelta !== null
+      && calibration.relativeDelta <= -0.05
+      && preflight.softThresholdExceeded
+      && !preflight.contextBudgetExceeded
+      && isPiHistoryCompositionSendable(preflight, this.summary),
+    );
   }
 
   async prepareFinalPayload(messages: AgentMessage[]): Promise<Message[]> {
@@ -814,12 +845,13 @@ export class LivePiRuntime {
     }
     const composition = this.lastComposition;
     const finalPayloadBudget = this.lastFinalPayloadBudgetSnapshot;
+    const hasPendingReplace = this.pendingReplace !== null;
     const exposeFinalPayloadBudget = Boolean(
       finalPayloadBudget
+      && !this.abortRequested
+      && !hasPendingReplace
       && (this.isRunning || !this.isFinalPayloadSendable(finalPayloadBudget)),
     );
-
-    const hasPendingReplace = this.pendingReplace !== null;
 
     return {
       sessionId: this.sessionId,
@@ -846,6 +878,12 @@ export class LivePiRuntime {
       contextUsagePercent: toPercent(composition.estimatedHistoryTokens, composition.availableHistoryTokens),
       finalRequestTokens: exposeFinalPayloadBudget ? finalPayloadBudget!.estimatedTotalTokens : null,
       finalRequestBudgetExceeded: exposeFinalPayloadBudget
+        ? !this.isFinalPayloadSendable(finalPayloadBudget!)
+        : false,
+      lastProviderInputTokens: this.lastProviderInputUsage?.inputTokens ?? null,
+      lastProviderInputAt: this.lastProviderInputUsage?.assistantTimestamp.toISOString() ?? null,
+      nextRequestEstimatedTokens: exposeFinalPayloadBudget ? finalPayloadBudget!.estimatedTotalTokens : null,
+      nextRequestBudgetExceeded: exposeFinalPayloadBudget
         ? !this.isFinalPayloadSendable(finalPayloadBudget!)
         : false,
       includedSummary: composition.includedSummary,
@@ -935,6 +973,7 @@ export class LivePiRuntime {
     this.pendingReplace = this.createQueueEntry(sanitized, context);
     this.rememberMessageContext(sanitized, context);
     this.abortRequested = true;
+    this.invalidateContextBudget();
     this.touch();
     this.publishStatus();
     this.agent.abort();
@@ -945,6 +984,7 @@ export class LivePiRuntime {
     const compactionAborted = abortPiSessionCompaction(this.getCompactionScope());
     if (this.isRunning || this.agent.state.isStreaming || this.abortRequested) {
       this.abortRequested = true;
+      this.invalidateContextBudget();
       this.touch();
       this.publishStatus();
       this.agent.abort();
@@ -1751,6 +1791,13 @@ export class LivePiRuntime {
 
     if (event.type === 'message_end' && event.message?.role === 'assistant') {
       const providerReportedInputTokens = event.message.usage?.input;
+      if (typeof providerReportedInputTokens === 'number' && providerReportedInputTokens > 0) {
+        const assistantTimestamp = new Date(event.message.timestamp);
+        this.lastProviderInputUsage = {
+          inputTokens: Math.floor(providerReportedInputTokens),
+          assistantTimestamp: Number.isNaN(assistantTimestamp.getTime()) ? new Date() : assistantTimestamp,
+        };
+      }
       if (
         this.lastFinalPayloadBudgetSnapshot
         && typeof providerReportedInputTokens === 'number'
@@ -1832,9 +1879,12 @@ export class LivePiRuntime {
     const additionalContextTokens = runtimeContext ? estimateTextTokens(runtimeContext) : 0;
     const preflight = this.composeHistory(messages, additionalContextTokens);
     if (
-      !preflight.softThresholdExceeded
-      && !preflight.contextBudgetExceeded
-      && isPiHistoryCompositionSendable(preflight, this.summary)
+      (
+        !preflight.softThresholdExceeded
+        && !preflight.contextBudgetExceeded
+        && isPiHistoryCompositionSendable(preflight, this.summary)
+      )
+      || this.shouldDeferSoftThresholdCompaction(preflight)
     ) {
       this.lastComposition = preflight;
       return this.finalizeContextCandidate({
@@ -2286,7 +2336,10 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const provider = executableRuntime.selection.selection.providerId;
   const thinkingLevel = executableRuntime.selection.selection.thinkingLevel as ThinkingLevel;
   const model = executableRuntime.model;
-  const loadedSession = await loadPiSessionWithSummary(sessionId, userId, agentId);
+  const [loadedSession, lastProviderInputUsage] = await Promise.all([
+    loadPiSessionWithSummary(sessionId, userId, agentId),
+    loadLatestPiSessionInputUsage(sessionId, userId),
+  ]);
   timing.mark('sessionHistory');
   const initialMessages = loadedSession?.messages || [];
   const summary = loadedSession?.summary || {
@@ -2393,6 +2446,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       browserSnapshot,
       imageNormalizationOptions,
       requestOutputTokenCap,
+      lastProviderInputUsage,
     },
     agent,
     {
@@ -2670,7 +2724,10 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     return null;
   }
 
-  const loadedSession = await loadPiSessionWithSummary(sessionId, userId, sessionRecord.agentId);
+  const [loadedSession, lastProviderInputUsage] = await Promise.all([
+    loadPiSessionWithSummary(sessionId, userId, sessionRecord.agentId),
+    loadLatestPiSessionInputUsage(sessionId, userId),
+  ]);
   const messages = loadedSession?.messages || [];
   const summary = loadedSession?.summary || {
     summaryText: null,
@@ -2740,6 +2797,10 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     contextUsagePercent: toPercent(composition.estimatedHistoryTokens, composition.availableHistoryTokens),
     finalRequestTokens: null,
     finalRequestBudgetExceeded: false,
+    lastProviderInputTokens: lastProviderInputUsage?.inputTokens ?? null,
+    lastProviderInputAt: lastProviderInputUsage?.assistantTimestamp.toISOString() ?? null,
+    nextRequestEstimatedTokens: null,
+    nextRequestBudgetExceeded: false,
     includedSummary: composition.includedSummary,
     omittedMessageCount: composition.omittedMessages.length,
     summaryUpdatedAt: summary.summaryUpdatedAt ? summary.summaryUpdatedAt.toISOString() : null,
