@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { writeFile } from '@/app/lib/filesystem/workspace-files';
+import { readFile, writeFile } from '@/app/lib/filesystem/workspace-files';
 import {
   ensureFileRevisionForCurrentContent,
   markCollaborationDocumentCheckpoint,
@@ -14,6 +14,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { validateRichMarkdownYDoc } from './markdown-state';
 import {
   serializeCanonicalText,
+  sha256Text,
   type PersistedCollaborationState,
   withCollaborationCheckpointFence,
 } from './persistence';
@@ -30,6 +31,10 @@ export type CollaborationCheckpointFileWrite = {
   content: string;
   revisionId: string;
   serializedContent: string;
+};
+
+type CompensatableCollaborationCheckpointFileWrite = CollaborationCheckpointFileWrite & {
+  rollback: () => Promise<void>;
 };
 
 export type AuthoritativeCollaborationSnapshot = {
@@ -113,6 +118,74 @@ export async function writeCollaborationCheckpointFile(input: {
   };
 }
 
+async function writeCompensatableCollaborationCheckpointFile(input: {
+  state: PersistedCollaborationState;
+  workspace: WorkspaceContext;
+  canonicalContent: string;
+  actorUserId?: string | null;
+  actorType?: 'user' | 'agent' | 'system';
+  sourceSessionId?: string | null;
+}): Promise<CompensatableCollaborationCheckpointFileWrite> {
+  const fileOptions = workspaceFileOptions(input.workspace);
+  const previousContent = await readFile(input.state.path, fileOptions);
+  const previousRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
+  if (!previousRevision) {
+    throw new Error('Collaboration checkpoint could not snapshot the current file before write.');
+  }
+  const serializedContent = serializeCanonicalText(
+    input.canonicalContent.replace(/\r\n?/gu, '\n'),
+    input.state,
+  );
+  const writtenHash = sha256Text(serializedContent);
+  let rolledBack = false;
+  const rollback = async (): Promise<void> => {
+    if (rolledBack) return;
+    const currentRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
+    if (currentRevision?.sha256 === previousRevision.sha256) {
+      rolledBack = true;
+      return;
+    }
+    if (currentRevision?.sha256 !== writtenHash) {
+      throw new Error('Collaboration checkpoint rollback refused to overwrite a newer workspace file.');
+    }
+    await writeFile(input.state.path, previousContent, fileOptions, async () => {
+      const lockedRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
+      if (lockedRevision?.sha256 !== writtenHash) {
+        throw new Error('Collaboration checkpoint file changed before rollback replacement.');
+      }
+    });
+    const restoredRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
+    if (restoredRevision?.sha256 !== previousRevision.sha256) {
+      throw new Error('Collaboration checkpoint rollback could not restore the previous file.');
+    }
+    ensureFileRevisionForCurrentContent({
+      workspace: input.workspace,
+      path: input.state.path,
+      contentHash: restoredRevision.sha256,
+      sizeBytes: restoredRevision.stats.size,
+      actorUserId: input.actorUserId ?? null,
+      actorType: 'system',
+      sourceSessionId: input.sourceSessionId ?? null,
+    });
+    rolledBack = true;
+  };
+
+  try {
+    const fileWrite = await writeCollaborationCheckpointFile(input);
+    return { ...fileWrite, rollback };
+  } catch (writeError) {
+    try {
+      await rollback();
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [writeError, rollbackError],
+        'Collaboration checkpoint file write and rollback both failed.',
+      );
+    }
+    throw writeError;
+  }
+}
+
 export function finalizeCollaborationCheckpointProjection(input: {
   state: PersistedCollaborationState;
   workspace: WorkspaceContext;
@@ -164,7 +237,7 @@ export async function materializeCollaborationCheckpoint(input: {
     stateVector: input.state.stateVector,
     materialize: async (lockedState) => {
       const snapshot = authoritativeCollaborationSnapshot(lockedState);
-      const fileWrite = await writeCollaborationCheckpointFile({
+      const fileWrite = await writeCompensatableCollaborationCheckpointFile({
         state: lockedState,
         workspace: input.workspace,
         canonicalContent: snapshot.canonicalContent,
@@ -176,6 +249,7 @@ export async function materializeCollaborationCheckpoint(input: {
         canonicalContent: snapshot.canonicalContent,
         serializedContent: fileWrite.serializedContent,
         result: fileWrite,
+        rollback: fileWrite.rollback,
       };
     },
   });

@@ -365,6 +365,39 @@ export async function markCollaborationCheckpoint(input: {
   }
 }
 
+export type CompensatableCheckpointMaterialization<T> = {
+  canonicalContent: string;
+  serializedContent: string;
+  result: T;
+  rollback: () => Promise<void>;
+};
+
+/**
+ * Couples an external checkpoint projection with its database confirmation.
+ * The compensation runs before the surrounding transaction releases its row
+ * lock, so a failed confirmation cannot leave the workspace file ahead of the
+ * authoritative checkpoint metadata.
+ */
+export async function confirmCheckpointMaterialization<T, R>(input: {
+  materialize: () => Promise<CompensatableCheckpointMaterialization<T>>;
+  confirm: (materialized: CompensatableCheckpointMaterialization<T>) => Promise<R>;
+}): Promise<R> {
+  const materialized = await input.materialize();
+  try {
+    return await input.confirm(materialized);
+  } catch (confirmationError) {
+    try {
+      await materialized.rollback();
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [confirmationError, rollbackError],
+        'Collaboration checkpoint confirmation and file rollback both failed.',
+      );
+    }
+    throw confirmationError;
+  }
+}
+
 /**
  * Holds the collaboration state row lock across file materialization and
  * checkpoint confirmation. A concurrent Yjs persist or lifecycle update must
@@ -380,11 +413,9 @@ export async function withCollaborationCheckpointFence<T>(input: {
   schemaVersion: number;
   sequence: number;
   stateVector: Uint8Array;
-  materialize: (state: PersistedCollaborationState) => Promise<{
-    canonicalContent: string;
-    serializedContent: string;
-    result: T;
-  }>;
+  materialize: (
+    state: PersistedCollaborationState,
+  ) => Promise<CompensatableCheckpointMaterialization<T>>;
 }): Promise<{ result: T; state: PersistedCollaborationState } | null> {
   assertPostgres();
   const database = await openDb();
@@ -429,32 +460,36 @@ export async function withCollaborationCheckpointFence<T>(input: {
       return null;
     }
 
-    const materialized = await input.materialize(lockedState);
-    const checkpointedRow = await database.get(
-      `
-        UPDATE collaboration_yjs_states
-        SET checkpointed_at = ?, checkpoint_sequence = ?, canonical_hash = ?, serialized_hash = ?, degraded = 0
-        WHERE document_id = ?
-          AND document_sequence = ?
-          AND checkpoint_sequence <= ?
-        RETURNING *
-      `,
-      [
-        Date.now(),
-        input.sequence,
-        sha256Text(materialized.canonicalContent),
-        sha256Text(materialized.serializedContent),
-        input.documentId,
-        input.sequence,
-        input.sequence,
-      ],
-    ) as StateRow | undefined;
-    if (!checkpointedRow) {
-      throw new Error('Collaboration checkpoint row changed while its write fence was held.');
-    }
-    await database.run('COMMIT');
-    transactionOpen = false;
-    return { result: materialized.result, state: mapState(checkpointedRow) };
+    return await confirmCheckpointMaterialization({
+      materialize: () => input.materialize(lockedState),
+      confirm: async (materialized) => {
+        const checkpointedRow = await database.get(
+          `
+            UPDATE collaboration_yjs_states
+            SET checkpointed_at = ?, checkpoint_sequence = ?, canonical_hash = ?, serialized_hash = ?, degraded = 0
+            WHERE document_id = ?
+              AND document_sequence = ?
+              AND checkpoint_sequence <= ?
+            RETURNING *
+          `,
+          [
+            Date.now(),
+            input.sequence,
+            sha256Text(materialized.canonicalContent),
+            sha256Text(materialized.serializedContent),
+            input.documentId,
+            input.sequence,
+            input.sequence,
+          ],
+        ) as StateRow | undefined;
+        if (!checkpointedRow) {
+          throw new Error('Collaboration checkpoint row changed while its write fence was held.');
+        }
+        await database.run('COMMIT');
+        transactionOpen = false;
+        return { result: materialized.result, state: mapState(checkpointedRow) };
+      },
+    });
   } catch (error) {
     if (transactionOpen) {
       try { await database.run('ROLLBACK'); } catch {}

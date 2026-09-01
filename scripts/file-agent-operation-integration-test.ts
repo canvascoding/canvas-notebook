@@ -320,6 +320,7 @@ try {
         canonicalContent,
         serializedContent: serializeCanonicalText(canonicalContent, lockedState),
         result: canonicalContent,
+        rollback: async () => {},
       };
     },
   });

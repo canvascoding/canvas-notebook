@@ -9,6 +9,9 @@ import {
   createRichMarkdownReviewTarget,
 } from '../app/lib/collaboration/agent-operations';
 import {
+  confirmCheckpointMaterialization,
+} from '../app/lib/collaboration/persistence';
+import {
   createRichMarkdownYDoc,
   replaceRichMarkdownInYDoc,
   richMarkdownFromYDoc,
@@ -224,7 +227,39 @@ async function assertOperationBodyHardening(): Promise<void> {
   assert.equal(valid.idempotencyKey, 'operation-key');
 }
 
-void assertOperationBodyHardening()
+async function assertCheckpointConfirmationCompensation(): Promise<void> {
+  let rollbackCount = 0;
+  await assert.rejects(
+    confirmCheckpointMaterialization({
+      materialize: async () => ({
+        canonicalContent: 'new checkpoint',
+        serializedContent: 'new checkpoint',
+        result: 'write-result',
+        rollback: async () => { rollbackCount += 1; },
+      }),
+      confirm: async () => { throw new Error('database confirmation failed'); },
+    }),
+    /database confirmation failed/u,
+  );
+  assert.equal(rollbackCount, 1, 'a failed database confirmation must roll back the file projection once');
+
+  const confirmed = await confirmCheckpointMaterialization({
+    materialize: async () => ({
+      canonicalContent: 'confirmed checkpoint',
+      serializedContent: 'confirmed checkpoint',
+      result: 'write-result',
+      rollback: async () => { rollbackCount += 1; },
+    }),
+    confirm: async (materialized) => materialized.result,
+  });
+  assert.equal(confirmed, 'write-result');
+  assert.equal(rollbackCount, 1, 'a confirmed database checkpoint must not roll back its file projection');
+}
+
+void Promise.all([
+  assertOperationBodyHardening(),
+  assertCheckpointConfirmationCompensation(),
+])
   .then(() => console.log('file-collaboration-hardening-test: ok'))
   .catch((error) => {
     console.error(error);
