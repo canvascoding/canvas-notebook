@@ -158,6 +158,7 @@ async function main(): Promise<void> {
         { id: 'read_knowledge_source', available: true, enabled: true, scopes: ['knowledge:read'] },
         { id: 'edit_knowledge_source', available: true, enabled: true, scopes: ['knowledge:write'] },
         { id: 'read_knowledge_asset', available: true, enabled: true, scopes: ['knowledge:assets'] },
+        { id: 'upload_knowledge_asset', available: true, enabled: true, scopes: ['knowledge:write'] },
       ],
     );
     assert.equal(
@@ -177,11 +178,10 @@ async function main(): Promise<void> {
     assert.deepEqual(
       missingScopesForEnabledCapabilities({
         grantedScopes: ['workspace:list'],
-        capabilities: status.capabilities.map((capability) => (
-          capability.id === 'read_knowledge_asset'
-            ? { ...capability, enabled: true }
-            : capability
-        )),
+        capabilities: status.capabilities.map((capability) => ({
+          ...capability,
+          enabled: capability.id === 'read_knowledge_asset',
+        })),
       }),
       ['knowledge:assets'],
     );

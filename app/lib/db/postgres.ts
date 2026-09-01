@@ -1290,7 +1290,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query(
     `
       INSERT INTO agents (agent_id, name, type, removable, created_at, updated_at)
-      VALUES ('canvas-agent', 'Canvas Agent', 'main', 0, $1, $2)
+      VALUES ('canvas-agent', 'Bradley', 'main', 0, $1, $2)
       ON CONFLICT (agent_id) DO NOTHING
     `,
     [now, now],

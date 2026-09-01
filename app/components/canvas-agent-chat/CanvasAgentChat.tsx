@@ -22,7 +22,10 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
 import { useChatComposerLayout } from '@/app/components/canvas-agent-chat/useChatComposerLayout';
 import { useChatScrollController } from '@/app/components/canvas-agent-chat/useChatScrollController';
-import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
+import {
+  isConfirmedResponsePreparation,
+  type RuntimeStatus,
+} from '@/app/lib/chat/runtime-status';
 import {
   removeCachedChatSession,
   updateCachedChatSessionTitle,
@@ -51,7 +54,8 @@ import {
   writeCanvasChatActiveSessionStorage,
 } from '@/app/lib/chat/constants';
 import { removeComposerDraft } from '@/app/lib/chat/draft-storage';
-import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
+import { getAgentProfileDisplayName } from '@/app/lib/chat/agent-display';
+import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
 import { useChatAgentConfig } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
 import { useChatControlActions } from '@/app/components/canvas-agent-chat/useChatControlActions';
@@ -1036,15 +1040,27 @@ export default function CanvasAgentChat({
     ...(runtimeStatus?.followUpQueue || []).map((entry) => ({ ...entry, kind: 'follow_up' as const })),
   ];
   const activeToolDisplay = runtimeStatus?.activeTool ? getToolDisplayInfo(runtimeStatus.activeTool.name, locale) : null;
+  const hasFinalRequestBudget = runtimeStatus?.finalRequestTokens !== null && runtimeStatus?.finalRequestTokens !== undefined;
   const contextDetailedLabel = runtimeStatus
-    ? t('contextLabel', {
+    ? hasFinalRequestBudget
+      ? t('contextFinalLabel', {
+        used: formatContextTokens(runtimeStatus.finalRequestTokens!),
+        window: formatContextTokens(runtimeStatus.contextWindow),
+      })
+      : t('contextLabel', {
         used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
         available: formatContextTokens(runtimeStatus.availableHistoryTokens),
         window: formatContextTokens(runtimeStatus.contextWindow),
       })
     : t('noSessionYet');
   const contextTooltip = runtimeStatus
-    ? t('contextTooltip', {
+    ? hasFinalRequestBudget
+      ? t('contextFinalTooltip', {
+        used: formatContextTokens(runtimeStatus.finalRequestTokens!),
+        window: formatContextTokens(runtimeStatus.contextWindow),
+        percent: Math.round((runtimeStatus.finalRequestTokens! / Math.max(1, runtimeStatus.contextWindow)) * 100),
+      })
+      : t('contextTooltip', {
         percent: runtimeStatus.contextUsagePercent,
         used: formatContextTokens(runtimeStatus.estimatedHistoryTokens),
         available: formatContextTokens(runtimeStatus.availableHistoryTokens),
@@ -1052,7 +1068,9 @@ export default function CanvasAgentChat({
         reserved: formatContextTokens(Math.max(0, runtimeStatus.contextWindow - runtimeStatus.availableHistoryTokens)),
       })
     : t('noSessionYet');
-  const contextProgressPercent = Math.min(100, Math.max(0, runtimeStatus?.contextUsagePercent ?? 0));
+  const contextProgressPercent = Math.min(100, Math.max(0, hasFinalRequestBudget
+    ? Math.round((runtimeStatus!.finalRequestTokens! / Math.max(1, runtimeStatus!.contextWindow)) * 100)
+    : runtimeStatus?.contextUsagePercent ?? 0));
   const sessionDisplayLabel = getSessionDisplayTitle(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const primaryActionIsStop = isRuntimeBusy && !hasComposerContent;
@@ -1086,11 +1104,20 @@ export default function CanvasAgentChat({
   useEffect(() => () => onSessionContextChange?.(null), [onSessionContextChange]);
   const isSessionTitleGenerating = activeSession?.titleGenerationState === 'pending' || activeSession?.titleGenerationState === 'generating';
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
-  const activeAgentDisplayName = activeAgentProfile?.name || getAgentDisplayName(activeSessionAgentId);
+  const activeAgentDisplayName = getAgentProfileDisplayName(activeSessionAgentId, activeAgentProfile?.name);
+  const latestMessage = messages.at(-1);
+  const isPreparingResponse = isConfirmedResponsePreparation(runtimeStatus, {
+    present: latestMessage?.role === 'assistant',
+    hasVisibleOutput: Boolean(latestMessage?.content.trim() || latestMessage?.attachments?.length),
+  });
   const chatAgentOptions = useMemo<AgentProfile[]>(() => (
-    availableAgents.length > 0
+    (availableAgents.length > 0
       ? availableAgents
-      : [{ agentId: CHAT_AGENT_ID, name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false }]
+      : [{ agentId: CHAT_AGENT_ID, name: MAIN_AGENT_DISPLAY_NAME, iconId: 'bot', type: 'main', removable: false }]
+    ).map((agent) => ({
+      ...agent,
+      name: getAgentProfileDisplayName(agent.agentId, agent.name),
+    }))
   ), [availableAgents]);
 
   const historyPanelProps: Omit<ChatHistoryPanelProps, 'variant' | 'width' | 'onBackToChat'> = {
@@ -1187,6 +1214,7 @@ export default function CanvasAgentChat({
         isCompactView={isCompactView}
         isHistoryOverlayOpen={isHistoryOverlayOpen}
         isMobile={isMobile}
+        isPreparingResponse={isPreparingResponse}
         isSessionTitleGenerating={isSessionTitleGenerating}
         onCompact={() => void handleCompact()}
         onSelectAgent={(agentId) => {
@@ -1281,6 +1309,8 @@ export default function CanvasAgentChat({
 
             {showStarterScreen && (
             <ChatStarterScreen
+              activeAgentDisplayName={activeAgentDisplayName}
+              activeAgentId={activeSessionAgentId}
               latestSession={latestSession}
               isStudioChatContext={isStudioChatContext}
               onOpenLatestSession={openLatestSession}

@@ -80,6 +80,24 @@ Folgende Grundlagen sind bereits vorhanden:
   Voice im
   [Bradley Identitätsebenen-Vertrag](./bradley-identity-layer-contract.md)
   mit klarer Priorität und prüfbaren Implementierungsgrenzen getrennt.
+- [x] Persönliches Onboarding auf die feste Bradley-Identität und frei
+  konfigurierbare Zusammenarbeit umgestellt; Implementierung:
+  [Bradley Onboarding](./bradley-onboarding-implementation.md).
+- [x] Schutzvertrag für vorhandene persönliche `SOUL.md`-Inhalte festgelegt;
+  nur bytegenau bekannte Alt-Seeds dürfen ihre obsolete Identitätszeile
+  verlieren, alle persönlichen Inhalte bleiben erhalten. Vertrag:
+  [Bradley SOUL.md-Migrationsschutz](./bradley-soul-migration-safety-contract.md).
+- [x] Sichtbaren Hauptagent-Datensatz idempotent von `Canvas Agent` auf
+  `Bradley` migriert, ohne andere Namen oder die interne ID anzutasten;
+  Implementierung:
+  [Bradley Display-Name-Migration](./bradley-display-name-migration.md).
+- [x] Sichtbare Hauptagent-Fallbacks in Registry, Chat, Home und Automationen
+  auf eine gemeinsame Bradley-Konstante umgestellt; Inventar:
+  [Bradley UI-Fallbacks](./bradley-ui-fallback-inventory.md).
+- [x] Onboarding-, Notification-, Automation-, E-Mail-, Tool- und
+  Settings-Texte vollständig klassifiziert und auf Bradley oder korrekte
+  generische Akteursnamen umgestellt; Inventar:
+  [Bradley sichtbare Copy](./bradley-visible-copy-inventory.md).
 - [x] Bradley, Canvas Host Agent, Canvas Control Plane und interne
   `canvas-agent`-Bezeichner im
   [Agenten-Terminologievertrag](./bradley-agent-terminology-contract.md)
@@ -124,9 +142,13 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] Deutsche und englische Produktstimme im
   [Bradley DE-/EN-Sprachleitfaden](./bradley-de-en-language-style-guide.md)
   vollständig dokumentiert.
+- [x] Festen, versionierten Bradley Identity Block ausschließlich für
+  `canvas-agent` in die Prompt-Architektur integriert und bestehende
+  Session-Snapshots verlustfrei ergänzt; Nachweis:
+  [Bradley Prompt-Identity-Implementierung](./bradley-prompt-identity-implementation.md).
 
-Noch nicht entschieden oder umgesetzt sind insbesondere die Prompt-Hierarchie,
-die Migration bestehender Installationen und die produktive UI-Integration.
+Noch nicht entschieden oder umgesetzt sind insbesondere die Onboarding- und
+Bestandsmigration sowie die produktive UI-Integration.
 
 ## 3. Identität und Name
 
@@ -499,23 +521,23 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| BRADLEY-030 | offen | Feste Bradley-Identität in der Prompt-Architektur verorten | Identität bleibt stabil und steht nicht im Konflikt mit Nutzeranweisung, SOUL.md oder Workspace Brand Voice. |
-| BRADLEY-031 | offen | Onboarding auf feste Identität plus persönliche Zusammenarbeit umstellen | Neue Nutzer lernen Bradley kennen, können aber Kommunikationspräferenzen festlegen. |
-| BRADLEY-032 | offen | Schutz vorhandener persönlicher `SOUL.md`-Inhalte konzipieren | Migration überschreibt keine bestehenden Präferenzen ohne dokumentierte Regel. |
-| BRADLEY-033 | offen | Display-Name-Migration für bestehende Hauptagent-Datensätze entwickeln | Bestehende Standardnamen werden idempotent migriert; bewusste Anpassungen bleiben erhalten. |
-| BRADLEY-034 | offen | UI-Fallbacks und Registry-Defaults inventarisieren und aktualisieren | Kein sichtbarer Standard-Fallback zeigt unbeabsichtigt „Canvas Agent“, wenn der Hauptagent Bradley ist. |
-| BRADLEY-035 | offen | Onboarding-, Notification-, Automation- und E-Mail-Texte inventarisieren | Alle sichtbaren Hauptagent-Referenzen sind klassifiziert und entweder migriert oder bewusst beibehalten. |
-| BRADLEY-036 | offen | Interne ID- und Pfadstabilität durch Regressionstests absichern | Tests belegen, dass `canvas-agent`, Sessions, Automationen, APIs und Speicherpfade unverändert funktionieren. |
+| BRADLEY-030 | fertig | Feste Bradley-Identität in der Prompt-Architektur verorten; Implementierung: [Bradley Prompt-Identity-Implementierung](./bradley-prompt-identity-implementation.md) | Identität bleibt stabil und steht nicht im Konflikt mit Nutzeranweisung, SOUL.md oder Workspace Brand Voice. |
+| BRADLEY-031 | fertig | Onboarding auf feste Identität plus persönliche Zusammenarbeit umstellen; Implementierung: [Bradley Onboarding](./bradley-onboarding-implementation.md) | Neue Nutzer lernen Bradley kennen, können aber Kommunikationspräferenzen festlegen. |
+| BRADLEY-032 | fertig | Schutz vorhandener persönlicher `SOUL.md`-Inhalte konzipieren; Vertrag: [Bradley SOUL.md-Migrationsschutz](./bradley-soul-migration-safety-contract.md) | Migration überschreibt keine bestehenden Präferenzen ohne dokumentierte Regel. |
+| BRADLEY-033 | fertig | Display-Name-Migration für bestehende Hauptagent-Datensätze entwickeln; Implementierung: [Bradley Display-Name-Migration](./bradley-display-name-migration.md) | Bestehende Standardnamen werden idempotent migriert; bewusste Anpassungen bleiben erhalten. |
+| BRADLEY-034 | fertig | UI-Fallbacks und Registry-Defaults inventarisieren und aktualisieren; Inventar: [Bradley UI-Fallbacks](./bradley-ui-fallback-inventory.md) | Kein sichtbarer Standard-Fallback zeigt unbeabsichtigt „Canvas Agent“, wenn der Hauptagent Bradley ist. |
+| BRADLEY-035 | fertig | Onboarding-, Notification-, Automation- und E-Mail-Texte inventarisieren; Inventar: [Bradley sichtbare Copy](./bradley-visible-copy-inventory.md) | Alle sichtbaren Hauptagent-Referenzen sind klassifiziert und entweder migriert oder bewusst beibehalten. |
+| BRADLEY-036 | fertig | Interne ID- und Pfadstabilität durch Regressionstests absichern; Nachweis: [Bradley Runtime-Stabilitätsregression](./bradley-runtime-stability-regression.md) | Tests belegen, dass `canvas-agent`, Sessions, Automationen, APIs und Speicherpfade unverändert funktionieren. |
 
 ### Phase E — UI-Pilot
 
 | ID | Status | Aufgabe | Abnahmekriterium |
 | --- | --- | --- | --- |
-| BRADLEY-040 | offen | Bradley im Hauptagent-Selector und Chat-Header integrieren | Nur der Hauptagent erscheint als Bradley; Spezialagenten behalten Name und Icon. |
-| BRADLEY-041 | offen | Bradley-Glyph als Hauptagent-Avatar integrieren | Glyph ist in allen unterstützten Größen und Themes scharf und zugänglich. |
-| BRADLEY-042 | offen | Arbeitszustand beim Antwortstart integrieren | Status bleibt semantisch korrekt, screenreader-tauglich und bewegungsarm verfügbar. |
-| BRADLEY-043 | offen | Einen Starter-/Empty-State mit Bradley umsetzen | Bradley unterstützt die Orientierung, ohne Inhalte oder Aktionen zu verdrängen. |
-| BRADLEY-044 | offen | UI- und End-to-End-Prüfung durchführen | Nach ausdrücklicher Playwright-/Browser-Freigabe sind Desktop, Mobile, Light, Dark und Reduced Motion geprüft. |
+| BRADLEY-040 | fertig | Bradley im Hauptagent-Selector und Chat-Header integrieren; Implementierung: [Bradley im Hauptagent-Selector und Chat-Header](./bradley-main-agent-selector-integration.md) | Nur der Hauptagent erscheint als Bradley; Spezialagenten behalten Name und Icon. |
+| BRADLEY-041 | fertig | Bradley-Glyph als Hauptagent-Avatar integrieren; Implementierung: [Bradley-Glyph als Hauptagent-Avatar](./bradley-glyph-ui-integration.md) | Glyph ist in allen unterstützten Größen und Themes scharf und zugänglich. |
+| BRADLEY-042 | fertig | Arbeitszustand beim Antwortstart integrieren; Implementierung: [Bradley-Arbeitszustand beim Antwortstart](./bradley-response-start-working-state.md) | Status bleibt semantisch korrekt, screenreader-tauglich und bewegungsarm verfügbar. |
+| BRADLEY-043 | fertig | Einen Starter-/Empty-State mit Bradley umsetzen; Implementierung: [Bradley Starter-/Empty-State](./bradley-starter-empty-state.md) | Bradley unterstützt die Orientierung, ohne Inhalte oder Aktionen zu verdrängen. |
+| BRADLEY-044 | fertig | UI- und End-to-End-Prüfung durchführen; Nachweis: [Bradley UI- und End-to-End-Prüfung](./bradley-ui-validation-matrix.md) | Desktop, Mobile, Light, Dark und Reduced Motion sind geprüft; ein gefundener Frühabbruch-Race wurde behoben und erneut abgenommen. |
 | BRADLEY-045 | offen | Pilot anhand definierter Kriterien einschließlich mehrsprachiger Bradley-Namensstichprobe auswerten | Verständlichkeit, Namenswirkung, Agentenunterscheidung, Vertrauen und Störwirkung sind dokumentiert. |
 
 ### Phase F — Erweiterter Rollout und Marketing

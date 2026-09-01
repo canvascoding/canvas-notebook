@@ -308,6 +308,8 @@ export async function auditPiMessageSequenceIntegrityOnConnection(
 export type StartPiCompactionAttemptInput = PiCompactionScope & Readonly<{
   attemptId: string;
   trigger: PiCompactionTrigger;
+  /** Allows one internal exact-budget retry through an automatic cooldown. */
+  bypassCooldown?: boolean;
   expectedSummaryRevision: number;
   expectedThroughSequence: number | null;
   deadlineAt: Date;
@@ -407,8 +409,16 @@ export async function startPiSessionCompactionAttemptOnConnection(
         [session.id, nowTimestamp],
       ) as AttemptRow | undefined;
       if (cooldownAttempt) {
-        let bypassAvailable = input.trigger === 'manual' && cooldownAttempt.trigger !== 'manual';
-        if (bypassAvailable) {
+        const cooldownIsExactBudgetRetry = cooldownAttempt.contract_fingerprint?.startsWith('exact-budget-retry:') ?? false;
+        let bypassAvailable = (
+          input.trigger === 'manual'
+          && cooldownAttempt.trigger !== 'manual'
+        ) || (
+          input.bypassCooldown === true
+          && cooldownAttempt.trigger !== 'manual'
+          && !cooldownIsExactBudgetRetry
+        );
+        if (bypassAvailable && input.trigger === 'manual') {
           const previousManualBypass = await connection.get(
             `SELECT id FROM pi_session_compaction_attempts
              WHERE pi_session_db_id = ? AND trigger = 'manual' AND attempt_ordinal > ?

@@ -55,10 +55,12 @@ export function createDirectMcpServer(
     });
   }
   const toolsById = new Map(tools.map((tool) => [tool.id, tool]));
+  const hasWriteTool = enabledTools.has('edit_knowledge_source')
+    || enabledTools.has('upload_knowledge_asset');
   const instructions = tools.length === 0
     ? 'No MCP tools are currently enabled for this Canvas Notebook instance.'
-    : enabledTools.has('edit_knowledge_source')
-      ? 'Canvas Notebook provides read access and exact, conflict-protected text edits only for workspaces the signed-in user explicitly allows for this MCP connection.'
+    : hasWriteTool
+      ? 'Canvas Notebook provides bounded reads and explicitly enabled, conflict-protected writes only for workspaces the signed-in user allows for this MCP connection.'
       : 'Canvas Notebook provides read-only access only to workspaces the signed-in user explicitly allows for this MCP connection.';
 
   const server = new Server(

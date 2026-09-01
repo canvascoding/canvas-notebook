@@ -86,8 +86,12 @@ async function buildAuthenticatedUserContext(scope?: AgentStorageScope | null): 
   ].join('\n');
 }
 
-function buildReadFailedFallbackSystemPrompt(): ManagedSystemPromptResult {
-  const fallback = composeManagedAgentSystemPrompt(createEmptyManagedPromptFiles());
+function buildReadFailedFallbackSystemPrompt(agentId: string): ManagedSystemPromptResult {
+  const fallback = composeManagedAgentSystemPrompt(
+    createEmptyManagedPromptFiles(),
+    undefined,
+    { agentId },
+  );
   return {
     systemPrompt: fallback.systemPrompt,
     diagnostics: {
@@ -119,7 +123,7 @@ async function buildOnboardingBootstrapContext(normalizedAgentId: string): Promi
     return [
       '## Onboarding Bootstrap',
       '',
-      'The following setup-only instructions apply while the initial Canvas Agent onboarding is incomplete.',
+      'The following setup-only instructions apply while the initial Bradley onboarding is incomplete.',
       '',
       bootstrapPrompt,
     ].join('\n');
@@ -132,8 +136,8 @@ export async function loadManagedAgentSystemPrompt(
   agentId?: string | null,
   scope?: AgentStorageScope | null,
 ): Promise<ManagedSystemPromptResult> {
+  const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
   try {
-    const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
     const agentProfile = await getAgentProfile(normalizedAgentId);
     const agentStorageScope: AgentStorageScope = {
       ...scope,
@@ -167,7 +171,7 @@ export async function loadManagedAgentSystemPrompt(
       ))
       .map((entry) => entry.ref.name) || [];
 
-    // The Canvas Agent receives all effectively enabled skills. Specialized
+    // Bradley receives all effectively enabled skills. Specialized
     // agents receive their selected subset after organization policy resolution.
     const promptSkills = selectPromptSkillsForAgent(
       normalizedAgentId,
@@ -197,6 +201,6 @@ export async function loadManagedAgentSystemPrompt(
     return { ...result, systemPrompt: truncateComposedSystemPrompt(systemPrompt) };
   } catch (error) {
     console.error('[system-prompt] Failed to load managed agent system prompt:', error);
-    return buildReadFailedFallbackSystemPrompt();
+    return buildReadFailedFallbackSystemPrompt(normalizedAgentId);
   }
 }

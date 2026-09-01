@@ -55,7 +55,7 @@ assert.match(attachmentRoute, /normalizeUploadImageBuffer/u);
 assert.match(service, /isNull\(piSessions\.archivedAt\)/u);
 assert.match(service, /isNotNull\(piSessions\.archivedAt\)/u);
 assert.match(service, /const activity = sql<number>`coalesce\(/u);
-assert.match(service, /const activityAt = new Date\(cursor\.activityAt\)\.getTime\(\);/u);
+assert.match(service, /const activityAt = Math\.floor\(new Date\(cursor\.activityAt\)\.getTime\(\) \/ 1_000\);/u);
 assert.match(service, /SESSION_ACTIVE/u);
 assert.match(service, /PiSessionClientRequestConflictError/u);
 assert.match(service, /clientRequestId: input\.clientRequestId/u);

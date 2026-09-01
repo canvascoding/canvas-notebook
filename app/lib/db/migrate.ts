@@ -3485,7 +3485,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   const now = Date.now();
   sqlite.prepare(`
     INSERT OR IGNORE INTO agents (agent_id, name, type, removable, created_at, updated_at)
-    VALUES ('canvas-agent', 'Canvas Agent', 'main', 0, ?, ?)
+    VALUES ('canvas-agent', 'Bradley', 'main', 0, ?, ?)
   `).run(now, now);
 
   sqlite.prepare(`

@@ -7,10 +7,13 @@ import { agents, piSessions } from '@/app/lib/db/schema';
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ICON_ID, normalizeAgentIconId, type AgentIconId } from './icons';
+import { MAIN_AGENT_DISPLAY_NAME } from './main-agent';
 import { DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID, SYSTEM_MANAGED_AGENT_IDS } from './storage';
 import { EMAIL_AGENT_DEFAULT_ENABLED_TOOLS } from '../pi/email-agent-policy';
 
 export { EMAIL_MANAGED_AGENT_ID } from './storage';
+export { MAIN_AGENT_DISPLAY_NAME } from './main-agent';
+const LEGACY_MAIN_AGENT_DISPLAY_NAMES = new Set(['Canvas Agent']);
 
 const LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
   'email_list_accounts',
@@ -203,7 +206,7 @@ export async function ensureCanvasAgent(): Promise<AgentProfile> {
     .insert(agents)
     .values({
       agentId: DEFAULT_MANAGED_AGENT_ID,
-      name: 'Canvas Agent',
+      name: MAIN_AGENT_DISPLAY_NAME,
       iconId: DEFAULT_AGENT_ICON_ID,
       type: 'main',
       removable: false,
@@ -214,12 +217,33 @@ export async function ensureCanvasAgent(): Promise<AgentProfile> {
     })
     .onConflictDoNothing();
 
-  const row = await db.query.agents.findFirst({
+  let row = await db.query.agents.findFirst({
     where: eq(agents.agentId, DEFAULT_MANAGED_AGENT_ID),
   });
 
   if (!row) {
-    throw new Error('Canvas Agent could not be loaded.');
+    throw new Error('Bradley could not be loaded.');
+  }
+
+  if (LEGACY_MAIN_AGENT_DISPLAY_NAMES.has(row.name)) {
+    await db
+      .update(agents)
+      .set({
+        name: MAIN_AGENT_DISPLAY_NAME,
+        revision: sql`${agents.revision} + 1`,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(agents.agentId, DEFAULT_MANAGED_AGENT_ID),
+        eq(agents.name, row.name),
+      ));
+
+    row = await db.query.agents.findFirst({
+      where: eq(agents.agentId, DEFAULT_MANAGED_AGENT_ID),
+    });
+    if (!row) {
+      throw new Error('Bradley could not be loaded after the display-name migration.');
+    }
   }
 
   return mapAgent(row);

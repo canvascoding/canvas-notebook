@@ -50,6 +50,7 @@ import {
 } from '@/app/lib/filesystem/workspace-files';
 import { publishWorkspaceFileMutation, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import { ensureAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
 import { getStudioRoot, getStudioWorkspaceRoot } from '@/app/lib/integrations/studio-workspace';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -592,7 +593,7 @@ function collaborationAgentIdentity(executionContext: AgentExecutionContext) {
   return {
     initiatedByUserId: executionContext.userId,
     actorId: executionContext.agentId || 'canvas-agent',
-    actorDisplayName: executionContext.agentId ? `Agent ${executionContext.agentId}` : 'Canvas Agent',
+    actorDisplayName: getAgentDisplayName(executionContext.agentId),
     actorSessionId: executionContext.sessionId,
   };
 }

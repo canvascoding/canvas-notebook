@@ -61,6 +61,18 @@ import {
   readDirectMcpAsset,
 } from '@/app/lib/mcp/server/asset-reader';
 import {
+  abortDirectMcpBinaryUpload,
+  beginDirectMcpBinaryUpload,
+  completeDirectMcpBinaryUpload,
+  decodeDirectMcpUploadChunk,
+  directMcpBinaryUploadErrorMessage,
+  DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS,
+  DIRECT_MCP_UPLOAD_MAX_BYTES,
+  DIRECT_MCP_UPLOAD_MAX_CHUNK_BYTES,
+  normalizeDirectMcpUploadMimeType,
+  writeDirectMcpBinaryUploadChunk,
+} from '@/app/lib/mcp/server/binary-upload';
+import {
   type DirectMcpResourceScope,
   type DirectMcpToolId,
 } from '@/app/lib/mcp/server/config';
@@ -82,6 +94,7 @@ export const DIRECT_MCP_WORKSPACE_TOOL_IDS = [
   'read_knowledge_source',
   'edit_knowledge_source',
   'read_knowledge_asset',
+  'upload_knowledge_asset',
 ] as const satisfies readonly DirectMcpToolId[];
 
 const MAX_WORKSPACE_ID_LENGTH = 200;
@@ -164,6 +177,14 @@ function optionalInteger(
 ): number {
   const value = args[name];
   if (value === undefined) return defaultValue;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    invalidParams(`${name} must be an integer between ${minimum} and ${maximum}.`);
+  }
+  return value;
+}
+
+function requiredInteger(args: JsonObject, name: string, minimum: number, maximum: number): number {
+  const value = args[name];
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum || value > maximum) {
     invalidParams(`${name} must be an integer between ${minimum} and ${maximum}.`);
   }
@@ -475,6 +496,79 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     };
   }
 
+  if (tool === 'upload_knowledge_asset') {
+    return {
+      name: tool,
+      title: 'Upload a binary workspace file',
+      description: 'Uploads one binary file in a short-lived, conflict-protected session. Call begin, send ordered Base64 chunks, then call complete; call abort to discard an unfinished upload.',
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          operation: { type: 'string', enum: ['begin', 'chunk', 'complete', 'abort'], description: 'Upload operation to perform.' },
+          workspace_id: { type: 'string', description: 'Workspace ID from list_workspaces.' },
+          path: { type: 'string', description: 'For begin, the visible workspace-relative destination path.' },
+          size: { type: 'integer', minimum: 1, maximum: DIRECT_MCP_UPLOAD_MAX_BYTES, description: 'For begin, exact file size in bytes.' },
+          mime_type: { type: 'string', description: 'For begin, MIME type without parameters. Defaults to application/octet-stream.' },
+          sha256: { type: 'string', description: 'For begin, lowercase SHA-256 of the complete file.' },
+          overwrite: { type: 'boolean', description: 'For begin, allow replacing an existing file. Defaults to false.' },
+          expected_sha256: { type: 'string', description: 'For overwrite, the current destination SHA-256 returned by a read tool.' },
+          upload_id: { type: 'string', description: 'Short-lived opaque upload handle returned by begin.' },
+          offset: { type: 'integer', minimum: 0, description: 'For chunk, zero-based byte offset. Chunks must be sent in order.' },
+          data_base64: { type: 'string', maxLength: DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS, description: `For chunk, canonical standard Base64 encoding of 1 to ${DIRECT_MCP_UPLOAD_MAX_CHUNK_BYTES} bytes.` },
+        },
+        required: ['operation', 'workspace_id'],
+        oneOf: [
+          {
+            properties: { operation: { const: 'begin' } },
+            required: ['path', 'size', 'sha256'],
+          },
+          {
+            properties: { operation: { const: 'chunk' } },
+            required: ['upload_id', 'offset', 'data_base64'],
+          },
+          {
+            properties: { operation: { const: 'complete' } },
+            required: ['upload_id'],
+          },
+          {
+            properties: { operation: { const: 'abort' } },
+            required: ['upload_id'],
+          },
+        ],
+        additionalProperties: false,
+      },
+      outputSchema: {
+        type: 'object' as const,
+        properties: {
+          operation: { type: 'string', enum: ['begin', 'chunk', 'complete', 'abort'] },
+          workspace_id: { type: 'string' },
+          path: { type: 'string' },
+          upload_id: { type: 'string' },
+          next_offset: { type: 'integer' },
+          total_size: { type: 'integer' },
+          max_chunk_bytes: { type: 'integer' },
+          expires_at: { type: 'string' },
+          already_received: { type: 'boolean' },
+          already_completed: { type: 'boolean' },
+          mime_type: { type: 'string' },
+          detected_mime_type: { type: ['string', 'null'] },
+          before_sha256: { type: ['string', 'null'] },
+          after_sha256: { type: 'string' },
+          modified_at: { type: ['string', 'null'] },
+        },
+        required: ['operation', 'workspace_id', 'path'],
+        additionalProperties: false,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+      ...getToolSecurity('knowledge:write'),
+    };
+  }
+
   return {
     name: tool,
     title: 'Read workspace document',
@@ -714,6 +808,7 @@ async function auditWorkspaceToolCall(input: {
   mimeType?: string;
   sizeBytes?: number;
   pageCount?: number;
+  uploadOperation?: 'begin' | 'chunk' | 'complete' | 'abort';
 }): Promise<void> {
   await recordAuditEvent({
     organizationId: input.workspace?.organizationId ?? null,
@@ -739,6 +834,7 @@ async function auditWorkspaceToolCall(input: {
       mimeType: input.mimeType ?? null,
       sizeBytes: input.sizeBytes ?? null,
       pageCount: input.pageCount ?? null,
+      uploadOperation: input.uploadOperation ?? null,
     },
   });
 }
@@ -1094,6 +1190,178 @@ async function executeReadKnowledgeAsset(
   }
 }
 
+async function executeUploadKnowledgeAsset(
+  args: unknown,
+  authInfo?: AuthInfo,
+): Promise<CallToolResult> {
+  const parsed = parseArgs(args);
+  const operation = requiredString(parsed, 'operation', 20);
+  if (!['begin', 'chunk', 'complete', 'abort'].includes(operation)) {
+    invalidParams('operation must be begin, chunk, complete, or abort.');
+  }
+  const uploadOperation = operation as 'begin' | 'chunk' | 'complete' | 'abort';
+  const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
+  const authorization = await authenticateForTool(authInfo, 'knowledge:write');
+  if ('result' in authorization) return authorization.result;
+
+  try {
+    const workspace = await writableWorkspace(authorization.principal, workspaceId);
+
+    if (uploadOperation === 'begin') {
+      const filePath = requiredString(parsed, 'path', MAX_PATH_LENGTH);
+      assertVisibleWorkspacePath(filePath);
+      const size = requiredInteger(parsed, 'size', 1, DIRECT_MCP_UPLOAD_MAX_BYTES);
+      const contentSha256 = normalizeExpectedSha256(requiredString(parsed, 'sha256', 80));
+      if (!contentSha256) invalidParams('sha256 must be a valid SHA-256 hash of the complete file.');
+      const expectedSha256 = parsed.expected_sha256 === undefined
+        ? null
+        : normalizeExpectedSha256(requiredString(parsed, 'expected_sha256', 80));
+      if (parsed.expected_sha256 !== undefined && !expectedSha256) {
+        invalidParams('expected_sha256 must be a valid SHA-256 hash returned by a read tool.');
+      }
+      const mimeType = normalizeDirectMcpUploadMimeType(
+        optionalString(parsed, 'mime_type', 'application/octet-stream', 200),
+      );
+      const upload = await beginDirectMcpBinaryUpload({
+        principal: authorization.principal,
+        workspace,
+        path: filePath,
+        size,
+        mimeType,
+        contentSha256,
+        overwrite: optionalBoolean(parsed, 'overwrite') ?? false,
+        expectedSha256,
+      });
+      const structuredContent = {
+        operation: uploadOperation,
+        workspace_id: workspace.workspaceId,
+        path: filePath,
+        upload_id: upload.uploadId,
+        next_offset: upload.nextOffset,
+        total_size: size,
+        max_chunk_bytes: upload.maxChunkBytes,
+        expires_at: upload.expiresAt,
+        mime_type: mimeType,
+        before_sha256: upload.beforeSha256,
+      };
+      await auditWorkspaceToolCall({
+        principal: authorization.principal,
+        tool: 'upload_knowledge_asset',
+        workspace,
+        path: filePath,
+        beforeSha256: upload.beforeSha256 ?? undefined,
+        changed: false,
+        mimeType,
+        sizeBytes: size,
+        uploadOperation,
+      });
+      return result(structuredContent, `Binary upload started for ${filePath}. Send chunks beginning at byte 0.`);
+    }
+
+    const uploadId = requiredString(parsed, 'upload_id', 4096);
+    if (uploadOperation === 'chunk') {
+      const offset = requiredInteger(parsed, 'offset', 0, DIRECT_MCP_UPLOAD_MAX_BYTES);
+      const encodedData = requiredText(
+        parsed,
+        'data_base64',
+        DIRECT_MCP_UPLOAD_MAX_BASE64_CHARACTERS,
+      );
+      const buffer = decodeDirectMcpUploadChunk(encodedData);
+      const upload = await writeDirectMcpBinaryUploadChunk({
+        principal: authorization.principal,
+        workspace,
+        uploadId,
+        offset,
+        buffer,
+      });
+      const structuredContent = {
+        operation: uploadOperation,
+        workspace_id: workspace.workspaceId,
+        path: upload.path,
+        next_offset: upload.nextOffset,
+        total_size: upload.totalBytes,
+        already_received: upload.alreadyReceived,
+      };
+      await auditWorkspaceToolCall({
+        principal: authorization.principal,
+        tool: 'upload_knowledge_asset',
+        workspace,
+        path: upload.path,
+        resultCount: buffer.length,
+        changed: false,
+        sizeBytes: buffer.length,
+        uploadOperation,
+      });
+      return result(
+        structuredContent,
+        upload.nextOffset === upload.totalBytes
+          ? `All bytes for ${upload.path} were received. Call complete to verify and save the file.`
+          : `Received ${buffer.length} bytes for ${upload.path}. Continue at byte ${upload.nextOffset}.`,
+      );
+    }
+
+    if (uploadOperation === 'complete') {
+      const upload = await completeDirectMcpBinaryUpload({
+        principal: authorization.principal,
+        workspace,
+        uploadId,
+      });
+      const structuredContent = {
+        operation: uploadOperation,
+        workspace_id: workspace.workspaceId,
+        path: upload.path,
+        total_size: upload.size,
+        already_completed: upload.alreadyCompleted,
+        mime_type: upload.mimeType,
+        detected_mime_type: upload.detectedMimeType,
+        before_sha256: upload.beforeSha256,
+        after_sha256: upload.afterSha256,
+        modified_at: toIsoDate(upload.modifiedAt),
+      };
+      await auditWorkspaceToolCall({
+        principal: authorization.principal,
+        tool: 'upload_knowledge_asset',
+        workspace,
+        path: upload.path,
+        beforeSha256: upload.beforeSha256 ?? undefined,
+        afterSha256: upload.afterSha256,
+        changed: !upload.alreadyCompleted,
+        mimeType: upload.mimeType,
+        sizeBytes: upload.size,
+        uploadOperation,
+      });
+      return result(
+        structuredContent,
+        upload.alreadyCompleted
+          ? `The binary upload for ${upload.path} was already completed.`
+          : `Uploaded ${upload.path} and verified its SHA-256 hash.`,
+      );
+    }
+
+    const upload = await abortDirectMcpBinaryUpload({
+      principal: authorization.principal,
+      workspace,
+      uploadId,
+    });
+    const structuredContent = {
+      operation: uploadOperation,
+      workspace_id: workspace.workspaceId,
+      path: upload.path,
+    };
+    await auditWorkspaceToolCall({
+      principal: authorization.principal,
+      tool: 'upload_knowledge_asset',
+      workspace,
+      path: upload.path,
+      changed: false,
+      uploadOperation,
+    });
+    return result(structuredContent, `Discarded the unfinished binary upload for ${upload.path}.`);
+  } catch (error) {
+    return errorResult(directMcpBinaryUploadErrorMessage(error));
+  }
+}
+
 function editErrorResult(error: unknown): CallToolResult {
   if (error instanceof WorkspaceFileRevisionError) {
     return errorResult('The workspace file changed since it was read. Read the current file content again before retrying.');
@@ -1360,6 +1628,11 @@ export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDe
       id: 'read_knowledge_asset',
       descriptor: getDirectMcpWorkspaceToolDescriptor('read_knowledge_asset'),
       execute: executeReadKnowledgeAsset,
+    },
+    {
+      id: 'upload_knowledge_asset',
+      descriptor: getDirectMcpWorkspaceToolDescriptor('upload_knowledge_asset'),
+      execute: executeUploadKnowledgeAsset,
     },
   ];
 }

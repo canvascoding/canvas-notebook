@@ -19,6 +19,12 @@ moduleInternals._load = (request, parent, isMain) => {
 };
 
 type WorkspaceRow = { id: string };
+type SentEmailInput = { to: string[]; subject: string; body: string; attachments: Array<{ uploadId?: string }> };
+
+function requireSentEmailInput(input: SentEmailInput | null): SentEmailInput {
+  if (!input) throw new Error('Expected the workspace outbox draft to be sent.');
+  return input;
+}
 
 function verifyLegacyEmailAccountMigration() {
   const legacy = new Database(':memory:');
@@ -281,24 +287,25 @@ async function main() {
       }),
       /being reviewed by a person/i,
     );
-    const sentCapture: { current: { to: string[]; subject: string; body: string; attachments: Array<{ uploadId?: string }> } | null } = { current: null };
+    let sentInput: SentEmailInput | null = null;
     const sent = await sendWorkspaceOutboxDraft({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: edited.version,
     }, {
-      sendMessage: async (input) => { sentCapture.current = { to: input.to, subject: input.subject, body: input.body, attachments: input.attachments }; },
+      sendMessage: async (input) => { sentInput = { to: input.to, subject: input.subject, body: input.body, attachments: input.attachments }; },
     });
     assert.equal(sent.status, 'sent');
-    assert.ok(sentCapture.current);
-    assert.deepEqual(sentCapture.current.to, ['customer@example.test']);
-    assert.equal(sentCapture.current.subject, 'Re: Support request');
-    assert.match(sentCapture.current.body, /<strong>help shortly<\/strong>/);
-    assert.match(sentCapture.current.body, /<ul><li>Compare the offers<\/li><li>Choose a provider<\/li><\/ul>/);
-    assert.deepEqual(sentCapture.current.attachments, [{
+    const sentEmailInput = requireSentEmailInput(sentInput);
+    assert.deepEqual(sentEmailInput.to, ['customer@example.test']);
+    assert.equal(sentEmailInput.subject, 'Re: Support request');
+    assert.match(sentEmailInput.body, /<strong>help shortly<\/strong>/);
+    assert.match(sentEmailInput.body, /<ul><li>Compare the offers<\/li><li>Choose a provider<\/li><\/ul>/);
+    assert.deepEqual(sentEmailInput.attachments, [{
       source: 'upload', contentId: undefined, disposition: 'attachment', name: 'agent-report.pdf', mimeType: 'application/pdf',
       size: 42, path: undefined, uploadId: 'agent-report.pdf', deliveryFormat: undefined,
     }]);
     assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).find((item) => item.id === inboxCase.id)?.status, 'answered');
-    assert.ok((await listWorkspaceOutboxDrafts('owner-user', ownerWorkspace.id)).some((draft) => draft.id === outboxDraft.id));
+    const listedWorkspaceDraft = (await listWorkspaceOutboxDrafts('owner-user', ownerWorkspace.id)).find((draft) => draft.id === outboxDraft.id);
+    assert.equal(listedWorkspaceDraft?.senderAddress, 'owner@example.test');
     await assert.rejects(
       () => listWorkspaceInboxCases('owner-user', otherWorkspace.id),
       /workspace|permission|access/i,
@@ -348,7 +355,8 @@ async function main() {
       sendMessage: async () => undefined,
     });
     assert.equal(sentPersonal.status, 'sent');
-    assert.ok((await listPersonalOutboxDrafts('owner-user')).some((draft) => draft.id === personalDraft.id));
+    const listedPersonalDraft = (await listPersonalOutboxDrafts('owner-user')).find((draft) => draft.id === personalDraft.id);
+    assert.equal(listedPersonalDraft?.senderAddress, 'owner@example.test');
     await assert.rejects(
       () => requireActiveWorkspaceMailboxForAutomation({
         emailAccountId: created.id,

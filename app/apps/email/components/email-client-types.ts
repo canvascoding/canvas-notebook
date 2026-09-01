@@ -28,6 +28,8 @@ export type WorkspaceInboxCase = {
 
 export type EmailOutboxDraft = {
   id: string;
+  accountId: string;
+  senderAddress?: string | null;
   subject: string;
   status: string | null;
   version: number;

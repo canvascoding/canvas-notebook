@@ -250,7 +250,7 @@
     "workspaceChecking": "Workspaces werden vorbereitet …",
     "workspaceLoadFailed": "Die Workspaces konnten nicht vorbereitet werden.",
     "workspaceRetry": "Erneut versuchen",
-    "workspaceContinue": "Weiter zum Agent-Profil",
+    "workspaceContinue": "Weiter zu Bradley",
     "workspaceContinueReview": "Weiter zur Instanzprüfung",
     "personalWorkspaceCardTitle": "Persönlicher Workspace",
     "personalWorkspaceCardDescription": "Hier liegen deine privaten Dateien, Einstellungen und persönlichen Automationen.",
@@ -272,28 +272,28 @@
     "instanceReviewCatalogModel": "App-Standard-Modell",
     "instanceCompleteAction": "Instanz abschließen und persönlichen Workspace einrichten",
     "instanceCompleteError": "Die Instanz konnte noch nicht abgeschlossen werden.",
-    "profileTitle": "Canvas Agent kennenlernen",
-    "profileDescription": "Der Agent stellt dir ein paar kurze Fragen, damit USER.md und SOUL.md für deine dauerhaften Präferenzen gefüllt werden können.",
-    "profileSessionError": "Der Agent-Profil-Chat konnte nicht vorbereitet werden.",
-    "profileSessionPreparing": "Agent-Profil-Chat wird vorbereitet",
+    "profileTitle": "Bradley kennenlernen",
+    "profileDescription": "Bradley ist dein fester Hauptagent in Canvas Notebook. Bradley stellt dir ein paar kurze Fragen dazu, wie du arbeiten und kommunizieren möchtest; diese Präferenzen kannst du später ändern.",
+    "profileSessionError": "Der Bradley-Onboarding-Chat konnte nicht vorbereitet werden.",
+    "profileSessionPreparing": "Bradley wird vorbereitet",
     "profileSessionPreparingDescription": "Canvas prüft deinen persönlichen Workspace und den verfügbaren Agent-Provider.",
-    "profileSessionPreparingAction": "Chat vorbereiten",
+    "profileSessionPreparingAction": "Mit Bradley starten",
     "profileSessionRetry": "Erneut versuchen",
-    "profileSkip": "Später einrichten",
-    "profileSkipping": "Wird übersprungen...",
-    "profileSkipped": "Agent-Profil wurde übersprungen.",
-    "profileSkipError": "Der Profil-Schritt konnte nicht übersprungen werden.",
-    "profileCompleteDetected": "Agent-Profil wurde abgeschlossen.",
+    "profileSkip": "Präferenzen später festlegen",
+    "profileSkipping": "Wird für später gespeichert …",
+    "profileSkipped": "Bradley-Präferenzen wurden übersprungen.",
+    "profileSkipError": "Der Schritt für Bradley-Präferenzen konnte nicht übersprungen werden.",
+    "profileCompleteDetected": "Bradley-Präferenzen wurden gespeichert.",
     "tourTitle": "Lerne deinen Workspace kennen",
-    "tourDescription": "Canvas Notebook verbindet deinen persönlichen Workspace, den Agenten und wiederkehrende Abläufe an einem Ort. Starte die kurze Tour oder springe direkt in die App.",
-    "tourWorkspaceTitle": "Workspace & Agent",
-    "tourWorkspaceDescription": "Verwalte Dateien im Notebook und arbeite direkt mit dem Agenten an deinen Inhalten.",
+    "tourDescription": "Canvas Notebook verbindet deinen persönlichen Workspace, Bradley und wiederkehrende Abläufe an einem Ort. Starte die kurze Tour oder springe direkt in die App.",
+    "tourWorkspaceTitle": "Workspace & Bradley",
+    "tourWorkspaceDescription": "Verwalte Dateien im Notebook und arbeite direkt mit Bradley an deinen Inhalten.",
     "tourAutomationsTitle": "Automationen",
     "tourAutomationsDescription": "Plane wiederkehrende Aufgaben, damit Routinearbeit automatisch erledigt wird.",
     "tourSettingsTitle": "Einstellungen",
     "tourSettingsDescription": "Passe Provider, Tools und Integrationen an, wenn du mehr Kontrolle brauchst.",
     "tourNotebookTitle": "Notebook öffnen",
-    "tourNotebookDescription": "Dateien sammeln, bearbeiten und den Agenten direkt im Kontext einsetzen.",
+    "tourNotebookDescription": "Dateien sammeln, bearbeiten und direkt mit Bradley im Kontext arbeiten.",
     "tourAutomationTitle": "Abläufe planen",
     "tourAutomationDescription": "Wiederkehrende Aufgaben terminieren und Ergebnisse zuverlässig ablegen.",
     "tourHomeTitle": "Dein Startpunkt in Canvas",
@@ -325,7 +325,7 @@
         },
         "workspace": {
           "title": "Workspace",
-          "description": "Dein Workspace: Im Notebook verwaltest du Dateien und chattest mit dem Agent. Automations plant wiederkehrende Aufträge."
+          "description": "Dein Workspace: Im Notebook verwaltest du Dateien und chattest mit Bradley. Automations plant wiederkehrende Aufträge."
         },
         "create": {
           "title": "Direkt erstellen",
@@ -346,8 +346,8 @@
           "description": "Oben rechts kannst du zwischen Editor, Editor mit Vorschau und reiner Vorschau umschalten."
         },
         "chat": {
-          "title": "Agent-Chat",
-          "description": "Chatte mit dem Agent, lade Dateien per @-Referenz, oder starte mit einem Prompt-Vorschlag."
+          "title": "Bradley-Chat",
+          "description": "Chatte mit Bradley, lade Dateien per @-Referenz oder starte mit einem Prompt-Vorschlag."
         }
       },
       "studio": {
@@ -493,7 +493,7 @@
     "home": "Startseite",
     "workspaceRoot": "Workspace /",
     "resizeFileTree": "Dateibaum-Größe ändern",
-    "resizeChat": "Größe des Canvas-Agent-Chats ändern",
+    "resizeChat": "Größe des Bradley-Chats ändern",
     "resizeTerminal": "Größe des Terminals ändern",
     "dropFilesToUpload": "Dateien zum Hochladen ablegen",
     "actions": "Aktionen",
@@ -1186,13 +1186,14 @@
   "chat": {
     "metadataTitle": "Canvas Chat | Canvas Notebook",
     "metadataDescription": "Vollbild-Chat-App für den Canvas-Notebook-Workspace.",
-    "resizeHandleLabel": "Größe des Canvas-Agent-Chats ändern",
+    "resizeHandleLabel": "Größe des Bradley-Chats ändern",
     "resizeHistoryHandleLabel": "Größe des Chatverlaufs ändern",
     "logoAlt": "Canvas Notebook Logo",
     "title": "CANVAS CHAT",
     "usage": "Nutzung",
     "userLabel": "Benutzer",
     "working": "In Arbeit",
+    "preparingResponse": "Bradley bereitet die Antwort vor …",
     "stopping": "Wird gestoppt",
     "ready": "Bereit",
     "noOutputYet": "Noch keine Ausgabe",
@@ -1324,6 +1325,8 @@
     "contextLabel": "{used}/{available} Budget · {window} Fenster",
     "contextCompactLabel": "{used}/{available} Budget",
     "contextTooltip": "History-Budget: {used} von {available} Tokens genutzt ({percent}%)\nModellfenster: {window} Tokens\nReserviert für System, Tools, Antwort und Sicherheit: ca. {reserved} Tokens",
+    "contextFinalLabel": "{used}/{window} serialisiert",
+    "contextFinalTooltip": "Finale serialisierte Anfrage: {used} von {window} Tokens ({percent}%)\nEnthält Anweisungen, Tools, normalisierte Anhänge, Antwortreserve und Sicherheitsmarge.",
     "noSessionYet": "Noch keine Session",
     "backToChat": "Zurück zum Chat",
     "openHistory": "Verlauf öffnen",
@@ -1413,6 +1416,9 @@
     "productivityBadge": "Produktive Startpunkte",
     "openLatestSession": "Letzte Session öffnen",
     "starterTitle": "Was soll Canvas Chat für dich vorbereiten?",
+    "bradleyStarterEyebrow": "Bradley · Hauptagent",
+    "bradleyStarterTitle": "Wobei soll Bradley dir helfen?",
+    "agentStarterTitle": "Wobei soll {agentName} dir helfen?",
     "starterDescription": "Starte mit einer Vorlage für Kampagnen, Creatives, Strategien, Dokumente oder eine bessere Dateiorganisation.",
     "starterPromptHint": "Schreib einfach los.",
     "studioStarterTitle": "Was soll Canvas Studio für dich erzeugen?",
@@ -3522,6 +3528,10 @@
           "read_knowledge_asset": {
             "title": "Bilder und PDFs lesen",
             "description": "Stellt begrenzten visuellen und Textkontext aus sichtbaren Bildern und PDF-Dokumenten nach einer ausdrücklichen Freigabe durch die Administration bereit."
+          },
+          "upload_knowledge_asset": {
+            "title": "Binärdateien hochladen",
+            "description": "Erlaubt größenbegrenzte und per Hash geprüfte Uploads in sichtbare Workspace-Pfade nach einer ausdrücklichen Freigabe durch die Administration."
           }
         }
       },
@@ -4481,7 +4491,7 @@
         "defaults": "Standard: {provider} / {model}",
         "inheritsDefaults": "Erbt Provider- und Modell-Defaults.",
         "notSet": "nicht gesetzt",
-        "createHint": "Spezial-Agenten erben Identity und User-Kontext vom Canvas Agent. Der Canvas Agent ist die feste Grundlage und kann nicht entfernt werden.",
+        "createHint": "Spezial-Agenten können Modell, Tools und User-Kontext von Bradley erben und behalten ihre eigene Identität. Bradley ist der feste Hauptagent und kann nicht entfernt werden.",
         "errors": {
           "load": "Agenten konnten nicht geladen werden.",
           "create": "Agent konnte nicht angelegt werden.",
@@ -4669,7 +4679,7 @@
         },
         "tools": {
           "title": "Tools",
-          "description": "Nutze ein eigenes Tool-Set, statt die Canvas-Agent-Tools zu erben.",
+          "description": "Nutze ein eigenes Tool-Set, statt Bradleys Tools zu erben.",
           "loadError": "Tools konnten nicht geladen werden."
         },
         "connections": {
@@ -4736,12 +4746,12 @@
       },
       "inheritance": {
         "title": "Spezial-Agent Overrides",
-        "description": "Spezial-Agenten erben standardmäßig Modell, Tools, Identity und User-Kontext vom Canvas Agent.",
+        "description": "Spezial-Agenten erben standardmäßig Modell, Tools und User-Kontext von Bradley und behalten ihre eigene Identität.",
         "modelOverride": "Eigenes Modell verwenden",
         "toolsOverride": "Eigene Tools verwenden",
-        "inheritedModel": "Erbt vom Canvas Agent: {summary}",
+        "inheritedModel": "Erbt von Bradley: {summary}",
         "customModel": "Eigener Standard: {summary}",
-        "inheritedTools": "Erbt {count} aktive Tools vom Canvas Agent",
+        "inheritedTools": "Erbt {count} aktive Tools von Bradley",
         "customTools": "{count} aktive Tools für diesen Agent",
         "modelCardTitle": "KI-Modell",
         "modelCardDescription": "Lege fest, mit welchem Modell dieser Agent startet. Eine Auswahl im Chat gilt nur für diesen Chat.",
@@ -4993,7 +5003,7 @@
         "confirmReset": "Möchtest du {fileName} wirklich auf den Standard-Prompt zurücksetzen?",
         "confirmResetAllTitle": "Alle Dateien zurücksetzen?",
         "confirmResetAll": "Möchtest du wirklich alle Dateien auf die Standard-Prompts zurücksetzen?",
-        "inheritedFromCanvas": "Vom Canvas Agent geerbt",
+        "inheritedFromCanvas": "Von Bradley geerbt",
         "emptyInherited": "Keine Inhalte im geerbten Prompt.",
         "errors": {
           "load": "Agent-Dateien konnten nicht geladen werden.",

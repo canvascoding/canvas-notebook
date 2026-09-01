@@ -659,6 +659,7 @@ export function EmailClient({
     openNewDraft: openNewComposeDraft,
     openPersonalOutboxDraft,
     openWorkspaceOutboxDraft,
+    outboxSenderAddress,
     reviewCase: workspaceOutboxReviewCase,
     reviewCenterRevision: workspaceOutboxRevision,
     save: saveOutboxComposeDraft,
@@ -1197,7 +1198,7 @@ export function EmailClient({
         isSubmitting={isSubmittingCompose}
         isWorkspaceOutboxReview={isWorkspaceOutboxReview}
         reviewCase={workspaceOutboxReviewCase}
-        senderAddress={activeAccount?.emailAddress || ''}
+        senderAddress={isWorkspaceOutboxReview ? outboxSenderAddress : activeAccount?.emailAddress || ''}
         labels={composeDialogLabels}
         locale={locale}
         onAllowRemoteResourcesForSender={allowRemoteImagesForSender}

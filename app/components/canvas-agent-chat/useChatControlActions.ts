@@ -496,13 +496,16 @@ export function useChatControlActions({
   }, [appendSystemMessage, postControl, sessionIdRef, t]);
 
   const handleStop = useCallback(async () => {
-    if (!sessionIdRef.current) return;
+    const targetSessionId = sessionIdRef.current;
+    if (!targetSessionId) return;
+    setOptimisticRuntimePhase('aborting', targetSessionId);
     try {
-      await postControl(sessionIdRef.current, 'abort');
+      await postControl(targetSessionId, 'abort');
     } catch (error) {
+      setOptimisticRuntimePhase(runtimePhase ?? 'idle', targetSessionId);
       appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
-  }, [appendSystemMessage, postControl, sessionIdRef, t]);
+  }, [appendSystemMessage, postControl, runtimePhase, sessionIdRef, setOptimisticRuntimePhase, t]);
 
   const handleEditQueuedMessage = useCallback(async (entry: QueuePreviewItem) => {
     if (!sessionIdRef.current) return;

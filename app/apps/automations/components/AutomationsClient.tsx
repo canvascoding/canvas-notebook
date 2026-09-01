@@ -39,6 +39,7 @@ import { toast } from 'sonner';
 
 import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automations/components/WorkspaceDirectoryPickerDialog';
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
+import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
 import { buildAutomationMutationPayload } from '@/app/lib/automations/client-payload';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
@@ -1031,7 +1032,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const enabledSkills = useMemo(() => skills.filter((skill) => skill.enabled !== false), [skills]);
   const agentOptions = agents.length > 0
     ? agents
-    : [{ agentId: DEFAULT_AGENT_ID, name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false }];
+    : [{ agentId: DEFAULT_AGENT_ID, name: MAIN_AGENT_DISPLAY_NAME, iconId: 'bot', type: 'main', removable: false }];
   const deliveryChannelOptions = useMemo(
     () => mergeDeliveryChannelOptions(deliveryChannels, [draft.deliveryChannelId, triggerDraft.deliveryChannelId, customWebhookDraft.deliveryChannelId]),
     [deliveryChannels, draft.deliveryChannelId, triggerDraft.deliveryChannelId, customWebhookDraft.deliveryChannelId],

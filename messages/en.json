@@ -250,7 +250,7 @@
     "workspaceChecking": "Preparing workspaces …",
     "workspaceLoadFailed": "Could not prepare the workspaces.",
     "workspaceRetry": "Try again",
-    "workspaceContinue": "Continue to agent profile",
+    "workspaceContinue": "Continue to Bradley",
     "workspaceContinueReview": "Continue to instance review",
     "personalWorkspaceCardTitle": "Personal workspace",
     "personalWorkspaceCardDescription": "Your private files, preferences, and personal automations live here.",
@@ -272,28 +272,28 @@
     "instanceReviewCatalogModel": "App-default model",
     "instanceCompleteAction": "Complete instance and set up personal workspace",
     "instanceCompleteError": "The instance could not be completed yet.",
-    "profileTitle": "Get the Canvas Agent ready",
-    "profileDescription": "The agent will ask a few short questions so USER.md and SOUL.md can capture your durable preferences.",
-    "profileSessionError": "Could not prepare the agent profile chat.",
-    "profileSessionPreparing": "Preparing the agent profile chat",
+    "profileTitle": "Meet Bradley",
+    "profileDescription": "Bradley is your fixed main agent in Canvas Notebook. Bradley will ask a few short questions about how you prefer to work and communicate; you can change these preferences later.",
+    "profileSessionError": "Could not prepare the Bradley onboarding chat.",
+    "profileSessionPreparing": "Preparing Bradley",
     "profileSessionPreparingDescription": "Canvas is checking your personal workspace and the available agent provider.",
-    "profileSessionPreparingAction": "Prepare chat",
+    "profileSessionPreparingAction": "Start with Bradley",
     "profileSessionRetry": "Try again",
-    "profileSkip": "Set up later",
-    "profileSkipping": "Skipping...",
-    "profileSkipped": "Agent profile skipped.",
-    "profileSkipError": "Could not skip the profile step.",
-    "profileCompleteDetected": "Agent profile completed.",
+    "profileSkip": "Set preferences later",
+    "profileSkipping": "Saving for later…",
+    "profileSkipped": "Bradley preferences skipped.",
+    "profileSkipError": "Could not skip the Bradley preferences step.",
+    "profileCompleteDetected": "Bradley preferences saved.",
     "tourTitle": "Get to know your workspace",
-    "tourDescription": "Canvas Notebook brings your personal workspace, agent, and recurring work together. Start a short tour or go straight to the app.",
-    "tourWorkspaceTitle": "Workspace & agent",
-    "tourWorkspaceDescription": "Manage files in Notebook and work with the agent directly on your content.",
+    "tourDescription": "Canvas Notebook brings your personal workspace, Bradley, and recurring work together. Start a short tour or go straight to the app.",
+    "tourWorkspaceTitle": "Workspace & Bradley",
+    "tourWorkspaceDescription": "Manage files in Notebook and work with Bradley directly on your content.",
     "tourAutomationsTitle": "Automations",
     "tourAutomationsDescription": "Schedule recurring work so routine tasks can run automatically.",
     "tourSettingsTitle": "Settings",
     "tourSettingsDescription": "Adjust providers, tools, and integrations whenever you need more control.",
     "tourNotebookTitle": "Open Notebook",
-    "tourNotebookDescription": "Collect and edit files, then use the agent directly in context.",
+    "tourNotebookDescription": "Collect and edit files, then work with Bradley directly in context.",
     "tourAutomationTitle": "Plan workflows",
     "tourAutomationDescription": "Schedule recurring work and store results reliably.",
     "tourHomeTitle": "Your Canvas starting point",
@@ -325,7 +325,7 @@
         },
         "workspace": {
           "title": "Workspace",
-          "description": "Your workspace: manage files and chat with the agent in Notebook. Automations schedules recurring tasks."
+          "description": "Your workspace: manage files and chat with Bradley in Notebook. Automations schedules recurring tasks."
         },
         "create": {
           "title": "Create directly",
@@ -346,8 +346,8 @@
           "description": "Switch between editor, editor with preview, and pure preview in the top-right corner."
         },
         "chat": {
-          "title": "Agent chat",
-          "description": "Chat with the agent, reference files with @, or start with a prompt suggestion."
+          "title": "Bradley chat",
+          "description": "Chat with Bradley, reference files with @, or start with a prompt suggestion."
         }
       },
       "studio": {
@@ -494,7 +494,7 @@
     "home": "Home",
     "workspaceRoot": "Workspace /",
     "resizeFileTree": "Resize file tree",
-    "resizeChat": "Resize Canvas Agent chat",
+    "resizeChat": "Resize Bradley chat",
     "resizeTerminal": "Resize terminal",
     "dropFilesToUpload": "Drop files to upload",
     "actions": "Actions",
@@ -1187,13 +1187,14 @@
   "chat": {
     "metadataTitle": "Canvas Chat | Canvas Notebook",
     "metadataDescription": "Fullscreen chat app for the Canvas Notebook workspace.",
-    "resizeHandleLabel": "Resize Canvas Agent chat",
+    "resizeHandleLabel": "Resize Bradley chat",
     "resizeHistoryHandleLabel": "Resize chat history",
     "logoAlt": "Canvas Notebook logo",
     "title": "CANVAS CHAT",
     "usage": "Usage",
     "userLabel": "User",
     "working": "Working",
+    "preparingResponse": "Bradley is preparing the response…",
     "stopping": "Stopping",
     "ready": "Ready",
     "noOutputYet": "No output yet",
@@ -1325,6 +1326,8 @@
     "contextLabel": "{used}/{available} budget · {window} window",
     "contextCompactLabel": "{used}/{available} budget",
     "contextTooltip": "History budget: {used} of {available} tokens used ({percent}%)\nModel window: {window} tokens\nReserved for system, tools, response, and safety: approx. {reserved} tokens",
+    "contextFinalLabel": "{used}/{window} serialized",
+    "contextFinalTooltip": "Final serialized request: {used} of {window} tokens ({percent}%)\nIncludes instructions, tools, normalized attachments, output reserve, and safety margin.",
     "noSessionYet": "No session yet",
     "backToChat": "Back to chat",
     "openHistory": "Open history",
@@ -1414,6 +1417,9 @@
     "productivityBadge": "Productive starters",
     "openLatestSession": "Open latest session",
     "starterTitle": "What should Canvas Chat prepare for you?",
+    "bradleyStarterEyebrow": "Bradley · Main agent",
+    "bradleyStarterTitle": "What should Bradley help you with?",
+    "agentStarterTitle": "What should {agentName} help you with?",
     "starterDescription": "Start with a template for campaigns, creatives, strategies, documents, or a better file organization.",
     "starterPromptHint": "Just start typing.",
     "studioStarterTitle": "What should Canvas Studio create for you?",
@@ -3523,6 +3529,10 @@
           "read_knowledge_asset": {
             "title": "Read images and PDFs",
             "description": "Provides bounded visual and text context from visible images and PDF documents after an explicit administrator enablement."
+          },
+          "upload_knowledge_asset": {
+            "title": "Upload binary files",
+            "description": "Allows size-limited, hash-verified uploads to visible workspace paths after an explicit administrator enablement."
           }
         }
       },
@@ -4482,7 +4492,7 @@
         "defaults": "Default: {provider} / {model}",
         "inheritsDefaults": "Inherits provider and model defaults.",
         "notSet": "not set",
-        "createHint": "Special agents inherit identity and user context from the Canvas Agent. The Canvas Agent is the fixed foundation and cannot be removed.",
+        "createHint": "Special agents can inherit model, tools, and user context from Bradley while keeping their own identity. Bradley is the fixed main agent and cannot be removed.",
         "errors": {
           "load": "Failed to load agents.",
           "create": "Failed to create agent.",
@@ -4670,7 +4680,7 @@
         },
         "tools": {
           "title": "Tools",
-          "description": "Use a custom tool set instead of inheriting the Canvas Agent tools.",
+          "description": "Use a custom tool set instead of inheriting Bradley's tools.",
           "loadError": "Failed to load tools."
         },
         "connections": {
@@ -4737,12 +4747,12 @@
       },
       "inheritance": {
         "title": "Special Agent Overrides",
-        "description": "Special agents inherit model, tools, identity, and user context from the Canvas Agent by default.",
+        "description": "Special agents inherit model, tools, and user context from Bradley by default while keeping their own identity.",
         "modelOverride": "Use a dedicated model",
         "toolsOverride": "Use custom tools",
-        "inheritedModel": "Inherited from Canvas Agent: {summary}",
+        "inheritedModel": "Inherited from Bradley: {summary}",
         "customModel": "Custom default: {summary}",
-        "inheritedTools": "Inherits {count} active tools from Canvas Agent",
+        "inheritedTools": "Inherits {count} active tools from Bradley",
         "customTools": "{count} active tools for this agent",
         "modelCardTitle": "AI model",
         "modelCardDescription": "Set the model this agent starts with. A model chosen in a chat affects only that chat.",
@@ -4994,7 +5004,7 @@
         "confirmReset": "Are you sure you want to reset {fileName} to the default prompt?",
         "confirmResetAllTitle": "Reset all files?",
         "confirmResetAll": "Are you sure you want to reset all files to the default prompts?",
-        "inheritedFromCanvas": "Inherited from Canvas Agent",
+        "inheritedFromCanvas": "Inherited from Bradley",
         "emptyInherited": "No content in inherited prompt.",
         "errors": {
           "load": "Failed to load agent files.",

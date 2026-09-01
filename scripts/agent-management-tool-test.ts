@@ -45,7 +45,7 @@ async function main() {
     'inspect_agent',
     ...AGENT_MANAGEMENT_OPERATION_NAMES,
   ]);
-  assert.throws(() => createAgentManagementTools(owner.id, 'special-agent'), /only to the Canvas Agent/);
+  assert.throws(() => createAgentManagementTools(owner.id, 'special-agent'), /only to Bradley, the main agent/);
   assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('list_agents'), true);
   assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('inspect_agent'), true);
   assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('create_agent'), false);
@@ -60,7 +60,7 @@ async function main() {
     await getPiTools(owner.id, 'canvas-agent'),
   );
   for (const name of agentToolNames) {
-    assert.equal(defaultRuntimeToolNames.includes(name), true, `${name} must be available in the default Canvas Agent runtime`);
+    assert.equal(defaultRuntimeToolNames.includes(name), true, `${name} must be available in the default Bradley runtime`);
   }
 
   const collapsed = collapseProgressiveToolGroups(tools);

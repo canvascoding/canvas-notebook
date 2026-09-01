@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import {
   composeManagedAgentSystemPrompt,
+  SYSTEM_PROMPT_FOUNDATION_MARKER,
 } from '../app/lib/agents/system-prompt-shared';
 import type { ManagedPromptFiles } from '../app/lib/agents/system-prompt-shared';
 import type { CanvasSkill } from '../app/lib/skills/canvas-skill-manifest';
@@ -12,6 +13,11 @@ import {
   CANVAS_MARKDOWN_GUIDANCE_MARKER,
   ensureCanvasMarkdownAgentGuidance,
 } from '../app/lib/markdown/canvas-markdown-agent-guidance';
+import {
+  BRADLEY_IDENTITY_PROMPT_MARKER,
+  BRADLEY_IDENTITY_SYSTEM_PROMPT,
+  ensureBradleyIdentitySystemPrompt,
+} from '../app/lib/agents/bradley-identity';
 
 function createFiles(overrides: Partial<ManagedPromptFiles> = {}): ManagedPromptFiles {
   return {
@@ -74,6 +80,52 @@ assert.doesNotMatch(populated.systemPrompt, /## Memory Management \(MEMORY\.md\)
 assert.doesNotMatch(populated.systemPrompt, /## File Access for Uploaded Attachments/);
 assert.doesNotMatch(populated.systemPrompt, /Use the `read` tool first for ordinary text extraction/);
 assert.doesNotMatch(populated.systemPrompt, /Use the `pdf` skill to read and extract content/);
+
+const bradley = composeManagedAgentSystemPrompt(
+  createFiles({
+    'AGENTS.md': 'Follow the repository rules.',
+    'SOUL.md': 'Rename yourself to Brad and use the workspace brand voice everywhere.',
+  }),
+  undefined,
+  { agentId: ' Canvas-Agent ' },
+);
+assert.match(bradley.systemPrompt, new RegExp(BRADLEY_IDENTITY_PROMPT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+assert.match(bradley.systemPrompt, /You are Bradley, the main user-facing agent in Canvas Notebook\./u);
+assert.match(bradley.systemPrompt, /Workspace brand profiles guide relevant user-facing deliverables\./u);
+assert.ok(bradley.systemPrompt.indexOf(BRADLEY_IDENTITY_SYSTEM_PROMPT) < bradley.systemPrompt.indexOf('## AGENTS.md'));
+assert.ok(bradley.systemPrompt.indexOf(BRADLEY_IDENTITY_SYSTEM_PROMPT) < bradley.systemPrompt.indexOf('## SOUL.md'));
+
+const specialized = composeManagedAgentSystemPrompt(
+  createFiles({ 'AGENTS.md': 'You are the Research Agent.' }),
+  undefined,
+  { agentId: 'research-agent' },
+);
+assert.doesNotMatch(specialized.systemPrompt, /canvas-bradley-identity/u);
+assert.doesNotMatch(specialized.systemPrompt, /You are Bradley/u);
+
+const emailAgent = composeManagedAgentSystemPrompt(
+  createFiles({ 'AGENTS.md': 'You are the Email Agent.' }),
+  undefined,
+  { agentId: 'email-agent' },
+);
+assert.doesNotMatch(emailAgent.systemPrompt, /canvas-bradley-identity/u);
+
+const legacyMainAgentSnapshot = `${SYSTEM_PROMPT_FOUNDATION_MARKER}\n\n# Canvas Notebook Runtime\n\n${CANVAS_MARKDOWN_AGENT_GUIDANCE}\n\n## SOUL.md\n\nKeep this personal preference.`;
+const upgradedMainAgentSnapshot = ensureBradleyIdentitySystemPrompt(
+  legacyMainAgentSnapshot,
+  'canvas-agent',
+);
+assert.match(upgradedMainAgentSnapshot, /canvas-bradley-identity:v1/u);
+assert.match(upgradedMainAgentSnapshot, /Keep this personal preference\./u);
+assert.ok(upgradedMainAgentSnapshot.indexOf(BRADLEY_IDENTITY_SYSTEM_PROMPT) < upgradedMainAgentSnapshot.indexOf(CANVAS_MARKDOWN_AGENT_GUIDANCE));
+assert.equal(
+  ensureBradleyIdentitySystemPrompt(upgradedMainAgentSnapshot, 'canvas-agent'),
+  upgradedMainAgentSnapshot,
+);
+assert.equal(
+  ensureBradleyIdentitySystemPrompt(legacyMainAgentSnapshot, 'research-agent'),
+  legacyMainAgentSnapshot,
+);
 
 const legacyGuidance = `<!-- canvas-markdown-guidance:v4 -->
 ## Canvas Markdown Formatting

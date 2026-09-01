@@ -54,6 +54,8 @@ export function getRuntimeCompactionStatusTranslationKey(
 
 export type RuntimeStatus = {
   sessionId: string;
+  /** Client-only marker for a phase shown before the runtime confirms it. */
+  optimistic?: boolean;
   /** Server-assigned monotonic revision used to reject stale transport paths. */
   revision?: number;
   browser?: BrowserSessionSnapshot;
@@ -67,6 +69,13 @@ export type RuntimeStatus = {
   estimatedHistoryTokens: number;
   availableHistoryTokens: number;
   contextUsagePercent: number;
+  /**
+   * Exact final request size, including instructions, tools, normalized images,
+   * output reserve, and safety margin. Null until a provider-ready payload has
+   * been built for the current turn.
+   */
+  finalRequestTokens?: number | null;
+  finalRequestBudgetExceeded?: boolean;
   includedSummary: boolean;
   omittedMessageCount: number;
   summaryUpdatedAt: string | null;
@@ -76,7 +85,25 @@ export type RuntimeStatus = {
   compactionStatus?: RuntimeCompactionStatus;
 };
 
+export function isConfirmedResponsePreparation(
+  status: RuntimeStatus | null | undefined,
+  assistantBubble: { present: boolean; hasVisibleOutput: boolean },
+): boolean {
+  return status?.phase === 'streaming'
+    && status.optimistic !== true
+    && assistantBubble.present
+    && !assistantBubble.hasVisibleOutput;
+}
+
 export function isRuntimeStatusStale(current: RuntimeStatus | null, next: RuntimeStatus): boolean {
   if (!current || current.sessionId !== next.sessionId) return false;
+  if (
+    current.optimistic === true
+    && current.phase === 'aborting'
+    && next.phase !== 'aborting'
+    && next.phase !== 'idle'
+  ) {
+    return true;
+  }
   return (next.revision ?? 0) < (current.revision ?? 0);
 }

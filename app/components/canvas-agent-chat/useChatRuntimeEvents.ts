@@ -281,6 +281,8 @@ export function useChatRuntimeEvents({
         estimatedHistoryTokens: 0,
         availableHistoryTokens: 0,
         contextUsagePercent: 0,
+        finalRequestTokens: null,
+        finalRequestBudgetExceeded: false,
         includedSummary: false,
         omittedMessageCount: 0,
         summaryUpdatedAt: null,
@@ -292,6 +294,7 @@ export function useChatRuntimeEvents({
       const nextStatus: RuntimeStatus = {
         ...baseStatus,
         sessionId,
+        optimistic: true,
         phase,
         activeTool: phase === 'running_tool' ? baseStatus.activeTool : null,
         pendingToolCalls: phase === 'idle' ? 0 : baseStatus.pendingToolCalls,

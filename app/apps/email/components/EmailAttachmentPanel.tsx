@@ -240,8 +240,7 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
   const isSelectionOverLimit = selectedUsage > EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES;
 
   const workspaceFolders = useMemo(() => Array.from(new Set(workspaceFiles.flatMap((file) => {
-    if (!file.path) return [];
-    const segments = file.path.split('/').filter(Boolean);
+    const segments = (file.path || '').split('/').filter(Boolean);
     return segments.slice(0, -1).map((_, index) => segments.slice(0, index + 1).join('/'));
   })))
     .sort((left, right) => left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' }))

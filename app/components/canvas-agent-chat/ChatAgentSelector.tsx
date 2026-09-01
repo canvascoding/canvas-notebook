@@ -4,7 +4,10 @@ import { useCallback, useRef, useState } from 'react';
 import { CheckCircle2, ChevronDown, Pencil, Plus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
-import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
+import {
+  AgentIdentityAvatar,
+  AgentIdentityIcon,
+} from '@/app/components/agents/AgentIdentityVisual';
 import { EditAgentProfileDialog } from '@/app/components/agents/EditAgentProfileDialog';
 import { authClient } from '@/app/lib/auth-client';
 import type { AgentProfile } from '@/app/lib/chat/types';
@@ -154,7 +157,11 @@ export function ChatAgentSelector({
           {!compact && !iconOnly ? (
             <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
           ) : null}
-          <AgentIcon iconId={activeAgentIconId} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <AgentIdentityIcon
+            agentId={activeAgentId}
+            iconId={activeAgentIconId}
+            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+          />
           {!iconOnly ? (
             <span className={cn(
               'min-w-0 truncate',
@@ -226,7 +233,12 @@ export function ChatAgentSelector({
                   selected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
                 }`}
               >
-                <AgentAvatar iconId={agent.iconId} className="h-9 w-9" iconClassName="h-4 w-4" />
+                <AgentIdentityAvatar
+                  agentId={agent.agentId}
+                  iconId={agent.iconId}
+                  className="h-9 w-9"
+                  iconClassName="h-4 w-4"
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{agent.name}</span>
                   <span className="block truncate font-mono text-[10px] text-muted-foreground">{agent.agentId}</span>

@@ -84,6 +84,8 @@ export function useEmailComposeController({
   const [draft, setDraft] = useState<EmailComposeDraft | null>(null);
   const [outboxEditing, setOutboxEditing] = useState<{
     id: string;
+    accountId: string;
+    senderAddress: string;
     version: number;
     scope: 'personal' | 'workspace';
     workspaceId?: string;
@@ -203,7 +205,16 @@ export function useEmailComposeController({
     setAgentEvents([]);
     setAgentStatus(null);
     setReviewCase(outboxDraft.reviewCase || null);
-    setOutboxEditing({ id: outboxDraft.id, version: outboxDraft.version, scope: 'workspace', workspaceId });
+    setOutboxEditing({
+      id: outboxDraft.id,
+      accountId: outboxDraft.accountId,
+      senderAddress: outboxDraft.senderAddress
+        || accounts.find((account) => account.id === outboxDraft.accountId)?.emailAddress
+        || '',
+      version: outboxDraft.version,
+      scope: 'workspace',
+      workspaceId,
+    });
     setDraft({
       aiGenerated: true,
       aiMode: 'workspace-agent',
@@ -218,7 +229,7 @@ export function useEmailComposeController({
       toText: composeRecipientText(outboxDraft.to),
       usedContext: [],
     });
-  }, [activeWorkspaceId, onError]);
+  }, [accounts, activeWorkspaceId, onError]);
 
   const openPersonalOutboxDraft = useCallback((outboxDraft: EmailOutboxDraft) => {
     const bodyValues = composeEmailEditorBodyValues(outboxDraft.body);
@@ -227,7 +238,15 @@ export function useEmailComposeController({
     setAgentEvents([]);
     setAgentStatus(null);
     setReviewCase(null);
-    setOutboxEditing({ id: outboxDraft.id, version: outboxDraft.version, scope: 'personal' });
+    setOutboxEditing({
+      id: outboxDraft.id,
+      accountId: outboxDraft.accountId,
+      senderAddress: outboxDraft.senderAddress
+        || accounts.find((account) => account.id === outboxDraft.accountId)?.emailAddress
+        || '',
+      version: outboxDraft.version,
+      scope: 'personal',
+    });
     setDraft({
       aiGenerated: true,
       aiMode: 'workspace-agent',
@@ -242,7 +261,7 @@ export function useEmailComposeController({
       toText: composeRecipientText(outboxDraft.to),
       usedContext: [],
     });
-  }, [onError]);
+  }, [accounts, onError]);
 
   const openOutboxDraftById = useCallback(async ({
     draftId,
@@ -646,6 +665,7 @@ export function useEmailComposeController({
     openNewDraft,
     openPersonalOutboxDraft,
     openWorkspaceOutboxDraft,
+    outboxSenderAddress: outboxEditing?.senderAddress || '',
     reviewCase,
     reviewCenterRevision,
     save,
