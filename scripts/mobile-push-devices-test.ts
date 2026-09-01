@@ -155,6 +155,7 @@ async function main() {
     preferences: {
       agentResponseReady: true,
       todoAttention: true,
+      emailReview: false,
       studioCompleted: false,
       failureAttention: true,
       automationRunStatus: true,
@@ -172,6 +173,7 @@ async function main() {
   assert.deepEqual(registered.preferences, {
     agentResponseReady: true,
     todoAttention: true,
+    emailReview: false,
     studioCompleted: false,
     failureAttention: true,
     automationRunStatus: true,
@@ -210,6 +212,20 @@ async function main() {
     userId: 'push-user',
     installationId: 'installation-1',
   })).preferences.previews, false);
+  const emailReviewPreference = parseMobilePushPreferenceUpdate({
+    installationId: 'installation-1',
+    key: 'emailReview',
+    enabled: true,
+  });
+  const updatedEmailReviewPreference = await updateMobilePushDevicePreference({
+    userId: 'push-user',
+    update: emailReviewPreference,
+  });
+  assert.equal(updatedEmailReviewPreference.preferences.emailReview, true);
+  assert.equal((await getMobilePushDeviceStatus({
+    userId: 'push-user',
+    installationId: 'installation-1',
+  })).preferences.emailReview, true);
   await updateMobilePushDevicePreference({
     userId: 'push-user',
     update: { ...preferenceUpdate, enabled: true },
@@ -222,6 +238,7 @@ async function main() {
     preferences: { agentResponseReady: true },
   });
   assert.equal(legacyRegistration.preferences.automationRunStatus, false);
+  assert.equal(legacyRegistration.preferences.emailReview, true);
   assert.equal(legacyRegistration.preferences.previews, false);
 
   assert.equal(
@@ -603,6 +620,27 @@ async function main() {
     installationId: 'installation-1',
   })).lastDeliveryAt);
 
+  const mutedEmailPayloads: unknown[] = [];
+  const mutedEmail = await sendMobileAttentionPush({
+    userId: 'push-user',
+    instanceId: 'cni_0123456789abcdef01234567',
+    target: {
+      type: 'email.outbox_review',
+      workspaceId: 'workspace-1',
+      draftId: 'email-draft-1',
+    },
+    fetcher: async (_url, init) => {
+      mutedEmailPayloads.push(JSON.parse(String(init?.body)));
+      return Response.json({ data: [{ status: 'ok', id: 'muted-email-widget-refresh-ticket' }] });
+    },
+  });
+  assert.deepEqual(mutedEmail, { attempted: 0, accepted: 0 });
+  assert.equal(
+    JSON.stringify(mutedEmailPayloads).includes('email.outbox_review'),
+    false,
+    'a muted email-review category must not fall back to the enabled To-do category',
+  );
+
   const mutedStudioPayloads: unknown[] = [];
   const mutedStudio = await sendMobileAttentionPush({
     userId: 'push-user',
@@ -778,6 +816,7 @@ async function main() {
   assert.deepEqual(defaultPreferences, {
     agentResponseReady: true,
     todoAttention: true,
+    emailReview: true,
     studioCompleted: true,
     failureAttention: true,
     automationRunStatus: false,

@@ -54,6 +54,7 @@ assert.deepEqual(compatibility, {
       'push.attention_categories',
       'push.device_session_sync',
       'push.preference_updates',
+      'push.email_review',
       'push.automation_run_status',
       'push.receipts',
       'push.rich_previews',

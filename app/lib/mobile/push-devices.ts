@@ -45,6 +45,7 @@ export type MobileAppVariant = 'development' | 'preview' | 'production';
 export type MobilePushPreferences = {
   agentResponseReady: boolean;
   todoAttention: boolean;
+  emailReview: boolean;
   studioCompleted: boolean;
   failureAttention: boolean;
   automationRunStatus: boolean;
@@ -122,6 +123,7 @@ type MobilePushDeviceRow = {
   enabled: number | boolean;
   agent_response_ready: number | boolean;
   todo_attention: number | boolean;
+  email_review: number | boolean;
   studio_completed: number | boolean;
   failure_attention: number | boolean;
   automation_run_status: number | boolean;
@@ -250,6 +252,7 @@ export function parseMobilePushRegistration(value: unknown): MobilePushRegistrat
     preferences: {
       agentResponseReady: parseBooleanPreference(preferences, 'agentResponseReady'),
       todoAttention: parseBooleanPreference(preferences, 'todoAttention'),
+      emailReview: parseBooleanPreference(preferences, 'emailReview'),
       studioCompleted: parseBooleanPreference(preferences, 'studioCompleted'),
       failureAttention: parseBooleanPreference(preferences, 'failureAttention'),
       automationRunStatus: parseBooleanPreference(preferences, 'automationRunStatus', false),
@@ -266,6 +269,7 @@ export function parseMobilePushPreferenceUpdate(value: unknown): MobilePushPrefe
   if (
     value.key !== 'agentResponseReady'
     && value.key !== 'todoAttention'
+    && value.key !== 'emailReview'
     && value.key !== 'studioCompleted'
     && value.key !== 'failureAttention'
     && value.key !== 'automationRunStatus'
@@ -298,6 +302,7 @@ function defaultPreferences(value: boolean): MobilePushPreferences {
   return {
     agentResponseReady: value,
     todoAttention: value,
+    emailReview: value,
     studioCompleted: value,
     failureAttention: value,
     automationRunStatus: value,
@@ -326,6 +331,7 @@ function deviceStatus(row: MobilePushDeviceRow | undefined): MobilePushDeviceSta
     preferences: {
       agentResponseReady: Boolean(row.agent_response_ready),
       todoAttention: Boolean(row.todo_attention),
+      emailReview: Boolean(row.email_review),
       studioCompleted: Boolean(row.studio_completed),
       failureAttention: Boolean(row.failure_attention),
       automationRunStatus: Boolean(row.automation_run_status),
@@ -429,15 +435,16 @@ export function agentResponsePushSuppressionReason(
 }
 
 const DEVICE_SELECT = `id, expo_push_token, platform, app_variant, enabled,
-  agent_response_ready, todo_attention, studio_completed, failure_attention,
+  agent_response_ready, todo_attention, email_review, studio_completed, failure_attention,
   automation_run_status, preview_enabled, last_registered_at, last_delivery_at, last_error_code`;
 
 const MOBILE_PUSH_PREFERENCE_COLUMNS: Record<MobilePushPreferenceKey, {
-  field: keyof Pick<MobilePushDeviceRow, 'agent_response_ready' | 'todo_attention' | 'studio_completed' | 'failure_attention' | 'automation_run_status' | 'preview_enabled'>;
+  field: keyof Pick<MobilePushDeviceRow, 'agent_response_ready' | 'todo_attention' | 'email_review' | 'studio_completed' | 'failure_attention' | 'automation_run_status' | 'preview_enabled'>;
   column: string;
 }> = {
   agentResponseReady: { field: 'agent_response_ready', column: 'agent_response_ready' },
   todoAttention: { field: 'todo_attention', column: 'todo_attention' },
+  emailReview: { field: 'email_review', column: 'email_review' },
   studioCompleted: { field: 'studio_completed', column: 'studio_completed' },
   failureAttention: { field: 'failure_attention', column: 'failure_attention' },
   automationRunStatus: { field: 'automation_run_status', column: 'automation_run_status' },
@@ -545,10 +552,10 @@ export async function registerMobilePushDevice(input: {
       await connection.run(
         `INSERT INTO mobile_push_devices (
           id, installation_id, user_id, auth_session_id, expo_push_token, platform,
-          app_variant, enabled, agent_response_ready, todo_attention, studio_completed,
+          app_variant, enabled, agent_response_ready, todo_attention, email_review, studio_completed,
           failure_attention, automation_run_status, preview_enabled, last_registered_at, last_delivery_at,
           last_error_code, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
         ON CONFLICT(installation_id) DO UPDATE SET
           user_id = excluded.user_id,
           auth_session_id = excluded.auth_session_id,
@@ -558,6 +565,7 @@ export async function registerMobilePushDevice(input: {
           enabled = excluded.enabled,
           agent_response_ready = excluded.agent_response_ready,
           todo_attention = excluded.todo_attention,
+          email_review = excluded.email_review,
           studio_completed = excluded.studio_completed,
           failure_attention = excluded.failure_attention,
           automation_run_status = excluded.automation_run_status,
@@ -576,6 +584,7 @@ export async function registerMobilePushDevice(input: {
           enabled ? 1 : 0,
           input.registration.preferences.agentResponseReady ? 1 : 0,
           input.registration.preferences.todoAttention ? 1 : 0,
+          input.registration.preferences.emailReview ? 1 : 0,
           input.registration.preferences.studioCompleted ? 1 : 0,
           input.registration.preferences.failureAttention ? 1 : 0,
           input.registration.preferences.automationRunStatus ? 1 : 0,
@@ -824,7 +833,7 @@ function pushPreferenceColumn(target: MobilePushTarget): string {
     case 'todo.attention':
       return 'todo_attention';
     case 'email.outbox_review':
-      return 'todo_attention';
+      return 'email_review';
     case 'studio.completed':
       return 'studio_completed';
     case 'attention.failure':

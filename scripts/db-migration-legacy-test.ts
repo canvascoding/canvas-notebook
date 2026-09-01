@@ -344,6 +344,7 @@ try {
 
   const mobilePushDeviceColumns = getColumns(sqlite, 'mobile_push_devices');
   assert.ok(mobilePushDeviceColumns.has('preview_enabled'));
+  assert.ok(mobilePushDeviceColumns.has('email_review'));
   assert.ok(mobilePushDeviceColumns.has('automation_run_status'));
 
   const piSessionColumns = getColumns(sqlite, 'pi_sessions');

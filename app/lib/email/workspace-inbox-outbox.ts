@@ -116,6 +116,28 @@ export async function listWorkspaceOutboxDrafts(userId: string, workspaceId: str
   return rows.map(({ draft, senderAddress }) => publicOutboxDraft(draft, senderAddress));
 }
 
+export async function findWorkspaceInboxCase(userId: string, workspaceId: string, caseId: string) {
+  await requireWorkspace(userId, workspaceId, 'canRead');
+  const item = await db.query.emailInboxCases.findFirst({
+    where: and(eq(emailInboxCases.id, caseId), eq(emailInboxCases.workspaceId, workspaceId)),
+  });
+  return item ? publicInboxCase(item) : null;
+}
+
+export async function findWorkspaceOutboxDraft(userId: string, workspaceId: string, draftId: string) {
+  await requireWorkspace(userId, workspaceId, 'canRead');
+  const [row] = await db.select({ draft: emailDrafts, senderAddress: emailAccounts.emailAddress })
+    .from(emailDrafts)
+    .innerJoin(emailAccounts, eq(emailAccounts.id, emailDrafts.accountId))
+    .where(and(
+      eq(emailDrafts.id, draftId),
+      eq(emailDrafts.workspaceId, workspaceId),
+      inArray(emailDrafts.origin, ['automation', 'agent']),
+    ))
+    .limit(1);
+  return row ? publicOutboxDraft(row.draft, row.senderAddress) : null;
+}
+
 export async function listPersonalInboxCases(userId: string) {
   const rows = await db.query.personalEmailInboxCases.findMany({
     where: eq(personalEmailInboxCases.userId, userId),
@@ -131,6 +153,27 @@ export async function listPersonalOutboxDrafts(userId: string) {
     .where(and(eq(emailDrafts.userId, userId), isNull(emailDrafts.workspaceId), eq(emailDrafts.origin, 'agent')))
     .orderBy(desc(emailDrafts.updatedAt));
   return rows.map(({ draft, senderAddress }) => publicOutboxDraft(draft, senderAddress));
+}
+
+export async function findPersonalInboxCase(userId: string, caseId: string) {
+  const item = await db.query.personalEmailInboxCases.findFirst({
+    where: and(eq(personalEmailInboxCases.id, caseId), eq(personalEmailInboxCases.userId, userId)),
+  });
+  return item ? publicPersonalInboxCase(item) : null;
+}
+
+export async function findPersonalOutboxDraft(userId: string, draftId: string) {
+  const [row] = await db.select({ draft: emailDrafts, senderAddress: emailAccounts.emailAddress })
+    .from(emailDrafts)
+    .innerJoin(emailAccounts, eq(emailAccounts.id, emailDrafts.accountId))
+    .where(and(
+      eq(emailDrafts.id, draftId),
+      eq(emailDrafts.userId, userId),
+      isNull(emailDrafts.workspaceId),
+      eq(emailDrafts.origin, 'agent'),
+    ))
+    .limit(1);
+  return row ? publicOutboxDraft(row.draft, row.senderAddress) : null;
 }
 
 /**

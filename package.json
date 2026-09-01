@@ -248,6 +248,7 @@
     "test:mobile:files": "tsx --conditions react-server scripts/mobile-files-test.ts",
     "test:marp-preview": "tsx --conditions react-server scripts/marp-preview-render-test.ts",
     "test:mobile:inbox": "tsx --conditions react-server scripts/mobile-inbox-todos-test.ts",
+    "test:mobile:email": "tsx --conditions react-server scripts/mobile-email-contract-test.ts",
     "test:mobile:studio": "tsx --conditions react-server scripts/mobile-studio-test.ts",
     "test:mobile:automations": "tsx --conditions react-server scripts/mobile-automations-test.ts",
     "test:mobile:agents": "tsx --conditions react-server scripts/mobile-agents-extensions-test.ts",

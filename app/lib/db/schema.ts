@@ -52,6 +52,7 @@ export const mobilePushDevices = sqliteTable("mobile_push_devices", {
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   agentResponseReady: integer("agent_response_ready", { mode: "boolean" }).notNull().default(true),
   todoAttention: integer("todo_attention", { mode: "boolean" }).notNull().default(true),
+  emailReview: integer("email_review", { mode: "boolean" }).notNull().default(true),
   studioCompleted: integer("studio_completed", { mode: "boolean" }).notNull().default(true),
   failureAttention: integer("failure_attention", { mode: "boolean" }).notNull().default(true),
   automationRunStatus: integer("automation_run_status", { mode: "boolean" }).notNull().default(false),

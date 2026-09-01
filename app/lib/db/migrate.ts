@@ -60,6 +60,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       enabled INTEGER NOT NULL DEFAULT 1,
       agent_response_ready INTEGER NOT NULL DEFAULT 1,
       todo_attention INTEGER NOT NULL DEFAULT 1,
+      email_review INTEGER NOT NULL DEFAULT 1,
       studio_completed INTEGER NOT NULL DEFAULT 1,
       failure_attention INTEGER NOT NULL DEFAULT 1,
       automation_run_status INTEGER NOT NULL DEFAULT 0,
@@ -2043,6 +2044,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'mobile_push_devices', {
     todo_attention: 'INTEGER NOT NULL DEFAULT 1',
+    email_review: 'INTEGER NOT NULL DEFAULT 1',
     studio_completed: 'INTEGER NOT NULL DEFAULT 1',
     failure_attention: 'INTEGER NOT NULL DEFAULT 1',
     automation_run_status: 'INTEGER NOT NULL DEFAULT 0',
