@@ -157,7 +157,8 @@
       "id": "SC-P02",
       "order": 2,
       "title": "Port Hermes head, middle and coherent-tail selection",
-      "status": "planned",
+      "status": "completed",
+      "completedAt": "2026-09-01",
       "dependsOn": ["SC-P01"],
       "hermesReferences": [
         "agent/context_compressor.py:_effective_protect_first_n",
@@ -179,6 +180,14 @@
         "assistant anchor tests",
         "tool-call and tool-result atomicity tests",
         "tail cut out-of-bounds and no-compressible-middle tests"
+      ],
+      "completionEvidence": [
+        "Hermes-style decaying head and token-budgeted tail are implemented over Canvas atomic history units",
+        "Synthetic summary and blank user rows cannot displace the latest actionable user anchor",
+        "The last visible assistant response is preserved ahead of tool-only assistant fallbacks",
+        "Parallel and interleaved tool calls and results cross compaction boundaries only as complete units",
+        "Legacy and lean tail budgets match Hermes ratios, floor and cap",
+        "Selection, context, summary, UI contract, coordinator, store, live and automation regressions plus TypeScript, ESLint and production build pass"
       ],
       "exitGate": "SC-G02_SELECTION_SAFE"
     },

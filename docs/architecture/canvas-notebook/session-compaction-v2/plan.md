@@ -261,6 +261,16 @@ Gate:
 - Jede Auswahl besitzt ein sinnvolles komprimierbares Middle oder liefert einen
   erklaerten No-op.
 
+Umsetzungsstand 2026-09-01: abgeschlossen. Canvas gruppiert parallele und
+verschachtelte Tool-Transaktionen vor jeder Auswahl atomar und legt darauf die
+Hermes-Selektion mit verfallendem Drei-Nachrichten-Kopf, tokenbudgetiertem
+Tail, Acht-Nachrichten-Floor und 1,5-fachem Soft-Ceiling. Echte User-Anfragen
+und sichtbare Assistant-Antworten bleiben Anker; synthetische Summary- und
+Leerzeilen zaehlen nicht. Legacy- und Lean-Tail (`2,5 %`, `10K` bis `25K`)
+sind abgedeckt. Pure Selection-, Context-, Summary-, Live-, Automation-,
+Coordinator-, Store- und UI-Vertragstests sowie TypeScript, ESLint und der
+Produktionsbuild sind gruen.
+
 ### SC-P03: Deterministisches Pruning portieren
 
 Hermes-Rueckschluss:

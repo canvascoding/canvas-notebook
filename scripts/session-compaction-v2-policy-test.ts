@@ -80,6 +80,7 @@ assert.deepEqual(createSessionCompactionBudget({
   thresholdTokensCap: null,
   triggerTokens: 250_000,
   targetTailTokens: 50_000,
+  tailMode: 'legacy',
   protectFirstMessages: 3,
   protectLastMessages: 20,
   maximumAttempts: 3,
@@ -92,6 +93,18 @@ const capped = createSessionCompactionBudget({
 });
 assert.equal(capped.triggerTokens, 200_000);
 assert.equal(capped.targetTailTokens, 40_000);
+assert.equal(createSessionCompactionBudget({
+  contextWindowTokens: 262_144,
+  outputReserveTokens: 0,
+  fixedRequestTokens: 0,
+  config: { tailMode: 'lean' },
+}).targetTailTokens, 10_000, 'lean tails use the Hermes 10K floor');
+assert.equal(createSessionCompactionBudget({
+  contextWindowTokens: 1_000_000,
+  outputReserveTokens: 0,
+  fixedRequestTokens: 0,
+  config: { tailMode: 'lean' },
+}).targetTailTokens, 25_000, 'lean tails use the Hermes 25K cap');
 assert.equal(normalizeHermesThresholdTokensCap('200000'), 200_000);
 assert.equal(normalizeHermesThresholdTokensCap(0), null);
 assert.equal(normalizeHermesThresholdTokensCap('invalid'), null);

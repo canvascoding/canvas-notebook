@@ -32,6 +32,7 @@ export type PiContextBudgetPolicy = Readonly<{
   protectFirstMessages?: number;
   protectLastMessages?: number;
   maxCompactionAttempts?: number;
+  tailMode?: 'legacy' | 'lean';
   outputContextRatio: number;
   maximumOutputTokens: number;
   safetyFloorTokens: number;
@@ -54,6 +55,7 @@ export const DEFAULT_PI_CONTEXT_BUDGET_POLICY: PiContextBudgetPolicy = Object.fr
   protectFirstMessages: HERMES_COMPACTION_DEFAULTS.protectFirstMessages,
   protectLastMessages: HERMES_COMPACTION_DEFAULTS.protectLastMessages,
   maxCompactionAttempts: HERMES_COMPACTION_DEFAULTS.maximumAttempts,
+  tailMode: HERMES_COMPACTION_DEFAULTS.tailMode,
   outputContextRatio: 0.2,
   maximumOutputTokens: 8_192,
   safetyFloorTokens: 512,
@@ -172,6 +174,7 @@ export function validatePiContextBudgetPolicy(
       policy.protectLastMessages ?? HERMES_COMPACTION_DEFAULTS.protectLastMessages,
     ),
     maxCompactionAttempts: resolveHermesMaximumAttempts(policy.maxCompactionAttempts),
+    tailMode: policy.tailMode === 'lean' ? 'lean' : 'legacy',
     outputContextRatio,
     maximumOutputTokens: finiteInteger(policy.maximumOutputTokens),
     safetyFloorTokens: finiteInteger(policy.safetyFloorTokens),
@@ -354,6 +357,7 @@ export function createPiContextBudgetSnapshot(input: {
       protectFirstMessages: policy.protectFirstMessages,
       protectLastMessages: policy.protectLastMessages,
       maximumAttempts: policy.maxCompactionAttempts,
+      tailMode: policy.tailMode,
     },
   });
   const hardHistoryTokens = compactionBudget.effectiveInputBudgetTokens;

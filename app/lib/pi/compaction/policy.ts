@@ -17,7 +17,13 @@ export const HERMES_COMPACTION_DEFAULTS = Object.freeze({
   maximumAttempts: 3,
   maximumAttemptsHardCap: 10,
   materialProgressRatio: 0.05,
+  tailMode: 'legacy' as const,
+  leanTailContextRatio: 0.025,
+  leanTailFloorTokens: 10_000,
+  leanTailCapTokens: 25_000,
 });
+
+export type SessionCompactionTailMode = 'legacy' | 'lean';
 
 export type SessionCompactionPolicyConfig = Readonly<{
   thresholdRatio?: number;
@@ -31,6 +37,7 @@ export type SessionCompactionPolicyConfig = Readonly<{
   maximumAttempts?: unknown;
   thresholdTokensCap?: unknown;
   modelThresholds?: Readonly<Record<string, number>>;
+  tailMode?: SessionCompactionTailMode;
 }>;
 
 export type SessionCompactionBudget = Readonly<{
@@ -44,6 +51,7 @@ export type SessionCompactionBudget = Readonly<{
   thresholdTokensCap: number | null;
   triggerTokens: number;
   targetTailTokens: number;
+  tailMode: SessionCompactionTailMode;
   protectFirstMessages: number;
   protectLastMessages: number;
   maximumAttempts: number;
@@ -221,6 +229,20 @@ export function createSessionCompactionBudget(input: {
     HERMES_COMPACTION_DEFAULTS.targetRatioOfThreshold,
     'targetRatioOfThreshold',
   );
+  const tailMode = config.tailMode === 'lean' ? 'lean' : 'legacy';
+  const targetTailTokens = tailMode === 'lean'
+    ? Math.max(
+      1,
+      Math.min(
+        effectiveInputBudgetTokens,
+        HERMES_COMPACTION_DEFAULTS.leanTailCapTokens,
+        Math.max(
+          HERMES_COMPACTION_DEFAULTS.leanTailFloorTokens,
+          Math.floor(contextWindowTokens * HERMES_COMPACTION_DEFAULTS.leanTailContextRatio),
+        ),
+      ),
+    )
+    : Math.max(1, Math.floor(triggerTokens * targetRatioOfThreshold));
 
   return Object.freeze({
     contextWindowTokens,
@@ -232,7 +254,8 @@ export function createSessionCompactionBudget(input: {
     ratioThresholdTokens,
     thresholdTokensCap,
     triggerTokens,
-    targetTailTokens: Math.max(1, Math.floor(triggerTokens * targetRatioOfThreshold)),
+    targetTailTokens,
+    tailMode,
     protectFirstMessages: finiteInteger(
       config.protectFirstMessages ?? HERMES_COMPACTION_DEFAULTS.protectFirstMessages,
     ),

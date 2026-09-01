@@ -87,7 +87,7 @@ async function main(): Promise<void> {
     reasoning: false,
     input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 4_000,
+    contextWindow: 6_000,
     maxTokens: 1_000,
   } satisfies Model<'openai-completions'>;
   let summaryCalls = 0;

@@ -174,6 +174,16 @@ async function main() {
     { role: 'user', content: 'old context', timestamp: 1 },
     {
       role: 'assistant',
+      content: [{ type: 'text', text: 'initial response' }],
+      api: 'test',
+      provider: 'test',
+      model: 'test',
+      stopReason: 'stop',
+      timestamp: 2,
+    },
+    { role: 'user', content: 'initial constraint', timestamp: 3 },
+    {
+      role: 'assistant',
       content: [
         { type: 'toolCall', id: 'call-a', name: 'read', arguments: { path: 'a.md' } },
         { type: 'toolCall', id: 'call-b', name: 'read', arguments: { path: 'b.md' } },
@@ -182,19 +192,26 @@ async function main() {
       provider: 'test',
       model: 'test',
       stopReason: 'toolUse',
-      timestamp: 2,
+      timestamp: 4,
     },
-    { role: 'toolResult', toolCallId: 'call-a', toolName: 'read', content: [{ type: 'text', text: 'a'.repeat(3_000) }], timestamp: 3 },
-    { role: 'toolResult', toolCallId: 'call-b', toolName: 'read', content: [{ type: 'text', text: 'b'.repeat(3_000) }], timestamp: 4 },
-    { role: 'user', content: 'latest request', timestamp: 5 },
+    { role: 'toolResult', toolCallId: 'call-a', toolName: 'read', content: [{ type: 'text', text: 'a'.repeat(3_000) }], timestamp: 5 },
+    { role: 'toolResult', toolCallId: 'call-b', toolName: 'read', content: [{ type: 'text', text: 'b'.repeat(3_000) }], timestamp: 6 },
+    { role: 'user', content: 'recent request one', timestamp: 7 },
+    { role: 'assistant', content: [{ type: 'text', text: 'recent response one' }], api: 'test', provider: 'test', model: 'test', stopReason: 'stop', timestamp: 8 },
+    { role: 'user', content: 'recent request two', timestamp: 9 },
+    { role: 'assistant', content: [{ type: 'text', text: 'recent response two' }], api: 'test', provider: 'test', model: 'test', stopReason: 'stop', timestamp: 10 },
+    { role: 'user', content: 'recent request three', timestamp: 11 },
+    { role: 'assistant', content: [{ type: 'text', text: 'recent response three' }], api: 'test', provider: 'test', model: 'test', stopReason: 'stop', timestamp: 12 },
+    { role: 'assistant', content: [{ type: 'text', text: 'latest visible response' }], api: 'test', provider: 'test', model: 'test', stopReason: 'stop', timestamp: 13 },
+    { role: 'user', content: 'latest request', timestamp: 14 },
   ] as unknown as AgentMessage[];
 
   const units = buildPiHistoryUnits(toolHistory);
-  assert.equal(units.length, 3);
-  assert.equal(units[1].kind, 'tool_group');
-  assert.equal(units[1].messages.length, 3);
-  assert.deepEqual(units[1].toolCallIds, ['call-a', 'call-b']);
-  assert.equal(units[1].toolChainComplete, true);
+  assert.equal(units.length, 12);
+  assert.equal(units[3].kind, 'tool_group');
+  assert.equal(units[3].messages.length, 3);
+  assert.deepEqual(units[3].toolCallIds, ['call-a', 'call-b']);
+  assert.equal(units[3].toolChainComplete, true);
 
   const composition = composePiHistoryForLlm({
     messages: toolHistory,
@@ -211,23 +228,26 @@ async function main() {
     requestOutputTokens: 800,
     toolTokens: 500,
   });
-  assert.deepEqual(composition.keptMessages, [toolHistory[4]]);
   assert.deepEqual(
-    composition.omittedMessages.slice(-3),
-    toolHistory.slice(1, 4),
+    composition.keptMessages,
+    [...toolHistory.slice(0, 3), ...toolHistory.slice(6)],
+  );
+  assert.deepEqual(
+    composition.omittedMessages,
+    toolHistory.slice(3, 6),
     'a history cut must omit the assistant tool call and all results together',
   );
   assert.equal(composition.outputReserveTokens, 800);
   assert.equal(composition.softThresholdExceeded, true);
-  assert.ok(composition.estimatedHistoryTokens <= composition.targetHistoryTokens);
+  assert.ok(composition.estimatedHistoryTokens <= composition.availableHistoryTokens);
 
-  const openToolUnits = buildPiHistoryUnits(toolHistory.slice(0, 2));
-  assert.equal(openToolUnits[1].toolChainComplete, false);
+  const openToolUnits = buildPiHistoryUnits([toolHistory[3]]);
+  assert.equal(openToolUnits[0].toolChainComplete, false);
 
   const interleavedToolUnits = buildPiHistoryUnits([
-    toolHistory[1],
+    toolHistory[3],
     { role: 'compact-break', kind: 'manual', timestamp: new Date().toISOString() } as unknown as AgentMessage,
-    toolHistory[2],
+    toolHistory[4],
   ]);
   assert.equal(interleavedToolUnits.length, 1);
   assert.equal(interleavedToolUnits[0].messages.length, 3);
@@ -324,7 +344,7 @@ async function main() {
     'raw tail and summary coverage must be disjoint',
   );
   assert.equal(disjointComposition.keptMessages.at(-1), longSequencedHistory.at(-1));
-  assert.ok(disjointComposition.estimatedHistoryTokens <= disjointComposition.targetHistoryTokens);
+  assert.ok(disjointComposition.estimatedHistoryTokens <= disjointComposition.availableHistoryTokens);
 
   const currentImageTurn = {
     role: 'user',
@@ -366,7 +386,7 @@ async function main() {
       summaryRevision: 0,
     },
     systemPromptTokens: 100,
-    contextWindow: 4_000,
+    contextWindow: 5_500,
     modelMaxTokens: 1_000,
     requestOutputTokens: 800,
   });

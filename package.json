@@ -48,6 +48,7 @@
     "test:pi:context-budget": "tsx scripts/pi-context-budget-test.ts",
     "test:pi:compaction-v2-baseline": "tsx scripts/session-compaction-v2-baseline-test.ts",
     "test:pi:compaction-v2-policy": "tsx scripts/session-compaction-v2-policy-test.ts",
+    "test:pi:compaction-v2-selection": "tsx scripts/session-compaction-v2-selection-test.ts",
     "test:pi:live-compaction": "tsx --conditions react-server scripts/pi-live-compaction-integration-test.ts",
     "test:pi:compaction-ui": "tsx scripts/pi-compaction-ui-contract-test.ts",
     "test:pi:compaction-coordinator": "tsx --conditions react-server scripts/pi-session-compaction-coordinator-test.ts",
