@@ -195,7 +195,8 @@
       "id": "SC-P03",
       "order": 3,
       "title": "Adapt Hermes deterministic pruning",
-      "status": "planned",
+      "status": "completed",
+      "completedAt": "2026-09-01",
       "dependsOn": ["SC-P02"],
       "hermesReferences": [
         "agent/context_compressor.py:_prune_old_tool_results",
@@ -216,6 +217,14 @@
         "historical media and stale image tests",
         "ghost skill tests",
         "active tool-chain preservation tests"
+      ],
+      "completionEvidence": [
+        "Deterministic pruning is implemented as a pure, default-disabled capability with Hermes attribution",
+        "Exact duplicate tool output, bulky historical results and arguments, old tool images and stale replay fields are reclaimed",
+        "Canonical sanitized skill reload markers prevent ghosted skill instructions",
+        "Candidate rewrites commit only above the measured token-savings gate and return the original array on every rejected no-op",
+        "Prompt-cache re-arm requires a full reclaimed, trigger or minimum-reclaim runway",
+        "Idempotence, latest-three, active-tool-chain, newest-image, low-signal and pressure-tail tests plus TypeScript, ESLint, compliance and production build pass"
       ],
       "exitGate": "SC-G03_PRUNING_SAFE"
     },

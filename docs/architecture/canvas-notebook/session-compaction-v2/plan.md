@@ -296,6 +296,17 @@ Gate:
 - Letzte drei Nachrichten, aktive Tool-Gruppe und neueste relevante Bilder
   bleiben erhalten.
 
+Umsetzungsstand 2026-09-01: abgeschlossen. Die pure Pruning-Capability ist
+standardmaessig deaktiviert und arbeitet ohne LLM. Sie dedupliziert exakte
+Tool-Ausgaben, demotiert grosse historische Results und Argumente, entfernt
+alte Tool-Bilder bis auf die drei neuesten, verwirft stale Replay-Sidecars und
+setzt fuer verlorene Skill-Bodies einen kanonischen, sanitisierten
+`SKILL_PRUNED`-Reload-Marker. Aenderungen werden nur oberhalb des gemessenen
+Reclaim-Gates uebernommen; ein Cache-Re-Arm verlangt danach eine volle
+Wachstums-Runway. Idempotenz, aktive Tool-Gruppe, letzte drei Nachrichten,
+Bildfenster, Low-Signal-Filter und Pressure-Tail sind getestet. TypeScript,
+ESLint, Compliance und Produktionsbuild sind gruen.
+
 ### SC-P04: Anchor Index, Digests und Recovery portieren
 
 Hermes-Rueckschluss:
