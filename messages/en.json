@@ -6584,6 +6584,9 @@
       "tokens": "{count} tok",
       "inputOutput": "{input} in / {output} out",
       "cache": "{count} cache",
+      "executionAgent": "Executor: {agent}",
+      "reviewForAgent": "Memory review for: {agent}",
+      "reviewForUnknownAgent": "Memory review source unavailable",
       "loading": "Loading events...",
       "empty": "No usage events found for the current filters."
     },
@@ -6599,6 +6602,7 @@
       "day": "Day",
       "provider": "Provider",
       "model": "Model",
+      "agent": "Agent",
       "session": "Session",
       "user": "User"
     },

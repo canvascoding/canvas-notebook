@@ -6583,6 +6583,9 @@
       "tokens": "{count} tok",
       "inputOutput": "{input} in / {output} out",
       "cache": "{count} cache",
+      "executionAgent": "Ausgeführt von: {agent}",
+      "reviewForAgent": "Memory-Review für: {agent}",
+      "reviewForUnknownAgent": "Memory-Review-Quelle nicht verfügbar",
       "loading": "Events werden geladen...",
       "empty": "Für die aktuellen Filter wurden keine Usage-Events gefunden."
     },
@@ -6598,6 +6601,7 @@
       "day": "Tag",
       "provider": "Provider",
       "model": "Modell",
+      "agent": "Agent",
       "session": "Session",
       "user": "User"
     },
