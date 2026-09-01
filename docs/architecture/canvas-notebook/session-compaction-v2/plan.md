@@ -375,6 +375,21 @@ Gate:
 - Fokus priorisiert, darf Pflichtanker aber nicht entfernen.
 - LLM-Fehler, leere Antwort und Timeout lassen die Rohhistorie unveraendert.
 
+Umsetzungsstand 2026-09-01: abgeschlossen. Der versionierte
+`canvas-session-summary:v2`-Vertrag erzeugt zunaechst chronologische,
+SHA-adressierte Segment-Digests und danach eine Rolling Summary mit stabilen
+Pflichtabschnitten. Vorherige Summary, exakte Anchors, echte User-Texte,
+optionaler Fokus und autorisierter Recovery-Footer werden unter festen
+Input- und Outputgrenzen zusammengefuehrt. Das Summary-Modell wird vor jedem
+Call gegen sein eigenes Kontextfenster samt Outputreserve geprueft; Idle- und
+Total-Timeout sowie Stream-Fortschritt sind getrennt sichtbar. Secrets werden
+vor dem Providerprompt und erneut vor Persistenz redigiert. Leere, gekappte,
+fehlerhafte oder prompt-injizierte Antworten sowie erfundene User-Provenienz
+scheitern geschlossen und verschieben keine Summary-Grenze. Legacy bleibt bis
+zur Runtime-Umschaltung in SC-P07 der Default. Multi-Zyklus-, Fokus-,
+Zero-User-, Timeout-, Providerfehler-, Injection-, Redaktions-, TypeScript-,
+ESLint- und Legacy-Kompatibilitaetstests sind gruen.
+
 ### SC-P06: Coordinator, Store und Anti-Thrash haerten
 
 Hermes-Rueckschluss:

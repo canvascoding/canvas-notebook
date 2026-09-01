@@ -271,7 +271,8 @@
       "id": "SC-P05",
       "order": 5,
       "title": "Adapt Hermes rolling LLM summary and focus",
-      "status": "planned",
+      "status": "completed",
+      "completedAt": "2026-09-01",
       "dependsOn": ["SC-P04"],
       "hermesReferences": [
         "agent/context_compressor.py:_generate_summary",
@@ -295,6 +296,14 @@
         "zero-real-user provenance tests",
         "summary timeout, empty result and provider failure tests",
         "prompt injection and signal leakage tests"
+      ],
+      "completionEvidence": [
+        "Versioned canvas-session-summary:v2 contract composes required sections, exact anchors, verbatim user messages, chronological SHA-addressed digests and authorized recovery in stable order",
+        "Every digest and rolling-summary provider call is feasibility-checked against the auxiliary model context window with bounded input and output reserve",
+        "Optional focus is retained without displacing mandatory anchors, and prior-cycle identifiers and user-authored requests survive repeated compaction",
+        "Idle and total stream timeouts report progress while timeout, empty, truncated, provider-error, injection and invented-user-provenance candidates fail closed",
+        "Known secrets are redacted before provider input and before persistence, and failed candidates do not advance the persisted summary boundary",
+        "V2, legacy-summary, full compaction regression, TypeScript and focused ESLint tests pass"
       ],
       "exitGate": "SC-G05_SUMMARY_VALIDATED"
     },

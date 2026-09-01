@@ -14,8 +14,13 @@ import {
   type PiSessionSummaryState,
 } from './history-budget';
 import { normalizePiMessagesForLlm } from './message-normalization';
+import {
+  generatePiRollingSummaryV2,
+  type PiSummaryMode,
+  type PiSummaryProgressEvent,
+} from './compaction/summary-generator';
 
-type PreparePiHistoryContextOptions = {
+export type PreparePiHistoryContextOptions = {
   messages: AgentMessage[];
   summary: PiSessionSummaryState;
   systemPromptTokens: number;
@@ -26,15 +31,31 @@ type PreparePiHistoryContextOptions = {
   sessionId?: string;
   signal?: AbortSignal;
   streamFn?: StreamFn;
+  summaryMode?: PiSummaryMode;
+  focusTopic?: string | null;
+  knownSecrets?: readonly string[];
+  authorizedSessionId?: string | null;
+  sessionSearchAvailable?: boolean;
+  summaryIdleTimeoutMs?: number;
+  summaryTotalTimeoutMs?: number;
+  onSummaryProgress?: (event: PiSummaryProgressEvent) => void;
 };
 
-type SummarizeHistoryInput = {
+export type SummarizeHistoryInput = {
   previousSummaryText: string | null;
   messagesToSummarize: AgentMessage[];
   model: Model<Api>;
   sessionId?: string;
   signal?: AbortSignal;
   streamFn?: StreamFn;
+  summaryMode?: PiSummaryMode;
+  focusTopic?: string | null;
+  knownSecrets?: readonly string[];
+  authorizedSessionId?: string | null;
+  sessionSearchAvailable?: boolean;
+  summaryIdleTimeoutMs?: number;
+  summaryTotalTimeoutMs?: number;
+  onSummaryProgress?: (event: PiSummaryProgressEvent) => void;
 };
 
 export type PreparePiHistoryContextResult = {
@@ -272,9 +293,35 @@ export async function summarizePiSessionHistory({
   sessionId,
   signal,
   streamFn,
+  summaryMode = 'legacy',
+  focusTopic,
+  knownSecrets,
+  authorizedSessionId,
+  sessionSearchAvailable,
+  summaryIdleTimeoutMs,
+  summaryTotalTimeoutMs,
+  onSummaryProgress,
 }: SummarizeHistoryInput): Promise<string | null> {
   if (!streamFn) {
     return null;
+  }
+
+  if (summaryMode === 'hermes_v2') {
+    return generatePiRollingSummaryV2({
+      previousSummaryText,
+      messagesToSummarize,
+      model,
+      sessionId,
+      authorizedSessionId,
+      sessionSearchAvailable,
+      focusTopic,
+      knownSecrets,
+      signal,
+      streamFn,
+      idleTimeoutMs: summaryIdleTimeoutMs,
+      totalTimeoutMs: summaryTotalTimeoutMs,
+      onProgress: onSummaryProgress,
+    });
   }
 
   assertSummaryGenerationActive(signal);
@@ -366,6 +413,14 @@ export async function preparePiHistoryContext({
   sessionId,
   signal,
   streamFn,
+  summaryMode = 'legacy',
+  focusTopic,
+  knownSecrets,
+  authorizedSessionId,
+  sessionSearchAvailable,
+  summaryIdleTimeoutMs,
+  summaryTotalTimeoutMs,
+  onSummaryProgress,
 }: PreparePiHistoryContextOptions): Promise<PreparePiHistoryContextResult> {
   let nextSummary = summary;
   let summaryAttempted = false;
@@ -421,6 +476,14 @@ export async function preparePiHistoryContext({
       sessionId,
       signal,
       streamFn,
+      summaryMode,
+      focusTopic,
+      knownSecrets,
+      authorizedSessionId,
+      sessionSearchAvailable,
+      summaryIdleTimeoutMs,
+      summaryTotalTimeoutMs,
+      onSummaryProgress,
     });
 
     if (summaryText?.trim()) {
