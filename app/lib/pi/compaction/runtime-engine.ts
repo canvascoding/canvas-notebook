@@ -137,6 +137,7 @@ export type PreparePiHermesCompactionCandidateInput = Readonly<{
   signal: AbortSignal;
   streamFn?: StreamFn;
   selectionMode?: Extract<PiHistorySelectionMode, 'automatic' | 'force'>;
+  focusTopic?: string | null;
   policy?: PiContextBudgetPolicy;
   onSummaryProgress?: (event: PiSummaryProgressEvent) => void;
 }>;
@@ -184,6 +185,7 @@ export async function preparePiHermesCompactionCandidate(
     streamFn: input.streamFn,
     summaryMode: 'hermes_v2',
     selectionMode: input.selectionMode ?? 'automatic',
+    focusTopic: input.focusTopic,
     policy,
     authorizedSessionId: input.sessionId,
     onSummaryProgress: input.onSummaryProgress,

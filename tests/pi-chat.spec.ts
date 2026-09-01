@@ -288,7 +288,13 @@ interface MockWsConfig {
   onSubscribe?: () => void;
   onSendMessage?: (message: Record<string, unknown>, context: Record<string, unknown> | undefined, requestId: string) => void;
   onGetStatus?: (requestId: string) => Record<string, unknown> | null;
-  onControl?: (action: string, message: Record<string, unknown> | undefined, requestId: string, queueItemId?: string) => MockControlResult;
+  onControl?: (
+    action: string,
+    message: Record<string, unknown> | undefined,
+    requestId: string,
+    queueItemId?: string,
+    focusTopic?: string,
+  ) => MockControlResult;
   agentEvents?: AgentEventPayload[];
   eventStartDelayMs?: number;
   sendEventsAfterSendMessage?: boolean;
@@ -397,7 +403,13 @@ async function setupMockWebSocket(page: Page, config: MockWsConfig) {
             : createMockRuntimeStatus(sessionId);
           let controlEvents: AgentEventPayload[] = [];
           if (onControl) {
-            const result = onControl(action, message.message, requestId, message.queueItemId);
+            const result = onControl(
+              action,
+              message.message,
+              requestId,
+              message.queueItemId,
+              message.focusTopic,
+            );
             if (isMockControlEnvelope(result)) {
               status = result.status;
               controlEvents = result.agentEvents ?? [];
@@ -1780,6 +1792,16 @@ contentKind: document
       estimatedHistoryTokens: 22560,
       availableHistoryTokens: 23500,
       contextUsagePercent: 96,
+      contextPressure: {
+        pressureTokens: 22560,
+        source: 'rough_estimate',
+        effectiveInputBudgetTokens: 100000,
+        triggerTokens: 23500,
+        targetTokens: 4700,
+        percentOfTrigger: 96,
+      },
+      nextRequestEstimatedTokens: 50560,
+      nextRequestEstimateSource: 'rough_estimate',
       includedSummary: true,
       omittedMessageCount: 8,
       summaryUpdatedAt: '2026-03-16T16:00:00.000Z',
@@ -1967,9 +1989,12 @@ contentKind: document
     await expect(page.getByTestId('chat-runtime-busy-badge')).toHaveCount(0);
     await expect(page.getByTestId('chat-context-meter')).toHaveCount(0);
     await page.getByTestId('chat-header-menu-trigger').click();
-    await expect(page.getByTestId('chat-context-details')).toContainText('23k/24k', { timeout: 15000 });
+    await expect(page.getByTestId('chat-context-details')).toContainText('23k/24k trigger', { timeout: 15000 });
+    await expect(page.getByTestId('chat-context-details')).toContainText('4.7k target');
+    await expect(page.getByTestId('chat-context-details')).toContainText('100k input budget');
     await expect(page.getByTestId('chat-context-details')).toContainText('128k');
-    await expect(page.getByTestId('chat-context-details')).toContainText('96% used');
+    await expect(page.getByTestId('chat-context-details')).toContainText('96% of trigger');
+    await expect(page.getByTestId('chat-context-target')).toBeVisible();
     await expect(page.getByTestId('chat-context-details')).toContainText('Earlier messages are available as a summary.');
     await expect(page.getByTestId('chat-compact')).toBeDisabled();
     await page.keyboard.press('Escape');
@@ -2487,6 +2512,7 @@ contentKind: document
 
   test('should render a compaction break after manual canvas compact', async ({ page }) => {
     const sessionId = 'sess-compact-break';
+    let receivedFocusTopic: string | undefined;
     let currentStatus: PiRuntimeStatus = {
       sessionId,
       revision: 0,
@@ -2568,13 +2594,21 @@ contentKind: document
       sessionId,
       runtimeStatus: currentStatus as Record<string, unknown>,
       onGetStatus: () => currentStatus as unknown as Record<string, unknown>,
-      onControl: (action) => {
+      onControl: (action, _message, _requestId, _queueItemId, focusTopic) => {
         if (action === 'compact') {
+          receivedFocusTopic = focusTopic;
           currentStatus = {
             ...currentStatus,
             lastCompactionAt: '2026-03-16T17:20:00.000Z',
             lastCompactionKind: 'manual',
             lastCompactionOmittedCount: 6,
+            compactionStatus: {
+              ...currentStatus.compactionStatus,
+              state: 'succeeded',
+              attemptId: 'compact-manual-1',
+              trigger: 'manual',
+              omittedMessageCount: 6,
+            },
           };
         }
 
@@ -2595,6 +2629,31 @@ contentKind: document
     await expect(breakMarker).toBeVisible();
     await expect(breakMarker).toContainText('Canvas context compacted');
     await expect(breakMarker).toContainText('6');
+
+    currentStatus = {
+      ...currentStatus,
+      lastCompactionAt: null,
+      lastCompactionKind: null,
+      lastCompactionOmittedCount: 0,
+      compactionStatus: {
+        ...currentStatus.compactionStatus,
+        state: 'idle',
+        attemptId: null,
+        trigger: null,
+        omittedMessageCount: 0,
+      },
+    };
+    await page.reload();
+    await expect(page.getByTestId('chat-session-title')).toContainText('Compact session');
+    await page.getByTestId('chat-header-menu-trigger').click();
+    await expect(page.getByTestId('chat-compact-with-focus')).toBeVisible();
+    await page.getByTestId('chat-compact-with-focus').click();
+    await expect(page.getByTestId('chat-header-menu')).toBeHidden();
+    await expect(page.getByTestId('chat-compaction-focus-submit')).toBeDisabled();
+    await page.getByTestId('chat-compaction-focus').fill('database migration safety');
+    await expect(page.getByTestId('chat-compaction-focus-submit')).toBeEnabled();
+    await page.getByTestId('chat-compaction-focus-submit').click();
+    await expect.poll(() => receivedFocusTopic).toBe('database migration safety');
   });
 
   test('should render the usage analytics page and apply provider filters', async ({ page }) => {

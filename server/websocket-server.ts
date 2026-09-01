@@ -893,6 +893,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           message.message,
           message.queueItemId,
           message.context,
+          message.focusTopic,
         );
         console.log('[WebSocket] control completed', {
           connectionId: connection.id,

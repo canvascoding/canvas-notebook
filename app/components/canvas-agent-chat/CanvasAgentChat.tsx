@@ -74,7 +74,10 @@ import type {
   QueuePreviewItem,
 } from '@/app/lib/chat/types';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
-import { getContextStatusDisplay } from '@/app/components/canvas-agent-chat/contextStatusDisplay';
+import {
+  formatContextTokens,
+  getContextStatusDisplay,
+} from '@/app/components/canvas-agent-chat/contextStatusDisplay';
 
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
 
@@ -108,14 +111,6 @@ function isTextareaAtHistoryBoundary(textarea: HTMLTextAreaElement, direction: '
   }
 
   return !value.slice(selectionEnd).includes('\n');
-}
-
-function formatContextTokens(value: number): string {
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
-  }
-
-  return `${value}`;
 }
 
 function isSelectableRuntimeSelection(
@@ -1036,7 +1031,15 @@ export default function CanvasAgentChat({
     ...(runtimeStatus?.followUpQueue || []).map((entry) => ({ ...entry, kind: 'follow_up' as const })),
   ];
   const contextStatusDisplay = getContextStatusDisplay(runtimeStatus);
-  const contextDetailedLabel = contextStatusDisplay.source === 'next_request'
+  const contextDetailedLabel = contextStatusDisplay.source === 'pressure'
+    ? t('contextPressureLabel', {
+      pressure: formatContextTokens(contextStatusDisplay.pressureTokens),
+      trigger: formatContextTokens(contextStatusDisplay.triggerTokens),
+      target: formatContextTokens(contextStatusDisplay.targetTokens),
+      budget: formatContextTokens(contextStatusDisplay.effectiveInputBudgetTokens),
+      window: formatContextTokens(contextStatusDisplay.contextWindow),
+    })
+    : contextStatusDisplay.source === 'next_request'
       ? t('contextNextRequestLabel', {
         used: formatContextTokens(contextStatusDisplay.usedTokens),
         window: formatContextTokens(contextStatusDisplay.contextWindow),
@@ -1053,7 +1056,27 @@ export default function CanvasAgentChat({
           window: formatContextTokens(contextStatusDisplay.contextWindow),
         })
         : t('noSessionYet');
-  const contextTooltip = contextStatusDisplay.source === 'next_request'
+  const contextTooltip = contextStatusDisplay.source === 'pressure'
+    ? t('contextPressureTooltip', {
+      pressure: formatContextTokens(contextStatusDisplay.pressureTokens),
+      trigger: formatContextTokens(contextStatusDisplay.triggerTokens),
+      percent: contextStatusDisplay.percentOfTrigger,
+      target: formatContextTokens(contextStatusDisplay.targetTokens),
+      budget: formatContextTokens(contextStatusDisplay.effectiveInputBudgetTokens),
+      window: formatContextTokens(contextStatusDisplay.contextWindow),
+      next: runtimeStatus?.nextRequestEstimatedTokens === null
+        || runtimeStatus?.nextRequestEstimatedTokens === undefined
+        ? t('contextValueUnavailable')
+        : formatContextTokens(runtimeStatus.nextRequestEstimatedTokens),
+      estimateKind: runtimeStatus?.nextRequestEstimateSource === 'serialized_request'
+        ? t('contextEstimateSerialized')
+        : t('contextEstimateRough'),
+      actual: runtimeStatus?.lastProviderInputTokens === null
+        || runtimeStatus?.lastProviderInputTokens === undefined
+        ? t('contextValueUnavailable')
+        : formatContextTokens(runtimeStatus.lastProviderInputTokens),
+    })
+    : contextStatusDisplay.source === 'next_request'
     ? runtimeStatus?.lastProviderInputTokens !== null && runtimeStatus?.lastProviderInputTokens !== undefined
       ? t('contextNextRequestTooltipWithActual', {
         used: formatContextTokens(contextStatusDisplay.usedTokens),
@@ -1081,12 +1104,22 @@ export default function CanvasAgentChat({
         })
         : t('noSessionYet');
   const contextProgressPercent = Math.min(100, Math.max(0,
-    contextStatusDisplay.source === 'next_request' || contextStatusDisplay.source === 'actual'
+    contextStatusDisplay.source === 'pressure'
+      ? contextStatusDisplay.percentOfTrigger
+      : contextStatusDisplay.source === 'next_request' || contextStatusDisplay.source === 'actual'
       ? Math.round((contextStatusDisplay.usedTokens / Math.max(1, contextStatusDisplay.contextWindow)) * 100)
       : contextStatusDisplay.source === 'history'
         ? contextStatusDisplay.percent
         : 0,
   ));
+  const contextTargetPercent = contextStatusDisplay.source === 'pressure'
+    ? Math.min(
+      100,
+      Math.max(0, Math.round(
+        (contextStatusDisplay.targetTokens / Math.max(1, contextStatusDisplay.triggerTokens)) * 100,
+      )),
+    )
+    : null;
   const sessionDisplayLabel = getSessionDisplayTitle(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const primaryActionIsStop = isRuntimeBusy && !hasComposerContent;
@@ -1219,12 +1252,13 @@ export default function CanvasAgentChat({
         chatAgentOptions={chatAgentOptions}
         contextDetailedLabel={contextDetailedLabel}
         contextProgressPercent={contextProgressPercent}
+        contextTargetPercent={contextTargetPercent}
         contextTooltip={contextTooltip}
         hideNavHeader={hideNavHeader}
         isHistoryOverlayOpen={isHistoryOverlayOpen}
         isMobile={isMobile}
         isSessionTitleGenerating={isSessionTitleGenerating}
-        onCompact={() => void handleCompact()}
+        onCompact={(focusTopic) => void handleCompact(focusTopic)}
         onSelectAgent={(agentId) => {
           closeReferencePicker();
           selectChatAgent(agentId);

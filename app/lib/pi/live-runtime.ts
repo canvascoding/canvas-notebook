@@ -31,6 +31,7 @@ import {
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
 import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
+import { createPiRuntimeContextStatusProjection } from '@/app/lib/pi/runtime-context-status';
 import { withPiProviderOverflowRecovery } from '@/app/lib/pi/provider-overflow-recovery';
 import type { PiMessageNormalizationOptions } from '@/app/lib/pi/message-normalization';
 import {
@@ -95,6 +96,7 @@ import { buildReferencedPluginRuntimeContext } from '@/app/lib/plugins/plugin-re
 import { createToolLoopGuard } from '@/app/lib/pi/tool-loop-guard';
 import {
   IDLE_RUNTIME_COMPACTION_STATUS,
+  type RuntimeContextPressure,
   type RuntimeCompactionStatus,
 } from '@/app/lib/chat/runtime-status';
 import {
@@ -224,6 +226,8 @@ export type PiRuntimeStatus = {
   lastProviderInputAt?: string | null;
   nextRequestEstimatedTokens?: number | null;
   nextRequestBudgetExceeded?: boolean;
+  nextRequestEstimateSource?: 'rough_estimate' | 'serialized_request' | null;
+  contextPressure?: RuntimeContextPressure;
   includedSummary: boolean;
   omittedMessageCount: number;
   summaryUpdatedAt: string | null;
@@ -457,6 +461,8 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
     lastProviderInputAt: status.lastProviderInputAt,
     nextRequestEstimatedTokens: status.nextRequestEstimatedTokens,
     nextRequestBudgetExceeded: status.nextRequestBudgetExceeded,
+    nextRequestEstimateSource: status.nextRequestEstimateSource,
+    contextPressure: status.contextPressure,
     includedSummary: status.includedSummary,
     omittedMessageCount: status.omittedMessageCount,
     summaryUpdatedAt: status.summaryUpdatedAt,
@@ -638,12 +644,14 @@ export class LivePiRuntime {
 
   private async coordinateCompaction(input: {
     kind: 'manual' | 'automatic';
+    cause: NonNullable<RuntimeCompactionStatus['cause']>;
     bypassCooldown?: boolean;
     messages: AgentMessage[];
     additionalContextTokens: number;
     runtimeContext: string | null;
     signal?: AbortSignal;
     selectionMode?: 'automatic' | 'force';
+    focusTopic?: string | null;
   }): Promise<PiCompactionCoordinatorResult> {
     await this.persistMessages('turn_end');
     const summarySnapshot = { ...this.summary };
@@ -659,9 +667,15 @@ export class LivePiRuntime {
         state: 'running',
         attemptId,
         trigger: input.kind,
+        cause: input.cause,
         reasonCode: null,
         retryAfter: null,
         omittedMessageCount: 0,
+        beforeTokens: before.estimatedHistoryTokens,
+        afterTokens: null,
+        triggerTokens: before.triggerHistoryTokens,
+        targetTokens: before.targetHistoryTokens,
+        focusApplied: Boolean(input.focusTopic?.trim()),
       };
       this.publishStatus();
     }
@@ -700,6 +714,7 @@ export class LivePiRuntime {
         signal: candidateSignal,
         streamFn: this.options.summaryStreamFn,
         selectionMode: input.selectionMode ?? 'automatic',
+        focusTopic: input.focusTopic,
         onSummaryProgress: (progress) => reportProgress(progress),
       }),
     });
@@ -712,9 +727,15 @@ export class LivePiRuntime {
           : result.state,
         attemptId: result.attemptId,
         trigger: input.kind,
-        reasonCode: result.reasonCode,
+        cause: input.cause,
+        reasonCode: result.reasonCode ?? (result.state === 'already_running' ? 'already_running' : null),
         retryAfter: result.retryAt?.toISOString() ?? null,
         omittedMessageCount: result.composition?.omittedMessages.length ?? 0,
+        beforeTokens: before.estimatedHistoryTokens,
+        afterTokens: result.composition?.estimatedHistoryTokens ?? null,
+        triggerTokens: result.composition?.triggerHistoryTokens ?? before.triggerHistoryTokens,
+        targetTokens: result.composition?.targetHistoryTokens ?? before.targetHistoryTokens,
+        focusApplied: Boolean(input.focusTopic?.trim()),
       };
       this.publishStatus();
     }
@@ -840,6 +861,11 @@ export class LivePiRuntime {
       && !hasPendingReplace
       && (this.isRunning || !this.isFinalPayloadSendable(finalPayloadBudget)),
     );
+    const contextStatus = createPiRuntimeContextStatusProjection({
+      composition,
+      contextWindow: this.model.contextWindow,
+      finalSnapshot: exposeFinalPayloadBudget ? finalPayloadBudget : null,
+    });
 
     return {
       sessionId: this.sessionId,
@@ -870,10 +896,10 @@ export class LivePiRuntime {
         : false,
       lastProviderInputTokens: this.lastProviderInputUsage?.inputTokens ?? null,
       lastProviderInputAt: this.lastProviderInputUsage?.assistantTimestamp.toISOString() ?? null,
-      nextRequestEstimatedTokens: exposeFinalPayloadBudget ? finalPayloadBudget!.estimatedTotalTokens : null,
-      nextRequestBudgetExceeded: exposeFinalPayloadBudget
-        ? !this.isFinalPayloadSendable(finalPayloadBudget!)
-        : false,
+      nextRequestEstimatedTokens: contextStatus.nextRequestEstimatedTokens,
+      nextRequestBudgetExceeded: contextStatus.nextRequestBudgetExceeded,
+      nextRequestEstimateSource: contextStatus.nextRequestEstimateSource,
+      contextPressure: contextStatus.contextPressure,
       includedSummary: composition.includedSummary,
       omittedMessageCount: composition.omittedMessages.length,
       summaryUpdatedAt: this.summary.summaryUpdatedAt ? this.summary.summaryUpdatedAt.toISOString() : null,
@@ -984,18 +1010,24 @@ export class LivePiRuntime {
     return this.getStatus();
   }
 
-  async compactNow() {
+  async compactNow(focusTopic?: string | null) {
     if (this.isRunning || this.agent.state.isStreaming) {
       throw new Error('Cannot compact while the agent is processing.');
+    }
+    const normalizedFocusTopic = focusTopic?.trim() || null;
+    if (normalizedFocusTopic && normalizedFocusTopic.length > 500) {
+      throw new Error('Compaction focus must not exceed 500 characters.');
     }
 
     const additionalContextTokens = this.getBrowserRuntimeContextTokenEstimate();
     const result = await this.coordinateCompaction({
       kind: 'manual',
+      cause: 'manual',
       messages: this.agent.state.messages,
       additionalContextTokens,
       runtimeContext: null,
       selectionMode: 'force',
+      focusTopic: normalizedFocusTopic,
     });
 
     if (result.state === 'succeeded' && result.summary && result.composition) {
@@ -1572,6 +1604,7 @@ export class LivePiRuntime {
         // A request-blocking retry may pass a failure cooldown, but never the
         // coordinator lock or transactional commit fences.
         kind: 'automatic',
+        cause: 'hard_limit',
         bypassCooldown: true,
         messages: input.sourceMessages,
         additionalContextTokens: addedContextReserve,
@@ -1637,6 +1670,7 @@ export class LivePiRuntime {
       + Math.max(1, Math.ceil(this.model.contextWindow * 0.05));
     const result = await this.coordinateCompaction({
       kind: 'automatic',
+      cause: 'provider_overflow',
       bypassCooldown: true,
       messages,
       additionalContextTokens,
@@ -1985,6 +2019,7 @@ export class LivePiRuntime {
 
     const result = await this.coordinateCompaction({
       kind: 'automatic',
+      cause: 'threshold',
       messages,
       additionalContextTokens,
       runtimeContext,
@@ -2236,6 +2271,7 @@ export class LivePiRuntime {
     try {
       const result = await this.coordinateCompaction({
         kind: 'automatic',
+        cause: 'idle',
         messages: this.agent.state.messages.slice(),
         additionalContextTokens,
         runtimeContext: null,
@@ -2940,6 +2976,10 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
       ? estimateTextTokens(browserRuntimeContextBlock)
       : 0,
   });
+  const contextStatus = createPiRuntimeContextStatusProjection({
+    composition,
+    contextWindow: model.contextWindow,
+  });
 
   return {
     sessionId,
@@ -2959,8 +2999,10 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     finalRequestBudgetExceeded: false,
     lastProviderInputTokens: lastProviderInputUsage?.inputTokens ?? null,
     lastProviderInputAt: lastProviderInputUsage?.assistantTimestamp.toISOString() ?? null,
-    nextRequestEstimatedTokens: null,
-    nextRequestBudgetExceeded: false,
+    nextRequestEstimatedTokens: contextStatus.nextRequestEstimatedTokens,
+    nextRequestBudgetExceeded: contextStatus.nextRequestBudgetExceeded,
+    nextRequestEstimateSource: contextStatus.nextRequestEstimateSource,
+    contextPressure: contextStatus.contextPressure,
     includedSummary: composition.includedSummary,
     omittedMessageCount: composition.omittedMessages.length,
     summaryUpdatedAt: summary.summaryUpdatedAt ? summary.summaryUpdatedAt.toISOString() : null,

@@ -460,6 +460,7 @@ export async function control(
   message?: unknown,
   queueItemId?: string,
   requestContext?: ChatRequestContext,
+  focusTopic?: string,
 ): Promise<PiRuntimeStatus> {
   return withPiSessionOperationLock(sessionId, userId, async () => {
     const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
@@ -511,7 +512,7 @@ export async function control(
       case 'abort':
         return runtimeInstance.abort();
       case 'compact':
-        return runtimeInstance.compactNow();
+        return runtimeInstance.compactNow(focusTopic);
       default:
         throw new RuntimeServiceError(`Unsupported action: ${String(action)}`, 400);
     }

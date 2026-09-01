@@ -386,7 +386,7 @@
       "id": "SC-P08",
       "order": 8,
       "title": "Expose Hermes-equivalent truthful context and compaction status",
-      "status": "planned",
+      "status": "completed",
       "dependsOn": ["SC-P07"],
       "hermesReferences": [
         "agent/context_breakdown.py provider actual usage preference",
@@ -406,6 +406,14 @@
         "German and English copy tests",
         "desktop and mobile responsive checks",
         "Playwright on localhost:3000 after explicit approval"
+      ],
+      "completionEvidence": [
+        "Runtime status and UI use one trigger-relative pressure projection while provider actual and next-request estimate remain distinct",
+        "Effective input budget, trigger, target, before/after metrics, omitted count and trigger cause are exposed without replacing legacy status fields",
+        "Manual compact remains immediate and optional focused compact is bounded at the WebSocket and runtime boundaries and reaches the Hermes V2 prompt",
+        "UI contract, full compaction regression matrix, WebSocket protocol, TypeScript, ESLint, license compliance and production build pass",
+        "Playwright against an isolated migrated Postgres database verifies trigger-relative status, busy controls, direct compact, compact break, blank focus rejection and focus forwarding",
+        "Visual Playwright inspection at 1600x900 and 390x844 verifies the focus dialog closes the actions menu and remains fully usable without horizontal overflow"
       ],
       "exitGate": "SC-G08_UI_TRUTHFUL"
     },

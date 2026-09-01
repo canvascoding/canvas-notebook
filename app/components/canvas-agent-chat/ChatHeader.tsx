@@ -13,10 +13,21 @@ import {
   Plus,
   Settings,
   Sparkles,
+  Target,
   WandSparkles,
 } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,8 +39,10 @@ import {
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { ChatLiveBrowserLink } from '@/app/components/canvas-agent-chat/ChatLiveBrowserLink';
+import { formatContextTokens } from '@/app/components/canvas-agent-chat/contextStatusDisplay';
 import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import {
+  getRuntimeCompactionCauseTranslationKey,
   getRuntimeCompactionStatusTranslationKey,
   type RuntimeStatus,
 } from '@/app/lib/chat/runtime-status';
@@ -43,12 +56,13 @@ type ChatHeaderProps = {
   chatAgentOptions: AgentProfile[];
   contextDetailedLabel: string;
   contextProgressPercent: number;
+  contextTargetPercent: number | null;
   contextTooltip: string;
   hideNavHeader: boolean;
   isHistoryOverlayOpen: boolean;
   isMobile: boolean;
   isSessionTitleGenerating: boolean;
-  onCompact: () => void;
+  onCompact: (focusTopic?: string) => void;
   onSelectAgent: (agentId: string) => void;
   onReloadAgents: () => Promise<void>;
   onOpenLiveBrowser?: () => void;
@@ -70,6 +84,7 @@ export function ChatHeader({
   chatAgentOptions,
   contextDetailedLabel,
   contextProgressPercent,
+  contextTargetPercent,
   contextTooltip,
   hideNavHeader,
   isHistoryOverlayOpen,
@@ -93,11 +108,20 @@ export function ChatHeader({
   const tCommon = useTranslations('common');
   const tWorkspaces = useTranslations('workspaces');
   const [workspaceSheetOpen, setWorkspaceSheetOpen] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [focusDialogOpen, setFocusDialogOpen] = useState(false);
+  const [compactionFocus, setCompactionFocus] = useState('');
   const canShowWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
   const showWorkspaceSwitcher = showWorkspaceSwitcherEnabled && canShowWorkspaceSwitcher;
   const compactionStatus = runtimeStatus?.compactionStatus;
   const compactionTranslationKey = getRuntimeCompactionStatusTranslationKey(compactionStatus);
   const compactionLabel = compactionTranslationKey ? t(compactionTranslationKey) : null;
+  const compactionCauseKey = getRuntimeCompactionCauseTranslationKey(compactionStatus?.cause);
+  const compactionCauseLabel = compactionCauseKey ? t(compactionCauseKey) : null;
+  const hasCompactionMetrics = compactionStatus?.beforeTokens !== null
+    && compactionStatus?.beforeTokens !== undefined
+    && compactionStatus?.afterTokens !== null
+    && compactionStatus?.afterTokens !== undefined;
   const canCompact = Boolean(
     sessionId
     && runtimeStatus?.phase === 'idle'
@@ -234,7 +258,7 @@ export function ChatHeader({
             <span className="sr-only">{t('newChatShort')}</span>
           </button>
 
-          <DropdownMenu>
+          <DropdownMenu open={actionsMenuOpen} onOpenChange={setActionsMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
@@ -275,7 +299,9 @@ export function ChatHeader({
                   <span className="text-xs font-semibold text-foreground">{t('contextDetails')}</span>
                   {runtimeStatus ? (
                     <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
-                      {t('contextUsagePercent', { percent: contextProgressPercent })}
+                      {runtimeStatus.contextPressure
+                        ? t('contextTriggerUsagePercent', { percent: contextProgressPercent })
+                        : t('contextUsagePercent', { percent: contextProgressPercent })}
                     </span>
                   ) : null}
                 </div>
@@ -283,12 +309,20 @@ export function ChatHeader({
                   {contextDetailedLabel}
                 </p>
                 {runtimeStatus ? (
-                  <div className="h-1 overflow-hidden rounded-full bg-muted">
+                  <div className="relative h-1 overflow-hidden rounded-full bg-muted">
                     <div
                       data-testid="chat-context-progress"
                       className={cn('h-full rounded-full transition-all', contextProgressClass)}
                       style={{ width: `${contextProgressPercent}%` }}
                     />
+                    {contextTargetPercent !== null ? (
+                      <span
+                        data-testid="chat-context-target"
+                        className="absolute inset-y-0 w-px bg-foreground/70"
+                        style={{ left: `${contextTargetPercent}%` }}
+                        title={t('contextTargetMarker')}
+                      />
+                    ) : null}
                   </div>
                 ) : null}
                 {runtimeStatus?.includedSummary ? (
@@ -299,9 +333,24 @@ export function ChatHeader({
                     {compactionLabel}
                   </p>
                 ) : null}
+                {hasCompactionMetrics ? (
+                  <p data-testid="chat-menu-compaction-metrics" className="text-[10px] text-muted-foreground">
+                    {t('compactionMetrics', {
+                      before: formatContextTokens(compactionStatus.beforeTokens!),
+                      after: formatContextTokens(compactionStatus.afterTokens!),
+                      count: compactionStatus.omittedMessageCount,
+                    })}
+                  </p>
+                ) : null}
+                {compactionCauseLabel ? (
+                  <p className="text-[10px] text-muted-foreground">
+                    {t('compactionCauseLabel', { cause: compactionCauseLabel })}
+                    {compactionStatus?.focusApplied ? ` · ${t('compactionFocusApplied')}` : ''}
+                  </p>
+                ) : null}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem data-testid="chat-compact" onSelect={onCompact} disabled={!canCompact}>
+              <DropdownMenuItem data-testid="chat-compact" onSelect={() => onCompact()} disabled={!canCompact}>
                 <WandSparkles />
                 <span>{t('compact')}</span>
                 {!canCompact ? (
@@ -309,6 +358,18 @@ export function ChatHeader({
                     {!sessionId ? t('noSessionYet') : compactionLabel || t('working')}
                   </span>
                 ) : null}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-testid="chat-compact-with-focus"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setActionsMenuOpen(false);
+                  window.setTimeout(() => setFocusDialogOpen(true), 0);
+                }}
+                disabled={!canCompact}
+              >
+                <Target />
+                <span>{t('compactWithFocus')}</span>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/settings?tab=agent">
@@ -337,6 +398,41 @@ export function ChatHeader({
           ) : null}
         </div>
       </div>
+      <Dialog open={focusDialogOpen} onOpenChange={setFocusDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('compactWithFocus')}</DialogTitle>
+            <DialogDescription>{t('compactFocusDescription')}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="chat-compaction-focus">{t('compactFocusLabel')}</Label>
+            <Textarea
+              id="chat-compaction-focus"
+              data-testid="chat-compaction-focus"
+              value={compactionFocus}
+              maxLength={500}
+              onChange={(event) => setCompactionFocus(event.target.value)}
+              placeholder={t('compactFocusPlaceholder')}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFocusDialogOpen(false)}>
+              {tCommon('cancel')}
+            </Button>
+            <Button
+              data-testid="chat-compaction-focus-submit"
+              disabled={!canCompact || !compactionFocus.trim()}
+              onClick={() => {
+                onCompact(compactionFocus.trim());
+                setCompactionFocus('');
+                setFocusDialogOpen(false);
+              }}
+            >
+              {t('compact')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

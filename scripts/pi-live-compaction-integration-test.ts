@@ -119,6 +119,7 @@ async function main(): Promise<void> {
   } satisfies Model<'openai-completions'>;
   const summaryResult = deferred<AssistantMessage>();
   let summaryCalls = 0;
+  let lastSummaryContext = '';
   const createSummaryMessage = (label: string): AssistantMessage => ({
     role: 'assistant',
     content: [{
@@ -150,8 +151,9 @@ async function main(): Promise<void> {
     stopReason: 'stop',
     timestamp: Date.now(),
   });
-  const summaryStreamFn: StreamFn = async (requestedModel, _context, options) => {
+  const summaryStreamFn: StreamFn = async (requestedModel, context, options) => {
     summaryCalls += 1;
+    lastSummaryContext = JSON.stringify(context);
     assert.equal(options?.signal?.aborted, false);
     return {
       result: () => summaryResult.promise,
@@ -214,11 +216,22 @@ async function main(): Promise<void> {
     lastComposition: {
       estimatedHistoryTokens: 100_000,
       availableHistoryTokens: 200_000,
+      triggerHistoryTokens: 120_000,
+      targetHistoryTokens: 24_000,
       includedSummary: false,
       omittedMessages: [],
     },
     lastFinalPayloadBudgetSnapshot: {
       estimatedTotalTokens: 185_000,
+      effectiveInstructionTokens: 12_000,
+      toolSchemaTokens: 4_000,
+      runtimeProviderOverheadTokens: 64,
+      multimodalTokens: 0,
+      safetyReserveTokens: 5_936,
+      outputReserveTokens: 20_000,
+      hardHistoryTokens: 220_000,
+      triggerHistoryTokens: 110_000,
+      targetTailTokens: 22_000,
       contextBudgetExceeded: false,
       payloadBudgetExceeded: false,
     },
@@ -246,19 +259,22 @@ async function main(): Promise<void> {
   });
   const idleStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
   assert.equal(idleStatus.lastProviderInputTokens, 140_000);
-  assert.equal(idleStatus.nextRequestEstimatedTokens, null, 'idle status must prefer actual provider usage over an old payload estimate');
+  assert.equal(idleStatus.nextRequestEstimatedTokens, 162_000, 'idle status must expose a fresh rough request projection instead of the stale payload');
+  assert.equal((idleStatus.contextPressure as { source: string }).source, 'rough_estimate');
+  assert.equal((idleStatus.contextPressure as { percentOfTrigger: number }).percentOfTrigger, 83);
   statusRuntime.isRunning = true;
   const activeStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
   assert.equal(activeStatus.lastProviderInputTokens, 140_000);
   assert.equal(activeStatus.nextRequestEstimatedTokens, 185_000, 'active status must expose the next serialized-request estimate separately');
+  assert.equal((activeStatus.contextPressure as { source: string }).source, 'serialized_request');
   statusRuntime.abortRequested = true;
   const abortingStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
-  assert.equal(abortingStatus.nextRequestEstimatedTokens, null, 'an aborted request payload must not be presented as the next request');
+  assert.equal(abortingStatus.nextRequestEstimatedTokens, 162_000, 'an aborted request must fall back to the current rough projection');
   assert.equal(abortingStatus.finalRequestTokens, null, 'an aborted request payload must not remain exposed as the final request');
   statusRuntime.abortRequested = false;
   statusRuntime.pendingReplace = { id: 'replacement-request' };
   const replacingStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
-  assert.equal(replacingStatus.nextRequestEstimatedTokens, null, 'the replaced request payload must not be presented as the replacement request');
+  assert.equal(replacingStatus.nextRequestEstimatedTokens, 162_000, 'a replacement must fall back to the current rough projection');
   assert.equal(replacingStatus.finalRequestTokens, null, 'the replaced request payload must not remain exposed during replacement');
   statusRuntime.pendingReplace = null;
 
@@ -314,7 +330,8 @@ async function main(): Promise<void> {
     transformContext: (messages: AgentMessage[]) => Promise<AgentMessage[]>;
   }).transformContext(calibrationCandidate), calibrationCandidate);
 
-  const compactPromise = runtime.compactNow();
+  const focusTopic = 'database migration safety';
+  const compactPromise = runtime.compactNow(focusTopic);
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(summaryCalls, 1);
   assert.equal(events.filter((event) => event.type === 'context_compacted').length, 0, 'success must not be emitted before the private candidate completes and commits');
@@ -325,20 +342,23 @@ async function main(): Promise<void> {
   const automaticRace = await (runtime as unknown as {
     coordinateCompaction: (input: {
       kind: 'automatic';
+      cause: 'threshold';
       messages: AgentMessage[];
       additionalContextTokens: number;
       runtimeContext: null;
     }) => Promise<{ state: string; attemptId: string }>;
   }).coordinateCompaction({
     kind: 'automatic',
+    cause: 'threshold',
     messages: runtime.agent.state.messages as AgentMessage[],
     additionalContextTokens: 0,
     runtimeContext: null,
   });
   assert.equal(automaticRace.state, 'already_running');
   assert.equal(summaryCalls, 1, 'manual/automatic races must share one summary provider call');
-  summaryResult.resolve(createSummaryMessage('Committed live runtime summary'));
+  summaryResult.resolve(createSummaryMessage(`Committed live runtime summary for ${focusTopic}`));
   await compactPromise;
+  assert.match(lastSummaryContext, /database migration safety/);
 
   const reloaded = await loadPiSessionWithSummary(sessionId, userId, session?.agentId);
   assert.match(reloaded?.summary.summaryText || '', /canvas-session-summary:v2/);
@@ -355,6 +375,24 @@ async function main(): Promise<void> {
   assert.ok(events.some((event) => (
     (event.status as { compactionStatus?: { state?: string } } | undefined)?.compactionStatus?.state === 'succeeded'
   )));
+  const succeededStatus = events.findLast((event) => (
+    (event.status as { compactionStatus?: { state?: string } } | undefined)?.compactionStatus?.state === 'succeeded'
+  ))?.status as {
+    compactionStatus?: {
+      cause?: string;
+      beforeTokens?: number;
+      afterTokens?: number;
+      triggerTokens?: number;
+      targetTokens?: number;
+      focusApplied?: boolean;
+    };
+  } | undefined;
+  assert.equal(succeededStatus?.compactionStatus?.cause, 'manual');
+  assert.equal(succeededStatus?.compactionStatus?.focusApplied, true);
+  assert.ok((succeededStatus?.compactionStatus?.beforeTokens ?? 0) > 0);
+  assert.ok((succeededStatus?.compactionStatus?.afterTokens ?? 0) > 0);
+  assert.ok((succeededStatus?.compactionStatus?.triggerTokens ?? 0) > 0);
+  assert.ok((succeededStatus?.compactionStatus?.targetTokens ?? 0) > 0);
   const marker = (runtime.agent.state.messages as AgentMessage[]).at(-1) as unknown as Record<string, unknown>;
   assert.equal(marker.role, 'compact-break');
   assert.equal(marker.attemptId, attempts[0].id);

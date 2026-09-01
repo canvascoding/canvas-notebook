@@ -490,13 +490,33 @@ Umsetzung:
    Summary-Providerfehler konkret unterscheiden.
 6. UI-Texte Deutsch und Englisch pflegen.
 
+Umsetzungsstand 2026-09-01: abgeschlossen.
+
+- Der Runtime-Status liefert eine gemeinsame Pressure-Projektion mit Quelle,
+  effektivem Eingabebudget, Trigger und Zielwert. Die sichtbare Leiste nutzt
+  denselben Trigger als Nenner wie die Compaction-Entscheidung.
+- Letzte Provider-Ist-Nutzung und die naechste Request-Schaetzung bleiben
+  getrennte Werte; Rough Estimate und serialisierte Schaetzung sind markiert.
+- Compaction-Status enthaelt Ausloeser, Vorher-/Nachher-Tokens, Ziel, Trigger,
+  Anzahl verdichteter Nachrichten und konkrete Fehlergruende.
+- Manuelle Compaction bleibt ein Direktaufruf. Ein zweiter Menuepunkt erlaubt
+  optional einen bis 500 Zeichen langen Fokus, der bis in den validierten
+  Hermes-V2-Summary-Prompt weitergereicht wird.
+- Contract-, Runtime-, WebSocket-, Lokalisierungs-, TypeScript-, Lint- und
+  Produktions-Build-Pruefungen sind erfolgreich.
+- Playwright prueft gegen eine isolierte, migrierte Postgres-Datenbank den
+  triggerrelativen Status, deaktivierte Busy-Aktionen, direkten Compact,
+  Break-Marker, leeren Fokus, Fokusweitergabe und den Dropdown-zu-Dialog-
+  Uebergang. Die visuelle Kontrolle ist bei 1600x900 und 390x844 ohne
+  abgeschnittene Dialoge oder verbleibendes Aktionsmenue abgeschlossen.
+
 Gate:
 
 - Die Bar verwendet dieselbe Pressure-Quelle wie der Trigger.
 - Direkt nach Compaction ist erkennbar, dass die niedrigere Fuellung der
   Zielstand und nicht der vorherige Triggerstand ist.
-- UI/E2E wird auf `localhost:3000` nach expliziter Freigabe fuer Playwright
-  geprueft.
+- UI/E2E wurde nach expliziter Freigabe auf `localhost:3000` mit gesundem
+  Postgres-Backend geprueft.
 
 ### SC-P09: Shadow-Rollout, Defaultwahl und Abschluss
 
