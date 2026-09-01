@@ -335,6 +335,19 @@ Gate:
 - Der Recovery-Hinweis verweist nur auf eine autorisierte, existierende
   Session.
 
+Umsetzungsstand 2026-09-01: abgeschlossen. Die Recovery-Capability extrahiert
+PRs, SHAs, Branches, Dateien, Fehler, URLs, Versionen, UUIDs sowie Canvas-
+Workspace-, Todo-, Automation- und Session-IDs mechanisch und priorisiert sie
+nach Frequenz und Aktualitaet. Echte User-Texte bleiben newest-first
+wortgetreu, abgesehen von zwingender Secret-Redaktion. Der bereinigte
+Transcript wird lueckenlos in chronologische SHA-256-Chunks zerlegt;
+Low-Signal-Tool-Acks werden herausgefiltert und optionale pristine Tool-Bodies
+bleiben fuer Digests nutzbar. `session_search`-Footer entstehen nur bei exakt
+passender Autorisierung und vorhandener Capability. Das Summary-Input ist bei
+160K Zeichen mit explizitem Middle-Marker begrenzt. Der 175-KB-Regressionstest
+laeuft ohne Regex-Backtracking-Probleme; TypeScript, ESLint, Compliance und
+Produktionsbuild sind gruen.
+
 ### SC-P05: Rolling LLM Summary und Fokus adaptieren
 
 Hermes-Rueckschluss:

@@ -232,7 +232,8 @@
       "id": "SC-P04",
       "order": 4,
       "title": "Port Hermes exact anchors, user transcript, digests and recovery",
-      "status": "planned",
+      "status": "completed",
+      "completedAt": "2026-09-01",
       "dependsOn": ["SC-P03"],
       "hermesReferences": [
         "agent/context_compressor.py:_build_anchor_index",
@@ -255,6 +256,14 @@
         "secret and URL credential redaction tests",
         "large transcript chunk-order tests",
         "session authorization and recovery pointer tests"
+      ],
+      "completionEvidence": [
+        "Mechanically extracted frequency/recency-ranked anchor categories cover PRs, SHAs, branches, files, errors, URLs, versions, UUIDs and Canvas workspace, todo, automation and session IDs",
+        "Newest-first real user messages remain verbatim except for mandatory persistence-boundary secret redaction",
+        "Chronological SHA-256-addressed digest chunks cover the sanitized transcript without gaps, filter low-signal tool acks and preserve pristine tool content when provided",
+        "Session-search recovery pointers are emitted only for an exact authorized session scope with the tool available",
+        "Summary inputs are bounded at 160K characters with an explicit omitted-middle marker",
+        "Large-transcript, secret, URL credential, anchor, ordering, authorization, TypeScript, ESLint, compliance and production-build tests pass"
       ],
       "exitGate": "SC-G04_RECOVERY_COMPLETE"
     },
