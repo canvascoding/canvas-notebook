@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "hermesCommit": "f293e7206b4ddd66042329442c6afebc19a8808d",
+  "cases": [
+    {
+      "id": "32k-window",
+      "input": { "contextWindowTokens": 32000, "outputReserveTokens": 0, "fixedRequestTokens": 0 },
+      "expected": { "effectiveInputBudgetTokens": 32000, "effectiveThresholdRatio": 0.75, "triggerTokens": 27200, "targetTailTokens": 5440 }
+    },
+    {
+      "id": "128k-window",
+      "input": { "contextWindowTokens": 128000, "outputReserveTokens": 0, "fixedRequestTokens": 0 },
+      "expected": { "effectiveInputBudgetTokens": 128000, "effectiveThresholdRatio": 0.75, "triggerTokens": 96000, "targetTailTokens": 19200 }
+    },
+    {
+      "id": "262k-window",
+      "input": { "contextWindowTokens": 262144, "outputReserveTokens": 0, "fixedRequestTokens": 0 },
+      "expected": { "effectiveInputBudgetTokens": 262144, "effectiveThresholdRatio": 0.75, "triggerTokens": 196608, "targetTailTokens": 39321 }
+    },
+    {
+      "id": "512k-window",
+      "input": { "contextWindowTokens": 512000, "outputReserveTokens": 0, "fixedRequestTokens": 0 },
+      "expected": { "effectiveInputBudgetTokens": 512000, "effectiveThresholdRatio": 0.5, "triggerTokens": 256000, "targetTailTokens": 51200 }
+    },
+    {
+      "id": "1m-window",
+      "input": { "contextWindowTokens": 1000000, "outputReserveTokens": 0, "fixedRequestTokens": 0 },
+      "expected": { "effectiveInputBudgetTokens": 1000000, "effectiveThresholdRatio": 0.5, "triggerTokens": 500000, "targetTailTokens": 100000 }
+    },
+    {
+      "id": "output-reserve-degeneracy",
+      "input": { "contextWindowTokens": 64000, "outputReserveTokens": 32000, "fixedRequestTokens": 0 },
+      "expected": { "effectiveInputBudgetTokens": 32000, "effectiveThresholdRatio": 0.75, "triggerTokens": 27200, "targetTailTokens": 5440 }
+    },
+    {
+      "id": "canvas-fixed-request-costs",
+      "input": { "contextWindowTokens": 262000, "outputReserveTokens": 8192, "fixedRequestTokens": 20000 },
+      "expected": { "effectiveInputBudgetTokens": 233808, "effectiveThresholdRatio": 0.75, "triggerTokens": 175356, "targetTailTokens": 35071 }
+    }
+  ]
+}

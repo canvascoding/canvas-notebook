@@ -7,6 +7,7 @@ import {
   validatePiContextBudgetPolicy,
   type PiContextBudgetPolicy,
 } from './context-budget';
+import { createSessionCompactionBudget } from './compaction/policy';
 import { MAX_LLM_HISTORY_BYTES, MAX_LLM_IMAGE_BYTES } from './llm-payload-limits';
 
 export type PiSessionSummaryState = {
@@ -48,6 +49,7 @@ export type ComposePiHistoryOptions = {
   toolCount?: number;
   toolTokens?: number;
   additionalContextTokens?: number;
+  modelIdentity?: string;
   policy?: PiContextBudgetPolicy;
   selectionMode?: PiHistorySelectionMode;
   /** @deprecated Use selectionMode. Kept as a compatibility adapter for callers in flight. */
@@ -218,6 +220,7 @@ function getHistoryBudget({
   requestOutputTokens,
   toolTokens = 0,
   additionalContextTokens = 0,
+  modelIdentity,
   policy = DEFAULT_PI_CONTEXT_BUDGET_POLICY,
 }: Omit<ComposePiHistoryOptions, 'messages' | 'summary'>): {
   availableHistoryTokens: number;
@@ -229,12 +232,30 @@ function getHistoryBudget({
   const outputReserveTokens = requestOutputTokens === undefined
     ? getPiRequestOutputTokenCap({ contextWindow, maxTokens: modelMaxTokens }, validatedPolicy)
     : Math.max(1, Math.floor(requestOutputTokens));
-  const available = contextWindow
-    - systemPromptTokens
-    - outputReserveTokens
-    - Math.max(0, toolTokens)
-    - Math.max(0, additionalContextTokens)
-    - validatedPolicy.safetyFloorTokens;
+  const compactionBudget = createSessionCompactionBudget({
+    contextWindowTokens: contextWindow,
+    outputReserveTokens,
+    fixedRequestTokens:
+      Math.max(0, systemPromptTokens)
+      + Math.max(0, toolTokens)
+      + Math.max(0, additionalContextTokens)
+      + validatedPolicy.safetyFloorTokens,
+    modelIdentity,
+    config: {
+      thresholdRatio: validatedPolicy.triggerRatio,
+      targetRatioOfThreshold: validatedPolicy.targetRatio,
+      minimumContextTokens: validatedPolicy.minimumContextTokens,
+      smallContextWindowLimitTokens: validatedPolicy.smallContextWindowLimitTokens,
+      smallContextThresholdFloorRatio: validatedPolicy.smallContextThresholdFloorRatio,
+      degenerateThresholdRatio: validatedPolicy.degenerateThresholdRatio,
+      modelThresholds: validatedPolicy.modelThresholds,
+      thresholdTokensCap: validatedPolicy.thresholdTokensCap,
+      protectFirstMessages: validatedPolicy.protectFirstMessages,
+      protectLastMessages: validatedPolicy.protectLastMessages,
+      maximumAttempts: validatedPolicy.maxCompactionAttempts,
+    },
+  });
+  const available = compactionBudget.effectiveInputBudgetTokens;
 
   if (available <= 0) {
     return {
@@ -246,8 +267,8 @@ function getHistoryBudget({
   }
   return {
     availableHistoryTokens: available,
-    triggerHistoryTokens: Math.floor(available * validatedPolicy.triggerRatio),
-    targetHistoryTokens: Math.floor(available * validatedPolicy.targetRatio),
+    triggerHistoryTokens: compactionBudget.triggerTokens,
+    targetHistoryTokens: compactionBudget.targetTailTokens,
     outputReserveTokens,
   };
 }
@@ -430,6 +451,7 @@ export function composePiHistoryForLlm({
   requestOutputTokens,
   toolTokens,
   additionalContextTokens,
+  modelIdentity,
   policy,
   selectionMode = 'automatic',
   aggressive = false,
@@ -441,6 +463,7 @@ export function composePiHistoryForLlm({
     requestOutputTokens,
     toolTokens,
     additionalContextTokens,
+    modelIdentity,
     policy,
   });
   const {

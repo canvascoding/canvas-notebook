@@ -120,7 +120,8 @@
       "id": "SC-P01",
       "order": 1,
       "title": "Port Hermes pressure and trigger policy",
-      "status": "planned",
+      "status": "completed",
+      "completedAt": "2026-09-01",
       "dependsOn": ["SC-P00"],
       "hermesReferences": [
         "agent/context_compressor.py:_effective_threshold_percent",
@@ -142,6 +143,13 @@
         "few-large-message regression",
         "output-reserve degeneracy regression",
         "provider actual versus next-request calibration tests"
+      ],
+      "completionEvidence": [
+        "Pure Hermes-aligned pressure policy is implemented in app/lib/pi/compaction/policy.ts with pinned attribution",
+        "Context snapshots and history composition use the effective input budget after output reserve and Canvas fixed request costs",
+        "32K through 1M parity, small-window floor, longest model override, cap, cheap-gate, authoritative next-request and strict greater-than-five-percent progress tests pass",
+        "Context, summary, UI contract, coordinator, store, live runtime and automation compaction regressions pass",
+        "TypeScript, focused ESLint, license compliance and production build pass"
       ],
       "exitGate": "SC-G01_POLICY_PARITY"
     },

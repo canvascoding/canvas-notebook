@@ -44,10 +44,17 @@ async function main() {
   assert.throws(
     () => validatePiContextBudgetPolicy({
       ...DEFAULT_PI_CONTEXT_BUDGET_POLICY,
-      targetRatio: 0.9,
-      triggerRatio: 0.8,
+      targetRatio: 1.1,
     }),
-    /targetRatio must be lower/u,
+    /targetRatio must be between 0 and 1/u,
+  );
+  assert.doesNotThrow(
+    () => validatePiContextBudgetPolicy({
+      ...DEFAULT_PI_CONTEXT_BUDGET_POLICY,
+      targetRatio: 0.2,
+      triggerRatio: 0.1,
+    }),
+    'the Hermes target is a fraction of the threshold, not a competing context-window ratio',
   );
 
   const outputTokenCap = getPiRequestOutputTokenCap(model);
@@ -97,7 +104,13 @@ async function main() {
       - snapshot.toolSchemaTokens
       - snapshot.runtimeProviderOverheadTokens
       - snapshot.outputReserveTokens
-      - snapshot.safetyReserveTokens,
+      - snapshot.safetyReserveTokens
+      - snapshot.multimodalTokens,
+  );
+  assert.equal(
+    snapshot.targetTailTokens,
+    Math.floor(snapshot.triggerHistoryTokens * DEFAULT_PI_CONTEXT_BUDGET_POLICY.targetRatio),
+    'Hermes target_ratio is a fraction of the effective trigger, not the full window',
   );
   assert.ok(snapshot.targetTailTokens < snapshot.triggerHistoryTokens);
 

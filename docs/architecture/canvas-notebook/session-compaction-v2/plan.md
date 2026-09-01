@@ -226,6 +226,15 @@ Gate:
   fuehren.
 - Kein Request wird nur wegen Nachrichtenanzahl als sicher klassifiziert.
 
+Umsetzungsstand 2026-09-01: abgeschlossen. Die pure Policy in
+`app/lib/pi/compaction/policy.ts` portiert Small-Window-Floor, Modell- und
+Token-Overrides, Cheap-Gate, autoritative Next-Request-Entscheidung sowie die
+strikte Fortschrittsgrenze von mehr als fuenf Prozent. Context-Snapshot und
+History-Komposition rechnen jetzt mit dem effektiven Inputbudget nach
+Outputreserve und festen Canvas-Requestkosten. Paritaets-, Context-, Summary-,
+UI-Vertrags-, Coordinator-, Store-, Live- und Automationstests sowie
+TypeScript, ESLint, Lizenzpruefung und Produktionsbuild sind gruen.
+
 ### SC-P02: Head/Middle/Tail und Tool-Atomaritaet portieren
 
 Hermes-Rueckschluss:

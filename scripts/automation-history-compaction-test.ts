@@ -115,7 +115,7 @@ async function main(): Promise<void> {
   const systemPrompt = 'Automation compaction prompt';
   const promptMessage: AgentMessage = {
     role: 'user',
-    content: 'Run the current automation and preserve this prompt.',
+    content: `Run the current automation and preserve this prompt. ${'new durable automation context '.repeat(180)}`,
     timestamp: now.getTime() + 100,
   };
   const prepared = await prepareAutomationHistoryWithCompaction({
