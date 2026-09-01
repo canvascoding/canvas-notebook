@@ -1,4 +1,4 @@
-export const CANVAS_MARKDOWN_GUIDANCE_REVISION = 5;
+export const CANVAS_MARKDOWN_GUIDANCE_REVISION = 6;
 export const CANVAS_MARKDOWN_GUIDANCE_MARKER =
   `<!-- canvas-markdown-guidance:v${CANVAS_MARKDOWN_GUIDANCE_REVISION} -->`;
 
@@ -16,6 +16,9 @@ Canvas renders GitHub Flavored Markdown plus Obsidian-style workspace notation a
 - Use \`==highlight==\` for highlighted text and \`> [!note] Title\` for callouts.
 - Use collapsible sections with \`<details>\`, a \`<summary>Visible title</summary>\` on the next line, the section content, and a closing \`</details>\`. Do not put blank lines between the opening tag and the summary.
 - Add a footnote reference with \`[^source]\` and its definition on a separate line as \`[^source]: Footnote content\`. Keep every footnote identifier unique within the document.
+- Write bare email addresses without escaping the \`@\` character, for example \`name@example.com\`. Use an explicit link such as \`[name@example.com](mailto:name@example.com)\` only when the address should be clickable.
+- For an intentional hard line break, end the line with two spaces. Do not use a trailing backslash as a line-break marker in saved Markdown documents.
+- Do not wrap a saved document body in escaped separator lines such as \`\\---\`. Use \`---\` only for YAML frontmatter delimiters or when an actual thematic break is intended.
 - Write inline math as \`$E = mc^2$\`. Write display math with opening and closing \`$$\` delimiters on separate lines. Escape a literal currency dollar as \`\\$\` when it could be mistaken for math.
 - Keep every Markdown fence, wiki-link bracket, and math delimiter balanced. Do not put formulas in code fences unless the user wants literal LaTeX source.
 - Mermaid diagrams use fenced \`mermaid\` code blocks.

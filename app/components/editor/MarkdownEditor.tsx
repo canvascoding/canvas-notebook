@@ -16,7 +16,6 @@ import {
   type NodeViewProps,
 } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
-import { Markdown } from '@tiptap/markdown';
 import { Link } from '@tiptap/extension-link';
 import { Mathematics } from '@tiptap/extension-mathematics';
 import { Image } from '@tiptap/extension-image';
@@ -151,6 +150,7 @@ import {
 } from '@/app/lib/editor/reorderable-blocks';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
+import { createCanvasMarkdownExtension } from '@/app/lib/markdown/canvas-marked';
 import { canvasRichMarkdownExtensions } from '@/app/lib/markdown/canvas-rich-markdown-extensions';
 import {
   createMarkdownHeadingAnchorFactory,
@@ -2170,16 +2170,7 @@ function createEditorExtensions(
     createMarkdownMentionSuggestions({ labels: mentionLabels, workspaceId }),
     ...createObsidianWikiLinkExtensions({ filePath, labels: wikiLabels, workspaceId }),
     ObsidianInlineFootnoteExtension,
-    Markdown.configure({
-      markedOptions: {
-        gfm: true,
-        breaks: false,
-      },
-      indentation: {
-        style: 'space',
-        size: 2,
-      },
-    }),
+    createCanvasMarkdownExtension(),
   ];
   if (collaboration?.provider && collaboration.session) {
     extensions.push(

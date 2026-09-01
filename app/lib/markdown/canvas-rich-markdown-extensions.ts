@@ -79,12 +79,34 @@ function quoteMarkdown(markdown: string): string {
     .join('\n');
 }
 
+const EMPTY_PARAGRAPH_MARKDOWN = '&nbsp;';
+const THEMATIC_BREAK_PARAGRAPH_PATTERN = /^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/u;
+
 // Rich Markdown tokenizers need to run before generic block tokenizers, which
 // gives their nodes a high schema priority. Keep paragraph above those block
 // nodes so ProseMirror fills empty containers (especially table cells) with an
 // editable paragraph instead of an empty callout.
 export const CanvasParagraph = Paragraph.extend({
   priority: 1200,
+
+  renderMarkdown(node, helpers, context) {
+    if (!node) return '';
+
+    const content = Array.isArray(node.content) ? node.content : [];
+    if (content.length === 0) {
+      const previousContent = Array.isArray(context?.previousNode?.content)
+        ? context.previousNode.content
+        : [];
+      const previousNodeIsEmptyParagraph = context?.previousNode?.type === 'paragraph'
+        && previousContent.length === 0;
+      return previousNodeIsEmptyParagraph ? EMPTY_PARAGRAPH_MARKDOWN : '';
+    }
+
+    const rendered = helpers.renderChildren(content);
+    return THEMATIC_BREAK_PARAGRAPH_PATTERN.test(rendered)
+      ? `\\${rendered}`
+      : rendered;
+  },
 });
 
 export const CanvasHighlight = Mark.create({
