@@ -538,7 +538,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-042 | fertig | Arbeitszustand beim Antwortstart integrieren; Implementierung: [Bradley-Arbeitszustand beim Antwortstart](./bradley-response-start-working-state.md) | Status bleibt semantisch korrekt, screenreader-tauglich und bewegungsarm verfügbar. |
 | BRADLEY-043 | fertig | Einen Starter-/Empty-State mit Bradley umsetzen; Implementierung: [Bradley Starter-/Empty-State](./bradley-starter-empty-state.md) | Bradley unterstützt die Orientierung, ohne Inhalte oder Aktionen zu verdrängen. |
 | BRADLEY-044 | fertig | UI- und End-to-End-Prüfung durchführen; Nachweis: [Bradley UI- und End-to-End-Prüfung](./bradley-ui-validation-matrix.md) | Desktop, Mobile, Light, Dark und Reduced Motion sind geprüft; ein gefundener Frühabbruch-Race wurde behoben und erneut abgenommen. |
-| BRADLEY-045 | offen | Pilot anhand definierter Kriterien einschließlich mehrsprachiger Bradley-Namensstichprobe auswerten | Verständlichkeit, Namenswirkung, Agentenunterscheidung, Vertrauen und Störwirkung sind dokumentiert. |
+| BRADLEY-045 | in Arbeit | Pilot anhand definierter Kriterien einschließlich mehrsprachiger Bradley-Namensstichprobe auswerten; Zwischenstand: [Bradley Pilot-Auswertung](./bradley-pilot-evaluation.md) | Technische Pilotkriterien sind belegt; die definierte reale DE-/EN-Stichprobe oder eine ausdrückliche Product-Owner-Gate-Änderung steht noch aus. |
 
 ### Phase F — Erweiterter Rollout und Marketing
 
