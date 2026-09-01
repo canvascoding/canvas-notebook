@@ -185,18 +185,34 @@ async function main(): Promise<void> {
       assert.equal(job.scheduled_for, null);
     } finally { await jobDb.close(); }
     assert.deepEqual(await updateMemoryReviewSettings('user-1', {
+      automaticMemoryEnabled: false,
+      providerInstallationId: null,
+      modelId: null,
+      memoryPromptMaxTokens: 2_000,
+      sensitiveMemoryEnabled: false,
+    }, 1_001), { reactivatedJobs: 0, parkedJobs: 1 });
+    assert.deepEqual(
+      await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 1_002 }),
+      { scheduled: false, triggerType: 'turn_interval', fromMessageSequence: 1, throughMessageSequence: 20 },
+    );
+    const disabledDb = await openDb();
+    try {
+      const job = await disabledDb.get(`SELECT status, scheduled_for, error_code FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string; scheduled_for: number | null; error_code: string | null };
+      assert.deepEqual(job, { status: 'awaiting_model_configuration', scheduled_for: null, error_code: 'automatic_memory_disabled' });
+    } finally { await disabledDb.close(); }
+    assert.deepEqual(await updateMemoryReviewSettings('user-1', {
       automaticMemoryEnabled: true,
       providerInstallationId: 'aip_0123456789abcdef01234567',
       modelId: 'review-model',
       memoryPromptMaxTokens: 2_000,
       sensitiveMemoryEnabled: false,
-    }, 1_001), { reactivatedJobs: 1, parkedJobs: 0 });
+    }, 1_003), { reactivatedJobs: 1, parkedJobs: 0 });
     const reactivatedDb = await openDb();
     try {
       const job = await reactivatedDb.get(`SELECT status, scheduled_for, error_code FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string; scheduled_for: number | null; error_code: string | null };
-      assert.deepEqual(job, { status: 'scheduled', scheduled_for: 1_001, error_code: null });
+      assert.deepEqual(job, { status: 'scheduled', scheduled_for: 1_003, error_code: null });
     } finally { await reactivatedDb.close(); }
-    const claim = await claimDueMemoryReviewJob(1_001);
+    const claim = await claimDueMemoryReviewJob(1_003);
     assert.equal(claim?.sourceAgentId, 'canvas-agent');
     assert.equal(claim?.modelId, 'review-model');
     assert.deepEqual(

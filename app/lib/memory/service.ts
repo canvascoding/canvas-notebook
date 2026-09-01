@@ -807,7 +807,7 @@ export async function updateMemoryReviewSettings(
         const result = await connection.run(`
           UPDATE memory_review_jobs
           SET status = 'awaiting_model_configuration', scheduled_for = NULL, lease_until = NULL, error_code = ?
-          WHERE user_id = ? AND status IN ('scheduled', 'queued', 'retry_wait')
+          WHERE user_id = ? AND status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration')
         `, [errorCode, userId]) as { changes?: number };
         parkedJobs = Number(result.changes ?? 0);
       }
@@ -835,6 +835,13 @@ export async function scheduleMemoryReviewForSession(params: {
   try {
     const session = await connection.get(`SELECT id FROM pi_sessions WHERE user_id = ? AND session_id = ? LIMIT 1`, [params.userId, params.sessionId]) as { id?: number } | undefined;
     if (!session?.id) return null;
+    const reviewSettings = await connection.get(`
+      SELECT automatic_memory_enabled
+      FROM memory_user_settings
+      WHERE user_id = ?
+      LIMIT 1
+    `, [params.userId]) as { automatic_memory_enabled?: number | boolean } | undefined;
+    const automaticMemoryDisabled = reviewSettings?.automatic_memory_enabled === false || reviewSettings?.automatic_memory_enabled === 0;
     const completed = await connection.get(`
       SELECT COALESCE(MAX(through_message_sequence), 0) AS sequence
       FROM memory_review_jobs
@@ -884,20 +891,40 @@ export async function scheduleMemoryReviewForSession(params: {
       ORDER BY created_at ASC LIMIT 1
     `, [params.userId, params.sessionId, fromMessageSequence]) as { id?: string } | undefined;
     if (existing?.id) {
-      await connection.run(`
-        UPDATE memory_review_jobs
-        SET through_message_sequence = ?, trigger_type = ?, scheduled_for = ?, status = 'scheduled', lease_until = NULL, error_code = NULL
-        WHERE id = ?
-      `, [throughMessageSequence, triggerType, scheduledFor, existing.id]);
+      if (automaticMemoryDisabled) {
+        await connection.run(`
+          UPDATE memory_review_jobs
+          SET through_message_sequence = ?, trigger_type = ?, scheduled_for = NULL,
+              status = 'awaiting_model_configuration', lease_until = NULL, error_code = 'automatic_memory_disabled'
+          WHERE id = ?
+        `, [throughMessageSequence, triggerType, existing.id]);
+      } else {
+        await connection.run(`
+          UPDATE memory_review_jobs
+          SET through_message_sequence = ?, trigger_type = ?, scheduled_for = ?, status = 'scheduled', lease_until = NULL, error_code = NULL
+          WHERE id = ?
+        `, [throughMessageSequence, triggerType, scheduledFor, existing.id]);
+      }
     } else {
       await connection.run(`
         INSERT INTO memory_review_jobs (
           id, user_id, session_id, from_message_sequence, through_message_sequence,
-          trigger_type, scheduled_for, status, attempts, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled', 0, ?)
-      `, [randomUUID(), params.userId, params.sessionId, fromMessageSequence, throughMessageSequence, triggerType, scheduledFor, now]);
+          trigger_type, scheduled_for, status, attempts, error_code, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+      `, [
+        randomUUID(),
+        params.userId,
+        params.sessionId,
+        fromMessageSequence,
+        throughMessageSequence,
+        triggerType,
+        automaticMemoryDisabled ? null : scheduledFor,
+        automaticMemoryDisabled ? 'awaiting_model_configuration' : 'scheduled',
+        automaticMemoryDisabled ? 'automatic_memory_disabled' : null,
+        now,
+      ]);
     }
-    return { scheduled: true, triggerType, fromMessageSequence, throughMessageSequence };
+    return { scheduled: !automaticMemoryDisabled, triggerType, fromMessageSequence, throughMessageSequence };
   } finally { await connection.close(); }
 }
 
