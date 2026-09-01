@@ -11,21 +11,18 @@ import { ChatDelegationPanel } from '@/app/components/canvas-agent-chat/ChatDele
 import { ChatHeader } from '@/app/components/canvas-agent-chat/ChatHeader';
 import { ChatHistoryPanel, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { ChatMessageList } from '@/app/components/canvas-agent-chat/ChatMessageList';
+import { ChatRuntimeNotice } from '@/app/components/canvas-agent-chat/ChatRuntimeNotice';
 import { ChatStarterScreen } from '@/app/components/canvas-agent-chat/ChatStarterScreen';
 import { ResizeHandle, usePanelResize } from '@/app/components/layout/ResizeHandle';
 import { useFileStore } from '@/app/store/file-store';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { usePathname as useLocalePathname } from '@/i18n/navigation';
-import { useLocale } from 'next-intl';
 
 import { useIsMobile } from '@/hooks/use-mobile';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
 import { useChatComposerLayout } from '@/app/components/canvas-agent-chat/useChatComposerLayout';
 import { useChatScrollController } from '@/app/components/canvas-agent-chat/useChatScrollController';
-import {
-  isConfirmedResponsePreparation,
-  type RuntimeStatus,
-} from '@/app/lib/chat/runtime-status';
+import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import {
   removeCachedChatSession,
   updateCachedChatSessionTitle,
@@ -45,7 +42,6 @@ import {
   WORKSPACE_CHANGED_EVENT,
   type WorkspaceChangedDetail,
 } from '@/app/store/workspace-store';
-import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
 import type { AiEffectiveRuntimeResolution, AiRuntimeSelection } from '@/app/lib/agent-runtime-policy/types';
 
 import {
@@ -154,7 +150,6 @@ export default function CanvasAgentChat({
   onMediaClick,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
-  const locale = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
@@ -1039,7 +1034,6 @@ export default function CanvasAgentChat({
     ...(runtimeStatus?.steeringQueue || []).map((entry) => ({ ...entry, kind: 'steer' as const })),
     ...(runtimeStatus?.followUpQueue || []).map((entry) => ({ ...entry, kind: 'follow_up' as const })),
   ];
-  const activeToolDisplay = runtimeStatus?.activeTool ? getToolDisplayInfo(runtimeStatus.activeTool.name, locale) : null;
   const hasFinalRequestBudget = runtimeStatus?.finalRequestTokens !== null && runtimeStatus?.finalRequestTokens !== undefined;
   const contextDetailedLabel = runtimeStatus
     ? hasFinalRequestBudget
@@ -1105,11 +1099,6 @@ export default function CanvasAgentChat({
   const isSessionTitleGenerating = activeSession?.titleGenerationState === 'pending' || activeSession?.titleGenerationState === 'generating';
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
   const activeAgentDisplayName = getAgentProfileDisplayName(activeSessionAgentId, activeAgentProfile?.name);
-  const latestMessage = messages.at(-1);
-  const isPreparingResponse = isConfirmedResponsePreparation(runtimeStatus, {
-    present: latestMessage?.role === 'assistant',
-    hasVisibleOutput: Boolean(latestMessage?.content.trim() || latestMessage?.attachments?.length),
-  });
   const chatAgentOptions = useMemo<AgentProfile[]>(() => (
     (availableAgents.length > 0
       ? availableAgents
@@ -1205,16 +1194,13 @@ export default function CanvasAgentChat({
         activeAgentDisplayName={activeAgentDisplayName}
         activeAgentIconId={activeAgentProfile?.iconId}
         activeSessionAgentId={activeSessionAgentId}
-        activeToolLabel={activeToolDisplay?.label}
         chatAgentOptions={chatAgentOptions}
         contextDetailedLabel={contextDetailedLabel}
         contextProgressPercent={contextProgressPercent}
         contextTooltip={contextTooltip}
         hideNavHeader={hideNavHeader}
-        isCompactView={isCompactView}
         isHistoryOverlayOpen={isHistoryOverlayOpen}
         isMobile={isMobile}
-        isPreparingResponse={isPreparingResponse}
         isSessionTitleGenerating={isSessionTitleGenerating}
         onCompact={() => void handleCompact()}
         onSelectAgent={(agentId) => {
@@ -1231,8 +1217,6 @@ export default function CanvasAgentChat({
         showHistory={showHistory}
         showSkillsLink={showSkillsLink}
         showWorkspaceSwitcher={showWorkspaceSwitcher}
-        toolVerbosity={toolVerbosity}
-        totalQueuedMessages={totalQueuedMessages}
         totalUnreadCount={totalUnreadCount}
       />
 
@@ -1345,6 +1329,7 @@ export default function CanvasAgentChat({
               onMediaClick={handleMediaPreviewClick}
               onAttachmentOpen={handleAttachmentPreviewOpen}
             />
+            <ChatRuntimeNotice status={runtimeStatus} />
             <div ref={messagesEndRef} />
           </div>
         </div>
