@@ -252,6 +252,18 @@ export function ChatHeader({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent data-testid="chat-header-menu" align="end" className="w-72">
+              {showWorkspaceSwitcher ? (
+                <>
+                  <div className="px-1 py-1">
+                    <WorkspaceSwitcher
+                      source="chat"
+                      variant="mobile-sheet"
+                      className="h-9 border-0 bg-transparent shadow-none hover:bg-accent"
+                    />
+                  </div>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               <DropdownMenuLabel
                 data-testid="chat-context-details"
                 className="space-y-2 px-2 py-2 font-normal"

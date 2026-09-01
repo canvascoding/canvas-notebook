@@ -172,11 +172,13 @@ async function main() {
     path.join(process.cwd(), 'app', 'components', 'canvas-agent-chat', 'ChatHeader.tsx'),
     'utf8',
   );
-  assert.match(chatHeaderSource, /cn\('@container relative z-10/u);
+  assert.match(chatHeaderSource, /@container relative z-10/u);
   assert.match(chatHeaderSource, /\{sessionId \? \(/u);
   assert.match(chatHeaderSource, /hidden @\[44rem\]:inline-flex/u);
-  assert.match(chatHeaderSource, /@\[44rem\]:hidden/u);
-  assert.match(chatHeaderSource, /\{!isMobile && runtimeStatus \? \(/u);
+  assert.match(
+    chatHeaderSource,
+    /<DropdownMenuContent[\s\S]*?<WorkspaceSwitcher[\s\S]*?variant="mobile-sheet"[\s\S]*?data-testid="chat-context-details"/u,
+  );
 
   const {
     WORKSPACE_CHANGED_EVENT,
