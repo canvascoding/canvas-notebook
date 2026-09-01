@@ -48,7 +48,11 @@ function extractSection(text: string, heading: string): string {
   return text.slice(bodyStart, next < 0 ? undefined : bodyStart + next).trim();
 }
 
-function mergeVerbatimUserSections(current: string, previousSummaryText: string | null): string {
+function mergeVerbatimUserSections(
+  current: string,
+  previousSummaryText: string | null,
+  maximumCharacters = USER_SECTION_BUDGET_CHARACTERS,
+): string {
   const blocks: string[] = [];
   const seen = new Set<string>();
   const collect = (section: string) => {
@@ -62,16 +66,20 @@ function mergeVerbatimUserSections(current: string, previousSummaryText: string 
   };
   collect(current);
   if (previousSummaryText) collect(previousSummaryText);
-  if (blocks.length === 0) return '';
+  if (blocks.length === 0 || maximumCharacters <= 0) return '';
+  const prefix = `\n\n${PI_COMPACTION_USER_MESSAGES_HEADING}\n`;
+  const suffix = '\n(Real user messages from compacted regions, newest first and verbatim except for mandatory secret redaction.)';
+  const budget = Math.min(USER_SECTION_BUDGET_CHARACTERS, maximumCharacters);
+  if (prefix.length + suffix.length > budget) return '';
   const kept: string[] = [];
-  let used = 0;
+  let used = prefix.length + suffix.length;
   for (const block of blocks) {
-    if (used + block.length > USER_SECTION_BUDGET_CHARACTERS) break;
+    const separatorLength = kept.length === 0 ? 0 : 2;
+    if (used + separatorLength + block.length > budget) break;
     kept.push(block);
-    used += block.length;
+    used += separatorLength + block.length;
   }
-  return `\n\n${PI_COMPACTION_USER_MESSAGES_HEADING}\n${kept.join('\n\n')}\n`
-    + '(Real user messages from compacted regions, newest first and verbatim except for mandatory secret redaction.)';
+  return kept.length === 0 ? '' : `${prefix}${kept.join('\n\n')}${suffix}`;
 }
 
 function collectSkillMarkers(...values: Array<string | null>): string {
@@ -170,16 +178,12 @@ export function assemblePiRollingSummary(input: {
   if (!validated.ok || !validated.body) {
     return Object.freeze({ ok: false, text: null, reason: validated.reason });
   }
-  const mergedUsers = mergeVerbatimUserSections(
-    input.verbatimUserSection,
-    input.previousSummaryText,
-  );
   const skills = collectSkillMarkers(
     input.previousSummaryText,
     input.digestSection,
     validated.body,
   );
-  const prefix = redactPiCompactionText([
+  const prefixWithoutUsers = redactPiCompactionText([
     `<!-- ${PI_ROLLING_SUMMARY_CONTRACT} -->`,
     '## Summary Metadata',
     `Contract: ${PI_ROLLING_SUMMARY_CONTRACT}`,
@@ -187,10 +191,19 @@ export function assemblePiRollingSummary(input: {
     '## Rolling Summary',
     validated.body,
     input.anchorIndex.text,
-    mergedUsers,
     skills,
   ].filter(Boolean).join('\n'), input.knownSecrets ?? []);
   const footer = redactPiCompactionText(input.recoveryFooter, input.knownSecrets ?? []);
+  const userBudget = Math.max(
+    0,
+    input.maximumCharacters - prefixWithoutUsers.length - footer.length - (footer ? 1 : 0),
+  );
+  const mergedUsers = mergeVerbatimUserSections(
+    input.verbatimUserSection,
+    input.previousSummaryText,
+    userBudget,
+  );
+  const prefix = `${prefixWithoutUsers}${mergedUsers}`;
   const mandatoryLength = prefix.length + footer.length + (footer ? 1 : 0);
   if (mandatoryLength > input.maximumCharacters) {
     return Object.freeze({ ok: false, text: null, reason: 'mandatory_artifacts_too_large' });

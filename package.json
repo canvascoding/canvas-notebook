@@ -57,6 +57,7 @@
     "test:pi:compaction-coordinator": "tsx --conditions react-server scripts/pi-session-compaction-coordinator-test.ts",
     "test:pi:compaction-store": "tsx --conditions react-server scripts/pi-session-compaction-store-test.ts",
     "test:pi:compaction-v2-durability": "npm run test:pi:compaction-coordinator && npm run test:pi:compaction-store",
+    "test:pi:compaction-v2-runtime": "tsx scripts/pi-provider-overflow-recovery-test.ts && tsx scripts/automation-runtime-compaction-test.ts && npm run test:pi:live-compaction && npm run test:automation:history-compaction",
     "test:pi:session-store-revision": "tsx scripts/pi-session-save-revision-test.ts",
     "test:pi:session-title": "tsx --conditions react-server scripts/pi-session-title-test.ts",
     "test:pi:usage": "tsx scripts/pi-usage-test.ts",

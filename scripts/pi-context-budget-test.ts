@@ -98,6 +98,15 @@ async function main() {
   assert.ok(snapshot.toolSchemaTokens > 0);
   assert.ok(snapshot.serializedMessageTokens > 0);
   assert.equal(
+    snapshot.estimatedInputTokens,
+    snapshot.effectiveInstructionTokens
+      + snapshot.toolSchemaTokens
+      + snapshot.serializedMessageTokens
+      + snapshot.multimodalTokens
+      + snapshot.runtimeProviderOverheadTokens,
+    'every final request component must be counted exactly once',
+  );
+  assert.equal(
     snapshot.hardHistoryTokens,
     snapshot.contextWindowTokens
       - snapshot.effectiveInstructionTokens
@@ -240,6 +249,29 @@ async function main() {
   assert.equal(composition.outputReserveTokens, 800);
   assert.equal(composition.softThresholdExceeded, true);
   assert.ok(composition.estimatedHistoryTokens <= composition.availableHistoryTokens);
+
+  const authoritativeFullComposition = composePiHistoryForLlm({
+    messages: toolHistory,
+    summary: {
+      summaryText: null,
+      summaryUpdatedAt: null,
+      summaryThroughTimestamp: null,
+      summaryThroughSequence: null,
+      summaryRevision: 0,
+    },
+    systemPromptTokens: 1_000,
+    contextWindow: 4_000,
+    modelMaxTokens: 1_000,
+    requestOutputTokens: 800,
+    toolTokens: 500,
+    selectionMode: 'full',
+  });
+  assert.deepEqual(authoritativeFullComposition.llmMessages, toolHistory);
+  assert.equal(
+    authoritativeFullComposition.contextBudgetExceeded,
+    false,
+    'the full mode must preserve an exact-preflight-approved request despite a conservative token estimate',
+  );
 
   const openToolUnits = buildPiHistoryUnits([toolHistory[3]]);
   assert.equal(openToolUnits[0].toolChainComplete, false);

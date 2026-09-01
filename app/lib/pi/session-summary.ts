@@ -11,8 +11,10 @@ import {
   getUnsummarizedMessages,
   isPiHistoryCompositionSendable,
   type PiHistoryComposition,
+  type PiHistorySelectionMode,
   type PiSessionSummaryState,
 } from './history-budget';
+import type { PiContextBudgetPolicy } from './context-budget';
 import { normalizePiMessagesForLlm } from './message-normalization';
 import {
   generatePiRollingSummaryV2,
@@ -39,6 +41,8 @@ export type PreparePiHistoryContextOptions = {
   summaryIdleTimeoutMs?: number;
   summaryTotalTimeoutMs?: number;
   onSummaryProgress?: (event: PiSummaryProgressEvent) => void;
+  selectionMode?: PiHistorySelectionMode;
+  policy?: PiContextBudgetPolicy;
 };
 
 export type SummarizeHistoryInput = {
@@ -421,6 +425,8 @@ export async function preparePiHistoryContext({
   summaryIdleTimeoutMs,
   summaryTotalTimeoutMs,
   onSummaryProgress,
+  selectionMode = 'automatic',
+  policy,
 }: PreparePiHistoryContextOptions): Promise<PreparePiHistoryContextResult> {
   let nextSummary = summary;
   let summaryAttempted = false;
@@ -435,6 +441,8 @@ export async function preparePiHistoryContext({
     requestOutputTokens,
     toolTokens,
     additionalContextTokens,
+    selectionMode,
+    policy,
   });
 
   if (composition.contextBudgetExceeded) {
@@ -511,6 +519,8 @@ export async function preparePiHistoryContext({
         requestOutputTokens,
         toolTokens,
         additionalContextTokens,
+        selectionMode,
+        policy,
       });
     } else {
       summaryFailed = true;
@@ -536,6 +546,7 @@ export async function preparePiHistoryContext({
       toolTokens,
       additionalContextTokens,
       selectionMode: 'hard_limit',
+      policy,
     });
   }
 

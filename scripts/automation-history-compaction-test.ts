@@ -90,12 +90,24 @@ async function main(): Promise<void> {
     contextWindow: 6_000,
     maxTokens: 1_000,
   } satisfies Model<'openai-completions'>;
+  const summaryBody = [
+    '## Active Task',
+    'Continue the automation from durable session state.',
+    '## Completed Work',
+    '- Preserved the completed automation work.',
+    '## Decisions and Constraints',
+    '- Keep the current prompt and session boundaries.',
+    '## Files, Commands, and Exact Errors',
+    '- No exact errors were reported.',
+    '## Remaining Work',
+    '- Run the next automation step.',
+  ].join('\n');
   let summaryCalls = 0;
   const summaryStreamFn: StreamFn = async () => {
     summaryCalls += 1;
     const message: AssistantMessage = {
       role: 'assistant',
-      content: [{ type: 'text', text: 'Committed automation summary' }],
+      content: [{ type: 'text', text: summaryBody }],
       api: model.api,
       provider: model.provider,
       model: model.id,
@@ -159,7 +171,9 @@ async function main(): Promise<void> {
   assert.equal(savedPrompt.summaryRevision, 1, 'saving the prompt must not recommit the coordinator summary');
 
   const reloaded = await loadPiSessionWithSummary(sessionId, userId, agentId);
-  assert.equal(reloaded?.summary.summaryText, 'Committed automation summary');
+  assert.match(reloaded?.summary.summaryText || '', /canvas-session-summary:v2/);
+  assert.match(reloaded?.summary.summaryText || '', /## Rolling Summary/);
+  assert.match(reloaded?.summary.summaryText || '', /Continue the automation from durable session state\./);
   assert.equal(reloaded?.summary.summaryRevision, 1);
   const nextPrompt: AgentMessage = {
     role: 'user',

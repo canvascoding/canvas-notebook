@@ -349,7 +349,7 @@
       "id": "SC-P07",
       "order": 7,
       "title": "Integrate Hermes trigger topology into live runtime and automations",
-      "status": "planned",
+      "status": "completed",
       "dependsOn": ["SC-P06"],
       "hermesReferences": [
         "agent/turn_context.py preflight and idle compaction flow",
@@ -371,6 +371,14 @@
         "idle lock and breaker tests",
         "automation versus live parity tests",
         "maximum attempt cap tests"
+      ],
+      "completionEvidence": [
+        "Live chat and automations use the shared Hermes V2 pressure, pruning, selection and rolling-summary engine",
+        "A cheap gate precedes authoritative normalized-payload pressure checks and every provider request remains protected by an exact hard gate",
+        "Manual force compaction works before the automatic threshold and optional idle compaction is disabled by default behind CANVAS_PI_IDLE_COMPACTION_ENABLED",
+        "One provider overflow may retry only before visible output and the concrete final serialized request overflow variant is classified",
+        "Live and transient automation retries stop at the configured attempt cap and continue only after more than five percent pressure reduction",
+        "Context budget, Hermes packages P00-P06, live runtime, automation history, automation in-run recovery, provider overflow, TypeScript and focused ESLint regressions pass"
       ],
       "exitGate": "SC-G07_RUNTIME_SENDABLE"
     },

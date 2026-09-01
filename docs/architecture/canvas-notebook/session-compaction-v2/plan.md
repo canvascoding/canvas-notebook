@@ -459,6 +459,19 @@ Gate:
   keine generische Fehlermeldung.
 - Live-Chat und Automationen haben identisches Auswahl- und Summary-Verhalten.
 
+Umsetzungsstand 2026-09-01: abgeschlossen. Live-Chat und Automationen nutzen
+denselben Hermes-V2-Kern fuer Pressure, deterministisches Pruning,
+Head/Middle/Tail-Auswahl und Rolling Summary. Der guenstige Rough-Gate loest
+erst bei Bedarf die autoritative Normalisierung aus; unmittelbar vor jedem
+Provideraufruf gilt weiterhin der exakte Hard-Gate. Manueller `force` arbeitet
+vor dem Auto-Threshold, In-Run-Automationen erhalten eine transiente, nicht
+watermark-schreibende Recovery, und ein Provider-Overflow darf genau einmal
+vor sichtbarer Ausgabe wiederholt werden. Weitere Runden laufen nur nach mehr
+als fuenf Prozent Druckreduktion und bis zum konfigurierten Maximum. Optionale
+Idle-Compaction ist standardmaessig aus und wird nur mit
+`CANVAS_PI_IDLE_COMPACTION_ENABLED=true` aktiviert. Die komplette P00-P07-
+Regressionsmatrix, TypeScript und fokussiertes ESLint sind gruen.
+
 ### SC-P08: Statusleiste und Bedienung korrigieren
 
 Hermes-Rueckschluss:

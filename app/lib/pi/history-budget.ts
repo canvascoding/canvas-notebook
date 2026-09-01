@@ -45,7 +45,7 @@ export type PiHistoryComposition = {
   softThresholdExceeded: boolean;
 };
 
-export type PiHistorySelectionMode = 'automatic' | 'hard_limit';
+export type PiHistorySelectionMode = 'automatic' | 'hard_limit' | 'force' | 'full';
 
 export type ComposePiHistoryOptions = {
   messages: AgentMessage[];
@@ -415,6 +415,7 @@ export function composePiHistoryForLlm({
   const hasPrunedHistory = summaryUsable && hasPrunedSummaryPrefix(historyUnits, summary);
   const shouldIncludeSummary = summaryUsable && (
     hasPrunedHistory
+    || selectionMode === 'force'
     || (selectionMode === 'automatic' && softThresholdExceeded)
     || (selectionMode === 'hard_limit'
       && (fullHistoryTokens > availableHistoryTokens || fullHistoryBytes > MAX_LLM_HISTORY_BYTES))
@@ -450,7 +451,8 @@ export function composePiHistoryForLlm({
   const mustCompact = selectionMode === 'hard_limit'
     ? summaryTokens + getUnitsTokens(candidateUnits) > availableHistoryTokens
       || summaryBytes + getUnitsBytes(candidateUnits) > MAX_LLM_HISTORY_BYTES
-    : softThresholdExceeded || aggressive;
+    : selectionMode === 'force'
+      || (selectionMode === 'automatic' && (softThresholdExceeded || aggressive));
   const selection = selectPiCompactionUnits({
     units: candidateUnits,
     targetTailTokens: selectionMode === 'hard_limit'
@@ -469,8 +471,10 @@ export function composePiHistoryForLlm({
   });
   const minimumRequiredTokens = selection.minimumRequiredTokens;
   const minimumRequiredBytes = selection.minimumRequiredBytes;
-  const contextBudgetExceeded = minimumRequiredTokens > availableHistoryTokens
-    || minimumRequiredBytes > MAX_LLM_HISTORY_BYTES;
+  const contextBudgetExceeded = selectionMode === 'full'
+    ? minimumRequiredBytes > MAX_LLM_HISTORY_BYTES
+    : minimumRequiredTokens > availableHistoryTokens
+      || minimumRequiredBytes > MAX_LLM_HISTORY_BYTES;
   const payloadBudgetExceeded = minimumRequiredBytes > MAX_LLM_HISTORY_BYTES;
   const keptUnits = contextBudgetExceeded ? [] : [...selection.keptUnits];
 

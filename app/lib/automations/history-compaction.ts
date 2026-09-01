@@ -15,8 +15,13 @@ import {
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
 import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
+import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
+import type { PiMessageNormalizationOptions } from '@/app/lib/pi/message-normalization';
 import { runPiSessionCompaction } from '@/app/lib/pi/session-compaction-coordinator';
-import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
+import {
+  inspectPiRuntimeCompactionPressure,
+  preparePiHermesCompactionCandidate,
+} from '@/app/lib/pi/compaction/runtime-engine';
 
 export type PrepareAutomationHistoryInput = Readonly<{
   sessionId: string;
@@ -36,6 +41,9 @@ export type PrepareAutomationHistoryInput = Readonly<{
   runtimePolicyRevision: number;
   signal: AbortSignal;
   streamFn: StreamFn;
+  imageNormalizationOptions?: PiMessageNormalizationOptions;
+  force?: boolean;
+  bypassCooldown?: boolean;
 }>;
 
 export type PreparedAutomationHistory = Readonly<{
@@ -55,7 +63,7 @@ export async function prepareAutomationHistoryWithCompaction(
   input: PrepareAutomationHistoryInput,
 ): Promise<PreparedAutomationHistory> {
   const toolTokens = estimatePiToolSchemaTokens(input.tools);
-  const compose = (selectionMode: 'automatic' | 'hard_limit' = 'automatic') => composePiHistoryForLlm({
+  const compose = (selectionMode: 'automatic' | 'hard_limit' | 'full' = 'automatic') => composePiHistoryForLlm({
     messages: input.messages,
     summary: input.summary,
     systemPromptTokens: input.systemPromptBudgetTokens,
@@ -66,15 +74,40 @@ export async function prepareAutomationHistoryWithCompaction(
     selectionMode,
   });
   const preflight = compose();
+  const roughInspection = inspectPiRuntimeCompactionPressure({
+    messages: input.messages,
+    model: input.model,
+    outputReserveTokens: input.requestOutputTokens,
+    fixedRequestTokens: input.systemPromptBudgetTokens + toolTokens,
+  });
+  let shouldCompact = input.force === true
+    || preflight.softThresholdExceeded
+    || preflight.contextBudgetExceeded;
+  if (input.force !== true && roughInspection.pressure.cheapGatePassed) {
+    const exactPreflight = await preparePiFinalPayload({
+      messages: input.messages,
+      model: input.model,
+      effectiveInstructions: [{ role: 'system', content: input.effectiveSystemPrompt }],
+      effectiveTools: input.tools,
+      requestOutputTokenCap: input.requestOutputTokens,
+      runtimeContractRevision: 'canvas-pi-automation-v1',
+    }, input.imageNormalizationOptions);
+    shouldCompact = inspectPiRuntimeCompactionPressure({
+      messages: input.messages,
+      model: input.model,
+      outputReserveTokens: input.requestOutputTokens,
+      fixedRequestTokens: input.systemPromptBudgetTokens + toolTokens,
+      finalSnapshot: exactPreflight.budgetSnapshot,
+    }).pressure.shouldCompact;
+  }
   if (
-    !preflight.softThresholdExceeded
-    && !preflight.contextBudgetExceeded
-    && isPiHistoryCompositionSendable(preflight, input.summary)
+    !shouldCompact
   ) {
-    assertPromptRetained(preflight, input.promptMessage);
+    const complete = compose('full');
+    assertPromptRetained(complete, input.promptMessage);
     return {
       summary: input.summary,
-      composition: preflight,
+      composition: complete,
       attemptId: null,
       compactionState: 'not_needed',
     };
@@ -104,6 +137,7 @@ export async function prepareAutomationHistoryWithCompaction(
     agentId: input.agentId,
     workspaceId: input.workspaceId,
     trigger: 'automation',
+    bypassCooldown: input.bypassCooldown,
     generation,
     expectedSummaryRevision: input.summary.summaryRevision,
     expectedThroughSequence: input.summary.summaryThroughSequence,
@@ -120,7 +154,7 @@ export async function prepareAutomationHistoryWithCompaction(
     isGenerationCurrent: (candidateGeneration) => (
       !input.signal.aborted && candidateGeneration === generation
     ),
-    prepareCandidate: (candidateSignal, reportProgress) => preparePiHistoryContext({
+    prepareCandidate: (candidateSignal, reportProgress) => preparePiHermesCompactionCandidate({
       messages: input.messages.slice(),
       summary: { ...input.summary },
       systemPromptTokens: input.systemPromptBudgetTokens,
@@ -130,6 +164,7 @@ export async function prepareAutomationHistoryWithCompaction(
       sessionId: input.sessionId,
       signal: candidateSignal,
       streamFn: input.streamFn,
+      selectionMode: input.force ? 'force' : 'automatic',
       onSummaryProgress: (progress) => reportProgress(progress),
     }),
   });
