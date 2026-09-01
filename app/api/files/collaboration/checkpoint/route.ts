@@ -46,6 +46,14 @@ export async function POST(request: NextRequest) {
     if (!Buffer.from(state.stateVector).equals(suppliedVector)) {
       return NextResponse.json({ success: false, error: 'Checkpoint is not based on the latest persisted Yjs state.' }, { status: 409 });
     }
+    if (state.checkpointSequence >= state.documentSequence) {
+      return NextResponse.json({
+        success: true,
+        sequence: state.documentSequence,
+        revisionId: null,
+        alreadyCheckpointed: true,
+      });
+    }
     const doc = new Y.Doc({ gc: true });
     Y.applyUpdate(doc, state.yjsState);
     const canonicalContent = state.representation === 'plain_text'

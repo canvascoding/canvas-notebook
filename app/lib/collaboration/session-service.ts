@@ -67,6 +67,8 @@ export type CollaborationSessionGrant = {
   documentName: string;
   lifecycleGeneration: number;
   permission: CollaborationPermission;
+  documentSequence?: number;
+  checkpointSequence?: number;
 };
 
 function extension(path: string): string {
@@ -282,6 +284,8 @@ export async function createCollaborationSessionGrant(input: {
       documentName: collaboration.document.id,
       lifecycleGeneration,
       permission: workspace.permissions.canWrite ? 'write' : 'read',
+      documentSequence: state.documentSequence,
+      checkpointSequence: state.checkpointSequence,
     };
   }
 

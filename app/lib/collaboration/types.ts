@@ -26,6 +26,22 @@ export type CollaborationConnectionStatus =
   | 'read_only'
   | 'degraded';
 
+export type TextCollaborationConnectionState =
+  | 'connecting'
+  | 'live'
+  | 'reconnecting'
+  | 'offline'
+  | 'read_only'
+  | 'denied';
+
+export type TextCollaborationDurabilityState =
+  | 'local_pending'
+  | 'server_received'
+  | 'persisted_yjs'
+  | 'checkpoint_pending'
+  | 'checkpointed_file'
+  | 'degraded';
+
 export interface CollaborationTicketClaims {
   schemaVersion: number;
   issuedAt: number;
@@ -52,6 +68,8 @@ export interface CollaborationSessionResponse {
   schemaVersion: number;
   richTextSchemaVersion: number;
   permission: CollaborationPermission;
+  documentSequence?: number;
+  checkpointSequence?: number;
   token: string;
   expiresAt: string;
   websocketUrl: string;

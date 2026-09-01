@@ -91,6 +91,8 @@ export async function POST(request: NextRequest) {
       schemaVersion: COLLABORATION_SCHEMA_VERSION,
       richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION,
       permission: grant.permission,
+      documentSequence: grant.documentSequence,
+      checkpointSequence: grant.checkpointSequence,
       token: ticket.token,
       expiresAt: ticket.expiresAt,
       websocketUrl: '/ws/collaboration',

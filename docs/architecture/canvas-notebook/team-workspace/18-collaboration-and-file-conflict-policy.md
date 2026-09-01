@@ -19,9 +19,9 @@ Excalidraw-Live-Collaboration ist als eigene Aufgabe `52` gemaess `22-excalidraw
 
 ## Verbindliche Statusabgrenzung
 
-Der bisherige Implementierungsstand ist eine Collaboration Foundation, aber noch keine echte Real-Time Collaboration.
+Aufgabe `48` hat die echte Yjs-basierte Real-Time Collaboration implementiert. Die produktive Abnahme bleibt jedoch erst dann vollstaendig, wenn die in diesem Dokument definierten Durability-, Agent-UX-, Snapshot- und Multi-Actor-Hardening-Kriterien nachweislich erfuellt sind.
 
-Bereits vorhanden:
+Implementiert:
 
 - workspace-aware File Reads und Writes,
 - Datei-Revisionen und `baseRevisionId`-Pruefungen,
@@ -30,20 +30,26 @@ Bereits vorhanden:
 - `collaboration_documents`-Metadaten mit `provider=yjs`,
 - File-Watcher-/SSE-Hinweise auf externe Dateiaenderungen,
 - Collaboration-/Revision-Hinweise im Editor Header,
-- Agent-Pruefungen gegen Revisionen und aktive Locks.
-
-Noch nicht vorhanden und Teil der spaeteren Aufgabe `48`:
-
+- Agent-Pruefungen gegen Revisionen und aktive Locks,
 - ein echter `Y.Doc` als gemeinsamer Dokumentzustand,
 - Tiptap-/CodeMirror-Bindings an Yjs,
 - ein Collaboration-WebSocket-Backend,
 - persistierter binaerer Yjs-State in Postgres,
 - Awareness, Live-Cursor und Selections,
-- aktive Nutzer im File Tree vor dem Oeffnen der Datei,
-- CRDT-basierte Agent-Aenderungen oder Review-Patches,
-- robuste Checkpoint-Synchronisation zwischen Yjs-State und Workspace-Datei.
+- aktive Nutzer im File Tree vor dem Oeffnen einer Datei,
+- CRDT-basierte Agent-Aenderungen und Review-Patches,
+- versionierte Checkpoint-Synchronisation zwischen Yjs-State und Workspace-Datei.
 
-Todo `44` gilt deshalb nur fuer die abgeschlossene Foundation aus Revisionen, Locks, Metadaten und Guards. Echte Live-Collaboration bleibt eine eigene geplante Aufgabe.
+Noch zu haerten beziehungsweise erneut abzunehmen:
+
+- getrennte und monotone UI-Zustaende fuer Verbindung, Yjs-Persistenz und Datei-Checkpoint,
+- Editor-Mount erst nach lokaler Hydration und initialem Provider-Sync,
+- nicht blockierende Agent-Aktivitaet und getrennte Review-/History-Oberflaechen,
+- identitaetserhaltende strukturelle Agent-Aenderungen,
+- atomare Snapshot-Ableitung und gefencte Checkpoint-Materialisierung,
+- echte Multi-User-E2E-Abnahme mit User A, User B und Agent im Auftrag von User B.
+
+Todo `44` bleibt die abgeschlossene Foundation aus Revisionen, Locks, Metadaten und Guards. Todo `48` bezeichnet die implementierte Live-Collaboration-Basis; diese Statusangabe ersetzt nicht die noch offenen Hardening- und Abnahmekriterien dieses Dokuments.
 
 Bewusst nicht Teil von Aufgabe `48` ist die inzwischen in Aufgabe `52`
 implementierte Excalidraw-spezifische Scene-Collaboration. Sie verwendet einen

@@ -224,6 +224,7 @@ export interface MarkdownEditorProps {
   externalValueSync?: 'always' | 'when-blurred';
   collaborationEnabled?: boolean;
   collaborationSession?: CollaborationSessionResponse | null;
+  onCollaborationChange?: (document: CollaborationDocument | null) => void;
   showNotebookMetadata?: boolean;
 }
 
@@ -4823,12 +4824,13 @@ function RichMarkdownEditor({
   onSourceMode,
   markdownNavigationTarget,
   collaborationEnabled = false,
-  collaborationSession,
+  collaborationDocument,
   showNotebookMetadata = false,
 }: MarkdownEditorProps & {
   isMobileKeyboardActive: boolean;
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   onSourceMode: () => void;
+  collaborationDocument?: CollaborationDocument | null;
 }) {
   const t = useTranslations('notebook');
   const documentParts = useMemo(() => splitCanvasMarkdownForRichEditor(value), [value]);
@@ -4849,13 +4851,7 @@ function RichMarkdownEditor({
   const [findOpen, setFindOpen] = useState(false);
   const [outlinePinned, setOutlinePinned] = useState(false);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const collaboration = useCollaborationDocument({
-    enabled: collaborationEnabled,
-    workspaceId: activeWorkspaceId,
-    path: filePath,
-    representation: 'tiptap_xml',
-    session: collaborationSession,
-  });
+  const collaboration = collaborationDocument;
   const collaborationReadOnly = collaborationEnabled && (
     !collaboration?.session
     || collaboration.session.permission !== 'write'
@@ -5635,6 +5631,7 @@ function SourceMarkdownEditor({
   markdownNavigationTarget,
   collaborationEnabled = false,
   collaborationSession,
+  collaborationDocument,
   sourceModeReason,
   normalizationAvailable,
   onNormalizeToRichMode,
@@ -5649,6 +5646,7 @@ function SourceMarkdownEditor({
   normalizationAvailable: boolean;
   onNormalizeToRichMode: () => void;
   isPresentationDocument: boolean;
+  collaborationDocument?: CollaborationDocument | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const t = useTranslations('notebook');
@@ -5758,6 +5756,7 @@ function SourceMarkdownEditor({
           markdownNavigationTarget={markdownNavigationTarget}
           collaborationEnabled={collaborationEnabled}
           collaborationSession={collaborationSession}
+          collaborationDocument={collaborationDocument}
         />
       </div>
       <MarkdownDocumentStatus value={value} />
@@ -5772,6 +5771,7 @@ export function MarkdownEditor({
   filePath,
   externalValueSync = 'always',
   collaborationEnabled = false,
+  onCollaborationChange,
   showNotebookMetadata = false,
 }: MarkdownEditorProps) {
   useVisualViewportBottomOffset();
@@ -5782,6 +5782,16 @@ export function MarkdownEditor({
     enabled: collaborationEnabled,
     workspaceId: activeWorkspaceId,
     path: filePath,
+  });
+  const resolvedCollaborationSession = collaborationSession.session;
+  const collaborationDocument = useCollaborationDocument({
+    enabled: collaborationEnabled && Boolean(resolvedCollaborationSession),
+    workspaceId: activeWorkspaceId,
+    path: filePath,
+    representation: resolvedCollaborationSession?.representation === 'plain_text'
+      ? 'plain_text'
+      : 'tiptap_xml',
+    session: resolvedCollaborationSession,
   });
   const isMobileKeyboardActive = useMobileKeyboardActive();
   const parsedDocument = useMemo(() => parseCanvasMarkdownDocument(value), [value]);
@@ -5802,6 +5812,11 @@ export function MarkdownEditor({
   const effectiveMode: EditorMode = collaborationEnabled && authoritativeRepresentation
     ? authoritativeRepresentation === 'plain_text' ? 'source' : 'rich'
     : sourceModeRequired ? 'source' : mode;
+
+  useEffect(() => {
+    onCollaborationChange?.(collaborationDocument);
+    return () => onCollaborationChange?.(null);
+  }, [collaborationDocument, onCollaborationChange]);
 
   useEffect(() => {
     if (!filePath) return;
@@ -5846,7 +5861,7 @@ export function MarkdownEditor({
     toast.success(t('markdownEditorNormalizedForRichText'));
   }, [collaborationEnabled, onChange, readOnly, richModeAnalysis, t]);
 
-  if (collaborationEnabled && !collaborationSession.session) {
+  if (collaborationEnabled && (!collaborationSession.session || !collaborationDocument?.ready)) {
     return (
       <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 bg-background p-6 text-center">
         <p className="text-sm text-muted-foreground" role="status">
@@ -5895,6 +5910,7 @@ export function MarkdownEditor({
         markdownNavigationTarget={markdownNavigationTarget}
         collaborationEnabled={collaborationEnabled}
         collaborationSession={collaborationSession.session}
+        collaborationDocument={collaborationDocument}
         sourceModeReason={richModeAnalysis.mode === 'source' ? richModeAnalysis.reason : undefined}
         normalizationAvailable={richModeAnalysis.mode === 'normalizable' && !readOnly && !collaborationEnabled}
         onNormalizeToRichMode={normalizeToRichMode}
@@ -5914,7 +5930,7 @@ export function MarkdownEditor({
       onSourceMode={switchToSourceMode}
       markdownNavigationTarget={markdownNavigationTarget}
       collaborationEnabled={collaborationEnabled}
-      collaborationSession={collaborationSession.session}
+      collaborationDocument={collaborationDocument}
       showNotebookMetadata={showNotebookMetadata}
     />
   );

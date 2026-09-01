@@ -73,6 +73,8 @@ export async function POST(request: NextRequest) {
       schemaVersion: COLLABORATION_SCHEMA_VERSION,
       richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION,
       permission: grant.permission,
+      documentSequence: grant.documentSequence,
+      checkpointSequence: grant.checkpointSequence,
       token: issued.token,
       expiresAt: new Date(issued.claims.expiresAt).toISOString(),
       websocketUrl: grant.provider === 'excalidraw' ? '/ws/collaboration/excalidraw' : '/ws/collaboration',

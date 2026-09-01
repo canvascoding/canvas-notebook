@@ -40,7 +40,10 @@ import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { WorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
 import { useTranslations } from 'next-intl';
 import { yCollab } from 'y-codemirror.next';
-import { useCollaborationDocument } from '@/app/lib/collaboration/client';
+import {
+  useCollaborationDocument,
+  type CollaborationDocument,
+} from '@/app/lib/collaboration/client';
 import { getCodeEditorLifecycleKey } from '@/app/lib/collaboration/code-editor-lifecycle';
 import type { CollaborationSessionResponse } from '@/app/lib/collaboration/types';
 
@@ -52,6 +55,8 @@ export interface CodeEditorProps {
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   collaborationEnabled?: boolean;
   collaborationSession?: CollaborationSessionResponse | null;
+  collaborationDocument?: CollaborationDocument | null;
+  onCollaborationChange?: (document: CollaborationDocument | null) => void;
 }
 
 const CODE_MIRROR_BASIC_SETUP = {
@@ -296,6 +301,8 @@ export function CodeEditor({
   markdownNavigationTarget,
   collaborationEnabled,
   collaborationSession,
+  collaborationDocument,
+  onCollaborationChange,
 }: CodeEditorProps) {
   const t = useTranslations('notebook');
   const { currentFile } = useFileStore();
@@ -305,13 +312,14 @@ export function CodeEditor({
   const extension = languagePath?.split('.').pop()?.toLowerCase();
   const supportsCollaboration = extension === 'md' || extension === 'markdown' || extension === 'txt';
   const shouldCollaborate = collaborationEnabled ?? Boolean(currentFile?.collaboration?.crdtCapable && supportsCollaboration);
-  const collaboration = useCollaborationDocument({
-    enabled: shouldCollaborate,
+  const internalCollaboration = useCollaborationDocument({
+    enabled: shouldCollaborate && !collaborationDocument,
     workspaceId: activeWorkspaceId,
     path: languagePath,
     representation: 'plain_text',
     session: collaborationSession,
   });
+  const collaboration = collaborationDocument ?? internalCollaboration;
   const collaborationText = collaboration?.doc.getText('content') ?? null;
   const collaborationAwareness = collaboration?.provider?.awareness ?? null;
   const setCollaborationComposition = collaboration?.setComposition ?? null;
@@ -346,6 +354,11 @@ export function CodeEditor({
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+
+  useEffect(() => {
+    onCollaborationChange?.(collaboration);
+    return () => onCollaborationChange?.(null);
+  }, [collaboration, onCollaborationChange]);
 
   const handleChange = useCallback((nextValue: string) => {
     onChangeRef.current(nextValue);
@@ -441,6 +454,16 @@ export function CodeEditor({
     });
     editorView.focus();
   }, [editorView, markdownNavigationTarget]);
+
+  if (shouldCollaborate && !collaboration?.ready) {
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center bg-background p-6 text-center">
+        <p className="text-sm text-muted-foreground" role="status">
+          {collaboration?.error || t('collaboration.connecting')}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-full w-full">

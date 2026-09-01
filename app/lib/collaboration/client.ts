@@ -7,6 +7,13 @@ import type { IndexeddbPersistence } from 'y-indexeddb';
 import type * as Y from 'yjs';
 
 import { workspaceHeaders } from '@/app/lib/files/client';
+import {
+  createInitialTextCollaborationClientState,
+  reduceTextCollaborationClientState,
+  textCollaborationLegacyStatus,
+  type TextCollaborationClientEvent,
+  type TextCollaborationClientState,
+} from './client-state';
 import type {
   CollaborationConnectionStatus,
   TextCollaborationRepresentation,
@@ -30,12 +37,13 @@ type RegistryEntry = {
   provider: HocuspocusProvider | null;
   persistence: IndexeddbPersistence | null;
   session: CollaborationSessionResponse | null;
-  status: CollaborationConnectionStatus;
-  error: string | null;
+  clientState: TextCollaborationClientState;
   listeners: Set<() => void>;
   cleanupTimer?: ReturnType<typeof setTimeout>;
   startPromise: Promise<void>;
+  checkpointPromise?: Promise<void>;
   setComposition: SetCollaborationComposition;
+  requestCheckpoint: () => Promise<void>;
 };
 
 export type CollaborationDocument = {
@@ -44,14 +52,53 @@ export type CollaborationDocument = {
   provider: HocuspocusProvider | null;
   session: CollaborationSessionResponse | null;
   status: CollaborationConnectionStatus;
+  clientState: TextCollaborationClientState;
+  connection: TextCollaborationClientState['connection'];
+  durability: TextCollaborationClientState['durability'];
+  ready: boolean;
   error: string | null;
   setComposition: SetCollaborationComposition;
+  requestCheckpoint: () => Promise<void>;
 };
 
 const registry = new Map<string, RegistryEntry>();
 
 function emit(entry: RegistryEntry): void {
   for (const listener of entry.listeners) listener();
+}
+
+function transition(entry: RegistryEntry, event: TextCollaborationClientEvent): void {
+  entry.clientState = reduceTextCollaborationClientState(entry.clientState, event);
+  emit(entry);
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let offset = 0; offset < bytes.byteLength; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return window.btoa(binary);
+}
+
+function waitForEntryState(
+  entry: RegistryEntry,
+  predicate: (state: TextCollaborationClientState) => boolean,
+  timeoutMs: number,
+): Promise<void> {
+  if (predicate(entry.clientState)) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      entry.listeners.delete(listener);
+      reject(new Error('Timed out while waiting for collaboration to synchronize.'));
+    }, timeoutMs);
+    const listener = () => {
+      if (!predicate(entry.clientState)) return;
+      window.clearTimeout(timeout);
+      entry.listeners.delete(listener);
+      resolve();
+    };
+    entry.listeners.add(listener);
+  });
 }
 
 async function requestSession(
@@ -101,10 +148,14 @@ function createEntry(
     provider: null,
     persistence: null,
     session: null,
-    status: 'connecting',
-    error: null,
+    clientState: createInitialTextCollaborationClientState({
+      permission: initialSession?.permission,
+      documentSequence: initialSession?.documentSequence,
+      checkpointSequence: initialSession?.checkpointSequence,
+    }),
     listeners: new Set(),
     startPromise: Promise.resolve(),
+    requestCheckpoint: () => Promise.reject(new Error('Collaboration is still connecting.')),
     setComposition: (range) => {
       const provider = entry.provider;
       if (!provider) return;
@@ -126,11 +177,19 @@ function createEntry(
         representation,
       );
       entry.session = session;
+      entry.clientState = createInitialTextCollaborationClientState({
+        permission: session.permission,
+        documentSequence: session.documentSequence,
+        checkpointSequence: session.checkpointSequence,
+      });
       const persistence = new IndexeddbPersistence(
         `canvas:${session.documentId}:${session.lifecycleGeneration}:${representation}`,
         entry.doc,
       );
       entry.persistence = persistence;
+      await persistence.whenSynced;
+      transition(entry, { type: 'indexeddb_hydrated' });
+      if (entry.refs === 0 && !registry.has(key)) return;
       const provider = new HocuspocusProvider({
         url: websocketUrl(session.websocketUrl),
         preserveTrailingSlash: true,
@@ -152,24 +211,23 @@ function createEntry(
         },
         flushDelay: 75,
         onStatus: ({ status }) => {
-          entry.status = status === 'connected' ? 'live' : status === 'connecting' ? 'reconnecting' : 'offline';
-          emit(entry);
+          transition(entry, {
+            type: 'provider_status',
+            status: status === 'connected' ? 'connected' : status === 'connecting' ? 'connecting' : 'disconnected',
+            permission: session.permission,
+          });
         },
         onSynced: () => {
-          entry.status = session.permission === 'write' ? 'saved' : 'read_only';
-          emit(entry);
+          transition(entry, { type: 'remote_synced', permission: session.permission });
         },
         onUnsyncedChanges: ({ number }) => {
-          if (entry.status === 'offline' || entry.status === 'reconnecting' || entry.status === 'degraded') return;
-          entry.status = number > 0
-            ? 'persisting'
-            : session.permission === 'write' ? 'live' : 'read_only';
-          emit(entry);
+          transition(entry, { type: 'unsynced_changes', count: number });
         },
         onAuthenticationFailed: ({ reason }) => {
-          entry.status = 'degraded';
-          entry.error = reason || 'Collaboration authentication failed.';
-          emit(entry);
+          transition(entry, {
+            type: 'authentication_failed',
+            message: reason || 'Collaboration authentication failed.',
+          });
         },
         onStateless: ({ payload }) => {
           try {
@@ -177,22 +235,107 @@ function createEntry(
               type?: string;
               message?: string;
               sequence?: number;
+              stateVector?: string;
             };
-            entry.status = message.type === 'degraded' ? 'degraded' : 'saved';
-            entry.error = message.type === 'degraded' ? message.message || 'Checkpoint failed.' : null;
-            if (message.type === 'checkpointed' && Number.isSafeInteger(message.sequence)) {
+            if (message.type === 'degraded') {
+              transition(entry, { type: 'degraded', message: message.message || 'Checkpoint failed.' });
+              return;
+            }
+            if (
+              message.type === 'checkpointed'
+              && Number.isSafeInteger(message.sequence)
+              && typeof message.stateVector === 'string'
+              && entry.doc
+            ) {
+              const currentStateVector = bytesToBase64(Y.encodeStateVector(entry.doc));
+              transition(entry, {
+                type: 'checkpointed',
+                sequence: message.sequence as number,
+                stateVector: message.stateVector,
+                matchesCurrentDocument: currentStateVector === message.stateVector,
+              });
               entry.provider?.sendStateless(JSON.stringify({
                 type: 'checkpoint_ack',
                 documentId: session.documentId,
                 lifecycleGeneration: session.lifecycleGeneration,
                 sequence: message.sequence,
               }));
+              return;
             }
-            emit(entry);
+            if (message.type === 'checkpoint_superseded' && Number.isSafeInteger(message.sequence)) {
+              transition(entry, {
+                type: 'checkpoint_superseded',
+                sequence: message.sequence as number,
+              });
+            }
           } catch {}
         },
       });
       entry.provider = provider;
+      entry.requestCheckpoint = () => {
+        if (entry.checkpointPromise) return entry.checkpointPromise;
+        entry.checkpointPromise = (async () => {
+          transition(entry, { type: 'checkpoint_requested' });
+          await waitForEntryState(
+            entry,
+            (state) => state.ready && state.unsyncedChanges === 0,
+            10_000,
+          );
+          if (!entry.doc || !entry.session) throw new Error('Collaboration is not ready.');
+          const stateVector = bytesToBase64(Y.encodeStateVector(entry.doc));
+          if (
+            entry.clientState.durability === 'checkpointed_file'
+            && entry.clientState.checkpointStateVector === stateVector
+          ) {
+            return;
+          }
+
+          if (Date.parse(entry.session.expiresAt) - Date.now() < 30_000) {
+            const refreshed = requireTextSession(await requestSession(path, 'auto'), representation);
+            if (
+              refreshed.documentId !== entry.session.documentId
+              || refreshed.lifecycleGeneration !== entry.session.lifecycleGeneration
+            ) {
+              throw new Error('The collaboration document generation changed. Reload to use the current document state.');
+            }
+            entry.session = refreshed;
+            session = refreshed;
+          }
+
+          let lastError = 'Checkpoint is waiting for the latest Yjs persistence.';
+          for (let attempt = 0; attempt < 20; attempt += 1) {
+            const response = await fetch('/api/files/collaboration/checkpoint', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+              body: JSON.stringify({ token: entry.session.token, stateVector }),
+            });
+            const payload = await response.json().catch(() => ({})) as {
+              error?: string;
+              sequence?: number;
+            };
+            if (response.ok && Number.isSafeInteger(payload.sequence)) {
+              transition(entry, {
+                type: 'checkpointed',
+                sequence: payload.sequence as number,
+                stateVector,
+                matchesCurrentDocument: true,
+              });
+              return;
+            }
+            lastError = payload.error || lastError;
+            if (response.status !== 409) break;
+            await new Promise((resolve) => window.setTimeout(resolve, 200));
+          }
+          throw new Error(lastError);
+        })().catch((error) => {
+          const message = error instanceof Error ? error.message : 'Checkpoint failed.';
+          transition(entry, { type: 'checkpoint_failed', message });
+          throw error;
+        }).finally(() => {
+          entry.checkpointPromise = undefined;
+        });
+        return entry.checkpointPromise;
+      };
       provider.setAwarenessField('canvas', {
         userId: session.user.id,
         displayName: session.user.name,
@@ -202,9 +345,10 @@ function createEntry(
       });
       emit(entry);
     } catch (error) {
-      entry.status = 'degraded';
-      entry.error = error instanceof Error ? error.message : 'Collaboration could not be started.';
-      emit(entry);
+      transition(entry, {
+        type: 'degraded',
+        message: error instanceof Error ? error.message : 'Collaboration could not be started.',
+      });
     }
   })();
   return entry;
@@ -217,9 +361,14 @@ function snapshot(entry: RegistryEntry): CollaborationDocument {
     doc: entry.doc,
     provider: entry.provider,
     session: entry.session,
-    status: entry.status,
-    error: entry.error,
+    status: textCollaborationLegacyStatus(entry.clientState),
+    clientState: entry.clientState,
+    connection: entry.clientState.connection,
+    durability: entry.clientState.durability,
+    ready: entry.clientState.ready && Boolean(entry.provider),
+    error: entry.clientState.error,
     setComposition: entry.setComposition,
+    requestCheckpoint: entry.requestCheckpoint,
   };
 }
 
