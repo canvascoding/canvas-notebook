@@ -44,6 +44,7 @@ import {
   persistCollaborationYDoc,
   reactivatePersistedCollaborationPath,
   serializeCanonicalText,
+  withCollaborationCheckpointFence,
 } from '../app/lib/collaboration/persistence';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
 import { removeDocumentPresenceEntry, upsertDocumentPresenceEntry } from '../app/lib/collaboration/presence';
@@ -75,6 +76,7 @@ const compactionDocumentId = `agent-operation-compaction-test-${suffix}`;
 const sagaFirstDocumentId = `agent-operation-saga-first-${suffix}`;
 const sagaSecondDocumentId = `agent-operation-saga-second-${suffix}`;
 const archivedDocumentId = `agent-operation-archived-${suffix}`;
+const checkpointRaceDocumentId = `agent-operation-checkpoint-race-${suffix}`;
 const workspaceId = `agent-operation-workspace-${suffix}`;
 const userId = `agent-operation-user-${suffix}`;
 let toolDocumentId: string | null = null;
@@ -275,6 +277,87 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
 });
 
 try {
+  await ensureCollaborationState({
+    documentId: checkpointRaceDocumentId,
+    workspaceId,
+    organizationId: workspace.organizationId || null,
+    path: `agent-operation-checkpoint-race-${suffix}.txt`,
+    representation: 'plain_text',
+    initialContent: 'Checkpoint sequence N',
+  });
+  const checkpointRaceInitial = await loadCollaborationState(checkpointRaceDocumentId);
+  assert(checkpointRaceInitial);
+  const checkpointRaceDoc = new Y.Doc({ gc: true });
+  Y.applyUpdate(checkpointRaceDoc, checkpointRaceInitial.yjsState);
+  checkpointRaceDoc.getText('content').insert(checkpointRaceDoc.getText('content').length, ' persisted');
+  const checkpointRacePersisted = await persistCollaborationYDoc(
+    checkpointRaceDocumentId,
+    checkpointRaceInitial.lifecycleGeneration,
+    checkpointRaceDoc,
+  );
+  let releaseCheckpointMaterialization!: () => void;
+  let reportCheckpointMaterialization!: () => void;
+  const checkpointMaterializationReleased = new Promise<void>((resolve) => {
+    releaseCheckpointMaterialization = resolve;
+  });
+  const checkpointMaterializationStarted = new Promise<void>((resolve) => {
+    reportCheckpointMaterialization = resolve;
+  });
+  const fencedCheckpoint = withCollaborationCheckpointFence({
+    documentId: checkpointRaceDocumentId,
+    workspaceId,
+    path: checkpointRacePersisted.path,
+    representation: checkpointRacePersisted.representation,
+    lifecycleGeneration: checkpointRacePersisted.lifecycleGeneration,
+    schemaVersion: checkpointRacePersisted.schemaVersion,
+    sequence: checkpointRacePersisted.documentSequence,
+    stateVector: checkpointRacePersisted.stateVector,
+    materialize: async (lockedState) => {
+      reportCheckpointMaterialization();
+      await checkpointMaterializationReleased;
+      const canonicalContent = 'Checkpoint sequence N persisted';
+      return {
+        canonicalContent,
+        serializedContent: serializeCanonicalText(canonicalContent, lockedState),
+        result: canonicalContent,
+      };
+    },
+  });
+  await checkpointMaterializationStarted;
+  const checkpointRaceNextDoc = new Y.Doc({ gc: true });
+  Y.applyUpdate(checkpointRaceNextDoc, checkpointRacePersisted.yjsState);
+  checkpointRaceNextDoc.getText('content').insert(
+    checkpointRaceNextDoc.getText('content').length,
+    ' plus sequence N+1',
+  );
+  const concurrentPersist = persistCollaborationYDoc(
+    checkpointRaceDocumentId,
+    checkpointRacePersisted.lifecycleGeneration,
+    checkpointRaceNextDoc,
+  );
+  assert.equal(
+    await Promise.race([
+      concurrentPersist.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
+    ]),
+    false,
+    'a newer Yjs persist must wait while the checkpoint file/CAS fence holds the document row',
+  );
+  releaseCheckpointMaterialization();
+  const checkpointRaceConfirmed = await fencedCheckpoint;
+  assert(checkpointRaceConfirmed);
+  assert.equal(
+    checkpointRaceConfirmed.state.checkpointSequence,
+    checkpointRacePersisted.documentSequence,
+  );
+  const checkpointRaceAdvanced = await concurrentPersist;
+  assert.equal(
+    checkpointRaceAdvanced.documentSequence,
+    checkpointRacePersisted.documentSequence + 1,
+  );
+  checkpointRaceDoc.destroy();
+  checkpointRaceNextDoc.destroy();
+
   let state = await loadCollaborationState(documentId);
   const betaTarget = targetFor(state, 'Beta', 'Beta by agent');
   const idempotencyKey = `direct-${suffix}`;
@@ -1680,6 +1763,7 @@ try {
       sagaFirstDocumentId,
       sagaSecondDocumentId,
       archivedDocumentId,
+      checkpointRaceDocumentId,
       ...(toolDocumentId ? [toolDocumentId] : []),
       ...(uninitializedToolDocumentId ? [uninitializedToolDocumentId] : []),
       ...(representationRoutingDocumentId ? [representationRoutingDocumentId] : []),

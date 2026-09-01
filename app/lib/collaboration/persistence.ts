@@ -365,6 +365,106 @@ export async function markCollaborationCheckpoint(input: {
   }
 }
 
+/**
+ * Holds the collaboration state row lock across file materialization and
+ * checkpoint confirmation. A concurrent Yjs persist or lifecycle update must
+ * therefore happen entirely before this fence (and fail the identity check)
+ * or after the checkpoint metadata and workspace projection agree.
+ */
+export async function withCollaborationCheckpointFence<T>(input: {
+  documentId: string;
+  workspaceId: string;
+  path: string;
+  representation: TextCollaborationRepresentation;
+  lifecycleGeneration: number;
+  schemaVersion: number;
+  sequence: number;
+  stateVector: Uint8Array;
+  materialize: (state: PersistedCollaborationState) => Promise<{
+    canonicalContent: string;
+    serializedContent: string;
+    result: T;
+  }>;
+}): Promise<{ result: T; state: PersistedCollaborationState } | null> {
+  assertPostgres();
+  const database = await openDb();
+  let transactionOpen = false;
+  try {
+    await database.run('BEGIN');
+    transactionOpen = true;
+    const lockedRow = await database.get(
+      `
+        SELECT * FROM collaboration_yjs_states
+        WHERE document_id = ?
+          AND workspace_id = ?
+          AND path = ?
+          AND representation = ?
+          AND status = 'active'
+          AND lifecycle_generation = ?
+          AND schema_version = ?
+          AND document_sequence = ?
+          AND checkpoint_sequence <= ?
+        FOR UPDATE
+      `,
+      [
+        input.documentId,
+        input.workspaceId,
+        input.path,
+        input.representation,
+        input.lifecycleGeneration,
+        input.schemaVersion,
+        input.sequence,
+        input.sequence,
+      ],
+    ) as StateRow | undefined;
+    if (!lockedRow) {
+      await database.run('ROLLBACK');
+      transactionOpen = false;
+      return null;
+    }
+    const lockedState = mapState(lockedRow);
+    if (!Buffer.from(lockedState.stateVector).equals(Buffer.from(input.stateVector))) {
+      await database.run('ROLLBACK');
+      transactionOpen = false;
+      return null;
+    }
+
+    const materialized = await input.materialize(lockedState);
+    const checkpointedRow = await database.get(
+      `
+        UPDATE collaboration_yjs_states
+        SET checkpointed_at = ?, checkpoint_sequence = ?, canonical_hash = ?, serialized_hash = ?, degraded = 0
+        WHERE document_id = ?
+          AND document_sequence = ?
+          AND checkpoint_sequence <= ?
+        RETURNING *
+      `,
+      [
+        Date.now(),
+        input.sequence,
+        sha256Text(materialized.canonicalContent),
+        sha256Text(materialized.serializedContent),
+        input.documentId,
+        input.sequence,
+        input.sequence,
+      ],
+    ) as StateRow | undefined;
+    if (!checkpointedRow) {
+      throw new Error('Collaboration checkpoint row changed while its write fence was held.');
+    }
+    await database.run('COMMIT');
+    transactionOpen = false;
+    return { result: materialized.result, state: mapState(checkpointedRow) };
+  } catch (error) {
+    if (transactionOpen) {
+      try { await database.run('ROLLBACK'); } catch {}
+    }
+    throw error;
+  } finally {
+    await database.close();
+  }
+}
+
 export async function markCollaborationDegraded(
   documentId: string,
   expectedLifecycleGeneration: number,

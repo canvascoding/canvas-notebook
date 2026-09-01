@@ -13,10 +13,9 @@ import { workspaceFileOptions } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { validateRichMarkdownYDoc } from './markdown-state';
 import {
-  markCollaborationCheckpoint,
-  loadCollaborationState,
   serializeCanonicalText,
   type PersistedCollaborationState,
+  withCollaborationCheckpointFence,
 } from './persistence';
 import { Y } from './server-runtime';
 
@@ -154,51 +153,46 @@ export async function materializeCollaborationCheckpoint(input: {
   if (input.state.workspaceId !== input.workspace.workspaceId) {
     throw new Error('Collaboration checkpoint workspace mismatch.');
   }
-  const currentState = await loadCollaborationState(input.state.documentId);
-  if (
-    !currentState
-    || currentState.workspaceId !== input.state.workspaceId
-    || currentState.path !== input.state.path
-    || currentState.lifecycleGeneration !== input.state.lifecycleGeneration
-    || currentState.schemaVersion !== input.state.schemaVersion
-    || currentState.documentSequence !== input.state.documentSequence
-    || !Buffer.from(currentState.stateVector).equals(Buffer.from(input.state.stateVector))
-  ) {
+  const fenced = await withCollaborationCheckpointFence({
+    documentId: input.state.documentId,
+    workspaceId: input.state.workspaceId,
+    path: input.state.path,
+    representation: input.state.representation,
+    lifecycleGeneration: input.state.lifecycleGeneration,
+    schemaVersion: input.state.schemaVersion,
+    sequence: input.state.documentSequence,
+    stateVector: input.state.stateVector,
+    materialize: async (lockedState) => {
+      const snapshot = authoritativeCollaborationSnapshot(lockedState);
+      const fileWrite = await writeCollaborationCheckpointFile({
+        state: lockedState,
+        workspace: input.workspace,
+        canonicalContent: snapshot.canonicalContent,
+        actorUserId: input.actorUserId ?? null,
+        actorType: input.actorType ?? 'system',
+        sourceSessionId: input.sourceSessionId ?? null,
+      });
+      return {
+        canonicalContent: snapshot.canonicalContent,
+        serializedContent: fileWrite.serializedContent,
+        result: fileWrite,
+      };
+    },
+  });
+  if (!fenced) {
     throw new CollaborationCheckpointSupersededError(
       input.state.documentId,
       input.state.documentSequence,
     );
   }
-  const snapshot = authoritativeCollaborationSnapshot(currentState);
-  const canonical = snapshot.canonicalContent;
-  const fileWrite = await writeCollaborationCheckpointFile({
-    state: currentState,
-    workspace: input.workspace,
-    canonicalContent: canonical,
-    actorUserId: input.actorUserId ?? null,
-    actorType: input.actorType ?? 'system',
-    sourceSessionId: input.sourceSessionId ?? null,
-  });
-  const checkpointedState = await markCollaborationCheckpoint({
-    documentId: currentState.documentId,
-    workspaceId: currentState.workspaceId,
-    path: currentState.path,
-    lifecycleGeneration: currentState.lifecycleGeneration,
-    schemaVersion: currentState.schemaVersion,
-    sequence: currentState.documentSequence,
-    canonicalContent: canonical,
-    serializedContent: fileWrite.serializedContent,
-  });
-  if (!checkpointedState) {
-    throw new CollaborationCheckpointSupersededError(
-      currentState.documentId,
-      currentState.documentSequence,
-    );
-  }
   finalizeCollaborationCheckpointProjection({
-    state: checkpointedState,
+    state: fenced.state,
     workspace: input.workspace,
-    revisionId: fileWrite.revisionId,
+    revisionId: fenced.result.revisionId,
   });
-  return { content: fileWrite.content, revisionId: fileWrite.revisionId, state: checkpointedState };
+  return {
+    content: fenced.result.content,
+    revisionId: fenced.result.revisionId,
+    state: fenced.state,
+  };
 }
