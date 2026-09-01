@@ -10,7 +10,7 @@ export function splitRecipientInput(value: string): string[] {
 }
 
 export function isValidComposeRecipient(value: string): boolean {
-  return /^[^\s@<>\",;]+@[^\s@<>\",;]+\.[^\s@<>\",;]+$/u.test(value.trim());
+  return /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]+$/u.test(value.trim());
 }
 
 export function normalizeComposeRecipient(value: string): string {
@@ -30,7 +30,7 @@ export function mergeVisibleEmailAttachments(current: EmailAttachmentDraft[], vi
 
 function referencedInlineContentIds(html: string): Set<string> {
   const ids = new Set<string>();
-  const imagePattern = /<img\b[^>]*\ssrc\s*=\s*(\"cid:([^\"]+)\"|'cid:([^']+)'|cid:([^\s\"'>]+))/giu;
+  const imagePattern = /<img\b[^>]*\ssrc\s*=\s*("cid:([^"]+)"|'cid:([^']+)'|cid:([^\s"'>]+))/giu;
   let match: RegExpExecArray | null;
 
   while ((match = imagePattern.exec(html)) !== null) {
