@@ -646,6 +646,23 @@ li.task-list-item > p {
   -webkit-box-decoration-break: clone;
 }
 
+.collaboration-agent-target {
+  background: color-mix(in oklab, #8b5cf6 14%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, #8b5cf6 68%, transparent);
+  border-radius: 0.18em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.collaboration-agent-target-caret {
+  border-left: 2px solid #8b5cf6;
+  display: inline-block;
+  height: 1.2em;
+  margin-left: -1px;
+  pointer-events: none;
+  vertical-align: -0.22em;
+}
+
 .tiptap-editor-shell .collaboration-carets__caret {
   --collaboration-user-color: #2563eb;
   --collaboration-user-color-light: #dbeafe;

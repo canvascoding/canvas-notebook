@@ -19,6 +19,7 @@ import {
   createRichAgentTextTargets,
   detectLateAgentSemanticConflicts,
   getAgentOperation,
+  listAgentOperations,
   recoverCollaborationAgentOperations,
   rejectAgentOperation,
   revertAgentOperation,
@@ -419,6 +420,36 @@ try {
     explicitUserRequest: false,
   });
   assert.equal(autonomous.operationStatus, 'needs_review', 'autonomous work must default to review while a human is active');
+  const collaboratorWorkspace: WorkspaceContext = {
+    ...workspace,
+    permissions: { ...workspace.permissions, canManageWorkspace: false },
+  };
+  const collaboratorView = await getAgentOperation({
+    operationId: autonomous.operationId,
+    workspace: collaboratorWorkspace,
+    userId: `agent-operation-collaborator-${suffix}`,
+  });
+  assert.equal(collaboratorView?.initiatedByCurrentUser, false);
+  assert.equal(collaboratorView?.actionsAllowed, false);
+  assert.equal(collaboratorView?.targetAnchors.length, 1, 'collaborators must receive stable target anchors for inline activity');
+  assert.ok(
+    (await listAgentOperations({
+      documentId,
+      workspace: collaboratorWorkspace,
+      userId: `agent-operation-collaborator-${suffix}`,
+    })).some((operation) => operation.operationId === autonomous.operationId),
+    'workspace readers must see agent activity from other collaborators',
+  );
+  await assert.rejects(
+    rejectAgentOperation({
+      operationId: autonomous.operationId,
+      workspace: collaboratorWorkspace,
+      userId: `agent-operation-collaborator-${suffix}`,
+      idempotencyKey: `reject-other-${suffix}`,
+    }),
+    /not found/i,
+    'a reader must not be able to act on another collaborator\'s operation',
+  );
   removeDocumentPresenceEntry({ workspaceId, documentId, userId: 'active-human', actorType: 'user' });
   await rejectAgentOperation({ operationId: autonomous.operationId, workspace, userId, idempotencyKey: `reject-autonomous-${suffix}` });
 

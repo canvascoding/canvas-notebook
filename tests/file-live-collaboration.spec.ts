@@ -447,18 +447,22 @@ test.describe('Markdown live collaboration', () => {
       expect(readResult.content?.[0]?.text).toContain(initialContent);
       expect(editResult.content?.[0]?.text).toContain('Review ready');
 
+      const agentActivityButton = page.getByRole('button', { name: /Agent changes|Agentenänderungen/i });
+      await expect(agentActivityButton).toBeVisible({ timeout: 20_000 });
+      await agentActivityButton.click();
       const reviewRegion = page.getByRole('region', { name: /Agent changes|Agentenänderungen/i });
       await expect(reviewRegion).toBeVisible({ timeout: 20_000 });
       await expect(reviewRegion).toContainText(/Review required|Prüfung erforderlich/i);
-      await reviewRegion.getByText(/Compare current and proposed text|Aktuellen und vorgeschlagenen Text vergleichen/i).click();
       await expect(reviewRegion).toContainText('Remove this paragraph');
 
       const editor = page.locator('.tiptap-editor-shell .ProseMirror');
+      await expect(editor.locator('.collaboration-agent-target').first()).toBeVisible();
       const unaffectedParagraph = editor.locator('p').filter({ hasText: 'Keep this paragraph' }).first();
       await unaffectedParagraph.click();
       await page.keyboard.press('End');
       await page.keyboard.type(' edited by user');
       await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
+      await agentActivityButton.click();
 
       const acceptResponse = page.waitForResponse((response) => (
         response.request().method() === 'POST'
@@ -477,6 +481,7 @@ test.describe('Markdown live collaboration', () => {
       });
       await expect.poll(() => collaborativeEditorText(editor), { timeout: 20_000 }).not.toContain('Remove this paragraph');
       await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
+      await expect(editor.locator('.collaboration-agent-target')).toHaveCount(0, { timeout: 20_000 });
       await expect(reviewRegion.getByRole('button', { name: /Accept|Annehmen/i })).toHaveCount(0, { timeout: 20_000 });
 
       const acceptedRead = await runAgentTool({
@@ -507,9 +512,6 @@ test.describe('Markdown live collaboration', () => {
       expect(patchDetails.results?.[0]?.collaboration?.reviewRequired).toBe(true);
       expect(patchDetails.results?.[0]?.collaboration?.operationStatus).toBe('needs_review');
       expect(patchResult.content?.[0]?.text).toContain('Review ready');
-      await reviewRegion.getByText(
-        /Compare current and proposed text|Aktuellen und vorgeschlagenen Text vergleichen/i,
-      ).click();
       await expect(reviewRegion).toContainText('Combined paragraph', { timeout: 20_000 });
 
       const screenshotPath = testInfo.outputPath('agent-review.png');

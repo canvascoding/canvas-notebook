@@ -16,6 +16,8 @@ import {
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { useEditorStore } from '@/app/store/editor-store';
 import type { CollaborationDocument } from '@/app/lib/collaboration/client';
+import type { CollaborationAgentOperation } from '@/app/lib/collaboration/agent-operations-client';
+import { visibleAgentTargetAnchors } from '@/app/lib/collaboration/agent-target-decorations';
 import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
 import { MarkdownEditor } from './MarkdownEditorClient';
@@ -473,6 +475,10 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     path: string;
     document: CollaborationDocument;
   } | null>(null);
+  const [agentOperationState, setAgentOperationState] = useState<{
+    documentId: string;
+    operations: CollaborationAgentOperation[];
+  } | null>(null);
   const handleCollaborationChange = useCallback((document: CollaborationDocument | null) => {
     if (!currentFilePath) return;
     setCollaborationDocumentState((current) => {
@@ -670,6 +676,16 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                     ? 'binary'
                     : 'code';
   const collaboration = currentFile?.collaboration ?? null;
+  const collaborationDocumentId = collaboration?.crdtCapable ? collaboration.document?.id ?? null : null;
+  const agentTargets = useMemo(() => visibleAgentTargetAnchors(
+    agentOperationState?.documentId === collaborationDocumentId
+      ? agentOperationState.operations
+      : [],
+  ), [agentOperationState, collaborationDocumentId]);
+  const handleAgentOperationsChange = useCallback((operations: CollaborationAgentOperation[]) => {
+    if (!collaborationDocumentId) return;
+    setAgentOperationState({ documentId: collaborationDocumentId, operations });
+  }, [collaborationDocumentId]);
   const isSceneCollaboration = Boolean(collaboration?.sceneCapable);
   const isCrdtCollaboration = Boolean(collaboration?.crdtCapable);
   const updateCollaborativeDraft = useCallback((value: string) => {
@@ -1338,6 +1354,12 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                 </Button>
               </FileHeaderTooltip>
             )}
+            {collaboration?.crdtCapable && collaboration.document?.id ? (
+              <CollaborationAgentOperations
+                documentId={collaboration.document.id}
+                onOperationsChange={handleAgentOperationsChange}
+              />
+            ) : null}
             <FileHeaderTooltip label={saveStatusLabel}>
               <span
                 className={`flex h-6 w-6 shrink-0 items-center justify-center gap-1 rounded-sm px-0 text-xs 2xl:w-auto 2xl:max-w-36 2xl:px-1.5 ${saveStatusTone}`}
@@ -1434,9 +1456,6 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           </div>
         </div>
       ) : null}
-      {collaboration?.crdtCapable && collaboration.document?.id ? (
-        <CollaborationAgentOperations documentId={collaboration.document.id} />
-      ) : null}
       <div className={isImage || isVideo || isMarkdown || isHtml || isExcalidraw ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
         <EditorErrorBoundary editorKind={editorKind} resetKey={currentFile.path}>
           {isBinary ? (
@@ -1526,6 +1545,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                 filePath={currentFile.path}
                 collaborationEnabled={Boolean(collaboration?.crdtCapable)}
                 onCollaborationChange={handleCollaborationChange}
+                agentTargets={agentTargets}
                 showNotebookMetadata
               />
             )
@@ -1537,6 +1557,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               path={currentFile.path}
               collaborationEnabled={Boolean(collaboration?.crdtCapable)}
               onCollaborationChange={handleCollaborationChange}
+              agentTargets={agentTargets}
             />
           )}
         </EditorErrorBoundary>

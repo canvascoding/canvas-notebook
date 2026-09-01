@@ -215,6 +215,11 @@ import {
   type CollaborationDocument,
 } from '@/app/lib/collaboration/client';
 import type { CollaborationSessionResponse } from '@/app/lib/collaboration/types';
+import {
+  createAgentTargetDecorationExtension,
+  updateAgentTargetDecorations,
+  type CollaborationAgentTargetAnchor,
+} from '@/app/lib/collaboration/agent-target-decorations';
 
 export interface MarkdownEditorProps {
   value: string;
@@ -225,6 +230,7 @@ export interface MarkdownEditorProps {
   collaborationEnabled?: boolean;
   collaborationSession?: CollaborationSessionResponse | null;
   onCollaborationChange?: (document: CollaborationDocument | null) => void;
+  agentTargets?: CollaborationAgentTargetAnchor[];
   showNotebookMetadata?: boolean;
 }
 
@@ -2237,6 +2243,7 @@ function createEditorExtensions(
           style: `--collaboration-user-color: ${typeof user.color === 'string' ? user.color : '#2563eb'};`,
         }),
       }),
+      createAgentTargetDecorationExtension(collaboration.doc),
     );
   }
   return extensions;
@@ -4825,6 +4832,7 @@ function RichMarkdownEditor({
   markdownNavigationTarget,
   collaborationEnabled = false,
   collaborationDocument,
+  agentTargets = [],
   showNotebookMetadata = false,
 }: MarkdownEditorProps & {
   isMobileKeyboardActive: boolean;
@@ -5065,6 +5073,11 @@ function RichMarkdownEditor({
       }
     },
   }, [collaboration?.provider]);
+
+  useEffect(() => {
+    if (!editor || !collaboration) return;
+    updateAgentTargetDecorations(editor, agentTargets);
+  }, [agentTargets, collaboration, editor]);
 
   const openRichBlockDialogFromToolbar = useCallback((kind: RichBlockKind, range?: Range) => {
     if (!editor) return;
@@ -5632,6 +5645,7 @@ function SourceMarkdownEditor({
   collaborationEnabled = false,
   collaborationSession,
   collaborationDocument,
+  agentTargets = [],
   sourceModeReason,
   normalizationAvailable,
   onNormalizeToRichMode,
@@ -5757,6 +5771,7 @@ function SourceMarkdownEditor({
           collaborationEnabled={collaborationEnabled}
           collaborationSession={collaborationSession}
           collaborationDocument={collaborationDocument}
+          agentTargets={agentTargets}
         />
       </div>
       <MarkdownDocumentStatus value={value} />
@@ -5772,6 +5787,7 @@ export function MarkdownEditor({
   externalValueSync = 'always',
   collaborationEnabled = false,
   onCollaborationChange,
+  agentTargets = [],
   showNotebookMetadata = false,
 }: MarkdownEditorProps) {
   useVisualViewportBottomOffset();
@@ -5911,6 +5927,7 @@ export function MarkdownEditor({
         collaborationEnabled={collaborationEnabled}
         collaborationSession={collaborationSession.session}
         collaborationDocument={collaborationDocument}
+        agentTargets={agentTargets}
         sourceModeReason={richModeAnalysis.mode === 'source' ? richModeAnalysis.reason : undefined}
         normalizationAvailable={richModeAnalysis.mode === 'normalizable' && !readOnly && !collaborationEnabled}
         onNormalizeToRichMode={normalizeToRichMode}
@@ -5931,6 +5948,7 @@ export function MarkdownEditor({
       markdownNavigationTarget={markdownNavigationTarget}
       collaborationEnabled={collaborationEnabled}
       collaborationDocument={collaborationDocument}
+      agentTargets={agentTargets}
       showNotebookMetadata={showNotebookMetadata}
     />
   );
