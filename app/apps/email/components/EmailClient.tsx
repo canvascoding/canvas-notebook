@@ -1197,6 +1197,7 @@ export function EmailClient({
         isSubmitting={isSubmittingCompose}
         isWorkspaceOutboxReview={isWorkspaceOutboxReview}
         reviewCase={workspaceOutboxReviewCase}
+        senderAddress={activeAccount?.emailAddress || ''}
         labels={composeDialogLabels}
         locale={locale}
         onAllowRemoteResourcesForSender={allowRemoteImagesForSender}

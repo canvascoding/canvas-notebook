@@ -88,7 +88,14 @@ export function EmailMailboxHeader({
               </select>
             </>
           ) : null}
-          <Button type="button" size="sm" onClick={onCompose} disabled={!activeAccount}>
+          <Button
+            type="button"
+            size="sm"
+            aria-label={labels.compose}
+            title={labels.compose}
+            onClick={onCompose}
+            disabled={!activeAccount}
+          >
             <PenLine className="h-4 w-4 sm:mr-2" />
             <span className="hidden sm:inline">{labels.compose}</span>
           </Button>

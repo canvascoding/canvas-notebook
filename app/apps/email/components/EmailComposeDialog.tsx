@@ -276,6 +276,7 @@ export function EmailComposeDialog({
   isSubmitting,
   isWorkspaceOutboxReview,
   reviewCase,
+  senderAddress,
   labels,
   locale,
   onAllowRemoteResourcesForSender,
@@ -295,6 +296,7 @@ export function EmailComposeDialog({
   isSubmitting: boolean;
   isWorkspaceOutboxReview: boolean;
   reviewCase: WorkspaceInboxCase | null;
+  senderAddress: string;
   labels: EmailComposeDialogLabels;
   locale: string;
   onAllowRemoteResourcesForSender(sender: string): void;
@@ -460,6 +462,13 @@ export function EmailComposeDialog({
               <DialogDescription className="text-xs leading-5 sm:text-sm">
                 {isWorkspaceOutboxReview ? labels.composeWorkspaceOutboxDescription : labels.composeDescription}
               </DialogDescription>
+              {senderAddress ? (
+                <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                  <Mail className="h-3.5 w-3.5 shrink-0" />
+                  <span className="shrink-0 font-medium text-foreground">{labels.from}:</span>
+                  <span className="min-w-0 truncate">{senderAddress}</span>
+                </div>
+              ) : null}
             </DialogHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-5">
               {isWorkspaceOutboxReview && reviewCase ? (

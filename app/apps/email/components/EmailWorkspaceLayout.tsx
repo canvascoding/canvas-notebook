@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type RefCallback } from 'react';
 
 import { cn } from '@/lib/utils';
 
@@ -31,12 +31,15 @@ function readStoredListWidth() {
 }
 
 export function useEmailWorkspaceLayout(): {
-  containerRef: RefObject<HTMLDivElement | null>;
+  containerRef: RefCallback<HTMLDivElement>;
   listWidth: number;
   mode: EmailWorkspaceLayoutMode;
   setListWidth(value: number): void;
 } {
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerElement, setContainerElement] = useState<HTMLDivElement | null>(null);
+  const containerRef = useCallback<RefCallback<HTMLDivElement>>((element) => {
+    setContainerElement(element);
+  }, []);
   const [mode, setMode] = useState<EmailWorkspaceLayoutMode>('compact');
   const [listWidth, setListWidthState] = useState(DEFAULT_LIST_WIDTH);
 
@@ -46,14 +49,13 @@ export function useEmailWorkspaceLayout(): {
   }, []);
 
   useEffect(() => {
-    const element = containerRef.current;
-    if (!element) return;
-    const update = () => setMode(modeForWidth(element.getBoundingClientRect().width));
+    if (!containerElement) return;
+    const update = () => setMode(modeForWidth(containerElement.getBoundingClientRect().width));
     update();
     const observer = new ResizeObserver(update);
-    observer.observe(element);
+    observer.observe(containerElement);
     return () => observer.disconnect();
-  }, []);
+  }, [containerElement]);
 
   const setListWidth = useCallback((value: number) => {
     const next = clampListWidth(value);
