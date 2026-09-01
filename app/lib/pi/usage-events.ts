@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { AssistantMessage, Usage } from '@earendil-works/pi-ai';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, gt } from 'drizzle-orm';
 
 import { db } from '../db';
 import { piSessions, piUsageEvents } from '../db/schema';
@@ -14,6 +14,11 @@ type PersistPiUsageEventsParams = {
 };
 
 export type PiUsageEventRow = typeof piUsageEvents.$inferSelect;
+
+export type PiLatestInputUsage = Readonly<{
+  inputTokens: number;
+  assistantTimestamp: Date;
+}>;
 
 type PiUsageSessionContext = {
   sessionTitleSnapshot: string | null;
@@ -137,6 +142,37 @@ export async function persistPiUsageEvents({
     messages,
     context,
   });
+}
+
+/** Returns the last provider-reported prompt usage that is meaningful for a session. */
+export async function loadLatestPiSessionInputUsage(
+  sessionId: string,
+  userId: string,
+): Promise<PiLatestInputUsage | null> {
+  const [usage] = await db.select({
+    inputTokens: piUsageEvents.inputTokens,
+    assistantTimestamp: piUsageEvents.assistantTimestamp,
+  })
+    .from(piUsageEvents)
+    .where(and(
+      eq(piUsageEvents.sessionId, sessionId),
+      eq(piUsageEvents.userId, userId),
+      gt(piUsageEvents.inputTokens, 0),
+    ))
+    .orderBy(desc(piUsageEvents.assistantTimestamp), desc(piUsageEvents.id))
+    .limit(1);
+
+  if (!usage) {
+    return null;
+  }
+
+  const rawTimestamp = usage.assistantTimestamp as unknown;
+  return {
+    inputTokens: usage.inputTokens,
+    assistantTimestamp: rawTimestamp instanceof Date
+      ? rawTimestamp
+      : new Date(Number(rawTimestamp) * 1_000),
+  };
 }
 
 export async function persistPiUsageEventsWithContext({
