@@ -113,12 +113,14 @@ export async function prepareAutomationHistoryWithCompaction(
     metrics: {
       beforeEstimatedTokens: preflight.estimatedHistoryTokens,
       beforeEstimatedBytes: preflight.estimatedHistoryBytes,
+      triggerTokens: preflight.triggerHistoryTokens,
+      targetTokens: preflight.targetHistoryTokens,
     },
     signal: input.signal,
     isGenerationCurrent: (candidateGeneration) => (
       !input.signal.aborted && candidateGeneration === generation
     ),
-    prepareCandidate: (candidateSignal) => preparePiHistoryContext({
+    prepareCandidate: (candidateSignal, reportProgress) => preparePiHistoryContext({
       messages: input.messages.slice(),
       summary: { ...input.summary },
       systemPromptTokens: input.systemPromptBudgetTokens,
@@ -128,6 +130,7 @@ export async function prepareAutomationHistoryWithCompaction(
       sessionId: input.sessionId,
       signal: candidateSignal,
       streamFn: input.streamFn,
+      onSummaryProgress: (progress) => reportProgress(progress),
     }),
   });
   if (result.state === 'succeeded' && result.summary && result.composition) {
@@ -183,10 +186,19 @@ export async function prepareAutomationHistoryWithCompaction(
       `Automation context compaction is cooling down${result.retryAt ? ` until ${result.retryAt.toISOString()}` : ''}, and the complete history no longer fits.`,
     );
   }
+  if (result.state === 'breaker_active') {
+    throw new Error(
+      `Automation context compaction is paused after repeated ineffective attempts${result.retryAt ? ` until ${result.retryAt.toISOString()}` : ''}, and the complete history no longer fits.`,
+    );
+  }
   if (result.state === 'already_running') {
     throw new Error('Automation context compaction is already running, and the complete history cannot be sent safely yet.');
   }
-  if (result.reasonCode === 'summary_timeout') {
+  if (
+    result.reasonCode === 'summary_timeout'
+    || result.reasonCode === 'summary_idle_timeout'
+    || result.reasonCode === 'summary_total_timeout'
+  ) {
     throw new Error('Automation context compaction timed out, and the complete history cannot be sent safely.');
   }
   if (result.reasonCode === 'summary_provider_error') {

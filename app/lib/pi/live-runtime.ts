@@ -665,6 +665,8 @@ export class LivePiRuntime {
       metrics: {
         beforeEstimatedTokens: before.estimatedHistoryTokens,
         beforeEstimatedBytes: before.estimatedHistoryBytes,
+        triggerTokens: before.triggerHistoryTokens,
+        targetTokens: before.targetHistoryTokens,
       },
       policy: this.options.compactionPolicy,
       signal: input.signal,
@@ -672,7 +674,7 @@ export class LivePiRuntime {
         !this.disposed
         && candidateGeneration === this.createCompactionGeneration(input.runtimeContext)
       ),
-      prepareCandidate: (candidateSignal) => preparePiHistoryContext({
+      prepareCandidate: (candidateSignal, reportProgress) => preparePiHistoryContext({
         messages: input.messages.slice(),
         summary: summarySnapshot,
         systemPromptTokens,
@@ -683,11 +685,14 @@ export class LivePiRuntime {
         sessionId: this.sessionId,
         signal: candidateSignal,
         streamFn: this.options.summaryStreamFn,
+        onSummaryProgress: (progress) => reportProgress(progress),
       }),
     });
     if (ownsStatus && this.compactionStatus.attemptId === result.attemptId) {
       this.compactionStatus = {
-        state: result.state === 'cooldown_active' || result.state === 'already_running'
+        state: result.state === 'cooldown_active'
+          || result.state === 'breaker_active'
+          || result.state === 'already_running'
           ? 'deferred'
           : result.state,
         attemptId: result.attemptId,
@@ -1028,10 +1033,10 @@ export class LivePiRuntime {
     }
 
     if (result.reasonCode === 'payload_bytes_exceeded') {
-        throw new Error(
-          `Context compaction cannot run because the latest message exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
-          'Shorten the latest message or attachments.',
-        );
+      throw new Error(
+        `Context compaction cannot run because the latest message exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
+        'Shorten the latest message or attachments.',
+      );
     }
     if (result.reasonCode === 'fixed_context_too_large') {
       throw new Error(
@@ -1043,6 +1048,12 @@ export class LivePiRuntime {
         `Context compaction is cooling down${result.retryAt ? ` until ${result.retryAt.toISOString()}` : ''}. No messages were removed.`,
       );
     }
+    if (result.state === 'breaker_active') {
+      throw new Error(
+        `Automatic context compaction is paused after repeated ineffective attempts${result.retryAt ? ` until ${result.retryAt.toISOString()}` : ''}. ` +
+        'No messages were removed. A later automatic request will run one recovery probe.',
+      );
+    }
     if (result.state === 'already_running') {
       throw new Error('Context compaction is already running for this session.');
     }
@@ -1052,7 +1063,20 @@ export class LivePiRuntime {
     if (result.state === 'stale') {
       throw new Error('Context compaction became stale after the runtime context changed. No messages were removed.');
     }
-    if (result.state === 'deferred' || result.reasonCode === 'summary_provider_error' || result.reasonCode === 'summary_timeout') {
+    if (result.reasonCode === 'summary_idle_timeout') {
+      throw new Error(
+        'Context compaction failed because the summary stream made no progress before the idle deadline. No messages were removed.',
+      );
+    }
+    if (result.reasonCode === 'summary_total_timeout') {
+      throw new Error(
+        'Context compaction exceeded its total time ceiling even though the summary stream was making progress. No messages were removed.',
+      );
+    }
+    if (result.reasonCode === 'summary_timeout') {
+      throw new Error('Context compaction timed out while updating the summary. No messages were removed.');
+    }
+    if (result.state === 'deferred' || result.reasonCode === 'summary_provider_error') {
       throw new Error(
         'Context compaction failed because the summary could not be updated. No messages were removed.',
       );
@@ -1965,8 +1989,24 @@ export class LivePiRuntime {
         `Context compaction is cooling down${result.retryAt ? ` until ${result.retryAt.toISOString()}` : ''}, and the complete history no longer fits.`,
       );
     }
+    if (result.state === 'breaker_active') {
+      throw new Error(
+        `Automatic context compaction is paused after repeated ineffective attempts${result.retryAt ? ` until ${result.retryAt.toISOString()}` : ''}, ` +
+        'and the complete history no longer fits. Retry after the recovery window or compact manually.',
+      );
+    }
     if (result.state === 'already_running') {
       throw new Error('Context compaction is already running, and the complete history cannot be sent safely yet.');
+    }
+    if (result.reasonCode === 'summary_idle_timeout') {
+      throw new Error(
+        'Context compaction stalled because the summary stream stopped making progress, and the complete history cannot be sent safely. Retry or use a larger-context model.',
+      );
+    }
+    if (result.reasonCode === 'summary_total_timeout') {
+      throw new Error(
+        'Context compaction exceeded its total time ceiling, and the complete history cannot be sent safely. Retry or use a larger-context model.',
+      );
     }
     if (result.reasonCode === 'summary_timeout') {
       throw new Error('Context compaction timed out, and the complete history cannot be sent safely. Retry or use a larger-context model.');

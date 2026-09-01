@@ -6,8 +6,10 @@ import type { PiHistoryComposition, PiSessionSummaryState } from './history-budg
 import type { PreparePiHistoryContextResult } from './session-summary';
 import {
   commitPiSessionCompactionSummary,
+  countPiSessionCompactionIneffectiveAttempts,
   countPiSessionCompactionRetryFailures,
   finishPiSessionCompactionAttempt,
+  recordPiSessionCompactionProgress,
   startPiSessionCompactionAttempt,
   type CommitPiCompactionSummaryInput,
   type CommitPiCompactionSummaryResult,
@@ -15,23 +17,41 @@ import {
   type PiCompactionAttemptMetrics,
   type PiCompactionReasonCode,
   type PiCompactionScope,
+  type RecordPiCompactionProgressInput,
   type PiCompactionTrigger,
   type StartPiCompactionAttemptInput,
   type StartPiCompactionAttemptResult,
 } from './session-compaction-store';
 
 export type PiCompactionCoordinatorPolicy = Readonly<{
+  /** Legacy single timeout; used for both deadlines when split values are absent. */
   timeoutMs: number;
+  idleTimeoutMs?: number;
+  totalTimeoutMs?: number;
+  breakerStrikeLimit?: number;
+  breakerRecoveryMs?: number;
+  retryDelaysMs: readonly number[];
+}>;
+
+type ResolvedPiCompactionCoordinatorPolicy = Readonly<{
+  idleTimeoutMs: number;
+  totalTimeoutMs: number;
+  breakerStrikeLimit: number;
+  breakerRecoveryMs: number;
   retryDelaysMs: readonly number[];
 }>;
 
 export const DEFAULT_PI_COMPACTION_COORDINATOR_POLICY: PiCompactionCoordinatorPolicy = Object.freeze({
   timeoutMs: 120_000,
+  idleTimeoutMs: 120_000,
+  totalTimeoutMs: 600_000,
+  breakerStrikeLimit: 2,
+  breakerRecoveryMs: 300_000,
   retryDelaysMs: Object.freeze([30_000, 120_000, 600_000]),
 });
 
 export type PiCompactionCoordinatorResult = Readonly<{
-  state: 'succeeded' | 'no_op' | 'deferred' | 'failed' | 'aborted' | 'stale' | 'already_running' | 'cooldown_active';
+  state: 'succeeded' | 'no_op' | 'deferred' | 'failed' | 'aborted' | 'stale' | 'already_running' | 'cooldown_active' | 'breaker_active';
   attemptId: string;
   reasonCode: PiCompactionReasonCode | null;
   retryAt: Date | null;
@@ -47,6 +67,14 @@ export type PiCompactionCoordinatorStore = Readonly<{
   }>>;
   commit: (input: CommitPiCompactionSummaryInput) => Promise<CommitPiCompactionSummaryResult>;
   countRetryFailures: (scope: PiCompactionScope) => Promise<number>;
+  countIneffectiveAttempts?: (scope: PiCompactionScope) => Promise<number>;
+  progress?: (input: RecordPiCompactionProgressInput) => Promise<boolean>;
+}>;
+
+export type PiCompactionProgressReport = Readonly<{
+  stage?: string;
+  completed?: number;
+  total?: number;
 }>;
 
 export type RunPiSessionCompactionInput = PiCompactionScope & Readonly<{
@@ -66,14 +94,19 @@ export type RunPiSessionCompactionInput = PiCompactionScope & Readonly<{
   policy?: PiCompactionCoordinatorPolicy;
   store?: PiCompactionCoordinatorStore;
   isGenerationCurrent?: (generation: string) => boolean;
-  prepareCandidate: (signal: AbortSignal) => Promise<PreparePiHistoryContextResult>;
+  prepareCandidate: (
+    signal: AbortSignal,
+    reportProgress: (progress?: PiCompactionProgressReport) => void,
+  ) => Promise<PreparePiHistoryContextResult>;
 }>;
 
 type ActiveAttempt = {
   attemptId: string;
   generation: string;
   controller: AbortController;
-  termination: 'aborted' | 'stale' | 'timed_out' | null;
+  termination: 'aborted' | 'stale' | 'idle_timed_out' | 'total_timed_out' | null;
+  startedAt: Date;
+  progressEventCount: number;
 };
 
 const activeAttempts = new Map<string, ActiveAttempt>();
@@ -83,13 +116,15 @@ const DEFAULT_STORE: PiCompactionCoordinatorStore = {
   finish: finishPiSessionCompactionAttempt,
   commit: commitPiSessionCompactionSummary,
   countRetryFailures: countPiSessionCompactionRetryFailures,
+  countIneffectiveAttempts: countPiSessionCompactionIneffectiveAttempts,
+  progress: recordPiSessionCompactionProgress,
 };
 
 function scopeKey(scope: PiCompactionScope): string {
   return JSON.stringify([scope.userId, scope.sessionId, scope.agentId]);
 }
 
-function validatePolicy(policy: PiCompactionCoordinatorPolicy): PiCompactionCoordinatorPolicy {
+function validatePolicy(policy: PiCompactionCoordinatorPolicy): ResolvedPiCompactionCoordinatorPolicy {
   if (!Number.isSafeInteger(policy.timeoutMs) || policy.timeoutMs <= 0) {
     throw new Error('Compaction timeout must be a positive integer.');
   }
@@ -99,7 +134,29 @@ function validatePolicy(policy: PiCompactionCoordinatorPolicy): PiCompactionCoor
   ) {
     throw new Error('Compaction retry delays must contain non-negative integers.');
   }
-  return policy;
+  const idleTimeoutMs = policy.idleTimeoutMs ?? policy.timeoutMs;
+  const totalTimeoutMs = policy.totalTimeoutMs ?? policy.timeoutMs;
+  const breakerStrikeLimit = policy.breakerStrikeLimit ?? 2;
+  const breakerRecoveryMs = policy.breakerRecoveryMs ?? 300_000;
+  if (!Number.isSafeInteger(idleTimeoutMs) || idleTimeoutMs <= 0) {
+    throw new Error('Compaction idle timeout must be a positive integer.');
+  }
+  if (!Number.isSafeInteger(totalTimeoutMs) || totalTimeoutMs < idleTimeoutMs) {
+    throw new Error('Compaction total timeout must be an integer at least as large as the idle timeout.');
+  }
+  if (!Number.isSafeInteger(breakerStrikeLimit) || breakerStrikeLimit < 2) {
+    throw new Error('Compaction breaker strike limit must be an integer of at least two.');
+  }
+  if (!Number.isSafeInteger(breakerRecoveryMs) || breakerRecoveryMs <= 0) {
+    throw new Error('Compaction breaker recovery must be a positive integer.');
+  }
+  return Object.freeze({
+    idleTimeoutMs,
+    totalTimeoutMs,
+    breakerStrikeLimit,
+    breakerRecoveryMs,
+    retryDelaysMs: policy.retryDelaysMs,
+  });
 }
 
 function result(input: {
@@ -120,10 +177,43 @@ function result(input: {
   });
 }
 
-function getCandidateMetrics(candidate: PreparePiHistoryContextResult): PiCompactionAttemptMetrics {
+function pressureBasisPoints(tokens: number, triggerTokens: number): number | null {
+  if (triggerTokens <= 0) return null;
+  return Math.max(0, Math.round((tokens / triggerTokens) * 10_000));
+}
+
+function getCandidateMetrics(
+  candidate: PreparePiHistoryContextResult,
+  baseMetrics: PiCompactionAttemptMetrics | undefined,
+  active: ActiveAttempt,
+  finishedAt: Date,
+): PiCompactionAttemptMetrics {
   return {
+    ...baseMetrics,
     afterEstimatedTokens: candidate.composition.estimatedHistoryTokens,
     afterEstimatedBytes: candidate.composition.estimatedHistoryBytes,
+    triggerTokens: candidate.composition.triggerHistoryTokens,
+    targetTokens: candidate.composition.targetHistoryTokens,
+    afterPressureBasisPoints: pressureBasisPoints(
+      candidate.composition.estimatedHistoryTokens,
+      candidate.composition.triggerHistoryTokens,
+    ),
+    summarizedUnitCount: candidate.unsummarizedMessageCount,
+    omittedUnitCount: candidate.composition.omittedMessages.length,
+    durationMs: Math.max(0, finishedAt.getTime() - active.startedAt.getTime()),
+    progressEventCount: active.progressEventCount,
+  };
+}
+
+function getTerminalMetrics(
+  baseMetrics: PiCompactionAttemptMetrics | undefined,
+  active: ActiveAttempt,
+  finishedAt: Date,
+): PiCompactionAttemptMetrics {
+  return {
+    ...baseMetrics,
+    durationMs: Math.max(0, finishedAt.getTime() - active.startedAt.getTime()),
+    progressEventCount: active.progressEventCount,
   };
 }
 
@@ -157,7 +247,7 @@ function getTermination(active: ActiveAttempt): ActiveAttempt['termination'] {
   return active.termination;
 }
 
-function retryAtForFailure(now: Date, ordinal: number, policy: PiCompactionCoordinatorPolicy): Date {
+function retryAtForFailure(now: Date, ordinal: number, policy: ResolvedPiCompactionCoordinatorPolicy): Date {
   const index = Math.min(Math.max(0, ordinal), policy.retryDelaysMs.length - 1);
   return new Date(now.getTime() + policy.retryDelaysMs[index]);
 }
@@ -169,7 +259,7 @@ async function finishWithRetry(
   state: 'deferred' | 'failed' | 'timed_out',
   reasonCode: PiCompactionReasonCode,
   now: Date,
-  policy: PiCompactionCoordinatorPolicy,
+  policy: ResolvedPiCompactionCoordinatorPolicy,
   metrics?: PiCompactionAttemptMetrics,
   composition?: PiHistoryComposition | null,
 ): Promise<PiCompactionCoordinatorResult> {
@@ -186,6 +276,46 @@ async function finishWithRetry(
   });
   return result({
     state: state === 'timed_out' ? 'failed' : state,
+    attemptId,
+    reasonCode,
+    retryAt: finished.attempt.retryAt ?? retryAt,
+    composition,
+  });
+}
+
+async function finishNoOp(
+  store: PiCompactionCoordinatorStore,
+  scope: PiCompactionScope,
+  input: RunPiSessionCompactionInput,
+  attemptId: string,
+  reasonCode: PiCompactionReasonCode,
+  now: Date,
+  policy: ResolvedPiCompactionCoordinatorPolicy,
+  metrics: PiCompactionAttemptMetrics,
+  composition: PiHistoryComposition,
+): Promise<PiCompactionCoordinatorResult> {
+  let retryAt: Date | null = null;
+  if (
+    reasonCode === 'nothing_eligible'
+    && input.trigger !== 'manual'
+    && store.countIneffectiveAttempts
+  ) {
+    const priorStrikes = await store.countIneffectiveAttempts(scope);
+    if (priorStrikes + 1 >= policy.breakerStrikeLimit) {
+      retryAt = new Date(now.getTime() + policy.breakerRecoveryMs);
+    }
+  }
+  const finished = await store.finish({
+    ...scope,
+    attemptId,
+    state: 'no_op',
+    reasonCode,
+    retryAt,
+    metrics,
+    now,
+  });
+  return result({
+    state: 'no_op',
     attemptId,
     reasonCode,
     retryAt: finished.attempt.retryAt ?? retryAt,
@@ -217,10 +347,14 @@ export async function runPiSessionCompaction(
     generation: input.generation,
     controller: new AbortController(),
     termination: null,
+    startedAt: now,
+    progressEventCount: 0,
   };
   activeAttempts.set(key, active);
 
-  let timeout: ReturnType<typeof setTimeout> | null = null;
+  let idleTimeout: ReturnType<typeof setTimeout> | null = null;
+  let totalTimeout: ReturnType<typeof setTimeout> | null = null;
+  let progressWrites = Promise.resolve();
   let removeExternalAbort: (() => void) | null = null;
   try {
     if (input.signal?.aborted) terminate(active, 'aborted');
@@ -230,7 +364,18 @@ export async function runPiSessionCompaction(
       removeExternalAbort = () => input.signal?.removeEventListener('abort', onAbort);
     }
 
-    const deadlineAt = new Date(now.getTime() + policy.timeoutMs);
+    const deadlineAt = new Date(now.getTime() + policy.totalTimeoutMs);
+    const idleDeadlineAt = new Date(now.getTime() + policy.idleTimeoutMs);
+    const initialMetrics: PiCompactionAttemptMetrics = {
+      ...input.metrics,
+      beforePressureBasisPoints: input.metrics?.beforePressureBasisPoints
+        ?? pressureBasisPoints(
+          input.metrics?.beforeEstimatedTokens ?? 0,
+          input.metrics?.triggerTokens ?? 0,
+        ),
+      summaryProvider: input.metrics?.summaryProvider ?? input.provider,
+      summaryModel: input.metrics?.summaryModel ?? input.model,
+    };
     const started = await store.start({
       ...scope,
       attemptId,
@@ -239,12 +384,13 @@ export async function runPiSessionCompaction(
       expectedSummaryRevision: input.expectedSummaryRevision,
       expectedThroughSequence: input.expectedThroughSequence,
       deadlineAt,
+      idleDeadlineAt,
       provider: input.provider,
       model: input.model,
       contractFingerprint: input.bypassCooldown
         ? `exact-budget-retry:${input.contractFingerprint ?? input.generation}`
         : input.contractFingerprint,
-      metrics: input.metrics,
+      metrics: initialMetrics,
       expiredAttemptRetryAt: policy.retryDelaysMs[0] > 0
         ? new Date(now.getTime() + policy.retryDelaysMs[0])
         : null,
@@ -261,11 +407,26 @@ export async function runPiSessionCompaction(
         retryAt: started.attempt.retryAt,
       });
     }
+    if (started.status === 'breaker_active') {
+      return result({
+        state: 'breaker_active',
+        attemptId: started.attempt.attemptId,
+        reasonCode: 'breaker_active',
+        retryAt: started.attempt.retryAt,
+      });
+    }
     if (started.status === 'stale') {
       return result({ state: 'stale', attemptId, reasonCode: 'stale_snapshot' });
     }
     if (active.termination === 'aborted') {
-      const finished = await store.finish({ ...scope, attemptId, state: 'aborted', reasonCode: 'aborted', now });
+      const finished = await store.finish({
+        ...scope,
+        attemptId,
+        state: 'aborted',
+        reasonCode: 'aborted',
+        metrics: getTerminalMetrics(initialMetrics, active, now),
+        now,
+      });
       return result({ state: 'aborted', attemptId, reasonCode: 'aborted', retryAt: finished.attempt.retryAt });
     }
     if (active.termination === 'stale' || !(input.isGenerationCurrent?.(active.generation) ?? true)) {
@@ -274,13 +435,39 @@ export async function runPiSessionCompaction(
         attemptId,
         state: 'stale',
         reasonCode: 'stale_snapshot',
+        metrics: getTerminalMetrics(initialMetrics, active, now),
         now,
       });
       return result({ state: 'stale', attemptId, reasonCode: 'stale_snapshot', retryAt: finished.attempt.retryAt });
     }
 
-    timeout = setTimeout(() => terminate(active, 'timed_out'), policy.timeoutMs);
-    const candidatePromise = Promise.resolve().then(() => input.prepareCandidate(active.controller.signal));
+    const armIdleTimeout = () => {
+      if (idleTimeout) clearTimeout(idleTimeout);
+      idleTimeout = setTimeout(() => terminate(active, 'idle_timed_out'), policy.idleTimeoutMs);
+    };
+    const reportProgress = (_progress?: PiCompactionProgressReport) => {
+      if (!isAttemptCurrent(key, active, input)) return;
+      active.progressEventCount += 1;
+      armIdleTimeout();
+      if (store.progress) {
+        const progressNow = new Date();
+        progressWrites = progressWrites
+          .then(() => store.progress!({
+            ...scope,
+            attemptId,
+            idleDeadlineAt: new Date(progressNow.getTime() + policy.idleTimeoutMs),
+            now: progressNow,
+          }))
+          .then(() => undefined)
+          .catch(() => undefined);
+      }
+    };
+    armIdleTimeout();
+    totalTimeout = setTimeout(() => terminate(active, 'total_timed_out'), policy.totalTimeoutMs);
+    const candidatePromise = Promise.resolve().then(() => input.prepareCandidate(
+      active.controller.signal,
+      reportProgress,
+    ));
     const terminationPromise = new Promise<never>((_resolve, reject) => {
       if (active.controller.signal.aborted) {
         reject(active.controller.signal.reason);
@@ -295,9 +482,19 @@ export async function runPiSessionCompaction(
     } catch {
       void candidatePromise.catch(() => undefined);
       const finishedAt = new Date();
+      await progressWrites;
       const termination = getTermination(active);
-      if (termination === 'timed_out') {
-        return finishWithRetry(store, scope, attemptId, 'timed_out', 'summary_timeout', finishedAt, policy);
+      if (termination === 'idle_timed_out' || termination === 'total_timed_out') {
+        return finishWithRetry(
+          store,
+          scope,
+          attemptId,
+          'timed_out',
+          termination === 'idle_timed_out' ? 'summary_idle_timeout' : 'summary_total_timeout',
+          finishedAt,
+          policy,
+          getTerminalMetrics(initialMetrics, active, finishedAt),
+        );
       }
       if (termination === 'aborted') {
         const finished = await store.finish({
@@ -305,6 +502,7 @@ export async function runPiSessionCompaction(
           attemptId,
           state: 'aborted',
           reasonCode: 'aborted',
+          metrics: getTerminalMetrics(initialMetrics, active, finishedAt),
           now: finishedAt,
         });
         return result({ state: 'aborted', attemptId, reasonCode: 'aborted', retryAt: finished.attempt.retryAt });
@@ -315,6 +513,7 @@ export async function runPiSessionCompaction(
           attemptId,
           state: 'stale',
           reasonCode: 'stale_snapshot',
+          metrics: getTerminalMetrics(initialMetrics, active, finishedAt),
           now: finishedAt,
         });
         return result({ state: 'stale', attemptId, reasonCode: 'stale_snapshot', retryAt: finished.attempt.retryAt });
@@ -327,10 +526,37 @@ export async function runPiSessionCompaction(
         'summary_provider_error',
         finishedAt,
         policy,
+        getTerminalMetrics(initialMetrics, active, finishedAt),
       );
     }
 
-    const candidateMetrics = getCandidateMetrics(candidate);
+    await progressWrites;
+    const candidateFinishedAt = new Date();
+    const candidateMetrics = getCandidateMetrics(candidate, initialMetrics, active, candidateFinishedAt);
+    const termination = getTermination(active);
+    if (termination === 'idle_timed_out' || termination === 'total_timed_out') {
+      return finishWithRetry(
+        store,
+        scope,
+        attemptId,
+        'timed_out',
+        termination === 'idle_timed_out' ? 'summary_idle_timeout' : 'summary_total_timeout',
+        candidateFinishedAt,
+        policy,
+        candidateMetrics,
+      );
+    }
+    if (termination === 'aborted') {
+      const finished = await store.finish({
+        ...scope,
+        attemptId,
+        state: 'aborted',
+        reasonCode: 'aborted',
+        metrics: candidateMetrics,
+        now: candidateFinishedAt,
+      });
+      return result({ state: 'aborted', attemptId, reasonCode: 'aborted', retryAt: finished.attempt.retryAt });
+    }
     if (!isAttemptCurrent(key, active, input)) {
       const finished = await store.finish({
         ...scope,
@@ -372,21 +598,17 @@ export async function runPiSessionCompaction(
 
     if (!candidate.summaryUpdated) {
       const reasonCode = candidateFailureReason(candidate);
-      const finished = await store.finish({
-        ...scope,
-        attemptId,
-        state: 'no_op',
-        reasonCode,
-        metrics: candidateMetrics,
-        now: new Date(),
-      });
-      return result({
-        state: 'no_op',
+      return finishNoOp(
+        store,
+        scope,
+        input,
         attemptId,
         reasonCode,
-        retryAt: finished.attempt.retryAt,
-        composition: candidate.composition,
-      });
+        new Date(),
+        policy,
+        candidateMetrics,
+        candidate.composition,
+      );
     }
 
     const summaryText = candidate.summary.summaryText?.trim() || null;
@@ -408,12 +630,14 @@ export async function runPiSessionCompaction(
       });
     }
 
-    if (timeout) {
-      clearTimeout(timeout);
-      timeout = null;
-    }
+    if (idleTimeout) clearTimeout(idleTimeout);
+    idleTimeout = null;
+    if (totalTimeout) clearTimeout(totalTimeout);
+    totalTimeout = null;
     let committed: CommitPiCompactionSummaryResult;
     try {
+      const commitNow = new Date();
+      const commitMetrics = getCandidateMetrics(candidate, initialMetrics, active, commitNow);
       committed = await store.commit({
         ...scope,
         attemptId,
@@ -421,8 +645,8 @@ export async function runPiSessionCompaction(
         expectedThroughSequence: input.expectedThroughSequence,
         summaryText,
         throughSequence,
-        metrics: candidateMetrics,
-        now: new Date(),
+        metrics: commitMetrics,
+        now: commitNow,
       });
     } catch {
       const finished = await store.finish({
@@ -462,7 +686,8 @@ export async function runPiSessionCompaction(
       composition: candidate.composition,
     });
   } finally {
-    if (timeout) clearTimeout(timeout);
+    if (idleTimeout) clearTimeout(idleTimeout);
+    if (totalTimeout) clearTimeout(totalTimeout);
     removeExternalAbort?.();
     if (activeAttempts.get(key) === active) activeAttempts.delete(key);
   }

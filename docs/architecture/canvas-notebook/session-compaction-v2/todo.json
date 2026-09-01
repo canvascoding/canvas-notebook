@@ -311,7 +311,8 @@
       "id": "SC-P06",
       "order": 6,
       "title": "Apply Hermes durability and anti-thrash invariants to Canvas coordinator",
-      "status": "planned",
+      "status": "completed",
+      "completedAt": "2026-09-01",
       "dependsOn": ["SC-P05"],
       "hermesReferences": [
         "agent/conversation_compression.py:CompressionCommitFence",
@@ -333,6 +334,14 @@
         "late worker and stale generation tests",
         "progress timeout tests",
         "anti-thrash persistence and recovery tests"
+      ],
+      "completionEvidence": [
+        "Progress heartbeats durably extend only the idle deadline while a separate absolute total deadline cannot be extended",
+        "Late workers, stale generations, stale session revisions and changed workspace context cannot cross the existing atomic commit fence",
+        "Two persisted ineffective automatic attempts open a 300-second breaker and expiry permits one recovery probe without a busy loop",
+        "The existing manual one-shot bypass remains scoped to cooldown and breaker state and never bypasses a running lock or commit fence",
+        "SQLite and PostgreSQL persist content-free trigger, pressure, region, anchor, provider, duration, progress and error telemetry with matching migrations",
+        "Coordinator, store, live runtime and automation tests plus TypeScript and focused ESLint pass"
       ],
       "exitGate": "SC-G06_COORDINATOR_DURABLE"
     },

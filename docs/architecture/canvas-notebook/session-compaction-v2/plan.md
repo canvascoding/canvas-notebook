@@ -419,6 +419,18 @@ Gate:
 - Abgebrochene oder verspaetete Worker koennen nicht nachtraeglich committen.
 - Kein Endlos- oder Busy-Loop bei ineffektiver Compaction.
 
+Umsetzungsstand 2026-09-01: abgeschlossen. Coordinator und Store trennen nun
+eine durch Fortschritt verlaengerbare 120-Sekunden-Idle-Deadline von der
+absoluten 600-Sekunden-Grenze; spaete Worker verlieren weiterhin am
+Commit-Fence. Zwei dauerhaft gespeicherte, ineffektive automatische Versuche
+oeffnen fuer 300 Sekunden den Anti-Thrash-Breaker, danach ist genau ein
+Recovery-Probe moeglich. Der manuelle Einmal-Bypass umgeht nur Cooldown bzw.
+Breaker, niemals Lock, Generation, Revision oder Workspace-Fence. SQLite und
+PostgreSQL persistieren inhaltsfreie Attempt-Telemetrie, Fortschritt, Dauer und
+getrennte Timeout-Ursachen. Coordinator-, Store-, Live- und
+Automationsintegrationstests sowie TypeScript und fokussiertes ESLint sind
+gruen.
+
 ### SC-P07: Runtime-Trigger und finale Sendability integrieren
 
 Hermes-Rueckschluss:

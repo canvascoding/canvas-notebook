@@ -26,10 +26,13 @@ export type PiCompactionReasonCode =
   | 'history_not_durable'
   | 'summary_provider_error'
   | 'summary_timeout'
+  | 'summary_idle_timeout'
+  | 'summary_total_timeout'
   | 'aborted'
   | 'stale_snapshot'
   | 'persistence_conflict'
   | 'cooldown_active'
+  | 'breaker_active'
   | 'provider_context_overflow'
   | 'payload_bytes_exceeded';
 
@@ -41,6 +44,32 @@ export type PiCompactionAttemptMetrics = Readonly<{
   protectedUnitCount?: number | null;
   summarizedUnitCount?: number | null;
   omittedUnitCount?: number | null;
+  triggerTokens?: number | null;
+  targetTokens?: number | null;
+  beforePressureBasisPoints?: number | null;
+  afterPressureBasisPoints?: number | null;
+  headUnitCount?: number | null;
+  middleUnitCount?: number | null;
+  tailUnitCount?: number | null;
+  anchorCount?: number | null;
+  summaryProvider?: string | null;
+  summaryModel?: string | null;
+  durationMs?: number | null;
+  progressEventCount?: number | null;
+}>;
+
+export type PiCompactionAttemptTelemetry = Readonly<{
+  triggerTokens: number | null;
+  targetTokens: number | null;
+  beforePressureBasisPoints: number | null;
+  afterPressureBasisPoints: number | null;
+  headUnitCount: number | null;
+  middleUnitCount: number | null;
+  tailUnitCount: number | null;
+  anchorCount: number | null;
+  summaryProvider: string | null;
+  summaryModel: string | null;
+  errorClass: PiCompactionReasonCode | null;
 }>;
 
 export type PiCompactionScope = Readonly<{
@@ -69,6 +98,11 @@ export type PiCompactionAttemptRecord = Readonly<{
   deadlineAt: Date;
   completedAt: Date | null;
   retryAt: Date | null;
+  idleDeadlineAt: Date | null;
+  lastProgressAt: Date | null;
+  progressEventCount: number;
+  durationMs: number | null;
+  telemetry: PiCompactionAttemptTelemetry;
 }>;
 
 export type PiMessageSequenceAudit = Readonly<{
@@ -108,6 +142,11 @@ type AttemptRow = {
   deadline_at: number | string;
   completed_at: number | string | null;
   retry_at: number | string | null;
+  idle_deadline_at: number | string | null;
+  last_progress_at: number | string | null;
+  progress_event_count: number | string;
+  duration_ms: number | string | null;
+  telemetry_json: string | null;
 };
 
 const TERMINAL_ATTEMPT_STATES = new Set<PiCompactionAttemptState>([
@@ -120,6 +159,12 @@ const TERMINAL_ATTEMPT_STATES = new Set<PiCompactionAttemptState>([
   'timed_out',
 ]);
 const MAX_COMPACTION_SUMMARY_CHARACTERS = 200_000;
+const ATTEMPT_SELECT_COLUMNS = `id, pi_session_db_id, attempt_ordinal, trigger, state, reason_code,
+  base_summary_revision, committed_summary_revision,
+  base_through_sequence, committed_through_sequence,
+  message_sequence_checkpoint, contract_fingerprint, provider, model,
+  started_at, deadline_at, completed_at, retry_at,
+  idle_deadline_at, last_progress_at, progress_event_count, duration_ms, telemetry_json`;
 
 export class PiCompactionScopeError extends Error {
   constructor() {
@@ -171,6 +216,62 @@ function nonNegativeMetric(value: number | null | undefined, name: string): numb
   return Math.floor(value);
 }
 
+function nullableText(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? '';
+  return normalized || null;
+}
+
+function parseTelemetry(value: string | null): PiCompactionAttemptTelemetry {
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = value ? JSON.parse(value) as Record<string, unknown> : {};
+  } catch {
+    parsed = {};
+  }
+  return Object.freeze({
+    triggerTokens: nullableInteger(parsed.triggerTokens),
+    targetTokens: nullableInteger(parsed.targetTokens),
+    beforePressureBasisPoints: nullableInteger(parsed.beforePressureBasisPoints),
+    afterPressureBasisPoints: nullableInteger(parsed.afterPressureBasisPoints),
+    headUnitCount: nullableInteger(parsed.headUnitCount),
+    middleUnitCount: nullableInteger(parsed.middleUnitCount),
+    tailUnitCount: nullableInteger(parsed.tailUnitCount),
+    anchorCount: nullableInteger(parsed.anchorCount),
+    summaryProvider: nullableText(typeof parsed.summaryProvider === 'string' ? parsed.summaryProvider : null),
+    summaryModel: nullableText(typeof parsed.summaryModel === 'string' ? parsed.summaryModel : null),
+    errorClass: typeof parsed.errorClass === 'string'
+      ? parsed.errorClass as PiCompactionReasonCode
+      : null,
+  });
+}
+
+function mergeTelemetry(
+  previous: string | null,
+  metrics: PiCompactionAttemptMetrics,
+  errorClass: PiCompactionReasonCode | null,
+): string {
+  const prior = parseTelemetry(previous);
+  return JSON.stringify({
+    triggerTokens: nonNegativeMetric(metrics.triggerTokens, 'triggerTokens') ?? prior.triggerTokens,
+    targetTokens: nonNegativeMetric(metrics.targetTokens, 'targetTokens') ?? prior.targetTokens,
+    beforePressureBasisPoints: nonNegativeMetric(
+      metrics.beforePressureBasisPoints,
+      'beforePressureBasisPoints',
+    ) ?? prior.beforePressureBasisPoints,
+    afterPressureBasisPoints: nonNegativeMetric(
+      metrics.afterPressureBasisPoints,
+      'afterPressureBasisPoints',
+    ) ?? prior.afterPressureBasisPoints,
+    headUnitCount: nonNegativeMetric(metrics.headUnitCount, 'headUnitCount') ?? prior.headUnitCount,
+    middleUnitCount: nonNegativeMetric(metrics.middleUnitCount, 'middleUnitCount') ?? prior.middleUnitCount,
+    tailUnitCount: nonNegativeMetric(metrics.tailUnitCount, 'tailUnitCount') ?? prior.tailUnitCount,
+    anchorCount: nonNegativeMetric(metrics.anchorCount, 'anchorCount') ?? prior.anchorCount,
+    summaryProvider: nullableText(metrics.summaryProvider) ?? prior.summaryProvider,
+    summaryModel: nullableText(metrics.summaryModel) ?? prior.summaryModel,
+    errorClass,
+  } satisfies PiCompactionAttemptTelemetry);
+}
+
 function validateScope(scope: PiCompactionScope): PiCompactionScope {
   const sessionId = scope.sessionId.trim();
   const userId = scope.userId.trim();
@@ -181,6 +282,7 @@ function validateScope(scope: PiCompactionScope): PiCompactionScope {
 }
 
 function mapAttempt(row: AttemptRow): PiCompactionAttemptRecord {
+  const telemetry = parseTelemetry(row.telemetry_json);
   return Object.freeze({
     attemptId: row.id,
     piSessionDbId: row.pi_session_db_id,
@@ -200,6 +302,13 @@ function mapAttempt(row: AttemptRow): PiCompactionAttemptRecord {
     deadlineAt: databaseDate(row.deadline_at)!,
     completedAt: databaseDate(row.completed_at),
     retryAt: databaseDate(row.retry_at),
+    idleDeadlineAt: databaseDate(row.idle_deadline_at),
+    lastProgressAt: databaseDate(row.last_progress_at),
+    progressEventCount: integer(row.progress_event_count),
+    durationMs: nullableInteger(row.duration_ms),
+    telemetry: telemetry.errorClass || !row.reason_code
+      ? telemetry
+      : Object.freeze({ ...telemetry, errorClass: row.reason_code }),
   });
 }
 
@@ -257,11 +366,7 @@ async function getAttemptForSession(
 ): Promise<AttemptRow | null> {
   const lock = forUpdate && provider === 'postgres' ? ' FOR UPDATE' : '';
   return await connection.get(
-    `SELECT id, pi_session_db_id, attempt_ordinal, trigger, state, reason_code,
-            base_summary_revision, committed_summary_revision,
-            base_through_sequence, committed_through_sequence,
-            message_sequence_checkpoint, contract_fingerprint, provider, model,
-            started_at, deadline_at, completed_at, retry_at
+    `SELECT ${ATTEMPT_SELECT_COLUMNS}
      FROM pi_session_compaction_attempts
      WHERE id = ? AND pi_session_db_id = ?
      LIMIT 1${lock}`,
@@ -313,6 +418,7 @@ export type StartPiCompactionAttemptInput = PiCompactionScope & Readonly<{
   expectedSummaryRevision: number;
   expectedThroughSequence: number | null;
   deadlineAt: Date;
+  idleDeadlineAt?: Date | null;
   provider: string;
   model: string;
   contractFingerprint?: string | null;
@@ -325,6 +431,7 @@ export type StartPiCompactionAttemptResult =
   | Readonly<{ status: 'started'; attempt: PiCompactionAttemptRecord }>
   | Readonly<{ status: 'already_running'; attempt: PiCompactionAttemptRecord }>
   | Readonly<{ status: 'cooldown_active'; attempt: PiCompactionAttemptRecord }>
+  | Readonly<{ status: 'breaker_active'; attempt: PiCompactionAttemptRecord }>
   | Readonly<{ status: 'stale'; currentSummaryRevision: number; currentThroughSequence: number | null }>;
 
 export async function startPiSessionCompactionAttemptOnConnection(
@@ -351,6 +458,9 @@ export async function startPiSessionCompactionAttemptOnConnection(
     throw new Error('expiredAttemptRetryAt must be in the future.');
   }
   if (input.deadlineAt.getTime() <= now.getTime()) throw new Error('Compaction deadline must be in the future.');
+  if (input.idleDeadlineAt && input.idleDeadlineAt.getTime() <= now.getTime()) {
+    throw new Error('Compaction idle deadline must be in the future.');
+  }
   const metrics = input.metrics ?? {};
 
   return withTransaction(connection, provider, async () => {
@@ -358,23 +468,31 @@ export async function startPiSessionCompactionAttemptOnConnection(
     const nowTimestamp = toDatabaseTimestamp(now);
     await connection.run(
       `UPDATE pi_session_compaction_attempts
-       SET state = 'timed_out', reason_code = 'summary_timeout', completed_at = ?,
-           retry_at = COALESCE(retry_at, ?), updated_at = ?
-       WHERE pi_session_db_id = ? AND state = 'running' AND deadline_at <= ?`,
+       SET state = 'timed_out',
+           reason_code = CASE
+             WHEN idle_deadline_at IS NOT NULL AND idle_deadline_at <= ? AND deadline_at > ?
+               THEN 'summary_idle_timeout'
+             ELSE 'summary_total_timeout'
+           END,
+           completed_at = ?, retry_at = COALESCE(retry_at, ?), updated_at = ?,
+           duration_ms = CASE WHEN ? > started_at THEN (? - started_at) * 1000 ELSE 0 END
+       WHERE pi_session_db_id = ? AND state = 'running'
+         AND (deadline_at <= ? OR (idle_deadline_at IS NOT NULL AND idle_deadline_at <= ?))`,
       [
+        nowTimestamp,
+        nowTimestamp,
         nowTimestamp,
         input.expiredAttemptRetryAt ? toDatabaseTimestamp(input.expiredAttemptRetryAt) : null,
         nowTimestamp,
+        nowTimestamp,
+        nowTimestamp,
         session.id,
+        nowTimestamp,
         nowTimestamp,
       ],
     );
     const existing = await connection.get(
-      `SELECT id, pi_session_db_id, attempt_ordinal, trigger, state, reason_code,
-              base_summary_revision, committed_summary_revision,
-              base_through_sequence, committed_through_sequence,
-              message_sequence_checkpoint, contract_fingerprint, provider, model,
-              started_at, deadline_at, completed_at, retry_at
+      `SELECT ${ATTEMPT_SELECT_COLUMNS}
        FROM pi_session_compaction_attempts
        WHERE pi_session_db_id = ? AND state = 'running'
        ORDER BY attempt_ordinal DESC
@@ -384,11 +502,7 @@ export async function startPiSessionCompactionAttemptOnConnection(
     if (existing) return { status: 'already_running', attempt: mapAttempt(existing) };
 
     const latestTerminal = await connection.get(
-      `SELECT id, pi_session_db_id, attempt_ordinal, trigger, state, reason_code,
-              base_summary_revision, committed_summary_revision,
-              base_through_sequence, committed_through_sequence,
-              message_sequence_checkpoint, contract_fingerprint, provider, model,
-              started_at, deadline_at, completed_at, retry_at
+      `SELECT ${ATTEMPT_SELECT_COLUMNS}
        FROM pi_session_compaction_attempts
        WHERE pi_session_db_id = ? AND state <> 'running'
        ORDER BY attempt_ordinal DESC
@@ -397,11 +511,7 @@ export async function startPiSessionCompactionAttemptOnConnection(
     ) as AttemptRow | undefined;
     if (latestTerminal?.state !== 'succeeded') {
       const cooldownAttempt = await connection.get(
-        `SELECT id, pi_session_db_id, attempt_ordinal, trigger, state, reason_code,
-                base_summary_revision, committed_summary_revision,
-                base_through_sequence, committed_through_sequence,
-                message_sequence_checkpoint, contract_fingerprint, provider, model,
-                started_at, deadline_at, completed_at, retry_at
+        `SELECT ${ATTEMPT_SELECT_COLUMNS}
          FROM pi_session_compaction_attempts
          WHERE pi_session_db_id = ? AND retry_at > ?
          ORDER BY attempt_ordinal DESC
@@ -428,7 +538,12 @@ export async function startPiSessionCompactionAttemptOnConnection(
           bypassAvailable = previousManualBypass?.id === undefined;
         }
         if (!bypassAvailable) {
-          return { status: 'cooldown_active', attempt: mapAttempt(cooldownAttempt) };
+          const breakerActive = cooldownAttempt.state === 'no_op'
+            && cooldownAttempt.reason_code === 'nothing_eligible';
+          return {
+            status: breakerActive ? 'breaker_active' : 'cooldown_active',
+            attempt: mapAttempt(cooldownAttempt),
+          };
         }
       }
     }
@@ -455,6 +570,10 @@ export async function startPiSessionCompactionAttemptOnConnection(
     ) as { next_ordinal?: number | string } | undefined;
     const attemptOrdinal = integer(ordinalRow?.next_ordinal, 1);
     const deadlineTimestamp = toDatabaseTimestamp(input.deadlineAt);
+    const idleDeadlineTimestamp = input.idleDeadlineAt
+      ? toDatabaseTimestamp(input.idleDeadlineAt)
+      : null;
+    const telemetryJson = mergeTelemetry(null, metrics, null);
     await connection.run(
       `INSERT INTO pi_session_compaction_attempts (
          id, pi_session_db_id, attempt_ordinal, trigger, state, reason_code,
@@ -464,8 +583,9 @@ export async function startPiSessionCompactionAttemptOnConnection(
          before_estimated_tokens, after_estimated_tokens,
          before_estimated_bytes, after_estimated_bytes,
          protected_unit_count, summarized_unit_count, omitted_unit_count,
-         started_at, deadline_at, completed_at, retry_at, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, 'running', NULL, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, NULL, NULL, ?, ?, NULL, NULL, ?, ?)`,
+         started_at, deadline_at, completed_at, retry_at, created_at, updated_at,
+         idle_deadline_at, last_progress_at, progress_event_count, duration_ms, telemetry_json
+       ) VALUES (?, ?, ?, ?, 'running', NULL, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, NULL, NULL, ?, ?, NULL, NULL, ?, ?, ?, ?, 0, NULL, ?)`,
       [
         attemptId,
         session.id,
@@ -484,6 +604,9 @@ export async function startPiSessionCompactionAttemptOnConnection(
         deadlineTimestamp,
         nowTimestamp,
         nowTimestamp,
+        idleDeadlineTimestamp,
+        nowTimestamp,
+        telemetryJson,
       ],
     );
     const inserted = await getAttemptForSession(connection, attemptId, session.id, false, provider);
@@ -515,6 +638,67 @@ export async function countPiSessionCompactionRetryFailuresOnConnection(
   });
 }
 
+export async function countPiSessionCompactionIneffectiveAttemptsOnConnection(
+  connection: SqlConnection,
+  provider: DatabaseProvider,
+  scopeInput: PiCompactionScope,
+): Promise<number> {
+  const scope = validateScope(scopeInput);
+  return withTransaction(connection, provider, async () => {
+    const session = await getScopedSessionForUpdate(connection, provider, scope);
+    const row = await connection.get(
+      `SELECT COUNT(*) AS ineffective_count
+       FROM pi_session_compaction_attempts
+       WHERE pi_session_db_id = ?
+         AND trigger IN ('automatic', 'automation')
+         AND state = 'no_op' AND reason_code = 'nothing_eligible'
+         AND attempt_ordinal > COALESCE((
+           SELECT MAX(attempt_ordinal)
+           FROM pi_session_compaction_attempts
+           WHERE pi_session_db_id = ? AND state = 'succeeded'
+         ), 0)`,
+      [session.id, session.id],
+    ) as { ineffective_count?: number | string } | undefined;
+    return integer(row?.ineffective_count);
+  });
+}
+
+export type RecordPiCompactionProgressInput = PiCompactionScope & Readonly<{
+  attemptId: string;
+  idleDeadlineAt: Date;
+  now?: Date;
+}>;
+
+export async function recordPiSessionCompactionProgressOnConnection(
+  connection: SqlConnection,
+  provider: DatabaseProvider,
+  input: RecordPiCompactionProgressInput,
+): Promise<boolean> {
+  const scope = validateScope(input);
+  const now = input.now ?? new Date();
+  if (input.idleDeadlineAt.getTime() <= now.getTime()) {
+    throw new Error('Compaction progress must extend the idle deadline.');
+  }
+  return withTransaction(connection, provider, async () => {
+    const session = await getScopedSessionForUpdate(connection, provider, scope);
+    const timestamp = toDatabaseTimestamp(now);
+    const updated = await connection.run(
+      `UPDATE pi_session_compaction_attempts
+       SET last_progress_at = ?, idle_deadline_at = ?,
+           progress_event_count = progress_event_count + 1, updated_at = ?
+       WHERE id = ? AND pi_session_db_id = ? AND state = 'running'`,
+      [
+        timestamp,
+        toDatabaseTimestamp(input.idleDeadlineAt),
+        timestamp,
+        input.attemptId.trim(),
+        session.id,
+      ],
+    );
+    return changes(updated) === 1;
+  });
+}
+
 export type FinishPiCompactionAttemptInput = PiCompactionScope & Readonly<{
   attemptId: string;
   state: Exclude<PiCompactionAttemptState, 'running' | 'succeeded'>;
@@ -541,12 +725,20 @@ export async function finishPiSessionCompactionAttemptOnConnection(
     if (!attempt) throw new PiCompactionScopeError();
     if (attempt.state !== 'running') return { changed: false, attempt: mapAttempt(attempt) };
     const timestamp = toDatabaseTimestamp(now);
+    const durationMs = nonNegativeMetric(
+      metrics.durationMs ?? Math.max(0, now.getTime() - databaseDate(attempt.started_at)!.getTime()),
+      'durationMs',
+    );
+    const progressEventCount = nonNegativeMetric(metrics.progressEventCount, 'progressEventCount');
+    const telemetryJson = mergeTelemetry(attempt.telemetry_json, metrics, input.reasonCode);
     const result = await connection.run(
       `UPDATE pi_session_compaction_attempts
        SET state = ?, reason_code = ?, completed_at = ?, retry_at = ?, updated_at = ?,
            after_estimated_tokens = ?, after_estimated_bytes = ?,
            protected_unit_count = COALESCE(?, protected_unit_count),
-           summarized_unit_count = ?, omitted_unit_count = ?
+           summarized_unit_count = ?, omitted_unit_count = ?,
+           duration_ms = ?, progress_event_count = COALESCE(?, progress_event_count),
+           telemetry_json = ?
        WHERE id = ? AND pi_session_db_id = ? AND state = 'running'`,
       [
         input.state,
@@ -559,6 +751,9 @@ export async function finishPiSessionCompactionAttemptOnConnection(
         nonNegativeMetric(metrics.protectedUnitCount, 'protectedUnitCount'),
         nonNegativeMetric(metrics.summarizedUnitCount, 'summarizedUnitCount'),
         nonNegativeMetric(metrics.omittedUnitCount, 'omittedUnitCount'),
+        durationMs,
+        progressEventCount,
+        telemetryJson,
         attempt.id,
         session.id,
       ],
@@ -629,11 +824,19 @@ export async function commitPiSessionCompactionSummaryOnConnection(
       || (currentThroughSequence !== null && input.throughSequence < currentThroughSequence);
     if (stale) {
       const timestamp = toDatabaseTimestamp(now);
+      const durationMs = nonNegativeMetric(
+        metrics.durationMs ?? Math.max(0, now.getTime() - databaseDate(attempt.started_at)!.getTime()),
+        'durationMs',
+      );
+      const progressEventCount = nonNegativeMetric(metrics.progressEventCount, 'progressEventCount');
+      const telemetryJson = mergeTelemetry(attempt.telemetry_json, metrics, 'stale_snapshot');
       await connection.run(
         `UPDATE pi_session_compaction_attempts
-         SET state = 'stale', reason_code = 'stale_snapshot', completed_at = ?, updated_at = ?
+         SET state = 'stale', reason_code = 'stale_snapshot', completed_at = ?, updated_at = ?,
+             duration_ms = ?, progress_event_count = COALESCE(?, progress_event_count),
+             telemetry_json = ?
          WHERE id = ? AND pi_session_db_id = ? AND state = 'running'`,
-        [timestamp, timestamp, attempt.id, session.id],
+        [timestamp, timestamp, durationMs, progressEventCount, telemetryJson, attempt.id, session.id],
       );
       const updated = await getAttemptForSession(connection, attempt.id, session.id, false, provider);
       if (!updated) throw new PiCompactionPersistenceConflictError();
@@ -653,6 +856,12 @@ export async function commitPiSessionCompactionSummaryOnConnection(
     const summaryUpdatedAt = toDatabaseTimestamp(now);
     const summaryThroughTimestamp = integer(boundaryMessage.timestamp);
     const nextRevision = currentRevision + 1;
+    const durationMs = nonNegativeMetric(
+      metrics.durationMs ?? Math.max(0, now.getTime() - databaseDate(attempt.started_at)!.getTime()),
+      'durationMs',
+    );
+    const progressEventCount = nonNegativeMetric(metrics.progressEventCount, 'progressEventCount');
+    const telemetryJson = mergeTelemetry(attempt.telemetry_json, metrics, null);
     const sessionUpdate = await connection.run(
       `UPDATE pi_sessions
        SET summary_text = ?, summary_updated_at = ?, summary_through_timestamp = ?,
@@ -678,7 +887,9 @@ export async function commitPiSessionCompactionSummaryOnConnection(
            committed_through_sequence = ?, completed_at = ?, updated_at = ?,
            after_estimated_tokens = ?, after_estimated_bytes = ?,
            protected_unit_count = COALESCE(?, protected_unit_count),
-           summarized_unit_count = ?, omitted_unit_count = ?
+           summarized_unit_count = ?, omitted_unit_count = ?,
+           duration_ms = ?, progress_event_count = COALESCE(?, progress_event_count),
+           telemetry_json = ?
        WHERE id = ? AND pi_session_db_id = ? AND state = 'running'`,
       [
         nextRevision,
@@ -690,6 +901,9 @@ export async function commitPiSessionCompactionSummaryOnConnection(
         nonNegativeMetric(metrics.protectedUnitCount, 'protectedUnitCount'),
         nonNegativeMetric(metrics.summarizedUnitCount, 'summarizedUnitCount'),
         nonNegativeMetric(metrics.omittedUnitCount, 'omittedUnitCount'),
+        durationMs,
+        progressEventCount,
+        telemetryJson,
         attempt.id,
         session.id,
       ],
@@ -751,6 +965,22 @@ export function countPiSessionCompactionRetryFailures(
 ): Promise<number> {
   return withCompactionConnection(input, (connection, provider) => (
     countPiSessionCompactionRetryFailuresOnConnection(connection, provider, input)
+  ));
+}
+
+export function countPiSessionCompactionIneffectiveAttempts(
+  input: PiCompactionScope,
+): Promise<number> {
+  return withCompactionConnection(input, (connection, provider) => (
+    countPiSessionCompactionIneffectiveAttemptsOnConnection(connection, provider, input)
+  ));
+}
+
+export function recordPiSessionCompactionProgress(
+  input: RecordPiCompactionProgressInput,
+): Promise<boolean> {
+  return withCompactionConnection(input, (connection, provider) => (
+    recordPiSessionCompactionProgressOnConnection(connection, provider, input)
   ));
 }
 

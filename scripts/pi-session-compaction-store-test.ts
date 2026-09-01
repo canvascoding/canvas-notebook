@@ -9,10 +9,12 @@ import { runPostgresMigrations } from '../app/lib/db/postgres';
 import {
   auditPiMessageSequenceIntegrityOnConnection,
   commitPiSessionCompactionSummaryOnConnection,
+  countPiSessionCompactionIneffectiveAttemptsOnConnection,
   countPiSessionCompactionRetryFailuresOnConnection,
   finishPiSessionCompactionAttemptOnConnection,
   PiCompactionHistoryIntegrityError,
   PiCompactionScopeError,
+  recordPiSessionCompactionProgressOnConnection,
   startPiSessionCompactionAttemptOnConnection,
 } from '../app/lib/pi/session-compaction-store';
 
@@ -136,13 +138,35 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     provider: 'test-provider',
     model: 'test-model',
     contractFingerprint: 'fingerprint-without-content',
-    metrics: { beforeEstimatedTokens: 2_000, beforeEstimatedBytes: 8_000, protectedUnitCount: 1 },
+    metrics: {
+      beforeEstimatedTokens: 2_000,
+      beforeEstimatedBytes: 8_000,
+      protectedUnitCount: 1,
+      triggerTokens: 1_800,
+      targetTokens: 900,
+      beforePressureBasisPoints: 11_111,
+      headUnitCount: 1,
+      middleUnitCount: 2,
+      tailUnitCount: 1,
+      anchorCount: 4,
+      summaryProvider: 'summary-provider',
+      summaryModel: 'summary-model',
+    },
+    idleDeadlineAt: new Date('2026-08-27T10:02:00.000Z'),
     now,
   });
   assert.equal(started.status, 'started');
   assert.equal(started.attempt.attemptOrdinal, 1);
   assert.equal(started.attempt.messageSequenceCheckpoint, 3);
   assert.equal(Object.isFrozen(started.attempt), true);
+  assert.equal(started.attempt.telemetry.summaryModel, 'summary-model');
+  assert.equal(started.attempt.telemetry.anchorCount, 4);
+  assert.equal(await recordPiSessionCompactionProgressOnConnection(connection, provider, {
+    ...scope,
+    attemptId: started.attempt.attemptId,
+    idleDeadlineAt: new Date('2026-08-27T10:03:00.000Z'),
+    now: new Date('2026-08-27T10:01:00.000Z'),
+  }), true);
 
   const secondStart = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
     ...scope,
@@ -175,7 +199,14 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     expectedThroughSequence: null,
     summaryText: 'Bounded internal summary',
     throughSequence: 3,
-    metrics: { afterEstimatedTokens: 900, afterEstimatedBytes: 3_600, summarizedUnitCount: 2, omittedUnitCount: 2 },
+    metrics: {
+      afterEstimatedTokens: 900,
+      afterEstimatedBytes: 3_600,
+      afterPressureBasisPoints: 5_000,
+      summarizedUnitCount: 2,
+      omittedUnitCount: 2,
+      progressEventCount: 1,
+    },
     now: new Date('2026-08-27T10:01:00.000Z'),
   });
   assert.equal(committed.status, 'committed');
@@ -184,6 +215,13 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   assert.equal(committed.summary.summaryThroughTimestamp, 1_700_000_003);
   assert.equal(committed.attempt.state, 'succeeded');
   assert.equal(committed.attempt.committedSummaryRevision, 1);
+  assert.equal(committed.attempt.progressEventCount, 1);
+  assert.equal(committed.attempt.lastProgressAt?.toISOString(), '2026-08-27T10:01:00.000Z');
+  assert.equal(committed.attempt.idleDeadlineAt?.toISOString(), '2026-08-27T10:03:00.000Z');
+  assert.equal(committed.attempt.durationMs, 60_000);
+  assert.equal(committed.attempt.telemetry.beforePressureBasisPoints, 11_111);
+  assert.equal(committed.attempt.telemetry.afterPressureBasisPoints, 5_000);
+  assert.equal(committed.attempt.telemetry.errorClass, null);
 
   const persisted = await connection.get(
     `SELECT summary_text, summary_revision, summary_through_sequence,
@@ -407,6 +445,150 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     0,
   );
 
+  const ineffectiveOne = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-ineffective-1`,
+    trigger: 'automatic',
+    expectedSummaryRevision: 3,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:25:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    now: new Date('2026-08-27T10:19:00.000Z'),
+  });
+  assert.equal(ineffectiveOne.status, 'started');
+  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-ineffective-1`,
+    state: 'no_op',
+    reasonCode: 'nothing_eligible',
+    now: new Date('2026-08-27T10:19:30.000Z'),
+  });
+  assert.equal(
+    await countPiSessionCompactionIneffectiveAttemptsOnConnection(connection, provider, scope),
+    1,
+  );
+
+  const ineffectiveTwo = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-ineffective-2`,
+    trigger: 'automatic',
+    expectedSummaryRevision: 3,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:26:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    now: new Date('2026-08-27T10:20:00.000Z'),
+  });
+  assert.equal(ineffectiveTwo.status, 'started');
+  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-ineffective-2`,
+    state: 'no_op',
+    reasonCode: 'nothing_eligible',
+    retryAt: new Date('2026-08-27T10:25:30.000Z'),
+    now: new Date('2026-08-27T10:20:30.000Z'),
+  });
+  assert.equal(
+    await countPiSessionCompactionIneffectiveAttemptsOnConnection(connection, provider, scope),
+    2,
+  );
+  const breakerBlocked = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-breaker-blocked`,
+    trigger: 'automatic',
+    expectedSummaryRevision: 3,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:27:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    now: new Date('2026-08-27T10:21:00.000Z'),
+  });
+  assert.equal(breakerBlocked.status, 'breaker_active');
+
+  const breakerManualProbe = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-breaker-manual-probe`,
+    trigger: 'manual',
+    expectedSummaryRevision: 3,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:27:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    now: new Date('2026-08-27T10:21:00.000Z'),
+  });
+  assert.equal(breakerManualProbe.status, 'started');
+  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-breaker-manual-probe`,
+    state: 'no_op',
+    reasonCode: 'nothing_eligible',
+    now: new Date('2026-08-27T10:21:30.000Z'),
+  });
+  const secondManualProbe = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-breaker-manual-second`,
+    trigger: 'manual',
+    expectedSummaryRevision: 3,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:28:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    now: new Date('2026-08-27T10:22:00.000Z'),
+  });
+  assert.equal(secondManualProbe.status, 'breaker_active');
+
+  const recoveryProbe = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-breaker-recovery`,
+    trigger: 'automatic',
+    expectedSummaryRevision: 3,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:32:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    now: new Date('2026-08-27T10:26:00.000Z'),
+  });
+  assert.equal(recoveryProbe.status, 'started');
+  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-breaker-recovery`,
+    state: 'aborted',
+    reasonCode: 'aborted',
+    now: new Date('2026-08-27T10:26:30.000Z'),
+  });
+
+  const orphanedIdleAttempt = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-orphaned-idle`,
+    trigger: 'automatic',
+    expectedSummaryRevision: 3,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:40:00.000Z'),
+    idleDeadlineAt: new Date('2026-08-27T10:28:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    now: new Date('2026-08-27T10:27:00.000Z'),
+  });
+  assert.equal(orphanedIdleAttempt.status, 'started');
+  const reapedIdleAttempt = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    ...scope,
+    attemptId: `attempt-${provider}-after-orphaned-idle`,
+    trigger: 'automatic',
+    expectedSummaryRevision: 3,
+    expectedThroughSequence: 4,
+    deadlineAt: new Date('2026-08-27T10:45:00.000Z'),
+    idleDeadlineAt: new Date('2026-08-27T10:31:00.000Z'),
+    provider: 'test-provider',
+    model: 'test-model',
+    expiredAttemptRetryAt: new Date('2026-08-27T10:34:00.000Z'),
+    now: new Date('2026-08-27T10:29:00.000Z'),
+  });
+  assert.equal(reapedIdleAttempt.status, 'cooldown_active');
+  assert.equal(reapedIdleAttempt.attempt.state, 'timed_out');
+  assert.equal(reapedIdleAttempt.attempt.reasonCode, 'summary_idle_timeout');
+  assert.equal(reapedIdleAttempt.attempt.durationMs, 120_000);
+
   await assert.rejects(
     startPiSessionCompactionAttemptOnConnection(connection, provider, {
       ...scope,
@@ -415,10 +597,10 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
       trigger: 'manual',
       expectedSummaryRevision: 3,
       expectedThroughSequence: 4,
-      deadlineAt,
+      deadlineAt: new Date('2026-08-27T10:45:00.000Z'),
       provider: 'test-provider',
       model: 'test-model',
-      now,
+      now: new Date('2026-08-27T10:40:00.000Z'),
     }),
     PiCompactionScopeError,
   );
@@ -446,10 +628,10 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
       trigger: 'manual',
       expectedSummaryRevision: 3,
       expectedThroughSequence: 4,
-      deadlineAt,
+      deadlineAt: new Date('2026-08-27T10:45:00.000Z'),
       provider: 'test-provider',
       model: 'test-model',
-      now,
+      now: new Date('2026-08-27T10:40:00.000Z'),
     }),
     PiCompactionHistoryIntegrityError,
   );
@@ -465,6 +647,9 @@ async function main(): Promise<void> {
     assert.ok(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pi_session_compaction_attempts'").get());
     const attemptColumns = sqlite.prepare('PRAGMA table_info(pi_session_compaction_attempts)').all() as Array<{ name: string }>;
     assert.ok(attemptColumns.some((column) => column.name === 'attempt_ordinal'));
+    assert.ok(attemptColumns.some((column) => column.name === 'telemetry_json'));
+    assert.ok(attemptColumns.some((column) => column.name === 'progress_event_count'));
+    assert.ok(attemptColumns.some((column) => column.name === 'idle_deadline_at'));
     assert.ok(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_pi_compaction_attempts_active_session'").get());
     assert.ok(sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_pi_compaction_attempts_session_ordinal'").get());
     await exerciseStore(sqliteConnection(sqlite), 'sqlite');
@@ -535,6 +720,13 @@ async function main(): Promise<void> {
         AND indexname = 'idx_pi_compaction_attempts_session_ordinal'
     `);
     assert.equal(restoredAttemptOrdinalIndex.rows.length, 1);
+    const postgresTelemetryColumns = await postgres.query<{ column_name: string }>(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'pi_session_compaction_attempts'
+        AND column_name IN ('telemetry_json', 'progress_event_count', 'idle_deadline_at')
+    `);
+    assert.equal(postgresTelemetryColumns.rows.length, 3);
     await exerciseStore(postgresConnection(postgres), 'postgres');
     await runPostgresMigrations(migrationTarget);
     const deferredSequenceIndex = await postgres.query<{ indexname: string }>(`
