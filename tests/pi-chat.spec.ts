@@ -2707,6 +2707,8 @@ contentKind: document
                 id: 1,
                 userId: 'user-main',
                 userLabel: 'Main User',
+                agentId: 'memory-manager',
+                sourceAgentId: 'research-agent',
                 sessionId: 'sess-openai',
                 sessionTitleSnapshot: 'OpenAI Session',
                 provider: 'openai',
@@ -2742,6 +2744,8 @@ contentKind: document
                 id: 1,
                 userId: 'user-main',
                 userLabel: 'Main User',
+                agentId: 'canvas-agent',
+                sourceAgentId: null,
                 sessionId: 'sess-1',
                 sessionTitleSnapshot: 'Daily Session',
                 provider: 'anthropic',
@@ -2776,6 +2780,9 @@ contentKind: document
 
     await expect(page.getByTestId('usage-summary-table')).toContainText('openai');
     await expect(page.getByTestId('usage-event-row')).toContainText('OpenAI Session');
+    await expect(page.getByTestId('usage-event-agent')).toContainText('memory-manager');
+    await expect(page.getByTestId('usage-event-source-agent')).toContainText('research-agent');
+    await expect(page.getByRole('option', { name: 'Agent' })).toBeAttached();
     await expect(page.getByText('$1.23').first()).toBeVisible();
   });
 

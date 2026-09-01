@@ -2,7 +2,8 @@ import { and, asc, desc, eq, like, or, sql } from 'drizzle-orm';
 
 import { db } from '../db';
 import { getDatabaseProvider } from '../db/provider';
-import { piUsageEvents, user } from '../db/schema';
+import { memoryReviewJobs, piSessions, piUsageEvents, user } from '../db/schema';
+import { MEMORY_MANAGER_AGENT_ID } from '../memory/constants';
 import type {
   SerializedUsageFilters,
   UsageEventsResponse,
@@ -438,6 +439,10 @@ export async function getUsageEvents(
       workspaceId: piUsageEvents.workspaceId,
       workspaceType: piUsageEvents.workspaceType,
       agentId: piUsageEvents.agentId,
+      sourceAgentId: sql<string | null>`case
+        when ${piUsageEvents.agentId} = ${MEMORY_MANAGER_AGENT_ID} then ${piSessions.agentId}
+        else null
+      end`,
       sessionId: piUsageEvents.sessionId,
       sessionTitleSnapshot: piUsageEvents.sessionTitleSnapshot,
       provider: piUsageEvents.provider,
@@ -452,6 +457,21 @@ export async function getUsageEvents(
     })
     .from(piUsageEvents)
     .leftJoin(user, eq(piUsageEvents.userId, user.id))
+    .leftJoin(
+      memoryReviewJobs,
+      and(
+        eq(piUsageEvents.agentId, MEMORY_MANAGER_AGENT_ID),
+        eq(memoryReviewJobs.userId, piUsageEvents.userId),
+        eq(memoryReviewJobs.id, sql<string>`substr(${piUsageEvents.sessionId}, 15)`),
+      ),
+    )
+    .leftJoin(
+      piSessions,
+      and(
+        eq(piSessions.userId, memoryReviewJobs.userId),
+        eq(piSessions.sessionId, memoryReviewJobs.sessionId),
+      ),
+    )
     .where(whereClause)
     .orderBy(desc(piUsageEvents.assistantTimestamp))
     .limit(pageSize)
@@ -470,6 +490,7 @@ export async function getUsageEvents(
       workspaceId: row.workspaceId ?? null,
       workspaceType: row.workspaceType ?? null,
       agentId: row.agentId,
+      sourceAgentId: row.sourceAgentId ?? null,
       sessionId: row.sessionId,
       sessionTitleSnapshot: row.sessionTitleSnapshot,
       provider: row.provider,

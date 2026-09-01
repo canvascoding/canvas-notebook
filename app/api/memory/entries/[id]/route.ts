@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { deleteMemory, publishMemory, readMemoryEntryHistory, restoreMemory, updateMemory } from '@/app/lib/memory/service';
+import { resolveAgentMemoryOwnerForUser } from '@/app/lib/memory/service';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 
@@ -9,10 +10,24 @@ function normalizedString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-async function scopeFromPayload(request: NextRequest, userId: string, payload: Record<string, unknown>) {
+async function scopeFromPayload(
+  request: NextRequest,
+  userId: string,
+  payload: Record<string, unknown>,
+  options: { allowDeletedAgent?: boolean } = {},
+) {
   const target = normalizedString(payload.scope) ?? 'user';
   if (target === 'user') return { target: 'user' as const, userId };
-  if (target === 'agent') return { target: 'agent' as const, userId, agentId: normalizeManagedAgentId(normalizedString(payload.agentId)) };
+  if (target === 'agent') {
+    const agentId = normalizedString(payload.agentId);
+    if (!agentId) throw new Error('agentId is required for agent memory.');
+    const normalizedAgentId = normalizeManagedAgentId(agentId);
+    const owner = await resolveAgentMemoryOwnerForUser({ userId, agentId: normalizedAgentId, allowDeleted: true });
+    if (owner.status === 'deleted' && options.allowDeletedAgent === false) {
+      throw new Error('Deleted-agent memory is read-only. Transfer it to an active agent before changing entries.');
+    }
+    return { target: 'agent' as const, userId, agentId: normalizedAgentId };
+  }
   if (target === 'workspace') {
     const workspaceId = normalizedString(payload.workspaceId);
     if (!workspaceId) throw new Error('workspaceId is required for workspace memory.');
@@ -50,7 +65,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   if (!payload) return NextResponse.json({ success: false, error: 'Invalid JSON body.' }, { status: 400 });
   try {
     const { id } = await context.params;
-    const scope = await scopeFromPayload(request, session.user.id, payload);
+    const scope = await scopeFromPayload(request, session.user.id, payload, { allowDeletedAgent: false });
     const result = payload.action === 'publish'
       ? await publishMemory({ ...scope, id })
       : payload.action === 'restore'
@@ -68,7 +83,12 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
   if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   try {
     const { id } = await context.params;
-    const scope = await scopeFromPayload(request, session.user.id, Object.fromEntries(request.nextUrl.searchParams.entries()));
+    const scope = await scopeFromPayload(
+      request,
+      session.user.id,
+      Object.fromEntries(request.nextUrl.searchParams.entries()),
+      { allowDeletedAgent: false },
+    );
     const result = await deleteMemory({ ...scope, id });
     return NextResponse.json({ success: true, data: result });
   } catch (error) {

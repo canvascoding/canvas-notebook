@@ -23,6 +23,7 @@ import { AgentGrantsEditor } from '@/app/components/agents/AgentGrantsEditor';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 import { AgentRuntimePreferenceCard } from './AgentRuntimePreferenceCard';
+import { MemoryReviewAgentCard } from './MemoryReviewAgentCard';
 import type { CreateAgentInput } from './CreateAgentDialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
@@ -502,7 +503,7 @@ export function AgentSettingsPanel({
     try {
       const preview = await fetchJson<{
         agent: AgentProfileItem;
-        impacts: { sessions: number; members: number; grants: number; capabilityBindings: number; managedFiles: string[] };
+        impacts: { sessions: number; members: number; grants: number; capabilityBindings: number; managedFiles: string[]; memoryCollections: number; memoryEntries: number; memoryPolicy: 'retained' };
         confirmationToken: string;
       }>('/api/agents/delete-preview', {
         method: 'POST',
@@ -514,6 +515,7 @@ export function AgentSettingsPanel({
         grants: preview.impacts.grants + preview.impacts.members,
         capabilities: preview.impacts.capabilityBindings,
         files: preview.impacts.managedFiles.length,
+        memoryEntries: preview.impacts.memoryEntries,
       }));
       if (!confirmed) return;
       const response = await fetch('/api/agents', {
@@ -1244,6 +1246,8 @@ export function AgentSettingsPanel({
 
   return (
     <div className="space-y-4">
+      <MemoryReviewAgentCard />
+
       <AgentSelectorCard
         agents={agents}
         selectedAgentId={selectedAgentId}

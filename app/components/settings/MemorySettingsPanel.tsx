@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, BrainCircuit, Check, Clock3, Download, Loader2, Pencil, Plus, RotateCcw, Save, Send, Sparkles, Trash2, Upload } from 'lucide-react';
+import { Archive, ArrowRightLeft, BrainCircuit, Check, Clock3, Download, Loader2, Pencil, Plus, RotateCcw, Save, Send, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 
+import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { Badge } from '@/components/ui/badge';
@@ -56,8 +58,28 @@ type MemorySettings = {
   modelId: string | null;
   memoryPromptMaxTokens: number;
   sensitiveMemoryEnabled: boolean;
-  review: { status: string; count: number };
+  review: {
+    status: string;
+    count: number;
+    counts: { running: number; scheduled: number; retrying: number; awaitingConfiguration: number; completed: number };
+    lastCompletedAt: number | null;
+    nextScheduledAt: number | null;
+    lastErrorCode: string | null;
+    lastErrorAt: number | null;
+  };
   providers: Array<{ installationId: string; name: string; providerId: string; models: Array<{ id: string; name: string }> }>;
+};
+
+type AgentMemoryOwner = {
+  agentId: string;
+  name: string;
+  iconId: string;
+  scopeType: 'user' | 'organization' | 'system' | 'deleted';
+  status: 'active' | 'deleted';
+  collectionCount: number;
+  archivedCollectionCount: number;
+  entryCount: number;
+  updatedAt: number;
 };
 
 type MemoryPermissions = {
@@ -92,9 +114,9 @@ async function readJson<T>(input: RequestInfo | URL, init?: RequestInit): Promis
   return payload.data;
 }
 
-function queryForScope(scope: MemoryScope, agentId: string, workspaceId: string | null, collectionId?: string | null, includeArchived = false) {
+function queryForScope(scope: MemoryScope, agentId: string | null, workspaceId: string | null, collectionId?: string | null, includeArchived = false) {
   const query = new URLSearchParams({ scope });
-  if (scope === 'agent') query.set('agentId', agentId);
+  if (scope === 'agent' && agentId) query.set('agentId', agentId);
   if (scope === 'workspace' && workspaceId) query.set('workspaceId', workspaceId);
   if (collectionId) query.set('collectionId', collectionId);
   if (includeArchived) query.set('includeArchived', '1');
@@ -105,8 +127,13 @@ export function MemorySettingsPanel() {
   const searchParams = useSearchParams();
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
   const workspaceId = searchParams.get('workspaceId') || activeWorkspace?.id || null;
-  const agentId = searchParams.get('agentId') || DEFAULT_AGENT_ID;
+  const [agentId, setAgentId] = useState<string | null>(() => searchParams.get('agentId'));
   const [scope, setScope] = useState<MemoryScope>(() => scopeFromParam(searchParams.get('scope')));
+  const [agentOwners, setAgentOwners] = useState<AgentMemoryOwner[]>([]);
+  const [ownersLoading, setOwnersLoading] = useState(true);
+  const [transferTargetAgentId, setTransferTargetAgentId] = useState('');
+  const [ownerOperation, setOwnerOperation] = useState<string | null>(null);
+  const [agentDeletionDialogOpen, setAgentDeletionDialogOpen] = useState(false);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -134,7 +161,10 @@ export function MemorySettingsPanel() {
     () => settings?.providers.find((provider) => provider.installationId === settings.providerInstallationId) ?? null,
     [settings],
   );
-  const canUseScope = scope !== 'workspace' || Boolean(workspaceId);
+  const selectedAgentOwner = useMemo(() => agentOwners.find((owner) => owner.agentId === agentId) ?? null, [agentId, agentOwners]);
+  const activeTransferTargets = useMemo(() => agentOwners.filter((owner) => owner.status === 'active' && owner.agentId !== agentId), [agentId, agentOwners]);
+  const agentMemoryReadOnly = scope === 'agent' && selectedAgentOwner?.status === 'deleted';
+  const canUseScope = scope === 'agent' ? Boolean(agentId && selectedAgentOwner) : scope !== 'workspace' || Boolean(workspaceId);
   const query = useMemo(() => queryForScope(scope, agentId, workspaceId), [agentId, scope, workspaceId]);
   const visibleEntries = useMemo(() => {
     const normalizedQuery = entryQuery.trim().toLocaleLowerCase();
@@ -151,6 +181,33 @@ export function MemorySettingsPanel() {
     const data = await readJson<MemorySettings>('/api/memory?settings=1');
     setSettings(data);
   }, []);
+
+  const selectAgentOwner = useCallback((nextAgentId: string) => {
+    setAgentId(nextAgentId);
+    setSelectedCollectionId(null);
+    setEntries([]);
+    setTransferTargetAgentId('');
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', 'memory');
+    url.searchParams.set('scope', 'agent');
+    url.searchParams.set('agentId', nextAgentId);
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  const loadAgentOwners = useCallback(async () => {
+    try {
+      const data = await readJson<{ owners: AgentMemoryOwner[] }>('/api/memory?owners=1');
+      setAgentOwners(data.owners);
+      if (scope === 'agent' && !agentId) {
+        const preferred = data.owners.find((owner) => owner.agentId === DEFAULT_AGENT_ID) ?? data.owners.find((owner) => owner.status === 'active') ?? data.owners[0];
+        if (preferred) selectAgentOwner(preferred.agentId);
+      } else if (scope === 'agent' && agentId && !data.owners.some((owner) => owner.agentId === agentId)) {
+        throw new Error(`Agent "${agentId}" is not available and has no retained memory.`);
+      }
+    } finally {
+      setOwnersLoading(false);
+    }
+  }, [agentId, scope, selectAgentOwner]);
 
   const loadCollections = useCallback(async (preferredCollectionId?: string | null) => {
     if (!canUseScope) {
@@ -182,12 +239,12 @@ export function MemorySettingsPanel() {
     const timer = window.setTimeout(() => {
       setLoading(true);
       setError(null);
-      Promise.all([loadSettings(), loadCollections()])
+      Promise.all([loadSettings(), loadAgentOwners(), loadCollections()])
         .catch((loadError) => { if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'Unable to load memory.'); })
         .finally(() => { if (!cancelled) setLoading(false); });
     }, 0);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [loadCollections, loadSettings]);
+  }, [loadAgentOwners, loadCollections, loadSettings]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -202,7 +259,7 @@ export function MemorySettingsPanel() {
     url.searchParams.set('tab', 'memory');
     url.searchParams.set('scope', nextScope);
     if (nextScope === 'workspace' && workspaceId) url.searchParams.set('workspaceId', workspaceId);
-    if (nextScope === 'agent') url.searchParams.set('agentId', agentId);
+    if (nextScope === 'agent' && agentId) url.searchParams.set('agentId', agentId);
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   };
 
@@ -276,6 +333,63 @@ export function MemorySettingsPanel() {
     URL.revokeObjectURL(url);
   };
 
+  const exportSelectedAgentMemory = async () => {
+    if (!agentId) return;
+    setOwnerOperation('export'); setError(null); setNotice(null);
+    try {
+      const exportData = await readJson<Record<string, unknown>>(`/api/memory?scope=agent&agentId=${encodeURIComponent(agentId)}&export=1`);
+      const url = URL.createObjectURL(new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' }));
+      const anchor = document.createElement('a');
+      anchor.href = url; anchor.download = `canvas-agent-memory-${agentId}.json`; anchor.click();
+      URL.revokeObjectURL(url);
+      setNotice(`Exported all retained memory for ${selectedAgentOwner?.name || agentId}.`);
+    } catch (exportError) { setError(exportError instanceof Error ? exportError.message : 'Unable to export agent memory.'); }
+    finally { setOwnerOperation(null); }
+  };
+
+  const setSelectedAgentMemoryArchived = async (archived: boolean) => {
+    if (!agentId) return;
+    setOwnerOperation(archived ? 'archive' : 'restore'); setError(null); setNotice(null);
+    try {
+      const result = await readJson<{ collections: number }>('/api/memory', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: archived ? 'archive-agent-memory' : 'restore-agent-memory', agentId }),
+      });
+      setNotice(`${archived ? 'Archived' : 'Restored'} ${result.collections} agent-memory ${result.collections === 1 ? 'collection' : 'collections'}.`);
+      await Promise.all([loadAgentOwners(), refreshScope()]);
+    } catch (archiveError) { setError(archiveError instanceof Error ? archiveError.message : 'Unable to update agent memory.'); }
+    finally { setOwnerOperation(null); }
+  };
+
+  const transferSelectedAgentMemory = async () => {
+    if (!agentId || !transferTargetAgentId) return;
+    setOwnerOperation('transfer'); setError(null); setNotice(null);
+    try {
+      const result = await readJson<{ collections: number; entries: number }>('/api/memory', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'transfer-agent-memory', agentId, targetAgentId: transferTargetAgentId }),
+      });
+      const target = agentOwners.find((owner) => owner.agentId === transferTargetAgentId);
+      setNotice(`Transferred ${result.entries} ${result.entries === 1 ? 'entry' : 'entries'} to ${target?.name || transferTargetAgentId}.`);
+      selectAgentOwner(transferTargetAgentId);
+    } catch (transferError) { setError(transferError instanceof Error ? transferError.message : 'Unable to transfer agent memory.'); }
+    finally { setOwnerOperation(null); }
+  };
+
+  const deleteSelectedAgentMemory = async () => {
+    if (!agentId) return;
+    setDeleting(true); setError(null); setNotice(null);
+    try {
+      const result = await readJson<{ collections: number; entries: number }>(`/api/memory?scope=agent&agentId=${encodeURIComponent(agentId)}&confirm=delete-agent-memory`, { method: 'DELETE' });
+      setAgentDeletionDialogOpen(false);
+      setNotice(`Deleted ${result.entries} retained agent-memory ${result.entries === 1 ? 'entry' : 'entries'}.`);
+      const nextOwner = agentOwners.find((owner) => owner.status === 'active' && owner.agentId !== agentId);
+      if (nextOwner) selectAgentOwner(nextOwner.agentId);
+      else setAgentId(null);
+    } catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : 'Unable to delete agent memory.'); }
+    finally { setDeleting(false); }
+  };
+
   const readImportFile = async (file: File | null) => {
     if (!file) return;
     setError(null); setNotice(null);
@@ -341,6 +455,51 @@ export function MemorySettingsPanel() {
             ))}
           </div>
 
+          {scope === 'agent' ? (
+            <Card className="border-primary/25" data-testid="agent-memory-owner-card">
+              <CardHeader className="space-y-1">
+                <CardTitle className="text-base">Agent memory owner</CardTitle>
+                <CardDescription>Every collection below belongs only to the selected agent. Changing the selection never mixes memories between agents.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {ownersLoading ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading agents…</p> : agentOwners.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No accessible agents exist yet. <Link href="/settings?tab=agent-settings&createAgent=1" className="font-medium text-primary underline-offset-4 hover:underline">Create an agent</Link> before storing agent-specific memory.</div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="agent-memory-owner">Selected agent</Label>
+                      <select id="agent-memory-owner" data-testid="agent-memory-owner-select" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={agentId ?? ''} onChange={(event) => selectAgentOwner(event.target.value)}>
+                        <option value="" disabled>Choose an agent</option>
+                        {agentOwners.map((owner) => <option key={owner.agentId} value={owner.agentId}>{owner.name} · {owner.agentId}{owner.status === 'deleted' ? ' · deleted' : ''} · {owner.entryCount} memories</option>)}
+                      </select>
+                    </div>
+                    {selectedAgentOwner ? (
+                      <div className="rounded-lg border bg-muted/20 p-4">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <AgentAvatar iconId={selectedAgentOwner.iconId} className={selectedAgentOwner.status === 'deleted' ? 'opacity-60' : ''} />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2"><p className="font-medium">{selectedAgentOwner.name}</p><Badge variant={selectedAgentOwner.status === 'deleted' ? 'outline' : 'secondary'}>{selectedAgentOwner.status}</Badge></div>
+                              <p className="truncate font-mono text-xs text-muted-foreground">{selectedAgentOwner.agentId}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{selectedAgentOwner.entryCount} entries · {selectedAgentOwner.collectionCount} collections · {selectedAgentOwner.archivedCollectionCount} archived</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button variant="outline" size="sm" onClick={() => void exportSelectedAgentMemory()} disabled={ownerOperation !== null}><Download className="mr-2 size-4" />Export all</Button>
+                            {selectedAgentOwner.collectionCount > 0 ? <Button variant="outline" size="sm" onClick={() => void setSelectedAgentMemoryArchived(selectedAgentOwner.archivedCollectionCount < selectedAgentOwner.collectionCount)} disabled={ownerOperation !== null}>{selectedAgentOwner.archivedCollectionCount === selectedAgentOwner.collectionCount ? <RotateCcw className="mr-2 size-4" /> : <Archive className="mr-2 size-4" />}{selectedAgentOwner.archivedCollectionCount === selectedAgentOwner.collectionCount ? 'Restore all' : 'Archive all'}</Button> : null}
+                            {selectedAgentOwner.collectionCount > 0 ? <Button variant="destructive" size="sm" onClick={() => setAgentDeletionDialogOpen(true)} disabled={ownerOperation !== null}><Trash2 className="mr-2 size-4" />Delete data</Button> : null}
+                          </div>
+                        </div>
+                        {selectedAgentOwner.status === 'deleted' ? <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">This agent was deleted. Its memory is retained for you and is not used by another agent unless you explicitly transfer it.</p> : null}
+                        {selectedAgentOwner.collectionCount > 0 && activeTransferTargets.length > 0 ? <div className="mt-4 flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-end"><div className="min-w-0 flex-1 space-y-2"><Label htmlFor="agent-memory-transfer-target">Transfer all memory to</Label><select id="agent-memory-transfer-target" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={transferTargetAgentId} onChange={(event) => setTransferTargetAgentId(event.target.value)}><option value="">Choose a target agent</option>{activeTransferTargets.map((owner) => <option key={owner.agentId} value={owner.agentId}>{owner.name} · {owner.agentId}</option>)}</select></div><Button variant="outline" onClick={() => void transferSelectedAgentMemory()} disabled={!transferTargetAgentId || ownerOperation !== null}>{ownerOperation === 'transfer' ? <Loader2 className="mr-2 size-4 animate-spin" /> : <ArrowRightLeft className="mr-2 size-4" />}Transfer</Button></div> : null}
+                      </div>
+                    ) : <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">Choose a valid agent before loading agent memory.</p>}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader className="space-y-1"><CardTitle className="text-base">{SCOPE_COPY[scope].label}</CardTitle><CardDescription>{SCOPE_COPY[scope].eyebrow}. Published shared memory is visible to readers; pending suggestions need a manager’s approval.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
@@ -362,12 +521,12 @@ export function MemorySettingsPanel() {
 
           <Card>
             <CardHeader><CardTitle className="text-base">Add a durable fact</CardTitle><CardDescription>Keep it atomic and useful across future conversations. Secrets, session logs, and temporary tasks are rejected.</CardDescription></CardHeader>
-            <CardContent className="space-y-3"><Textarea value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={800} placeholder="e.g. Prefers short, decisive weekly updates." /><div className="flex items-center justify-between gap-3"><span className="text-xs text-muted-foreground">{draft.length}/800</span><Button onClick={() => void addEntry()} disabled={!draft.trim() || adding || !canUseScope}>{adding ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Plus className="mr-2 size-4" />}{scope === 'workspace' || scope === 'organization' ? 'Suggest memory' : 'Save memory'}</Button></div></CardContent>
+            <CardContent className="space-y-3"><Textarea value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={800} placeholder="e.g. Prefers short, decisive weekly updates." disabled={agentMemoryReadOnly} /><div className="flex items-center justify-between gap-3"><span className="text-xs text-muted-foreground">{agentMemoryReadOnly ? 'Deleted-agent memory is read-only until transferred.' : `${draft.length}/800`}</span><Button onClick={() => void addEntry()} disabled={!draft.trim() || adding || !canUseScope || agentMemoryReadOnly}>{adding ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Plus className="mr-2 size-4" />}{scope === 'workspace' || scope === 'organization' ? 'Suggest memory' : 'Save memory'}</Button></div></CardContent>
           </Card>
 
           <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">{entries.length > 0 ? <Input aria-label="Search memory" value={entryQuery} onChange={(event) => setEntryQuery(event.target.value)} placeholder="Search this collection" className="max-w-sm" /> : null}<select aria-label="Sort memory" className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={entrySort} onChange={(event) => setEntrySort(event.target.value as 'priority' | 'updated' | 'lastUsed')}><option value="priority">Priority</option><option value="updated">Last updated</option><option value="lastUsed">Last used</option></select>{permissions?.canArchive ? <Button size="sm" variant="outline" onClick={() => setShowArchived((value) => !value)}>{showArchived ? 'Hide archived' : 'Show archived'}</Button> : null}</div>
-            {visibleEntries.map((entry) => <Card key={entry.id} className={entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : ''}><CardContent className="pt-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1">{editingId === entry.id ? <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} /> : <p className="whitespace-pre-wrap text-sm leading-6">{entry.content}</p>}<div className="mt-2 flex gap-2"><Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{entry.status}</Badge><span className="text-xs text-muted-foreground">Priority {entry.priority}</span></div></div><div className="flex shrink-0 flex-wrap justify-end gap-1">{entry.status === 'pending' && permissions?.canPublish ? <Button size="icon" variant="outline" title="Publish" onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}{entry.status === 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title="Restore" onClick={() => void mutateEntry(entry, 'restore')}><RotateCcw className="size-4" /></Button> : null}{entry.status !== 'archived' && permissions?.canUpdatePublished ? editingId === entry.id ? <Button size="icon" title="Save" onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button> : <Button size="icon" variant="ghost" title="Edit" onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); }}><Pencil className="size-4" /></Button> : null}{entry.status !== 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title="Archive" onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button> : null}</div></div><Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? 'Hide history' : 'History'}</Button>{historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt)}</p>)}</div> : null}</CardContent></Card>)}
+            {visibleEntries.map((entry) => <Card key={entry.id} className={entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : ''}><CardContent className="pt-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1">{editingId === entry.id ? <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} /> : <p className="whitespace-pre-wrap text-sm leading-6">{entry.content}</p>}<div className="mt-2 flex gap-2"><Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{entry.status}</Badge><span className="text-xs text-muted-foreground">Priority {entry.priority}</span></div></div><div className="flex shrink-0 flex-wrap justify-end gap-1">{!agentMemoryReadOnly && entry.status === 'pending' && permissions?.canPublish ? <Button size="icon" variant="outline" title="Publish" onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status === 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title="Restore" onClick={() => void mutateEntry(entry, 'restore')}><RotateCcw className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canUpdatePublished ? editingId === entry.id ? <Button size="icon" title="Save" onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button> : <Button size="icon" variant="ghost" title="Edit" onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); }}><Pencil className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title="Archive" onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button> : null}</div></div><Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? 'Hide history' : 'History'}</Button>{historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt)}</p>)}</div> : null}</CardContent></Card>)}
             {!loading && selectedCollectionId && entries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">This collection has no published entries you can view.</p> : null}
             {!loading && entries.length > 0 && visibleEntries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">No memory entries match this search.</p> : null}
           </div>
@@ -392,6 +551,12 @@ export function MemorySettingsPanel() {
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle>Delete all private memory?</AlertDialogTitle><AlertDialogDescription>This permanently removes your personal and private-agent collections, including their history. Workspace and organization memory are not affected.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" disabled={deleting} onClick={(event) => { event.preventDefault(); void deletePersonalMemory(); }}>{deleting ? 'Deleting…' : 'Delete private memory'}</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={agentDeletionDialogOpen} onOpenChange={setAgentDeletionDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>Delete all memory for {selectedAgentOwner?.name || agentId}?</AlertDialogTitle><AlertDialogDescription>This permanently removes {selectedAgentOwner?.entryCount ?? 0} entries and their full history for agent ID {agentId}. The agent profile and every other agent’s memory remain unchanged.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel><AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" disabled={deleting} onClick={(event) => { event.preventDefault(); void deleteSelectedAgentMemory(); }}>{deleting ? 'Deleting…' : 'Delete agent memory'}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

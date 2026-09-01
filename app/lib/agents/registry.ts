@@ -10,6 +10,8 @@ import { DEFAULT_AGENT_ICON_ID, normalizeAgentIconId, type AgentIconId } from '.
 import { MAIN_AGENT_DISPLAY_NAME } from './main-agent';
 import { DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID, SYSTEM_MANAGED_AGENT_IDS } from './storage';
 import { EMAIL_AGENT_DEFAULT_ENABLED_TOOLS } from '../pi/email-agent-policy';
+import { DISABLED_ALL_TOOLS_SENTINEL } from '../pi/enabled-tools';
+import { MEMORY_MANAGER_AGENT_ID, MEMORY_MANAGER_AGENT_NAME } from '../memory/constants';
 
 export { EMAIL_MANAGED_AGENT_ID } from './storage';
 export { MAIN_AGENT_DISPLAY_NAME } from './main-agent';
@@ -290,6 +292,64 @@ export async function ensureEmailAgent(): Promise<AgentProfile> {
   return mapAgent(row);
 }
 
+/**
+ * Provisions the reserved memory-review runtime identity without adding it to
+ * the managed chat-agent registry. Its restricted policy and empty tool set
+ * keep it non-interactive while still allowing the runtime resolver to audit
+ * model calls against a real agent record.
+ */
+export async function ensureMemoryManagerAgent(): Promise<AgentProfile> {
+  const now = new Date();
+  await db
+    .insert(agents)
+    .values({
+      agentId: MEMORY_MANAGER_AGENT_ID,
+      name: MEMORY_MANAGER_AGENT_NAME,
+      iconId: 'brain',
+      type: 'system-worker',
+      removable: false,
+      enabledToolsJson: JSON.stringify([DISABLED_ALL_TOOLS_SENTINEL]),
+      accessPolicy: 'restricted',
+      scopeType: 'system',
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing();
+
+  let row = await db.query.agents.findFirst({
+    where: eq(agents.agentId, MEMORY_MANAGER_AGENT_ID),
+  });
+  if (!row) throw new Error('Memory Review Agent could not be loaded.');
+  const expectedTools = JSON.stringify([DISABLED_ALL_TOOLS_SENTINEL]);
+  if (
+    row.name !== MEMORY_MANAGER_AGENT_NAME
+    || row.iconId !== 'brain'
+    || row.type !== 'system-worker'
+    || row.removable
+    || row.enabledToolsJson !== expectedTools
+    || row.accessPolicy !== 'restricted'
+    || row.scopeType !== 'system'
+  ) {
+    await db.update(agents).set({
+      name: MEMORY_MANAGER_AGENT_NAME,
+      iconId: 'brain',
+      type: 'system-worker',
+      removable: false,
+      enabledToolsJson: expectedTools,
+      accessPolicy: 'restricted',
+      scopeType: 'system',
+      organizationId: null,
+      ownerUserId: null,
+      revision: row.revision + 1,
+      updatedAt: now,
+    }).where(eq(agents.id, row.id));
+    row = await db.query.agents.findFirst({ where: eq(agents.agentId, MEMORY_MANAGER_AGENT_ID) });
+    if (!row) throw new Error('Memory Review Agent could not be loaded after repair.');
+  }
+  return mapAgent(row);
+}
+
 export async function listAgentProfiles(): Promise<AgentProfile[]> {
   await Promise.all([ensureCanvasAgent(), ensureEmailAgent()]);
   const rows = await db.select().from(agents).orderBy(asc(agents.type), asc(agents.name), asc(agents.createdAt));
@@ -344,7 +404,7 @@ export async function createAgentProfile(input: {
   }
 
   const agentId = normalizeManagedAgentId(input.agentId || slugifyAgentId(name));
-  if (isSystemManagedAgentId(agentId)) {
+  if (isSystemManagedAgentId(agentId) || agentId === MEMORY_MANAGER_AGENT_ID) {
     throw new Error('Built-in agents cannot be recreated.');
   }
 

@@ -19,6 +19,7 @@ async function main() {
 
   const {
     user,
+    memoryReviewJobs,
     piSessions,
     piUsageEvents,
   } = schema;
@@ -534,8 +535,22 @@ async function main() {
     assert.equal(filteredEvents.rows[0]?.workspaceId, personalWorkspaceId);
     assert.equal(filteredEvents.rows[0]?.workspaceType, 'personal');
     assert.equal(filteredEvents.rows[0]?.agentId, 'agent-alpha');
+    assert.equal(filteredEvents.rows[0]?.sourceAgentId, null);
     assert.match(filteredEvents.rows[0]?.assistantTimestamp || '', /^2026-03-10T10:15:00/);
 
+    await db.insert(memoryReviewJobs).values({
+      id: 'job-1',
+      userId,
+      sessionId: alphaSessionId,
+      fromMessageSequence: 1,
+      throughMessageSequence: 2,
+      triggerType: 'turn_interval',
+      scheduledFor: now,
+      status: 'completed',
+      attempts: 1,
+      createdAt: now,
+      completedAt: now,
+    });
     await persistPiUsageEventsWithContext({
       sessionId: 'memory-review:job-1',
       userId,
@@ -587,6 +602,7 @@ async function main() {
     assert.equal(memoryManagerEvents.rows[0]?.sessionId, 'memory-review:job-1');
     assert.equal(memoryManagerEvents.rows[0]?.sessionTitleSnapshot, 'Memory review');
     assert.equal(memoryManagerEvents.rows[0]?.agentId, 'memory-manager');
+    assert.equal(memoryManagerEvents.rows[0]?.sourceAgentId, 'agent-alpha');
 
     assert.equal(hasRenderableUsage(alphaAssistant.usage), true);
     assert.equal(hasRenderableUsage(noUsageAssistant.usage), false);
