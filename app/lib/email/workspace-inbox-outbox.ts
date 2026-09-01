@@ -57,10 +57,11 @@ function prepareOutboxBody(body: string, bodyHtml?: string): string {
   return plainTextToEmailHtml(body);
 }
 
-function publicOutboxDraft(draft: typeof emailDrafts.$inferSelect) {
+function publicOutboxDraft(draft: typeof emailDrafts.$inferSelect, senderAddress?: string | null) {
   return {
     id: draft.id, accountId: draft.accountId, workspaceId: draft.workspaceId, mailboxId: draft.mailboxId, inboxCaseId: draft.inboxCaseId,
     personalInboxCaseId: draft.personalInboxCaseId,
+    senderAddress: senderAddress || null,
     status: draft.outboxStatus as OutboxStatus | null, version: draft.version, subject: draft.subject, body: draft.body,
     to: parseRecipients(draft.toJson), cc: parseRecipients(draft.ccJson), bcc: parseRecipients(draft.bccJson),
     attachments: parseAttachments(draft.attachmentsJson || '[]'),
@@ -107,11 +108,12 @@ export async function listWorkspaceInboxCases(userId: string, workspaceId: strin
 
 export async function listWorkspaceOutboxDrafts(userId: string, workspaceId: string) {
   await requireWorkspace(userId, workspaceId, 'canRead');
-  const rows = await db.query.emailDrafts.findMany({
-    where: and(eq(emailDrafts.workspaceId, workspaceId), inArray(emailDrafts.origin, ['automation', 'agent'])),
-    orderBy: [desc(emailDrafts.updatedAt)],
-  });
-  return rows.map(publicOutboxDraft);
+  const rows = await db.select({ draft: emailDrafts, senderAddress: emailAccounts.emailAddress })
+    .from(emailDrafts)
+    .innerJoin(emailAccounts, eq(emailAccounts.id, emailDrafts.accountId))
+    .where(and(eq(emailDrafts.workspaceId, workspaceId), inArray(emailDrafts.origin, ['automation', 'agent'])))
+    .orderBy(desc(emailDrafts.updatedAt));
+  return rows.map(({ draft, senderAddress }) => publicOutboxDraft(draft, senderAddress));
 }
 
 export async function listPersonalInboxCases(userId: string) {
@@ -123,11 +125,12 @@ export async function listPersonalInboxCases(userId: string) {
 }
 
 export async function listPersonalOutboxDrafts(userId: string) {
-  const rows = await db.query.emailDrafts.findMany({
-    where: and(eq(emailDrafts.userId, userId), isNull(emailDrafts.workspaceId), eq(emailDrafts.origin, 'agent')),
-    orderBy: [desc(emailDrafts.updatedAt)],
-  });
-  return rows.map(publicOutboxDraft);
+  const rows = await db.select({ draft: emailDrafts, senderAddress: emailAccounts.emailAddress })
+    .from(emailDrafts)
+    .innerJoin(emailAccounts, eq(emailAccounts.id, emailDrafts.accountId))
+    .where(and(eq(emailDrafts.userId, userId), isNull(emailDrafts.workspaceId), eq(emailDrafts.origin, 'agent')))
+    .orderBy(desc(emailDrafts.updatedAt));
+  return rows.map(({ draft, senderAddress }) => publicOutboxDraft(draft, senderAddress));
 }
 
 /**

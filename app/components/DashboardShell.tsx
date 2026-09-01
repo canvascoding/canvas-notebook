@@ -318,11 +318,18 @@ function EmailContextHeader({
 }) {
   const t = useTranslations('notebook');
   const toolLabels: Record<string, string> = {
+    email_list_mailboxes: t('emailToolAccounts'),
     email_list_accounts: t('emailToolAccounts'),
+    email_search_messages: t('emailToolSearch'),
     email_search: t('emailToolSearch'),
+    email_read_message: t('emailToolRead'),
     email_read: t('emailToolRead'),
+    email_list_thread_messages: t('emailToolRead'),
+    email_create_outbox_draft: t('emailToolCreateDraft'),
     email_create_draft: t('emailToolCreateDraft'),
+    email_update_outbox_draft: t('emailToolUpdateDraft'),
     email_update_draft: t('emailToolUpdateDraft'),
+    email_list_outbox_drafts: t('emailToolCreateDraft'),
     email_send_draft: t('emailToolSendDraft'),
   };
   const detail = intent.subject || intent.query || intent.folder;
@@ -345,7 +352,12 @@ function EmailContextHeader({
           {intent.status === 'running' ? t('contextToolRunning') : t('contextToolComplete')}
         </span>
       </div>
-      {detail ? <span className="min-w-0 truncate text-muted-foreground">{detail}</span> : null}
+      <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+        {intent.emailAddress ? (
+          <span className="hidden max-w-48 truncate font-mono sm:inline">{intent.emailAddress}</span>
+        ) : null}
+        {detail ? <span className="min-w-0 truncate">{detail}</span> : null}
+      </div>
     </div>
   );
 }

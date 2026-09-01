@@ -304,7 +304,8 @@ async function main() {
       size: 42, path: undefined, uploadId: 'agent-report.pdf', deliveryFormat: undefined,
     }]);
     assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).find((item) => item.id === inboxCase.id)?.status, 'answered');
-    assert.ok((await listWorkspaceOutboxDrafts('owner-user', ownerWorkspace.id)).some((draft) => draft.id === outboxDraft.id));
+    const listedWorkspaceDraft = (await listWorkspaceOutboxDrafts('owner-user', ownerWorkspace.id)).find((draft) => draft.id === outboxDraft.id);
+    assert.equal(listedWorkspaceDraft?.senderAddress, 'owner@example.test');
     await assert.rejects(
       () => listWorkspaceInboxCases('owner-user', otherWorkspace.id),
       /workspace|permission|access/i,
@@ -354,7 +355,8 @@ async function main() {
       sendMessage: async () => undefined,
     });
     assert.equal(sentPersonal.status, 'sent');
-    assert.ok((await listPersonalOutboxDrafts('owner-user')).some((draft) => draft.id === personalDraft.id));
+    const listedPersonalDraft = (await listPersonalOutboxDrafts('owner-user')).find((draft) => draft.id === personalDraft.id);
+    assert.equal(listedPersonalDraft?.senderAddress, 'owner@example.test');
     await assert.rejects(
       () => requireActiveWorkspaceMailboxForAutomation({
         emailAccountId: created.id,
