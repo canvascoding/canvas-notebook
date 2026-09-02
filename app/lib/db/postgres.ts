@@ -746,6 +746,77 @@ async function ensurePostgresCompactionAttemptTelemetry(pool: PgQueryable): Prom
   await pool.query('ALTER TABLE pi_session_compaction_attempts ADD COLUMN IF NOT EXISTS telemetry_json text');
 }
 
+async function ensurePostgresFileCollaborationSchema(pool: PgQueryable): Promise<void> {
+  await pool.query(`
+    WITH ranked_revisions AS (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (
+          PARTITION BY COALESCE(lineage_id, workspace_id || ':' || path)
+          ORDER BY created_at ASC, id ASC
+        ) AS revision_number
+      FROM file_revisions
+    )
+    UPDATE file_revisions AS revisions
+    SET revision_number = ranked_revisions.revision_number
+    FROM ranked_revisions
+    WHERE ranked_revisions.id = revisions.id
+      AND revisions.revision_number IS NULL
+  `);
+  await pool.query('ALTER TABLE file_revisions ALTER COLUMN revision_number SET NOT NULL');
+
+  // Older PostgreSQL installs received a full unique index from the shared
+  // Drizzle schema. Archived documents must not prevent a path from being
+  // reused, so replace it with the partial active-document constraint.
+  await pool.query('DROP INDEX IF EXISTS idx_collab_documents_workspace_path_provider');
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_collab_documents_workspace_path_provider
+    ON collaboration_documents (workspace_id, path, provider)
+    WHERE status = 'active'
+  `);
+
+  await pool.query(`
+    DO $file_collaboration_constraints$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'file_locks_status_check'
+      ) THEN
+        ALTER TABLE file_locks
+        ADD CONSTRAINT file_locks_status_check
+        CHECK (status IN ('active', 'released', 'expired', 'force_released')) NOT VALID;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'file_locks_type_check'
+      ) THEN
+        ALTER TABLE file_locks
+        ADD CONSTRAINT file_locks_type_check
+        CHECK (lock_type IN ('edit', 'upload', 'agent_write')) NOT VALID;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'file_locks_expiry_check'
+      ) THEN
+        ALTER TABLE file_locks
+        ADD CONSTRAINT file_locks_expiry_check CHECK (expires_at >= created_at) NOT VALID;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'collaboration_documents_status_check'
+      ) THEN
+        ALTER TABLE collaboration_documents
+        ADD CONSTRAINT collaboration_documents_status_check
+        CHECK (status IN ('active', 'archived')) NOT VALID;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'collaboration_documents_provider_check'
+      ) THEN
+        ALTER TABLE collaboration_documents
+        ADD CONSTRAINT collaboration_documents_provider_check
+        CHECK (provider IN ('yjs', 'excalidraw')) NOT VALID;
+      END IF;
+    END
+    $file_collaboration_constraints$;
+  `);
+}
+
 export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   if (process.env.CANVAS_POSTGRES_VECTOR_ENABLED === 'true') {
     await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
@@ -1209,6 +1280,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
       AND session.session_id = job.session_id
       AND session.organization_id IS NOT NULL
   `);
+
+  await ensurePostgresFileCollaborationSchema(pool);
 
   await ensurePostgresCompactionAttemptTelemetry(pool);
   await ensurePostgresCompactionAttemptIndexes(pool);

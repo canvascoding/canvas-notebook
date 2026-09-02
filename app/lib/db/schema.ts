@@ -700,8 +700,36 @@ export const workspaceTrashEntries = sqliteTable("workspace_trash_entries", {
   originalPathIdx: index("idx_workspace_trash_original_path").on(table.workspaceId, table.originalPath, table.status),
 }));
 
-// Collaboration metadata mirrors the manual SQLite migration: workspace/document
-// IDs are logical IDs without FK constraints, and timestamp values are epoch ms.
+// Collaboration metadata is shared by every file access channel. Workspace and
+// actor IDs remain logical IDs while legacy SQLite rows are imported; lineage
+// and revision constraints are enforced by the PostgreSQL migration.
+export const fileCollaborationLineages = sqliteTable("file_collaboration_lineages", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id"),
+  customerId: text("customer_id"),
+  projectId: text("project_id"),
+  workspaceId: text("workspace_id").notNull(),
+  workspaceType: text("workspace_type").notNull(),
+  path: text("path").notNull(),
+  status: text("status").notNull().default("active"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  archivedAt: integer("archived_at", { mode: "timestamp" }),
+  trashEntryId: text("trash_entry_id"),
+}, (table) => ({
+  activePathIdx: uniqueIndex("idx_file_collaboration_lineages_active_path")
+    .on(table.workspaceId, table.path)
+    .where(sql`${table.status} = 'active'`),
+  workspaceStatusIdx: index("idx_file_collaboration_lineages_workspace_status").on(table.workspaceId, table.status, table.path),
+  archivedTrashIdx: index("idx_file_collaboration_lineages_archived_trash")
+    .on(table.workspaceId, table.trashEntryId, table.path)
+    .where(sql`${table.status} = 'archived' AND ${table.trashEntryId} IS NOT NULL`),
+  statusCheck: check("file_collaboration_lineages_status_check", sql`${table.status} IN ('active', 'archived')`),
+  archiveStateCheck: check(
+    "file_collaboration_lineages_archive_state_check",
+    sql`(${table.status} = 'active' AND ${table.archivedAt} IS NULL) OR (${table.status} = 'archived' AND ${table.archivedAt} IS NOT NULL)`,
+  ),
+}));
+
 export const fileRevisions = sqliteTable("file_revisions", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id"),
@@ -717,11 +745,15 @@ export const fileRevisions = sqliteTable("file_revisions", {
   sourceSessionId: text("source_session_id"),
   baseRevisionId: text("base_revision_id"),
   lineageId: text("lineage_id"),
+  revisionNumber: integer("revision_number"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   workspacePathCreatedIdx: index("idx_file_revisions_workspace_path_created").on(table.workspaceId, table.path, table.createdAt),
   workspacePathHashIdx: index("idx_file_revisions_workspace_path_hash").on(table.workspaceId, table.path, table.contentHash),
   lineageCreatedIdx: index("idx_file_revisions_lineage_created").on(table.lineageId, table.createdAt),
+  lineageRevisionIdx: uniqueIndex("idx_file_revisions_lineage_revision")
+    .on(table.lineageId, table.revisionNumber)
+    .where(sql`${table.lineageId} IS NOT NULL`),
   orgCreatedIdx: index("idx_file_revisions_org_created").on(table.organizationId, table.createdAt),
   projectCreatedIdx: index("idx_file_revisions_project_created").on(table.projectId, table.createdAt),
   actorCreatedIdx: index("idx_file_revisions_actor_created").on(table.createdByUserId, table.createdAt),
@@ -761,6 +793,7 @@ export const fileLocks = sqliteTable("file_locks", {
   workspaceId: text("workspace_id").notNull(),
   workspaceType: text("workspace_type").notNull(),
   path: text("path").notNull(),
+  lineageId: text("lineage_id"),
   revisionId: text("revision_id"),
   lockedByUserId: text("locked_by_user_id"),
   lockedBySessionId: text("locked_by_session_id"),
@@ -771,9 +804,18 @@ export const fileLocks = sqliteTable("file_locks", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   activePathIdx: index("idx_file_locks_active_path").on(table.workspaceId, table.path, table.status, table.expiresAt),
+  singleActivePathIdx: uniqueIndex("idx_file_locks_single_active_path")
+    .on(table.workspaceId, table.path)
+    .where(sql`${table.status} = 'active'`),
+  activeExpiryIdx: index("idx_file_locks_active_expiry")
+    .on(table.expiresAt)
+    .where(sql`${table.status} = 'active'`),
   userStatusIdx: index("idx_file_locks_user_status").on(table.lockedByUserId, table.status, table.updatedAt),
   orgStatusIdx: index("idx_file_locks_org_status").on(table.organizationId, table.status, table.updatedAt),
   projectStatusIdx: index("idx_file_locks_project_status").on(table.projectId, table.status, table.updatedAt),
+  statusCheck: check("file_locks_status_check", sql`${table.status} IN ('active', 'released', 'expired', 'force_released')`),
+  lockTypeCheck: check("file_locks_type_check", sql`${table.lockType} IN ('edit', 'upload', 'agent_write')`),
+  expiryCheck: check("file_locks_expiry_check", sql`${table.expiresAt} >= ${table.createdAt}`),
 }));
 
 export const collaborationDocuments = sqliteTable("collaboration_documents", {
@@ -784,6 +826,7 @@ export const collaborationDocuments = sqliteTable("collaboration_documents", {
   workspaceId: text("workspace_id").notNull(),
   workspaceType: text("workspace_type").notNull(),
   path: text("path").notNull(),
+  lineageId: text("lineage_id"),
   provider: text("provider").notNull().default("yjs"),
   stateVersion: integer("state_version").notNull().default(0),
   snapshotRevisionId: text("snapshot_revision_id"),
@@ -791,9 +834,16 @@ export const collaborationDocuments = sqliteTable("collaboration_documents", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
-  workspacePathProviderIdx: uniqueIndex("idx_collab_documents_workspace_path_provider").on(table.workspaceId, table.path, table.provider),
+  workspacePathProviderIdx: uniqueIndex("idx_collab_documents_workspace_path_provider")
+    .on(table.workspaceId, table.path, table.provider)
+    .where(sql`${table.status} = 'active'`),
+  lineageProviderIdx: uniqueIndex("idx_collab_documents_lineage_provider")
+    .on(table.lineageId, table.provider)
+    .where(sql`${table.status} = 'active' AND ${table.lineageId} IS NOT NULL`),
   orgStatusIdx: index("idx_collab_documents_org_status").on(table.organizationId, table.status, table.updatedAt),
   projectStatusIdx: index("idx_collab_documents_project_status").on(table.projectId, table.status, table.updatedAt),
+  statusCheck: check("collaboration_documents_status_check", sql`${table.status} IN ('active', 'archived')`),
+  providerCheck: check("collaboration_documents_provider_check", sql`${table.provider} IN ('yjs', 'excalidraw')`),
 }));
 
 export const collaborationEvents = sqliteTable("collaboration_events", {

@@ -360,6 +360,7 @@
     "test:public-share:workspace": "tsx --conditions react-server scripts/public-share-workspace-scope-test.ts",
     "test:public-share:route-access": "tsx scripts/public-share-route-access-test.ts",
     "test:files:collaboration": "tsx --conditions react-server scripts/file-collaboration-policy-test.ts",
+    "test:files:collaboration-schema": "tsx --conditions react-server scripts/file-collaboration-postgres-schema-test.ts",
     "test:collaboration:live": "tsx --conditions react-server scripts/file-live-collaboration-test.ts",
     "test:collaboration:checkpoint-errors": "tsx scripts/collaboration-checkpoint-errors-test.ts",
     "test:collaboration:presence": "tsx --conditions react-server scripts/file-presence-policy-test.ts",
