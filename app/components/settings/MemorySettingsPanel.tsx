@@ -56,6 +56,9 @@ type MemorySettings = {
   automaticMemoryEnabled: boolean;
   providerInstallationId: string | null;
   modelId: string | null;
+  runtimeConfigured: boolean;
+  canManageMemoryRuntime: boolean;
+  catalogRevision: number | null;
   memoryPromptMaxTokens: number;
   sensitiveMemoryEnabled: boolean;
   review: {
@@ -144,6 +147,7 @@ export function MemorySettingsPanel() {
   const [historyForEntryId, setHistoryForEntryId] = useState<string | null>(null);
   const [entryHistory, setEntryHistory] = useState<MemoryEvent[]>([]);
   const [settings, setSettings] = useState<MemorySettings | null>(null);
+  const [runtimeDraftChanged, setRuntimeDraftChanged] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -180,6 +184,7 @@ export function MemorySettingsPanel() {
   const loadSettings = useCallback(async () => {
     const data = await readJson<MemorySettings>('/api/memory?settings=1');
     setSettings(data);
+    setRuntimeDraftChanged(false);
   }, []);
 
   const selectAgentOwner = useCallback((nextAgentId: string) => {
@@ -267,10 +272,30 @@ export function MemorySettingsPanel() {
     if (!settings) return;
     setSaving(true); setError(null); setNotice(null);
     try {
+      if (settings.canManageMemoryRuntime && (runtimeDraftChanged || !settings.runtimeConfigured)) {
+        if (!settings.providerInstallationId || !settings.modelId || !settings.catalogRevision) {
+          throw new Error('Choose a ready provider and model before verifying the organization Memory Reviewer.');
+        }
+        await readJson('/api/admin/memory-review-runtime', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            providerInstallationId: settings.providerInstallationId,
+            modelId: settings.modelId,
+            expectedCatalogRevision: settings.catalogRevision,
+          }),
+        });
+      }
       const data = await readJson<MemorySettings>('/api/memory', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings),
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          automaticMemoryEnabled: settings.automaticMemoryEnabled,
+          memoryPromptMaxTokens: settings.memoryPromptMaxTokens,
+          sensitiveMemoryEnabled: settings.sensitiveMemoryEnabled,
+        }),
       });
-      setSettings(data); setNotice('Memory Manager settings saved.');
+      setSettings(data); setRuntimeDraftChanged(false); setNotice(settings.canManageMemoryRuntime ? 'Memory Reviewer verified and settings saved.' : 'Personal memory settings saved.');
     } catch (saveError) { setError(saveError instanceof Error ? saveError.message : 'Unable to save settings.'); }
     finally { setSaving(false); }
   };
@@ -532,12 +557,13 @@ export function MemorySettingsPanel() {
           </div>
         </div>
 
-        <Card className="h-fit xl:sticky xl:top-6"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="size-4 text-primary" />Memory review runtime</CardTitle><CardDescription>Runs every 10 user turns, plus a 15-minute idle flush for remaining turns.</CardDescription></CardHeader><CardContent className="space-y-5">
+        <Card className="h-fit xl:sticky xl:top-6"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="size-4 text-primary" />Memory review runtime</CardTitle><CardDescription>Runs every 10 user turns, plus a 15-minute idle flush. Provider and model are managed once for the organization by an administrator.</CardDescription></CardHeader><CardContent className="space-y-5">
           {settings ? <><div className="flex items-center justify-between gap-3"><div><Label htmlFor="automatic-memory">Automatic memory</Label><p className="text-xs text-muted-foreground">Schedules the reserved reviewer.</p></div><Switch id="automatic-memory" checked={settings.automaticMemoryEnabled} onCheckedChange={(checked) => setSettings({ ...settings, automaticMemoryEnabled: checked })} /></div>
-          <div className="space-y-2"><Label htmlFor="memory-provider">Provider installation</Label><select id="memory-provider" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={settings.providerInstallationId ?? ''} onChange={(event) => setSettings({ ...settings, providerInstallationId: event.target.value || null, modelId: null })}><option value="">Choose a provider</option>{settings.providers.map((provider) => <option value={provider.installationId} key={provider.installationId}>{provider.name}</option>)}</select></div>
-          <div className="space-y-2"><Label htmlFor="memory-model">Lightweight review model</Label><select id="memory-model" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={settings.modelId ?? ''} disabled={!selectedProvider} onChange={(event) => setSettings({ ...settings, modelId: event.target.value || null })}><option value="">Choose a model</option>{selectedProvider?.models.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}</select></div>
+          <div className="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">{settings.canManageMemoryRuntime ? 'Administrator setting · changing it runs a live model verification before it is saved.' : 'Managed by your organization administrator. You can still control whether automatic memory runs for your account.'}</div>
+          <div className="space-y-2"><Label htmlFor="memory-provider">Organization provider</Label><select id="memory-provider" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={settings.providerInstallationId ?? ''} disabled={!settings.canManageMemoryRuntime || saving} onChange={(event) => { setSettings({ ...settings, providerInstallationId: event.target.value || null, modelId: null }); setRuntimeDraftChanged(true); }}><option value="">Choose a provider</option>{settings.providers.map((provider) => <option value={provider.installationId} key={provider.installationId}>{provider.name}</option>)}</select></div>
+          <div className="space-y-2"><Label htmlFor="memory-model">Memory Reviewer model</Label><select id="memory-model" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={settings.modelId ?? ''} disabled={!settings.canManageMemoryRuntime || !selectedProvider || saving} onChange={(event) => { setSettings({ ...settings, modelId: event.target.value || null }); setRuntimeDraftChanged(true); }}><option value="">Choose a model</option>{selectedProvider?.models.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}</select><p className="text-xs text-muted-foreground">{settings.runtimeConfigured && !runtimeDraftChanged ? 'Verified for the current provider catalog.' : settings.canManageMemoryRuntime ? 'Verification required before queue work can run.' : 'The queue waits safely until an administrator verifies a model.'}</p></div>
           <div className="space-y-2"><Label htmlFor="memory-budget">Prompt budget (tokens)</Label><Input id="memory-budget" type="number" min={0} max={4000} value={settings.memoryPromptMaxTokens} onChange={(event) => setSettings({ ...settings, memoryPromptMaxTokens: Number(event.target.value) })} /><p className="text-xs text-muted-foreground">Hard limit: 4,000 tokens and at most 10% of the usable context.</p></div>
-          <Button className="w-full" onClick={() => void saveSettings()} disabled={saving}>{saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}Save review settings</Button></> : <p className="text-sm text-muted-foreground">Loading settings…</p>}
+          <Button className="w-full" onClick={() => void saveSettings()} disabled={saving}>{saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}{settings.canManageMemoryRuntime && (runtimeDraftChanged || !settings.runtimeConfigured) ? 'Verify reviewer and save' : 'Save memory settings'}</Button></> : <p className="text-sm text-muted-foreground">Loading settings…</p>}
         </CardContent></Card>
       </div>
 

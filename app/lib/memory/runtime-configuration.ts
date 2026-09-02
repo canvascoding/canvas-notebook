@@ -115,9 +115,15 @@ export async function verifyAndConfigureMemoryReviewRuntime(input: {
   }
 
   const verifiedAt = verification.verifiedAt ? Date.parse(verification.verifiedAt) : NaN;
+  const confirmedCatalog = await readAppRuntimeCatalog(input.organizationId);
+  const confirmedProvider = confirmedCatalog.providers.find((candidate) => candidate.installationId === providerInstallationId);
+  const confirmedModel = confirmedProvider?.models.find((candidate) => candidate.id === modelId);
   if (
-    verification.catalogRevision !== input.expectedCatalogRevision
+    confirmedCatalog.revision !== verification.catalogRevision
     || verification.modelId !== modelId
+    || !confirmedProvider?.enabled
+    || confirmedProvider.status !== 'ready'
+    || !confirmedModel?.enabled
     || !Number.isFinite(verifiedAt)
   ) {
     throw new ProviderVerificationError(

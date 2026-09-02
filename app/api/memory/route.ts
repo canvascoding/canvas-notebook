@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { openDb } from '@/app/lib/db';
-import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
-import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
+import { readMemoryReviewRuntimeCatalog } from '@/app/lib/memory/runtime-configuration';
+import { isOrganizationAdminLike, readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import {
   addMemory,
   deleteAgentMemory,
@@ -13,7 +13,6 @@ import {
   listMemoryCollections,
   readAgentMemoryOwnerStats,
   readMemoryCollection,
-  readMemoryReviewRuntimeSettings,
   resolveAgentMemoryOwnerForUser,
   resolveMemoryScopeAccess,
   setAgentMemoryArchived,
@@ -109,17 +108,17 @@ async function memorySettings(userId: string) {
           : reviewCounts.scheduled > 0
             ? 'scheduled'
             : 'idle';
-    const catalog = organization.organizationId
-      ? await readAppRuntimeCatalog(organization.organizationId)
+    const runtimeCatalog = organization.organizationId
+      ? await readMemoryReviewRuntimeCatalog(organization.organizationId)
       : null;
-    const runtimeSettings = organization.organizationId
-      ? await readMemoryReviewRuntimeSettings(organization.organizationId)
-      : null;
+    const runtimeSettings = runtimeCatalog?.settings ?? null;
     return {
       automaticMemoryEnabled: settings?.automatic_memory_enabled === true || settings?.automatic_memory_enabled === 1,
       providerInstallationId: runtimeSettings?.providerInstallationId ?? null,
       modelId: runtimeSettings?.modelId ?? null,
-      runtimeConfigured: Boolean(runtimeSettings),
+      runtimeConfigured: runtimeCatalog?.valid ?? false,
+      canManageMemoryRuntime: isOrganizationAdminLike(organization.permission),
+      catalogRevision: runtimeCatalog?.revision ?? null,
       memoryPromptMaxTokens: Number(settings?.memory_prompt_max_tokens ?? 2_000),
       sensitiveMemoryEnabled: settings?.sensitive_memory_enabled === true || settings?.sensitive_memory_enabled === 1,
       updatedAt: Number(settings?.updated_at ?? 0),
@@ -132,11 +131,11 @@ async function memorySettings(userId: string) {
         lastErrorCode: normalizedString(lastError?.error_code),
         lastErrorAt: Number(review?.last_error_at ?? 0) || null,
       },
-      providers: (catalog?.providers ?? []).filter((provider) => provider.enabled && provider.status === 'ready').map((provider) => ({
+      providers: (runtimeCatalog?.providers ?? []).map((provider) => ({
         installationId: provider.installationId,
         name: provider.name,
         providerId: provider.providerId,
-        models: provider.models.filter((model) => model.enabled).map((model) => ({ id: model.id, name: model.name })),
+        models: provider.models,
       })),
     };
   } finally { await connection.close(); }

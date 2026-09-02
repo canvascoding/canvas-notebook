@@ -132,6 +132,7 @@ async function main() {
     ProviderVerificationError,
     verifyProviderInstallation,
   } = await import('../app/lib/agent-runtime-policy/provider-verification-service');
+  const { verifyAndConfigureMemoryReviewRuntime } = await import('../app/lib/memory/runtime-configuration');
   const { replaceScopedEnvEntries } = await import('../app/lib/integrations/env-config');
 
   const owner = await createInitialOwner({
@@ -327,15 +328,33 @@ async function main() {
     baseUrl: providerDefaultModel.baseUrl,
     apiKey: ORGANIZATION_SECRET,
   });
-  const explicitModelVerification = await verifyProviderInstallation({
+  const explicitMemoryRuntime = await verifyAndConfigureMemoryReviewRuntime({
     organizationId: organization.organizationId,
     actorUserId: owner.id,
     providerInstallationId,
     modelId: memoryReviewModel.id,
+    expectedCatalogRevision: verifiedPayload.data.catalogRevision,
   });
-  assert.equal(explicitModelVerification.success, true);
-  assert.equal(explicitModelVerification.modelId, memoryReviewModel.id);
+  assert.equal(explicitMemoryRuntime.verification.success, true);
+  assert.equal(explicitMemoryRuntime.verification.modelId, memoryReviewModel.id);
   assert.equal(probeCalls.at(-1)?.modelId, memoryReviewModel.id);
+  const memoryRuntime = sqlite.prepare(`
+    SELECT provider_installation_id AS providerInstallationId, model_id AS modelId,
+      verified_catalog_revision AS verifiedCatalogRevision, configured_by_user_id AS configuredByUserId
+    FROM memory_review_runtime_settings
+    WHERE organization_id = ?
+  `).get(organization.organizationId) as {
+    providerInstallationId: string;
+    modelId: string;
+    verifiedCatalogRevision: number;
+    configuredByUserId: string;
+  };
+  assert.deepEqual(memoryRuntime, {
+    providerInstallationId,
+    modelId: memoryReviewModel.id,
+    verifiedCatalogRevision: explicitMemoryRuntime.verification.catalogRevision,
+    configuredByUserId: owner.id,
+  });
 
   const verifiedProvider = sqlite.prepare(`
     SELECT status, verified_at AS verifiedAt, verified_by_user_id AS verifiedByUserId, revision

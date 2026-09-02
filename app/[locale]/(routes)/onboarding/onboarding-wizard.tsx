@@ -26,7 +26,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { CheckCircle2, Clock3, Compass, FolderKanban, KeyRound, Languages, Loader2, Mail, RefreshCw, ServerCog, ShieldAlert, Sparkles, Users, Workflow, type LucideIcon } from 'lucide-react';
+import { BrainCircuit, CheckCircle2, Clock3, Compass, FolderKanban, KeyRound, Languages, Loader2, Mail, RefreshCw, ServerCog, ShieldAlert, Sparkles, Users, Workflow, type LucideIcon } from 'lucide-react';
 
 type Step = 'server' | 'language' | 'license' | 'provider' | 'workspace' | 'review' | 'profile' | 'tour' | 'done';
 type OnboardingMode = 'instance' | 'user';
@@ -249,6 +249,7 @@ export default function OnboardingWizard({
   const [completeLoading, setCompleteLoading] = useState(false);
   const [modelTestLoading, setModelTestLoading] = useState(false);
   const [modelTestError, setModelTestError] = useState<string | null>(null);
+  const [appProviderVerified, setAppProviderVerified] = useState(false);
   const [providerCatalogRefreshKey, setProviderCatalogRefreshKey] = useState(0);
   const [profileSessionId, setProfileSessionId] = useState<string | null>(null);
   const [profileSessionLoading, setProfileSessionLoading] = useState(false);
@@ -364,7 +365,7 @@ export default function OnboardingWizard({
         return;
       }
 
-      await advanceTo('workspace');
+      setAppProviderVerified(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : t('unexpectedError');
       setModelTestError(message);
@@ -480,11 +481,15 @@ export default function OnboardingWizard({
                   )}
 
                   <div className="flex justify-end">
-                    <Button type="button" onClick={() => void handleProviderSaved()} disabled={modelTestLoading}>
+                    <Button type="button" onClick={() => void handleProviderSaved()} disabled={modelTestLoading || appProviderVerified}>
                       {modelTestLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      {t('providerVerifyContinue')}
+                      {appProviderVerified ? t('providerVerified') : t('providerVerifyContinue')}
                     </Button>
                   </div>
+
+                  {appProviderVerified && (
+                    <MemoryReviewerSetup onContinue={() => advanceTo('workspace')} />
+                  )}
                 </div>
               )}
 
@@ -1115,6 +1120,147 @@ function ServerSettingsStep({
   );
 }
 
+type MemoryRuntimeCatalog = {
+  revision: number;
+  defaultSelection: { providerInstallationId: string; modelId: string } | null;
+  providers: Array<{
+    installationId: string;
+    name: string;
+    models: Array<{ id: string; name: string }>;
+  }>;
+  settings: { providerInstallationId: string; modelId: string } | null;
+  valid: boolean;
+};
+
+function MemoryReviewerSetup({ onContinue }: { onContinue: () => Promise<void> | void }) {
+  const t = useTranslations('onboarding');
+  const [catalog, setCatalog] = useState<MemoryRuntimeCatalog | null>(null);
+  const [providerInstallationId, setProviderInstallationId] = useState('');
+  const [modelId, setModelId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/onboarding/memory-reviewer', { credentials: 'include', cache: 'no-store' });
+      const payload = await response.json().catch(() => null) as { success?: boolean; error?: string; data?: MemoryRuntimeCatalog } | null;
+      if (!response.ok || !payload?.success || !payload.data) {
+        throw new Error(payload?.error || t('memoryReviewerLoadFailed'));
+      }
+      const next = payload.data;
+      const selection = next.valid && next.settings ? next.settings : next.defaultSelection;
+      setCatalog(next);
+      setProviderInstallationId(selection?.providerInstallationId ?? '');
+      setModelId(selection?.modelId ?? '');
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : t('memoryReviewerLoadFailed'));
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const selectedProvider = catalog?.providers.find((provider) => provider.installationId === providerInstallationId) ?? null;
+
+  async function verifyAndContinue() {
+    if (catalog?.valid
+      && catalog.settings?.providerInstallationId === providerInstallationId
+      && catalog.settings.modelId === modelId) {
+      await onContinue();
+      return;
+    }
+    if (!catalog || !providerInstallationId || !modelId) return;
+    setVerifying(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/onboarding/memory-reviewer', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ providerInstallationId, modelId, expectedCatalogRevision: catalog.revision }),
+      });
+      const payload = await response.json().catch(() => null) as { success?: boolean; error?: string; code?: string } | null;
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.code ? `${payload.error || t('memoryReviewerVerificationFailed')} (${payload.code})` : payload?.error || t('memoryReviewerVerificationFailed'));
+      }
+      toast.success(t('memoryReviewerVerified'));
+      await onContinue();
+    } catch (verificationError) {
+      setError(verificationError instanceof Error ? verificationError.message : t('memoryReviewerVerificationFailed'));
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4 border-t border-border pt-6" data-testid="memory-reviewer-setup">
+      <div className="flex items-start gap-3">
+        <BrainCircuit className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+        <div>
+          <h3 className="font-semibold">{t('memoryReviewerTitle')}</h3>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">{t('memoryReviewerDescription')}</p>
+        </div>
+      </div>
+      {loading ? (
+        <div className="flex items-center gap-2 border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> {t('memoryReviewerLoading')}
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="onboarding-memory-provider">{t('memoryReviewerProvider')}</Label>
+            <select
+              id="onboarding-memory-provider"
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={providerInstallationId}
+              onChange={(event) => { setProviderInstallationId(event.target.value); setModelId(''); }}
+              disabled={verifying}
+            >
+              <option value="">{t('memoryReviewerChooseProvider')}</option>
+              {catalog?.providers.map((provider) => <option key={provider.installationId} value={provider.installationId}>{provider.name}</option>)}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="onboarding-memory-model">{t('memoryReviewerModel')}</Label>
+            <select
+              id="onboarding-memory-model"
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={modelId}
+              onChange={(event) => setModelId(event.target.value)}
+              disabled={!selectedProvider || verifying}
+            >
+              <option value="">{t('memoryReviewerChooseModel')}</option>
+              {selectedProvider?.models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+      {catalog?.valid && catalog.settings?.providerInstallationId === providerInstallationId && catalog.settings.modelId === modelId ? (
+        <div className="flex items-center gap-2 border border-primary/30 bg-primary/5 p-3 text-sm">
+          <CheckCircle2 className="h-4 w-4 text-primary" /> {t('memoryReviewerAlreadyVerified')}
+        </div>
+      ) : null}
+      {error ? <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div> : null}
+      <div className="flex justify-between gap-2">
+        <Button type="button" variant="outline" onClick={() => void load()} disabled={loading || verifying}>
+          <RefreshCw className="mr-2 h-4 w-4" /> {t('memoryReviewerReload')}
+        </Button>
+        <Button type="button" onClick={() => void verifyAndContinue()} disabled={loading || verifying || !providerInstallationId || !modelId}>
+          {verifying && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {catalog?.valid ? t('memoryReviewerContinue') : t('memoryReviewerVerifyContinue')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 type WorkspaceReadiness = {
   teamFeaturesEnabled?: boolean;
   databaseProvider?: string;
@@ -1241,6 +1387,9 @@ function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
     model: string;
     status: string;
     ready: boolean;
+    memoryProvider: string;
+    memoryModel: string;
+    memoryReady: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -1273,6 +1422,14 @@ function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
           ));
           const model = provider?.models.find((entry) => entry.id === catalog.defaultSelection?.modelId);
           if (!provider || !model?.enabled) throw new Error(t('instanceReviewCatalogError'));
+          const memoryResponse = await fetch('/api/onboarding/memory-reviewer', { credentials: 'include', cache: 'no-store' });
+          const memoryPayload = await memoryResponse.json().catch(() => null) as { success?: boolean; error?: string; data?: MemoryRuntimeCatalog } | null;
+          if (!memoryResponse.ok || !memoryPayload?.success || !memoryPayload.data?.valid || !memoryPayload.data.settings) {
+            throw new Error(memoryPayload?.error || t('instanceReviewMemoryError'));
+          }
+          const memoryProvider = memoryPayload.data.providers.find((entry) => entry.installationId === memoryPayload.data?.settings?.providerInstallationId);
+          const memoryModel = memoryProvider?.models.find((entry) => entry.id === memoryPayload.data?.settings?.modelId);
+          if (!memoryProvider || !memoryModel) throw new Error(t('instanceReviewMemoryError'));
           if (!cancelled) {
             setCatalogSummary({
               revision: catalog.revision,
@@ -1280,6 +1437,9 @@ function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
               model: model.name || model.id,
               status: provider.status,
               ready: provider.status === 'ready',
+              memoryProvider: memoryProvider.name,
+              memoryModel: memoryModel.name || memoryModel.id,
+              memoryReady: memoryPayload.data.valid,
             });
           }
         })
@@ -1333,6 +1493,7 @@ function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
           <li>✓ {t('instanceReviewTimeZone')}</li>
           <li>✓ {t('instanceReviewLicense')}</li>
           <li>✓ {t('instanceReviewProvider')}</li>
+          <li>✓ {t('instanceReviewMemoryReviewer')}</li>
           <li>✓ {t('instanceReviewWorkspace')}</li>
         </ul>
       </div>
@@ -1348,10 +1509,12 @@ function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
           <div><dt className="text-xs text-muted-foreground">{t('instanceReviewCatalogStatus')}</dt><dd className="font-medium">{catalogSummary.status}</dd></div>
           <div><dt className="text-xs text-muted-foreground">{t('instanceReviewCatalogProvider')}</dt><dd className="font-medium">{catalogSummary.provider}</dd></div>
           <div><dt className="text-xs text-muted-foreground">{t('instanceReviewCatalogModel')}</dt><dd className="font-medium">{catalogSummary.model}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">{t('instanceReviewMemoryProvider')}</dt><dd className="font-medium">{catalogSummary.memoryProvider}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">{t('instanceReviewMemoryModel')}</dt><dd className="font-medium">{catalogSummary.memoryModel}</dd></div>
         </dl>
       )}
       {error && <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
-      <Button onClick={() => void completeInstanceSetup()} className="w-full" disabled={completing || catalogLoading || !catalogSummary?.ready}>
+      <Button onClick={() => void completeInstanceSetup()} className="w-full" disabled={completing || catalogLoading || !catalogSummary?.ready || !catalogSummary.memoryReady}>
         {completing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         {t('instanceCompleteAction')}
       </Button>
