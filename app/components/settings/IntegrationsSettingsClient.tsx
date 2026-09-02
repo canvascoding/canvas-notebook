@@ -7,6 +7,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Inbox, Loader2, Mail, MoreHorizontal, Plus, RefreshCw, Save, Search, Send, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
+import { MobileAppSetupCard } from '@/app/components/mobile/MobileAppSetupCard';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { MailboxConnectionForm } from '@/app/components/email/MailboxConnectionForm';
 import { McpServerSettingsPanel } from '@/app/components/settings/McpServerSettingsPanel';
@@ -3142,6 +3143,8 @@ export function IntegrationsSettingsClient({
               initialTimeZone={initialTimeZone}
             />,
           )}
+
+          {renderLazyTabContent('mobile-app', <MobileAppSetupCard placement="settings" />)}
 
           {renderLazyTabContent('memory', <MemorySettingsPanel />)}
 

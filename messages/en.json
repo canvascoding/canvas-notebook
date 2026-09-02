@@ -2058,6 +2058,43 @@
       "version": "v.{version}"
     }
   },
+  "mobileAppSetup": {
+    "available": "Available for iPhone",
+    "dismiss": "Dismiss the Mobile App notice",
+    "eyebrow": "Canvas on the go",
+    "title": "Take your notebook with you.",
+    "description": "Scan the QR code with your iPhone. Canvas Mobile opens with this exact server selected – all that remains is signing in with your normal credentials.",
+    "bradleyAlt": "Bradley, the Canvas mascot",
+    "serverFallback": "Canvas Notebook",
+    "thisServer": "This server",
+    "openApp": "Open in the Mobile App",
+    "appStore": "View in the App Store",
+    "copyLink": "Copy setup link",
+    "copied": "Link copied",
+    "privacy": "The link contains only the public server address and instance ID. No passwords, tokens, or session data are transferred.",
+    "loading": "Preparing QR code",
+    "qrTitle": "QR code to set up {server} in Canvas Mobile",
+    "scanHint": "Scan with the iPhone camera",
+    "loadFailedTitle": "QR code unavailable",
+    "loadFailed": "The public instance information could not be loaded right now.",
+    "secureRequiredTitle": "HTTPS required",
+    "secureRequired": "Setup links are created only for Canvas instances available over secure HTTPS.",
+    "retry": "Try again",
+    "steps": {
+      "scan": {
+        "title": "Scan the QR code",
+        "description": "Open the camera on your iPhone and point it at the code."
+      },
+      "verify": {
+        "title": "Verify the server",
+        "description": "The app confirms this Canvas instance's identity before saving it."
+      },
+      "login": {
+        "title": "Sign in securely",
+        "description": "Your server is preselected; your password stays out of the link."
+      }
+    }
+  },
   "emails": {
     "title": "Email",
     "description": "Manage connected email accounts for inboxes, sending, agent tools, and system mail.",
@@ -2683,6 +2720,7 @@
     "title": "Settings",
     "tabs": {
       "general": "General",
+      "mobileApp": "Mobile App",
       "memory": "Memory",
       "integrations": "Integrations",
       "secrets": "Secrets",
@@ -2718,6 +2756,7 @@
       },
       "descriptions": {
         "general": "Manage your account, language, and basic instance options.",
+        "mobileApp": "Get Canvas Mobile and securely prepare this instance for sign-in.",
         "memory": "Review persistent context and configure the dedicated memory reviewer.",
         "workspace": "Select a workspace, manage exports, and review workspace access.",
         "brandDesign": "Define the brand experience for Canvas, PDF exports, and the active agent context.",

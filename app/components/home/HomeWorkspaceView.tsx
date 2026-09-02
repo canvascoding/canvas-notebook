@@ -11,6 +11,7 @@ import { HomeAttentionPanel } from './HomeAttentionPanel';
 import { HomeFocusCards } from './HomeFocusCards';
 import { HomeAppLinks } from './HomeAppLinks';
 import { MoreToolsSection } from './MoreToolsSection';
+import { HomeMobileAppPromo } from '@/app/components/mobile/MobileAppSetupCard';
 
 export function HomeWorkspaceView({
   showBrowserLab = false,
@@ -95,6 +96,7 @@ export function HomeWorkspaceView({
         </section>
 
         <HomeFocusCards summary={summary} />
+        <HomeMobileAppPromo />
         <HomeAppLinks />
 
         <MoreToolsSection showBrowserLab={showBrowserLab} />
