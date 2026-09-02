@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.2.1] - 2026-09-02
+
+### Added
+
+- Added Hermes-aligned session compaction v2 with pressure policy, coherent selection, deterministic pruning, rolling summaries, recovery artifacts, and rollout evaluation coverage.
+- Added mobile account profile and avatar API contracts.
+
+### Changed
+
+- Improved truthful context and compaction status reporting across chat and runtime events.
+- Hardened live Markdown collaboration durability, checkpoint reconciliation, persistence recovery, and rich identity preservation.
+- Updated Bradley Notebook web branding and clarified the external MCP server description.
+
+### Fixed
+
+- Fixed collaboration checkpoint persistence and confirmation-failure recovery, including indeterminate commit handling.
+
+### Verification
+
+- `CANVAS_DATABASE_PROVIDER=sqlite DATABASE_URL= npm run verify:release` (passed; 16 existing lint warnings)
+
 ## [2026.9.1.1] - 2026-09-01
 
 ### Added
