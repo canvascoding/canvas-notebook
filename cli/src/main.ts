@@ -180,6 +180,7 @@ Commands:
   admin reset-password ...        Reset or create an admin in the container
   backup create [--output <path>] Create/replace the local latest full backup
   database status [--json]        Show configured database provider status
+  database validate [--json]      Validate external Postgres connectivity and capabilities
   database prepare-postgres --timeout <seconds>
                                   Prepare local Postgres without requiring old credentials
   database reconcile-postgres-auth --timeout <seconds>
@@ -1575,12 +1576,26 @@ async function admin(context: RuntimeContext, docker: DockerManager, config: Can
 async function database(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {
   const subcommand = args.shift();
   if (!subcommand || subcommand === '-h' || subcommand === '--help') {
-    console.log('Usage: canvas-notebook database status|prepare-postgres|reconcile-postgres-auth|migrate-sqlite-to-postgres [options]');
+    console.log('Usage: canvas-notebook database status|validate|prepare-postgres|reconcile-postgres-auth|migrate-sqlite-to-postgres [options]');
     return;
   }
 
   if (subcommand === 'status') {
     printDatabaseStatus(config, json);
+    return;
+  }
+
+  if (subcommand === 'validate') {
+    if (!externalPostgresRuntimeDesired(config)) {
+      throw new Error('database validate is for CANVAS_POSTGRES_MODE=external; managed Postgres is verified during prepare/start.');
+    }
+    const result = await preflightExternalPostgres({ config, docker, pgvectorPolicy: 'optional' });
+    const payload = { success: true, postgresMode: 'external', ...result };
+    if (json) console.log(JSON.stringify(payload));
+    else {
+      console.log(`External Postgres ${result.serverVersion} is writable.`);
+      console.log(`pgvector: ${result.pgvectorAvailable ? result.pgvectorVersion || 'available' : 'unavailable'}`);
+    }
     return;
   }
 
@@ -1646,7 +1661,9 @@ async function database(context: RuntimeContext, docker: DockerManager, config: 
       config = await readConfig(context);
     }
   }
-  const next = await syncFiles(context, config, { postgresInfrastructureOnly: true });
+  const next = externalPostgresRuntimeDesired(config)
+    ? await syncFiles(context, config)
+    : await syncFiles(context, config, { postgresInfrastructureOnly: true });
   await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit' });
   const containerId = await docker.containerId(next);
   if (!containerId) throw new Error('Canvas Notebook container is not running. Start it first: canvas-notebook start');

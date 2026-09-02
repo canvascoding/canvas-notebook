@@ -170,7 +170,11 @@ function getSqlitePath() {
 }
 
 function getDatabaseProvider() {
-  return (process.env.CANVAS_DATABASE_PROVIDER || '').trim().toLowerCase() || 'sqlite';
+  const configured = (process.env.CANVAS_DATABASE_PROVIDER || '').trim().toLowerCase();
+  if (configured) return configured;
+  if (/^postgres(?:ql)?:\/\//i.test((process.env.DATABASE_URL || '').trim())) return 'postgres';
+  if (process.env.NODE_ENV === 'production' && !existsSync(getSqlitePath())) return 'postgres';
+  return 'sqlite';
 }
 
 function runPostgresBootstrapAdmin(bootstrapAdmin) {

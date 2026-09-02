@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -104,7 +105,13 @@ export function resolveSqlitePath(): string {
 
 export function normalizeDatabaseProvider(value?: string | null): DatabaseProvider {
   const normalized = normalizeEnvValue(value);
-  if (!normalized) return 'sqlite';
+  if (!normalized) {
+    const databaseUrlProtocol = getDatabaseUrlProtocol(process.env.DATABASE_URL);
+    if (databaseUrlProtocol === 'postgres' || databaseUrlProtocol === 'postgresql') return 'postgres';
+    if (process.env.NEXT_PHASE === 'phase-production-build') return 'sqlite';
+    if (process.env.NODE_ENV === 'production' && !existsSync(resolveSqlitePath())) return 'postgres';
+    return 'sqlite';
+  }
   return VALID_PROVIDERS.has(normalized as DatabaseProvider)
     ? normalized as DatabaseProvider
     : 'sqlite';

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -11,7 +11,11 @@ type EnvSnapshot = {
   CANVAS_POSTGRES_IMAGE?: string;
   CANVAS_POSTGRES_DATA_VOLUME?: string;
   DATABASE_URL?: string;
+  NODE_ENV?: string;
+  NEXT_PHASE?: string;
 };
+
+const mutableProcessEnv = process.env as Record<string, string | undefined>;
 
 function snapshotEnv(): EnvSnapshot {
   return {
@@ -22,14 +26,15 @@ function snapshotEnv(): EnvSnapshot {
     CANVAS_POSTGRES_IMAGE: process.env.CANVAS_POSTGRES_IMAGE,
     CANVAS_POSTGRES_DATA_VOLUME: process.env.CANVAS_POSTGRES_DATA_VOLUME,
     DATABASE_URL: process.env.DATABASE_URL,
+    NODE_ENV: process.env.NODE_ENV,
+    NEXT_PHASE: process.env.NEXT_PHASE,
   };
 }
 
 function restoreEnv(snapshot: EnvSnapshot): void {
-  for (const key of Object.keys(snapshot) as Array<keyof EnvSnapshot>) {
-    const value = snapshot[key];
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
+  for (const [key, value] of Object.entries(snapshot)) {
+    if (value === undefined) delete mutableProcessEnv[key];
+    else mutableProcessEnv[key] = value;
   }
 }
 
@@ -41,6 +46,8 @@ function resetProviderEnv(dataDir: string): void {
   delete process.env.CANVAS_POSTGRES_IMAGE;
   delete process.env.CANVAS_POSTGRES_DATA_VOLUME;
   delete process.env.DATABASE_URL;
+  delete mutableProcessEnv.NODE_ENV;
+  delete mutableProcessEnv.NEXT_PHASE;
 }
 
 async function main() {
@@ -87,6 +94,20 @@ async function main() {
     assert.equal(gate.ok, true);
     assert.deepEqual(gate.blockers, []);
     assert.doesNotThrow(() => assertRuntimeDatabaseProviderSupported());
+
+    mutableProcessEnv.NODE_ENV = 'production';
+    mutableProcessEnv.NEXT_PHASE = 'phase-production-build';
+    assert.equal(getDatabaseProvider(), 'sqlite');
+    delete mutableProcessEnv.NEXT_PHASE;
+    assert.equal(getDatabaseProvider(), 'postgres');
+    config = resolveDatabaseProviderConfig();
+    assert.ok(config.problems.some((problem) => problem.code === 'postgres_missing_database_url'));
+    await writeFile(resolveSqlitePath(), 'legacy-sqlite-marker');
+    assert.equal(getDatabaseProvider(), 'sqlite');
+    await rm(resolveSqlitePath(), { force: true });
+    process.env.DATABASE_URL = 'postgresql://canvas:secret@postgres:5432/canvas_notebook';
+    assert.equal(getDatabaseProvider(), 'postgres');
+    resetProviderEnv(dataDir);
 
     gate = resolveDatabaseProviderGate({ teamFeaturesEnabled: true });
     assert.equal(gate.ok, false);

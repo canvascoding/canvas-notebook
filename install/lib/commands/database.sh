@@ -59,8 +59,12 @@ _database_provider() {
 }
 
 _database_status_json() {
-  local provider deployment postgres_required pg_image pg_volume pg_db pg_user database_url pgvector
+  local provider postgres_mode deployment postgres_required pg_image pg_volume pg_db pg_user database_url pgvector
   provider="$(_database_provider)"
+  postgres_mode="$(config_json_read env.CANVAS_POSTGRES_MODE)"
+  if [[ "$provider" == "postgres" ]]; then
+    postgres_mode="$(config_json_normalize_postgres_mode "$postgres_mode")"
+  fi
   deployment="$(config_json_read env.CANVAS_DEPLOYMENT_MODE)"
   deployment="${deployment:-single_user}"
   postgres_required="$(_database_bool "$(config_json_read env.CANVAS_POSTGRES_REQUIRED)")"
@@ -70,11 +74,12 @@ _database_status_json() {
   pg_user="$(config_json_read env.CANVAS_POSTGRES_USER)"
   database_url="$(config_json_read env.DATABASE_URL)"
   pgvector="$(_database_bool "$(config_json_read env.CANVAS_POSTGRES_VECTOR_ENABLED)")"
-  printf '{"databaseProvider":"%s","deploymentMode":"%s","postgresRequired":%s,"postgresProfileEnabled":%s,"postgres":{"image":"%s","dataVolume":"%s","database":"%s","user":"%s","databaseUrlConfigured":%s,"pgvectorEnabled":%s}}\n' \
+  printf '{"databaseProvider":"%s","postgresMode":"%s","deploymentMode":"%s","postgresRequired":%s,"postgresProfileEnabled":%s,"postgres":{"image":"%s","dataVolume":"%s","database":"%s","user":"%s","databaseUrlConfigured":%s,"pgvectorEnabled":%s}}\n' \
     "$(json_escape "$provider")" \
+    "$(json_escape "$postgres_mode")" \
     "$(json_escape "$deployment")" \
     "$postgres_required" \
-    "$([[ "$provider" == "postgres" ]] && printf true || printf false)" \
+    "$([[ "$provider" == "postgres" && "$postgres_mode" == "managed" ]] && printf true || printf false)" \
     "$(json_escape "$pg_image")" \
     "$(json_escape "$pg_volume")" \
     "$(json_escape "$pg_db")" \
@@ -89,8 +94,12 @@ _database_status() {
     return
   fi
 
-  local provider deployment postgres_required pg_image pg_volume database_url
+  local provider postgres_mode deployment postgres_required pg_image pg_volume database_url
   provider="$(_database_provider)"
+  postgres_mode="$(config_json_read env.CANVAS_POSTGRES_MODE)"
+  if [[ "$provider" == "postgres" ]]; then
+    postgres_mode="$(config_json_normalize_postgres_mode "$postgres_mode")"
+  fi
   deployment="$(config_json_read env.CANVAS_DEPLOYMENT_MODE)"
   deployment="${deployment:-single_user}"
   postgres_required="$(_database_bool "$(config_json_read env.CANVAS_POSTGRES_REQUIRED)")"
@@ -98,9 +107,10 @@ _database_status() {
   pg_volume="$(config_json_read env.CANVAS_POSTGRES_DATA_VOLUME)"
   database_url="$(config_json_read env.DATABASE_URL)"
   printf 'Database provider: %s\n' "$provider"
+  printf 'Postgres mode: %s\n' "${postgres_mode:-(not set)}"
   printf 'Deployment mode: %s\n' "$deployment"
   printf 'Postgres required: %s\n' "$([[ "$postgres_required" == "true" ]] && printf yes || printf no)"
-  printf 'Postgres profile: %s\n' "$([[ "$provider" == "postgres" ]] && printf enabled || printf disabled)"
+  printf 'Postgres profile: %s\n' "$([[ "$provider" == "postgres" && "$postgres_mode" == "managed" ]] && printf enabled || printf disabled)"
   printf 'Postgres image: %s\n' "${pg_image:-(not set)}"
   printf 'Postgres volume: %s\n' "${pg_volume:-(not set)}"
   printf 'DATABASE_URL: %s\n' "$([[ -n "$database_url" ]] && printf configured || printf '(not set)')"
@@ -677,7 +687,9 @@ _database_migrate_sqlite_to_postgres() {
   if postgres_runtime_desired && [[ -f "$CONFIG_ENV_PATH" && -f "$COMPOSE_ENV_PATH" ]]; then
     _database_reconcile_postgres_auth_quiet --timeout "${CANVAS_POSTGRES_RECONCILE_TIMEOUT:-900}" || return 1
   fi
-  config_json_ensure_postgres_infrastructure_config
+  if [[ "$(config_json_read env.CANVAS_POSTGRES_MODE)" != "external" ]]; then
+    config_json_ensure_postgres_infrastructure_config
+  fi
   CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE=true config_json_to_env
   postgres_prepare_managed_runtime
   cid="$(_database_require_running_container)"

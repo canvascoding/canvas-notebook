@@ -61,6 +61,9 @@ export CANVAS_USE_COLOR=false
 
 cli="$TMP_DIR/install/bin/canvas-notebook"
 
+# Exercise the retained backup path for an existing SQLite installation.
+"$cli" config-set env.CANVAS_DATABASE_PROVIDER sqlite --no-banner > /dev/null
+
 "$cli" backup --no-banner > "$TMP_DIR/help.txt"
 grep -q 'backup create' "$TMP_DIR/help.txt"
 
