@@ -13,7 +13,6 @@ import {
 } from '@/app/components/license/useLicenseEmailActivation';
 
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
-import { AiProviderCredentialsPanel } from '@/app/components/settings/AiProviderCredentialsPanel';
 import { AiProvidersModelsPanel } from '@/app/components/settings/AiProvidersModelsPanel';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
@@ -249,14 +248,26 @@ export default function OnboardingWizard({
   const [completeLoading, setCompleteLoading] = useState(false);
   const [modelTestLoading, setModelTestLoading] = useState(false);
   const [modelTestError, setModelTestError] = useState<string | null>(null);
-  const [appProviderVerified, setAppProviderVerified] = useState(false);
-  const [providerCatalogRefreshKey, setProviderCatalogRefreshKey] = useState(0);
+  const [providerReady, setProviderReady] = useState(false);
+  const [providerVerifiedInSession, setProviderVerifiedInSession] = useState(false);
   const [profileSessionId, setProfileSessionId] = useState<string | null>(null);
   const [profileSessionLoading, setProfileSessionLoading] = useState(false);
   const [profileSessionError, setProfileSessionError] = useState<string | null>(null);
   const profileSessionRequestInFlightRef = useRef(false);
   const isInstanceOnboarding = mode === 'instance';
   const steps = isInstanceOnboarding ? INSTANCE_STEPS : USER_STEPS;
+  const currentStepIndex = Math.max(steps.indexOf(step), 0);
+  const currentStepLabel = {
+    server: t('stepServer'),
+    language: t('stepLanguage'),
+    license: t('stepLicense'),
+    provider: t('stepProvider'),
+    workspace: t('stepWorkspace'),
+    review: t('stepReview'),
+    profile: t('stepProfile'),
+    tour: t('stepTour'),
+    done: t('stepDone'),
+  }[step];
 
   useEffect(() => {
     scrubLicenseKeyFromBrowserUrl();
@@ -344,7 +355,7 @@ export default function OnboardingWizard({
     return () => window.clearTimeout(timer);
   }, [openProfileSession, profileSessionId, step, t]);
 
-  async function handleProviderSaved() {
+  const verifyProviderForOnboarding = useCallback(async () => {
     setModelTestLoading(true);
     setModelTestError(null);
     try {
@@ -360,20 +371,34 @@ export default function OnboardingWizard({
 
       if (!response.ok || !data.success) {
         const message = data.error || t('modelTestFailed');
-        setModelTestError(data.code ? `${message} (${data.code})` : message);
-        toast.error(t('modelTestFailed'));
-        return;
+        throw new Error(data.code ? `${message} (${data.code})` : message);
       }
-
-      setAppProviderVerified(true);
+      setProviderVerifiedInSession(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : t('unexpectedError');
       setModelTestError(message);
-      toast.error(message);
+      throw error;
     } finally {
       setModelTestLoading(false);
     }
+  }, [t]);
+
+  async function handleProviderContinue() {
+    try {
+      if (!providerVerifiedInSession) await verifyProviderForOnboarding();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('unexpectedError');
+      toast.error(message);
+    }
   }
+
+  const handleProviderCatalogChanged = useCallback(() => {
+    setProviderVerifiedInSession(false);
+  }, []);
+
+  const handleProviderStateChange = useCallback(({ ready }: { ready: boolean }) => {
+    setProviderReady(ready);
+  }, []);
 
   function handleDone() {
     setCompleteLoading(true);
@@ -414,17 +439,29 @@ export default function OnboardingWizard({
                 <h1 className="text-center text-3xl font-bold">Canvas Notebook</h1>
               </div>
 
-              <div className="mb-8 flex justify-center gap-2">
-                {steps.map((currentStep, index) => (
-                  <div key={currentStep} className="flex items-center gap-2">
-                    <div
-                      className={`h-2 w-2 rounded-full transition-colors ${
-                        step === currentStep ? 'bg-foreground' : 'bg-muted-foreground/30'
-                      }`}
-                    />
-                    {index < steps.length - 1 && <div className="h-px w-6 bg-border" />}
-                  </div>
-                ))}
+              <div
+                className="mb-8 space-y-3"
+                role="progressbar"
+                aria-valuemin={1}
+                aria-valuemax={steps.length}
+                aria-valuenow={currentStepIndex + 1}
+                aria-label={t('stepProgress', { current: currentStepIndex + 1, total: steps.length })}
+              >
+                <p className="text-center text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                  {t('stepProgress', { current: currentStepIndex + 1, total: steps.length })} · {currentStepLabel}
+                </p>
+                <div className="flex justify-center gap-2" aria-hidden="true">
+                  {steps.map((currentStep, index) => (
+                    <div key={currentStep} className="flex items-center gap-2">
+                      <div
+                        className={`h-2 w-2 rounded-full transition-colors ${
+                          step === currentStep ? 'bg-foreground' : index < currentStepIndex ? 'bg-primary/70' : 'bg-muted-foreground/30'
+                        }`}
+                      />
+                      {index < steps.length - 1 && <div className="h-px w-6 bg-border" />}
+                    </div>
+                  ))}
+                </div>
               </div>
 
               {step === 'server' && (
@@ -452,27 +489,19 @@ export default function OnboardingWizard({
               {step === 'provider' && (
                 <div className="space-y-6">
                   <div>
-                    <h2 className="mb-1 text-xl font-semibold">{t('welcome')}</h2>
+                    <h2 className="mb-1 text-xl font-semibold">{t('providerTitle')}</h2>
                     <p className="text-sm text-muted-foreground">
-                      {t('description')}
+                      {t('providerDescription')}
                     </p>
                   </div>
 
                   <AiProvidersModelsPanel
                     locale={currentLocale}
-                    onCatalogChanged={() => setProviderCatalogRefreshKey((current) => current + 1)}
+                    presentation="onboarding"
+                    verifyProvider={verifyProviderForOnboarding}
+                    onCatalogChanged={handleProviderCatalogChanged}
+                    onOnboardingStateChange={handleProviderStateChange}
                   />
-                  <AiProviderCredentialsPanel
-                    locale={currentLocale}
-                    refreshKey={providerCatalogRefreshKey}
-                  />
-
-                  {modelTestLoading && (
-                    <div className="flex items-center gap-2 border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      {t('modelTestChecking')}
-                    </div>
-                  )}
 
                   {modelTestError && (
                     <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
@@ -481,13 +510,13 @@ export default function OnboardingWizard({
                   )}
 
                   <div className="flex justify-end">
-                    <Button type="button" onClick={() => void handleProviderSaved()} disabled={modelTestLoading || appProviderVerified}>
+                    <Button type="button" onClick={() => void handleProviderContinue()} disabled={modelTestLoading || !providerReady || providerVerifiedInSession}>
                       {modelTestLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      {appProviderVerified ? t('providerVerified') : t('providerVerifyContinue')}
+                      {providerVerifiedInSession ? t('providerVerified') : t('providerVerifyContinue')}
                     </Button>
                   </div>
 
-                  {appProviderVerified && (
+                  {providerVerifiedInSession && (
                     <MemoryReviewerSetup onContinue={() => advanceTo('workspace')} />
                   )}
                 </div>
@@ -1382,10 +1411,8 @@ function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogSummary, setCatalogSummary] = useState<{
-    revision: number;
     provider: string;
     model: string;
-    status: string;
     ready: boolean;
     memoryProvider: string;
     memoryModel: string;
@@ -1432,10 +1459,8 @@ function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
           if (!memoryProvider || !memoryModel) throw new Error(t('instanceReviewMemoryError'));
           if (!cancelled) {
             setCatalogSummary({
-              revision: catalog.revision,
               provider: provider.name,
               model: model.name || model.id,
-              status: provider.status,
               ready: provider.status === 'ready',
               memoryProvider: memoryProvider.name,
               memoryModel: memoryModel.name || memoryModel.id,
@@ -1504,11 +1529,10 @@ function InstanceReviewStep({ onComplete }: { onComplete: () => void }) {
         </div>
       )}
       {catalogSummary && (
-        <dl className="grid gap-3 border border-border bg-background p-4 text-sm sm:grid-cols-2">
-          <div><dt className="text-xs text-muted-foreground">{t('instanceReviewCatalogRevision')}</dt><dd className="font-medium">r{catalogSummary.revision}</dd></div>
-          <div><dt className="text-xs text-muted-foreground">{t('instanceReviewCatalogStatus')}</dt><dd className="font-medium">{catalogSummary.status}</dd></div>
+        <dl className="grid gap-3 rounded-lg border border-border bg-background p-4 text-sm sm:grid-cols-3">
           <div><dt className="text-xs text-muted-foreground">{t('instanceReviewCatalogProvider')}</dt><dd className="font-medium">{catalogSummary.provider}</dd></div>
           <div><dt className="text-xs text-muted-foreground">{t('instanceReviewCatalogModel')}</dt><dd className="font-medium">{catalogSummary.model}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">{t('instanceReviewCatalogStatus')}</dt><dd className="font-medium">{t('instanceReviewCatalogReady')}</dd></div>
           <div><dt className="text-xs text-muted-foreground">{t('instanceReviewMemoryProvider')}</dt><dd className="font-medium">{catalogSummary.memoryProvider}</dd></div>
           <div><dt className="text-xs text-muted-foreground">{t('instanceReviewMemoryModel')}</dt><dd className="font-medium">{catalogSummary.memoryModel}</dd></div>
         </dl>

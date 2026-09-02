@@ -52,6 +52,7 @@ import {
 import {
   AiProviderEditorDialog,
   type AiProviderEditorCopy,
+  type AiProviderEditorOption,
 } from './ai-runtime/AiProviderEditorDialog';
 import {
   catalogDataToDraft,
@@ -90,6 +91,16 @@ type PanelCopy = {
   defaultModel: string;
   intelligence: string;
   saveDefault: string;
+  onboardingEmptyTitle: string;
+  onboardingEmptyDescription: string;
+  onboardingConfigure: string;
+  onboardingReadyDescription: string;
+  onboardingNeedsReviewDescription: string;
+  onboardingEndpoint: string;
+  onboardingModel: string;
+  onboardingScope: string;
+  onboardingChange: string;
+  onboardingUseOther: string;
   providersTitle: string;
   providersDescription: string;
   addProvider: string;
@@ -187,6 +198,16 @@ const DE_COPY: PanelCopy = {
   defaultModel: 'Modell',
   intelligence: 'Intelligence',
   saveDefault: 'Standard speichern',
+  onboardingEmptyTitle: 'KI-Provider einrichten',
+  onboardingEmptyDescription: 'Verbinde Canvas mit dem Provider und Modell, das Chats und Automationen ausführen soll.',
+  onboardingConfigure: 'Provider einrichten',
+  onboardingReadyDescription: 'Canvas ist mit diesem Provider verbunden. Technische Details kannst du später in den Einstellungen ändern.',
+  onboardingNeedsReviewDescription: 'Provider und Standardmodell sind ausgewählt. Öffne die Einrichtung, um die Verbindung zu prüfen.',
+  onboardingEndpoint: 'Verbindung',
+  onboardingModel: 'Standardmodell',
+  onboardingScope: 'Verfügbar für',
+  onboardingChange: 'Einrichtung ändern',
+  onboardingUseOther: 'Anderen Provider verwenden',
   providersTitle: 'Provider',
   providersDescription: 'Die Übersicht zeigt nur den aktuellen Zustand. Verbindung, Modelle und Zugriff bearbeitest du im Dialog.',
   addProvider: 'Provider hinzufügen',
@@ -248,6 +269,8 @@ const DE_COPY: PanelCopy = {
     addTitle: 'Provider einrichten',
     editTitle: 'Provider bearbeiten',
     description: 'Verbindung, Modelle und Zugriff sind in einer klaren Reihenfolge angeordnet.',
+    provider: 'Provider',
+    chooseProvider: 'Provider auswählen',
     connectionStep: 'Verbindung',
     connectionDescription: 'Lege zuerst fest, unter welcher Adresse Canvas den Provider erreicht.',
     modelsStep: 'Modelle',
@@ -265,6 +288,7 @@ const DE_COPY: PanelCopy = {
     connectionReady: (count) => `Verbunden · ${count} ${count === 1 ? 'Modell gefunden' : 'Modelle gefunden'}`,
     noRemoteModels: 'Verbunden, aber auf diesem Server wurden keine Modelle gefunden.',
     discoverFirst: 'Teste die Verbindung, um die Modelle dieses Ollama-Servers zu laden.',
+    configureManually: 'Modell stattdessen manuell eintragen',
     manualModel: 'Modell manuell hinzufügen',
     manualModelPlaceholder: 'z. B. qwen3:14b oder llama3.3:70b',
     addModel: 'Hinzufügen',
@@ -283,6 +307,7 @@ const DE_COPY: PanelCopy = {
     cancel: 'Abbrechen',
     save: 'Änderungen speichern',
     saveAndVerify: 'Speichern & prüfen',
+    saveVerifyAndUse: 'Speichern, prüfen und als Standard verwenden',
     saving: 'Wird gespeichert …',
     remove: 'Provider entfernen',
     errors: {
@@ -319,6 +344,16 @@ const EN_COPY: PanelCopy = {
   defaultModel: 'Model',
   intelligence: 'Intelligence',
   saveDefault: 'Save default',
+  onboardingEmptyTitle: 'Set up an AI provider',
+  onboardingEmptyDescription: 'Connect Canvas to the provider and model that should run chats and automations.',
+  onboardingConfigure: 'Set up provider',
+  onboardingReadyDescription: 'Canvas is connected to this provider. You can change technical details later in Settings.',
+  onboardingNeedsReviewDescription: 'The provider and default model are selected. Open setup to verify the connection.',
+  onboardingEndpoint: 'Connection',
+  onboardingModel: 'Default model',
+  onboardingScope: 'Available to',
+  onboardingChange: 'Change setup',
+  onboardingUseOther: 'Use another provider',
   providersTitle: 'Providers',
   providersDescription: 'The overview shows current state only. Edit connection, models, and access in the dialog.',
   addProvider: 'Add provider',
@@ -380,6 +415,8 @@ const EN_COPY: PanelCopy = {
     addTitle: 'Set up provider',
     editTitle: 'Edit provider',
     description: 'Connection, models, and access follow one clear sequence.',
+    provider: 'Provider',
+    chooseProvider: 'Select provider',
     connectionStep: 'Connection',
     connectionDescription: 'Start with the address Canvas uses to reach this provider.',
     modelsStep: 'Models',
@@ -397,6 +434,7 @@ const EN_COPY: PanelCopy = {
     connectionReady: (count) => `Connected · ${count} ${count === 1 ? 'model found' : 'models found'}`,
     noRemoteModels: 'Connected, but no models were found on this server.',
     discoverFirst: 'Test the connection to load models from this Ollama server.',
+    configureManually: 'Enter a model manually instead',
     manualModel: 'Add model manually',
     manualModelPlaceholder: 'e.g. qwen3:14b or llama3.3:70b',
     addModel: 'Add',
@@ -415,6 +453,7 @@ const EN_COPY: PanelCopy = {
     cancel: 'Cancel',
     save: 'Save changes',
     saveAndVerify: 'Save & verify',
+    saveVerifyAndUse: 'Save, verify, and use as default',
     saving: 'Saving…',
     remove: 'Remove provider',
     errors: {
@@ -434,7 +473,10 @@ export type AiProvidersModelsPanelProps = {
   locale?: string;
   deploymentMode?: DeploymentMode;
   className?: string;
+  presentation?: 'settings' | 'onboarding';
   onCatalogChanged?: () => void;
+  onOnboardingStateChange?: (state: { configured: boolean; ready: boolean }) => void;
+  verifyProvider?: (providerInstallationId: string) => Promise<void>;
 };
 
 function copyForLocale(locale: string | undefined): PanelCopy {
@@ -536,18 +578,19 @@ export function AiProvidersModelsPanel({
   locale,
   deploymentMode,
   className,
+  presentation = 'settings',
   onCatalogChanged,
+  onOnboardingStateChange,
+  verifyProvider,
 }: AiProvidersModelsPanelProps) {
   const copy = copyForLocale(locale);
+  const isOnboarding = presentation === 'onboarding';
   const [data, setData] = useState<AdminRuntimeCatalogData | null>(null);
   const [draft, setDraft] = useState<AiRuntimeCatalogDraft | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<'sync' | 'default' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
-  const [addProviderId, setAddProviderId] = useState('');
-  const [addScope, setAddScope] = useState<AiCredentialScope>('organization');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorProvider, setEditorProvider] = useState<AiCatalogProviderDraft | null>(null);
   const [editorIsNew, setEditorIsNew] = useState(false);
@@ -602,13 +645,14 @@ export function AiProvidersModelsPanel({
       ))
       .sort((left, right) => left.name.localeCompare(right.name));
   }, [data, draft]);
-  const resolvedAddProviderId = addableProviders.some((provider) => provider.id === addProviderId)
-    ? addProviderId
-    : addableProviders[0]?.id ?? '';
-  const addScopes = draft && resolvedAddProviderId
-    ? availableCredentialScopesForNewProvider(draft.providers, resolvedAddProviderId)
-    : [];
-  const resolvedAddScope = addScopes.includes(addScope) ? addScope : addScopes[0];
+  const providerOptions: AiProviderEditorOption[] = addableProviders.map((provider) => ({
+    id: provider.id,
+    name: provider.name,
+    credentialScopes: draft
+      ? availableCredentialScopesForNewProvider(draft.providers, provider.id)
+      : [],
+    installationIds: provider.installationIds,
+  }));
   const managedProvider = draft?.providers.find((provider) => provider.providerId === CONTROL_PLANE_PROVIDER_ID);
   const managedDiscovered = Boolean(data?.discovery[CONTROL_PLANE_PROVIDER_ID]);
   const showManagedSync = deploymentMode === 'managed' || Boolean(managedProvider) || managedDiscovered;
@@ -619,6 +663,17 @@ export function AiProvidersModelsPanel({
   const selectableDefaultProviders = draft?.providers.filter((provider) => (
     provider.enabled && provider.modelIds.length > 0
   )) ?? [];
+  const onboardingConfigured = Boolean(defaultProvider && defaultModel);
+  const onboardingReady = Boolean(
+    onboardingConfigured
+    && defaultProvider?.enabled
+    && defaultProvider.status === 'ready',
+  );
+
+  useEffect(() => {
+    if (!isOnboarding) return;
+    onOnboardingStateChange?.({ configured: onboardingConfigured, ready: onboardingReady });
+  }, [isOnboarding, onOnboardingStateChange, onboardingConfigured, onboardingReady]);
 
   const persistDraft = async (nextDraft: AiRuntimeCatalogDraft, successMessage = copy.saved) => {
     const validationError = validateDraft(nextDraft, copy);
@@ -637,10 +692,20 @@ export function AiProvidersModelsPanel({
     const providers = exists
       ? draft.providers.map((candidate) => candidate.clientKey === provider.clientKey ? provider : candidate)
       : [...draft.providers, provider];
+    const onboardingDefault = provider.enabled && provider.defaultModelId
+      ? {
+          providerInstallationId: provider.providerInstallationId ?? '',
+          providerId: provider.providerId,
+          modelId: provider.defaultModelId,
+          thinkingLevel: 'off' as const,
+        }
+      : null;
     const saved = await persistDraft({
       ...draft,
       providers,
-      defaultSelection: sanitizeDefaultSelection(providers, draft.defaultSelection),
+      defaultSelection: isOnboarding
+        ? onboardingDefault
+        : sanitizeDefaultSelection(providers, draft.defaultSelection),
     });
     if (options.verify && provider.enabled) {
       const storedProvider = saved.catalog.providers.find((candidate) => (
@@ -648,7 +713,8 @@ export function AiProvidersModelsPanel({
         && candidate.credentialScope === provider.credentialScope
       ));
       if (!storedProvider) throw new Error(copy.errors.verify);
-      await verifyAdminProviderInstallation(storedProvider.installationId);
+      if (verifyProvider) await verifyProvider(storedProvider.installationId);
+      else await verifyAdminProviderInstallation(storedProvider.installationId);
       await loadCatalog();
       setMessage(copy.verified);
     }
@@ -666,27 +732,22 @@ export function AiProvidersModelsPanel({
     setEditorOpen(false);
   };
 
-  const openAddProvider = () => {
-    const first = addableProviders[0]?.id ?? '';
-    setAddProviderId(first);
-    setAddScope(first && draft ? availableCredentialScopesForNewProvider(draft.providers, first)[0] ?? 'organization' : 'organization');
-    setAddOpen(true);
-  };
-
-  const continueAddProvider = () => {
-    if (!data || !resolvedAddProviderId || !resolvedAddScope) return;
-    const discovered = data.discovery[resolvedAddProviderId];
-    if (!discovered) return;
+  const newProviderDraft = (providerId: string): AiCatalogProviderDraft | null => {
+    if (!data || !draft) return null;
+    const discovered = data.discovery[providerId];
+    if (!discovered) return null;
+    const scope = availableCredentialScopesForNewProvider(draft.providers, providerId)[0];
+    if (!scope) return null;
     const isOAuth = getAuthMethodForProvider(discovered.id) === 'oauth';
-    const provider: AiCatalogProviderDraft = {
+    return {
       clientKey: `new-${discovered.id}-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`,
-      providerInstallationId: discovered.installationIds?.[resolvedAddScope],
+      providerInstallationId: discovered.installationIds?.[scope],
       providerId: discovered.id,
       name: discovered.name,
       source: discovered.source,
       status: 'disabled',
       enabled: false,
-      credentialScope: resolvedAddScope,
+      credentialScope: scope,
       config: isOAuth
         ? { authMethod: 'oauth' }
         : discovered.id === 'ollama'
@@ -700,10 +761,19 @@ export function AiProvidersModelsPanel({
       sourceRevision: null,
       lastSyncedAt: null,
     };
-    setAddOpen(false);
+  };
+
+  const openAddProvider = () => {
+    const provider = newProviderDraft(addableProviders[0]?.id ?? '');
+    if (!provider) return;
     setEditorProvider(provider);
     setEditorIsNew(true);
     setEditorOpen(true);
+  };
+
+  const changeNewProvider = (providerId: string) => {
+    const provider = newProviderDraft(providerId);
+    if (provider) setEditorProvider(provider);
   };
 
   const openProviderEditor = (provider: AiCatalogProviderDraft) => {
@@ -755,7 +825,7 @@ export function AiProvidersModelsPanel({
     try {
       await syncManagedRuntimeCatalog({
         expectedRevision: draft.expectedRevision,
-        setAsDefault: false,
+        setAsDefault: isOnboarding,
       });
       await loadCatalog();
       setMessage(copy.saved);
@@ -793,6 +863,128 @@ export function AiProvidersModelsPanel({
   const defaultDialogModel = defaultDialogProvider && defaultDraft
     ? modelForProvider(defaultDialogProvider, defaultDraft.modelId)
     : undefined;
+  const onboardingEndpoint = defaultProvider?.providerId === 'ollama'
+    ? defaultProvider.config.ollamaHost?.trim() || defaultOllamaServerUrl()
+    : defaultProvider?.providerId === 'openai-compatible'
+      ? defaultProvider.config.openaiCompatibleBaseUrl?.trim() || copy.providerCard.endpointNotConfigured
+      : defaultProvider
+        ? copy.providerCard.source[defaultProvider.source]
+        : copy.providerCard.endpointNotConfigured;
+
+  if (isOnboarding) {
+    const editableProvider = defaultProvider
+      ?? draft.providers.find((provider) => provider.providerId !== CONTROL_PLANE_PROVIDER_ID);
+    const openOnboardingSetup = () => {
+      if (editableProvider) openProviderEditor(editableProvider);
+      else openAddProvider();
+    };
+
+    return (
+      <div className={cn('space-y-4', className)} data-testid="onboarding-provider-panel">
+        {error && (
+          <div role="alert" className="rounded-lg border border-destructive/35 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
+        {message && (
+          <div role="status" className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+            {message}
+          </div>
+        )}
+
+        {onboardingConfigured && defaultProvider && defaultModel ? (
+          <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/[0.055] via-background to-background py-0 shadow-sm">
+            <div className="space-y-5 p-5 sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex min-w-0 items-start gap-3.5">
+                  <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+                    <BrainCircuit className="size-5" aria-hidden="true" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-semibold">{defaultProvider.name}</h3>
+                      <Badge variant={onboardingReady ? 'default' : 'secondary'}>
+                        {copy.providerCard.status[defaultProvider.status]}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">
+                      {onboardingReady ? copy.onboardingReadyDescription : copy.onboardingNeedsReviewDescription}
+                    </p>
+                  </div>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => openProviderEditor(defaultProvider)}>
+                  <Settings2 className="size-4" />
+                  {copy.onboardingChange}
+                </Button>
+              </div>
+
+              <dl className="grid gap-3 rounded-xl border bg-background/80 p-4 text-sm sm:grid-cols-3">
+                <div className="min-w-0">
+                  <dt className="text-xs text-muted-foreground">{copy.onboardingEndpoint}</dt>
+                  <dd className="mt-1 truncate font-medium" title={onboardingEndpoint}>{onboardingEndpoint}</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-xs text-muted-foreground">{copy.onboardingModel}</dt>
+                  <dd className="mt-1 truncate font-medium" title={defaultModel.name}>{defaultModel.name}</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-xs text-muted-foreground">{copy.onboardingScope}</dt>
+                  <dd className="mt-1 truncate font-medium">{copy.providerCard.scope[defaultProvider.credentialScope]}</dd>
+                </div>
+              </dl>
+
+              {addableProviders.length > 0 && (
+                <Button type="button" variant="ghost" size="sm" className="px-0 text-muted-foreground" onClick={openAddProvider}>
+                  <Plus className="size-4" />
+                  {copy.onboardingUseOther}
+                </Button>
+              )}
+            </div>
+          </Card>
+        ) : (
+          <Card className="border-dashed py-0 shadow-none">
+            <CardContent className="flex flex-col items-center px-5 py-10 text-center sm:px-8">
+              <div className="flex size-12 items-center justify-center rounded-2xl border bg-muted/35 text-muted-foreground">
+                <Server className="size-5" aria-hidden="true" />
+              </div>
+              <h3 className="mt-4 text-lg font-semibold">{copy.onboardingEmptyTitle}</h3>
+              <p className="mt-1 max-w-lg text-sm leading-relaxed text-muted-foreground">
+                {copy.onboardingEmptyDescription}
+              </p>
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+                {(editableProvider || addableProviders.length > 0) && (
+                  <Button type="button" onClick={openOnboardingSetup}>
+                    <Settings2 className="size-4" />
+                    {copy.onboardingConfigure}
+                  </Button>
+                )}
+                {showManagedSync && (
+                  <Button type="button" variant="outline" disabled={busyAction !== null || (!managedDiscovered && !managedProvider)} onClick={() => void syncManaged()}>
+                    {busyAction === 'sync' ? <Loader2 className="size-4 animate-spin" /> : <CloudDownload className="size-4" />}
+                    {busyAction === 'sync' ? copy.managedSyncing : copy.managedSync}
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <AiProviderEditorDialog
+          open={editorOpen}
+          provider={editorProvider}
+          copy={copy.editor}
+          locale={locale}
+          isNew={editorIsNew}
+          providerOptions={providerOptions}
+          verificationOnly
+          onNewProviderChange={changeNewProvider}
+          onOpenChange={setEditorOpen}
+          onSave={saveProvider}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={cn('space-y-6', className)}>
@@ -933,58 +1125,14 @@ export function AiProvidersModelsPanel({
         </CollapsibleContent>
       </Collapsible>
 
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{copy.addProviderTitle}</DialogTitle>
-            <DialogDescription>{copy.addProviderDescription}</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-2 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="add-provider-id">{copy.provider}</Label>
-              <select
-                id="add-provider-id"
-                value={resolvedAddProviderId}
-                onChange={(event) => {
-                  const providerId = event.target.value;
-                  setAddProviderId(providerId);
-                  setAddScope(availableCredentialScopesForNewProvider(draft.providers, providerId)[0] ?? 'organization');
-                }}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                data-testid="add-provider-select"
-              >
-                <option value="" disabled>{copy.chooseProvider}</option>
-                {addableProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="add-provider-scope">{copy.credentialScope}</Label>
-              <select
-                id="add-provider-scope"
-                value={resolvedAddScope ?? ''}
-                onChange={(event) => setAddScope(event.target.value as AiCredentialScope)}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-              >
-                {addScopes.map((scope) => <option key={scope} value={scope}>{copy.providerCard.scope[scope]}</option>)}
-              </select>
-            </div>
-          </div>
-          {addableProviders.length === 0 && <p className="text-sm text-muted-foreground">{copy.noProvidersAvailable}</p>}
-          <DialogFooter>
-            <DialogClose asChild><Button type="button" variant="outline">{copy.cancel}</Button></DialogClose>
-            <Button type="button" disabled={!resolvedAddProviderId || !resolvedAddScope} onClick={continueAddProvider}>
-              {copy.continue}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <AiProviderEditorDialog
         open={editorOpen}
         provider={editorProvider}
         copy={copy.editor}
         locale={locale}
         isNew={editorIsNew}
+        providerOptions={providerOptions}
+        onNewProviderChange={changeNewProvider}
         onOpenChange={setEditorOpen}
         onSave={saveProvider}
         onRemove={editorIsNew ? undefined : removeProvider}

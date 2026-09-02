@@ -1,6 +1,6 @@
 'use client';
 
-import { startTransition, useEffect, useMemo, useState } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BrainCircuit,
   CheckCircle2,
@@ -14,7 +14,10 @@ import {
   Trash2,
 } from 'lucide-react';
 
-import { ProviderInstallationCredentialEditor } from '@/app/components/settings/ProviderInstallationCredentialEditor';
+import {
+  ProviderInstallationCredentialEditor,
+  type ProviderInstallationCredentialEditorHandle,
+} from '@/app/components/settings/ProviderInstallationCredentialEditor';
 import { getAllowedCredentialScopesForProvider } from '@/app/lib/agent-runtime-policy/provider-auth-policy';
 import type {
   AiCatalogDiscoveryModel,
@@ -45,6 +48,8 @@ export type AiProviderEditorCopy = {
   addTitle: string;
   editTitle: string;
   description: string;
+  provider: string;
+  chooseProvider: string;
   connectionStep: string;
   connectionDescription: string;
   modelsStep: string;
@@ -62,6 +67,7 @@ export type AiProviderEditorCopy = {
   connectionReady: (count: number) => string;
   noRemoteModels: string;
   discoverFirst: string;
+  configureManually: string;
   manualModel: string;
   manualModelPlaceholder: string;
   addModel: string;
@@ -80,6 +86,7 @@ export type AiProviderEditorCopy = {
   cancel: string;
   save: string;
   saveAndVerify: string;
+  saveVerifyAndUse: string;
   saving: string;
   remove: string;
   errors: {
@@ -92,6 +99,13 @@ export type AiProviderEditorCopy = {
     credentialSave: string;
   };
   scope: Record<AiCredentialScope, string>;
+};
+
+export type AiProviderEditorOption = {
+  id: string;
+  name: string;
+  credentialScopes: readonly AiCredentialScope[];
+  installationIds?: Partial<Record<AiCredentialScope, string>>;
 };
 
 type DiscoveryResponse = {
@@ -120,6 +134,9 @@ type AiProviderEditorDialogProps = {
   copy: AiProviderEditorCopy;
   locale?: string;
   isNew?: boolean;
+  providerOptions?: readonly AiProviderEditorOption[];
+  verificationOnly?: boolean;
+  onNewProviderChange?: (providerId: string) => void;
   onOpenChange: (open: boolean) => void;
   onSave: (provider: AiCatalogProviderDraft, options: { verify: boolean }) => Promise<void>;
   onRemove?: (provider: AiCatalogProviderDraft) => Promise<void>;
@@ -152,6 +169,9 @@ export function AiProviderEditorDialog({
   copy,
   locale,
   isNew = false,
+  providerOptions = [],
+  verificationOnly = false,
+  onNewProviderChange,
   onOpenChange,
   onSave,
   onRemove,
@@ -164,9 +184,11 @@ export function AiProviderEditorDialog({
   const [error, setError] = useState<string | null>(null);
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [connectionChecked, setConnectionChecked] = useState(false);
+  const [manualModelsRevealed, setManualModelsRevealed] = useState(false);
   const [ollamaApiKey, setOllamaApiKey] = useState('');
   const [ollamaApiKeyBaseline, setOllamaApiKeyBaseline] = useState('');
   const [credentialLoading, setCredentialLoading] = useState(false);
+  const credentialEditorRef = useRef<ProviderInstallationCredentialEditorHandle>(null);
 
   useEffect(() => {
     if (!open || !provider) return;
@@ -193,6 +215,7 @@ export function AiProviderEditorDialog({
       setError(null);
       setConnectionMessage(null);
       setConnectionChecked(false);
+      setManualModelsRevealed(false);
     });
   }, [open, provider]);
 
@@ -231,10 +254,17 @@ export function AiProviderEditorDialog({
   const isOpenAiCompatible = draft?.providerId === 'openai-compatible';
   const authContract = draft ? getAuthMethodForProvider(draft.providerId) : 'api-key';
   const supportsAuthChoice = authContract === 'both';
-  const credentialScopes = draft
+  const allowedCredentialScopes = draft
     ? getAllowedCredentialScopesForProvider(draft.providerId, draft.config.authMethod)
     : [];
-  const selectedModelIds = useMemo(() => new Set(draft?.modelIds ?? []), [draft?.modelIds]);
+  const newProviderOption = draft && isNew
+    ? providerOptions.find((option) => option.id === draft.providerId)
+    : undefined;
+  const credentialScopes = newProviderOption
+    ? allowedCredentialScopes.filter((scope) => newProviderOption.credentialScopes.includes(scope))
+    : allowedCredentialScopes;
+  const oauthAvailable = !newProviderOption || newProviderOption.credentialScopes.includes('user');
+  const selectedModelIds = useMemo(() => new Set(draft?.modelIds ?? []), [draft]);
   const shownModels = useMemo(() => {
     if (!draft) return [];
     const query = search.trim().toLocaleLowerCase();
@@ -250,6 +280,19 @@ export function AiProviderEditorDialog({
       || model.id.toLocaleLowerCase().includes(query)
     ));
   }, [connectionChecked, draft, isOllama, search, selectedModelIds]);
+  const showModelsStep = Boolean(draft && (
+    !isOllama
+    || connectionChecked
+    || manualModelsRevealed
+    || draft.modelIds.length > 0
+    || draft.config.ollamaAdditionalModels?.length
+  ));
+  const showAccessStep = Boolean(draft?.modelIds.length);
+  const canSubmit = Boolean(
+    draft?.enabled
+    && draft.modelIds.length > 0
+    && draft.modelIds.includes(draft.defaultModelId),
+  );
 
   const updateDraft = (updater: (current: AiCatalogProviderDraft) => AiCatalogProviderDraft) => {
     setDraft((current) => current ? updater(current) : current);
@@ -443,6 +486,10 @@ export function AiProviderEditorDialog({
     setBusyAction(verify ? 'save-verify' : 'save');
     setError(null);
     try {
+      if (!isOllama) {
+        const credentialsSaved = await credentialEditorRef.current?.save();
+        if (credentialsSaved === false) throw new Error(copy.errors.credentialSave);
+      }
       await saveOllamaCredential(draft);
       await onSave({
         ...draft,
@@ -499,6 +546,26 @@ export function AiProviderEditorDialog({
               <div role="alert" className="rounded-lg border border-destructive/35 bg-destructive/8 px-4 py-3 text-sm text-destructive">
                 {error}
               </div>
+            )}
+
+            {isNew && providerOptions.length > 0 && onNewProviderChange && (
+              <section className="rounded-xl border bg-background p-4 shadow-xs sm:p-5">
+                <div className="space-y-2">
+                  <Label htmlFor="new-provider-id">{copy.provider}</Label>
+                  <select
+                    id="new-provider-id"
+                    value={draft.providerId}
+                    onChange={(event) => onNewProviderChange(event.target.value)}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    data-testid="provider-dialog-provider-select"
+                  >
+                    <option value="" disabled>{copy.chooseProvider}</option>
+                    {providerOptions.map((option) => (
+                      <option key={option.id} value={option.id}>{option.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </section>
             )}
 
             <section className="rounded-xl border bg-background p-4 shadow-xs sm:p-5">
@@ -573,28 +640,57 @@ export function AiProviderEditorDialog({
                       {busyAction === 'discover' ? copy.testingConnection : copy.testConnection}
                     </Button>
                   </div>
+                  {!connectionChecked && !manualModelsRevealed && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="w-fit px-0 text-muted-foreground"
+                      onClick={() => setManualModelsRevealed(true)}
+                    >
+                      {copy.configureManually}
+                    </Button>
+                  )}
                 </div>
               ) : isOpenAiCompatible ? (
-                <div className="space-y-2">
-                  <Label htmlFor="openai-compatible-url">{copy.serverUrl}</Label>
-                  <Input
-                    id="openai-compatible-url"
-                    type="url"
-                    value={draft.config.openaiCompatibleBaseUrl ?? ''}
-                    placeholder={copy.serverUrlPlaceholder}
-                    onChange={(event) => updateDraft((current) => ({
-                      ...current,
-                      config: {
-                        ...current.config,
-                        openaiCompatibleBaseUrl: event.target.value,
-                        openaiCompatibleModelSource: 'custom',
-                      },
-                    }))}
-                  />
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="openai-compatible-url">{copy.serverUrl}</Label>
+                    <Input
+                      id="openai-compatible-url"
+                      type="url"
+                      value={draft.config.openaiCompatibleBaseUrl ?? ''}
+                      placeholder={copy.serverUrlPlaceholder}
+                      onChange={(event) => updateDraft((current) => ({
+                        ...current,
+                        config: {
+                          ...current.config,
+                          openaiCompatibleBaseUrl: event.target.value,
+                          openaiCompatibleModelSource: 'custom',
+                        },
+                      }))}
+                    />
+                  </div>
+                  <div className="rounded-lg border bg-muted/15 p-4">
+                    <ProviderInstallationCredentialEditor
+                      ref={credentialEditorRef}
+                      installation={{
+                        installationId: draft.providerInstallationId ?? draft.clientKey,
+                        providerId: draft.providerId,
+                        name: draft.name,
+                        credentialScope: draft.credentialScope,
+                        authMethod: draft.config.authMethod,
+                      }}
+                      locale={locale}
+                      showIdentity={false}
+                      showCredentialActions={!verificationOnly}
+                    />
+                  </div>
                 </div>
               ) : (
                 <div className="rounded-lg border bg-muted/15 p-4">
                   <ProviderInstallationCredentialEditor
+                    ref={credentialEditorRef}
                     installation={{
                       installationId: draft.providerInstallationId ?? draft.clientKey,
                       providerId: draft.providerId,
@@ -604,12 +700,13 @@ export function AiProviderEditorDialog({
                     }}
                     locale={locale}
                     showIdentity={false}
+                    showCredentialActions={!verificationOnly}
                   />
                 </div>
               )}
             </section>
 
-            <section className="rounded-xl border bg-background p-4 shadow-xs sm:p-5">
+            {showModelsStep && <section className="rounded-xl border bg-background p-4 shadow-xs sm:p-5">
               <div className="mb-5 flex items-start gap-3">
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">2</div>
                 <div>
@@ -693,9 +790,9 @@ export function AiProviderEditorDialog({
                   {isOllama && !connectionChecked ? copy.discoverFirst : copy.noModels}
                 </div>
               )}
-            </section>
+            </section>}
 
-            <section className="rounded-xl border bg-background p-4 shadow-xs sm:p-5">
+            {showAccessStep && <section className="rounded-xl border bg-background p-4 shadow-xs sm:p-5">
               <div className="mb-5 flex items-start gap-3">
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">3</div>
                 <div>
@@ -713,36 +810,52 @@ export function AiProviderEditorDialog({
                       value={draft.config.authMethod === 'oauth' ? 'oauth' : 'api-key'}
                       onChange={(event) => {
                         const authMethod = event.target.value as 'api-key' | 'oauth';
-                        const scopes = getAllowedCredentialScopesForProvider(draft.providerId, authMethod);
+                        const allowedScopes = getAllowedCredentialScopesForProvider(draft.providerId, authMethod);
+                        const scopes = newProviderOption
+                          ? allowedScopes.filter((scope) => newProviderOption.credentialScopes.includes(scope))
+                          : allowedScopes;
+                        const credentialScope = scopes.includes(draft.credentialScope)
+                          ? draft.credentialScope
+                          : scopes[0];
+                        if (!credentialScope) return;
                         updateDraft((current) => ({
                           ...current,
-                          credentialScope: scopes.includes(current.credentialScope) ? current.credentialScope : scopes[0],
+                          credentialScope,
+                          ...(isNew
+                            ? { providerInstallationId: newProviderOption?.installationIds?.[credentialScope] }
+                            : {}),
                           config: { ...current.config, authMethod },
                         }));
                       }}
                       className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                     >
                       <option value="api-key">{copy.apiKeyAuthentication}</option>
-                      <option value="oauth">{copy.oauthAuthentication}</option>
+                      <option value="oauth" disabled={!oauthAvailable}>{copy.oauthAuthentication}</option>
                     </select>
                   </div>
                 )}
-                <div className="space-y-2">
+                {credentialScopes.length > 1 && <div className="space-y-2">
                   <Label htmlFor="provider-credential-scope">{copy.credentialScope}</Label>
                   <select
                     id="provider-credential-scope"
                     value={draft.credentialScope}
                     disabled={credentialScopes.length <= 1}
-                    onChange={(event) => updateDraft((current) => ({
-                      ...current,
-                      credentialScope: event.target.value as AiCredentialScope,
-                    }))}
+                    onChange={(event) => {
+                      const credentialScope = event.target.value as AiCredentialScope;
+                      updateDraft((current) => ({
+                        ...current,
+                        credentialScope,
+                        ...(isNew
+                          ? { providerInstallationId: newProviderOption?.installationIds?.[credentialScope] }
+                          : {}),
+                      }));
+                    }}
                     className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
                   >
                     {credentialScopes.map((scope) => <option key={scope} value={scope}>{copy.scope[scope]}</option>)}
                   </select>
-                </div>
-                <div className={cn('flex items-center justify-between gap-4 rounded-lg border bg-muted/15 p-3', supportsAuthChoice ? 'sm:col-span-2' : '')}>
+                </div>}
+                <div className={cn('flex items-center justify-between gap-4 rounded-lg border bg-muted/15 p-3', (supportsAuthChoice || credentialScopes.length <= 1) && 'sm:col-span-2')}>
                   <div>
                     <p className="text-sm font-medium">{copy.providerEnabled}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">{copy.providerEnabledHint}</p>
@@ -765,7 +878,7 @@ export function AiProviderEditorDialog({
                   <span className="font-medium text-foreground">{copy.credentials}:</span> {copy.credentialsDescription}
                 </div>
               )}
-            </section>
+            </section>}
           </div>
         </div>
 
@@ -783,16 +896,23 @@ export function AiProviderEditorDialog({
               <Button type="button" variant="outline" disabled={busyAction !== null} onClick={() => requestClose(false)}>
                 {copy.cancel}
               </Button>
-              {draft.enabled && (
-                <Button type="button" variant="outline" disabled={busyAction !== null || !isDirty} onClick={() => void save(true)} data-testid="provider-save-verify">
+              {draft.enabled && !verificationOnly && (
+                <Button type="button" variant="outline" disabled={busyAction !== null || !canSubmit} onClick={() => void save(true)} data-testid="provider-save-verify">
                   {busyAction === 'save-verify' ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
                   {busyAction === 'save-verify' ? copy.saving : copy.saveAndVerify}
                 </Button>
               )}
-              <Button type="button" disabled={busyAction !== null || !isDirty} onClick={() => void save(false)} data-testid="provider-save">
-                {busyAction === 'save' ? <Loader2 className="size-4 animate-spin" /> : <BrainCircuit className="size-4" />}
-                {busyAction === 'save' ? copy.saving : copy.save}
-              </Button>
+              {verificationOnly ? (
+                <Button type="button" disabled={busyAction !== null || !canSubmit} onClick={() => void save(true)} data-testid="provider-save-verify-use">
+                  {busyAction === 'save-verify' ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+                  {busyAction === 'save-verify' ? copy.saving : copy.saveVerifyAndUse}
+                </Button>
+              ) : (
+                <Button type="button" disabled={busyAction !== null || !isDirty} onClick={() => void save(false)} data-testid="provider-save">
+                  {busyAction === 'save' ? <Loader2 className="size-4 animate-spin" /> : <BrainCircuit className="size-4" />}
+                  {busyAction === 'save' ? copy.saving : copy.save}
+                </Button>
+              )}
             </div>
           </div>
         </DialogFooter>

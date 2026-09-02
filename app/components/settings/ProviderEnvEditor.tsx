@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, startTransition } from 'react';
+import { forwardRef, startTransition, useCallback, useEffect, useImperativeHandle, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Eye, EyeOff, Loader2, Save, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 
@@ -25,7 +25,12 @@ interface ProviderEnvEditorProps {
   credentialScope?: 'user' | 'organization' | 'system';
   onSaveComplete?: () => void;
   onProviderActivate?: () => Promise<void>;
+  showActions?: boolean;
 }
+
+export type ProviderEnvEditorHandle = {
+  save: () => Promise<boolean>;
+};
 
 function getEnvPlaceholder(providerId: string, state: EnvVarState, t: ReturnType<typeof useTranslations>): string {
   if (providerId === 'ollama' && state.name === 'OLLAMA_API_KEY') {
@@ -43,13 +48,14 @@ function getEnvHelperText(providerId: string, state: EnvVarState, t: ReturnType<
   return null;
 }
 
-export function ProviderEnvEditor({
+export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnvEditorProps>(function ProviderEnvEditor({
   providerId,
   envVars,
   credentialScope = 'user',
   onSaveComplete,
   onProviderActivate,
-}: ProviderEnvEditorProps) {
+  showActions = true,
+}, ref) {
   const t = useTranslations('settings');
   const [envStates, setEnvStates] = useState<EnvVarState[]>([]);
   const [loading, setLoading] = useState(true);
@@ -208,7 +214,11 @@ export function ProviderEnvEditor({
     }
   };
 
-  const saveAll = async () => {
+  const saveAll = async (): Promise<boolean> => {
+    if (loading) {
+      setMessage({ type: 'error', text: t('providerEnv.errors.load') });
+      return false;
+    }
     const missingRequired = envStates.filter((state) => {
       if (providerId === 'ollama' && state.name === 'OLLAMA_API_KEY') {
         return false;
@@ -222,7 +232,7 @@ export function ProviderEnvEditor({
         type: 'error',
         text: t('providerEnv.fillRequired', { names }),
       });
-      return;
+      return false;
     }
 
     setSaving(true);
@@ -319,16 +329,20 @@ export function ProviderEnvEditor({
       });
       setHasChanges(false);
       onSaveComplete?.();
+      return true;
     } catch (error) {
       console.error('Failed to save env values:', error);
       setMessage({
         type: 'error',
         text: error instanceof Error ? error.message : t('providerEnv.errors.save'),
       });
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  useImperativeHandle(ref, () => ({ save: saveAll }));
 
   if (!envVars || envVars.length === 0) {
     return (
@@ -431,15 +445,17 @@ export function ProviderEnvEditor({
                 </div>
 
                 {/* Delete button */}
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => deleteValue(index)}
-                  disabled={saving || !state.value}
-                  className="shrink-0"
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
+                {showActions && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => deleteValue(index)}
+                    disabled={saving || !state.value}
+                    className="shrink-0"
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                )}
               </div>
 
               {/* Not configured indicator */}
@@ -460,7 +476,7 @@ export function ProviderEnvEditor({
           ))}
 
           {/* Save all button */}
-          <div className="flex gap-2 pt-2">
+          {showActions && <div className="flex gap-2 pt-2">
             <Button onClick={saveAll} disabled={saving || !hasChanges} className="flex-1">
               {saving ? (
                 <>
@@ -481,9 +497,9 @@ export function ProviderEnvEditor({
             >
               {t('providerEnv.reload')}
             </Button>
-          </div>
+          </div>}
         </div>
       )}
     </div>
   );
-}
+});

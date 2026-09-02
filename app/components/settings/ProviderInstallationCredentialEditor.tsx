@@ -1,12 +1,14 @@
 'use client';
 
+import { forwardRef, useImperativeHandle, useRef } from 'react';
+
 import { Cloud, KeyRound, ShieldAlert } from 'lucide-react';
 
 import type { AiCredentialScope } from '@/app/lib/agent-runtime-policy/types';
 import { getAuthMethodForProvider, getProviderHelp } from '@/app/lib/pi/provider-help';
 
 import { PiOAuthButton } from './PiOAuthButton';
-import { ProviderEnvEditor } from './ProviderEnvEditor';
+import { ProviderEnvEditor, type ProviderEnvEditorHandle } from './ProviderEnvEditor';
 
 export type CredentialEditableProviderInstallation = {
   installationId: string;
@@ -20,7 +22,12 @@ type ProviderInstallationCredentialEditorProps = {
   installation: CredentialEditableProviderInstallation;
   locale?: string;
   showIdentity?: boolean;
+  showCredentialActions?: boolean;
   onCredentialsSaved?: () => void;
+};
+
+export type ProviderInstallationCredentialEditorHandle = {
+  save: () => Promise<boolean>;
 };
 
 const COPY = {
@@ -60,13 +67,18 @@ const COPY = {
   },
 } as const;
 
-export function ProviderInstallationCredentialEditor({
+export const ProviderInstallationCredentialEditor = forwardRef<
+  ProviderInstallationCredentialEditorHandle,
+  ProviderInstallationCredentialEditorProps
+>(function ProviderInstallationCredentialEditor({
   installation,
   locale,
   showIdentity = true,
+  showCredentialActions = true,
   onCredentialsSaved,
-}: ProviderInstallationCredentialEditorProps) {
+}, ref) {
   const copy = locale?.toLowerCase().startsWith('de') ? COPY.de : COPY.en;
+  const envEditorRef = useRef<ProviderEnvEditorHandle>(null);
   const help = getProviderHelp(installation.providerId);
   const providerAuthMethod = getAuthMethodForProvider(installation.providerId);
   const wantsOAuth = installation.authMethod === 'oauth'
@@ -74,6 +86,10 @@ export function ProviderInstallationCredentialEditor({
   const credentialEnvVars = help?.envVars?.filter((entry) => (
     installation.providerId !== 'openai-compatible' || entry.name !== 'OPENAI_COMPATIBLE_BASE_URL'
   ));
+
+  useImperativeHandle(ref, () => ({
+    save: async () => envEditorRef.current?.save() ?? true,
+  }));
 
   return (
     <div className="space-y-4">
@@ -109,10 +125,12 @@ export function ProviderInstallationCredentialEditor({
         )
       ) : credentialEnvVars?.length ? (
         <ProviderEnvEditor
+          ref={envEditorRef}
           providerId={installation.providerId}
           envVars={credentialEnvVars}
           credentialScope={installation.credentialScope}
           onSaveComplete={onCredentialsSaved}
+          showActions={showCredentialActions}
         />
       ) : (
         <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
@@ -134,4 +152,4 @@ export function ProviderInstallationCredentialEditor({
       )}
     </div>
   );
-}
+});
