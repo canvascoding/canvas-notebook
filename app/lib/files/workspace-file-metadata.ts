@@ -160,13 +160,36 @@ export async function moveWorkspaceFileMetadata(params: {
   const newPath = normalizeFilePath(params.newPath);
   if (oldPath === newPath) return;
   await withDatabase(async (database) => {
-    for (const table of ['workspace_file_metadata', 'workspace_file_user_states']) {
-      await database.run(`DELETE FROM ${table} WHERE workspace_id = ? AND (path = ? OR path LIKE ?)`, [params.workspace.workspaceId, newPath, `${newPath}/%`]);
-      await database.run(`
-        UPDATE ${table}
-        SET path = CASE WHEN path = ? THEN ? ELSE ? || substr(path, length(?) + 1) END
-        WHERE workspace_id = ? AND (path = ? OR path LIKE ?)
-      `, [oldPath, newPath, newPath, oldPath, params.workspace.workspaceId, oldPath, `${oldPath}/%`]);
+    await database.run('BEGIN');
+    try {
+      await moveWorkspaceFileMetadataOnConnection(database, {
+        workspaceId: params.workspace.workspaceId,
+        oldPath,
+        newPath,
+      });
+      await database.run('COMMIT');
+    } catch (error) {
+      try { await database.run('ROLLBACK'); } catch {}
+      throw error;
     }
   });
+}
+
+export async function moveWorkspaceFileMetadataOnConnection(
+  database: SqlConnection,
+  params: { workspaceId: string; oldPath: string; newPath: string },
+): Promise<void> {
+  for (const table of ['workspace_file_metadata', 'workspace_file_user_states']) {
+    await database.run(`
+      DELETE FROM ${table}
+      WHERE workspace_id = ?
+        AND (path = ? OR left(path, length(?) + 1) = ? || '/')
+    `, [params.workspaceId, params.newPath, params.newPath, params.newPath]);
+    await database.run(`
+      UPDATE ${table}
+      SET path = ? || substr(path, length(?) + 1)
+      WHERE workspace_id = ?
+        AND (path = ? OR left(path, length(?) + 1) = ? || '/')
+    `, [params.newPath, params.oldPath, params.workspaceId, params.oldPath, params.oldPath, params.oldPath]);
+  }
 }

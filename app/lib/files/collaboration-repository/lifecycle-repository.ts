@@ -150,12 +150,19 @@ export async function movePersistedCollaborationStatePathScope(
     newPath: string;
   },
 ): Promise<void> {
-  for (const table of [
-    'collaboration_yjs_states',
-    'collaboration_excalidraw_states',
-  ] as const) {
-    await remapActivePathScope(transaction, table, params);
-  }
+  await remapActivePathScope(transaction, 'collaboration_yjs_states', params);
+  await moveExcalidrawCollaborationStatePathScope(transaction, params);
+}
+
+export async function moveExcalidrawCollaborationStatePathScope(
+  transaction: FileCollaborationTransaction,
+  params: {
+    workspaceId: string;
+    oldPath: string;
+    newPath: string;
+  },
+): Promise<void> {
+  await remapActivePathScope(transaction, 'collaboration_excalidraw_states', params);
 }
 
 export async function reactivatePersistedCollaborationStatePathScope(

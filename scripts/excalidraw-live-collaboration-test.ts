@@ -42,6 +42,8 @@ async function main() {
 
   const suffix = `${Date.now()}-${process.pid}`;
   const documentId = `excal-live-${suffix}`;
+  const nestedDocumentId = `excal-live-nested-${suffix}`;
+  const wildcardSiblingDocumentId = `excal-live-wildcard-sibling-${suffix}`;
   const workspaceId = `workspace-${suffix}`;
   let state = await ensureExcalidrawScene({
     documentId,
@@ -170,6 +172,36 @@ async function main() {
 
   await moveExcalidrawScenePaths({ workspaceId, oldPath: 'drawings/team.excalidraw', newPath: 'drawings/renamed.excalidraw' });
   assert.equal((await loadExcalidrawScene(documentId))?.path, 'drawings/renamed.excalidraw');
+
+  await ensureExcalidrawScene({
+    documentId: nestedDocumentId,
+    workspaceId,
+    organizationId: `org-${suffix}`,
+    path: 'drawings/set_1/hi.excalidraw',
+    initialContent: JSON.stringify({ type: 'excalidraw', elements: [], appState: {} }),
+  });
+  await ensureExcalidrawScene({
+    documentId: wildcardSiblingDocumentId,
+    workspaceId,
+    organizationId: `org-${suffix}`,
+    path: 'drawings/setX1/untouched.excalidraw',
+    initialContent: JSON.stringify({ type: 'excalidraw', elements: [], appState: {} }),
+  });
+  await moveExcalidrawScenePaths({
+    workspaceId,
+    oldPath: 'drawings/set_1',
+    newPath: 'drawings/renamed-set',
+  });
+  assert.equal(
+    (await loadExcalidrawScene(nestedDocumentId))?.path,
+    'drawings/renamed-set/hi.excalidraw',
+    'Moving a folder must preserve the nested relative Excalidraw path.',
+  );
+  assert.equal(
+    (await loadExcalidrawScene(wildcardSiblingDocumentId))?.path,
+    'drawings/setX1/untouched.excalidraw',
+    'SQL wildcard characters in a folder name must not match sibling paths.',
+  );
   await archiveExcalidrawScenePaths({ workspaceId, paths: ['drawings/renamed.excalidraw'] });
   assert.equal(await loadExcalidrawScene(documentId), null);
   const archived = await loadExcalidrawScene(documentId, true);

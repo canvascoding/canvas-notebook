@@ -4,6 +4,11 @@ import crypto from 'node:crypto';
 
 import { getDatabaseProvider, openDb } from '@/app/lib/db';
 import {
+  lockFileCollaborationPaths,
+  moveExcalidrawCollaborationStatePathScope,
+  withFileCollaborationTransaction,
+} from '@/app/lib/files/collaboration-repository';
+import {
   canonicalSceneHash,
   mergeExcalidrawElements,
   sharedExcalidrawAppState,
@@ -360,17 +365,10 @@ export async function markExcalidrawSceneDegraded(documentId: string, reason: st
 
 export async function moveExcalidrawScenePaths(input: { workspaceId: string; oldPath: string; newPath: string }): Promise<void> {
   if (getDatabaseProvider() !== 'postgres') return;
-  const database = await openDb();
-  try {
-    await database.run(
-      `UPDATE collaboration_excalidraw_states
-       SET path = CASE WHEN path = ? THEN ? ELSE ? || SUBSTRING(path FROM ?) END
-       WHERE workspace_id = ? AND status = 'active' AND (path = ? OR path LIKE ?)`,
-      [input.oldPath, input.newPath, `${input.newPath}/`, input.oldPath.length + 2, input.workspaceId, input.oldPath, `${input.oldPath}/%`],
-    );
-  } finally {
-    await database.close();
-  }
+  await withFileCollaborationTransaction(async (transaction) => {
+    await lockFileCollaborationPaths(transaction, input.workspaceId, [input.oldPath, input.newPath]);
+    await moveExcalidrawCollaborationStatePathScope(transaction, input);
+  });
 }
 
 export async function archiveExcalidrawScenePaths(input: { workspaceId: string; paths: string[] }): Promise<void> {
@@ -382,8 +380,10 @@ export async function archiveExcalidrawScenePaths(input: { workspaceId: string; 
       await database.run(
         `UPDATE collaboration_excalidraw_states
          SET status = 'archived', lifecycle_generation = lifecycle_generation + 1
-         WHERE workspace_id = ? AND status = 'active' AND (path = ? OR path LIKE ?)`,
-        [input.workspaceId, path, `${path}/%`],
+         WHERE workspace_id = ?
+           AND status = 'active'
+           AND (path = ? OR left(path, char_length(?) + 1) = ? || '/')`,
+        [input.workspaceId, path, path, path],
       );
     }
     await database.run('COMMIT');

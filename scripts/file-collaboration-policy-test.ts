@@ -11,13 +11,17 @@ import { setFileCollaborationConnectionFactoryForTests } from '../app/lib/files/
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
 function connectionFor(postgres: PGlite): SqlConnection {
+  const postgresSql = (sql: string) => {
+    let parameterIndex = 0;
+    return sql.replaceAll('?', () => `$${++parameterIndex}`);
+  };
   return {
-    get: async (sql, params = []) => (await postgres.query(sql, params)).rows[0],
+    get: async (sql, params = []) => (await postgres.query(postgresSql(sql), params)).rows[0],
     run: async (sql, params = []) => {
-      const result = await postgres.query(sql, params);
+      const result = await postgres.query(postgresSql(sql), params);
       return { changes: result.affectedRows ?? 0 };
     },
-    all: async (sql, params = []) => (await postgres.query(sql, params)).rows,
+    all: async (sql, params = []) => (await postgres.query(postgresSql(sql), params)).rows,
     close: () => undefined,
   };
 }
@@ -57,6 +61,21 @@ async function insertYjsState(
   `, [params.documentId, params.workspaceId, params.organizationId, params.path, params.nowMs]);
 }
 
+async function insertExcalidrawState(
+  postgres: PGlite,
+  params: { documentId: string; workspaceId: string; organizationId: string | null; path: string; nowMs: number },
+): Promise<void> {
+  await postgres.query(`
+    INSERT INTO collaboration_excalidraw_states (
+      document_id, workspace_id, organization_id, path, excalidraw_version,
+      scene_schema_version, elements_json, shared_app_state_json, assets_json,
+      scene_sequence, checkpoint_sequence, canonical_hash, persisted_at, status
+    )
+    VALUES ($1, $2, $3, $4, '0.18.1', 1, '[]'::jsonb, '{}'::jsonb,
+      '[]'::jsonb, 0, 0, $5, $6, 'active')
+  `, [params.documentId, params.workspaceId, params.organizationId, params.path, `hash-${params.documentId}`, params.nowMs]);
+}
+
 async function main(): Promise<void> {
   const postgres = new PGlite();
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-file-policy-postgres-'));
@@ -86,6 +105,8 @@ async function main(): Promise<void> {
       releaseFileLock,
       restoreFileCollaborationPath,
     } = await import('../app/lib/files/collaboration-policy');
+    const { moveExcalidrawScenePaths } = await import('../app/lib/excalidraw-collaboration/repository');
+    const { moveWorkspaceFileMetadataOnConnection } = await import('../app/lib/files/workspace-file-metadata');
 
     assert.equal(detectFileCollaborationStrategy('notes.md'), 'crdt_text');
     assert.equal(detectFileCollaborationStrategy('board.excalidraw'), 'excalidraw_scene');
@@ -327,6 +348,58 @@ async function main(): Promise<void> {
     `, [folderTextState.document!.id]);
     assert.equal(movedFolderYjsState.rows[0]?.status, 'active');
     assert.equal(movedFolderYjsState.rows[0]?.path, 'renamed-folder/readme.md');
+
+    await insertExcalidrawState(postgres, {
+      documentId: 'nested-excalidraw',
+      workspaceId: workspace.workspaceId,
+      organizationId: workspace.organizationId ?? null,
+      path: 'drawings/set_1/hi.excalidraw',
+      nowMs: 11_009,
+    });
+    await insertExcalidrawState(postgres, {
+      documentId: 'wildcard-sibling-excalidraw',
+      workspaceId: workspace.workspaceId,
+      organizationId: workspace.organizationId ?? null,
+      path: 'drawings/setX1/untouched.excalidraw',
+      nowMs: 11_009,
+    });
+    await moveExcalidrawScenePaths({
+      workspaceId: workspace.workspaceId,
+      oldPath: 'drawings/set_1',
+      newPath: 'drawings/renamed-set',
+    });
+    const movedExcalidrawStates = await postgres.query<{ document_id: string; path: string }>(`
+      SELECT document_id, path
+      FROM collaboration_excalidraw_states
+      WHERE document_id = ANY($1::text[])
+      ORDER BY document_id
+    `, [['nested-excalidraw', 'wildcard-sibling-excalidraw']]);
+    assert.deepEqual(movedExcalidrawStates.rows, [
+      { document_id: 'nested-excalidraw', path: 'drawings/renamed-set/hi.excalidraw' },
+      { document_id: 'wildcard-sibling-excalidraw', path: 'drawings/setX1/untouched.excalidraw' },
+    ]);
+
+    await postgres.query(`
+      INSERT INTO workspace_file_metadata (workspace_id, path, title, created_at, updated_at)
+      VALUES
+        ($1, 'metadata/set_1/nested.md', 'Nested', 11010, 11010),
+        ($1, 'metadata/setX1/untouched.md', 'Untouched', 11010, 11010)
+    `, [workspace.workspaceId]);
+    await moveWorkspaceFileMetadataOnConnection(connection, {
+      workspaceId: workspace.workspaceId,
+      oldPath: 'metadata/set_1',
+      newPath: 'metadata/renamed-set',
+    });
+    const movedMetadata = await postgres.query<{ path: string; title: string }>(`
+      SELECT path, title
+      FROM workspace_file_metadata
+      WHERE workspace_id = $1 AND title IN ('Nested', 'Untouched')
+      ORDER BY title
+    `, [workspace.workspaceId]);
+    assert.deepEqual(movedMetadata.rows, [
+      { path: 'metadata/renamed-set/nested.md', title: 'Nested' },
+      { path: 'metadata/setX1/untouched.md', title: 'Untouched' },
+    ]);
 
     const pdfRevision = await ensureFileRevisionForCurrentContent({
       workspace,
