@@ -1209,12 +1209,14 @@ function buildStatus(
     databaseProvider,
     permission,
     paths: {
-      personalWorkspace: ownerUserId ? path.join(dataRoot, personalWorkspaceRootRelativePath(ownerUserId)) : null,
+      personalWorkspace: ownerUserId
+        ? path.join(/* turbopackIgnore: true */ dataRoot, personalWorkspaceRootRelativePath(ownerUserId))
+        : null,
       userSettings: ownerUserId ? path.join(dataRoot, 'users', ownerUserId, 'settings') : null,
       userSecrets: ownerUserId ? path.join(dataRoot, 'users', ownerUserId, 'secrets') : null,
       organizationRoot: organizationId ? path.join(dataRoot, 'organizations', organizationId) : null,
       teamWorkspace: organizationWorkspaceRootRelativePath
-        ? path.join(dataRoot, organizationWorkspaceRootRelativePath)
+        ? path.join(/* turbopackIgnore: true */ dataRoot, organizationWorkspaceRootRelativePath)
         : null,
       systemBackups: path.join(dataRoot, 'system', 'backups'),
     },

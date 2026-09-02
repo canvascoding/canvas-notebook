@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
 
     const zip = new JSZip();
     for (const fileName of exportedFiles) {
-      const buffer = await fs.readFile(path.join(tempDir, fileName));
+      const buffer = await fs.readFile(path.join(/* turbopackIgnore: true */ tempDir, fileName));
       zip.file(fileName, buffer);
     }
 

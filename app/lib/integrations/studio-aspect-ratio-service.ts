@@ -625,7 +625,7 @@ export async function getAspectRatioEditAbsolutePath(previewPath: string, scope:
   const relativePath = getEditRelativePath(previewPath, scope);
   return relativePath.startsWith('studio/')
     ? path.join(getStudioEditsRoot(scope.storage), path.posix.basename(relativePath))
-    : path.join(getStudioEditsRoot(), relativePath);
+    : path.join(/* turbopackIgnore: true */ getStudioEditsRoot(), relativePath);
 }
 
 export function getAspectRatioModelOptions() {

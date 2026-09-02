@@ -8,7 +8,7 @@ export function getMigrationDataRoot(): string {
   if (configuredDataRoot) {
     return path.isAbsolute(configuredDataRoot)
       ? configuredDataRoot
-      : path.resolve(process.cwd(), configuredDataRoot);
+      : path.resolve(/* turbopackIgnore: true */ process.cwd(), configuredDataRoot);
   }
 
   const configuredCanvasRoot = process.env.CANVAS_DATA_ROOT?.trim();

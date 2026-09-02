@@ -237,7 +237,7 @@ async function resolveWorkspaceAssetPath(
     return normalizeWorkspacePath(cleanUrl.replace(/^\/+/, ''));
   }
 
-  return normalizeWorkspacePath(path.join(baseDir, cleanUrl));
+  return normalizeWorkspacePath(path.join(/* turbopackIgnore: true */ baseDir, cleanUrl));
 }
 
 function parseWorkspacePathFromAppMediaUrl(assetUrl: string): string | null {
