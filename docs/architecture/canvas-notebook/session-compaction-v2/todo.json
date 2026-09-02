@@ -421,7 +421,7 @@
       "id": "SC-P09",
       "order": 9,
       "title": "Shadow rollout, default decision and final verification",
-      "status": "planned",
+      "status": "completed",
       "dependsOn": ["SC-P08"],
       "hermesReferences": [
         "hermes_cli/config_defaults.py legacy and lean tail modes",
@@ -444,6 +444,15 @@
         "npm run build",
         "GitNexus detect_changes against main",
         "approved UI and E2E verification"
+      ],
+      "completionEvidence": [
+        "Legacy, shadow and V2 modes are resolved at the runtime candidate boundary; legacy and shadow execute the V1 summary path while atomic tool-group selection remains fail-safe",
+        "Shadow mode emits content-free legacy-versus-lean selection, savings, anchor, partition, orphan-group and latency telemetry without persisting or logging session content",
+        "A 241-message tool-heavy scorecard projects 78.30 percent legacy savings and 88.30 percent lean savings with zero partition losses, zero new orphaned tool groups and full latest-user/latest-assistant anchor retention",
+        "Hermes V2 with the conservative legacy tail is the shipping default; lean remains gated because the available local Postgres database had zero eligible real sessions and therefore supplied no rollout evidence",
+        "CANVAS_PI_COMPACTION_ROLLOUT=legacy is the documented V1 summary rollback; micro-compaction has no Canvas V2 switch or post-turn rewrite path",
+        "The full compaction, durability, runtime, UI contract, WebSocket, TypeScript, ESLint, third-party compliance and production build checks pass",
+        "Approved Playwright verification passes the runtime-details and manual-compaction-break flows against an isolated migrated PostgreSQL database on localhost:3000"
       ],
       "exitGate": "SC-G09_V2_READY"
     }

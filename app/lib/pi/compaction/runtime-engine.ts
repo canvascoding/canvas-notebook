@@ -27,6 +27,14 @@ import {
 import { prunePiSessionHistory, type PiPruningResult } from './pruning';
 import { preparePiHistoryContext, type PreparePiHistoryContextResult } from '../session-summary';
 import type { PiSummaryProgressEvent } from './summary-generator';
+import {
+  createPiCompactionShadowTelemetry,
+  type PiCompactionShadowTelemetry,
+} from './evaluation';
+import {
+  getPiCompactionRolloutDecision,
+  type PiCompactionRolloutMode,
+} from './rollout';
 
 export type PiRuntimeCompactionInspection = Readonly<{
   budget: SessionCompactionBudget;
@@ -140,6 +148,8 @@ export type PreparePiHermesCompactionCandidateInput = Readonly<{
   focusTopic?: string | null;
   policy?: PiContextBudgetPolicy;
   onSummaryProgress?: (event: PiSummaryProgressEvent) => void;
+  rolloutMode?: PiCompactionRolloutMode;
+  onShadowTelemetry?: (telemetry: PiCompactionShadowTelemetry) => void;
 }>;
 
 export type PreparePiHermesCompactionCandidateResult = PreparePiHistoryContextResult & Readonly<{
@@ -152,6 +162,7 @@ export async function preparePiHermesCompactionCandidate(
   const policy = validatePiContextBudgetPolicy(
     input.policy ?? DEFAULT_PI_CONTEXT_BUDGET_POLICY,
   );
+  const rollout = getPiCompactionRolloutDecision(input.rolloutMode);
   const inspection = inspectPiRuntimeCompactionPressure({
     messages: input.messages,
     model: input.model,
@@ -166,12 +177,32 @@ export async function preparePiHermesCompactionCandidate(
   const pruning = prunePiSessionHistory({
     messages: input.messages,
     estimateMessageTokens: estimatePiMessageTokens,
-    enabled: true,
+    enabled: rollout.pruningEnabled,
     protectLastMessages: policy.protectLastMessages,
     protectedTailTokenBudget: inspection.budget.targetTailTokens,
     triggerTokens: inspection.budget.triggerTokens,
     currentHistoryTokens: inspection.roughHistoryTokens,
   });
+  if (rollout.shadowEvaluationEnabled) {
+    const telemetry = createPiCompactionShadowTelemetry({
+      messages: input.messages,
+      summary: input.summary,
+      systemPromptTokens: input.systemPromptTokens,
+      contextWindow: input.model.contextWindow,
+      modelMaxTokens: input.model.maxTokens,
+      requestOutputTokens: input.requestOutputTokens,
+      toolTokens: input.toolTokens,
+      additionalContextTokens: input.additionalContextTokens,
+      modelIdentity: `${input.model.provider}:${input.model.api}:${input.model.id}`,
+      selectionMode: input.selectionMode,
+      policy,
+    });
+    if (input.onShadowTelemetry) {
+      input.onShadowTelemetry(telemetry);
+    } else {
+      console.info('[PI Compaction Shadow]', JSON.stringify(telemetry));
+    }
+  }
   const candidate = await preparePiHistoryContext({
     messages: [...pruning.messages],
     summary: input.summary,
@@ -183,7 +214,7 @@ export async function preparePiHermesCompactionCandidate(
     sessionId: input.sessionId,
     signal: input.signal,
     streamFn: input.streamFn,
-    summaryMode: 'hermes_v2',
+    summaryMode: rollout.summaryMode,
     selectionMode: input.selectionMode ?? 'automatic',
     focusTopic: input.focusTopic,
     policy,

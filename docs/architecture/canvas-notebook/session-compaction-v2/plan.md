@@ -547,6 +547,30 @@ Gate:
   einem expliziten sicheren Fehler.
 - Statusanzeige und Trigger stimmen in allen getesteten Providern ueberein.
 
+Abschlussnachweis:
+
+- `CANVAS_PI_COMPACTION_ROLLOUT` bietet `legacy`, `shadow` und `v2`. `legacy`
+  rollt LLM-Summary und deterministisches Pruning zurueck, behaelt aber die
+  atomare Tool-Gruppen-Auswahl. `shadow` fuehrt V1 aus und misst Legacy/Lean
+  ohne Session-ID oder Inhaltsfelder. `v2` ist der getestete Shipping-Pfad.
+- Der Hermes-Default `legacy` bleibt die Tail-Policy. Lean wird erst nach
+  realer Recall-, Cache-, Kosten- und Latenzmessung aktiviert. Die lokale
+  Docker-Testdatenbank enthielt keine geeigneten realen Sessions und wurde
+  deshalb ausdruecklich nicht als Rollout-Evidenz gewertet.
+- Die deterministische 241-Nachrichten-Scorecard projiziert 78,30 Prozent
+  Einsparung fuer Legacy und 88,30 Prozent fuer Lean bei null Partitionverlust,
+  null neuen Tool-Waisen und vollstaendigem User-/Assistant-Anchor-Erhalt.
+- Micro-Compaction besitzt weder Schalter noch Post-Turn-Rewrite-Pfad. Der
+  V1-Rollback und der inhaltsfreie Persisted-Session-Evaluator sind im
+  Operations-Runbook dokumentiert.
+- Compaction-, Durability-, Runtime-, UI-Contract-, WebSocket-, TypeScript-,
+  Lizenz- und Lint-Pruefungen, Production-Build sowie zwei genehmigte
+  Playwright-Tests gegen gesundes isoliertes Postgres sind erfolgreich.
+- `detect_changes` gegen `main` meldet wegen des gesamten P00-P09-Branches und
+  der Upstream-Divergenz weiterhin kritischen Gesamtradius; der isolierte
+  P09-Diff bleibt auf Rollout-Grenze, Evaluator, Tests und Dokumentation
+  beschraenkt.
+
 ## 7. Hermes-Testuebernahmematrix
 
 Hermes-Tests werden nicht nur als Inspiration gelesen. Fuer jede Gruppe wird
