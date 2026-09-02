@@ -2,13 +2,18 @@
 
 Stand: 2026-08-31
 
-Status: geplant, noch nicht implementiert
+Status: PostgreSQL-Fresh-Install- und Lifecycle-Kernpfad implementiert;
+vollstaendig SQLite-freies Production-Runner-Image noch geplant
 
-Memory-Readiness: implementiert am 2026-09-02. Onboarding und reguläre
+Memory-Readiness: implementiert am 2026-09-02. Onboarding und regulaere
 Memory-Persistenz verwenden bereits die provider-neutrale SQL-Abstraktion. Der
 Bestands-Cutover kopiert und validiert alle Memory-Tabellen einschließlich
-Provenienz und Legacy-Importmarkern. Die Umstellung des Fresh-Install-Defaults
-und des Container-Lifecycles bleibt Bestandteil dieses Plans.
+Provenienz und Legacy-Importmarkern. Neue Production-Installationen verwenden
+PostgreSQL als Default; Managed- und External-Modus sind getrennt. Der
+SQLite→PostgreSQL-Befehl bleibt ausschliesslich fuer Bestandsinstallationen.
+Das Standard-Runner-Image enthaelt derzeit fuer diese Legacy-Pfade noch
+`better-sqlite3` und das `sqlite3`-CLI; ihre Auslagerung in ein separates
+Migrationsartefakt ist fuer ein strikt PostgreSQL-only Release noch offen.
 
 ## Ziel
 

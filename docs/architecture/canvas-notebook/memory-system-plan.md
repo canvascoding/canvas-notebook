@@ -407,23 +407,33 @@ Memories.
 Der Memory-Manager verwendet eine eigene, leichte Runtime-Auswahl und ist nicht
 automatisch an das Modell des aktiven Chats gebunden.
 
-Die Auswahl wird nicht global vorkonfiguriert. Jeder User muss in
-`/settings?tab=memory` explizit eine bereits installierte Provider-Verbindung
-und ein dafuer freigegebenes Modell auswaehlen. API-Keys werden nicht im
-Memory-System gespeichert; die Auswahl referenziert die bestehende zentrale
-Provider-Installation und den Runtime-Modellkatalog.
+Die Auswahl wird im Instanz-Onboarding einmal durch einen Owner oder
+Organisationsadministrator gesetzt und verifiziert. Sie gilt als
+Organisationsdefault fuer die Review-Jobs aller berechtigten User. API-Keys
+werden nicht im Memory-System gespeichert; die Auswahl referenziert die
+bestehende zentrale Provider-Installation und den Runtime-Modellkatalog. Der
+detaillierte Umstellungs- und Rolloutplan steht in
+`memory-reviewer-admin-onboarding-plan.md`.
+
+Organisationsweit konfigurierbare Runtime-Werte:
+
+```text
+provider_installation_id
+model_id
+verified_catalog_revision
+verified_at
+```
 
 Konfigurierbare User-Werte:
 
 ```text
 automatic_memory_enabled
-provider_installation_id
-model_id
 memory_prompt_max_tokens
 sensitive_memory_enabled
 ```
 
-- Ohne ausgewaehltes Modell bleiben automatische Reviews sichtbar im Zustand
+- Ohne durch einen Administrator verifiziertes Modell bleiben automatische
+  Reviews sichtbar im Zustand
   `awaiting_model_configuration`; es gibt keinen stillen Rueckfall auf das
   teurere Chatmodell.
 - Das direkte `memory`-Tool funktioniert weiterhin, weil seine
@@ -431,9 +441,10 @@ sensitive_memory_enabled
 - Der Reviewer erhaelt nur den Delta-Ausschnitt seit dem letzten erfolgreichen
   Review, relevante bestehende Eintraege und ein kleines strukturiertes
   Ausgabelimit.
-- Fuer Workspace-Kandidaten gilt in V1 die Modellkonfiguration des ausloesenden
-  Users. Eine zentral finanzierte Organisationskonfiguration kann spaeter
-  ergaenzt werden.
+- Fuer Workspace- und Organisationskandidaten gilt dieselbe verifizierte
+  Organisationskonfiguration. Eigentum, Sichtbarkeit und Sensitivitaet der
+  resultierenden Memories bleiben weiterhin user- beziehungsweise
+  workspacebezogen.
 
 ## UI und Einstellungen
 
@@ -482,7 +493,8 @@ Eintraege, ihre Historie sowie die zulassigen Aktionen sichtbar.
 Die zentrale Seite enthaelt:
 
 - automatisches Merken an/aus,
-- Provider- und Modellauswahl fuer den Memory-Manager,
+- fuer Owner/Admin die organisationsweite Provider- und Modellauswahl fuer den
+  Memory-Manager; fuer normale User einen read-only verwalteten Runtime-Status,
 - Anzeige des festen Rhythmus: alle zehn User-Turns plus 15-Minuten-Idle-Flush,
 - maximales Memory-Prompt-Budget,
 - sensible Themen an/aus (standardmaessig aus),
