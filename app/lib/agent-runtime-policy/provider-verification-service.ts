@@ -102,7 +102,7 @@ function assertProviderProbeTarget(input: {
   expectedProviderRevision: number;
   expectedProviderId: string;
   expectedModelId: string;
-}): { provider: AiProviderInstallation; providerDefault: AiCatalogModel } {
+}): { provider: AiProviderInstallation; targetModel: AiCatalogModel } {
   if (input.catalogRevision !== input.expectedCatalogRevision) {
     throw new ProviderVerificationError(
       'PROVIDER_VERIFICATION_TARGET_CHANGED',
@@ -124,15 +124,15 @@ function assertProviderProbeTarget(input: {
       409,
     );
   }
-  const providerDefault = provider.models.find((model) => model.enabled && model.isProviderDefault);
-  if (!providerDefault || providerDefault.id !== input.expectedModelId) {
+  const targetModel = provider.models.find((model) => model.enabled && model.id === input.expectedModelId);
+  if (!targetModel) {
     throw new ProviderVerificationError(
       'PROVIDER_VERIFICATION_TARGET_CHANGED',
-      'The provider default model changed while verification was running. Try again.',
+      'The selected provider model changed while verification was running. Try again.',
       409,
     );
   }
-  return { provider, providerDefault };
+  return { provider, targetModel };
 }
 
 async function resolveCurrentProviderProbeTarget(input: {
@@ -143,7 +143,7 @@ async function resolveCurrentProviderProbeTarget(input: {
   expectedProviderId: string;
   expectedModelId: string;
   signal?: AbortSignal;
-}): Promise<{ provider: AiProviderInstallation; providerDefault: AiCatalogModel; model: Model<Api> }> {
+}): Promise<{ provider: AiProviderInstallation; targetModel: AiCatalogModel; model: Model<Api> }> {
   assertProbeActive(input.signal);
   const catalog = await raceWithProbeSignal(readAppRuntimeCatalog(input.organizationId), input.signal);
   const target = assertProviderProbeTarget({
@@ -157,7 +157,7 @@ async function resolveCurrentProviderProbeTarget(input: {
   const model = await raceWithProbeSignal(
     resolveProviderInstallationModel({
       provider: target.provider,
-      model: target.providerDefault,
+      model: target.targetModel,
     }),
     input.signal,
   );
@@ -183,6 +183,7 @@ export async function verifyProviderInstallation(input: {
   organizationId: string;
   actorUserId: string;
   providerInstallationId: string;
+  modelId?: string;
   signal?: AbortSignal;
 }): Promise<ProviderVerificationResult> {
   const installationId = input.providerInstallationId.trim();
@@ -210,11 +211,16 @@ export async function verifyProviderInstallation(input: {
       409,
     );
   }
-  const providerDefault = provider.models.find((model) => model.enabled && model.isProviderDefault);
-  if (!providerDefault) {
+  const requestedModelId = input.modelId?.trim();
+  const targetModel = requestedModelId
+    ? provider.models.find((model) => model.enabled && model.id === requestedModelId)
+    : provider.models.find((model) => model.enabled && model.isProviderDefault);
+  if (!targetModel) {
     throw new ProviderVerificationError(
-      'PROVIDER_DEFAULT_MODEL_MISSING',
-      'The provider has no enabled default model in the app catalog.',
+      requestedModelId ? 'PROVIDER_MODEL_UNAVAILABLE' : 'PROVIDER_DEFAULT_MODEL_MISSING',
+      requestedModelId
+        ? 'The selected model is not enabled in the app catalog.'
+        : 'The provider has no enabled default model in the app catalog.',
       409,
     );
   }
@@ -233,7 +239,7 @@ export async function verifyProviderInstallation(input: {
       expectedCatalogRevision: catalog.revision,
       expectedProviderRevision: provider.revision,
       expectedProviderId: provider.providerId,
-      expectedModelId: providerDefault.id,
+      expectedModelId: targetModel.id,
       signal: probeSignal,
     };
     const initialTarget = await resolveCurrentProviderProbeTarget(targetInput);
@@ -371,7 +377,7 @@ export async function verifyProviderInstallation(input: {
   const result = {
     providerInstallationId: installationId,
     providerId: provider.providerId,
-    modelId: providerDefault.id,
+    modelId: targetModel.id,
     status: stored.status,
     catalogRevision: stored.catalogRevision,
     providerRevision: stored.providerRevision,

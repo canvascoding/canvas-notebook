@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
 import { auth } from '@/app/lib/auth';
+import { readMemoryReviewRuntimeCatalog } from '@/app/lib/memory/runtime-configuration';
 import { deleteOnboardingBootstrapFile } from '@/app/lib/onboarding/profile';
 import { getUserOnboardingState, initializeUserOnboarding } from '@/app/lib/user-preferences';
 import { isOnboardingEnabled, isOnboardingComplete, markOnboardingComplete } from '@/app/lib/onboarding/status';
@@ -71,6 +72,18 @@ export async function POST(request: NextRequest) {
         success: false,
         error: 'Verify the current app-default AI provider and model before completing instance setup.',
         code: 'PROVIDER_VERIFICATION_REQUIRED',
+      },
+      { status: 409 },
+    );
+  }
+
+  const memoryRuntime = await readMemoryReviewRuntimeCatalog(organizationState.organizationId);
+  if (!memoryRuntime.valid) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Verify a Memory Reviewer provider and model before completing instance setup.',
+        code: 'MEMORY_REVIEWER_VERIFICATION_REQUIRED',
       },
       { status: 409 },
     );

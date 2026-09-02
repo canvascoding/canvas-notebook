@@ -32,6 +32,14 @@ const providerDefaultModel = {
   maxTokens: 8_192,
 } as const;
 
+const memoryReviewModel = {
+  ...providerDefaultModel,
+  id: 'memory-review-model',
+  name: 'Memory Review Model',
+  contextWindow: 64_000,
+  maxTokens: 4_096,
+} as const;
+
 let probeMode: 'success' | 'failure' = 'success';
 const probeCalls: Array<{ modelId: string; baseUrl: string; apiKey: string | undefined }> = [];
 
@@ -72,7 +80,7 @@ moduleInternals._load = (request, parent, isMain) => {
         probeCalls.push({ modelId: model.id, baseUrl: model.baseUrl, apiKey: options.apiKey });
         return assistantResponse(model);
       },
-      getModels: (providerId: string) => providerId === 'openrouter' ? [providerDefaultModel] : [],
+      getModels: (providerId: string) => providerId === 'openrouter' ? [providerDefaultModel, memoryReviewModel] : [],
       getProviders: () => ['openrouter'],
       registerBuiltInApiProviders: () => undefined,
     };
@@ -147,7 +155,7 @@ async function main() {
   );
 
   const providerInstallationId = installationId(organization.organizationId, 'openrouter', 'organization');
-  const decoyAppDefaultModelId = 'app-default-decoy';
+  const decoyAppDefaultModelId = memoryReviewModel.id;
   const discovery = {
     openrouter: {
       id: 'openrouter',
@@ -164,7 +172,7 @@ async function main() {
         },
         {
           id: decoyAppDefaultModelId,
-          name: 'App Default Decoy',
+          name: memoryReviewModel.name,
           reasoning: false,
           supportsVision: false,
           contextWindow: 64_000,
@@ -319,6 +327,15 @@ async function main() {
     baseUrl: providerDefaultModel.baseUrl,
     apiKey: ORGANIZATION_SECRET,
   });
+  const explicitModelVerification = await verifyProviderInstallation({
+    organizationId: organization.organizationId,
+    actorUserId: owner.id,
+    providerInstallationId,
+    modelId: memoryReviewModel.id,
+  });
+  assert.equal(explicitModelVerification.success, true);
+  assert.equal(explicitModelVerification.modelId, memoryReviewModel.id);
+  assert.equal(probeCalls.at(-1)?.modelId, memoryReviewModel.id);
 
   const verifiedProvider = sqlite.prepare(`
     SELECT status, verified_at AS verifiedAt, verified_by_user_id AS verifiedByUserId, revision
@@ -365,7 +382,7 @@ async function main() {
     { ...defaultsAfterSuccess, catalogRevision: defaultsBefore.catalogRevision },
     defaultsBefore,
   );
-  assert.equal(defaultsAfterSuccess.catalogRevision, defaultsBefore.catalogRevision + 1);
+  assert.equal(defaultsAfterSuccess.catalogRevision, defaultsBefore.catalogRevision + 2);
   const modelsAfterSuccess = sqlite.prepare(`
     SELECT model_id AS modelId, enabled, is_provider_default AS isProviderDefault
     FROM ai_provider_models
