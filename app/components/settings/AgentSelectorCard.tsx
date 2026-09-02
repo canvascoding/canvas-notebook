@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bot, Building2, Lock, Plus, RefreshCw, Trash2, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
-import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
+import { AgentIdentityAvatar } from '@/app/components/agents/AgentIdentityVisual';
 import { CreateAgentDialog, type CreateAgentInput } from './CreateAgentDialog';
 import type { AgentIconId } from '@/app/lib/agents/icons';
 import { Badge } from '@/components/ui/badge';
@@ -119,7 +119,11 @@ export function AgentSelectorCard({
                 }`}
               >
                 <div className="flex min-w-0 items-start gap-3">
-                  <AgentAvatar iconId={agent.iconId} className="h-11 w-11 shrink-0" />
+                  <AgentIdentityAvatar
+                    agentId={agent.agentId}
+                    iconId={agent.iconId}
+                    className="h-11 w-11 shrink-0"
+                  />
                   <button
                     type="button"
                     onClick={() => onSelectedAgentIdChange(agent.agentId)}
