@@ -226,6 +226,11 @@ async function main() {
     userId: 'push-user',
     installationId: 'installation-1',
   })).preferences.emailReview, true);
+  const disabledEmailReviewPreference = await updateMobilePushDevicePreference({
+    userId: 'push-user',
+    update: { ...emailReviewPreference, enabled: false },
+  });
+  assert.equal(disabledEmailReviewPreference.preferences.emailReview, false);
   await updateMobilePushDevicePreference({
     userId: 'push-user',
     update: { ...preferenceUpdate, enabled: true },

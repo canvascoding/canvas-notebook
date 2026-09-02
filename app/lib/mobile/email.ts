@@ -43,12 +43,14 @@ export type MobileEmailCase = Pick<
 export class MobileEmailError extends Error {
   constructor(
     message: string,
-    public readonly code: 'EMAIL_CASE_NOT_FOUND' | 'EMAIL_REVIEW_NOT_FOUND' | 'EMAIL_REVIEW_NOT_SENDABLE' | 'INVALID_EMAIL_REVIEW',
+    public readonly code: 'EMAIL_CASE_NOT_FOUND' | 'EMAIL_REVIEW_NOT_FOUND' | 'EMAIL_REVIEW_NOT_SENDABLE' | 'EMAIL_REVIEW_VERSION_CONFLICT' | 'INVALID_EMAIL_REVIEW',
     public readonly status: number,
   ) {
     super(message);
   }
 }
+
+type MobileEmailSendDependencies = NonNullable<Parameters<typeof sendPersonalOutboxDraft>[1]>;
 
 function isPersonalWorkspace(workspace: WorkspaceContext): boolean {
   return workspace.workspaceType === 'personal';
@@ -114,7 +116,7 @@ export async function sendMobileEmailReview(input: {
   workspace: WorkspaceContext;
   draftId: string;
   expectedVersion: number;
-}): Promise<MobileEmailReview> {
+}, dependencies: MobileEmailSendDependencies = {}): Promise<MobileEmailReview> {
   if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
     throw new MobileEmailError('A current email review version is required.', 'INVALID_EMAIL_REVIEW', 400);
   }
@@ -122,17 +124,28 @@ export async function sendMobileEmailReview(input: {
   if (!current.canSend) {
     throw new MobileEmailError('This email review cannot be sent.', 'EMAIL_REVIEW_NOT_SENDABLE', 409);
   }
-  const sent = isPersonalWorkspace(input.workspace)
-    ? await sendPersonalOutboxDraft({
-      userId: input.userId,
-      draftId: input.draftId,
-      expectedVersion: input.expectedVersion,
-    })
-    : await sendWorkspaceOutboxDraft({
-      userId: input.userId,
-      workspaceId: input.workspace.workspaceId,
-      draftId: input.draftId,
-      expectedVersion: input.expectedVersion,
-    });
-  return serializeReview(sent, input.userId);
+  try {
+    const sent = isPersonalWorkspace(input.workspace)
+      ? await sendPersonalOutboxDraft({
+        userId: input.userId,
+        draftId: input.draftId,
+        expectedVersion: input.expectedVersion,
+      }, dependencies)
+      : await sendWorkspaceOutboxDraft({
+        userId: input.userId,
+        workspaceId: input.workspace.workspaceId,
+        draftId: input.draftId,
+        expectedVersion: input.expectedVersion,
+      }, dependencies);
+    return serializeReview(sent, input.userId);
+  } catch (error) {
+    if (error instanceof Error && /has changed|reload it before sending/iu.test(error.message)) {
+      throw new MobileEmailError(
+        'This email review has changed. Reload it before sending.',
+        'EMAIL_REVIEW_VERSION_CONFLICT',
+        409,
+      );
+    }
+    throw error;
+  }
 }

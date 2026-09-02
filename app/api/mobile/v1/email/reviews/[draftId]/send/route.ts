@@ -19,7 +19,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ dr
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
       draftId,
-      expectedVersion: Number(body.expectedVersion),
+      expectedVersion: typeof body.expectedVersion === 'number' ? body.expectedVersion : Number.NaN,
     });
     return NextResponse.json({ success: true, data }, { headers: mobileEmailResponseHeaders });
   } catch (error) {
