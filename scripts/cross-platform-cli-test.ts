@@ -407,6 +407,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(materializedExternal.env.CANVAS_DATABASE_PROVIDER, 'postgres');
     assert.equal(materializedExternal.env.CANVAS_POSTGRES_MODE, 'external');
     assert.equal(materializedExternal.env.CANVAS_POSTGRES_PASSWORD, '');
+    assert.equal(postgresRuntimeDesired(materializedExternal), false);
     assert.match(composeEnvText(materializedExternal, composePath(materializedExternal.dataDir, 'linux')), /^COMPOSE_PROFILES=$/m);
     assert.match(composeEnvText(materializedExternal, composePath(materializedExternal.dataDir, 'linux')), /^CANVAS_POSTGRES_MODE=external$/m);
     const missingExternalUrl = configureRuntimeAndDatabase(config, {

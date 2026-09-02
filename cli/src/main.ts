@@ -38,7 +38,8 @@ import {
   commandRequiresOperationLock,
 } from './core/operationLock';
 import { composePath, createRuntimeContext } from './core/platform';
-import { preparePostgresManagedRuntime, postgresRuntimeDesired, postgresRuntimeInitialized } from './core/postgres';
+import { externalPostgresRuntimeDesired, preparePostgresManagedRuntime, postgresRuntimeDesired, postgresRuntimeInitialized } from './core/postgres';
+import { preflightExternalPostgres, type PgvectorPolicy } from './core/postgresPreflight';
 import {
   assertPostgresRecoveryCompatible,
   clearPostgresRecoveryJournal,
@@ -68,6 +69,8 @@ interface ParsedArgs {
 
 interface InstallOptions {
   database?: CliDatabaseProvider;
+  databaseUrlSource?: { type: 'stdin' } | { type: 'file'; filePath: string };
+  pgvectorPolicy?: PgvectorPolicy;
   postgresMode?: CliPostgresMode;
   runtime?: CliRuntimeMode;
 }
@@ -134,7 +137,7 @@ function printHelp(): void {
 
 Commands:
   version [--json]                 Show CLI build information and capabilities
-  install [--database sqlite|postgres] [--postgres-mode managed|external] [--runtime personal|team]
+  install [--database sqlite|postgres] [--postgres-mode managed|external] [--database-url-stdin|--database-url-file <path>] [--pgvector required|optional|disabled] [--runtime personal|team]
                                   Generate config, pull image, start container
   update [--image <name@sha256>] [--require-pinned]
                                  Pull and apply an image with rollback protection
@@ -304,6 +307,21 @@ function parseInstallOptions(args: string[]): InstallOptions {
     } else if (arg === '--postgres-mode' || arg.startsWith('--postgres-mode=')) {
       const parsed = readOptionValue(args, i, '--postgres-mode');
       options.postgresMode = parseCliPostgresMode(parsed.value);
+      i = parsed.nextIndex;
+    } else if (arg === '--database-url-stdin') {
+      if (options.databaseUrlSource) throw new Error('Choose only one external DATABASE_URL input source.');
+      options.databaseUrlSource = { type: 'stdin' };
+    } else if (arg === '--database-url-file' || arg.startsWith('--database-url-file=')) {
+      if (options.databaseUrlSource) throw new Error('Choose only one external DATABASE_URL input source.');
+      const parsed = readOptionValue(args, i, '--database-url-file');
+      options.databaseUrlSource = { type: 'file', filePath: parsed.value };
+      i = parsed.nextIndex;
+    } else if (arg === '--pgvector' || arg.startsWith('--pgvector=')) {
+      const parsed = readOptionValue(args, i, '--pgvector');
+      if (parsed.value !== 'required' && parsed.value !== 'optional' && parsed.value !== 'disabled') {
+        throw new Error('--pgvector must be required, optional, or disabled.');
+      }
+      options.pgvectorPolicy = parsed.value;
       i = parsed.nextIndex;
     } else if (arg === '--runtime' || arg.startsWith('--runtime=')) {
       const parsed = readOptionValue(args, i, '--runtime');
@@ -609,14 +627,25 @@ async function copyFileAtomically(sourcePath: string, requestedOutputPath: strin
   }
 }
 
-async function install(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig): Promise<void> {
+async function install(
+  context: RuntimeContext,
+  docker: DockerManager,
+  config: CanvasCliConfig,
+  options: { pgvectorPolicy?: PgvectorPolicy } = {},
+): Promise<void> {
   await appendLog(context, 'install started');
   if (managedByControlPlane(config)) {
     console.log('Note: This installation is managed by Control Plane; autonomous CLI auto-update is disabled.');
     await appendLog(context, 'managed mode: autonomous auto-update disabled');
   }
+  if (externalPostgresRuntimeDesired(config)) {
+    await docker.dockerOrThrow(['pull', config.image], { stdio: 'inherit' });
+    const pgvectorPolicy = options.pgvectorPolicy ?? 'required';
+    const preflight = await preflightExternalPostgres({ config, docker, pgvectorPolicy });
+    config.env.CANVAS_POSTGRES_VECTOR_ENABLED = pgvectorPolicy !== 'disabled' && preflight.pgvectorAvailable;
+  }
   const next = await syncFiles(context, config, { allowPostgresSecretGeneration: true });
-  await docker.pull(next);
+  if (!externalPostgresRuntimeDesired(next)) await docker.pull(next);
   await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
   await docker.composeOrThrow(next, ['up', '-d', '--force-recreate'], 'inherit');
   await docker.waitUntilHealthy(next);
@@ -1221,13 +1250,15 @@ async function runSwapCommand(
 
 function databaseStatusPayload(config: CanvasCliConfig) {
   const provider = String(config.env.CANVAS_DATABASE_PROVIDER || 'sqlite');
+  const postgresMode = provider === 'postgres' ? String(config.env.CANVAS_POSTGRES_MODE || 'managed') : null;
   const deploymentMode = String(config.env.CANVAS_DEPLOYMENT_MODE || 'single_user');
   const postgresRequired = ['true', '1', 'yes', 'on'].includes(String(config.env.CANVAS_POSTGRES_REQUIRED || '').trim().toLowerCase());
   return {
     databaseProvider: provider,
+    postgresMode,
     deploymentMode,
     postgresRequired,
-    postgresProfileEnabled: provider === 'postgres',
+    postgresProfileEnabled: provider === 'postgres' && postgresMode === 'managed',
     postgres: {
       image: String(config.env.CANVAS_POSTGRES_IMAGE || ''),
       dataVolume: String(config.env.CANVAS_POSTGRES_DATA_VOLUME || ''),
@@ -1246,6 +1277,7 @@ function printDatabaseStatus(config: CanvasCliConfig, json: boolean): void {
     return;
   }
   console.log(`Database provider: ${status.databaseProvider}`);
+  console.log(`Postgres mode: ${status.postgresMode || '(not applicable)'}`);
   console.log(`Deployment mode: ${status.deploymentMode}`);
   console.log(`Postgres required: ${status.postgresRequired ? 'yes' : 'no'}`);
   console.log(`Postgres profile: ${status.postgresProfileEnabled ? 'enabled' : 'disabled'}`);
@@ -1560,6 +1592,9 @@ async function database(context: RuntimeContext, docker: DockerManager, config: 
     if (await hasPostgresRecoveryJournal(config)) {
       throw new Error('An interrupted Postgres auth reconciliation is pending. Run database reconcile-postgres-auth first.');
     }
+    if (externalPostgresRuntimeDesired(config)) {
+      throw new Error('External Postgres is provider-managed and cannot be prepared by Canvas.');
+    }
     const timeoutSeconds = parsePostgresReconcileTimeout(args);
     const existingEnvFiles = await Promise.all([
       fs.readFile(config.paths.containerEnvFile, 'utf8').catch(() => null),
@@ -1764,7 +1799,22 @@ async function main(): Promise<void> {
     switch (parsed.command) {
     case 'install': {
       const options = parseInstallOptions(parsed.args);
-      await install(context, docker, configureRuntimeAndDatabase(config, options));
+      if (options.databaseUrlSource) {
+        options.database = 'postgres';
+        options.postgresMode = 'external';
+        const databaseUrl = options.databaseUrlSource.type === 'stdin'
+          ? await readSingleLineStdin()
+          : (await fs.readFile(options.databaseUrlSource.filePath, 'utf8')).trim();
+        if (databaseUrl.length > 16 * 1024) throw new Error('External DATABASE_URL input is too large.');
+        config.env.DATABASE_URL = databaseUrl;
+      }
+      const configured = configureRuntimeAndDatabase(config, options);
+      if (externalPostgresRuntimeDesired(configured)) {
+        configured.env.CANVAS_POSTGRES_VECTOR_ENABLED = (options.pgvectorPolicy ?? 'required') !== 'disabled';
+      } else if (options.pgvectorPolicy && options.pgvectorPolicy !== 'required') {
+        throw new Error('--pgvector optional|disabled is only supported with --postgres-mode external.');
+      }
+      await install(context, docker, configured, { pgvectorPolicy: options.pgvectorPolicy });
       break;
     }
     case 'update':

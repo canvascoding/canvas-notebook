@@ -136,6 +136,7 @@
     "test:knowledge:gates": "tsx --conditions react-server scripts/knowledge-feature-gates-test.ts",
     "test:db:provider": "tsx scripts/database-provider-abstraction-test.ts",
     "test:db:unavailable": "tsx --conditions react-server scripts/database-unavailable-error-test.ts",
+    "test:db:external-preflight": "tsx scripts/postgres-external-preflight-test.ts",
     "test:skills:core": "tsx --conditions react-server scripts/core-skills-test.ts",
     "test:skills:browser": "tsx --conditions react-server scripts/capability-skill-browser-test.ts",
     "test:skills:documentation": "tsx scripts/skill-documentation-resolution-test.ts",

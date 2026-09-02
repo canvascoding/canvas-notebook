@@ -24,6 +24,8 @@ function runtimeValue(config: CanvasCliConfig, key: string, fallback = ''): stri
 }
 
 export function postgresRuntimeDesired(config: CanvasCliConfig): boolean {
+  const postgresMode = normalized(config.env.CANVAS_POSTGRES_MODE) || 'managed';
+  if (postgresMode === 'external') return false;
   if (truthy(config.env.CANVAS_POSTGRES_REQUIRED) ||
     truthy(config.env.CANVAS_POSTGRES_VECTOR_ENABLED) ||
     truthy(config.env.CANVAS_TEAM_FEATURES_ENABLED)) return true;
@@ -31,6 +33,12 @@ export function postgresRuntimeDesired(config: CanvasCliConfig): boolean {
   if (provider === 'postgres') return true;
   if (provider === 'sqlite') return false;
   return provider === '' && /^postgres(?:ql)?:\/\//iu.test(runtimeValue(config, 'DATABASE_URL'));
+}
+
+export function externalPostgresRuntimeDesired(config: CanvasCliConfig): boolean {
+  const provider = normalized(config.env.CANVAS_DATABASE_PROVIDER);
+  const postgresMode = normalized(config.env.CANVAS_POSTGRES_MODE);
+  return provider === 'postgres' && postgresMode === 'external';
 }
 
 function postgresContainerName(config: CanvasCliConfig): string {
