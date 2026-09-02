@@ -5,8 +5,10 @@ import {
   getMobilePushDeviceStatus,
   MobilePushDeviceError,
   parseMobileInstallationId,
+  parseMobilePushPreferenceUpdate,
   parseMobilePushRegistration,
   registerMobilePushDevice,
+  updateMobilePushDevicePreference,
   unregisterMobilePushDevice,
 } from '@/app/lib/mobile/push-devices';
 
@@ -27,6 +29,10 @@ function unauthorized() {
 
 function errorResponse(error: unknown) {
   if (error instanceof MobilePushDeviceError) {
+    console.warn('[API] Mobile push device request rejected:', {
+      code: error.code,
+      status: error.status,
+    });
     return NextResponse.json(
       { success: false, error: error.message, code: error.code },
       { status: error.status, headers: responseHeaders },
@@ -52,16 +58,44 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  console.info('[API] Mobile push device POST received:', { path: request.nextUrl.pathname });
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return unauthorized();
   try {
     const registration = parseMobilePushRegistration(await request.json().catch(() => null));
+    console.info('[API] Mobile push device registration parsed:', {
+      userId: session.user.id,
+      installationId: registration.installationId,
+      platform: registration.platform,
+      appVariant: registration.appVariant,
+      reactivate: registration.reactivate,
+      preferences: registration.preferences,
+    });
     const device = await registerMobilePushDevice({
       userId: session.user.id,
       authSessionId: session.session.id,
       registration,
     });
     return NextResponse.json({ success: true, device }, { status: 201, headers: responseHeaders });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  console.info('[API] Mobile push preference PATCH received:', { path: request.nextUrl.pathname });
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) return unauthorized();
+  try {
+    const update = parseMobilePushPreferenceUpdate(await request.json().catch(() => null));
+    console.info('[API] Mobile push preference update parsed:', {
+      userId: session.user.id,
+      installationId: update.installationId,
+      key: update.key,
+      enabled: update.enabled,
+    });
+    const device = await updateMobilePushDevicePreference({ userId: session.user.id, update });
+    return NextResponse.json({ success: true, device }, { headers: responseHeaders });
   } catch (error) {
     return errorResponse(error);
   }

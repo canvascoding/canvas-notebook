@@ -51,6 +51,14 @@ export type MobilePushPreferences = {
   previews: boolean;
 };
 
+export type MobilePushPreferenceKey = keyof MobilePushPreferences;
+
+export type MobilePushPreferenceUpdate = {
+  installationId: string;
+  key: MobilePushPreferenceKey;
+  enabled: boolean;
+};
+
 export type MobilePushRegistration = {
   installationId: string;
   expoPushToken: string;
@@ -250,6 +258,31 @@ export function parseMobilePushRegistration(value: unknown): MobilePushRegistrat
   };
 }
 
+export function parseMobilePushPreferenceUpdate(value: unknown): MobilePushPreferenceUpdate {
+  if (!isRecord(value)) {
+    throw new MobilePushDeviceError('Preference update is invalid.', 400, 'INVALID_DEVICE');
+  }
+  const installationId = parseMobileInstallationId(value.installationId);
+  if (
+    value.key !== 'agentResponseReady'
+    && value.key !== 'todoAttention'
+    && value.key !== 'studioCompleted'
+    && value.key !== 'failureAttention'
+    && value.key !== 'automationRunStatus'
+    && value.key !== 'previews'
+  ) {
+    throw new MobilePushDeviceError('preference key is invalid.', 400, 'INVALID_DEVICE');
+  }
+  if (typeof value.enabled !== 'boolean') {
+    throw new MobilePushDeviceError('enabled is invalid.', 400, 'INVALID_DEVICE');
+  }
+  return {
+    installationId,
+    key: value.key,
+    enabled: value.enabled,
+  };
+}
+
 export function parseMobileInstallationId(value: unknown): string {
   return requiredString(value, 'installationId', 128);
 }
@@ -399,6 +432,18 @@ const DEVICE_SELECT = `id, expo_push_token, platform, app_variant, enabled,
   agent_response_ready, todo_attention, studio_completed, failure_attention,
   automation_run_status, preview_enabled, last_registered_at, last_delivery_at, last_error_code`;
 
+const MOBILE_PUSH_PREFERENCE_COLUMNS: Record<MobilePushPreferenceKey, {
+  field: keyof Pick<MobilePushDeviceRow, 'agent_response_ready' | 'todo_attention' | 'studio_completed' | 'failure_attention' | 'automation_run_status' | 'preview_enabled'>;
+  column: string;
+}> = {
+  agentResponseReady: { field: 'agent_response_ready', column: 'agent_response_ready' },
+  todoAttention: { field: 'todo_attention', column: 'todo_attention' },
+  studioCompleted: { field: 'studio_completed', column: 'studio_completed' },
+  failureAttention: { field: 'failure_attention', column: 'failure_attention' },
+  automationRunStatus: { field: 'automation_run_status', column: 'automation_run_status' },
+  previews: { field: 'preview_enabled', column: 'preview_enabled' },
+};
+
 export async function getMobilePushDeviceStatus(input: {
   userId: string;
   installationId: string;
@@ -525,6 +570,55 @@ export async function registerMobilePushDevice(input: {
       [input.userId, input.registration.installationId],
     ) as MobilePushDeviceRow | undefined;
     return deviceStatus(row);
+  });
+}
+
+export async function updateMobilePushDevicePreference(input: {
+  userId: string;
+  update: MobilePushPreferenceUpdate;
+}): Promise<MobilePushDeviceStatus> {
+  const preference = MOBILE_PUSH_PREFERENCE_COLUMNS[input.update.key];
+  return withConnection(async (connection) => {
+    const row = await connection.get(
+      `SELECT ${DEVICE_SELECT}
+       FROM mobile_push_devices
+       WHERE user_id = ? AND installation_id = ?`,
+      [input.userId, input.update.installationId],
+    ) as MobilePushDeviceRow | undefined;
+    if (!row) {
+      throw new MobilePushDeviceError(
+        'This mobile device is not registered.',
+        404,
+        'DEVICE_NOT_REGISTERED',
+      );
+    }
+
+    const before = Boolean(row[preference.field]);
+    const changed = before !== input.update.enabled;
+    const now = Date.now();
+    if (changed) {
+      await connection.run(
+        `UPDATE mobile_push_devices
+         SET ${preference.column} = ?, updated_at = ?
+         WHERE id = ? AND user_id = ? AND installation_id = ?`,
+        [input.update.enabled ? 1 : 0, now, row.id, input.userId, input.update.installationId],
+      );
+    }
+    const updated = await connection.get(
+      `SELECT ${DEVICE_SELECT}
+       FROM mobile_push_devices
+       WHERE user_id = ? AND installation_id = ?`,
+      [input.userId, input.update.installationId],
+    ) as MobilePushDeviceRow | undefined;
+    console.info('[Mobile Push] Preference update', {
+      userId: input.userId,
+      installationId: input.update.installationId,
+      key: input.update.key,
+      before,
+      after: input.update.enabled,
+      changed,
+    });
+    return deviceStatus(updated);
   });
 }
 

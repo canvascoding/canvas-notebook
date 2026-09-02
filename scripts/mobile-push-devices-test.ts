@@ -19,8 +19,10 @@ async function main() {
     createMobilePushMessages,
     getMobilePushDeviceStatus,
     parseMobilePushRegistration,
+    parseMobilePushPreferenceUpdate,
     pollMobilePushReceipts,
     registerMobilePushDevice,
+    updateMobilePushDevicePreference,
     sendAgentResponseReadyPush,
     sendAutomationRunStatusPush,
     sendMobileAttentionPush,
@@ -168,6 +170,24 @@ async function main() {
     failureAttention: true,
     automationRunStatus: true,
     previews: true,
+  });
+  const preferenceUpdate = parseMobilePushPreferenceUpdate({
+    installationId: 'installation-1',
+    key: 'previews',
+    enabled: false,
+  });
+  const updatedPreference = await updateMobilePushDevicePreference({
+    userId: 'push-user',
+    update: preferenceUpdate,
+  });
+  assert.equal(updatedPreference.preferences.previews, false);
+  assert.equal((await getMobilePushDeviceStatus({
+    userId: 'push-user',
+    installationId: 'installation-1',
+  })).preferences.previews, false);
+  await updateMobilePushDevicePreference({
+    userId: 'push-user',
+    update: { ...preferenceUpdate, enabled: true },
   });
   const legacyRegistration = parseMobilePushRegistration({
     installationId: 'legacy-installation',
