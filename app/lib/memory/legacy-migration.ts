@@ -3,7 +3,13 @@ import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
 
 import { openDb } from '@/app/lib/db';
-import { DEFAULT_MANAGED_AGENT_ID, readLegacyManagedAgentFileContents, type AgentStorageScope } from '@/app/lib/agents/storage';
+import {
+  DEFAULT_MANAGED_AGENT_ID,
+  readLegacyManagedAgentFileContents,
+  readUserScopedManagedAgentFileContents,
+  type AgentStorageScope,
+} from '@/app/lib/agents/storage';
+import { normalizeMainAgentIdAlias } from '@/app/lib/agents/main-agent';
 import { addMemory } from './service';
 
 type LegacyMemoryFileName = 'USER.md' | 'MEMORY.md';
@@ -64,7 +70,13 @@ async function importFile(input: {
   const now = Date.now();
   const resultDb = await openDb();
   try {
-    await resultDb.run(`INSERT OR IGNORE INTO memory_legacy_imports (id, user_id, agent_id, file_name, content_hash, entries_imported, entries_skipped, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [randomUUID(), input.userId, input.agentId, input.fileName, contentHash, entriesImported, entriesSkipped, now]);
+    await resultDb.run(`
+      INSERT INTO memory_legacy_imports (
+        id, user_id, agent_id, file_name, content_hash,
+        entries_imported, entries_skipped, completed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (user_id, agent_id, file_name, content_hash) DO NOTHING
+    `, [randomUUID(), input.userId, input.agentId, input.fileName, contentHash, entriesImported, entriesSkipped, now]);
   } finally { await resultDb.close(); }
 }
 
@@ -79,12 +91,12 @@ async function canImportSharedLegacyMemory(): Promise<boolean> {
     const row = await connection.get('SELECT COUNT(*) AS count FROM user') as { count?: number } | undefined;
     if (Number(row?.count ?? 0) !== 1) return false;
     const settings = await connection.get(`
-      SELECT deployment_mode AS deploymentMode, team_features_enabled AS teamFeaturesEnabled
+      SELECT deployment_mode, team_features_enabled
       FROM canvas_organization_settings
       LIMIT 1
-    `) as { deploymentMode?: string; teamFeaturesEnabled?: number } | undefined;
+    `) as { deployment_mode?: string; team_features_enabled?: number } | undefined;
     if (settings) {
-      return settings.deploymentMode === 'single_user' && Number(settings.teamFeaturesEnabled ?? 0) === 0;
+      return settings.deployment_mode === 'single_user' && Number(settings.team_features_enabled ?? 0) === 0;
     }
     return true;
   } finally { await connection.close(); }
@@ -97,14 +109,25 @@ async function canImportSharedLegacyMemory(): Promise<boolean> {
 export async function ensureLegacyMemoryMigrated(agentId: string, scope?: AgentStorageScope | null): Promise<void> {
   const userId = scope?.userId?.trim();
   if (!userId) return;
-  if (!await canImportSharedLegacyMemory()) return;
-  const normalizedAgentId = agentId.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
-  const [userContents, agentContents] = await Promise.all([
-    readLegacyManagedAgentFileContents('USER.md', DEFAULT_MANAGED_AGENT_ID),
-    readLegacyManagedAgentFileContents('MEMORY.md', normalizedAgentId),
+  const normalizedAgentId = normalizeMainAgentIdAlias(agentId.trim().toLowerCase()) || DEFAULT_MANAGED_AGENT_ID;
+  const [scopedUserContents, scopedAgentContents] = await Promise.all([
+    readUserScopedManagedAgentFileContents('USER.md', DEFAULT_MANAGED_AGENT_ID, scope),
+    readUserScopedManagedAgentFileContents('MEMORY.md', normalizedAgentId, scope),
   ]);
-  await Promise.all([
-    ...userContents.map((content) => importFile({ userId, agentId: DEFAULT_MANAGED_AGENT_ID, fileName: 'USER.md', content })),
-    ...agentContents.map((content) => importFile({ userId, agentId: normalizedAgentId, fileName: 'MEMORY.md', content })),
-  ]);
+
+  let sharedUserContents: string[] = [];
+  let sharedAgentContents: string[] = [];
+  if (await canImportSharedLegacyMemory()) {
+    [sharedUserContents, sharedAgentContents] = await Promise.all([
+      readLegacyManagedAgentFileContents('USER.md', DEFAULT_MANAGED_AGENT_ID),
+      readLegacyManagedAgentFileContents('MEMORY.md', normalizedAgentId),
+    ]);
+  }
+
+  for (const content of new Set([...scopedUserContents, ...sharedUserContents])) {
+    await importFile({ userId, agentId: DEFAULT_MANAGED_AGENT_ID, fileName: 'USER.md', content });
+  }
+  for (const content of new Set([...scopedAgentContents, ...sharedAgentContents])) {
+    await importFile({ userId, agentId: normalizedAgentId, fileName: 'MEMORY.md', content });
+  }
 }

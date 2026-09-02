@@ -461,6 +461,27 @@ export async function readLegacyManagedAgentFileContents(
 }
 
 /**
+ * Reads user-owned managed-file locations without creating files or applying
+ * seeds. Both the current Bradley directory and its former canvas-agent alias
+ * are considered so database-memory upgrades retain explicit ownership.
+ */
+export async function readUserScopedManagedAgentFileContents(
+  fileName: AgentManagedFileName,
+  agentId: string | null | undefined,
+  scope?: AgentStorageScope | null,
+): Promise<string[]> {
+  const userId = scope?.userId?.trim();
+  if (!userId) return [];
+  const userScope = { ...scope, userId };
+  const sourcePaths = [resolveManagedFilePath(fileName, agentId, userScope)];
+  if (shouldMigrateLegacyCanvasAgentFiles(agentId)) {
+    sourcePaths.push(resolveLegacyMainAgentScopedFilePath(fileName, userScope));
+  }
+  const contents = await Promise.all(sourcePaths.map((filePath) => readFileIfExists(filePath)));
+  return [...new Set(contents.filter((content): content is string => content !== null))];
+}
+
+/**
  * Reads the retired HEARTBEAT.md directly, without creating a missing file or
  * exposing it through the managed-files API. It exists only for the one-time
  * migration to workspace automations.
