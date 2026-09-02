@@ -40,6 +40,12 @@ export type SqliteToPostgresTableResult = {
   reason?: string;
 };
 
+export type SqliteToPostgresTableValidation = {
+  table: string;
+  sourceRows: number;
+  targetRows: number;
+};
+
 export type SqliteToPostgresMigrationSummary = {
   sqlitePath: string;
   tables: SqliteToPostgresTableResult[];
@@ -47,6 +53,7 @@ export type SqliteToPostgresMigrationSummary = {
   targetUserCount: number;
   sourceOrganizationCount: number;
   targetOrganizationCount: number;
+  memoryTables: SqliteToPostgresTableValidation[];
   reindexRequired: boolean;
 };
 
@@ -289,7 +296,7 @@ async function validateCoreCounts(params: {
   pool: Pool;
 }): Promise<Pick<
   SqliteToPostgresMigrationSummary,
-  'sourceUserCount' | 'targetUserCount' | 'sourceOrganizationCount' | 'targetOrganizationCount'
+  'sourceUserCount' | 'targetUserCount' | 'sourceOrganizationCount' | 'targetOrganizationCount' | 'memoryTables'
 >> {
   const sourceTables = sqliteTableNames(params.sqlite);
   const sourceUserCount = sourceTables.has('user') ? sqliteRowCount(params.sqlite, 'user') : 0;
@@ -338,11 +345,47 @@ async function validateCoreCounts(params: {
     }
   }
 
+  const memoryTableKeys = [
+    ['memory_user_settings', 'user_id'],
+    ['memory_collections', 'id'],
+    ['memory_entries', 'id'],
+    ['memory_events', 'id'],
+    ['memory_legacy_imports', 'id'],
+    ['memory_review_jobs', 'id'],
+  ] as const;
+  const memoryTables: SqliteToPostgresTableValidation[] = [];
+  for (const [table, identityColumn] of memoryTableKeys) {
+    const sourceRows = sourceTables.has(table) ? sqliteRowCount(params.sqlite, table) : 0;
+    const targetRows = await postgresRowCount(params.pool, table);
+    if (targetRows < sourceRows) {
+      throw new SqliteToPostgresMigrationError(
+        'target_validation_failed',
+        `Postgres ${table} count ${targetRows} is lower than SQLite count ${sourceRows}.`,
+      );
+    }
+    if (sourceRows > 0) {
+      const missingIds = await missingPostgresValues(
+        params.pool,
+        table,
+        identityColumn,
+        sqliteColumnValues(params.sqlite, table, identityColumn),
+      );
+      if (missingIds.length > 0) {
+        throw new SqliteToPostgresMigrationError(
+          'target_validation_failed',
+          `Postgres ${table} is missing migrated IDs: ${missingIds.slice(0, 5).join(', ')}`,
+        );
+      }
+    }
+    memoryTables.push({ table, sourceRows, targetRows });
+  }
+
   return {
     sourceUserCount,
     targetUserCount,
     sourceOrganizationCount,
     targetOrganizationCount,
+    memoryTables,
   };
 }
 

@@ -120,6 +120,11 @@ async function main(): Promise<void> {
       log(`completed: ${copiedTables.length} populated tables, ${insertedRows} inserted rows`);
       log(`users: sqlite=${summary.sourceUserCount}, postgres=${summary.targetUserCount}`);
       log(`organizations: sqlite=${summary.sourceOrganizationCount}, postgres=${summary.targetOrganizationCount}`);
+      const memoryCounts = new Map(summary.memoryTables.map((table) => [table.table, table]));
+      const collections = memoryCounts.get('memory_collections');
+      const entries = memoryCounts.get('memory_entries');
+      log(`memory collections: sqlite=${collections?.sourceRows ?? 0}, postgres=${collections?.targetRows ?? 0}`);
+      log(`memory entries: sqlite=${entries?.sourceRows ?? 0}, postgres=${entries?.targetRows ?? 0}`);
       if (summary.reindexRequired) log('knowledge indexes require reindex after Postgres cutover');
     }
   } catch (error) {
