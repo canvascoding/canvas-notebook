@@ -16,6 +16,10 @@ import {
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { useEditorStore } from '@/app/store/editor-store';
 import type { CollaborationDocument } from '@/app/lib/collaboration/client';
+import {
+  CollaborationCheckpointRequestError,
+  isCollaborationCheckpointValidationErrorCode,
+} from '@/app/lib/collaboration/checkpoint-errors';
 import type { CollaborationAgentOperation } from '@/app/lib/collaboration/agent-operations-client';
 import { visibleAgentTargetAnchors } from '@/app/lib/collaboration/agent-target-decorations';
 import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
@@ -496,6 +500,11 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     : null;
   const activeExternalTextChangePath = activeExternalTextChange?.path ?? null;
   const getSaveErrorMessage = useCallback((error: unknown) => {
+    if (error instanceof CollaborationCheckpointRequestError) {
+      return isCollaborationCheckpointValidationErrorCode(error.code)
+        ? t('collaboration.checkpointValidationFailed')
+        : t('collaboration.checkpointFailed');
+    }
     const rawMessage =
       error instanceof Error ? error.message : t('failedToSaveFile');
     return isWorkspaceFileRevisionConflictError(error) || isFileRevisionConflictMessage(rawMessage)
@@ -1007,7 +1016,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             return;
           }
           void activeCollaborationDocument.requestCheckpoint().catch((error) => {
-            toast.error(error instanceof Error ? error.message : t('collaboration.checkpointFailed'));
+            toast.error(getSaveErrorMessage(error));
           });
           return;
         }
@@ -1036,7 +1045,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [activeCollaborationDocument, activeExternalTextChangePath, currentFilePath, handleSaveError, isCrdtCollaboration, isSceneCollaboration, markSaved, markSaving, saveTrackedFile, setSaveError, t]);
+  }, [activeCollaborationDocument, activeExternalTextChangePath, currentFilePath, getSaveErrorMessage, handleSaveError, isCrdtCollaboration, isSceneCollaboration, markSaved, markSaving, saveTrackedFile, setSaveError, t]);
 
   useEffect(() => {
     if (!isImage) return;

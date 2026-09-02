@@ -1118,6 +1118,7 @@
       "checkpointPending": "Creating file checkpoint…",
       "checkpointedFile": "File checkpoint current",
       "checkpointFailed": "The collaboration checkpoint could not be created.",
+      "checkpointValidationFailed": "The rich-text file could not be synchronized safely. Reload the document. If the problem persists, switch to source mode.",
       "closeBlocked": "Keep this document open until its collaboration changes reconnect and are safely checkpointed.",
       "remoteCaretLabel": "{name} is editing here",
       "agentOperations": "Agent changes",

@@ -7,6 +7,10 @@ import {
   materializeCollaborationCheckpoint,
 } from '@/app/lib/collaboration/checkpoint';
 import {
+  COLLABORATION_CHECKPOINT_ERROR_CODES,
+  collaborationCheckpointValidationFailure,
+} from '@/app/lib/collaboration/checkpoint-errors';
+import {
   loadCollaborationState,
   type PersistedCollaborationState,
 } from '@/app/lib/collaboration/persistence';
@@ -58,8 +62,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Token and stateVector are required.' }, { status: 400 });
   }
 
+  let checkpointContext: {
+    workspaceId: string;
+    documentId?: string;
+    path?: string;
+  } = {
+    workspaceId: workspaceResult.workspace.workspaceId,
+  };
+
   try {
     const claims = verifyCollaborationTicket(body.token);
+    checkpointContext = {
+      workspaceId: claims.workspaceId,
+      documentId: claims.documentId,
+      path: claims.path,
+    };
     const sessionId = String((workspaceResult.session.session as { id?: string }).id || '');
     if (
       claims.provider !== 'yjs'
@@ -118,9 +135,35 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json(checkpointResponse(result.state, { revisionId: result.revisionId }));
   } catch (error) {
+    const validationFailure = collaborationCheckpointValidationFailure(error);
+    if (validationFailure) {
+      console.error('[Collaboration] Rich checkpoint validation rejected.', {
+        ...checkpointContext,
+        errorCode: validationFailure.code,
+        validationCode: validationFailure.validationCode,
+      });
+      return NextResponse.json({
+        success: false,
+        code: validationFailure.code,
+        error: validationFailure.message,
+      }, { status: validationFailure.status });
+    }
+    if (error instanceof CollaborationCheckpointSupersededError) {
+      return NextResponse.json({
+        success: false,
+        code: COLLABORATION_CHECKPOINT_ERROR_CODES.superseded,
+        error: 'The collaboration checkpoint was superseded by newer changes.',
+      }, { status: 409 });
+    }
+    console.error('[Collaboration] Checkpoint failed.', {
+      ...checkpointContext,
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorMessage: error instanceof Error ? error.message : undefined,
+    });
     return NextResponse.json({
       success: false,
-      error: error instanceof Error ? error.message : 'Checkpoint failed.',
-    }, { status: error instanceof CollaborationCheckpointSupersededError ? 409 : 500 });
+      code: COLLABORATION_CHECKPOINT_ERROR_CODES.failed,
+      error: 'The collaboration checkpoint could not be created.',
+    }, { status: 500 });
   }
 }

@@ -358,6 +358,7 @@
     "test:public-share:route-access": "tsx scripts/public-share-route-access-test.ts",
     "test:files:collaboration": "tsx --conditions react-server scripts/file-collaboration-policy-test.ts",
     "test:collaboration:live": "tsx --conditions react-server scripts/file-live-collaboration-test.ts",
+    "test:collaboration:checkpoint-errors": "tsx scripts/collaboration-checkpoint-errors-test.ts",
     "test:collaboration:presence": "tsx --conditions react-server scripts/file-presence-policy-test.ts",
     "test:collaboration:agent": "tsx --conditions react-server scripts/file-agent-coauthoring-test.ts && tsx scripts/collaboration-agent-operations-client-test.ts && tsx scripts/collaboration-agent-target-decorations-test.ts",
     "test:collaboration:operations": "tsx --conditions react-server scripts/file-agent-operation-integration-test.ts && tsx --conditions react-server scripts/personal-workspace-collaboration-integration-test.ts",

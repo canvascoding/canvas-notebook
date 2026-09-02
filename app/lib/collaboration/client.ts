@@ -7,6 +7,7 @@ import type { IndexeddbPersistence } from 'y-indexeddb';
 import type * as Y from 'yjs';
 
 import { workspaceHeaders } from '@/app/lib/files/client';
+import { CollaborationCheckpointRequestError } from './checkpoint-errors';
 import {
   createInitialTextCollaborationClientState,
   reduceTextCollaborationClientState,
@@ -373,6 +374,7 @@ function createEntry(
           }
 
           let lastError = 'Checkpoint is waiting for the latest Yjs persistence.';
+          let lastErrorCode: string | null = null;
           for (let attempt = 0; attempt < 20; attempt += 1) {
             const response = await fetch('/api/files/collaboration/checkpoint', {
               method: 'POST',
@@ -380,6 +382,7 @@ function createEntry(
               body: JSON.stringify({ token: entry.session.token, stateVector }),
             });
             const payload = await response.json().catch(() => ({})) as Record<string, unknown> & {
+              code?: string;
               error?: string;
             };
             const snapshot = durabilitySnapshot(payload);
@@ -395,10 +398,13 @@ function createEntry(
             lastError = response.ok
               ? 'Checkpoint response did not contain a valid authoritative collaboration snapshot.'
               : payload.error || lastError;
+            lastErrorCode = typeof payload.code === 'string' ? payload.code : null;
             if (response.status !== 409) break;
             await new Promise((resolve) => window.setTimeout(resolve, 200));
           }
-          throw new Error(lastError);
+          throw lastErrorCode
+            ? new CollaborationCheckpointRequestError(lastErrorCode, lastError)
+            : new Error(lastError);
         })().catch((error) => {
           const message = error instanceof Error ? error.message : 'Checkpoint failed.';
           transition(entry, { type: 'checkpoint_failed', message });

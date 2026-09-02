@@ -1117,6 +1117,7 @@
       "checkpointPending": "Datei-Checkpoint wird erstellt…",
       "checkpointedFile": "Datei-Checkpoint aktuell",
       "checkpointFailed": "Der Kollaborations-Checkpoint konnte nicht erstellt werden.",
+      "checkpointValidationFailed": "Die Rich-Text-Datei konnte nicht sicher synchronisiert werden. Lade das Dokument neu. Falls das Problem bestehen bleibt, wechsle in den Quelltextmodus.",
       "closeBlocked": "Lass dieses Dokument geöffnet, bis die Live-Bearbeitung wieder verbunden und sicher gecheckpointet ist.",
       "remoteCaretLabel": "{name} bearbeitet hier",
       "agentOperations": "Agentenänderungen",

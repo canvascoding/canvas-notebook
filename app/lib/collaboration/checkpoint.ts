@@ -12,6 +12,7 @@ import { queuePublicSharesAfterWrite } from '@/app/lib/public-sharing/public-fil
 import { workspaceFileOptions } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { validateRichMarkdownYDoc } from './markdown-state';
+import { CollaborationCheckpointValidationError } from './checkpoint-errors';
 import {
   serializeCanonicalText,
   sha256Text,
@@ -65,7 +66,7 @@ export function authoritativeCollaborationSnapshot(
     } else {
       const validation = validateRichMarkdownYDoc(doc);
       if (!validation.valid || validation.markdown === undefined) {
-        throw new Error(`Rich collaboration checkpoint validation failed (${validation.code || 'schema_invalid'}).`);
+        throw new CollaborationCheckpointValidationError(validation.code || 'schema_invalid');
       }
       canonicalContent = validation.markdown;
     }
