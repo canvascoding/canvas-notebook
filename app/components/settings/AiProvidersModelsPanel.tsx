@@ -2,38 +2,36 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle,
   BrainCircuit,
   CheckCircle2,
   ChevronDown,
   CloudDownload,
+  Info,
   Loader2,
-  LockKeyhole,
   Plus,
   RefreshCw,
-  RotateCcw,
-  Save,
   Server,
+  Settings2,
 } from 'lucide-react';
 
-import type {
-  AiCatalogDiscoveryModel,
-  AiCredentialScope,
-  AiProviderSafeConfig,
-  AiProviderSource,
-  AiProviderStatus,
-  AiRuntimeSelection,
-} from '@/app/lib/agent-runtime-policy/types';
 import {
   getAllowedCredentialScopesForProvider,
   validateProviderCatalogAuth,
 } from '@/app/lib/agent-runtime-policy/provider-auth-policy';
+import type {
+  AiCatalogDiscoveryModel,
+  AiCredentialScope,
+  AiProviderSource,
+  AiProviderStatus,
+  AiRuntimeSelection,
+} from '@/app/lib/agent-runtime-policy/types';
 import { AI_THINKING_LEVELS } from '@/app/lib/agent-runtime-policy/types';
-import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import { defaultOllamaServerUrl } from '@/app/lib/agent-runtime-policy/ollama-url';
 import { getAuthMethodForProvider } from '@/app/lib/pi/provider-help';
+import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog,
@@ -45,20 +43,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 import {
   AiProviderCatalogCard,
   type AiProviderCatalogCardCopy,
 } from './ai-runtime/AiProviderCatalogCard';
-import { ProviderInstallationCredentialEditor } from './ProviderInstallationCredentialEditor';
+import {
+  AiProviderEditorDialog,
+  type AiProviderEditorCopy,
+} from './ai-runtime/AiProviderEditorDialog';
 import {
   catalogDataToDraft,
   readAdminRuntimeCatalog,
   RuntimeCatalogClientError,
-  serializeCatalogDraft,
   syncManagedRuntimeCatalog,
   updateAdminRuntimeCatalog,
   verifyAdminProviderInstallation,
@@ -70,61 +68,48 @@ import {
 const CONTROL_PLANE_PROVIDER_ID = 'canvas-control-plane';
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@+~-]{0,199}$/u;
 
-type DeploymentMode = 'managed' | 'self-hosted';
-type SupportedLocale = 'de' | 'en';
-
+type DeploymentMode = 'self-hosted' | 'managed';
 type PanelCopy = {
   title: string;
   description: string;
   loading: string;
   retry: string;
   reload: string;
-  discardReload: string;
-  reset: string;
-  save: string;
-  saving: string;
   saved: string;
   verified: string;
-  unsaved: string;
-  savedState: string;
-  setupComplete: string;
-  setupIncomplete: string;
-  currentDefault: (provider: string, model: string) => string;
   setupDetails: string;
-  cancel: string;
+  setupDetailsDescription: string;
   reviewIssue: string;
-  secretNoticeTitle: string;
-  secretNoticeDescription: string;
-  managedTitle: string;
-  managedDescription: string;
-  managedReady: string;
-  managedAvailable: string;
-  managedUnavailable: string;
-  managedLastSync: (value: string) => string;
-  managedSetDefault: string;
-  managedSetDefaultDescription: string;
-  managedSync: string;
-  managedSyncing: string;
-  managedDirtyHint: string;
+  defaultTitle: string;
+  defaultDescription: string;
+  defaultEmpty: string;
+  defaultReady: string;
+  defaultEdit: string;
+  defaultDialogTitle: string;
+  defaultProvider: string;
+  defaultModel: string;
+  intelligence: string;
+  saveDefault: string;
   providersTitle: string;
   providersDescription: string;
-  noProvidersTitle: string;
-  noProvidersDescription: string;
+  addProvider: string;
   addProviderTitle: string;
   addProviderDescription: string;
   provider: string;
   credentialScope: string;
   chooseProvider: string;
-  addProvider: string;
+  continue: string;
+  cancel: string;
+  noProvidersTitle: string;
+  noProvidersDescription: string;
   noProvidersAvailable: string;
-  appDefaultTitle: string;
-  appDefaultDescription: string;
-  appDefaultProvider: string;
-  appDefaultModel: string;
-  intelligence: string;
-  noDefaultAvailable: string;
-  intelligenceLevel: Record<PiThinkingLevel, string>;
-  providerCard: AiProviderCatalogCardCopy;
+  managedTitle: string;
+  managedDescription: string;
+  managedSync: string;
+  managedSyncing: string;
+  managedReady: string;
+  managedAvailable: string;
+  managedUnavailable: string;
   errors: {
     load: string;
     save: string;
@@ -139,46 +124,41 @@ type PanelCopy = {
     customModel: string;
     enabledProviderModels: (provider: string) => string;
     providerDefault: (provider: string) => string;
-    appDefaultRequired: string;
-    appDefaultAmbiguous: string;
-    appDefaultInvalid: string;
-    intelligenceInvalid: string;
+    defaultInvalid: string;
   };
+  intelligenceLevel: Record<PiThinkingLevel, string>;
+  providerCard: AiProviderCatalogCardCopy;
+  editor: AiProviderEditorCopy;
 };
 
-const SHARED_STATUS_DE: Record<AiProviderStatus, string> = {
-  ready: 'Bereit',
-  unverified: 'Nicht verifiziert',
-  degraded: 'Beeinträchtigt',
-  disabled: 'Deaktiviert',
+const STATUS_DE: Record<AiProviderStatus, string> = {
+  unverified: 'Nicht geprüft',
+  ready: 'Verbunden',
+  degraded: 'Prüfung fehlgeschlagen',
+  disabled: 'Inaktiv',
 };
-
-const SHARED_STATUS_EN: Record<AiProviderStatus, string> = {
-  ready: 'Ready',
-  unverified: 'Unverified',
-  degraded: 'Degraded',
-  disabled: 'Disabled',
+const STATUS_EN: Record<AiProviderStatus, string> = {
+  unverified: 'Not verified',
+  ready: 'Connected',
+  degraded: 'Check failed',
+  disabled: 'Inactive',
 };
-
 const SOURCE_DE: Record<AiProviderSource, string> = {
-  managed: 'Control Plane',
-  'built-in': 'Integriert',
-  'self-hosted': 'Self-hosted',
+  managed: 'Managed',
+  'built-in': 'Cloud-Provider',
+  'self-hosted': 'Eigener Server',
 };
-
 const SOURCE_EN: Record<AiProviderSource, string> = {
-  managed: 'Control Plane',
-  'built-in': 'Built in',
+  managed: 'Managed',
+  'built-in': 'Cloud provider',
   'self-hosted': 'Self-hosted',
 };
-
 const SCOPE_DE: Record<AiCredentialScope, string> = {
   managed: 'Managed · Control Plane',
   system: 'Systemweit',
   organization: 'Organisation',
   user: 'Pro Nutzer',
 };
-
 const SCOPE_EN: Record<AiCredentialScope, string> = {
   managed: 'Managed · Control Plane',
   system: 'System wide',
@@ -188,54 +168,61 @@ const SCOPE_EN: Record<AiCredentialScope, string> = {
 
 const DE_COPY: PanelCopy = {
   title: 'KI-Provider & Modelle',
-  description: 'Lege fest, welche KI-Modelle in Canvas zur Verfügung stehen.',
-  loading: 'KI-Katalog wird geladen …',
+  description: 'Verwalte Verbindungen und Modelle, ohne die technischen Details dauerhaft im Blick haben zu müssen.',
+  loading: 'KI-Provider werden geladen …',
   retry: 'Erneut versuchen',
   reload: 'Neu laden',
-  discardReload: 'Änderungen verwerfen & neu laden',
-  reset: 'Zurücksetzen',
-  save: 'Änderungen speichern',
-  saving: 'Wird gespeichert …',
-  saved: 'Die Änderungen wurden gespeichert.',
-  verified: 'Die Provider-Installation wurde erfolgreich verifiziert.',
-  unsaved: 'Nicht gespeicherte Änderungen',
-  savedState: 'Alle Änderungen gespeichert',
-  setupComplete: 'Bereit für neue Chats',
-  setupIncomplete: 'Modell auswählen',
-  currentDefault: (provider, model) => `${provider} · ${model}`,
-  setupDetails: 'Informationen zur Einrichtung',
-  cancel: 'Abbrechen',
+  saved: 'Die Provider-Einstellungen wurden gespeichert.',
+  verified: 'Die Verbindung wurde gespeichert und erfolgreich geprüft.',
+  setupDetails: 'Hinweise zur Einrichtung',
+  setupDetailsDescription: 'Zugangsdaten werden im gewählten Credential-Scope geschützt gespeichert. Der Modellkatalog enthält ausschließlich sichere Verbindungs- und Modellmetadaten.',
   reviewIssue: 'Hinweiscode',
-  secretNoticeTitle: 'Zugangsdaten bleiben zentral geschützt',
-  secretNoticeDescription: 'API-Keys und OAuth-Verbindungen richtest du direkt in der jeweiligen Provider-Karte ein. Sie werden zentral im passenden Credential-Scope gespeichert; im Modellkatalog bleiben nur sichere Metadaten.',
-  managedTitle: 'Canvas Control Plane',
-  managedDescription: 'Synchronisiert die zentral freigegebenen Managed-Modelle und übernimmt auf Wunsch deren Standardmodell.',
-  managedReady: 'Verbunden',
-  managedAvailable: 'Verfügbar',
-  managedUnavailable: 'Nicht verbunden',
-  managedLastSync: (value) => `Zuletzt synchronisiert: ${value}`,
-  managedSetDefault: 'Als App-Standard verwenden',
-  managedSetDefaultDescription: 'Übernimmt beim Synchronisieren das Standardmodell der Control Plane.',
-  managedSync: 'Managed-Katalog synchronisieren',
-  managedSyncing: 'Synchronisiert …',
-  managedDirtyHint: 'Speichere oder verwirf zuerst deine lokalen Änderungen.',
-  providersTitle: 'KI-Provider',
-  providersDescription: 'Verwalte die Anbieter und Modelle, die in Canvas verwendet werden dürfen.',
-  noProvidersTitle: 'Noch keine Provider installiert',
-  noProvidersDescription: 'Füge einen verfügbaren Provider hinzu oder synchronisiere eine verbundene Control Plane.',
+  defaultTitle: 'Standard für neue Chats',
+  defaultDescription: 'Dieses Modell verwendet Canvas, wenn kein persönlicherer Standard ausgewählt wurde.',
+  defaultEmpty: 'Noch kein Standard festgelegt',
+  defaultReady: 'Bereit für neue Chats',
+  defaultEdit: 'Bearbeiten',
+  defaultDialogTitle: 'Standard für neue Chats bearbeiten',
+  defaultProvider: 'Provider',
+  defaultModel: 'Modell',
+  intelligence: 'Intelligence',
+  saveDefault: 'Standard speichern',
+  providersTitle: 'Provider',
+  providersDescription: 'Die Übersicht zeigt nur den aktuellen Zustand. Verbindung, Modelle und Zugriff bearbeitest du im Dialog.',
+  addProvider: 'Provider hinzufügen',
   addProviderTitle: 'Provider hinzufügen',
-  addProviderDescription: 'Wähle einen Anbieter aus. Danach öffnet sich seine Karte, in der du die Verbindung direkt einrichten kannst.',
+  addProviderDescription: 'Wähle zunächst den Anbieter und den Zugriff. Die eigentliche Einrichtung folgt im nächsten Dialog.',
   provider: 'Provider',
   credentialScope: 'Verfügbar für',
   chooseProvider: 'Provider auswählen',
-  addProvider: 'Hinzufügen',
-  noProvidersAvailable: 'Alle erkannten Provider sind bereits in ihren verfügbaren Credential-Scopes installiert.',
-  appDefaultTitle: 'Standard für neue Chats',
-  appDefaultDescription: 'Dieses Modell wird verwendet, wenn noch keine persönlichere Auswahl getroffen wurde.',
-  appDefaultProvider: 'Standard-Provider',
-  appDefaultModel: 'Standardmodell',
-  intelligence: 'Intelligence',
-  noDefaultAvailable: 'Aktiviere mindestens einen Provider und gib ein Modell frei, um einen App-Standard festzulegen.',
+  continue: 'Weiter zur Einrichtung',
+  cancel: 'Abbrechen',
+  noProvidersTitle: 'Noch keine Provider eingerichtet',
+  noProvidersDescription: 'Füge einen Provider hinzu und richte anschließend Verbindung und Modelle ein.',
+  noProvidersAvailable: 'Alle Provider sind bereits in ihren verfügbaren Scopes eingerichtet.',
+  managedTitle: 'Canvas Control Plane',
+  managedDescription: 'Synchronisiert zentral freigegebene Managed-Modelle.',
+  managedSync: 'Managed-Katalog synchronisieren',
+  managedSyncing: 'Synchronisiert …',
+  managedReady: 'Verbunden',
+  managedAvailable: 'Verfügbar',
+  managedUnavailable: 'Nicht verbunden',
+  errors: {
+    load: 'Der KI-Katalog konnte nicht geladen werden.',
+    save: 'Die Provider-Einstellungen konnten nicht gespeichert werden.',
+    sync: 'Der Managed-Katalog konnte nicht synchronisiert werden.',
+    verify: 'Die Verbindung konnte nicht verifiziert werden.',
+    revisionConflict: 'Der Katalog wurde zwischenzeitlich geändert. Lade ihn neu und wiederhole die Änderung.',
+    duplicateBinding: 'Diese Kombination aus Provider und Credential-Scope ist bereits vorhanden.',
+    invalidAuthMethod: (provider) => `Die gewählte Authentifizierung wird von „${provider}“ nicht unterstützt.`,
+    oauthScope: (provider) => `„${provider}“ benötigt für OAuth den Scope „Pro Nutzer“.`,
+    openAiBaseUrl: 'Trage eine gültige HTTP(S)-Base-URL ohne Zugangsdaten ein.',
+    ollamaHost: 'Trage eine gültige HTTP(S)-URL für den Ollama-Server ein.',
+    customModel: 'Trage eine gültige Modell-ID ein.',
+    enabledProviderModels: (provider) => `Der aktive Provider „${provider}“ benötigt mindestens ein freigegebenes Modell.`,
+    providerDefault: (provider) => `Wähle für „${provider}“ ein Standardmodell aus.`,
+    defaultInvalid: 'Der Standard muss auf einen aktiven Provider und ein freigegebenes Modell verweisen.',
+  },
   intelligenceLevel: {
     off: 'Aus',
     minimal: 'Minimal',
@@ -246,127 +233,128 @@ const DE_COPY: PanelCopy = {
     max: 'Maximum',
   },
   providerCard: {
+    edit: 'Bearbeiten',
     enabled: 'Aktiv',
     disabled: 'Inaktiv',
-    remove: 'Entfernen',
-    removeAria: 'Provider {provider} entfernen',
-    verify: 'Verifizieren',
-    verifying: 'Wird geprüft …',
-    credentialScope: 'Verfügbar für',
-    providerDefault: 'Standardmodell',
-    appDefault: 'App-Standard',
-    modelAllowlist: 'Freigegebene Modelle',
-    modelAllowlistDescription: 'Nur diese Modelle können in Canvas verwendet werden.',
-    selectedModels: (selected, total) => `${selected} von ${total} Modellen freigegeben`,
-    configureModels: 'Konfigurieren',
-    collapseModels: 'Schließen',
-    searchModels: 'Modelle durchsuchen …',
-    noModels: 'Für diesen Provider wurden keine Modelle erkannt.',
-    noModelMatches: 'Keine passenden Modelle gefunden.',
-    showAll: (count) => `${count} weitere Modelle anzeigen`,
-    showLess: 'Weniger anzeigen',
-    reasoning: 'Reasoning',
-    vision: 'Vision',
-    contextWindow: (tokens) => `${tokens} Kontext`,
-    managedScopeLocked: 'Der Credential-Scope eines Managed Providers wird von der Control Plane vorgegeben.',
-    oauthScopeLocked: 'OAuth-Verbindungen sind persönlich und werden deshalb immer pro Nutzer gespeichert.',
-    authentication: 'Anmeldung',
-    apiKeyAuthentication: 'API-Key',
-    oauthAuthentication: 'Mit Konto anmelden (OAuth)',
-    connection: 'Verbindung',
-    connectionDescription: 'API-Key oder Konto-Zugang direkt für diesen Provider einrichten.',
-    configureConnection: 'Einrichten',
-    collapseConnection: 'Schließen',
-    selfHostedConfiguration: 'Self-hosted Runtime',
-    selfHostedDescription: 'Konfiguriere Endpoint und Modell-Metadaten. Den API-Key speicherst du direkt im Bereich „Verbindung“ dieser Karte.',
-    openAiBaseUrl: 'OpenAI-kompatible Base URL',
-    openAiBaseUrlPlaceholder: 'http://localhost:8080/v1',
-    ollamaMode: 'Server-Modus',
-    ollamaLocal: 'Lokal',
-    ollamaRemote: 'Remote',
-    ollamaLocalDescription: 'Verwendet http://localhost:11434/v1 innerhalb der App-Runtime.',
-    ollamaRemoteHost: 'Remote Ollama URL',
-    ollamaRemoteHostPlaceholder: 'https://ollama.example.com',
-    modelSource: 'Modellquelle',
-    predefinedModel: 'Vordefinierte Modelle',
-    customModel: 'Eigenes Modell',
-    customModelId: 'Custom Model ID',
-    customModelPlaceholder: 'z. B. llama3.3:70b oder mein-modell',
-    status: SHARED_STATUS_DE,
+    providerDefault: 'Standard',
+    appDefault: 'Chat-Standard',
+    selectedModels: (selected) => `${selected} ${selected === 1 ? 'Modell' : 'Modelle'}`,
+    endpointNotConfigured: 'Verbindung noch nicht eingerichtet',
+    status: STATUS_DE,
     source: SOURCE_DE,
     scope: SCOPE_DE,
   },
-  errors: {
-    load: 'Der KI-Katalog konnte nicht geladen werden.',
-    save: 'Der KI-Katalog konnte nicht gespeichert werden.',
-    sync: 'Der Managed-Katalog konnte nicht synchronisiert werden.',
-    verify: 'Die Provider-Installation konnte nicht verifiziert werden.',
-    revisionConflict: 'Der Katalog wurde zwischenzeitlich geändert. Lade die aktuelle Revision neu und prüfe deine Auswahl.',
-    duplicateBinding: 'Diese Kombination aus Provider und Credential-Scope ist bereits vorhanden.',
-    invalidAuthMethod: (provider) => `Die gewählte Authentifizierung wird von „${provider}“ nicht unterstützt.`,
-    oauthScope: (provider) => `„${provider}“ verwendet persönliches OAuth und benötigt den Credential-Scope „Pro Nutzer“.`,
-    openAiBaseUrl: 'Trage für den OpenAI-kompatiblen Provider eine gültige HTTP(S)-Base-URL ohne Zugangsdaten ein.',
-    ollamaHost: 'Trage für den Remote-Ollama-Modus eine gültige HTTP(S)-URL ohne Zugangsdaten ein.',
-    customModel: 'Trage eine gültige Custom Model ID ein.',
-    enabledProviderModels: (provider) => `Der aktive Provider „${provider}“ benötigt mindestens ein freigegebenes Modell.`,
-    providerDefault: (provider) => `Wähle für „${provider}“ ein freigegebenes Provider-Standardmodell.`,
-    appDefaultRequired: 'Wähle einen App-Standard aus, bevor du den Katalog speicherst.',
-    appDefaultAmbiguous: 'Speichere die neue Provider-Installation zuerst und wähle sie anschließend als App-Standard aus.',
-    appDefaultInvalid: 'Der App-Standard muss auf einen aktiven Provider und ein freigegebenes Modell verweisen.',
-    intelligenceInvalid: 'Die gewählte Intelligence-Stufe wird vom Standardmodell nicht unterstützt.',
+  editor: {
+    addTitle: 'Provider einrichten',
+    editTitle: 'Provider bearbeiten',
+    description: 'Verbindung, Modelle und Zugriff sind in einer klaren Reihenfolge angeordnet.',
+    connectionStep: 'Verbindung',
+    connectionDescription: 'Lege zuerst fest, unter welcher Adresse Canvas den Provider erreicht.',
+    modelsStep: 'Modelle',
+    modelsDescription: 'Gib nur die Modelle frei, die in Canvas auswählbar sein sollen.',
+    accessStep: 'Zugriff',
+    accessDescription: 'Bestimme abschließend Sichtbarkeit und Aktivierungsstatus.',
+    serverUrl: 'Server-URL',
+    serverUrlHint: 'Die URL wird aus Sicht der Canvas-Runtime aufgerufen. In einem Container zeigt localhost auf den Container selbst.',
+    serverUrlPlaceholder: 'http://ollama:11434',
+    apiKey: 'API-Key',
+    apiKeyOptional: 'Optional',
+    apiKeyPlaceholder: 'Nur eintragen, wenn der Server Authentifizierung verlangt',
+    testConnection: 'Verbindung testen & Modelle laden',
+    testingConnection: 'Verbindung wird geprüft …',
+    connectionReady: (count) => `Verbunden · ${count} ${count === 1 ? 'Modell gefunden' : 'Modelle gefunden'}`,
+    noRemoteModels: 'Verbunden, aber auf diesem Server wurden keine Modelle gefunden.',
+    discoverFirst: 'Teste die Verbindung, um die Modelle dieses Ollama-Servers zu laden.',
+    manualModel: 'Modell manuell hinzufügen',
+    manualModelPlaceholder: 'z. B. qwen3:14b oder llama3.3:70b',
+    addModel: 'Hinzufügen',
+    searchModels: 'Modelle durchsuchen …',
+    allowed: 'Freigegeben',
+    providerDefault: 'Provider-Standard',
+    noModels: 'Keine Modelle verfügbar.',
+    authentication: 'Anmeldung',
+    apiKeyAuthentication: 'API-Key',
+    oauthAuthentication: 'Mit Konto anmelden',
+    credentialScope: 'Verfügbar für',
+    providerEnabled: 'Provider aktivieren',
+    providerEnabledHint: 'Neue Provider bleiben inaktiv, bis du sie bewusst einschaltest.',
+    credentials: 'Zugangsdaten',
+    credentialsDescription: 'API-Keys werden geschützt im gewählten Scope gespeichert und nicht in den Modellkatalog geschrieben.',
+    cancel: 'Abbrechen',
+    save: 'Änderungen speichern',
+    saveAndVerify: 'Speichern & prüfen',
+    saving: 'Wird gespeichert …',
+    remove: 'Provider entfernen',
+    errors: {
+      invalidUrl: 'Trage eine gültige HTTP(S)-Server-URL ein.',
+      invalidModel: 'Trage eine gültige Modell-ID ohne Leerzeichen ein.',
+      enabledNeedsModel: 'Wähle mindestens ein Modell aus, bevor du den Provider aktivierst.',
+      defaultRequired: 'Wähle für die freigegebenen Modelle einen Provider-Standard.',
+      discovery: 'Die Modelle konnten nicht vom Ollama-Server geladen werden.',
+      credentialLoad: 'Der Ollama API-Key konnte nicht geladen werden.',
+      credentialSave: 'Die Provider-Einstellungen konnten nicht gespeichert werden.',
+    },
+    scope: SCOPE_DE,
   },
 };
 
 const EN_COPY: PanelCopy = {
   title: 'AI providers & models',
-  description: 'Choose which AI models are available throughout Canvas.',
-  loading: 'Loading AI catalog…',
+  description: 'Manage connections and models without keeping every technical detail on screen.',
+  loading: 'Loading AI providers…',
   retry: 'Try again',
   reload: 'Reload',
-  discardReload: 'Discard changes & reload',
-  reset: 'Reset',
-  save: 'Save changes',
-  saving: 'Saving…',
-  saved: 'The changes were saved.',
-  verified: 'The provider installation was verified successfully.',
-  unsaved: 'Unsaved changes',
-  savedState: 'All changes saved',
-  setupComplete: 'Ready for new chats',
-  setupIncomplete: 'Choose a model',
-  currentDefault: (provider, model) => `${provider} · ${model}`,
-  setupDetails: 'Setup information',
-  cancel: 'Cancel',
+  saved: 'The provider settings were saved.',
+  verified: 'The connection was saved and verified successfully.',
+  setupDetails: 'Setup notes',
+  setupDetailsDescription: 'Credentials are protected in the selected credential scope. The model catalog contains only safe connection and model metadata.',
   reviewIssue: 'Issue code',
-  secretNoticeTitle: 'Credentials stay centrally protected',
-  secretNoticeDescription: 'Set up API keys and OAuth connections directly in each provider card. They are stored centrally in the appropriate credential scope; the model catalog contains safe metadata only.',
+  defaultTitle: 'Default for new chats',
+  defaultDescription: 'Canvas uses this model when no more personal default has been selected.',
+  defaultEmpty: 'No default selected yet',
+  defaultReady: 'Ready for new chats',
+  defaultEdit: 'Edit',
+  defaultDialogTitle: 'Edit default for new chats',
+  defaultProvider: 'Provider',
+  defaultModel: 'Model',
+  intelligence: 'Intelligence',
+  saveDefault: 'Save default',
+  providersTitle: 'Providers',
+  providersDescription: 'The overview shows current state only. Edit connection, models, and access in the dialog.',
+  addProvider: 'Add provider',
+  addProviderTitle: 'Add provider',
+  addProviderDescription: 'Choose the provider and access scope first. Setup continues in the next dialog.',
+  provider: 'Provider',
+  credentialScope: 'Available to',
+  chooseProvider: 'Select provider',
+  continue: 'Continue to setup',
+  cancel: 'Cancel',
+  noProvidersTitle: 'No providers configured',
+  noProvidersDescription: 'Add a provider, then configure its connection and models.',
+  noProvidersAvailable: 'Every provider is already configured in its available scopes.',
   managedTitle: 'Canvas Control Plane',
-  managedDescription: 'Synchronizes centrally approved managed models and can adopt the Control Plane default model.',
+  managedDescription: 'Synchronizes centrally approved managed models.',
+  managedSync: 'Sync managed catalog',
+  managedSyncing: 'Synchronizing…',
   managedReady: 'Connected',
   managedAvailable: 'Available',
   managedUnavailable: 'Not connected',
-  managedLastSync: (value) => `Last synchronized: ${value}`,
-  managedSetDefault: 'Use as app default',
-  managedSetDefaultDescription: 'Adopts the Control Plane default model during synchronization.',
-  managedSync: 'Sync managed catalog',
-  managedSyncing: 'Synchronizing…',
-  managedDirtyHint: 'Save or discard your local changes first.',
-  providersTitle: 'AI providers',
-  providersDescription: 'Manage the providers and models that can be used in Canvas.',
-  noProvidersTitle: 'No providers installed yet',
-  noProvidersDescription: 'Add an available provider or synchronize a connected Control Plane.',
-  addProviderTitle: 'Add provider',
-  addProviderDescription: 'Choose a provider. Its card then opens so you can set up the connection right there.',
-  provider: 'Provider',
-  credentialScope: 'Available to',
-  chooseProvider: 'Select a provider',
-  addProvider: 'Add',
-  noProvidersAvailable: 'All discovered providers are already installed in their available credential scopes.',
-  appDefaultTitle: 'Default for new chats',
-  appDefaultDescription: 'This model is used when no more personal selection has been made yet.',
-  appDefaultProvider: 'Default provider',
-  appDefaultModel: 'Default model',
-  intelligence: 'Intelligence',
-  noDefaultAvailable: 'Enable at least one provider and allow a model to configure an app default.',
+  errors: {
+    load: 'The AI catalog could not be loaded.',
+    save: 'The provider settings could not be saved.',
+    sync: 'The managed catalog could not be synchronized.',
+    verify: 'The connection could not be verified.',
+    revisionConflict: 'The catalog changed in another session. Reload it and repeat the change.',
+    duplicateBinding: 'This provider and credential scope combination already exists.',
+    invalidAuthMethod: (provider) => `The selected authentication method is not supported by “${provider}”.`,
+    oauthScope: (provider) => `“${provider}” requires the “Per user” scope for OAuth.`,
+    openAiBaseUrl: 'Enter a valid HTTP(S) base URL without embedded credentials.',
+    ollamaHost: 'Enter a valid HTTP(S) Ollama server URL.',
+    customModel: 'Enter a valid model ID.',
+    enabledProviderModels: (provider) => `The active provider “${provider}” needs at least one allowed model.`,
+    providerDefault: (provider) => `Choose a default model for “${provider}”.`,
+    defaultInvalid: 'The default must reference an active provider and an allowed model.',
+  },
   intelligenceLevel: {
     off: 'Off',
     minimal: 'Minimal',
@@ -377,74 +365,68 @@ const EN_COPY: PanelCopy = {
     max: 'Maximum',
   },
   providerCard: {
+    edit: 'Edit',
     enabled: 'Active',
     disabled: 'Inactive',
-    remove: 'Remove',
-    removeAria: 'Remove provider {provider}',
-    verify: 'Verify',
-    verifying: 'Verifying…',
-    credentialScope: 'Available to',
-    providerDefault: 'Default model',
-    appDefault: 'App default',
-    modelAllowlist: 'Available models',
-    modelAllowlistDescription: 'Only these models can be used in Canvas.',
-    selectedModels: (selected, total) => `${selected} of ${total} models allowed`,
-    configureModels: 'Configure',
-    collapseModels: 'Close',
-    searchModels: 'Search models…',
-    noModels: 'No models were discovered for this provider.',
-    noModelMatches: 'No matching models found.',
-    showAll: (count) => `Show ${count} more models`,
-    showLess: 'Show less',
-    reasoning: 'Reasoning',
-    vision: 'Vision',
-    contextWindow: (tokens) => `${tokens} context`,
-    managedScopeLocked: 'The credential scope of a managed provider is controlled by the Control Plane.',
-    oauthScopeLocked: 'OAuth connections are personal, so their credentials are always stored per user.',
-    authentication: 'Sign-in method',
-    apiKeyAuthentication: 'API key',
-    oauthAuthentication: 'Sign in with account (OAuth)',
-    connection: 'Connection',
-    connectionDescription: 'Set up this provider’s API key or account connection here.',
-    configureConnection: 'Set up',
-    collapseConnection: 'Close',
-    selfHostedConfiguration: 'Self-hosted runtime',
-    selfHostedDescription: 'Configure endpoint and model metadata here. Save the API key directly in this card’s Connection section.',
-    openAiBaseUrl: 'OpenAI-compatible base URL',
-    openAiBaseUrlPlaceholder: 'http://localhost:8080/v1',
-    ollamaMode: 'Server mode',
-    ollamaLocal: 'Local',
-    ollamaRemote: 'Remote',
-    ollamaLocalDescription: 'Uses http://localhost:11434/v1 from inside the app runtime.',
-    ollamaRemoteHost: 'Remote Ollama URL',
-    ollamaRemoteHostPlaceholder: 'https://ollama.example.com',
-    modelSource: 'Model source',
-    predefinedModel: 'Predefined models',
-    customModel: 'Custom model',
-    customModelId: 'Custom model ID',
-    customModelPlaceholder: 'e.g. llama3.3:70b or my-model',
-    status: SHARED_STATUS_EN,
+    providerDefault: 'Default',
+    appDefault: 'Chat default',
+    selectedModels: (selected) => `${selected} ${selected === 1 ? 'model' : 'models'}`,
+    endpointNotConfigured: 'Connection not configured yet',
+    status: STATUS_EN,
     source: SOURCE_EN,
     scope: SCOPE_EN,
   },
-  errors: {
-    load: 'The AI catalog could not be loaded.',
-    save: 'The AI catalog could not be saved.',
-    sync: 'The managed catalog could not be synchronized.',
-    verify: 'The provider installation could not be verified.',
-    revisionConflict: 'The catalog changed in another session. Reload the current revision and review your choices.',
-    duplicateBinding: 'This provider and credential scope combination already exists.',
-    invalidAuthMethod: (provider) => `The selected authentication method is not supported by “${provider}”.`,
-    oauthScope: (provider) => `“${provider}” uses personal OAuth and requires the “Per user” credential scope.`,
-    openAiBaseUrl: 'Enter a valid HTTP(S) base URL without embedded credentials for the OpenAI-compatible provider.',
-    ollamaHost: 'Enter a valid HTTP(S) URL without embedded credentials for remote Ollama mode.',
-    customModel: 'Enter a valid custom model ID.',
-    enabledProviderModels: (provider) => `The active provider “${provider}” needs at least one allowed model.`,
-    providerDefault: (provider) => `Select an allowed provider default model for “${provider}”.`,
-    appDefaultRequired: 'Select an app default before saving the catalog.',
-    appDefaultAmbiguous: 'Save the new provider installation first, then select it as the app default.',
-    appDefaultInvalid: 'The app default must reference an active provider and an allowed model.',
-    intelligenceInvalid: 'The selected intelligence level is not supported by the default model.',
+  editor: {
+    addTitle: 'Set up provider',
+    editTitle: 'Edit provider',
+    description: 'Connection, models, and access follow one clear sequence.',
+    connectionStep: 'Connection',
+    connectionDescription: 'Start with the address Canvas uses to reach this provider.',
+    modelsStep: 'Models',
+    modelsDescription: 'Allow only the models that should be selectable in Canvas.',
+    accessStep: 'Access',
+    accessDescription: 'Finish by choosing visibility and activation.',
+    serverUrl: 'Server URL',
+    serverUrlHint: 'The URL is requested from the Canvas runtime. Inside a container, localhost refers to that container.',
+    serverUrlPlaceholder: 'http://ollama:11434',
+    apiKey: 'API key',
+    apiKeyOptional: 'Optional',
+    apiKeyPlaceholder: 'Only needed when the server requires authentication',
+    testConnection: 'Test connection & load models',
+    testingConnection: 'Testing connection…',
+    connectionReady: (count) => `Connected · ${count} ${count === 1 ? 'model found' : 'models found'}`,
+    noRemoteModels: 'Connected, but no models were found on this server.',
+    discoverFirst: 'Test the connection to load models from this Ollama server.',
+    manualModel: 'Add model manually',
+    manualModelPlaceholder: 'e.g. qwen3:14b or llama3.3:70b',
+    addModel: 'Add',
+    searchModels: 'Search models…',
+    allowed: 'Allowed',
+    providerDefault: 'Provider default',
+    noModels: 'No models available.',
+    authentication: 'Sign-in method',
+    apiKeyAuthentication: 'API key',
+    oauthAuthentication: 'Sign in with account',
+    credentialScope: 'Available to',
+    providerEnabled: 'Enable provider',
+    providerEnabledHint: 'New providers remain inactive until you explicitly enable them.',
+    credentials: 'Credentials',
+    credentialsDescription: 'API keys are protected in the selected scope and are never written to the model catalog.',
+    cancel: 'Cancel',
+    save: 'Save changes',
+    saveAndVerify: 'Save & verify',
+    saving: 'Saving…',
+    remove: 'Remove provider',
+    errors: {
+      invalidUrl: 'Enter a valid HTTP(S) server URL.',
+      invalidModel: 'Enter a valid model ID without spaces.',
+      enabledNeedsModel: 'Select at least one model before enabling the provider.',
+      defaultRequired: 'Choose a provider default for the allowed models.',
+      discovery: 'Models could not be loaded from the Ollama server.',
+      credentialLoad: 'The Ollama API key could not be loaded.',
+      credentialSave: 'The provider settings could not be saved.',
+    },
+    scope: SCOPE_EN,
   },
 };
 
@@ -456,32 +438,7 @@ export type AiProvidersModelsPanelProps = {
 };
 
 function copyForLocale(locale: string | undefined): PanelCopy {
-  return locale?.toLocaleLowerCase().startsWith('de') ? DE_COPY : EN_COPY;
-}
-
-function formatDate(value: string, locale: SupportedLocale): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
-}
-
-function selectClassName(): string {
-  return 'h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30';
-}
-
-function modelForProvider(provider: AiCatalogProviderDraft, modelId: string): AiCatalogDiscoveryModel | undefined {
-  return provider.availableModels.find((model) => model.id === modelId);
-}
-
-function availableCredentialScopesForNewProvider(
-  providers: readonly AiCatalogProviderDraft[],
-  providerId: string,
-): readonly AiCredentialScope[] {
-  const configuredScopes = new Set(providers
-    .filter((provider) => provider.providerId === providerId)
-    .map((provider) => provider.credentialScope));
-  return getAllowedCredentialScopesForProvider(providerId)
-    .filter((credentialScope) => credentialScope !== 'managed' && !configuredScopes.has(credentialScope));
+  return locale?.toLowerCase().startsWith('de') ? DE_COPY : EN_COPY;
 }
 
 function isSafeEndpoint(value: string | undefined): boolean {
@@ -498,80 +455,6 @@ function isSafeEndpoint(value: string | undefined): boolean {
   }
 }
 
-function configuredCustomModel(provider: AiCatalogProviderDraft): string | undefined {
-  if (provider.providerId === 'openai-compatible') {
-    return provider.config.openaiCompatibleCustomModel?.trim() || undefined;
-  }
-  if (provider.providerId === 'ollama' && provider.config.ollamaModelSource === 'custom') {
-    return provider.config.ollamaCustomModel?.trim() || undefined;
-  }
-  return undefined;
-}
-
-function compactSafeConfig(config: AiProviderSafeConfig): AiProviderSafeConfig {
-  return Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined && value !== '')) as AiProviderSafeConfig;
-}
-
-function customModelMetadata(modelId: string): AiCatalogDiscoveryModel {
-  return {
-    id: modelId,
-    name: `${modelId} (Custom)`,
-    reasoning: false,
-    supportsVision: false,
-    contextWindow: 128_000,
-    maxTokens: 8_192,
-  };
-}
-
-function updateSelfHostedProviderConfig(params: {
-  provider: AiCatalogProviderDraft;
-  config: AiProviderSafeConfig;
-  discoveredModels: readonly AiCatalogDiscoveryModel[];
-}): AiCatalogProviderDraft {
-  const previousCustomModel = configuredCustomModel(params.provider);
-  const config = compactSafeConfig(params.config);
-  const nextCustomModel = params.provider.providerId === 'openai-compatible'
-    ? config.openaiCompatibleCustomModel?.trim()
-    : config.ollamaModelSource === 'custom'
-      ? config.ollamaCustomModel?.trim()
-      : undefined;
-  const nextCustomModelIsValid = Boolean(nextCustomModel && MODEL_ID_PATTERN.test(nextCustomModel));
-  const baseModels = params.discoveredModels.filter((model) => model.id !== previousCustomModel);
-  const availableModels = nextCustomModelIsValid && nextCustomModel
-    ? [
-        ...baseModels.filter((model) => model.id !== nextCustomModel),
-        params.discoveredModels.find((model) => model.id === nextCustomModel) ?? customModelMetadata(nextCustomModel),
-      ]
-    : baseModels;
-  const availableModelIds = new Set(availableModels.map((model) => model.id));
-  let modelIds = params.provider.modelIds
-    .filter((modelId) => modelId !== previousCustomModel && availableModelIds.has(modelId));
-  if (nextCustomModelIsValid && nextCustomModel && !modelIds.includes(nextCustomModel)) {
-    modelIds = [...modelIds, nextCustomModel];
-  }
-  if (
-    params.provider.providerId === 'ollama'
-    && params.provider.config.ollamaModelSource === 'custom'
-    && config.ollamaModelSource === 'predefined'
-    && modelIds.length === 0
-    && availableModels[0]
-  ) {
-    modelIds = [availableModels[0].id];
-  }
-  const defaultModelId = modelIds.includes(params.provider.defaultModelId)
-    ? params.provider.defaultModelId
-    : modelIds[0] ?? '';
-
-  return {
-    ...params.provider,
-    config,
-    modelIds,
-    defaultModelId,
-    availableModels: availableModels.sort((left, right) => left.name.localeCompare(right.name)),
-    status: params.provider.enabled ? 'unverified' : 'disabled',
-  };
-}
-
 function selectionProvider(
   providers: readonly AiCatalogProviderDraft[],
   selection: AiRuntimeSelection | null,
@@ -584,41 +467,18 @@ function selectionProvider(
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-function defaultSelectionForProviders(
-  providers: readonly AiCatalogProviderDraft[],
-  current: AiRuntimeSelection | null,
-): AiRuntimeSelection | null {
-  const currentProvider = selectionProvider(providers, current);
-  if (
-    current
-    && currentProvider?.enabled
-    && currentProvider.modelIds.includes(current.modelId)
-  ) {
-    const model = modelForProvider(currentProvider, current.modelId);
-    return {
-      ...current,
-      thinkingLevel: model?.reasoning ? current.thinkingLevel : 'off',
-    };
-  }
-
-  const provider = providers.find((candidate) => candidate.enabled && candidate.modelIds.length > 0);
-  if (!provider) return null;
-  const modelId = provider.modelIds.includes(provider.defaultModelId)
-    ? provider.defaultModelId
-    : provider.modelIds[0];
-  return {
-    providerInstallationId: provider.providerInstallationId ?? '',
-    providerId: provider.providerId,
-    modelId,
-    thinkingLevel: 'off',
-  };
+function modelForProvider(provider: AiCatalogProviderDraft, modelId: string): AiCatalogDiscoveryModel | undefined {
+  return provider.availableModels.find((model) => model.id === modelId);
 }
 
-function withSuggestedDefaultSelection(draft: AiRuntimeCatalogDraft): AiRuntimeCatalogDraft {
-  return {
-    ...draft,
-    defaultSelection: defaultSelectionForProviders(draft.providers, draft.defaultSelection),
-  };
+function sanitizeDefaultSelection(
+  providers: readonly AiCatalogProviderDraft[],
+  selection: AiRuntimeSelection | null,
+): AiRuntimeSelection | null {
+  const provider = selectionProvider(providers, selection);
+  return selection && provider?.enabled && provider.modelIds.includes(selection.modelId)
+    ? selection
+    : null;
 }
 
 function validateDraft(draft: AiRuntimeCatalogDraft, copy: PanelCopy): string | null {
@@ -628,31 +488,15 @@ function validateDraft(draft: AiRuntimeCatalogDraft, copy: PanelCopy): string | 
     if (bindings.has(binding)) return copy.errors.duplicateBinding;
     bindings.add(binding);
     const authIssue = validateProviderCatalogAuth(provider);
-    if (authIssue === 'INVALID_PROVIDER_AUTH_METHOD') {
-      return copy.errors.invalidAuthMethod(provider.name);
-    }
-    if (authIssue === 'OAUTH_REQUIRES_USER_SCOPE') {
-      return copy.errors.oauthScope(provider.name);
-    }
+    if (authIssue === 'INVALID_PROVIDER_AUTH_METHOD') return copy.errors.invalidAuthMethod(provider.name);
+    if (authIssue === 'OAUTH_REQUIRES_USER_SCOPE') return copy.errors.oauthScope(provider.name);
     if (provider.providerId === 'openai-compatible') {
-      const baseUrl = provider.config.openaiCompatibleBaseUrl;
-      if ((provider.enabled || baseUrl) && !isSafeEndpoint(baseUrl)) return copy.errors.openAiBaseUrl;
+      if (!isSafeEndpoint(provider.config.openaiCompatibleBaseUrl)) return copy.errors.openAiBaseUrl;
       const customModel = provider.config.openaiCompatibleCustomModel?.trim();
-      if ((provider.enabled || customModel) && (!customModel || !MODEL_ID_PATTERN.test(customModel))) {
-        return copy.errors.customModel;
-      }
+      if (customModel && !MODEL_ID_PATTERN.test(customModel)) return copy.errors.customModel;
     }
-    if (provider.providerId === 'ollama') {
-      const host = provider.config.ollamaHost;
-      if (provider.config.ollamaMode === 'cloud' && (provider.enabled || host) && !isSafeEndpoint(host)) {
-        return copy.errors.ollamaHost;
-      }
-      if (provider.config.ollamaModelSource === 'custom') {
-        const customModel = provider.config.ollamaCustomModel?.trim();
-        if ((provider.enabled || customModel) && (!customModel || !MODEL_ID_PATTERN.test(customModel))) {
-          return copy.errors.customModel;
-        }
-      }
+    if (provider.providerId === 'ollama' && !isSafeEndpoint(provider.config.ollamaHost)) {
+      return copy.errors.ollamaHost;
     }
     if (provider.enabled && provider.modelIds.length === 0) {
       return copy.errors.enabledProviderModels(provider.name);
@@ -661,28 +505,29 @@ function validateDraft(draft: AiRuntimeCatalogDraft, copy: PanelCopy): string | 
       return copy.errors.providerDefault(provider.name);
     }
   }
-
-  const enabledProviders = draft.providers.filter((provider) => provider.enabled && provider.modelIds.length > 0);
-  if (enabledProviders.length === 0) return null;
-  if (!draft.defaultSelection) return copy.errors.appDefaultRequired;
-  const provider = selectionProvider(draft.providers, draft.defaultSelection);
-  if (!provider && !draft.defaultSelection.providerInstallationId) {
-    return copy.errors.appDefaultAmbiguous;
-  }
-  if (!provider?.enabled || !provider.modelIds.includes(draft.defaultSelection.modelId)) {
-    return copy.errors.appDefaultInvalid;
-  }
-  const model = modelForProvider(provider, draft.defaultSelection.modelId);
-  if (!model?.reasoning && draft.defaultSelection.thinkingLevel !== 'off') {
-    return copy.errors.intelligenceInvalid;
+  if (draft.defaultSelection) {
+    const provider = selectionProvider(draft.providers, draft.defaultSelection);
+    if (!provider?.enabled || !provider.modelIds.includes(draft.defaultSelection.modelId)) {
+      return copy.errors.defaultInvalid;
+    }
   }
   return null;
 }
 
+function availableCredentialScopesForNewProvider(
+  providers: readonly AiCatalogProviderDraft[],
+  providerId: string,
+): readonly AiCredentialScope[] {
+  const configured = new Set(providers
+    .filter((provider) => provider.providerId === providerId)
+    .map((provider) => provider.credentialScope));
+  return getAllowedCredentialScopesForProvider(providerId)
+    .filter((scope) => scope !== 'managed' && !configured.has(scope));
+}
+
 function errorMessage(error: unknown, fallback: string, copy: PanelCopy): string {
-  if (error instanceof RuntimeCatalogClientError) {
-    if (error.code === 'CATALOG_REVISION_CONFLICT') return copy.errors.revisionConflict;
-    return error.message;
+  if (error instanceof RuntimeCatalogClientError && error.code === 'CATALOG_REVISION_CONFLICT') {
+    return copy.errors.revisionConflict;
   }
   return error instanceof Error ? error.message : fallback;
 }
@@ -694,67 +539,59 @@ export function AiProvidersModelsPanel({
   onCatalogChanged,
 }: AiProvidersModelsPanelProps) {
   const copy = copyForLocale(locale);
-  const resolvedLocale: SupportedLocale = locale?.toLocaleLowerCase().startsWith('de') ? 'de' : 'en';
   const [data, setData] = useState<AdminRuntimeCatalogData | null>(null);
   const [draft, setDraft] = useState<AiRuntimeCatalogDraft | null>(null);
-  const [baseline, setBaseline] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [verifyingInstallationId, setVerifyingInstallationId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busyAction, setBusyAction] = useState<'sync' | 'default' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [isAddProviderDialogOpen, setIsAddProviderDialogOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [addProviderId, setAddProviderId] = useState('');
-  const [addCredentialScope, setAddCredentialScope] = useState<AiCredentialScope>('organization');
-  const [connectionOpenProviderClientKey, setConnectionOpenProviderClientKey] = useState<string | null>(null);
-  const [setManagedAsDefault, setSetManagedAsDefault] = useState(true);
+  const [addScope, setAddScope] = useState<AiCredentialScope>('organization');
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorProvider, setEditorProvider] = useState<AiCatalogProviderDraft | null>(null);
+  const [editorIsNew, setEditorIsNew] = useState(false);
+  const [defaultOpen, setDefaultOpen] = useState(false);
+  const [defaultDraft, setDefaultDraft] = useState<AiRuntimeSelection | null>(null);
 
   const applyCatalogData = useCallback((nextData: AdminRuntimeCatalogData) => {
-    const storedDraft = catalogDataToDraft(nextData);
-    const nextDraft = withSuggestedDefaultSelection(storedDraft);
+    const nextDraft = catalogDataToDraft(nextData);
     setData(nextData);
-    setDraft(nextDraft);
-    // A migrated/self-hosted catalog can contain valid providers but no app
-    // default yet. Suggest the first valid default and keep the stored null as
-    // the baseline so the admin can actually save the required review.
-    setBaseline(serializeCatalogDraft(storedDraft));
-    setSetManagedAsDefault(
-      !nextData.catalog.defaultSelection
-      || nextData.catalog.defaultSelection.providerId === CONTROL_PLANE_PROVIDER_ID,
-    );
+    setDraft({
+      ...nextDraft,
+      providers: nextDraft.providers.map((provider) => provider.providerId === 'ollama'
+        ? {
+            ...provider,
+            config: {
+              ...provider.config,
+              ollamaHost: provider.config.ollamaHost?.trim() || defaultOllamaServerUrl(),
+              ollamaAdditionalModels: Array.from(new Set([
+                ...(provider.config.ollamaAdditionalModels ?? []),
+                ...(provider.config.ollamaCustomModel?.trim() ? [provider.config.ollamaCustomModel.trim()] : []),
+              ])),
+            },
+          }
+        : provider),
+    });
   }, []);
 
-  const loadCatalog = useCallback(async (showLoading = true) => {
-    if (showLoading) setIsLoading(true);
+  const loadCatalog = useCallback(async () => {
+    setLoading(true);
     setError(null);
     try {
-      const nextData = await readAdminRuntimeCatalog();
-      applyCatalogData(nextData);
+      applyCatalogData(await readAdminRuntimeCatalog());
       setMessage(null);
     } catch (loadError) {
       setError(errorMessage(loadError, copy.errors.load, copy));
     } finally {
-      if (showLoading) setIsLoading(false);
+      setLoading(false);
     }
   }, [applyCatalogData, copy]);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadCatalog();
-    }, 0);
+    const timeout = window.setTimeout(() => void loadCatalog(), 0);
     return () => window.clearTimeout(timeout);
   }, [loadCatalog]);
-
-  const isDirty = useMemo(() => (
-    draft ? serializeCatalogDraft(draft) !== baseline : false
-  ), [baseline, draft]);
-
-  const managedProvider = draft?.providers.find((provider) => provider.providerId === CONTROL_PLANE_PROVIDER_ID);
-  const managedDiscovered = Boolean(data?.discovery[CONTROL_PLANE_PROVIDER_ID]);
-  const resolvedDeploymentMode: DeploymentMode = deploymentMode
-    ?? (managedProvider || managedDiscovered ? 'managed' : 'self-hosted');
-  const showManagedSync = resolvedDeploymentMode === 'managed' || Boolean(managedProvider) || managedDiscovered;
 
   const addableProviders = useMemo(() => {
     if (!data || !draft) return [];
@@ -768,22 +605,13 @@ export function AiProvidersModelsPanel({
   const resolvedAddProviderId = addableProviders.some((provider) => provider.id === addProviderId)
     ? addProviderId
     : addableProviders[0]?.id ?? '';
-  const addableCredentialScopes = draft && resolvedAddProviderId
+  const addScopes = draft && resolvedAddProviderId
     ? availableCredentialScopesForNewProvider(draft.providers, resolvedAddProviderId)
     : [];
-  const resolvedAddCredentialScope = addableCredentialScopes.includes(addCredentialScope)
-    ? addCredentialScope
-    : addableCredentialScopes[0];
-
-  const openAddProviderDialog = () => {
-    const providerId = addableProviders[0]?.id ?? '';
-    setAddProviderId(providerId);
-    if (draft && providerId) {
-      setAddCredentialScope(availableCredentialScopesForNewProvider(draft.providers, providerId)[0] ?? 'organization');
-    }
-    setIsAddProviderDialogOpen(true);
-  };
-
+  const resolvedAddScope = addScopes.includes(addScope) ? addScope : addScopes[0];
+  const managedProvider = draft?.providers.find((provider) => provider.providerId === CONTROL_PLANE_PROVIDER_ID);
+  const managedDiscovered = Boolean(data?.discovery[CONTROL_PLANE_PROVIDER_ID]);
+  const showManagedSync = deploymentMode === 'managed' || Boolean(managedProvider) || managedDiscovered;
   const defaultProvider = draft ? selectionProvider(draft.providers, draft.defaultSelection) : undefined;
   const defaultModel = defaultProvider && draft?.defaultSelection
     ? modelForProvider(defaultProvider, draft.defaultSelection.modelId)
@@ -791,693 +619,459 @@ export function AiProvidersModelsPanel({
   const selectableDefaultProviders = draft?.providers.filter((provider) => (
     provider.enabled && provider.modelIds.length > 0
   )) ?? [];
-  const hasDefault = Boolean(defaultProvider && defaultModel && draft?.defaultSelection);
 
-  const updateProviders = (updater: (providers: AiCatalogProviderDraft[]) => AiCatalogProviderDraft[]) => {
-    setDraft((current) => {
-      if (!current) return current;
-      const providers = updater(current.providers);
-      return {
-        ...current,
-        providers,
-        defaultSelection: defaultSelectionForProviders(providers, current.defaultSelection),
-      };
-    });
+  const persistDraft = async (nextDraft: AiRuntimeCatalogDraft, successMessage = copy.saved) => {
+    const validationError = validateDraft(nextDraft, copy);
+    if (validationError) throw new Error(validationError);
+    const nextData = await updateAdminRuntimeCatalog(nextDraft);
+    applyCatalogData({ ...nextData, initialization: { action: 'existing', issueCode: null } });
+    setMessage(successMessage);
     setError(null);
-    setMessage(null);
+    onCatalogChanged?.();
+    return nextData;
   };
 
-  const updateProvider = (
-    clientKey: string,
-    updater: (provider: AiCatalogProviderDraft) => AiCatalogProviderDraft,
-  ) => updateProviders((providers) => providers.map((provider) => (
-    provider.clientKey === clientKey ? updater(provider) : provider
-  )));
+  const saveProvider = async (provider: AiCatalogProviderDraft, options: { verify: boolean }) => {
+    if (!draft) return;
+    const exists = draft.providers.some((candidate) => candidate.clientKey === provider.clientKey);
+    const providers = exists
+      ? draft.providers.map((candidate) => candidate.clientKey === provider.clientKey ? provider : candidate)
+      : [...draft.providers, provider];
+    const saved = await persistDraft({
+      ...draft,
+      providers,
+      defaultSelection: sanitizeDefaultSelection(providers, draft.defaultSelection),
+    });
+    if (options.verify && provider.enabled) {
+      const storedProvider = saved.catalog.providers.find((candidate) => (
+        candidate.providerId === provider.providerId
+        && candidate.credentialScope === provider.credentialScope
+      ));
+      if (!storedProvider) throw new Error(copy.errors.verify);
+      await verifyAdminProviderInstallation(storedProvider.installationId);
+      await loadCatalog();
+      setMessage(copy.verified);
+    }
+    setEditorOpen(false);
+  };
 
-  const addProvider = () => {
-    if (!draft || !data || !resolvedAddProviderId || !resolvedAddCredentialScope) return;
+  const removeProvider = async (provider: AiCatalogProviderDraft) => {
+    if (!draft) return;
+    const providers = draft.providers.filter((candidate) => candidate.clientKey !== provider.clientKey);
+    await persistDraft({
+      ...draft,
+      providers,
+      defaultSelection: sanitizeDefaultSelection(providers, draft.defaultSelection),
+    });
+    setEditorOpen(false);
+  };
+
+  const openAddProvider = () => {
+    const first = addableProviders[0]?.id ?? '';
+    setAddProviderId(first);
+    setAddScope(first && draft ? availableCredentialScopesForNewProvider(draft.providers, first)[0] ?? 'organization' : 'organization');
+    setAddOpen(true);
+  };
+
+  const continueAddProvider = () => {
+    if (!data || !resolvedAddProviderId || !resolvedAddScope) return;
     const discovered = data.discovery[resolvedAddProviderId];
     if (!discovered) return;
-    const firstModel = discovered.models[0];
-    const isOpenAiCompatible = discovered.id === 'openai-compatible';
-    const isOllama = discovered.id === 'ollama';
     const isOAuth = getAuthMethodForProvider(discovered.id) === 'oauth';
-    const clientKey = `new-${discovered.id}-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
     const provider: AiCatalogProviderDraft = {
-      clientKey,
+      clientKey: `new-${discovered.id}-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`,
+      providerInstallationId: discovered.installationIds?.[resolvedAddScope],
       providerId: discovered.id,
       name: discovered.name,
       source: discovered.source,
-      status: 'unverified',
-      enabled: Boolean(firstModel) && !isOpenAiCompatible,
-      credentialScope: resolvedAddCredentialScope,
-      providerInstallationId: discovered.installationIds?.[resolvedAddCredentialScope],
+      status: 'disabled',
+      enabled: false,
+      credentialScope: resolvedAddScope,
       config: isOAuth
         ? { authMethod: 'oauth' }
-        : isOpenAiCompatible
-        ? { openaiCompatibleModelSource: 'custom' }
-        : isOllama
-          ? { ollamaMode: 'local', ollamaModelSource: 'predefined' }
-          : {},
-      modelIds: firstModel ? [firstModel.id] : [],
-      defaultModelId: firstModel?.id ?? '',
+        : discovered.id === 'ollama'
+          ? { ollamaHost: defaultOllamaServerUrl(), ollamaAdditionalModels: [] }
+          : discovered.id === 'openai-compatible'
+            ? { openaiCompatibleModelSource: 'custom' }
+            : {},
+      modelIds: [],
+      defaultModelId: '',
       availableModels: [...discovered.models].sort((left, right) => left.name.localeCompare(right.name)),
       sourceRevision: null,
       lastSyncedAt: null,
     };
-    updateProviders((providers) => [...providers, provider]);
-    setConnectionOpenProviderClientKey(clientKey);
-    setAddProviderId('');
-    setIsAddProviderDialogOpen(false);
+    setAddOpen(false);
+    setEditorProvider(provider);
+    setEditorIsNew(true);
+    setEditorOpen(true);
   };
 
-  const saveCatalog = async () => {
-    if (!draft) return;
-    const validationError = validateDraft(draft, copy);
-    if (validationError) {
-      setError(validationError);
-      setMessage(null);
-      return;
-    }
-    setIsSaving(true);
+  const openProviderEditor = (provider: AiCatalogProviderDraft) => {
+    setEditorProvider(provider);
+    setEditorIsNew(false);
+    setEditorOpen(true);
     setError(null);
     setMessage(null);
+  };
+
+  const openDefaultEditor = () => {
+    if (!draft) return;
+    const selection = draft.defaultSelection && selectionProvider(draft.providers, draft.defaultSelection)
+      ? { ...draft.defaultSelection }
+      : (() => {
+          const provider = selectableDefaultProviders[0];
+          if (!provider) return null;
+          const modelId = provider.modelIds.includes(provider.defaultModelId)
+            ? provider.defaultModelId
+            : provider.modelIds[0];
+          return {
+            providerInstallationId: provider.providerInstallationId ?? '',
+            providerId: provider.providerId,
+            modelId,
+            thinkingLevel: 'off' as const,
+          };
+        })();
+    setDefaultDraft(selection);
+    setDefaultOpen(true);
+  };
+
+  const saveDefault = async () => {
+    if (!draft || !defaultDraft) return;
+    setBusyAction('default');
     try {
-      const nextData = await updateAdminRuntimeCatalog(draft);
-      applyCatalogData({
-        ...nextData,
-        initialization: { action: 'existing', issueCode: null },
-      });
-      setMessage(copy.saved);
-      onCatalogChanged?.();
+      await persistDraft({ ...draft, defaultSelection: defaultDraft });
+      setDefaultOpen(false);
     } catch (saveError) {
       setError(errorMessage(saveError, copy.errors.save, copy));
     } finally {
-      setIsSaving(false);
+      setBusyAction(null);
     }
   };
 
-  const syncManagedCatalog = async () => {
-    if (!draft || isDirty) return;
-    setIsSyncing(true);
+  const syncManaged = async () => {
+    if (!draft) return;
+    setBusyAction('sync');
     setError(null);
-    setMessage(null);
     try {
       await syncManagedRuntimeCatalog({
         expectedRevision: draft.expectedRevision,
-        setAsDefault: setManagedAsDefault,
+        setAsDefault: false,
       });
-      await loadCatalog(false);
+      await loadCatalog();
       setMessage(copy.saved);
       onCatalogChanged?.();
     } catch (syncError) {
       setError(errorMessage(syncError, copy.errors.sync, copy));
     } finally {
-      setIsSyncing(false);
+      setBusyAction(null);
     }
   };
 
-  const verifyProvider = async (providerInstallationId: string) => {
-    if (isDirty || verifyingInstallationId) return;
-    setVerifyingInstallationId(providerInstallationId);
-    setError(null);
-    setMessage(null);
-    try {
-      await verifyAdminProviderInstallation(providerInstallationId);
-      await loadCatalog(false);
-      setMessage(copy.verified);
-      onCatalogChanged?.();
-    } catch (verifyError) {
-      setError(errorMessage(verifyError, copy.errors.verify, copy));
-    } finally {
-      setVerifyingInstallationId(null);
-    }
-  };
-
-  if (isLoading && !data) {
-    return <AiProvidersModelsPanelSkeleton label={copy.loading} className={className} />;
-  }
-
-  if (!data || !draft) {
+  if (loading && !data) {
     return (
       <Card className={className}>
-        <CardHeader>
-          <CardTitle>{copy.title}</CardTitle>
-          <CardDescription>{copy.description}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div role="alert" className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            <span>{error || copy.errors.load}</span>
-          </div>
-          <Button type="button" variant="outline" onClick={() => void loadCatalog()}>
-            <RefreshCw className="size-4" aria-hidden="true" />
-            {copy.retry}
-          </Button>
+        <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          {copy.loading}
         </CardContent>
       </Card>
     );
   }
 
-  const busy = isSaving || isSyncing || verifyingInstallationId !== null;
-
-  return (
-    <div className={cn('space-y-4', className)}>
-      <Card className="gap-0 overflow-hidden py-0">
-        <CardHeader className="border-b px-4 py-5 sm:px-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-muted/50 text-muted-foreground shadow-xs">
-                <BrainCircuit className="size-5" aria-hidden="true" />
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <CardTitle className="text-lg">{copy.title}</CardTitle>
-                  {isDirty && <Badge variant="secondary">{copy.unsaved}</Badge>}
-                </div>
-                <CardDescription className="max-w-3xl leading-relaxed">{copy.description}</CardDescription>
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={busy || isLoading}
-              onClick={() => void loadCatalog()}
-            >
-              {isLoading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-              {isDirty ? copy.discardReload : copy.reload}
-            </Button>
-          </div>
-        </CardHeader>
-
-        <CardContent className="space-y-4 px-4 py-4 sm:px-6">
-          <div className="flex flex-col gap-3 rounded-xl border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 space-y-1">
-              <p className="text-sm font-medium">{copy.appDefaultTitle}</p>
-              <p className="text-sm text-muted-foreground">
-                {hasDefault && defaultProvider && defaultModel
-                  ? copy.currentDefault(defaultProvider.name, defaultModel.name)
-                  : copy.noDefaultAvailable}
-              </p>
-            </div>
-            <Badge variant={hasDefault && !isDirty ? 'default' : 'secondary'}>
-              {isDirty ? copy.unsaved : hasDefault ? copy.setupComplete : copy.setupIncomplete}
-            </Badge>
-          </div>
-
-          <Collapsible>
-            <CollapsibleTrigger asChild>
-              <Button type="button" variant="ghost" size="sm" className="-ml-2 text-muted-foreground">
-                <LockKeyhole className="size-4" aria-hidden="true" />
-                {copy.setupDetails}
-                <ChevronDown className="size-4" aria-hidden="true" />
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-2">
-              <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                <div className="flex items-start gap-3">
-                  <LockKeyhole className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">{copy.secretNoticeTitle}</p>
-                    <p className="text-xs leading-relaxed text-muted-foreground">{copy.secretNoticeDescription}</p>
-                  </div>
-                </div>
-                {data.initialization?.issueCode && (
-                  <div role="status" className="flex flex-wrap items-center gap-2 border-t pt-3 text-sm text-amber-950 dark:text-amber-100">
-                    <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
-                    <span>{copy.reviewIssue}:</span>
-                    <code className="rounded bg-background px-1.5 py-0.5 text-xs">{data.initialization.issueCode}</code>
-                  </div>
-                )}
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-
-          {error && (
-            <div role="alert" className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-              <span>{error}</span>
-            </div>
-          )}
-          {message && (
-            <div role="status" aria-live="polite" className="flex gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-900 dark:text-emerald-100">
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-              <span>{message}</span>
-            </div>
-          )}
+  if (!data || !draft) {
+    return (
+      <Card className={className}>
+        <CardContent className="space-y-4 py-6">
+          <p role="alert" className="text-sm text-destructive">{error || copy.errors.load}</p>
+          <Button type="button" variant="outline" onClick={() => void loadCatalog()}>{copy.retry}</Button>
         </CardContent>
       </Card>
+    );
+  }
 
-      {showManagedSync && (
-        <Card className="gap-0 overflow-hidden py-0">
-          <CardHeader className="border-b px-4 py-4 sm:px-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background text-muted-foreground shadow-xs">
-                  <CloudDownload className="size-4" aria-hidden="true" />
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <CardTitle className="text-base">{copy.managedTitle}</CardTitle>
-                    <Badge variant={managedProvider?.status === 'ready' ? 'default' : managedDiscovered ? 'secondary' : 'outline'}>
-                      {managedProvider?.status === 'ready'
-                        ? copy.managedReady
-                        : managedDiscovered
-                          ? copy.managedAvailable
-                          : copy.managedUnavailable}
-                    </Badge>
-                  </div>
-                  <CardDescription>{copy.managedDescription}</CardDescription>
-                </div>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                disabled={busy || isDirty || (!managedDiscovered && !managedProvider)}
-                onClick={() => void syncManagedCatalog()}
-              >
-                {isSyncing ? <Loader2 className="size-4 animate-spin" /> : <CloudDownload className="size-4" />}
-                {isSyncing ? copy.managedSyncing : copy.managedSync}
-              </Button>
+  const defaultDialogProvider = selectionProvider(draft.providers, defaultDraft);
+  const defaultDialogModel = defaultDialogProvider && defaultDraft
+    ? modelForProvider(defaultDialogProvider, defaultDraft.modelId)
+    : undefined;
+
+  return (
+    <div className={cn('space-y-6', className)}>
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-9 items-center justify-center rounded-xl border bg-muted/35 text-muted-foreground">
+              <BrainCircuit className="size-4.5" />
             </div>
-          </CardHeader>
-          <CardContent className="px-4 py-3 sm:px-6">
-            <Collapsible>
-              <CollapsibleTrigger asChild>
-                <Button type="button" variant="ghost" size="sm" className="-ml-2 text-muted-foreground">
-                  {copy.setupDetails}
-                  <ChevronDown className="size-4" aria-hidden="true" />
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="pt-2">
-                <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">{copy.managedSetDefault}</p>
-                    <p className="text-xs text-muted-foreground">{copy.managedSetDefaultDescription}</p>
-                    {managedProvider?.lastSyncedAt && (
-                      <p className="text-xs text-muted-foreground">
-                        {copy.managedLastSync(formatDate(managedProvider.lastSyncedAt, resolvedLocale))}
-                      </p>
-                    )}
-                    {isDirty && <p className="text-xs text-amber-700 dark:text-amber-300">{copy.managedDirtyHint}</p>}
-                  </div>
-                  <Switch
-                    checked={setManagedAsDefault}
-                    disabled={busy}
-                    onCheckedChange={setSetManagedAsDefault}
-                    aria-label={copy.managedSetDefault}
-                  />
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          </CardContent>
-        </Card>
+            <h1 className="text-xl font-semibold tracking-tight">{copy.title}</h1>
+          </div>
+          <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{copy.description}</p>
+        </div>
+        <Button type="button" variant="ghost" size="sm" disabled={loading || busyAction !== null} onClick={() => void loadCatalog()}>
+          {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+          {copy.reload}
+        </Button>
+      </header>
+
+      {error && (
+        <div role="alert" className="rounded-lg border border-destructive/35 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+      {message && (
+        <div role="status" className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
+          <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+          {message}
+        </div>
       )}
 
-      <section className="space-y-3" aria-labelledby="ai-providers-heading">
-        <div className="flex flex-col gap-3 px-1 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1">
-            <h2 id="ai-providers-heading" className="text-sm font-semibold">{copy.providersTitle}</h2>
-            <p className="text-sm text-muted-foreground">{copy.providersDescription}</p>
+      <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/[0.055] via-background to-background py-0 shadow-sm" data-testid="chat-default-card">
+        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div className="flex min-w-0 items-start gap-3.5">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+              <Settings2 className="size-4.5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-semibold">{copy.defaultTitle}</h2>
+                {defaultProvider && defaultModel && <Badge>{copy.defaultReady}</Badge>}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">{copy.defaultDescription}</p>
+              <p className="mt-3 truncate text-sm font-medium">
+                {defaultProvider && defaultModel
+                  ? `${defaultProvider.name} · ${defaultModel.name} · ${copy.intelligenceLevel[draft.defaultSelection?.thinkingLevel ?? 'off']}`
+                  : copy.defaultEmpty}
+              </p>
+            </div>
           </div>
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy || addableProviders.length === 0}
-            onClick={openAddProviderDialog}
-          >
-            <Plus className="size-4" aria-hidden="true" />
+          <Button type="button" variant="outline" disabled={selectableDefaultProviders.length === 0} onClick={openDefaultEditor}>
+            <Settings2 className="size-4" />
+            {copy.defaultEdit}
+          </Button>
+        </div>
+      </Card>
+
+      <section className="space-y-3" aria-labelledby="provider-overview-heading">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1">
+            <h2 id="provider-overview-heading" className="text-base font-semibold">{copy.providersTitle}</h2>
+            <p className="max-w-2xl text-sm text-muted-foreground">{copy.providersDescription}</p>
+          </div>
+          <Button type="button" size="sm" disabled={addableProviders.length === 0 || busyAction !== null} onClick={openAddProvider}>
+            <Plus className="size-4" />
             {copy.addProvider}
           </Button>
         </div>
 
-        {draft.providers.length > 0 ? (
-          <div className="grid gap-3 xl:grid-cols-2 xl:items-start">
-            {draft.providers.map((provider) => (
-              <AiProviderCatalogCard
-                key={provider.clientKey}
-                provider={provider}
-                appDefault={draft.defaultSelection}
-                copy={copy.providerCard}
-                disabled={busy}
-                verifying={verifyingInstallationId === provider.providerInstallationId}
-                initialCredentialsOpen={provider.clientKey === connectionOpenProviderClientKey}
-                credentialEditor={(
-                  <ProviderInstallationCredentialEditor
-                    installation={{
-                      installationId: provider.providerInstallationId ?? provider.clientKey,
-                      providerId: provider.providerId,
-                      name: provider.name,
-                      credentialScope: provider.credentialScope,
-                      authMethod: provider.config.authMethod,
-                    }}
-                    locale={locale}
-                    showIdentity={false}
-                    onCredentialsSaved={() => void saveCatalog()}
-                  />
-                )}
-                onVerify={provider.providerInstallationId && !isDirty
-                  ? () => void verifyProvider(provider.providerInstallationId!)
-                  : undefined}
-                onEnabledChange={(enabled) => updateProvider(provider.clientKey, (current) => ({
-                  ...current,
-                  enabled,
-                  status: enabled
-                    ? (current.status === 'disabled' ? 'unverified' : current.status)
-                    : 'disabled',
-                }))}
-                onCredentialScopeChange={(credentialScope) => {
-                  const duplicate = draft.providers.some((candidate) => (
-                    candidate.clientKey !== provider.clientKey
-                    && candidate.providerId === provider.providerId
-                    && candidate.credentialScope === credentialScope
-                  ));
-                  if (duplicate) {
-                    setError(copy.errors.duplicateBinding);
-                    return;
-                  }
-                  updateProvider(provider.clientKey, (current) => ({
-                    ...current,
-                    providerInstallationId: data.discovery[current.providerId]?.installationIds?.[credentialScope],
-                    credentialScope,
-                    status: current.enabled ? 'unverified' : 'disabled',
-                  }));
-                }}
-                onAuthMethodChange={(authMethod) => {
-                  const credentialScopes = getAllowedCredentialScopesForProvider(provider.providerId, authMethod);
-                  const credentialScope = credentialScopes.includes(provider.credentialScope)
-                    ? provider.credentialScope
-                    : credentialScopes[0];
-                  const duplicate = draft.providers.some((candidate) => (
-                    candidate.clientKey !== provider.clientKey
-                    && candidate.providerId === provider.providerId
-                    && candidate.credentialScope === credentialScope
-                  ));
-                  if (duplicate) {
-                    setError(copy.errors.duplicateBinding);
-                    return;
-                  }
-                  updateProvider(provider.clientKey, (current) => ({
-                    ...current,
-                    credentialScope,
-                    providerInstallationId: data.discovery[current.providerId]?.installationIds?.[credentialScope],
-                    config: { ...current.config, authMethod },
-                    status: current.enabled ? 'unverified' : 'disabled',
-                  }));
-                }}
-                onConfigChange={(config) => updateProvider(provider.clientKey, (current) => (
-                  updateSelfHostedProviderConfig({
-                    provider: current,
-                    config,
-                    discoveredModels: data.discovery[current.providerId]?.models ?? current.availableModels,
-                  })
-                ))}
-                onCustomModelChange={(modelId) => updateProvider(provider.clientKey, (current) => {
-                  const config: AiProviderSafeConfig = current.providerId === 'openai-compatible'
-                    ? {
-                        ...current.config,
-                        openaiCompatibleModelSource: 'custom',
-                        openaiCompatibleCustomModel: modelId || undefined,
-                      }
-                    : {
-                        ...current.config,
-                        ollamaModelSource: 'custom',
-                        ollamaCustomModel: modelId || undefined,
-                      };
-                  return updateSelfHostedProviderConfig({
-                    provider: current,
-                    config,
-                    discoveredModels: data.discovery[current.providerId]?.models ?? current.availableModels,
-                  });
-                })}
-                onModelAllowedChange={(model, allowed) => updateProvider(provider.clientKey, (current) => {
-                  const modelIds = allowed
-                    ? current.availableModels.filter((candidate) => (
-                        candidate.id === model.id || current.modelIds.includes(candidate.id)
-                      )).map((candidate) => candidate.id)
-                    : current.modelIds.filter((modelId) => modelId !== model.id);
-                  const defaultModelId = modelIds.includes(current.defaultModelId)
-                    ? current.defaultModelId
-                    : modelIds[0] ?? '';
-                  return { ...current, modelIds, defaultModelId };
-                })}
-                onProviderDefaultChange={(model) => updateProvider(provider.clientKey, (current) => ({
-                  ...current,
-                  defaultModelId: model.id,
-                }))}
-                onRemove={() => updateProviders((providers) => providers.filter((candidate) => (
-                  candidate.clientKey !== provider.clientKey
-                )))}
-              />
-            ))}
-          </div>
-        ) : (
-          <Card className="border-dashed shadow-none">
-            <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
-              <Server className="size-6 text-muted-foreground" aria-hidden="true" />
-              <p className="text-sm font-medium">{copy.noProvidersTitle}</p>
-              <p className="max-w-lg text-sm text-muted-foreground">{copy.noProvidersDescription}</p>
-              {addableProviders.length === 0 && (
-                <p className="max-w-lg text-xs text-muted-foreground">{copy.noProvidersAvailable}</p>
-              )}
-            </CardContent>
-          </Card>
-        )}
+        <div className="space-y-2.5">
+          {showManagedSync && (
+            <Card className="gap-0 overflow-hidden py-0 shadow-xs">
+              <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 items-center justify-center rounded-xl border bg-background text-muted-foreground">
+                    <CloudDownload className="size-4.5" />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold">{copy.managedTitle}</h3>
+                      <Badge variant={managedProvider?.status === 'ready' ? 'default' : 'secondary'}>
+                        {managedProvider?.status === 'ready'
+                          ? copy.managedReady
+                          : managedDiscovered
+                            ? copy.managedAvailable
+                            : copy.managedUnavailable}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">{copy.managedDescription}</p>
+                  </div>
+                </div>
+                <Button type="button" variant="outline" size="sm" disabled={busyAction !== null || (!managedDiscovered && !managedProvider)} onClick={() => void syncManaged()}>
+                  {busyAction === 'sync' ? <Loader2 className="size-4 animate-spin" /> : <CloudDownload className="size-4" />}
+                  {busyAction === 'sync' ? copy.managedSyncing : copy.managedSync}
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {draft.providers.filter((provider) => provider.providerId !== CONTROL_PLANE_PROVIDER_ID).map((provider) => (
+            <AiProviderCatalogCard
+              key={provider.clientKey}
+              provider={provider}
+              appDefault={draft.defaultSelection}
+              copy={copy.providerCard}
+              disabled={busyAction !== null}
+              onEdit={() => openProviderEditor(provider)}
+            />
+          ))}
+
+          {draft.providers.filter((provider) => provider.providerId !== CONTROL_PLANE_PROVIDER_ID).length === 0 && !showManagedSync && (
+            <Card className="border-dashed shadow-none">
+              <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
+                <Server className="size-6 text-muted-foreground" />
+                <p className="text-sm font-medium">{copy.noProvidersTitle}</p>
+                <p className="max-w-lg text-sm text-muted-foreground">{copy.noProvidersDescription}</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </section>
 
-      <Dialog open={isAddProviderDialogOpen} onOpenChange={setIsAddProviderDialogOpen}>
+      <Collapsible>
+        <CollapsibleTrigger asChild>
+          <Button type="button" variant="ghost" size="sm" className="-ml-2 text-muted-foreground">
+            <Info className="size-4" />
+            {copy.setupDetails}
+            <ChevronDown className="size-4" />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="rounded-lg border bg-muted/15 p-4 text-sm leading-relaxed text-muted-foreground">
+            {copy.setupDetailsDescription}
+            {data.initialization?.issueCode && (
+              <p className="mt-2">{copy.reviewIssue}: <code>{data.initialization.issueCode}</code></p>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{copy.addProviderTitle}</DialogTitle>
             <DialogDescription>{copy.addProviderDescription}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="grid gap-4 py-2 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="ai-catalog-add-provider">{copy.provider}</Label>
-              <div className="relative">
-                <select
-                  id="ai-catalog-add-provider"
-                  value={resolvedAddProviderId}
-                  disabled={busy || addableProviders.length === 0}
-                  onChange={(event) => {
-                    const providerId = event.target.value;
-                    setAddProviderId(providerId);
-                    const availableScopes = availableCredentialScopesForNewProvider(draft.providers, providerId);
-                    setAddCredentialScope((current) => (
-                      availableScopes.includes(current) ? current : availableScopes[0] ?? 'organization'
-                    ));
-                  }}
-                  className={selectClassName()}
-                >
-                  <option value="" disabled>
-                    {addableProviders.length > 0 ? copy.chooseProvider : copy.noProvidersAvailable}
-                  </option>
-                  {addableProviders.map((provider) => (
-                    <option key={provider.id} value={provider.id}>{provider.name}</option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              </div>
+              <Label htmlFor="add-provider-id">{copy.provider}</Label>
+              <select
+                id="add-provider-id"
+                value={resolvedAddProviderId}
+                onChange={(event) => {
+                  const providerId = event.target.value;
+                  setAddProviderId(providerId);
+                  setAddScope(availableCredentialScopesForNewProvider(draft.providers, providerId)[0] ?? 'organization');
+                }}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                data-testid="add-provider-select"
+              >
+                <option value="" disabled>{copy.chooseProvider}</option>
+                {addableProviders.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
+              </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ai-catalog-add-scope">{copy.credentialScope}</Label>
-              <div className="relative">
-                <select
-                  id="ai-catalog-add-scope"
-                  value={resolvedAddCredentialScope ?? ''}
-                  disabled={busy || addableCredentialScopes.length === 0}
-                  onChange={(event) => setAddCredentialScope(event.target.value as AiCredentialScope)}
-                  className={selectClassName()}
-                >
-                  {addableCredentialScopes.map((scope) => (
-                    <option key={scope} value={scope}>{copy.providerCard.scope[scope]}</option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              </div>
+              <Label htmlFor="add-provider-scope">{copy.credentialScope}</Label>
+              <select
+                id="add-provider-scope"
+                value={resolvedAddScope ?? ''}
+                onChange={(event) => setAddScope(event.target.value as AiCredentialScope)}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                {addScopes.map((scope) => <option key={scope} value={scope}>{copy.providerCard.scope[scope]}</option>)}
+              </select>
             </div>
           </div>
+          {addableProviders.length === 0 && <p className="text-sm text-muted-foreground">{copy.noProvidersAvailable}</p>}
           <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline">{copy.cancel}</Button>
-            </DialogClose>
-            <Button
-              type="button"
-              disabled={busy || !resolvedAddProviderId || !resolvedAddCredentialScope}
-              onClick={addProvider}
-            >
-              <Plus className="size-4" aria-hidden="true" />
-              {copy.addProvider}
+            <DialogClose asChild><Button type="button" variant="outline">{copy.cancel}</Button></DialogClose>
+            <Button type="button" disabled={!resolvedAddProviderId || !resolvedAddScope} onClick={continueAddProvider}>
+              {copy.continue}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Card>
-          <CardHeader className="px-4 sm:px-6">
-            <div className="flex items-center gap-2">
-              <BrainCircuit className="size-5 text-muted-foreground" aria-hidden="true" />
-              <CardTitle>{copy.appDefaultTitle}</CardTitle>
-            </div>
-            <CardDescription>{copy.appDefaultDescription}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 px-4 sm:px-6">
-            {selectableDefaultProviders.length > 0 && defaultProvider && draft.defaultSelection ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="ai-catalog-default-provider">{copy.appDefaultProvider}</Label>
-                  <div className="relative">
-                    <select
-                      id="ai-catalog-default-provider"
-                      value={defaultProvider.clientKey}
-                      disabled={busy}
-                      onChange={(event) => {
-                        const provider = draft.providers.find((candidate) => candidate.clientKey === event.target.value);
-                        if (!provider) return;
-                        const modelId = provider.modelIds.includes(provider.defaultModelId)
-                          ? provider.defaultModelId
-                          : provider.modelIds[0];
-                        setDraft((current) => current ? {
-                          ...current,
-                          defaultSelection: {
-                            providerInstallationId: provider.providerInstallationId ?? '',
-                            providerId: provider.providerId,
-                            modelId,
-                            thinkingLevel: 'off',
-                          },
-                        } : current);
-                        setMessage(null);
-                        setError(null);
-                      }}
-                      className={selectClassName()}
-                    >
-                      {selectableDefaultProviders.map((provider) => (
-                        <option key={provider.clientKey} value={provider.clientKey}>
-                          {provider.name} · {copy.providerCard.scope[provider.credentialScope]}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                  </div>
-                </div>
+      <AiProviderEditorDialog
+        open={editorOpen}
+        provider={editorProvider}
+        copy={copy.editor}
+        locale={locale}
+        isNew={editorIsNew}
+        onOpenChange={setEditorOpen}
+        onSave={saveProvider}
+        onRemove={editorIsNew ? undefined : removeProvider}
+      />
 
-                <div className="space-y-2">
-                  <Label htmlFor="ai-catalog-default-model">{copy.appDefaultModel}</Label>
-                  <div className="relative">
-                    <select
-                      id="ai-catalog-default-model"
-                      value={draft.defaultSelection.modelId}
-                      disabled={busy}
-                      onChange={(event) => {
-                        const model = modelForProvider(defaultProvider, event.target.value);
-                        setDraft((current) => current?.defaultSelection ? {
-                          ...current,
-                          defaultSelection: {
-                            ...current.defaultSelection,
-                            modelId: event.target.value,
-                            thinkingLevel: model?.reasoning ? current.defaultSelection.thinkingLevel : 'off',
-                          },
-                        } : current);
-                        setMessage(null);
-                        setError(null);
-                      }}
-                      className={selectClassName()}
-                    >
-                      {defaultProvider.availableModels.filter((model) => defaultProvider.modelIds.includes(model.id)).map((model) => (
-                        <option key={model.id} value={model.id}>{model.name}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="ai-catalog-default-intelligence">{copy.intelligence}</Label>
-                  <div className="relative">
-                    <select
-                      id="ai-catalog-default-intelligence"
-                      value={draft.defaultSelection.thinkingLevel}
-                      disabled={busy || !defaultModel?.reasoning}
-                      onChange={(event) => {
-                        setDraft((current) => current?.defaultSelection ? {
-                          ...current,
-                          defaultSelection: {
-                            ...current.defaultSelection,
-                            thinkingLevel: event.target.value as PiThinkingLevel,
-                          },
-                        } : current);
-                        setMessage(null);
-                        setError(null);
-                      }}
-                      className={selectClassName()}
-                    >
-                      {(defaultModel?.reasoning ? AI_THINKING_LEVELS : ['off'] as const).map((level) => (
-                        <option key={level} value={level}>{copy.intelligenceLevel[level]}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                  </div>
-                </div>
+      <Dialog open={defaultOpen} onOpenChange={setDefaultOpen}>
+        <DialogContent data-testid="chat-default-dialog">
+          <DialogHeader>
+            <DialogTitle>{copy.defaultDialogTitle}</DialogTitle>
+            <DialogDescription>{copy.defaultDescription}</DialogDescription>
+          </DialogHeader>
+          {defaultDraft && defaultDialogProvider ? (
+            <div className="grid gap-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="default-provider">{copy.defaultProvider}</Label>
+                <select
+                  id="default-provider"
+                  value={defaultDialogProvider.clientKey}
+                  onChange={(event) => {
+                    const provider = draft.providers.find((candidate) => candidate.clientKey === event.target.value);
+                    if (!provider) return;
+                    const modelId = provider.modelIds.includes(provider.defaultModelId) ? provider.defaultModelId : provider.modelIds[0];
+                    setDefaultDraft({
+                      providerInstallationId: provider.providerInstallationId ?? '',
+                      providerId: provider.providerId,
+                      modelId,
+                      thinkingLevel: 'off',
+                    });
+                  }}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {selectableDefaultProviders.map((provider) => (
+                    <option key={provider.clientKey} value={provider.clientKey}>
+                      {provider.name} · {copy.providerCard.scope[provider.credentialScope]}
+                    </option>
+                  ))}
+                </select>
               </div>
-            ) : (
-              <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{copy.noDefaultAvailable}</p>
-            )}
-          </CardContent>
-      </Card>
-
-      <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0 text-sm text-muted-foreground">
-          {isDirty ? copy.unsaved : copy.savedState}
-        </div>
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy || !isDirty}
-            onClick={() => {
-              const nextDraft = withSuggestedDefaultSelection(catalogDataToDraft(data));
-              setDraft(nextDraft);
-              setError(null);
-              setMessage(null);
-            }}
-          >
-            <RotateCcw className="size-4" aria-hidden="true" />
-            {copy.reset}
-          </Button>
-          <Button type="button" disabled={busy || !isDirty} onClick={() => void saveCatalog()}>
-            {isSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-            {isSaving ? copy.saving : copy.save}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AiProvidersModelsPanelSkeleton({ label, className }: { label: string; className?: string }) {
-  return (
-    <div className={cn('space-y-4', className)} aria-busy="true" aria-label={label}>
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <Skeleton className="size-10 rounded-xl" />
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-5 w-52" />
-              <Skeleton className="h-4 max-w-2xl" />
+              <div className="space-y-2">
+                <Label htmlFor="default-model">{copy.defaultModel}</Label>
+                <select
+                  id="default-model"
+                  value={defaultDraft.modelId}
+                  onChange={(event) => {
+                    const model = modelForProvider(defaultDialogProvider, event.target.value);
+                    setDefaultDraft((current) => current ? {
+                      ...current,
+                      modelId: event.target.value,
+                      thinkingLevel: model?.reasoning ? current.thinkingLevel : 'off',
+                    } : current);
+                  }}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {defaultDialogProvider.availableModels
+                    .filter((model) => defaultDialogProvider.modelIds.includes(model.id))
+                    .map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="default-intelligence">{copy.intelligence}</Label>
+                <select
+                  id="default-intelligence"
+                  value={defaultDraft.thinkingLevel}
+                  disabled={!defaultDialogModel?.reasoning}
+                  onChange={(event) => setDefaultDraft((current) => current ? {
+                    ...current,
+                    thinkingLevel: event.target.value as PiThinkingLevel,
+                  } : current)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
+                >
+                  {(defaultDialogModel?.reasoning ? AI_THINKING_LEVELS : ['off'] as const)
+                    .map((level) => <option key={level} value={level}>{copy.intelligenceLevel[level]}</option>)}
+                </select>
+              </div>
             </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Skeleton className="h-20" />
-          <Skeleton className="h-8 w-48" />
-        </CardContent>
-      </Card>
-      <div className="grid gap-3 xl:grid-cols-2">
-        <Skeleton className="h-56" />
-        <Skeleton className="h-56" />
-      </div>
-      <span className="sr-only">{label}</span>
+          ) : (
+            <p className="text-sm text-muted-foreground">{copy.defaultEmpty}</p>
+          )}
+          <DialogFooter>
+            <DialogClose asChild><Button type="button" variant="outline">{copy.cancel}</Button></DialogClose>
+            <Button type="button" disabled={!defaultDraft || busyAction !== null} onClick={() => void saveDefault()}>
+              {busyAction === 'default' && <Loader2 className="size-4 animate-spin" />}
+              {copy.saveDefault}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

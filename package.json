@@ -101,6 +101,7 @@
     "test:agent:model-probe": "tsx --conditions react-server scripts/agent-model-probe-test.ts",
     "test:agent:provider-verification": "tsx --conditions react-server scripts/agent-runtime-provider-verification-test.ts",
     "test:agent:ollama-setup": "tsx --conditions react-server scripts/ollama-provider-setup-test.ts",
+    "test:agent:runtime-settings-ui": "tsx scripts/agent-runtime-settings-ui-test.ts",
     "test:agent:tools-route": "tsx --conditions react-server scripts/agent-tools-route-test.ts",
     "test:agent:access": "tsx --conditions react-server scripts/agent-access-service-test.ts",
     "test:agent:bradley-display-name": "tsx --conditions react-server scripts/agent-display-name-migration-test.ts",

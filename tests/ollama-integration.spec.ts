@@ -1,202 +1,127 @@
-import { test, expect, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
-const TEST_EMAIL = process.env.E2E_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
-const TEST_PASSWORD = process.env.E2E_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
+const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
+const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
-/**
- * Ollama Provider Integration Tests
- * 
- * These tests verify that:
- * 1. Ollama appears in the provider discovery list
- * 2. Ollama models are correctly listed
- * 3. Provider help documentation is available
- * 4. Configuration can be saved with Ollama provider
- */
+async function login(page: Page) {
+  await page.goto('/en/login');
+  await page.getByRole('textbox', { name: /email/i }).fill(TEST_EMAIL);
+  await page.getByRole('textbox', { name: 'Password', exact: true }).fill(TEST_PASSWORD);
+  await page.locator('button[type="submit"]').click();
+  await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 });
+}
 
-test.describe('Ollama Provider Integration', () => {
-  async function ensureLoggedIn(page: Page) {
-    if (!page.url().includes('/login')) {
-      return;
-    }
+async function openProviderSettings(page: Page) {
+  await login(page);
+  await page.goto('/en/settings?tab=ai-providers');
+  await expect(page.getByRole('heading', { name: 'AI providers & models' })).toBeVisible();
+  await expect(page.getByTestId('chat-default-card')).toBeVisible();
+}
 
-    await page.getByPlaceholder('Enter email').fill(TEST_EMAIL);
-    await page.getByPlaceholder('Enter password').fill(TEST_PASSWORD);
-    await page.getByRole('button', { name: 'Login' }).click();
-    await page.waitForURL((url) => !url.pathname.includes('/login'));
-  }
+test.describe('Ollama provider setup', () => {
+  test.setTimeout(90_000);
 
-  async function openAgentSettings(page: Page) {
-    await page.goto('/settings');
-    await ensureLoggedIn(page);
-    if (!page.url().includes('/settings')) {
-      await page.goto('/settings?tab=agent-settings');
-    }
-    await page.waitForURL(/\/settings/);
-    await page.waitForSelector('text=Agent Settings');
-    const agentSettingsTab = page.locator('text=Agent Settings').first();
-    await agentSettingsTab.click();
-    await page.waitForSelector('[data-testid="provider-select"]');
-  }
+  test('uses a progressive setup dialog with discovered and custom models', async ({ page }, testInfo) => {
+    await page.route('**/api/admin/agent-runtime/providers/ollama/discover', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            serverUrl: 'http://ollama:11434',
+            models: [
+              { id: 'qwen2.5:7b', name: 'qwen2.5:7b' },
+              { id: 'team/model:latest', name: 'team/model:latest' },
+            ],
+          },
+        }),
+      });
+    });
 
-  test('Ollama provider appears in discovery list', async ({ page }) => {
-    await openAgentSettings(page);
+    await openProviderSettings(page);
 
-    // Check if 'ollama' is in the provider dropdown
-    const providerSelect = page.getByTestId('provider-select');
-    const options = await providerSelect.locator('option').allTextContents();
+    const defaultCard = page.getByTestId('chat-default-card');
+    const providerHeading = page.getByRole('heading', { name: 'Providers', exact: true });
+    const [defaultBox, providerBox] = await Promise.all([
+      defaultCard.boundingBox(),
+      providerHeading.boundingBox(),
+    ]);
+    expect(defaultBox).not.toBeNull();
+    expect(providerBox).not.toBeNull();
+    expect(defaultBox!.y).toBeLessThan(providerBox!.y);
 
-    expect(options).toContain('ollama');
+    await page.getByRole('button', { name: 'Add provider' }).click();
+    await page.getByTestId('add-provider-select').selectOption('ollama');
+    await page.locator('#add-provider-scope').selectOption('organization');
+    await page.getByRole('button', { name: 'Continue to setup' }).click();
+
+    const dialog = page.getByTestId('provider-editor-dialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('1', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('2', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('3', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('ollama-server-url')).toHaveValue('http://localhost:11434');
+    await expect(page.getByTestId('provider-model-list')).toHaveCount(0);
+    await expect(dialog.getByText('Test the connection to load models from this Ollama server.').first()).toBeVisible();
+
+    await page.getByTestId('ollama-server-url').fill('http://ollama:11434/v1');
+    await page.getByTestId('ollama-discover-models').click();
+    await expect(dialog.getByText(/2 models found/)).toBeVisible();
+    await expect(dialog.getByText('qwen2.5:7b', { exact: true }).first()).toBeVisible();
+
+    await page.getByTestId('provider-custom-model-input').fill('research/custom:latest');
+    await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+    await dialog.getByRole('checkbox', { name: /research\/custom:latest/ }).check();
+    await page.getByTestId('provider-enabled-switch').click();
+
+    await expect(page.getByTestId('provider-save')).toBeEnabled();
+    await page.screenshot({ path: testInfo.outputPath('ollama-provider-dialog-desktop.png'), fullPage: false });
+    await page.getByTestId('provider-save').click();
+
+    const summary = page.getByTestId('provider-summary-ollama-organization');
+    await expect(summary).toBeVisible();
+    await expect(summary).toContainText('research/custom:latest');
+    await expect(summary).toContainText('http://ollama:11434');
+
+    await defaultCard.getByRole('button', { name: 'Edit' }).click();
+    const defaultDialog = page.getByTestId('chat-default-dialog');
+    await expect(defaultDialog).toBeVisible();
+    await expect(defaultDialog.locator('#default-model')).toHaveValue('research/custom:latest');
+    await defaultDialog.getByRole('button', { name: 'Save default' }).click();
+    await expect(defaultCard).toContainText('Ollama · research/custom:latest');
+
+    await summary.getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByTestId('provider-editor-dialog').getByText('research/custom:latest', { exact: true }).first()).toBeVisible();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByTestId('provider-editor-dialog')).toBeVisible();
+    await page.waitForTimeout(350);
+    const dialogMetrics = await page.getByTestId('provider-editor-dialog').evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: rect.left,
+        right: rect.right,
+        viewportWidth: window.innerWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      };
+    });
+    await page.screenshot({ path: testInfo.outputPath('ollama-provider-dialog-mobile.png'), fullPage: false });
+    expect(dialogMetrics.left).toBeGreaterThanOrEqual(0);
+    expect(dialogMetrics.right).toBeLessThanOrEqual(dialogMetrics.viewportWidth);
+    expect(dialogMetrics.scrollWidth).toBeLessThanOrEqual(dialogMetrics.viewportWidth);
   });
 
-  test('Ollama models are displayed when provider is selected', async ({ page }) => {
-    await openAgentSettings(page);
+  test('keeps the provider overview compact and the default card first', async ({ page }, testInfo) => {
+    await openProviderSettings(page);
+    await expect(page.getByText('The overview shows current state only. Edit connection, models, and access in the dialog.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add provider' })).toBeVisible();
 
-    // Select Ollama provider
-    const providerSelect = page.getByTestId('provider-select');
-    await providerSelect.selectOption('ollama');
-
-    const modelSelect = page.getByTestId('model-select');
-    const modelOptions = await modelSelect.locator('option').allTextContents();
-
-    // Verify expected models are available
-    const expectedModels = [
-      'Llama 3.1',
-      'Llama 3.2',
-      'Mistral',
-      'Qwen 2.5 Coder 32B',
-      'DeepSeek R1 32B',
-      'GLM-4',
-      'Kimi K2.5'
-    ];
-    
-    for (const modelName of expectedModels) {
-      const hasModel = modelOptions.some(option => 
-        option.toLowerCase().includes(modelName.toLowerCase())
-      );
-      expect(hasModel, `Expected model "${modelName}" to be available`).toBeTruthy();
-    }
-  });
-
-  test('Ollama provider help section is displayed', async ({ page }) => {
-    await openAgentSettings(page);
-
-    // Select Ollama provider
-    const providerSelect = page.getByTestId('provider-select');
-    await providerSelect.selectOption('ollama');
-
-    // Click on the collapsible help section
-    const helpTrigger = page.locator('text=Ollama - Konfiguration').first();
-    await helpTrigger.click();
-    
-    // Wait for help content to expand
-    await page.waitForSelector('text=Local & Remote LLM');
-    
-    // Verify key sections are present
-    await expect(page.locator('text=Einrichtung:')).toBeVisible();
-    await expect(page.locator('text=API-Keys konfigurieren:')).toBeVisible();
-    await expect(page.locator('text=CLI-Befehle:')).toBeVisible();
-    await expect(page.locator('text=Hinweise:')).toBeVisible();
-    
-    // Check for specific Ollama CLI commands
-    await expect(page.locator('text=ollama pull llama3.1')).toBeVisible();
-    await expect(page.locator('text=ollama serve')).toBeVisible();
-    await expect(page.locator('text=ollama list')).toBeVisible();
-    
-    // Check for cloud model references
-    await expect(page.locator('text=GLM 4.6')).toBeVisible();
-    await expect(page.locator('text=Kimi K2.5')).toBeVisible();
-    await expect(page.locator('text=Qwen 3.5')).toBeVisible();
-  });
-
-  test('Ollama configuration can be saved', async ({ page }) => {
-    await openAgentSettings(page);
-
-    // Select Ollama provider
-    const providerSelect = page.getByTestId('provider-select');
-    await providerSelect.selectOption('ollama');
-
-    // Select a model
-    const modelSelect = page.getByTestId('model-select');
-    await modelSelect.selectOption('llama3.1');
-    
-    // Set thinking level
-    const thinkingSelect = page.locator('select').filter({ hasText: /off|minimal|low|medium|high/i }).first();
-    if (await thinkingSelect.isVisible()) {
-      await thinkingSelect.selectOption('medium');
-    }
-    
-    // Click save button
-    const saveButton = page.locator('button:has-text("Einstellungen speichern")');
-    await saveButton.click();
-    
-    // Wait for success message
-    await expect(page.locator('text=Agent-Konfiguration gespeichert.')).toBeVisible({ timeout: 5000 });
-    
-    // Verify the configuration was saved by reloading
-    await page.reload();
-    await page.waitForSelector('text=Agent Settings');
-    
-    // Check that Ollama is still selected
-    const providerValue = await providerSelect.inputValue();
-    expect(providerValue).toBe('ollama');
-  });
-
-  test('Provider help shows Ollama specific environment variables', async ({ page }) => {
-    await openAgentSettings(page);
-
-    // Select Ollama provider
-    const providerSelect = page.getByTestId('provider-select');
-    await providerSelect.selectOption('ollama');
-    
-    // Open help section
-    const helpTrigger = page.locator('text=Ollama - Konfiguration').first();
-    await helpTrigger.click();
-    
-    // Wait for environment variables section
-    await page.waitForSelector('text=OLLAMA_API_KEY');
-    
-    // Verify environment variable descriptions
-    await expect(page.locator('text=Pflichtfeld für Ollama')).toBeVisible();
-    await expect(page.locator('text=automatisch erzeugten Zahlenketten-Fallback')).toBeVisible();
-  });
-
-  test('Ollama configuration accordion and custom model flow work in settings', async ({ page }) => {
-    await openAgentSettings(page);
-
-    await page.getByTestId('provider-select').selectOption('ollama');
-
-    await expect(page.getByTestId('model-select')).toBeVisible();
-    await expect(page.getByTestId('ollama-config-toggle')).toBeVisible();
-    await expect(page.getByTestId('ollama-server-select')).toHaveCount(0);
-
-    await page.getByTestId('ollama-config-toggle').click();
-    await expect(page.getByTestId('ollama-server-select')).toBeVisible();
-
-    await page.getByTestId('model-select').selectOption('custom');
-    await expect(page.getByTestId('ollama-custom-model-input')).toBeVisible();
-
-    await page.getByTestId('ollama-server-select').selectOption('cloud');
-    await expect(page.getByTestId('ollama-remote-url')).toBeVisible();
-  });
-
-  test('custom Ollama model requires a value before saving', async ({ page }) => {
-    await openAgentSettings(page);
-
-    await page.getByTestId('provider-select').selectOption('ollama');
-    await page.getByTestId('model-select').selectOption('custom');
-    await page.getByTestId('ollama-custom-model-input').fill('');
-
-    await page.getByRole('button', { name: 'Einstellungen speichern' }).click();
-
-    await expect(page.locator('text=Bitte trage einen Namen für das Custom Ollama Model ein.')).toBeVisible();
-  });
-
-  test('ollama api key fallback hint is visible', async ({ page }) => {
-    await openAgentSettings(page);
-
-    await page.getByTestId('provider-select').selectOption('ollama');
-    await page.locator('text=Ollama - Konfiguration').first().click();
-
-    await expect(page.locator('text=zufällige Zahlenkette')).toBeVisible();
+    const viewport = await page.evaluate(() => ({
+      width: window.innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    }));
+    expect(viewport.scrollWidth).toBeLessThanOrEqual(viewport.width);
+    await page.screenshot({ path: testInfo.outputPath('provider-overview-desktop.png'), fullPage: false });
   });
 });

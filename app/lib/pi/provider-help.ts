@@ -564,20 +564,20 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
   ollama: {
     category: 'ollama',
     title: 'Ollama',
-    shortDescription: 'Führe LLMs lokal aus oder verbinde dich mit einem Remote Ollama Server',
+    shortDescription: 'Verbinde Canvas mit einem erreichbaren Ollama-Server und wähle dessen Modelle aus',
     setupSteps: [
-      'Wähle unten zwischen "Standard (Lokal)" oder "Remote Server"',
-      'Setze OLLAMA_API_KEY auf einen beliebigen Wert oder lasse das Feld leer, damit automatisch eine zufällige Zahlenkette erzeugt wird',
-      'Bei Remote Server: Trage die URL deines Ollama Servers ein (z.B. http://192.168.1.100:11434)',
-      'Wähle ein Modell aus der Liste oder gib ein Custom Model ein',
-      'Speichere die Konfiguration',
+      'Trage die Ollama-Server-URL so ein, wie sie aus der Canvas-Runtime erreichbar ist',
+      'Hinterlege nur dann einen API-Key, wenn dein Ollama-Endpunkt einen verlangt',
+      'Teste die Verbindung, um die am Server verfügbaren Modelle zu laden',
+      'Aktiviere passende Modelle oder ergänze eigene Modell-IDs',
+      'Speichere und prüfe die Konfiguration direkt im Provider-Dialog',
     ],
     envVars: [
       {
         name: 'OLLAMA_API_KEY',
-        description: 'Pflichtfeld für Ollama. Trage einen beliebigen nicht-leeren Wert ein, oder lasse das Feld leer und nutze den automatisch erzeugten Zahlenketten-Fallback.',
+        description: 'Optionaler API-Key für geschützte Ollama-Endpunkte. Lokale Standardinstallationen benötigen normalerweise keinen Key.',
         scope: 'agents',
-        required: true
+        required: false
       },
     ],
     cliCommands: [
@@ -591,18 +591,18 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     ],
     notes: [
       'Verwende den Terminal-Button oben, um Ollama-Befehle direkt auszuführen',
-      'Standard (Lokal): Ollama läuft auf deinem Computer unter localhost:11434',
-      'Remote Server: Verbindung zu einem anderen Computer oder Cloud-Instanz',
-      'OLLAMA_API_KEY muss immer gesetzt sein; wenn nichts eingetragen ist, wird automatisch eine zufällige Zahlenkette hinterlegt',
-      'Custom Models: Wähle "Custom Model" im Dropdown, um ein nicht gelistetes Modell zu verwenden',
+      'Die Server-URL wird aus Sicht der Canvas-Runtime aufgerufen; in Containern zeigt localhost auf den Container selbst',
+      'Für Ollama im Docker-Netzwerk ist häufig eine URL wie http://ollama:11434 passend',
+      'OLLAMA_API_KEY ist optional und nur für geschützte Endpunkte erforderlich',
+      'Eigene Modell-IDs können zusätzlich zur erkannten Modellliste eingetragen werden',
       'Cloud-Modelle werden automatisch beim ersten Pull von Ollama Hub geladen',
     ],
     documentationUrl: 'https://ollama.ai/',
     ollamaModes: [
       {
         mode: 'local',
-        label: '🏠 Standard (Lokal)',
-        description: 'Ollama läuft auf deinem Computer unter localhost:11434',
+        label: '🏠 Canvas-Runtime',
+        description: 'Ollama ist aus der Canvas-Runtime unter der eingetragenen URL erreichbar',
         defaultHost: 'http://127.0.0.1:11434',
         apiKeyRequired: false,
         setupSteps: [
@@ -611,11 +611,11 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
           '  - Modell herunterladen: ollama pull llama3.1',
           '  - Server starten: ollama serve',
           'Verbindung testen: curl http://localhost:11434/api/tags',
-          'Wähle "Standard (Lokal)" als Server-Modus (keine weitere Konfiguration nötig)',
+          'Trage die aus der Canvas-Runtime erreichbare Server-URL ein',
         ],
         notes: [
           'Kein API Key erforderlich',
-          'Läuft komplett lokal auf deinem Computer',
+          'Kann komplett lokal auf derselben Maschine oder im selben Docker-Netzwerk laufen',
           'Benötigt ausreichend RAM/VRAM für die gewählten Modelle',
           'Funktioniert offline nach dem ersten Download',
           'Verwende das Terminal für alle Ollama-Befehle',
@@ -623,14 +623,14 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
       },
       {
         mode: 'cloud',
-        label: '☁️ Remote Server',
+        label: '☁️ Anderer Server',
         description: 'Verbinde dich mit einem Ollama Server im Netzwerk oder in der Cloud',
         defaultHost: '',
         apiKeyRequired: false,
         setupSteps: [
           'Stelle sicher, dass der Remote Ollama Server erreichbar ist',
           'Trage die Server-URL ein (z.B. http://192.168.1.100:11434 oder https://ollama.example.com)',
-          'Der Server muss CORS für deine Domain erlauben',
+          'Teste die Verbindung aus Canvas und prüfe die erkannte Modellliste',
           'Speichere die Konfiguration',
         ],
         notes: [
@@ -638,7 +638,7 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
           'Kein lokales Model-Pulling nötig - läuft auf dem Remote Server',
           'Server muss dauerhaft erreichbar sein',
           'Netzwerkverbindung erforderlich',
-          'Stelle sicher, dass der Remote Server CORS korrekt konfiguriert hat',
+          'Der Server muss aus dem Canvas-Netzwerk erreichbar sein',
         ],
       },
     ],

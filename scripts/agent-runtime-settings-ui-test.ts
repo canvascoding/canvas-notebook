@@ -14,6 +14,12 @@ const chatComposer = read('app/components/canvas-agent-chat/ChatComposer.tsx');
 const chatModelSelector = read('app/components/canvas-agent-chat/ChatModelSelector.tsx');
 const grantClient = read('app/lib/agent-runtime-policy/user-credential-grants-client.ts');
 const onboardingWizard = read('app/[locale]/(routes)/onboarding/onboarding-wizard.tsx');
+const providerPanel = read('app/components/settings/AiProvidersModelsPanel.tsx');
+const providerCard = read('app/components/settings/ai-runtime/AiProviderCatalogCard.tsx');
+const providerDialog = read('app/components/settings/ai-runtime/AiProviderEditorDialog.tsx');
+const providerHelp = read('app/lib/pi/provider-help.ts');
+const messagesDe = read('messages/de.json');
+const messagesEn = read('messages/en.json');
 const legacyRuntimePanelPath = path.join(root, 'app/components/settings/MyAgentRuntimePanel.tsx');
 
 assert.doesNotMatch(navigation, /value:\s*['"]my-agent-runtime['"]/u);
@@ -45,5 +51,23 @@ assert.doesNotMatch(onboardingWizard, /step === ['"]runtime['"]/u);
 assert.doesNotMatch(onboardingWizard, /MyAgentRuntimePanel/u);
 assert.match(onboardingWizard, /USER_STEPS[^\n]+\['language', 'workspace', 'profile', 'tour', 'done'\]/u);
 assert.equal(existsSync(legacyRuntimePanelPath), false);
+
+assert.match(providerPanel, /data-testid="chat-default-card"[\s\S]+aria-labelledby="provider-overview-heading"/u);
+assert.match(providerPanel, /<AiProviderEditorDialog/u);
+assert.match(providerPanel, /enabled:\s*false/u);
+assert.match(providerPanel, /modelIds:\s*\[\]/u);
+assert.doesNotMatch(providerPanel, /ollamaCustomModel:\s*['"]llama3\.1['"]/u);
+assert.match(providerCard, /data-testid=\{`provider-summary-/u);
+assert.match(providerDialog, /data-testid="provider-editor-dialog"/u);
+assert.match(providerDialog, /data-testid="ollama-server-url"/u);
+assert.match(providerDialog, /data-testid="ollama-discover-models"/u);
+assert.match(providerDialog, /data-testid="provider-custom-model-input"/u);
+assert.match(providerDialog, /data-testid="provider-save"/u);
+assert.match(providerDialog, /data-testid="provider-save-verify"/u);
+assert.match(providerDialog, /ollamaAdditionalModels/u);
+assert.match(providerDialog, /\/api\/admin\/agent-runtime\/providers\/ollama\/discover/u);
+assert.match(providerHelp, /name:\s*['"]OLLAMA_API_KEY['"][\s\S]+required:\s*false/u);
+assert.doesNotMatch(messagesDe, /zufällige Zahlenkette/u);
+assert.doesNotMatch(messagesEn, /random numeric fallback/u);
 
 console.log('agent-runtime-settings-ui-test: ok');
