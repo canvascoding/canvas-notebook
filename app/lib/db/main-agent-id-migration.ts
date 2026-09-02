@@ -9,6 +9,7 @@ type PgQueryable = {
 };
 
 type SqliteColumn = {
+  dflt_value: string | null;
   name: string;
   pk: number;
 };
@@ -34,6 +35,54 @@ function sqliteTableExists(sqlite: InstanceType<typeof Database>, tableName: str
   ).get(tableName));
 }
 
+function migrateSqliteAgentIdentityDefaults(sqlite: InstanceType<typeof Database>): void {
+  const tables = sqlite.prepare(`
+    SELECT name, sql
+    FROM sqlite_schema
+    WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND sql IS NOT NULL
+    ORDER BY name
+  `).all() as Array<{ name: string; sql: string }>;
+  const updatedSchemas: Array<{ name: string; sql: string }> = [];
+
+  for (const table of tables) {
+    const columns = sqlite.prepare(
+      `PRAGMA table_info(${quoteSqliteIdentifier(table.name)})`,
+    ).all() as SqliteColumn[];
+    const hasLegacyDefault = columns.some((column) => (
+      isAgentIdentityColumn(column.name)
+      && column.dflt_value?.replaceAll('"', "'") === `'${LEGACY_MAIN_AGENT_ID}'`
+    ));
+    if (!hasLegacyDefault) continue;
+
+    const sql = table.sql.replace(
+      /(\bDEFAULT\s+)["']canvas-agent["']/giu,
+      `$1'${MAIN_AGENT_ID}'`,
+    );
+    if (sql === table.sql) {
+      throw new Error(`Could not migrate the legacy main-agent default in SQLite table ${table.name}.`);
+    }
+    updatedSchemas.push({ name: table.name, sql });
+  }
+
+  if (updatedSchemas.length === 0) return;
+
+  const schemaVersion = sqlite.pragma('schema_version', { simple: true }) as number;
+  sqlite.unsafeMode(true);
+  try {
+    sqlite.pragma('writable_schema = ON');
+    const updateSchema = sqlite.prepare(
+      "UPDATE sqlite_schema SET sql = ? WHERE type = 'table' AND name = ?",
+    );
+    for (const table of updatedSchemas) {
+      updateSchema.run(table.sql, table.name);
+    }
+    sqlite.pragma(`schema_version = ${schemaVersion + 1}`);
+  } finally {
+    sqlite.pragma('writable_schema = OFF');
+    sqlite.unsafeMode(false);
+  }
+}
+
 /**
  * Moves every persisted reference to the canonical Bradley ID in one SQLite
  * transaction. The legacy value remains accepted at API boundaries, but is
@@ -41,6 +90,20 @@ function sqliteTableExists(sqlite: InstanceType<typeof Database>, tableName: str
  */
 export function migrateSqliteMainAgentId(sqlite: InstanceType<typeof Database>): void {
   if (!sqliteTableExists(sqlite, 'agents')) return;
+
+  const existingCanonicalAgent = sqlite.prepare(
+    'SELECT type FROM agents WHERE agent_id = ? LIMIT 1',
+  ).get(MAIN_AGENT_ID) as SqliteAgentRow | undefined;
+  if (existingCanonicalAgent && existingCanonicalAgent.type !== 'main') {
+    throw new Error(
+      `Cannot migrate the main agent to ${MAIN_AGENT_ID}: that ID belongs to a non-main agent.`,
+    );
+  }
+
+  // writable_schema changes are ignored inside an active transaction. Perform
+  // the guarded default rewrite first; legacy rows still remain valid if the
+  // following data transaction encounters an unrelated failure.
+  migrateSqliteAgentIdentityDefaults(sqlite);
 
   sqlite.transaction(() => {
     const legacyAgent = sqlite.prepare(
