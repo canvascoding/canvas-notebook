@@ -1,4 +1,5 @@
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { normalizeMainAgentIdAlias } from '@/app/lib/agents/main-agent';
 import { safeFetchJson } from '@/app/lib/chat/fetch-json';
 
 type UserPreferencesResponse = {
@@ -13,7 +14,7 @@ const MANAGED_AGENT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
 export function normalizeStoredAgentId(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
-  return MANAGED_AGENT_ID_PATTERN.test(normalized) ? normalized : null;
+  return MANAGED_AGENT_ID_PATTERN.test(normalized) ? normalizeMainAgentIdAlias(normalized) : null;
 }
 
 export async function fetchLastActiveAgentId(): Promise<string> {

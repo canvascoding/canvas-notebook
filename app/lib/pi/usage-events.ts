@@ -6,6 +6,7 @@ import { and, desc, eq, gt } from 'drizzle-orm';
 
 import { db } from '../db';
 import { piSessions, piUsageEvents } from '../db/schema';
+import { DEFAULT_MANAGED_AGENT_ID } from '../agents/storage';
 
 type PersistPiUsageEventsParams = {
   sessionId: string;
@@ -85,7 +86,7 @@ export function extractPiUsageEventValues(params: {
       organizationId: params.organizationId ?? null,
       workspaceId: params.workspaceId ?? null,
       workspaceType: params.workspaceType ?? null,
-      agentId: params.agentId ?? 'canvas-agent',
+      agentId: params.agentId ?? DEFAULT_MANAGED_AGENT_ID,
       sessionId: params.sessionId,
       provider: message.provider,
       model: message.model,
@@ -123,7 +124,7 @@ async function loadSessionUsageContext(sessionId: string, userId: string): Promi
     organizationId: session?.organizationId ?? null,
     workspaceId: session?.workspaceId ?? null,
     workspaceType: session?.workspaceType ?? null,
-    agentId: session?.agentId ?? 'canvas-agent',
+    agentId: session?.agentId ?? DEFAULT_MANAGED_AGENT_ID,
   };
 }
 

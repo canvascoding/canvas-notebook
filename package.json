@@ -98,7 +98,7 @@
     "test:agent:bradley-display-name": "tsx --conditions react-server scripts/agent-display-name-migration-test.ts",
     "test:agent:bradley-fallbacks": "tsx scripts/agent-display-fallbacks-test.ts",
     "test:agent:bradley-copy": "tsx scripts/bradley-visible-copy-test.ts",
-    "test:agent:bradley-stability": "tsx --conditions react-server scripts/bradley-runtime-stability-test.ts && npm run test:agent:tools-route && npm run test:agent:bradley-display-name",
+    "test:agent:bradley-stability": "tsx --conditions react-server scripts/bradley-runtime-stability-test.ts && tsx --conditions react-server scripts/bradley-agent-id-sqlite-migration-test.ts && tsx scripts/bradley-agent-id-postgres-migration-test.ts && npm run test:agent:tools-route && npm run test:agent:bradley-display-name",
     "test:agent:bradley-selector": "tsx scripts/bradley-agent-selector-contract-test.ts",
     "test:agent:bradley-glyph": "tsx scripts/bradley-glyph-ui-test.tsx && npm run test:agent:bradley-selector",
     "test:agent:bradley-working-state": "tsx scripts/bradley-working-state-test.tsx && tsx scripts/bradley-abort-transition-test.ts && npm run test:agent:bradley-glyph",

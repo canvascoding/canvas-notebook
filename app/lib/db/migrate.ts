@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 
+import { migrateSqliteMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 
 export const TEAM_SEAT_LEGACY_MIGRATION_KEY = 'team-seat-memberships-v1';
@@ -1012,7 +1013,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       organization_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       workspace_id TEXT NOT NULL,
-      agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
+      agent_id TEXT NOT NULL DEFAULT 'bradley',
       provider_installation_id TEXT NOT NULL,
       provider_id TEXT NOT NULL,
       model_id TEXT NOT NULL,
@@ -1063,7 +1064,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       session_id TEXT NOT NULL,
       client_request_id TEXT,
       user_id TEXT NOT NULL,
-      agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
+      agent_id TEXT NOT NULL DEFAULT 'bradley',
       provider TEXT NOT NULL,
       model TEXT NOT NULL,
       thinking_level TEXT,
@@ -1199,7 +1200,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       project_id TEXT,
       workspace_id TEXT,
       workspace_type TEXT,
-      agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
+      agent_id TEXT NOT NULL DEFAULT 'bradley',
       session_id TEXT NOT NULL,
       provider TEXT NOT NULL,
       model TEXT NOT NULL,
@@ -1615,7 +1616,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       last_run_at INTEGER,
       last_run_status TEXT,
       created_by_user_id TEXT NOT NULL,
-      agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
+      agent_id TEXT NOT NULL DEFAULT 'bradley',
       delivery_mode TEXT NOT NULL DEFAULT 'web',
       delivery_channel_id TEXT,
       delivery_session_mode TEXT NOT NULL DEFAULT 'new_session',
@@ -2822,7 +2823,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   `);
 
   addColumns(sqlite, 'pi_sessions', {
-    agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
+    agent_id: "TEXT NOT NULL DEFAULT 'bradley'",
     channel_id: "TEXT NOT NULL DEFAULT 'app'",
     channel_session_key: 'TEXT',
     system_prompt_snapshot: 'TEXT',
@@ -2964,7 +2965,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     project_id: 'TEXT',
     workspace_id: 'TEXT',
     workspace_type: 'TEXT',
-    agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
+    agent_id: "TEXT NOT NULL DEFAULT 'bradley'",
   });
 
   addColumns(sqlite, 'automation_jobs', {
@@ -2980,7 +2981,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     service_actor_id: 'TEXT',
     approved_by_user_id: 'TEXT',
     last_edited_by_user_id: 'TEXT',
-    agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
+    agent_id: "TEXT NOT NULL DEFAULT 'bradley'",
     delivery_mode: "TEXT NOT NULL DEFAULT 'web'",
     delivery_channel_id: 'TEXT',
     delivery_session_mode: "TEXT NOT NULL DEFAULT 'new_session'",
@@ -3174,7 +3175,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
           AND s.user_id = pi_usage_events.user_id
         ORDER BY s.updated_at DESC
         LIMIT 1
-      ), NULLIF(agent_id, ''), 'canvas-agent')
+      ), NULLIF(agent_id, ''), 'bradley')
     WHERE organization_id IS NULL
       OR workspace_id IS NULL
       OR workspace_type IS NULL
@@ -3385,7 +3386,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS channel_active_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       user_id TEXT NOT NULL,
-      agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
+      agent_id TEXT NOT NULL DEFAULT 'bradley',
       channel_id TEXT NOT NULL,
       channel_session_key TEXT NOT NULL,
       channel_thread_key TEXT NOT NULL DEFAULT '',
@@ -3435,7 +3436,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     next_attempt_at: 'INTEGER',
   });
   addColumns(sqlite, 'channel_active_sessions', {
-    agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
+    agent_id: "TEXT NOT NULL DEFAULT 'bradley'",
   });
   addColumns(sqlite, 'user', {
     banned: 'INTEGER',
@@ -3447,7 +3448,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   });
   sqlite.exec(`
     UPDATE channel_active_sessions
-    SET agent_id = 'canvas-agent'
+    SET agent_id = 'bradley'
     WHERE agent_id IS NULL OR agent_id = '';
 
     UPDATE channel_active_sessions
@@ -3492,10 +3493,12 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       ON channel_active_sessions (user_id, agent_id, channel_id, channel_session_key, channel_thread_key);
   `);
 
+  migrateSqliteMainAgentId(sqlite);
+
   const now = Date.now();
   sqlite.prepare(`
     INSERT OR IGNORE INTO agents (agent_id, name, type, removable, created_at, updated_at)
-    VALUES ('canvas-agent', 'Bradley', 'main', 0, ?, ?)
+    VALUES ('bradley', 'Bradley', 'main', 0, ?, ?)
   `).run(now, now);
 
   sqlite.prepare(`
@@ -3601,7 +3604,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     )
     SELECT
       user_id,
-      'canvas-agent',
+      'bradley',
       'telegram',
       'telegram:' || chat_id,
       '',

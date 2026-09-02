@@ -4,6 +4,7 @@ import type { Stats } from 'node:fs';
 import path from 'node:path';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { logger } from '@/app/lib/logging';
 import {
@@ -592,7 +593,7 @@ function collaborativeAgentExcalidrawContext(fullPath: string): {
 function collaborationAgentIdentity(executionContext: AgentExecutionContext) {
   return {
     initiatedByUserId: executionContext.userId,
-    actorId: executionContext.agentId || 'canvas-agent',
+    actorId: executionContext.agentId || DEFAULT_MANAGED_AGENT_ID,
     actorDisplayName: getAgentDisplayName(executionContext.agentId),
     actorSessionId: executionContext.sessionId,
   };
@@ -664,7 +665,7 @@ export async function editAgentExcalidrawScene(params: {
     observedSceneSequence: params.observedSceneSequence,
     actions: params.actions,
     initiatedByUserId: collaboration.executionContext.userId,
-    actorId: collaboration.executionContext.agentId || 'canvas-agent',
+    actorId: collaboration.executionContext.agentId || DEFAULT_MANAGED_AGENT_ID,
     idempotencyKey: params.idempotencyKey,
   });
 }

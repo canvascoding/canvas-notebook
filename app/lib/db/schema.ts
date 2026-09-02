@@ -1,5 +1,6 @@
 import { desc, sql } from "drizzle-orm";
 import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey, check, customType } from "drizzle-orm/sqlite-core";
+import { MAIN_AGENT_ID } from '@/app/lib/agents/main-agent';
 
 // OAuth metadata is stored in text columns on both SQLite and PostgreSQL. A
 // plain `$type<T>()` only affects TypeScript; PostgreSQL otherwise persists
@@ -1105,7 +1106,7 @@ export const aiUserModelPreferences = sqliteTable("ai_user_model_preferences", {
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
   workspaceId: text("workspace_id").notNull().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
-  agentId: text("agent_id").notNull().default("canvas-agent"),
+  agentId: text("agent_id").notNull().default(MAIN_AGENT_ID),
   providerInstallationId: text("provider_installation_id").notNull(),
   providerId: text("provider_id").notNull(),
   modelId: text("model_id").notNull(),
@@ -1172,7 +1173,7 @@ export const piSessions = sqliteTable("pi_sessions", {
   sessionId: text("session_id").notNull(),
   clientRequestId: text("client_request_id"),
   userId: text("user_id").notNull().references(() => user.id),
-  agentId: text("agent_id").notNull().default('canvas-agent'),
+  agentId: text("agent_id").notNull().default(MAIN_AGENT_ID),
   provider: text("provider").notNull(),
   model: text("model").notNull(),
   thinkingLevel: text("thinking_level"),
@@ -1558,7 +1559,7 @@ export const piUsageEvents = sqliteTable("pi_usage_events", {
   projectId: text("project_id"),
   workspaceId: text("workspace_id"),
   workspaceType: text("workspace_type"),
-  agentId: text("agent_id").notNull().default('canvas-agent'),
+  agentId: text("agent_id").notNull().default(MAIN_AGENT_ID),
   sessionId: text("session_id").notNull(),
   provider: text("provider").notNull(),
   model: text("model").notNull(),
@@ -1917,7 +1918,7 @@ export const automationJobs = sqliteTable("automation_jobs", {
   lastRunAt: integer("last_run_at", { mode: "timestamp" }),
   lastRunStatus: text("last_run_status"),
   createdByUserId: text("created_by_user_id").notNull().references(() => user.id),
-  agentId: text("agent_id").notNull().default('canvas-agent'),
+  agentId: text("agent_id").notNull().default(MAIN_AGENT_ID),
   deliveryMode: text("delivery_mode").notNull().default('web'),
   deliveryChannelId: text("delivery_channel_id"),
   deliverySessionMode: text("delivery_session_mode").notNull().default('new_session'),
@@ -2403,7 +2404,7 @@ export const sessionChannelLinks = sqliteTable("session_channel_links", {
 export const channelActiveSessions = sqliteTable("channel_active_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userId: text("user_id").notNull().references(() => user.id),
-  agentId: text("agent_id").notNull().default('canvas-agent'),
+  agentId: text("agent_id").notNull().default(MAIN_AGENT_ID),
   channelId: text("channel_id").notNull(),
   channelSessionKey: text("channel_session_key").notNull(),
   channelThreadKey: text("channel_thread_key").notNull().default(''),

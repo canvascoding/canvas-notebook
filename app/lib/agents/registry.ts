@@ -7,7 +7,7 @@ import { agents, piSessions } from '@/app/lib/db/schema';
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ICON_ID, normalizeAgentIconId, type AgentIconId } from './icons';
-import { MAIN_AGENT_DISPLAY_NAME } from './main-agent';
+import { MAIN_AGENT_DISPLAY_NAME, normalizeMainAgentIdAlias } from './main-agent';
 import { DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID, SYSTEM_MANAGED_AGENT_IDS } from './storage';
 import { EMAIL_AGENT_DEFAULT_ENABLED_TOOLS } from '../pi/email-agent-policy';
 import { DISABLED_ALL_TOOLS_SENTINEL } from '../pi/enabled-tools';
@@ -124,7 +124,7 @@ export function normalizeManagedAgentId(agentId?: string | null): string {
   if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(normalized)) {
     throw new Error('Invalid agentId.');
   }
-  return normalized;
+  return normalizeMainAgentIdAlias(normalized);
 }
 
 function mapAgent(row: typeof agents.$inferSelect): AgentProfile {
