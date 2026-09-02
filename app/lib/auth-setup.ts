@@ -14,6 +14,7 @@ import { openDb } from '@/app/lib/db';
 import { coerceDatabaseUnavailableError } from '@/app/lib/db/errors';
 import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
 import {
+  assertSqliteRuntimeAllowed,
   getDatabaseProviderProblemMessages,
   getDatabaseProvider,
   resolveDatabaseProviderGate,
@@ -113,6 +114,7 @@ function validateInitialOwnerInput(input: unknown): ValidationResult {
 }
 
 function openSetupDatabase() {
+  assertSqliteRuntimeAllowed('open the authentication setup database');
   const BetterSqlite3 = loadBetterSqlite3();
   const sqlitePath = getSqlitePath();
   let sqlite: Database.Database | null = null;

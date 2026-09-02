@@ -122,6 +122,13 @@ export function getDatabaseProvider(): DatabaseProvider {
   return normalizeDatabaseProvider(process.env.CANVAS_DATABASE_PROVIDER);
 }
 
+export function assertSqliteRuntimeAllowed(operation: string): void {
+  if (getDatabaseProvider() !== 'postgres') return;
+  throw new Error(
+    `Postgres runtime cannot ${operation} through SQLite. Use the Postgres repository or the explicit offline migration tool.`,
+  );
+}
+
 export function resolveDatabaseProviderConfig(): DatabaseProviderConfig {
   const requestedProvider = normalizeEnvValue(process.env.CANVAS_DATABASE_PROVIDER);
   const provider = normalizeDatabaseProvider(requestedProvider);

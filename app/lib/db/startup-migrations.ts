@@ -7,12 +7,14 @@ import {
   runPostgresMigrations,
 } from './postgres';
 import {
+  assertSqliteRuntimeAllowed,
   getDatabaseProvider,
   resolveSqlitePath,
 } from './provider';
 import { loadBetterSqlite3 } from './optional-sqlite';
 
 function runSqliteBootstrapMigrations(): void {
+  assertSqliteRuntimeAllowed('run startup migrations');
   const BetterSqlite3 = loadBetterSqlite3();
   const databasePath = resolveSqlitePath();
   mkdirSync(path.dirname(databasePath), { recursive: true });

@@ -327,6 +327,7 @@
     "test:channels:db": "tsx --conditions react-server scripts/channel-db-test.ts",
     "test:channels:runtime": "tsx --conditions react-server scripts/channel-session-runtime-test.ts",
     "test:startup-runtime": "node scripts/next-startup-runtime-test.mjs",
+    "test:db:postgres-no-sqlite": "tsx --conditions react-server scripts/postgres-runtime-sqlite-guard-test.ts",
     "test:notifications:preview": "tsx scripts/notification-preview-test.ts",
     "test:sessions:read-state": "tsx scripts/session-read-state-test.ts",
     "test:todos:store": "tsx --conditions react-server scripts/todo-store-test.ts",

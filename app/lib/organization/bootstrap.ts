@@ -14,6 +14,7 @@ import {
   isDatabaseUnavailableError,
 } from '@/app/lib/db/errors';
 import {
+  assertSqliteRuntimeAllowed,
   type DatabaseProvider,
   getDatabaseProvider as resolveConfiguredDatabaseProvider,
   getDatabaseProviderProblemMessages,
@@ -621,6 +622,7 @@ export function getOrganizationPermissionForUser(
 }
 
 export function openOrganizationBootstrapDatabase(): Database.Database {
+  assertSqliteRuntimeAllowed('open the organization bootstrap database');
   const BetterSqlite3 = loadBetterSqlite3();
   const sqlitePath = resolveSqlitePath();
   let sqlite: Database.Database | null = null;

@@ -9,7 +9,7 @@ import { requireAgentAccess } from '@/app/lib/agents/access';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { db } from '@/app/lib/db';
 import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
+import { assertSqliteRuntimeAllowed, getDatabaseProvider } from '@/app/lib/db/provider';
 import { piSessions } from '@/app/lib/db/schema';
 import { resolveEffectiveSkillReadRoots } from '@/app/lib/skills/effective-skill-read-roots';
 import {
@@ -81,6 +81,7 @@ const DEFAULT_AGENT_SESSION_PERMISSIONS: WorkspacePermissionRequirement[] = ['ca
 let workspaceContextDatabase: { sqlitePath: string; sqlite: Database.Database } | null = null;
 
 function openWorkspaceContextDatabase(): Database.Database {
+  assertSqliteRuntimeAllowed('open the agent workspace context database');
   const sqlitePath = path.join(resolveWorkspaceDataRoot(), 'sqlite.db');
   if (workspaceContextDatabase?.sqlitePath === sqlitePath && workspaceContextDatabase.sqlite.open) {
     return workspaceContextDatabase.sqlite;
