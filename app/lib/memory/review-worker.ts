@@ -26,6 +26,7 @@ import {
   type MemoryReviewScopeContext,
 } from './service';
 import { MEMORY_MANAGER_AGENT_ID } from './constants';
+import { memoryReviewErrorCode, selectMemoryReviewThinkingLevel } from './review-runtime';
 
 export { MEMORY_MANAGER_AGENT_ID } from './constants';
 
@@ -157,11 +158,6 @@ function parseCandidates(response: string): MemoryReviewCandidate[] {
   }).slice(0, 20);
 }
 
-function errorCode(error: unknown): string {
-  if (error instanceof Error && error.name) return error.name.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 80);
-  return 'memory_review_failed';
-}
-
 async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
   try {
     await ensureMemoryManagerAgent();
@@ -187,6 +183,13 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
       await parkMemoryReviewJob(claim.id, 'provider_or_model_unavailable');
       return;
     }
+    const configuredModel = provider.models.find((candidate) => candidate.id === claim.modelId)
+      ?? (claim.modelId.endsWith(':cloud')
+        ? provider.models.find((candidate) => candidate.id === claim.modelId.slice(0, -':cloud'.length))
+        : undefined);
+    if (!configuredModel) {
+      throw new Error('Configured memory manager model is unavailable.');
+    }
     const runtime = await resolveExecutableAgentRuntime({
       organizationId: claim.organizationId,
       userId: claim.userId,
@@ -199,7 +202,7 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
         providerInstallationId: claim.providerInstallationId,
         providerId: provider.providerId,
         modelId: claim.modelId,
-        thinkingLevel: 'minimal',
+        thinkingLevel: selectMemoryReviewThinkingLevel(configuredModel.thinkingLevels),
       },
     });
     const [sourceMessages, existing, reviewTargets] = await Promise.all([
@@ -276,7 +279,7 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
     await completeMemoryReviewJob(claim.id);
     await scheduleMemoryReviewForSession({ userId: claim.userId, sessionId: claim.sessionId });
   } catch (error) {
-    await retryMemoryReviewJob(claim.id, errorCode(error));
+    await retryMemoryReviewJob(claim.id, memoryReviewErrorCode(error));
     throw error;
   }
 }
@@ -291,7 +294,7 @@ export async function runMemoryReviewWorkerCycle(options: { maxJobs?: number } =
       await executeClaim(claim);
       completed += 1;
     } catch (error) {
-      console.error('[MemoryManager] Review failed.', { jobId: claim.id, errorCode: errorCode(error) });
+      console.error('[MemoryManager] Review failed.', { jobId: claim.id, errorCode: memoryReviewErrorCode(error) });
     }
   }
   await runMemoryMaintenanceCycle();
@@ -316,7 +319,7 @@ async function scheduleRuntime(delayMs?: number): Promise<void> {
     }
     runtime.running = true;
     void runMemoryReviewWorkerCycle()
-      .catch((error) => console.error('[MemoryManager] Worker cycle failed.', { errorCode: errorCode(error) }))
+      .catch((error) => console.error('[MemoryManager] Worker cycle failed.', { errorCode: memoryReviewErrorCode(error) }))
       .finally(() => {
         runtime.running = false;
         const pending = runtime.pending;
