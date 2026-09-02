@@ -24,6 +24,11 @@ const agentRuntimeBootstrapIndex = dockerEntrypointSource.indexOf('scripts/boots
 
 assert.notEqual(polyfillIndex, -1, 'server.js must polyfill globalThis.AsyncLocalStorage');
 assert.notEqual(nextImportIndex, -1, 'server.js must import next');
+assert.doesNotMatch(
+  serverSource,
+  /loadEnvConfig/u,
+  'server.js must let Next load its env so development startup preserves __NEXT_DEV_SERVER',
+);
 assert.notEqual(postgresMigrationFunctionIndex, -1, 'server.js must define startup database migrations');
 assert.notEqual(postgresMigrationAwaitIndex, -1, 'server.js must await startup database migrations');
 assert.notEqual(websocketStartupIndex, -1, 'server.js must initialize websocket startup after migrations');

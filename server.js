@@ -2,9 +2,7 @@
 const { loadAppEnv } = require('./server/load-app-env');
 loadAppEnv(process.cwd());
 
-const { loadEnvConfig } = require('@next/env');
 const dev = process.env.NODE_ENV !== 'production';
-loadEnvConfig(process.cwd(), dev);
 const { assertProductionAuthSecret } = require('./app/lib/security/auth-secret');
 assertProductionAuthSecret();
 
