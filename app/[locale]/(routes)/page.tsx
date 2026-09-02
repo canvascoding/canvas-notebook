@@ -35,10 +35,12 @@ export default async function Home() {
     name: session.user.name,
     email: session.user.email,
   });
-  const showPersonalTour = userOnboarding?.tour === 'started';
+  // Guided hints are opt-in. A started personal tour must not bypass this gate,
+  // otherwise it can leave an unusable overlay in front of the workspace.
+  const showPersonalTour = onboardingHintsEnabled && userOnboarding?.tour === 'started';
 
   return (
-    <HomeHintProvider enabled={onboardingHintsEnabled || showPersonalTour}>
+    <HomeHintProvider enabled={onboardingHintsEnabled}>
       <div className="fixed inset-0 overflow-hidden bg-background text-foreground">
         <div className="flex h-full min-h-0 flex-col">
           <header className="sticky top-0 z-20 shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/85">

@@ -7,7 +7,6 @@ import { isManagedControlPlaneAvailable } from '@/app/lib/agents/storage';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
-import { getUserOnboardingState } from '@/app/lib/user-preferences';
 import { SETTINGS_SIDEBAR_COLLAPSED_COOKIE } from '@/app/lib/settings-navigation';
 import { isOnboardingLicenseRecoveryRequest } from '@/app/lib/onboarding/flow';
 import { resolveUserProfile } from '@/app/lib/user-profile/service';
@@ -33,7 +32,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const isManagedControlPlane = isManagedControlPlaneAvailable();
   const initialTimeZone = await getServerPreferredTimeZone();
   const initialSettingsSidebarCollapsed = cookieStore.get(SETTINGS_SIDEBAR_COLLAPSED_COOKIE)?.value === 'true';
-  const userOnboarding = currentUserId ? await getUserOnboardingState(currentUserId) : null;
   const initialUserProfile = await resolveUserProfile({
     userId: currentUserId,
     name: userName,
@@ -49,7 +47,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   }
 
   return (
-    <SuitePageLayout title={t('title')} hintPage="settings" hintEnabled={isOnboardingHintsEnabled() || userOnboarding?.tour === 'started'}>
+    <SuitePageLayout title={t('title')} hintPage="settings" hintEnabled={isOnboardingHintsEnabled()}>
         <IntegrationsSettingsClient
           isAdmin={isAdmin}
           currentUserId={currentUserId}
