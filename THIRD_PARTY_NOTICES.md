@@ -4,9 +4,9 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.2.1
-- Lockfile SHA-256: `52f25f8ad2997aea271eb2c7b3749cd837362fec0be35ad77afe40f5ec68dbe2`
-- Distributed components: 1458
-- Release gate: **blocked**
+- Lockfile SHA-256: `11a5ed7f7c1191f7f37582990112966a33c1770f30c085e2583626e35fd6519f`
+- Distributed components: 1454
+- Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
 Third-party trademarks and branding are not granted by the software licenses below.
@@ -601,12 +601,12 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @ungap/structured-clone | 1.3.3 | runtime | ISC | allowed |
 | @upsetjs/venn.js | 2.0.0 | runtime | MIT | allowed |
 | @xmldom/xmldom | 0.8.15 | runtime | MIT | allowed |
+| @xmldom/xmldom | 0.9.10 | runtime | MIT | allowed |
 | @xterm/addon-clipboard | 0.2.0 | runtime | MIT | allowed |
 | @xterm/addon-fit | 0.11.0 | runtime | MIT | allowed |
 | @xterm/addon-web-links | 0.12.0 | runtime | MIT | allowed |
 | @xterm/xterm | 6.0.0 | runtime | MIT | allowed |
 | @zone-eu/mailsplit | 5.4.14 | runtime | MIT | allowed |
-| @zone-eu/mailsplit | 5.4.16 | runtime | (MIT OR EUPL-1.1+) | review_required |
 | abort-controller | 3.0.0 | runtime | MIT | allowed |
 | accepts | 1.3.8 | runtime | MIT | allowed |
 | accepts | 2.0.0 | runtime | MIT | allowed |
@@ -692,13 +692,13 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | color-convert | 2.0.1 | runtime | MIT | allowed |
 | color-name | 1.1.4 | runtime | MIT | allowed |
 | comma-separated-tokens | 2.0.3 | runtime | MIT | allowed |
+| commander | 13.1.0 | runtime | MIT | allowed |
 | commander | 2.20.3 | runtime | MIT | allowed |
 | commander | 7.2.0 | runtime | MIT | allowed |
 | commander | 8.3.0 | runtime | MIT | allowed |
 | commander | 8.3.0 | runtime | MIT | allowed |
 | commander | 8.3.0 | runtime | MIT | allowed |
 | commander | 8.3.0 | runtime | MIT | allowed |
-| commander | 9.2.0 | runtime | MIT | allowed |
 | commondir | 1.0.1 | runtime | MIT | allowed |
 | compress-commons | 7.0.1 | runtime | MIT | allowed |
 | content-disposition | 1.1.0 | runtime | MIT | allowed |
@@ -775,7 +775,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | decode-named-character-reference | 1.3.0 | runtime | MIT | allowed |
 | decompress-response | 6.0.0 | runtime | MIT | allowed |
 | deep-extend | 0.6.0 | runtime | MIT | allowed |
-| deepmerge-ts | 8.0.2 | runtime | BSD-3-Clause | allowed |
+| deepmerge-ts | 7.1.6 | runtime | BSD-3-Clause | allowed |
 | defu | 6.1.7 | runtime | MIT | allowed |
 | degenerator | 5.0.1 | runtime | MIT | allowed |
 | delaunator | 5.1.0 | runtime | ISC | allowed |
@@ -807,7 +807,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | emoji-regex | 8.0.0 | runtime | MIT | allowed |
 | encodeurl | 2.0.0 | runtime | MIT | allowed |
 | encoding-japanese | 2.2.0 | runtime | MIT | allowed |
-| encoding-japanese | 2.3.0 | runtime | MIT | allowed |
 | end-of-stream | 1.4.5 | runtime | MIT | allowed |
 | entities | 4.5.0 | runtime | BSD-2-Clause | allowed |
 | entities | 6.0.1 | runtime | BSD-2-Clause | allowed |
@@ -913,7 +912,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | highlightjs-vue | 1.0.0 | runtime | CC0-1.0 | allowed |
 | hono | 4.13.1 | runtime | MIT | allowed |
 | html-encoding-sniffer | 6.0.0 | runtime | MIT | allowed |
-| html-to-text | 10.0.1 | runtime | MIT | allowed |
+| html-to-text | 10.0.0 | runtime | MIT | allowed |
 | html-url-attributes | 3.0.1 | runtime | MIT | allowed |
 | htmlparser2 | 10.1.0 | runtime | MIT | allowed |
 | http-errors | 1.8.1 | runtime | MIT | allowed |
@@ -1006,7 +1005,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | lib0 | 0.2.117 | runtime | MIT | allowed |
 | libbase64 | 1.3.0 | runtime | MIT | allowed |
 | libmime | 5.4.1 | runtime | MIT | allowed |
-| libmime | 5.4.3 | runtime | MIT | allowed |
 | libqp | 2.1.1 | runtime | MIT | allowed |
 | lie | 3.3.0 | runtime | MIT | allowed |
 | lines-and-columns | 1.2.4 | runtime | MIT | allowed |
@@ -1030,7 +1028,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | lru-cache | 7.18.3 | runtime | ISC | allowed |
 | lucide-react | 1.24.0 | runtime | ISC | allowed |
 | magic-string | 0.30.21 | runtime | MIT | allowed |
-| mailparser | 3.9.20 | runtime | MIT | allowed |
+| mailparser | 3.9.14 | runtime | MIT | allowed |
 | mammoth | 1.12.0 | runtime | BSD-2-Clause | allowed |
 | markdown-it-front-matter | 0.2.4 | runtime | MIT | allowed |
 | markdown-it | 14.3.0 | runtime | MIT | allowed |
@@ -1130,7 +1128,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | node-pty | 1.1.0 | runtime | MIT | allowed |
 | node-releases | 2.0.54 | runtime | MIT | allowed |
 | nodemailer | 9.0.3 | runtime | MIT-0 | allowed |
-| nodemailer | 9.1.1 | runtime | MIT-0 | allowed |
 | normalize-path | 3.0.0 | runtime | MIT | allowed |
 | NousResearch/hermes-agent session-compaction reference | f293e7206b4ddd66042329442c6afebc19a8808d | runtime | MIT | allowed |
 | object-assign | 4.1.1 | runtime | MIT | allowed |
@@ -1332,7 +1329,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | source-map-js | 1.2.1 | runtime | BSD-3-Clause | allowed |
 | source-map | 0.6.1 | runtime | BSD-3-Clause | allowed |
 | space-separated-tokens | 2.0.2 | runtime | MIT | allowed |
-| speech-rule-engine | 4.0.7 | runtime | Apache-2.0 | allowed |
+| speech-rule-engine | 4.1.4 | runtime | Apache-2.0 | allowed |
 | split2 | 4.2.0 | runtime | ISC | allowed |
 | sprintf-js | 1.0.3 | runtime | BSD-3-Clause | allowed |
 | stacktrace-parser | 0.1.11 | runtime | MIT | allowed |
@@ -1448,7 +1445,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | xml-name-validator | 5.0.0 | runtime | Apache-2.0 | allowed |
 | xmlbuilder | 10.1.1 | runtime | MIT | allowed |
 | xmlchars | 2.2.0 | runtime | MIT | allowed |
-| xmldom-sre | 0.1.31 | runtime | (LGPL-2.0 or MIT) | review_required |
 | xss | 1.0.15 | runtime | MIT | allowed |
 | xtend | 4.0.2 | runtime | MIT | allowed |
 | y-codemirror.next | 0.3.5 | runtime | MIT | allowed |
@@ -1473,13 +1469,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | zustand | 4.5.7 | runtime | MIT | allowed |
 | zustand | 5.0.14 | runtime | MIT | allowed |
 | zwitch | 2.0.4 | runtime | MIT | allowed |
-
-## Commercial release blockers
-
-The following entries require a documented responsible/legal decision before a commercial release:
-
-- **@zone-eu/mailsplit 5.4.16:** Policy decision is review_required for (MIT OR EUPL-1.1+).
-- **xmldom-sre 0.1.31:** The MIT copyright notice could not be attributed automatically.
 
 ## License texts and copyright notices
 
@@ -2121,7 +2110,7 @@ SOFTWARE.
 
 ### License text 04512a63dce4
 
-Applies to commander@2.20.3, commander@7.2.0, commander@8.3.0, commander@8.3.0, commander@8.3.0, commander@8.3.0, commander@9.2.0.
+Applies to commander@13.1.0, commander@2.20.3, commander@7.2.0, commander@8.3.0, commander@8.3.0, commander@8.3.0, commander@8.3.0.
 
 Copyright notices:
 
@@ -3192,7 +3181,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 0d542e0c8804
 
-Applies to seed-skill:frontend-design@repository-version, pdfjs-dist@5.4.296, pdfjs-dist@6.2.108, speech-rule-engine@4.0.7.
+Applies to seed-skill:frontend-design@repository-version, pdfjs-dist@5.4.296, pdfjs-dist@6.2.108, speech-rule-engine@4.1.4.
 
 Copyright notices:
 
@@ -3592,7 +3581,7 @@ SOFTWARE.
 
 ### License text 0f2482bc8520
 
-Applies to libmime@5.4.1, libmime@5.4.3.
+Applies to libmime@5.4.1.
 
 Copyright notices:
 
@@ -4142,21 +4131,6 @@ Copyright notices:
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-```
-
-### License text 16205905d57a
-
-Applies to xmldom-sre@0.1.31.
-
-```text
-You can choose any one of those:
-
-The MIT License (MIT):
-
-link:http://opensource.org/licenses/MIT
-
-LGPL:
-http://www.gnu.org/licenses/lgpl.html
 ```
 
 ### License text 162413c61e09
@@ -6465,7 +6439,7 @@ THE SOFTWARE.
 
 ### License text 2fd433bea68e
 
-Applies to mailparser@3.9.20.
+Applies to mailparser@3.9.14.
 
 Copyright notices:
 
@@ -7962,7 +7936,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 43659035063c
 
-Applies to html-to-text@10.0.1.
+Applies to html-to-text@10.0.0.
 
 Copyright notices:
 
@@ -8880,7 +8854,7 @@ Copyright notices:
 
 ### License text 4da724fc305d
 
-Applies to @xmldom/xmldom@0.8.15.
+Applies to @xmldom/xmldom@0.8.15, @xmldom/xmldom@0.9.10.
 
 Copyright notices:
 
@@ -9077,7 +9051,7 @@ SOFTWARE.
 
 ### License text 4f814dcacd2d
 
-Applies to nodemailer@9.0.3, nodemailer@9.1.1.
+Applies to nodemailer@9.0.3.
 
 Copyright notices:
 
@@ -12988,7 +12962,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 734d8fd2baff
 
-Applies to deepmerge-ts@8.0.2.
+Applies to deepmerge-ts@7.1.6.
 
 Copyright notices:
 
@@ -18264,7 +18238,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text 9817440890fa
 
-Applies to encoding-japanese@2.2.0, encoding-japanese@2.3.0.
+Applies to encoding-japanese@2.2.0.
 
 Copyright notices:
 
@@ -23548,170 +23522,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### License text c261d856395a
-
-Applies to @zone-eu/mailsplit@5.4.16.
-
-Copyright notices:
-
-- EUPL © Euroopa Liit 2007, 2016
-
-```text
-EUROOPA LIIDU TARKVARA VABA KASUTUSE LITSENTS v. 1.2
-EUPL © Euroopa Liit 2007, 2016
-
-Euroopa Liidu tarkvara vaba kasutuse litsents („EUPL“) kehtib allpool määratletud teose suhtes, mida levitatakse vastavalt käesoleva litsentsi tingimustele. Teost on keelatud kasutada muul viisil kui vastavalt käesoleva litsentsi tingimustele niivõrd, kuivõrd sellise kasutamise suhtes kehtivad teose autoriõiguse omaja õigused).
-
-Teost levitatakse vastavalt käesoleva litsentsi tingimustele, kui allpool määratletud litsentsiandja paneb vahetult teose autoriõiguse märke järele järgmise märke:
-
-Litsentsitud EUPL alusel
-
-või on muul viisil väljendanud soovi litsentsida originaalteos EUPL alusel.
-
-1. Mõisted
-Käesolevas litsentsis kasutatakse järgmisi mõisteid:
-
-— „litsents“ – käesolev litsents;
-
-— „originaalteos“ – teos või tarkvara, mida litsentsiandja käesoleva litsentsi alusel levitab või edastab ning mis on kättesaadav lähtekoodina ja teatavatel juhtudel ka täitmiskoodina;
-
-— „tuletatud teos“ – teos või tarkvara, mida litsentsisaajal on olnud võimalik luua tuginedes originaalteosele või selle muudetud versioonile. Käesolevas litsentsis ei määratleta muudatuse ulatust või sõltuvust originaalteosest, mis on vajalik selleks, et klassifitseerida teos tuletatud teoseks; selline ulatus määratakse kindlaks vastavalt artiklis 15 nimetatud riigis kehtivatele autoriõigust käsitlevatele õigusaktidele;
-
-— „teos“ – originaalteos või sellest tuletatud teosed;
-
-— „lähtekood“ – teose inimloetav vorm, mida inimestel on kõige lihtsam uurida ja muuta;
-
-— „täitmiskood“ – igasugune kood, mille on tavaliselt koostanud arvuti ja mis on mõeldud arvuti poolt programmina tõlgendamiseks;
-
-— „litsentsiandja“ – füüsiline või juriidiline isik, kes levitab või edastab teost litsentsi alusel;
-
-— „edasiarendaja“ – füüsiline või juriidiline isik, kes muudab teost litsentsi alusel või osaleb muul moel tuletatud teose loomises;
-
-— „litsentsisaaja“ või „Teie“ – iga füüsiline või juriidiline isik, kes kasutab teost ükskõik mis moel vastavalt litsentsi tingimustele;
-
-— „levitamine“ või „edastamine“ – teose koopiate müümine, teisele isikule andmine, laenutamine, rentimine, levitamine, edastamine, ülekandmine või teose koopiate või selle oluliste funktsioonide muul viisil teistele füüsilistele või juriidilistele isikutele kättesaadavaks tegemine võrgus või võrguväliselt.
-
-2. Litsentsiga antavate õiguste ulatus
-Käesolevaga annab litsentsiandja Teile ülemaailmse, tasuta, all-litsentsi andmise õigusega lihtlitsentsi, mille alusel võite teha originaalteose autoriõiguse kehtivusaja jooksul järgmist:
-
-— kasutada teost mis tahes eesmärgil ja mis tahes viisil,
-
-— teost reprodutseerida,
-
-— teost muuta ja luua teosel põhinevaid tuletatud teoseid,
-
-— teost või selle koopiaid üldsusele edastada, sealhulgas neid kättesaadavaks teha või eksponeerida, samuti avalikult esitada,
-
-— teost või selle koopiaid levitada,
-
-— teost või selle koopiaid laenutada ja rentida,
-
-— anda all-litsentse teose või selle koopiate suhtes kehtivate õiguste kohta.
-
-Neid õigusi võib teostada mistahes praegu tuntud või hiljem leiutatud keskkonnas, toel või formaadis, ja sellises ulatuses, nagu lubab kohaldatav õigus.
-
-Riikides, kus kehtivad isiklikud õigused, loobub litsentsiandja seadusega lubatud ulatuses oma õigusest teostada isiklikke õigusi, et oleks võimalik eespool loetletud varalisi õigusi litsentsida.
-
-Litsentsiandja annab litsentsisaajale tasuta lihtlitsentsi kõigi litsentsiandjale kuuluvate patentide kasutamiseks ulatuses, mis on vajalik teose suhtes käesoleva litsentsiga antud õiguste kasutamiseks.
-
-3. Lähtekoodi edastamine
-Litsentsiandja võib teose kättesaadavaks teha kas lähtekoodi või täitmiskoodi kujul. Kui teos tehakse kättesaadavaks täitmiskoodi kujul, lisab litsentsiandja igale tema poolt levitatavale teose koopiale lähtekoodi masinloetava koopia või näitab teose autoriõiguse märke järele lisatud märkega ära hoidla, kust lähtekood on kergesti ja tasuta kättesaadav seni, kuni litsentsiandja jätkab teose levitamist või edastamist.
-
-4. Autoriõiguse piiramine
-Käesolev litsents ei võta litsentsisaajalt võimalusi, mis tulenevad teose õiguste omaja ainuõiguste suhtes kehtestatud eranditest või ainuõiguste piiramisest, nende õiguste ammendumisest või muudest nende õiguste suhtes kohaldatavatest piirangutest.
-
-5. Litsentsisaaja kohustused
-Eespool nimetatud õigused antakse litsentsisaajale tingimusel, et ta peab kinni teatavatest piirangutest ja täidab teatavaid talle pandud kohustusi. Need kohustused on järgmised:
-
-Õigus autorsusele. Litsentsisaaja hoiab puutumatuna kõik autoriõiguse, patentide ja kaubamärkide kohta käivad märked ja kõik märked, mis viitavad litsentsile ja garantii puudumisele. Litsentsisaaja peab teose iga tema poolt levitatavale või edastatavale koopiale lisama nimetatud märgete koopiad ja litsentsi koopia. Litsentsisaaja peab tagama, et iga tuletatud teos kannab selget märget selle kohta, et teost on muudetud ja muutmise kuupäeva.
-Klausel vaba kasutamise tagamise kohta (copyleft). Kui litsentsisaaja levitab või edastab originaalteose või tuletatud teoste koopiaid, toimub see levitamine või edastamine vastavalt käesoleva litsentsi tingimustele või käesoleva litsentsi hilisema versiooni tingimustele, välja arvatud juhul, kui originaalteost levitatakse ainult vastavalt litsentsi käesolevale versioonile (näiteks märkides „ainult EUPL v.1.2“). Litsentsisaaja ei tohi (litsentsiandjaks saades) teosele või tuletatud teosele lisada ega kehtestada mingeid lisatingimusi, mis muudavad või piiravad litsentsi tingimusi.
-Ühilduvuse klausel. Kui litsentsisaaja levitab või edastab tuletatud teoseid või nende koopiaid, mis põhinevad nii teosel kui ka teisel, käesoleva litsentsiga ühilduva litsentsi alusel litsentsitud teosel, võib see levitamine või edastamine toimuda vastavalt nimetatud ühilduva litsentsi tingimustele. Käesolevas klauslis tähendab „ühilduv litsents“ käesoleva litsentsi lisas loetletud litsentse. Kui litsentsisaaja ühilduvale litsentsile vastavad kohustused on vastuolus tema kohustustega vastavalt käesolevale litsentsile, loetakse kehtivaks ühilduva litsentsi kohased kohustused.
-Lähtekoodi lisamine. Teose koopiate levitamisel või edastamisel lisab litsentsisaaja igale koopiale lähtekoodi masinloetava koopia või näitab ära hoidla, kust lähtekood on kergesti ja tasuta kättesaadav seni, kuni litsentsisaaja jätkab teose levitamist või edastamist.
-Õiguskaitse. Käesoleva litsentsiga ei anta luba kasutada litsentsiandja ärinimesid, kaubamärke, teenindusmärke või nimesid, välja arvatud juhul, kui see on vajalik mõistlikuks ja tavapäraseks kasutamiseks teose päritolu kirjeldamisel ja autoriõiguse märke sisu reprodutseerimisel.
-6. Autorsuse ahel
-Esialgne litsentsiandja tagab, et käesoleva litsentsiga antav autoriõigus originaalteosele kuulub talle või on talle litsentsitud ja et tal on õigus seda litsentsiga edasi anda.
-
-Iga edasiarendaja tagab, et autoriõigus tema poolt teosele tehtavatele muudatustele kuulub talle või on talle litsentsitud ja et tal on õigus litsentsi anda.
-
-Iga kord, kui Te võtate vastu litsentsi, annavad esialgne litsentsiandja ja hilisemad edasiarendajad Teile litsentsi nende osaluse kasutamiseks teoses vastavalt käesoleva litsentsi tingimustele.
-
-7. Garantii puudumine
-Teos on veel pooleli ja arvukad edasiarendajad parendavad seda järjepidevalt. See ei ole lõpetatud teos ja võib seetõttu sisaldada defekte ja programmivigu, mis on omased seda liiki arendustegevusele.
-
-Seetõttu levitatakse teost litsentsi alusel „sellisena, nagu see on“ ilma teose suhtes kehtiva garantiita, muu hulgas garantiita kaubandusliku kvaliteedi kohta, garantiita sobivuse kohta mingi kindla eesmärgi jaoks, garantiita defektide ja vigade puudumise kohta, garantiita täpsuse kohta ja selle kohta, et ei ole rikutud muid intellektuaalse omandi õigusi peale käesoleva litsentsi artiklis 6 nimetatud autoriõiguse.
-
-Käesolev garantii puudumise klausel on litsentsi oluline osa ja teosele õiguste andmise eeltingimus.
-
-8. Vastutuse välistamine
-Välja arvatud tahtliku õiguserikkumise või füüsilistele isikutele tekitatud otsese kahju puhul, ei vastuta litsentsiandja mitte mingil juhul litsentsi või teose kasutamise tagajärjel tekkinud mistahes otsese või kaudse, varalise või moraalse kahju eest, muu hulgas maineväärtuse langusest tekkinud kahju, tööseisakute, arvutirikke ja talitlushäirete, andmete kadumise ja ärikahju eest, isegi juhul kui litsentsiandjat on sellise kahju tekkimise võimalikkusest teavitatud. Litsentsiandja vastutab siiski vastavalt tootevastutust käsitlevatele õigusaktidele niivõrd, kuivõrd need õigusaktid on teose suhtes kohaldatavad.
-
-9. Lisakokkulepped
-Teose levitamisel võite Te sõlmida lisakokkuleppe, milles määratakse kindlaks käesoleva litsentsiga vastavuses olevad kohustused või teenused. Kuid kui olete nõus võtma kohustusi, võite Te tegutseda ainult iseenda nimel ja vastutusel, mitte esialgse litsentsiandja või teiste edasiarendajate nimel, ja ainult juhul, kui Te nõustute vabastama edasiarendajad vastutusest, kaitsma ja hoidma neid kahju tekkimise eest vastutuse või nõuete osas, mida nende vastu võidakse esitada selle tagajärjel, et Teie pakute garantiid või võtate lisavastutuse.
-
-10. Litsentsiga nõustumine
-Käesoleva litsentsi sätetega saab nõustuda, klõpsates ikoonile „Nõustun“ litsentsi teksti näitava akna all või väljendades nõusolekut muul sarnasel viisil vastavalt kehtivatele õigusaktidele. Sellele ikoonile klõpsates väljendate selgelt ja pöördumatult oma nõusolekut käesoleva litsentsi ja kõigi selle tingimuste suhtes.
-
-Samuti nõustute pöördumatult käesoleva litsentsi ja kõigi selle tingimustega, kui teostate Teile käesoleva litsentsi artikliga 2 antud õigusi, näiteks kasutate teost, loote tuletatud teose või levitate või edastate teost või selle koopiaid.
-
-11. Üldsuse teavitamine
-Juhul, kui Te kasutate teose levitamiseks või edastamiseks elektroonilisi sidevahendeid (näiteks võimaldate teose allalaadimist veebisaidilt), tuleb levitamiskanalil või andmekandjal (näiteks veebisaidil) teha üldsusele kättesaadavaks vähemalt kohaldatava õiguse alusel kohustuslik teave litsentsiandja ja litsentsi kohta ning selle kohta, kuidas see on litsentsisaajale kättesaadav, litsentsilepingu sõlmimise kohta ja selle kohta, kuidas litsentsisaaja saab litsentsi säilitada ja reprodutseerida.
-
-12. Litsentsi lõppemine
-Litsents ja sellega antud õigused lõppevad automaatselt juhul, kui litsentsisaaja rikub litsentsi tingimusi.
-
-Sellise lõppemise korral ei lõpe ühegi sellise isiku litsents, kes sai teose litsentsisaajalt vastavalt litsentsi tingimustele, juhul kui see isik täidab jätkuvalt litsentsi tingimusi.
-
-13. Muud sätted
-Ilma et see piiraks litsentsi artikli 9 kohaldamist, sisaldab litsents kogu kokkulepet, mis osapoolte vahel seose teosega on.
-
-Kui mõni litsentsi säte on vastavalt kohaldatavatele õigusaktidele kehtetu või seda ei ole võimalik jõustada, ei mõjuta see litsentsi kui terviku kehtivust ega jõustatavust. Sellist sätet tõlgendatakse või muudetakse nii nagu vaja, et see kehtiks ja saaks tagada selle täitmise.
-
-Euroopa Komisjon võib avaldada käesoleva litsentsi muid keeleversioone või uusi versioone või lisa uuendatud versioone, kuivõrd see on vajalik ja mõistlik, vähendamata sellega litsentsiga antavate õiguste ulatust. Litsentsi uued versioonid avaldatakse kordumatu versiooninumbriga.
-
-Käesoleva litsentsi kõik keeleversioonid, mille Euroopa Komisjon on heaks kiitnud, on võrdväärsed. Osapooled võivad kasutada enda valitud keeleversiooni.
-
-14. Kohtualluvus
-Ilma et see piiraks konkreetse osapooltevahelise kokkuleppe kohaldamist,
-
-— kuuluvad käesoleva litsentsi tõlgendamisest tulenevad kohtuvaidlused Euroopa Liidu institutsioonide, organite, büroode või asutuste kui litsentsiandja ja mistahes litsentsisaaja vahel Euroopa Liidu Kohtu pädevusse, nagu on sätestatud Euroopa Liidu toimimise lepingu artiklis 272,
-
-— kuuluvad käesoleva litsentsi tõlgendamisest tulenevad kohtuvaidlused muude osapoolte vahel selle pädeva kohtu ainupädevusse, kelle tööpiirkonnas asub litsentsiandja elukoht või peamine tegevuskoht.
-
-15. Kohaldatav õigus
-Ilma et see piiraks konkreetse osapooltevahelise kokkuleppe kohaldamist,
-
-— kohaldatakse käesoleva litsentsi suhtes selle Euroopa Liidu liikmesriigi õigust, kus paikneb litsentsiandja peakorter, elukoht või asukoht,
-
-— kohaldatakse litsentsi suhtes Belgia õigust, kui litsentsiandja peakorter, elukoht või asukoht asub väljaspool Euroopa Liidu liikmesriike.
-
-Liide
-Euroopa Liidu tarkvara vaba kasutuse litsentsi artiklis 5 osutatud „ühilduvad litsentsid“ on järgmised:
-
-— GNU General Public License (GPL) v. 2, v. 3
-
-— GNU Affero General Public License (AGPL) v. 3
-
-— Open Software License (OSL) v. 2.1, v. 3.0
-
-— Eclipse Public License (EPL) v. 1.0
-
-— CeCILL v. 2.0, v. 2.1
-
-— Mozilla Public Licence (MPL) v. 2
-
-— GNU Lesser General Public Licence (LGPL) v. 2.1, v. 3
-
-— Creative Commons Attribution-ShareAlike v. 3.0 Unported (CC BY-SA 3.0) muude teoste puhul peale tarkvara
-
-— European Union Public Licence (EUPL) v. 1.1, v. 1.2
-
-— Québec Free and Open-Source Licence – Reciprocity (LiLiQ-R) or Strong Reciprocity (LiLiQ-R+)
-
-Euroopa Komisjon võib käesolevat lisa ajakohastada loetletud litsentside hilisemate versioonidega ilma, et peaks selleks koostama EUPLi uue versiooni, eeldusel et nende litsentsidega tagatakse käesoleva litsentsi artiklis 2 sätestatud õigused ja kaitstakse hõlmatud lähtekoodi eksklusiivse omastamise eest.
-
-Kõigi muude käesoleva liite muudatuste või täienduste jaoks on vaja koostada EUPLi uus versioon.
 ```
 
 ### License text c27a1b74b104

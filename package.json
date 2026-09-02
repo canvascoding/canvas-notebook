@@ -494,7 +494,7 @@
     "jszip": "^3.10.1",
     "katex": "^0.17.0",
     "lucide-react": "^1.21.0",
-    "mailparser": "^3.9.12",
+    "mailparser": "3.9.14",
     "mammoth": "^1.11.0",
     "marked": "^18.0.3",
     "marked-katex-extension": "^5.1.10",
@@ -590,6 +590,7 @@
       "sharp": "0.35.2"
     },
     "postcss": "8.5.23",
+    "speech-rule-engine": "4.1.4",
     "tar": "7.5.22"
   }
 }

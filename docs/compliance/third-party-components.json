@@ -2,36 +2,25 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.9.2.1",
-  "lockfileSha256": "52f25f8ad2997aea271eb2c7b3749cd837362fec0be35ad77afe40f5ec68dbe2",
+  "lockfileSha256": "11a5ed7f7c1191f7f37582990112966a33c1770f30c085e2583626e35fd6519f",
   "summary": {
-    "totalComponents": 1982,
-    "npmComponents": 1958,
+    "totalComponents": 1978,
+    "npmComponents": 1954,
     "nonNpmComponents": 24,
-    "runtimeComponents": 1458,
+    "runtimeComponents": 1454,
     "developmentOnlyComponents": 524,
-    "allowed": 1930,
-    "reviewRequired": 52,
+    "allowed": 1928,
+    "reviewRequired": 50,
     "blocked": 0,
-    "distributedReviewRequired": 2,
+    "distributedReviewRequired": 0,
     "developmentOnlyReviewRequired": 50
   },
   "releaseGate": {
-    "status": "blocked",
+    "status": "approved",
     "approvalStatus": "approved",
     "approvalReviewedBy": "Frank Alexander Weber",
     "approvalReviewedAt": "2026-07-17",
-    "blockers": [
-      {
-        "name": "@zone-eu/mailsplit",
-        "versionOrCommit": "5.4.16",
-        "reason": "Policy decision is review_required for (MIT OR EUPL-1.1+)."
-      },
-      {
-        "name": "xmldom-sre",
-        "versionOrCommit": "0.1.31",
-        "reason": "The MIT copyright notice could not be attributed automatically."
-      }
-    ]
+    "blockers": []
   },
   "components": [
     {
@@ -23955,6 +23944,29 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "@xmldom/xmldom",
+      "versionOrCommit": "0.9.10",
+      "sourceUrl": "https://github.com/xmldom/xmldom",
+      "packagePathOrArtifact": "node_modules/speech-rule-engine/node_modules/@xmldom/xmldom",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/speech-rule-engine/node_modules/@xmldom/xmldom/LICENSE",
+      "licenseTextSha256": "4da724fc305d81606b245b324d4d2586916b9d248b23d82183df753ace0fdf71",
+      "copyrightNotices": [
+        "Copyright 2012 - 2017 @jindw <jindw@xidea.org> and other contributors, as listed in: https://github.com/jindw/xmldom/graphs/contributors",
+        "Copyright 2019 - present Christopher J. Brody and other contributors, as listed in: https://github.com/xmldom/xmldom/graphs/contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "@xterm/addon-clipboard",
       "versionOrCommit": "0.2.0",
       "sourceUrl": "https://github.com/xtermjs/xterm.js/tree/master/addons/addon-clipboard",
@@ -24066,28 +24078,6 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "The exact npm release declares (MIT OR EUPL-1.1+), publishes gitHead ce3e52530b56627c78c78f44fc42e61d71c4c6d0, and the matching lightweight v5.4.14 tag resolves to that commit. Canvas elects MIT, retains the complete MIT text and upstream copyright notice, and does not modify the package. The exact npm tarball contains no separate NOTICE file. Verification source: https://github.com/zone-eu/mailsplit/blob/v5.4.14/LICENSE.MIT"
-    },
-    {
-      "name": "@zone-eu/mailsplit",
-      "versionOrCommit": "5.4.16",
-      "sourceUrl": "https://github.com/zone-eu/mailsplit",
-      "packagePathOrArtifact": "node_modules/mailparser/node_modules/@zone-eu/mailsplit",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "(MIT OR EUPL-1.1+)",
-      "verifiedLicense": "(MIT OR EUPL-1.1+)",
-      "licenseTextRef": "node_modules/mailparser/node_modules/@zone-eu/mailsplit/LICENSE.EUPL-1.2",
-      "licenseTextSha256": "c261d856395a4467e6e04ba968002c69080a981d11d4c98154201c2ece326184",
-      "copyrightNotices": [
-        "EUPL © Euroopa Liit 2007, 2016"
-      ],
-      "modified": false,
-      "policyDecision": "review_required"
     },
     {
       "name": "abort-controller",
@@ -26003,6 +25993,28 @@
     },
     {
       "name": "commander",
+      "versionOrCommit": "13.1.0",
+      "sourceUrl": "https://github.com/tj/commander.js",
+      "packagePathOrArtifact": "node_modules/speech-rule-engine/node_modules/commander",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/speech-rule-engine/node_modules/commander/LICENSE",
+      "licenseTextSha256": "04512a63dce4d2d506ad612dc0bd7681ccf6e3655f7b6eaef7dfac8323d1ec0b",
+      "copyrightNotices": [
+        "Copyright (c) 2011 TJ Holowaychuk <tj@vision-media.ca>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "commander",
       "versionOrCommit": "2.20.3",
       "sourceUrl": "https://github.com/tj/commander.js",
       "packagePathOrArtifact": "node_modules/xss/node_modules/commander",
@@ -26126,28 +26138,6 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/rehype-katex/node_modules/commander/LICENSE",
-      "licenseTextSha256": "04512a63dce4d2d506ad612dc0bd7681ccf6e3655f7b6eaef7dfac8323d1ec0b",
-      "copyrightNotices": [
-        "Copyright (c) 2011 TJ Holowaychuk <tj@vision-media.ca>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "commander",
-      "versionOrCommit": "9.2.0",
-      "sourceUrl": "https://github.com/tj/commander.js",
-      "packagePathOrArtifact": "node_modules/speech-rule-engine/node_modules/commander",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/speech-rule-engine/node_modules/commander/LICENSE",
       "licenseTextSha256": "04512a63dce4d2d506ad612dc0bd7681ccf6e3655f7b6eaef7dfac8323d1ec0b",
       "copyrightNotices": [
         "Copyright (c) 2011 TJ Holowaychuk <tj@vision-media.ca>"
@@ -27847,7 +27837,7 @@
     },
     {
       "name": "deepmerge-ts",
-      "versionOrCommit": "8.0.2",
+      "versionOrCommit": "7.1.6",
       "sourceUrl": "https://github.com/RebeccaStevens/deepmerge-ts",
       "packagePathOrArtifact": "node_modules/deepmerge-ts",
       "usage": "runtime",
@@ -28555,28 +28545,6 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/encoding-japanese/LICENSE",
-      "licenseTextSha256": "9817440890faace3016b8552aeb245cecebbbc50ef1ae30f56dc6fbc36e08bda",
-      "copyrightNotices": [
-        "Copyright (c) 2012 polygonplanet"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "encoding-japanese",
-      "versionOrCommit": "2.3.0",
-      "sourceUrl": "https://github.com/polygonplanet/encoding.js",
-      "packagePathOrArtifact": "node_modules/mailparser/node_modules/encoding-japanese",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/mailparser/node_modules/encoding-japanese/LICENSE",
       "licenseTextSha256": "9817440890faace3016b8552aeb245cecebbbc50ef1ae30f56dc6fbc36e08bda",
       "copyrightNotices": [
         "Copyright (c) 2012 polygonplanet"
@@ -30915,7 +30883,7 @@
     },
     {
       "name": "html-to-text",
-      "versionOrCommit": "10.0.1",
+      "versionOrCommit": "10.0.0",
       "sourceUrl": "https://github.com/html-to-text/node-html-to-text",
       "packagePathOrArtifact": "node_modules/html-to-text",
       "usage": "runtime",
@@ -32990,28 +32958,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "libmime",
-      "versionOrCommit": "5.4.3",
-      "sourceUrl": "https://github.com/nodemailer/libmime",
-      "packagePathOrArtifact": "node_modules/mailparser/node_modules/libmime",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/mailparser/node_modules/libmime/LICENSE",
-      "licenseTextSha256": "0f2482bc852021c3226c1df9d75b610a9b795a5a88032cda51098dce3dae6740",
-      "copyrightNotices": [
-        "Copyright (c) 2014-2016 Andris Reinman"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "libqp",
       "versionOrCommit": "2.1.1",
       "sourceUrl": "https://github.com/nodemailer/libqp",
@@ -33529,7 +33475,7 @@
     },
     {
       "name": "mailparser",
-      "versionOrCommit": "3.9.20",
+      "versionOrCommit": "3.9.14",
       "sourceUrl": "https://github.com/nodemailer/mailparser",
       "packagePathOrArtifact": "node_modules/mailparser",
       "usage": "runtime",
@@ -35749,28 +35695,6 @@
       "declaredLicense": "MIT-0",
       "verifiedLicense": "MIT-0",
       "licenseTextRef": "node_modules/nodemailer/LICENSE",
-      "licenseTextSha256": "4f814dcacd2da618d62829ea1f6238701cf421f18a6b36c91c5d8212245e2c78",
-      "copyrightNotices": [
-        "Copyright (c) 2011-2023 Andris Reinman"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "nodemailer",
-      "versionOrCommit": "9.1.1",
-      "sourceUrl": "https://github.com/nodemailer/nodemailer",
-      "packagePathOrArtifact": "node_modules/mailparser/node_modules/nodemailer",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT-0",
-      "verifiedLicense": "MIT-0",
-      "licenseTextRef": "node_modules/mailparser/node_modules/nodemailer/LICENSE",
       "licenseTextSha256": "4f814dcacd2da618d62829ea1f6238701cf421f18a6b36c91c5d8212245e2c78",
       "copyrightNotices": [
         "Copyright (c) 2011-2023 Andris Reinman"
@@ -40310,7 +40234,7 @@
     },
     {
       "name": "speech-rule-engine",
-      "versionOrCommit": "4.0.7",
+      "versionOrCommit": "4.1.4",
       "sourceUrl": "https://github.com/zorkow/speech-rule-engine",
       "packagePathOrArtifact": "node_modules/speech-rule-engine",
       "usage": "runtime",
@@ -42883,27 +42807,6 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
-    },
-    {
-      "name": "xmldom-sre",
-      "versionOrCommit": "0.1.31",
-      "sourceUrl": "https://github.com/zorkow/xmldom",
-      "packagePathOrArtifact": "node_modules/xmldom-sre",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "(LGPL-2.0 or MIT)",
-      "verifiedLicense": "(LGPL-2.0 or MIT)",
-      "licenseTextRef": "node_modules/xmldom-sre/LICENSE",
-      "licenseTextSha256": "16205905d57a91f1cf7e32298f96a511ef8da80446dacb111e1adf6654799e4c",
-      "copyrightNotices": [],
-      "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "xss",
