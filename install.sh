@@ -307,8 +307,8 @@ configure_compose_values() {
 }
 
 configure_database_values() {
-  local current_deployment current_provider deployment_mode provider provider_choice deployment_choice team_features provider_default
-  local deployment_choice_default provider_choice_default database_env_key
+  local current_deployment current_provider deployment_mode provider deployment_choice team_features provider_default
+  local deployment_choice_default database_env_key
 
   current_deployment="$(config_json_read env.CANVAS_DEPLOYMENT_MODE)"
   current_deployment="${current_deployment:-single_user}"
@@ -324,7 +324,7 @@ configure_database_values() {
     section "Database"
     echo "Choose the deployment scope:"
     echo
-    echo "  1) Single-user / community  (SQLite allowed)"
+    echo "  1) Single-user / community  (Postgres)"
     echo "  2) Team / advanced          (Postgres + pgvector required)"
     echo
     if config_json_deployment_requires_postgres "$current_deployment" "$(config_json_read env.CANVAS_TEAM_FEATURES_ENABLED)"; then
@@ -339,24 +339,16 @@ configure_database_values() {
       info "Team/advanced mode requires Postgres; configuring the local pgvector Postgres service."
     else
       deployment_mode="single_user"
-      echo
-      echo "Choose the database provider:"
-      echo
-      echo "  1) SQLite    (lightweight compatibility option)"
-      echo "  2) Postgres  (recommended; required later for team, RAG, and collaboration)"
-      echo
-      provider_choice_default="2"
-      [[ "$CONFIG_JSON_WAS_PRESENT" == "true" && "$current_provider" == "sqlite" ]] && provider_choice_default="1"
-      ask "Choice [1/2, default ${provider_choice_default}]: " provider_choice "$provider_choice_default"
-      if [[ "$provider_choice" == "2" ]]; then
-        provider="postgres"
-      else
-        provider="sqlite"
-      fi
+      provider="$provider_default"
+      [[ "$CONFIG_JSON_WAS_PRESENT" != "true" ]] && info "Fresh production installations use Postgres."
+      [[ "$CONFIG_JSON_WAS_PRESENT" == "true" && "$provider" == "sqlite" ]] && info "Keeping the existing SQLite database in compatibility mode until migration."
     fi
   fi
 
   provider="$(config_json_normalize_database_provider "$provider")"
+  if [[ "$CONFIG_JSON_WAS_PRESENT" != "true" && "$provider" != "postgres" ]]; then
+    fail "Fresh production installations require CANVAS_DATABASE_PROVIDER=postgres. SQLite is supported only for existing installations and migration."
+  fi
   team_features="${CANVAS_TEAM_FEATURES_ENABLED:-$(config_json_read env.CANVAS_TEAM_FEATURES_ENABLED)}"
   if config_json_deployment_requires_postgres "$deployment_mode" "$team_features" && [[ "$provider" != "postgres" ]]; then
     if [[ "$NONINTERACTIVE" == "true" ]]; then
@@ -370,6 +362,7 @@ configure_database_values() {
 
   for database_env_key in \
     CANVAS_TEAM_FEATURES_ENABLED \
+    CANVAS_POSTGRES_MODE \
     DATABASE_URL \
     CANVAS_POSTGRES_IMAGE \
     CANVAS_POSTGRES_DATA_VOLUME \

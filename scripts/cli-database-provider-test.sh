@@ -140,6 +140,9 @@ if grep -q 'positional-secret-key' "$TMP_DIR/config-set-secret-key-positional.tx
   exit 1
 fi
 
+# The remainder of this suite exercises the supported legacy SQLite lifecycle.
+"$cli" config-set env.CANVAS_DATABASE_PROVIDER sqlite --no-banner > /dev/null
+
 test ! -e "$CANVAS_CONFIG_ENV"
 : > "$CANVAS_TEST_COMPOSE_LOG"
 "$cli" env --render --json --no-banner > "$TMP_DIR/env-render-first.json"

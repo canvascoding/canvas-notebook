@@ -10,9 +10,12 @@ postgres_bool() {
 }
 
 postgres_runtime_desired() {
-  local provider database_url
+  local provider postgres_mode database_url
   provider="$(config_json_read env.CANVAS_DATABASE_PROVIDER)"
   provider="$(printf '%s' "$provider" | tr '[:upper:]' '[:lower:]' | xargs)"
+  postgres_mode="$(config_json_read env.CANVAS_POSTGRES_MODE)"
+  postgres_mode="$(printf '%s' "$postgres_mode" | tr '[:upper:]' '[:lower:]' | xargs)"
+  [[ "$postgres_mode" == "external" ]] && return 1
   postgres_bool "$(config_json_read env.CANVAS_POSTGRES_REQUIRED)" && return 0
   postgres_bool "$(config_json_read env.CANVAS_POSTGRES_VECTOR_ENABLED)" && return 0
   postgres_bool "$(config_json_read env.CANVAS_TEAM_FEATURES_ENABLED)" && return 0

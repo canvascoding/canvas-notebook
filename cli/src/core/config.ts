@@ -32,10 +32,10 @@ const DEFAULT_ENV: Record<string, EnvValue> = {
   ALLOW_SIGNUP: false,
   OLLAMA_CLI_AUTO_INSTALL: true,
   CANVAS_DEPLOYMENT_MODE: 'single_user',
-  CANVAS_DATABASE_PROVIDER: 'sqlite',
-  CANVAS_POSTGRES_MODE: '',
+  CANVAS_DATABASE_PROVIDER: 'postgres',
+  CANVAS_POSTGRES_MODE: 'managed',
   DATABASE_URL: '',
-  CANVAS_POSTGRES_VECTOR_ENABLED: false,
+  CANVAS_POSTGRES_VECTOR_ENABLED: true,
   CANVAS_POSTGRES_IMAGE: DEFAULT_POSTGRES_IMAGE,
   CANVAS_POSTGRES_DATA_VOLUME: DEFAULT_POSTGRES_DATA_VOLUME,
   CANVAS_POSTGRES_DB: DEFAULT_POSTGRES_DB,
@@ -107,7 +107,11 @@ function asEnvValue(value: unknown): EnvValue {
 
 function normalizeEnv(input: unknown, defaults: Record<string, EnvValue>): Record<string, EnvValue> {
   const env: Record<string, EnvValue> = { ...defaults };
-  if (!isRecord(input)) return env;
+  if (!isRecord(input)) {
+    env.CANVAS_DATABASE_PROVIDER = '';
+    env.CANVAS_POSTGRES_MODE = '';
+    return env;
+  }
   for (const [key, value] of Object.entries(input)) {
     env[key] = asEnvValue(value);
   }

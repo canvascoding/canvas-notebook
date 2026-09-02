@@ -40,9 +40,10 @@ CONFIG_JSON_DEFAULTS='{
     "ALLOW_SIGNUP": false,
     "OLLAMA_CLI_AUTO_INSTALL": true,
     "CANVAS_DEPLOYMENT_MODE": "single_user",
-    "CANVAS_DATABASE_PROVIDER": "sqlite",
+    "CANVAS_DATABASE_PROVIDER": "postgres",
+    "CANVAS_POSTGRES_MODE": "managed",
     "DATABASE_URL": "",
-    "CANVAS_POSTGRES_VECTOR_ENABLED": false,
+    "CANVAS_POSTGRES_VECTOR_ENABLED": true,
     "CANVAS_POSTGRES_IMAGE": "pgvector/pgvector:0.8.3-pg18",
     "CANVAS_POSTGRES_DATA_VOLUME": "canvas-postgres-data",
     "CANVAS_POSTGRES_DB": "canvas_notebook",
@@ -292,6 +293,12 @@ config_json_write() {
         fail "Invalid CANVAS_DATABASE_PROVIDER '${value}'. Expected sqlite or postgres."
       fi
       ;;
+    env.CANVAS_POSTGRES_MODE)
+      value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | xargs)"
+      if [[ -n "$value" && "$value" != "managed" && "$value" != "external" ]]; then
+        fail "Invalid CANVAS_POSTGRES_MODE '${value}'. Expected managed or external."
+      fi
+      ;;
     env.CANVAS_DEPLOYMENT_MODE)
       value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | xargs)"
       ;;
@@ -326,6 +333,16 @@ config_json_normalize_database_provider() {
     ""|sqlite) printf 'sqlite\n' ;;
     postgres) printf 'postgres\n' ;;
     *) fail "Invalid CANVAS_DATABASE_PROVIDER '${value}'. Expected sqlite or postgres." ;;
+  esac
+}
+
+config_json_normalize_postgres_mode() {
+  local value
+  value="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | xargs)"
+  case "$value" in
+    ""|managed) printf 'managed\n' ;;
+    external) printf 'external\n' ;;
+    *) fail "Invalid CANVAS_POSTGRES_MODE '${value}'. Expected managed or external." ;;
   esac
 }
 
@@ -412,7 +429,7 @@ config_json_decode_postgres_password() {
 }
 
 config_json_ensure_database_config() {
-  local deployment_mode team_features provider provider_raw database_url pg_image pg_volume pg_db pg_user pg_password
+  local deployment_mode team_features provider provider_raw postgres_mode database_url pg_image pg_volume pg_db pg_user pg_password
   deployment_mode="$(config_json_read env.CANVAS_DEPLOYMENT_MODE)"
   deployment_mode="${deployment_mode:-single_user}"
   team_features="$(config_json_read env.CANVAS_TEAM_FEATURES_ENABLED)"
@@ -435,7 +452,21 @@ config_json_ensure_database_config() {
   config_json_write env.CANVAS_DATABASE_PROVIDER "$provider"
 
   if [[ "$provider" != "postgres" ]]; then
+    config_json_write env.CANVAS_POSTGRES_MODE ""
     config_json_write env.CANVAS_POSTGRES_VECTOR_ENABLED false
+    return 0
+  fi
+
+  postgres_mode="$(config_json_normalize_postgres_mode "$(config_json_read env.CANVAS_POSTGRES_MODE)")" || return 1
+  config_json_write env.CANVAS_POSTGRES_MODE "$postgres_mode"
+  if [[ "$postgres_mode" == "external" ]]; then
+    if [[ -z "$database_url" ]]; then
+      fail "External Postgres requires DATABASE_URL."
+    fi
+    if [[ ! "$database_url" =~ ^postgres(ql)?:// ]]; then
+      fail "DATABASE_URL must use postgres:// or postgresql://"
+    fi
+    config_json_write env.CANVAS_POSTGRES_PASSWORD ""
     return 0
   fi
 
@@ -485,6 +516,9 @@ config_json_ensure_database_config() {
 
 config_json_ensure_postgres_infrastructure_config() {
   local pg_image pg_volume pg_db pg_user pg_password database_url
+  if [[ "$(config_json_normalize_postgres_mode "$(config_json_read env.CANVAS_POSTGRES_MODE)")" != "managed" ]]; then
+    fail "Managed Postgres infrastructure cannot be prepared when CANVAS_POSTGRES_MODE=external."
+  fi
   pg_image="$(config_json_read env.CANVAS_POSTGRES_IMAGE)"
   pg_image="${pg_image:-pgvector/pgvector:0.8.3-pg18}"
   pg_volume="$(config_json_read env.CANVAS_POSTGRES_DATA_VOLUME)"
@@ -521,6 +555,7 @@ config_json_ensure_postgres_infrastructure_config() {
   fi
 
   config_json_write env.CANVAS_POSTGRES_REQUIRED true
+  config_json_write env.CANVAS_POSTGRES_MODE managed
   config_json_write env.CANVAS_POSTGRES_IMAGE "$pg_image"
   config_json_write env.CANVAS_POSTGRES_DATA_VOLUME "$pg_volume"
   config_json_write env.CANVAS_POSTGRES_DB "$pg_db"
@@ -629,9 +664,15 @@ config_json_to_env() {
       printf 'DATA_DIR=%s\n' "$data_dir"
     fi
   } > "$compose_tmp"
-  local database_provider postgres_profile postgres_image postgres_volume postgres_db postgres_user postgres_password
+  local database_provider postgres_mode postgres_profile postgres_image postgres_volume postgres_db postgres_user postgres_password
   database_provider="$(config_json_normalize_database_provider "$(config_json_read env.CANVAS_DATABASE_PROVIDER)")"
+  postgres_mode="$(config_json_read env.CANVAS_POSTGRES_MODE)"
   if [[ "$database_provider" == "postgres" ]]; then
+    postgres_mode="$(config_json_normalize_postgres_mode "$postgres_mode")"
+  else
+    postgres_mode=""
+  fi
+  if [[ "$database_provider" == "postgres" && "$postgres_mode" == "managed" ]]; then
     postgres_profile="postgres"
   else
     postgres_profile=""
@@ -644,6 +685,7 @@ config_json_to_env() {
   {
     printf 'COMPOSE_PROFILES=%s\n' "$postgres_profile"
     printf 'CANVAS_DATABASE_PROVIDER=%s\n' "$database_provider"
+    printf 'CANVAS_POSTGRES_MODE=%s\n' "$postgres_mode"
     printf 'CANVAS_POSTGRES_IMAGE=%s\n' "${postgres_image:-pgvector/pgvector:0.8.3-pg18}"
     printf 'CANVAS_POSTGRES_DATA_VOLUME=%s\n' "${postgres_volume:-canvas-postgres-data}"
     printf 'CANVAS_POSTGRES_DB=%s\n' "${postgres_db:-canvas_notebook}"

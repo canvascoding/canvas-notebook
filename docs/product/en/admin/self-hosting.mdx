@@ -6,7 +6,7 @@ sectionOrder: 10
 order: 10
 locale: en
 translationKey: admin.self-hosting
-updatedAt: 2026-07-17
+updatedAt: 2026-09-02
 ---
 
 # Self-hosting Overview
@@ -20,9 +20,9 @@ Canvas Notebook is container-first. The recommended production path is a Linux V
 - **Docker Compose:** uses the provided pre-built-image file with explicit environment configuration.
 - **Hosting platform:** uses the Postgres-oriented Compose file with platform-managed networking, volumes, and TLS.
 
-## Personal and Team runtime
+## Database runtime
 
-SQLite is the default for personal or single-user operation. Postgres is required for the compatible Team runtime and its multi-user, collaboration, and related capabilities. License entitlements, deployment mode, database, and vector provider must describe a compatible profile.
+New production installations use Postgres for both personal and Team operation. The installer manages a local Postgres 18 plus pgvector service by default; the portable CLI also supports a preflighted external Postgres database. Existing SQLite installations remain supported long enough to back up and migrate, but SQLite is not offered for fresh production setups. License entitlements, deployment mode, database, and vector provider must describe a compatible profile.
 
 ## Persistent state
 
@@ -41,4 +41,3 @@ If Caddy is enabled, point the domain's A record to the server and open ports 80
 - [Linux installation](/docs/admin/install-linux)
 - [macOS installation](/docs/admin/install-macos)
 - [Windows installation](/docs/admin/install-windows)
-

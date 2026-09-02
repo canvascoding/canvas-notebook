@@ -57,7 +57,7 @@ License activation is optional and remains available later in **Settings → Lic
 
 If you enable Caddy, point your domain's DNS record to the server and allow inbound traffic on ports `80` and `443`. Without Caddy, the application listens on host port `3456` by default.
 
-### Docker Compose — pre-built image and SQLite
+### Docker Compose — pre-built image and Postgres
 
 Requirements: Docker Engine with Compose v2 and OpenSSL for secret generation.
 
@@ -70,14 +70,14 @@ openssl rand -base64 32
 openssl rand -base64 32
 ```
 
-Open `.env.docker.local` and replace both `SET_WITH_OPENSSL_RAND_BASE64_32` placeholders with the generated values. Then start the stack:
+Open `.env.docker.local`, replace both `SET_WITH_OPENSSL_RAND_BASE64_32` placeholders with the generated values, and replace the Postgres `change-me` password in both occurrences. Then start the stack:
 
 ```bash
 docker compose -f compose.ghcr.yaml up -d
 curl -fsS http://localhost:3456/api/health
 ```
 
-Open [http://localhost:3456](http://localhost:3456) and complete the setup flow. The included Compose file stores application data in `./data` and uses SQLite by default.
+Open [http://localhost:3456](http://localhost:3456) and complete the setup flow. The included Compose file stores application data in `./data` and database data in a managed Postgres 18 volume.
 
 To use a different host port:
 
@@ -180,6 +180,9 @@ For manual container deployments, these variables are the minimum:
 | `BETTER_AUTH_SECRET` | Yes | Random secret used to sign authentication data |
 | `CANVAS_INTERNAL_API_KEY` | Yes | Random secret for trusted internal API calls |
 | `BETTER_AUTH_TRUSTED_ORIGINS` | No | Additional comma-separated browser origins allowed for auth and chat WebSockets |
+| `CANVAS_DATABASE_PROVIDER` | Yes | Must be `postgres` for new production installations |
+| `CANVAS_POSTGRES_MODE` | Yes | `managed` for the included database or `external` through the portable CLI |
+| `DATABASE_URL` | Yes | PostgreSQL connection URL |
 
 Generate secrets with:
 
@@ -187,7 +190,7 @@ Generate secrets with:
 openssl rand -base64 32
 ```
 
-The pre-built image defaults to container port `3000`, `DATA=/data`, and SQLite. See [`.env.docker.example`](.env.docker.example) for optional logging, browser-export, admin-bootstrap, and database settings.
+The pre-built image defaults to container port `3000` and `DATA=/data`; new production installations use Postgres. See [`.env.docker.example`](.env.docker.example) for managed-Postgres, logging, browser-export, and admin-bootstrap settings.
 
 ## 🛠️ Operations
 
@@ -225,7 +228,7 @@ All persistent application state lives under `/data` in the container. With `com
 |---|---|
 | `/data/workspaces/` | Current user, organization, team, and project workspace files |
 | `/data/workspace/` | Legacy personal-workspace alias used by older installations |
-| `/data/sqlite.db` | SQLite database when SQLite mode is active |
+| `/data/sqlite.db` | Legacy SQLite database retained for existing installations and migration |
 | `/data/skills/` and `/data/plugins/` | Installed agent extensions |
 | `/data/secrets/` | Credentials managed through the application settings |
 | `/data/system/backups/` | Locally generated backup artifacts |

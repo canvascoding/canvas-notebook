@@ -273,7 +273,14 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       CANVAS_DATA_DIR: path.join(root, 'data'),
       CANVAS_MANAGER_LOG_FILE: path.join(root, 'logs', 'manager.log'),
     });
-    const config = materializeConfig(createDefaultConfig(paths, 'linux'));
+    const freshConfig = materializeConfig(createDefaultConfig(paths, 'linux'));
+    assert.equal(freshConfig.env.CANVAS_DATABASE_PROVIDER, 'postgres');
+    assert.equal(freshConfig.env.CANVAS_POSTGRES_MODE, 'managed');
+    assert.equal(freshConfig.env.CANVAS_POSTGRES_VECTOR_ENABLED, true);
+    assert.match(String(freshConfig.env.DATABASE_URL), /^postgresql:\/\/canvas:/u);
+    const config = materializeConfig(configureRuntimeAndDatabase(createDefaultConfig(paths, 'linux'), {
+      database: 'sqlite',
+    }));
     assert.deepEqual(orphanedComposeLogFollowerPids([
       `101 1 docker compose -f ${paths.composeFile} --project-directory ${paths.installDir} logs -f --tail=120 canvas-notebook`,
       `102 99 docker compose -f ${paths.composeFile} --project-directory ${paths.installDir} logs -f canvas-notebook`,
@@ -397,6 +404,11 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(materializeConfig(legacyUrlOnly, undefined, { allowPostgresSecretGeneration: false }).env.CANVAS_DATABASE_PROVIDER, 'postgres');
     assert.equal(materializeConfig(legacyUrlOnly, undefined, { allowPostgresSecretGeneration: false }).env.CANVAS_POSTGRES_MODE, 'managed');
 
+    const legacyWithoutEnv = normalizeConfig({}, createDefaultConfig(paths, 'linux'));
+    assert.equal(legacyWithoutEnv.env.CANVAS_DATABASE_PROVIDER, '');
+    assert.equal(legacyWithoutEnv.env.CANVAS_POSTGRES_MODE, '');
+    assert.equal(materializeConfig(legacyWithoutEnv).env.CANVAS_DATABASE_PROVIDER, 'sqlite');
+
     const externalPostgres = configureRuntimeAndDatabase(config, {
       database: 'postgres',
       postgresMode: 'external',
@@ -464,7 +476,9 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     process.env.CANVAS_HEALTH_MAX_ATTEMPTS = '1';
     try {
       const reset = async () => {
-        const config = materializeConfig(createDefaultConfig(paths, 'linux'));
+        const config = materializeConfig(configureRuntimeAndDatabase(createDefaultConfig(paths, 'linux'), {
+          database: 'sqlite',
+        }));
         config.image = mutableImage;
         await writeConfig(config);
         await writeEnvFiles(config, composePath(config.dataDir, 'linux'));

@@ -24,6 +24,7 @@ services:
       - BETTER_AUTH_SECRET=$SERVICE_PASSWORD_AUTH
       - CANVAS_INTERNAL_API_KEY=$SERVICE_PASSWORD_API_KEY
       - CANVAS_DATABASE_PROVIDER=postgres
+      - CANVAS_POSTGRES_MODE=managed
       - 'DATABASE_URL=postgresql://$SERVICE_USER_POSTGRES:$SERVICE_PASSWORD_POSTGRES@postgres:5432/${POSTGRES_DB:-canvas_notebook}'
       - 'CANVAS_POSTGRES_VECTOR_ENABLED=${CANVAS_POSTGRES_VECTOR_ENABLED:-true}'
       - 'LOG_LEVEL=${LOG_LEVEL:-info}'
@@ -48,7 +49,7 @@ services:
       - POSTGRES_PASSWORD=$SERVICE_PASSWORD_POSTGRES
       - 'POSTGRES_DB=${POSTGRES_DB:-canvas_notebook}'
     volumes:
-      - 'canvas-postgres-data:/var/lib/postgresql/data'
+      - 'canvas-postgres-data:/var/lib/postgresql'
     healthcheck:
       test:
         - CMD-SHELL

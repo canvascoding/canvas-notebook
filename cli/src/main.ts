@@ -137,7 +137,7 @@ function printHelp(): void {
 
 Commands:
   version [--json]                 Show CLI build information and capabilities
-  install [--database sqlite|postgres] [--postgres-mode managed|external] [--database-url-stdin|--database-url-file <path>] [--pgvector required|optional|disabled] [--runtime personal|team]
+  install [--database postgres] [--postgres-mode managed|external] [--database-url-stdin|--database-url-file <path>] [--pgvector required|optional|disabled] [--runtime personal|team]
                                   Generate config, pull image, start container
   update [--image <name@sha256>] [--require-pinned]
                                  Pull and apply an image with rollback protection
@@ -1799,6 +1799,10 @@ async function main(): Promise<void> {
     switch (parsed.command) {
     case 'install': {
       const options = parseInstallOptions(parsed.args);
+      const configExists = await fs.access(context.paths.configFile).then(() => true, () => false);
+      if (!configExists && options.database === 'sqlite') {
+        throw new Error('Fresh production installations require Postgres. SQLite is supported only for existing installations and migration.');
+      }
       if (options.databaseUrlSource) {
         options.database = 'postgres';
         options.postgresMode = 'external';
