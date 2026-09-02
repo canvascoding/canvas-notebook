@@ -24,6 +24,7 @@ import {
   type AiRuntimeResolutionContext,
 } from '@/app/lib/agent-runtime-policy/runtime-resolver';
 import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-runtime-policy/runtime-snapshot';
+import { workspaceAllowsInteractiveUserCredentials } from '@/app/lib/agent-runtime-policy/user-credential-policy';
 import {
   readPiSessionRuntimeSnapshot,
   readUserWorkspaceProviderGrant,
@@ -510,7 +511,10 @@ async function materializeResolution(
       policy: latestPolicy,
       workspaceType: context.workspaceType,
       allowUserCredentials: runtimePrincipalCanUseUserCredentials(resolution.context)
-        && (context.workspaceType === 'personal' || latestPolicy?.allowUserCredentials === true),
+        && workspaceAllowsInteractiveUserCredentials({
+          workspaceType: context.workspaceType,
+          policy: latestPolicy,
+        }),
     }).find((candidate) => candidate.installationId === providerInstallation.installationId);
     const allowedModel = allowedProvider?.models.find((candidate) => candidate.id === catalogModel.id);
     if (!allowedModel) {

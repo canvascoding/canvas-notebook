@@ -2,6 +2,7 @@ import 'server-only';
 
 import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
 import { providerUsesOAuth } from '@/app/lib/agent-runtime-policy/provider-auth-policy';
+import { workspaceAllowsInteractiveUserCredentials } from '@/app/lib/agent-runtime-policy/user-credential-policy';
 import {
   deleteWorkspaceModelPolicyStore,
   deleteUserModelPreferenceStore,
@@ -188,7 +189,10 @@ async function assertUserProviderGrantTarget(input: {
       'The selected provider installation is not an enabled personal OAuth provider.',
     );
   }
-  if (!policy?.allowUserCredentials) {
+  if (!workspaceAllowsInteractiveUserCredentials({
+    workspaceType: input.context.workspaceType,
+    policy,
+  })) {
     throw new AiRuntimePolicyError(
       'PROVIDER_INSTALLATION_NOT_ALLOWED',
       'Personal provider credentials are disabled by this workspace policy.',
