@@ -1,12 +1,13 @@
 import 'server-only';
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { getBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { runMigrations } from '@/app/lib/db/migrate';
+import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
 import { migrateLegacySecretsToUserScope } from '@/app/lib/integrations/legacy-secret-migration';
 import {
   coerceDatabaseUnavailableError,
@@ -620,11 +621,12 @@ export function getOrganizationPermissionForUser(
 }
 
 export function openOrganizationBootstrapDatabase(): Database.Database {
+  const BetterSqlite3 = loadBetterSqlite3();
   const sqlitePath = resolveSqlitePath();
   let sqlite: Database.Database | null = null;
 
   try {
-    sqlite = new Database(sqlitePath);
+    sqlite = new BetterSqlite3(sqlitePath);
     sqlite.pragma('foreign_keys = ON');
     sqlite.pragma('busy_timeout = 5000');
     // Startup owns schema changes for the running server. This function is

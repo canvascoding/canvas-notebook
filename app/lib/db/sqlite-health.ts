@@ -1,4 +1,6 @@
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+
+import { loadBetterSqlite3 } from './optional-sqlite';
 
 export class SqliteIntegrityError extends Error {
   readonly cause?: unknown;
@@ -15,10 +17,11 @@ function formatSqliteError(error: unknown): string {
 }
 
 export function assertSqliteDatabaseReadable(dbPath: string): void {
+  const BetterSqlite3 = loadBetterSqlite3();
   let sqlite: InstanceType<typeof Database> | null = null;
 
   try {
-    sqlite = new Database(dbPath, { readonly: true, fileMustExist: true });
+    sqlite = new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true });
     const rows = sqlite.prepare('PRAGMA quick_check').all() as Array<Record<string, unknown>>;
     const failures = rows
       .map((row) => String(row.quick_check ?? Object.values(row)[0] ?? 'unknown'))

@@ -55,8 +55,6 @@ Commands:
              Prepare local Postgres service without migrating SQLite data
   database reconcile-postgres-auth --timeout <seconds>
              Reconcile local Postgres auth, then render env and restart the app
-  database migrate-sqlite-to-postgres [--sqlite-path <path>]
-             Copy the current SQLite database into the configured Postgres database
   admin reset-password --email <email> [--name <name>] [--password-stdin]
              Reset or create the admin password inside the running container without storing it in env
   swap       Show swap status; use --json for machine-readable output

@@ -1,5 +1,4 @@
-import { drizzle as drizzleSqlite } from 'drizzle-orm/better-sqlite3';
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import {mkdirSync} from 'fs';
 import path from 'path';
 import * as schema from './schema';
@@ -17,6 +16,7 @@ import {
   coerceDatabaseUnavailableError,
   DatabaseUnavailableError,
 } from './errors';
+import { loadBetterSqlite3, loadDrizzleSqlite } from './optional-sqlite';
 
 export type SqlConnection = {
   get: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
@@ -39,10 +39,12 @@ function getSqlitePath(): string {
 }
 
 function createSqliteDatabase() {
+  const BetterSqlite3 = loadBetterSqlite3();
+  const drizzleSqlite = loadDrizzleSqlite();
   const sqlitePath = getSqlitePath();
   mkdirSync(path.dirname(sqlitePath), {recursive: true});
 
-  const sqlite = new Database(sqlitePath);
+  const sqlite = new BetterSqlite3(sqlitePath);
   sqlite.pragma('foreign_keys = ON');
   sqlite.pragma('busy_timeout = 5000');
   if (shouldRunSqliteStartupMigrations) {
@@ -213,7 +215,8 @@ export async function openDb(): Promise<SqlConnection> {
   }
 
   const sqlitePath = getSqlitePath();
-  const freshSqlite = runSqliteOperation(sqlitePath, () => new Database(sqlitePath));
+  const BetterSqlite3 = loadBetterSqlite3();
+  const freshSqlite = runSqliteOperation(sqlitePath, () => new BetterSqlite3(sqlitePath));
   freshSqlite.pragma('foreign_keys = ON');
   freshSqlite.pragma('busy_timeout = 5000');
   return {

@@ -1,6 +1,6 @@
 import 'server-only';
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import { and, eq } from 'drizzle-orm';
 import path from 'node:path';
 

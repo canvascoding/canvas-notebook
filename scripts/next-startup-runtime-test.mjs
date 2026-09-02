@@ -16,7 +16,6 @@ const websocketStartupIndex = serverSource.indexOf("console.log('[Startup] Initi
 const agentRuntimeWarmupIndex = serverSource.indexOf('preloadAgentRuntimeModules()');
 const managedCatalogWarmupIndex = serverSource.indexOf('primeCanvasControlPlaneCatalog()');
 const nextPrepareIndex = serverSource.indexOf('app.prepare(),');
-const pendingRestoreIndex = dockerEntrypointSource.indexOf('scripts/apply-pending-migration-restore.ts');
 const entrypointMigrationIndex = dockerEntrypointSource.indexOf('scripts/run-database-migrations.ts');
 const agentRuntimeBootstrapIndex = dockerEntrypointSource.indexOf('scripts/bootstrap-agent-runtime.ts');
 
@@ -50,9 +49,10 @@ assert.ok(
   'server.js must start managed catalog warmup with local runtime warmup and await both before readiness',
 );
 assert.ok(
-  pendingRestoreIndex < entrypointMigrationIndex && entrypointMigrationIndex < agentRuntimeBootstrapIndex,
-  'the container entrypoint must migrate after pending restores and before runtime bootstrap',
+  entrypointMigrationIndex < agentRuntimeBootstrapIndex,
+  'the container entrypoint must migrate before runtime bootstrap',
 );
+assert.doesNotMatch(dockerEntrypointSource, /apply-pending-migration-restore/u);
 assert.ok(
   !dbIndexSource.includes('runPostgresMigrations'),
   'app/lib/db/index.ts must not start Postgres migrations from runtime imports',

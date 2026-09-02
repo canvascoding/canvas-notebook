@@ -185,7 +185,6 @@ Commands:
                                   Prepare local Postgres without requiring old credentials
   database reconcile-postgres-auth --timeout <seconds>
                                   Reconcile Postgres auth, then apply the app
-  database migrate-sqlite-to-postgres [args]
   service status|install|uninstall
 `);
 }
@@ -1576,7 +1575,7 @@ async function admin(context: RuntimeContext, docker: DockerManager, config: Can
 async function database(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {
   const subcommand = args.shift();
   if (!subcommand || subcommand === '-h' || subcommand === '--help') {
-    console.log('Usage: canvas-notebook database status|validate|prepare-postgres|reconcile-postgres-auth|migrate-sqlite-to-postgres [options]');
+    console.log('Usage: canvas-notebook database status|validate|prepare-postgres|reconcile-postgres-auth [options]');
     return;
   }
 
@@ -1648,36 +1647,7 @@ async function database(context: RuntimeContext, docker: DockerManager, config: 
     return;
   }
 
-  if (subcommand !== 'migrate-sqlite-to-postgres') {
-    throw new Error(`Unknown database subcommand: ${subcommand}`);
-  }
-  if (postgresRuntimeDesired(config)) {
-    const existingEnvFiles = await Promise.all([
-      fs.access(config.paths.containerEnvFile).then(() => true, () => false),
-      fs.access(config.paths.composeEnvFile).then(() => true, () => false),
-    ]);
-    if (existingEnvFiles.every(Boolean)) {
-      await reconcilePostgresAuth(context, docker, config, [], json, true);
-      config = await readConfig(context);
-    }
-  }
-  const next = externalPostgresRuntimeDesired(config)
-    ? await syncFiles(context, config)
-    : await syncFiles(context, config, { postgresInfrastructureOnly: true });
-  await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit' });
-  const containerId = await docker.containerId(next);
-  if (!containerId) throw new Error('Canvas Notebook container is not running. Start it first: canvas-notebook start');
-  const nextArgs = json ? [...args, '--json'] : args;
-  await docker.dockerOrThrow([
-    'exec',
-    containerId,
-    'npx',
-    'tsx',
-    '--conditions',
-    'react-server',
-    'scripts/migrate-sqlite-to-postgres.ts',
-    ...nextArgs,
-  ], { stdio: 'inherit' });
+  throw new Error(`Unknown database subcommand: ${subcommand}`);
 }
 
 async function backup(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {

@@ -11,7 +11,6 @@ const {
   statSync,
   writeFileSync,
 } = require('node:fs');
-const Database = require('better-sqlite3');
 const { hashPassword } = require('better-auth/crypto');
 const { loadAppEnv } = require('../server/load-app-env.js');
 
@@ -536,6 +535,12 @@ CREATE INDEX IF NOT EXISTS idx_team_seat_outbox_control_plane_operation ON team_
 }
 
 function openDatabase() {
+  let Database;
+  try {
+    Database = require('better-sqlite3');
+  } catch (error) {
+    throw new Error('SQLite support is not included in this PostgreSQL-only runtime.', { cause: error });
+  }
   const sqlitePath = getSqlitePath();
   const db = new Database(sqlitePath);
   db.pragma('foreign_keys = ON');

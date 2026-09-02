@@ -1,6 +1,6 @@
 import 'server-only';
 
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -12,6 +12,7 @@ import {
 } from '@/app/lib/db/migrate';
 import { openDb } from '@/app/lib/db';
 import { coerceDatabaseUnavailableError } from '@/app/lib/db/errors';
+import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
 import {
   getDatabaseProviderProblemMessages,
   getDatabaseProvider,
@@ -112,12 +113,13 @@ function validateInitialOwnerInput(input: unknown): ValidationResult {
 }
 
 function openSetupDatabase() {
+  const BetterSqlite3 = loadBetterSqlite3();
   const sqlitePath = getSqlitePath();
   let sqlite: Database.Database | null = null;
 
   try {
     mkdirSync(path.dirname(sqlitePath), { recursive: true });
-    sqlite = new Database(sqlitePath);
+    sqlite = new BetterSqlite3(sqlitePath);
     sqlite.pragma('foreign_keys = ON');
     sqlite.pragma('busy_timeout = 5000');
     // The HTTP server migrates once before loading request handlers. Keep this

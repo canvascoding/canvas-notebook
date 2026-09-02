@@ -214,20 +214,11 @@ step "Preparing data directories"
 } >> "$STARTUP_LOG" 2>&1
 step_ok
 
-# ─── Step 2: Pending migration restore ───────────────────────────────────
-step "Pending migration restore"
-if npx tsx scripts/apply-pending-migration-restore.ts >> "$STARTUP_LOG" 2>&1; then
-  step_ok
-else
-  step_fail
-  fatal_startup "Pending migration restore failed."
-fi
-
 if [ -n "${OLLAMA_MODELS:-}" ]; then
   prepare_writable_dir "${OLLAMA_MODELS}" >> "$STARTUP_LOG" 2>&1 || true
 fi
 
-# ─── Step 3: Database migrations ─────────────────────────────────────────
+# ─── Step 2: Database migrations ─────────────────────────────────────────
 step "Database migrations"
 if npx tsx --conditions react-server scripts/run-database-migrations.ts >> "$STARTUP_LOG" 2>&1; then
   export CANVAS_DATABASE_MIGRATIONS_COMPLETED=true
@@ -237,7 +228,7 @@ else
   fatal_startup "Database migrations failed."
 fi
 
-# ─── Step 4: Agent runtime bootstrap ─────────────────────────────────────
+# ─── Step 3: Agent runtime bootstrap ─────────────────────────────────────
 step "Agent runtime bootstrap"
 if npx tsx scripts/bootstrap-agent-runtime.ts >> "$STARTUP_LOG" 2>&1; then
   step_ok

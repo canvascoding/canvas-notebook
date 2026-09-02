@@ -128,7 +128,7 @@ ARG TARGETPLATFORM
 
 RUN set -eux; \
   apt-get update; \
-  apt-get install -y --no-install-recommends ffmpeg curl wget zstd ca-certificates sqlite3 unzip zip git make python3 python3-pip python3-venv ripgrep poppler-utils procps \
+  apt-get install -y --no-install-recommends ffmpeg curl wget zstd ca-certificates unzip zip git make python3 python3-pip python3-venv ripgrep poppler-utils procps \
      chromium fonts-liberation libnss3 libatk-bridge2.0-0 libcups2 libdrm2 \
      libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
      fonts-noto-color-emoji; \
@@ -202,12 +202,16 @@ COPY --from=builder /app/server ./server
 
 # Copy scripts from builder (needed for startup)
 COPY --from=builder /app/scripts ./scripts
+RUN rm -f ./scripts/apply-pending-migration-restore.ts ./scripts/migrate-sqlite-to-postgres.ts
 
 # Copy seed assets (preset preview images, sys prompts, etc.)
 COPY --from=builder /app/seed_sys_prompts ./seed_sys_prompts
 
 # Copy production node_modules for external packages (better-auth, etc.)
 COPY --from=builder /app/node_modules ./node_modules
+RUN rm -rf ./node_modules/better-sqlite3 \
+  && test ! -e ./node_modules/better-sqlite3 \
+  && ! command -v sqlite3 >/dev/null 2>&1
 
 # Capture and verify the final OS/Python/npm/native payload only after the
 # production node_modules and locally-built sharp addons are present.

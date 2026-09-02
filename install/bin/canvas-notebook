@@ -173,7 +173,7 @@ canvas_command_requires_operation_lock() {
       canvas_command_has_arg --sync || canvas_command_has_arg --render || canvas_command_has_arg --edit
       ;;
     database)
-      [[ "$subcommand" == "prepare-postgres" || "$subcommand" == "reconcile-postgres-auth" || "$subcommand" == "migrate-sqlite-to-postgres" ]]
+      [[ "$subcommand" == "prepare-postgres" || "$subcommand" == "reconcile-postgres-auth" ]]
       ;;
     service)
       [[ "$subcommand" == "install" || "$subcommand" == "uninstall" ]]

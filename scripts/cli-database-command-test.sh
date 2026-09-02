@@ -86,28 +86,20 @@ export CANVAS_USE_COLOR=false
 cli="$TMP_DIR/install/bin/canvas-notebook"
 
 "$cli" database --no-banner > "$TMP_DIR/help.txt"
-grep -q 'migrate-sqlite-to-postgres' "$TMP_DIR/help.txt"
-
-"$cli" database migrate-sqlite-to-postgres --sqlite-path /data/backups/snapshot.sqlite --verbose --no-banner
-grep -q -- 'compose -f .* --profile postgres up -d --no-recreate postgres' "$CANVAS_TEST_DOCKER_LOG"
-grep -q 'exec -i fake-postgres-id sh -c' "$CANVAS_TEST_DOCKER_LOG"
-if grep -q 'exec -i -u postgres fake-postgres-id psql' "$CANVAS_TEST_DOCKER_LOG"; then
-  echo "generic database prepare rotated the Postgres role outside reconciliation" >&2
+if grep -q 'migrate-sqlite-to-postgres' "$TMP_DIR/help.txt"; then
+  echo "removed SQLite migration command is still advertised" >&2
   exit 1
 fi
-grep -q 'exec fake-container-id npx tsx --conditions react-server scripts/migrate-sqlite-to-postgres.ts --sqlite-path /data/backups/snapshot.sqlite --verbose' "$CANVAS_TEST_DOCKER_LOG"
-if grep -Eq 'postgresql://canvas:[^*[:space:]]+@postgres|CANVAS_POSTGRES_PASSWORD' "$CANVAS_TEST_DOCKER_LOG"; then
-  echo "database migrate prepare leaked a password-bearing value into docker argv logs" >&2
+if "$cli" database migrate-sqlite-to-postgres --no-banner >"$TMP_DIR/removed.out" 2>"$TMP_DIR/removed.err"; then
+  echo "removed SQLite migration command unexpectedly succeeded" >&2
   exit 1
 fi
-
-: > "$CANVAS_TEST_DOCKER_LOG"
-"$cli" database migrate-sqlite-to-postgres --json --no-banner > /dev/null
-grep -q 'exec fake-container-id npx tsx --conditions react-server scripts/migrate-sqlite-to-postgres.ts --json' "$CANVAS_TEST_DOCKER_LOG"
+grep -q 'Unknown database subcommand: migrate-sqlite-to-postgres' "$TMP_DIR/removed.err"
 
 fresh_password='fresh-postgres-password'
 printf '%s' "$fresh_password" | "$cli" config-set env.CANVAS_POSTGRES_PASSWORD --stdin --no-banner > /dev/null
 printf '' | "$cli" config-set env.DATABASE_URL --stdin --no-banner > /dev/null
+"$cli" env --render --no-banner > /dev/null
 for env_file in "$CANVAS_CONFIG_ENV" "$CANVAS_COMPOSE_ENV"; do
   sed -i.bak -e '/^CANVAS_POSTGRES_PASSWORD=/d' -e '/^DATABASE_URL=/d' "$env_file"
   rm -f "${env_file}.bak"

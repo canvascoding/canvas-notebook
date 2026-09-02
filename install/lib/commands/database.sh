@@ -6,18 +6,11 @@ Usage:
   canvas-notebook database status [--json]
   canvas-notebook database prepare-postgres [--timeout <seconds>] [--json]
   canvas-notebook database reconcile-postgres-auth [--timeout <seconds>] [--json]
-  canvas-notebook database migrate-sqlite-to-postgres [options]
-
-Options:
-  --sqlite-path <path>  Source SQLite path inside the Notebook container
-  --verbose            Print per-table copy progress
   --json               Print machine-readable JSON
 
 The prepare-postgres command starts the local Postgres compose service without
-copying SQLite data. The reconcile command updates local Postgres authentication,
+copying data. The reconcile command updates local Postgres authentication,
 verifies it over TCP, renders env files, and only then applies the app service.
-The migrate command runs inside the active Canvas Notebook container and requires
-DATABASE_URL configured for Postgres.
 HELP
 }
 
@@ -678,29 +671,6 @@ _database_reconcile_postgres_auth_quiet() {
   fi
 }
 
-_database_migrate_sqlite_to_postgres() {
-  local cid
-  local args=("$@")
-  if [[ -f "$(_database_recovery_journal_path)" ]]; then
-    _database_json_error "An interrupted Postgres auth reconciliation is pending. Run database reconcile-postgres-auth first."
-  fi
-  if postgres_runtime_desired && [[ -f "$CONFIG_ENV_PATH" && -f "$COMPOSE_ENV_PATH" ]]; then
-    _database_reconcile_postgres_auth_quiet --timeout "${CANVAS_POSTGRES_RECONCILE_TIMEOUT:-900}" || return 1
-  fi
-  if [[ "$(config_json_read env.CANVAS_POSTGRES_MODE)" != "external" ]]; then
-    config_json_ensure_postgres_infrastructure_config
-  fi
-  CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE=true config_json_to_env
-  postgres_prepare_managed_runtime
-  cid="$(_database_require_running_container)"
-
-  if [[ "${OUTPUT_JSON:-false}" == "true" ]]; then
-    args+=("--json")
-  fi
-
-  docker_cmd exec "$cid" npx tsx --conditions react-server scripts/migrate-sqlite-to-postgres.ts "${args[@]}"
-}
-
 cmd_database() {
   local subcommand="${1:-}"
   if [[ -z "$subcommand" || "$subcommand" == "-h" || "$subcommand" == "--help" ]]; then
@@ -719,10 +689,6 @@ cmd_database() {
     reconcile-postgres-auth)
       log_msg "database reconcile-postgres-auth"
       _database_reconcile_postgres_auth "$@"
-      ;;
-    migrate-sqlite-to-postgres)
-      log_msg "database ${subcommand}"
-      _database_migrate_sqlite_to_postgres "$@"
       ;;
     *)
       _database_json_error "Unknown database subcommand: ${subcommand}" 2

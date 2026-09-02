@@ -1,4 +1,3 @@
-import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
@@ -11,11 +10,13 @@ import {
   getDatabaseProvider,
   resolveSqlitePath,
 } from './provider';
+import { loadBetterSqlite3 } from './optional-sqlite';
 
 function runSqliteBootstrapMigrations(): void {
+  const BetterSqlite3 = loadBetterSqlite3();
   const databasePath = resolveSqlitePath();
   mkdirSync(path.dirname(databasePath), { recursive: true });
-  const migrationDatabase = new Database(databasePath);
+  const migrationDatabase = new BetterSqlite3(databasePath);
   try {
     migrationDatabase.pragma('foreign_keys = ON');
     migrationDatabase.pragma('busy_timeout = 5000');
@@ -46,6 +47,10 @@ export async function runStartupDatabaseMigrations(): Promise<void> {
     runSqliteBootstrapMigrations();
     console.log('[Startup] File collaboration metadata migrations completed');
     return;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Production database migrations require PostgreSQL; SQLite is not supported.');
   }
 
   console.log('[Startup] Running database migrations...');

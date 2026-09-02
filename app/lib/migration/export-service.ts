@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import path from 'path';
 import { createReadStream, createWriteStream, promises as fs } from 'fs';
 import { PassThrough } from 'stream';
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import ZipStream from 'zip-stream';
 
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
@@ -38,6 +38,7 @@ import {
   resolveMigrationDataPath,
 } from '@/app/lib/migration/component-paths';
 import { getDatabaseProvider, getDeploymentMode } from '@/app/lib/organization/bootstrap';
+import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
 
 const EXPORT_STATUS_FILE = 'status.json';
 const SQLITE_FILE_NAME = 'sqlite.db';
@@ -252,7 +253,8 @@ function nullColumns(sqlite: InstanceType<typeof Database>, tableName: string, c
 }
 
 function sanitizeSqliteMigrationSnapshot(snapshotPath: string): void {
-  const snapshot = new Database(snapshotPath);
+  const BetterSqlite3 = loadBetterSqlite3();
+  const snapshot = new BetterSqlite3(snapshotPath);
   try {
     const transaction = snapshot.transaction(() => {
       if (tableExists(snapshot, 'public_file_shares')) {
@@ -441,11 +443,12 @@ async function createSqliteSnapshot(dataRoot: string, exportDir: string): Promis
   entry: MigrationFileEntry;
   sha256: string;
 }> {
+  const BetterSqlite3 = loadBetterSqlite3();
   const sourcePath = path.join(dataRoot, SQLITE_FILE_NAME);
   const snapshotPath = path.join(exportDir, 'snapshot', SQLITE_FILE_NAME);
   await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
 
-  const source = new Database(sourcePath, { readonly: true, fileMustExist: true });
+  const source = new BetterSqlite3(sourcePath, { readonly: true, fileMustExist: true });
   try {
     await source.backup(snapshotPath);
   } finally {
@@ -454,7 +457,7 @@ async function createSqliteSnapshot(dataRoot: string, exportDir: string): Promis
 
   sanitizeSqliteMigrationSnapshot(snapshotPath);
 
-  const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+  const snapshot = new BetterSqlite3(snapshotPath, { readonly: true, fileMustExist: true });
   try {
     const check = snapshot.prepare('PRAGMA quick_check').get() as { quick_check?: string } | undefined;
     if (check?.quick_check !== 'ok') {

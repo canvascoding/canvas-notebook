@@ -5,12 +5,13 @@ import { execFile, spawn } from 'child_process';
 import path from 'path';
 import { createReadStream, createWriteStream, promises as fs, type WriteStream } from 'fs';
 import { promisify } from 'util';
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import ZipStream from 'zip-stream';
 
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
 import { getDatabaseProvider, getDeploymentMode } from '@/app/lib/organization/bootstrap';
 import { resolveCanvasDataRoot, resolveSystemBackupsDir } from '@/app/lib/runtime-data-paths';
+import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
 import {
   FULL_BACKUP_SCHEMA_VERSION,
   type CanvasFullBackupManifest,
@@ -265,18 +266,19 @@ async function createSqliteFullSnapshot(dataRoot: string, backupDir: string): Pr
   database: FullBackupDatabaseManifest;
   entry: FullBackupFileEntry & { filePath: string };
 }> {
+  const BetterSqlite3 = loadBetterSqlite3();
   const sourcePath = path.join(dataRoot, SQLITE_FILE_NAME);
   const snapshotPath = path.join(backupDir, 'database', SQLITE_FILE_NAME);
   await ensurePrivateDir(path.dirname(snapshotPath));
 
-  const source = new Database(sourcePath, { readonly: true, fileMustExist: true });
+  const source = new BetterSqlite3(sourcePath, { readonly: true, fileMustExist: true });
   try {
     await source.backup(snapshotPath);
   } finally {
     source.close();
   }
 
-  const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+  const snapshot = new BetterSqlite3(snapshotPath, { readonly: true, fileMustExist: true });
   try {
     const check = snapshot.prepare('PRAGMA quick_check').get() as { quick_check?: string } | undefined;
     if (check?.quick_check !== 'ok') {
