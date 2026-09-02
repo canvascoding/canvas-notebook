@@ -1,8 +1,6 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useTranslations } from 'next-intl';
-
 import { BrowserLabClient } from '@/app/components/browser-lab/BrowserLabClient';
 import { ChatDockShell } from '@/app/components/layout/ChatDockShell';
 import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
@@ -13,7 +11,6 @@ type BrowserLabShellProps = {
 };
 
 export function BrowserLabShell({ locale }: BrowserLabShellProps) {
-  const tCommon = useTranslations('common');
   const requestContext = useMemo<ChatRequestContext>(() => ({
     currentPage: '/browser/lab',
   }), []);
@@ -22,7 +19,6 @@ export function BrowserLabShell({ locale }: BrowserLabShellProps) {
     <ChatDockShell
       title={locale === 'en' ? 'Browser Lab' : 'Browser-Labor'}
       backHref="/"
-      backLabel={tCommon('suite')}
       requestContext={requestContext}
       storageKeyPrefix="browserLab"
       defaultChatVisible

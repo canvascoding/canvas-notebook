@@ -24,7 +24,6 @@ function getStudioTitle(pathname: string | null, tStudio: ReturnType<typeof useT
 }
 
 export function StudioShell({ children, hintEnabled = true }: { children: ReactNode; hintEnabled?: boolean }) {
-  const tCommon = useTranslations('common');
   const tStudio = useTranslations('studio');
   const pathname = usePathname();
   const { chatContext } = useStudioChatContext();
@@ -32,11 +31,6 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
   const chatVisibleStorageKey = isAspectRatioEditor ? 'studio.chatVisible.aspectRatio' : 'studio.chatVisible';
   const title = getStudioTitle(pathname, tStudio);
   const backDestination = getStudioBackDestination(pathname);
-  const backLabel = backDestination.label === 'models'
-    ? tStudio('tabs.models')
-    : backDestination.label === 'presets'
-      ? tStudio('tabs.presets')
-      : tCommon('suite');
   const requestContext = useMemo<ChatRequestContext>(
     () => (chatContext?.currentPage === pathname ? chatContext : { currentPage: pathname ?? '/studio' }),
     [chatContext, pathname]
@@ -47,7 +41,7 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
       key={chatVisibleStorageKey}
       title={title}
       backHref={backDestination.href}
-      backLabel={backLabel}
+      preferBackFallback={backDestination.href !== '/'}
       requestContext={requestContext}
       storageKeyPrefix="studio"
       chatVisibleStorageKey={chatVisibleStorageKey}

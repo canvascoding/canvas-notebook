@@ -1,6 +1,7 @@
 {
   "common": {
     "cancel": "Cancel",
+    "back": "Back",
     "suite": "Suite",
     "terminal": "Terminal",
     "aiChat": "AI Chat",

@@ -8,7 +8,6 @@ import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { usePathname } from '@/i18n/navigation';
 
 export function TodosShell({ children, hintEnabled = true }: { children: ReactNode; hintEnabled?: boolean }) {
-  const tCommon = useTranslations('common');
   const tTodos = useTranslations('todos');
   const pathname = usePathname();
   const requestContext = useMemo<ChatRequestContext>(
@@ -20,7 +19,6 @@ export function TodosShell({ children, hintEnabled = true }: { children: ReactNo
     <ChatDockShell
       title={tTodos('title')}
       backHref="/"
-      backLabel={tCommon('suite')}
       requestContext={requestContext}
       storageKeyPrefix="todos"
       hintPage="todos"

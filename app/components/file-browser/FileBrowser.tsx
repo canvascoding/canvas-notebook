@@ -2,7 +2,7 @@
 
 import { useRef, useState, useCallback, useEffect, type DragEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, Download, Globe2, Move, Search, X } from 'lucide-react';
+import { Download, Globe2, Move, Search, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -22,7 +22,6 @@ import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import { getDroppedFiles } from '@/app/lib/drop-traverse';
 import { FilePreviewDialog } from '@/app/components/files/FilePreviewDialog';
-import { Link } from '@/i18n/navigation';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { notifyWorkspaceFileOpened } from '@/app/lib/files/workspace-file-events';
 import { PublicShareDialog } from './PublicShareDialog';
@@ -38,6 +37,7 @@ import { useFileMoveDrag } from './useFileMoveDrag';
 
 
 import { AppLauncher } from '@/app/components/AppLauncher';
+import { AppBackButton } from '@/app/components/navigation/AppBackButton';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 
@@ -48,7 +48,6 @@ interface FileBrowserProps {
 
 export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserProps) {
   const t = useTranslations('notebook');
-  const tCommon = useTranslations('common');
   const searchParams = useSearchParams();
   const dragCounter = useRef(0);
   const openedPathParamRef = useRef<string | null>(null);
@@ -539,12 +538,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex h-full items-center justify-between px-4">
           <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
-              <Link href="/">
-                <ArrowLeft className="h-4 w-4" />
-                <span className="hidden sm:inline">{tCommon('suite')}</span>
-              </Link>
-            </Button>
+            <AppBackButton fallbackHref="/" />
             <h1 className="hidden md:block text-lg md:text-2xl font-bold truncate">{t('filesTitle')}</h1>
           </div>
           <div className="flex items-center gap-1.5 md:gap-4">

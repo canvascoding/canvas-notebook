@@ -10,7 +10,6 @@ import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { usePathname } from '@/i18n/navigation';
 
 export function EmailShell({ children, hintEnabled = true }: { children: ReactNode; hintEnabled?: boolean }) {
-  const tCommon = useTranslations('common');
   const tEmails = useTranslations('emails');
   const pathname = usePathname();
   const { chatContext } = useEmailChatContext();
@@ -23,7 +22,6 @@ export function EmailShell({ children, hintEnabled = true }: { children: ReactNo
     <ChatDockShell
       title={tEmails('title')}
       backHref="/"
-      backLabel={tCommon('suite')}
       requestContext={requestContext}
       storageKeyPrefix="emails"
       chatVisibleStorageKey="emails.chatVisible"
