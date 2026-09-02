@@ -21,6 +21,8 @@ const eslintConfig = defineConfig([
     "docs/template/**",
     // Generated OAuth flow files
     "data/pi-oauth-states/**",
+    // Local Team Seat development runtime and generated skill templates
+    "data/local-team-dev/**",
     // Skill templates and generated files
     "data/skills/**",
     "skills/**",

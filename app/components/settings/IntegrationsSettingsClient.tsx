@@ -2448,7 +2448,7 @@ export function IntegrationsSettingsClient({
       if (tab.value === 'ai-providers') return isAdmin;
         return true;
     }),
-    [canManageWorkspaceMailboxes, isAdmin],
+    [isAdmin],
   );
   const visibleSettingsTabs = useMemo(
     () => new Set<SettingsTab>(visibleSettingsTabItems.map((tab) => tab.value)),

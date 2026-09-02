@@ -88,7 +88,7 @@ function LoginForm() {
     return () => {
       cancelled = true;
     };
-  }, [isOAuthContinuation, locale, searchParams, session]);
+  }, [isOAuthContinuation, locale, resuming, searchParams, session]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
