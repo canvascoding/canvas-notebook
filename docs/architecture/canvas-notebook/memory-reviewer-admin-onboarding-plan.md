@@ -63,27 +63,32 @@ diese Packaging-Abhaengigkeit entfernt werden:
   Top-Level importieren.
 - Das normale Production-Dependency-Set und das Runner-Image enthalten weder
   `better-sqlite3` noch das Betriebssystempaket `sqlite3`.
-- SQLite-spezifische Bootstrap-, Export-, Restore- und Cutover-Logik wird in
-  ein separates Legacy-Migrationsartefakt beziehungsweise einen expliziten
-  Migration-CLI-Pfad verschoben.
-- Tests und lokale Entwicklung duerfen SQLite weiter als Testadapter verwenden;
-  diese Abhaengigkeit gelangt nicht in das Production-Runner-Image.
+- SQLite-spezifische Bootstrap-, Export-, Restore- und Cutover-Logik wird aus
+  dem Produktpfad entfernt; benoetigte Export-/Restore-Funktionen werden
+  PostgreSQL-nativ umgesetzt.
+- SQLite-basierte Tests werden auf PostgreSQL beziehungsweise PGlite
+  umgestellt, damit die Abhaengigkeit auch ausserhalb des Runner-Images
+  entfallen kann.
 - Der gemeinsame Schema- und Servicevertrag bleibt providerneutral. Eine
   importierte Drizzle-Schema-Beschreibung allein darf nicht zum Laden einer
   nativen SQLite-Engine fuehren.
 
-Damit bleiben bestehende Installationen migrierbar, waehrend eine neue
-Production-Installation technisch und nicht nur logisch PostgreSQL-only ist.
+Damit bleiben bestehende PostgreSQL-Installationen per Schemaupdate
+aktualisierbar, waehrend eine neue Production-Installation technisch und nicht
+nur logisch PostgreSQL-only ist.
 
-### 3. Einmaliger SQLite-Bestandsimport
+### 3. Kein SQLite-Bestandsimport
 
-`database migrate-sqlite-to-postgres` ist ausschliesslich ein
-Kompatibilitaetswerkzeug fuer bestehende Installationen mit Daten in SQLite. Es
-bereitet PostgreSQL vor, kopiert die vorhandenen Datensaetze, prueft Anzahl und
-stabile IDs und fuehrt danach den Cutover aus.
+Es gibt keine zu unterstuetzenden Production-Bestandsinstallationen, die nur
+SQLite verwenden. Ein SQLite→PostgreSQL-Datenimport ist deshalb kein Release-
+oder Rollout-Gate. `database migrate-sqlite-to-postgres` und die dafuer
+notwendigen Runtime-Abhaengigkeiten werden aus dem normalen Produktpfad
+entfernt, statt in ein neues Legacy-Artefakt verschoben zu werden.
 
-Dieser Befehl ist kein Bestandteil einer Neuinstallation und darf im reinen
-PostgreSQL-Setup nie vorausgesetzt oder automatisch aufgerufen werden.
+Unterstuetzt werden eine leere PostgreSQL-Neuinstallation und additive
+PostgreSQL→PostgreSQL-Schemamigrationen bei Updates. Eine SQLite-Konfiguration
+muss in neuen Production-Versionen mit einem klaren Fehler abbrechen und darf
+keinen stillen Fallback aktivieren.
 
 ## Festgestellte Luecke
 
@@ -138,7 +143,8 @@ sensitive_memory_enabled
 
 Die bisherigen userbezogenen Provider-/Modellspalten werden im ersten Schritt
 nicht destruktiv entfernt. Nach dem Cutover liest die Runtime sie nicht mehr
-als primaere Auswahl. So bleiben Rollback und Bestandsmigration moeglich.
+als primaere Auswahl. Nach einer stabilen PostgreSQL-Release-Phase koennen sie
+mit einer eigenen Schema-Migration entfernt werden.
 
 ### Stabile Queue-Zuordnung
 
@@ -189,16 +195,17 @@ Speichern, Verifikation, Audit und Queue-Reaktivierung muessen serverseitig
 idempotent sein. Ein Reload des Wizards darf weder doppelte Settings noch
 doppelte Jobs erzeugen.
 
-## Bestehende Installationen
+## Bestehende PostgreSQL-Installationen
 
 Ein Update darf bereits laufende Instanzen nicht erneut in das gesamte
 Erst-Onboarding zwingen.
 
-- Existiert genau eine gueltige, konsistente bisherige Memory-Modellwahl bei
-  einem Owner/Admin, darf eine additive Migration diese Auswahl als
-  Organisationsdefault uebernehmen und als noch zu verifizieren markieren.
-- Bei keiner oder mehreren widerspruechlichen Auswahlen bleibt die
-  Organisationsruntime unkonfiguriert. Jobs bleiben sicher geparkt.
+- Die additive PostgreSQL-Schemamigration legt die neue
+  Organisationskonfiguration an, ohne bestehende Memories oder Jobs zu
+  veraendern.
+- Fehlt die organisationsweite Auswahl, bleibt die Runtime unkonfiguriert und
+  Jobs bleiben sicher geparkt. Es wird keine userbezogene Altwahl automatisch
+  hochgestuft.
 - Owner/Admin sehen in Settings und auf der Agent-Karte eine erforderliche
   Aktion mit Deep-Link zur Memory-Runtime-Konfiguration.
 - Erst eine aktuelle serverseitige Verifikation aktiviert die automatische
@@ -212,7 +219,7 @@ getestet und separat committed, bevor die naechste beginnt.
 1. **Vertrag und Datenbankschema**
    - Organisationsweite Runtime-Tabelle und `organization_id` an Review-Jobs
      additiv in die gemeinsame Schema-/Migrationsebene aufnehmen.
-   - PostgreSQL-Migration und SQLite-Bestandskompatibilitaet getrennt testen.
+   - Leere PostgreSQL-Datenbank und PostgreSQL→PostgreSQL-Update testen.
    - Bestehende userbezogene Provider-/Modellfelder noch nicht loeschen.
 
 2. **PostgreSQL-only Runtime-Artefakt**
@@ -220,8 +227,10 @@ getestet und separat committed, bevor die naechste beginnt.
      Production-Dependency-Set herausloesen.
    - `better-sqlite3` und das `sqlite3`-OS-Paket aus dem Standard-Runner
      entfernen.
-   - Einen separaten, expliziten Legacy-Migrationspfad fuer bestehende
-     SQLite-Installationen erhalten.
+   - SQLite-Migrationsbefehle und Production-Fallbacks entfernen.
+   - Verbleibende SQLite-basierte Tests schrittweise auf PostgreSQL/PGlite
+     umstellen, damit die Engine anschliessend ganz aus den Abhaengigkeiten
+     entfernt werden kann.
 
 3. **Runtime-Aufloesung und Queue-Zustaende**
    - Einen zentralen Resolver fuer die effektive Memory-Runtime bauen.
@@ -243,8 +252,8 @@ getestet und separat committed, bevor die naechste beginnt.
    - Settings-Karte auf organisationsweite Admin-Konfiguration und fuer normale
      User auf einen lesbaren „durch Administrator verwaltet“-Status umstellen.
 
-6. **Bestandsmigration und Rollout**
-   - Eindeutige Altwahl kontrolliert uebernehmen, Konflikte sichtbar lassen.
+6. **PostgreSQL-Update und Rollout**
+   - Additive PostgreSQL-Schemamigration fuer bestehende Releases absichern.
    - Bestehende wartende Jobs nach Verifikation reaktivieren.
    - Produktdokumentation, Health-/Diagnoseausgabe und Upgrade-Hinweise
      aktualisieren.
@@ -274,8 +283,8 @@ getestet und separat committed, bevor die naechste beginnt.
   Memories, Prompt-Budgets, Sensitivitaet und Queue-Nutzdaten isoliert bleiben.
 - Ein laufender Job speichert die tatsaechlich verwendete Provider-/Modellwahl
   in Audit und Usage.
-- Der SQLite-Bestandsimport bleibt separat, idempotent und kopiert die neuen
-  Settings und Job-Organisationszuordnungen korrekt.
+- Eine SQLite-Konfiguration wird in Production eindeutig als nicht unterstuetzt
+  abgelehnt; es gibt keinen Import- oder Fallbackpfad.
 - Das direkte Onboarding- und Chat-`memory`-Tool funktioniert auch bei einer
   temporaer nicht verfuegbaren Review-Runtime weiter.
 

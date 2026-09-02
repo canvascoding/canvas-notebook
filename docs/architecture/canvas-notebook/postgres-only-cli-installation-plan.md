@@ -6,30 +6,31 @@ Status: PostgreSQL-Fresh-Install- und Lifecycle-Kernpfad implementiert;
 vollstaendig SQLite-freies Production-Runner-Image noch geplant
 
 Memory-Readiness: implementiert am 2026-09-02. Onboarding und regulaere
-Memory-Persistenz verwenden bereits die provider-neutrale SQL-Abstraktion. Der
-Bestands-Cutover kopiert und validiert alle Memory-Tabellen einschließlich
-Provenienz und Legacy-Importmarkern. Neue Production-Installationen verwenden
-PostgreSQL als Default; Managed- und External-Modus sind getrennt. Der
-SQLite→PostgreSQL-Befehl bleibt ausschliesslich fuer Bestandsinstallationen.
-Das Standard-Runner-Image enthaelt derzeit fuer diese Legacy-Pfade noch
-`better-sqlite3` und das `sqlite3`-CLI; ihre Auslagerung in ein separates
-Migrationsartefakt ist fuer ein strikt PostgreSQL-only Release noch offen.
+Memory-Persistenz verwenden bereits die provider-neutrale SQL-Abstraktion. Neue
+Production-Installationen verwenden PostgreSQL als Default; Managed- und
+External-Modus sind getrennt. Es gibt keine zu unterstuetzenden SQLite-only-
+Bestandsinstallationen. Der SQLite-Cutover ist deshalb kein Produktpfad. Das
+Standard-Runner-Image enthaelt derzeit noch `better-sqlite3` und das
+`sqlite3`-CLI; beide werden ersatzlos aus dem Production-Artefakt entfernt.
 
 ## Ziel
 
 Neue Canvas-Notebook-Installationen ueber die portable TypeScript-CLI verwenden ausschliesslich PostgreSQL. Die bisherige Auswahl zwischen SQLite und PostgreSQL entfaellt. PostgreSQL kann entweder als lokal von Canvas verwalteter Compose-Service oder als externe/gehostete Datenbank betrieben werden.
 
-Bestehende SQLite-Installationen bleiben waehrend einer Migrationsphase start-, update-, backup- und migrationsfaehig. Sie duerfen nicht durch eine geaenderte Default-Konfiguration unbemerkt auf eine leere PostgreSQL-Datenbank wechseln.
+Updates werden ausschliesslich als PostgreSQL→PostgreSQL-Schemamigration
+unterstuetzt. SQLite-Konfigurationen brechen in neuen Production-Versionen mit
+einem klaren Fehler ab; es gibt weder automatische Datenuebernahme noch einen
+SQLite-Fallback.
 
 ## Ist-Zustand und bekannte Luecke
 
 - `DATABASE_URL` kann bereits sicher mit `config-set env.DATABASE_URL --stdin` gespeichert werden.
 - Config- und Env-Dateien werden atomar und mit Dateimodus `0600` geschrieben; CLI-Ausgaben maskieren sensitive Werte.
-- `CANVAS_DATABASE_PROVIDER=postgres` aktiviert aktuell immer das lokale Compose-Profil `postgres`.
-- Start, Update, Backup und Datenbankoperationen rufen bei PostgreSQL immer den lokal verwalteten Prepare-/Passwort-Reconciliation-Pfad auf.
-- Eine externe URL ist deshalb syntaktisch konfigurierbar, wird aber im Lifecycle noch faelschlich als lokal verwaltete Datenbank behandelt.
+- Managed- und External-Modus sind getrennt; nur `managed` aktiviert das lokale Compose-Profil und die Rollenpasswort-Reconciliation.
+- Der External-Preflight prueft Verbindung, DDL-Rechte und pgvector ohne einen lokalen PostgreSQL-Container zu starten.
+- Fresh Production Install und Runtime-Provider verwenden PostgreSQL als Default und verlangen eine gueltige `DATABASE_URL`.
 - Der lokale PostgreSQL-Service verwendet `pgvector/pgvector:0.8.3-pg18` und aktiviert `vector` idempotent.
-- Die Anwendung kann sich ueber den Node-Postgres-Treiber grundsaetzlich mit einer externen `DATABASE_URL` verbinden.
+- Offene Luecke: Standard-Runner, Runtime-Imports und viele Tests enthalten weiterhin SQLite-Komponenten, obwohl der PostgreSQL-Pfad sie fachlich nicht benoetigt.
 
 ## Zielmodell
 
@@ -85,13 +86,15 @@ Zusaetzlich wird `--database-url-file <path>` fuer Secret-Dateien unterstuetzt. 
 
 Im Non-interactive-Modus fuehren fehlende Angaben zu einem deterministischen Fehler statt zu einem Prompt.
 
-### Abwaertskompatibilitaet
+### Provider-Vertrag
 
 - `install --database sqlite` wird bei Fresh Installs abgelehnt.
 - `install --database postgres` kann fuer eine begrenzte Uebergangszeit als deprecated Alias fuer den Managed-Modus akzeptiert werden.
-- Vorhandene SQLite-Konfigurationen bleiben lesbar und funktionsfaehig.
-- `database migrate-sqlite-to-postgres` bleibt fuer Bestandsinstallationen erhalten.
-- Der Provider-Default darf nicht global blind auf PostgreSQL gesetzt werden, solange alte Konfigurationen ohne explizites Provider-Feld existieren.
+- Vorhandene SQLite-Konfigurationen werden als nicht unterstuetzt abgelehnt.
+- `database migrate-sqlite-to-postgres` wird aus dem Production-CLI entfernt.
+- Ein fehlender Production-Provider wird nur zusammen mit einer gueltigen
+  `DATABASE_URL` als PostgreSQL normalisiert; andernfalls bricht der Start mit
+  einer klaren Konfigurationsmeldung ab.
 
 ## Secret-Behandlung
 
@@ -185,7 +188,6 @@ Folgende Befehle muessen beide Modi korrekt behandeln:
 - `database status`
 - neuer dynamischer Check `database validate`
 - `backup create`
-- `database migrate-sqlite-to-postgres`
 
 Managed-only:
 
@@ -226,7 +228,7 @@ Die Agent-Logik fuer `notebookPostgresRuntimeDesired`, Config-Aenderungsanalyse,
 ### Phase 1: Konfigurationsvertrag
 
 - `CANVAS_POSTGRES_MODE=managed|external` einfuehren.
-- Defaults und Legacy-Normalisierung getrennt behandeln.
+- Defaults und fail-closed Provider-Validierung getrennt behandeln.
 - Compose-Profil und Statusmodell auf den neuen Modus umstellen.
 - Unit- und Paritaetstests zuerst abschliessen.
 
@@ -248,7 +250,7 @@ Die Agent-Logik fuer `notebookPostgresRuntimeDesired`, Config-Aenderungsanalyse,
 
 - Start, Restart, Update und Env-Sync modusabhaengig machen,
 - externe Backups ohne lokalen Prepare-Pfad absichern,
-- bestehende SQLite-Migration erhalten und optional externe PostgreSQL-Ziele unterstuetzen.
+- SQLite-Migrations-, Restore- und Fallbackpfade aus Production entfernen.
 
 ### Phase 5: Control Plane und Agent
 
@@ -263,7 +265,7 @@ Die Agent-Logik fuer `notebookPostgresRuntimeDesired`, Config-Aenderungsanalyse,
 - Integration mit lokalem PostgreSQL/pgvector,
 - External-Simulation mit separatem Netzwerkziel,
 - negative Tests fuer Auth, Timeout, TLS, Rechte und pgvector,
-- Update-, Backup-, Migration- und Rollback-Tests,
+- PostgreSQL-Update-, Backup-, Schema- und Rollback-Tests,
 - native Linux-, macOS- und Windows-Smoke-Tests,
 - `npm run lint`, relevante Test-Suiten und `npm run build`,
 - Control-Plane-Agent-Tests und Release-Metadaten pruefen.
@@ -272,7 +274,7 @@ Die Agent-Logik fuer `notebookPostgresRuntimeDesired`, Config-Aenderungsanalyse,
 
 Der Impact ist hoch. `CANVAS_DATABASE_PROVIDER` wird breit in Notebook, Installer, Tests, Migration, Backup, Lizenz-/Capability-Gates, Control Plane und Agent verwendet. Besonders risikoreich sind:
 
-- unbeabsichtigter Provider-Wechsel alter SQLite-Installationen,
+- unbeabsichtigter SQLite-Fallback bei fehlender PostgreSQL-Konfiguration,
 - versehentliches Starten eines lokalen PostgreSQL-Containers trotz externer URL,
 - Secret-Leaks ueber Argumente, Logs oder Fehlermeldungen,
 - lokale Passwort-Reconciliation gegen den falschen Betriebsmodus,
@@ -293,8 +295,11 @@ Die Phasen werden deshalb einzeln abgeschlossen, getestet und committed. Mit der
 - Team-/Vector-Runtime blockiert ohne pgvector fail-closed.
 - External-Modus startet oder veraendert keinen lokalen PostgreSQL-Container.
 - Start, Update, Backup und Status funktionieren in beiden PostgreSQL-Modi.
-- Bestehende SQLite-Installationen bleiben migrationsfaehig und werden nicht automatisch umgeschaltet.
-- Onboarding-Memories, Collections, Audit-Events, Review-Jobs, User-Settings
-  und Legacy-Importmarker bleiben beim SQLite→PostgreSQL-Cutover vollstaendig
-  und nutzerisoliert erhalten.
+- Das Production-Runner-Image enthaelt weder `better-sqlite3`, ein natives
+  SQLite-Addon noch das `sqlite3`-CLI.
+- SQLite-Konfigurationen werden fail-closed abgelehnt; es gibt keinen
+  Production-Cutover oder Fallback.
+- Onboarding-Memories, Collections, Audit-Events, Review-Jobs und User-Settings
+  bleiben bei PostgreSQL→PostgreSQL-Schemaupdates vollstaendig und
+  nutzerisoliert erhalten.
 - Control Plane und Agent behandeln Managed und External eindeutig und redigieren alle Secrets.

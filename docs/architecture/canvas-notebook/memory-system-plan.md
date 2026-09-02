@@ -48,10 +48,11 @@ Nutzerauftrag nie ueberstimmen.
 - Memory-Service und Legacy-Importer verwenden die gemeinsame
   `SqlConnection`-Abstraktion und SQL, das unter SQLite und PostgreSQL gueltig
   ist.
-- Die bestehende SQLite→PostgreSQL-Migration kopiert alle Memory-Tabellen und
-  validiert Settings, Collections, Entries, Events, Importmarker und
-  Review-Jobs per Anzahl und stabiler ID. Ein echter SQLite→PGlite-Test deckt
-  Dateninhalt, Audit-Provenienz und idempotente Wiederholung ab.
+- Die bestehende SQLite→PostgreSQL-Migration kann alle Memory-Tabellen
+  validieren, ist aber kein kuenftiges Production- oder Release-Gate. Da keine
+  SQLite-only-Bestandsinstallationen unterstuetzt werden muessen, wird dieser
+  Pfad zusammen mit der SQLite-Engine entfernt. Verbindlich bleiben nur
+  PostgreSQL→PostgreSQL-Schemaupdates.
 
 ## Bestehende Ausgangslage
 
@@ -515,8 +516,8 @@ Die zentrale Seite enthaelt:
    Inhalts und des stabilen Quell-Hashes vermeiden.
 6. `USER.md` und `MEMORY.md` nicht in die Systemprompt-Zusammenstellung
    aufnehmen. Alte Dateien bleiben nur als Legacy-Import-/Exportformat erhalten.
-7. Beim SQLite→PostgreSQL-Cutover alle sechs Memory-Tabellen kopieren und vor
-   dem erfolgreichen Abschluss Anzahl sowie Identitaeten validieren.
+7. PostgreSQL-Schemaupdates fuer alle Memory-Tabellen additiv und idempotent
+   ausfuehren; ein SQLite-Cutover ist kein Production-Rollout-Gate.
 
 Migrationen muessen idempotent, wiederaufnehmbar und pro User/Agent isoliert
 sein. Team- und Organisations-Memory werden nicht automatisch aus alten
