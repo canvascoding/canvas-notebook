@@ -303,9 +303,11 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
 
     const postgresConfig = materializeConfig(configureRuntimeAndDatabase(config, { database: 'postgres' }));
     assert.equal(postgresConfig.env.CANVAS_DATABASE_PROVIDER, 'postgres');
+    assert.equal(postgresConfig.env.CANVAS_POSTGRES_MODE, 'managed');
     assert.equal(postgresConfig.env.CANVAS_POSTGRES_VECTOR_ENABLED, true);
     assert.match(String(postgresConfig.env.DATABASE_URL), /^postgresql:\/\/canvas:/);
     assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^COMPOSE_PROFILES=postgres$/m);
+    assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^CANVAS_POSTGRES_MODE=managed$/m);
     const missingPostgresCredentials = configureRuntimeAndDatabase(config, { database: 'postgres' });
     assert.throws(
       () => materializeConfig(missingPostgresCredentials, undefined, { allowPostgresSecretGeneration: false }),
@@ -320,6 +322,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     const teamConfig = materializeConfig(configureRuntimeAndDatabase(config, { runtime: 'team' }));
     assert.equal(teamConfig.env.CANVAS_DEPLOYMENT_MODE, 'managed-team');
     assert.equal(teamConfig.env.CANVAS_DATABASE_PROVIDER, 'postgres');
+    assert.equal(teamConfig.env.CANVAS_POSTGRES_MODE, 'managed');
     assert.equal(teamConfig.env.CANVAS_POSTGRES_REQUIRED, true);
 
     assert.throws(
@@ -338,6 +341,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     const preparedPostgres = materializePostgresInfrastructureConfig(config);
     assert.equal(preparedPostgres.env.CANVAS_DATABASE_PROVIDER, 'sqlite');
     assert.equal(preparedPostgres.env.CANVAS_POSTGRES_REQUIRED, true);
+    assert.equal(preparedPostgres.env.CANVAS_POSTGRES_MODE, 'managed');
     assert.match(String(preparedPostgres.env.DATABASE_URL), /^postgresql:\/\/canvas:/);
     assert.match(composeEnvText(preparedPostgres, composePath(preparedPostgres.dataDir, 'linux')), /^COMPOSE_PROFILES=$/m);
     assert.match(composeEnvText(preparedPostgres, composePath(preparedPostgres.dataDir, 'linux')), /^CANVAS_POSTGRES_PASSWORD=/m);
@@ -391,6 +395,28 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(legacyUrlOnly.env.CANVAS_DATABASE_PROVIDER, '');
     assert.equal(postgresRuntimeDesired(legacyUrlOnly), true);
     assert.equal(materializeConfig(legacyUrlOnly, undefined, { allowPostgresSecretGeneration: false }).env.CANVAS_DATABASE_PROVIDER, 'postgres');
+    assert.equal(materializeConfig(legacyUrlOnly, undefined, { allowPostgresSecretGeneration: false }).env.CANVAS_POSTGRES_MODE, 'managed');
+
+    const externalPostgres = configureRuntimeAndDatabase(config, {
+      database: 'postgres',
+      postgresMode: 'external',
+    });
+    externalPostgres.env.DATABASE_URL = 'postgresql://external-user:external-password@db.example.test:5432/canvas';
+    externalPostgres.env.CANVAS_POSTGRES_PASSWORD = 'must-not-be-duplicated';
+    const materializedExternal = materializeConfig(externalPostgres, undefined, { allowPostgresSecretGeneration: false });
+    assert.equal(materializedExternal.env.CANVAS_DATABASE_PROVIDER, 'postgres');
+    assert.equal(materializedExternal.env.CANVAS_POSTGRES_MODE, 'external');
+    assert.equal(materializedExternal.env.CANVAS_POSTGRES_PASSWORD, '');
+    assert.match(composeEnvText(materializedExternal, composePath(materializedExternal.dataDir, 'linux')), /^COMPOSE_PROFILES=$/m);
+    assert.match(composeEnvText(materializedExternal, composePath(materializedExternal.dataDir, 'linux')), /^CANVAS_POSTGRES_MODE=external$/m);
+    const missingExternalUrl = configureRuntimeAndDatabase(config, {
+      database: 'postgres',
+      postgresMode: 'external',
+    });
+    assert.throws(
+      () => materializeConfig(missingExternalUrl, undefined, { allowPostgresSecretGeneration: false }),
+      /External Postgres requires DATABASE_URL/u,
+    );
 
     const invalidProtocolConfig = structuredClone(postgresConfig);
     invalidProtocolConfig.env.DATABASE_URL = `http://canvas:${invalidProtocolConfig.env.CANVAS_POSTGRES_PASSWORD}@postgres:5432/canvas_notebook`;

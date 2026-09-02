@@ -14,6 +14,7 @@ const SECRET_FINGERPRINT_DOMAIN = 'canvas-notebook/secret-state/v1';
 const SCRYPT_OPTIONS = { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
 
 export type CliDatabaseProvider = 'sqlite' | 'postgres';
+export type CliPostgresMode = 'managed' | 'external';
 export type CliRuntimeMode = 'personal' | 'team';
 
 const DEFAULT_ENV: Record<string, EnvValue> = {
@@ -32,6 +33,7 @@ const DEFAULT_ENV: Record<string, EnvValue> = {
   OLLAMA_CLI_AUTO_INSTALL: true,
   CANVAS_DEPLOYMENT_MODE: 'single_user',
   CANVAS_DATABASE_PROVIDER: 'sqlite',
+  CANVAS_POSTGRES_MODE: '',
   DATABASE_URL: '',
   CANVAS_POSTGRES_VECTOR_ENABLED: false,
   CANVAS_POSTGRES_IMAGE: DEFAULT_POSTGRES_IMAGE,
@@ -111,6 +113,9 @@ function normalizeEnv(input: unknown, defaults: Record<string, EnvValue>): Recor
   }
   if (!Object.prototype.hasOwnProperty.call(input, 'CANVAS_DATABASE_PROVIDER')) {
     env.CANVAS_DATABASE_PROVIDER = '';
+  }
+  if (!Object.prototype.hasOwnProperty.call(input, 'CANVAS_POSTGRES_MODE')) {
+    env.CANVAS_POSTGRES_MODE = '';
   }
   return env;
 }
@@ -240,6 +245,12 @@ function normalizeDatabaseProviderValue(value: EnvValue): CliDatabaseProvider {
   throw new Error(`Invalid CANVAS_DATABASE_PROVIDER "${provider}". Expected sqlite or postgres.`);
 }
 
+function normalizePostgresModeValue(value: EnvValue): CliPostgresMode {
+  const mode = normalized(value) || 'managed';
+  if (mode === 'managed' || mode === 'external') return mode;
+  throw new Error(`Invalid CANVAS_POSTGRES_MODE "${mode}". Expected managed or external.`);
+}
+
 function normalizeRuntimeModeValue(value: string): CliRuntimeMode {
   const runtime = value.trim().toLowerCase();
   if (runtime === 'personal' || runtime === 'single-user' || runtime === 'single_user' || runtime === 'managed-single') {
@@ -310,7 +321,7 @@ function databaseUrlParts(value: EnvValue): { user: string; password: string; da
 
 export function configureRuntimeAndDatabase(
   config: CanvasCliConfig,
-  options: { database?: CliDatabaseProvider; runtime?: CliRuntimeMode },
+  options: { database?: CliDatabaseProvider; runtime?: CliRuntimeMode; postgresMode?: CliPostgresMode },
 ): CanvasCliConfig {
   const next = structuredClone(config);
   if (options.runtime) {
@@ -319,6 +330,7 @@ export function configureRuntimeAndDatabase(
       next.env.CANVAS_TEAM_FEATURES_ENABLED = true;
       next.env.CANVAS_POSTGRES_REQUIRED = true;
       next.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+      next.env.CANVAS_POSTGRES_MODE = options.postgresMode || normalizePostgresModeValue(next.env.CANVAS_POSTGRES_MODE);
     } else {
       next.env.CANVAS_DEPLOYMENT_MODE = 'single_user';
       next.env.CANVAS_TEAM_FEATURES_ENABLED = false;
@@ -331,6 +343,12 @@ export function configureRuntimeAndDatabase(
       throw new Error('Team runtime requires --database postgres.');
     }
     next.env.CANVAS_DATABASE_PROVIDER = options.database;
+    next.env.CANVAS_POSTGRES_MODE = options.database === 'postgres'
+      ? options.postgresMode || normalizePostgresModeValue(next.env.CANVAS_POSTGRES_MODE)
+      : '';
+  } else if (options.postgresMode) {
+    next.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+    next.env.CANVAS_POSTGRES_MODE = options.postgresMode;
   }
 
   return next;
@@ -338,6 +356,10 @@ export function configureRuntimeAndDatabase(
 
 export function parseCliDatabaseProvider(value: string): CliDatabaseProvider {
   return normalizeDatabaseProviderValue(value);
+}
+
+export function parseCliPostgresMode(value: string): CliPostgresMode {
+  return normalizePostgresModeValue(value);
 }
 
 export function parseCliRuntimeMode(value: string): CliRuntimeMode {
@@ -349,6 +371,11 @@ export function ensurePostgresInfrastructureConfig(
   options: { allowSecretGeneration?: boolean } = {},
 ): CanvasCliConfig {
   const next = structuredClone(config);
+  const postgresMode = normalizePostgresModeValue(next.env.CANVAS_POSTGRES_MODE);
+  if (postgresMode !== 'managed') {
+    throw new Error('Managed Postgres infrastructure cannot be prepared when CANVAS_POSTGRES_MODE=external.');
+  }
+  next.env.CANVAS_POSTGRES_MODE = 'managed';
   let databaseUrl = String(next.env.DATABASE_URL || '').trim();
   const parsedDatabaseUrl = databaseUrlParts(databaseUrl);
   if (parsedDatabaseUrl) {
@@ -396,7 +423,20 @@ export function normalizeDatabaseConfig(
   }
 
   if (next.env.CANVAS_DATABASE_PROVIDER !== 'postgres') {
+    next.env.CANVAS_POSTGRES_MODE = '';
     next.env.CANVAS_POSTGRES_VECTOR_ENABLED = false;
+    return next;
+  }
+
+  const postgresMode = normalizePostgresModeValue(next.env.CANVAS_POSTGRES_MODE);
+  next.env.CANVAS_POSTGRES_MODE = postgresMode;
+  if (postgresMode === 'external') {
+    validateDatabaseUrl(next.env.DATABASE_URL);
+    if (!String(next.env.DATABASE_URL || '').trim()) {
+      throw new Error('External Postgres requires DATABASE_URL.');
+    }
+    next.env.CANVAS_POSTGRES_REQUIRED = true;
+    next.env.CANVAS_POSTGRES_PASSWORD = '';
     return next;
   }
 
@@ -413,7 +453,9 @@ export function normalizeDatabaseConfig(
 }
 
 export function materializePostgresInfrastructureConfig(config: CanvasCliConfig, baseUrl?: string): CanvasCliConfig {
-  return ensurePostgresInfrastructureConfig(ensureBaseUrl(ensureSecrets(config), baseUrl), { allowSecretGeneration: true });
+  const next = ensureBaseUrl(ensureSecrets(config), baseUrl);
+  next.env.CANVAS_POSTGRES_MODE = 'managed';
+  return ensurePostgresInfrastructureConfig(next, { allowSecretGeneration: true });
 }
 
 export function materializeConfig(
@@ -479,7 +521,10 @@ export function containerEnvText(config: CanvasCliConfig): string {
 }
 
 export function composeEnvText(config: CanvasCliConfig, composeDataDir: string): string {
-  const postgresProfile = String(config.env.CANVAS_DATABASE_PROVIDER || 'sqlite') === 'postgres' ? 'postgres' : '';
+  const postgresProfile = String(config.env.CANVAS_DATABASE_PROVIDER || 'sqlite') === 'postgres'
+    && normalizePostgresModeValue(config.env.CANVAS_POSTGRES_MODE) === 'managed'
+    ? 'postgres'
+    : '';
   const entries: Record<string, EnvValue> = {
     CANVAS_IMAGE: config.image,
     HOST_PORT: config.hostPort,
@@ -487,6 +532,7 @@ export function composeEnvText(config: CanvasCliConfig, composeDataDir: string):
     DATA_DIR: composeDataDir,
     COMPOSE_PROFILES: postgresProfile,
     CANVAS_DATABASE_PROVIDER: config.env.CANVAS_DATABASE_PROVIDER,
+    CANVAS_POSTGRES_MODE: config.env.CANVAS_POSTGRES_MODE,
     CANVAS_POSTGRES_IMAGE: config.env.CANVAS_POSTGRES_IMAGE || 'pgvector/pgvector:0.8.3-pg18',
     CANVAS_POSTGRES_DATA_VOLUME: config.env.CANVAS_POSTGRES_DATA_VOLUME || 'canvas-postgres-data',
     CANVAS_POSTGRES_DB: config.env.CANVAS_POSTGRES_DB || 'canvas_notebook',

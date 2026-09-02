@@ -14,12 +14,14 @@ import {
   loadConfig,
   normalizeConfig,
   parseCliDatabaseProvider,
+  parseCliPostgresMode,
   parseCliRuntimeMode,
   redactConfig,
   writeConfig,
   writeEnvFiles,
   writeSecureFile,
   type CliDatabaseProvider,
+  type CliPostgresMode,
   type CliRuntimeMode,
 } from './core/config';
 import { AutoUpdateManager, isAutoUpdateCommand, validateAutoUpdateSchedule, type AutoUpdateStatus } from './core/autoUpdate';
@@ -66,6 +68,7 @@ interface ParsedArgs {
 
 interface InstallOptions {
   database?: CliDatabaseProvider;
+  postgresMode?: CliPostgresMode;
   runtime?: CliRuntimeMode;
 }
 
@@ -131,7 +134,7 @@ function printHelp(): void {
 
 Commands:
   version [--json]                 Show CLI build information and capabilities
-  install [--database sqlite|postgres] [--runtime personal|team]
+  install [--database sqlite|postgres] [--postgres-mode managed|external] [--runtime personal|team]
                                   Generate config, pull image, start container
   update [--image <name@sha256>] [--require-pinned]
                                  Pull and apply an image with rollback protection
@@ -297,6 +300,10 @@ function parseInstallOptions(args: string[]): InstallOptions {
     if (arg === '--database' || arg.startsWith('--database=')) {
       const parsed = readOptionValue(args, i, '--database');
       options.database = parseCliDatabaseProvider(parsed.value);
+      i = parsed.nextIndex;
+    } else if (arg === '--postgres-mode' || arg.startsWith('--postgres-mode=')) {
+      const parsed = readOptionValue(args, i, '--postgres-mode');
+      options.postgresMode = parseCliPostgresMode(parsed.value);
       i = parsed.nextIndex;
     } else if (arg === '--runtime' || arg.startsWith('--runtime=')) {
       const parsed = readOptionValue(args, i, '--runtime');
