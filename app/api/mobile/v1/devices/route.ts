@@ -8,6 +8,7 @@ import {
   parseMobilePushPreferenceUpdate,
   parseMobilePushRegistration,
   registerMobilePushDevice,
+  syncMobilePushDeviceSession,
   updateMobilePushDevicePreference,
   unregisterMobilePushDevice,
 } from '@/app/lib/mobile/push-devices';
@@ -77,6 +78,28 @@ export async function POST(request: NextRequest) {
       registration,
     });
     return NextResponse.json({ success: true, device }, { status: 201, headers: responseHeaders });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  console.info('[API] Mobile push device session PUT received:', { path: request.nextUrl.pathname });
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) return unauthorized();
+  try {
+    const body = await request.json().catch(() => null);
+    const installationId = parseMobileInstallationId(
+      body && typeof body === 'object' && 'installationId' in body
+        ? (body as { installationId?: unknown }).installationId
+        : null,
+    );
+    const device = await syncMobilePushDeviceSession({
+      userId: session.user.id,
+      authSessionId: session.session.id,
+      installationId,
+    });
+    return NextResponse.json({ success: true, device }, { headers: responseHeaders });
   } catch (error) {
     return errorResponse(error);
   }

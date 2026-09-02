@@ -22,6 +22,7 @@ async function main() {
     parseMobilePushPreferenceUpdate,
     pollMobilePushReceipts,
     registerMobilePushDevice,
+    syncMobilePushDeviceSession,
     updateMobilePushDevicePreference,
     sendAgentResponseReadyPush,
     sendAutomationRunStatusPush,
@@ -64,6 +65,11 @@ async function main() {
     `INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
      VALUES (?, ?, ?, ?, ?, ?)`,
     ['auth-session', authNow + 60, 'session-token', authNow, authNow, 'push-user'],
+  );
+  await database.run(
+    `INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    ['auth-session-2', authNow + 60, 'session-token-2', authNow, authNow, 'push-user'],
   );
   const responseAt = now + 1_000;
   await database.run(
@@ -171,6 +177,25 @@ async function main() {
     automationRunStatus: true,
     previews: true,
   });
+  const synced = await syncMobilePushDeviceSession({
+    userId: 'push-user',
+    authSessionId: 'auth-session-2',
+    installationId: 'installation-1',
+  });
+  assert.equal(synced.registered, true);
+  assert.equal(synced.enabled, true);
+  const sessionSyncDatabase = await openDb();
+  const syncedRow = await sessionSyncDatabase.get(
+    'SELECT auth_session_id FROM mobile_push_devices WHERE installation_id = ?',
+    ['installation-1'],
+  ) as { auth_session_id?: string } | undefined;
+  await sessionSyncDatabase.close();
+  assert.equal(syncedRow?.auth_session_id, 'auth-session-2');
+  assert.equal((await syncMobilePushDeviceSession({
+    userId: 'push-user',
+    authSessionId: 'auth-session-2',
+    installationId: 'missing-installation',
+  })).registered, false);
   const preferenceUpdate = parseMobilePushPreferenceUpdate({
     installationId: 'installation-1',
     key: 'previews',

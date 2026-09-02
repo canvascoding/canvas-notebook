@@ -459,6 +459,35 @@ export async function getMobilePushDeviceStatus(input: {
   });
 }
 
+export async function syncMobilePushDeviceSession(input: {
+  userId: string;
+  authSessionId: string;
+  installationId: string;
+}): Promise<MobilePushDeviceStatus> {
+  return withConnection(async (connection) => {
+    const now = Date.now();
+    await connection.run(
+      `UPDATE mobile_push_devices
+       SET auth_session_id = ?, updated_at = ?
+       WHERE user_id = ? AND installation_id = ?`,
+      [input.authSessionId, now, input.userId, input.installationId],
+    );
+    const row = await connection.get(
+      `SELECT ${DEVICE_SELECT}
+       FROM mobile_push_devices
+       WHERE user_id = ? AND installation_id = ?`,
+      [input.userId, input.installationId],
+    ) as MobilePushDeviceRow | undefined;
+    console.info('[Mobile Push] Device session sync', {
+      userId: input.userId,
+      installationId: input.installationId,
+      registered: Boolean(row),
+      enabled: row ? Boolean(row.enabled) : false,
+    });
+    return deviceStatus(row);
+  });
+}
+
 export async function registerMobilePushDevice(input: {
   userId: string;
   authSessionId: string;
