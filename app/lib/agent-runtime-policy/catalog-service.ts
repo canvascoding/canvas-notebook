@@ -34,6 +34,7 @@ const SAFE_CONFIG_KEYS = new Set<keyof AiProviderSafeConfig>([
   'ollamaHost',
   'ollamaModelSource',
   'ollamaCustomModel',
+  'ollamaAdditionalModels',
   'openaiCompatibleBaseUrl',
   'openaiCompatibleModelSource',
   'openaiCompatibleCustomModel',
@@ -125,6 +126,16 @@ function customModel(value: unknown, field: string): string {
   return requiredString(value, field, MODEL_ID_PATTERN);
 }
 
+function customModels(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.length > MAX_MODELS_PER_PROVIDER) {
+    throw new AiCatalogValidationError(
+      'INVALID_PROVIDER_CONFIG',
+      `${field} must be an array within the supported limit.`,
+    );
+  }
+  return Array.from(new Set(value.map((entry) => customModel(entry, field))));
+}
+
 function parseSafeConfig(value: unknown): AiProviderSafeConfig {
   if (value === undefined || value === null) return {};
   if (!isRecord(value)) {
@@ -161,6 +172,9 @@ function parseSafeConfig(value: unknown): AiProviderSafeConfig {
     config.ollamaModelSource = value.ollamaModelSource;
   }
   if (value.ollamaCustomModel !== undefined) config.ollamaCustomModel = customModel(value.ollamaCustomModel, 'ollamaCustomModel');
+  if (value.ollamaAdditionalModels !== undefined) {
+    config.ollamaAdditionalModels = customModels(value.ollamaAdditionalModels, 'ollamaAdditionalModels');
+  }
   if (value.openaiCompatibleBaseUrl !== undefined) {
     config.openaiCompatibleBaseUrl = endpoint(value.openaiCompatibleBaseUrl, 'openaiCompatibleBaseUrl');
   }

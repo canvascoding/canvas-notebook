@@ -36,6 +36,7 @@ export type AiProviderSafeConfig = {
   ollamaHost?: string;
   ollamaModelSource?: 'predefined' | 'custom';
   ollamaCustomModel?: string;
+  ollamaAdditionalModels?: string[];
   openaiCompatibleBaseUrl?: string;
   openaiCompatibleModelSource?: 'predefined' | 'custom';
   openaiCompatibleCustomModel?: string;

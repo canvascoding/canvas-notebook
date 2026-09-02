@@ -52,6 +52,7 @@ import {
   modelSupportsImageInput,
   resolvePiModel,
 } from '@/app/lib/pi/model-resolver';
+import { ollamaOpenAiBaseUrl } from '@/app/lib/agent-runtime-policy/ollama-url';
 import { createVisionFallbackStreamFn } from '@/app/lib/pi/vision-fallback-stream';
 
 export class AiRuntimeExecutionError extends Error {
@@ -113,22 +114,11 @@ function openAiCompatibleModel(
   };
 }
 
-function isOllamaCloudHost(value: string): boolean {
-  try {
-    return new URL(value).hostname.toLowerCase() === 'cloud.ollama.com';
-  } catch {
-    return value.trim().toLowerCase() === 'cloud.ollama.com';
-  }
-}
-
 function applyOllamaEndpoint(
   provider: AiProviderInstallation,
   model: Model<Api>,
 ): Model<Api> {
-  const configuredHost = provider.config.ollamaHost?.trim();
-  const baseUrl = configuredHost && !isOllamaCloudHost(configuredHost)
-    ? (configuredHost.endsWith('/v1') ? configuredHost : `${configuredHost.replace(/\/+$/u, '')}/v1`)
-    : 'http://localhost:11434/v1';
+  const baseUrl = ollamaOpenAiBaseUrl(provider.config.ollamaHost);
   return {
     ...model,
     baseUrl,

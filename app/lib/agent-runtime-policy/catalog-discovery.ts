@@ -32,14 +32,20 @@ function providerName(providerId: string): string {
     .join(' ');
 }
 
-function customModelFor(providerId: string, config?: AiProviderSafeConfig): string | undefined {
+function customModelsFor(providerId: string, config?: AiProviderSafeConfig): string[] {
   if (providerId === 'ollama' && config?.ollamaModelSource === 'custom') {
-    return config.ollamaCustomModel?.trim() || undefined;
+    return Array.from(new Set([
+      ...(config.ollamaAdditionalModels ?? []),
+      ...(config.ollamaCustomModel?.trim() ? [config.ollamaCustomModel.trim()] : []),
+    ]));
   }
   if (providerId === 'openai-compatible' && config?.openaiCompatibleModelSource === 'custom') {
-    return config.openaiCompatibleCustomModel?.trim() || undefined;
+    return config.openaiCompatibleCustomModel?.trim() ? [config.openaiCompatibleCustomModel.trim()] : [];
   }
-  return undefined;
+  if (providerId === 'ollama') {
+    return Array.from(new Set(config?.ollamaAdditionalModels ?? []));
+  }
+  return [];
 }
 
 export async function loadAiCatalogDiscovery(
@@ -48,11 +54,14 @@ export async function loadAiCatalogDiscovery(
 ): Promise<AiCatalogDiscovery> {
   const providers = Array.from(new Set(getPiProviders())).sort();
   const entries = await Promise.all(providers.map(async (providerId) => {
+    const configuredCustomModels = (configsByProvider[providerId] ?? [])
+      .flatMap((config) => customModelsFor(providerId, config));
     const models = providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID
       ? options.managedCatalog?.models ?? await getCanvasControlPlaneModels()
-      : (configsByProvider[providerId]?.length
-          ? configsByProvider[providerId].flatMap((config) => getPiModels(providerId, customModelFor(providerId, config)))
-          : getPiModels(providerId));
+      : [
+          ...getPiModels(providerId),
+          ...configuredCustomModels.flatMap((modelId) => getPiModels(providerId, modelId)),
+        ];
     const uniqueModels = Array.from(new Map(models.map((model) => [model.id, model])).values());
     return [providerId, {
       id: providerId,
