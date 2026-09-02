@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { autoUpdater } from 'electron-updater';
+import electronUpdater from 'electron-updater';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
@@ -21,6 +21,7 @@ const ICON_PATH = path.join(__dirname, '../assets/icon.png');
 const PRELOAD_PATH = path.join(__dirname, '../preload/index.cjs');
 const SETUP_FILE_PATH = path.join(__dirname, '../renderer/setup.html');
 const SETUP_FILE_URL = pathToFileURL(SETUP_FILE_PATH).href;
+const { autoUpdater } = electronUpdater;
 
 let mainWindow = null;
 let loadingSetup = false;
