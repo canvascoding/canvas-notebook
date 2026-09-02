@@ -5,7 +5,7 @@ versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.1.1
 - Lockfile SHA-256: `63e1955e83a40a9773a097d842c4f7bd39417192ea6c3483009c5093dd082361`
-- Distributed components: 1511
+- Distributed components: 1512
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -1174,6 +1174,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | node-releases | 2.0.51 | runtime | MIT | allowed |
 | nodemailer | 9.0.3 | runtime | MIT-0 | allowed |
 | normalize-path | 3.0.0 | runtime | MIT | allowed |
+| NousResearch/hermes-agent session-compaction reference | f293e7206b4ddd66042329442c6afebc19a8808d | runtime | MIT | allowed |
 | object-assign | 4.1.1 | runtime | MIT | allowed |
 | object-inspect | 1.13.4 | runtime | MIT | allowed |
 | on-exit-leak-free | 2.1.2 | runtime | MIT | allowed |
@@ -15322,6 +15323,38 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
 CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### License text 821556e63367
+
+Applies to NousResearch/hermes-agent session-compaction reference@f293e7206b4ddd66042329442c6afebc19a8808d.
+
+Copyright notices:
+
+- Copyright (c) 2025 Nous Research
+
+```text
+MIT License
+
+Copyright (c) 2025 Nous Research
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ### License text 824ef6c33ae5

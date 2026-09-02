@@ -1,0 +1,460 @@
+{
+  "schemaVersion": 1,
+  "feature": "hermes-aligned-session-compaction-v2",
+  "title": "Hermes-aligned Session Compaction V2",
+  "updatedAt": "2026-09-01",
+  "status": "in_progress",
+  "repository": "canvasstudios-notebook",
+  "reference": {
+    "repository": "https://github.com/NousResearch/hermes-agent",
+    "commit": "f293e7206b4ddd66042329442c6afebc19a8808d",
+    "license": "MIT",
+    "rule": "Every implementation task must name its Hermes source symbol or document an intentional Canvas divergence."
+  },
+  "documents": [
+    "docs/architecture/canvas-notebook/session-compaction-v2/plan.md",
+    "docs/architecture/canvas-notebook/session-compaction-v2/todo.json"
+  ],
+  "executionPolicy": {
+    "packageOrder": "strict",
+    "nextPackageRequiresPreviousGate": true,
+    "commitPolicy": "one focused commit per completed package",
+    "impactPolicy": "Run GitNexus upstream impact before editing every symbol and warn on HIGH or CRITICAL risk.",
+    "changePolicy": "Run GitNexus detect_changes against main before every commit.",
+    "browserPolicy": "Playwright or Chrome testing requires explicit user approval and must use localhost:3000.",
+    "containerPolicy": "Do not build or start containers unless explicitly requested."
+  },
+  "portingModes": [
+    "DIRECT_PORT",
+    "ADAPTED_PORT",
+    "INVARIANT_ONLY",
+    "DO_NOT_PORT"
+  ],
+  "gates": [
+    {
+      "id": "SC-G00_REFERENCE_LOCKED",
+      "packageId": "SC-P00",
+      "evidence": "Hermes commit and MIT license are pinned, compliance artifacts pass, PR #106 is merged, and parity fixtures exist."
+    },
+    {
+      "id": "SC-G01_POLICY_PARITY",
+      "packageId": "SC-P01",
+      "evidence": "Threshold, effective-input-budget, cheap-gate and greater-than-five-percent progress tests match Hermes semantics."
+    },
+    {
+      "id": "SC-G02_SELECTION_SAFE",
+      "packageId": "SC-P02",
+      "evidence": "Active user and assistant anchors survive, tool groups are atomic, and every cut is token-budgeted."
+    },
+    {
+      "id": "SC-G03_PRUNING_SAFE",
+      "packageId": "SC-P03",
+      "evidence": "Pruning is idempotent, savings-gated, media-safe and skill-aware."
+    },
+    {
+      "id": "SC-G04_RECOVERY_COMPLETE",
+      "packageId": "SC-P04",
+      "evidence": "Exact non-sensitive anchors, verbatim user messages, chunk digests and authorized session_search recovery pass."
+    },
+    {
+      "id": "SC-G05_SUMMARY_VALIDATED",
+      "packageId": "SC-P05",
+      "evidence": "Rolling summary, focus, feasibility, redaction and fail-closed behavior pass multi-cycle tests."
+    },
+    {
+      "id": "SC-G06_COORDINATOR_DURABLE",
+      "packageId": "SC-P06",
+      "evidence": "SQLite and PostgreSQL pass lock, watermark, stale, timeout, anti-thrash and late-worker tests."
+    },
+    {
+      "id": "SC-G07_RUNTIME_SENDABLE",
+      "packageId": "SC-P07",
+      "evidence": "Live, automation, manual, idle, pre-send and overflow paths use one engine and never knowingly send an oversized request."
+    },
+    {
+      "id": "SC-G08_UI_TRUTHFUL",
+      "packageId": "SC-P08",
+      "evidence": "Provider actual, next estimate, effective budget, trigger and target are distinct and UI-tested after approval."
+    },
+    {
+      "id": "SC-G09_V2_READY",
+      "packageId": "SC-P09",
+      "evidence": "Shadow rollout, default decision, rollback, compliance, tests, lint, build and approved E2E are complete."
+    }
+  ],
+  "packages": [
+    {
+      "id": "SC-P00",
+      "order": 0,
+      "title": "Hermes reference, MIT attribution and Canvas baseline",
+      "status": "completed",
+      "completedAt": "2026-09-01",
+      "dependsOn": [],
+      "hermesReferences": [
+        "LICENSE",
+        "hermes_cli/config_defaults.py:compression",
+        "agent/context_compressor.py:ContextCompressor.__init__"
+      ],
+      "portingMode": "INVARIANT_ONLY",
+      "deliverables": [
+        "Merge PR #106 and branch from updated main",
+        "Versioned Hermes MIT license and additional-component inventory entry",
+        "Generated notices and component inventory",
+        "Pinned Hermes default-policy fixture",
+        "Sanitized Canvas overflow, status and compaction baseline fixtures"
+      ],
+      "verification": [
+        "third-party license compliance test",
+        "baseline context-budget and compaction tests",
+        "review that every later package has Hermes references and a porting mode"
+      ],
+      "completionEvidence": [
+        "PR #106 merged as 0b8fda3f43e36ad165e559b8f0d155755cc1296f",
+        "Hermes MIT license and additional component are present in generated notices with zero release blockers",
+        "Pinned Hermes defaults plus sanitized Canvas overflow, status and compaction baselines pass test:pi:compaction-v2-baseline",
+        "Existing context-budget, compaction UI and live-compaction tests pass"
+      ],
+      "exitGate": "SC-G00_REFERENCE_LOCKED"
+    },
+    {
+      "id": "SC-P01",
+      "order": 1,
+      "title": "Port Hermes pressure and trigger policy",
+      "status": "completed",
+      "completedAt": "2026-09-01",
+      "dependsOn": ["SC-P00"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_effective_threshold_percent",
+        "agent/context_compressor.py:_compute_threshold_tokens",
+        "agent/turn_context.py:_should_run_preflight_estimate",
+        "agent/turn_context.py:compression_made_progress",
+        "agent/turn_context.py:_compression_warrants_another_preflight_pass"
+      ],
+      "portingMode": "DIRECT_PORT",
+      "deliverables": [
+        "Pure compaction policy capability",
+        "Effective input budget including output reserve and Canvas fixed costs",
+        "Small-context threshold floor and model overrides",
+        "Cheap estimate gate and authoritative request-pressure decision",
+        "Greater-than-five-percent retry progress rule"
+      ],
+      "verification": [
+        "32K, 128K, 262K, 512K and 1M policy fixtures",
+        "few-large-message regression",
+        "output-reserve degeneracy regression",
+        "provider actual versus next-request calibration tests"
+      ],
+      "completionEvidence": [
+        "Pure Hermes-aligned pressure policy is implemented in app/lib/pi/compaction/policy.ts with pinned attribution",
+        "Context snapshots and history composition use the effective input budget after output reserve and Canvas fixed request costs",
+        "32K through 1M parity, small-window floor, longest model override, cap, cheap-gate, authoritative next-request and strict greater-than-five-percent progress tests pass",
+        "Context, summary, UI contract, coordinator, store, live runtime and automation compaction regressions pass",
+        "TypeScript, focused ESLint, license compliance and production build pass"
+      ],
+      "exitGate": "SC-G01_POLICY_PARITY"
+    },
+    {
+      "id": "SC-P02",
+      "order": 2,
+      "title": "Port Hermes head, middle and coherent-tail selection",
+      "status": "completed",
+      "completedAt": "2026-09-01",
+      "dependsOn": ["SC-P01"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_effective_protect_first_n",
+        "agent/context_compressor.py:_protect_head_size",
+        "agent/context_compressor.py:_find_tail_cut_by_tokens",
+        "agent/context_compressor.py:_ensure_last_user_message_in_tail",
+        "agent/context_compressor.py:_ensure_last_assistant_message_in_tail"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Pure coherent-history units and selection capabilities",
+        "Decaying protected head",
+        "Token-budgeted tail with soft ceiling and minimum recent floor",
+        "Verbatim active-user and last-assistant anchors",
+        "Legacy and lean tail policy variants"
+      ],
+      "verification": [
+        "actionable user anchor tests",
+        "assistant anchor tests",
+        "tool-call and tool-result atomicity tests",
+        "tail cut out-of-bounds and no-compressible-middle tests"
+      ],
+      "completionEvidence": [
+        "Hermes-style decaying head and token-budgeted tail are implemented over Canvas atomic history units",
+        "Synthetic summary and blank user rows cannot displace the latest actionable user anchor",
+        "The last visible assistant response is preserved ahead of tool-only assistant fallbacks",
+        "Parallel and interleaved tool calls and results cross compaction boundaries only as complete units",
+        "Legacy and lean tail budgets match Hermes ratios, floor and cap",
+        "Selection, context, summary, UI contract, coordinator, store, live and automation regressions plus TypeScript, ESLint and production build pass"
+      ],
+      "exitGate": "SC-G02_SELECTION_SAFE"
+    },
+    {
+      "id": "SC-P03",
+      "order": 3,
+      "title": "Adapt Hermes deterministic pruning",
+      "status": "completed",
+      "completedAt": "2026-09-01",
+      "dependsOn": ["SC-P02"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_prune_old_tool_results",
+        "agent/context_compressor.py:prune_tool_results_only",
+        "agent/context_compressor.py:SKILL_PRUNED_MARKER_PREFIX"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Savings-gated old-tool-result pruning",
+        "Low-signal tool-row filtering",
+        "Historical image and stale replay pruning",
+        "Canonical skill reload markers",
+        "Prompt-cache re-arm runway"
+      ],
+      "verification": [
+        "idempotence tests",
+        "minimum reclaim tests",
+        "historical media and stale image tests",
+        "ghost skill tests",
+        "active tool-chain preservation tests"
+      ],
+      "completionEvidence": [
+        "Deterministic pruning is implemented as a pure, default-disabled capability with Hermes attribution",
+        "Exact duplicate tool output, bulky historical results and arguments, old tool images and stale replay fields are reclaimed",
+        "Canonical sanitized skill reload markers prevent ghosted skill instructions",
+        "Candidate rewrites commit only above the measured token-savings gate and return the original array on every rejected no-op",
+        "Prompt-cache re-arm requires a full reclaimed, trigger or minimum-reclaim runway",
+        "Idempotence, latest-three, active-tool-chain, newest-image, low-signal and pressure-tail tests plus TypeScript, ESLint, compliance and production build pass"
+      ],
+      "exitGate": "SC-G03_PRUNING_SAFE"
+    },
+    {
+      "id": "SC-P04",
+      "order": 4,
+      "title": "Port Hermes exact anchors, user transcript, digests and recovery",
+      "status": "completed",
+      "completedAt": "2026-09-01",
+      "dependsOn": ["SC-P03"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_build_anchor_index",
+        "agent/context_compressor.py:_build_verbatim_user_section",
+        "agent/context_compressor.py:_build_recovery_footer",
+        "agent/context_compressor.py:_build_chunk_digests",
+        "agent/context_compressor.py:_bound_summary_input"
+      ],
+      "portingMode": "DIRECT_PORT",
+      "deliverables": [
+        "Mechanically extracted exact anchor index",
+        "Newest-first verbatim real-user section",
+        "Chronological chunk digests",
+        "Bounded summary input with omitted-middle marker",
+        "Authorized Canvas session_search recovery footer",
+        "Pre-persistence secret redaction"
+      ],
+      "verification": [
+        "100 percent supported non-sensitive anchor retention",
+        "secret and URL credential redaction tests",
+        "large transcript chunk-order tests",
+        "session authorization and recovery pointer tests"
+      ],
+      "completionEvidence": [
+        "Mechanically extracted frequency/recency-ranked anchor categories cover PRs, SHAs, branches, files, errors, URLs, versions, UUIDs and Canvas workspace, todo, automation and session IDs",
+        "Newest-first real user messages remain verbatim except for mandatory persistence-boundary secret redaction",
+        "Chronological SHA-256-addressed digest chunks cover the sanitized transcript without gaps, filter low-signal tool acks and preserve pristine tool content when provided",
+        "Session-search recovery pointers are emitted only for an exact authorized session scope with the tool available",
+        "Summary inputs are bounded at 160K characters with an explicit omitted-middle marker",
+        "Large-transcript, secret, URL credential, anchor, ordering, authorization, TypeScript, ESLint, compliance and production-build tests pass"
+      ],
+      "exitGate": "SC-G04_RECOVERY_COMPLETE"
+    },
+    {
+      "id": "SC-P05",
+      "order": 5,
+      "title": "Adapt Hermes rolling LLM summary and focus",
+      "status": "completed",
+      "completedAt": "2026-09-01",
+      "dependsOn": ["SC-P04"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_generate_summary",
+        "agent/context_compressor.py:_derive_auto_focus_topic",
+        "agent/context_compressor.py:compress",
+        "agent/context_compressor.py:_build_static_fallback_summary"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "intentionalDivergence": "Do not commit static fallback text as complete semantic coverage when the LLM summary fails.",
+      "deliverables": [
+        "Versioned rolling summary contract",
+        "Aux-model feasibility and bounded prompts",
+        "Optional focus topic",
+        "Progress-aware summary streaming",
+        "Anchor, task and prompt-injection validation",
+        "Fail-closed summary boundary"
+      ],
+      "verification": [
+        "multi-compaction continuity tests",
+        "focus retention tests",
+        "zero-real-user provenance tests",
+        "summary timeout, empty result and provider failure tests",
+        "prompt injection and signal leakage tests"
+      ],
+      "completionEvidence": [
+        "Versioned canvas-session-summary:v2 contract composes required sections, exact anchors, verbatim user messages, chronological SHA-addressed digests and authorized recovery in stable order",
+        "Every digest and rolling-summary provider call is feasibility-checked against the auxiliary model context window with bounded input and output reserve",
+        "Optional focus is retained without displacing mandatory anchors, and prior-cycle identifiers and user-authored requests survive repeated compaction",
+        "Idle and total stream timeouts report progress while timeout, empty, truncated, provider-error, injection and invented-user-provenance candidates fail closed",
+        "Known secrets are redacted before provider input and before persistence, and failed candidates do not advance the persisted summary boundary",
+        "V2, legacy-summary, full compaction regression, TypeScript and focused ESLint tests pass"
+      ],
+      "exitGate": "SC-G05_SUMMARY_VALIDATED"
+    },
+    {
+      "id": "SC-P06",
+      "order": 6,
+      "title": "Apply Hermes durability and anti-thrash invariants to Canvas coordinator",
+      "status": "completed",
+      "completedAt": "2026-09-01",
+      "dependsOn": ["SC-P05"],
+      "hermesReferences": [
+        "agent/conversation_compression.py:CompressionCommitFence",
+        "agent/conversation_compression.py:compress_context lock and watermark flow",
+        "tests/test_compression_watermark_commit.py",
+        "tests/agent/test_compaction_anti_thrash.py"
+      ],
+      "portingMode": "INVARIANT_ONLY",
+      "deliverables": [
+        "Idle and total deadlines",
+        "Concurrent live-tail watermark adoption",
+        "Durable ineffectiveness and failure breakers",
+        "Manual one-shot cooldown bypass without lock bypass",
+        "Content-free per-attempt telemetry"
+      ],
+      "verification": [
+        "SQLite and PostgreSQL parity",
+        "concurrent fork and live-tail tests",
+        "late worker and stale generation tests",
+        "progress timeout tests",
+        "anti-thrash persistence and recovery tests"
+      ],
+      "completionEvidence": [
+        "Progress heartbeats durably extend only the idle deadline while a separate absolute total deadline cannot be extended",
+        "Late workers, stale generations, stale session revisions and changed workspace context cannot cross the existing atomic commit fence",
+        "Two persisted ineffective automatic attempts open a 300-second breaker and expiry permits one recovery probe without a busy loop",
+        "The existing manual one-shot bypass remains scoped to cooldown and breaker state and never bypasses a running lock or commit fence",
+        "SQLite and PostgreSQL persist content-free trigger, pressure, region, anchor, provider, duration, progress and error telemetry with matching migrations",
+        "Coordinator, store, live runtime and automation tests plus TypeScript and focused ESLint pass"
+      ],
+      "exitGate": "SC-G06_COORDINATOR_DURABLE"
+    },
+    {
+      "id": "SC-P07",
+      "order": 7,
+      "title": "Integrate Hermes trigger topology into live runtime and automations",
+      "status": "completed",
+      "dependsOn": ["SC-P06"],
+      "hermesReferences": [
+        "agent/turn_context.py preflight and idle compaction flow",
+        "agent/conversation_loop.py pre-API request pressure flow",
+        "agent/conversation_compression.py:compress_context force behavior"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Shared live and automation compaction engine",
+        "Automatic preflight",
+        "Final normalized-request hard gate",
+        "Provider overflow recovery",
+        "Early manual compaction",
+        "Optional idle compaction"
+      ],
+      "verification": [
+        "final serialized request overflow regression",
+        "manual-before-threshold tests",
+        "idle lock and breaker tests",
+        "automation versus live parity tests",
+        "maximum attempt cap tests"
+      ],
+      "completionEvidence": [
+        "Live chat and automations use the shared Hermes V2 pressure, pruning, selection and rolling-summary engine",
+        "A cheap gate precedes authoritative normalized-payload pressure checks and every provider request remains protected by an exact hard gate",
+        "Manual force compaction works before the automatic threshold and optional idle compaction is disabled by default behind CANVAS_PI_IDLE_COMPACTION_ENABLED",
+        "One provider overflow may retry only before visible output and the concrete final serialized request overflow variant is classified",
+        "Live and transient automation retries stop at the configured attempt cap and continue only after more than five percent pressure reduction",
+        "Context budget, Hermes packages P00-P06, live runtime, automation history, automation in-run recovery, provider overflow, TypeScript and focused ESLint regressions pass"
+      ],
+      "exitGate": "SC-G07_RUNTIME_SENDABLE"
+    },
+    {
+      "id": "SC-P08",
+      "order": 8,
+      "title": "Expose Hermes-equivalent truthful context and compaction status",
+      "status": "completed",
+      "dependsOn": ["SC-P07"],
+      "hermesReferences": [
+        "agent/context_breakdown.py provider actual usage preference",
+        "agent/codex_runtime.py tokenUsage update flow",
+        "gateway and TUI compaction status tests"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Separate provider actual and next-request estimate",
+        "Effective budget, trigger and target markers",
+        "Compaction before and after metrics",
+        "Optional focus interaction",
+        "Specific localized outcome and error states"
+      ],
+      "verification": [
+        "UI contract tests",
+        "German and English copy tests",
+        "desktop and mobile responsive checks",
+        "Playwright on localhost:3000 after explicit approval"
+      ],
+      "completionEvidence": [
+        "Runtime status and UI use one trigger-relative pressure projection while provider actual and next-request estimate remain distinct",
+        "Effective input budget, trigger, target, before/after metrics, omitted count and trigger cause are exposed without replacing legacy status fields",
+        "Manual compact remains immediate and optional focused compact is bounded at the WebSocket and runtime boundaries and reaches the Hermes V2 prompt",
+        "UI contract, full compaction regression matrix, WebSocket protocol, TypeScript, ESLint, license compliance and production build pass",
+        "Playwright against an isolated migrated Postgres database verifies trigger-relative status, busy controls, direct compact, compact break, blank focus rejection and focus forwarding",
+        "Visual Playwright inspection at 1600x900 and 390x844 verifies the focus dialog closes the actions menu and remains fully usable without horizontal overflow"
+      ],
+      "exitGate": "SC-G08_UI_TRUTHFUL"
+    },
+    {
+      "id": "SC-P09",
+      "order": 9,
+      "title": "Shadow rollout, default decision and final verification",
+      "status": "completed",
+      "dependsOn": ["SC-P08"],
+      "hermesReferences": [
+        "hermes_cli/config_defaults.py legacy and lean tail modes",
+        "evals/compaction/policies.py",
+        "tests/run_agent/test_infinite_compaction_loop.py"
+      ],
+      "portingMode": "INVARIANT_ONLY",
+      "deliverables": [
+        "Selection and savings shadow mode",
+        "Legacy versus lean evaluation",
+        "Measured default policy",
+        "V1 rollback path",
+        "No micro-compaction default",
+        "Final compliance and operations documentation"
+      ],
+      "verification": [
+        "targeted compaction and session tests",
+        "third-party compliance test",
+        "npm run lint",
+        "npm run build",
+        "GitNexus detect_changes against main",
+        "approved UI and E2E verification"
+      ],
+      "completionEvidence": [
+        "Legacy, shadow and V2 modes are resolved at the runtime candidate boundary; legacy and shadow execute the V1 summary path while atomic tool-group selection remains fail-safe",
+        "Shadow mode emits content-free legacy-versus-lean selection, savings, anchor, partition, orphan-group and latency telemetry without persisting or logging session content",
+        "A 241-message tool-heavy scorecard projects 78.30 percent legacy savings and 88.30 percent lean savings with zero partition losses, zero new orphaned tool groups and full latest-user/latest-assistant anchor retention",
+        "Hermes V2 with the conservative legacy tail is the shipping default; lean remains gated because the available local Postgres database had zero eligible real sessions and therefore supplied no rollout evidence",
+        "CANVAS_PI_COMPACTION_ROLLOUT=legacy is the documented V1 summary rollback; micro-compaction has no Canvas V2 switch or post-turn rewrite path",
+        "The full compaction, durability, runtime, UI contract, WebSocket, TypeScript, ESLint, third-party compliance and production build checks pass",
+        "Approved Playwright verification passes the runtime-details and manual-compaction-break flows against an isolated migrated PostgreSQL database on localhost:3000"
+      ],
+      "exitGate": "SC-G09_V2_READY"
+    }
+  ]
+}

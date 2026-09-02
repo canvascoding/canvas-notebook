@@ -114,14 +114,29 @@ async function main(): Promise<void> {
     reasoning: false,
     input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 4_000,
+    contextWindow: 6_000,
     maxTokens: 1_000,
   } satisfies Model<'openai-completions'>;
   const summaryResult = deferred<AssistantMessage>();
   let summaryCalls = 0;
-  const createSummaryMessage = (text: string): AssistantMessage => ({
+  let lastSummaryContext = '';
+  const createSummaryMessage = (label: string): AssistantMessage => ({
     role: 'assistant',
-    content: [{ type: 'text', text }],
+    content: [{
+      type: 'text',
+      text: [
+        '## Active Task',
+        label,
+        '## Completed Work',
+        '- Preserved completed work from the compacted range.',
+        '## Decisions and Constraints',
+        '- Keep exact session boundaries and the protected tail.',
+        '## Files, Commands, and Exact Errors',
+        '- No exact errors were reported.',
+        '## Remaining Work',
+        '- Continue from the durable rolling summary.',
+      ].join('\n'),
+    }],
     api: model.api,
     provider: model.provider,
     model: model.id,
@@ -136,8 +151,9 @@ async function main(): Promise<void> {
     stopReason: 'stop',
     timestamp: Date.now(),
   });
-  const summaryStreamFn: StreamFn = async (requestedModel, _context, options) => {
+  const summaryStreamFn: StreamFn = async (requestedModel, context, options) => {
     summaryCalls += 1;
+    lastSummaryContext = JSON.stringify(context);
     assert.equal(options?.signal?.aborted, false);
     return {
       result: () => summaryResult.promise,
@@ -200,11 +216,22 @@ async function main(): Promise<void> {
     lastComposition: {
       estimatedHistoryTokens: 100_000,
       availableHistoryTokens: 200_000,
+      triggerHistoryTokens: 120_000,
+      targetHistoryTokens: 24_000,
       includedSummary: false,
       omittedMessages: [],
     },
     lastFinalPayloadBudgetSnapshot: {
       estimatedTotalTokens: 185_000,
+      effectiveInstructionTokens: 12_000,
+      toolSchemaTokens: 4_000,
+      runtimeProviderOverheadTokens: 64,
+      multimodalTokens: 0,
+      safetyReserveTokens: 5_936,
+      outputReserveTokens: 20_000,
+      hardHistoryTokens: 220_000,
+      triggerHistoryTokens: 110_000,
+      targetTailTokens: 22_000,
       contextBudgetExceeded: false,
       payloadBudgetExceeded: false,
     },
@@ -232,19 +259,22 @@ async function main(): Promise<void> {
   });
   const idleStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
   assert.equal(idleStatus.lastProviderInputTokens, 140_000);
-  assert.equal(idleStatus.nextRequestEstimatedTokens, null, 'idle status must prefer actual provider usage over an old payload estimate');
+  assert.equal(idleStatus.nextRequestEstimatedTokens, 162_000, 'idle status must expose a fresh rough request projection instead of the stale payload');
+  assert.equal((idleStatus.contextPressure as { source: string }).source, 'rough_estimate');
+  assert.equal((idleStatus.contextPressure as { percentOfTrigger: number }).percentOfTrigger, 83);
   statusRuntime.isRunning = true;
   const activeStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
   assert.equal(activeStatus.lastProviderInputTokens, 140_000);
   assert.equal(activeStatus.nextRequestEstimatedTokens, 185_000, 'active status must expose the next serialized-request estimate separately');
+  assert.equal((activeStatus.contextPressure as { source: string }).source, 'serialized_request');
   statusRuntime.abortRequested = true;
   const abortingStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
-  assert.equal(abortingStatus.nextRequestEstimatedTokens, null, 'an aborted request payload must not be presented as the next request');
+  assert.equal(abortingStatus.nextRequestEstimatedTokens, 162_000, 'an aborted request must fall back to the current rough projection');
   assert.equal(abortingStatus.finalRequestTokens, null, 'an aborted request payload must not remain exposed as the final request');
   statusRuntime.abortRequested = false;
   statusRuntime.pendingReplace = { id: 'replacement-request' };
   const replacingStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
-  assert.equal(replacingStatus.nextRequestEstimatedTokens, null, 'the replaced request payload must not be presented as the replacement request');
+  assert.equal(replacingStatus.nextRequestEstimatedTokens, 162_000, 'a replacement must fall back to the current rough projection');
   assert.equal(replacingStatus.finalRequestTokens, null, 'the replaced request payload must not remain exposed during replacement');
   statusRuntime.pendingReplace = null;
 
@@ -274,7 +304,7 @@ async function main(): Promise<void> {
   );
 
   const calibratedPreflight = {
-    softThresholdExceeded: true,
+    softThresholdExceeded: false,
     contextBudgetExceeded: false,
     omittedMessages: [],
   };
@@ -282,37 +312,26 @@ async function main(): Promise<void> {
   Object.assign(calibrationRuntime, {
     provider: 'test-provider',
     model,
+    requestOutputTokenCap: 1_000,
     summary: { summaryText: null, summaryThroughSequence: null },
-    lastProviderUsageCalibration: {
-      provider: 'test-provider',
-      model: 'test-model',
-      relativeDelta: -0.12,
-    },
+    lastProviderInputUsage: { inputTokens: 200, assistantTimestamp: now },
     messageContextSnapshots: new Map(),
     getRuntimeContextBlock: async () => null,
+    getEffectiveSystemPrompt: () => 'calibration prompt',
+    getEffectiveTools: () => [],
     composeHistory: () => calibratedPreflight,
     finalizeContextCandidate: async ({ sourceMessages }: { sourceMessages: AgentMessage[] }) => sourceMessages,
     coordinateCompaction: async () => {
-      throw new Error('a conservative provider calibration must defer soft-threshold compaction');
+      throw new Error('a request below the cheap gate must not compact');
     },
   });
   const calibrationCandidate = [{ role: 'user', content: 'calibrated prompt', timestamp: now.getTime() }] as AgentMessage[];
   assert.deepEqual(await (calibrationRuntime as {
     transformContext: (messages: AgentMessage[]) => Promise<AgentMessage[]>;
   }).transformContext(calibrationCandidate), calibrationCandidate);
-  calibrationRuntime.lastProviderUsageCalibration = {
-    provider: 'test-provider', model: 'test-model', relativeDelta: -0.12,
-  };
-  calibratedPreflight.contextBudgetExceeded = true;
-  assert.equal(
-    (calibrationRuntime as { shouldDeferSoftThresholdCompaction: (preflight: unknown) => boolean })
-      .shouldDeferSoftThresholdCompaction(calibratedPreflight),
-    false,
-    'provider calibration must never bypass a hard context limit',
-  );
-  calibratedPreflight.contextBudgetExceeded = false;
 
-  const compactPromise = runtime.compactNow();
+  const focusTopic = 'database migration safety';
+  const compactPromise = runtime.compactNow(focusTopic);
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(summaryCalls, 1);
   assert.equal(events.filter((event) => event.type === 'context_compacted').length, 0, 'success must not be emitted before the private candidate completes and commits');
@@ -323,23 +342,28 @@ async function main(): Promise<void> {
   const automaticRace = await (runtime as unknown as {
     coordinateCompaction: (input: {
       kind: 'automatic';
+      cause: 'threshold';
       messages: AgentMessage[];
       additionalContextTokens: number;
       runtimeContext: null;
     }) => Promise<{ state: string; attemptId: string }>;
   }).coordinateCompaction({
     kind: 'automatic',
+    cause: 'threshold',
     messages: runtime.agent.state.messages as AgentMessage[],
     additionalContextTokens: 0,
     runtimeContext: null,
   });
   assert.equal(automaticRace.state, 'already_running');
   assert.equal(summaryCalls, 1, 'manual/automatic races must share one summary provider call');
-  summaryResult.resolve(createSummaryMessage('Committed live runtime summary'));
+  summaryResult.resolve(createSummaryMessage(`Committed live runtime summary for ${focusTopic}`));
   await compactPromise;
+  assert.match(lastSummaryContext, /database migration safety/);
 
   const reloaded = await loadPiSessionWithSummary(sessionId, userId, session?.agentId);
-  assert.equal(reloaded?.summary.summaryText, 'Committed live runtime summary');
+  assert.match(reloaded?.summary.summaryText || '', /canvas-session-summary:v2/);
+  assert.match(reloaded?.summary.summaryText || '', /## Rolling Summary/);
+  assert.match(reloaded?.summary.summaryText || '', /Committed live runtime summary/);
   assert.equal(reloaded?.summary.summaryRevision, 1);
   const attempts = await db.select().from(piSessionCompactionAttempts);
   assert.equal(attempts.length, 1);
@@ -351,6 +375,24 @@ async function main(): Promise<void> {
   assert.ok(events.some((event) => (
     (event.status as { compactionStatus?: { state?: string } } | undefined)?.compactionStatus?.state === 'succeeded'
   )));
+  const succeededStatus = events.findLast((event) => (
+    (event.status as { compactionStatus?: { state?: string } } | undefined)?.compactionStatus?.state === 'succeeded'
+  ))?.status as {
+    compactionStatus?: {
+      cause?: string;
+      beforeTokens?: number;
+      afterTokens?: number;
+      triggerTokens?: number;
+      targetTokens?: number;
+      focusApplied?: boolean;
+    };
+  } | undefined;
+  assert.equal(succeededStatus?.compactionStatus?.cause, 'manual');
+  assert.equal(succeededStatus?.compactionStatus?.focusApplied, true);
+  assert.ok((succeededStatus?.compactionStatus?.beforeTokens ?? 0) > 0);
+  assert.ok((succeededStatus?.compactionStatus?.afterTokens ?? 0) > 0);
+  assert.ok((succeededStatus?.compactionStatus?.triggerTokens ?? 0) > 0);
+  assert.ok((succeededStatus?.compactionStatus?.targetTokens ?? 0) > 0);
   const marker = (runtime.agent.state.messages as AgentMessage[]).at(-1) as unknown as Record<string, unknown>;
   assert.equal(marker.role, 'compact-break');
   assert.equal(marker.attemptId, attempts[0].id);
@@ -432,7 +474,7 @@ async function main(): Promise<void> {
     },
     compactionPolicy: { timeoutMs: 10, retryDelaysMs: [0] },
   };
-  await assert.rejects(runtime.compactNow(), /failed/i);
+  await assert.rejects(runtime.compactNow(), /total time ceiling/i);
   assert.equal(timeoutCalls, 1);
   timeoutResult.resolve(createSummaryMessage('Late timed out summary'));
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -469,6 +511,12 @@ async function main(): Promise<void> {
         sourceMessages: candidate,
         messages: candidate,
         budgetSnapshot: {
+          estimatedTotalTokens: exceeds ? 9_500 : 7_500,
+          contextWindowTokens: 8_000,
+          serializedMessageBytes: 0,
+          hardHistoryBytes: 1,
+          multimodalBytes: 0,
+          totalImageBytesLimit: 1,
           contextBudgetExceeded: exceeds,
           payloadBudgetExceeded: false,
         },
@@ -477,7 +525,6 @@ async function main(): Promise<void> {
     cachePreparedRuntimePayload(payload: unknown) {
       this.preparedRuntimePayload = payload as null;
     },
-    getPayloadPressure: () => 1_500,
     coordinateCompaction: async (input: { kind: 'manual' | 'automatic'; bypassCooldown?: boolean; additionalContextTokens: number }) => {
       retryKind = input.kind;
       retryBypassesCooldown = input.bypassCooldown === true;
@@ -510,6 +557,130 @@ async function main(): Promise<void> {
   assert.equal(retryAdditionalContextTokens, 1_700, 'exact final-payload overflow must reserve room for a retry compaction');
   assert.deepEqual(recoveredCandidate, compactedCandidate, 'the retried, exact-budget-safe candidate must reach the provider');
   assert.equal(preparedPayloadCount, 2, 'the final payload must be checked before and after the retry compaction');
+
+  const exactSnapshot = (estimatedTotalTokens: number) => ({
+    estimatedTotalTokens,
+    contextWindowTokens: 8_000,
+    serializedMessageBytes: 0,
+    hardHistoryBytes: 1,
+    multimodalBytes: 0,
+    totalImageBytesLimit: 1,
+    contextBudgetExceeded: estimatedTotalTokens > 8_000,
+    payloadBudgetExceeded: false,
+  });
+  const createProgressRuntime = (loads: number[]) => {
+    const candidateRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
+    let payloadIndex = 0;
+    let compactionCalls = 0;
+    Object.assign(candidateRuntime, {
+      summary: compactedSummary,
+      lastComposition: null,
+      preparedRuntimePayload: null,
+      injectRuntimeContext: async (candidate: AgentMessage[]) => candidate,
+      buildFinalPayload: async (candidate: AgentMessage[]) => ({
+        sourceMessages: candidate,
+        messages: candidate,
+        budgetSnapshot: exactSnapshot(loads[Math.min(payloadIndex++, loads.length - 1)]),
+      }),
+      cachePreparedRuntimePayload(payload: unknown) {
+        this.preparedRuntimePayload = payload as null;
+      },
+      coordinateCompaction: async () => {
+        compactionCalls += 1;
+        return {
+          state: 'succeeded',
+          attemptId: `progress-${compactionCalls}`,
+          summary: compactedSummary,
+          composition: retryComposition,
+        };
+      },
+      applyAutomaticCompactionResult: () => true,
+    });
+    return { candidateRuntime, getCompactionCalls: () => compactionCalls };
+  };
+  const noProgressRuntime = createProgressRuntime([10_000, 9_600, 7_900]);
+  await assert.rejects(
+    (noProgressRuntime.candidateRuntime as unknown as {
+      finalizeContextCandidate: (input: {
+        composition: unknown;
+        sourceMessages: AgentMessage[];
+        runtimeContext: null;
+        additionalContextTokens: number;
+      }) => Promise<AgentMessage[]>;
+    }).finalizeContextCandidate({
+      composition: initialComposition,
+      sourceMessages: initialCandidate,
+      runtimeContext: null,
+      additionalContextTokens: 0,
+    }),
+    /still exceeds/i,
+  );
+  assert.equal(noProgressRuntime.getCompactionCalls(), 1, 'a retry with at most 5% reduction must stop');
+
+  const progressingRuntime = createProgressRuntime([10_000, 9_000, 7_900]);
+  await (progressingRuntime.candidateRuntime as unknown as {
+    finalizeContextCandidate: (input: {
+      composition: unknown;
+      sourceMessages: AgentMessage[];
+      runtimeContext: null;
+      additionalContextTokens: number;
+    }) => Promise<AgentMessage[]>;
+  }).finalizeContextCandidate({
+    composition: initialComposition,
+    sourceMessages: initialCandidate,
+    runtimeContext: null,
+    additionalContextTokens: 0,
+  });
+  assert.equal(progressingRuntime.getCompactionCalls(), 2, 'retries may continue only after material progress');
+
+  const idleRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
+  let idleCompactionCalls = 0;
+  let idlePersistCalls = 0;
+  Object.assign(idleRuntime, {
+    options: { idleCompaction: true, idleCompactionDelayMs: 0 },
+    idleCompactionTimer: null,
+    disposed: false,
+    isRunning: false,
+    pendingReplace: null,
+    agent: { state: { isStreaming: false, messages: compactedCandidate } },
+    getBrowserRuntimeContextTokenEstimate: () => 0,
+    coordinateCompaction: async (input: { kind: string; selectionMode?: string }) => {
+      idleCompactionCalls += 1;
+      assert.equal(input.kind, 'automatic');
+      assert.equal(input.selectionMode, 'force');
+      return { state: 'succeeded', summary: compactedSummary, composition: retryComposition };
+    },
+    applyAutomaticCompactionResult: () => true,
+    persistMessages: async () => {
+      idlePersistCalls += 1;
+      return 1;
+    },
+    composeHistory: () => retryComposition,
+    touch: () => undefined,
+    publishStatus: () => undefined,
+  });
+  (idleRuntime as { scheduleIdleCompaction: () => void }).scheduleIdleCompaction();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(idleCompactionCalls, 1);
+  assert.equal(idlePersistCalls, 1);
+  idleRuntime.options = { idleCompaction: false, idleCompactionDelayMs: 0 };
+  (idleRuntime as { scheduleIdleCompaction: () => void }).scheduleIdleCompaction();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(idleCompactionCalls, 1, 'idle compaction must remain disabled unless explicitly enabled');
+
+  let disposedTimerFired = false;
+  const disposeRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
+  Object.assign(disposeRuntime, {
+    disposed: false,
+    idleCompactionTimer: setTimeout(() => { disposedTimerFired = true; }, 10),
+    browserSnapshotUnsubscribe: null,
+    agentUnsubscribe: null,
+    subscribers: new Set(),
+    getCompactionScope: () => ({ sessionId: 'dispose-idle', userId, agentId: 'canvas-agent', workspaceId: null }),
+  });
+  (disposeRuntime as { dispose: () => void }).dispose();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(disposedTimerFired, false, 'disposing a runtime must cancel pending idle compaction');
 
   const finalAttempts = await db.select().from(piSessionCompactionAttempts);
   assert.deepEqual(finalAttempts.map((attempt) => attempt.state), ['succeeded', 'aborted', 'stale', 'timed_out']);

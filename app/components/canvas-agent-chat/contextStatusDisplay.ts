@@ -1,6 +1,24 @@
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 
+export function formatContextTokens(value: number): string {
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
+  }
+
+  return `${value}`;
+}
+
 export type ContextStatusDisplay =
+  | {
+    source: 'pressure';
+    pressureTokens: number;
+    pressureSource: 'rough_estimate' | 'serialized_request';
+    effectiveInputBudgetTokens: number;
+    triggerTokens: number;
+    targetTokens: number;
+    percentOfTrigger: number;
+    contextWindow: number;
+  }
   | { source: 'actual'; usedTokens: number; contextWindow: number }
   | { source: 'next_request'; usedTokens: number; contextWindow: number }
   | {
@@ -16,6 +34,19 @@ export type ContextStatusDisplay =
 export function getContextStatusDisplay(status: RuntimeStatus | null): ContextStatusDisplay {
   if (!status) {
     return { source: 'empty' };
+  }
+
+  if (status.contextPressure) {
+    return {
+      source: 'pressure',
+      pressureTokens: status.contextPressure.pressureTokens,
+      pressureSource: status.contextPressure.source,
+      effectiveInputBudgetTokens: status.contextPressure.effectiveInputBudgetTokens,
+      triggerTokens: status.contextPressure.triggerTokens,
+      targetTokens: status.contextPressure.targetTokens,
+      percentOfTrigger: status.contextPressure.percentOfTrigger,
+      contextWindow: status.contextWindow,
+    };
   }
 
   const nextRequestEstimatedTokens = status.nextRequestEstimatedTokens;

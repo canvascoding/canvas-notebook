@@ -737,6 +737,14 @@ async function ensurePostgresCompactionAttemptIndexes(pool: PgQueryable): Promis
   `);
 }
 
+async function ensurePostgresCompactionAttemptTelemetry(pool: PgQueryable): Promise<void> {
+  await pool.query('ALTER TABLE pi_session_compaction_attempts ADD COLUMN IF NOT EXISTS idle_deadline_at bigint');
+  await pool.query('ALTER TABLE pi_session_compaction_attempts ADD COLUMN IF NOT EXISTS last_progress_at bigint');
+  await pool.query('ALTER TABLE pi_session_compaction_attempts ADD COLUMN IF NOT EXISTS progress_event_count bigint NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE pi_session_compaction_attempts ADD COLUMN IF NOT EXISTS duration_ms bigint');
+  await pool.query('ALTER TABLE pi_session_compaction_attempts ADD COLUMN IF NOT EXISTS telemetry_json text');
+}
+
 export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   if (process.env.CANVAS_POSTGRES_VECTOR_ENABLED === 'true') {
     await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
@@ -1191,6 +1199,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     }
   }
 
+  await ensurePostgresCompactionAttemptTelemetry(pool);
   await ensurePostgresCompactionAttemptIndexes(pool);
 
   await pool.query(`

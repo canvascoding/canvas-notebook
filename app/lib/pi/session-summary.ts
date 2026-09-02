@@ -11,11 +11,18 @@ import {
   getUnsummarizedMessages,
   isPiHistoryCompositionSendable,
   type PiHistoryComposition,
+  type PiHistorySelectionMode,
   type PiSessionSummaryState,
 } from './history-budget';
+import type { PiContextBudgetPolicy } from './context-budget';
 import { normalizePiMessagesForLlm } from './message-normalization';
+import {
+  generatePiRollingSummaryV2,
+  type PiSummaryMode,
+  type PiSummaryProgressEvent,
+} from './compaction/summary-generator';
 
-type PreparePiHistoryContextOptions = {
+export type PreparePiHistoryContextOptions = {
   messages: AgentMessage[];
   summary: PiSessionSummaryState;
   systemPromptTokens: number;
@@ -26,15 +33,33 @@ type PreparePiHistoryContextOptions = {
   sessionId?: string;
   signal?: AbortSignal;
   streamFn?: StreamFn;
+  summaryMode?: PiSummaryMode;
+  focusTopic?: string | null;
+  knownSecrets?: readonly string[];
+  authorizedSessionId?: string | null;
+  sessionSearchAvailable?: boolean;
+  summaryIdleTimeoutMs?: number;
+  summaryTotalTimeoutMs?: number;
+  onSummaryProgress?: (event: PiSummaryProgressEvent) => void;
+  selectionMode?: PiHistorySelectionMode;
+  policy?: PiContextBudgetPolicy;
 };
 
-type SummarizeHistoryInput = {
+export type SummarizeHistoryInput = {
   previousSummaryText: string | null;
   messagesToSummarize: AgentMessage[];
   model: Model<Api>;
   sessionId?: string;
   signal?: AbortSignal;
   streamFn?: StreamFn;
+  summaryMode?: PiSummaryMode;
+  focusTopic?: string | null;
+  knownSecrets?: readonly string[];
+  authorizedSessionId?: string | null;
+  sessionSearchAvailable?: boolean;
+  summaryIdleTimeoutMs?: number;
+  summaryTotalTimeoutMs?: number;
+  onSummaryProgress?: (event: PiSummaryProgressEvent) => void;
 };
 
 export type PreparePiHistoryContextResult = {
@@ -272,9 +297,35 @@ export async function summarizePiSessionHistory({
   sessionId,
   signal,
   streamFn,
+  summaryMode = 'legacy',
+  focusTopic,
+  knownSecrets,
+  authorizedSessionId,
+  sessionSearchAvailable,
+  summaryIdleTimeoutMs,
+  summaryTotalTimeoutMs,
+  onSummaryProgress,
 }: SummarizeHistoryInput): Promise<string | null> {
   if (!streamFn) {
     return null;
+  }
+
+  if (summaryMode === 'hermes_v2') {
+    return generatePiRollingSummaryV2({
+      previousSummaryText,
+      messagesToSummarize,
+      model,
+      sessionId,
+      authorizedSessionId,
+      sessionSearchAvailable,
+      focusTopic,
+      knownSecrets,
+      signal,
+      streamFn,
+      idleTimeoutMs: summaryIdleTimeoutMs,
+      totalTimeoutMs: summaryTotalTimeoutMs,
+      onProgress: onSummaryProgress,
+    });
   }
 
   assertSummaryGenerationActive(signal);
@@ -366,6 +417,16 @@ export async function preparePiHistoryContext({
   sessionId,
   signal,
   streamFn,
+  summaryMode = 'legacy',
+  focusTopic,
+  knownSecrets,
+  authorizedSessionId,
+  sessionSearchAvailable,
+  summaryIdleTimeoutMs,
+  summaryTotalTimeoutMs,
+  onSummaryProgress,
+  selectionMode = 'automatic',
+  policy,
 }: PreparePiHistoryContextOptions): Promise<PreparePiHistoryContextResult> {
   let nextSummary = summary;
   let summaryAttempted = false;
@@ -380,6 +441,8 @@ export async function preparePiHistoryContext({
     requestOutputTokens,
     toolTokens,
     additionalContextTokens,
+    selectionMode,
+    policy,
   });
 
   if (composition.contextBudgetExceeded) {
@@ -421,6 +484,14 @@ export async function preparePiHistoryContext({
       sessionId,
       signal,
       streamFn,
+      summaryMode,
+      focusTopic,
+      knownSecrets,
+      authorizedSessionId,
+      sessionSearchAvailable,
+      summaryIdleTimeoutMs,
+      summaryTotalTimeoutMs,
+      onSummaryProgress,
     });
 
     if (summaryText?.trim()) {
@@ -448,6 +519,8 @@ export async function preparePiHistoryContext({
         requestOutputTokens,
         toolTokens,
         additionalContextTokens,
+        selectionMode,
+        policy,
       });
     } else {
       summaryFailed = true;
@@ -473,6 +546,7 @@ export async function preparePiHistoryContext({
       toolTokens,
       additionalContextTokens,
       selectionMode: 'hard_limit',
+      policy,
     });
   }
 

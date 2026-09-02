@@ -94,6 +94,23 @@ function attempt(attemptId: string, retryAt: Date | null = null) {
     deadlineAt: new Date('2026-08-27T12:02:00.000Z'),
     completedAt: null,
     retryAt,
+    idleDeadlineAt: new Date('2026-08-27T12:01:00.000Z'),
+    lastProgressAt: new Date('2026-08-27T12:00:00.000Z'),
+    progressEventCount: 0,
+    durationMs: null,
+    telemetry: {
+      triggerTokens: null,
+      targetTokens: null,
+      beforePressureBasisPoints: null,
+      afterPressureBasisPoints: null,
+      headUnitCount: null,
+      middleUnitCount: null,
+      tailUnitCount: null,
+      anchorCount: null,
+      summaryProvider: null,
+      summaryModel: null,
+      errorClass: null,
+    },
   };
 }
 
@@ -103,6 +120,9 @@ function createStore() {
     finish: [] as Array<{ state: string; reasonCode: string; retryAt: Date | null | undefined }>,
     commit: 0,
     retryFailures: 0,
+    ineffectiveAttempts: 0,
+    progress: 0,
+    committedMetrics: null as Record<string, unknown> | null,
   };
   const store: PiCompactionCoordinatorStore = {
     start: async (input) => {
@@ -118,6 +138,7 @@ function createStore() {
     },
     commit: async (input) => {
       calls.commit += 1;
+      calls.committedMetrics = input.metrics as Record<string, unknown> | undefined ?? null;
       return {
         status: 'committed',
         summary: { ...committedSummary, summaryRevision: input.expectedSummaryRevision + 1 },
@@ -131,6 +152,11 @@ function createStore() {
       };
     },
     countRetryFailures: async () => calls.retryFailures,
+    countIneffectiveAttempts: async () => calls.ineffectiveAttempts,
+    progress: async () => {
+      calls.progress += 1;
+      return true;
+    },
   };
   return { store, calls };
 }
@@ -152,6 +178,10 @@ function baseRunInput(store: PiCompactionCoordinatorStore) {
 
 async function tick(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 async function main(): Promise<void> {
@@ -260,11 +290,93 @@ async function main(): Promise<void> {
       prepareCandidate: async () => pending.promise,
     });
     assert.equal(timedOut.state, 'failed');
-    assert.equal(timedOut.reasonCode, 'summary_timeout');
+    assert.equal(timedOut.reasonCode, 'summary_idle_timeout');
     assert.ok(timedOut.retryAt);
     pending.resolve(candidate());
     await tick();
     assert.equal(calls.commit, 0, 'a provider result after timeout must be consumed without commit');
+    assert.equal(calls.finish.at(-1)?.state, 'timed_out');
+  }
+
+  {
+    const { store, calls } = createStore();
+    const progressAware = await runPiSessionCompaction({
+      ...baseRunInput(store),
+      attemptId: 'attempt-progress-aware-idle',
+      policy: {
+        timeoutMs: 20,
+        idleTimeoutMs: 20,
+        totalTimeoutMs: 120,
+        retryDelaysMs: [25, 50],
+      },
+      prepareCandidate: async (_signal, reportProgress) => {
+        for (let index = 0; index < 3; index += 1) {
+          await delay(10);
+          reportProgress({ stage: 'summary', completed: index, total: 3 });
+        }
+        return candidate();
+      },
+    });
+    assert.equal(progressAware.state, 'succeeded');
+    assert.equal(calls.progress, 3);
+    assert.equal(calls.committedMetrics?.progressEventCount, 3);
+  }
+
+  {
+    const { store, calls } = createStore();
+    const totalCeiling = await runPiSessionCompaction({
+      ...baseRunInput(store),
+      attemptId: 'attempt-progress-total-ceiling',
+      policy: {
+        timeoutMs: 20,
+        idleTimeoutMs: 20,
+        totalTimeoutMs: 55,
+        retryDelaysMs: [25, 50],
+      },
+      prepareCandidate: async (signal, reportProgress) => {
+        while (!signal.aborted) {
+          await delay(8);
+          reportProgress({ stage: 'summary' });
+        }
+        throw signal.reason;
+      },
+    });
+    assert.equal(totalCeiling.state, 'failed');
+    assert.equal(totalCeiling.reasonCode, 'summary_total_timeout');
+    assert.ok(calls.progress >= 3, 'stream progress must keep the idle deadline alive');
+    assert.equal(calls.finish.at(-1)?.state, 'timed_out');
+  }
+
+  {
+    const { store, calls } = createStore();
+    const slowProgressStore: PiCompactionCoordinatorStore = {
+      ...store,
+      progress: async () => {
+        calls.progress += 1;
+        await delay(50);
+        return true;
+      },
+    };
+    const totalDuringProgressPersistence = await runPiSessionCompaction({
+      ...baseRunInput(slowProgressStore),
+      attemptId: 'attempt-total-while-persisting-progress',
+      policy: {
+        timeoutMs: 20,
+        idleTimeoutMs: 20,
+        totalTimeoutMs: 35,
+        retryDelaysMs: [25, 50],
+      },
+      prepareCandidate: async (_signal, reportProgress) => {
+        for (let index = 0; index < 3; index += 1) {
+          await delay(10);
+          reportProgress({ stage: 'summary', completed: index, total: 3 });
+        }
+        return candidate();
+      },
+    });
+    assert.equal(totalDuringProgressPersistence.state, 'failed');
+    assert.equal(totalDuringProgressPersistence.reasonCode, 'summary_total_timeout');
+    assert.equal(calls.commit, 0);
     assert.equal(calls.finish.at(-1)?.state, 'timed_out');
   }
 
@@ -325,6 +437,32 @@ async function main(): Promise<void> {
 
   {
     const { store, calls } = createStore();
+    calls.ineffectiveAttempts = 1;
+    const breakerStrike = await runPiSessionCompaction({
+      ...baseRunInput(store),
+      attemptId: 'attempt-breaker-second-strike',
+      policy: {
+        timeoutMs: 1_000,
+        breakerStrikeLimit: 2,
+        breakerRecoveryMs: 300_000,
+        retryDelaysMs: [25, 50],
+      },
+      prepareCandidate: async () => candidate({
+        summary: { ...committedSummary, summaryText: null, summaryThroughSequence: null },
+        summaryAttempted: false,
+        summaryUpdated: false,
+        unsummarizedMessageCount: 0,
+        composition: composition({ softThresholdExceeded: true }),
+      }),
+    });
+    assert.equal(breakerStrike.state, 'no_op');
+    assert.equal(breakerStrike.reasonCode, 'nothing_eligible');
+    assert.ok(breakerStrike.retryAt);
+    assert.equal(calls.finish.at(-1)?.retryAt instanceof Date, true);
+  }
+
+  {
+    const { store, calls } = createStore();
     const failingCommitStore: PiCompactionCoordinatorStore = {
       ...store,
       commit: async () => {
@@ -363,6 +501,28 @@ async function main(): Promise<void> {
     });
     assert.equal(cooldown.state, 'cooldown_active');
     assert.equal(cooldown.retryAt?.getTime(), retryAt.getTime());
+  }
+
+  {
+    const { store } = createStore();
+    const retryAt = new Date(Date.now() + 300_000);
+    const breakerStore: PiCompactionCoordinatorStore = {
+      ...store,
+      start: async (input) => ({
+        status: 'breaker_active',
+        attempt: { ...attempt(input.attemptId, retryAt), state: 'no_op', reasonCode: 'nothing_eligible' },
+      }),
+    };
+    const blocked = await runPiSessionCompaction({
+      ...baseRunInput(breakerStore),
+      attemptId: 'attempt-breaker-active',
+      prepareCandidate: async () => {
+        assert.fail('the durable breaker must stop before provider work');
+      },
+    });
+    assert.equal(blocked.state, 'breaker_active');
+    assert.equal(blocked.reasonCode, 'breaker_active');
+    assert.equal(blocked.retryAt?.getTime(), retryAt.getTime());
   }
 
   console.log('pi-session-compaction-coordinator-test: ok');

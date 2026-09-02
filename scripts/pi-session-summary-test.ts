@@ -46,7 +46,7 @@ async function main() {
     reasoning: false,
     input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 2000,
+    contextWindow: 4_000,
     maxTokens: 512,
   } satisfies Model<'openai-completions'>;
 
@@ -136,6 +136,11 @@ async function main() {
   assert.equal(scopedResult.summaryFailed, false);
   assert.equal(scopedResult.summary.summaryText, 'Scoped runtime summary');
   assert.equal(scopedResult.safeToSend, true);
+  assert.deepEqual(
+    scopedResult.composition.keptMessages.slice(0, 3),
+    messages.slice(0, 3),
+    'the first three messages remain verbatim through the first compaction result',
+  );
   assert.ok(summaryStreamCalls.length > 0);
   assert.equal(summaryStreamCalls[0].modelId, model.id);
   assert.equal(summaryStreamCalls[0].sessionId, 'summary-scoped-runtime-test:summary');
@@ -191,7 +196,7 @@ async function main() {
   );
   await assert.rejects(
     preparePiHistoryContext({
-      messages: multiBatchSummaryMessages,
+      messages,
       summary: {
         summaryText: null,
         summaryUpdatedAt: null,

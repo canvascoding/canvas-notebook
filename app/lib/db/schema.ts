@@ -1250,6 +1250,11 @@ export const piSessionCompactionAttempts = sqliteTable("pi_session_compaction_at
   deadlineAt: integer("deadline_at", { mode: "timestamp" }).notNull(),
   completedAt: integer("completed_at", { mode: "timestamp" }),
   retryAt: integer("retry_at", { mode: "timestamp" }),
+  idleDeadlineAt: integer("idle_deadline_at", { mode: "timestamp" }),
+  lastProgressAt: integer("last_progress_at", { mode: "timestamp" }),
+  progressEventCount: integer("progress_event_count").notNull().default(0),
+  durationMs: integer("duration_ms"),
+  telemetryJson: text("telemetry_json"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({

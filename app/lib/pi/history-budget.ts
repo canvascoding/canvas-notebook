@@ -7,7 +7,16 @@ import {
   validatePiContextBudgetPolicy,
   type PiContextBudgetPolicy,
 } from './context-budget';
+import { createSessionCompactionBudget } from './compaction/policy';
+import { selectPiCompactionUnits } from './compaction/selection';
+import {
+  buildPiHistoryUnits,
+  type PiHistoryUnit,
+} from './compaction/units';
 import { MAX_LLM_HISTORY_BYTES, MAX_LLM_IMAGE_BYTES } from './llm-payload-limits';
+
+export { buildPiHistoryUnits } from './compaction/units';
+export type { PiHistoryUnit } from './compaction/units';
 
 export type PiSessionSummaryState = {
   summaryText: string | null;
@@ -36,7 +45,7 @@ export type PiHistoryComposition = {
   softThresholdExceeded: boolean;
 };
 
-export type PiHistorySelectionMode = 'automatic' | 'hard_limit';
+export type PiHistorySelectionMode = 'automatic' | 'hard_limit' | 'force' | 'full';
 
 export type ComposePiHistoryOptions = {
   messages: AgentMessage[];
@@ -48,6 +57,7 @@ export type ComposePiHistoryOptions = {
   toolCount?: number;
   toolTokens?: number;
   additionalContextTokens?: number;
+  modelIdentity?: string;
   policy?: PiContextBudgetPolicy;
   selectionMode?: PiHistorySelectionMode;
   /** @deprecated Use selectionMode. Kept as a compatibility adapter for callers in flight. */
@@ -218,23 +228,45 @@ function getHistoryBudget({
   requestOutputTokens,
   toolTokens = 0,
   additionalContextTokens = 0,
+  modelIdentity,
   policy = DEFAULT_PI_CONTEXT_BUDGET_POLICY,
 }: Omit<ComposePiHistoryOptions, 'messages' | 'summary'>): {
   availableHistoryTokens: number;
   triggerHistoryTokens: number;
   targetHistoryTokens: number;
   outputReserveTokens: number;
+  protectFirstMessages: number;
+  protectLastMessages: number;
 } {
   const validatedPolicy = validatePiContextBudgetPolicy(policy);
   const outputReserveTokens = requestOutputTokens === undefined
     ? getPiRequestOutputTokenCap({ contextWindow, maxTokens: modelMaxTokens }, validatedPolicy)
     : Math.max(1, Math.floor(requestOutputTokens));
-  const available = contextWindow
-    - systemPromptTokens
-    - outputReserveTokens
-    - Math.max(0, toolTokens)
-    - Math.max(0, additionalContextTokens)
-    - validatedPolicy.safetyFloorTokens;
+  const compactionBudget = createSessionCompactionBudget({
+    contextWindowTokens: contextWindow,
+    outputReserveTokens,
+    fixedRequestTokens:
+      Math.max(0, systemPromptTokens)
+      + Math.max(0, toolTokens)
+      + Math.max(0, additionalContextTokens)
+      + validatedPolicy.safetyFloorTokens,
+    modelIdentity,
+    config: {
+      thresholdRatio: validatedPolicy.triggerRatio,
+      targetRatioOfThreshold: validatedPolicy.targetRatio,
+      minimumContextTokens: validatedPolicy.minimumContextTokens,
+      smallContextWindowLimitTokens: validatedPolicy.smallContextWindowLimitTokens,
+      smallContextThresholdFloorRatio: validatedPolicy.smallContextThresholdFloorRatio,
+      degenerateThresholdRatio: validatedPolicy.degenerateThresholdRatio,
+      modelThresholds: validatedPolicy.modelThresholds,
+      thresholdTokensCap: validatedPolicy.thresholdTokensCap,
+      protectFirstMessages: validatedPolicy.protectFirstMessages,
+      protectLastMessages: validatedPolicy.protectLastMessages,
+      maximumAttempts: validatedPolicy.maxCompactionAttempts,
+      tailMode: validatedPolicy.tailMode,
+    },
+  });
+  const available = compactionBudget.effectiveInputBudgetTokens;
 
   if (available <= 0) {
     return {
@@ -242,93 +274,18 @@ function getHistoryBudget({
       triggerHistoryTokens: 0,
       targetHistoryTokens: 0,
       outputReserveTokens,
+      protectFirstMessages: compactionBudget.protectFirstMessages,
+      protectLastMessages: compactionBudget.protectLastMessages,
     };
   }
   return {
     availableHistoryTokens: available,
-    triggerHistoryTokens: Math.floor(available * validatedPolicy.triggerRatio),
-    targetHistoryTokens: Math.floor(available * validatedPolicy.targetRatio),
+    triggerHistoryTokens: compactionBudget.triggerTokens,
+    targetHistoryTokens: compactionBudget.targetTailTokens,
     outputReserveTokens,
+    protectFirstMessages: compactionBudget.protectFirstMessages,
+    protectLastMessages: compactionBudget.protectLastMessages,
   };
-}
-
-export type PiHistoryUnit = Readonly<{
-  kind: 'message' | 'tool_group';
-  messages: readonly AgentMessage[];
-  toolCallIds: readonly string[];
-  toolChainComplete: boolean;
-}>;
-
-function getAssistantToolCallIds(message: AgentMessage): string[] {
-  if (message.role !== 'assistant' || !Array.isArray(message.content)) return [];
-  return message.content.flatMap((part) => {
-    if (!part || typeof part !== 'object' || !('type' in part) || part.type !== 'toolCall') return [];
-    const id = 'id' in part && typeof part.id === 'string' ? part.id.trim() : '';
-    return id ? [id] : [];
-  });
-}
-
-function getToolResultCallId(message: AgentMessage): string | null {
-  if (message.role !== 'toolResult') return null;
-  const toolCallId = (message as unknown as { toolCallId?: unknown }).toolCallId;
-  return typeof toolCallId === 'string' && toolCallId.trim() ? toolCallId.trim() : null;
-}
-
-/** Groups the raw history before any suffix selection so a cut cannot split a tool transaction. */
-export function buildPiHistoryUnits(messages: readonly AgentMessage[]): PiHistoryUnit[] {
-  const toolCallsByIndex = new Map<number, string[]>();
-  const resultIndexesByCallId = new Map<string, number[]>();
-  messages.forEach((message, index) => {
-    const toolCallIds = getAssistantToolCallIds(message);
-    if (toolCallIds.length > 0) toolCallsByIndex.set(index, toolCallIds);
-    const resultId = getToolResultCallId(message);
-    if (resultId) {
-      const indexes = resultIndexesByCallId.get(resultId) ?? [];
-      indexes.push(index);
-      resultIndexesByCallId.set(resultId, indexes);
-    }
-  });
-
-  const units: PiHistoryUnit[] = [];
-  for (let index = 0; index < messages.length; index += 1) {
-    const message = messages[index];
-    const toolCallIds = toolCallsByIndex.get(index) ?? [];
-    if (toolCallIds.length === 0) {
-      units.push(Object.freeze({
-        kind: 'message',
-        messages: Object.freeze([message]),
-        toolCallIds: Object.freeze([]),
-        toolChainComplete: message.role !== 'toolResult',
-      }));
-      continue;
-    }
-
-    const groupedToolCallIds = new Set(toolCallIds);
-    let endIndex = toolCallIds.reduce((latestIndex, id) => {
-      const resultIndexes = resultIndexesByCallId.get(id) ?? [];
-      return Math.max(latestIndex, ...resultIndexes.filter((resultIndex) => resultIndex > index));
-    }, index);
-    for (let nestedIndex = index + 1; nestedIndex <= endIndex; nestedIndex += 1) {
-      const nestedToolCallIds = toolCallsByIndex.get(nestedIndex) ?? [];
-      for (const nestedId of nestedToolCallIds) {
-        groupedToolCallIds.add(nestedId);
-        const resultIndexes = resultIndexesByCallId.get(nestedId) ?? [];
-        endIndex = Math.max(endIndex, ...resultIndexes.filter((resultIndex) => resultIndex > nestedIndex));
-      }
-    }
-    const groupedMessages = messages.slice(index, endIndex + 1);
-    const observedResultIds = new Set(
-      groupedMessages.map(getToolResultCallId).filter((id): id is string => id !== null),
-    );
-    units.push(Object.freeze({
-      kind: 'tool_group',
-      messages: Object.freeze(groupedMessages),
-      toolCallIds: Object.freeze([...groupedToolCallIds]),
-      toolChainComplete: [...groupedToolCallIds].every((id) => observedResultIds.has(id)),
-    }));
-    index = endIndex;
-  }
-  return units;
 }
 
 function getUnitTokens(unit: PiHistoryUnit): number {
@@ -391,15 +348,6 @@ function getUnitsBytes(units: readonly PiHistoryUnit[]): number {
   return units.reduce((total, unit) => total + getUnitBytes(unit), 0);
 }
 
-function getProtectedUnitStart(units: readonly PiHistoryUnit[]): number {
-  for (let index = units.length - 1; index >= 0; index -= 1) {
-    if (units[index].messages.some((message) => message.role === 'user')) {
-      return index;
-    }
-  }
-  return Math.max(0, units.length - 1);
-}
-
 function hasPrunedSummaryPrefix(
   units: readonly PiHistoryUnit[],
   summary: PiSessionSummaryState,
@@ -430,6 +378,7 @@ export function composePiHistoryForLlm({
   requestOutputTokens,
   toolTokens,
   additionalContextTokens,
+  modelIdentity,
   policy,
   selectionMode = 'automatic',
   aggressive = false,
@@ -441,6 +390,7 @@ export function composePiHistoryForLlm({
     requestOutputTokens,
     toolTokens,
     additionalContextTokens,
+    modelIdentity,
     policy,
   });
   const {
@@ -448,6 +398,8 @@ export function composePiHistoryForLlm({
     triggerHistoryTokens,
     targetHistoryTokens,
     outputReserveTokens,
+    protectFirstMessages,
+    protectLastMessages,
   } = budget;
   const runnableMessages = messages.filter((message) => !isProjectionOnlyMessage(message));
   const historyUnits = buildPiHistoryUnits(runnableMessages);
@@ -463,13 +415,31 @@ export function composePiHistoryForLlm({
   const hasPrunedHistory = summaryUsable && hasPrunedSummaryPrefix(historyUnits, summary);
   const shouldIncludeSummary = summaryUsable && (
     hasPrunedHistory
+    || selectionMode === 'force'
     || (selectionMode === 'automatic' && softThresholdExceeded)
     || (selectionMode === 'hard_limit'
       && (fullHistoryTokens > availableHistoryTokens || fullHistoryBytes > MAX_LLM_HISTORY_BYTES))
   );
-  const candidateUnits = shouldIncludeSummary
+  let candidateUnits = shouldIncludeSummary
     ? historyUnits.filter((unit) => !unit.messages.every((message) => isPiMessageCoveredBySummary(message, summary)))
     : historyUnits;
+  if (
+    shouldIncludeSummary
+    && summary.summaryRevision === 0
+    && !hasPrunedHistory
+    && protectFirstMessages > 0
+  ) {
+    let protectedMessages = 0;
+    const firstCompactionHead = historyUnits.filter((unit) => {
+      if (protectedMessages >= protectFirstMessages) return false;
+      protectedMessages += unit.messages.length;
+      return true;
+    });
+    const candidateSet = new Set(candidateUnits);
+    candidateUnits = historyUnits.filter(
+      (unit) => candidateSet.has(unit) || firstCompactionHead.includes(unit),
+    );
+  }
   const summaryLimit = selectionMode === 'hard_limit'
     ? availableHistoryTokens
     : Math.max(1, targetHistoryTokens);
@@ -478,38 +448,35 @@ export function composePiHistoryForLlm({
     : null;
   const summaryTokens = summaryMessage ? estimatePiMessageTokens(summaryMessage) : 0;
   const summaryBytes = summaryMessage ? estimatePiMessagePayloadBytes(summaryMessage) : 0;
-  const protectedStart = candidateUnits.length > 0 ? getProtectedUnitStart(candidateUnits) : 0;
-  const protectedUnits = candidateUnits.slice(protectedStart);
-  const minimumRequiredTokens = summaryTokens + getUnitsTokens(protectedUnits);
-  const minimumRequiredBytes = summaryBytes + getUnitsBytes(protectedUnits);
-  const contextBudgetExceeded = minimumRequiredTokens > availableHistoryTokens
-    || minimumRequiredBytes > MAX_LLM_HISTORY_BYTES;
-  const payloadBudgetExceeded = minimumRequiredBytes > MAX_LLM_HISTORY_BYTES;
-
-  let keptUnits: PiHistoryUnit[] = [];
-  if (!contextBudgetExceeded) {
-    const desiredTokens = selectionMode === 'hard_limit'
+  const mustCompact = selectionMode === 'hard_limit'
+    ? summaryTokens + getUnitsTokens(candidateUnits) > availableHistoryTokens
+      || summaryBytes + getUnitsBytes(candidateUnits) > MAX_LLM_HISTORY_BYTES
+    : selectionMode === 'force'
+      || (selectionMode === 'automatic' && (softThresholdExceeded || aggressive));
+  const selection = selectPiCompactionUnits({
+    units: candidateUnits,
+    targetTailTokens: selectionMode === 'hard_limit'
       ? availableHistoryTokens
-      : (softThresholdExceeded || shouldIncludeSummary || aggressive
-        ? targetHistoryTokens
-        : availableHistoryTokens);
-    const selectionTokenCeiling = Math.min(
-      availableHistoryTokens,
-      Math.max(desiredTokens, minimumRequiredTokens),
-    );
-    keptUnits = [...protectedUnits];
-    let keptTokens = minimumRequiredTokens;
-    let keptBytes = minimumRequiredBytes;
-    for (let index = protectedStart - 1; index >= 0; index -= 1) {
-      const unit = candidateUnits[index];
-      const nextTokens = keptTokens + getUnitTokens(unit);
-      const nextBytes = keptBytes + getUnitBytes(unit);
-      if (nextTokens > selectionTokenCeiling || nextBytes > MAX_LLM_HISTORY_BYTES) break;
-      keptUnits.unshift(unit);
-      keptTokens = nextTokens;
-      keptBytes = nextBytes;
-    }
-  }
+      : targetHistoryTokens,
+    availableHistoryTokens,
+    availableHistoryBytes: MAX_LLM_HISTORY_BYTES,
+    summaryTokens,
+    summaryBytes,
+    protectFirstMessages,
+    protectLastMessages,
+    hasPriorCompaction: summary.summaryRevision > 0 || hasPrunedHistory,
+    mustCompact,
+    measureTokens: getUnitTokens,
+    measureBytes: getUnitBytes,
+  });
+  const minimumRequiredTokens = selection.minimumRequiredTokens;
+  const minimumRequiredBytes = selection.minimumRequiredBytes;
+  const contextBudgetExceeded = selectionMode === 'full'
+    ? minimumRequiredBytes > MAX_LLM_HISTORY_BYTES
+    : minimumRequiredTokens > availableHistoryTokens
+      || minimumRequiredBytes > MAX_LLM_HISTORY_BYTES;
+  const payloadBudgetExceeded = minimumRequiredBytes > MAX_LLM_HISTORY_BYTES;
+  const keptUnits = contextBudgetExceeded ? [] : [...selection.keptUnits];
 
   const keptUnitSet = new Set(keptUnits);
   const keptMessages = contextBudgetExceeded

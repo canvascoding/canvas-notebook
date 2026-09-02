@@ -18,9 +18,12 @@ export function ChatRuntimeNotice({ status }: { status: RuntimeStatus | null }) 
     compactionStatus
     && !['idle', 'running', 'succeeded', 'no_op'].includes(compactionStatus.state),
   );
-  const contextWarningLevel = (status?.contextUsagePercent ?? 0) >= 95
+  const contextPressurePercent = status?.contextPressure?.percentOfTrigger
+    ?? status?.contextUsagePercent
+    ?? 0;
+  const contextWarningLevel = contextPressurePercent >= 95
     ? 'critical'
-    : (status?.contextUsagePercent ?? 0) >= 80
+    : contextPressurePercent >= 80
       ? 'warning'
       : null;
 
@@ -31,8 +34,8 @@ export function ChatRuntimeNotice({ status }: { status: RuntimeStatus | null }) 
   const label = isCompacting || hasCompactionProblem
     ? compactionKey ? t(compactionKey) : t('compactionStatusFailed')
     : contextWarningLevel === 'critical'
-      ? t('contextUsageCritical', { percent: status?.contextUsagePercent ?? 0 })
-      : t('contextUsageWarning', { percent: status?.contextUsagePercent ?? 0 });
+      ? t('contextUsageCritical', { percent: contextPressurePercent })
+      : t('contextUsageWarning', { percent: contextPressurePercent });
   const isProblem = hasCompactionProblem || contextWarningLevel === 'critical';
 
   return (

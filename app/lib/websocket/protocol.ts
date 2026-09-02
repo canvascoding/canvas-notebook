@@ -41,6 +41,7 @@ export type ClientMessage =
       message?: AgentMessage;
       queueItemId?: string;
       context?: ChatRequestContext;
+      focusTopic?: string;
     }
   | { type: 'get_status'; requestId?: string; sessionId: string };
 
@@ -89,6 +90,7 @@ const CLIENT_MESSAGE_TYPES = new Set<ClientMessage['type']>([
 ]);
 const MAX_IDENTIFIER_LENGTH = 256;
 const MAX_REQUEST_ID_LENGTH = 128;
+const MAX_COMPACTION_FOCUS_LENGTH = 500;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -157,6 +159,9 @@ export function parseClientMessage(value: unknown): ClientMessageParseResult {
       }
       if (value.context !== undefined && !isRecord(value.context)) {
         return invalid('context must be an object');
+      }
+      if (!isOptionalBoundedString(value.focusTopic, MAX_COMPACTION_FOCUS_LENGTH)) {
+        return invalid(`focusTopic must be a non-empty string of at most ${MAX_COMPACTION_FOCUS_LENGTH} characters`);
       }
       return { ok: true, message: value as ClientMessage };
   }

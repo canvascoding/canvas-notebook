@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-01",
+  "canvasBaseCommit": "0b8fda3f43e36ad165e559b8f0d155755cc1296f",
+  "purpose": "Diagnostic baseline of current Canvas history selection before Hermes parity. These values are expected to change in later packages.",
+  "cases": [
+    {
+      "id": "sequenced-summary-tail",
+      "recipe": {
+        "messageCount": 12,
+        "messageRepeatedText": "context ",
+        "messageRepeatCount": 120,
+        "summaryText": "Summary through the fourth persisted history unit.",
+        "summaryThroughTimestamp": 103,
+        "summaryThroughSequence": 4,
+        "summaryRevision": 1,
+        "systemPromptTokens": 100,
+        "contextWindow": 4000,
+        "modelMaxTokens": 1000,
+        "requestOutputTokens": 800
+      },
+      "measurement": {
+        "keptSequences": [8, 9, 10, 11, 12],
+        "omittedSequences": [1, 2, 3, 4, 5, 6, 7],
+        "estimatedHistoryTokens": 1430,
+        "availableHistoryTokens": 2588,
+        "triggerHistoryTokens": 2070,
+        "targetHistoryTokens": 1552,
+        "softThresholdExceeded": true,
+        "contextBudgetExceeded": false,
+        "includedSummary": true
+      }
+    }
+  ]
+}

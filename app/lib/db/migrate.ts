@@ -1128,6 +1128,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       deadline_at INTEGER NOT NULL,
       completed_at INTEGER,
       retry_at INTEGER,
+      idle_deadline_at INTEGER,
+      last_progress_at INTEGER,
+      progress_event_count INTEGER NOT NULL DEFAULT 0,
+      duration_ms INTEGER,
+      telemetry_json TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (pi_session_db_id) REFERENCES pi_sessions(id) ON DELETE CASCADE
@@ -2684,6 +2689,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'pi_session_compaction_attempts', {
     attempt_ordinal: 'INTEGER NOT NULL DEFAULT 0',
+    idle_deadline_at: 'INTEGER',
+    last_progress_at: 'INTEGER',
+    progress_event_count: 'INTEGER NOT NULL DEFAULT 0',
+    duration_ms: 'INTEGER',
+    telemetry_json: 'TEXT',
   });
   sqlite.exec(`
     WITH ranked_attempts AS (

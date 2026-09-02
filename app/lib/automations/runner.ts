@@ -12,7 +12,12 @@ import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-run
 import { SessionRuntimeContextRevisionConflictError } from '@/app/lib/agent-runtime-policy/runtime-store';
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
-import { getPiRequestOutputTokenCap, withPiRequestOutputTokenCap } from '@/app/lib/pi/context-budget';
+import { withPiProviderOverflowRecovery } from '@/app/lib/pi/provider-overflow-recovery';
+import {
+  getPiRequestOutputTokenCap,
+  withPiRequestOutputTokenCap,
+  type PiContextBudgetSnapshot,
+} from '@/app/lib/pi/context-budget';
 import { projectAgentEventForExternal } from '@/app/lib/pi/visual-data-projection';
 import { estimateTextTokens } from '@/app/lib/pi/history-budget';
 import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
@@ -57,6 +62,7 @@ import {
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { prepareAutomationHistoryWithCompaction } from './history-compaction';
+import { recoverAutomationRuntimePayload } from './runtime-compaction';
 import { buildAutomationPrompt } from './prompt';
 import { classifyAutomationResult, NO_ACTION_TOKEN } from './result-policy';
 import {
@@ -554,7 +560,22 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         content: promptText,
         timestamp: Date.now(),
       };
-      const prepareHistoryForRuntime = (runtime: ExecutableAgentRuntime) => (
+      const automationImageNormalizationOptions = {
+        workspaceImageRoot: automationWorkspace.rootPath,
+        allowedImageFileRoots: [automationWorkspace.rootPath],
+        uploadOwnerUserId: runtimeContext.userId,
+        uploadWorkspaceId: automationWorkspace.workspaceId,
+      };
+      let currentSystemPrompt = systemPrompt;
+      let automationSummary = initialSessionSummary;
+      const prepareHistoryForRuntime = (
+        runtime: ExecutableAgentRuntime,
+        overrides: {
+          force?: boolean;
+          bypassCooldown?: boolean;
+          signal?: AbortSignal;
+        } = {},
+      ) => (
         prepareAutomationHistoryWithCompaction({
           sessionId: piSessionId,
           userId: automationUserId,
@@ -562,17 +583,20 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           workspaceId: automationWorkspace.workspaceId,
           messages: [...existingMessages, promptMessage],
           promptMessage,
-          summary: initialSessionSummary,
+          summary: automationSummary,
           persistedMessageCheckpoint: existingMessages.length,
           model: runtime.model,
           tools: tools || [],
-          effectiveSystemPrompt: systemPrompt,
+          effectiveSystemPrompt: currentSystemPrompt,
           systemPromptBudgetTokens,
           requestOutputTokens: getPiRequestOutputTokenCap(runtime.model),
           runtimeCatalogRevision: runtime.selection.catalogRevision,
           runtimePolicyRevision: runtime.selection.policyRevision,
-          signal: executionSignal,
+          signal: overrides.signal ?? executionSignal,
           streamFn: runtime.streamFn,
+          imageNormalizationOptions: automationImageNormalizationOptions,
+          force: overrides.force,
+          bypassCooldown: overrides.bypassCooldown,
         })
       );
       let sessionReadyForPersistence = Boolean(persistedSession);
@@ -624,31 +648,85 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         assertAutomationExecutionActive(executionSignal);
 
         const preparedHistory = await prepareHistoryForRuntime(executableRuntime);
+        automationSummary = preparedHistory.summary;
+        let transientAutomationSummary = automationSummary;
         assertAutomationExecutionActive(executionSignal);
         const preparedMessages = preparedHistory.composition.llmMessages;
         const requestOutputTokenCap = getPiRequestOutputTokenCap(model);
-        const mainRequestStreamFn = withPiRequestOutputTokenCap(
+        let latestProviderSourceMessages: AgentMessage[] | null = null;
+        let latestProviderBudgetSnapshot: PiContextBudgetSnapshot | null = null;
+        const prepareExactAutomationPayload = (messages: AgentMessage[]) => preparePiFinalPayload({
+          messages,
+          model,
+          effectiveInstructions: [{ role: 'system' as const, content: currentSystemPrompt }],
+          effectiveTools: tools || [],
+          requestOutputTokenCap,
+          runtimeContractRevision: 'canvas-pi-automation-v1',
+        }, automationImageNormalizationOptions);
+        const recoverAutomationPayload = async (
+          sourceMessages: AgentMessage[],
+          signal: AbortSignal,
+          initialSnapshot: PiContextBudgetSnapshot | null,
+        ) => {
+          const recovered = await recoverAutomationRuntimePayload({
+            messages: sourceMessages,
+            summary: transientAutomationSummary,
+            model,
+            tools: tools || [],
+            effectiveSystemPrompt: currentSystemPrompt,
+            requestOutputTokenCap,
+            sessionId: piSessionId,
+            signal,
+            streamFn: executableRuntime.streamFn,
+            imageNormalizationOptions: automationImageNormalizationOptions,
+            initialSnapshot,
+          });
+          if (recovered) transientAutomationSummary = recovered.summary;
+          return recovered;
+        };
+        const cappedMainRequestStreamFn = withPiRequestOutputTokenCap(
           executableRuntime.streamFn,
           requestOutputTokenCap,
         );
-        let currentSystemPrompt = systemPrompt;
+        const mainRequestStreamFn = withPiProviderOverflowRecovery(
+          cappedMainRequestStreamFn,
+          async ({ options }) => {
+            if (!latestProviderSourceMessages) return null;
+            const recoveredPayload = await recoverAutomationPayload(
+              latestProviderSourceMessages,
+              options?.signal ?? executionSignal,
+              latestProviderBudgetSnapshot,
+            );
+            if (!recoveredPayload) return null;
+            latestProviderBudgetSnapshot = recoveredPayload.budgetSnapshot;
+            return {
+              systemPrompt: currentSystemPrompt,
+              messages: recoveredPayload.messages,
+              tools: tools || [],
+            };
+          },
+        );
         const config = {
           model,
           thinkingLevel: executableRuntime.selection.selection.thinkingLevel as ThinkingLevel,
           convertToLlm: async (messages: AgentMessage[]) => {
-            const preparedPayload = await preparePiFinalPayload({
-              messages,
-              model,
-              effectiveInstructions: [{ role: 'system' as const, content: currentSystemPrompt }],
-              effectiveTools: tools || [],
-              requestOutputTokenCap,
-              runtimeContractRevision: 'canvas-pi-automation-v1',
-            }, {
-              workspaceImageRoot: automationWorkspace.rootPath,
-              allowedImageFileRoots: [automationWorkspace.rootPath],
-              uploadOwnerUserId: runtimeContext.userId,
-              uploadWorkspaceId: automationWorkspace.workspaceId,
-            });
+            latestProviderSourceMessages = messages.slice();
+            const preparedPayload = await prepareExactAutomationPayload(messages);
+            latestProviderBudgetSnapshot = preparedPayload.budgetSnapshot;
+            if (
+              preparedPayload.budgetSnapshot.payloadBudgetExceeded
+              || preparedPayload.budgetSnapshot.contextBudgetExceeded
+            ) {
+              const recoveredPayload = await recoverAutomationPayload(
+                messages,
+                executionSignal,
+                preparedPayload.budgetSnapshot,
+              );
+              if (recoveredPayload) {
+                latestProviderBudgetSnapshot = recoveredPayload.budgetSnapshot;
+                return recoveredPayload.messages;
+              }
+            }
             if (preparedPayload.budgetSnapshot.payloadBudgetExceeded) {
               throw new Error(
                 `Automation request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB final LLM transfer budget.`,

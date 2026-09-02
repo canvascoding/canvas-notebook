@@ -4,12 +4,12 @@
   "packageVersion": "2026.9.1.1",
   "lockfileSha256": "63e1955e83a40a9773a097d842c4f7bd39417192ea6c3483009c5093dd082361",
   "summary": {
-    "totalComponents": 2035,
+    "totalComponents": 2036,
     "npmComponents": 2012,
-    "nonNpmComponents": 23,
-    "runtimeComponents": 1511,
+    "nonNpmComponents": 24,
+    "runtimeComponents": 1512,
     "developmentOnlyComponents": 524,
-    "allowed": 1985,
+    "allowed": 1986,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -36724,6 +36724,30 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
+    },
+    {
+      "name": "NousResearch/hermes-agent session-compaction reference",
+      "versionOrCommit": "f293e7206b4ddd66042329442c6afebc19a8808d",
+      "sourceUrl": "https://github.com/NousResearch/hermes-agent/tree/f293e7206b4ddd66042329442c6afebc19a8808d",
+      "packagePathOrArtifact": "Hermes-adapted session-compaction portions in app/lib/pi and scripts/fixtures/session-compaction-v2",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/license-texts/hermes-agent-f293e720-MIT.txt",
+      "licenseTextSha256": "821556e6336796450ab852d375117b48a4887e71d255794fd6318d99982a5ab6",
+      "copyrightNotices": [
+        "Copyright (c) 2025 Nous Research"
+      ],
+      "modified": true,
+      "modificationNotice": "Canvas translates and adapts selected session-compaction algorithms, prompts and behavioral tests to its TypeScript message model, provider contracts and transactional persistence layer.",
+      "policyDecision": "allowed",
+      "reviewNotes": "Pinned to the immutable reference commit. Every substantive port must retain a short source header and be mapped in docs/architecture/canvas-notebook/session-compaction-v2/plan.md."
     },
     {
       "name": "object-assign",

@@ -346,6 +346,7 @@ export function useChatControlActions({
     message?: Extract<AgentMessage, { role: 'user' }>,
     queueItemId?: string,
     context?: ChatRequestContext,
+    focusTopic?: string,
   ) => {
     const payload = await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('control', {
       sessionId: targetSessionId,
@@ -353,6 +354,7 @@ export function useChatControlActions({
       ...(message ? { message } : {}),
       ...(queueItemId ? { queueItemId } : {}),
       ...(context ? { context } : {}),
+      ...(focusTopic?.trim() ? { focusTopic: focusTopic.trim() } : {}),
     });
 
     if (payload.status) {
@@ -542,10 +544,17 @@ export function useChatControlActions({
     }
   }, [appendSystemMessage, messages, postControl, sessionIdRef, setAttachments, setInput, setOpenQueueItemPopoverId, t, textareaRef]);
 
-  const handleCompact = useCallback(async () => {
+  const handleCompact = useCallback(async (focusTopic?: string) => {
     if (!sessionIdRef.current) return;
     try {
-      const status = await postControl(sessionIdRef.current, 'compact');
+      const status = await postControl(
+        sessionIdRef.current,
+        'compact',
+        undefined,
+        undefined,
+        undefined,
+        focusTopic,
+      );
       if (status?.compactionStatus?.state === 'no_op') {
         appendSystemMessage(t('compactAlreadyOptimized'));
       } else if (

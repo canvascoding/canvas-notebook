@@ -7,6 +7,12 @@ import {
   MAX_LLM_HISTORY_BYTES,
   MAX_LLM_TOTAL_IMAGE_BYTES,
 } from './llm-payload-limits';
+import {
+  createSessionCompactionBudget,
+  HERMES_COMPACTION_DEFAULTS,
+  normalizeHermesThresholdTokensCap,
+  resolveHermesMaximumAttempts,
+} from './compaction/policy';
 
 export type PiBudgetEstimateConfidence =
   | 'heuristic'
@@ -15,7 +21,18 @@ export type PiBudgetEstimateConfidence =
 
 export type PiContextBudgetPolicy = Readonly<{
   triggerRatio: number;
+  /** Fraction of the effective trigger retained as the post-compaction tail. */
   targetRatio: number;
+  minimumContextTokens?: number;
+  smallContextWindowLimitTokens?: number;
+  smallContextThresholdFloorRatio?: number;
+  degenerateThresholdRatio?: number;
+  modelThresholds?: Readonly<Record<string, number>>;
+  thresholdTokensCap?: number | null;
+  protectFirstMessages?: number;
+  protectLastMessages?: number;
+  maxCompactionAttempts?: number;
+  tailMode?: 'legacy' | 'lean';
   outputContextRatio: number;
   maximumOutputTokens: number;
   safetyFloorTokens: number;
@@ -27,8 +44,18 @@ export type PiContextBudgetPolicy = Readonly<{
 }>;
 
 export const DEFAULT_PI_CONTEXT_BUDGET_POLICY: PiContextBudgetPolicy = Object.freeze({
-  triggerRatio: 0.8,
-  targetRatio: 0.6,
+  triggerRatio: HERMES_COMPACTION_DEFAULTS.thresholdRatio,
+  targetRatio: HERMES_COMPACTION_DEFAULTS.targetRatioOfThreshold,
+  minimumContextTokens: HERMES_COMPACTION_DEFAULTS.minimumContextTokens,
+  smallContextWindowLimitTokens: HERMES_COMPACTION_DEFAULTS.smallContextWindowLimitTokens,
+  smallContextThresholdFloorRatio: HERMES_COMPACTION_DEFAULTS.smallContextThresholdFloorRatio,
+  degenerateThresholdRatio: HERMES_COMPACTION_DEFAULTS.degenerateThresholdRatio,
+  modelThresholds: Object.freeze({}),
+  thresholdTokensCap: null,
+  protectFirstMessages: HERMES_COMPACTION_DEFAULTS.protectFirstMessages,
+  protectLastMessages: HERMES_COMPACTION_DEFAULTS.protectLastMessages,
+  maxCompactionAttempts: HERMES_COMPACTION_DEFAULTS.maximumAttempts,
+  tailMode: HERMES_COMPACTION_DEFAULTS.tailMode,
   outputContextRatio: 0.2,
   maximumOutputTokens: 8_192,
   safetyFloorTokens: 512,
@@ -104,9 +131,6 @@ export function validatePiContextBudgetPolicy(
 ): PiContextBudgetPolicy {
   const triggerRatio = validateRatio(policy.triggerRatio, 'triggerRatio');
   const targetRatio = validateRatio(policy.targetRatio, 'targetRatio');
-  if (targetRatio >= triggerRatio) {
-    throw new Error('targetRatio must be lower than triggerRatio.');
-  }
   const outputContextRatio = validateRatio(policy.outputContextRatio, 'outputContextRatio');
   const safetyRatio = validateRatio(policy.safetyRatio, 'safetyRatio');
   const minimumImageTokens = finiteInteger(policy.minimumImageTokens);
@@ -115,9 +139,42 @@ export function validatePiContextBudgetPolicy(
     throw new Error('maximumImageTokens must be greater than or equal to minimumImageTokens.');
   }
 
+  const modelThresholds = Object.freeze(Object.fromEntries(
+    Object.entries(policy.modelThresholds ?? {}).map(([model, value]) => [
+      model,
+      validateRatio(value, `modelThresholds.${model}`),
+    ]),
+  ));
+
   return Object.freeze({
     triggerRatio,
     targetRatio,
+    minimumContextTokens: finiteInteger(
+      policy.minimumContextTokens ?? HERMES_COMPACTION_DEFAULTS.minimumContextTokens,
+    ),
+    smallContextWindowLimitTokens: finiteInteger(
+      policy.smallContextWindowLimitTokens
+        ?? HERMES_COMPACTION_DEFAULTS.smallContextWindowLimitTokens,
+    ),
+    smallContextThresholdFloorRatio: validateRatio(
+      policy.smallContextThresholdFloorRatio
+        ?? HERMES_COMPACTION_DEFAULTS.smallContextThresholdFloorRatio,
+      'smallContextThresholdFloorRatio',
+    ),
+    degenerateThresholdRatio: validateRatio(
+      policy.degenerateThresholdRatio ?? HERMES_COMPACTION_DEFAULTS.degenerateThresholdRatio,
+      'degenerateThresholdRatio',
+    ),
+    modelThresholds,
+    thresholdTokensCap: normalizeHermesThresholdTokensCap(policy.thresholdTokensCap),
+    protectFirstMessages: finiteInteger(
+      policy.protectFirstMessages ?? HERMES_COMPACTION_DEFAULTS.protectFirstMessages,
+    ),
+    protectLastMessages: finiteInteger(
+      policy.protectLastMessages ?? HERMES_COMPACTION_DEFAULTS.protectLastMessages,
+    ),
+    maxCompactionAttempts: resolveHermesMaximumAttempts(policy.maxCompactionAttempts),
+    tailMode: policy.tailMode === 'lean' ? 'lean' : 'legacy',
     outputContextRatio,
     maximumOutputTokens: finiteInteger(policy.maximumOutputTokens),
     safetyFloorTokens: finiteInteger(policy.safetyFloorTokens),
@@ -278,15 +335,32 @@ export function createPiContextBudgetSnapshot(input: {
     policy.safetyFloorTokens,
     Math.ceil(estimatedInputBeforeSafety * policy.safetyRatio),
   );
-  const hardHistoryTokens = Math.max(
-    0,
-    contextWindowTokens
-      - effectiveInstructionTokens
-      - toolSchemaTokens
-      - runtimeProviderOverheadTokens
-      - outputReserveTokens
-      - safetyReserveTokens,
-  );
+  const compactionBudget = createSessionCompactionBudget({
+    contextWindowTokens,
+    outputReserveTokens,
+    fixedRequestTokens:
+      effectiveInstructionTokens
+      + toolSchemaTokens
+      + runtimeProviderOverheadTokens
+      + multimodal.tokens
+      + safetyReserveTokens,
+    modelIdentity: `${input.model.provider}:${input.model.api}:${input.model.id}`,
+    config: {
+      thresholdRatio: policy.triggerRatio,
+      targetRatioOfThreshold: policy.targetRatio,
+      minimumContextTokens: policy.minimumContextTokens,
+      smallContextWindowLimitTokens: policy.smallContextWindowLimitTokens,
+      smallContextThresholdFloorRatio: policy.smallContextThresholdFloorRatio,
+      degenerateThresholdRatio: policy.degenerateThresholdRatio,
+      modelThresholds: policy.modelThresholds,
+      thresholdTokensCap: policy.thresholdTokensCap,
+      protectFirstMessages: policy.protectFirstMessages,
+      protectLastMessages: policy.protectLastMessages,
+      maximumAttempts: policy.maxCompactionAttempts,
+      tailMode: policy.tailMode,
+    },
+  });
+  const hardHistoryTokens = compactionBudget.effectiveInputBudgetTokens;
   const estimatedInputTokens = estimatedInputBeforeSafety;
   const estimatedTotalTokens = estimatedInputTokens + outputReserveTokens + safetyReserveTokens;
   const serializedMessageBytes = Buffer.byteLength(finalSerializedMessages, 'utf8');
@@ -334,8 +408,8 @@ export function createPiContextBudgetSnapshot(input: {
     estimatedInputTokens,
     estimatedTotalTokens,
     hardHistoryTokens,
-    triggerHistoryTokens: Math.floor(hardHistoryTokens * policy.triggerRatio),
-    targetTailTokens: Math.floor(hardHistoryTokens * policy.targetRatio),
+    triggerHistoryTokens: compactionBudget.triggerTokens,
+    targetTailTokens: compactionBudget.targetTailTokens,
     serializedMessageBytes,
     multimodalBytes: multimodal.bytes,
     hardHistoryBytes: MAX_LLM_HISTORY_BYTES,
