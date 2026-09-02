@@ -2,6 +2,7 @@
 
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { spawn, spawnSync } from 'node:child_process';
@@ -22,6 +23,16 @@ function readEnvFile(filePath) {
   }
 
   return dotenv.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function resolveLocalTeamSeatEnvFile(cwd) {
+  const stateDir = process.env.CANVAS_LOCAL_TEAM_SEAT_STATE_DIR?.trim()
+    || path.join(os.homedir(), '.local', 'state', 'canvas-local-team-seat');
+  const composeEnv = readEnvFile(path.join(stateDir, 'compose.env'));
+  const configuredNotebookDir = composeEnv.CANVAS_NOTEBOOK_DIR?.trim();
+  const hostDevEnv = path.join(stateDir, 'notebook-host-dev.env');
+  if (!configuredNotebookDir || !fs.existsSync(hostDevEnv)) return null;
+  return path.resolve(configuredNotebookDir) === path.resolve(cwd) ? hostDevEnv : null;
 }
 
 function parsePort(value) {
@@ -84,7 +95,8 @@ async function isPortBusy(port) {
 }
 
 async function main() {
-  const configuredEnvFile = process.env.CANVAS_ENV_FILE?.trim() || DEFAULT_ENV_FILE;
+  const localTeamSeatEnvFile = resolveLocalTeamSeatEnvFile(process.cwd());
+  const configuredEnvFile = process.env.CANVAS_ENV_FILE?.trim() || localTeamSeatEnvFile || DEFAULT_ENV_FILE;
   const envFilePath = resolveEnvFilePath(configuredEnvFile);
   const fileEnv = readEnvFile(envFilePath);
 
