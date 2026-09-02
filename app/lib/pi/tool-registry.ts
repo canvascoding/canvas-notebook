@@ -192,7 +192,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   }
   if (group === 'Onboarding') {
     notes.push('Only available during the initial Bradley onboarding profile session.');
-    notes.push('Writes user-scoped USER.md and SOUL.md. Instance completion is handled separately before the personal onboarding starts.');
+    notes.push('Writes user-scoped database memory and SOUL.md. Instance completion is handled separately before the personal onboarding starts.');
   }
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots', 'transcribe_audio'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');

@@ -35,7 +35,8 @@ Produktidentität des Hauptagenten.
 3. Bradley erklärt, welche Aspekte der Zusammenarbeit anpassbar sind.
 4. Mindestens eine echte Nutzerantwort ist erforderlich, bevor das Profil-Tool
    ausgeführt werden darf.
-5. `USER.md` speichert dauerhafte Fakten, Ziele und wiederkehrenden Kontext.
+5. Der Datenbank-Memory-Service speichert dauerhafte Fakten, Ziele und
+   wiederkehrenden Kontext als atomare, nutzergebundene Eintraege.
 6. `SOUL.md` speichert ausschließlich Kommunikations- und
    Zusammenarbeitspräferenzen.
 7. Der Nutzer kann die Präferenzen auf später verschieben, ohne Bradleys
@@ -64,19 +65,23 @@ BRADLEY-030 hat unabhängig davon höhere Prompt-Priorität.
 | `messages/en.json` | englische Bradley-Einführung, Präferenz- und Tourtexte |
 | `app/lib/onboarding/profile.ts` | fester Sessiontitel und zweisprachige Bradley-Begrüßung |
 | `seed_sys_prompts/BOOTSTRAP.md` | Fragenkatalog und klare Trennung zwischen Nutzerkontext und Zusammenarbeit |
-| `app/lib/pi/scoped-tools.ts` | Tool-Vertrag für `USER.md` und identitätsfreie `SOUL.md`-Präferenzen |
+| `app/lib/memory/service.ts` | idempotente, provider-neutrale Persistenz der bestätigten Onboarding-Memories |
+| `app/lib/pi/scoped-tools.ts` | Tool-Vertrag für strukturierte Datenbank-Memories und identitätsfreie `SOUL.md`-Präferenzen |
 | `scripts/onboarding-profile-test.ts` | Regressionstest für Name, Rolle, Sprache und gespeicherte Präferenzen |
 
 ## Schutz und Abgrenzung
 
 - Das Onboarding überschreibt keine bestehenden Profile außerhalb des
   bestehenden Erststart-Ablaufs.
+- `USER.md` und `MEMORY.md` werden nicht als Runtime-Memory beschrieben oder
+  vom Onboarding aktualisiert; sie bleiben ausschließlich Legacy-Import- und
+  Exportformate.
 - Bestehende persönliche `SOUL.md`-Inhalte werden in BRADLEY-031 weder
   migriert noch neu geschrieben.
 - Der Schutz und die Migrationsregel für vorhandene `SOUL.md`-Dateien ist
   ausschließlich Gegenstand von BRADLEY-032.
-- Die interne ID `canvas-agent`, Speicherpfade, Session-Zuordnung und APIs
-  bleiben unverändert.
+- Der frühere Alias `canvas-agent` wird beim Legacy-Import auf die aktuelle
+  Hauptagent-ID `bradley` normalisiert.
 - Spezialagenten und E-Mail-Agenten werden nicht als Bradley vorgestellt.
 
 ## Verifikation
@@ -89,6 +94,10 @@ Der automatisierte Onboarding-Test prüft:
 - den Hinweis, dass Name und Rolle fest bleiben;
 - Bradley im tatsächlich gespeicherten Begrüßungstext;
 - getrennte Speicherung von Nutzerfakten und Zusammenarbeit;
+- Datenbankprojektion der Nutzerfakten in einen neuen Bradley-Prompt;
+- Audit-Provenienz aus Onboarding-Session und Hauptagent;
+- idempotente Wiederholung ohne doppelte Entries oder Events;
+- Isolation der Datenbank-Memories zwischen zwei Nutzern;
 - dass die Test-`SOUL.md` keine alte `Canvas Agent`-Identität enthält;
 - das unveränderte Überspringen und die Nutzertrennung.
 
@@ -101,4 +110,4 @@ gebündelten UI-Abnahme BRADLEY-044.
 Neue Nutzer lernen Bradley als feste Produktidentität kennen und können die
 persönliche Zusammenarbeit konfigurieren oder auf später verschieben. Das
 Onboarding schreibt keine alternative Agentenidentität in `SOUL.md` und greift
-der Bestandsmigration aus BRADLEY-032 nicht vor.
+auf denselben datenbankbasierten Memory-Vertrag wie normale Chats zurück.

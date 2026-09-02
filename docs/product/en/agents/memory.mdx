@@ -6,7 +6,7 @@ sectionOrder: 4
 order: 12
 locale: en
 translationKey: agents.memory
-updatedAt: 2026-07-17
+updatedAt: 2026-09-02
 ---
 
 # Agent Memory
@@ -15,10 +15,10 @@ Persistent memory stores a small set of durable facts that should influence futu
 
 ## Agent and user memory
 
-- **Agent memory:** `MEMORY.md` holds preferences and recurring context specific to one agent.
-- **User memory:** `USER.md` holds durable user context shared from Canvas Agent and inherited by specialized agents.
+- **Agent memory:** database collections hold durable context specific to one user and agent.
+- **User memory:** database collections hold durable personal context that can be projected for Bradley and specialized agents.
 
-Memory operations can read, add, update, or delete structured entries. Duplicate content is avoided, individual entries are length-limited, and the complete files have context budgets so memory remains compact.
+Memory operations can read, add, update, or delete structured entries. Duplicate content is avoided, individual entries are length-limited, and prompt projection has a context budget so memory remains compact. `USER.md` and `MEMORY.md` are retained only as legacy import and export formats; they are not normal runtime prompt sources.
 
 ## Store only durable facts
 

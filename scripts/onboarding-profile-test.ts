@@ -65,6 +65,9 @@ async function main() {
   };
 
   try {
+    const bootstrapSeed = await fs.readFile(path.join(process.cwd(), 'seed_sys_prompts', 'BOOTSTRAP.md'), 'utf8');
+    assert.match(bootstrapSeed, /with the `memories`\s+and `soulMd` parameters/);
+    assert.doesNotMatch(bootstrapSeed, /`userMd`/);
     const { db } = await import('../app/lib/db');
     const {
       aiProviderInstallations,

@@ -6,7 +6,7 @@ sectionOrder: 4
 order: 13
 locale: en
 translationKey: agents.managed-prompt-files
-updatedAt: 2026-07-17
+updatedAt: 2026-09-02
 ---
 
 # Managed Prompt Files
@@ -18,17 +18,17 @@ Canvas Notebook stores editable agent configuration as managed Markdown files. T
 | File | Purpose |
 | --- | --- |
 | `AGENTS.md` | Role, operating method, boundaries, and quality requirements. |
-| `USER.md` | Durable user context inherited by specialized agents. |
-| `MEMORY.md` | Durable facts specific to the agent. |
+| `USER.md` | Legacy user-memory import/export file; database memory is authoritative. |
+| `MEMORY.md` | Legacy agent-memory import/export file; database memory is authoritative. |
 | `SOUL.md` | Identity, tone, and collaboration style. |
 | `TOOLS.md` | Guidance for choosing and using available tools. |
 | `HEARTBEAT.md` | Instructions for the dedicated proactive heartbeat. |
 
-`AGENTS.md`, `USER.md`, `MEMORY.md`, `SOUL.md`, and `TOOLS.md` contribute to normal session context. `HEARTBEAT.md` is used for heartbeat work rather than being included as a normal prompt block on every chat turn.
+`AGENTS.md`, `SOUL.md`, and `TOOLS.md` contribute to normal session context. Durable user and agent facts come from the scoped database-memory projection. `USER.md` and `MEMORY.md` remain visible for controlled legacy migration and export, but are not injected into normal prompts. `HEARTBEAT.md` is used for heartbeat work rather than being included as a normal prompt block on every chat turn.
 
 ## Scope and inheritance
 
-The main Canvas Agent owns shared user context. Specialized user agents have their own definition files and inherit `USER.md`. Organization agents can share definition files while user-specific state remains scoped to the executing user where required.
+Bradley and specialized agents receive only the current user's authorized database-memory projection. Organization agents can share definition files while user-specific memory remains scoped to the executing user.
 
 Managed content has per-file and combined context limits. Agent Doctor reports which files loaded, were included, were empty, were truncated, or required fallback behavior.
 

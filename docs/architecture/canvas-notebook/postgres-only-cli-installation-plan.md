@@ -4,6 +4,12 @@ Stand: 2026-08-31
 
 Status: geplant, noch nicht implementiert
 
+Memory-Readiness: implementiert am 2026-09-02. Onboarding und reguläre
+Memory-Persistenz verwenden bereits die provider-neutrale SQL-Abstraktion. Der
+Bestands-Cutover kopiert und validiert alle Memory-Tabellen einschließlich
+Provenienz und Legacy-Importmarkern. Die Umstellung des Fresh-Install-Defaults
+und des Container-Lifecycles bleibt Bestandteil dieses Plans.
+
 ## Ziel
 
 Neue Canvas-Notebook-Installationen ueber die portable TypeScript-CLI verwenden ausschliesslich PostgreSQL. Die bisherige Auswahl zwischen SQLite und PostgreSQL entfaellt. PostgreSQL kann entweder als lokal von Canvas verwalteter Compose-Service oder als externe/gehostete Datenbank betrieben werden.
@@ -283,4 +289,7 @@ Die Phasen werden deshalb einzeln abgeschlossen, getestet und committed. Mit der
 - External-Modus startet oder veraendert keinen lokalen PostgreSQL-Container.
 - Start, Update, Backup und Status funktionieren in beiden PostgreSQL-Modi.
 - Bestehende SQLite-Installationen bleiben migrationsfaehig und werden nicht automatisch umgeschaltet.
+- Onboarding-Memories, Collections, Audit-Events, Review-Jobs, User-Settings
+  und Legacy-Importmarker bleiben beim SQLite→PostgreSQL-Cutover vollstaendig
+  und nutzerisoliert erhalten.
 - Control Plane und Agent behandeln Managed und External eindeutig und redigieren alle Secrets.

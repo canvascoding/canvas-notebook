@@ -1,6 +1,6 @@
 # Canvas Notebook Memory System Plan
 
-Stand: 2026-08-28
+Stand: 2026-09-02
 
 ## Ziel und Produktentscheidung
 
@@ -31,6 +31,27 @@ Die uebrigen Managed Files bleiben Markdown-Dateien:
 Memory ist Faktenkontext, keine zusaetzliche Instruktionshierarchie. Es darf
 Systemregeln, Sicherheitsgrenzen, Organisationsrichtlinien oder den aktuellen
 Nutzerauftrag nie ueberstimmen.
+
+## Implementierungsstand 2026-09-02
+
+- `USER.md` und `MEMORY.md` sind aus der Runtime-Prompt-Zusammenstellung
+  entfernt. Die budgetierte Datenbankprojektion ist die einzige Memory-Quelle.
+- Das besondere Bradley-Onboarding-Tool speichert bestaetigte Nutzerfakten als
+  atomare User-Memories mit Kategorie, `semantic_key`, Prioritaet,
+  Session-/Agent-Provenienz und Audit-Event. `SOUL.md` bleibt die Quelle fuer
+  Kommunikations- und Zusammenarbeitsverhalten.
+- Onboarding-Wiederholungen sind idempotent. Ein erfolgreicher Abschluss
+  invalidiert Prompt-Snapshots und fordert einen Runtime-Refresh an.
+- Nutzergebundene Altdateien werden auch in Multi-User-Installationen nur fuer
+  ihren Besitzer importiert. Eigentumslose globale Altdateien werden weiterhin
+  ausschliesslich in expliziten Single-User-Installationen uebernommen.
+- Memory-Service und Legacy-Importer verwenden die gemeinsame
+  `SqlConnection`-Abstraktion und SQL, das unter SQLite und PostgreSQL gueltig
+  ist.
+- Die bestehende SQLite→PostgreSQL-Migration kopiert alle Memory-Tabellen und
+  validiert Settings, Collections, Entries, Events, Importmarker und
+  Review-Jobs per Anzahl und stabiler ID. Ein echter SQLite→PGlite-Test deckt
+  Dateninhalt, Audit-Provenienz und idempotente Wiederholung ab.
 
 ## Bestehende Ausgangslage
 
@@ -472,14 +493,18 @@ Die zentrale Seite enthaelt:
 ## Migration
 
 1. Neue Tabellen, Migrationen und den Scope-/Berechtigungsresolver einfuehren.
-2. Bestehendes `USER.md` in User-Collections importieren.
-3. Bestehendes `MEMORY.md` in private Agent-Collections importieren.
-4. Ein Import-Protokoll speichern; doppelte Eintraege anhand normalisierten
-   Inhalts vermeiden.
-5. Nach erfolgreicher, bestaetigter Migration `USER.md` und `MEMORY.md` aus
-   der Systemprompt-Zusammenstellung entfernen.
-6. Alte Dateien als einmaligen Export behalten und anschliessend nicht mehr
-   zur Laufzeit aktualisieren.
+2. Nutzergebundenes `USER.md` in User-Collections des Besitzers importieren.
+3. Nutzergebundenes `MEMORY.md` in private Agent-Collections des Besitzers
+   importieren.
+4. Eigentumslose globale Altdateien nur bei nachgewiesenem Single-User-Modus
+   importieren; in Team-/Multi-User-Installationen niemals automatisch
+   zuordnen.
+5. Ein Import-Protokoll speichern; doppelte Eintraege anhand normalisierten
+   Inhalts und des stabilen Quell-Hashes vermeiden.
+6. `USER.md` und `MEMORY.md` nicht in die Systemprompt-Zusammenstellung
+   aufnehmen. Alte Dateien bleiben nur als Legacy-Import-/Exportformat erhalten.
+7. Beim SQLite→PostgreSQL-Cutover alle sechs Memory-Tabellen kopieren und vor
+   dem erfolgreichen Abschluss Anzahl sowie Identitaeten validieren.
 
 Migrationen muessen idempotent, wiederaufnehmbar und pro User/Agent isoliert
 sein. Team- und Organisations-Memory werden nicht automatisch aus alten
