@@ -10,6 +10,7 @@ import type {
   AiEffectiveRuntimeResolution,
   AiRuntimeSelection,
 } from '@/app/lib/agent-runtime-policy/types';
+import { enableInteractiveUserCredentialGrant } from '@/app/lib/agent-runtime-policy/user-credential-grants-client';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { Button } from '@/components/ui/button';
 
@@ -226,39 +227,12 @@ export function AgentRuntimePreferenceCard({
     setError(null);
     setSaved(false);
     try {
-      const currentResponse = await fetch(
-        `/api/agent-runtime/user-credential-grants?${new URLSearchParams({
-          workspaceId,
-          agentId,
-          providerInstallationId: provider.installationId,
-        }).toString()}`,
-        { credentials: 'include', cache: 'no-store' },
-      );
-      const currentPayload = await currentResponse.json().catch(() => null) as {
-        success?: boolean;
-        data?: { grant?: { revision?: number } | null };
-        error?: string;
-      } | null;
-      if (!currentResponse.ok || currentPayload?.success !== true) {
-        throw new Error(currentPayload?.error || t('errors.save'));
-      }
-      const response = await fetch('/api/agent-runtime/user-credential-grants', {
-        method: 'PUT',
-        credentials: 'include',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspaceId,
-          agentId,
-          providerInstallationId: provider.installationId,
-          allowedExecutionModes: ['interactive'],
-          expectedRevision: currentPayload.data?.grant?.revision ?? 0,
-        }),
+      await enableInteractiveUserCredentialGrant({
+        workspaceId,
+        agentId,
+        providerInstallationId: provider.installationId,
+        fallbackError: t('errors.save'),
       });
-      const payload = await response.json().catch(() => null) as { success?: boolean; error?: string } | null;
-      if (!response.ok || payload?.success !== true) {
-        throw new Error(payload?.error || t('errors.save'));
-      }
       await loadResolution();
       showSaved();
     } catch (grantError) {
@@ -389,24 +363,30 @@ export function AgentRuntimePreferenceCard({
 
       {teamUserCredentialProviders.length > 0 && (
         <div className="rounded-md border border-primary/25 bg-primary/5 p-3 text-sm">
-          <p className="font-medium">Personal OAuth credentials</p>
+          <p className="font-medium">{t('personalCredentialsTitle')}</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Enable a connected personal provider only for your own interactive runs in this workspace and agent.
-            It is never shared with other members, agents, or organization automations.
+            {t('personalCredentialsDescription')}
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             {teamUserCredentialProviders.map((provider) => (
               <div key={provider.installationId} className="flex flex-wrap items-center gap-2">
                 <PiOAuthButton activeProviderId={provider.providerId} onStatusChange={() => void loadResolution()} />
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={saving}
-                  onClick={() => void enablePersonalCredential(provider)}
-                >
-                  Enable {provider.name} for my runs
-                </Button>
+                {provider.userCredentialEligibility?.consentGranted ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                    <Check className="size-3.5" aria-hidden="true" />
+                    {t('personalCredentialsEnabled', { provider: provider.name })}
+                  </span>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={saving}
+                    onClick={() => void enablePersonalCredential(provider)}
+                  >
+                    {t('personalCredentialsEnable', { provider: provider.name })}
+                  </Button>
+                )}
               </div>
             ))}
           </div>

@@ -185,6 +185,13 @@ export type AiResolvedRuntimeSelection = AiSessionRuntimeSnapshot & {
   credentialScope: AiCredentialScope;
 };
 
+export type AiUserCredentialEligibility = {
+  state: 'ready' | 'not_connected' | 'consent_required';
+  connected: boolean;
+  consentGranted: boolean;
+  grantRevision: number | null;
+};
+
 export type AiEffectiveCatalogProvider = {
   installationId: string;
   providerId: string;
@@ -193,6 +200,7 @@ export type AiEffectiveCatalogProvider = {
   credentialScope: AiCredentialScope;
   authMethod?: 'api-key' | 'oauth';
   credentialAvailable: boolean;
+  userCredentialEligibility?: AiUserCredentialEligibility;
   selectable: boolean;
   status: AiProviderStatus;
   models: AiCatalogModel[];

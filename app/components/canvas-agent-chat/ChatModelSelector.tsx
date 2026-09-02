@@ -21,6 +21,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -28,6 +35,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
 import type {
   AiCatalogModel,
   AiEffectiveCatalogProvider,
@@ -35,7 +43,9 @@ import type {
   AiRuntimeSelection,
   AiRuntimeSelectionSource,
 } from '@/app/lib/agent-runtime-policy/types';
+import { enableInteractiveUserCredentialGrant } from '@/app/lib/agent-runtime-policy/user-credential-grants-client';
 import { patchChatSessions } from '@/app/lib/chat/session-api';
+import { PiOAuthButton } from '@/app/components/settings/PiOAuthButton';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
@@ -64,6 +74,12 @@ type SelectorFeedback = {
 };
 
 type RuntimeSelectorView = 'overview' | 'models' | 'intelligence';
+
+type PersonalProviderActivation = {
+  providerInstallationId: string;
+  connected: boolean;
+  consentGranted: boolean;
+};
 
 const THINKING_LEVELS: PiThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
@@ -120,6 +136,12 @@ function selectionIsValid(
   );
 }
 
+function supportsPersonalProviderActivation(provider: AiEffectiveCatalogProvider): boolean {
+  return provider.credentialScope === 'user'
+    && provider.authMethod === 'oauth'
+    && Boolean(provider.userCredentialEligibility);
+}
+
 export function ChatModelSelector({
   agentId,
   sessionId,
@@ -152,6 +174,10 @@ export function ChatModelSelector({
   const [modelSheetOpen, setModelSheetOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [selectorView, setSelectorView] = useState<RuntimeSelectorView>('overview');
+  const [personalActivation, setPersonalActivation] = useState<PersonalProviderActivation | null>(null);
+  const [personalGrantPending, setPersonalGrantPending] = useState(false);
+  const [personalGrantError, setPersonalGrantError] = useState<string | null>(null);
+  const personalActivationRef = useRef<PersonalProviderActivation | null>(null);
   const currentFeedback = feedback.contextKey === contextKey
     ? feedback
     : { contextKey, pending: false, saved: false, error: null };
@@ -166,6 +192,9 @@ export function ChatModelSelector({
   );
   const validSelection = selectionIsValid(selectedProvider, selectedModel, selection);
   const providers = resolution?.providers ?? [];
+  const personalProvider = personalActivation
+    ? providers.find((provider) => provider.installationId === personalActivation.providerInstallationId) ?? null
+    : null;
   const models = selectedProvider?.models ?? [];
   const thinkingLevels = selectedModel?.thinkingLevels ?? [];
   const canChange = Boolean(resolution || runtimeError) && !disabled && !currentFeedback.pending;
@@ -210,6 +239,12 @@ export function ChatModelSelector({
   };
 
   const statusLabel = (provider: AiEffectiveCatalogProvider) => {
+    if (provider.userCredentialEligibility?.state === 'consent_required') {
+      return t('runtimePersonalConsentRequired');
+    }
+    if (provider.userCredentialEligibility?.state === 'not_connected') {
+      return t('runtimePersonalAccountNotConnected');
+    }
     if (!provider.credentialAvailable) return t('runtimeCredentialMissing');
     const labels: Record<AiEffectiveCatalogProvider['status'], string> = {
       ready: t('runtimeProviderReady'),
@@ -299,8 +334,7 @@ export function ChatModelSelector({
     }
   }
 
-  function selectProvider(provider: AiEffectiveCatalogProvider) {
-    if (!provider.selectable) return;
+  function applyProviderSelection(provider: AiEffectiveCatalogProvider) {
     const currentModel = provider.models.find((model) => model.id === selection?.modelId);
     const model = currentModel
       ?? provider.models.find((candidate) => candidate.isProviderDefault)
@@ -312,6 +346,81 @@ export function ChatModelSelector({
       modelId: model.id,
       thinkingLevel: preferredThinkingLevel(model, selection?.thinkingLevel),
     });
+  }
+
+  function selectProvider(provider: AiEffectiveCatalogProvider) {
+    if (!provider.selectable) {
+      if (supportsPersonalProviderActivation(provider)) {
+        const nextActivation = {
+          providerInstallationId: provider.installationId,
+          connected: provider.userCredentialEligibility?.connected ?? false,
+          consentGranted: provider.userCredentialEligibility?.consentGranted ?? false,
+        };
+        personalActivationRef.current = nextActivation;
+        setPersonalActivation(nextActivation);
+        setPersonalGrantError(null);
+      }
+      return;
+    }
+    applyProviderSelection(provider);
+  }
+
+  async function enablePersonalProvider(provider: AiEffectiveCatalogProvider) {
+    const workspaceId = resolution?.context.workspaceId;
+    if (!workspaceId || personalGrantPending) return;
+    setPersonalGrantPending(true);
+    setPersonalGrantError(null);
+    try {
+      await enableInteractiveUserCredentialGrant({
+        workspaceId,
+        agentId,
+        providerInstallationId: provider.installationId,
+        fallbackError: t('runtimePersonalGrantFailed'),
+      });
+      const current = personalActivationRef.current;
+      const nextActivation = {
+        providerInstallationId: provider.installationId,
+        connected: current?.providerInstallationId === provider.installationId
+          ? current.connected
+          : provider.userCredentialEligibility?.connected ?? false,
+        consentGranted: true,
+      };
+      personalActivationRef.current = nextActivation;
+      setPersonalActivation(nextActivation);
+      await onResolutionRefresh?.();
+      if (nextActivation.connected) {
+        setPersonalActivation(null);
+        personalActivationRef.current = null;
+        applyProviderSelection(provider);
+      }
+    } catch (error) {
+      setPersonalGrantError(error instanceof Error ? error.message : t('runtimePersonalGrantFailed'));
+    } finally {
+      setPersonalGrantPending(false);
+    }
+  }
+
+  async function handlePersonalProviderStatusChange(
+    provider: AiEffectiveCatalogProvider,
+    status: { provider: string; connected: boolean },
+  ) {
+    if (status.provider !== provider.providerId) return;
+    const current = personalActivationRef.current;
+    const nextActivation = {
+      providerInstallationId: provider.installationId,
+      connected: status.connected,
+      consentGranted: current?.providerInstallationId === provider.installationId
+        ? current.consentGranted
+        : provider.userCredentialEligibility?.consentGranted ?? false,
+    };
+    personalActivationRef.current = nextActivation;
+    setPersonalActivation(nextActivation);
+    await onResolutionRefresh?.();
+    if (status.connected && nextActivation.consentGranted) {
+      setPersonalActivation(null);
+      personalActivationRef.current = null;
+      applyProviderSelection(provider);
+    }
   }
 
   function selectModel(model: AiCatalogModel) {
@@ -411,6 +520,7 @@ export function ChatModelSelector({
   );
 
   const renderProviderOptions = (mobile: boolean) => providers.length > 0 ? providers.map((provider) => {
+    const canActivateProvider = provider.selectable || supportsPersonalProviderActivation(provider);
     const optionContent = (
       <>
         <span className="min-w-0 flex-1">
@@ -435,7 +545,7 @@ export function ChatModelSelector({
         <button
           key={provider.installationId}
           type="button"
-          disabled={!provider.selectable || currentFeedback.pending}
+          disabled={!canActivateProvider || currentFeedback.pending}
           onClick={() => {
             selectProvider(provider);
             setProviderSheetOpen(false);
@@ -450,7 +560,7 @@ export function ChatModelSelector({
     return (
       <DropdownMenuItem
         key={provider.installationId}
-        disabled={!provider.selectable}
+        disabled={!canActivateProvider}
         onSelect={() => selectProvider(provider)}
         className="flex min-h-11 items-center rounded-md px-2.5 py-1.5 text-sm"
       >
@@ -614,84 +724,144 @@ export function ChatModelSelector({
   ) : null;
 
   return (
-    <div className="flex max-w-full min-w-0 flex-wrap items-center gap-1.5">
-      {isMobile ? (
-        <Sheet open={providerSheetOpen} onOpenChange={setProviderSheetOpen}>
-          <SheetTrigger asChild>{providerTrigger}</SheetTrigger>
-          <SheetContent side="bottom" className="max-h-[78dvh] gap-0 overflow-hidden rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]">
-            <SheetHeader className="border-b border-border px-4 py-3 pr-12 text-left">
-              <SheetTitle>{t('runtimeProviderLabel')}</SheetTitle>
-              <SheetDescription>{t('runtimeProviderDescription')}</SheetDescription>
-            </SheetHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              {renderProviderOptions(true)}
+    <>
+      <div className="flex max-w-full min-w-0 flex-wrap items-center gap-1.5">
+        {isMobile ? (
+          <Sheet open={providerSheetOpen} onOpenChange={setProviderSheetOpen}>
+            <SheetTrigger asChild>{providerTrigger}</SheetTrigger>
+            <SheetContent side="bottom" className="max-h-[78dvh] gap-0 overflow-hidden rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]">
+              <SheetHeader className="border-b border-border px-4 py-3 pr-12 text-left">
+                <SheetTitle>{t('runtimeProviderLabel')}</SheetTitle>
+                <SheetDescription>{t('runtimeProviderDescription')}</SheetDescription>
+              </SheetHeader>
+              <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                {renderProviderOptions(true)}
+                {selectorError}
+              </div>
+            </SheetContent>
+          </Sheet>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>{providerTrigger}</DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              side="top"
+              collisionPadding={12}
+              className="max-h-[min(28rem,76vh)] w-[min(90vw,300px)] overflow-y-auto rounded-lg bg-popover/95 p-1.5 shadow-xl backdrop-blur"
+            >
+              <DropdownMenuLabel className="px-2.5 py-1.5 text-xs font-semibold">
+                {t('runtimeProviderLabel')}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator className="mx-2" />
+              {renderProviderOptions(false)}
               {selectorError}
-            </div>
-          </SheetContent>
-        </Sheet>
-      ) : (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>{providerTrigger}</DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            side="top"
-            collisionPadding={12}
-            className="max-h-[min(28rem,76vh)] w-[min(90vw,300px)] overflow-y-auto rounded-lg bg-popover/95 p-1.5 shadow-xl backdrop-blur"
-          >
-            <DropdownMenuLabel className="px-2.5 py-1.5 text-xs font-semibold">
-              {t('runtimeProviderLabel')}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator className="mx-2" />
-            {renderProviderOptions(false)}
-            {selectorError}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
-      {isMobile ? (
-        <Sheet
-          open={modelSheetOpen}
-          onOpenChange={(open) => {
-            setModelSheetOpen(open);
-            if (!open) setSelectorView('overview');
-          }}
-        >
-          <SheetTrigger asChild>{modelTrigger}</SheetTrigger>
-          <SheetContent side="bottom" className="max-h-[82dvh] gap-0 overflow-hidden rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]">
-            <SheetHeader className="sr-only">
-              <SheetTitle>{selectorViewTitle}</SheetTitle>
-              <SheetDescription>{selectorViewDescription}</SheetDescription>
-            </SheetHeader>
-            {selectorHeader(true)}
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              {selectorOptions(true)}
-              {selectorError}
-            </div>
-          </SheetContent>
-        </Sheet>
-      ) : (
-        <DropdownMenu
-          open={modelMenuOpen}
-          onOpenChange={(open) => {
-            setModelMenuOpen(open);
-            if (!open) setSelectorView('overview');
-          }}
-        >
-          <DropdownMenuTrigger asChild>{modelTrigger}</DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            side="top"
-            collisionPadding={12}
-            className="w-[min(92vw,340px)] max-w-[calc(100vw-24px)] overflow-hidden rounded-lg bg-popover/95 p-0 shadow-xl backdrop-blur"
+        {isMobile ? (
+          <Sheet
+            open={modelSheetOpen}
+            onOpenChange={(open) => {
+              setModelSheetOpen(open);
+              if (!open) setSelectorView('overview');
+            }}
           >
-            {selectorHeader(false)}
-            <div className="max-h-[min(28rem,76vh)] overflow-y-auto p-1.5">
-              {selectorOptions(false)}
-              {selectorError}
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-    </div>
+            <SheetTrigger asChild>{modelTrigger}</SheetTrigger>
+            <SheetContent side="bottom" className="max-h-[82dvh] gap-0 overflow-hidden rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]">
+              <SheetHeader className="sr-only">
+                <SheetTitle>{selectorViewTitle}</SheetTitle>
+                <SheetDescription>{selectorViewDescription}</SheetDescription>
+              </SheetHeader>
+              {selectorHeader(true)}
+              <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                {selectorOptions(true)}
+                {selectorError}
+              </div>
+            </SheetContent>
+          </Sheet>
+        ) : (
+          <DropdownMenu
+            open={modelMenuOpen}
+            onOpenChange={(open) => {
+              setModelMenuOpen(open);
+              if (!open) setSelectorView('overview');
+            }}
+          >
+            <DropdownMenuTrigger asChild>{modelTrigger}</DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              side="top"
+              collisionPadding={12}
+              className="w-[min(92vw,340px)] max-w-[calc(100vw-24px)] overflow-hidden rounded-lg bg-popover/95 p-0 shadow-xl backdrop-blur"
+            >
+              {selectorHeader(false)}
+              <div className="max-h-[min(28rem,76vh)] overflow-y-auto p-1.5">
+                {selectorOptions(false)}
+                {selectorError}
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+
+      <Dialog
+        open={Boolean(personalProvider)}
+        onOpenChange={(open) => {
+          if (open) return;
+          setPersonalActivation(null);
+          personalActivationRef.current = null;
+          setPersonalGrantError(null);
+        }}
+      >
+        <DialogContent className="max-h-[min(46rem,90dvh)] overflow-y-auto sm:max-w-xl" data-testid="chat-personal-provider-dialog">
+          {personalProvider ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>{t('runtimePersonalAccessTitle', { provider: personalProvider.name })}</DialogTitle>
+                <DialogDescription>
+                  {t('runtimePersonalAccessDescription', { provider: personalProvider.name })}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="rounded-md border border-primary/25 bg-primary/5 p-3 text-sm leading-5">
+                <p className="font-medium">{t('runtimePersonalAccessScopeTitle')}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('runtimePersonalAccessScopeDescription')}
+                </p>
+              </div>
+
+              <PiOAuthButton
+                activeProviderId={personalProvider.providerId}
+                onStatusChange={(status) => void handlePersonalProviderStatusChange(personalProvider, status)}
+              />
+
+              {personalActivation?.consentGranted ? (
+                <div className="inline-flex items-center gap-2 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-200">
+                  <Check className="size-4 shrink-0" aria-hidden="true" />
+                  {t('runtimePersonalGrantActive')}
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  disabled={personalGrantPending}
+                  onClick={() => void enablePersonalProvider(personalProvider)}
+                  data-testid="chat-personal-provider-grant"
+                >
+                  {personalGrantPending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                  {t('runtimePersonalGrantAction', { provider: personalProvider.name })}
+                </Button>
+              )}
+
+              {personalGrantError ? (
+                <div className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
+                  {personalGrantError}
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

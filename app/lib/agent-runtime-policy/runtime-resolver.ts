@@ -4,6 +4,7 @@ import { ensureAgentRuntimeCatalogInitialized } from '@/app/lib/agent-runtime-po
 import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
 import { isProviderInstallationCredentialAvailable } from '@/app/lib/agent-runtime-policy/installation-credentials';
 import { resolveProviderAuthMethod } from '@/app/lib/agent-runtime-policy/provider-auth-policy';
+import { workspaceAllowsInteractiveUserCredentials } from '@/app/lib/agent-runtime-policy/user-credential-policy';
 import {
   readPiSessionRuntimeSnapshot,
   readUserWorkspaceProviderGrant,
@@ -61,6 +62,7 @@ export function buildEffectiveCatalogProviders(input: {
   policy: AiWorkspaceModelPolicy | null;
   workspaceType: WorkspaceType;
   credentialAvailability?: ReadonlyMap<string, boolean>;
+  userCredentialEligibility?: ReadonlyMap<string, AiEffectiveCatalogProvider['userCredentialEligibility']>;
   allowUserCredentials?: boolean;
 }): AiEffectiveCatalogProvider[] {
   const allowedModels = input.policy?.allowedModels === null || input.policy?.allowedModels === undefined
@@ -69,7 +71,10 @@ export function buildEffectiveCatalogProviders(input: {
         modelReferenceKey(reference.providerInstallationId, reference.modelId)
       )));
   const allowUserCredentials = input.allowUserCredentials
-    ?? (input.workspaceType === 'personal' || input.policy?.allowUserCredentials === true);
+    ?? workspaceAllowsInteractiveUserCredentials({
+      workspaceType: input.workspaceType,
+      policy: input.policy,
+    });
 
   return input.catalog.providers.flatMap<AiEffectiveCatalogProvider>((provider) => {
     if (!provider.enabled || (provider.credentialScope === 'user' && !allowUserCredentials)) return [];
@@ -87,6 +92,9 @@ export function buildEffectiveCatalogProviders(input: {
       credentialScope: provider.credentialScope,
       authMethod: resolveProviderAuthMethod(provider.providerId, provider.config.authMethod),
       credentialAvailable,
+      ...(input.userCredentialEligibility?.get(provider.installationId)
+        ? { userCredentialEligibility: input.userCredentialEligibility.get(provider.installationId) }
+        : {}),
       selectable: provider.status === 'ready' && credentialAvailable,
       status: provider.status,
       models,
@@ -364,38 +372,81 @@ export async function resolveEffectiveAgentRuntime(
   ]);
   if (!agent) throw new Error('Agent not found.');
 
-  const credentialAvailability = new Map(await Promise.all(catalog.providers.map(async (provider) => {
+  const workspaceAllowsUserCredentials = workspaceAllowsInteractiveUserCredentials({
+    workspaceType: context.workspaceType,
+    policy,
+  });
+  const providerCredentialStates = await Promise.all(catalog.providers.map(async (provider) => {
     if (provider.credentialScope === 'user' && !executionAllowsUserCredentials) {
-      return [provider.installationId, false] as const;
+      return {
+        installationId: provider.installationId,
+        credentialAvailable: false,
+        userCredentialEligibility: undefined,
+      };
     }
-    if (provider.credentialScope === 'user' && context.workspaceType !== 'personal') {
-      const grant = await readUserWorkspaceProviderGrant({
+    if (provider.credentialScope === 'user' && !workspaceAllowsUserCredentials) {
+      return {
+        installationId: provider.installationId,
+        credentialAvailable: false,
+        userCredentialEligibility: undefined,
+      };
+    }
+    const credentialConnected = await isProviderInstallationCredentialAvailable({
+      provider,
+      organizationId: context.organizationId,
+      userId: principal.type === 'user' ? principal.credentialSubjectUserId : context.userId,
+    });
+    if (provider.credentialScope !== 'user') {
+      return {
+        installationId: provider.installationId,
+        credentialAvailable: credentialConnected,
+        userCredentialEligibility: undefined,
+      };
+    }
+
+    const grant = context.workspaceType === 'personal'
+      ? null
+      : await readUserWorkspaceProviderGrant({
         organizationId: context.organizationId,
         userId: principal.type === 'user' ? principal.credentialSubjectUserId : context.userId,
         workspaceId: context.workspaceId,
         agentId: context.agentId,
         providerInstallationId: provider.installationId,
       });
-      if (!grant || grant.status !== 'active' || !grant.allowedExecutionModes.includes(context.executionMode)) {
-        return [provider.installationId, false] as const;
-      }
-    }
-    return [
-      provider.installationId,
-      await isProviderInstallationCredentialAvailable({
-        provider,
-        organizationId: context.organizationId,
-        userId: principal.type === 'user' ? principal.credentialSubjectUserId : context.userId,
-      }),
-    ] as const;
-  })));
+    const consentGranted = context.workspaceType === 'personal' || Boolean(
+      grant
+      && grant.status === 'active'
+      && grant.allowedExecutionModes.includes(context.executionMode),
+    );
+    return {
+      installationId: provider.installationId,
+      credentialAvailable: credentialConnected && consentGranted,
+      userCredentialEligibility: {
+        state: !consentGranted
+          ? 'consent_required' as const
+          : credentialConnected ? 'ready' as const : 'not_connected' as const,
+        connected: credentialConnected,
+        consentGranted,
+        grantRevision: grant?.revision ?? null,
+      },
+    };
+  }));
+  const credentialAvailability = new Map(providerCredentialStates.map((state) => [
+    state.installationId,
+    state.credentialAvailable,
+  ] as const));
+  const userCredentialEligibility = new Map(providerCredentialStates.flatMap((state) => (
+    state.userCredentialEligibility
+      ? [[state.installationId, state.userCredentialEligibility] as const]
+      : []
+  )));
   const providers = buildEffectiveCatalogProviders({
     catalog,
     policy,
     workspaceType: context.workspaceType,
     credentialAvailability,
-    allowUserCredentials: executionAllowsUserCredentials
-      && (context.workspaceType === 'personal' || policy?.allowUserCredentials === true),
+    userCredentialEligibility,
+    allowUserCredentials: executionAllowsUserCredentials && workspaceAllowsUserCredentials,
   });
   const policyRevision = policy?.revision ?? 0;
   const baseIssues: AiRuntimeResolutionIssue[] = [];

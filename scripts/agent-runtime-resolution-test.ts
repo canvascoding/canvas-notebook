@@ -859,6 +859,49 @@ async function main() {
     workspaceId: organizationWorkspaceId,
     workspaceType: 'organization' as const,
   };
+  const defaultPolicyConsentAgent = await createAgentProfile({ name: 'Default Policy Consent Agent' });
+  const codexSelection = {
+    providerInstallationId: codexProviderId,
+    providerId: 'openai-codex',
+    modelId: codexModel,
+    thinkingLevel: 'off' as const,
+  };
+  const defaultTeamResolution = await resolveEffectiveAgentRuntime({
+    ...organizationContext,
+    requestedSelection: codexSelection,
+  });
+  const defaultTeamCodexProvider = defaultTeamResolution.providers.find((provider) => (
+    provider.installationId === codexProviderId
+  ));
+  assert.equal(defaultTeamCodexProvider?.authMethod, 'oauth');
+  assert.equal(defaultTeamCodexProvider?.userCredentialEligibility?.state, 'consent_required');
+  assert.equal(defaultTeamCodexProvider?.selectable, false);
+  const defaultPolicyGrant = await setUserProviderGrant({
+    context: { ...organizationContext, agentId: defaultPolicyConsentAgent.agentId },
+    update: {
+      providerInstallationId: codexProviderId,
+      allowedExecutionModes: ['interactive'],
+      expectedRevision: 0,
+    },
+  });
+  assert.equal(defaultPolicyGrant.status, 'active');
+  const defaultPolicyGrantedResolution = await resolveEffectiveAgentRuntime({
+    ...organizationContext,
+    agentId: defaultPolicyConsentAgent.agentId,
+    requestedSelection: codexSelection,
+  });
+  assert.deepEqual(
+    defaultPolicyGrantedResolution.providers.find((provider) => (
+      provider.installationId === codexProviderId
+    ))?.userCredentialEligibility,
+    {
+      state: 'not_connected',
+      connected: false,
+      consentGranted: true,
+      grantRevision: 1,
+    },
+  );
+
   let organizationPolicy = await replaceWorkspaceRuntimePolicy({
     organizationId: organization.organizationId,
     workspaceId: organizationWorkspaceId,
@@ -932,12 +975,6 @@ async function main() {
     },
   });
   assert.equal(organizationPolicy.revision, 2);
-  const codexSelection = {
-    providerInstallationId: codexProviderId,
-    providerId: 'openai-codex',
-    modelId: codexModel,
-    thinkingLevel: 'off' as const,
-  };
   const ungrantedCodexResolution = await resolveEffectiveAgentRuntime({
     ...organizationContext,
     requestedSelection: codexSelection,
@@ -946,6 +983,7 @@ async function main() {
     provider.installationId === codexProviderId
   ));
   assert.equal(ungrantedCodexProvider?.authMethod, 'oauth');
+  assert.equal(ungrantedCodexProvider?.userCredentialEligibility?.state, 'consent_required');
   assert.equal(ungrantedCodexProvider?.selectable, false);
   assert.equal(ungrantedCodexResolution.valid, false);
 
@@ -970,6 +1008,11 @@ async function main() {
   assert.equal(
     grantedCodexResolution.providers.find((provider) => provider.installationId === codexProviderId)?.selectable,
     false,
+  );
+  assert.equal(
+    grantedCodexResolution.providers.find((provider) => provider.installationId === codexProviderId)
+      ?.userCredentialEligibility?.state,
+    'not_connected',
   );
   const ungrantedTeamResolution = await resolveEffectiveAgentRuntime({
     ...organizationContext,
@@ -1006,6 +1049,11 @@ async function main() {
     },
   });
   assert.equal(resolution.source, 'user_preference');
+  assert.equal(
+    resolution.providers.find((provider) => provider.installationId === userProviderId)
+      ?.userCredentialEligibility?.state,
+    'ready',
+  );
 
   const personalAutomationResolution = await resolveEffectiveAgentRuntime({
     ...personalContext,
