@@ -71,6 +71,8 @@ assert.match(providerDialog, /data-testid="provider-dialog-provider-select"/u);
 assert.match(providerDialog, /value=\{providerSelectionConfirmed \? draft\.providerId : ''\}/u);
 assert.match(providerDialog, /showConfiguration = !isNew \|\| providerSelectionConfirmed/u);
 assert.match(providerDialog, /\{showConfiguration && <section/u);
+assert.match(providerDialog, /!isNew \|\| connectionStepConfirmed/u);
+assert.match(providerDialog, /copy\.continueToModels/u);
 assert.match(providerDialog, /data-testid="ollama-server-url"/u);
 assert.match(providerDialog, /data-testid="ollama-discover-models"/u);
 assert.match(providerDialog, /data-testid="provider-custom-model-input"/u);

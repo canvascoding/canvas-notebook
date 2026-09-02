@@ -59,6 +59,7 @@ export type AiProviderEditorCopy = {
   serverUrl: string;
   serverUrlHint: string;
   serverUrlPlaceholder: string;
+  openAiCompatibleUrlPlaceholder: string;
   apiKey: string;
   apiKeyOptional: string;
   apiKeyPlaceholder: string;
@@ -68,6 +69,7 @@ export type AiProviderEditorCopy = {
   noRemoteModels: string;
   discoverFirst: string;
   configureManually: string;
+  continueToModels: string;
   manualModel: string;
   manualModelPlaceholder: string;
   addModel: string;
@@ -186,6 +188,7 @@ export function AiProviderEditorDialog({
   const [connectionChecked, setConnectionChecked] = useState(false);
   const [manualModelsRevealed, setManualModelsRevealed] = useState(false);
   const [providerSelectionConfirmed, setProviderSelectionConfirmed] = useState(false);
+  const [connectionStepConfirmed, setConnectionStepConfirmed] = useState(false);
   const [ollamaApiKey, setOllamaApiKey] = useState('');
   const [ollamaApiKeyBaseline, setOllamaApiKeyBaseline] = useState('');
   const [credentialLoading, setCredentialLoading] = useState(false);
@@ -217,6 +220,7 @@ export function AiProviderEditorDialog({
       setConnectionMessage(null);
       setConnectionChecked(false);
       setManualModelsRevealed(false);
+      setConnectionStepConfirmed(false);
     });
   }, [open, provider]);
 
@@ -288,11 +292,12 @@ export function AiProviderEditorDialog({
     ));
   }, [connectionChecked, draft, isOllama, search, selectedModelIds]);
   const showModelsStep = Boolean(showConfiguration && draft && (
-    !isOllama
-    || connectionChecked
-    || manualModelsRevealed
-    || draft.modelIds.length > 0
-    || draft.config.ollamaAdditionalModels?.length
+    isOllama
+      ? connectionChecked
+        || manualModelsRevealed
+        || draft.modelIds.length > 0
+        || draft.config.ollamaAdditionalModels?.length
+      : !isNew || connectionStepConfirmed
   ));
   const showAccessStep = Boolean(showConfiguration && draft?.modelIds.length);
   const canSubmit = Boolean(
@@ -566,6 +571,7 @@ export function AiProviderEditorDialog({
                     value={providerSelectionConfirmed ? draft.providerId : ''}
                     onChange={(event) => {
                       setProviderSelectionConfirmed(true);
+                      setConnectionStepConfirmed(false);
                       onNewProviderChange(event.target.value);
                     }}
                     className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -672,7 +678,7 @@ export function AiProviderEditorDialog({
                       id="openai-compatible-url"
                       type="url"
                       value={draft.config.openaiCompatibleBaseUrl ?? ''}
-                      placeholder={copy.serverUrlPlaceholder}
+                      placeholder={copy.openAiCompatibleUrlPlaceholder}
                       onChange={(event) => updateDraft((current) => ({
                         ...current,
                         config: {
@@ -714,6 +720,13 @@ export function AiProviderEditorDialog({
                     showIdentity={false}
                     showCredentialActions={!verificationOnly}
                   />
+                </div>
+              )}
+              {isNew && !isOllama && !connectionStepConfirmed && (
+                <div className="mt-5 flex justify-end border-t pt-4">
+                  <Button type="button" variant="outline" onClick={() => setConnectionStepConfirmed(true)}>
+                    {copy.continueToModels}
+                  </Button>
                 </div>
               )}
             </section>}
