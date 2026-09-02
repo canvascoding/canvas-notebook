@@ -27,6 +27,7 @@ import {
   wouldRemoveLastWorkspaceManager,
 } from './member-manager-policy';
 import { resolveWorkspacePermissions } from './permissions';
+import { seedWorkspaceStarterDocument } from './starter-document';
 import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType } from './types';
 import {
   normalizeWorkspaceSlug,
@@ -680,6 +681,10 @@ async function insertWorkspaceRecord(database: RuntimeDb, input: {
     ],
   );
   ensureWorkspaceDirectory(input.rootRelativePath);
+  seedWorkspaceStarterDocument({
+    rootPath: workspaceAbsoluteRoot(input.rootRelativePath),
+    workspaceType: input.type,
+  });
   const record = await getWorkspaceById(database, id);
   if (!record) throw new WorkspaceOperationError('WORKSPACE_CREATE_FAILED', 'Workspace insert failed.', 500);
   return record;

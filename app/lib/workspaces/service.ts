@@ -9,6 +9,7 @@ import { resolveWorkspaceDataRoot } from './context';
 import { WORKSPACE_DESCRIPTION_MAX_LENGTH } from './description';
 import { getDefaultWorkspaceIcon, isWorkspaceIcon, type WorkspaceIcon } from './icons';
 import { resolveWorkspacePermissions } from './permissions';
+import { seedWorkspaceStarterDocument } from './starter-document';
 import {
   WORKSPACE_LAST_MANAGER_CODE,
   WORKSPACE_LAST_MANAGER_MESSAGE,
@@ -432,6 +433,10 @@ function insertWorkspace(
   const record = getWorkspaceById(sqlite, id);
   if (!record) throw new Error('Workspace insert failed');
   ensureWorkspaceDirectory(record);
+  seedWorkspaceStarterDocument({
+    rootPath: workspaceAbsoluteRoot(record.rootRelativePath),
+    workspaceType: record.type,
+  });
   return record;
 }
 

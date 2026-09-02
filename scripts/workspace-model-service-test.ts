@@ -6,9 +6,11 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { runMigrations } from '../app/lib/db/migrate';
+import { analyzeMarkdownRichMode } from '../app/lib/markdown/rich-markdown-codec';
 import { ensureOrganizationBootstrapForUser } from '../app/lib/organization/bootstrap';
 import { createCanvasProject, ensureCanvasProjectWorkspace } from '../app/lib/projects/service';
 import { resolveWorkspaceActor } from '../app/lib/workspaces/context';
+import { WORKSPACE_STARTER_DOCUMENT_NAME } from '../app/lib/workspaces/starter-document';
 import {
   changeWorkspaceType,
   createWorkspaceRecord,
@@ -94,6 +96,14 @@ async function main() {
       path.join(dataRoot, 'workspaces', 'personal', 'user-owner', 'files')
     );
     await fs.access(ownerWorkspaces[0].rootPath);
+    const personalStarterDocument = await fs.readFile(
+      path.join(ownerWorkspaces[0].rootPath, WORKSPACE_STARTER_DOCUMENT_NAME),
+      'utf8',
+    );
+    assert.match(personalStarterDocument, /Dein persönlicher Workspace/);
+    assert.match(personalStarterDocument, /private Notiz/);
+    assert.doesNotMatch(personalStarterDocument, /Euer Team-Workspace/);
+    assert.equal(analyzeMarkdownRichMode(personalStarterDocument).mode, 'rich');
     await assert.rejects(
       () => fs.access(path.join(dataRoot, 'workspaces', 'organization', organizationId, 'files')),
       (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'),
@@ -156,6 +166,10 @@ async function main() {
       userId: 'user-owner',
     });
     assert.equal(renamedDefaults.personal.displayName, 'Private notes');
+    assert.equal(
+      await fs.readFile(path.join(ownerWorkspaces[0].rootPath, WORKSPACE_STARTER_DOCUMENT_NAME), 'utf8'),
+      personalStarterDocument,
+    );
 
     assert.throws(
       () => deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: ownerWorkspaces[0].workspaceId }),
@@ -188,6 +202,10 @@ async function main() {
       path.posix.join('workspaces', 'organization', organizationId, 'canvas-studio', 'files'),
     );
     await fs.access(organizationWorkspace.rootPath);
+    assert.match(
+      await fs.readFile(path.join(organizationWorkspace.rootPath, WORKSPACE_STARTER_DOCUMENT_NAME), 'utf8'),
+      /Euer Organisations-Workspace/,
+    );
     const updatedOrganizationWorkspace = updateWorkspaceRecord(sqlite, {
       actor: ownerActor,
       workspaceId: organizationWorkspace.workspaceId,
@@ -337,6 +355,14 @@ async function main() {
       teamWorkspace.rootRelativePath,
       path.posix.join('workspaces', 'team', organizationId, 'design-team', 'files'),
     );
+    const teamStarterDocument = await fs.readFile(
+      path.join(teamWorkspace.rootPath, WORKSPACE_STARTER_DOCUMENT_NAME),
+      'utf8',
+    );
+    assert.match(teamStarterDocument, /Euer Team-Workspace/);
+    assert.match(teamStarterDocument, /@Mention/);
+    assert.doesNotMatch(teamStarterDocument, /Dein persönlicher Workspace/);
+    assert.equal(analyzeMarkdownRichMode(teamStarterDocument).mode, 'rich');
     const teamMemberRow = sqlite.prepare(`
       SELECT can_read, can_write, can_manage
       FROM canvas_workspace_members
@@ -425,6 +451,10 @@ async function main() {
     });
     assert.equal(projectWorkspace?.workspaceType, 'project');
     assert.equal(projectWorkspace?.projectId, project.id);
+    assert.match(
+      await fs.readFile(path.join(projectWorkspace!.rootPath, WORKSPACE_STARTER_DOCUMENT_NAME), 'utf8'),
+      /Euer Projekt-Workspace/,
+    );
     const projectCollabMember = upsertProjectWorkspaceMember(sqlite, {
       actor: ownerActor,
       organizationId,
@@ -714,6 +744,13 @@ async function main() {
     assert.equal(replacementOrganizationWorkspace.workspaceType, 'organization');
     assert.notEqual(replacementOrganizationWorkspace.workspaceId, organizationWorkspace.workspaceId);
     assert.notEqual(replacementOrganizationWorkspace.rootRelativePath, organizationWorkspace.rootRelativePath);
+
+    await fs.rm(path.join(ownerWorkspaces[0].rootPath, WORKSPACE_STARTER_DOCUMENT_NAME));
+    ensureDefaultWorkspaceRecords(sqlite, { organizationId, userId: 'user-owner' });
+    await assert.rejects(
+      () => fs.access(path.join(ownerWorkspaces[0].rootPath, WORKSPACE_STARTER_DOCUMENT_NAME)),
+      (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'),
+    );
     assert.throws(() => workspaceAbsoluteRoot('../outside'), /Invalid workspace root path/);
   } finally {
     sqlite.close();
