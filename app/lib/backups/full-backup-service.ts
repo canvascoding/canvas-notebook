@@ -5,7 +5,6 @@ import { execFile, spawn } from 'child_process';
 import path from 'path';
 import { createReadStream, createWriteStream, promises as fs, type WriteStream } from 'fs';
 import { promisify } from 'util';
-import type Database from 'better-sqlite3';
 import ZipStream from 'zip-stream';
 
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
