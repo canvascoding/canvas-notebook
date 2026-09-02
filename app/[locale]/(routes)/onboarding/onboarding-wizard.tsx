@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
+import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { routing } from '@/i18n/routing';
 import { buildLocalePath } from '@/app/lib/locale-path';
@@ -34,6 +35,46 @@ type OnboardingRuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting'
 const INSTANCE_STEPS: Step[] = ['server', 'license', 'provider', 'workspace', 'review'];
 const USER_STEPS: Step[] = ['language', 'workspace', 'profile', 'tour', 'done'];
 const ONBOARDING_LICENSE_KEY_STORAGE_KEY = 'canvas.onboarding.licenseKey';
+
+function BradleyOnboardingIntro({ compact = false }: { compact?: boolean }) {
+  const t = useTranslations('onboarding');
+
+  return (
+    <div
+      data-testid="bradley-onboarding-intro"
+      className={`grid items-center gap-4 rounded-lg border border-border/70 bg-muted/20 p-4 sm:text-left ${
+        compact
+          ? 'sm:grid-cols-[7rem_minmax(0,1fr)]'
+          : 'sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-5 sm:p-5'
+      }`}
+    >
+      <div className={`relative mx-auto flex items-center justify-center ${compact ? 'h-24 w-24' : 'h-28 w-28 sm:h-32 sm:w-32'}`}>
+        <span
+          aria-hidden="true"
+          className="absolute inset-x-3 bottom-2 h-px bg-border/80"
+        />
+        <Image
+          src="/images/bradley/bradley-character-starter.png"
+          alt=""
+          aria-hidden="true"
+          width={160}
+          height={160}
+          sizes={compact ? '96px' : '(min-width: 640px) 128px, 112px'}
+          className="relative h-full w-full select-none object-contain"
+          priority={false}
+        />
+      </div>
+
+      <div className="text-center sm:text-left">
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
+          {t('profileEyebrow')}
+        </p>
+        <h2 className="text-xl font-semibold tracking-tight">{t('profileTitle')}</h2>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">{t('profileDescription')}</p>
+      </div>
+    </div>
+  );
+}
 
 type LicenseStatus = {
   licensed?: boolean;
@@ -482,8 +523,18 @@ export default function OnboardingWizard({
               )}
 
               {step === 'done' && (
-                <div className="text-center">
-                  <div className="mb-4 text-4xl">✓</div>
+                <div className="text-center" data-testid="bradley-onboarding-complete">
+                  <Image
+                    src="/images/bradley/bradley-done.svg"
+                    alt=""
+                    aria-hidden="true"
+                    width={88}
+                    height={88}
+                    sizes="88px"
+                    className="mx-auto mb-4 h-[5.5rem] w-[5.5rem] select-none object-contain"
+                    priority={false}
+                    unoptimized
+                  />
                   <h2 className="mb-2 text-xl font-semibold">{t('setupComplete')}</h2>
                   <p className="mb-8 text-sm text-muted-foreground">
                     {t('setupCompleteDescription')}
@@ -541,10 +592,7 @@ function ProfileSessionRecovery({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="mb-1 text-xl font-semibold">{t('profileTitle')}</h2>
-        <p className="text-sm text-muted-foreground">{t('profileDescription')}</p>
-      </div>
+      <BradleyOnboardingIntro compact />
 
       <div
         className={`border p-5 text-sm ${
@@ -653,12 +701,7 @@ function AgentProfileStep({
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="mb-1 text-xl font-semibold">{t('profileTitle')}</h2>
-        <p className="text-sm text-muted-foreground">
-          {t('profileDescription')}
-        </p>
-      </div>
+      <BradleyOnboardingIntro />
 
       <div className="h-[68vh] min-h-[460px] max-h-[720px] overflow-hidden border border-border bg-background">
         <CanvasAgentChat

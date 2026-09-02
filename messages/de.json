@@ -273,6 +273,7 @@
     "instanceReviewCatalogModel": "App-Standard-Modell",
     "instanceCompleteAction": "Instanz abschließen und persönlichen Workspace einrichten",
     "instanceCompleteError": "Die Instanz konnte noch nicht abgeschlossen werden.",
+    "profileEyebrow": "Bradley · Hauptagent",
     "profileTitle": "Bradley kennenlernen",
     "profileDescription": "Bradley ist dein fester Hauptagent in Canvas Notebook. Bradley stellt dir ein paar kurze Fragen dazu, wie du arbeiten und kommunizieren möchtest; diese Präferenzen kannst du später ändern.",
     "profileSessionError": "Der Bradley-Onboarding-Chat konnte nicht vorbereitet werden.",

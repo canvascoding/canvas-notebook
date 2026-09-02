@@ -273,6 +273,7 @@
     "instanceReviewCatalogModel": "App-default model",
     "instanceCompleteAction": "Complete instance and set up personal workspace",
     "instanceCompleteError": "The instance could not be completed yet.",
+    "profileEyebrow": "Bradley · Main agent",
     "profileTitle": "Meet Bradley",
     "profileDescription": "Bradley is your fixed main agent in Canvas Notebook. Bradley will ask a few short questions about how you prefer to work and communicate; you can change these preferences later.",
     "profileSessionError": "Could not prepare the Bradley onboarding chat.",
