@@ -726,83 +726,83 @@ export function ChatModelSelector({
   return (
     <>
       <div className="flex max-w-full min-w-0 flex-wrap items-center gap-1.5">
-      {isMobile ? (
-        <Sheet open={providerSheetOpen} onOpenChange={setProviderSheetOpen}>
-          <SheetTrigger asChild>{providerTrigger}</SheetTrigger>
-          <SheetContent side="bottom" className="max-h-[78dvh] gap-0 overflow-hidden rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]">
-            <SheetHeader className="border-b border-border px-4 py-3 pr-12 text-left">
-              <SheetTitle>{t('runtimeProviderLabel')}</SheetTitle>
-              <SheetDescription>{t('runtimeProviderDescription')}</SheetDescription>
-            </SheetHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              {renderProviderOptions(true)}
+        {isMobile ? (
+          <Sheet open={providerSheetOpen} onOpenChange={setProviderSheetOpen}>
+            <SheetTrigger asChild>{providerTrigger}</SheetTrigger>
+            <SheetContent side="bottom" className="max-h-[78dvh] gap-0 overflow-hidden rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]">
+              <SheetHeader className="border-b border-border px-4 py-3 pr-12 text-left">
+                <SheetTitle>{t('runtimeProviderLabel')}</SheetTitle>
+                <SheetDescription>{t('runtimeProviderDescription')}</SheetDescription>
+              </SheetHeader>
+              <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                {renderProviderOptions(true)}
+                {selectorError}
+              </div>
+            </SheetContent>
+          </Sheet>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>{providerTrigger}</DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              side="top"
+              collisionPadding={12}
+              className="max-h-[min(28rem,76vh)] w-[min(90vw,300px)] overflow-y-auto rounded-lg bg-popover/95 p-1.5 shadow-xl backdrop-blur"
+            >
+              <DropdownMenuLabel className="px-2.5 py-1.5 text-xs font-semibold">
+                {t('runtimeProviderLabel')}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator className="mx-2" />
+              {renderProviderOptions(false)}
               {selectorError}
-            </div>
-          </SheetContent>
-        </Sheet>
-      ) : (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>{providerTrigger}</DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            side="top"
-            collisionPadding={12}
-            className="max-h-[min(28rem,76vh)] w-[min(90vw,300px)] overflow-y-auto rounded-lg bg-popover/95 p-1.5 shadow-xl backdrop-blur"
-          >
-            <DropdownMenuLabel className="px-2.5 py-1.5 text-xs font-semibold">
-              {t('runtimeProviderLabel')}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator className="mx-2" />
-            {renderProviderOptions(false)}
-            {selectorError}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
 
-      {isMobile ? (
-        <Sheet
-          open={modelSheetOpen}
-          onOpenChange={(open) => {
-            setModelSheetOpen(open);
-            if (!open) setSelectorView('overview');
-          }}
-        >
-          <SheetTrigger asChild>{modelTrigger}</SheetTrigger>
-          <SheetContent side="bottom" className="max-h-[82dvh] gap-0 overflow-hidden rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]">
-            <SheetHeader className="sr-only">
-              <SheetTitle>{selectorViewTitle}</SheetTitle>
-              <SheetDescription>{selectorViewDescription}</SheetDescription>
-            </SheetHeader>
-            {selectorHeader(true)}
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
-              {selectorOptions(true)}
-              {selectorError}
-            </div>
-          </SheetContent>
-        </Sheet>
-      ) : (
-        <DropdownMenu
-          open={modelMenuOpen}
-          onOpenChange={(open) => {
-            setModelMenuOpen(open);
-            if (!open) setSelectorView('overview');
-          }}
-        >
-          <DropdownMenuTrigger asChild>{modelTrigger}</DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            side="top"
-            collisionPadding={12}
-            className="w-[min(92vw,340px)] max-w-[calc(100vw-24px)] overflow-hidden rounded-lg bg-popover/95 p-0 shadow-xl backdrop-blur"
+        {isMobile ? (
+          <Sheet
+            open={modelSheetOpen}
+            onOpenChange={(open) => {
+              setModelSheetOpen(open);
+              if (!open) setSelectorView('overview');
+            }}
           >
-            {selectorHeader(false)}
-            <div className="max-h-[min(28rem,76vh)] overflow-y-auto p-1.5">
-              {selectorOptions(false)}
-              {selectorError}
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+            <SheetTrigger asChild>{modelTrigger}</SheetTrigger>
+            <SheetContent side="bottom" className="max-h-[82dvh] gap-0 overflow-hidden rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]">
+              <SheetHeader className="sr-only">
+                <SheetTitle>{selectorViewTitle}</SheetTitle>
+                <SheetDescription>{selectorViewDescription}</SheetDescription>
+              </SheetHeader>
+              {selectorHeader(true)}
+              <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                {selectorOptions(true)}
+                {selectorError}
+              </div>
+            </SheetContent>
+          </Sheet>
+        ) : (
+          <DropdownMenu
+            open={modelMenuOpen}
+            onOpenChange={(open) => {
+              setModelMenuOpen(open);
+              if (!open) setSelectorView('overview');
+            }}
+          >
+            <DropdownMenuTrigger asChild>{modelTrigger}</DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              side="top"
+              collisionPadding={12}
+              className="w-[min(92vw,340px)] max-w-[calc(100vw-24px)] overflow-hidden rounded-lg bg-popover/95 p-0 shadow-xl backdrop-blur"
+            >
+              {selectorHeader(false)}
+              <div className="max-h-[min(28rem,76vh)] overflow-y-auto p-1.5">
+                {selectorOptions(false)}
+                {selectorError}
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       <Dialog
