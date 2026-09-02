@@ -40,6 +40,7 @@
     "testenv:update": "bash \"${CODEX_HOME:-$HOME/.codex}/skills/canvas-local-team-seat-dev/scripts/start-local.sh\"",
     "testenv:update:notebook": "bash \"${CODEX_HOME:-$HOME/.codex}/skills/canvas-local-team-seat-dev/scripts/start-local.sh\" --target notebook",
     "testenv:update:control-plane": "bash \"${CODEX_HOME:-$HOME/.codex}/skills/canvas-local-team-seat-dev/scripts/start-local.sh\" --target control-plane",
+    "testenv:fixtures": "node \"${CODEX_HOME:-$HOME/.codex}/skills/canvas-local-team-seat-dev/scripts/bootstrap-local-fixtures.cjs\"",
     "testenv:status": "bash \"${CODEX_HOME:-$HOME/.codex}/skills/canvas-local-team-seat-dev/scripts/status-local.sh\"",
     "testenv:stop": "bash \"${CODEX_HOME:-$HOME/.codex}/skills/canvas-local-team-seat-dev/scripts/stop-local.sh\"",
     "lint": "eslint",
