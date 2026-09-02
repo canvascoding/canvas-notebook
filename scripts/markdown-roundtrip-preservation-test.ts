@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import {
   analyzeMarkdownRichMode,
+  restoreRichMarkdownFinalLineEnding,
   serializeRichMarkdownBody,
 } from '../app/lib/markdown/rich-markdown-codec';
 import {
@@ -29,6 +30,27 @@ assert.deepEqual(analyzeMarkdownRichMode(safeFixture), {
 });
 
 assert.equal(serializeRichMarkdownBody(safeParts.body), safeParts.body);
+
+assert.equal(
+  restoreRichMarkdownFinalLineEnding('Paragraph\n', 'Paragraph\n\n'),
+  'Paragraph\n',
+  'a rich-editor-only trailing paragraph must not duplicate the preserved LF terminator',
+);
+assert.equal(
+  restoreRichMarkdownFinalLineEnding('Paragraph\r\n', 'Paragraph\n\n'),
+  'Paragraph\r\n',
+  'the preserved CRLF terminator must replace serializer-generated trailing line endings',
+);
+assert.equal(
+  restoreRichMarkdownFinalLineEnding('Paragraph', 'Paragraph\n\n'),
+  'Paragraph',
+  'a document without a final terminator must not gain one from an empty editor paragraph',
+);
+assert.equal(
+  restoreRichMarkdownFinalLineEnding('First\n\nSecond\n', 'First\n\nSecond\n\n'),
+  'First\n\nSecond\n',
+  'canonicalizing the EOF must preserve internal blank lines',
+);
 
 const directiveFixture = readFixture('marp-directive-source-only.md');
 assert.deepEqual(analyzeMarkdownRichMode(directiveFixture), {

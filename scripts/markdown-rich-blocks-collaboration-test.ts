@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import { getSchema } from '@tiptap/core';
+import { Fragment } from '@tiptap/pm/model';
 import { EditorState } from '@tiptap/pm/state';
 
 import {
@@ -10,6 +11,7 @@ import {
   richMarkdownFromYDoc,
   validateRichMarkdownYDoc,
 } from '../app/lib/collaboration/markdown-state';
+import { TiptapTransformer, YProsemirror } from '../app/lib/collaboration/server-runtime';
 import { selectInitialTextCollaborationRepresentation } from '../app/lib/collaboration/document-state-service';
 
 assert.equal(
@@ -107,6 +109,36 @@ assert.equal(
   'paragraph',
   'the collaboration schema must fill empty containers with paragraphs, not callouts',
 );
+
+const terminalCalloutMarkdown = '> [!tip] Tipp\n> Inhalt.\n';
+const terminalCalloutDocument = createRichMarkdownYDoc(terminalCalloutMarkdown);
+try {
+  const json = TiptapTransformer.fromYdoc(terminalCalloutDocument, 'body');
+  const proseMirrorDocument = schema.nodeFromJSON(json);
+  const trailingParagraph = schema.nodes.paragraph.create({ id: 'terminal-empty-paragraph' });
+  const documentWithTrailingParagraph = proseMirrorDocument.copy(
+    proseMirrorDocument.content.append(Fragment.from(trailingParagraph)),
+  );
+  YProsemirror.updateYFragment(
+    terminalCalloutDocument,
+    terminalCalloutDocument.getXmlFragment('body'),
+    documentWithTrailingParagraph,
+    { mapping: new Map(), isOMark: new Map() },
+  );
+
+  assert.equal(
+    richMarkdownFromYDoc(terminalCalloutDocument),
+    terminalCalloutMarkdown,
+    'a structural trailing editor paragraph must serialize to the preserved single line ending',
+  );
+  assert.equal(
+    validateRichMarkdownYDoc(terminalCalloutDocument).valid,
+    true,
+    'a callout followed by an empty editor paragraph must remain round-trip stable',
+  );
+} finally {
+  terminalCalloutDocument.destroy();
+}
 
 for (const [label, transientNode] of [
   [

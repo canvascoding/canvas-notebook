@@ -84,17 +84,19 @@ export function createRichMarkdownManager() {
 }
 
 /**
- * TipTap's Markdown serializer omits a final line ending. Keeping the
- * pre-existing terminator is lossless and avoids a whole-file diff on the
- * first rich-editor transaction.
+ * Keep exactly the pre-existing final line ending. TipTap normally omits it,
+ * but a structural empty paragraph can also make the serializer emit extra
+ * terminal line endings that are not stable when parsed again.
  */
 export function restoreRichMarkdownFinalLineEnding(
   originalBody: string,
   serializedBody: string,
 ): string {
-  if (serializedBody.endsWith('\n')) return serializedBody;
   const finalLineEnding = originalBody.match(/(\r?\n)$/u)?.[1];
-  return finalLineEnding ? `${serializedBody}${finalLineEnding}` : serializedBody;
+  const bodyWithoutFinalLineEndings = serializedBody.replace(/(?:\r?\n)+$/u, '');
+  return finalLineEnding
+    ? `${bodyWithoutFinalLineEndings}${finalLineEnding}`
+    : bodyWithoutFinalLineEndings;
 }
 
 export function serializeRichMarkdownBody(
