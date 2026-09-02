@@ -1200,6 +1200,16 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     }
   }
 
+  await pool.query(`
+    UPDATE memory_review_jobs job
+    SET organization_id = session.organization_id
+    FROM pi_sessions session
+    WHERE job.organization_id IS NULL
+      AND session.user_id = job.user_id
+      AND session.session_id = job.session_id
+      AND session.organization_id IS NOT NULL
+  `);
+
   await ensurePostgresCompactionAttemptTelemetry(pool);
   await ensurePostgresCompactionAttemptIndexes(pool);
 

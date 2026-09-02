@@ -13,6 +13,7 @@ import {
   listMemoryCollections,
   readAgentMemoryOwnerStats,
   readMemoryCollection,
+  readMemoryReviewRuntimeSettings,
   resolveAgentMemoryOwnerForUser,
   resolveMemoryScopeAccess,
   setAgentMemoryArchived,
@@ -70,8 +71,8 @@ async function memorySettings(userId: string) {
   const connection = await openDb();
   try {
     const settings = await connection.get(`
-      SELECT automatic_memory_enabled, provider_installation_id, model_id,
-        memory_prompt_max_tokens, sensitive_memory_enabled, updated_at
+      SELECT automatic_memory_enabled, memory_prompt_max_tokens,
+        sensitive_memory_enabled, updated_at
       FROM memory_user_settings WHERE user_id = ?
     `, [userId]) as Record<string, unknown> | undefined;
     const review = await connection.get(`
@@ -111,10 +112,14 @@ async function memorySettings(userId: string) {
     const catalog = organization.organizationId
       ? await readAppRuntimeCatalog(organization.organizationId)
       : null;
+    const runtimeSettings = organization.organizationId
+      ? await readMemoryReviewRuntimeSettings(organization.organizationId)
+      : null;
     return {
       automaticMemoryEnabled: settings?.automatic_memory_enabled === true || settings?.automatic_memory_enabled === 1,
-      providerInstallationId: normalizedString(settings?.provider_installation_id),
-      modelId: normalizedString(settings?.model_id),
+      providerInstallationId: runtimeSettings?.providerInstallationId ?? null,
+      modelId: runtimeSettings?.modelId ?? null,
+      runtimeConfigured: Boolean(runtimeSettings),
       memoryPromptMaxTokens: Number(settings?.memory_prompt_max_tokens ?? 2_000),
       sensitiveMemoryEnabled: settings?.sensitive_memory_enabled === true || settings?.sensitive_memory_enabled === 1,
       updatedAt: Number(settings?.updated_at ?? 0),
@@ -213,29 +218,12 @@ export async function PATCH(request: NextRequest) {
     if (!Number.isInteger(memoryPromptMaxTokens) || memoryPromptMaxTokens < 0 || memoryPromptMaxTokens > MAX_MEMORY_PROMPT_TOKENS) {
       throw new Error(`memoryPromptMaxTokens must be an integer between 0 and ${MAX_MEMORY_PROMPT_TOKENS}.`);
     }
-    const providerInstallationId = normalizedString(payload.providerInstallationId);
-    const modelId = normalizedString(payload.modelId);
-    if (Boolean(providerInstallationId) !== Boolean(modelId)) throw new Error('Select both a provider and a model, or neither.');
-    if (automaticMemoryEnabled && (!providerInstallationId || !modelId)) {
-      throw new Error('Choose a provider and model before enabling automatic memory reviews.');
-    }
-    if (providerInstallationId && modelId) {
-      const organization = await readOrganizationPermissionForUser(session.user.id);
-      if (!organization.organizationId) throw new Error('Organization runtime catalog is unavailable.');
-      const catalog = await readAppRuntimeCatalog(organization.organizationId);
-      const provider = catalog.providers.find((candidate) => candidate.installationId === providerInstallationId);
-      if (!provider?.enabled || provider.status !== 'ready' || !provider.models.some((model) => model.id === modelId && model.enabled)) {
-        throw new Error('The selected provider or model is no longer available.');
-      }
-    }
     const reconciliation = await updateMemoryReviewSettings(session.user.id, {
       automaticMemoryEnabled,
-      providerInstallationId,
-      modelId,
       memoryPromptMaxTokens,
       sensitiveMemoryEnabled,
     });
-    if (automaticMemoryEnabled && providerInstallationId && modelId) {
+    if (automaticMemoryEnabled) {
       const { triggerMemoryReviewWorker } = await import('@/app/lib/memory/review-worker');
       triggerMemoryReviewWorker();
     }

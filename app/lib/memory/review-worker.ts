@@ -15,6 +15,7 @@ import {
   completeMemoryReviewJob,
   loadMemoryReviewSourceMessages,
   nextMemoryReviewDueAt,
+  parkMemoryReviewJob,
   readMemoryReviewContext,
   resolveMemoryReviewTargets,
   runMemoryMaintenanceCycle,
@@ -169,14 +170,25 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
       userId: claim.userId,
       agentId: claim.sourceAgentId,
     });
-    if (!executionContext.organizationId) throw new Error('Memory review requires an organization runtime context.');
-    const catalog = await readAppRuntimeCatalog(executionContext.organizationId);
+    if (executionContext.organizationId !== claim.organizationId) {
+      await parkMemoryReviewJob(claim.id, 'organization_context_changed');
+      return;
+    }
+    const catalog = await readAppRuntimeCatalog(claim.organizationId);
     const provider = catalog.providers.find((candidate) => candidate.installationId === claim.providerInstallationId);
-    if (!provider || provider.providerId.trim().length === 0) {
-      throw new Error('Configured memory manager provider is unavailable.');
+    const model = provider?.models.find((candidate) => candidate.id === claim.modelId);
+    if (
+      !provider
+      || !provider.enabled
+      || provider.status !== 'ready'
+      || provider.providerId.trim().length === 0
+      || !model?.enabled
+    ) {
+      await parkMemoryReviewJob(claim.id, 'provider_or_model_unavailable');
+      return;
     }
     const runtime = await resolveExecutableAgentRuntime({
-      organizationId: executionContext.organizationId,
+      organizationId: claim.organizationId,
       userId: claim.userId,
       workspaceId: executionContext.workspaceId,
       workspaceType: executionContext.workspaceType,
@@ -196,12 +208,12 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
         userId: claim.userId,
         sourceAgentId: claim.sourceAgentId,
         workspaceId: executionContext.workspaceId,
-        organizationId: executionContext.organizationId,
+        organizationId: claim.organizationId,
       }),
       resolveMemoryReviewTargets({
         userId: claim.userId,
         workspaceId: executionContext.workspaceId,
-        organizationId: executionContext.organizationId,
+        organizationId: claim.organizationId,
       }),
     ]);
     const promptMessage = buildReviewPrompt({
@@ -247,7 +259,7 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
         messages: finalMessages,
         context: {
           sessionTitleSnapshot: 'Memory review',
-          organizationId: executionContext.organizationId,
+          organizationId: claim.organizationId,
           workspaceId: executionContext.workspaceId,
           workspaceType: executionContext.workspaceType,
           agentId: MEMORY_MANAGER_AGENT_ID,
@@ -258,7 +270,7 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
     }
     const scopeContext: MemoryReviewScopeContext = {
       workspaceId: executionContext.workspaceId,
-      organizationId: executionContext.organizationId,
+      organizationId: claim.organizationId,
     };
     await applyMemoryReviewCandidates({ claim, candidates: parseCandidates(latestAssistantText(finalMessages)), scopeContext });
     await completeMemoryReviewJob(claim.id);

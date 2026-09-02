@@ -3705,6 +3705,23 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_memory_user_settings_provider_model
       ON memory_user_settings (provider_installation_id, model_id);
 
+    CREATE TABLE IF NOT EXISTS memory_review_runtime_settings (
+      organization_id TEXT PRIMARY KEY NOT NULL,
+      provider_installation_id TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      verified_catalog_revision INTEGER NOT NULL,
+      verified_at INTEGER NOT NULL,
+      configured_by_user_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (configured_by_user_id) REFERENCES user(id) ON DELETE RESTRICT
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_review_runtime_provider_model
+      ON memory_review_runtime_settings (provider_installation_id, model_id);
+    CREATE INDEX IF NOT EXISTS idx_memory_review_runtime_verified
+      ON memory_review_runtime_settings (verified_at, verified_catalog_revision);
+
     CREATE TABLE IF NOT EXISTS memory_collections (
       id TEXT PRIMARY KEY NOT NULL,
       scope_type TEXT NOT NULL,
@@ -3813,6 +3830,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE TABLE IF NOT EXISTS memory_review_jobs (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
+      organization_id TEXT,
       session_id TEXT NOT NULL,
       source_assistant_message_id INTEGER,
       from_message_sequence INTEGER NOT NULL,
@@ -3837,6 +3855,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       ON memory_review_jobs (status, scheduled_for, lease_until);
     CREATE INDEX IF NOT EXISTS idx_memory_review_jobs_user_session
       ON memory_review_jobs (user_id, session_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_memory_review_jobs_organization_status
+      ON memory_review_jobs (organization_id, status, scheduled_for);
   `);
 
   runTeamSeatLegacyBackfill(sqlite);

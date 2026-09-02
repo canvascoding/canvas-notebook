@@ -14,6 +14,7 @@ try {
 
   const expectedTables = [
     'memory_user_settings',
+    'memory_review_runtime_settings',
     'memory_collections',
     'memory_entries',
     'memory_events',

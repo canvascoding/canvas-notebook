@@ -8,6 +8,7 @@ import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { requireAgentAccess } from '@/app/lib/agents/access';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { db } from '@/app/lib/db';
+import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { piSessions } from '@/app/lib/db/schema';
 import { resolveEffectiveSkillReadRoots } from '@/app/lib/skills/effective-skill-read-roots';
@@ -89,7 +90,8 @@ function openWorkspaceContextDatabase(): Database.Database {
     workspaceContextDatabase.sqlite.close();
   }
 
-  const sqlite = new Database(sqlitePath);
+  const BetterSqlite3 = loadBetterSqlite3();
+  const sqlite = new BetterSqlite3(sqlitePath);
   sqlite.pragma('foreign_keys = ON');
   sqlite.pragma('busy_timeout = 5000');
   workspaceContextDatabase = { sqlitePath, sqlite };

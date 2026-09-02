@@ -50,6 +50,7 @@ async function main(): Promise<void> {
       scheduleMemoryReviewForSession,
       setAgentMemoryArchived,
       transferAgentMemory,
+      updateMemoryReviewRuntimeSettings,
       updateMemoryReviewSettings,
       updateMemory,
     } = await import('../app/lib/memory/service');
@@ -164,8 +165,8 @@ async function main(): Promise<void> {
     const sessionDb = await openDb();
     try {
       await sessionDb.run(`
-        INSERT INTO pi_sessions (session_id, user_id, agent_id, provider, model, created_at, updated_at)
-        VALUES ('review-session', 'user-1', 'canvas-agent', 'test', 'test-model', 1, 1)
+        INSERT INTO pi_sessions (session_id, user_id, organization_id, agent_id, provider, model, created_at, updated_at)
+        VALUES ('review-session', 'user-1', 'org-1', 'canvas-agent', 'test', 'test-model', 1, 1)
       `);
       const session = await sessionDb.get(`SELECT id FROM pi_sessions WHERE session_id = 'review-session'`) as { id: number };
       for (let sequence = 1; sequence <= 20; sequence += 1) {
@@ -176,7 +177,7 @@ async function main(): Promise<void> {
       }
     } finally { await sessionDb.close(); }
     const scheduled = await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 1_000 });
-    assert.deepEqual(scheduled, { scheduled: true, triggerType: 'turn_interval', fromMessageSequence: 1, throughMessageSequence: 20 });
+    assert.deepEqual(scheduled, { scheduled: false, triggerType: 'turn_interval', fromMessageSequence: 1, throughMessageSequence: 20 });
     assert.equal(await claimDueMemoryReviewJob(1_000), null);
     const jobDb = await openDb();
     try {
@@ -186,8 +187,6 @@ async function main(): Promise<void> {
     } finally { await jobDb.close(); }
     assert.deepEqual(await updateMemoryReviewSettings('user-1', {
       automaticMemoryEnabled: false,
-      providerInstallationId: null,
-      modelId: null,
       memoryPromptMaxTokens: 2_000,
       sensitiveMemoryEnabled: false,
     }, 1_001), { reactivatedJobs: 0, parkedJobs: 1 });
@@ -200,32 +199,52 @@ async function main(): Promise<void> {
       const job = await disabledDb.get(`SELECT status, scheduled_for, error_code FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string; scheduled_for: number | null; error_code: string | null };
       assert.deepEqual(job, { status: 'awaiting_model_configuration', scheduled_for: null, error_code: 'automatic_memory_disabled' });
     } finally { await disabledDb.close(); }
+    assert.deepEqual(await updateMemoryReviewRuntimeSettings({
+      organizationId: 'org-1',
+      providerInstallationId: 'aip_0123456789abcdef01234567',
+      modelId: 'review-model',
+      verifiedCatalogRevision: 4,
+      verifiedAt: 1_002,
+      configuredByUserId: 'user-1',
+    }), {
+      reactivatedJobs: 0,
+      settings: {
+        organizationId: 'org-1',
+        providerInstallationId: 'aip_0123456789abcdef01234567',
+        modelId: 'review-model',
+        verifiedCatalogRevision: 4,
+        verifiedAt: 1_002,
+        configuredByUserId: 'user-1',
+        updatedAt: 1_002,
+      },
+    });
     const runnableDb = await openDb();
     try {
       await runnableDb.run(`
-        INSERT INTO pi_sessions (session_id, user_id, agent_id, provider, model, created_at, updated_at)
-        VALUES ('runnable-review-session', 'user-reader', 'reader-agent', 'test', 'test-model', 1, 1)
+        INSERT INTO pi_sessions (session_id, user_id, organization_id, agent_id, provider, model, created_at, updated_at)
+        VALUES ('runnable-review-session', 'user-reader', 'org-1', 'reader-agent', 'test', 'test-model', 1, 1)
       `);
       await runnableDb.run(`
         INSERT INTO memory_user_settings (
-          user_id, automatic_memory_enabled, provider_installation_id, model_id,
-          memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at
-        ) VALUES ('user-reader', 1, 'aip_0123456789abcdef01234567', 'review-model', 2000, 0, 1, 1)
+          user_id, automatic_memory_enabled, memory_prompt_max_tokens,
+          sensitive_memory_enabled, created_at, updated_at
+        ) VALUES ('user-reader', 1, 2000, 0, 1, 1)
       `);
       await runnableDb.run(`
         INSERT INTO memory_review_jobs (
-          id, user_id, session_id, from_message_sequence, through_message_sequence,
+          id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
           trigger_type, scheduled_for, status, attempts, created_at
-        ) VALUES ('runnable-review-job', 'user-reader', 'runnable-review-session', 1, 2, 'turn_interval', 1002, 'scheduled', 0, 1)
+        ) VALUES ('runnable-review-job', 'user-reader', 'org-1', 'runnable-review-session', 1, 2, 'turn_interval', 1002, 'scheduled', 0, 1)
       `);
     } finally { await runnableDb.close(); }
     const runnableClaim = await claimDueMemoryReviewJob(1_002);
     assert.equal(runnableClaim?.id, 'runnable-review-job');
+    assert.equal(runnableClaim?.organizationId, 'org-1');
+    assert.equal(runnableClaim?.providerInstallationId, 'aip_0123456789abcdef01234567');
+    assert.equal(runnableClaim?.modelId, 'review-model');
     await completeMemoryReviewJob('runnable-review-job');
     assert.deepEqual(await updateMemoryReviewSettings('user-1', {
       automaticMemoryEnabled: true,
-      providerInstallationId: 'aip_0123456789abcdef01234567',
-      modelId: 'review-model',
       memoryPromptMaxTokens: 2_000,
       sensitiveMemoryEnabled: false,
     }, 1_003), { reactivatedJobs: 1, parkedJobs: 0 });

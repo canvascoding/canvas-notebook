@@ -1433,6 +1433,20 @@ export const memoryUserSettings = sqliteTable("memory_user_settings", {
   promptBudgetCheck: check("memory_user_settings_prompt_budget_check", sql`${table.memoryPromptMaxTokens} >= 0 AND ${table.memoryPromptMaxTokens} <= 4000`),
 }));
 
+export const memoryReviewRuntimeSettings = sqliteTable("memory_review_runtime_settings", {
+  organizationId: text("organization_id").primaryKey().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  providerInstallationId: text("provider_installation_id").notNull(),
+  modelId: text("model_id").notNull(),
+  verifiedCatalogRevision: integer("verified_catalog_revision").notNull(),
+  verifiedAt: integer("verified_at", { mode: "timestamp" }).notNull(),
+  configuredByUserId: text("configured_by_user_id").notNull().references(() => user.id, { onDelete: 'restrict' }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  providerModelIdx: index("idx_memory_review_runtime_provider_model").on(table.providerInstallationId, table.modelId),
+  verifiedIdx: index("idx_memory_review_runtime_verified").on(table.verifiedAt, table.verifiedCatalogRevision),
+}));
+
 export const memoryCollections = sqliteTable("memory_collections", {
   id: text("id").primaryKey(),
   scopeType: text("scope_type").notNull(),
@@ -1527,6 +1541,7 @@ export const memoryLegacyImports = sqliteTable("memory_legacy_imports", {
 export const memoryReviewJobs = sqliteTable("memory_review_jobs", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
   sessionId: text("session_id").notNull(),
   sourceAssistantMessageId: integer("source_assistant_message_id"),
   fromMessageSequence: integer("from_message_sequence").notNull(),
@@ -1545,6 +1560,7 @@ export const memoryReviewJobs = sqliteTable("memory_review_jobs", {
     .on(table.userId, table.sessionId, table.fromMessageSequence, table.throughMessageSequence),
   readyIdx: index("idx_memory_review_jobs_ready").on(table.status, table.scheduledFor, table.leaseUntil),
   userSessionIdx: index("idx_memory_review_jobs_user_session").on(table.userId, table.sessionId, table.createdAt),
+  organizationStatusIdx: index("idx_memory_review_jobs_organization_status").on(table.organizationId, table.status, table.scheduledFor),
   triggerCheck: check("memory_review_jobs_trigger_check", sql`${table.triggerType} IN ('turn_interval', 'idle', 'session_close', 'maintenance')`),
   statusCheck: check("memory_review_jobs_status_check", sql`${table.status} IN ('scheduled', 'awaiting_model_configuration', 'queued', 'running', 'retry_wait', 'completed', 'failed')`),
   sequenceRangeCheck: check("memory_review_jobs_sequence_range_check", sql`${table.fromMessageSequence} >= 1 AND ${table.throughMessageSequence} >= ${table.fromMessageSequence}`),

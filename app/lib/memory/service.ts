@@ -971,17 +971,117 @@ export type MemoryReviewScheduleResult = {
 
 export type MemoryReviewSettingsUpdate = {
   automaticMemoryEnabled: boolean;
-  providerInstallationId: string | null;
-  modelId: string | null;
   memoryPromptMaxTokens: number;
   sensitiveMemoryEnabled: boolean;
 };
 
-/**
- * Persists the reviewer configuration and reconciles parked jobs in the same
- * database transaction. A newly valid configuration makes every parked review
- * immediately due; disabling it parks all unclaimed work without losing it.
- */
+export type MemoryReviewRuntimeSettings = {
+  organizationId: string;
+  providerInstallationId: string;
+  modelId: string;
+  verifiedCatalogRevision: number;
+  verifiedAt: number;
+  configuredByUserId: string;
+  updatedAt: number;
+};
+
+export async function readMemoryReviewRuntimeSettings(
+  organizationId: string,
+): Promise<MemoryReviewRuntimeSettings | null> {
+  const connection = await openDb();
+  try {
+    const row = await connection.get(`
+      SELECT organization_id, provider_installation_id, model_id,
+        verified_catalog_revision, verified_at, configured_by_user_id, updated_at
+      FROM memory_review_runtime_settings
+      WHERE organization_id = ?
+      LIMIT 1
+    `, [organizationId]) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      organizationId: String(row.organization_id),
+      providerInstallationId: String(row.provider_installation_id),
+      modelId: String(row.model_id),
+      verifiedCatalogRevision: Number(row.verified_catalog_revision),
+      verifiedAt: Number(row.verified_at),
+      configuredByUserId: String(row.configured_by_user_id),
+      updatedAt: Number(row.updated_at),
+    };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function updateMemoryReviewRuntimeSettings(params: {
+  organizationId: string;
+  providerInstallationId: string;
+  modelId: string;
+  verifiedCatalogRevision: number;
+  verifiedAt?: number;
+  configuredByUserId: string;
+}): Promise<{ reactivatedJobs: number; settings: MemoryReviewRuntimeSettings }> {
+  const now = params.verifiedAt ?? Date.now();
+  const connection = await openDb();
+  try {
+    await connection.run('BEGIN');
+    try {
+      await connection.run(`
+        INSERT INTO memory_review_runtime_settings (
+          organization_id, provider_installation_id, model_id,
+          verified_catalog_revision, verified_at, configured_by_user_id,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(organization_id) DO UPDATE SET
+          provider_installation_id = excluded.provider_installation_id,
+          model_id = excluded.model_id,
+          verified_catalog_revision = excluded.verified_catalog_revision,
+          verified_at = excluded.verified_at,
+          configured_by_user_id = excluded.configured_by_user_id,
+          updated_at = excluded.updated_at
+      `, [
+        params.organizationId,
+        params.providerInstallationId,
+        params.modelId,
+        params.verifiedCatalogRevision,
+        now,
+        params.configuredByUserId,
+        now,
+        now,
+      ]);
+      const result = await connection.run(`
+        UPDATE memory_review_jobs AS job
+        SET status = 'scheduled', scheduled_for = ?, lease_until = NULL, error_code = NULL
+        WHERE organization_id = ?
+          AND status = 'awaiting_model_configuration'
+          AND NOT EXISTS (
+            SELECT 1 FROM memory_user_settings user_settings
+            WHERE user_settings.user_id = job.user_id
+              AND user_settings.automatic_memory_enabled = 0
+          )
+      `, [now, params.organizationId]) as { changes?: number };
+      await connection.run('COMMIT');
+      return {
+        reactivatedJobs: Number(result.changes ?? 0),
+        settings: {
+          organizationId: params.organizationId,
+          providerInstallationId: params.providerInstallationId,
+          modelId: params.modelId,
+          verifiedCatalogRevision: params.verifiedCatalogRevision,
+          verifiedAt: now,
+          configuredByUserId: params.configuredByUserId,
+          updatedAt: now,
+        },
+      };
+    } catch (error) {
+      await connection.run('ROLLBACK');
+      throw error;
+    }
+  } finally {
+    await connection.close();
+  }
+}
+
+/** Persists a user's memory preferences without changing the organization worker model. */
 export async function updateMemoryReviewSettings(
   userId: string,
   settings: MemoryReviewSettingsUpdate,
@@ -993,21 +1093,17 @@ export async function updateMemoryReviewSettings(
     try {
       await connection.run(`
         INSERT INTO memory_user_settings (
-          user_id, automatic_memory_enabled, provider_installation_id, model_id,
-          memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          user_id, automatic_memory_enabled, memory_prompt_max_tokens,
+          sensitive_memory_enabled, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
           automatic_memory_enabled = excluded.automatic_memory_enabled,
-          provider_installation_id = excluded.provider_installation_id,
-          model_id = excluded.model_id,
           memory_prompt_max_tokens = excluded.memory_prompt_max_tokens,
           sensitive_memory_enabled = excluded.sensitive_memory_enabled,
           updated_at = excluded.updated_at
       `, [
         userId,
         settings.automaticMemoryEnabled ? 1 : 0,
-        settings.providerInstallationId,
-        settings.modelId,
         settings.memoryPromptMaxTokens,
         settings.sensitiveMemoryEnabled ? 1 : 0,
         now,
@@ -1016,20 +1112,34 @@ export async function updateMemoryReviewSettings(
 
       let reactivatedJobs = 0;
       let parkedJobs = 0;
-      if (settings.automaticMemoryEnabled && settings.providerInstallationId && settings.modelId) {
+      if (settings.automaticMemoryEnabled) {
         const result = await connection.run(`
-          UPDATE memory_review_jobs
+          UPDATE memory_review_jobs AS job
           SET status = 'scheduled', scheduled_for = ?, lease_until = NULL, error_code = NULL
           WHERE user_id = ? AND status = 'awaiting_model_configuration'
+            AND EXISTS (
+              SELECT 1 FROM memory_review_runtime_settings runtime
+              WHERE runtime.organization_id = job.organization_id
+                AND runtime.verified_at IS NOT NULL
+            )
         `, [now, userId]) as { changes?: number };
         reactivatedJobs = Number(result.changes ?? 0);
+        await connection.run(`
+          UPDATE memory_review_jobs AS job
+          SET scheduled_for = NULL, lease_until = NULL, error_code = 'model_not_configured'
+          WHERE user_id = ? AND status = 'awaiting_model_configuration'
+            AND NOT EXISTS (
+              SELECT 1 FROM memory_review_runtime_settings runtime
+              WHERE runtime.organization_id = job.organization_id
+                AND runtime.verified_at IS NOT NULL
+            )
+        `, [userId]);
       } else {
-        const errorCode = settings.automaticMemoryEnabled ? 'model_not_configured' : 'automatic_memory_disabled';
         const result = await connection.run(`
           UPDATE memory_review_jobs
           SET status = 'awaiting_model_configuration', scheduled_for = NULL, lease_until = NULL, error_code = ?
           WHERE user_id = ? AND status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration')
-        `, [errorCode, userId]) as { changes?: number };
+        `, ['automatic_memory_disabled', userId]) as { changes?: number };
         parkedJobs = Number(result.changes ?? 0);
       }
       await connection.run('COMMIT');
@@ -1054,8 +1164,15 @@ export async function scheduleMemoryReviewForSession(params: {
 }): Promise<MemoryReviewScheduleResult | null> {
   const connection = await openDb();
   try {
-    const session = await connection.get(`SELECT id FROM pi_sessions WHERE user_id = ? AND session_id = ? LIMIT 1`, [params.userId, params.sessionId]) as { id?: number } | undefined;
+    const session = await connection.get(`
+      SELECT id, organization_id
+      FROM pi_sessions
+      WHERE user_id = ? AND session_id = ?
+      LIMIT 1
+    `, [params.userId, params.sessionId]) as { id?: number; organization_id?: string | null } | undefined;
     if (!session?.id) return null;
+    const organizationId = session.organization_id?.trim();
+    if (!organizationId) return null;
     const reviewSettings = await connection.get(`
       SELECT automatic_memory_enabled
       FROM memory_user_settings
@@ -1063,6 +1180,20 @@ export async function scheduleMemoryReviewForSession(params: {
       LIMIT 1
     `, [params.userId]) as { automatic_memory_enabled?: number | boolean } | undefined;
     const automaticMemoryDisabled = reviewSettings?.automatic_memory_enabled === false || reviewSettings?.automatic_memory_enabled === 0;
+    const runtimeSettings = await connection.get(`
+      SELECT provider_installation_id, model_id, verified_at
+      FROM memory_review_runtime_settings
+      WHERE organization_id = ?
+      LIMIT 1
+    `, [organizationId]) as { provider_installation_id?: string; model_id?: string; verified_at?: number } | undefined;
+    const runtimeConfigured = Boolean(
+      runtimeSettings?.provider_installation_id
+      && runtimeSettings.model_id
+      && Number(runtimeSettings.verified_at) > 0,
+    );
+    const parkingError = automaticMemoryDisabled
+      ? 'automatic_memory_disabled'
+      : runtimeConfigured ? null : 'model_not_configured';
     const completed = await connection.get(`
       SELECT COALESCE(MAX(through_message_sequence), 0) AS sequence
       FROM memory_review_jobs
@@ -1115,43 +1246,52 @@ export async function scheduleMemoryReviewForSession(params: {
       if (automaticMemoryDisabled) {
         await connection.run(`
           UPDATE memory_review_jobs
-          SET through_message_sequence = ?, trigger_type = ?, scheduled_for = NULL,
+          SET organization_id = ?, through_message_sequence = ?, trigger_type = ?, scheduled_for = NULL,
               status = 'awaiting_model_configuration', lease_until = NULL, error_code = 'automatic_memory_disabled'
           WHERE id = ?
-        `, [throughMessageSequence, triggerType, existing.id]);
+        `, [organizationId, throughMessageSequence, triggerType, existing.id]);
+      } else if (runtimeConfigured) {
+        await connection.run(`
+          UPDATE memory_review_jobs
+          SET organization_id = ?, through_message_sequence = ?, trigger_type = ?, scheduled_for = ?, status = 'scheduled', lease_until = NULL, error_code = NULL
+          WHERE id = ?
+        `, [organizationId, throughMessageSequence, triggerType, scheduledFor, existing.id]);
       } else {
         await connection.run(`
           UPDATE memory_review_jobs
-          SET through_message_sequence = ?, trigger_type = ?, scheduled_for = ?, status = 'scheduled', lease_until = NULL, error_code = NULL
+          SET organization_id = ?, through_message_sequence = ?, trigger_type = ?, scheduled_for = NULL,
+              status = 'awaiting_model_configuration', lease_until = NULL, error_code = 'model_not_configured'
           WHERE id = ?
-        `, [throughMessageSequence, triggerType, scheduledFor, existing.id]);
+        `, [organizationId, throughMessageSequence, triggerType, existing.id]);
       }
     } else {
       await connection.run(`
         INSERT INTO memory_review_jobs (
-          id, user_id, session_id, from_message_sequence, through_message_sequence,
+          id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
           trigger_type, scheduled_for, status, attempts, error_code, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
       `, [
         randomUUID(),
         params.userId,
+        organizationId,
         params.sessionId,
         fromMessageSequence,
         throughMessageSequence,
         triggerType,
-        automaticMemoryDisabled ? null : scheduledFor,
-        automaticMemoryDisabled ? 'awaiting_model_configuration' : 'scheduled',
-        automaticMemoryDisabled ? 'automatic_memory_disabled' : null,
+        parkingError ? null : scheduledFor,
+        parkingError ? 'awaiting_model_configuration' : 'scheduled',
+        parkingError,
         now,
       ]);
     }
-    return { scheduled: !automaticMemoryDisabled, triggerType, fromMessageSequence, throughMessageSequence };
+    return { scheduled: !parkingError, triggerType, fromMessageSequence, throughMessageSequence };
   } finally { await connection.close(); }
 }
 
 export type MemoryReviewJobClaim = {
   id: string;
   userId: string;
+  organizationId: string;
   sessionId: string;
   sourceAgentId: string;
   fromMessageSequence: number;
@@ -1170,30 +1310,25 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
       WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until <= ?
     `, [now, now]);
     const candidate = await connection.get(`
-      SELECT job.id, job.user_id, job.session_id, job.from_message_sequence, job.through_message_sequence,
-        session.agent_id
+      SELECT job.id, job.user_id, job.organization_id, job.session_id,
+        job.from_message_sequence, job.through_message_sequence, session.agent_id,
+        user_settings.automatic_memory_enabled,
+        runtime.provider_installation_id, runtime.model_id, runtime.verified_at
       FROM memory_review_jobs job
       INNER JOIN pi_sessions session ON session.user_id = job.user_id AND session.session_id = job.session_id
+      LEFT JOIN memory_user_settings user_settings ON user_settings.user_id = job.user_id
+      LEFT JOIN memory_review_runtime_settings runtime ON runtime.organization_id = job.organization_id
       WHERE job.status IN ('scheduled', 'retry_wait')
         AND scheduled_for <= ?
       ORDER BY job.scheduled_for ASC, job.created_at ASC
       LIMIT 1
     `, [now]) as Record<string, unknown> | undefined;
     if (!candidate) return null;
-    const configured = await connection.get(`
-      SELECT automatic_memory_enabled, provider_installation_id, model_id
-      FROM memory_user_settings
-      WHERE user_id = ?
-    `, [candidate.user_id]) as {
-      automatic_memory_enabled?: number | boolean;
-      provider_installation_id?: string | null;
-      model_id?: string | null;
-    } | undefined;
-    if (configured?.automatic_memory_enabled === false || configured?.automatic_memory_enabled === 0) {
+    if (candidate.automatic_memory_enabled === false || candidate.automatic_memory_enabled === 0) {
       await connection.run(`UPDATE memory_review_jobs SET status = 'awaiting_model_configuration', scheduled_for = NULL, error_code = 'automatic_memory_disabled' WHERE id = ?`, [candidate.id]);
       return null;
     }
-    if (!configured?.provider_installation_id || !configured.model_id) {
+    if (!candidate.organization_id || !candidate.provider_installation_id || !candidate.model_id || Number(candidate.verified_at) <= 0) {
       await connection.run(`UPDATE memory_review_jobs SET status = 'awaiting_model_configuration', scheduled_for = NULL, error_code = 'model_not_configured' WHERE id = ?`, [candidate.id]);
       return null;
     }
@@ -1204,13 +1339,27 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
     `, [now, now + 5 * 60 * 1000, candidate.id]) as { changes?: number };
     if (!changes.changes) return null;
     return {
-      id: String(candidate.id), userId: String(candidate.user_id), sessionId: String(candidate.session_id),
+      id: String(candidate.id), userId: String(candidate.user_id), organizationId: String(candidate.organization_id), sessionId: String(candidate.session_id),
       sourceAgentId: String(candidate.agent_id),
       fromMessageSequence: Number(candidate.from_message_sequence), throughMessageSequence: Number(candidate.through_message_sequence),
-      providerInstallationId: configured.provider_installation_id,
-      modelId: configured.model_id,
+      providerInstallationId: String(candidate.provider_installation_id),
+      modelId: String(candidate.model_id),
     };
   } finally { await connection.close(); }
+}
+
+export async function parkMemoryReviewJob(id: string, errorCode: string): Promise<void> {
+  const connection = await openDb();
+  try {
+    await connection.run(`
+      UPDATE memory_review_jobs
+      SET status = 'awaiting_model_configuration', scheduled_for = NULL,
+        lease_until = NULL, error_code = ?
+      WHERE id = ? AND status = 'running'
+    `, [errorCode.slice(0, 80), id]);
+  } finally {
+    await connection.close();
+  }
 }
 
 export type MemoryReviewSourceMessage = {
