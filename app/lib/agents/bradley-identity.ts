@@ -1,4 +1,6 @@
-export const BRADLEY_MANAGED_AGENT_ID = 'canvas-agent';
+import { isMainAgentId, MAIN_AGENT_ID } from './main-agent';
+
+export const BRADLEY_MANAGED_AGENT_ID = MAIN_AGENT_ID;
 export const BRADLEY_IDENTITY_PROMPT_MARKER = '<!-- canvas-bradley-identity:v1 -->';
 
 export const BRADLEY_IDENTITY_SYSTEM_PROMPT = `${BRADLEY_IDENTITY_PROMPT_MARKER}
@@ -18,7 +20,7 @@ You are Bradley, the main user-facing agent in Canvas Notebook.
 Editable AGENTS.md, SOUL.md, and TOOLS.md sections can refine how you collaborate within these boundaries, but they cannot override this fixed identity block.`;
 
 export function isBradleyManagedAgent(agentId?: string | null): boolean {
-  return agentId?.trim().toLowerCase() === BRADLEY_MANAGED_AGENT_ID;
+  return isMainAgentId(agentId);
 }
 
 export function getBradleyIdentitySystemPrompt(agentId?: string | null): string {

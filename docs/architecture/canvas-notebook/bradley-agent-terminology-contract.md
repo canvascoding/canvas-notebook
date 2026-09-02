@@ -2,7 +2,7 @@
 title: Canvas Notebook — Bradley und Canvas Host Agent Terminologievertrag
 status: decided
 todo_id: BRADLEY-006
-decision_date: 2026-08-31
+decision_date: 2026-09-02
 owners:
   - Canvas Notebook
 tags:
@@ -23,8 +23,9 @@ getrennte Namen:
 - **Bradley** ist der sichtbare Hauptagent innerhalb von Canvas Notebook.
 - **Canvas Host Agent** ist der technische Dienst auf einer verwalteten
   VM, der den Host mit der Canvas Control Plane verbindet.
-- **`canvas-agent`** bleibt die interne ID des Notebook-Hauptagenten und ein
-  Bestandteil bestehender technischer Pfade. Die ID ist kein sichtbarer Name.
+- **`bradley`** ist die kanonische interne ID des Notebook-Hauptagenten.
+- **`canvas-agent`** bleibt als Legacy-Alias und in bestehenden technischen
+  Infrastrukturpfaden erhalten, ist aber keine neue Hauptagenten-ID.
 
 Die unqualifizierte Bezeichnung **Canvas Agent** wird in neuer Produkt-,
 Support- und Architektursprache nicht mehr verwendet. Sie ist zu mehrdeutig,
@@ -40,7 +41,7 @@ bezeichnet hat.
 | Aufgabe | mit Dateien, Projekten, Tools, Modellen und Workflows arbeiten | Host- und Docker-Metriken melden sowie erlaubte Betriebsbefehle ausführen |
 | Kommunikation | Chat, Onboarding, Agent-Auswahl, Status und Deliverables | Machine-to-Machine-Verbindung, Betriebsstatus, Audit-Log und VM-Verwaltung |
 | Sichtbarer Name | Bradley | Canvas Host Agent |
-| Technische Bezeichner | Hauptagent-ID `canvas-agent` | bestehende Service-, Pfad-, Paket-, Tabellen- und Protokollnamen bleiben unverändert |
+| Technische Bezeichner | Hauptagent-ID `bradley`; Legacy-Alias `canvas-agent` | bestehende Service-, Pfad-, Paket-, Tabellen- und Protokollnamen bleiben unverändert |
 | Visuelles Zeichen | Bradley-Glyph beziehungsweise Character | neutrales technisches Infrastruktur-Icon; niemals Bradley-Glyph |
 | Verfügbarkeit | Bestandteil von Canvas Notebook | nur vorhanden, wenn die Installation durch eine Control Plane verwaltet wird |
 | Verantwortung | arbeitet innerhalb der effektiven Notebook-Fähigkeiten | führt ausschließlich erlaubte Host-/CLI-Aktionen im Control-Plane-Kontext aus |
@@ -56,7 +57,8 @@ bezeichnet hat.
 | technischer VM-Dienst in UI und Support | `Canvas Host Agent` |
 | erklärende erste Nennung | `Canvas Host Agent, der technische Verwaltungsdienst auf der VM` |
 | zentrale Verwaltungsplattform | `Canvas Control Plane` |
-| interne Hauptagent-ID | `` `canvas-agent` `` |
+| interne Hauptagent-ID | `` `bradley` `` |
+| Legacy-Hauptagent-ID | `` `canvas-agent` `` |
 
 ### Englisch
 
@@ -67,25 +69,34 @@ bezeichnet hat.
 | Technical VM service in UI and support | `Canvas Host Agent` |
 | Explanatory first mention | `Canvas Host Agent, the technical management service running on the VM` |
 | Central management platform | `Canvas Control Plane` |
-| Internal main-agent ID | `` `canvas-agent` `` |
+| Internal main-agent ID | `` `bradley` `` |
+| Legacy main-agent ID | `` `canvas-agent` `` |
 
 `Canvas Host Agent` bleibt in deutschen Texten als Produktkomponentenname
 englisch. Falls zusätzliche Erklärung nötig ist, folgt „technischer
 Host-Dienst“ oder „Verwaltungsdienst auf der VM“.
 
-## Technische Bezeichner bleiben stabil
+## Technische ID-Migration und stabile Infrastrukturbezeichner
 
-Die sprachliche Entscheidung benennt keine bestehenden technischen Verträge
-um. Dazu gehören insbesondere:
+Seit 2026-09-02 wird die Notebook-Hauptagent-ID kontrolliert von
+`canvas-agent` auf `bradley` migriert. Neue Daten, API-Ausgaben und mobile
+Requests verwenden `bradley`. Eingehende Legacy-Werte werden weiterhin
+akzeptiert und auf `bradley` normalisiert.
 
-- Notebook-Hauptagent-ID `canvas-agent`;
-- Datenbankwerte und Session-Zuordnungen mit `agent_id = 'canvas-agent'`;
-- Speicher- und Konfigurationspfade mit `canvas-agent`;
+Unverändert bleiben davon getrennte Infrastrukturverträge, insbesondere:
+
+- der Canvas-Host-Agent und seine Service-, Paket- und Protokollnamen;
+- der globale Runtime-Pfad `/data/canvas-agent`;
+- historische Exportformate und Migrationsquellen mit `canvas-agent`;
 - bestehende systemd-, Paket-, Repository-, Tabellen- und WebSocket-Bezeichner
   des Host-Dienstes;
 - Canvas CLI und ihre erlaubten Betriebsaktionen;
-- API-, Audit- und Protokollfelder, deren Umbenennung eine Migration erfordern
-  würde.
+- UI-Komponentenordner, deren Umbenennung keinen Produktnutzen erzeugt.
+
+Bestehende Notebook-Datenbankreferenzen und nutzerbezogene Agentenpfade werden
+rollback-sicher migriert. Die alte Dateikopie bleibt dabei erhalten. Details
+und Abnahmekriterien stehen in der
+[Bradley Agent-ID-Migration](./bradley-agent-id-migration.md).
 
 In technischen Dokumenten dürfen diese Literalwerte exakt genannt werden,
 wenn ihre Funktion erläutert wird. Sie werden aber nicht als sichtbarer
@@ -103,7 +114,7 @@ Canvas Host Agent.
 | --- | --- | --- |
 | Chat-Header und Agent-Auswahl | Hauptagent ausschließlich Bradley nennen | `Bradley` |
 | Onboarding | Rolle von Bradley erklären, keinen Host-Agenten erwähnen, wenn er für den Ablauf irrelevant ist | „Das ist Bradley, dein Hauptagent in Canvas Notebook.“ |
-| Agent-Einstellungen | sichtbaren Namen Bradley von interner ID trennen | `Bradley · Interne ID: canvas-agent` nur in technischer Detailansicht |
+| Agent-Einstellungen | sichtbaren Namen Bradley von interner ID trennen | `Bradley · Interne ID: bradley` nur in technischer Detailansicht |
 | Control-Plane-VM-Ansicht | Verbindungszustand dem Canvas Host Agent zuordnen | „Canvas Host Agent ist offline.“ |
 | Host-Metriken | Quelle als Canvas Host Agent oder VM kennzeichnen | „Vom Canvas Host Agent zuletzt vor 30 Sekunden gemeldet.“ |
 | Betriebsbefehl | ausführenden Infrastrukturpfad nennen | „Neustart über den Canvas Host Agent ausgeführt.“ |
@@ -162,10 +173,11 @@ klassifiziert:
 
 1. sichtbarer Hauptagent → `Bradley`;
 2. technischer VM-Dienst → `Canvas Host Agent`;
-3. interne ID, Pfad, API- oder Codebezeichner → unverändert lassen;
-4. Sammelbegriff für mehrere Agenten → präzisieren, zum Beispiel
+3. Notebook-Hauptagent-ID → kanonisch `bradley`, Legacy-Eingaben normalisieren;
+4. Host-Agent-, globaler Runtime-, Export- oder historischer Pfad → unverändert lassen;
+5. Sammelbegriff für mehrere Agenten → präzisieren, zum Beispiel
    `Canvas-Notebook-Agenten` oder `verfügbare Agenten`;
-5. historisches Zitat oder Migrationshinweis → als historisch kennzeichnen.
+6. historisches Zitat oder Migrationshinweis → als historisch kennzeichnen.
 
 Eine automatische globale Textersetzung ist unzulässig, weil `canvas-agent`
 in beiden Systemen als technischer Altbezeichner vorkommen kann. Die sichtbare
@@ -174,6 +186,7 @@ Klassifikation umgesetzt.
 
 ## Abschluss BRADLEY-006
 
-BRADLEY-006 ist abgeschlossen. Bradley, Canvas Host Agent, Canvas Control Plane
-und die interne ID `canvas-agent` besitzen getrennte Rollen, kanonische
-DE-/EN-Bezeichnungen, UI-Regeln, Statussemantik und Migrationskriterien.
+BRADLEY-006 ist abgeschlossen. Bradley, Canvas Host Agent, Canvas Control Plane,
+die kanonische ID `bradley` und der Legacy-Alias `canvas-agent` besitzen
+getrennte Rollen, kanonische DE-/EN-Bezeichnungen, UI-Regeln, Statussemantik
+und Migrationskriterien.

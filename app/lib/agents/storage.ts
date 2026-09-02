@@ -21,10 +21,16 @@ import {
   resolveSettingsStoragePath,
   writeSettingsJsonFileAtomic,
 } from '@/app/lib/settings-storage';
+import {
+  LEGACY_MAIN_AGENT_ID,
+  MAIN_AGENT_ID,
+  normalizeMainAgentIdAlias,
+} from './main-agent';
 
 export const AGENT_STORAGE_DIR = resolveAgentStorageDir();
 export const AGENTS_STORAGE_ROOT = resolveAgentsStorageRoot();
-export const DEFAULT_MANAGED_AGENT_ID = 'canvas-agent';
+export const DEFAULT_MANAGED_AGENT_ID = MAIN_AGENT_ID;
+export { LEGACY_MAIN_AGENT_ID } from './main-agent';
 export const EMAIL_MANAGED_AGENT_ID = 'email-agent';
 export const SYSTEM_MANAGED_AGENT_IDS = [DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID] as const;
 export const PI_RUNTIME_CONFIG_FILE = 'pi-runtime-config.json';
@@ -227,7 +233,7 @@ function normalizeManagedAgentId(agentId?: string | null): string {
   if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(normalized)) {
     throw new AgentConfigValidationError('Invalid agentId.');
   }
-  return normalized;
+  return normalizeMainAgentIdAlias(normalized);
 }
 
 function isMissingFileError(error: unknown): boolean {
@@ -330,6 +336,15 @@ function resolveLegacyManagedFilePath(fileName: AgentManagedFileName | typeof LE
   return path.join(AGENT_STORAGE_DIR, fileName);
 }
 
+function resolveLegacyMainAgentScopedFilePath(
+  fileName: AgentManagedFileName | typeof LEGACY_HEARTBEAT_FILE_NAME,
+  scope?: AgentStorageScope | null,
+): string {
+  const root = resolveAgentStorageRootForScope(fileName, DEFAULT_MANAGED_AGENT_ID, scope);
+  const directory = resolveScopedChildPath(root, LEGACY_MAIN_AGENT_ID, 'legacy main agentId');
+  return resolveScopedChildPath(directory, fileName, 'legacy main-agent managed file');
+}
+
 function shouldMigrateLegacyCanvasAgentFiles(agentId?: string | null): boolean {
   return normalizeManagedAgentId(agentId) === DEFAULT_MANAGED_AGENT_ID;
 }
@@ -364,23 +379,28 @@ async function migrateLegacyCanvasAgentFileIfMissing(
   fileName: AgentManagedFileName,
   targetPath: string,
   existingContent: string | null,
+  scope?: AgentStorageScope | null,
 ): Promise<string | null> {
   if (existingContent !== null) {
     return existingContent;
   }
 
-  const legacyContent = await readFileIfExists(resolveLegacyManagedFilePath(fileName));
-  if (legacyContent === null) {
-    return null;
+  const sourcePaths = [resolveLegacyMainAgentScopedFilePath(fileName, scope)];
+  if (!scope?.userId) {
+    sourcePaths.push(resolveLegacyManagedFilePath(fileName));
   }
-
-  await writeTextAtomic(targetPath, legacyContent);
-  return legacyContent;
+  for (const sourcePath of sourcePaths) {
+    const legacyContent = await readFileIfExists(sourcePath);
+    if (legacyContent === null) continue;
+    await writeTextAtomic(targetPath, legacyContent);
+    return legacyContent;
+  }
+  return null;
 }
 
 export async function ensureAgentManagedFilesExist(agentId?: string | null, scope?: AgentStorageScope | null): Promise<void> {
-  const shouldUseLegacyMigration = !scope?.userId && shouldMigrateLegacyCanvasAgentFiles(agentId);
-  if (shouldUseLegacyMigration) {
+  const shouldUseLegacyMigration = shouldMigrateLegacyCanvasAgentFiles(agentId);
+  if (shouldUseLegacyMigration && !scope?.userId) {
     await ensureLegacyAgentStorageDirectory();
   }
 
@@ -395,7 +415,7 @@ export async function ensureAgentManagedFilesExist(agentId?: string | null, scop
     }
 
     if (shouldUseLegacyMigration) {
-      existing = await migrateLegacyCanvasAgentFileIfMissing(fileName, filePath, existing);
+      existing = await migrateLegacyCanvasAgentFileIfMissing(fileName, filePath, existing, scope);
       if (existing !== null) {
         continue;
       }
@@ -431,7 +451,10 @@ export async function readLegacyManagedAgentFileContents(
 ): Promise<string[]> {
   const sourcePaths = [resolveManagedFilePath(fileName, agentId)];
   if (shouldMigrateLegacyCanvasAgentFiles(agentId)) {
-    sourcePaths.push(resolveLegacyManagedFilePath(fileName));
+    sourcePaths.push(
+      resolveLegacyMainAgentScopedFilePath(fileName),
+      resolveLegacyManagedFilePath(fileName),
+    );
   }
   const contents = await Promise.all(sourcePaths.map((filePath) => readFileIfExists(filePath)));
   return [...new Set(contents.filter((content): content is string => content !== null))];
@@ -451,6 +474,10 @@ export async function readLegacyHeartbeatInstructions(input: {
   if (scopedContent !== null) return scopedContent;
 
   if (shouldMigrateLegacyCanvasAgentFiles(input.agentId)) {
+    const legacyScopedContent = await readFileIfExists(
+      resolveLegacyMainAgentScopedFilePath(LEGACY_HEARTBEAT_FILE_NAME, { userId: input.userId }),
+    );
+    if (legacyScopedContent !== null) return legacyScopedContent;
     return (await readFileIfExists(resolveLegacyManagedFilePath(LEGACY_HEARTBEAT_FILE_NAME))) ?? '';
   }
 
@@ -466,6 +493,10 @@ export async function removeLegacyHeartbeatInstructions(input: {
   await fs.rm(scopedPath, { force: true });
 
   if (shouldMigrateLegacyCanvasAgentFiles(input.agentId)) {
+    await fs.rm(
+      resolveLegacyMainAgentScopedFilePath(LEGACY_HEARTBEAT_FILE_NAME, { userId: input.userId }),
+      { force: true },
+    );
     await fs.rm(resolveLegacyManagedFilePath(LEGACY_HEARTBEAT_FILE_NAME), { force: true });
   }
 }

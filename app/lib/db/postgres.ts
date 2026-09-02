@@ -8,6 +8,7 @@ import {
   TEAM_SEAT_LEGACY_MIGRATION_METADATA,
   TEAM_SEAT_LEGACY_MIGRATION_REASON,
 } from './migrate';
+import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 
 const TABLE_NAME_SYMBOL = Symbol.for('drizzle:Name');
@@ -1294,12 +1295,13 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   }
 
   await runPostgresTeamSeatLegacyBackfill(pool);
+  await migratePostgresMainAgentId(pool);
 
   const now = Math.floor(Date.now() / 1000);
   await pool.query(
     `
       INSERT INTO agents (agent_id, name, type, removable, created_at, updated_at)
-      VALUES ('canvas-agent', 'Bradley', 'main', 0, $1, $2)
+      VALUES ('bradley', 'Bradley', 'main', 0, $1, $2)
       ON CONFLICT (agent_id) DO NOTHING
     `,
     [now, now],

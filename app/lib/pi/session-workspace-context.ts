@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { requireAgentAccess } from '@/app/lib/agents/access';
+import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { db } from '@/app/lib/db';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { piSessions } from '@/app/lib/db/schema';
@@ -405,7 +406,7 @@ export async function resolveAgentExecutionContextForSession(input: {
     agentId: input.agentId,
     permissions: input.permissions,
   });
-  await requireAgentAccess(input.userId, input.agentId || 'canvas-agent', 'canUse', {
+  await requireAgentAccess(input.userId, input.agentId || DEFAULT_MANAGED_AGENT_ID, 'canUse', {
     organizationId: workspace.organizationId,
     workspaceId: workspace.workspaceId,
     projectId: workspace.projectId,

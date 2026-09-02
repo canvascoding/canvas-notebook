@@ -53,7 +53,7 @@ async function main(): Promise<void> {
   assert.match(identitySource, /\[forced-color-adjust:auto\]/u);
   assert.match(identitySource, /@media \(prefers-reduced-motion: reduce\)/u);
   assert.match(identitySource, /animation: none !important/u);
-  assert.match(identitySource, /agentId === DEFAULT_AGENT_ID/u);
+  assert.match(identitySource, /isMainAgentId\(agentId\)/u);
 
   const selectorSource = readProjectFile(
     'app/components/canvas-agent-chat/ChatAgentSelector.tsx',
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
   assert.match(starterSource, /alt=""/u);
   assert.match(starterSource, /aria-hidden="true"/u);
   assert.match(starterSource, /h-32 w-32[^']*md:h-36 md:w-36/u);
-  assert.match(starterSource, /activeAgentId === DEFAULT_AGENT_ID/u);
+  assert.match(starterSource, /isMainAgentId\(activeAgentId\)/u);
   assert.match(starterSource, /!isStudioChatContext/u);
 
   const runtimeSource = readProjectFile(

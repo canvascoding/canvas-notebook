@@ -3,7 +3,7 @@
 import type { SVGProps } from 'react';
 
 import { AgentIcon } from '@/app/components/agents/AgentAvatar';
-import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { isMainAgentId } from '@/app/lib/agents/main-agent';
 import { cn } from '@/lib/utils';
 
 export function BradleyGlyph({
@@ -127,7 +127,7 @@ export function AgentIdentityIcon({
   className?: string;
   state?: 'idle' | 'working';
 }) {
-  if (agentId === DEFAULT_AGENT_ID) {
+  if (isMainAgentId(agentId)) {
     return <BradleyGlyph className={className} state={state} />;
   }
 

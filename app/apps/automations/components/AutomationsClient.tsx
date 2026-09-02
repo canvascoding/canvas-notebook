@@ -39,7 +39,7 @@ import { toast } from 'sonner';
 
 import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automations/components/WorkspaceDirectoryPickerDialog';
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
-import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
+import { MAIN_AGENT_DISPLAY_NAME, MAIN_AGENT_ID } from '@/app/lib/agents/main-agent';
 import { buildAutomationMutationPayload } from '@/app/lib/automations/client-payload';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
@@ -270,7 +270,7 @@ type TelegramDeliveryStatus = {
 const SHOW_AUTOMATION_CHANNEL_SELECTOR = false;
 
 const WEEKDAY_OPTIONS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-const DEFAULT_AGENT_ID = 'canvas-agent';
+const DEFAULT_AGENT_ID = MAIN_AGENT_ID;
 const AUTOMATION_FIELD_CLASS = 'h-10 w-full min-w-0 max-w-full box-border rounded-md border border-input bg-background px-3 text-sm';
 const AUTOMATION_NAME_FIELD_CLASS = 'h-11 w-full min-w-0 max-w-full box-border rounded-md border border-input bg-background px-3 text-base font-medium';
 const AUTOMATION_MONO_FIELD_CLASS = 'h-10 w-full min-w-0 max-w-full box-border rounded-md border border-input bg-background px-3 font-mono text-xs';

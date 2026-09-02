@@ -1,4 +1,6 @@
-export const DEFAULT_AGENT_ID = 'canvas-agent';
+import { MAIN_AGENT_ID } from '@/app/lib/agents/main-agent';
+
+export const DEFAULT_AGENT_ID = MAIN_AGENT_ID;
 export const WEB_CHANNEL_ID = 'web';
 export const LEGACY_APP_CHANNEL_ID = 'app';
 export const TELEGRAM_CHANNEL_ID = 'telegram';

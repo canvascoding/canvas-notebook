@@ -4,7 +4,7 @@ import { History } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import Image from 'next/image';
 
-import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { isMainAgentId } from '@/app/lib/agents/main-agent';
 import type { AISession } from '@/app/lib/chat/types';
 
 export function ChatStarterScreen({
@@ -21,7 +21,7 @@ export function ChatStarterScreen({
   onOpenLatestSession: () => void;
 }) {
   const t = useTranslations('chat');
-  const showBradley = activeAgentId === DEFAULT_AGENT_ID && !isStudioChatContext;
+  const showBradley = isMainAgentId(activeAgentId) && !isStudioChatContext;
   const starterTitle = isStudioChatContext
     ? t('studioStarterTitle')
     : showBradley

@@ -1,8 +1,7 @@
-import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
-import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
+import { isMainAgentId, MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
 
 export function getAgentDisplayName(agentId: string | null | undefined): string {
-  if (!agentId || agentId === DEFAULT_AGENT_ID) {
+  if (!agentId || isMainAgentId(agentId)) {
     return MAIN_AGENT_DISPLAY_NAME;
   }
 
@@ -17,7 +16,7 @@ export function getAgentProfileDisplayName(
   agentId: string | null | undefined,
   profileName: string | null | undefined,
 ): string {
-  if (!agentId || agentId === DEFAULT_AGENT_ID) {
+  if (!agentId || isMainAgentId(agentId)) {
     return MAIN_AGENT_DISPLAY_NAME;
   }
 

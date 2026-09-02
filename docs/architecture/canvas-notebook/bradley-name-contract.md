@@ -2,7 +2,7 @@
 title: Canvas Notebook — Bradley Namensvertrag
 status: decided
 decision_id: BRADLEY-001
-decision_date: 2026-08-31
+decision_date: 2026-09-02
 supersedes: MO-001
 owners:
   - Canvas Notebook
@@ -25,8 +25,9 @@ UI-Namen. Die frühere Arbeitsbezeichnung Mo ist durch diese Entscheidung
 abgelöst.
 
 Diese Regel gilt für neue Texte und Implementierungen in UI, Onboarding,
-Produktdokumentation, Assets und Marketing. Bereits vorhandene technische
-Bezeichner werden dadurch nicht umbenannt.
+Produktdokumentation, Assets und Marketing. Die Notebook-Hauptagent-ID wurde
+anschließend in einer gesonderten technischen Entscheidung auf `bradley`
+migriert; Infrastrukturbezeichner des Canvas Host Agent bleiben davon getrennt.
 
 ## Vertrag pro Oberfläche
 
@@ -34,7 +35,7 @@ Bezeichner werden dadurch nicht umbenannt.
 | --- | --- | --- |
 | Agent-Auswahl und Chat-Header | `Bradley` | Nur der Hauptagent erhält diesen sichtbaren Namen. |
 | Onboarding | `Bradley` | Erste Nennung: „Bradley, der Hauptagent von Canvas Notebook“. |
-| Produktdokumentation | `Bradley` | In technischen Texten bei der ersten Nennung: „Bradley (Display-Name des Hauptagenten `canvas-agent`)“. |
+| Produktdokumentation | `Bradley` | In technischen Texten bei der ersten Nennung: „Bradley (Hauptagent-ID `bradley`)“. |
 | Marketing und Website | `Bradley` | Der Name erscheint mit einem klaren Canvas-Notebook-Absender, nicht als zweite eigenständige Produktmarke. |
 | Status- und Fehlermeldungen | `Bradley` oder kein Eigenname | Der Name wird nur verwendet, wenn tatsächlich der Hauptagent gemeint ist. |
 | Eigene und spezialisierte Agenten | jeweiliger eigener Name | Keine Umbenennung zu Bradley. |
@@ -42,18 +43,20 @@ Bezeichner werden dadurch nicht umbenannt.
 
 ## Technische Grenzen
 
-Die Namensentscheidung ändert ausschließlich den sichtbaren Display- und
-Identitätsvertrag sowie die noch nicht produktiv integrierten Brand-Assets.
-Folgende Werte bleiben stabil:
+Die kanonische Notebook-Hauptagent-ID ist `bradley`. Die frühere ID
+`canvas-agent` bleibt an Eingabegrenzen als Legacy-Alias gültig. Folgende
+getrennte Werte bleiben stabil:
 
-- interne Agent-ID `canvas-agent`;
-- Datenbankbeziehungen und Session-Zuordnungen;
-- API-Parameter und Automationsreferenzen;
-- Speicherpfade wie `/data/agents/canvas-agent`;
+- Datenbankbeziehungen und Session-Zuordnungen werden unter Beibehaltung ihrer
+  Semantik auf `bradley` migriert;
+- API-Parameter und Automationsreferenzen akzeptieren weiterhin den Legacy-Alias;
+- alte nutzerbezogene Agentenpfade werden nach `bradley` kopiert und bleiben als
+  Rollback-Kopie bestehen;
+- der globale Infrastrukturpfad `/data/canvas-agent` bleibt unverändert;
 - Namen eigener, spezialisierter und technischer Agenten.
 
-Eine technische Umbenennung von `canvas-agent` ist nicht Bestandteil dieses
-Vorhabens.
+Der vollständige Vertrag steht in der
+[Bradley Agent-ID-Migration](./bradley-agent-id-migration.md).
 
 ## Schreibweise
 
@@ -87,4 +90,5 @@ BRADLEY-001 und BRADLEY-003 werden dann mit Begründung erneut geöffnet.
 
 BRADLEY-001 ist abgeschlossen: **Bradley** ist als einziger öffentlicher Name
 für UI, Onboarding, Dokumentation, Assets und Marketing festgelegt, ohne
-Kurzform und klar getrennt von der technischen ID `canvas-agent`.
+Kurzform. Die kanonische technische Hauptagent-ID lautet ebenfalls `bradley`;
+`canvas-agent` ist nur noch Legacy-Alias beziehungsweise Infrastrukturbezeichner.

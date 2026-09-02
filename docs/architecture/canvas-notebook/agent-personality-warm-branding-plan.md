@@ -142,8 +142,8 @@ Folgende Grundlagen sind bereits vorhanden:
 - [x] Deutsche und englische Produktstimme im
   [Bradley DE-/EN-Sprachleitfaden](./bradley-de-en-language-style-guide.md)
   vollständig dokumentiert.
-- [x] Festen, versionierten Bradley Identity Block ausschließlich für
-  `canvas-agent` in die Prompt-Architektur integriert und bestehende
+- [x] Festen, versionierten Bradley Identity Block ausschließlich für den
+  Hauptagenten (`bradley`, einschließlich Legacy-Alias `canvas-agent`) in die Prompt-Architektur integriert und bestehende
   Session-Snapshots verlustfrei ergänzt; Nachweis:
   [Bradley Prompt-Identity-Implementierung](./bradley-prompt-identity-implementation.md).
 
@@ -164,8 +164,9 @@ Es gilt:
 - UI-Name: **Bradley**
 - Keine Kurzform: **Brad** nicht verwenden
 - Frühere Arbeitsnamen: **Mo**, **Mosa** und **Mosaic Agent** nicht verwenden
-- Interne technische ID: unverändert `canvas-agent`
-- Technische Speicherpfade und API-Verträge: unverändert
+- Kanonische technische ID: `bradley`
+- Legacy-ID: `canvas-agent` bleibt an Eingabe- und Migrationsgrenzen gültig
+- Globale Infrastrukturpfade des Canvas Host Agent bleiben unverändert
 
 BRADLEY-002 hat Aussprache und Wirkung validiert. BRADLEY-003 hat Produkt-, Domain- und
 Markenrisiken dokumentiert. Bradley bleibt eine Identität innerhalb von Canvas
@@ -262,7 +263,7 @@ technische Canvas Host Agent hinzu.
 
 | Ebene | Sichtbare Identität | Regel |
 | --- | --- | --- |
-| Hauptagent `canvas-agent` | Bradley | Bradley ist die Produktidentität des Hauptagenten. |
+| Hauptagent `bradley` | Bradley | Bradley ist die Produktidentität des Hauptagenten; `canvas-agent` wird als Legacy-Alias akzeptiert. |
 | Eigene und spezialisierte Agenten | Eigener Name und eigenes Icon | Antworten dürfen nicht als Bradley beschriftet werden. |
 | E-Mail-Agent | E-Mail-Agent beziehungsweise definierter Profilname | Keine Bradley-Umbenennung. |
 | Delegierte Aufgaben | Tatsächlich verwendeter Agent | Bradley kann delegieren, ist aber nicht automatisch der ausführende Agent. |
@@ -272,10 +273,12 @@ technische Canvas Host Agent hinzu.
 
 ### Nicht verhandelbare technische Grenze
 
-Die interne ID `canvas-agent`, Datenbankbeziehungen, Session-Zuordnungen,
-Automationen, API-Parameter und Pfade wie `/data/agents/canvas-agent` werden
-nicht aus Branding-Gründen umbenannt. Bradley ist zunächst ein Display- und
-Identitätsvertrag, keine technische ID-Migration.
+Die Notebook-Hauptagent-ID wird kontrolliert auf `bradley` migriert.
+Datenbankbeziehungen, Session-Zuordnungen, Automationen und nutzerbezogene
+Agentenpfade behalten ihre Semantik; Legacy-Werte werden aliasfähig gelesen und
+rollback-sicher migriert. Der davon getrennte globale Infrastrukturpfad
+`/data/canvas-agent` und der Canvas Host Agent werden nicht umbenannt. Siehe
+[Bradley Agent-ID-Migration](./bradley-agent-id-migration.md).
 
 ## 6. Persönlichkeit und Prompt-Hierarchie
 
@@ -427,7 +430,8 @@ benötigt daher einen expliziten Migrationsvertrag.
   versioniert und nachvollziehbar auf Bradley migriert.
 - Bewusst gesetzte eigene Namen oder organisationsbezogene Anpassungen werden
   vor einer Migration erkannt und geschützt.
-- Sessions, Agent-IDs, Automationen und Speicherpfade bleiben stabil.
+- Sessions und Automationen werden auf die kanonische ID `bradley` migriert;
+  `canvas-agent` bleibt als Legacy-Alias lesbar.
 - Deutsche und englische Onboarding-Texte werden gemeinsam aktualisiert.
 
 ## 10. Marketing und Datenhoheit
@@ -460,7 +464,7 @@ Empfohlene Formulierung:
 
 ## 11. Nicht im Umfang dieses Vorhabens
 
-- Umbenennung der internen Agent-ID `canvas-agent`;
+- Entfernung des Legacy-Alias `canvas-agent` ohne gesonderte Auslaufentscheidung;
 - Änderung der Agent-, Subagent- oder Automationsarchitektur;
 - Umbenennung oder technische Änderung des Canvas Host Agent;
 - Änderung von Tool-Berechtigungen oder Sicherheitsgrenzen;
@@ -528,6 +532,7 @@ Statuslegende: `offen`, `in Arbeit`, `blockiert`, `fertig`.
 | BRADLEY-034 | fertig | UI-Fallbacks und Registry-Defaults inventarisieren und aktualisieren; Inventar: [Bradley UI-Fallbacks](./bradley-ui-fallback-inventory.md) | Kein sichtbarer Standard-Fallback zeigt unbeabsichtigt „Canvas Agent“, wenn der Hauptagent Bradley ist. |
 | BRADLEY-035 | fertig | Onboarding-, Notification-, Automation- und E-Mail-Texte inventarisieren; Inventar: [Bradley sichtbare Copy](./bradley-visible-copy-inventory.md) | Alle sichtbaren Hauptagent-Referenzen sind klassifiziert und entweder migriert oder bewusst beibehalten. |
 | BRADLEY-036 | fertig | Interne ID- und Pfadstabilität durch Regressionstests absichern; Nachweis: [Bradley Runtime-Stabilitätsregression](./bradley-runtime-stability-regression.md) | Tests belegen, dass `canvas-agent`, Sessions, Automationen, APIs und Speicherpfade unverändert funktionieren. |
+| BRADLEY-037 | fertig | Kanonische Hauptagent-ID auf `bradley` migrieren; Implementierung: [Bradley Agent-ID-Migration](./bradley-agent-id-migration.md) | Neue Daten und Clients verwenden `bradley`; SQLite, PostgreSQL, Sessions, Automationen und Agentendateien werden migriert; `canvas-agent` bleibt als Legacy-Alias gültig. |
 
 ### Phase E — UI-Pilot
 

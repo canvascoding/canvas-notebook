@@ -28,7 +28,11 @@ import type {
   AiProviderSafeConfig,
   AiRuntimeSelection,
 } from '@/app/lib/agent-runtime-policy/types';
-import { isManagedControlPlaneAvailable, PI_RUNTIME_CONFIG_FILE } from '@/app/lib/agents/storage';
+import {
+  DEFAULT_MANAGED_AGENT_ID,
+  isManagedControlPlaneAvailable,
+  PI_RUNTIME_CONFIG_FILE,
+} from '@/app/lib/agents/storage';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { openDb } from '@/app/lib/db';
 import {
@@ -315,7 +319,7 @@ async function ensureMigratedOwnerPreference(input: {
     organizationId: input.organizationId,
     userId: input.state.ownerUserId,
     workspaceId: input.state.ownerPersonalWorkspaceId,
-    agentId: 'canvas-agent',
+    agentId: DEFAULT_MANAGED_AGENT_ID,
   };
   if (await readUserModelPreference(key)) return;
   await writeUserModelPreferenceStore({

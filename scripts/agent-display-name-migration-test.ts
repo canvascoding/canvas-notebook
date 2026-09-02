@@ -25,7 +25,7 @@ async function main() {
   } = await import('../app/lib/agents/registry');
 
   const fresh = await ensureCanvasAgent();
-  assert.equal(fresh.agentId, 'canvas-agent');
+  assert.equal(fresh.agentId, 'bradley');
   assert.equal(fresh.name, MAIN_AGENT_DISPLAY_NAME);
   assert.equal(fresh.name, 'Bradley');
   assert.equal(fresh.type, 'main');
@@ -36,7 +36,7 @@ async function main() {
   sqlite.prepare(`
     UPDATE agents
     SET name = 'Canvas Agent', revision = ?, updated_at = ?
-    WHERE agent_id = 'canvas-agent'
+    WHERE agent_id = 'bradley'
   `).run(legacyRevision, Date.now() - 10_000);
 
   const migrated = await ensureCanvasAgent();
@@ -53,12 +53,12 @@ async function main() {
   sqlite.prepare(`
     UPDATE agents
     SET name = 'Studio Companion', revision = ?, updated_at = ?
-    WHERE agent_id = 'canvas-agent'
+    WHERE agent_id = 'bradley'
   `).run(customRevision, customUpdatedAt);
   const beforePreservationCheck = sqlite.prepare(`
     SELECT updated_at AS updatedAt
     FROM agents
-    WHERE agent_id = 'canvas-agent'
+    WHERE agent_id = 'bradley'
   `).get() as { updatedAt: number };
 
   const preserved = await ensureCanvasAgent();
@@ -67,7 +67,7 @@ async function main() {
   const afterPreservationCheck = sqlite.prepare(`
     SELECT updated_at AS updatedAt
     FROM agents
-    WHERE agent_id = 'canvas-agent'
+    WHERE agent_id = 'bradley'
   `).get() as { updatedAt: number };
   assert.equal(afterPreservationCheck.updatedAt, beforePreservationCheck.updatedAt);
   sqlite.close();

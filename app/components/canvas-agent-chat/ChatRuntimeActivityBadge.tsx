@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import { AgentIdentityIcon } from '@/app/components/agents/AgentIdentityVisual';
-import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { isMainAgentId } from '@/app/lib/agents/main-agent';
 import type { RuntimeStatus } from './runtime-status';
 
 type ChatRuntimeActivityBadgeProps = {
@@ -22,7 +22,7 @@ export function ChatRuntimeActivityBadge({
   const phase = status?.phase ?? 'idle';
   const isWorking = phase !== 'idle';
   const isAborting = phase === 'aborting';
-  const isBradley = agentId === DEFAULT_AGENT_ID;
+  const isBradley = isMainAgentId(agentId);
   const showBradleyStatus = isBradley && isWorking && !isAborting;
   const label = isPreparingResponse
     ? t('preparingResponse')
