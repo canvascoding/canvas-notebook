@@ -9,12 +9,12 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
-import { ArrowLeft, ChevronDown, Maximize2, MessageSquare, PanelRight, X } from 'lucide-react';
+import { ChevronDown, Maximize2, MessageSquare, PanelRight, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 
-import { Link } from '@/i18n/navigation';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
+import { AppBackButton } from '@/app/components/navigation/AppBackButton';
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
@@ -85,7 +85,7 @@ type ChatDockShellProps = {
   children: ReactNode;
   title: ReactNode;
   backHref: string;
-  backLabel: string;
+  preferBackFallback?: boolean;
   requestContext: ChatRequestContext;
   storageKeyPrefix: string;
   hintPage?: string;
@@ -104,7 +104,7 @@ export function ChatDockShell({
   children,
   title,
   backHref,
-  backLabel,
+  preferBackFallback = false,
   requestContext,
   storageKeyPrefix,
   hintPage = '',
@@ -375,12 +375,7 @@ export function ChatDockShell({
         <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="relative flex h-full items-center justify-between gap-3 px-4 md:px-6">
             <div className="relative z-10 min-w-0 flex items-center gap-2 sm:gap-3">
-              <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
-                <Link href={backHref}>
-                  <ArrowLeft className="h-4 w-4" />
-                  <span className="hidden sm:inline">{backLabel}</span>
-                </Link>
-              </Button>
+              <AppBackButton fallbackHref={backHref} preferFallback={preferBackFallback} />
               <h1 className={cn('min-w-0 truncate text-sm font-semibold sm:text-base md:text-lg', titleClassName)}>
                 {title}
               </h1>

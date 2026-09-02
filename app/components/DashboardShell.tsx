@@ -11,7 +11,6 @@ import {
 } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft,
   Files,
   FileText,
   Globe2,
@@ -24,7 +23,7 @@ import {
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
-import { Link } from '@/i18n/navigation';
+import { AppBackButton } from '@/app/components/navigation/AppBackButton';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -1119,12 +1118,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
           <header className="z-40 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/88 sm:px-4">
             <div className="flex min-w-0 items-center gap-2">
-              <Button asChild variant="outline" size="sm" className="shrink-0 gap-2 px-2 sm:px-3">
-                <Link href="/">
-                  <ArrowLeft className="h-4 w-4" />
-                  <span className="hidden sm:inline">{tCommon('suite')}</span>
-                </Link>
-              </Button>
+              <AppBackButton fallbackHref="/" className="shrink-0 gap-2 px-2 sm:px-3" />
               <div className="hidden min-w-0 md:block">
                 <div className="truncate text-sm font-semibold">{tNotebook('workbenchTitle')}</div>
                 <div className="truncate text-[11px] text-muted-foreground">{tNotebook('workbenchSubtitle')}</div>

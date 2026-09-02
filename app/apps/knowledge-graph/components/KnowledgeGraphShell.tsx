@@ -11,7 +11,6 @@ import { usePathname } from '@/i18n/navigation';
 
 export function KnowledgeGraphShell() {
   const t = useTranslations('knowledgeGraph');
-  const tCommon = useTranslations('common');
   const pathname = usePathname();
   const requestContext = useMemo<ChatRequestContext>(() => ({
     currentPage: pathname ?? '/knowledge-graph',
@@ -21,7 +20,6 @@ export function KnowledgeGraphShell() {
     <ChatDockShell
       title={t('title')}
       backHref="/"
-      backLabel={tCommon('suite')}
       requestContext={requestContext}
       storageKeyPrefix="knowledgeGraph"
       hintPage="knowledge-graph"
