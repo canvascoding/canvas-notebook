@@ -3,8 +3,8 @@
 This file is generated from `package-lock.json`, installed package license files,
 versioned overrides, and the bundled non-npm component inventory.
 
-- Canvas Notebook version: 2026.9.2.1
-- Lockfile SHA-256: `dbd4040dee71af4cbccd88352feee135a75c3f868108084bee6ca1fd76125841`
+- Canvas Notebook version: 2026.9.2.2
+- Lockfile SHA-256: `ae443f98ee76bd518cd6d9f2553449081cee46cc074dffe51b8da135954ff0d0`
 - Distributed components: 1509
 - Release gate: **approved**
 
@@ -499,48 +499,48 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @swc/types | 0.1.27 | runtime | Apache-2.0 | allowed |
 | @testing-library/dom | 10.4.1 | runtime | MIT | allowed |
 | @testing-library/react | 16.3.2 | runtime | MIT | allowed |
-| @tiptap/core | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-blockquote | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-bold | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-bubble-menu | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-bullet-list | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-code-block | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-code | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-collaboration-caret | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-collaboration | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-document | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-dropcursor | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-floating-menu | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-gapcursor | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-hard-break | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-heading | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-horizontal-rule | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-image | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-italic | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-link | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-list-item | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-list-keymap | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-list | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-mathematics | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-ordered-list | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-paragraph | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-placeholder | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-strike | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-table-cell | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-table-header | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-table-row | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-table | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-task-item | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-task-list | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-text | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-underline | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extension-unique-id | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/extensions | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/markdown | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/pm | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/react | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/starter-kit | 3.31.0 | runtime | MIT | allowed |
-| @tiptap/suggestion | 3.31.0 | runtime | MIT | allowed |
+| @tiptap/core | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-blockquote | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-bold | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-bubble-menu | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-bullet-list | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-code-block | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-code | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-collaboration-caret | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-collaboration | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-document | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-dropcursor | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-floating-menu | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-gapcursor | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-hard-break | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-heading | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-horizontal-rule | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-image | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-italic | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-link | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-list-item | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-list-keymap | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-list | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-mathematics | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-ordered-list | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-paragraph | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-placeholder | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-strike | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-table-cell | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-table-header | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-table-row | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-table | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-task-item | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-task-list | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-text | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-underline | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extension-unique-id | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/extensions | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/markdown | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/pm | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/react | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/starter-kit | 3.27.3 | runtime | MIT | allowed |
+| @tiptap/suggestion | 3.27.3 | runtime | MIT | allowed |
 | @tiptap/y-tiptap | 3.0.7 | runtime | MIT | allowed |
 | @tokenizer/inflate | 0.4.1 | runtime | MIT | allowed |
 | @tokenizer/token | 0.3.0 | runtime | MIT | allowed |
@@ -623,7 +623,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @webassemblyjs/wasm-opt | 1.14.1 | runtime | MIT | allowed |
 | @webassemblyjs/wasm-parser | 1.14.1 | runtime | MIT | allowed |
 | @webassemblyjs/wast-printer | 1.14.1 | runtime | MIT | allowed |
-| @xmldom/xmldom | 0.8.15 | runtime | MIT | allowed |
+| @xmldom/xmldom | 0.8.13 | runtime | MIT | allowed |
 | @xmldom/xmldom | 0.9.10 | runtime | MIT | allowed |
 | @xterm/addon-clipboard | 0.2.0 | runtime | MIT | allowed |
 | @xterm/addon-fit | 0.11.0 | runtime | MIT | allowed |
@@ -666,7 +666,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | bare-stream | 2.13.3 | runtime | Apache-2.0 | allowed |
 | bare-url | 2.4.5 | runtime | Apache-2.0 | allowed |
 | base64-js | 1.5.1 | runtime | MIT | allowed |
-| baseline-browser-mapping | 2.11.20 | runtime | Apache-2.0 | allowed |
+| baseline-browser-mapping | 2.10.43 | runtime | Apache-2.0 | allowed |
 | basic-ftp | 5.3.1 | runtime | MIT | allowed |
 | batch | 0.6.1 | runtime | MIT | allowed |
 | bcryptjs | 3.0.3 | runtime | BSD-3-Clause | allowed |
@@ -684,7 +684,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | brace-expansion | 5.0.9 | runtime | MIT | allowed |
 | braces | 3.0.3 | runtime | MIT | allowed |
 | browser-fs-access | 0.29.1 | runtime | Apache-2.0 | allowed |
-| browserslist | 4.28.8 | runtime | MIT | allowed |
+| browserslist | 4.28.6 | runtime | MIT | allowed |
 | buffer-crc32 | 0.2.13 | runtime | MIT | allowed |
 | buffer-crc32 | 1.0.0 | runtime | MIT | allowed |
 | buffer-equal-constant-time | 1.0.1 | runtime | BSD-3-Clause | allowed |
@@ -696,7 +696,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | call-bind-apply-helpers | 1.0.2 | runtime | MIT | allowed |
 | call-bound | 1.0.4 | runtime | MIT | allowed |
 | callsites | 3.1.0 | runtime | MIT | allowed |
-| caniuse-lite | 1.0.30001810 | runtime | CC-BY-4.0 | allowed |
+| caniuse-lite | 1.0.30001805 | runtime | CC-BY-4.0 | allowed |
 | canvas-roundrect-polyfill | 0.0.1 | runtime | MIT | allowed |
 | ccount | 2.0.1 | runtime | MIT | allowed |
 | character-entities-html4 | 2.1.0 | runtime | MIT | allowed |
@@ -808,7 +808,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | decode-named-character-reference | 1.3.0 | runtime | MIT | allowed |
 | decompress-response | 6.0.0 | runtime | MIT | allowed |
 | deep-extend | 0.6.0 | runtime | MIT | allowed |
-| deepmerge-ts | 7.1.6 | runtime | BSD-3-Clause | allowed |
+| deepmerge-ts | 7.1.5 | runtime | BSD-3-Clause | allowed |
 | defu | 6.1.7 | runtime | MIT | allowed |
 | degenerator | 5.0.1 | runtime | MIT | allowed |
 | delaunator | 5.1.0 | runtime | ISC | allowed |
@@ -835,7 +835,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | dunder-proto | 1.0.1 | runtime | MIT | allowed |
 | ecdsa-sig-formatter | 1.0.11 | runtime | Apache-2.0 | allowed |
 | ee-first | 1.1.1 | runtime | MIT | allowed |
-| electron-to-chromium | 1.5.420 | runtime | ISC | allowed |
+| electron-to-chromium | 1.5.389 | runtime | ISC | allowed |
 | electron-updater | 6.8.9 | runtime | MIT | allowed |
 | emoji-regex | 10.6.0 | runtime | MIT | allowed |
 | emoji-regex | 8.0.0 | runtime | MIT | allowed |
@@ -883,7 +883,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | fast-deep-equal | 3.1.3 | runtime | MIT | allowed |
 | fast-equals | 5.4.1 | runtime | MIT | allowed |
 | fast-fifo | 1.3.2 | runtime | MIT | allowed |
-| fast-uri | 3.1.6 | runtime | BSD-3-Clause | allowed |
+| fast-uri | 3.1.5 | runtime | BSD-3-Clause | allowed |
 | fault | 1.0.4 | runtime | MIT | allowed |
 | fault | 2.0.1 | runtime | MIT | allowed |
 | fd-slicer | 1.1.0 | runtime | MIT | allowed |
@@ -1140,7 +1140,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | mimic-response | 3.1.0 | runtime | MIT | allowed |
 | minimatch | 10.2.5 | runtime | BlueOak-1.0.0 | allowed |
 | minimist | 1.2.8 | runtime | MIT | allowed |
-| minimizer-webpack-plugin | 5.8.0 | runtime | MIT | allowed |
+| minimizer-webpack-plugin | 5.6.1 | runtime | MIT | allowed |
 | minipass | 7.1.3 | runtime | BlueOak-1.0.0 | allowed |
 | mitt | 3.0.1 | runtime | MIT | allowed |
 | mj-context-menu | 0.6.1 | runtime | Apache-2.0 | allowed |
@@ -1168,7 +1168,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | node-fetch | 2.7.0 | runtime | MIT | allowed |
 | node-fetch | 3.3.2 | runtime | MIT | allowed |
 | node-pty | 1.1.0 | runtime | MIT | allowed |
-| node-releases | 2.0.54 | runtime | MIT | allowed |
+| node-releases | 2.0.51 | runtime | MIT | allowed |
 | nodemailer | 9.0.3 | runtime | MIT-0 | allowed |
 | normalize-path | 3.0.0 | runtime | MIT | allowed |
 | NousResearch/hermes-agent session-compaction reference | f293e7206b4ddd66042329442c6afebc19a8808d | runtime | MIT | allowed |
@@ -1280,7 +1280,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | puppeteer-core | 25.3.0 | runtime | Apache-2.0 | allowed |
 | pusher-js | 8.5.0 | runtime | MIT | allowed |
 | pwacompat | 2.0.17 | runtime | Apache-2.0 | allowed |
-| qs | 6.16.0 | runtime | BSD-3-Clause | allowed |
+| qs | 6.15.3 | runtime | BSD-3-Clause | allowed |
 | queue | 6.0.2 | runtime | MIT | allowed |
 | quick-format-unescaped | 4.0.4 | runtime | MIT | allowed |
 | radix-ui | 1.6.2 | runtime | MIT | allowed |
@@ -1408,7 +1408,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | tar-stream | 2.2.0 | runtime | MIT | allowed |
 | tar-stream | 3.2.0 | runtime | MIT | allowed |
 | teex | 1.0.1 | runtime | MIT | allowed |
-| terser | 5.51.2 | runtime | BSD-2-Clause | allowed |
+| terser | 5.50.0 | runtime | BSD-2-Clause | allowed |
 | text-decoder | 1.2.7 | runtime | Apache-2.0 | allowed |
 | thread-stream | 4.2.0 | runtime | MIT | allowed |
 | tiny-invariant | 1.3.3 | runtime | MIT | allowed |
@@ -1457,7 +1457,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | unist-util-visit | 5.1.0 | runtime | MIT | allowed |
 | universalify | 2.0.1 | runtime | MIT | allowed |
 | unpipe | 1.0.0 | runtime | MIT | allowed |
-| update-browserslist-db | 1.3.2 | runtime | MIT | allowed |
+| update-browserslist-db | 1.2.3 | runtime | MIT | allowed |
 | use-callback-ref | 1.3.3 | runtime | MIT | allowed |
 | use-intl | 4.13.2 | runtime | MIT | allowed |
 | use-sidecar | 1.1.3 | runtime | MIT | allowed |
@@ -1485,7 +1485,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | webidl-conversions | 3.0.1 | runtime | BSD-2-Clause | allowed |
 | webidl-conversions | 8.0.1 | runtime | BSD-2-Clause | allowed |
 | webpack-sources | 3.5.1 | runtime | MIT | allowed |
-| webpack | 5.110.3 | runtime | MIT | allowed |
+| webpack | 5.109.2 | runtime | MIT | allowed |
 | webworkify | 1.5.0 | runtime | MIT | allowed |
 | whatwg-mimetype | 5.0.0 | runtime | MIT | allowed |
 | whatwg-url | 16.0.1 | runtime | MIT | allowed |
@@ -5102,7 +5102,7 @@ SOFTWARE.
 
 ### License text 21c2679a63d7
 
-Applies to browserslist@4.28.8.
+Applies to browserslist@4.28.6.
 
 Copyright notices:
 
@@ -5799,7 +5799,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 25ba5c59dad3
 
-Applies to electron-to-chromium@1.5.420.
+Applies to electron-to-chromium@1.5.389.
 
 Copyright notices:
 
@@ -7114,7 +7114,7 @@ For more information, please see
 
 ### License text 3706296ed611
 
-Applies to node-releases@2.0.54.
+Applies to node-releases@2.0.51.
 
 Copyright notices:
 
@@ -9134,7 +9134,7 @@ Copyright notices:
 
 ### License text 4da724fc305d
 
-Applies to @xmldom/xmldom@0.8.15, @xmldom/xmldom@0.9.10.
+Applies to @xmldom/xmldom@0.8.13, @xmldom/xmldom@0.9.10.
 
 Copyright notices:
 
@@ -13345,7 +13345,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 734d8fd2baff
 
-Applies to deepmerge-ts@7.1.6.
+Applies to deepmerge-ts@7.1.5.
 
 Copyright notices:
 
@@ -14419,7 +14419,7 @@ SOFTWARE.
 
 ### License text 7e7170e3cebf
 
-Applies to caniuse-lite@1.0.30001810.
+Applies to caniuse-lite@1.0.30001805.
 
 Copyright notices:
 
@@ -16841,7 +16841,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 901d0a7fcacc
 
-Applies to terser@5.51.2.
+Applies to terser@5.50.0.
 
 Copyright notices:
 
@@ -16915,7 +16915,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### License text 9068a8782d2f
 
-Applies to enhanced-resolve@5.24.5, minimizer-webpack-plugin@5.8.0, schema-utils@4.3.3, watchpack@2.5.2, webpack@5.110.3.
+Applies to enhanced-resolve@5.24.5, minimizer-webpack-plugin@5.6.1, schema-utils@4.3.3, watchpack@2.5.2, webpack@5.109.2.
 
 Copyright notices:
 
@@ -19033,37 +19033,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### License text 9877e90da14a
-
-Applies to update-browserslist-db@1.3.2.
-
-Copyright notices:
-
-- Copyright 2022 Andrey Sitnik <andrey@sitnik.es> and other contributors
-
-```text
-The MIT License (MIT)
-
-Copyright 2022 Andrey Sitnik <andrey@sitnik.es> and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### License text 99cf22f6960a
@@ -24578,6 +24547,37 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
 IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
+### License text c414dde36704
+
+Applies to update-browserslist-db@1.2.3.
+
+Copyright notices:
+
+- Copyright 2022 Andrey Sitnik <andrey@sitnik.ru> and other contributors
+
+```text
+The MIT License (MIT)
+
+Copyright 2022 Andrey Sitnik <andrey@sitnik.ru> and other contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
 ### License text c41bc4474f02
 
 Applies to pgpass@1.0.5.
@@ -24963,7 +24963,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTH
 
 ### License text c71d239df917
 
-Applies to @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.0, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/core@2.9.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.9.0, @opentelemetry/sdk-trace-base@2.9.0, @opentelemetry/sdk-trace@2.9.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.11.20, browser-fs-access@0.29.1, chromium-bidi@14.0.0, chromium-bidi@16.0.1, drizzle-orm@0.45.2, events-universal@1.0.1, import-in-the-middle@3.3.1, pdf-parse@2.4.5, semifies@1.0.0, text-decoder@1.2.7.
+Applies to @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.0, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/core@2.9.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.9.0, @opentelemetry/sdk-trace-base@2.9.0, @opentelemetry/sdk-trace@2.9.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.10.43, browser-fs-access@0.29.1, chromium-bidi@14.0.0, chromium-bidi@16.0.1, drizzle-orm@0.45.2, events-universal@1.0.1, import-in-the-middle@3.3.1, pdf-parse@2.4.5, semifies@1.0.0, text-decoder@1.2.7.
 
 Copyright notices:
 
@@ -25524,7 +25524,7 @@ limitations under the License.
 
 ### License text c96e5ecb55ac
 
-Applies to @tiptap/core@3.31.0, @tiptap/extension-blockquote@3.31.0, @tiptap/extension-bold@3.31.0, @tiptap/extension-bubble-menu@3.31.0, @tiptap/extension-bullet-list@3.31.0, @tiptap/extension-code-block@3.31.0, @tiptap/extension-code@3.31.0, @tiptap/extension-collaboration-caret@3.31.0, @tiptap/extension-collaboration@3.31.0, @tiptap/extension-document@3.31.0, @tiptap/extension-dropcursor@3.31.0, @tiptap/extension-floating-menu@3.31.0, @tiptap/extension-gapcursor@3.31.0, @tiptap/extension-hard-break@3.31.0, @tiptap/extension-heading@3.31.0, @tiptap/extension-horizontal-rule@3.31.0, @tiptap/extension-image@3.31.0, @tiptap/extension-italic@3.31.0, @tiptap/extension-link@3.31.0, @tiptap/extension-list-item@3.31.0, @tiptap/extension-list-keymap@3.31.0, @tiptap/extension-list@3.31.0, @tiptap/extension-mathematics@3.31.0, @tiptap/extension-ordered-list@3.31.0, @tiptap/extension-paragraph@3.31.0, @tiptap/extension-placeholder@3.31.0, @tiptap/extension-strike@3.31.0, @tiptap/extension-table-cell@3.31.0, @tiptap/extension-table-header@3.31.0, @tiptap/extension-table-row@3.31.0, @tiptap/extension-table@3.31.0, @tiptap/extension-task-item@3.31.0, @tiptap/extension-task-list@3.31.0, @tiptap/extension-text@3.31.0, @tiptap/extension-underline@3.31.0, @tiptap/extension-unique-id@3.31.0, @tiptap/extensions@3.31.0, @tiptap/markdown@3.31.0, @tiptap/pm@3.31.0, @tiptap/react@3.31.0, @tiptap/starter-kit@3.31.0, @tiptap/suggestion@3.31.0.
+Applies to @tiptap/core@3.27.3, @tiptap/extension-blockquote@3.27.3, @tiptap/extension-bold@3.27.3, @tiptap/extension-bubble-menu@3.27.3, @tiptap/extension-bullet-list@3.27.3, @tiptap/extension-code-block@3.27.3, @tiptap/extension-code@3.27.3, @tiptap/extension-collaboration-caret@3.27.3, @tiptap/extension-collaboration@3.27.3, @tiptap/extension-document@3.27.3, @tiptap/extension-dropcursor@3.27.3, @tiptap/extension-floating-menu@3.27.3, @tiptap/extension-gapcursor@3.27.3, @tiptap/extension-hard-break@3.27.3, @tiptap/extension-heading@3.27.3, @tiptap/extension-horizontal-rule@3.27.3, @tiptap/extension-image@3.27.3, @tiptap/extension-italic@3.27.3, @tiptap/extension-link@3.27.3, @tiptap/extension-list-item@3.27.3, @tiptap/extension-list-keymap@3.27.3, @tiptap/extension-list@3.27.3, @tiptap/extension-mathematics@3.27.3, @tiptap/extension-ordered-list@3.27.3, @tiptap/extension-paragraph@3.27.3, @tiptap/extension-placeholder@3.27.3, @tiptap/extension-strike@3.27.3, @tiptap/extension-table-cell@3.27.3, @tiptap/extension-table-header@3.27.3, @tiptap/extension-table-row@3.27.3, @tiptap/extension-table@3.27.3, @tiptap/extension-task-item@3.27.3, @tiptap/extension-task-list@3.27.3, @tiptap/extension-text@3.27.3, @tiptap/extension-underline@3.27.3, @tiptap/extension-unique-id@3.27.3, @tiptap/extensions@3.27.3, @tiptap/markdown@3.27.3, @tiptap/pm@3.27.3, @tiptap/react@3.27.3, @tiptap/starter-kit@3.27.3, @tiptap/suggestion@3.27.3.
 
 Copyright notices:
 
@@ -28386,7 +28386,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text df7464922225
 
-Applies to fast-uri@3.1.6.
+Applies to fast-uri@3.1.5.
 
 Copyright notices:
 
@@ -29733,7 +29733,7 @@ THE SOFTWARE.
 
 ### License text e7dc37bf662d
 
-Applies to qs@6.16.0.
+Applies to qs@6.15.3.
 
 Copyright notices:
 

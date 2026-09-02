@@ -11,6 +11,23 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.2.2] - 2026-09-02
+
+### Added
+
+- Added PostgreSQL-backed collaboration repositories, lifecycle transactions, lock handling, lineage revisions, and workspace starter documents.
+- Added migration, database-isolation, file-lifecycle, rename, and PostgreSQL compatibility coverage.
+
+### Changed
+
+- Made PostgreSQL the production runtime path while keeping production builds database-free and removing the SQLite sidecar from PostgreSQL startup.
+- Improved rollback-safe workspace renames, folder path remapping, public-share workspace scoping, and Team Seat retry handling.
+- Improved reproducible npm installation and local development runtime behavior.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.2.1] - 2026-09-02
 
 ### Added
