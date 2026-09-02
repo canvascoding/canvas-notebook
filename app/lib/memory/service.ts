@@ -1516,9 +1516,9 @@ export async function applyMemoryReviewCandidates(params: {
       const existing = await connection.get(`
         SELECT id, pinned, status, semantic_key FROM memory_entries
         WHERE collection_id = ? AND status != 'archived'
-          AND (? IS NOT NULL AND semantic_key = ? OR ? IS NOT NULL AND id = ?)
+          AND (semantic_key = ? OR id = ?)
         ORDER BY updated_at DESC LIMIT 1
-      `, [collectionId, semanticKey, semanticKey, candidate.entryId ?? null, candidate.entryId ?? null]) as {
+      `, [collectionId, semanticKey, candidate.entryId ?? null]) as {
         id?: string; pinned?: number | boolean; status?: string; semantic_key?: string | null;
       } | undefined;
       if (candidate.action === 'archive') {
