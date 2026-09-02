@@ -99,22 +99,49 @@ export function composeEmailEditorBodyValuesFromAiResult(body: string, bodyHtml:
 }
 
 function normalizeEmailTableCellAlignment(value: string): string {
-  return value.replace(/<(td|th)(\s[^>]*)?>/giu, (match, tag: string, rawAttrs = '') => {
+  let output = '';
+  let cursor = 0;
+  while (cursor < value.length) {
+    const start = value.indexOf('<', cursor);
+    if (start < 0) return output + value.slice(cursor);
+    output += value.slice(cursor, start);
+    const end = value.indexOf('>', start + 1);
+    if (end < 0) return output + value.slice(start);
+    const rawTag = value.slice(start + 1, end);
+    const tagMatch = /^(td|th)(?:\s|$)/iu.exec(rawTag);
+    if (!tagMatch) {
+      output += value.slice(start, end + 1);
+      cursor = end + 1;
+      continue;
+    }
+
+    const tag = tagMatch[1];
+    const rawAttrs = rawTag.slice(tag.length);
     const styleMatch = rawAttrs.match(/\sstyle\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/iu);
-    if (!styleMatch) return match;
+    if (!styleMatch) {
+      output += value.slice(start, end + 1);
+      cursor = end + 1;
+      continue;
+    }
 
     const styleValue = styleMatch[2] ?? styleMatch[3] ?? styleMatch[4] ?? '';
     const align = styleValue.match(/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/iu)?.[1]?.toLowerCase();
     const attrsWithoutStyle = rawAttrs.replace(styleMatch[0], '');
-    if (!align) return `<${tag}${attrsWithoutStyle}>`;
+    if (!align) {
+      output += `<${tag}${attrsWithoutStyle}>`;
+      cursor = end + 1;
+      continue;
+    }
 
     const attrsWithoutAlign = attrsWithoutStyle.replace(
       /\salign\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/iu,
       '',
     );
 
-    return `<${tag}${attrsWithoutAlign} align="${align}">`;
-  });
+    output += `<${tag}${attrsWithoutAlign} align="${align}">`;
+    cursor = end + 1;
+  }
+  return output;
 }
 
 function sanitizeEmailEditorLinks(value: string): string {

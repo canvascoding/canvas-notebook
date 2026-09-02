@@ -45,8 +45,4 @@ const apiUrl = requireLoopbackUrl(environment, 'CANVAS_LICENSE_CONTROL_PLANE_URL
 const webUrl = requireLoopbackUrl(environment, 'CANVAS_LICENSE_CONTROL_PLANE_WEB_URL');
 assert.notEqual(apiUrl.origin, webUrl.origin, 'Control Plane API and web origins must be explicit');
 
-console.log('license-control-plane-url-test: ok', {
-  apiOrigin: apiUrl.origin,
-  webOrigin: webUrl.origin,
-  runtimeEnvironment: environment.CANVAS_LICENSE_RUNTIME_ENVIRONMENT,
-});
+console.log('license-control-plane-url-test: ok');

@@ -51,6 +51,8 @@ jobs:
 
   safety-tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: source
     steps:
       - name: Checkout immutable release source
