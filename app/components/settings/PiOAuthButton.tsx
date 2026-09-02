@@ -27,7 +27,7 @@ interface OAuthStatus {
 }
 
 interface PiOAuthButtonProps {
-  onStatusChange?: () => void;
+  onStatusChange?: (status: { provider: string; connected: boolean }) => void;
   activeProviderId?: string;
 }
 
@@ -114,7 +114,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
     resetDialogState();
     setSuccessMessage(message || t('oauth.successConnected', { provider: provider.displayName }));
     await loadStatus();
-    onStatusChange?.();
+    onStatusChange?.({ provider: provider.provider, connected: true });
   };
 
   const completeOAuthFlow = async (currentFlowId: string, provider: OAuthStatus) => {
@@ -364,7 +364,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
 
       setSuccessMessage(t('oauth.disconnected', { provider: provider.displayName }));
       await loadStatus();
-      onStatusChange?.();
+      onStatusChange?.({ provider: provider.provider, connected: false });
     } catch (err) {
       console.error('Failed to disconnect:', err);
       setStatusError(err instanceof Error && err.message ? err.message : t('oauth.errors.unknown'));
