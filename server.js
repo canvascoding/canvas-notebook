@@ -125,7 +125,6 @@ async function getAuthSession(req) {
 
 const DATA = process.env.DATA || path.resolve(process.cwd(), 'data');
 const MEDIA_ROOT = path.join(DATA, 'workspace');
-const SQLITE_PATH = path.join(DATA, 'sqlite.db');
 const MEDIA_TYPES = {
   pdf: 'application/pdf',
   png: 'image/png',
@@ -252,10 +251,10 @@ function ensureRuntimeDirectories() {
   }
 
   try {
-    fs.mkdirSync(path.dirname(SQLITE_PATH), { recursive: true });
-    console.log(`[Startup] Ensured SQLite directory exists: ${path.dirname(SQLITE_PATH)}`);
+    fs.mkdirSync(DATA, { recursive: true });
+    console.log(`[Startup] Ensured data directory exists: ${DATA}`);
   } catch (error) {
-    console.error(`[Startup] Failed to create SQLite directory for ${SQLITE_PATH}:`, error);
+    console.error(`[Startup] Failed to create data directory at ${DATA}:`, error);
     throw error;
   }
 
