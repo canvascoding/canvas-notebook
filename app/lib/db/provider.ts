@@ -104,11 +104,12 @@ export function resolveSqlitePath(): string {
 }
 
 export function normalizeDatabaseProvider(value?: string | null): DatabaseProvider {
+  if (process.env.NEXT_PHASE === 'phase-production-build') return 'sqlite';
+
   const normalized = normalizeEnvValue(value);
   if (!normalized) {
     const databaseUrlProtocol = getDatabaseUrlProtocol(process.env.DATABASE_URL);
     if (databaseUrlProtocol === 'postgres' || databaseUrlProtocol === 'postgresql') return 'postgres';
-    if (process.env.NEXT_PHASE === 'phase-production-build') return 'sqlite';
     if (process.env.NODE_ENV === 'production' && !existsSync(resolveSqlitePath())) return 'postgres';
     return 'sqlite';
   }

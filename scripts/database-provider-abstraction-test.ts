@@ -98,10 +98,22 @@ async function main() {
     mutableProcessEnv.NODE_ENV = 'production';
     mutableProcessEnv.NEXT_PHASE = 'phase-production-build';
     assert.equal(getDatabaseProvider(), 'sqlite');
+    process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+    assert.equal(getDatabaseProvider(), 'sqlite');
+    config = resolveDatabaseProviderConfig();
+    assert.equal(config.provider, 'sqlite');
+    assert.equal(config.requestedProvider, 'postgres');
+    assert.deepEqual(config.problems, []);
+    assert.doesNotThrow(() => assertRuntimeDatabaseProviderSupported());
     delete mutableProcessEnv.NEXT_PHASE;
     assert.equal(getDatabaseProvider(), 'postgres');
     config = resolveDatabaseProviderConfig();
     assert.ok(config.problems.some((problem) => problem.code === 'postgres_missing_database_url'));
+    assert.throws(
+      () => assertRuntimeDatabaseProviderSupported(),
+      /requires DATABASE_URL/u,
+    );
+    delete process.env.CANVAS_DATABASE_PROVIDER;
     await writeFile(resolveSqlitePath(), 'legacy-sqlite-marker');
     assert.equal(getDatabaseProvider(), 'sqlite');
     await rm(resolveSqlitePath(), { force: true });
