@@ -66,6 +66,7 @@ import { useChatSessionBootstrap } from '@/app/components/canvas-agent-chat/useC
 import { useChatSessionMessages } from '@/app/components/canvas-agent-chat/useChatSessionMessages';
 import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
 import { useChatRuntimeSelection } from '@/app/components/canvas-agent-chat/useChatRuntimeSelection';
+import { useCurrentUserProfile } from '@/app/components/user-profile/useCurrentUserProfile';
 import type {
   AgentProfile,
   AISession,
@@ -156,6 +157,7 @@ export default function CanvasAgentChat({
   const { planningMode, togglePlanningMode } = usePlanModeStore();
   const toolVerbosity = useToolVerbosityStore((s) => s.toolVerbosity);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
+  const currentUserProfile = useCurrentUserProfile();
   const workspaceInitialized = useWorkspaceStore((state) => state.initialized);
   const activeWorkspaceId = activeWorkspace?.id ?? null;
   const isWorkspaceNavigationPending = Boolean(
@@ -1378,6 +1380,9 @@ export default function CanvasAgentChat({
             <ChatMessageList
               messages={messages}
               assistantName={activeAgentDisplayName}
+              assistantAgentId={activeSessionAgentId}
+              assistantIconId={activeAgentProfile?.iconId}
+              userProfile={currentUserProfile}
               runtimePhase={runtimeStatus?.phase}
               expandedRunKeys={expandedRunKeys}
               toolVerbosity={toolVerbosity}

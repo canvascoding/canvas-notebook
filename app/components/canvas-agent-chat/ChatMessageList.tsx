@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
+import { ChatMessageIdentity } from '@/app/components/canvas-agent-chat/ChatMessageIdentity';
 import { getRecentStudioImageMediaUrls, MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdownMessage';
 import {
   formatChatRuntimeIdentity,
@@ -24,6 +25,7 @@ import type { AttachmentOpenHandler, ChatMessage } from '@/app/lib/chat/types';
 import { contentToString, isAbortedAssistantPiMessage } from '@/app/lib/chat/message-content';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import type { ToolVerbosity } from '@/app/store/tool-verbosity-store';
+import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -325,6 +327,9 @@ function MessageActionBar({
 export function ChatMessageList({
   messages,
   assistantName,
+  assistantAgentId,
+  assistantIconId,
+  userProfile,
   runtimePhase,
   expandedRunKeys,
   toolVerbosity,
@@ -334,6 +339,9 @@ export function ChatMessageList({
 }: {
   messages: ChatMessage[];
   assistantName: string;
+  assistantAgentId: string;
+  assistantIconId?: string | null;
+  userProfile: ResolvedUserProfile | null;
   runtimePhase: RuntimeStatus['phase'] | null | undefined;
   expandedRunKeys: Set<string>;
   toolVerbosity: ToolVerbosity;
@@ -486,6 +494,14 @@ export function ChatMessageList({
               <>
                   {!isAssistant || !suppressAssistantTitle ? (
                     <div className="mb-2 flex items-center gap-2">
+                      {isUser || isAssistant ? (
+                        <ChatMessageIdentity
+                          role={isUser ? 'user' : 'assistant'}
+                          agentId={assistantAgentId}
+                          agentIconId={assistantIconId}
+                          userProfile={userProfile}
+                        />
+                      ) : null}
                       <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
                       {isAbortedAssistant ? <span className="text-[10px] uppercase tracking-widest opacity-60">{t('runStoppedBadge')}</span> : null}
                       {message.status === 'aborting' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current opacity-70" />}
