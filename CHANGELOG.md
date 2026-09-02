@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.9.2.2] - 2026-09-02
+## [2026.9.2.3] - 2026-09-02
 
 ### Added
 
@@ -23,6 +23,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Made PostgreSQL the production runtime path while keeping production builds database-free and removing the SQLite sidecar from PostgreSQL startup.
 - Improved rollback-safe workspace renames, folder path remapping, public-share workspace scoping, and Team Seat retry handling.
 - Improved reproducible npm installation and local development runtime behavior.
+- Regenerated third-party compliance artifacts from a clean lockfile installation for CI-consistent release verification.
 
 ### Verification
 
