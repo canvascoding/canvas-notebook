@@ -69,12 +69,14 @@ async function main() {
     'utf8',
   );
   assert.match(onboardingPageSource, /phase === 'waiting'[\s\S]*?<OnboardingWaitingActions \/>/u);
+  assert.match(onboardingPageSource, /guidedHintsEnabled=\{isOnboardingHintsEnabled\(\)\}/u);
 
   const homePageSource = await readFile(
     path.join(process.cwd(), 'app', '[locale]', '(routes)', 'page.tsx'),
     'utf8',
   );
-  assert.match(homePageSource, /HomeHintProvider enabled=\{onboardingHintsEnabled \|\| showPersonalTour\}/u);
+  assert.match(homePageSource, /HomeHintProvider enabled=\{onboardingHintsEnabled\}/u);
+  assert.doesNotMatch(homePageSource, /onboardingHintsEnabled \|\| showPersonalTour/u);
 
   const appLauncherSource = await readFile(
     path.join(process.cwd(), 'app', 'components', 'AppLauncher.tsx'),
@@ -95,6 +97,9 @@ async function main() {
   );
   assert.match(hintTooltipSource, /const didOverridePosition = getComputedStyle\(targetEl\)\.position === 'static'/u);
   assert.match(hintTooltipSource, /if \(didOverridePosition\) \{\s*targetEl\.style\.position = origPosition/u);
+  assert.match(hintTooltipSource, /aria-hidden="true" className="pointer-events-none fixed inset-0 z-\[100\] bg-black\/40"/u);
+  assert.doesNotMatch(hintTooltipSource, /z-\[100\] bg-black\/40" onClick=\{onDismiss\}/u);
+  assert.match(source, /guidedHintsEnabled \? t\('tourStart'\) : t\('tourContinue'\)/u);
 
   console.log('onboarding-wizard-ui-test: ok');
 }

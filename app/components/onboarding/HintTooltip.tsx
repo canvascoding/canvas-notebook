@@ -358,7 +358,7 @@ export function HintTooltip({
             50% { box-shadow: 0 0 0 6px rgba(245,158,11,0.7), 0 0 30px rgba(245,158,11,0.4); }
           }
         `}</style>
-        <div className="fixed inset-0 z-[99] bg-black/40" onClick={onDismiss} />
+        <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[99] bg-black/40" />
         <div
           className={`fixed inset-x-0 bottom-0 z-[100] transition-transform duration-300 ease-out ${
             visible ? 'translate-y-0' : 'translate-y-full'
@@ -422,7 +422,7 @@ export function HintTooltip({
           50% { box-shadow: 0 0 0 6px rgba(245,158,11,0.7), 0 0 30px rgba(245,158,11,0.4); }
         }
       `}</style>
-      <div className="fixed inset-0 z-[100] bg-black/40" onClick={onDismiss} />
+      <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[100] bg-black/40" />
       <div
         ref={tooltipRef}
         className={`fixed z-[102] max-w-[320px] min-w-[200px] rounded-lg border-2 border-amber-500/60 bg-popover p-3 shadow-xl shadow-amber-500/10 ring-1 ring-amber-500/20 transition-opacity duration-200 ${

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { resolveGuidedTourStatus } from '@/app/lib/onboarding/tour-gate';
 import { resolveEffectiveAgentRuntime } from '@/app/lib/agent-runtime-policy/runtime-resolver';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import {
@@ -82,6 +83,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   const current = await getUserOnboardingState(session.user.id);
+  const tour = resolveGuidedTourStatus(updates.tour);
   if (updates.runtime !== undefined && updates.step !== 'profile') {
     return NextResponse.json(
       { success: false, error: 'A runtime choice must continue to the personal profile.' },
@@ -129,7 +131,7 @@ export async function PATCH(request: NextRequest) {
 
   if (
     current.profile === 'pending' &&
-    (updates.step === 'tour' || updates.step === 'complete' || updates.tour !== undefined)
+    (updates.step === 'tour' || updates.step === 'complete' || tour !== undefined)
   ) {
     return NextResponse.json(
       { success: false, error: 'Complete or skip the personal profile before starting the tour.' },
@@ -149,7 +151,7 @@ export async function PATCH(request: NextRequest) {
   const onboarding = await updateUserOnboardingState(session.user.id, {
     ...(updates.step ? { step: updates.step } : {}),
     ...(updates.runtime ? { runtime: updates.runtime } : {}),
-    ...(updates.tour ? { tour: updates.tour } : {}),
+    ...(tour ? { tour } : {}),
   });
   return NextResponse.json({ success: true, data: onboarding });
 }

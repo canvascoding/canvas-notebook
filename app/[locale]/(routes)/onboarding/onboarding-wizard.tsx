@@ -192,6 +192,7 @@ export default function OnboardingWizard({
   mode,
   initialStep,
   initialUserProfile,
+  guidedHintsEnabled,
 }: {
   defaultEmail: string;
   initialLicenseKey: string;
@@ -199,6 +200,7 @@ export default function OnboardingWizard({
   mode: OnboardingMode;
   initialStep: Step;
   initialUserProfile: ResolvedUserProfile;
+  guidedHintsEnabled: boolean;
 }) {
   const t = useTranslations('onboarding');
   const currentLocale = useLocale();
@@ -473,7 +475,10 @@ export default function OnboardingWizard({
               )}
 
               {step === 'tour' && (
-                <TourStep onDone={() => void advanceTo('done')} />
+                <TourStep
+                  guidedHintsEnabled={guidedHintsEnabled}
+                  onDone={() => void advanceTo('done')}
+                />
               )}
 
               {step === 'done' && (
@@ -675,7 +680,7 @@ function AgentProfileStep({
   );
 }
 
-function TourStep({ onDone }: { onDone: () => void }) {
+function TourStep({ guidedHintsEnabled, onDone }: { guidedHintsEnabled: boolean; onDone: () => void }) {
   const t = useTranslations('onboarding');
   const [saving, setSaving] = useState<'started' | 'skipped' | null>(null);
 
@@ -704,35 +709,41 @@ function TourStep({ onDone }: { onDone: () => void }) {
     <div className="space-y-6">
       <div className="text-center">
         <Compass className="mx-auto mb-4 h-12 w-12 text-primary" />
-        <h2 className="mb-2 text-xl font-semibold">{t('tourTitle')}</h2>
-        <p className="text-sm text-muted-foreground">{t('tourDescription')}</p>
+        <h2 className="mb-2 text-xl font-semibold">{guidedHintsEnabled ? t('tourTitle') : t('tourDisabledTitle')}</h2>
+        <p className="text-sm text-muted-foreground">
+          {guidedHintsEnabled ? t('tourDescription') : t('tourDisabledDescription')}
+        </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="border border-border bg-muted/20 p-4">
-          <Sparkles className="mb-3 h-5 w-5 text-primary" />
-          <h3 className="text-sm font-semibold">{t('tourWorkspaceTitle')}</h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('tourWorkspaceDescription')}</p>
+      {guidedHintsEnabled && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="border border-border bg-muted/20 p-4">
+            <Sparkles className="mb-3 h-5 w-5 text-primary" />
+            <h3 className="text-sm font-semibold">{t('tourWorkspaceTitle')}</h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('tourWorkspaceDescription')}</p>
+          </div>
+          <div className="border border-border bg-muted/20 p-4">
+            <Workflow className="mb-3 h-5 w-5 text-primary" />
+            <h3 className="text-sm font-semibold">{t('tourAutomationsTitle')}</h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('tourAutomationsDescription')}</p>
+          </div>
+          <div className="border border-border bg-muted/20 p-4">
+            <Compass className="mb-3 h-5 w-5 text-primary" />
+            <h3 className="text-sm font-semibold">{t('tourSettingsTitle')}</h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('tourSettingsDescription')}</p>
+          </div>
         </div>
-        <div className="border border-border bg-muted/20 p-4">
-          <Workflow className="mb-3 h-5 w-5 text-primary" />
-          <h3 className="text-sm font-semibold">{t('tourAutomationsTitle')}</h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('tourAutomationsDescription')}</p>
-        </div>
-        <div className="border border-border bg-muted/20 p-4">
-          <Compass className="mb-3 h-5 w-5 text-primary" />
-          <h3 className="text-sm font-semibold">{t('tourSettingsTitle')}</h3>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('tourSettingsDescription')}</p>
-        </div>
-      </div>
+      )}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button variant="outline" onClick={() => void finish('skipped')} disabled={saving !== null}>
-          {t('tourSkip')}
-        </Button>
-        <Button onClick={() => void finish('started')} disabled={saving !== null} className="gap-2">
-          {saving === 'started' && <Loader2 className="h-4 w-4 animate-spin" />}
-          {t('tourStart')}
+        {guidedHintsEnabled && (
+          <Button variant="outline" onClick={() => void finish('skipped')} disabled={saving !== null}>
+            {t('tourSkip')}
+          </Button>
+        )}
+        <Button onClick={() => void finish(guidedHintsEnabled ? 'started' : 'skipped')} disabled={saving !== null} className="gap-2">
+          {saving !== null && <Loader2 className="h-4 w-4 animate-spin" />}
+          {guidedHintsEnabled ? t('tourStart') : t('tourContinue')}
         </Button>
       </div>
     </div>

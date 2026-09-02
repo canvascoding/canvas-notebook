@@ -1,7 +1,7 @@
 import { redirect } from '@/i18n/navigation';
 import { getLocale, getTranslations } from 'next-intl/server';
 import { requirePageSession } from '@/app/lib/auth-guards';
-import { isOnboardingEnabled, isOnboardingComplete } from '@/app/lib/onboarding/status';
+import { isOnboardingEnabled, isOnboardingComplete, isOnboardingHintsEnabled } from '@/app/lib/onboarding/status';
 import { getInstanceOnboardingStep, getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { getUserOnboardingState } from '@/app/lib/user-preferences';
@@ -91,6 +91,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
       mode={phase === 'instance' ? 'instance' : 'user'}
       initialStep={initialStep}
       initialUserProfile={initialUserProfile}
+      guidedHintsEnabled={isOnboardingHintsEnabled()}
     />
   );
 }
