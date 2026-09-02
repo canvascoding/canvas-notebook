@@ -931,13 +931,13 @@ export async function scheduleTeamSeatOutboxRetry(
       END,
       next_attempt_at = CASE
         WHEN attempt_count + 1 >= max_attempts THEN NULL
-        ELSE ?
+        ELSE CAST(? AS BIGINT)
       END,
       last_attempt_at = ?,
       last_error_code = ?,
       last_error = ?,
       completed_at = CASE
-        WHEN attempt_count + 1 >= max_attempts THEN ?
+        WHEN attempt_count + 1 >= max_attempts THEN CAST(? AS BIGINT)
         ELSE NULL
       END,
       updated_at = ?
@@ -1069,13 +1069,13 @@ export async function recordTeamSeatOutboxOperationPending(
       attempt_count = attempt_count + 1,
       next_attempt_at = CASE
         WHEN attempt_count + 1 >= max_attempts THEN NULL
-        ELSE ?
+        ELSE CAST(? AS BIGINT)
       END,
       last_attempt_at = ?,
       last_error_code = ?,
       last_error = ?,
       completed_at = CASE
-        WHEN attempt_count + 1 >= max_attempts THEN ?
+        WHEN attempt_count + 1 >= max_attempts THEN CAST(? AS BIGINT)
         ELSE NULL
       END,
       updated_at = ?

@@ -3,9 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { PGlite } from '@electric-sql/pglite';
 import Database from 'better-sqlite3';
 
+import type { SqlConnection } from '../app/lib/db';
 import { runMigrations } from '../app/lib/db/migrate';
+import { runPostgresMigrations } from '../app/lib/db/postgres';
 import {
   enqueueTeamSeatOutboxOperation,
   getTeamMembershipSyncState,
@@ -41,6 +44,85 @@ const connection = {
     params ? sqlite.prepare(sql).all(...params) : sqlite.prepare(sql).all()
   ),
 };
+
+function postgresConnection(postgres: PGlite): SqlConnection {
+  const postgresSql = (sql: string) => {
+    let parameterIndex = 0;
+    return sql.replaceAll('?', () => `$${++parameterIndex}`);
+  };
+  return {
+    get: async (sql, params = []) => (await postgres.query(postgresSql(sql), params)).rows[0],
+    run: async (sql, params = []) => {
+      const result = await postgres.query(postgresSql(sql), params);
+      return { changes: result.affectedRows ?? 0 };
+    },
+    all: async (sql, params = []) => (await postgres.query(postgresSql(sql), params)).rows,
+    close: () => undefined,
+  };
+}
+
+async function testPostgresRetryTimestampCasts(): Promise<void> {
+  const postgres = new PGlite();
+  try {
+    await runPostgresMigrations(postgres as unknown as Parameters<typeof runPostgresMigrations>[0]);
+    await postgres.query(`
+      INSERT INTO "user" (id, name, email, email_verified, role, created_at, updated_at)
+      VALUES ('postgres-owner', 'Postgres Owner', 'postgres-owner@example.test', 1, 'admin', 1, 1)
+    `);
+    await postgres.query(`
+      INSERT INTO canvas_organization_settings (
+        organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at
+      ) VALUES ('postgres-organization', 'postgres-owner', 'team', 1, 1, 1)
+    `);
+    const database = postgresConnection(postgres);
+    const retryOperation = (await enqueueTeamSeatOutboxOperation(database, {
+      organizationId: 'postgres-organization',
+      dedupeKey: 'postgres-retry-cast',
+      operationKind: 'membership_snapshot',
+      request: { snapshot: true },
+      maxAttempts: 3,
+      now: 1_000,
+    })).operation;
+    await scheduleTeamSeatOutboxRetry(database, {
+      operationId: retryOperation.operationId,
+      errorCode: 'TEMPORARY',
+      error: 'Retry later.',
+      retryAt: 20_000,
+      now: 5_000,
+    });
+
+    const pendingOperation = (await enqueueTeamSeatOutboxOperation(database, {
+      organizationId: 'postgres-organization',
+      dedupeKey: 'postgres-pending-cast',
+      operationKind: 'seat_execute',
+      operationType: 'member_create',
+      request: { pending: true },
+      maxAttempts: 3,
+      now: 1_000,
+    })).operation;
+    await recordTeamSeatOutboxOperationPending(database, {
+      operationId: pendingOperation.operationId,
+      response: { status: 'pending' },
+      errorCode: 'TEAM_SEAT_PROCESSING',
+      error: 'Still processing.',
+      retryAt: 30_000,
+      now: 6_000,
+    });
+
+    const timestamps = await postgres.query<{ dedupe_key: string; next_attempt_at: string }>(`
+      SELECT dedupe_key, next_attempt_at::text AS next_attempt_at
+      FROM team_seat_outbox
+      WHERE dedupe_key IN ('postgres-retry-cast', 'postgres-pending-cast')
+      ORDER BY dedupe_key
+    `);
+    assert.deepEqual(timestamps.rows, [
+      { dedupe_key: 'postgres-pending-cast', next_attempt_at: '30000' },
+      { dedupe_key: 'postgres-retry-cast', next_attempt_at: '20000' },
+    ]);
+  } finally {
+    await postgres.close();
+  }
+}
 
 function insertUser(id: string, email: string, role = 'user'): void {
   sqlite.prepare(`
@@ -418,6 +500,8 @@ async function main(): Promise<void> {
   assert.equal(exhaustedPending.status, 'failed');
   assert.equal(exhaustedPending.attemptCount, 2);
   assert.equal(exhaustedPending.nextAttemptAt, null);
+
+  await testPostgresRetryTimestampCasts();
 
   console.log('team-seat-outbox-test: ok');
 }
