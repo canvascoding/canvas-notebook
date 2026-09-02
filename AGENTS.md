@@ -25,7 +25,7 @@
 - mach mit keinem to do weiter wenn der vorherige to do noch nicht fertig ist
 - arbeite proaktiv, mach commits zwischendurch und mach noch keine weitere task bevor eine wichtige task fertig ist. 
 - teste auch das UI wenn du etwas integrierst.
-eröffne ausschließlich auf localhost 3000 einen dev server. starte keine neuen dev server wenn schon einer läuft. port 3001 ist für einen anderen prozess reserviert.
+Für das lokale Dev-Setup den Skill `canvas-local-team-seat-dev` verwenden; er definiert den verwalteten Stack und verhindert parallele Testumgebungen.
 - nutz playwright oder so nur wenn ich es explizit sage oder frage danach bevor du es verwendest
 
 
