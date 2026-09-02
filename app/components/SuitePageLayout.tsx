@@ -48,6 +48,10 @@ export function SuitePageLayout({
     if (pathname?.match(/^\/studio\/personas\/[^/]+$/)) {
       return '/studio/personas';
     }
+
+    if (pathname?.match(/^\/automations\/[^/]+$/)) {
+      return '/automations';
+    }
     
     // Default studio back navigation
     if (pathname?.startsWith('/studio/')) {
