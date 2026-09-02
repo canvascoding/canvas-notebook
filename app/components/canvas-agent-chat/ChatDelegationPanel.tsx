@@ -423,16 +423,16 @@ export function ChatDelegationPanel({
             <DialogDescription>{t('delegationStartDescription')}</DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            <div className="grid gap-5 px-4 py-4 sm:px-6">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain lg:flex lg:flex-col lg:overflow-hidden">
+            <div className="grid gap-5 px-4 py-4 sm:px-6 lg:min-h-0 lg:flex-1">
               {optionsLoading ? (
                 <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {t('delegationStarting')}
                 </div>
               ) : delegationOptions ? (
-                <div className="grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:items-start">
-                  <div className="grid content-start gap-4">
+                <div className="grid gap-5 lg:min-h-0 lg:h-full lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                  <div className="grid content-start gap-4 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
                     {delegationOptions.agents.length > 0 ? (
                       <div className="grid gap-1.5 text-sm font-medium">
                         <span>{t('delegationTarget')}</span>
@@ -462,7 +462,7 @@ export function ChatDelegationPanel({
                       />
                     </label>
                   </div>
-                  <div className="min-w-0 lg:border-l lg:border-border/70 lg:pl-5">
+                  <div className="min-w-0 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:border-l lg:border-border/70 lg:pl-5">
                     <DelegationToolsetPicker
                       toolsets={delegationOptions.toolsets}
                       selectedToolsets={selectedToolsets}
