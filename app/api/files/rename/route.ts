@@ -5,7 +5,6 @@ import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-fold
 import { syncPublicSharesAfterMove } from '@/app/lib/public-sharing/public-file-shares';
 import { moveFileCollaborationPath } from '@/app/lib/files/collaboration-policy';
 import { moveWorkspaceFileMetadata } from '@/app/lib/files/workspace-file-metadata';
-import { archivePersistedCollaborationPaths, movePersistedCollaborationPath } from '@/app/lib/collaboration/persistence';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -108,21 +107,12 @@ export async function POST(request: NextRequest) {
       if (overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file') {
         await prepareLinkIndex();
         await renameFile(oldPath, newPath, true, fileOptions);
-        moveFileCollaborationPath({
+        await moveFileCollaborationPath({
           workspace: workspaceResult.workspace,
           oldPath,
           newPath,
         });
         await moveWorkspaceFileMetadata({ workspace: workspaceResult.workspace, oldPath, newPath });
-        await archivePersistedCollaborationPaths({
-          workspaceId: workspaceResult.workspace.workspaceId,
-          paths: [newPath],
-        });
-        await movePersistedCollaborationPath({
-          workspaceId: workspaceResult.workspace.workspaceId,
-          oldPath,
-          newPath,
-        });
         await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
         const linkUpdates = await updateRenamedLinks();
         invalidateWorkspaceFileViews({
@@ -161,17 +151,12 @@ export async function POST(request: NextRequest) {
 
     await prepareLinkIndex();
     await renameFile(oldPath, newPath, overwrite, fileOptions);
-    moveFileCollaborationPath({
+    await moveFileCollaborationPath({
       workspace: workspaceResult.workspace,
       oldPath,
       newPath,
     });
     await moveWorkspaceFileMetadata({ workspace: workspaceResult.workspace, oldPath, newPath });
-    await movePersistedCollaborationPath({
-      workspaceId: workspaceResult.workspace.workspaceId,
-      oldPath,
-      newPath,
-    });
     await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
     const linkUpdates = await updateRenamedLinks();
     invalidateWorkspaceFileViews({

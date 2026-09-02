@@ -4,7 +4,6 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { restoreWorkspaceTrashEntry } from '@/app/lib/filesystem/workspace-trash';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { restoreFileCollaborationPath } from '@/app/lib/files/collaboration-policy';
-import { reactivatePersistedCollaborationPath } from '@/app/lib/collaboration/persistence';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -39,14 +38,10 @@ export async function POST(
       entryId,
       restoredByUserId: workspaceResult.session.user.id,
     });
-    restoreFileCollaborationPath({
+    await restoreFileCollaborationPath({
       workspace: workspaceResult.workspace,
       path: restored.originalPath,
       trashEntryId: restored.id,
-    });
-    await reactivatePersistedCollaborationPath({
-      workspaceId: workspaceResult.workspace.workspaceId,
-      path: restored.originalPath,
     });
     const fileOptions = workspaceFileOptions(workspaceResult.workspace);
     invalidateWorkspaceFileViews({

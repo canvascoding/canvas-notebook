@@ -20,10 +20,6 @@ import {
   moveFileCollaborationPath,
 } from '@/app/lib/files/collaboration-policy';
 import {
-  archivePersistedCollaborationPaths,
-  movePersistedCollaborationPath,
-} from '@/app/lib/collaboration/persistence';
-import {
   resolveTextCollaborationState,
   selectInitialTextCollaborationRepresentation,
 } from '@/app/lib/collaboration/document-state-service';
@@ -2182,8 +2178,7 @@ export async function copyAgentPaths(params: {
           overwrittenPaths.push(destinationPath);
         }
         if (overwrittenPaths.length > 0) {
-          archiveFileCollaborationPaths({ workspace: copyWorkspace, paths: overwrittenPaths.map((path) => ({ path })) });
-          await archivePersistedCollaborationPaths({ workspaceId: copyWorkspace.workspaceId, paths: overwrittenPaths });
+          await archiveFileCollaborationPaths({ workspace: copyWorkspace, paths: overwrittenPaths.map((path) => ({ path })) });
         }
       }
 
@@ -2201,7 +2196,7 @@ export async function copyAgentPaths(params: {
       }
       await verifyPathOperationEntries({ entries, sourceMustBeRemoved: false });
       if (copyWorkspace) {
-        initializeCopiedFileCollaborationPaths({
+        await initializeCopiedFileCollaborationPaths({
           workspace: copyWorkspace,
           paths: entries
             .map((entry) => entry.destinationResolvedPath)
@@ -2306,8 +2301,7 @@ export async function moveAgentPaths(params: {
           .filter((entry) => entry.overwritten && entry.destinationResolvedPath)
           .map((entry) => workspaceRelativeAgentPath(moveWorkspace, entry.destinationResolvedPath!));
         if (overwrittenPaths.length > 0) {
-          archiveFileCollaborationPaths({ workspace: moveWorkspace, paths: overwrittenPaths.map((path) => ({ path })) });
-          await archivePersistedCollaborationPaths({ workspaceId: moveWorkspace.workspaceId, paths: overwrittenPaths });
+          await archiveFileCollaborationPaths({ workspace: moveWorkspace, paths: overwrittenPaths.map((path) => ({ path })) });
         }
       }
 
@@ -2334,8 +2328,7 @@ export async function moveAgentPaths(params: {
           if (moveWorkspace) {
             const oldPath = workspaceRelativeAgentPath(moveWorkspace, entry.sourceResolvedPath);
             const newPath = workspaceRelativeAgentPath(moveWorkspace, entry.destinationResolvedPath);
-            moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
-            await movePersistedCollaborationPath({ workspaceId: moveWorkspace.workspaceId, oldPath, newPath });
+            await moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
           }
           await syncPublicSharesAfterMove(entry.sourceResolvedPath, entry.destinationResolvedPath);
           publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
@@ -2437,8 +2430,7 @@ export async function deleteAgentPaths(params: {
         : [];
       if (deleteWorkspace && workspaceDeletions.length > 0) {
         const deletedPaths = workspaceDeletions.map((entry) => workspaceRelativeAgentPath(deleteWorkspace, entry.sourceResolvedPath));
-        archiveFileCollaborationPaths({ workspace: deleteWorkspace, paths: deletedPaths.map((path) => ({ path })) });
-        await archivePersistedCollaborationPaths({ workspaceId: deleteWorkspace.workspaceId, paths: deletedPaths });
+        await archiveFileCollaborationPaths({ workspace: deleteWorkspace, paths: deletedPaths.map((path) => ({ path })) });
       }
       await syncPublicSharesAfterDelete(deletableEntries.map((entry) => entry.sourceResolvedPath));
       for (const entry of deletableEntries) {

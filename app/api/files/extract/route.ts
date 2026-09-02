@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await extractWorkspaceZip(path, targetDir, fileOptions);
-    initializeCopiedFileCollaborationPaths({
+    await initializeCopiedFileCollaborationPaths({
       workspace: workspaceResult.workspace,
       paths: result.files,
     });

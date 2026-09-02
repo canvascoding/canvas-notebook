@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
       source: sourceFileOptions,
       target: targetFileOptions,
     });
-    initializeCopiedFileCollaborationPaths({
+    await initializeCopiedFileCollaborationPaths({
       workspace: targetWorkspaceResult.workspace,
       paths: result.copied,
     });

@@ -41,6 +41,22 @@ function workspaceContext(workspaceType: WorkspaceContext['workspaceType']): Wor
   };
 }
 
+async function insertYjsState(
+  postgres: PGlite,
+  params: { documentId: string; workspaceId: string; organizationId: string | null; path: string; nowMs: number },
+): Promise<void> {
+  await postgres.query(`
+    INSERT INTO collaboration_yjs_states (
+      document_id, workspace_id, organization_id, path, representation,
+      lifecycle_generation, schema_version, yjs_state, state_vector,
+      document_sequence, persisted_at, checkpoint_sequence, newline_style,
+      has_bom, degraded, status
+    )
+    VALUES ($1, $2, $3, $4, 'plain_text', 1, 1, decode('', 'hex'),
+      decode('', 'hex'), 0, $5, 0, 'lf', 0, 0, 'active')
+  `, [params.documentId, params.workspaceId, params.organizationId, params.path, params.nowMs]);
+}
+
 async function main(): Promise<void> {
   const postgres = new PGlite();
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-file-policy-postgres-'));
@@ -59,12 +75,16 @@ async function main(): Promise<void> {
     const {
       FileCollaborationPolicyError,
       acquireFileLock,
+      archiveFileCollaborationPaths,
       assertFileCollaborationWriteAllowed,
       detectFileCollaborationStrategy,
       ensureFileRevisionForCurrentContent,
       expireActiveFileLocks,
       getFileCollaborationState,
+      initializeCopiedFileCollaborationPaths,
+      moveFileCollaborationPath,
       releaseFileLock,
+      restoreFileCollaborationPath,
     } = await import('../app/lib/files/collaboration-policy');
 
     assert.equal(detectFileCollaborationStrategy('notes.md'), 'crdt_text');
@@ -92,6 +112,13 @@ async function main(): Promise<void> {
     assert.equal(markdownState.crdtCapable, true);
     assert.equal(markdownState.document?.provider, 'yjs');
     assert.equal(markdownState.document?.snapshotRevisionId, initialRevision.id);
+    await insertYjsState(postgres, {
+      documentId: markdownState.document!.id,
+      workspaceId: workspace.workspaceId,
+      organizationId: workspace.organizationId ?? null,
+      path: 'notes.md',
+      nowMs: 10_001,
+    });
     await assert.rejects(
       () => assertFileCollaborationWriteAllowed({
         workspace,
@@ -126,6 +153,180 @@ async function main(): Promise<void> {
       (error) => error instanceof FileCollaborationPolicyError
         && error.code === 'FILE_REVISION_ID_CONFLICT',
     );
+
+    const originalLock = await acquireFileLock({
+      workspace,
+      path: 'notes.md',
+      lockedByUserId: 'user-a',
+      lockType: 'edit',
+      baseRevisionId: secondRevision.id,
+      nowMs: 10_005,
+    });
+    const conflictCopyRevision = await ensureFileRevisionForCurrentContent({
+      workspace,
+      path: 'notes.local-copy.md',
+      contentHash: 'notes-conflict-copy-hash',
+      sizeBytes: 20,
+      actorUserId: 'user-b',
+      actorType: 'user',
+      nowMs: 10_006,
+    });
+    await archiveFileCollaborationPaths({
+      workspace,
+      paths: [{ path: 'notes.md', trashEntryId: 'trash-original-notes' }],
+      nowMs: 10_007,
+    });
+    await moveFileCollaborationPath({
+      workspace,
+      oldPath: 'notes.local-copy.md',
+      newPath: 'notes.md',
+      nowMs: 10_008,
+    });
+    const replacementState = await getFileCollaborationState({
+      workspace,
+      path: 'notes.md',
+      nowMs: 10_009,
+    });
+    assert.equal(replacementState.latestRevision?.id, conflictCopyRevision.id);
+    assert.equal(replacementState.activeLock, null);
+
+    await restoreFileCollaborationPath({
+      workspace,
+      path: 'notes.md',
+      trashEntryId: 'trash-original-notes',
+      nowMs: 10_010,
+    });
+    const restoredState = await getFileCollaborationState({
+      workspace,
+      path: 'notes.md',
+      nowMs: 10_011,
+    });
+    assert.equal(restoredState.latestRevision?.id, secondRevision.id);
+    assert.equal(restoredState.activeLock, null);
+    const restoredYjsState = await postgres.query<{ status: string; lifecycle_generation: number; path: string }>(`
+      SELECT status, lifecycle_generation, path
+      FROM collaboration_yjs_states
+      WHERE document_id = $1
+    `, [markdownState.document!.id]);
+    assert.equal(restoredYjsState.rows[0]?.status, 'active');
+    assert.equal(Number(restoredYjsState.rows[0]?.lifecycle_generation), 3);
+    assert.equal(restoredYjsState.rows[0]?.path, 'notes.md');
+    const archivedLock = await postgres.query<{ status: string }>(`
+      SELECT status FROM file_locks WHERE id = $1
+    `, [originalLock.lock.id]);
+    assert.equal(archivedLock.rows[0]?.status, 'released');
+
+    const copiedRevision = await ensureFileRevisionForCurrentContent({
+      workspace,
+      path: 'copied.md',
+      contentHash: 'copied-hash',
+      sizeBytes: 7,
+      actorType: 'system',
+      nowMs: 10_012,
+    });
+    await initializeCopiedFileCollaborationPaths({
+      workspace,
+      paths: ['copied.md'],
+      nowMs: 10_013,
+    });
+    const copiedState = await getFileCollaborationState({
+      workspace,
+      path: 'copied.md',
+      nowMs: 10_014,
+    });
+    assert.notEqual(copiedRevision.lineageId, null);
+    assert.equal(copiedState.latestRevision, null);
+
+    const folderTextRevision = await ensureFileRevisionForCurrentContent({
+      workspace,
+      path: 'folder/readme.md',
+      contentHash: 'folder-readme-hash',
+      sizeBytes: 9,
+      actorType: 'system',
+      nowMs: 11_000,
+    });
+    const folderPdfRevision = await ensureFileRevisionForCurrentContent({
+      workspace,
+      path: 'folder/assets/manual.pdf',
+      contentHash: 'folder-manual-hash',
+      sizeBytes: 10,
+      actorType: 'system',
+      nowMs: 11_001,
+    });
+    const folderTextState = await getFileCollaborationState({
+      workspace,
+      path: 'folder/readme.md',
+      nowMs: 11_001,
+    });
+    await insertYjsState(postgres, {
+      documentId: folderTextState.document!.id,
+      workspaceId: workspace.workspaceId,
+      organizationId: workspace.organizationId ?? null,
+      path: 'folder/readme.md',
+      nowMs: 11_001,
+    });
+    await acquireFileLock({
+      workspace,
+      path: 'folder/assets/manual.pdf',
+      lockedByUserId: 'folder-editor',
+      lockType: 'edit',
+      baseRevisionId: folderPdfRevision.id,
+      nowMs: 11_002,
+    });
+    await archiveFileCollaborationPaths({
+      workspace,
+      paths: [{ path: 'folder', trashEntryId: 'trash-folder' }],
+      nowMs: 11_003,
+    });
+    const archivedFolderText = await getFileCollaborationState({
+      workspace,
+      path: 'folder/readme.md',
+      nowMs: 11_004,
+    });
+    assert.equal(archivedFolderText.latestRevision, null);
+    assert.equal(archivedFolderText.document, null);
+
+    await restoreFileCollaborationPath({
+      workspace,
+      path: 'folder',
+      trashEntryId: 'trash-folder',
+      nowMs: 11_005,
+    });
+    const restoredFolderText = await getFileCollaborationState({
+      workspace,
+      path: 'folder/readme.md',
+      nowMs: 11_006,
+    });
+    const restoredFolderPdf = await getFileCollaborationState({
+      workspace,
+      path: 'folder/assets/manual.pdf',
+      nowMs: 11_006,
+    });
+    assert.equal(restoredFolderText.latestRevision?.id, folderTextRevision.id);
+    assert.equal(restoredFolderText.document?.provider, 'yjs');
+    assert.equal(restoredFolderPdf.latestRevision?.id, folderPdfRevision.id);
+    assert.equal(restoredFolderPdf.activeLock, null);
+
+    await moveFileCollaborationPath({
+      workspace,
+      oldPath: 'folder',
+      newPath: 'renamed-folder',
+      nowMs: 11_007,
+    });
+    const movedFolderText = await getFileCollaborationState({
+      workspace,
+      path: 'renamed-folder/readme.md',
+      nowMs: 11_008,
+    });
+    assert.equal(movedFolderText.latestRevision?.id, folderTextRevision.id);
+    assert.equal(movedFolderText.document?.provider, 'yjs');
+    const movedFolderYjsState = await postgres.query<{ status: string; path: string }>(`
+      SELECT status, path
+      FROM collaboration_yjs_states
+      WHERE document_id = $1
+    `, [folderTextState.document!.id]);
+    assert.equal(movedFolderYjsState.rows[0]?.status, 'active');
+    assert.equal(movedFolderYjsState.rows[0]?.path, 'renamed-folder/readme.md');
 
     const pdfRevision = await ensureFileRevisionForCurrentContent({
       workspace,

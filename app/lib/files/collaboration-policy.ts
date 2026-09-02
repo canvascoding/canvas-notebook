@@ -3,10 +3,10 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
-import type Database from 'better-sqlite3';
 import { workspaceSupportsRealtimeTextCollaboration } from '@/app/lib/collaboration/capabilities';
 import {
   appendFileRevision as appendPostgresFileRevision,
+  archiveFileCollaborationPathScopes as archivePostgresFileCollaborationPathScopes,
   ensureActiveFileLineage as ensurePostgresActiveFileLineage,
   ensureCollaborationDocument as ensurePostgresCollaborationDocument,
   expireFileLocksForPath as expirePostgresFileLocksForPath,
@@ -16,14 +16,16 @@ import {
   getLatestFileRevision as getPostgresLatestFileRevision,
   getLatestFileRevisionForLineage as getPostgresLatestFileRevisionForLineage,
   insertFileLock as insertPostgresFileLock,
+  initializeCopiedFileCollaborationPathScopes as initializeCopiedPostgresFileCollaborationPathScopes,
   lockFileCollaborationPaths,
+  moveFileCollaborationPathScope as movePostgresFileCollaborationPathScope,
   refreshFileLock as refreshPostgresFileLock,
+  restoreFileCollaborationPathScope as restorePostgresFileCollaborationPathScope,
   updateCollaborationDocumentCheckpoint as updatePostgresCollaborationDocumentCheckpoint,
   updateFileLockStatus as updatePostgresFileLockStatus,
   withFileCollaborationTransaction,
   type FileCollaborationTransaction,
 } from '@/app/lib/files/collaboration-repository';
-import { openOrganizationBootstrapDatabase } from '@/app/lib/organization/bootstrap';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 export type FileCollaborationStrategy = 'crdt_text' | 'excalidraw_scene' | 'revision_check' | 'exclusive_lock';
@@ -167,30 +169,6 @@ const EXCLUSIVE_LOCK_EXTENSIONS = new Set([
 const DEFAULT_LOCK_TTL_MS = 15 * 60 * 1000;
 const MAX_LOCK_TTL_MS = 4 * 60 * 60 * 1000;
 
-type Sqlite = InstanceType<typeof Database>;
-
-type FileCollaborationLineageRow = {
-  id: string;
-  workspace_id: string;
-  workspace_type: WorkspaceContext['workspaceType'];
-  path: string;
-  status: 'active' | 'archived';
-  created_at: number;
-  archived_at: number | null;
-  trash_entry_id: string | null;
-};
-
-type FileCollaborationLineage = {
-  id: string;
-  workspaceId: string;
-  workspaceType: WorkspaceContext['workspaceType'];
-  path: string;
-  status: 'active' | 'archived';
-  createdAt: number;
-  archivedAt: number | null;
-  trashEntryId: string | null;
-};
-
 function normalizeWorkspacePath(filePath: string): string {
   const normalized = path.posix.normalize(filePath.replace(/\\/g, '/')).replace(/^\/+/u, '');
   if (!normalized || normalized === '.' || normalized.split('/').includes('..')) {
@@ -215,155 +193,6 @@ export function detectFileCollaborationStrategy(filePath: string): FileCollabora
 
 export function workspaceRequiresCollaborationPolicy(workspace: WorkspaceContext): boolean {
   return workspace.workspaceType === 'organization' || workspace.workspaceType === 'team' || workspace.workspaceType === 'project';
-}
-
-function mapLineage(row: FileCollaborationLineageRow | undefined): FileCollaborationLineage | null {
-  if (!row) return null;
-  return {
-    id: row.id,
-    workspaceId: row.workspace_id,
-    workspaceType: row.workspace_type,
-    path: row.path,
-    status: row.status,
-    createdAt: row.created_at,
-    archivedAt: row.archived_at,
-    trashEntryId: row.trash_entry_id,
-  };
-}
-
-function withCollaborationDatabase<T>(write: boolean, callback: (sqlite: Sqlite) => T): T {
-  const sqlite = openOrganizationBootstrapDatabase();
-  try {
-    if (write) sqlite.exec('BEGIN IMMEDIATE');
-    const result = callback(sqlite);
-    if (write) sqlite.exec('COMMIT');
-    return result;
-  } catch (error) {
-    if (write && sqlite.inTransaction) sqlite.exec('ROLLBACK');
-    throw error;
-  } finally {
-    sqlite.close();
-  }
-}
-
-function getActiveLineage(sqlite: Sqlite, workspaceId: string, filePath: string): FileCollaborationLineage | null {
-  const row = sqlite.prepare(`
-    SELECT *
-    FROM file_collaboration_lineages
-    WHERE workspace_id = ? AND path = ? AND status = 'active'
-    LIMIT 1
-  `).get(workspaceId, filePath) as FileCollaborationLineageRow | undefined;
-  return mapLineage(row);
-}
-
-function createActiveLineage(
-  sqlite: Sqlite,
-  workspace: WorkspaceContext,
-  filePath: string,
-  nowMs: number,
-): FileCollaborationLineage {
-  const id = `file-lineage-${randomUUID()}`;
-  sqlite.prepare(`
-    INSERT INTO file_collaboration_lineages (
-      id, workspace_id, workspace_type, path, status, created_at, archived_at, trash_entry_id
-    )
-    VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL)
-  `).run(id, workspace.workspaceId, workspace.workspaceType, filePath, nowMs);
-
-  const lineage = getActiveLineage(sqlite, workspace.workspaceId, filePath);
-  if (!lineage) throw new Error(`Failed to create collaboration lineage for ${filePath}.`);
-  return lineage;
-}
-
-function ensureActiveLineage(
-  sqlite: Sqlite,
-  workspace: WorkspaceContext,
-  filePath: string,
-  nowMs: number,
-): FileCollaborationLineage {
-  const existing = getActiveLineage(sqlite, workspace.workspaceId, filePath);
-  if (existing) return existing;
-
-  const lineage = createActiveLineage(sqlite, workspace, filePath, nowMs);
-  // Adopt pre-lineage records exactly once. Their path was the only identity
-  // available before file lineages were introduced.
-  sqlite.prepare(`
-    UPDATE file_revisions
-    SET lineage_id = ?
-    WHERE workspace_id = ? AND path = ? AND lineage_id IS NULL
-  `).run(lineage.id, workspace.workspaceId, filePath);
-  return lineage;
-}
-
-function pathScopeCondition(filePath: string): { exact: string; descendant: string } {
-  return { exact: filePath, descendant: `${filePath}/%` };
-}
-
-function materializeLegacyLineagesInPathScope(
-  sqlite: Sqlite,
-  workspace: WorkspaceContext,
-  filePath: string,
-  nowMs: number,
-): void {
-  const scope = pathScopeCondition(filePath);
-  const rows = sqlite.prepare(`
-    SELECT DISTINCT path
-    FROM file_revisions
-    WHERE workspace_id = ?
-      AND lineage_id IS NULL
-      AND (path = ? OR path LIKE ?)
-  `).all(workspace.workspaceId, scope.exact, scope.descendant) as Array<{ path: string }>;
-  for (const row of rows) {
-    ensureActiveLineage(sqlite, workspace, row.path, nowMs);
-  }
-}
-
-function archivePathScope(
-  sqlite: Sqlite,
-  workspaceId: string,
-  filePath: string,
-  nowMs: number,
-  trashEntryId: string | null = null,
-): void {
-  const scope = pathScopeCondition(filePath);
-  sqlite.prepare(`
-    UPDATE file_collaboration_lineages
-    SET status = 'archived', archived_at = ?, trash_entry_id = ?
-    WHERE workspace_id = ?
-      AND status = 'active'
-      AND (path = ? OR path LIKE ?)
-  `).run(nowMs, trashEntryId, workspaceId, scope.exact, scope.descendant);
-  sqlite.prepare(`
-    UPDATE collaboration_documents
-    SET status = 'archived', updated_at = ?
-    WHERE workspace_id = ?
-      AND status = 'active'
-      AND (path = ? OR path LIKE ?)
-  `).run(nowMs, workspaceId, scope.exact, scope.descendant);
-  sqlite.prepare(`
-    UPDATE file_locks
-    SET status = 'released', updated_at = ?
-    WHERE workspace_id = ?
-      AND status = 'active'
-      AND (path = ? OR path LIKE ?)
-  `).run(nowMs, workspaceId, scope.exact, scope.descendant);
-}
-
-function remapActivePathScope(
-  sqlite: Sqlite,
-  table: 'file_collaboration_lineages' | 'collaboration_documents' | 'file_locks',
-  workspaceId: string,
-  oldPath: string,
-  newPath: string,
-): void {
-  const scope = pathScopeCondition(oldPath);
-  sqlite.prepare(`
-    UPDATE ${table}
-    SET path = ? || substr(path, length(?) + 1)
-    WHERE workspace_id = ?
-      AND status = 'active'
-      AND (path = ? OR path LIKE ?)
-  `).run(newPath, oldPath, workspaceId, scope.exact, scope.descendant);
 }
 
 function collaborationProviderForStrategy(
@@ -573,11 +402,11 @@ export async function ensureFileRevisionForCurrentContent(params: {
  * revisions remain available through their lineage, but the path can safely be
  * reused by a different file without inheriting old locks or CRDT state.
  */
-export function archiveFileCollaborationPaths(params: {
+export async function archiveFileCollaborationPaths(params: {
   workspace: WorkspaceContext;
   paths: Array<string | { path: string; trashEntryId?: string | null }>;
   nowMs?: number;
-}): void {
+}): Promise<void> {
   const entries = new Map<string, string | null>();
   for (const entry of params.paths) {
     const filePath = normalizeWorkspacePath(typeof entry === 'string' ? entry : entry.path);
@@ -586,43 +415,36 @@ export function archiveFileCollaborationPaths(params: {
   if (entries.size === 0) return;
   const nowMs = params.nowMs ?? Date.now();
 
-  withCollaborationDatabase(true, (sqlite) => {
-    for (const [filePath, trashEntryId] of entries) {
-      materializeLegacyLineagesInPathScope(sqlite, params.workspace, filePath, nowMs);
-      archivePathScope(sqlite, params.workspace.workspaceId, filePath, nowMs, trashEntryId);
-    }
+  await withFileCollaborationTransaction(async (transaction) => {
+    const paths = [...entries.keys()];
+    await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, paths);
+    await archivePostgresFileCollaborationPathScopes(transaction, {
+      workspace: params.workspace,
+      entries: [...entries].map(([path, trashEntryId]) => ({ path, trashEntryId })),
+      nowMs,
+      createLineageId: () => `file-lineage-${randomUUID()}`,
+    });
   });
 }
 
-/** Restores the exact lineage associated with a workspace trash entry. */
-export function restoreFileCollaborationPath(params: {
+/** Restores every lineage in the path scope associated with a workspace trash entry. */
+export async function restoreFileCollaborationPath(params: {
   workspace: WorkspaceContext;
   path: string;
   trashEntryId: string;
   nowMs?: number;
-}): void {
+}): Promise<void> {
   const filePath = normalizeWorkspacePath(params.path);
   const nowMs = params.nowMs ?? Date.now();
 
-  withCollaborationDatabase(true, (sqlite) => {
-    const archived = sqlite.prepare(`
-      SELECT *
-      FROM file_collaboration_lineages
-      WHERE workspace_id = ?
-        AND path = ?
-        AND status = 'archived'
-        AND trash_entry_id = ?
-      ORDER BY archived_at DESC, rowid DESC
-      LIMIT 1
-    `).get(params.workspace.workspaceId, filePath, params.trashEntryId) as FileCollaborationLineageRow | undefined;
-    if (!archived) return;
-
-    archivePathScope(sqlite, params.workspace.workspaceId, filePath, nowMs);
-    sqlite.prepare(`
-      UPDATE file_collaboration_lineages
-      SET status = 'active', archived_at = NULL, trash_entry_id = NULL
-      WHERE id = ?
-    `).run(archived.id);
+  await withFileCollaborationTransaction(async (transaction) => {
+    await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [filePath]);
+    await restorePostgresFileCollaborationPathScope(transaction, {
+      workspaceId: params.workspace.workspaceId,
+      path: filePath,
+      trashEntryId: params.trashEntryId,
+      nowMs,
+    });
   });
 }
 
@@ -630,21 +452,23 @@ export function restoreFileCollaborationPath(params: {
  * Starts independent revision streams for copied paths. Copying is deliberately
  * not a rename: its future edits must never join the source file's history.
  */
-export function initializeCopiedFileCollaborationPaths(params: {
+export async function initializeCopiedFileCollaborationPaths(params: {
   workspace: WorkspaceContext;
   paths: string[];
   nowMs?: number;
-}): void {
+}): Promise<void> {
   const paths = [...new Set(params.paths.map(normalizeWorkspacePath))];
   if (paths.length === 0) return;
   const nowMs = params.nowMs ?? Date.now();
 
-  withCollaborationDatabase(true, (sqlite) => {
-    for (const filePath of paths) {
-      materializeLegacyLineagesInPathScope(sqlite, params.workspace, filePath, nowMs);
-      archivePathScope(sqlite, params.workspace.workspaceId, filePath, nowMs);
-      createActiveLineage(sqlite, params.workspace, filePath, nowMs);
-    }
+  await withFileCollaborationTransaction(async (transaction) => {
+    await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, paths);
+    await initializeCopiedPostgresFileCollaborationPathScopes(transaction, {
+      workspace: params.workspace,
+      paths,
+      nowMs,
+      createLineageId: () => `file-lineage-${randomUUID()}`,
+    });
   });
 }
 
@@ -652,25 +476,26 @@ export function initializeCopiedFileCollaborationPaths(params: {
  * Moves the active identity of a file (or directory tree) to its new path.
  * Any inactive history already associated with the destination stays archived.
  */
-export function moveFileCollaborationPath(params: {
+export async function moveFileCollaborationPath(params: {
   workspace: WorkspaceContext;
   oldPath: string;
   newPath: string;
   nowMs?: number;
-}): void {
+}): Promise<void> {
   const oldPath = normalizeWorkspacePath(params.oldPath);
   const newPath = normalizeWorkspacePath(params.newPath);
   if (oldPath === newPath) return;
   const nowMs = params.nowMs ?? Date.now();
 
-  withCollaborationDatabase(true, (sqlite) => {
-    materializeLegacyLineagesInPathScope(sqlite, params.workspace, oldPath, nowMs);
-    // An overwritten destination may still have an active lineage despite the
-    // physical rename replacing its file. Archive it before moving the source.
-    archivePathScope(sqlite, params.workspace.workspaceId, newPath, nowMs);
-    remapActivePathScope(sqlite, 'file_collaboration_lineages', params.workspace.workspaceId, oldPath, newPath);
-    remapActivePathScope(sqlite, 'collaboration_documents', params.workspace.workspaceId, oldPath, newPath);
-    remapActivePathScope(sqlite, 'file_locks', params.workspace.workspaceId, oldPath, newPath);
+  await withFileCollaborationTransaction(async (transaction) => {
+    await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [oldPath, newPath]);
+    await movePostgresFileCollaborationPathScope(transaction, {
+      workspace: params.workspace,
+      oldPath,
+      newPath,
+      nowMs,
+      createLineageId: () => `file-lineage-${randomUUID()}`,
+    });
   });
 }
 

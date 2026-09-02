@@ -4,6 +4,13 @@ import crypto from 'node:crypto';
 import type * as YTypes from 'yjs';
 
 import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import {
+  archivePersistedCollaborationStatePathScopes,
+  lockFileCollaborationPaths,
+  movePersistedCollaborationStatePathScope,
+  reactivatePersistedCollaborationStatePathScope,
+  withFileCollaborationTransaction,
+} from '@/app/lib/files/collaboration-repository';
 import { composeCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadata';
 import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
 import type { TextCollaborationRepresentation } from './types';
@@ -18,11 +25,6 @@ import {
   withCollaborationRoomLifecycleLock,
 } from './runtime-state';
 import { Y } from './server-runtime';
-import {
-  archiveExcalidrawScenePaths,
-  moveExcalidrawScenePaths,
-  reactivateExcalidrawScenePath,
-} from '@/app/lib/excalidraw-collaboration/repository';
 
 export interface PersistedCollaborationState {
   documentId: string;
@@ -1037,43 +1039,16 @@ export async function changeCollaborationRepresentationWithSafeMarkdownNormaliza
   );
 }
 
-function escapedLikePath(path: string): string {
-  return path.replace(/[\\%_]/gu, (character) => `\\${character}`);
-}
-
 export async function movePersistedCollaborationPath(input: {
   workspaceId: string;
   oldPath: string;
   newPath: string;
 }): Promise<void> {
   if (getDatabaseProvider() !== 'postgres') return;
-  await moveExcalidrawScenePaths(input);
-  const database = await openDb();
-  try {
-    const oldPrefix = `${input.oldPath}/`;
-    await database.run(
-      `
-        UPDATE collaboration_yjs_states
-        SET path = CASE
-          WHEN path = ? THEN ?
-          ELSE ? || SUBSTRING(path FROM ?)
-        END
-        WHERE workspace_id = ? AND status = 'active'
-          AND (path = ? OR path LIKE ? ESCAPE '\\')
-      `,
-      [
-        input.oldPath,
-        input.newPath,
-        `${input.newPath}/`,
-        oldPrefix.length + 1,
-        input.workspaceId,
-        input.oldPath,
-        `${escapedLikePath(oldPrefix)}%`,
-      ],
-    );
-  } finally {
-    await database.close();
-  }
+  await withFileCollaborationTransaction(async (transaction) => {
+    await lockFileCollaborationPaths(transaction, input.workspaceId, [input.oldPath, input.newPath]);
+    await movePersistedCollaborationStatePathScope(transaction, input);
+  });
 }
 
 export async function archivePersistedCollaborationPaths(input: {
@@ -1081,36 +1056,13 @@ export async function archivePersistedCollaborationPaths(input: {
   paths: string[];
 }): Promise<void> {
   if (getDatabaseProvider() !== 'postgres' || input.paths.length === 0) return;
-  await archiveExcalidrawScenePaths(input);
-  const database = await openDb();
-  try {
-    await database.run('BEGIN');
-    for (const path of input.paths) {
-      const rows = await database.all(
-        "SELECT document_id FROM collaboration_yjs_states WHERE workspace_id = ? AND status = 'active' AND (path = ? OR path LIKE ? ESCAPE '\\')",
-        [input.workspaceId, path, `${escapedLikePath(`${path}/`)}%`],
-      ) as Array<{ document_id: string }>;
-      for (const row of rows) {
-        await database.run(
-          `UPDATE collaboration_agent_operations
-           SET status = 'cancelled', cancel_requested_at = ?, error_code = 'document_deleted', updated_at = ?, cas_version = cas_version + 1
-           WHERE document_id = ?
-             AND status NOT IN ('checkpointed_file', 'cancelled', 'expired', 'superseded', 'failed', 'rejected', 'reverted')`,
-          [Date.now(), Date.now(), row.document_id],
-        );
-      }
-      await database.run(
-        "UPDATE collaboration_yjs_states SET status = 'archived', lifecycle_generation = lifecycle_generation + 1 WHERE workspace_id = ? AND status = 'active' AND (path = ? OR path LIKE ? ESCAPE '\\')",
-        [input.workspaceId, path, `${escapedLikePath(`${path}/`)}%`],
-      );
-    }
-    await database.run('COMMIT');
-  } catch (error) {
-    try { await database.run('ROLLBACK'); } catch {}
-    throw error;
-  } finally {
-    await database.close();
-  }
+  await withFileCollaborationTransaction(async (transaction) => {
+    await lockFileCollaborationPaths(transaction, input.workspaceId, input.paths);
+    await archivePersistedCollaborationStatePathScopes(transaction, {
+      ...input,
+      nowMs: Date.now(),
+    });
+  });
 }
 
 export async function reactivatePersistedCollaborationPath(input: {
@@ -1118,14 +1070,8 @@ export async function reactivatePersistedCollaborationPath(input: {
   path: string;
 }): Promise<void> {
   if (getDatabaseProvider() !== 'postgres') return;
-  await reactivateExcalidrawScenePath(input);
-  const database = await openDb();
-  try {
-    await database.run(
-      "UPDATE collaboration_yjs_states SET status = 'active', lifecycle_generation = lifecycle_generation + 1, degraded = 0 WHERE workspace_id = ? AND path = ? AND status = 'archived'",
-      [input.workspaceId, input.path],
-    );
-  } finally {
-    await database.close();
-  }
+  await withFileCollaborationTransaction(async (transaction) => {
+    await lockFileCollaborationPaths(transaction, input.workspaceId, [input.path]);
+    await reactivatePersistedCollaborationStatePathScope(transaction, input);
+  });
 }

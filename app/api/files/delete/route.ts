@@ -5,7 +5,6 @@ import { trashWorkspacePaths } from '@/app/lib/filesystem/workspace-trash';
 import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-file-shares';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { archiveFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
-import { archivePersistedCollaborationPaths } from '@/app/lib/collaboration/persistence';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -50,16 +49,12 @@ export async function DELETE(request: NextRequest) {
       deletedByUserId: workspaceResult.session.user.id,
     });
     const deletedPaths = result.trashed.map((entry) => entry.originalPath);
-    archiveFileCollaborationPaths({
+    await archiveFileCollaborationPaths({
       workspace: workspaceResult.workspace,
       paths: result.trashed.map((entry) => ({
         path: entry.originalPath,
         trashEntryId: entry.id,
       })),
-    });
-    await archivePersistedCollaborationPaths({
-      workspaceId: workspaceResult.workspace.workspaceId,
-      paths: deletedPaths,
     });
     await syncPublicSharesAfterDelete(deletedPaths, workspaceResult.workspace);
 
