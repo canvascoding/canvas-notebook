@@ -21,7 +21,7 @@ export function AppBackButton({ fallbackHref, preferFallback = false, className 
     // A new tab starts with one history entry. In that case we keep people in Canvas
     // rather than invoking the browser's unavailable back action.
     if (preferFallback || window.history.length <= 1) {
-      router.push(fallbackHref);
+      router.replace(fallbackHref);
       return;
     }
 
