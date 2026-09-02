@@ -93,6 +93,9 @@ async function main() {
       skipOnboardingProfile,
     } = await import('../app/lib/onboarding/profile');
     const { isOnboardingComplete } = await import('../app/lib/onboarding/status');
+    const { readMemory, saveOnboardingUserMemories } = await import('../app/lib/memory/service');
+    const { buildMemoryPromptProjection } = await import('../app/lib/memory/prompt-projection');
+    const { openDb } = await import('../app/lib/db');
     const { resolveAgentSessionWorkspaceForUser } = await import('../app/lib/pi/session-workspace-context');
     const { initializeUserOnboarding, updateUserOnboardingState } = await import('../app/lib/user-preferences');
 
@@ -239,7 +242,12 @@ async function main() {
     await assert.rejects(
       () => completeOnboardingProfile({
         userId,
-        userMd: 'OPENAI_API_KEY=sk-testtesttesttesttesttest',
+        sessionId: profileSession.sessionId,
+        memories: [{
+          category: 'profile',
+          semanticKey: 'profile.api-key',
+          content: 'OPENAI_API_KEY=sk-testtesttesttesttesttest',
+        }],
         soulMd: 'Helpful agent.',
       }),
       /secret or credential/,
@@ -247,19 +255,65 @@ async function main() {
 
     const completed = await completeOnboardingProfile({
       userId,
-      userMd: '# User\n\n- Name: Frank\n- Goal: Build Canvas workflows',
+      sessionId: profileSession.sessionId,
+      memories: [
+        { category: 'profile', semanticKey: 'profile.name', content: 'The user\'s name is Frank.' },
+        { category: 'interests', semanticKey: 'interests.primary-goal', content: 'The user wants to build Canvas workflows.' },
+      ],
       soulMd: '# Collaboration Preferences\n\n- Style: concise\n- Ask before consequential actions',
       summary: 'Captured user context and Bradley collaboration preferences.',
     });
     assert.equal(completed.success, true);
     assert.equal(completed.deletedBootstrap, false);
+    assert.deepEqual(
+      { added: completed.memory.added, updated: completed.memory.updated, unchanged: completed.memory.unchanged },
+      { added: 2, updated: 0, unchanged: 0 },
+    );
     assert.match(await fs.readFile(bootstrapPath, 'utf8'), /Bootstrap setup/);
-    const scopedCanvasAgentPath = path.join(dataDir, 'users', userId, 'agents', 'canvas-agent');
-    assert.match(await fs.readFile(path.join(scopedCanvasAgentPath, 'USER.md'), 'utf8'), /Frank/);
+    const scopedCanvasAgentPath = path.join(dataDir, 'users', userId, 'agents', DEFAULT_MANAGED_AGENT_ID);
+    assert.doesNotMatch(await fs.readFile(path.join(scopedCanvasAgentPath, 'USER.md'), 'utf8'), /Frank/);
     const savedSoul = await fs.readFile(path.join(scopedCanvasAgentPath, 'SOUL.md'), 'utf8');
     assert.match(savedSoul, /Style: concise/);
     assert.match(savedSoul, /Ask before consequential actions/);
     assert.doesNotMatch(savedSoul, /Canvas Agent/);
+    const savedMemory = await readMemory({ target: 'user', userId });
+    assert.deepEqual(
+      new Set(savedMemory.entries.map((entry) => entry.content)),
+      new Set(['The user\'s name is Frank.', 'The user wants to build Canvas workflows.']),
+    );
+    const retriedMemorySave = await saveOnboardingUserMemories({
+      userId,
+      agentId: DEFAULT_MANAGED_AGENT_ID,
+      sessionId: profileSession.sessionId,
+      memories: [
+        { category: 'profile', semanticKey: 'profile.name', content: 'The user\'s name is Frank.' },
+        { category: 'interests', semanticKey: 'interests.primary-goal', content: 'The user wants to build Canvas workflows.' },
+      ],
+    });
+    assert.deepEqual(
+      { added: retriedMemorySave.added, updated: retriedMemorySave.updated, unchanged: retriedMemorySave.unchanged },
+      { added: 0, updated: 0, unchanged: 2 },
+    );
+    assert.match(
+      await buildMemoryPromptProjection({ userId, agentId: DEFAULT_MANAGED_AGENT_ID }),
+      /The user's name is Frank\./,
+    );
+    const memoryAuditDb = await openDb();
+    try {
+      const auditRows = await memoryAuditDb.all(`
+        SELECT event.decision_code, event.session_id
+        FROM memory_events event
+        INNER JOIN memory_entries entry ON entry.id = event.entry_id
+        INNER JOIN memory_collections collection ON collection.id = entry.collection_id
+        WHERE collection.user_id = ?
+        ORDER BY event.created_at, event.id
+      `, [userId]) as Array<{ decision_code: string; session_id: string }>;
+      assert.equal(auditRows.length, 2);
+      assert.equal(auditRows.every((row) => row.decision_code === 'onboarding_profile'), true);
+      assert.equal(auditRows.every((row) => row.session_id === profileSession.sessionId), true);
+    } finally {
+      await memoryAuditDb.close();
+    }
     assert.equal(await isOnboardingComplete(), false);
 
     await updateUserOnboardingState(userId, { step: 'profile', runtime: 'skipped', profile: 'pending', tour: 'pending' });
@@ -302,12 +356,17 @@ async function main() {
     assert.equal(secondarySession.sessionId, buildOnboardingProfileSessionId(secondaryUserId));
     const secondaryCompleted = await completeOnboardingProfile({
       userId: secondaryUserId,
-      userMd: '# User\n\n- Name: Secondary',
+      sessionId: secondarySession.sessionId,
+      memories: [{ category: 'profile', semanticKey: 'profile.name', content: 'The user\'s name is Secondary.' }],
       soulMd: '# Soul\n\n- Style: helpful',
     });
     assert.equal(secondaryCompleted.instanceCompleted, false);
     assert.equal(secondaryCompleted.deletedBootstrap, false);
     assert.match(await fs.readFile(bootstrapPath, 'utf8'), /Instance bootstrap/);
+    assert.deepEqual(
+      (await readMemory({ target: 'user', userId: secondaryUserId })).entries.map((entry) => entry.content),
+      ['The user\'s name is Secondary.'],
+    );
 
     console.log('onboarding-profile-test: ok');
   } finally {

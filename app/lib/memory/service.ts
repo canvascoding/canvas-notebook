@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
 
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import {
   MEMORY_MAX_ENTRY_CHARS,
   MEMORY_PENDING_ARCHIVE_AFTER_MS,
@@ -68,6 +68,32 @@ export type MemoryServiceScope = {
   agentId?: string | null;
   workspaceId?: string | null;
   organizationId?: string | null;
+};
+
+export const ONBOARDING_MEMORY_CATEGORIES = [
+  'profile',
+  'preferences',
+  'communication',
+  'interests',
+  'tech-stack',
+  'recent-work',
+  'area',
+] as const;
+
+export type OnboardingMemoryCategory = (typeof ONBOARDING_MEMORY_CATEGORIES)[number];
+
+export type OnboardingMemoryInput = {
+  category: OnboardingMemoryCategory;
+  semanticKey: string;
+  content: string;
+  priority?: number;
+};
+
+export type OnboardingMemorySaveResult = {
+  added: number;
+  updated: number;
+  unchanged: number;
+  entries: MemoryEntry[];
 };
 
 export type AgentMemoryOwnerStats = {
@@ -393,39 +419,63 @@ function normalizedSemanticKey(value: string | undefined): string | null {
   return /^[a-z][a-z0-9._-]{0,119}$/u.test(normalized) ? normalized : null;
 }
 
-async function findCollectionId(scope: MemoryServiceScope, create: boolean, category?: string): Promise<string | null> {
+function stableMemoryId(namespace: string, parts: readonly string[]): string {
+  const digest = createHash('sha256')
+    .update([namespace, ...parts].join('\u0000'), 'utf8')
+    .digest('hex');
+  return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-5${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+}
+
+async function findCollectionIdWithConnection(
+  connection: SqlConnection,
+  scope: MemoryServiceScope,
+  create: boolean,
+  category?: string,
+): Promise<string | null> {
   assertCompleteMemoryScopeIdentity(scopeIdentity(scope));
+  const where = scopeWhere(scope);
+  const resolvedCategory = category
+    ? normalizedCategory(category)
+    : (scope.target === 'agent' ? 'agent-context' : 'context');
+  const existing = await connection.get(`
+    SELECT id FROM memory_collections
+    WHERE ${where.sql} AND status = 'active' AND category = ?
+    ORDER BY updated_at DESC, id DESC
+    LIMIT 1
+  `, [...where.params, resolvedCategory]) as { id?: string } | undefined;
+  if (existing?.id || !create) return existing?.id ?? null;
+
+  const id = stableMemoryId('memory-collection-v1', [
+    scope.target,
+    scope.userId,
+    scope.agentId ?? '',
+    scope.organizationId ?? '',
+    scope.workspaceId ?? '',
+    resolvedCategory,
+  ]);
+  const now = Date.now();
+  await connection.run(`
+    INSERT INTO memory_collections (
+      id, scope_type, user_id, agent_id, organization_id, workspace_id,
+      category, title, sensitivity, status, revision, created_by_user_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'standard', 'active', 1, ?, ?, ?)
+    ON CONFLICT (id) DO NOTHING
+  `, [
+    id, scope.target, scope.userId,
+    scope.target === 'agent' ? scope.agentId ?? null : null,
+    scope.target === 'organization' ? scope.organizationId ?? null : null,
+    scope.target === 'workspace' ? scope.workspaceId ?? null : null,
+    resolvedCategory,
+    scope.target === 'agent' ? 'Agent memory' : `${scope.target[0].toUpperCase()}${scope.target.slice(1)} memory`,
+    scope.userId, now, now,
+  ]);
+  return id;
+}
+
+async function findCollectionId(scope: MemoryServiceScope, create: boolean, category?: string): Promise<string | null> {
   const connection = await openDb();
   try {
-    const where = scopeWhere(scope);
-    const resolvedCategory = category
-      ? normalizedCategory(category)
-      : (scope.target === 'agent' ? 'agent-context' : 'context');
-    const existing = await connection.get(`
-      SELECT id FROM memory_collections
-      WHERE ${where.sql} AND status = 'active' AND category = ?
-      ORDER BY updated_at DESC, id DESC
-      LIMIT 1
-    `, [...where.params, resolvedCategory]) as { id?: string } | undefined;
-    if (existing?.id || !create) return existing?.id ?? null;
-
-    const id = randomUUID();
-    const now = Date.now();
-    await connection.run(`
-      INSERT INTO memory_collections (
-        id, scope_type, user_id, agent_id, organization_id, workspace_id,
-        category, title, sensitivity, status, revision, created_by_user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'standard', 'active', 1, ?, ?, ?)
-    `, [
-      id, scope.target, scope.userId,
-      scope.target === 'agent' ? scope.agentId ?? null : null,
-      scope.target === 'organization' ? scope.organizationId ?? null : null,
-      scope.target === 'workspace' ? scope.workspaceId ?? null : null,
-      resolvedCategory,
-      scope.target === 'agent' ? 'Agent memory' : `${scope.target[0].toUpperCase()}${scope.target.slice(1)} memory`,
-      scope.userId, now, now,
-    ]);
-    return id;
+    return await findCollectionIdWithConnection(connection, scope, create, category);
   } finally {
     await connection.close();
   }
@@ -550,6 +600,177 @@ export async function readMemoryEntryHistory(
       createdAt: Number(row.created_at),
     }));
   } finally { await connection.close(); }
+}
+
+/**
+ * Persists the explicit, user-confirmed facts collected by Bradley during the
+ * profile onboarding. The operation is idempotent across retries and uses the
+ * same SQL surface for SQLite and PostgreSQL.
+ */
+export async function saveOnboardingUserMemories(params: {
+  userId: string;
+  agentId: string;
+  sessionId: string;
+  memories: OnboardingMemoryInput[];
+}): Promise<OnboardingMemorySaveResult> {
+  const userId = params.userId.trim();
+  const agentId = params.agentId.trim().toLowerCase();
+  const sessionId = params.sessionId.trim();
+  if (!userId || !agentId || !sessionId) {
+    throw new Error('Onboarding memory requires user, agent, and session context.');
+  }
+  if (!Array.isArray(params.memories) || params.memories.length === 0) {
+    throw new Error('Onboarding must save at least one durable user memory.');
+  }
+  if (params.memories.length > 20) {
+    throw new Error('Onboarding can save at most 20 user memories.');
+  }
+
+  const allowedCategories = new Set<string>(ONBOARDING_MEMORY_CATEGORIES);
+  const seenSemanticKeys = new Set<string>();
+  const memories = params.memories.map((memory) => {
+    if (!allowedCategories.has(memory.category)) {
+      throw new Error(`Unsupported onboarding memory category "${memory.category}".`);
+    }
+    const semanticKey = normalizedSemanticKey(memory.semanticKey);
+    if (!semanticKey) {
+      throw new Error('Every onboarding memory requires a valid semantic key.');
+    }
+    if (seenSemanticKeys.has(semanticKey)) {
+      throw new Error(`Onboarding memory semantic key "${semanticKey}" is duplicated.`);
+    }
+    seenSemanticKeys.add(semanticKey);
+    const priority = memory.priority ?? 70;
+    if (!Number.isInteger(priority) || priority < 0 || priority > 100) {
+      throw new Error('Onboarding memory priority must be an integer from 0 to 100.');
+    }
+    return {
+      category: memory.category,
+      semanticKey,
+      content: assertMemoryContent(memory.content),
+      priority,
+    };
+  });
+
+  const scope: MemoryServiceScope = { target: 'user', userId };
+  await assertMemoryScopeAccess(scope, 'suggest');
+  const connection = await openDb();
+  let added = 0;
+  let updated = 0;
+  let unchanged = 0;
+  try {
+    await connection.run('BEGIN');
+    for (const memory of memories) {
+      const collectionId = await findCollectionIdWithConnection(connection, scope, true, memory.category);
+      if (!collectionId) throw new Error('Could not resolve an onboarding memory collection.');
+      const hash = contentHash(memory.content);
+      const existing = await connection.get(`
+        SELECT id, content, normalized_content_hash, semantic_key, priority, pinned
+        FROM memory_entries
+        WHERE collection_id = ? AND status != 'archived'
+          AND (semantic_key = ? OR normalized_content_hash = ?)
+        ORDER BY CASE WHEN semantic_key = ? THEN 0 ELSE 1 END, updated_at DESC, id DESC
+        LIMIT 1
+      `, [collectionId, memory.semanticKey, hash, memory.semanticKey]) as Record<string, unknown> | undefined;
+      const now = Date.now();
+      let entryId: string;
+      let action: 'add' | 'update' | null;
+
+      if (existing?.id) {
+        entryId = String(existing.id);
+        const contentMatches = String(existing.normalized_content_hash) === hash;
+        const keyMatches = existing.semantic_key === memory.semanticKey;
+        if ((existing.pinned === true || existing.pinned === 1) || (contentMatches && keyMatches)) {
+          unchanged += 1;
+          action = null;
+        } else {
+          await connection.run(`
+            UPDATE memory_entries
+            SET semantic_key = ?, content = ?, normalized_content_hash = ?, status = 'published',
+              priority = ?, sensitivity = 'standard', estimated_tokens = ?, source_session_id = ?,
+              source_agent_id = ?, last_confirmed_at = ?, revision = revision + 1, updated_at = ?
+            WHERE id = ?
+          `, [
+            memory.semanticKey,
+            memory.content,
+            hash,
+            Math.max(Number(existing.priority ?? 0), memory.priority),
+            Math.max(1, Math.ceil(memory.content.length / 4)),
+            sessionId,
+            agentId,
+            now,
+            now,
+            entryId,
+          ]);
+          updated += 1;
+          action = 'update';
+        }
+      } else {
+        entryId = stableMemoryId('onboarding-memory-entry-v1', [userId, memory.category, memory.semanticKey]);
+        await connection.run(`
+          INSERT INTO memory_entries (
+            id, collection_id, semantic_key, content, normalized_content_hash, status, priority, pinned,
+            sensitivity, estimated_tokens, source_session_id, source_agent_id, created_by_actor_type,
+            created_by_user_id, last_confirmed_at, revision, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 'published', ?, 0, 'standard', ?, ?, ?, 'assistant', ?, ?, 1, ?, ?)
+          ON CONFLICT (id) DO UPDATE SET
+            semantic_key = excluded.semantic_key,
+            content = excluded.content,
+            normalized_content_hash = excluded.normalized_content_hash,
+            status = 'published',
+            priority = excluded.priority,
+            sensitivity = 'standard',
+            estimated_tokens = excluded.estimated_tokens,
+            source_session_id = excluded.source_session_id,
+            source_agent_id = excluded.source_agent_id,
+            last_confirmed_at = excluded.last_confirmed_at,
+            revision = memory_entries.revision + 1,
+            updated_at = excluded.updated_at
+        `, [
+          entryId,
+          collectionId,
+          memory.semanticKey,
+          memory.content,
+          hash,
+          memory.priority,
+          Math.max(1, Math.ceil(memory.content.length / 4)),
+          sessionId,
+          agentId,
+          userId,
+          now,
+          now,
+          now,
+        ]);
+        added += 1;
+        action = 'add';
+      }
+
+      if (action) {
+        const eventId = stableMemoryId('onboarding-memory-event-v1', [entryId, action, hash, sessionId]);
+        await connection.run(`
+          INSERT INTO memory_events (
+            id, entry_id, action, actor_type, actor_user_id, session_id, decision_code, created_at
+          ) VALUES (?, ?, ?, 'assistant', ?, ?, 'onboarding_profile', ?)
+          ON CONFLICT (id) DO NOTHING
+        `, [eventId, entryId, action, userId, sessionId, now]);
+      }
+    }
+    await connection.run('COMMIT');
+  } catch (error) {
+    try { await connection.run('ROLLBACK'); } catch { /* best effort */ }
+    throw error;
+  } finally {
+    await connection.close();
+  }
+
+  const result = await readMemory(scope);
+  const savedKeys = new Set(memories.map((memory) => memory.semanticKey));
+  return {
+    added,
+    updated,
+    unchanged,
+    entries: result.entries.filter((entry) => entry.semanticKey && savedKeys.has(entry.semanticKey)),
+  };
 }
 
 export async function addMemory(scope: MemoryServiceScope & { content: string }): Promise<MemoryMutationResult> {

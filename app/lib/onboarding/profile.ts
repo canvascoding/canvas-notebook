@@ -32,6 +32,11 @@ import {
 } from '@/app/lib/pi/session-workspace-context';
 import { createPiSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
 import { getUserOnboardingState, updateUserOnboardingState } from '@/app/lib/user-preferences';
+import {
+  saveOnboardingUserMemories,
+  type OnboardingMemoryInput,
+  type OnboardingMemorySaveResult,
+} from '@/app/lib/memory/service';
 
 export const ONBOARDING_BOOTSTRAP_FILE_NAME = 'BOOTSTRAP.md';
 export const ONBOARDING_PROFILE_SESSION_TITLE = 'Bradley Onboarding';
@@ -325,22 +330,32 @@ export async function ensureOnboardingProfileSession(params: {
 
 export async function completeOnboardingProfile(params: {
   userId: string;
-  userMd: string;
+  sessionId: string;
+  memories: OnboardingMemoryInput[];
   soulMd: string;
   summary?: string | null;
-}): Promise<{ success: true; deletedBootstrap: boolean; instanceCompleted: boolean }> {
+}): Promise<{
+  success: true;
+  deletedBootstrap: boolean;
+  instanceCompleted: boolean;
+  memory: OnboardingMemorySaveResult;
+}> {
   if (!(await isProfilePending(params.userId))) {
     throw new OnboardingProfileError('Your onboarding profile is already complete.', 'PROFILE_ALREADY_COMPLETE', 409);
   }
 
-  const userMd = normalizeProfileContent(params.userMd, 'USER.md');
   const soulMd = normalizeProfileContent(params.soulMd, 'SOUL.md');
 
-  await writeManagedAgentFile('USER.md', userMd, DEFAULT_MANAGED_AGENT_ID, { userId: params.userId });
+  const memory = await saveOnboardingUserMemories({
+    userId: params.userId,
+    agentId: DEFAULT_MANAGED_AGENT_ID,
+    sessionId: params.sessionId,
+    memories: params.memories,
+  });
   await writeManagedAgentFile('SOUL.md', soulMd, DEFAULT_MANAGED_AGENT_ID, { userId: params.userId });
   await updateUserOnboardingState(params.userId, { profile: 'completed', step: 'tour' });
 
-  return { success: true, deletedBootstrap: false, instanceCompleted: false };
+  return { success: true, deletedBootstrap: false, instanceCompleted: false, memory };
 }
 
 export async function skipOnboardingProfile(params: {

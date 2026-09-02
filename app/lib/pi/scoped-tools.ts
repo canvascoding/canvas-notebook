@@ -3,9 +3,11 @@ import { Type } from 'typebox';
 import {
   addMemory,
   deleteMemory,
+  ONBOARDING_MEMORY_CATEGORIES,
   readMemory,
   updateMemory,
   type MemoryAction,
+  type OnboardingMemoryInput,
   type MemoryReadResult,
   type MemoryTarget,
 } from '@/app/lib/memory/service';
@@ -502,12 +504,35 @@ export function createOnboardingProfileTool(userId?: string, agentId?: string | 
     label: 'Saving Bradley preferences',
     description:
       'Call this tool ONCE when the onboarding conversation has gathered enough information about the user and their collaboration preferences for working with Bradley. ' +
-      'It writes the user-scoped USER.md and SOUL.md and completes that user profile. ' +
+      'It stores compact durable user facts in database-backed memory, writes Bradley collaboration preferences to SOUL.md, and completes that user profile. ' +
       'Do NOT call this tool before you have asked the user at least one question and received a real answer. ' +
       'Do NOT call this tool repeatedly. If the tool returns an error, explain the issue to the user and try once more with corrected parameters. ' +
       'After a successful call, give a brief confirmation in natural language. Do not output code, logs, or technical artifacts after the call.',
     parameters: Type.Object({
-      userMd: Type.String({ description: 'Complete Markdown content for USER.md. Include durable user facts, preferences, context, and goals. Do not include secrets.' }),
+      memories: Type.Array(Type.Object({
+        category: Type.Union(ONBOARDING_MEMORY_CATEGORIES.map((category) => Type.Literal(category)), {
+          description: 'Memory category for this durable fact.',
+        }),
+        semanticKey: Type.String({
+          description: 'Stable lowercase key such as profile.name or preferences.response-detail.',
+          minLength: 1,
+          maxLength: 120,
+        }),
+        content: Type.String({
+          description: 'One compact, durable fact stated without secrets, temporary tasks, or session details.',
+          minLength: 1,
+          maxLength: 800,
+        }),
+        priority: Type.Optional(Type.Integer({
+          description: 'Importance from 0 to 100. Use 70 when unsure.',
+          minimum: 0,
+          maximum: 100,
+        })),
+      }), {
+        description: 'Atomic user memories gathered from the user answers.',
+        minItems: 1,
+        maxItems: 20,
+      }),
       soulMd: Type.String({ description: 'Complete Markdown content for SOUL.md. Include durable communication style, formality, response detail, initiative, boundaries, and collaboration preferences. Do not define or rename Bradley\'s identity. Do not include secrets.' }),
       summary: Type.Optional(Type.String({ description: 'Short one-sentence summary of what was captured.' })),
     }),
@@ -520,23 +545,38 @@ export function createOnboardingProfileTool(userId?: string, agentId?: string | 
         }
 
         const input = params as {
-          userMd?: string;
+          memories?: OnboardingMemoryInput[];
           soulMd?: string;
           summary?: string;
         };
-        if (typeof input.userMd !== 'string') {
-          throw new Error('userMd is required.');
+        if (!Array.isArray(input.memories)) {
+          throw new Error('memories is required.');
         }
         if (typeof input.soulMd !== 'string') {
           throw new Error('soulMd is required.');
         }
+        if (!sessionId) {
+          throw new Error('The onboarding session context is missing.');
+        }
 
         const result = await completeOnboardingProfile({
           userId: scopedUserId,
-          userMd: input.userMd,
+          sessionId,
+          memories: input.memories,
           soulMd: input.soulMd,
           summary: input.summary,
         });
+
+        try {
+          const [{ invalidatePiSystemPromptSnapshotsForUser }, { requestPiRuntimePromptRefreshForUser }] = await Promise.all([
+            import('@/app/lib/pi/system-prompt-snapshot'),
+            import('@/app/lib/pi/live-runtime'),
+          ]);
+          await invalidatePiSystemPromptSnapshotsForUser(scopedUserId);
+          await requestPiRuntimePromptRefreshForUser(scopedUserId);
+        } catch (error) {
+          console.warn('[Onboarding] Bradley context refresh will retry on the next runtime load:', getErrorMessage(error));
+        }
 
         return {
           content: [{
