@@ -103,7 +103,7 @@ export async function writeCollaborationCheckpointFile(input: {
   const fileRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
   if (!fileRevision) throw new Error('Collaboration checkpoint could not be read after write.');
 
-  const revision = ensureFileRevisionForCurrentContent({
+  const revision = await ensureFileRevisionForCurrentContent({
     workspace: input.workspace,
     path: input.state.path,
     contentHash: fileRevision.sha256,
@@ -159,7 +159,7 @@ async function writeCompensatableCollaborationCheckpointFile(input: {
     if (restoredRevision?.sha256 !== previousRevision.sha256) {
       throw new Error('Collaboration checkpoint rollback could not restore the previous file.');
     }
-    ensureFileRevisionForCurrentContent({
+    await ensureFileRevisionForCurrentContent({
       workspace: input.workspace,
       path: input.state.path,
       contentHash: restoredRevision.sha256,
@@ -187,12 +187,12 @@ async function writeCompensatableCollaborationCheckpointFile(input: {
   }
 }
 
-export function finalizeCollaborationCheckpointProjection(input: {
+export async function finalizeCollaborationCheckpointProjection(input: {
   state: PersistedCollaborationState;
   workspace: WorkspaceContext;
   revisionId: string;
-}): void {
-  const projectedDocument = markCollaborationDocumentCheckpoint({
+}): Promise<void> {
+  const projectedDocument = await markCollaborationDocumentCheckpoint({
     workspace: input.workspace,
     path: input.state.path,
     documentId: input.state.documentId,
@@ -260,7 +260,7 @@ export async function materializeCollaborationCheckpoint(input: {
       input.state.documentSequence,
     );
   }
-  finalizeCollaborationCheckpointProjection({
+  await finalizeCollaborationCheckpointProjection({
     state: fenced.state,
     workspace: input.workspace,
     revisionId: fenced.result.revisionId,

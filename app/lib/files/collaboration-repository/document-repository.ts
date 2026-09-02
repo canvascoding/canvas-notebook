@@ -103,15 +103,32 @@ export async function ensureCollaborationDocument(
 
 export async function updateCollaborationDocumentCheckpoint(
   transaction: FileCollaborationTransaction,
-  documentId: string,
-  revisionId: string,
-  nowMs: number,
+  params: {
+    workspaceId: string;
+    path: string;
+    documentId: string;
+    stateVersion: number;
+    revisionId: string;
+    nowMs: number;
+  },
 ): Promise<CollaborationDocumentRecord | null> {
   const row = await getRow<DocumentRow>(transaction, `
     UPDATE collaboration_documents
-    SET snapshot_revision_id = $1, state_version = state_version + 1, updated_at = $2
-    WHERE id = $3 AND status = 'active'
+    SET snapshot_revision_id = $1, state_version = $2, updated_at = $3
+    WHERE id = $4
+      AND workspace_id = $5
+      AND path = $6
+      AND provider = 'yjs'
+      AND status = 'active'
+      AND state_version <= $2
     RETURNING *
-  `, [revisionId, nowMs, documentId]);
+  `, [
+    params.revisionId,
+    params.stateVersion,
+    params.nowMs,
+    params.documentId,
+    params.workspaceId,
+    params.path,
+  ]);
   return row ? mapDocument(row) : null;
 }

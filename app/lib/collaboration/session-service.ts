@@ -114,7 +114,7 @@ export async function createCollaborationSessionGrant(input: {
   request: CollaborationSessionRequest;
 }): Promise<CollaborationSessionGrant> {
   const { workspace, fileOptions, request } = input;
-  const collaboration = getFileCollaborationState({
+  const collaboration = await getFileCollaborationState({
     workspace,
     path: request.path,
     ensureDocument: true,
@@ -217,8 +217,8 @@ export async function createCollaborationSessionGrant(input: {
                     actorType: 'system',
                   });
                 },
-                finalize: ({ state, fileWrite }) => {
-                  finalizeCollaborationCheckpointProjection({
+                finalize: async ({ state, fileWrite }) => {
+                  await finalizeCollaborationCheckpointProjection({
                     state,
                     workspace,
                     revisionId: fileWrite.revisionId,

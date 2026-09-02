@@ -189,14 +189,14 @@ async function documentValue(input: {
   path: string;
 }): Promise<MobileExcalidrawDocument> {
   const physical = await readPhysicalExcalidraw(input.path, input.fileOptions);
-  const revision = ensureFileRevisionForCurrentContent({
+  const revision = await ensureFileRevisionForCurrentContent({
     workspace: input.workspace,
     path: input.path,
     contentHash: physical.sha256,
     sizeBytes: physical.size,
     actorType: 'system',
   });
-  const collaboration = getFileCollaborationState({
+  const collaboration = await getFileCollaborationState({
     workspace: input.workspace,
     path: input.path,
     ensureDocument: false,
@@ -367,7 +367,7 @@ export async function saveMobileExcalidrawDocument(input: {
     appState: parsed.appState,
     files: parsed.files,
   }, null, 2);
-  const collaboration = getFileCollaborationState({
+  const collaboration = await getFileCollaborationState({
     workspace: input.workspace,
     path: filePath,
     ensureDocument: false,

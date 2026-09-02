@@ -66,7 +66,7 @@ async function main(): Promise<void> {
     await fs.mkdir(workspace.rootPath, { recursive: true });
     await writeFile(filePath, initialContent, { workspace });
     const initialBuffer = Buffer.from(initialContent);
-    const initialRevision = ensureFileRevisionForCurrentContent({
+    const initialRevision = await ensureFileRevisionForCurrentContent({
       workspace,
       path: filePath,
       contentHash: sha256Buffer(initialBuffer),
@@ -74,7 +74,7 @@ async function main(): Promise<void> {
       actorUserId: workspace.ownerUserId,
       actorType: 'user',
     });
-    const projection = getFileCollaborationState({
+    const projection = await getFileCollaborationState({
       workspace,
       path: filePath,
       ensureDocument: false,
@@ -122,14 +122,14 @@ async function main(): Promise<void> {
       document.destroy();
     }
 
-    const checkpointProjection = getFileCollaborationState({
+    const checkpointProjection = await getFileCollaborationState({
       workspace,
       path: filePath,
       ensureDocument: false,
     });
     assert.equal(checkpointProjection.document?.id, documentId);
     assert.notEqual(checkpointProjection.document?.snapshotRevisionId, initialRevision.id);
-    assert.throws(
+    await assert.rejects(
       () => assertFileCollaborationWriteAllowed({
         workspace,
         path: filePath,

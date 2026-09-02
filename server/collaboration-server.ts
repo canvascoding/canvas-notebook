@@ -178,7 +178,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       const releaseRoomAdmission = await withCollaborationRoomLifecycleLock(
         claims.documentId,
         async () => {
-          const metadata = getFileCollaborationState({ workspace, path: claims.path, ensureDocument: false });
+          const metadata = await getFileCollaborationState({ workspace, path: claims.path, ensureDocument: false });
           const state = await loadCollaborationState(claims.documentId);
           if (
             !metadata.document
@@ -438,7 +438,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       async () => {
         const state = await loadCollaborationState(input.documentId);
         const collaboration = input.requiresFileCheckpointIdentity
-          ? getFileCollaborationState({
+          ? await getFileCollaborationState({
               workspace,
               path: input.documentPath,
               ensureDocument: false,

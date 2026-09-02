@@ -32,7 +32,7 @@ export async function runWorkspaceUploadWrite(params: {
 
   const beforeRevision = await getWorkspaceFileRevision(params.targetPath, params.fileOptions);
   const storedBaseRevision = beforeRevision
-    ? ensureFileRevisionForCurrentContent({
+    ? await ensureFileRevisionForCurrentContent({
         workspace: params.workspace,
         path: params.targetPath,
         contentHash: beforeRevision.sha256,
@@ -48,12 +48,12 @@ export async function runWorkspaceUploadWrite(params: {
       && workspaceRequiresCollaborationPolicy(params.workspace)
       && detectFileCollaborationStrategy(params.targetPath) === 'exclusive_lock';
     if (shouldAutoLockUpload) {
-      const currentState = getFileCollaborationState({
+      const currentState = await getFileCollaborationState({
         workspace: params.workspace,
         path: params.targetPath,
       });
       if (!currentState.activeLock) {
-        const acquired = acquireFileLock({
+        const acquired = await acquireFileLock({
           workspace: params.workspace,
           path: params.targetPath,
           lockedByUserId: params.actorUserId,
@@ -72,7 +72,7 @@ export async function runWorkspaceUploadWrite(params: {
         expectedRevision: beforeRevision,
         options: params.fileOptions,
       });
-      assertFileCollaborationWriteAllowed({
+      await assertFileCollaborationWriteAllowed({
         workspace: params.workspace,
         path: params.targetPath,
         actorUserId: params.actorUserId,
@@ -85,7 +85,7 @@ export async function runWorkspaceUploadWrite(params: {
     await params.write(assertUploadStillAllowed);
     const afterRevision = await getWorkspaceFileRevision(params.targetPath, params.fileOptions);
     if (afterRevision) {
-      ensureFileRevisionForCurrentContent({
+      await ensureFileRevisionForCurrentContent({
         workspace: params.workspace,
         path: params.targetPath,
         contentHash: afterRevision.sha256,
@@ -99,7 +99,7 @@ export async function runWorkspaceUploadWrite(params: {
   } finally {
     if (transientUploadLockId) {
       try {
-        releaseFileLock({
+        await releaseFileLock({
           workspace: params.workspace,
           lockId: transientUploadLockId,
           actorUserId: params.actorUserId,

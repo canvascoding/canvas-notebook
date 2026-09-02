@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     if (!path) return jsonError('Path parameter is required', 400);
 
     return jsonSuccess({
-      data: getFileCollaborationState({
+      data: await getFileCollaborationState({
         workspace: workspaceResult.workspace,
         path,
       }),
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     if (!body.path) return jsonError('Path is required', 400);
     const lockType = isFileLockType(body.lockType) ? body.lockType : 'edit';
 
-    const result = acquireFileLock({
+    const result = await acquireFileLock({
       workspace: workspaceResult.workspace,
       path: body.path,
       lockedByUserId: workspaceResult.session.user.id,
@@ -138,7 +138,7 @@ export async function DELETE(request: NextRequest) {
       return jsonError('Only workspace managers can force release file locks', 403);
     }
 
-    const lock = releaseFileLock({
+    const lock = await releaseFileLock({
       workspace: workspaceResult.workspace,
       path: body.path,
       lockId: body.lockId,

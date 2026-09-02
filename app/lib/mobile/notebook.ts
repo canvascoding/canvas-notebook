@@ -309,7 +309,7 @@ export async function readMobileNotebookDocument(input: {
   const sourceContent = buffer.toString('utf8');
   const requestedRepresentation = selectMobileCollaborationRepresentation(filePath, sourceContent);
   const sha256 = sha256Buffer(buffer);
-  const revision = ensureFileRevisionForCurrentContent({
+  const revision = await ensureFileRevisionForCurrentContent({
     workspace: input.workspace,
     path: filePath,
     contentHash: sha256,
@@ -318,7 +318,7 @@ export async function readMobileNotebookDocument(input: {
     actorType: 'user',
     sourceSessionId: null,
   });
-  const collaboration = getFileCollaborationState({
+  const collaboration = await getFileCollaborationState({
     workspace: input.workspace,
     path: filePath,
     ensureDocument: false,
@@ -533,7 +533,7 @@ export async function saveMobileNotebookDocument(input: {
   if (typeof input.baseRevisionId !== 'string' || !input.baseRevisionId.trim()) {
     throw new MobileNotebookError('A current document revision is required.', 428, 'FILE_REVISION_REQUIRED');
   }
-  const collaboration = getFileCollaborationState({
+  const collaboration = await getFileCollaborationState({
     workspace: input.workspace,
     path: filePath,
     ensureDocument: false,

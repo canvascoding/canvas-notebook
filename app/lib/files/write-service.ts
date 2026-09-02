@@ -87,7 +87,7 @@ async function writeWorkspaceFileContentUnlocked(input: WriteWorkspaceFileConten
     requireExpectedRevision: input.requireExpectedRevision ?? workspaceRequiresRevisionCheck(input.workspace),
   });
   const storedBaseRevision = beforeRevision
-    ? ensureFileRevisionForCurrentContent({
+    ? await ensureFileRevisionForCurrentContent({
         workspace: input.workspace,
         path: input.path,
         contentHash: beforeRevision.sha256,
@@ -96,7 +96,7 @@ async function writeWorkspaceFileContentUnlocked(input: WriteWorkspaceFileConten
       })
     : null;
 
-  assertFileCollaborationWriteAllowed({
+  await assertFileCollaborationWriteAllowed({
     workspace: input.workspace,
     path: input.path,
     actorUserId: input.actorUserId,
@@ -131,7 +131,7 @@ async function writeWorkspaceFileContentUnlocked(input: WriteWorkspaceFileConten
   const contentBuffer = Buffer.isBuffer(input.content) ? input.content : Buffer.from(input.content);
   const afterRevision = await getWorkspaceFileRevision(input.path, input.fileOptions);
   if (!afterRevision) throw new Error('Written file could not be read after save.');
-  const revision = ensureFileRevisionForCurrentContent({
+  const revision = await ensureFileRevisionForCurrentContent({
     workspace: input.workspace,
     path: input.path,
     contentHash: afterRevision.sha256,
@@ -141,7 +141,7 @@ async function writeWorkspaceFileContentUnlocked(input: WriteWorkspaceFileConten
     sourceSessionId: null,
     baseRevisionId: input.baseRevisionId ?? storedBaseRevision?.id ?? null,
   });
-  const collaboration = getFileCollaborationState({
+  const collaboration = await getFileCollaborationState({
     workspace: input.workspace,
     path: input.path,
     ensureDocument: input.ensureCollaborationDocument ?? true,

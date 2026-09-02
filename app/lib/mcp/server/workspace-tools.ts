@@ -674,14 +674,14 @@ async function readDirectMcpTextContent(input: {
   };
   if (getDatabaseProvider() !== 'postgres') return fallback;
 
-  const collaboration = getFileCollaborationState({
+  const collaboration = await getFileCollaborationState({
     workspace: input.workspace,
     path: input.path,
     ensureDocument: true,
   });
   if (!collaboration.crdtCapable || !collaboration.document) return fallback;
 
-  ensureFileRevisionForCurrentContent({
+  await ensureFileRevisionForCurrentContent({
     workspace: input.workspace,
     path: input.path,
     contentHash: fallback.sha256,
@@ -1523,7 +1523,7 @@ async function executeEditKnowledgeSource(
     if (!beforeRevision || beforeRevision.sha256 !== expectedSha256) {
       return errorResult('The workspace file changed since it was read. Read the current file content again before retrying.');
     }
-    const baseRevision = ensureFileRevisionForCurrentContent({
+    const baseRevision = await ensureFileRevisionForCurrentContent({
       workspace,
       path: filePath,
       contentHash: beforeRevision.sha256,
@@ -1532,7 +1532,7 @@ async function executeEditKnowledgeSource(
       actorType: 'user',
       sourceSessionId: authorization.principal.sessionId,
     });
-    assertFileCollaborationWriteAllowed({
+    await assertFileCollaborationWriteAllowed({
       workspace,
       path: filePath,
       actorUserId: authorization.principal.userId,
@@ -1552,7 +1552,7 @@ async function executeEditKnowledgeSource(
     if (afterBuffer.toString('utf8') !== proposedContent) {
       throw new Error('Read-after-write verification failed.');
     }
-    const afterRevision = ensureFileRevisionForCurrentContent({
+    const afterRevision = await ensureFileRevisionForCurrentContent({
       workspace,
       path: filePath,
       contentHash: afterSha256,

@@ -1066,7 +1066,7 @@ async function waitForDurableState(input: {
     ) {
       let checkpointRevisionId: string | null = null;
       if (input.documentPath) {
-        const projection = getFileCollaborationState({
+        const projection = await getFileCollaborationState({
           workspace: input.workspace,
           path: input.documentPath,
           ensureDocument: false,

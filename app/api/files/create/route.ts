@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
         options: fileOptions,
         requireExpectedRevision: workspaceRequiresRevisionCheck(workspaceResult.workspace),
       });
-      assertFileCollaborationWriteAllowed({
+      await assertFileCollaborationWriteAllowed({
         workspace: workspaceResult.workspace,
         path,
         actorUserId: workspaceResult.session.user.id,
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       );
       const revision = await getWorkspaceFileRevision(path, fileOptions);
       if (revision) {
-        ensureFileRevisionForCurrentContent({
+        await ensureFileRevisionForCurrentContent({
           workspace: workspaceResult.workspace,
           path,
           contentHash: revision.sha256,

@@ -534,9 +534,9 @@ async function collaborativeAgentFileContext(fullPath: string, initialBuffer: Bu
   if (!workspace || !executionContext || !isPathWithin(fullPath, workspace.rootPath)) return null;
   const relativePath = workspaceRelativeAgentPath(workspace, fullPath);
   const initialContent = initialBuffer.toString('utf8');
-  const eligibility = getFileCollaborationState({ workspace, path: relativePath });
+  const eligibility = await getFileCollaborationState({ workspace, path: relativePath });
   if (!eligibility.crdtCapable) return null;
-  ensureFileRevisionForCurrentContent({
+  await ensureFileRevisionForCurrentContent({
     workspace,
     path: relativePath,
     contentHash: sha256Buffer(initialBuffer),
@@ -545,7 +545,7 @@ async function collaborativeAgentFileContext(fullPath: string, initialBuffer: Bu
     actorType: 'agent',
     sourceSessionId: executionContext.sessionId,
   });
-  const collaboration = getFileCollaborationState({
+  const collaboration = await getFileCollaborationState({
     workspace,
     path: relativePath,
     ensureDocument: true,
@@ -566,17 +566,17 @@ async function collaborativeAgentFileContext(fullPath: string, initialBuffer: Bu
   };
 }
 
-function collaborativeAgentExcalidrawContext(fullPath: string): {
+async function collaborativeAgentExcalidrawContext(fullPath: string): Promise<{
   workspace: WorkspaceContext;
   executionContext: AgentExecutionContext;
   relativePath: string;
   documentId: string;
-} | null {
+} | null> {
   const workspace = getAgentWorkspaceContext();
   const executionContext = getAgentExecutionContext();
   if (!workspace || !executionContext || !isPathWithin(fullPath, workspace.rootPath)) return null;
   const relativePath = workspaceRelativeAgentPath(workspace, fullPath);
-  const collaboration = getFileCollaborationState({
+  const collaboration = await getFileCollaborationState({
     workspace,
     path: relativePath,
     ensureDocument: false,
@@ -621,7 +621,7 @@ export async function readAgentCollaborativeExcalidrawFile(fullPath: string): Pr
   lifecycleGeneration: number;
 } | null> {
   if (getDatabaseProvider() !== 'postgres') return null;
-  const collaboration = collaborativeAgentExcalidrawContext(fullPath);
+  const collaboration = await collaborativeAgentExcalidrawContext(fullPath);
   if (!collaboration) return null;
   const state = await loadExcalidrawScene(collaboration.documentId);
   if (!state || state.workspaceId !== collaboration.workspace.workspaceId || state.status !== 'active') return null;
@@ -652,7 +652,7 @@ export async function editAgentExcalidrawScene(params: {
 }): Promise<ExcalidrawAgentOperation> {
   const fullPath = resolveAgentPath(params.path);
   await assertAgentPathAllowed(fullPath);
-  const collaboration = collaborativeAgentExcalidrawContext(fullPath);
+  const collaboration = await collaborativeAgentExcalidrawContext(fullPath);
   if (!collaboration) {
     throw new Error('edit_excalidraw_scene requires an active shared .excalidraw document. Read the file first to obtain its live scene sequence and element versions.');
   }
@@ -1240,7 +1240,7 @@ async function commitTextChange(params: {
     ? workspaceRelativeAgentPath(workspaceContext, params.fullPath)
     : null;
   const baseRevision = workspaceContext && params.beforeBuffer
-    ? ensureFileRevisionForCurrentContent({
+    ? await ensureFileRevisionForCurrentContent({
         workspace: workspaceContext,
         path: params.inputPath,
         contentHash: sha256Buffer(params.beforeBuffer),
@@ -1250,7 +1250,7 @@ async function commitTextChange(params: {
     : null;
 
   if (workspaceContext) {
-    assertFileCollaborationWriteAllowed({
+    await assertFileCollaborationWriteAllowed({
       workspace: workspaceContext,
       path: params.inputPath,
       actorUserId: executionContext?.userId ?? null,
@@ -1287,7 +1287,7 @@ async function commitTextChange(params: {
     throw new Error(`Read-after-write verification failed for ${params.inputPath}.`);
   }
   if (workspaceContext) {
-    ensureFileRevisionForCurrentContent({
+    await ensureFileRevisionForCurrentContent({
       workspace: workspaceContext,
       path: params.inputPath,
       contentHash: sha256Buffer(readBack),
@@ -1424,7 +1424,7 @@ export async function writeAgentBinaryFile(params: {
     const executionContext = getAgentExecutionContext();
     const workspaceContext = getAgentWorkspaceContext();
     const baseRevision = workspaceContext && before.buffer
-      ? ensureFileRevisionForCurrentContent({
+      ? await ensureFileRevisionForCurrentContent({
           workspace: workspaceContext,
           path: params.path,
           contentHash: beforeSha256!,
@@ -1434,7 +1434,7 @@ export async function writeAgentBinaryFile(params: {
       : null;
 
     if (workspaceContext) {
-      assertFileCollaborationWriteAllowed({
+      await assertFileCollaborationWriteAllowed({
         workspace: workspaceContext,
         path: params.path,
         actorUserId: executionContext?.userId ?? null,
@@ -1468,7 +1468,7 @@ export async function writeAgentBinaryFile(params: {
       throw new Error(`Read-after-write verification failed for ${params.path}.`);
     }
     if (workspaceContext) {
-      ensureFileRevisionForCurrentContent({
+      await ensureFileRevisionForCurrentContent({
         workspace: workspaceContext,
         path: params.path,
         contentHash: readBackSha256,
@@ -1798,7 +1798,7 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
     await assertAgentPathMutationStatesUnchanged([mutationState], 'restore_file_snapshot');
     const workspaceContext = getAgentWorkspaceContext();
     if (workspaceContext) {
-      assertFileCollaborationWriteAllowed({
+      await assertFileCollaborationWriteAllowed({
         workspace: workspaceContext,
         path: workspaceRelativeAgentPath(workspaceContext, fullPath),
         actorUserId: getAgentExecutionContext()?.userId ?? null,
@@ -2172,7 +2172,7 @@ export async function copyAgentPaths(params: {
         for (const entry of entries) {
           if (!entry.overwritten || !entry.destinationResolvedPath) continue;
           const destinationPath = workspaceRelativeAgentPath(copyWorkspace, entry.destinationResolvedPath);
-          assertFileCollaborationWriteAllowed({
+          await assertFileCollaborationWriteAllowed({
             workspace: copyWorkspace,
             path: destinationPath,
             actorUserId: getAgentExecutionContext()?.userId ?? null,

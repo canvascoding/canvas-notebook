@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
     const metaOnly = searchParams.get('meta') === '1';
 
     if (metaOnly) {
-      const collaboration = getFileCollaborationState({
+      const collaboration = await getFileCollaborationState({
         workspace: workspaceResult.workspace,
         path,
       });
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
 
     const content = await readFile(path, fileOptions);
     const sha256 = sha256Buffer(content);
-    const revision = ensureFileRevisionForCurrentContent({
+    const revision = await ensureFileRevisionForCurrentContent({
       workspace: workspaceResult.workspace,
       path,
       contentHash: sha256,
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
       actorType: 'user',
       sourceSessionId: null,
     });
-    const collaboration = getFileCollaborationState({
+    const collaboration = await getFileCollaborationState({
       workspace: workspaceResult.workspace,
       path,
       ensureDocument: true,

@@ -127,7 +127,14 @@ async function main(): Promise<void> {
       assert.equal(refreshed?.expiresAt, 2_000);
       assert.equal((await getActiveFileLock(transaction, workspace.workspaceId, 'notes.md', 200))?.id, first.lock.id);
 
-      const checkpoint = await updateCollaborationDocumentCheckpoint(transaction, first.document.id, revision.id, 200);
+      const checkpoint = await updateCollaborationDocumentCheckpoint(transaction, {
+        workspaceId: workspace.workspaceId,
+        path: 'notes.md',
+        documentId: first.document.id,
+        stateVersion: 1,
+        revisionId: revision.id,
+        nowMs: 200,
+      });
       assert.equal(checkpoint?.snapshotRevisionId, revision.id);
       assert.equal(checkpoint?.stateVersion, 1);
       assert.equal((await getActiveCollaborationDocument(transaction, workspace.workspaceId, 'notes.md', 'yjs'))?.id, first.document.id);

@@ -224,7 +224,7 @@ async function revalidateWriteContext(context: ConnectionContext): Promise<void>
   }
   const workspace = await resolvePostgresWorkspaceForActor(resolveWorkspaceActor(session.user), context.claims.workspaceId);
   if (!workspace?.permissions.canRead || !workspace.permissions.canWrite) throw new Error('Workspace write access was revoked.');
-  const metadata = getFileCollaborationState({ workspace, path: context.claims.path, ensureDocument: false });
+  const metadata = await getFileCollaborationState({ workspace, path: context.claims.path, ensureDocument: false });
   const state = await loadExcalidrawScene(context.claims.documentId);
   if (
     !metadata.sceneCapable
@@ -257,7 +257,7 @@ async function authenticateConnection(
   const workspace = await resolvePostgresWorkspaceForActor(resolveWorkspaceActor(session.user), claims.workspaceId);
   if (!workspace?.permissions.canRead) throw new Error('Workspace access was revoked.');
   if (claims.permission === 'write' && !workspace.permissions.canWrite) throw new Error('Workspace write access was revoked.');
-  const metadata = getFileCollaborationState({ workspace, path: claims.path, ensureDocument: false });
+  const metadata = await getFileCollaborationState({ workspace, path: claims.path, ensureDocument: false });
   const state = await loadExcalidrawScene(claims.documentId);
   if (
     !metadata.sceneCapable

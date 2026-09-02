@@ -4,7 +4,21 @@ import type { SqlConnection } from '@/app/lib/db';
 
 import type { FileCollaborationTransaction } from './types';
 
+type FileCollaborationConnectionFactory = () => Promise<SqlConnection>;
+
+let testConnectionFactory: FileCollaborationConnectionFactory | null = null;
+
+export function setFileCollaborationConnectionFactoryForTests(
+  factory: FileCollaborationConnectionFactory | null,
+): void {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('The file collaboration test connection factory is unavailable in production.');
+  }
+  testConnectionFactory = factory;
+}
+
 async function openRuntimeDatabaseConnection(): Promise<SqlConnection> {
+  if (testConnectionFactory) return testConnectionFactory();
   const { openDb } = await import('@/app/lib/db');
   return openDb();
 }

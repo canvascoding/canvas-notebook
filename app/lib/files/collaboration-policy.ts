@@ -5,6 +5,24 @@ import path from 'node:path';
 
 import type Database from 'better-sqlite3';
 import { workspaceSupportsRealtimeTextCollaboration } from '@/app/lib/collaboration/capabilities';
+import {
+  appendFileRevision as appendPostgresFileRevision,
+  ensureActiveFileLineage as ensurePostgresActiveFileLineage,
+  ensureCollaborationDocument as ensurePostgresCollaborationDocument,
+  expireFileLocksForPath as expirePostgresFileLocksForPath,
+  getActiveCollaborationDocument as getPostgresCollaborationDocument,
+  getActiveFileLock as getPostgresActiveFileLock,
+  getFileLockById as getPostgresFileLockById,
+  getLatestFileRevision as getPostgresLatestFileRevision,
+  getLatestFileRevisionForLineage as getPostgresLatestFileRevisionForLineage,
+  insertFileLock as insertPostgresFileLock,
+  lockFileCollaborationPaths,
+  refreshFileLock as refreshPostgresFileLock,
+  updateCollaborationDocumentCheckpoint as updatePostgresCollaborationDocumentCheckpoint,
+  updateFileLockStatus as updatePostgresFileLockStatus,
+  withFileCollaborationTransaction,
+  type FileCollaborationTransaction,
+} from '@/app/lib/files/collaboration-repository';
 import { openOrganizationBootstrapDatabase } from '@/app/lib/organization/bootstrap';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
@@ -151,24 +169,6 @@ const MAX_LOCK_TTL_MS = 4 * 60 * 60 * 1000;
 
 type Sqlite = InstanceType<typeof Database>;
 
-type FileRevisionRow = {
-  id: string;
-  lineage_id: string | null;
-  organization_id: string | null;
-  customer_id: string | null;
-  project_id: string | null;
-  workspace_id: string;
-  workspace_type: WorkspaceContext['workspaceType'];
-  path: string;
-  content_hash: string;
-  size_bytes: number;
-  created_by_user_id: string | null;
-  created_by_actor_type: FileActorType;
-  source_session_id: string | null;
-  base_revision_id: string | null;
-  created_at: number;
-};
-
 type FileCollaborationLineageRow = {
   id: string;
   workspace_id: string;
@@ -189,40 +189,6 @@ type FileCollaborationLineage = {
   createdAt: number;
   archivedAt: number | null;
   trashEntryId: string | null;
-};
-
-type FileLockRow = {
-  id: string;
-  organization_id: string | null;
-  customer_id: string | null;
-  project_id: string | null;
-  workspace_id: string;
-  workspace_type: WorkspaceContext['workspaceType'];
-  path: string;
-  revision_id: string | null;
-  locked_by_user_id: string | null;
-  locked_by_session_id: string | null;
-  lock_type: FileLockType;
-  status: FileLockStatus;
-  expires_at: number;
-  created_at: number;
-  updated_at: number;
-};
-
-type CollaborationDocumentRow = {
-  id: string;
-  organization_id: string | null;
-  customer_id: string | null;
-  project_id: string | null;
-  workspace_id: string;
-  workspace_type: WorkspaceContext['workspaceType'];
-  path: string;
-  provider: 'yjs' | 'excalidraw';
-  state_version: number;
-  snapshot_revision_id: string | null;
-  status: 'active' | 'archived';
-  created_at: number;
-  updated_at: number;
 };
 
 function normalizeWorkspacePath(filePath: string): string {
@@ -251,27 +217,6 @@ export function workspaceRequiresCollaborationPolicy(workspace: WorkspaceContext
   return workspace.workspaceType === 'organization' || workspace.workspaceType === 'team' || workspace.workspaceType === 'project';
 }
 
-function mapRevision(row: FileRevisionRow | undefined): FileRevisionRecord | null {
-  if (!row) return null;
-  return {
-    id: row.id,
-    lineageId: row.lineage_id,
-    organizationId: row.organization_id,
-    customerId: row.customer_id,
-    projectId: row.project_id,
-    workspaceId: row.workspace_id,
-    workspaceType: row.workspace_type,
-    path: row.path,
-    contentHash: row.content_hash,
-    sizeBytes: row.size_bytes,
-    createdByUserId: row.created_by_user_id,
-    createdByActorType: row.created_by_actor_type,
-    sourceSessionId: row.source_session_id,
-    baseRevisionId: row.base_revision_id,
-    createdAt: row.created_at,
-  };
-}
-
 function mapLineage(row: FileCollaborationLineageRow | undefined): FileCollaborationLineage | null {
   if (!row) return null;
   return {
@@ -283,46 +228,6 @@ function mapLineage(row: FileCollaborationLineageRow | undefined): FileCollabora
     createdAt: row.created_at,
     archivedAt: row.archived_at,
     trashEntryId: row.trash_entry_id,
-  };
-}
-
-function mapLock(row: FileLockRow | undefined): FileLockRecord | null {
-  if (!row) return null;
-  return {
-    id: row.id,
-    organizationId: row.organization_id,
-    customerId: row.customer_id,
-    projectId: row.project_id,
-    workspaceId: row.workspace_id,
-    workspaceType: row.workspace_type,
-    path: row.path,
-    revisionId: row.revision_id,
-    lockedByUserId: row.locked_by_user_id,
-    lockedBySessionId: row.locked_by_session_id,
-    lockType: row.lock_type,
-    status: row.status,
-    expiresAt: row.expires_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function mapDocument(row: CollaborationDocumentRow | undefined): CollaborationDocumentRecord | null {
-  if (!row) return null;
-  return {
-    id: row.id,
-    organizationId: row.organization_id,
-    customerId: row.customer_id,
-    projectId: row.project_id,
-    workspaceId: row.workspace_id,
-    workspaceType: row.workspace_type,
-    path: row.path,
-    provider: row.provider,
-    stateVersion: row.state_version,
-    snapshotRevisionId: row.snapshot_revision_id,
-    status: row.status,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
   };
 }
 
@@ -339,28 +244,6 @@ function withCollaborationDatabase<T>(write: boolean, callback: (sqlite: Sqlite)
   } finally {
     sqlite.close();
   }
-}
-
-function expireStaleLocks(sqlite: Sqlite, workspaceId: string, filePath: string, nowMs: number): void {
-  sqlite.prepare(`
-    UPDATE file_locks
-    SET status = 'expired', updated_at = ?
-    WHERE workspace_id = ?
-      AND path = ?
-      AND status = 'active'
-      AND expires_at <= ?
-  `).run(nowMs, workspaceId, filePath, nowMs);
-}
-
-function getLatestRevisionForLineage(sqlite: Sqlite, lineageId: string): FileRevisionRecord | null {
-  const row = sqlite.prepare(`
-    SELECT *
-    FROM file_revisions
-    WHERE lineage_id = ?
-    ORDER BY created_at DESC, rowid DESC
-    LIMIT 1
-  `).get(lineageId) as FileRevisionRow | undefined;
-  return mapRevision(row);
 }
 
 function getActiveLineage(sqlite: Sqlite, workspaceId: string, filePath: string): FileCollaborationLineage | null {
@@ -410,21 +293,6 @@ function ensureActiveLineage(
     WHERE workspace_id = ? AND path = ? AND lineage_id IS NULL
   `).run(lineage.id, workspace.workspaceId, filePath);
   return lineage;
-}
-
-function getLatestRevision(sqlite: Sqlite, workspaceId: string, filePath: string): FileRevisionRecord | null {
-  const lineage = getActiveLineage(sqlite, workspaceId, filePath);
-  if (lineage) return getLatestRevisionForLineage(sqlite, lineage.id);
-  // Read-only callers retain backwards compatibility until the first mutation
-  // materializes an active lineage for legacy revision rows.
-  const row = sqlite.prepare(`
-    SELECT *
-    FROM file_revisions
-    WHERE workspace_id = ? AND path = ? AND lineage_id IS NULL
-    ORDER BY created_at DESC, rowid DESC
-    LIMIT 1
-  `).get(workspaceId, filePath) as FileRevisionRow | undefined;
-  return mapRevision(row);
 }
 
 function pathScopeCondition(filePath: string): { exact: string; descendant: string } {
@@ -498,78 +366,6 @@ function remapActivePathScope(
   `).run(newPath, oldPath, workspaceId, scope.exact, scope.descendant);
 }
 
-function getActiveLock(sqlite: Sqlite, workspaceId: string, filePath: string, nowMs: number): FileLockRecord | null {
-  expireStaleLocks(sqlite, workspaceId, filePath, nowMs);
-  const row = sqlite.prepare(`
-    SELECT *
-    FROM file_locks
-    WHERE workspace_id = ?
-      AND path = ?
-      AND status = 'active'
-      AND expires_at > ?
-    ORDER BY updated_at DESC, rowid DESC
-    LIMIT 1
-  `).get(workspaceId, filePath, nowMs) as FileLockRow | undefined;
-  return mapLock(row);
-}
-
-function getCollaborationDocument(
-  sqlite: Sqlite,
-  workspaceId: string,
-  filePath: string,
-  provider: CollaborationDocumentRecord['provider'],
-): CollaborationDocumentRecord | null {
-  const row = sqlite.prepare(`
-    SELECT *
-    FROM collaboration_documents
-    WHERE workspace_id = ?
-      AND path = ?
-      AND provider = ?
-      AND status = 'active'
-    LIMIT 1
-  `).get(workspaceId, filePath, provider) as CollaborationDocumentRow | undefined;
-  return mapDocument(row);
-}
-
-function ensureCollaborationDocument(
-  sqlite: Sqlite,
-  workspace: WorkspaceContext,
-  filePath: string,
-  provider: CollaborationDocumentRecord['provider'],
-  snapshotRevisionId: string | null,
-  nowMs: number,
-): CollaborationDocumentRecord {
-  const existing = getCollaborationDocument(sqlite, workspace.workspaceId, filePath, provider);
-  if (existing) return existing;
-
-  const id = `collab-doc-${randomUUID()}`;
-  sqlite.prepare(`
-    INSERT INTO collaboration_documents (
-      id, organization_id, customer_id, project_id, workspace_id, workspace_type, path,
-      provider, state_version, snapshot_revision_id, status, created_at, updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'active', ?, ?)
-  `).run(
-    id,
-    workspace.organizationId ?? null,
-    workspace.customerId ?? null,
-    workspace.projectId ?? null,
-    workspace.workspaceId,
-    workspace.workspaceType,
-    filePath,
-    provider,
-    snapshotRevisionId,
-    nowMs,
-    nowMs,
-  );
-
-  const created = getCollaborationDocument(sqlite, workspace.workspaceId, filePath, provider);
-  if (!created) {
-    throw new Error(`Failed to create collaboration document for ${filePath}.`);
-  }
-  return created;
-}
-
 function collaborationProviderForStrategy(
   workspace: WorkspaceContext,
   strategy: FileCollaborationStrategy,
@@ -583,25 +379,47 @@ function collaborationProviderForStrategy(
   return null;
 }
 
-function buildState(params: {
-  sqlite: Sqlite;
+async function buildPostgresState(params: {
+  transaction: FileCollaborationTransaction;
   workspace: WorkspaceContext;
   path: string;
   nowMs: number;
   latestRevision?: FileRevisionRecord | null;
+  lineageId?: string | null;
   ensureDocument?: boolean;
-}): FileCollaborationState {
+}): Promise<FileCollaborationState> {
   const strategy = detectFileCollaborationStrategy(params.path);
   const requiresPolicy = workspaceRequiresCollaborationPolicy(params.workspace);
-  const latestRevision = params.latestRevision ?? getLatestRevision(params.sqlite, params.workspace.workspaceId, params.path);
-  const activeLock = requiresPolicy ? getActiveLock(params.sqlite, params.workspace.workspaceId, params.path, params.nowMs) : null;
+  const latestRevision = params.latestRevision ?? await getPostgresLatestFileRevision(
+    params.transaction,
+    params.workspace.workspaceId,
+    params.path,
+  );
+  const activeLock = requiresPolicy
+    ? await getPostgresActiveFileLock(params.transaction, params.workspace.workspaceId, params.path, params.nowMs)
+    : null;
   const provider = collaborationProviderForStrategy(params.workspace, strategy);
   const crdtCapable = provider === 'yjs';
   const sceneCapable = provider === 'excalidraw';
   const document = provider
     ? params.ensureDocument
-      ? ensureCollaborationDocument(params.sqlite, params.workspace, params.path, provider, latestRevision?.id ?? null, params.nowMs)
-      : getCollaborationDocument(params.sqlite, params.workspace.workspaceId, params.path, provider)
+      ? await ensurePostgresCollaborationDocument(params.transaction, {
+          id: `collab-doc-${randomUUID()}`,
+          lineageId: params.lineageId ?? (() => {
+            throw new Error(`Collaboration lineage is required for ${params.path}.`);
+          })(),
+          workspace: params.workspace,
+          path: params.path,
+          provider,
+          snapshotRevisionId: latestRevision?.id ?? null,
+          nowMs: params.nowMs,
+        })
+      : await getPostgresCollaborationDocument(
+          params.transaction,
+          params.workspace.workspaceId,
+          params.path,
+          provider,
+        )
     : null;
 
   return {
@@ -617,24 +435,35 @@ function buildState(params: {
   };
 }
 
-export function getFileCollaborationState(params: {
+export async function getFileCollaborationState(params: {
   workspace: WorkspaceContext;
   path: string;
   ensureDocument?: boolean;
   nowMs?: number;
-}): FileCollaborationState {
+}): Promise<FileCollaborationState> {
   const normalizedPath = normalizeWorkspacePath(params.path);
   const nowMs = params.nowMs ?? Date.now();
-  return withCollaborationDatabase(Boolean(params.ensureDocument), (sqlite) => {
+  return withFileCollaborationTransaction(async (transaction) => {
+    if (params.ensureDocument) {
+      await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
+    }
     const lineage = params.ensureDocument
-      ? ensureActiveLineage(sqlite, params.workspace, normalizedPath, nowMs)
+      ? await ensurePostgresActiveFileLineage(transaction, {
+          id: `file-lineage-${randomUUID()}`,
+          workspace: params.workspace,
+          path: normalizedPath,
+          nowMs,
+        })
       : null;
-    return buildState({
-      sqlite,
+    return buildPostgresState({
+      transaction,
       workspace: params.workspace,
       path: normalizedPath,
       nowMs,
-      latestRevision: lineage ? getLatestRevisionForLineage(sqlite, lineage.id) : undefined,
+      latestRevision: lineage
+        ? await getPostgresLatestFileRevisionForLineage(transaction, lineage.id)
+        : undefined,
+      lineageId: lineage?.id,
       ensureDocument: params.ensureDocument,
     });
   });
@@ -644,41 +473,30 @@ export function getFileCollaborationState(params: {
  * Advances the file-facing collaboration projection only after the matching
  * Yjs sequence has been materialized as a verified file revision.
  */
-export function markCollaborationDocumentCheckpoint(params: {
+export async function markCollaborationDocumentCheckpoint(params: {
   workspace: WorkspaceContext;
   path: string;
   documentId: string;
   stateVersion: number;
   snapshotRevisionId: string;
   nowMs?: number;
-}): CollaborationDocumentRecord | null {
+}): Promise<CollaborationDocumentRecord | null> {
   const normalizedPath = normalizeWorkspacePath(params.path);
   const nowMs = params.nowMs ?? Date.now();
-  return withCollaborationDatabase(true, (sqlite) => {
-    const result = sqlite.prepare(`
-      UPDATE collaboration_documents
-      SET state_version = ?, snapshot_revision_id = ?, updated_at = ?
-      WHERE id = ?
-        AND workspace_id = ?
-        AND path = ?
-        AND provider = 'yjs'
-        AND status = 'active'
-        AND state_version <= ?
-    `).run(
-      params.stateVersion,
-      params.snapshotRevisionId,
+  return withFileCollaborationTransaction(async (transaction) => {
+    await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
+    return updatePostgresCollaborationDocumentCheckpoint(transaction, {
+      workspaceId: params.workspace.workspaceId,
+      path: normalizedPath,
+      documentId: params.documentId,
+      stateVersion: params.stateVersion,
+      revisionId: params.snapshotRevisionId,
       nowMs,
-      params.documentId,
-      params.workspace.workspaceId,
-      normalizedPath,
-      params.stateVersion,
-    );
-    if (result.changes !== 1) return null;
-    return getCollaborationDocument(sqlite, params.workspace.workspaceId, normalizedPath, 'yjs');
+    });
   });
 }
 
-export function ensureFileRevisionForCurrentContent(params: {
+export async function ensureFileRevisionForCurrentContent(params: {
   workspace: WorkspaceContext;
   path: string;
   contentHash: string;
@@ -688,71 +506,62 @@ export function ensureFileRevisionForCurrentContent(params: {
   sourceSessionId?: string | null;
   baseRevisionId?: string | null;
   nowMs?: number;
-}): FileRevisionRecord {
+}): Promise<FileRevisionRecord> {
   const normalizedPath = normalizeWorkspacePath(params.path);
   const nowMs = params.nowMs ?? Date.now();
 
-  return withCollaborationDatabase(true, (sqlite) => {
-    const lineage = ensureActiveLineage(sqlite, params.workspace, normalizedPath, nowMs);
-    const latest = getLatestRevisionForLineage(sqlite, lineage.id);
+  return withFileCollaborationTransaction(async (transaction) => {
+    await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
+    const lineage = await ensurePostgresActiveFileLineage(transaction, {
+      id: `file-lineage-${randomUUID()}`,
+      workspace: params.workspace,
+      path: normalizedPath,
+      nowMs,
+    });
+    const latest = await getPostgresLatestFileRevisionForLineage(transaction, lineage.id);
     const collaborationProvider = collaborationProviderForStrategy(
       params.workspace,
       detectFileCollaborationStrategy(normalizedPath),
     );
     if (latest?.contentHash === params.contentHash && latest.sizeBytes === params.sizeBytes) {
       if (collaborationProvider) {
-        ensureCollaborationDocument(
-          sqlite,
-          params.workspace,
-          normalizedPath,
-          collaborationProvider,
-          latest.id,
+        await ensurePostgresCollaborationDocument(transaction, {
+          id: `collab-doc-${randomUUID()}`,
+          lineageId: lineage.id,
+          workspace: params.workspace,
+          path: normalizedPath,
+          provider: collaborationProvider,
+          snapshotRevisionId: latest.id,
           nowMs,
-        );
+        });
       }
       return latest;
     }
 
-    const id = `file-rev-${randomUUID()}`;
-    sqlite.prepare(`
-      INSERT INTO file_revisions (
-        id, organization_id, customer_id, project_id, workspace_id, workspace_type, path,
-        content_hash, size_bytes, created_by_user_id, created_by_actor_type,
-        source_session_id, base_revision_id, lineage_id, created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      params.workspace.organizationId ?? null,
-      params.workspace.customerId ?? null,
-      params.workspace.projectId ?? null,
-      params.workspace.workspaceId,
-      params.workspace.workspaceType,
-      normalizedPath,
-      params.contentHash,
-      params.sizeBytes,
-      params.actorUserId ?? null,
-      params.actorType ?? 'system',
-      params.sourceSessionId ?? null,
-      params.baseRevisionId ?? latest?.id ?? null,
-      lineage.id,
+    const created = await appendPostgresFileRevision(transaction, {
+      id: `file-rev-${randomUUID()}`,
+      lineageId: lineage.id,
+      workspace: params.workspace,
+      path: normalizedPath,
+      contentHash: params.contentHash,
+      sizeBytes: params.sizeBytes,
+      createdByUserId: params.actorUserId ?? null,
+      createdByActorType: params.actorType ?? 'system',
+      sourceSessionId: params.sourceSessionId ?? null,
+      baseRevisionId: params.baseRevisionId ?? latest?.id ?? null,
       nowMs,
-    );
-
-    const created = getLatestRevisionForLineage(sqlite, lineage.id);
-    if (!created) {
-      throw new Error(`Failed to create file revision for ${normalizedPath}.`);
-    }
+    });
 
     if (collaborationProvider) {
-      ensureCollaborationDocument(
-        sqlite,
-        params.workspace,
-        normalizedPath,
-        collaborationProvider,
-        created.id,
+      await ensurePostgresCollaborationDocument(transaction, {
+        id: `collab-doc-${randomUUID()}`,
+        lineageId: lineage.id,
+        workspace: params.workspace,
+        path: normalizedPath,
+        provider: collaborationProvider,
+        snapshotRevisionId: created.id,
         nowMs,
-      );
+      });
     }
 
     return created;
@@ -870,7 +679,7 @@ function isSameActor(lock: FileLockRecord, userId?: string | null, sessionId?: s
   return Boolean(userId && lock.lockedByUserId && lock.lockedByUserId === userId);
 }
 
-export function assertFileCollaborationWriteAllowed(params: {
+export async function assertFileCollaborationWriteAllowed(params: {
   workspace: WorkspaceContext;
   path: string;
   actorUserId?: string | null;
@@ -878,19 +687,26 @@ export function assertFileCollaborationWriteAllowed(params: {
   actorType?: FileActorType;
   baseRevisionId?: string | null;
   nowMs?: number;
-}): FileCollaborationState {
+}): Promise<FileCollaborationState> {
   const normalizedPath = normalizeWorkspacePath(params.path);
   const nowMs = params.nowMs ?? Date.now();
 
-  return withCollaborationDatabase(true, (sqlite) => {
-    const lineage = ensureActiveLineage(sqlite, params.workspace, normalizedPath, nowMs);
-    const latestRevision = getLatestRevisionForLineage(sqlite, lineage.id);
-    const state = buildState({
-      sqlite,
+  return withFileCollaborationTransaction(async (transaction) => {
+    await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
+    const lineage = await ensurePostgresActiveFileLineage(transaction, {
+      id: `file-lineage-${randomUUID()}`,
+      workspace: params.workspace,
+      path: normalizedPath,
+      nowMs,
+    });
+    const latestRevision = await getPostgresLatestFileRevisionForLineage(transaction, lineage.id);
+    const state = await buildPostgresState({
+      transaction,
       workspace: params.workspace,
       path: normalizedPath,
       nowMs,
       latestRevision,
+      lineageId: lineage.id,
       ensureDocument: false,
     });
 
@@ -952,7 +768,7 @@ function normalizeLockTtl(ttlMs?: number): number {
   return Math.max(30_000, Math.min(Math.trunc(ttlMs), MAX_LOCK_TTL_MS));
 }
 
-export function acquireFileLock(params: {
+export async function acquireFileLock(params: {
   workspace: WorkspaceContext;
   path: string;
   lockedByUserId: string;
@@ -961,15 +777,27 @@ export function acquireFileLock(params: {
   ttlMs?: number;
   baseRevisionId?: string | null;
   nowMs?: number;
-}): { lock: FileLockRecord; state: FileCollaborationState } {
+}): Promise<{ lock: FileLockRecord; state: FileCollaborationState }> {
   const normalizedPath = normalizeWorkspacePath(params.path);
   const nowMs = params.nowMs ?? Date.now();
   const expiresAt = nowMs + normalizeLockTtl(params.ttlMs);
 
-  return withCollaborationDatabase(true, (sqlite) => {
-    const lineage = ensureActiveLineage(sqlite, params.workspace, normalizedPath, nowMs);
-    const latestRevision = getLatestRevisionForLineage(sqlite, lineage.id);
-    const activeLock = getActiveLock(sqlite, params.workspace.workspaceId, normalizedPath, nowMs);
+  return withFileCollaborationTransaction(async (transaction) => {
+    await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
+    await expirePostgresFileLocksForPath(transaction, params.workspace.workspaceId, normalizedPath, nowMs);
+    const lineage = await ensurePostgresActiveFileLineage(transaction, {
+      id: `file-lineage-${randomUUID()}`,
+      workspace: params.workspace,
+      path: normalizedPath,
+      nowMs,
+    });
+    const latestRevision = await getPostgresLatestFileRevisionForLineage(transaction, lineage.id);
+    const activeLock = await getPostgresActiveFileLock(
+      transaction,
+      params.workspace.workspaceId,
+      normalizedPath,
+      nowMs,
+    );
 
     if (
       params.baseRevisionId
@@ -999,59 +827,55 @@ export function acquireFileLock(params: {
         });
       }
 
-      sqlite.prepare(`
-        UPDATE file_locks
-        SET expires_at = ?, updated_at = ?
-        WHERE id = ?
-      `).run(expiresAt, nowMs, activeLock.id);
-      const refreshed = getActiveLock(sqlite, params.workspace.workspaceId, normalizedPath, nowMs);
+      const refreshed = await refreshPostgresFileLock(transaction, activeLock.id, expiresAt, nowMs);
       if (!refreshed) {
         throw new Error(`Failed to refresh active lock for ${normalizedPath}.`);
       }
       return {
         lock: refreshed,
-        state: buildState({ sqlite, workspace: params.workspace, path: normalizedPath, nowMs, latestRevision }),
+        state: await buildPostgresState({
+          transaction,
+          workspace: params.workspace,
+          path: normalizedPath,
+          nowMs,
+          latestRevision,
+          lineageId: lineage.id,
+        }),
       };
     }
 
-    const id = `file-lock-${randomUUID()}`;
-    sqlite.prepare(`
-      INSERT INTO file_locks (
-        id, organization_id, customer_id, project_id, workspace_id, workspace_type, path,
-        revision_id, locked_by_user_id, locked_by_session_id, lock_type, status,
-        expires_at, created_at, updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
-    `).run(
-      id,
-      params.workspace.organizationId ?? null,
-      params.workspace.customerId ?? null,
-      params.workspace.projectId ?? null,
-      params.workspace.workspaceId,
-      params.workspace.workspaceType,
-      normalizedPath,
-      params.baseRevisionId ?? latestRevision?.id ?? null,
-      params.lockedByUserId,
-      params.lockedBySessionId ?? null,
-      params.lockType ?? 'edit',
+    const lock = await insertPostgresFileLock(transaction, {
+      id: `file-lock-${randomUUID()}`,
+      lineageId: lineage.id,
+      organizationId: params.workspace.organizationId ?? null,
+      customerId: params.workspace.customerId ?? null,
+      projectId: params.workspace.projectId ?? null,
+      workspaceId: params.workspace.workspaceId,
+      workspaceType: params.workspace.workspaceType,
+      path: normalizedPath,
+      revisionId: params.baseRevisionId ?? latestRevision?.id ?? null,
+      lockedByUserId: params.lockedByUserId,
+      lockedBySessionId: params.lockedBySessionId ?? null,
+      lockType: params.lockType ?? 'edit',
       expiresAt,
       nowMs,
-      nowMs,
-    );
-
-    const lock = getActiveLock(sqlite, params.workspace.workspaceId, normalizedPath, nowMs);
-    if (!lock) {
-      throw new Error(`Failed to create active lock for ${normalizedPath}.`);
-    }
+    });
 
     return {
       lock,
-      state: buildState({ sqlite, workspace: params.workspace, path: normalizedPath, nowMs, latestRevision }),
+      state: await buildPostgresState({
+        transaction,
+        workspace: params.workspace,
+        path: normalizedPath,
+        nowMs,
+        latestRevision,
+        lineageId: lineage.id,
+      }),
     };
   });
 }
 
-export function releaseFileLock(params: {
+export async function releaseFileLock(params: {
   workspace: WorkspaceContext;
   path?: string;
   lockId?: string;
@@ -1059,27 +883,29 @@ export function releaseFileLock(params: {
   actorSessionId?: string | null;
   force?: boolean;
   nowMs?: number;
-}): FileLockRecord {
+}): Promise<FileLockRecord> {
   const nowMs = params.nowMs ?? Date.now();
 
-  return withCollaborationDatabase(true, (sqlite) => {
-    const lock = params.lockId
-      ? mapLock(sqlite.prepare(`
-          SELECT *
-          FROM file_locks
-          WHERE id = ? AND workspace_id = ?
-          LIMIT 1
-        `).get(params.lockId, params.workspace.workspaceId) as FileLockRow | undefined)
-      : params.path
-        ? getActiveLock(sqlite, params.workspace.workspaceId, normalizeWorkspacePath(params.path), nowMs)
-        : null;
+  return withFileCollaborationTransaction(async (transaction) => {
+    const requestedPath = params.path ? normalizeWorkspacePath(params.path) : null;
+    let lock = params.lockId
+      ? await getPostgresFileLockById(transaction, params.workspace.workspaceId, params.lockId)
+      : null;
+    const lockPath = requestedPath ?? lock?.path ?? null;
+    if (lockPath) {
+      await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [lockPath]);
+      await expirePostgresFileLocksForPath(transaction, params.workspace.workspaceId, lockPath, nowMs);
+      lock = params.lockId
+        ? await getPostgresFileLockById(transaction, params.workspace.workspaceId, params.lockId)
+        : await getPostgresActiveFileLock(transaction, params.workspace.workspaceId, lockPath, nowMs);
+    }
 
-    if (!lock) {
+    if (!lock || lock.status !== 'active') {
       throw new FileCollaborationPolicyError({
         code: 'FILE_LOCK_NOT_FOUND',
         status: 404,
         message: 'File lock was not found.',
-        path: params.path ? normalizeWorkspacePath(params.path) : '',
+        path: requestedPath ?? lock?.path ?? '',
       });
     }
 
@@ -1096,28 +922,28 @@ export function releaseFileLock(params: {
     const nextStatus: FileLockStatus = params.force && !isSameActor(lock, params.actorUserId, params.actorSessionId)
       ? 'force_released'
       : 'released';
-    sqlite.prepare(`
-      UPDATE file_locks
-      SET status = ?, updated_at = ?
-      WHERE id = ?
-    `).run(nextStatus, nowMs, lock.id);
-
-    return {
-      ...lock,
-      status: nextStatus,
-      updatedAt: nowMs,
-    };
+    const released = await updatePostgresFileLockStatus(transaction, lock.id, nextStatus, nowMs);
+    if (!released) {
+      throw new FileCollaborationPolicyError({
+        code: 'FILE_LOCK_NOT_FOUND',
+        status: 404,
+        message: 'File lock was not found.',
+        path: lock.path,
+      });
+    }
+    return released;
   });
 }
 
-export function expireActiveFileLocks(params: {
+export async function expireActiveFileLocks(params: {
   workspace: WorkspaceContext;
   path: string;
   nowMs?: number;
-}): void {
+}): Promise<void> {
   const normalizedPath = normalizeWorkspacePath(params.path);
   const nowMs = params.nowMs ?? Date.now();
-  withCollaborationDatabase(true, (sqlite) => {
-    expireStaleLocks(sqlite, params.workspace.workspaceId, normalizedPath, nowMs);
+  await withFileCollaborationTransaction(async (transaction) => {
+    await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
+    await expirePostgresFileLocksForPath(transaction, params.workspace.workspaceId, normalizedPath, nowMs);
   });
 }

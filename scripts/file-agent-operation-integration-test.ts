@@ -238,7 +238,7 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
       ? doc.getText('content').toString()
       : richMarkdownFromYDoc(doc);
     const projection = input.requiresFileCheckpointIdentity
-      ? getFileCollaborationState({
+      ? await getFileCollaborationState({
           workspace: input.workspace,
           path: persisted.path,
           ensureDocument: false,
@@ -794,7 +794,7 @@ try {
   const richInitialContent = 'Rich **bold** paragraph\n\nOther paragraph';
   await fs.mkdir(workspace.rootPath, { recursive: true });
   await fs.writeFile(path.join(workspace.rootPath, richPath), richInitialContent, 'utf8');
-  ensureFileRevisionForCurrentContent({
+  await ensureFileRevisionForCurrentContent({
     workspace,
     path: richPath,
     contentHash: createHash('sha256').update(richInitialContent, 'utf8').digest('hex'),
@@ -802,7 +802,7 @@ try {
     actorUserId: userId,
     actorType: 'user',
   });
-  const richProjection = getFileCollaborationState({
+  const richProjection = await getFileCollaborationState({
     workspace,
     path: richPath,
     ensureDocument: true,
@@ -847,7 +847,7 @@ try {
   const liveContent = 'Tool **checkpoint** paragraph\n\nLive paragraph edited by user';
   await fs.mkdir(workspace.rootPath, { recursive: true });
   await fs.writeFile(path.join(workspace.rootPath, toolPath), checkpointContent, 'utf8');
-  ensureFileRevisionForCurrentContent({
+  await ensureFileRevisionForCurrentContent({
     workspace,
     path: toolPath,
     contentHash: createHash('sha256').update(checkpointContent, 'utf8').digest('hex'),
@@ -855,7 +855,7 @@ try {
     actorUserId: userId,
     actorType: 'user',
   });
-  const toolCollaboration = getFileCollaborationState({
+  const toolCollaboration = await getFileCollaborationState({
     workspace,
     path: toolPath,
     ensureDocument: false,
@@ -944,7 +944,7 @@ try {
     assert.equal(Buffer.from(operationRow.base_state_vector).toString('base64'), toolReadDetails.collaboration?.stateVector);
     assert.equal(Number(operationRow.base_document_sequence), toolReadDetails.collaboration?.documentSequence);
     assert(operationRow.checkpoint_revision_id);
-    const checkpointProjection = getFileCollaborationState({
+    const checkpointProjection = await getFileCollaborationState({
       workspace,
       path: toolPath,
       ensureDocument: false,
@@ -1021,7 +1021,7 @@ try {
   const uninitializedToolPath = `agent-tool-uninitialized-${suffix}.md`;
   const uninitializedToolContent = '# Existing note\n\nParagraph before agent';
   await fs.writeFile(path.join(workspace.rootPath, uninitializedToolPath), uninitializedToolContent, 'utf8');
-  ensureFileRevisionForCurrentContent({
+  await ensureFileRevisionForCurrentContent({
     workspace,
     path: uninitializedToolPath,
     contentHash: createHash('sha256').update(uninitializedToolContent, 'utf8').digest('hex'),
@@ -1029,7 +1029,7 @@ try {
     actorUserId: userId,
     actorType: 'user',
   });
-  const uninitializedMetadata = getFileCollaborationState({
+  const uninitializedMetadata = await getFileCollaborationState({
     workspace,
     path: uninitializedToolPath,
     ensureDocument: false,
@@ -1076,7 +1076,7 @@ try {
   const replaceAllToolPath = `agent-tool-replace-all-${suffix}.md`;
   const replaceAllToolContent = 'Status: draft\n\nStatus: draft\n';
   await fs.writeFile(path.join(workspace.rootPath, replaceAllToolPath), replaceAllToolContent, 'utf8');
-  ensureFileRevisionForCurrentContent({
+  await ensureFileRevisionForCurrentContent({
     workspace,
     path: replaceAllToolPath,
     contentHash: createHash('sha256').update(replaceAllToolContent, 'utf8').digest('hex'),
@@ -1128,7 +1128,7 @@ try {
   const routingRichInitialContent = '# Strategy update\n\nInitial paragraph\n';
   const sourceOnlyCheckpoint = '# Strategy update\n\nInitial paragraph\n\n%% agent-generated note %%\n';
   await fs.writeFile(path.join(workspace.rootPath, representationRoutingPath), routingRichInitialContent, 'utf8');
-  ensureFileRevisionForCurrentContent({
+  await ensureFileRevisionForCurrentContent({
     workspace,
     path: representationRoutingPath,
     contentHash: createHash('sha256').update(routingRichInitialContent, 'utf8').digest('hex'),
@@ -1136,7 +1136,7 @@ try {
     actorUserId: userId,
     actorType: 'user',
   });
-  const representationRoutingProjection = getFileCollaborationState({
+  const representationRoutingProjection = await getFileCollaborationState({
     workspace,
     path: representationRoutingPath,
     ensureDocument: true,
@@ -1198,7 +1198,7 @@ try {
     '',
   ].join('\n');
   await fs.writeFile(path.join(workspace.rootPath, autoMigrationPath), autoMigrationContent, 'utf8');
-  ensureFileRevisionForCurrentContent({
+  await ensureFileRevisionForCurrentContent({
     workspace,
     path: autoMigrationPath,
     contentHash: createHash('sha256').update(autoMigrationContent, 'utf8').digest('hex'),
@@ -1206,7 +1206,7 @@ try {
     actorUserId: userId,
     actorType: 'user',
   });
-  const autoMigrationProjection = getFileCollaborationState({
+  const autoMigrationProjection = await getFileCollaborationState({
     workspace,
     path: autoMigrationPath,
     ensureDocument: true,
@@ -1275,7 +1275,7 @@ try {
     safeNormalizationMigrationContent,
     'utf8',
   );
-  ensureFileRevisionForCurrentContent({
+  await ensureFileRevisionForCurrentContent({
     workspace,
     path: safeNormalizationMigrationPath,
     contentHash: createHash('sha256').update(safeNormalizationMigrationContent, 'utf8').digest('hex'),
@@ -1283,7 +1283,7 @@ try {
     actorUserId: userId,
     actorType: 'user',
   });
-  const safeNormalizationProjection = getFileCollaborationState({
+  const safeNormalizationProjection = await getFileCollaborationState({
     workspace,
     path: safeNormalizationMigrationPath,
     ensureDocument: true,
@@ -1373,7 +1373,7 @@ try {
   // the earlier plain-text grant is stale and cannot re-enter that room.
   const concurrentMigrationPath = `agent-concurrent-rich-migration-${suffix}.md`;
   await fs.writeFile(path.join(workspace.rootPath, concurrentMigrationPath), autoMigrationContent, 'utf8');
-  ensureFileRevisionForCurrentContent({
+  await ensureFileRevisionForCurrentContent({
     workspace,
     path: concurrentMigrationPath,
     contentHash: createHash('sha256').update(autoMigrationContent, 'utf8').digest('hex'),
@@ -1381,7 +1381,7 @@ try {
     actorUserId: userId,
     actorType: 'user',
   });
-  const concurrentMigrationProjection = getFileCollaborationState({
+  const concurrentMigrationProjection = await getFileCollaborationState({
     workspace,
     path: concurrentMigrationPath,
     ensureDocument: true,

@@ -59,7 +59,7 @@ export async function materializeExcalidrawCheckpoint(input: {
   await writeFile(input.state.path, content, fileOptions);
   const fileRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
   if (!fileRevision) throw new Error('Excalidraw checkpoint could not be read after write.');
-  const revision = ensureFileRevisionForCurrentContent({
+  const revision = await ensureFileRevisionForCurrentContent({
     workspace: input.workspace,
     path: input.state.path,
     contentHash: fileRevision.sha256,
