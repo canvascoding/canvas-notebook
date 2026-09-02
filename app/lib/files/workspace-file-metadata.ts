@@ -193,3 +193,26 @@ export async function moveWorkspaceFileMetadataOnConnection(
     `, [params.newPath, params.oldPath, params.workspaceId, params.oldPath, params.oldPath, params.oldPath]);
   }
 }
+
+export async function deleteWorkspaceFileMetadata(params: {
+  workspace: WorkspaceContext;
+  path: string;
+}): Promise<void> {
+  const filePath = normalizeFilePath(params.path);
+  await withDatabase(async (database) => {
+    await database.run('BEGIN');
+    try {
+      for (const table of ['workspace_file_metadata', 'workspace_file_user_states']) {
+        await database.run(`
+          DELETE FROM ${table}
+          WHERE workspace_id = ?
+            AND (path = ? OR left(path, length(?) + 1) = ? || '/')
+        `, [params.workspace.workspaceId, filePath, filePath, filePath]);
+      }
+      await database.run('COMMIT');
+    } catch (error) {
+      try { await database.run('ROLLBACK'); } catch {}
+      throw error;
+    }
+  });
+}

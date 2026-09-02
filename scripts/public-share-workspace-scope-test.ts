@@ -543,6 +543,33 @@ async function main() {
     assert.equal(teamAfterMove.length, 1);
     assert.equal(teamAfterMove[0].status, 'revoked');
 
+    await writeFile(path.join(ownerTeam.rootPath, 'docs', 'overwrite-source.txt'), 'source\n');
+    await writeFile(path.join(ownerTeam.rootPath, 'docs', 'overwrite-target.txt'), 'target\n');
+    const overwriteShares = await createPublicFileShares({
+      paths: ['docs/overwrite-source.txt', 'docs/overwrite-target.txt'],
+      createdByUserId: 'user-owner',
+      workspace: ownerTeam,
+      source: 'ui',
+      confirmPublicExposure: true,
+      baseUrl: 'https://notebook.example.test',
+    });
+    assert.equal(overwriteShares.shares.length, 2);
+    await syncPublicSharesAfterMove(
+      'docs/overwrite-source.txt',
+      'docs/overwrite-target.txt',
+      ownerTeam,
+      { revokeDestination: true },
+    );
+    const sharesAfterOverwrite = await listPublicFileShares({
+      userId: 'user-owner',
+      workspace: ownerTeam,
+      status: 'all',
+      paths: ['docs/overwrite-source.txt', 'docs/overwrite-target.txt'],
+      baseUrl: 'https://notebook.example.test',
+    });
+    assert.equal(sharesAfterOverwrite.length, 2);
+    assert.deepEqual(sharesAfterOverwrite.map((share) => share.status), ['revoked', 'revoked']);
+
     await writeFile(path.join(ownerTeam.rootPath, 'docs', 'member-managed.txt'), 'team member managed\n');
     const teamManagedCreate = await createPublicFileShares({
       paths: ['docs/member-managed.txt'],

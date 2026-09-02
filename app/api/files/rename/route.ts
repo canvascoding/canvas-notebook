@@ -1,10 +1,8 @@
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { renameFile, checkRenameConflict, getFileStats, type RenameConflictError } from '@/app/lib/filesystem/workspace-files';
+import { checkRenameConflict, getFileStats, type RenameConflictError } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
-import { syncPublicSharesAfterMove } from '@/app/lib/public-sharing/public-file-shares';
-import { moveFileCollaborationPath } from '@/app/lib/files/collaboration-policy';
-import { moveWorkspaceFileMetadata } from '@/app/lib/files/workspace-file-metadata';
+import { renameWorkspacePath } from '@/app/lib/files/rename-service';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -102,63 +100,16 @@ export async function POST(request: NextRequest) {
       return result;
     };
 
-    if (conflict) {
-      const conflictError = conflict as RenameConflictError;
-      if (overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file') {
-        await prepareLinkIndex();
-        await renameFile(oldPath, newPath, true, fileOptions);
-        await moveFileCollaborationPath({
-          workspace: workspaceResult.workspace,
-          oldPath,
-          newPath,
-        });
-        await moveWorkspaceFileMetadata({ workspace: workspaceResult.workspace, oldPath, newPath });
-        await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
-        const linkUpdates = await updateRenamedLinks();
-        invalidateWorkspaceFileViews({
-          fileOptions,
-          fullTree: true,
-          mutations: [
-            { path: oldPath, type: 'unlink' },
-            { path: newPath, type: 'add' },
-            ...linkUpdates.updatedFiles.map((path) => ({ path, type: 'change' as const })),
-          ],
-        });
-        await recordAuditEvent({
-          organizationId: workspaceResult.workspace.organizationId,
-          workspaceId: workspaceResult.workspace.workspaceId,
-          userId: workspaceResult.session.user.id,
-          source: 'files',
-          eventType: 'file',
-          entityType: 'workspace_path',
-          entityId: newPath,
-          action: 'file.rename',
-          status: 'success',
-          summary: `Path renamed from ${oldPath} to ${newPath}.`,
-          metadata: {
-            oldPath,
-            newPath,
-            overwrite: true,
-            linkUpdates,
-            workspaceType: workspaceResult.workspace.workspaceType,
-          },
-        });
-        return jsonSuccess({ linkUpdates });
-      }
-
-      // Non-overwritable conflicts returned before the metadata read above.
-    }
-
     await prepareLinkIndex();
-    await renameFile(oldPath, newPath, overwrite, fileOptions);
-    await moveFileCollaborationPath({
+    const renameResult = await renameWorkspacePath({
       workspace: workspaceResult.workspace,
       oldPath,
       newPath,
+      overwrite,
+      fileOptions,
     });
-    await moveWorkspaceFileMetadata({ workspace: workspaceResult.workspace, oldPath, newPath });
-    await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
     const linkUpdates = await updateRenamedLinks();
+    linkUpdates.warnings.unshift(...renameResult.warnings);
     invalidateWorkspaceFileViews({
       fileOptions,
       fullTree: true,

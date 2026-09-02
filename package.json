@@ -365,6 +365,7 @@
     "test:files:collaboration-schema": "tsx --conditions react-server scripts/file-collaboration-postgres-schema-test.ts",
     "test:files:collaboration-repository": "tsx --conditions react-server scripts/file-collaboration-repository-test.ts",
     "test:files:collaboration-concurrency": "tsx --conditions react-server scripts/file-collaboration-lock-concurrency-test.ts",
+    "test:files:rename": "tsx --conditions react-server scripts/file-rename-service-test.ts",
     "test:collaboration:live": "tsx --conditions react-server scripts/file-live-collaboration-test.ts",
     "test:collaboration:checkpoint-errors": "tsx scripts/collaboration-checkpoint-errors-test.ts",
     "test:collaboration:presence": "tsx --conditions react-server scripts/file-presence-policy-test.ts",

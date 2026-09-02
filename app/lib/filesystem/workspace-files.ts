@@ -5,6 +5,7 @@ import {
   accessSync,
 } from 'fs';
 import { randomUUID } from 'crypto';
+import os from 'os';
 import path from 'path';
 import {Readable} from 'stream';
 import { pipeline } from 'stream/promises';
@@ -502,6 +503,55 @@ export async function renameFile(
     options,
     () => renameFileUnlocked(oldPath, newPath, overwrite, options),
   );
+}
+
+export async function withRollbackableFileRename<T>(
+  oldPath: string,
+  newPath: string,
+  overwrite: boolean,
+  options: WorkspaceFileOperationOptions | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withWorkspaceFileMutationLocks([oldPath, newPath], options, async () => {
+    let backupDirectory: string | null = null;
+    let destinationBackupPath: string | null = null;
+    const conflict = await checkRenameConflict(oldPath, newPath, options);
+    if (conflict && !(overwrite && conflict.code === 'FILE_EXISTS' && conflict.type === 'file')) {
+      throw conflict;
+    }
+
+    if (conflict) {
+      backupDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-file-rename-'));
+      destinationBackupPath = path.join(backupDirectory, 'destination');
+      await fs.copyFile(await resolveExistingWorkspacePath(newPath, options), destinationBackupPath);
+    }
+
+    await renameFileUnlocked(oldPath, newPath, overwrite, options);
+    try {
+      return await operation();
+    } catch (operationError) {
+      try {
+        await fs.rename(
+          await resolveExistingWorkspacePath(newPath, options),
+          validatePath(oldPath, options),
+        );
+        if (destinationBackupPath) {
+          await fs.copyFile(destinationBackupPath, validatePath(newPath, options));
+        }
+      } catch (rollbackError) {
+        const operationMessage = operationError instanceof Error ? operationError.message : String(operationError);
+        const rollbackMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+        throw new Error(`Path rename failed (${operationMessage}); filesystem rollback failed: ${rollbackMessage}`, {
+          cause: operationError,
+        });
+      }
+      throw operationError;
+    } finally {
+      if (backupDirectory) {
+        await fs.rm(backupDirectory, { recursive: true, force: true }).catch(() => undefined);
+      }
+    }
+  });
 }
 
 async function renameFileUnlocked(

@@ -944,15 +944,24 @@ export function queuePublicSharesAfterWrite(paths: string[], workspace?: Workspa
   timer.unref?.();
 }
 
-export async function syncPublicSharesAfterMove(oldPath: string, newPath: string, workspace?: WorkspaceContext | null): Promise<void> {
+export async function syncPublicSharesAfterMove(
+  oldPath: string,
+  newPath: string,
+  workspace?: WorkspaceContext | null,
+  options: { revokeDestination?: boolean } = {},
+): Promise<void> {
   const resolvedWorkspace = resolveOperationWorkspace(workspace);
   let normalizedOld: string;
+  let normalizedNew: string;
   try {
     normalizedOld = normalizeWorkspacePath(oldPath, resolvedWorkspace);
-    normalizeWorkspacePath(newPath, resolvedWorkspace);
+    normalizedNew = normalizeWorkspacePath(newPath, resolvedWorkspace);
   } catch {
     return;
   }
+  const revokedPaths = options.revokeDestination
+    ? [normalizedOld, normalizedNew]
+    : [normalizedOld];
 
   const rows = await db.select()
     .from(publicFileShares)
@@ -962,13 +971,28 @@ export async function syncPublicSharesAfterMove(oldPath: string, newPath: string
     ));
   for (const row of rows) {
     if (!workspaceMatches(row, resolvedWorkspace)) continue;
-    if (!affectedByPath(row.workspacePath, normalizedOld)) continue;
+    if (!revokedPaths.some((candidate) => affectedByPath(row.workspacePath, candidate))) continue;
     await updateShare(row, {
       status: 'revoked',
       revokedAt: new Date(),
       revokedReason: 'target_moved',
     });
   }
+}
+
+export function queuePublicSharesAfterMove(
+  oldPath: string,
+  newPath: string,
+  workspace?: WorkspaceContext | null,
+  options: { revokeDestination?: boolean } = {},
+): void {
+  const resolvedWorkspace = resolveOperationWorkspace(workspace);
+  const timer = setTimeout(() => {
+    syncPublicSharesAfterMove(oldPath, newPath, resolvedWorkspace, options).catch((error) => {
+      console.warn('[public-sharing] Failed to sync public shares after move:', error);
+    });
+  }, 0) as ReturnType<typeof setTimeout> & { unref?: () => void };
+  timer.unref?.();
 }
 
 async function resolvePublicShareRow(row: PublicShareRow, options: ResolvePublicShareOptions = {}): Promise<PublicShareResolution> {
