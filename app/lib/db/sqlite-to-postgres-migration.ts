@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
-import { existsSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream, existsSync, promises as fs } from 'node:fs';
+import path from 'node:path';
 
 import { getTableConfig } from 'drizzle-orm/sqlite-core';
 import type { Pool } from 'pg';
@@ -48,21 +50,35 @@ export type SqliteToPostgresTableValidation = {
 
 export type SqliteToPostgresMigrationSummary = {
   sqlitePath: string;
+  backup: SqliteToPostgresBackup;
   tables: SqliteToPostgresTableResult[];
   sourceUserCount: number;
   targetUserCount: number;
   sourceOrganizationCount: number;
   targetOrganizationCount: number;
   memoryTables: SqliteToPostgresTableValidation[];
+  collaborationTables: SqliteToPostgresTableValidation[];
   reindexRequired: boolean;
+};
+
+export type SqliteToPostgresBackup = {
+  directory: string;
+  snapshotPath: string;
+  manifestPath: string;
+  sha256: string;
+  sizeBytes: number;
+  createdAt: string;
 };
 
 export class SqliteToPostgresMigrationError extends Error {
   constructor(
     public readonly code:
       | 'sqlite_missing'
+      | 'maintenance_required'
+      | 'backup_failed'
       | 'postgres_unavailable'
       | 'source_empty'
+      | 'source_normalization_failed'
       | 'target_validation_failed'
       | 'copy_failed',
     message: string,
@@ -74,10 +90,136 @@ export class SqliteToPostgresMigrationError extends Error {
 
 export type SqliteToPostgresMigrationOptions = {
   sqlitePath?: string;
+  backupRoot?: string;
+  offlineConfirmed?: boolean;
   pool?: Pool;
   prepareSource?: (sqlite: Database.Database) => void;
   logger?: (message: string) => void;
 };
+
+type CollaborationValidationSpec = {
+  table: 'file_collaboration_lineages' | 'file_revisions' | 'file_locks' | 'collaboration_documents';
+  identityColumn: 'id';
+  compareColumns: string[];
+};
+
+const COLLABORATION_VALIDATION_SPECS: CollaborationValidationSpec[] = [
+  {
+    table: 'file_collaboration_lineages',
+    identityColumn: 'id',
+    compareColumns: ['workspace_id', 'workspace_type', 'path', 'status', 'archived_at', 'trash_entry_id'],
+  },
+  {
+    table: 'file_revisions',
+    identityColumn: 'id',
+    compareColumns: [
+      'lineage_id', 'revision_number', 'workspace_id', 'workspace_type', 'path',
+      'content_hash', 'size_bytes', 'base_revision_id', 'created_at',
+    ],
+  },
+  {
+    table: 'file_locks',
+    identityColumn: 'id',
+    compareColumns: [
+      'lineage_id', 'workspace_id', 'workspace_type', 'path', 'revision_id',
+      'lock_type', 'status', 'expires_at', 'updated_at',
+    ],
+  },
+  {
+    table: 'collaboration_documents',
+    identityColumn: 'id',
+    compareColumns: [
+      'lineage_id', 'workspace_id', 'workspace_type', 'path', 'provider',
+      'state_version', 'snapshot_revision_id', 'status', 'updated_at',
+    ],
+  },
+];
+
+async function sha256File(filePath: string): Promise<string> {
+  const hash = createHash('sha256');
+  await new Promise<void>((resolve, reject) => {
+    const stream = createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.once('error', reject);
+    stream.once('end', resolve);
+  });
+  return hash.digest('hex');
+}
+
+async function createSqliteMigrationBackup(
+  sqlitePath: string,
+  backupRoot?: string,
+): Promise<SqliteToPostgresBackup & { workingPath: string }> {
+  const createdAt = new Date().toISOString();
+  const root = backupRoot ?? path.join(path.dirname(sqlitePath), 'migration-backups', 'sqlite-to-postgres');
+  const directory = path.join(
+    root,
+    `${createdAt.replace(/[:.]/gu, '-')}-${randomUUID().slice(0, 8)}`,
+  );
+  const snapshotPath = path.join(directory, 'source.sqlite.db');
+  const workingPath = path.join(directory, 'working.sqlite.db');
+  const manifestPath = path.join(directory, 'manifest.json');
+
+  try {
+    await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+    const source = new Database(sqlitePath, { readonly: true, fileMustExist: true });
+    try {
+      await source.backup(snapshotPath);
+    } finally {
+      source.close();
+    }
+
+    const snapshot = new Database(snapshotPath, { readonly: true, fileMustExist: true });
+    try {
+      const check = snapshot.prepare('PRAGMA quick_check').get() as { quick_check?: string } | undefined;
+      if (check?.quick_check !== 'ok') {
+        throw new Error(`SQLite migration backup quick_check failed: ${check?.quick_check ?? 'unknown'}`);
+      }
+    } finally {
+      snapshot.close();
+    }
+
+    const stats = await fs.stat(snapshotPath);
+    const sha256 = await sha256File(snapshotPath);
+    const manifest = {
+      formatVersion: 1,
+      purpose: 'sqlite-to-postgres-offline-import',
+      createdAt,
+      sourcePath: path.resolve(sqlitePath),
+      snapshotFile: path.basename(snapshotPath),
+      snapshotSha256: sha256,
+      snapshotSizeBytes: stats.size,
+      rollback: {
+        requiresMaintenanceMode: true,
+        instructions: [
+          'Stop Canvas Notebook and preserve the current database files.',
+          'Restore source.sqlite.db to the configured SQLite path.',
+          'Set CANVAS_DATABASE_PROVIDER=sqlite and remove DATABASE_URL from the runtime environment.',
+          'Start Canvas Notebook and verify health before resuming writes.',
+        ],
+      },
+    };
+    await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o400 });
+    await fs.chmod(snapshotPath, 0o400);
+    await fs.copyFile(snapshotPath, workingPath);
+    await fs.chmod(workingPath, 0o600);
+
+    return {
+      directory,
+      snapshotPath,
+      manifestPath,
+      sha256,
+      sizeBytes: stats.size,
+      createdAt,
+      workingPath,
+    };
+  } catch (error) {
+    throw new SqliteToPostgresMigrationError(
+      'backup_failed',
+      error instanceof Error ? error.message : 'SQLite migration backup failed.',
+    );
+  }
+}
 
 function quoteSqliteIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/gu, '""')}"`;
@@ -135,6 +277,156 @@ function sqliteColumns(sqlite: Database.Database, table: string): string[] {
   return rows.map((row) => row.name);
 }
 
+function ensureSqliteColumn(
+  sqlite: Database.Database,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  if (sqliteColumns(sqlite, table).includes(column)) return;
+  sqlite.exec(
+    `ALTER TABLE ${quoteSqliteIdentifier(table)} ADD COLUMN ${quoteSqliteIdentifier(column)} ${definition}`,
+  );
+}
+
+function importedLineageId(workspaceId: string, filePath: string): string {
+  const suffix = createHash('sha256').update(`${workspaceId}\0${filePath}`).digest('hex').slice(0, 32);
+  return `file-lineage-import-${suffix}`;
+}
+
+function normalizeSqliteCollaborationSource(sqlite: Database.Database): void {
+  const tables = sqliteTableNames(sqlite);
+  if (!tables.has('file_collaboration_lineages') || !tables.has('file_revisions')) return;
+
+  for (const column of ['organization_id', 'customer_id', 'project_id']) {
+    ensureSqliteColumn(sqlite, 'file_collaboration_lineages', column, 'TEXT');
+  }
+  ensureSqliteColumn(sqlite, 'file_revisions', 'revision_number', 'INTEGER');
+  if (tables.has('file_locks')) ensureSqliteColumn(sqlite, 'file_locks', 'lineage_id', 'TEXT');
+  if (tables.has('collaboration_documents')) {
+    ensureSqliteColumn(sqlite, 'collaboration_documents', 'lineage_id', 'TEXT');
+  }
+
+  const legacyPaths = sqlite.prepare(`
+    SELECT
+      workspace_id,
+      workspace_type,
+      path,
+      MAX(organization_id) AS organization_id,
+      MAX(customer_id) AS customer_id,
+      MAX(project_id) AS project_id,
+      MIN(created_at) AS created_at
+    FROM file_revisions
+    WHERE lineage_id IS NULL
+    GROUP BY workspace_id, workspace_type, path
+    ORDER BY workspace_id, path
+  `).all() as Array<{
+    workspace_id: string;
+    workspace_type: string;
+    path: string;
+    organization_id: string | null;
+    customer_id: string | null;
+    project_id: string | null;
+    created_at: number;
+  }>;
+
+  const findLineage = sqlite.prepare(`
+    SELECT id
+    FROM file_collaboration_lineages
+    WHERE workspace_id = ? AND path = ?
+    ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, archived_at DESC, created_at DESC, id DESC
+    LIMIT 1
+  `);
+  const insertLineage = sqlite.prepare(`
+    INSERT OR IGNORE INTO file_collaboration_lineages (
+      id, organization_id, customer_id, project_id, workspace_id, workspace_type,
+      path, status, created_at, archived_at, trash_entry_id
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, NULL, NULL)
+  `);
+  const assignRevisions = sqlite.prepare(`
+    UPDATE file_revisions
+    SET lineage_id = ?
+    WHERE workspace_id = ? AND path = ? AND lineage_id IS NULL
+  `);
+
+  for (const legacyPath of legacyPaths) {
+    let lineage = findLineage.get(legacyPath.workspace_id, legacyPath.path) as { id: string } | undefined;
+    if (!lineage) {
+      const id = importedLineageId(legacyPath.workspace_id, legacyPath.path);
+      insertLineage.run(
+        id,
+        legacyPath.organization_id,
+        legacyPath.customer_id,
+        legacyPath.project_id,
+        legacyPath.workspace_id,
+        legacyPath.workspace_type,
+        legacyPath.path,
+        legacyPath.created_at,
+      );
+      lineage = { id };
+    }
+    assignRevisions.run(lineage.id, legacyPath.workspace_id, legacyPath.path);
+  }
+
+  for (const table of ['file_locks', 'collaboration_documents'] as const) {
+    if (!tables.has(table)) continue;
+    sqlite.exec(`
+      UPDATE ${quoteSqliteIdentifier(table)}
+      SET lineage_id = (
+        SELECT lineages.id
+        FROM file_collaboration_lineages AS lineages
+        WHERE lineages.workspace_id = ${quoteSqliteIdentifier(table)}.workspace_id
+          AND lineages.path = ${quoteSqliteIdentifier(table)}.path
+        ORDER BY CASE lineages.status WHEN 'active' THEN 0 ELSE 1 END,
+          lineages.archived_at DESC, lineages.created_at DESC, lineages.id DESC
+        LIMIT 1
+      )
+      WHERE lineage_id IS NULL
+    `);
+  }
+
+  sqlite.exec(`
+    WITH ranked_revisions AS (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (
+          PARTITION BY lineage_id
+          ORDER BY created_at ASC, id ASC
+        ) AS next_revision_number
+      FROM file_revisions
+      WHERE lineage_id IS NOT NULL
+    )
+    UPDATE file_revisions
+    SET revision_number = (
+      SELECT next_revision_number
+      FROM ranked_revisions
+      WHERE ranked_revisions.id = file_revisions.id
+    )
+    WHERE lineage_id IS NOT NULL;
+  `);
+
+  if (tables.has('file_locks')) {
+    sqlite.exec(`
+      WITH ranked_active_locks AS (
+        SELECT
+          id,
+          ROW_NUMBER() OVER (
+            PARTITION BY workspace_id, path
+            ORDER BY updated_at DESC, created_at DESC, id DESC
+          ) AS active_rank
+        FROM file_locks
+        WHERE status = 'active'
+      )
+      UPDATE file_locks
+      SET status = 'expired'
+      WHERE id IN (
+        SELECT id FROM ranked_active_locks WHERE active_rank > 1
+      );
+    `);
+  }
+}
+
 async function postgresColumns(pool: Pool, table: string): Promise<string[]> {
   const result = await pool.query<{ column_name: string }>(
     `
@@ -187,6 +479,80 @@ async function missingPostgresValues(pool: Pool, table: string, column: string, 
     missing.push(...result.rows.map((row) => row.value));
   }
   return missing;
+}
+
+function comparableValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'boolean') return value ? '1' : '0';
+  return String(value);
+}
+
+async function validateCollaborationTables(params: {
+  sqlite: Database.Database;
+  pool: Pool;
+}): Promise<SqliteToPostgresTableValidation[]> {
+  const sourceTables = sqliteTableNames(params.sqlite);
+  const validations: SqliteToPostgresTableValidation[] = [];
+
+  for (const spec of COLLABORATION_VALIDATION_SPECS) {
+    const sourceRows = sourceTables.has(spec.table) ? sqliteRowCount(params.sqlite, spec.table) : 0;
+    const targetRows = await postgresRowCount(params.pool, spec.table);
+    validations.push({ table: spec.table, sourceRows, targetRows });
+    if (sourceRows === 0) continue;
+    if (targetRows < sourceRows) {
+      throw new SqliteToPostgresMigrationError(
+        'target_validation_failed',
+        `Postgres ${spec.table} count ${targetRows} is lower than SQLite count ${sourceRows}.`,
+      );
+    }
+
+    const selectedColumns = [spec.identityColumn, ...spec.compareColumns];
+    const source = params.sqlite.prepare(`
+      SELECT ${selectedColumns.map(quoteSqliteIdentifier).join(', ')}
+      FROM ${quoteSqliteIdentifier(spec.table)}
+      ORDER BY ${quoteSqliteIdentifier(spec.identityColumn)}
+    `).all() as Array<Record<string, unknown>>;
+
+    for (let index = 0; index < source.length; index += COPY_BATCH_SIZE) {
+      const batch = source.slice(index, index + COPY_BATCH_SIZE);
+      const ids = batch.map((row) => String(row[spec.identityColumn]));
+      const target = await params.pool.query<Record<string, unknown>>(
+        `
+          SELECT ${selectedColumns.map(quotePostgresIdentifier).join(', ')}
+          FROM ${quotePostgresIdentifier(spec.table)}
+          WHERE ${quotePostgresIdentifier(spec.identityColumn)} = ANY($1::text[])
+        `,
+        [ids],
+      );
+      const targetById = new Map(
+        target.rows.map((row) => [String(row[spec.identityColumn]), row]),
+      );
+      const missingIds = ids.filter((id) => !targetById.has(id));
+      if (missingIds.length > 0) {
+        throw new SqliteToPostgresMigrationError(
+          'target_validation_failed',
+          `Postgres ${spec.table} is missing migrated IDs: ${missingIds.slice(0, 5).join(', ')}`,
+        );
+      }
+
+      const mismatchedIds = batch.flatMap((sourceRow) => {
+        const id = String(sourceRow[spec.identityColumn]);
+        const targetRow = targetById.get(id)!;
+        const mismatch = spec.compareColumns.some(
+          (column) => comparableValue(sourceRow[column]) !== comparableValue(targetRow[column]),
+        );
+        return mismatch ? [id] : [];
+      });
+      if (mismatchedIds.length > 0) {
+        throw new SqliteToPostgresMigrationError(
+          'target_validation_failed',
+          `Postgres ${spec.table} has conflicting migrated rows: ${mismatchedIds.slice(0, 5).join(', ')}`,
+        );
+      }
+    }
+  }
+
+  return validations;
 }
 
 async function insertBatch(
@@ -296,7 +662,12 @@ async function validateCoreCounts(params: {
   pool: Pool;
 }): Promise<Pick<
   SqliteToPostgresMigrationSummary,
-  'sourceUserCount' | 'targetUserCount' | 'sourceOrganizationCount' | 'targetOrganizationCount' | 'memoryTables'
+  | 'sourceUserCount'
+  | 'targetUserCount'
+  | 'sourceOrganizationCount'
+  | 'targetOrganizationCount'
+  | 'memoryTables'
+  | 'collaborationTables'
 >> {
   const sourceTables = sqliteTableNames(params.sqlite);
   const sourceUserCount = sourceTables.has('user') ? sqliteRowCount(params.sqlite, 'user') : 0;
@@ -305,9 +676,17 @@ async function validateCoreCounts(params: {
     : 0;
   const targetUserCount = await postgresRowCount(params.pool, 'user');
   const targetOrganizationCount = await postgresRowCount(params.pool, 'canvas_organization_settings');
+  const collaborationTables = await validateCollaborationTables(params);
+  const collaborationSourceRows = collaborationTables.reduce(
+    (total, table) => total + table.sourceRows,
+    0,
+  );
 
-  if (sourceUserCount === 0) {
-    throw new SqliteToPostgresMigrationError('source_empty', 'SQLite source does not contain any auth users.');
+  if (sourceUserCount === 0 && collaborationSourceRows === 0) {
+    throw new SqliteToPostgresMigrationError(
+      'source_empty',
+      'SQLite source does not contain auth users or collaboration metadata.',
+    );
   }
   if (targetUserCount < sourceUserCount) {
     throw new SqliteToPostgresMigrationError(
@@ -379,13 +758,13 @@ async function validateCoreCounts(params: {
     }
     memoryTables.push({ table, sourceRows, targetRows });
   }
-
   return {
     sourceUserCount,
     targetUserCount,
     sourceOrganizationCount,
     targetOrganizationCount,
     memoryTables,
+    collaborationTables,
   };
 }
 
@@ -393,20 +772,36 @@ export async function migrateSqliteToPostgres(
   options: SqliteToPostgresMigrationOptions = {},
 ): Promise<SqliteToPostgresMigrationSummary> {
   const sqlitePath = options.sqlitePath || resolveSqlitePath();
+  if (!options.offlineConfirmed) {
+    throw new SqliteToPostgresMigrationError(
+      'maintenance_required',
+      'SQLite-to-Postgres import requires confirmed maintenance mode with application writes stopped.',
+    );
+  }
   if (!existsSync(sqlitePath)) {
     throw new SqliteToPostgresMigrationError('sqlite_missing', `SQLite database not found: ${sqlitePath}`);
   }
 
-  const sqlite = new Database(sqlitePath, { readonly: false });
-  sqlite.pragma('foreign_keys = ON');
-  sqlite.pragma('busy_timeout = 10000');
-
+  const backupWithWorkingPath = await createSqliteMigrationBackup(sqlitePath, options.backupRoot);
+  const { workingPath, ...backup } = backupWithWorkingPath;
+  let sqlite: Database.Database | null = null;
   const ownsPool = !options.pool;
   const pool = options.pool || createPostgresPool();
 
   try {
-    runMigrations(sqlite);
-    options.prepareSource?.(sqlite);
+    sqlite = new Database(workingPath, { readonly: false, fileMustExist: true });
+    sqlite.pragma('foreign_keys = ON');
+    sqlite.pragma('busy_timeout = 10000');
+    try {
+      runMigrations(sqlite);
+      options.prepareSource?.(sqlite);
+      normalizeSqliteCollaborationSource(sqlite);
+    } catch (error) {
+      throw new SqliteToPostgresMigrationError(
+        'source_normalization_failed',
+        error instanceof Error ? error.message : 'SQLite migration source normalization failed.',
+      );
+    }
     await runPostgresMigrations(pool);
 
     const sourceTables = sqliteTableNames(sqlite);
@@ -450,6 +845,7 @@ export async function migrateSqliteToPostgres(
 
       return {
         sqlitePath,
+        backup,
         tables: results,
         ...counts,
         reindexRequired: true,
@@ -469,7 +865,8 @@ export async function migrateSqliteToPostgres(
       error instanceof Error ? error.message : 'Postgres migration failed.',
     );
   } finally {
-    sqlite.close();
+    sqlite?.close();
+    await fs.rm(workingPath, { force: true });
     if (ownsPool) await pool.end();
   }
 }

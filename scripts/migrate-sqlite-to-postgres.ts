@@ -18,6 +18,8 @@ const { loadAppEnv } = require('../server/load-app-env.js') as {
 
 type CliOptions = {
   sqlitePath?: string;
+  backupRoot?: string;
+  maintenanceConfirmed: boolean;
   json: boolean;
   verbose: boolean;
   help: boolean;
@@ -29,17 +31,26 @@ function usage(): string {
 
 Options:
   --sqlite-path <path>  Source SQLite database path (default: DATA/sqlite.db)
+  --backup-dir <path>   Verified backup root (default: next to the SQLite source)
+  --maintenance-confirmed
+                       Confirm that application writes and background jobs are stopped
   --json               Print machine-readable JSON
   --verbose            Print per-table copy progress
   -h, --help           Show this help
 
-Copies the current SQLite database into the configured Postgres database. The
-command is idempotent: existing Postgres rows are left unchanged, missing rows
-are inserted, and serial sequences are repaired after the copy.`;
+Creates and verifies an immutable SQLite snapshot, copies a normalized working
+copy into Postgres, and leaves the original source unchanged. The command is
+idempotent: matching Postgres rows are retained, missing rows are inserted, and
+conflicting collaboration rows fail validation instead of being overwritten.`;
 }
 
 function parseArgs(argv: string[]): CliOptions {
-  const options: CliOptions = { json: false, verbose: false, help: false };
+  const options: CliOptions = {
+    json: false,
+    verbose: false,
+    help: false,
+    maintenanceConfirmed: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     switch (arg) {
@@ -47,6 +58,14 @@ function parseArgs(argv: string[]): CliOptions {
         if (!argv[index + 1]) throw new Error('--sqlite-path requires a value');
         options.sqlitePath = argv[index + 1];
         index += 1;
+        break;
+      case '--backup-dir':
+        if (!argv[index + 1]) throw new Error('--backup-dir requires a value');
+        options.backupRoot = argv[index + 1];
+        index += 1;
+        break;
+      case '--maintenance-confirmed':
+        options.maintenanceConfirmed = true;
         break;
       case '--json':
         options.json = true;
@@ -108,6 +127,8 @@ async function main(): Promise<void> {
   try {
     const summary = await migrateSqliteToPostgres({
       sqlitePath: options.sqlitePath,
+      backupRoot: options.backupRoot,
+      offlineConfirmed: options.maintenanceConfirmed || process.env.CANVAS_MAINTENANCE_MODE === 'true',
       logger: options.verbose ? log : undefined,
       prepareSource: (sqlite) => sourceBootstrap(sqlite, log),
     });
@@ -118,6 +139,8 @@ async function main(): Promise<void> {
       const copiedTables = summary.tables.filter((table) => !table.skipped && table.sourceRows > 0);
       const insertedRows = summary.tables.reduce((total, table) => total + table.insertedRows, 0);
       log(`completed: ${copiedTables.length} populated tables, ${insertedRows} inserted rows`);
+      log(`verified read-only SQLite backup: ${summary.backup.snapshotPath}`);
+      log(`rollback manifest: ${summary.backup.manifestPath}`);
       log(`users: sqlite=${summary.sourceUserCount}, postgres=${summary.targetUserCount}`);
       log(`organizations: sqlite=${summary.sourceOrganizationCount}, postgres=${summary.targetOrganizationCount}`);
       const memoryCounts = new Map(summary.memoryTables.map((table) => [table.table, table]));
@@ -125,6 +148,11 @@ async function main(): Promise<void> {
       const entries = memoryCounts.get('memory_entries');
       log(`memory collections: sqlite=${collections?.sourceRows ?? 0}, postgres=${collections?.targetRows ?? 0}`);
       log(`memory entries: sqlite=${entries?.sourceRows ?? 0}, postgres=${entries?.targetRows ?? 0}`);
+      const collaborationCounts = new Map(summary.collaborationTables.map((table) => [table.table, table]));
+      const revisions = collaborationCounts.get('file_revisions');
+      const documents = collaborationCounts.get('collaboration_documents');
+      log(`file revisions: sqlite=${revisions?.sourceRows ?? 0}, postgres=${revisions?.targetRows ?? 0}`);
+      log(`collaboration documents: sqlite=${documents?.sourceRows ?? 0}, postgres=${documents?.targetRows ?? 0}`);
       if (summary.reindexRequired) log('knowledge indexes require reindex after Postgres cutover');
     }
   } catch (error) {
