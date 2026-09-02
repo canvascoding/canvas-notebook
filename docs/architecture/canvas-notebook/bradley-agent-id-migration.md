@@ -46,8 +46,9 @@ sind ein getrenntes System und werden nicht umbenannt.
 - [x] Bradley-UI, Starter, Animation, Auswahl und Display-Name funktionieren mit
   kanonischer und alter ID.
 - [x] Produktions-Build des Notebook-Repositories ist erfolgreich.
-- [ ] Mobile-App verwendet `bradley` für neue Requests und akzeptiert
-  `canvas-agent` in alten Serverantworten.
+- [x] Mobile-App verwendet `bradley` für neue Requests und akzeptiert
+  `canvas-agent` in alten Serverantworten; verifiziert im Mobile-Commit
+  `3f00792` mit vollständigem `npm run verify`.
 
 ## Bewusst unverändert
 
