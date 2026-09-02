@@ -2926,8 +2926,8 @@
       "self": "Du",
       "cancel": "Abbrechen",
       "defaultBanReason": "Vom Administrator gesperrt",
-      "provisioningNoteTitle": "Accounts werden lokal verwaltet",
-      "provisioningNoteDescription": "Die App verschickt keine Einladungs- oder Passwort-E-Mails. Neue Benutzer erhalten ihr Startpasswort direkt vom Administrator; im Notfall kann der Bootstrap-Admin weiterhin über BOOTSTRAP_ADMIN_EMAIL und BOOTSTRAP_ADMIN_PASSWORD synchronisiert werden.",
+      "provisioningNoteTitle": "Konten persönlich einrichten",
+      "provisioningNoteDescription": "Einladungen und Passwörter werden nicht per E-Mail verschickt. Lege neue Konten hier an und teile das Startpasswort persönlich über einen sicheren Weg mit.",
       "columns": {
         "user": "Benutzer",
         "role": "Rolle",
@@ -2969,11 +2969,11 @@
       },
     "createDialog": {
       "title": "Benutzer anlegen",
-      "description": "Zuerst wird eine lokale Mitgliedschaft vorgemerkt. Ein loginfähiges Konto entsteht erst nach bestätigtem Seat-Limit.",
+      "description": "Das Konto wird vorbereitet. Im nächsten Schritt legst du das Startpasswort fest.",
         "adminLabel": "Administratorrechte",
         "adminDescription": "Admins können andere Benutzer verwalten.",
-        "passwordHint": "Das Startpasswort wird erst bei der finalen Aktivierung gesetzt.",
-        "submit": "Aktivierung vorbereiten",
+        "passwordHint": "Gib das Startpasswort erst weiter, wenn das Konto aktiviert ist.",
+        "submit": "Konto vorbereiten",
       "recoveryDescription": "Die Aktivierung für {email} wurde bereits vorgemerkt und kann sicher fortgesetzt werden.",
       "retrySetup": "Aktivierung fortsetzen"
     },
@@ -3015,7 +3015,7 @@
     },
       "invitationDialog": {
         "title": "Team-Mitglied einladen",
-        "description": "Die Einladung legt nur einen lokalen Candidate an und verbraucht bis zur finalen Aktivierung keinen Seat.",
+        "description": "Erstelle einen sicheren Link, über den das Team-Mitglied sein Konto vorbereiten kann.",
         "linkLabel": "Einladungslink",
         "linkHint": "Dieser Link wird nur einmal angezeigt. Teile ihn über einen sicheren Kanal; er läuft nach sieben Tagen ab.",
         "copy": "Kopieren",
@@ -3024,7 +3024,7 @@
       },
     "invitations": {
       "title": "Einladungen",
-      "description": "Ausstehende, angenommene, widerrufene und abgelaufene Einladungen verbrauchen keinen aktiven Seat.",
+      "description": "Behalte den Überblick über offene, angenommene und abgelaufene Einladungen.",
       "revoke": "Widerrufen",
       "decline": "Aktivierung ablehnen",
       "billingStatus": "Billing-Status",
@@ -3449,10 +3449,10 @@
       "reload": "Neu laden",
       "saved": "Einstellungen gespeichert.",
       "rawSaved": "Raw-Env gespeichert.",
-      "developerSectionTitle": "Für Entwickler",
-      "developerSectionDescription": "Erweiterte Einstellungen für die technische Agent-Laufzeit.",
-      "developerDetails": "Erweiterte Dateiansicht",
-      "developerDetailsDescription": "Bearbeite die Konfiguration direkt im .env-Format.",
+      "developerSectionTitle": "Erweiterte Einstellungen",
+      "developerSectionDescription": "Zusätzliche Optionen für die Systemverwaltung.",
+      "developerDetails": "Konfiguration bearbeiten",
+      "developerDetailsDescription": "Diese Ansicht ist für die Systemverwaltung vorgesehen.",
       "errors": {
         "loadEnvFile": "Env-Datei konnte nicht geladen werden.",
         "saveEnvFile": "Env-Datei konnte nicht gespeichert werden."

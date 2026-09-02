@@ -2927,8 +2927,8 @@
       "self": "You",
       "cancel": "Cancel",
       "defaultBanReason": "Banned by administrator",
-      "provisioningNoteTitle": "Accounts are managed locally",
-      "provisioningNoteDescription": "The app does not send invitation or password emails. New users receive their initial password directly from an administrator; in emergencies, the bootstrap admin can still be synchronized through BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD.",
+      "provisioningNoteTitle": "Set up accounts personally",
+      "provisioningNoteDescription": "Invitations and passwords are not sent by email. Create new accounts here and share the initial password personally through a secure channel.",
       "columns": {
         "user": "User",
         "role": "Role",
@@ -2970,11 +2970,11 @@
       },
     "createDialog": {
       "title": "Create user",
-      "description": "A local membership is staged first. A sign-in capable account is created only after the Seat limit is confirmed.",
+      "description": "The account is prepared now. You will set the initial password in the next step.",
         "adminLabel": "Administrator access",
         "adminDescription": "Admins can manage other users.",
-        "passwordHint": "The initial password is set only during final activation.",
-        "submit": "Prepare activation",
+        "passwordHint": "Share the initial password only after the account is activated.",
+        "submit": "Prepare account",
       "recoveryDescription": "Activation for {email} is already staged and can be resumed safely.",
       "retrySetup": "Resume activation"
     },
@@ -3016,7 +3016,7 @@
     },
       "invitationDialog": {
         "title": "Invite Team member",
-        "description": "The invitation creates only a local candidate and consumes no Seat until final activation.",
+        "description": "Create a secure link that lets the team member prepare their account.",
         "linkLabel": "Invitation link",
         "linkHint": "This link is shown only once. Share it through a secure channel; it expires after seven days.",
         "copy": "Copy",
@@ -3025,7 +3025,7 @@
       },
     "invitations": {
       "title": "Invitations",
-      "description": "Pending, accepted, revoked, and expired invitations do not consume an active Seat.",
+      "description": "Keep track of pending, accepted, and expired invitations.",
       "revoke": "Revoke",
       "decline": "Decline activation",
       "billingStatus": "Billing status",
@@ -3450,10 +3450,10 @@
       "reload": "Reload",
       "saved": "Settings saved.",
       "rawSaved": "Raw env saved.",
-      "developerSectionTitle": "For developers",
-      "developerSectionDescription": "Advanced settings for the technical agent runtime.",
-      "developerDetails": "Advanced file view",
-      "developerDetailsDescription": "Edit the configuration directly in .env format.",
+      "developerSectionTitle": "Advanced settings",
+      "developerSectionDescription": "Additional options for system administration.",
+      "developerDetails": "Edit configuration",
+      "developerDetailsDescription": "This view is intended for system administration.",
       "errors": {
         "loadEnvFile": "Failed to load env file.",
         "saveEnvFile": "Failed to save env file."

@@ -571,29 +571,23 @@ function EnvEditorCard(props: {
   editor: ScopeEditorState;
   isOpen: boolean;
   onOpenChange: (scope: EnvScope, isOpen: boolean) => void;
-  onActiveTabChange: (scope: EnvScope, value: 'kv' | 'raw') => void;
   onLoad: (scope: EnvScope) => Promise<void>;
   onAddEntry: (scope: EnvScope) => void;
   onRemoveEntry: (scope: EnvScope, index: number) => void;
   onUpdateEntry: (scope: EnvScope, index: number, patch: Partial<DraftEntry>) => void;
   onToggleSecret: (scope: EnvScope, entryId: string) => void;
-  onRawChange: (scope: EnvScope, value: string) => void;
   onSaveKeyValue: (scope: EnvScope) => Promise<void>;
-  onSaveRaw: (scope: EnvScope) => Promise<void>;
 }) {
   const t = useTranslations('settings');
   const {
     card,
     editor,
     isOpen,
-    onActiveTabChange,
     onAddEntry,
     onLoad,
     onOpenChange,
-    onRawChange,
     onRemoveEntry,
     onSaveKeyValue,
-    onSaveRaw,
     onToggleSecret,
     onUpdateEntry,
   } = props;
@@ -650,15 +644,7 @@ function EnvEditorCard(props: {
                 {editor.error && <p className="text-sm text-destructive">{editor.error}</p>}
                 {editor.success && <p className="text-sm text-primary">{editor.success}</p>}
 
-                <Tabs
-                  value={editor.activeTab}
-                  onValueChange={(value) => onActiveTabChange(card.scope, value as 'kv' | 'raw')}
-                >
-                  <TabsList className="h-auto">
-                    <TabsTrigger value="kv">{t('envCard.tabKeyValue')}</TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="kv" className="space-y-3">
+                <div className="space-y-3">
                     <div className="hidden grid-cols-[minmax(220px,0.9fr)_minmax(0,1.6fr)_auto] gap-3 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase md:grid">
                       <span>{t('envCard.columnKey')}</span>
                       <span>{t('envCard.columnValue')}</span>
@@ -733,33 +719,7 @@ function EnvEditorCard(props: {
                         {t('envCard.reload')}
                       </Button>
                     </div>
-                  </TabsContent>
-
-                </Tabs>
-
-                <details className="rounded-lg border border-border/70 bg-muted/20 px-4 py-3">
-                  <summary className="cursor-pointer text-sm font-medium">{t('envCard.developerDetails')}</summary>
-                  <p className="mt-2 text-sm text-muted-foreground">{t('envCard.developerDetailsDescription')}</p>
-                  <div className="mt-3 space-y-2">
-                    <textarea
-                      className="min-h-[240px] w-full rounded-md border border-input bg-background p-3 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                      value={editor.rawContent}
-                      onChange={(event) => onRawChange(card.scope, event.target.value)}
-                      spellCheck={false}
-                      disabled={editor.isSaving}
-                    />
-                    <div className="flex flex-wrap gap-2">
-                      <Button type="button" onClick={() => void onSaveRaw(card.scope)} disabled={editor.isSaving || editor.isLoading}>
-                        {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        {t('envCard.saveRaw')}
-                      </Button>
-                      <Button type="button" variant="outline" onClick={() => void onLoad(card.scope)} disabled={editor.isSaving}>
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                        {t('envCard.reload')}
-                      </Button>
-                    </div>
-                  </div>
-                </details>
+                </div>
               </>
             )}
           </CardContent>
@@ -3004,16 +2964,6 @@ export function IntegrationsSettingsClient({
     }
   };
 
-  const setActiveTab = (scope: EnvScope, value: 'kv' | 'raw') => {
-    setEditors((current) => ({
-      ...current,
-      [scope]: {
-        ...current[scope],
-        activeTab: value,
-      },
-    }));
-  };
-
   const setEnvCardOpen = (scope: EnvScope, isOpen: boolean) => {
     setEnvCardOpenByScope((current) => {
       const nextState = {
@@ -3116,16 +3066,6 @@ export function IntegrationsSettingsClient({
     });
   };
 
-  const setRawContent = (scope: EnvScope, value: string) => {
-    setEditors((current) => ({
-      ...current,
-      [scope]: {
-        ...current[scope],
-        rawContent: value,
-      },
-    }));
-  };
-
   const saveKeyValue = async (scope: EnvScope) => {
     const editor = editors[scope];
     await saveScope(scope, {
@@ -3133,13 +3073,6 @@ export function IntegrationsSettingsClient({
       entries: editor.draftEntries
         .map((entry) => ({ key: entry.key.trim(), value: entry.value }))
         .filter((entry) => entry.key.length > 0),
-    });
-  };
-
-  const saveRaw = async (scope: EnvScope) => {
-    await saveScope(scope, {
-      mode: 'raw',
-      rawContent: editors[scope].rawContent,
     });
   };
 
@@ -3243,15 +3176,12 @@ export function IntegrationsSettingsClient({
                     editor={editors[card.scope]}
                     isOpen={envCardOpenByScope[card.scope]}
                     onOpenChange={setEnvCardOpen}
-                    onActiveTabChange={setActiveTab}
                     onLoad={loadState}
                     onAddEntry={addDraftEntry}
                     onRemoveEntry={removeDraftEntry}
                     onUpdateEntry={updateDraftEntry}
                     onToggleSecret={toggleSecretVisibility}
-                    onRawChange={setRawContent}
                     onSaveKeyValue={saveKeyValue}
-                    onSaveRaw={saveRaw}
                   />
                 ))}
               {isAdmin && (
