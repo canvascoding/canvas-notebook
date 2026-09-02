@@ -41,8 +41,11 @@ function getSqlitePath(): string {
 function createSqliteDatabase() {
   const BetterSqlite3 = loadBetterSqlite3();
   const drizzleSqlite = loadDrizzleSqlite();
-  const sqlitePath = getSqlitePath();
-  mkdirSync(path.dirname(sqlitePath), {recursive: true});
+  const productionBuild = process.env.NEXT_PHASE === 'phase-production-build';
+  const sqlitePath = productionBuild ? ':memory:' : getSqlitePath();
+  if (!productionBuild) {
+    mkdirSync(path.dirname(sqlitePath), {recursive: true});
+  }
 
   const sqlite = new BetterSqlite3(sqlitePath);
   sqlite.pragma('foreign_keys = ON');
