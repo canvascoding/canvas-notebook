@@ -11,11 +11,10 @@ import { parseBootstrapSeedPluginNames } from '../app/lib/plugins/default-seed-p
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let db: any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let openDb: any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let aiMessages: any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let aiSessions: any;
+let legacyAiTablesExist: () => Promise<boolean>;
 
 // Inline runtime-data-paths functions (container-safe, no external deps)
 const CONTAINER_DATA_ROOT = '/data';
@@ -969,29 +968,26 @@ async function runLegacySessionCleanupIfNeeded(): Promise<void> {
   );
 }
 
-async function legacyAiTablesExist(): Promise<boolean> {
-  const sqlite = await openDb();
-  try {
-    const rows = sqlite.all(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (?, ?)",
-      ['ai_sessions', 'ai_messages'],
-    ) as Array<{ name: string }>;
-    const names = new Set(rows.map((row) => row.name));
-    return names.has('ai_sessions') && names.has('ai_messages');
-  } finally {
-    sqlite.close();
-  }
-}
-
 async function main() {
   // Load database modules dynamically after env bootstrap so DATA/path aliases are available.
   try {
     const dbModule = await import('../app/lib/db/index');
     const schemaModule = await import('../app/lib/db/schema');
+    const legacyAiTableQueryModule = await import('../app/lib/db/legacy-ai-table-query');
     db = dbModule.db;
-    openDb = dbModule.openDb;
     aiMessages = schemaModule.aiMessages;
     aiSessions = schemaModule.aiSessions;
+    legacyAiTablesExist = async () => {
+      const database = await dbModule.openDb();
+      try {
+        return await legacyAiTableQueryModule.queryLegacyAiTablesExist(
+          database,
+          dbModule.getDatabaseProvider(),
+        );
+      } finally {
+        await database.close();
+      }
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Database module not available during bootstrap-agent-runtime: ${message}`);
