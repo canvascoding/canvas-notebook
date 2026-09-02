@@ -17,6 +17,7 @@ const PUBLIC_EXACT_ROUTES = [
   '/api/organization/invitations/accept',
   '/api/organization/invitations/activate',
   '/api/organization/invitations/preview',
+  '/invite/team',
   '/manifest.webmanifest',
   '/.well-known/oauth-protected-resource',
   '/.well-known/oauth-protected-resource/mcp',

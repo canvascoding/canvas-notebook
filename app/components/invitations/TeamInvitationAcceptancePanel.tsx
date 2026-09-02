@@ -225,7 +225,7 @@ export function TeamInvitationAcceptancePanel({
   ), [locale, preview]);
 
   return (
-    <main className="relative min-h-dvh overflow-hidden bg-background px-4 py-10 sm:px-6 sm:py-16">
+    <main className="relative h-dvh overflow-x-hidden overflow-y-auto bg-background px-4 py-10 sm:px-6 sm:py-16">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,color-mix(in_oklab,var(--primary)_12%,transparent),transparent_34%),radial-gradient(circle_at_85%_80%,color-mix(in_oklab,var(--muted-foreground)_10%,transparent),transparent_38%)]" />
       <div className="pointer-events-none absolute inset-0 opacity-30 [background-image:linear-gradient(to_right,var(--border)_1px,transparent_1px),linear-gradient(to_bottom,var(--border)_1px,transparent_1px)] [background-size:42px_42px]" />
       <div className="relative mx-auto flex w-full max-w-2xl flex-col gap-6">
