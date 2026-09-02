@@ -185,6 +185,7 @@ export function AiProviderEditorDialog({
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [connectionChecked, setConnectionChecked] = useState(false);
   const [manualModelsRevealed, setManualModelsRevealed] = useState(false);
+  const [providerSelectionConfirmed, setProviderSelectionConfirmed] = useState(false);
   const [ollamaApiKey, setOllamaApiKey] = useState('');
   const [ollamaApiKeyBaseline, setOllamaApiKeyBaseline] = useState('');
   const [credentialLoading, setCredentialLoading] = useState(false);
@@ -218,6 +219,11 @@ export function AiProviderEditorDialog({
       setManualModelsRevealed(false);
     });
   }, [open, provider]);
+
+  useEffect(() => {
+    if (open) return;
+    startTransition(() => setProviderSelectionConfirmed(false));
+  }, [open]);
 
   useEffect(() => {
     if (!open || draft?.providerId !== 'ollama' || draft.credentialScope === 'managed') return;
@@ -264,6 +270,7 @@ export function AiProviderEditorDialog({
     ? allowedCredentialScopes.filter((scope) => newProviderOption.credentialScopes.includes(scope))
     : allowedCredentialScopes;
   const oauthAvailable = !newProviderOption || newProviderOption.credentialScopes.includes('user');
+  const showConfiguration = !isNew || providerSelectionConfirmed;
   const selectedModelIds = useMemo(() => new Set(draft?.modelIds ?? []), [draft]);
   const shownModels = useMemo(() => {
     if (!draft) return [];
@@ -280,14 +287,14 @@ export function AiProviderEditorDialog({
       || model.id.toLocaleLowerCase().includes(query)
     ));
   }, [connectionChecked, draft, isOllama, search, selectedModelIds]);
-  const showModelsStep = Boolean(draft && (
+  const showModelsStep = Boolean(showConfiguration && draft && (
     !isOllama
     || connectionChecked
     || manualModelsRevealed
     || draft.modelIds.length > 0
     || draft.config.ollamaAdditionalModels?.length
   ));
-  const showAccessStep = Boolean(draft?.modelIds.length);
+  const showAccessStep = Boolean(showConfiguration && draft?.modelIds.length);
   const canSubmit = Boolean(
     draft?.enabled
     && draft.modelIds.length > 0
@@ -534,7 +541,9 @@ export function AiProviderEditorDialog({
               <ServerCog className="size-4.5" aria-hidden="true" />
             </div>
             <div className="space-y-1">
-              <DialogTitle>{isNew ? copy.addTitle : copy.editTitle}: {draft.name}</DialogTitle>
+              <DialogTitle>
+                {isNew && !showConfiguration ? copy.addTitle : `${isNew ? copy.addTitle : copy.editTitle}: ${draft.name}`}
+              </DialogTitle>
               <DialogDescription>{copy.description}</DialogDescription>
             </div>
           </div>
@@ -554,8 +563,11 @@ export function AiProviderEditorDialog({
                   <Label htmlFor="new-provider-id">{copy.provider}</Label>
                   <select
                     id="new-provider-id"
-                    value={draft.providerId}
-                    onChange={(event) => onNewProviderChange(event.target.value)}
+                    value={providerSelectionConfirmed ? draft.providerId : ''}
+                    onChange={(event) => {
+                      setProviderSelectionConfirmed(true);
+                      onNewProviderChange(event.target.value);
+                    }}
                     className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                     data-testid="provider-dialog-provider-select"
                   >
@@ -568,7 +580,7 @@ export function AiProviderEditorDialog({
               </section>
             )}
 
-            <section className="rounded-xl border bg-background p-4 shadow-xs sm:p-5">
+            {showConfiguration && <section className="rounded-xl border bg-background p-4 shadow-xs sm:p-5">
               <div className="mb-5 flex items-start gap-3">
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">1</div>
                 <div>
@@ -704,7 +716,7 @@ export function AiProviderEditorDialog({
                   />
                 </div>
               )}
-            </section>
+            </section>}
 
             {showModelsStep && <section className="rounded-xl border bg-background p-4 shadow-xs sm:p-5">
               <div className="mb-5 flex items-start gap-3">
@@ -896,13 +908,13 @@ export function AiProviderEditorDialog({
               <Button type="button" variant="outline" disabled={busyAction !== null} onClick={() => requestClose(false)}>
                 {copy.cancel}
               </Button>
-              {draft.enabled && !verificationOnly && (
+              {showConfiguration && draft.enabled && !verificationOnly && (
                 <Button type="button" variant="outline" disabled={busyAction !== null || !canSubmit} onClick={() => void save(true)} data-testid="provider-save-verify">
                   {busyAction === 'save-verify' ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
                   {busyAction === 'save-verify' ? copy.saving : copy.saveAndVerify}
                 </Button>
               )}
-              {verificationOnly ? (
+              {showConfiguration && (verificationOnly ? (
                 <Button type="button" disabled={busyAction !== null || !canSubmit} onClick={() => void save(true)} data-testid="provider-save-verify-use">
                   {busyAction === 'save-verify' ? <Loader2 className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
                   {busyAction === 'save-verify' ? copy.saving : copy.saveVerifyAndUse}
@@ -912,7 +924,7 @@ export function AiProviderEditorDialog({
                   {busyAction === 'save' ? <Loader2 className="size-4 animate-spin" /> : <BrainCircuit className="size-4" />}
                   {busyAction === 'save' ? copy.saving : copy.save}
                 </Button>
-              )}
+              ))}
             </div>
           </div>
         </DialogFooter>
