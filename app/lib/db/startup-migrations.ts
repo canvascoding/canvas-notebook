@@ -39,6 +39,12 @@ export async function runStartupDatabaseMigrations(): Promise<void> {
       await migrationPool.end();
     }
     console.log('[Startup] Postgres database migrations completed');
+    // File collaboration metadata currently lives in the local SQLite sidecar,
+    // even when the primary application database is Postgres. Migrate that
+    // sidecar before the server marks all startup migrations as completed.
+    console.log('[Startup] Running file collaboration metadata migrations...');
+    runSqliteBootstrapMigrations();
+    console.log('[Startup] File collaboration metadata migrations completed');
     return;
   }
 

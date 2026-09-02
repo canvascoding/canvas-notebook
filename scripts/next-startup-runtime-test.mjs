@@ -77,6 +77,11 @@ assert.match(serverSource, /resolveImportedServerModule\([\s\S]*memoryReviewModu
 assert.match(startupMigrationSource, /await runPostgresMigrations\(migrationPool\)/u);
 assert.match(startupMigrationSource, /await migrationPool\.end\(\)/u);
 assert.match(startupMigrationSource, /runMigrations\(migrationDatabase\)/u);
+assert.match(
+  startupMigrationSource,
+  /Postgres database migrations completed[\s\S]*runSqliteBootstrapMigrations\(\);[\s\S]*return;/u,
+  'Postgres startup must also migrate the file collaboration metadata sidecar',
+);
 assert.doesNotMatch(startupMigrationSource, /Running SQLite bootstrap migrations/u);
 assert.match(migrationRunnerSource, /loadAppEnv\(process\.cwd\(\)\)/u);
 assert.match(migrationRunnerSource, /await runStartupDatabaseMigrations\(\)/u);
