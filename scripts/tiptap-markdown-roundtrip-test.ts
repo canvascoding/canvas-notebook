@@ -1,3 +1,11 @@
+import { Editor } from '@tiptap/core';
+import { StarterKit } from '@tiptap/starter-kit';
+import { Markdown } from '@tiptap/markdown';
+import { Link } from '@tiptap/extension-link';
+import { Mathematics } from '@tiptap/extension-mathematics';
+import { Image } from '@tiptap/extension-image';
+import { TaskList } from '@tiptap/extension-task-list';
+import { TaskItem } from '@tiptap/extension-task-item';
 import assert from 'node:assert/strict';
 
 import type { Editor as TiptapEditor } from '@tiptap/core';
@@ -251,15 +259,7 @@ async function main() {
     'CodeMirror should disable line wrapping for extremely long lines',
   );
 
-  const { Editor } = await import('@tiptap/core');
-  const { StarterKit } = await import('@tiptap/starter-kit');
-  const { Markdown } = await import('@tiptap/markdown');
-  const { Link } = await import('@tiptap/extension-link');
-  const { Mathematics } = await import('@tiptap/extension-mathematics');
-  const { Image } = await import('@tiptap/extension-image');
-  const { TaskList } = await import('@tiptap/extension-task-list');
-  const { TaskItem } = await import('@tiptap/extension-task-item');
-  const { TableKit } = await import('@tiptap/extension-table');
+  const { CanvasTableKit: TableKit } = await import('../app/lib/markdown/core/lists-and-tables');
   const { MarkdownHeadingAnchors } = await import('../app/lib/markdown/tiptap-heading-anchors');
   const { canvasRichMarkdownExtensions } = await import('../app/lib/markdown/canvas-rich-markdown-extensions');
   const {
@@ -273,7 +273,7 @@ async function main() {
     content: sampleMarkdown,
     contentType: 'markdown',
     extensions: [
-      StarterKit.configure({ link: false, paragraph: false, blockquote: false }),
+      StarterKit.configure({ link: false, paragraph: false, blockquote: false, heading: false, orderedList: false, listItem: false }),
       Link.configure({ openOnClick: false }),
       Mathematics.configure({
         katexOptions: {

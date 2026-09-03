@@ -14,6 +14,7 @@ import {
   restoreRichMarkdownFinalLineEnding,
 } from '@/app/lib/markdown/rich-markdown-codec';
 import { TiptapTransformer, Y, YProsemirror } from './server-runtime';
+import { equivalentRichDocument } from '../markdown/core/equivalence';
 
 export function richMarkdownSchemaExtensions() {
   return richMarkdownCodecExtensions();
@@ -301,6 +302,9 @@ export function validateRichMarkdownYDoc(doc: YTypes.Doc): RichMarkdownValidatio
   let markdown: string;
   try {
     json = TiptapTransformer.fromYdoc(doc, 'body');
+    const schemaDocument = getSchema(richMarkdownSchemaExtensions()).nodeFromJSON(json);
+    // A new Y.Doc can be completely empty before the first editor mounts.
+    if (schemaDocument.content.size > 0) schemaDocument.check();
     markdown = richMarkdownFromYDoc(doc);
   } catch {
     return { valid: false, code: 'schema_invalid' };
@@ -315,7 +319,8 @@ export function validateRichMarkdownYDoc(doc: YTypes.Doc): RichMarkdownValidatio
   let roundtrip: YTypes.Doc | null = null;
   try {
     roundtrip = createRichMarkdownYDoc(markdown);
-    if (richMarkdownFromYDoc(roundtrip) !== markdown) {
+    if (richMarkdownFromYDoc(roundtrip) !== markdown
+      || !equivalentRichDocument(json, TiptapTransformer.fromYdoc(roundtrip, 'body'))) {
       return { valid: false, code: 'roundtrip_unstable', markdown };
     }
   } catch {

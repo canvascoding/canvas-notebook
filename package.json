@@ -182,7 +182,7 @@
     "test:editor:collaboration-lifecycle": "tsx scripts/code-editor-collaboration-lifecycle-test.ts",
     "test:files:atomic": "tsx --conditions react-server scripts/atomic-workspace-write-test.ts",
     "test:editor:outline": "tsx scripts/markdown-outline-test.ts && tsx scripts/markdown-outline-ui-test.ts",
-    "test:editor:rich-blocks": "tsx scripts/tiptap-markdown-roundtrip-test.ts && tsx --conditions react-server scripts/markdown-rich-blocks-collaboration-test.ts && tsx scripts/markdown-rich-blocks-ui-test.ts && tsx --conditions react-server scripts/markdown-empty-block-regression-test.ts",
+    "test:editor:rich-blocks": "tsx scripts/tiptap-markdown-roundtrip-test.ts && tsx --conditions react-server scripts/markdown-rich-blocks-collaboration-test.ts && tsx scripts/markdown-rich-blocks-ui-test.ts && tsx --conditions react-server scripts/markdown-empty-block-regression-test.ts && npm run test:editor:core",
     "test:editor:search": "tsx scripts/markdown-search-stats-test.ts && tsx scripts/markdown-search-stats-ui-test.ts",
     "test:editor:emoji-mentions": "tsx scripts/markdown-emoji-mention-test.ts && tsx scripts/tiptap-markdown-roundtrip-test.ts && tsx scripts/canvas-markdown-rendering-test.ts && tsx --conditions react-server scripts/markdown-rich-blocks-collaboration-test.ts && tsx scripts/markdown-emoji-mention-ui-test.ts",
     "test:editor:mobile-toolbar": "tsx scripts/mobile-toolbar-gesture-test.ts",
@@ -403,7 +403,8 @@
     "cli:portable": "tsx cli/src/main.ts",
     "cli:portable:dist": "node dist-cli/main.js",
     "server:setup": "bash scripts/server-setup.sh",
-    "container:rebuild": "node scripts/setup.mjs"
+    "container:rebuild": "node scripts/setup.mjs",
+    "test:editor:core": "tsx --conditions react-server scripts/markdown-core-test.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",
@@ -453,6 +454,7 @@
     "@tiptap/extension-collaboration-caret": "^3.30.4",
     "@tiptap/extension-image": "^3.30.4",
     "@tiptap/extension-link": "^3.30.4",
+    "@tiptap/extension-list": "^3.30.4",
     "@tiptap/extension-mathematics": "^3.30.4",
     "@tiptap/extension-paragraph": "^3.30.4",
     "@tiptap/extension-placeholder": "^3.30.4",
@@ -560,7 +562,8 @@
     "y-protocols": "^1.0.6",
     "yaml": "^2.9.0",
     "yjs": "^13.6.31",
-    "zustand": "^5.0.9"
+    "zustand": "^5.0.9",
+    "canvas-markdown-parser": "npm:marked@18.0.3"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.4",

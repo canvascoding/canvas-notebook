@@ -22,7 +22,7 @@ import { Image } from '@tiptap/extension-image';
 import { Placeholder } from '@tiptap/extension-placeholder';
 import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
-import { TableKit } from '@tiptap/extension-table';
+import { CanvasTableKit as TableKit } from '@/app/lib/markdown/core/lists-and-tables';
 import UniqueID from '@tiptap/extension-unique-id';
 import { CodeBlock } from '@tiptap/extension-code-block';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
@@ -2124,7 +2124,7 @@ function createEditorExtensions(
 ) {
   const extensions = [
     StarterKit.configure({
-      blockquote: false,
+      blockquote: false, heading: false, orderedList: false, listItem: false,
       codeBlock: false,
       link: false,
       paragraph: false,
