@@ -524,6 +524,9 @@
       "link": "Link"
     },
     "editorModes": {
+      "wide": "Full width",
+      "focus": "Focus document",
+      "exitFocus": "Exit focus",
       "label": "Document view",
       "read": "Read",
       "rich": "Edit",

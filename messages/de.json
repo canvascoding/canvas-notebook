@@ -523,6 +523,9 @@
       "link": "Link"
     },
     "editorModes": {
+      "wide": "Volle Breite",
+      "focus": "Dokument fokussieren",
+      "exitFocus": "Fokus beenden",
       "label": "Dokumentansicht",
       "read": "Lesen",
       "rich": "Bearbeiten",

@@ -11,7 +11,7 @@ Implementation branch: `codex/editor-stability`, server base `32238cfc`, mobile 
 - [x] D2: Contextual table operations.
 - [x] D3: Portable image sizing/alignment with resize controls and renderer parity.
 - [x] D4: Link/preview/embed paste choices using existing provider support.
-- [ ] D5: Document width and focus behavior where missing.
+- [x] D5: Document width and focus behavior where missing.
 
 Each milestone is verified and committed before the next. Production deployment is a separate manual action. Private production notes are never test fixtures in this public repository.
 
@@ -59,3 +59,8 @@ Compatibility: D3 adds the nullable image `align` attribute and contract v2. Rol
 D4 acceptance: pasting a single HTTP(S) URL opens the existing link dialog. Plain Link is the default; a preview is fetched only after the user selects Preview. Images/files, multiple URLs and code paste keep their existing paths. Workspace Notebook URLs offer the existing document embed format `![[target]]`; unsupported external embeds are not offered. Preview insertion no longer adds a lossy trailing paragraph space, and editing recognizes a following preview block. The dialog maps a selection bookmark through document transactions and restores focus explicitly. A shared DOM-selection helper reconciles a visible text caret before editing input, while web guards retain image and table-cell selections and IME ownership. Mobile imports the same unchanged helper through its existing entry point.
 
 Validation: real Chromium clipboard actions cover selected-text links, cancel, explicit preview/checkpoint, preserved surrounding text, document embed/reopen/reading and literal code paste. Selection-menu, image and table browser regressions pass. Rich-block/core regressions, server types/lint and full mobile verification including IME/selection tests and platform exports pass. No new schema or representation is introduced by D4.
+
+
+D5 acceptance: Read and Edit offer a page-width/full-width toggle. Desktop document focus hides explorer, chat and terminal without changing saved panel preferences, remounting the editor or discarding panel state. Escape closes a visible popup first, then exits focus; ProseMirror's unconditional browser-default suppression is handled explicitly. Reading tables retain column alignment and scroll in a keyboard-focusable region without widening the page. Native rich tables use 144px minimum cells and avoid unnecessary trailing paragraph space.
+
+Validation: Chromium verifies the same editor/terminal DOM instances, no new collaboration socket, undo/redo, retained unsent chat input and panel preferences, selection-menu Escape precedence, column alignment and narrow-screen table scrolling. Seven existing browser regressions (empty quote, shared Markdown structures, live source/migration/recovery, selection, table, image and URL paste) pass; the final focus/width case passes after correcting the test's double-click coordinates to select actual text. TypeScript, focused ESLint, rich-block/core/preservation/hardening tests and full mobile verification pass. Maestro and screenshots on the existing iOS development simulator confirm horizontal navigation to the last column in Read and Edit, including the wider cells. No physical-device or new native-binary signoff is implied.

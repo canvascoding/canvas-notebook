@@ -5710,6 +5710,7 @@ export function MarkdownEditor({
     readOnly || sourceModeRequired ? 'read' : shouldDefaultToSource(readOnly, filePath) ? 'source' : 'rich'
   ));
   const [sourceModeRequested, setSourceModeRequested] = useState(false);
+  const [wide, setWide] = useState(false);
   const [markdownNavigationTarget, setMarkdownNavigationTarget] = useState<WorkspaceMarkdownLocation | null>(() => (
     filePath ? consumeWorkspaceMarkdownLocation(filePath) : null
   ));
@@ -5780,12 +5781,12 @@ export function MarkdownEditor({
     );
   }
 
-  const modeBar = <MarkdownModeBar mode={effectiveMode} readOnly={readOnly} onChange={(next) => {
+  const modeBar = <MarkdownModeBar mode={effectiveMode} readOnly={readOnly} wide={wide} onWideChange={setWide} onChange={(next) => {
     if (next === 'rich') switchToRichMode();
     else if (next === 'source') switchToSourceMode();
     else setMode('read');
   }} />;
-  const wrap = (children: React.ReactNode) => <div className="flex h-full min-h-0 flex-col bg-background">
+  const wrap = (children: React.ReactNode) => <div className="flex h-full min-h-0 flex-col bg-background" data-document-width={wide ? 'wide' : 'page'}>
     {modeBar}
     {mode !== 'read' && collaborationDocument && authoritativeRepresentation === 'plain_text'
       && richModeAnalysis.mode !== 'source' && collaborationDocument.session?.permission === 'write' && filePath
@@ -5811,7 +5812,7 @@ export function MarkdownEditor({
         <MarkdownRenderer
           content={parsedDocument.error ? displayedValue : parsedDocument.body}
           sourcePath={filePath}
-          className="min-h-full p-5 text-base leading-relaxed md:pl-[4.75rem] [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:font-semibold"
+          className="canvas-document-reading min-h-full p-5 text-base leading-relaxed md:pl-[4.75rem] [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:font-semibold"
         />
         <MarkdownBacklinksPanel filePath={filePath} />
       </div>

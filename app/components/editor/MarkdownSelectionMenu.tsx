@@ -25,7 +25,9 @@ export function MarkdownSelectionMenu({ editor, suppressed, onLink }: {
   useEffect(() => {
     const reset = () => { dismissed.current = false; };
     const focusMenu = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && root.current?.isConnected) {
+      if (event.key === 'Escape' && !suppressed && !dismissed.current && !editor.state.selection.empty
+        && root.current?.isConnected && root.current.getBoundingClientRect().width > 0
+        && getComputedStyle(root.current).visibility === 'visible') {
         event.preventDefault(); dismissed.current = true;
         editor.commands.setMeta('canvas-selection-menu', 'hide');
         return;
@@ -43,7 +45,7 @@ export function MarkdownSelectionMenu({ editor, suppressed, onLink }: {
       editor.off('selectionUpdate', reset);
       editorElement.removeEventListener('keydown', focusMenu);
     };
-  }, [editor]);
+  }, [editor, suppressed]);
 
   const actions = [
     { key: 'bold', Icon: Bold, active: state.bold, run: () => editor.chain().focus().toggleBold().run() },
