@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('node-pty');
 const { randomBytes } = require('crypto');
+const { createTerminalPolicyEnforcer } = require('tsx/cjs/api').require('./terminal-access-policy.ts', __filename);
 
 // Configuration
 const DEFAULT_IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes
@@ -29,6 +30,7 @@ const WORKSPACES_DIR = path.join(DATA, 'workspaces');
 // State
 const sessions = new Map();
 const authenticatedClients = new Set();
+const synchronizeTerminalPolicy = createTerminalPolicyEnforcer(sessions, terminateSession);
 
 // Logging
 const LOG_LEVELS = { off: 0, error: 1, warn: 2, info: 3, debug: 4 };
@@ -463,6 +465,21 @@ function handleMessage(client, message) {
   const { id, method, params } = message;
   
   try {
+    if (['create', 'attach', 'input', 'resize', 'refreshPolicy'].includes(method)) {
+      if (!authenticatedClients.has(client)) {
+        sendError(client, id, 401, 'Unauthorized');
+        return;
+      }
+      const policy = synchronizeTerminalPolicy();
+      if (method === 'refreshPolicy') {
+        sendResult(client, id, policy);
+        return;
+      }
+      if (!policy.terminalEnabled) {
+        sendError(client, id, 403, 'terminal_disabled');
+        return;
+      }
+    }
     switch (method) {
       case 'auth': {
         const { token } = params;

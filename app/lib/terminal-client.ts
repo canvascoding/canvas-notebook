@@ -181,6 +181,11 @@ class TerminalClient {
     return this.sendMessage('terminateAll', { ownerId });
   }
 
+  async refreshPolicy(): Promise<unknown> {
+    await this.connect();
+    return this.sendMessage('refreshPolicy', {});
+  }
+
   disconnect(): void {
     if (this.socket) {
       this.socket.end();

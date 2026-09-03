@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { terminalAccessDenied } from '@/app/lib/terminal-access';
 import { getTerminalClient } from '@/app/lib/terminal-client';
 
 export async function POST(
@@ -16,6 +17,9 @@ export async function POST(
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const denied = terminalAccessDenied();
+    if (denied) return denied;
 
     const { id: sessionId } = await params;
     const body = await request.json();

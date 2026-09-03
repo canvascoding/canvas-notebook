@@ -5,6 +5,7 @@
 
 import { NextRequest } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { terminalAccessDenied } from '@/app/lib/terminal-access';
 import { resolveTerminalTransport } from '@/app/lib/terminal-transport';
 import * as net from 'net';
 
@@ -23,6 +24,9 @@ export async function GET(
         { status: 401, headers: { 'Content-Type': 'application/json' } }
       );
     }
+
+    const denied = terminalAccessDenied();
+    if (denied) return denied;
 
     const { id: sessionId } = await params;
     const ownerId = String(session.user.id);
@@ -133,6 +137,10 @@ export async function GET(
                 // Forward terminal events
                 if (message.type === 'output') {
                   sendEvent({ type: 'output', data: message.data });
+                } else if (message.type === 'disabled') {
+                  sendEvent({ type: 'disabled', code: 'terminal_disabled' });
+                  closeStream();
+                  return;
                 } else if (message.type === 'exit') {
                   sendEvent({ type: 'exit', exitCode: message.exitCode });
                 }

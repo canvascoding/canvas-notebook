@@ -11,6 +11,7 @@ import * as path from 'path';
 import { spawn as spawnProcess, type ChildProcessWithoutNullStreams } from 'child_process';
 import { spawn as spawnPty } from 'node-pty';
 import { randomBytes } from 'crypto';
+import { createTerminalPolicyEnforcer } from './terminal-access-policy';
 
 // Types
 import type { IPty } from 'node-pty';
@@ -62,6 +63,7 @@ const WORKSPACES_DIR = path.join(DATA, 'workspaces');
 // State
 const sessions = new Map<string, TerminalSession>();
 const authenticatedClients = new Set<net.Socket>();
+const synchronizeTerminalPolicy = createTerminalPolicyEnforcer(sessions, terminateSession);
 
 // Logging
 const LOG_LEVELS: Record<string, number> = { off: 0, error: 1, warn: 2, info: 3, debug: 4 };
@@ -565,6 +567,21 @@ function handleMessage(client: net.Socket, message: Message): void {
   const { id, method, params } = message;
   
   try {
+    if (['create', 'attach', 'input', 'resize', 'refreshPolicy'].includes(method)) {
+      if (!authenticatedClients.has(client)) {
+        sendError(client, id, 401, 'Unauthorized');
+        return;
+      }
+      const policy = synchronizeTerminalPolicy();
+      if (method === 'refreshPolicy') {
+        sendResult(client, id, policy);
+        return;
+      }
+      if (!policy.terminalEnabled) {
+        sendError(client, id, 403, 'terminal_disabled');
+        return;
+      }
+    }
     switch (method) {
       case 'auth': {
         const { token } = params as { token: string };

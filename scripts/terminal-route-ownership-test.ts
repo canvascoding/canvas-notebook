@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import Module from 'node:module';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { NextRequest } from 'next/server';
 
@@ -118,6 +121,12 @@ moduleInternals._load = (request, parent, isMain) => {
 };
 
 async function main() {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), 'terminal-routes-'));
+  const previousRoot = process.env.CANVAS_DATA_ROOT;
+  process.env.CANVAS_DATA_ROOT = dataRoot;
+  const settingsFile = path.join(dataRoot, 'system/settings/server-preferences.json');
+  await mkdir(path.dirname(settingsFile), { recursive: true });
+  await writeFile(settingsFile, JSON.stringify({ settings: { terminalEnabled: true } }));
   try {
     const [createRoute, inputRoute, resizeRoute, deleteRoute, streamRoute, killRoute] = await Promise.all([
       import('../app/api/terminal/create/route'),
@@ -179,6 +188,22 @@ async function main() {
       { sessionId, ownerId }
     );
 
+    await writeFile(settingsFile, JSON.stringify({ settings: { terminalEnabled: false } }));
+    const callCount = calls.length;
+    const messageCount = protocolMessages.length;
+    for (const [suffix, handler] of [
+      ['create', (request: NextRequest) => createRoute.POST(request)],
+      [`${sessionId}/input`, (request: NextRequest) => inputRoute.POST(request, { params: Promise.resolve({ id: sessionId }) })],
+      [`${sessionId}/resize`, (request: NextRequest) => resizeRoute.POST(request, { params: Promise.resolve({ id: sessionId }) })],
+      [`${sessionId}/stream`, (request: NextRequest) => streamRoute.GET(request, { params: Promise.resolve({ id: sessionId }) })],
+    ] as const) {
+      const blocked = await handler(new NextRequest(`http://localhost:3000/api/terminal/${suffix}`));
+      assert.equal(blocked.status, 403, suffix);
+      assert.equal((await blocked.json()).code, 'terminal_disabled');
+    }
+    assert.equal(calls.length, callCount, 'disabled routes must not contact the terminal service');
+    assert.equal(protocolMessages.length, messageCount, 'disabled streams must not attach');
+
     authenticated = false;
     const unauthorizedResponse = await inputRoute.POST(new NextRequest(`http://localhost:3000/api/terminal/${sessionId}/input`, {
       method: 'POST',
@@ -190,6 +215,9 @@ async function main() {
     console.log('terminal-route-ownership-test: ok');
   } finally {
     moduleInternals._load = originalLoad;
+    if (previousRoot === undefined) delete process.env.CANVAS_DATA_ROOT;
+    else process.env.CANVAS_DATA_ROOT = previousRoot;
+    await rm(dataRoot, { recursive: true, force: true });
   }
 }
 

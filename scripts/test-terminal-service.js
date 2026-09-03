@@ -8,8 +8,11 @@ const net = require('net');
 const { spawn } = require('child_process');
 const path = require('path');
 const assert = require('assert');
+const fs = require('node:fs/promises');
+const { tmpdir } = require('node:os');
 
-const TERMINAL_SERVICE_PATH = path.join(__dirname, '..', 'server', 'terminal-service.js');
+const typescript = process.argv.includes('--typescript');
+const TERMINAL_SERVICE_PATH = path.join(__dirname, '..', 'server', typescript ? 'terminal-service.ts' : 'terminal-service.js');
 const NODE_PTY_MOCK_PATH = path.join(__dirname, 'test-terminal-node-pty-mock.js');
 const TEST_TOKEN = 'test-token-12345';
 const TEST_PORT = 3458;
@@ -167,11 +170,19 @@ class TerminalClient {
 async function runTests() {
   console.log('Starting Terminal Service tests...\n');
   
+  const dataRoot = await fs.mkdtemp(path.join(tmpdir(), 'terminal-service-'));
+  const settingsFile = path.join(dataRoot, 'system/settings/server-preferences.json');
+  await fs.mkdir(path.dirname(settingsFile), { recursive: true });
+  await fs.mkdir(path.join(dataRoot, 'workspace'), { recursive: true });
+  const setEnabled = enabled => fs.writeFile(settingsFile, JSON.stringify({ settings: { terminalEnabled: enabled } }));
+
   // Start terminal service
   console.log('1. Starting terminal service...');
-  const terminalService = spawn('node', [TERMINAL_SERVICE_PATH], {
+  const terminalService = spawn(process.execPath, [...(typescript ? ['--import', 'tsx'] : []), TERMINAL_SERVICE_PATH], {
     env: {
       ...process.env,
+      DATA: dataRoot,
+      CANVAS_DATA_ROOT: dataRoot,
       NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${NODE_PTY_MOCK_PATH}`].filter(Boolean).join(' '),
       CANVAS_TERMINAL_TOKEN: TEST_TOKEN,
       CANVAS_TERMINAL_PORT: String(TEST_PORT),
@@ -196,6 +207,11 @@ async function runTests() {
     console.log('3. Testing authentication...');
     await client.authenticate(TEST_TOKEN);
     console.log('   ✓ Authenticated successfully\n');
+
+    await assert.rejects(client.createSession('disabled-session', 'test-user'), /terminal_disabled/);
+    await setEnabled('true');
+    await assert.rejects(client.createSession('invalid-setting-session', 'test-user'), /terminal_disabled/);
+    await setEnabled(true);
 
     // Test 3: Create session
     console.log('4. Testing session creation...');
@@ -294,6 +310,35 @@ async function runTests() {
     }
     unauthClient.disconnect();
 
+    // Disabling the feature must revoke sessions for EVERY owner, including
+    // attached streams, and must not resurrect them after re-enabling.
+    const secondStream = new TerminalClient();
+    await secondStream.connect(TEST_PORT);
+    await secondStream.authenticate(TEST_TOKEN);
+    await secondStream.attachSession(otherOwnerSession, 'owner-b');
+    await setEnabled(false);
+    await streamClient.waitForMessage(message => message.type === 'disabled');
+    await secondStream.waitForMessage(message => message.type === 'disabled');
+    for (const operation of [
+      () => client.createSession('blocked', ownerId),
+      () => client.attachSession(sessionId, ownerId),
+      () => client.sendInput(sessionId, ownerId, 'id'),
+      () => client.resize(sessionId, ownerId, 80, 24),
+    ]) await assert.rejects(operation, /terminal_disabled/);
+    await setEnabled(true);
+    await client.sendMessage('refreshPolicy', {});
+    for (const [id, owner] of [[sessionId, ownerId], [otherOwnerSession, 'owner-b'], [protectedSession, 'protected-owner']]) {
+      await assert.rejects(client.sendInput(id, owner, 'id'), /Session not found/);
+    }
+    await client.createSession('new-after-enable', ownerId);
+    await setEnabled(false);
+    const policy = await client.sendMessage('refreshPolicy', {});
+    assert.strictEqual(policy.terminalEnabled, false);
+    await setEnabled(true);
+    await assert.rejects(client.sendInput('new-after-enable', ownerId, 'id'), /Session not found/);
+    secondStream.disconnect();
+    console.log('   ✓ Default-off policy, live revocation, and re-enable verified');
+
     // Cleanup
     streamClient.disconnect();
     client.disconnect();
@@ -301,11 +346,12 @@ async function runTests() {
     console.log('✅ All tests passed!');
   } finally {
     // Stop terminal service
+    const stopped = new Promise(resolve => terminalService.once('close', resolve));
     terminalService.kill('SIGTERM');
-    await new Promise(resolve => setTimeout(resolve, 500));
-    if (!terminalService.killed) {
-      terminalService.kill('SIGKILL');
-    }
+    const forceStop = setTimeout(() => terminalService.kill('SIGKILL'), 2000);
+    await stopped;
+    clearTimeout(forceStop);
+    await fs.rm(dataRoot, { recursive: true, force: true });
   }
 }
 
