@@ -1,0 +1,146 @@
+[
+  {
+    "name": "insert-before-header",
+    "cell": "A",
+    "command": "addRowBefore",
+    "rows": [
+      [
+        "",
+        ""
+      ],
+      [
+        "A",
+        "B"
+      ],
+      [
+        "one",
+        "two"
+      ],
+      [
+        "three",
+        "four"
+      ]
+    ]
+  },
+  {
+    "name": "insert-after-header",
+    "cell": "A",
+    "command": "addRowAfter",
+    "rows": [
+      [
+        "A",
+        "B"
+      ],
+      [
+        "",
+        ""
+      ],
+      [
+        "one",
+        "two"
+      ],
+      [
+        "three",
+        "four"
+      ]
+    ]
+  },
+  {
+    "name": "delete-header-promotes-next-row",
+    "cell": "A",
+    "command": "deleteRow",
+    "rows": [
+      [
+        "one",
+        "two"
+      ],
+      [
+        "three",
+        "four"
+      ]
+    ]
+  },
+  {
+    "name": "move-body-row",
+    "cell": "one",
+    "axis": "row",
+    "direction": 1,
+    "rows": [
+      [
+        "A",
+        "B"
+      ],
+      [
+        "three",
+        "four"
+      ],
+      [
+        "one",
+        "two"
+      ]
+    ]
+  },
+  {
+    "name": "move-column-including-header",
+    "cell": "one",
+    "axis": "column",
+    "direction": 1,
+    "rows": [
+      [
+        "B",
+        "A"
+      ],
+      [
+        "two",
+        "one"
+      ],
+      [
+        "four",
+        "three"
+      ]
+    ]
+  },
+  {
+    "name": "align-entire-column",
+    "cell": "one",
+    "align": "center",
+    "rows": [
+      [
+        "A",
+        "B"
+      ],
+      [
+        "one",
+        "two"
+      ],
+      [
+        "three",
+        "four"
+      ]
+    ]
+  },
+  {
+    "name": "insert-row-in-aligned-column",
+    "cell": "one",
+    "command": "addRowAfter",
+    "initialAlign": "center",
+    "rows": [
+      [
+        "A",
+        "B"
+      ],
+      [
+        "one",
+        "two"
+      ],
+      [
+        "",
+        ""
+      ],
+      [
+        "three",
+        "four"
+      ]
+    ]
+  }
+]

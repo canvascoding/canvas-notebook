@@ -1221,10 +1221,17 @@ try {
     representation: 'plain_text',
     initialContent: autoMigrationContent,
   });
+  const readOnlyGrant = await createCollaborationSessionGrant({
+    workspace, fileOptions: { workspace },
+    request: { path: autoMigrationPath, provider: 'yjs', representation: 'auto' },
+  });
+  assert.equal(readOnlyGrant.representation, 'plain_text', 'opening alone must not migrate a document');
+  assert.equal(readOnlyGrant.lifecycleGeneration, 1);
+  assert.equal(await fs.readFile(path.join(workspace.rootPath, autoMigrationPath), 'utf8'), autoMigrationContent);
   const autoMigrationGrant = await createCollaborationSessionGrant({
     workspace,
     fileOptions: { workspace },
-    request: { path: autoMigrationPath, provider: 'yjs', representation: 'auto' },
+    request: { path: autoMigrationPath, provider: 'yjs', representation: 'auto', allowRichMigration: true, expectedLifecycleGeneration: 1 },
   });
   assert.equal(autoMigrationGrant.representation, 'tiptap_xml');
   assert.equal(autoMigrationGrant.lifecycleGeneration, 2);
@@ -1354,7 +1361,7 @@ try {
   const safeNormalizationGrant = await createCollaborationSessionGrant({
     workspace,
     fileOptions: { workspace },
-    request: { path: safeNormalizationMigrationPath, provider: 'yjs', representation: 'auto' },
+    request: { path: safeNormalizationMigrationPath, provider: 'yjs', representation: 'auto', allowRichMigration: true, expectedLifecycleGeneration: 1 },
   });
   assert.equal(safeNormalizationGrant.representation, 'tiptap_xml');
   assert.equal(safeNormalizationGrant.lifecycleGeneration, 2);
@@ -1404,7 +1411,7 @@ try {
       return await createCollaborationSessionGrant({
         workspace,
         fileOptions: { workspace },
-        request: { path: concurrentMigrationPath, provider: 'yjs', representation: 'auto' },
+        request: { path: concurrentMigrationPath, provider: 'yjs', representation: 'auto', allowRichMigration: true, expectedLifecycleGeneration: 1 },
       });
     } finally {
       uninstallRoomInspector();
@@ -1416,12 +1423,12 @@ try {
     createCollaborationSessionGrant({
       workspace,
       fileOptions: { workspace },
-      request: { path: concurrentMigrationPath, provider: 'yjs', representation: 'auto' },
+      request: { path: concurrentMigrationPath, provider: 'yjs', representation: 'auto', allowRichMigration: true, expectedLifecycleGeneration: 1 },
     }),
     createCollaborationSessionGrant({
       workspace,
       fileOptions: { workspace },
-      request: { path: concurrentMigrationPath, provider: 'yjs', representation: 'auto' },
+      request: { path: concurrentMigrationPath, provider: 'yjs', representation: 'auto', allowRichMigration: true, expectedLifecycleGeneration: 1 },
     }),
   ]);
   assert.deepEqual(concurrentGrants.map((grant) => grant.representation), ['tiptap_xml', 'tiptap_xml']);

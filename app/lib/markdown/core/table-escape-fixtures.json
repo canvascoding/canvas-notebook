@@ -1,0 +1,110 @@
+[
+  {
+    "name": "prose: 0 backslashes before pipe",
+    "text": "a|b",
+    "code": false,
+    "valid": true
+  },
+  {
+    "name": "prose: 1 backslashes before pipe",
+    "text": "a\\|b",
+    "code": false,
+    "valid": true
+  },
+  {
+    "name": "prose: 2 backslashes before pipe",
+    "text": "a\\\\|b",
+    "code": false,
+    "valid": true
+  },
+  {
+    "name": "prose: 3 backslashes before pipe",
+    "text": "a\\\\\\|b",
+    "code": false,
+    "valid": true
+  },
+  {
+    "name": "prose: 4 backslashes before pipe",
+    "text": "a\\\\\\\\|b",
+    "code": false,
+    "valid": true
+  },
+  {
+    "name": "code: 0 backslashes before pipe",
+    "text": "a|b",
+    "code": true,
+    "valid": true
+  },
+  {
+    "name": "code: 1 backslashes before pipe",
+    "text": "a\\|b",
+    "code": true,
+    "valid": false
+  },
+  {
+    "name": "code: 2 backslashes before pipe",
+    "text": "a\\\\|b",
+    "code": true,
+    "valid": true
+  },
+  {
+    "name": "code: 3 backslashes before pipe",
+    "text": "a\\\\\\|b",
+    "code": true,
+    "valid": false
+  },
+  {
+    "name": "code: 4 backslashes before pipe",
+    "text": "a\\\\\\\\|b",
+    "code": true,
+    "valid": true
+  },
+  {
+    "name": "prose: trailing backslash",
+    "text": "a|b\\",
+    "code": false,
+    "valid": true
+  },
+  {
+    "name": "prose: literal entities",
+    "text": "&amp;|&#124;",
+    "code": false,
+    "valid": true
+  },
+  {
+    "name": "prose: consecutive pipes",
+    "text": "a||b",
+    "code": false,
+    "valid": true
+  },
+  {
+    "name": "prose: backslash away from pipe",
+    "text": "a\\b|c",
+    "code": false,
+    "valid": true
+  },
+  {
+    "name": "code: trailing backslash",
+    "text": "a|b\\",
+    "code": true,
+    "valid": true
+  },
+  {
+    "name": "code: literal entities",
+    "text": "&amp;|&#124;",
+    "code": true,
+    "valid": true
+  },
+  {
+    "name": "code: consecutive pipes",
+    "text": "a||b",
+    "code": true,
+    "valid": true
+  },
+  {
+    "name": "code: backslash away from pipe",
+    "text": "a\\b|c",
+    "code": true,
+    "valid": true
+  }
+]

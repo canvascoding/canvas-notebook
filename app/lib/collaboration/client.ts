@@ -7,7 +7,7 @@ import type { IndexeddbPersistence } from 'y-indexeddb';
 import type * as Y from 'yjs';
 
 import { workspaceHeaders } from '@/app/lib/files/client';
-import { CollaborationCheckpointRequestError } from './checkpoint-errors';
+import { CollaborationCheckpointRequestError, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
 import {
   createInitialTextCollaborationClientState,
   reduceTextCollaborationClientState,
@@ -288,6 +288,9 @@ function createEntry(
         },
         onUnsyncedChanges: ({ number }) => {
           transition(entry, { type: 'unsynced_changes', count: number });
+          if (number === 0 && entry.pendingAuthoritativeSnapshot) {
+            reconcileAuthoritativeSnapshot(entry.pendingAuthoritativeSnapshot);
+          }
         },
         onAuthenticationFailed: ({ reason }) => {
           transition(entry, {
@@ -407,7 +410,8 @@ function createEntry(
             : new Error(lastError);
         })().catch((error) => {
           const message = error instanceof Error ? error.message : 'Checkpoint failed.';
-          transition(entry, { type: 'checkpoint_failed', message });
+          transition(entry, { type: error instanceof CollaborationCheckpointRequestError
+            && isCollaborationCheckpointValidationErrorCode(error.code) ? 'degraded' : 'checkpoint_failed', message });
           throw error;
         }).finally(() => {
           entry.checkpointPromise = undefined;

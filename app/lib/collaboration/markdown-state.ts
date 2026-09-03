@@ -14,6 +14,7 @@ import {
   restoreRichMarkdownFinalLineEnding,
 } from '@/app/lib/markdown/rich-markdown-codec';
 import { TiptapTransformer, Y, YProsemirror } from './server-runtime';
+import { equivalentRichDocument } from '../markdown/core/equivalence';
 
 export function richMarkdownSchemaExtensions() {
   return richMarkdownCodecExtensions();
@@ -222,7 +223,7 @@ export function createRichMarkdownYDoc(markdown: string): YTypes.Doc {
   const json = generateUniqueIds(manager.parse(parts.body), extensions);
   const doc = TiptapTransformer.toYdoc(json, 'body', extensions);
   if (parts.prefix) doc.getText('frontmatter').insert(0, parts.prefix);
-  const finalLineEnding = parts.body.match(/(\r?\n)$/u)?.[1];
+  const finalLineEnding = parts.body.match(/((?:\r?\n)+)$/u)?.[1];
   if (finalLineEnding) doc.getText('bodyFinalLineEnding').insert(0, finalLineEnding);
   return doc;
 }
@@ -268,7 +269,7 @@ export function replaceRichMarkdownInYDoc(
       if (parts.prefix) frontmatter.insert(0, parts.prefix);
       const bodyFinalLineEnding = doc.getText('bodyFinalLineEnding');
       if (bodyFinalLineEnding.length > 0) bodyFinalLineEnding.delete(0, bodyFinalLineEnding.length);
-      const finalLineEnding = parts.body.match(/(\r?\n)$/u)?.[1];
+      const finalLineEnding = parts.body.match(/((?:\r?\n)+)$/u)?.[1];
       if (finalLineEnding) bodyFinalLineEnding.insert(0, finalLineEnding);
     }, origin);
   } finally {
@@ -301,6 +302,9 @@ export function validateRichMarkdownYDoc(doc: YTypes.Doc): RichMarkdownValidatio
   let markdown: string;
   try {
     json = TiptapTransformer.fromYdoc(doc, 'body');
+    const schemaDocument = getSchema(richMarkdownSchemaExtensions()).nodeFromJSON(json);
+    // A new Y.Doc can be completely empty before the first editor mounts.
+    if (schemaDocument.content.size > 0) schemaDocument.check();
     markdown = richMarkdownFromYDoc(doc);
   } catch {
     return { valid: false, code: 'schema_invalid' };
@@ -315,7 +319,8 @@ export function validateRichMarkdownYDoc(doc: YTypes.Doc): RichMarkdownValidatio
   let roundtrip: YTypes.Doc | null = null;
   try {
     roundtrip = createRichMarkdownYDoc(markdown);
-    if (richMarkdownFromYDoc(roundtrip) !== markdown) {
+    if (richMarkdownFromYDoc(roundtrip) !== markdown
+      || !equivalentRichDocument(json, TiptapTransformer.fromYdoc(roundtrip, 'body'))) {
       return { valid: false, code: 'roundtrip_unstable', markdown };
     }
   } catch {

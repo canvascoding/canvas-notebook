@@ -18,20 +18,20 @@ import {
 import { StarterKit } from '@tiptap/starter-kit';
 import { Link } from '@tiptap/extension-link';
 import { Mathematics } from '@tiptap/extension-mathematics';
-import { Image } from '@tiptap/extension-image';
+import { CanvasImage as Image } from '@/app/lib/markdown/core/image';
+import { MarkdownImageControls } from './MarkdownImageControls';
+import { MarkdownUrlPaste } from './MarkdownUrlPaste';
+import { MarkdownDomSelection } from './MarkdownDomSelection';
 import { Placeholder } from '@tiptap/extension-placeholder';
 import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
-import { TableKit } from '@tiptap/extension-table';
+import { CanvasTableKit as TableKit } from '@/app/lib/markdown/core/lists-and-tables';
 import UniqueID from '@tiptap/extension-unique-id';
 import { CodeBlock } from '@tiptap/extension-code-block';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, type SelectionBookmark } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import {
-  AlignCenter,
-  AlignLeft,
-  AlignRight,
   AtSign,
   Bold,
   BadgeInfo,
@@ -41,7 +41,6 @@ import {
   ChevronUp,
   Code,
   Code2,
-  Columns3,
   Copy,
   Eye,
   ExternalLink,
@@ -67,7 +66,6 @@ import {
   Pencil,
   Quote,
   Redo2,
-  Rows3,
   Search,
   Sigma,
   SmilePlus,
@@ -75,7 +73,6 @@ import {
   Strikethrough,
   Superscript,
   Table2,
-  Trash2,
   Type,
   Undo2,
   Unlink,
@@ -110,6 +107,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
+import { MarkdownModeBar, MarkdownRichMigration, MarkdownSaveState, useLiveMarkdown, type MarkdownDocumentMode } from './MarkdownDocumentModes';
+import { MarkdownTableMenu } from './MarkdownTableMenu';
+import { MarkdownSelectionMenu } from './MarkdownSelectionMenu';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 import {
   clampEditorRangeToDoc,
@@ -234,7 +234,7 @@ export interface MarkdownEditorProps {
   showNotebookMetadata?: boolean;
 }
 
-type EditorMode = 'rich' | 'source';
+type EditorMode = MarkdownDocumentMode;
 
 type MarkdownEditorWithMarkdown = Editor & {
   getMarkdown: () => string;
@@ -1565,11 +1565,8 @@ function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandA
   });
 }
 
-function MarkdownImageNodeView({
-  node,
-  selected,
-  filePath,
-}: NodeViewProps & { filePath?: string }) {
+function MarkdownImageNodeView(props: NodeViewProps & { filePath?: string }) {
+  const { node, selected, filePath } = props;
   const src = typeof node.attrs.src === 'string' ? node.attrs.src : '';
   const alt = typeof node.attrs.alt === 'string' ? node.attrs.alt : '';
   const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
@@ -1607,37 +1604,9 @@ function MarkdownImageNodeView({
     );
   }
 
-  return (
-    <NodeViewWrapper
-      as="figure"
-      className={cn(
-        'my-4 max-w-full rounded-md border border-transparent p-1',
-        selected && 'border-primary/60 bg-primary/5',
-      )}
-      contentEditable={false}
-    >
-      {resolvedImage.ok ? (
-        <SafeMarkdownImage
-          src={src}
-          previewSrc={resolvedImage.src}
-          alt={alt}
-          imageClassName="max-h-[60vh] w-auto max-w-full rounded-md object-contain"
-          showError
-          errorLabel={`Image could not be loaded: ${src}`}
-        />
-      ) : (
-        <div
-          role="img"
-          aria-label={resolvedImage.error}
-          title={src}
-          className="inline-flex max-w-full items-center rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive"
-        >
-          {resolvedImage.error}
-        </div>
-      )}
-      {alt ? <figcaption className="mt-1 text-center text-xs text-muted-foreground">{alt}</figcaption> : null}
-    </NodeViewWrapper>
-  );
+  return <MarkdownImageControls {...props}
+    previewSrc={resolvedImage.ok ? resolvedImage.src : undefined}
+    error={resolvedImage.ok ? undefined : resolvedImage.error} />;
 }
 
 function createMarkdownImageExtension(filePath?: string) {
@@ -2123,7 +2092,9 @@ function createEditorExtensions(
   remoteCaretLabel?: (name: string) => string,
 ) {
   const extensions = [
+    MarkdownDomSelection,
     StarterKit.configure({
+      blockquote: false, heading: false, orderedList: false, listItem: false,
       codeBlock: false,
       link: false,
       paragraph: false,
@@ -2625,6 +2596,13 @@ function findAdjacentLinkPreviewImageRange(editor: Editor, from: number): Range 
     return null;
   }
 
+  if ($from.depth > 0) {
+    const nextPosition = $from.after();
+    const next = doc.nodeAt(nextPosition);
+    if (next?.type.name === 'image' && parseLinkPreviewImageAlt(next.attrs.alt)) {
+      return { from: nextPosition, to: nextPosition + next.nodeSize };
+    }
+  }
   return null;
 }
 
@@ -2647,6 +2625,23 @@ function MarkdownLinkDialog({
 }) {
   const t = useTranslations('notebook');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const bookmark = useRef<SelectionBookmark | null>(editor?.state.selection.getBookmark() ?? null);
+  useEffect(() => {
+    if (!editor || !open) return;
+    const mapSelection = ({ transaction }: { transaction: import('@tiptap/pm/state').Transaction }) => {
+      if (transaction.docChanged && bookmark.current) bookmark.current = bookmark.current.map(transaction.mapping);
+    };
+    editor.on('transaction', mapSelection);
+    return () => { editor.off('transaction', mapSelection); };
+  }, [editor, open]);
+  const restoreSelection = useCallback(() => {
+    if (!editor || editor.isDestroyed) return false;
+    if (bookmark.current) {
+      editor.view.dispatch(editor.state.tr.setSelection(bookmark.current.resolve(editor.state.doc)));
+      bookmark.current = null;
+    }
+    return true;
+  }, [editor]);
   const initialWorkspaceTarget = getWorkspaceMarkdownNavigationTarget(initialHref, sourcePath) ?? '';
   const [mode, setMode] = useState<LinkDialogMode>(
     initialHref && !initialWorkspaceTarget ? 'web' : 'workspace',
@@ -2654,7 +2649,11 @@ function MarkdownLinkDialog({
   const [href, setHref] = useState(initialHref);
   const [workspaceTarget, setWorkspaceTarget] = useState(initialWorkspaceTarget);
   const [text, setText] = useState(initialText);
-  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const [previewEnabled, setPreviewEnabled] = useState(() => {
+    const activeLink = editor ? getActiveLinkDetails(editor) : null;
+    return Boolean(editor && activeLink && findAdjacentLinkPreviewImageRange(editor, activeLink.range.to));
+  });
+  const [embedEnabled, setEmbedEnabled] = useState(false);
   const [previewState, setPreviewState] = useState<LinkPreviewState>({ status: 'idle' });
   const [workspaceIndexState, setWorkspaceIndexState] = useState<WorkspaceLinkIndexState>({ status: 'idle' });
   const linkActive = Boolean(editor?.isActive('link') || editor?.isActive('obsidianWikiLink'));
@@ -2753,7 +2752,7 @@ function MarkdownLinkDialog({
   );
 
   const applyWorkspaceLink = useCallback(() => {
-    if (!editor || !workspaceWikiTarget) return;
+    if (!editor || !workspaceWikiTarget || !restoreSelection()) return;
 
     const activeLink = getActiveLinkDetails(editor);
     const activeWorkspaceLink = getActiveWorkspaceWikiLink(editor);
@@ -2767,15 +2766,13 @@ function MarkdownLinkDialog({
     const chain = editor.chain().focus();
 
     if (existingPreviewRange) chain.deleteRange(existingPreviewRange);
-    chain.insertContentAt(replacementRange, {
-      type: 'obsidianWikiLink',
-      attrs: { embed: false, target: workspaceWikiTarget },
-    }).run();
+    const wikiLink: JSONContent = { type: 'obsidianWikiLink', attrs: { embed: embedEnabled, target: workspaceWikiTarget } };
+    chain.insertContentAt(replacementRange, embedEnabled ? { type: 'paragraph', content: [wikiLink] } : wikiLink).run();
     onOpenChange(false);
-  }, [editor, onOpenChange, workspaceWikiTarget]);
+  }, [editor, embedEnabled, onOpenChange, restoreSelection, workspaceWikiTarget]);
 
   const applyWebLink = useCallback(() => {
-    if (!editor) return;
+    if (!editor || !restoreSelection()) return;
 
     const normalizedHref = normalizeLinkHref(href);
     const activeWorkspaceLink = getActiveWorkspaceWikiLink(editor);
@@ -2789,6 +2786,7 @@ function MarkdownLinkDialog({
       return;
     }
 
+    if (previewEnabled && (previewState.status !== 'loaded' || !previewState.imageUrl)) return;
     const previewImage = previewEnabled && previewState.status === 'loaded' && previewState.imageUrl
       ? createLinkPreviewImageContent(previewState.imageUrl, previewState.host)
       : null;
@@ -2798,7 +2796,7 @@ function MarkdownLinkDialog({
         text: text.trim() || activeWorkspaceLink.displayText || normalizedHref,
         marks: [{ type: 'link', attrs: { href: normalizedHref } }],
       }];
-      if (previewImage) content.push({ type: 'text', text: ' ' }, previewImage);
+      if (previewImage) content.push(previewImage);
       editor.chain().focus().insertContentAt(activeWorkspaceLink.range, content).run();
       onOpenChange(false);
       return;
@@ -2808,7 +2806,7 @@ function MarkdownLinkDialog({
       const insertPosition = getLinkPreviewInsertPosition(editor);
       const existingPreviewRange = findAdjacentLinkPreviewImageRange(editor, insertPosition);
       const previewInsertPosition = existingPreviewRange?.from ?? insertPosition;
-      const previewContent: JSONContent[] = [{ type: 'text', text: ' ' }];
+      const previewContent: JSONContent[] = [];
 
       if (previewImage) {
         previewContent.push(previewImage);
@@ -2835,19 +2833,19 @@ function MarkdownLinkDialog({
       ];
 
       if (previewImage) {
-        content.push({ type: 'text', text: ' ' }, previewImage);
+        content.push(previewImage);
       }
 
       editor.chain().focus().insertContent(content).run();
     }
 
     onOpenChange(false);
-  }, [editor, href, onOpenChange, previewEnabled, previewState, text]);
+  }, [editor, href, onOpenChange, previewEnabled, previewState, restoreSelection, text]);
 
   const applyLink = mode === 'workspace' ? applyWorkspaceLink : applyWebLink;
 
   const removeLink = useCallback(() => {
-    if (!editor) return;
+    if (!editor || !restoreSelection()) return;
     const activeWorkspaceLink = getActiveWorkspaceWikiLink(editor);
     if (activeWorkspaceLink) {
       editor.chain().focus().insertContentAt(activeWorkspaceLink.range, activeWorkspaceLink.displayText).run();
@@ -2855,11 +2853,15 @@ function MarkdownLinkDialog({
       editor.chain().focus().extendMarkRange('link').unsetLink().run();
     }
     onOpenChange(false);
-  }, [editor, onOpenChange]);
+  }, [editor, onOpenChange, restoreSelection]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[min(90dvh,44rem)] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[min(90dvh,44rem)] overflow-y-auto sm:max-w-lg"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (restoreSelection() && editor) editor.view.focus();
+        }}>
         <DialogHeader>
           <DialogTitle>{t('markdownEditorLinkDialogTitle')}</DialogTitle>
           <DialogDescription>{t('markdownEditorLinkDialogDescription')}</DialogDescription>
@@ -2878,6 +2880,12 @@ function MarkdownLinkDialog({
           </TabsList>
 
           <TabsContent value="workspace" className="mt-4 grid gap-4">
+            <fieldset className="grid gap-2 rounded-md border p-3">
+              <legend className="px-1 text-sm font-medium">{t('editorLinkChoice.label')}</legend>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" name="workspace-link-presentation" checked={!embedEnabled} onChange={() => setEmbedEnabled(false)} />{t('editorLinkChoice.link')}</label>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" name="workspace-link-presentation" checked={embedEnabled} onChange={() => setEmbedEnabled(true)} />{t('editorLinkChoice.embed')}</label>
+              <p className="text-xs text-muted-foreground">{t('editorLinkChoice.embedHint')}</p>
+            </fieldset>
             <div className="grid gap-2">
               <Label htmlFor="markdown-link-workspace-target">{t('markdownEditorLinkWorkspaceTarget')}</Label>
               <Input
@@ -2953,7 +2961,7 @@ function MarkdownLinkDialog({
               </div>
               <code className="mt-1 block break-all text-sm">
                 {workspaceWikiTarget
-                  ? `[[${workspaceWikiTarget}]]`
+                  ? `${embedEnabled ? '!' : ''}[[${workspaceWikiTarget}]]`
                   : `[[${t('markdownEditorLinkWorkspaceExample')}]]`}
               </code>
             </div>
@@ -2991,20 +2999,12 @@ function MarkdownLinkDialog({
               </div>
             ) : null}
 
-            <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-              <div className="min-w-0">
-                <Label htmlFor="markdown-link-preview-toggle">{t('markdownEditorLinkPreviewToggle')}</Label>
-                <p className="mt-1 text-xs text-muted-foreground">{t('markdownEditorLinkPreviewHint')}</p>
-              </div>
-              <Switch
-                id="markdown-link-preview-toggle"
-                checked={previewEnabled}
-                onCheckedChange={(checked) => {
-                  setPreviewEnabled(checked);
-                  if (!checked) setPreviewState({ status: 'idle' });
-                }}
-              />
-            </div>
+            <fieldset className="grid gap-2 rounded-md border p-3">
+              <legend className="px-1 text-sm font-medium">{t('editorLinkChoice.label')}</legend>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" name="web-link-presentation" checked={!previewEnabled} onChange={() => setPreviewEnabled(false)} />{t('editorLinkChoice.link')}</label>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" name="web-link-presentation" checked={previewEnabled} disabled={!/^https?:\/\//iu.test(normalizeLinkHref(href))} onChange={() => setPreviewEnabled(true)} />{t('editorLinkChoice.preview')}</label>
+              <p className="text-xs text-muted-foreground">{t('markdownEditorLinkPreviewHint')}</p>
+            </fieldset>
 
             {previewEnabled ? (
               <div className="min-h-20 rounded-md border bg-muted/20 p-2">
@@ -3061,7 +3061,7 @@ function MarkdownLinkDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {t('cancel')}
           </Button>
-          <Button type="button" disabled={mode === 'workspace' && !workspaceWikiTarget} onClick={applyLink}>
+          <Button type="button" disabled={mode === 'workspace' ? !workspaceWikiTarget : previewEnabled && (previewState.status !== 'loaded' || !previewState.imageUrl)} onClick={applyLink}>
             {t('markdownEditorLinkApply')}
           </Button>
         </DialogFooter>
@@ -3388,15 +3388,14 @@ function MarkdownTableDialog({
   const t = useTranslations('notebook');
   const [rows, setRows] = useState(3);
   const [cols, setCols] = useState(3);
-  const [withHeaderRow, setWithHeaderRow] = useState(true);
 
   const submit = useCallback(() => {
     onInsert({
       rows: Math.min(20, Math.max(1, rows || 1)),
       cols: Math.min(12, Math.max(1, cols || 1)),
-      withHeaderRow,
+      withHeaderRow: true,
     });
-  }, [cols, onInsert, rows, withHeaderRow]);
+  }, [cols, onInsert, rows]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -3432,14 +3431,7 @@ function MarkdownTableDialog({
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-            <Label htmlFor="markdown-table-header-row">{t('markdownEditorTableHeaderRow')}</Label>
-            <Switch
-              id="markdown-table-header-row"
-              checked={withHeaderRow}
-              onCheckedChange={setWithHeaderRow}
-            />
-          </div>
+          <p className="text-xs text-muted-foreground">{t('editorTableHeaderRequired')}</p>
         </div>
 
         <DialogFooter>
@@ -4149,102 +4141,8 @@ function MarkdownToolbar({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {toolbarState.isTable ? (
-        <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/30 px-2 md:flex">
-          <span className="mr-1 shrink-0 text-xs font-medium text-muted-foreground">
-            {t('markdownEditorTableTools')}
-          </span>
-          <TooltipIconButton
-            label={t('markdownEditorTableAddColumnBefore')}
-            disabled={!canUseCommands || !editor?.can().addColumnBefore()}
-            onClick={() => editor?.chain().focus().addColumnBefore().run()}
-          >
-            <Columns3 />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableAddColumnAfter')}
-            disabled={!canUseCommands || !editor?.can().addColumnAfter()}
-            onClick={() => editor?.chain().focus().addColumnAfter().run()}
-          >
-            <Plus />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableDeleteColumn')}
-            disabled={!canUseCommands || !editor?.can().deleteColumn()}
-            onClick={() => editor?.chain().focus().deleteColumn().run()}
-          >
-            <Trash2 />
-          </TooltipIconButton>
-
-          <ToolbarDivider />
-
-          <TooltipIconButton
-            label={t('markdownEditorTableAddRowBefore')}
-            disabled={!canUseCommands || !editor?.can().addRowBefore()}
-            onClick={() => editor?.chain().focus().addRowBefore().run()}
-          >
-            <Rows3 />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableAddRowAfter')}
-            disabled={!canUseCommands || !editor?.can().addRowAfter()}
-            onClick={() => editor?.chain().focus().addRowAfter().run()}
-          >
-            <Plus />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableDeleteRow')}
-            disabled={!canUseCommands || !editor?.can().deleteRow()}
-            onClick={() => editor?.chain().focus().deleteRow().run()}
-          >
-            <Trash2 />
-          </TooltipIconButton>
-
-          <ToolbarDivider />
-
-          <TooltipIconButton
-            label={t('markdownEditorTableToggleHeaderRow')}
-            disabled={!canUseCommands || !editor?.can().toggleHeaderRow()}
-            onClick={() => editor?.chain().focus().toggleHeaderRow().run()}
-          >
-            <Table2 />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableAlignLeft')}
-            active={toolbarState.cellAlign === 'left'}
-            disabled={!canUseCommands}
-            onClick={() => editor?.chain().focus().setCellAttribute('align', 'left').run()}
-          >
-            <AlignLeft />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableAlignCenter')}
-            active={toolbarState.cellAlign === 'center'}
-            disabled={!canUseCommands}
-            onClick={() => editor?.chain().focus().setCellAttribute('align', 'center').run()}
-          >
-            <AlignCenter />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableAlignRight')}
-            active={toolbarState.cellAlign === 'right'}
-            disabled={!canUseCommands}
-            onClick={() => editor?.chain().focus().setCellAttribute('align', 'right').run()}
-          >
-            <AlignRight />
-          </TooltipIconButton>
-
-          <ToolbarDivider />
-
-          <TooltipIconButton
-            label={t('markdownEditorTableDelete')}
-            disabled={!canUseCommands || !editor?.can().deleteTable()}
-            onClick={() => editor?.chain().focus().deleteTable().run()}
-          >
-            <Trash2 />
-          </TooltipIconButton>
-        </div>
-      ) : null}
+      {canUseCommands && editor ? <MarkdownTableMenu editor={editor} suppressed={linkDialogOpen || imageDialogOpen} /> : null}
+      {canUseCommands && editor ? <MarkdownSelectionMenu editor={editor} suppressed={linkDialogOpen || Boolean(linkPopover)} onLink={openToolbarLinkDialog} /> : null}
       <MarkdownLinkPopover
         editor={editor}
         state={editor ? linkPopover : null}
@@ -5562,24 +5460,13 @@ function RichMarkdownEditor({
           visible={isMobileToolbarVisible}
         />
       ) : null}
+      {!effectiveReadOnly && markdownEditor ? <MarkdownUrlPaste editor={markdownEditor} renderDialog={(link, close) =>
+        <MarkdownLinkDialog editor={markdownEditor} open onOpenChange={(open) => { if (!open) close(); }}
+          initialHref={link.href} initialText={link.text} canEditText={link.canEditText} sourcePath={filePath} />
+      } /> : null}
       <MarkdownFindBar editor={markdownEditor} onOpenChange={setFindOpen} open={findOpen} />
       <div ref={scrollContainerRef} data-testid="markdown-scroll-container" className="relative min-h-0 flex-1 overflow-auto">
         <div className="pointer-events-none sticky top-2 z-30 ml-auto flex h-0 w-fit items-start gap-2 pr-3">
-          {collaborationEnabled ? (
-            <div className="rounded bg-background/85 px-2 py-1 text-[10px] text-muted-foreground shadow-sm" role="status">
-              {collaboration?.status === 'degraded'
-                ? collaboration.error || t('collaboration.degraded')
-                : collaboration?.status === 'saved' || collaboration?.status === 'live'
-                  ? t('collaboration.live')
-                  : collaboration?.status === 'persisting'
-                    ? t('collaboration.persisting')
-                    : collaboration?.status === 'offline' || collaboration?.status === 'reconnecting'
-                      ? t('collaboration.offline')
-                  : collaboration?.status === 'read_only'
-                    ? t('collaboration.readOnly')
-                    : collaboration?.status || t('collaboration.connecting')}
-            </div>
-          ) : null}
           <MarkdownOutlinePanel
             editor={editor}
             onPinnedChange={setOutlinePinned}
@@ -5810,24 +5697,27 @@ export function MarkdownEditor({
     session: resolvedCollaborationSession,
   });
   const isMobileKeyboardActive = useMobileKeyboardActive();
-  const parsedDocument = useMemo(() => parseCanvasMarkdownDocument(value), [value]);
-  const richModeAnalysis = useMemo(() => analyzeMarkdownRichMode(value), [value]);
+  const liveMarkdown = useLiveMarkdown(collaborationDocument, value);
+  const displayedValue = liveMarkdown.content;
+  const parsedDocument = useMemo(() => parseCanvasMarkdownDocument(displayedValue), [displayedValue]);
+  const richModeAnalysis = useMemo(() => analyzeMarkdownRichMode(displayedValue), [displayedValue]);
   const sourceModeRequired = richModeAnalysis.mode !== 'rich';
   const isPresentationDocument = useMemo(
     () => Boolean(filePath && isMarpMarkdown(filePath, value)),
     [filePath, value],
   );
   const [mode, setMode] = useState<EditorMode>(() => (
-    sourceModeRequired || shouldDefaultToSource(readOnly, filePath) ? 'source' : 'rich'
+    readOnly || sourceModeRequired ? 'read' : shouldDefaultToSource(readOnly, filePath) ? 'source' : 'rich'
   ));
   const [sourceModeRequested, setSourceModeRequested] = useState(false);
+  const [wide, setWide] = useState(false);
   const [markdownNavigationTarget, setMarkdownNavigationTarget] = useState<WorkspaceMarkdownLocation | null>(() => (
     filePath ? consumeWorkspaceMarkdownLocation(filePath) : null
   ));
   const authoritativeRepresentation = collaborationSession.session?.representation;
-  const effectiveMode: EditorMode = collaborationEnabled && authoritativeRepresentation
-    ? authoritativeRepresentation === 'plain_text' ? 'source' : 'rich'
-    : sourceModeRequired ? 'source' : mode;
+  const effectiveMode: EditorMode = mode === 'read' ? 'read'
+    : mode === 'source' || (collaborationEnabled ? authoritativeRepresentation === 'plain_text' : sourceModeRequired) ? 'source' : 'rich';
+  const richSourceReadOnly = collaborationEnabled && authoritativeRepresentation === 'tiptap_xml';
 
   useEffect(() => {
     onCollaborationChange?.(collaborationDocument);
@@ -5855,16 +5745,15 @@ export function MarkdownEditor({
   }, [filePath]);
 
   const switchToSourceMode = useCallback(() => {
-    if (collaborationEnabled) return;
     setSourceModeRequested(true);
     setMode('source');
-  }, [collaborationEnabled]);
+  }, []);
 
   const switchToRichMode = useCallback(() => {
-    if (sourceModeRequired || collaborationEnabled) return;
+    if (readOnly) return;
     setSourceModeRequested(false);
     setMode('rich');
-  }, [collaborationEnabled, sourceModeRequired]);
+  }, [readOnly]);
 
   const normalizeToRichMode = useCallback(() => {
     if (readOnly || collaborationEnabled || richModeAnalysis.mode !== 'normalizable') return;
@@ -5892,20 +5781,38 @@ export function MarkdownEditor({
     );
   }
 
-  if (readOnly && effectiveMode === 'source') {
-    return (
+  const modeBar = <MarkdownModeBar mode={effectiveMode} readOnly={readOnly} wide={wide} onWideChange={setWide} onChange={(next) => {
+    if (next === 'rich') switchToRichMode();
+    else if (next === 'source') switchToSourceMode();
+    else setMode('read');
+  }} />;
+  const wrap = (children: React.ReactNode) => <div className="flex h-full min-h-0 flex-col bg-background" data-document-width={wide ? 'wide' : 'page'}>
+    {modeBar}
+    {mode !== 'read' && collaborationDocument && authoritativeRepresentation === 'plain_text'
+      && richModeAnalysis.mode !== 'source' && collaborationDocument.session?.permission === 'write' && filePath
+      ? <MarkdownRichMigration collaboration={collaborationDocument} filePath={filePath} onReady={() => {
+        setMode('rich'); collaborationSession.retry();
+      }} /> : null}
+    <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue} available={liveMarkdown.available} filePath={filePath} />
+    <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+  </div>;
+
+  if (!liveMarkdown.available) return wrap(<p className="p-5 text-sm">{t('editorModes.unavailable')}</p>);
+
+  if (effectiveMode === 'read') {
+    return wrap(
       <div className="h-full min-h-0 overflow-auto bg-background">
         {showNotebookMetadata && !parsedDocument.error ? (
           <MarkdownPropertiesPanel
             filePath={filePath}
             readOnly
-            value={value}
+            value={displayedValue}
           />
         ) : null}
         <MarkdownRenderer
-          content={parsedDocument.error ? value : parsedDocument.body}
+          content={parsedDocument.error ? displayedValue : parsedDocument.body}
           sourcePath={filePath}
-          className="min-h-full p-5 text-base leading-relaxed md:pl-[4.75rem] [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:font-semibold"
+          className="canvas-document-reading min-h-full p-5 text-base leading-relaxed md:pl-[4.75rem] [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:font-semibold"
         />
         <MarkdownBacklinksPanel filePath={filePath} />
       </div>
@@ -5913,30 +5820,31 @@ export function MarkdownEditor({
   }
 
   if (effectiveMode === 'source') {
-    return (
-      <SourceMarkdownEditor
+    return wrap(<div className="flex h-full min-h-0 flex-col">
+      {richSourceReadOnly && <p className="border-b px-3 py-2 text-xs text-muted-foreground">{t('editorModes.liveSource')}</p>}
+      <div className="min-h-0 flex-1"><SourceMarkdownEditor
         initiallyShowMobileToolbar={sourceModeRequested}
         richModeAvailable={!sourceModeRequired && !collaborationEnabled}
-        value={value}
+        value={displayedValue}
         onChange={onChange}
-        readOnly={readOnly}
+        readOnly={readOnly || richSourceReadOnly}
         filePath={filePath}
         isMobileKeyboardActive={isMobileKeyboardActive}
         onRichMode={switchToRichMode}
         markdownNavigationTarget={markdownNavigationTarget}
-        collaborationEnabled={collaborationEnabled}
+        collaborationEnabled={collaborationEnabled && !richSourceReadOnly}
         collaborationSession={collaborationSession.session}
-        collaborationDocument={collaborationDocument}
+        collaborationDocument={richSourceReadOnly ? null : collaborationDocument}
         agentTargets={agentTargets}
         sourceModeReason={richModeAnalysis.mode === 'source' ? richModeAnalysis.reason : undefined}
         normalizationAvailable={richModeAnalysis.mode === 'normalizable' && !readOnly && !collaborationEnabled}
         onNormalizeToRichMode={normalizeToRichMode}
         isPresentationDocument={isPresentationDocument}
-      />
+      /></div></div>
     );
   }
 
-  return (
+  return wrap(
     <RichMarkdownEditor
       value={value}
       onChange={onChange}

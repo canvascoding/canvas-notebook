@@ -89,21 +89,21 @@ export function reduceTextCollaborationClientState(
           : event.status === 'connected'
             ? state.remoteSynced ? 'live' : 'connecting'
             : event.status === 'connecting' ? 'reconnecting' : 'offline',
-        error: null,
+        error: state.durability === 'degraded' ? state.error : null,
       });
     case 'remote_synced':
       return withReadiness({
         ...state,
         remoteSynced: true,
         connection: event.permission === 'read' ? 'read_only' : 'live',
-        error: null,
+        error: state.durability === 'degraded' ? state.error : null,
       });
     case 'unsynced_changes': {
       const count = Math.max(0, event.count);
       return {
         ...state,
         unsyncedChanges: count,
-        durability: count > 0
+        durability: state.durability === 'degraded' ? 'degraded' : count > 0
           ? 'local_pending'
           : state.durability === 'local_pending' ? 'server_received' : state.durability,
       };
@@ -121,6 +121,7 @@ export function reduceTextCollaborationClientState(
         : event.checkpointSequence;
       const checkpointCoversDocument = checkpointSequence >= documentSequence;
       const exactPersistedDocument = event.matchesCurrentDocument && state.unsyncedChanges === 0;
+      const stillDegraded = state.durability === 'degraded' && !(exactPersistedDocument && checkpointCoversDocument);
       return {
         ...state,
         documentSequence,
@@ -128,15 +129,16 @@ export function reduceTextCollaborationClientState(
         checkpointStateVector: exactPersistedDocument && checkpointCoversDocument
           ? event.stateVector
           : null,
-        durability: state.unsyncedChanges > 0
+        durability: stillDegraded ? 'degraded' : state.unsyncedChanges > 0
           ? 'local_pending'
           : exactPersistedDocument
             ? checkpointCoversDocument ? 'checkpointed_file' : 'persisted_yjs'
             : 'server_received',
-        error: null,
+        error: stillDegraded ? state.error : null,
       };
     }
     case 'checkpoint_requested':
+      if (state.durability === 'degraded') return state;
       return {
         ...state,
         durability: state.unsyncedChanges > 0 ? 'local_pending' : 'checkpoint_pending',
@@ -152,6 +154,7 @@ export function reduceTextCollaborationClientState(
       });
     }
     case 'checkpoint_superseded':
+      if (state.durability === 'degraded') return state;
       if (event.sequence <= (state.checkpointSequence ?? -1)) return state;
       return {
         ...state,

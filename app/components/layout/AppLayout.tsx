@@ -10,6 +10,7 @@ interface AppLayoutProps {
   terminal: ReactNode;
   sidebarHidden?: boolean;
   terminalVisible?: boolean;
+  terminalHidden?: boolean;
   sidebarResizeLabel?: string;
   terminalResizeLabel?: string;
 }
@@ -26,6 +27,7 @@ export function AppLayout({
   terminal, 
   sidebarHidden = false,
   terminalVisible = true,
+  terminalHidden = false,
   sidebarResizeLabel = 'Resize sidebar',
   terminalResizeLabel = 'Resize terminal',
 }: AppLayoutProps) {
@@ -235,6 +237,7 @@ export function AppLayout({
       
       {terminalVisible && (
         <div
+          hidden={terminalHidden}
           className={
             terminalFullscreen
               ? 'fixed inset-0 z-[100] bg-background overflow-hidden overscroll-contain'

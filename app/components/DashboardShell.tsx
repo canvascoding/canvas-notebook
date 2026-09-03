@@ -49,6 +49,7 @@ import { NotificationBell } from '@/app/components/notifications/NotificationBel
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
 import { useNotebookLayoutController } from '@/app/components/notebook/useNotebookLayoutController';
 import { useNotebookToolContext } from '@/app/components/notebook/useNotebookToolContext';
 import {
@@ -409,6 +410,37 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const layout = useNotebookLayoutController();
   const { state, dispatch, setChatDocked } = layout;
   const setChatDockedRef = useRef(setChatDocked);
+  const [requestedDocumentFocus, setRequestedDocumentFocus] = useState(false);
+  const documentFocus = requestedDocumentFocus && !layout.isMobile && state.mainSurface === 'document';
+  const focusContext = useMemo(() => ({ focused: documentFocus, setFocused: setRequestedDocumentFocus }), [documentFocus]);
+  const explorerVisible = state.explorerOpen && !documentFocus;
+
+  useEffect(() => {
+    if (!documentFocus) return;
+    const popupEscapes = new WeakSet<KeyboardEvent>();
+    const observeEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // Observe before a popup hides itself, so its Escape never also exits focus.
+      const popup = Array.from(document.querySelectorAll<HTMLElement>(
+        '[role="dialog"], [role="menu"], [role="listbox"], [data-testid="markdown-selection-menu"]',
+      )).some((element) => element.getClientRects().length > 0
+        && getComputedStyle(element).visibility === 'visible');
+      if (popup) popupEscapes.add(event);
+    };
+    const onEscape = (event: KeyboardEvent) => {
+      // ProseMirror unconditionally prevents the browser's default Escape action.
+      const richCaret = event.target instanceof HTMLElement && event.target.matches('.ProseMirror');
+      if (event.key !== 'Escape' || event.isComposing || popupEscapes.has(event)
+        || (event.defaultPrevented && !richCaret)) return;
+      setRequestedDocumentFocus(false);
+    };
+    window.addEventListener('keydown', observeEscape, true);
+    window.addEventListener('keydown', onEscape);
+    return () => {
+      window.removeEventListener('keydown', observeEscape, true);
+      window.removeEventListener('keydown', onEscape);
+    };
+  }, [documentFocus]);
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
   const [activeChatContext, setActiveChatContext] = useState<{
     agentId: string;
@@ -1055,7 +1087,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [currentFile?.path, openNotebookFile, showOpenedDocument, tNotebook]);
 
   const chatVisible =
-    state.mainSurface === 'chat' || state.chatDocked || browserActivityUsesSheet;
+    !documentFocus && (state.mainSurface === 'chat' || state.chatDocked || browserActivityUsesSheet);
   const chatContent = (
     <CanvasAgentChat
       initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
@@ -1113,9 +1145,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [documentTabs.activePath, documentTabs.openPaths, state.mainSurface]);
 
   return (
+    <NotebookFocusContext.Provider value={focusContext}>
     <FileWatcherProvider>
       <HintProvider page="notebook" enabled={hintEnabled}>
-        <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
+        <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground" data-document-focus={documentFocus}>
           <header className="z-40 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/88 sm:px-4">
             <div className="flex min-w-0 items-center gap-2">
               <AppBackButton fallbackHref="/" className="shrink-0 gap-2 px-2 sm:px-3" />
@@ -1144,18 +1177,19 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
-                    variant={(layout.isMobile ? mobileExplorerOpen : state.explorerOpen) ? 'secondary' : 'ghost'}
+                    variant={(layout.isMobile ? mobileExplorerOpen : explorerVisible) ? 'secondary' : 'ghost'}
                     size="icon-sm"
                     className="shrink-0"
                     aria-label={layout.isMobile
                       ? tNav('openFileExplorer')
-                      : state.explorerOpen ? tNav('hideSidebar') : tNav('showSidebar')}
-                    aria-pressed={layout.isMobile ? mobileExplorerOpen : state.explorerOpen}
+                      : explorerVisible ? tNav('hideSidebar') : tNav('showSidebar')}
+                    aria-pressed={layout.isMobile ? mobileExplorerOpen : explorerVisible}
                     onClick={() => {
                       if (layout.isMobile) {
                         setMobileExplorerOpen(true);
                       } else {
-                        dispatch({ type: 'SET_EXPLORER', open: !state.explorerOpen });
+                        setRequestedDocumentFocus(false);
+                        dispatch({ type: 'SET_EXPLORER', open: !explorerVisible });
                       }
                     }}
                   >
@@ -1389,6 +1423,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               {state.explorerOpen ? (
                 <div
                   ref={desktopExplorerRef}
+                  hidden={documentFocus}
                   id="onboarding-notebook-fileBrowser"
                   style={{
                     '--notebook-explorer-width': `${layout.explorerWidth}px`,
@@ -1400,7 +1435,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   </SidebarProvider>
                 </div>
               ) : null}
-              {state.explorerOpen ? (
+              {explorerVisible ? (
                 <ResizeHandle
                   data-testid="notebook-explorer-resize-handle"
                   orientation="vertical"
@@ -1428,6 +1463,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                     sidebar={<div />}
                     sidebarHidden
                     terminalVisible={state.terminalOpen}
+                    terminalHidden={documentFocus}
                     sidebarResizeLabel={tNotebook('resizeFileTree')}
                     terminalResizeLabel={tNotebook('resizeTerminal')}
                     main={
@@ -1489,7 +1525,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   />
                 </div>
 
-                {state.chatDocked ? (
+                {state.chatDocked && !documentFocus ? (
                   <ResizeHandle
                     data-testid="notebook-chat-resize-handle"
                     orientation="vertical"
@@ -1543,6 +1579,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                         : browserActivityUsesSheet
                           ? 'absolute inset-y-0 right-0 z-40 w-full max-w-[30rem] border-l border-border shadow-2xl'
                           : 'hidden',
+                    documentFocus && 'hidden',
                   )}
                 >
                   <div
@@ -1567,5 +1604,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         </div>
       </HintProvider>
     </FileWatcherProvider>
+    </NotebookFocusContext.Provider>
   );
 }

@@ -124,8 +124,9 @@ assert.deepEqual(analyzeMarkdownRichMode('# Raw HTML\n\n<div>keep exactly</div>\
   reason: 'roundtrip_changed',
 });
 assert.deepEqual(analyzeMarkdownRichMode('1. Item\n\n   continuation paragraph\n'), {
-  mode: 'source',
-  reason: 'roundtrip_changed',
+  mode: 'rich',
+  prefix: '',
+  body: '1. Item\n\n   continuation paragraph\n',
 });
 
 const entityFixture = '# Research & Development\n\nA < B > C\n';

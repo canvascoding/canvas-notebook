@@ -1477,3 +1477,14 @@ li.task-list-item > p {
     transform: scale(1);
   }
 }
+
+/* Width changes reflow the existing editor; collaboration and undo stay mounted. */
+[data-document-width="page"] .tiptap-editor-shell .ProseMirror,
+[data-document-width="page"] .canvas-document-reading {
+  max-width: 56rem;
+  margin-inline: auto;
+}
+[data-document-width="wide"] .tiptap-editor-shell .ProseMirror,
+[data-document-width="wide"] .canvas-document-reading {
+  max-width: none;
+}

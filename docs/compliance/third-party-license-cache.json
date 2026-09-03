@@ -1,6 +1,6 @@
 {
   "schemaVersion": 6,
-  "lockfileSha256": "30a45d5d3a06cb66a58af794c569d9f41eed866968dbe6fd95a25db4be9fecd8",
+  "lockfileSha256": "d7096072f6cb14f4e93bb5d43ceb8eb04194eba86171aa09498198bb3a355c76",
   "entries": {
     "node_modules/@aws-sdk/credential-provider-http@3.972.70": {
       "packagePath": "node_modules/@aws-sdk/credential-provider-http",
@@ -6920,24 +6920,6 @@
       "copyrightNotices": [
         "Copyright (c) 2015-2020 Formidable Labs.",
         "Copyright (c) 2016-2020 Alexey Svetliakov <https://github.com/asvetliakov>,"
-      ]
-    },
-    "node_modules/qrcode.react@4.2.0": {
-      "packagePath": "node_modules/qrcode.react",
-      "name": "qrcode.react",
-      "version": "4.2.0",
-      "packageResolved": "https://registry.npmjs.org/qrcode.react/-/qrcode.react-4.2.0.tgz",
-      "packageIntegrity": "sha512-QpgqWi8rD9DsS9EP3z7BT+5lY5SFhsqGjpgW5DY/i3mK4M9DTBNz3ErMi8BWYEfI3L0d8GIbGmcdFAS1uIRGjA==",
-      "lookupCompleted": true,
-      "sourceUrl": "https://github.com/zpao/qrcode.react/tree/f91d2bdcc39def6c5c77178743a44f935a740992",
-      "sourceRevision": "f91d2bdcc39def6c5c77178743a44f935a740992",
-      "verificationSource": "https://registry.npmjs.org/qrcode.react/-/qrcode.react-4.2.0.tgz#LICENSE",
-      "verificationNote": null,
-      "licenseFileName": "LICENSE",
-      "licenseText": "ISC License\n\nCopyright (c) 2015, Paul O’Shannessy\n\nPermission to use, copy, modify, and/or distribute this software for any\npurpose with or without fee is hereby granted, provided that the above\ncopyright notice and this permission notice appear in all copies.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH\nREGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND\nFITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,\nINDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM\nLOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR\nOTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR\nPERFORMANCE OF THIS SOFTWARE.\n\nThis product bundles QR Code Generator, which is available under a\n\"MIT\" license. For details, see src/third-party/qrcodegen.\n",
-      "noticeTexts": [],
-      "copyrightNotices": [
-        "Copyright (c) 2015, Paul O’Shannessy"
       ]
     }
   }

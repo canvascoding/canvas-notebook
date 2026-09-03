@@ -22,6 +22,7 @@ import {
 } from '@/app/lib/markdown/heading-anchor';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
+import { imageDimension, portableImageStyle } from '@/app/lib/markdown/core/portable-image';
 
 interface MarkdownRendererProps {
   content: string;
@@ -32,7 +33,7 @@ interface MarkdownRendererProps {
 }
 
 const SHARED_CLASSES =
-  'break-words [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_h1[id]]:scroll-mt-4 [&_h2[id]]:scroll-mt-4 [&_h3[id]]:scroll-mt-4 [&_h4[id]]:scroll-mt-4 [&_h5[id]]:scroll-mt-4 [&_h6[id]]:scroll-mt-4 [&_strong]:font-semibold [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden';
+  'break-words [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_h1[id]]:scroll-mt-4 [&_h2[id]]:scroll-mt-4 [&_h3[id]]:scroll-mt-4 [&_h4[id]]:scroll-mt-4 [&_h5[id]]:scroll-mt-4 [&_h6[id]]:scroll-mt-4 [&_strong]:font-semibold [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden';
 
 const VARIANT_CLASSES: Record<string, string> = {
   default:
@@ -66,6 +67,18 @@ export function MarkdownRenderer({
   );
 
   const components = useMemo(() => ({
+    table: ({ children }: React.TableHTMLAttributes<HTMLTableElement>) => (
+      <div role="region" aria-label="Scrollable table" tabIndex={0}
+        className="max-w-full overflow-x-auto overscroll-x-contain rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
+        <table style={{ width: 'max-content', minWidth: '100%' }}>{children}</table>
+      </div>
+    ),
+    th: ({ children, align, style }: React.ThHTMLAttributes<HTMLTableCellElement>) => (
+      <th style={{ minWidth: '9rem', textAlign: style?.textAlign ?? (align === 'center' || align === 'right' ? align : 'left') }}>{children}</th>
+    ),
+    td: ({ children, align, style }: React.TdHTMLAttributes<HTMLTableCellElement>) => (
+      <td style={{ minWidth: '9rem', textAlign: style?.textAlign ?? (align === 'center' || align === 'right' ? align : 'left') }}>{children}</td>
+    ),
     span: ({
       className: spanClassName,
       ...props
@@ -173,6 +186,8 @@ export function MarkdownRenderer({
     img: ({
       src,
       alt,
+      width,
+      style,
     }: React.ImgHTMLAttributes<HTMLImageElement>) => {
       if (typeof src !== 'string' || !src) return null;
       const resolvedImage = resolveMarkdownImageUrl(src, sourcePath, {
@@ -190,15 +205,18 @@ export function MarkdownRenderer({
           </span>
         );
       }
+      const sizedWidth = imageDimension(width);
+      const align = style?.marginLeft === 'auto' ? style?.marginRight === 'auto' ? 'center' : 'right' : 'left';
       return (
+        <span style={portableImageStyle({ width: sizedWidth, height: null, align })}>
         <SafeMarkdownImage
           src={src}
           previewSrc={resolvedImage.src}
           alt={alt || ''}
-          imageClassName="my-2 max-h-[320px] w-auto max-w-full rounded-lg object-contain"
+          imageClassName={cn("my-2 h-auto max-w-full rounded-lg object-contain", sizedWidth ? "w-full" : "w-auto")}
           showError
           errorLabel={`Image could not be loaded: ${src}`}
-        />
+        /></span>
       );
     },
     blockquote: ({

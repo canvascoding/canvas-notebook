@@ -11,7 +11,9 @@ import {
   type MarkdownToken,
   type Range,
 } from '@tiptap/core';
-import Paragraph from '@tiptap/extension-paragraph';
+import { CanvasOrderedList, CanvasListItem } from './core/lists-and-tables';
+import { CanvasParagraph, CanvasBlockquote, CanvasHeading } from './core/base-blocks';
+export { CanvasParagraph, CanvasBlockquote, CanvasHeading } from './core/base-blocks';
 import { TextSelection } from '@tiptap/pm/state';
 
 import { ObsidianWikiLink } from './tiptap-obsidian-wiki-link';
@@ -78,36 +80,6 @@ function quoteMarkdown(markdown: string): string {
     .map((line) => line ? `> ${line}` : '>')
     .join('\n');
 }
-
-const EMPTY_PARAGRAPH_MARKDOWN = '&nbsp;';
-const THEMATIC_BREAK_PARAGRAPH_PATTERN = /^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/u;
-
-// Rich Markdown tokenizers need to run before generic block tokenizers, which
-// gives their nodes a high schema priority. Keep paragraph above those block
-// nodes so ProseMirror fills empty containers (especially table cells) with an
-// editable paragraph instead of an empty callout.
-export const CanvasParagraph = Paragraph.extend({
-  priority: 1200,
-
-  renderMarkdown(node, helpers, context) {
-    if (!node) return '';
-
-    const content = Array.isArray(node.content) ? node.content : [];
-    if (content.length === 0) {
-      const previousContent = Array.isArray(context?.previousNode?.content)
-        ? context.previousNode.content
-        : [];
-      const previousNodeIsEmptyParagraph = context?.previousNode?.type === 'paragraph'
-        && previousContent.length === 0;
-      return previousNodeIsEmptyParagraph ? EMPTY_PARAGRAPH_MARKDOWN : '';
-    }
-
-    const rendered = helpers.renderChildren(content);
-    return THEMATIC_BREAK_PARAGRAPH_PATTERN.test(rendered)
-      ? `\\${rendered}`
-      : rendered;
-  },
-});
 
 export const CanvasHighlight = Mark.create({
   name: 'canvasHighlight',
@@ -357,7 +329,7 @@ export const CanvasCallout = Node.create({
       if (!header) return undefined;
 
       const type = header[1].toLowerCase();
-      const title = header[3]?.trim() || type[0].toUpperCase() + type.slice(1);
+      const title = header[3]?.trim() || '';
       const body = unquoted.slice(1).join('\n').trim();
       return {
         type: 'canvasCallout',
@@ -491,7 +463,7 @@ export const CanvasDetails = Node.create({
         /^<details(?:\s+(open)(?:=(?:"open"|'open'|open))?)?>[ \t]*\r?\n<summary>([^\r\n]*)<\/summary>[ \t]*\r?\n([\s\S]*?)\r?\n<\/details>(?:\r?\n|$)/u,
       );
       if (!match) return undefined;
-      const summary = match[2].trim() || 'Details';
+      const summary = match[2].trim();
       const body = match[3].trim();
       return {
         type: 'canvasDetails',
@@ -650,7 +622,7 @@ export const MarkdownFootnoteDefinition = Node.create({
         type: 'markdownFootnoteDefinition',
         raw: match[0],
         footnoteId: match[1],
-        tokens: lexer.blockTokens(body || 'Footnote'),
+        tokens: body ? lexer.blockTokens(body) : [],
       } satisfies FootnoteToken;
     },
   },
@@ -699,6 +671,10 @@ export const MarkdownFootnoteDefinition = Node.create({
 export function canvasRichMarkdownExtensions(options?: { obsidianWikiLink?: AnyExtension }) {
   return [
     CanvasParagraph,
+    CanvasBlockquote,
+    CanvasHeading,
+    CanvasOrderedList,
+    CanvasListItem,
     CanvasHighlight,
     options?.obsidianWikiLink ?? ObsidianWikiLink,
     CanvasCalloutTitle,

@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.9.3.1",
-  "lockfileSha256": "30a45d5d3a06cb66a58af794c569d9f41eed866968dbe6fd95a25db4be9fecd8",
+  "lockfileSha256": "d7096072f6cb14f4e93bb5d43ceb8eb04194eba86171aa09498198bb3a355c76",
   "summary": {
-    "totalComponents": 2035,
-    "npmComponents": 2011,
+    "totalComponents": 2036,
+    "npmComponents": 2012,
     "nonNpmComponents": 24,
-    "runtimeComponents": 1510,
+    "runtimeComponents": 1511,
     "developmentOnlyComponents": 525,
-    "allowed": 1985,
+    "allowed": 1986,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -34543,6 +34543,30 @@
     },
     {
       "name": "marked",
+      "versionOrCommit": "18.0.3",
+      "sourceUrl": "https://github.com/markedjs/marked",
+      "packagePathOrArtifact": "node_modules/canvas-markdown-parser",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/canvas-markdown-parser/LICENSE",
+      "licenseTextSha256": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c",
+      "copyrightNotices": [
+        "Copyright (c) 2011-2018, Christopher Jeffrey (https://github.com/chjj/)",
+        "Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/)",
+        "Copyright © 2004, John Gruber"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "marked",
       "versionOrCommit": "18.0.6",
       "sourceUrl": "https://github.com/markedjs/marked",
       "packagePathOrArtifact": "node_modules/marked",
@@ -39115,7 +39139,7 @@
     {
       "name": "qrcode.react",
       "versionOrCommit": "4.2.0",
-      "sourceUrl": "https://github.com/zpao/qrcode.react/tree/f91d2bdcc39def6c5c77178743a44f935a740992",
+      "sourceUrl": "https://github.com/zpao/qrcode.react",
       "packagePathOrArtifact": "node_modules/qrcode.react",
       "usage": "runtime",
       "distributedIn": [
@@ -39126,14 +39150,13 @@
       ],
       "declaredLicense": "ISC",
       "verifiedLicense": "ISC",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/qrcode.react@4.2.0",
+      "licenseTextRef": "node_modules/qrcode.react/LICENSE",
       "licenseTextSha256": "908a4454d01d77cd6a0ae1eea0bafaa74a2e3befdbc4b7b714de2499a22351ce",
       "copyrightNotices": [
         "Copyright (c) 2015, Paul O’Shannessy"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/qrcode.react/-/qrcode.react-4.2.0.tgz#LICENSE Published source revision: f91d2bdcc39def6c5c77178743a44f935a740992"
+      "policyDecision": "allowed"
     },
     {
       "name": "qs",

@@ -1,0 +1,247 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "name": "empty quote",
+      "source": "Before\n\n>\n\n## After\n",
+      "normalized": "Before\n\n>\n\n## After\n"
+    },
+    {
+      "name": "prices and trailing blanks",
+      "source": "# Plans &amp; agents\n\n- Basic: \\~$4/month\n- Full: $20/month\n\n",
+      "normalized": "# Plans &amp; agents\n\n- Basic: \\~$4/month\n- Full: $20/month\n\n"
+    },
+    {
+      "name": "email and prose entities",
+      "source": "**Email:** contact\\@example.com\\\nA & B and C&#x20;D\n",
+      "normalized": "**Email:** contact@example.com  \nA &amp; B and C D\n"
+    },
+    {
+      "name": "code and escaped pipes",
+      "source": "| Code | Plain | Empty |\n|:---|---:|:---:|\n| `a\\|b` | x\\|y | |\n",
+      "normalized": "\n| Code   | Plain | Empty |\n| :------ | -----: | :-----: |\n| `a\\|b` | x\\|y  |       |\n"
+    },
+    {
+      "name": "multiline ordered list",
+      "source": "10. **Action**  \n    `code` continues.\n\n11. **Next**  \n    Text follows.\n",
+      "normalized": "10. **Action**  \n    `code` continues.\n11. **Next**  \n    Text follows.\n"
+    },
+    {
+      "name": "nested lists",
+      "source": "1. Parent\n   - Child\n   - Another\n2. Final\n",
+      "normalized": "1. Parent\n   - Child\n   - Another\n2. Final\n"
+    },
+    {
+      "name": "nested tasks",
+      "source": "- [ ] Parent\n  - [x] Child\n",
+      "normalized": "- [ ] Parent\n  - [x] Child\n"
+    },
+    {
+      "name": "callout and wiki links",
+      "source": "> [!warning]+ Review\n> Keep [[notes/topic|Topic]] and ==important== text.\n",
+      "normalized": "> [!warning]+ Review\n> Keep [[notes/topic|Topic]] and ==important== text.\n"
+    },
+    {
+      "name": "code stays literal",
+      "source": "```md\n[[target|Label]] &amp; \\~$4\n```\n",
+      "normalized": "```md\n[[target|Label]] &amp; \\~$4\n```\n"
+    },
+    {
+      "name": "details and footnotes",
+      "source": "<details>\n<summary>Context</summary>\n\nRead this.[^1]\n\n</details>\n\n[^1]: Supporting text.\n",
+      "normalized": "<details>\n<summary>Context</summary>\n\nRead this.[^1]\n\n</details>\n\n[^1]: Supporting text.\n"
+    },
+    {
+      "name": "inline and block math",
+      "source": "Equation $a+b$.\n\n$$\nx^2\n$$\n",
+      "normalized": "Equation $a+b$.\n\n$$\nx^2\n$$\n"
+    },
+    {
+      "name": "table line breaks and paragraphs",
+      "source": "| Text | Code |\n|---|---|\n| One<br>Two<br><br>Three | `two  spaces` |\n",
+      "normalized": "\n| Text                    | Code          |\n| ----------------------- | ------------- |\n| One<br>Two<br><br>Three | `two  spaces` |\n"
+    },
+    {
+      "name": "alphabetic list compatibility",
+      "source": "A. First\nB. Second\n",
+      "normalized": "A. First\nB. Second\n"
+    },
+    {
+      "name": "sized-image",
+      "source": "<img src=\"assets/diagram.png\" alt=\"Diagram\" width=\"320\">",
+      "normalized": "<img src=\"assets/diagram.png\" alt=\"Diagram\" width=\"320\">"
+    },
+    {
+      "name": "centered-image",
+      "source": "<img src=\"assets/diagram.png\" alt=\"A &amp; B\" title=\"A &quot;quote&quot;\" width=\"240\" style=\"display:block;max-width:100%;height:auto;margin-left:auto;margin-right:auto\">",
+      "normalized": "<img src=\"assets/diagram.png\" alt=\"A &amp; B\" title=\"A &quot;quote&quot;\" width=\"240\" style=\"display:block;max-width:100%;height:auto;margin-left:auto;margin-right:auto\">"
+    },
+    {
+      "name": "image-in-quote",
+      "source": "> <img src=\"assets/diagram.png\" alt=\"Diagram\" width=\"320\">",
+      "normalized": "> <img src=\"assets/diagram.png\" alt=\"Diagram\" width=\"320\">"
+    },
+    {
+      "name": "image-html-in-code",
+      "source": "```html\n<img src=\"diagram.png\" alt=\"Diagram\" width=\"320\">\n```",
+      "normalized": "```html\n<img src=\"diagram.png\" alt=\"Diagram\" width=\"320\">\n```"
+    }
+  ],
+  "negativePairs": [
+    [
+      "`&amp;`\n",
+      "`&`\n"
+    ],
+    [
+      "```md\n[[a|b]]\n```\n",
+      "```md\n[b](a)\n```\n"
+    ],
+    [
+      "> [!warning] Careful\n",
+      "> [!note] Careful\n"
+    ],
+    [
+      "[site](https://example.com/a?x=1&amp;y=2)\n",
+      "[site](https://example.com/a?x=1&y=2)\n"
+    ],
+    [
+      "**bold**\n",
+      "bold\n"
+    ],
+    [
+      "| A | B |\n|---|---|\n| x | y |\n",
+      "| A | B |\n|---|---|\n| xy | |\n"
+    ]
+  ],
+  "emptyNodes": [
+    {
+      "type": "heading",
+      "attrs": {
+        "level": 2
+      }
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "orderedList",
+      "attrs": {
+        "start": 10
+      },
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "taskList",
+      "content": [
+        {
+          "type": "taskItem",
+          "attrs": {
+            "checked": false
+          },
+          "content": [
+            {
+              "type": "paragraph"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "blockquote",
+      "content": [
+        {
+          "type": "paragraph"
+        }
+      ]
+    },
+    {
+      "type": "codeBlock"
+    },
+    {
+      "type": "markdownFootnoteDefinition",
+      "attrs": {
+        "footnoteId": "1"
+      },
+      "content": [
+        {
+          "type": "paragraph"
+        }
+      ]
+    },
+    {
+      "type": "canvasCallout",
+      "attrs": {
+        "type": "note"
+      },
+      "content": [
+        {
+          "type": "canvasCalloutTitle"
+        },
+        {
+          "type": "paragraph"
+        }
+      ]
+    },
+    {
+      "type": "canvasDetails",
+      "content": [
+        {
+          "type": "canvasDetailsSummary"
+        },
+        {
+          "type": "canvasDetailsContent",
+          "content": [
+            {
+              "type": "paragraph"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [
+            {
+              "type": "paragraph"
+            },
+            {
+              "type": "bulletList",
+              "content": [
+                {
+                  "type": "listItem",
+                  "content": [
+                    {
+                      "type": "paragraph"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

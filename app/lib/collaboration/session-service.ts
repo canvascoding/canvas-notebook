@@ -57,6 +57,8 @@ export type CollaborationSessionRequest = {
   path: string;
   representation: TextCollaborationRepresentation | 'auto';
   provider: 'yjs';
+  allowRichMigration?: boolean;
+  expectedLifecycleGeneration?: number;
 };
 
 export type CollaborationSessionGrant = {
@@ -80,6 +82,8 @@ export function parseCollaborationSessionRequest(input: {
   path?: unknown;
   representation?: unknown;
   provider?: unknown;
+  allowRichMigration?: unknown;
+  expectedLifecycleGeneration?: unknown;
 }): CollaborationSessionRequest | null {
   const path = typeof input.path === 'string' ? input.path.trim() : '';
   if (!path) return null;
@@ -103,7 +107,12 @@ export function parseCollaborationSessionRequest(input: {
       || input.representation === 'tiptap_xml'
     )
   ) {
-    return { path, representation: input.representation, provider: 'yjs' };
+    if (input.allowRichMigration === true && (!Number.isSafeInteger(input.expectedLifecycleGeneration)
+      || Number(input.expectedLifecycleGeneration) < 1)) return null;
+    return { path, representation: input.representation, provider: 'yjs',
+      ...(input.allowRichMigration === true ? { allowRichMigration: true,
+        expectedLifecycleGeneration: Number(input.expectedLifecycleGeneration) } : {}),
+    };
   }
   return null;
 }
@@ -194,6 +203,9 @@ export async function createCollaborationSessionGrant(input: {
       });
       if (
         request.representation === 'auto'
+        && request.allowRichMigration === true
+        && workspace.permissions.canWrite
+        && request.expectedLifecycleGeneration === resolved.state.lifecycleGeneration
         && resolved.state.representation === 'plain_text'
         && selectedTargetRepresentation === 'tiptap_xml'
       ) {
@@ -243,7 +255,7 @@ export async function createCollaborationSessionGrant(input: {
           }
         } catch (error) {
           if (!(error instanceof CollaborationRepresentationMigrationError)) throw error;
-          // Migration is opportunistic: active clients, pending checkpoints,
+          // Explicit migration remains guarded: active clients, pending checkpoints,
           // or a concurrent migration keep the durable representation. A
           // fresh read also adopts the winning lifecycle in a two-client race.
           resolved = await resolveTextCollaborationState({

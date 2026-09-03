@@ -9,6 +9,7 @@ import { CANVAS_REHYPE_KATEX_OPTIONS } from './katex-options';
 import { rehypeInlineColorSwatch } from './rehype-inline-color-swatch';
 import { rehypeHeadingAnchors } from './rehype-heading-anchors';
 import { remarkObsidianFlavoredMarkdown } from './remark-obsidian-flavored-markdown';
+import { remarkPortableImages } from './remark-portable-images';
 
 export { CANVAS_KATEX_OPTIONS, CANVAS_REHYPE_KATEX_OPTIONS } from './katex-options';
 
@@ -17,6 +18,7 @@ export const CANVAS_MARKDOWN_REMARK_PLUGINS: NonNullable<ReactMarkdownOptions['r
   [remarkFrontmatter, ['yaml']],
   [remarkMath, { singleDollarTextMath: true }],
   remarkObsidianFlavoredMarkdown,
+  remarkPortableImages,
 ];
 
 export const CANVAS_MARKDOWN_REHYPE_PLUGINS: NonNullable<ReactMarkdownOptions['rehypePlugins']> = [
