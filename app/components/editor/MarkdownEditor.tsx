@@ -20,6 +20,8 @@ import { Link } from '@tiptap/extension-link';
 import { Mathematics } from '@tiptap/extension-mathematics';
 import { CanvasImage as Image } from '@/app/lib/markdown/core/image';
 import { MarkdownImageControls } from './MarkdownImageControls';
+import { MarkdownUrlPaste } from './MarkdownUrlPaste';
+import { MarkdownDomSelection } from './MarkdownDomSelection';
 import { Placeholder } from '@tiptap/extension-placeholder';
 import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
@@ -27,7 +29,7 @@ import { CanvasTableKit as TableKit } from '@/app/lib/markdown/core/lists-and-ta
 import UniqueID from '@tiptap/extension-unique-id';
 import { CodeBlock } from '@tiptap/extension-code-block';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Plugin, PluginKey, type SelectionBookmark } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import {
   AtSign,
@@ -2090,6 +2092,7 @@ function createEditorExtensions(
   remoteCaretLabel?: (name: string) => string,
 ) {
   const extensions = [
+    MarkdownDomSelection,
     StarterKit.configure({
       blockquote: false, heading: false, orderedList: false, listItem: false,
       codeBlock: false,
@@ -2593,6 +2596,13 @@ function findAdjacentLinkPreviewImageRange(editor: Editor, from: number): Range 
     return null;
   }
 
+  if ($from.depth > 0) {
+    const nextPosition = $from.after();
+    const next = doc.nodeAt(nextPosition);
+    if (next?.type.name === 'image' && parseLinkPreviewImageAlt(next.attrs.alt)) {
+      return { from: nextPosition, to: nextPosition + next.nodeSize };
+    }
+  }
   return null;
 }
 
@@ -2615,6 +2625,23 @@ function MarkdownLinkDialog({
 }) {
   const t = useTranslations('notebook');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const bookmark = useRef<SelectionBookmark | null>(editor?.state.selection.getBookmark() ?? null);
+  useEffect(() => {
+    if (!editor || !open) return;
+    const mapSelection = ({ transaction }: { transaction: import('@tiptap/pm/state').Transaction }) => {
+      if (transaction.docChanged && bookmark.current) bookmark.current = bookmark.current.map(transaction.mapping);
+    };
+    editor.on('transaction', mapSelection);
+    return () => { editor.off('transaction', mapSelection); };
+  }, [editor, open]);
+  const restoreSelection = useCallback(() => {
+    if (!editor || editor.isDestroyed) return false;
+    if (bookmark.current) {
+      editor.view.dispatch(editor.state.tr.setSelection(bookmark.current.resolve(editor.state.doc)));
+      bookmark.current = null;
+    }
+    return true;
+  }, [editor]);
   const initialWorkspaceTarget = getWorkspaceMarkdownNavigationTarget(initialHref, sourcePath) ?? '';
   const [mode, setMode] = useState<LinkDialogMode>(
     initialHref && !initialWorkspaceTarget ? 'web' : 'workspace',
@@ -2622,7 +2649,11 @@ function MarkdownLinkDialog({
   const [href, setHref] = useState(initialHref);
   const [workspaceTarget, setWorkspaceTarget] = useState(initialWorkspaceTarget);
   const [text, setText] = useState(initialText);
-  const [previewEnabled, setPreviewEnabled] = useState(true);
+  const [previewEnabled, setPreviewEnabled] = useState(() => {
+    const activeLink = editor ? getActiveLinkDetails(editor) : null;
+    return Boolean(editor && activeLink && findAdjacentLinkPreviewImageRange(editor, activeLink.range.to));
+  });
+  const [embedEnabled, setEmbedEnabled] = useState(false);
   const [previewState, setPreviewState] = useState<LinkPreviewState>({ status: 'idle' });
   const [workspaceIndexState, setWorkspaceIndexState] = useState<WorkspaceLinkIndexState>({ status: 'idle' });
   const linkActive = Boolean(editor?.isActive('link') || editor?.isActive('obsidianWikiLink'));
@@ -2721,7 +2752,7 @@ function MarkdownLinkDialog({
   );
 
   const applyWorkspaceLink = useCallback(() => {
-    if (!editor || !workspaceWikiTarget) return;
+    if (!editor || !workspaceWikiTarget || !restoreSelection()) return;
 
     const activeLink = getActiveLinkDetails(editor);
     const activeWorkspaceLink = getActiveWorkspaceWikiLink(editor);
@@ -2735,15 +2766,13 @@ function MarkdownLinkDialog({
     const chain = editor.chain().focus();
 
     if (existingPreviewRange) chain.deleteRange(existingPreviewRange);
-    chain.insertContentAt(replacementRange, {
-      type: 'obsidianWikiLink',
-      attrs: { embed: false, target: workspaceWikiTarget },
-    }).run();
+    const wikiLink: JSONContent = { type: 'obsidianWikiLink', attrs: { embed: embedEnabled, target: workspaceWikiTarget } };
+    chain.insertContentAt(replacementRange, embedEnabled ? { type: 'paragraph', content: [wikiLink] } : wikiLink).run();
     onOpenChange(false);
-  }, [editor, onOpenChange, workspaceWikiTarget]);
+  }, [editor, embedEnabled, onOpenChange, restoreSelection, workspaceWikiTarget]);
 
   const applyWebLink = useCallback(() => {
-    if (!editor) return;
+    if (!editor || !restoreSelection()) return;
 
     const normalizedHref = normalizeLinkHref(href);
     const activeWorkspaceLink = getActiveWorkspaceWikiLink(editor);
@@ -2757,6 +2786,7 @@ function MarkdownLinkDialog({
       return;
     }
 
+    if (previewEnabled && (previewState.status !== 'loaded' || !previewState.imageUrl)) return;
     const previewImage = previewEnabled && previewState.status === 'loaded' && previewState.imageUrl
       ? createLinkPreviewImageContent(previewState.imageUrl, previewState.host)
       : null;
@@ -2766,7 +2796,7 @@ function MarkdownLinkDialog({
         text: text.trim() || activeWorkspaceLink.displayText || normalizedHref,
         marks: [{ type: 'link', attrs: { href: normalizedHref } }],
       }];
-      if (previewImage) content.push({ type: 'text', text: ' ' }, previewImage);
+      if (previewImage) content.push(previewImage);
       editor.chain().focus().insertContentAt(activeWorkspaceLink.range, content).run();
       onOpenChange(false);
       return;
@@ -2776,7 +2806,7 @@ function MarkdownLinkDialog({
       const insertPosition = getLinkPreviewInsertPosition(editor);
       const existingPreviewRange = findAdjacentLinkPreviewImageRange(editor, insertPosition);
       const previewInsertPosition = existingPreviewRange?.from ?? insertPosition;
-      const previewContent: JSONContent[] = [{ type: 'text', text: ' ' }];
+      const previewContent: JSONContent[] = [];
 
       if (previewImage) {
         previewContent.push(previewImage);
@@ -2803,19 +2833,19 @@ function MarkdownLinkDialog({
       ];
 
       if (previewImage) {
-        content.push({ type: 'text', text: ' ' }, previewImage);
+        content.push(previewImage);
       }
 
       editor.chain().focus().insertContent(content).run();
     }
 
     onOpenChange(false);
-  }, [editor, href, onOpenChange, previewEnabled, previewState, text]);
+  }, [editor, href, onOpenChange, previewEnabled, previewState, restoreSelection, text]);
 
   const applyLink = mode === 'workspace' ? applyWorkspaceLink : applyWebLink;
 
   const removeLink = useCallback(() => {
-    if (!editor) return;
+    if (!editor || !restoreSelection()) return;
     const activeWorkspaceLink = getActiveWorkspaceWikiLink(editor);
     if (activeWorkspaceLink) {
       editor.chain().focus().insertContentAt(activeWorkspaceLink.range, activeWorkspaceLink.displayText).run();
@@ -2823,11 +2853,15 @@ function MarkdownLinkDialog({
       editor.chain().focus().extendMarkRange('link').unsetLink().run();
     }
     onOpenChange(false);
-  }, [editor, onOpenChange]);
+  }, [editor, onOpenChange, restoreSelection]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[min(90dvh,44rem)] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[min(90dvh,44rem)] overflow-y-auto sm:max-w-lg"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (restoreSelection() && editor) editor.view.focus();
+        }}>
         <DialogHeader>
           <DialogTitle>{t('markdownEditorLinkDialogTitle')}</DialogTitle>
           <DialogDescription>{t('markdownEditorLinkDialogDescription')}</DialogDescription>
@@ -2846,6 +2880,12 @@ function MarkdownLinkDialog({
           </TabsList>
 
           <TabsContent value="workspace" className="mt-4 grid gap-4">
+            <fieldset className="grid gap-2 rounded-md border p-3">
+              <legend className="px-1 text-sm font-medium">{t('editorLinkChoice.label')}</legend>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" name="workspace-link-presentation" checked={!embedEnabled} onChange={() => setEmbedEnabled(false)} />{t('editorLinkChoice.link')}</label>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" name="workspace-link-presentation" checked={embedEnabled} onChange={() => setEmbedEnabled(true)} />{t('editorLinkChoice.embed')}</label>
+              <p className="text-xs text-muted-foreground">{t('editorLinkChoice.embedHint')}</p>
+            </fieldset>
             <div className="grid gap-2">
               <Label htmlFor="markdown-link-workspace-target">{t('markdownEditorLinkWorkspaceTarget')}</Label>
               <Input
@@ -2921,7 +2961,7 @@ function MarkdownLinkDialog({
               </div>
               <code className="mt-1 block break-all text-sm">
                 {workspaceWikiTarget
-                  ? `[[${workspaceWikiTarget}]]`
+                  ? `${embedEnabled ? '!' : ''}[[${workspaceWikiTarget}]]`
                   : `[[${t('markdownEditorLinkWorkspaceExample')}]]`}
               </code>
             </div>
@@ -2959,20 +2999,12 @@ function MarkdownLinkDialog({
               </div>
             ) : null}
 
-            <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-              <div className="min-w-0">
-                <Label htmlFor="markdown-link-preview-toggle">{t('markdownEditorLinkPreviewToggle')}</Label>
-                <p className="mt-1 text-xs text-muted-foreground">{t('markdownEditorLinkPreviewHint')}</p>
-              </div>
-              <Switch
-                id="markdown-link-preview-toggle"
-                checked={previewEnabled}
-                onCheckedChange={(checked) => {
-                  setPreviewEnabled(checked);
-                  if (!checked) setPreviewState({ status: 'idle' });
-                }}
-              />
-            </div>
+            <fieldset className="grid gap-2 rounded-md border p-3">
+              <legend className="px-1 text-sm font-medium">{t('editorLinkChoice.label')}</legend>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" name="web-link-presentation" checked={!previewEnabled} onChange={() => setPreviewEnabled(false)} />{t('editorLinkChoice.link')}</label>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" name="web-link-presentation" checked={previewEnabled} disabled={!/^https?:\/\//iu.test(normalizeLinkHref(href))} onChange={() => setPreviewEnabled(true)} />{t('editorLinkChoice.preview')}</label>
+              <p className="text-xs text-muted-foreground">{t('markdownEditorLinkPreviewHint')}</p>
+            </fieldset>
 
             {previewEnabled ? (
               <div className="min-h-20 rounded-md border bg-muted/20 p-2">
@@ -3029,7 +3061,7 @@ function MarkdownLinkDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {t('cancel')}
           </Button>
-          <Button type="button" disabled={mode === 'workspace' && !workspaceWikiTarget} onClick={applyLink}>
+          <Button type="button" disabled={mode === 'workspace' ? !workspaceWikiTarget : previewEnabled && (previewState.status !== 'loaded' || !previewState.imageUrl)} onClick={applyLink}>
             {t('markdownEditorLinkApply')}
           </Button>
         </DialogFooter>
@@ -5428,6 +5460,10 @@ function RichMarkdownEditor({
           visible={isMobileToolbarVisible}
         />
       ) : null}
+      {!effectiveReadOnly && markdownEditor ? <MarkdownUrlPaste editor={markdownEditor} renderDialog={(link, close) =>
+        <MarkdownLinkDialog editor={markdownEditor} open onOpenChange={(open) => { if (!open) close(); }}
+          initialHref={link.href} initialText={link.text} canEditText={link.canEditText} sourcePath={filePath} />
+      } /> : null}
       <MarkdownFindBar editor={markdownEditor} onOpenChange={setFindOpen} open={findOpen} />
       <div ref={scrollContainerRef} data-testid="markdown-scroll-container" className="relative min-h-0 flex-1 overflow-auto">
         <div className="pointer-events-none sticky top-2 z-30 ml-auto flex h-0 w-fit items-start gap-2 pr-3">

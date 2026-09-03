@@ -495,6 +495,13 @@
     "editorTableMoveLeft": "Spalte nach links",
     "editorTableMoveRight": "Spalte nach rechts",
     "editorTableHeaderRequired": "Markdown-Tabellen enthalten immer eine Kopfzeile.",
+    "editorLinkChoice": {
+      "label": "Einfügen als",
+      "link": "Link",
+      "preview": "Vorschau",
+      "embed": "Dokument einbetten",
+      "embedHint": "Den Inhalt des verknüpften Workspace-Dokuments direkt anzeigen."
+    },
     "editorImage": {
       "tools": "Bildwerkzeuge",
       "resize": "Bildgröße ändern",

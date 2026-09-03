@@ -496,6 +496,13 @@
     "editorTableMoveLeft": "Move column left",
     "editorTableMoveRight": "Move column right",
     "editorTableHeaderRequired": "Markdown tables always include a header row.",
+    "editorLinkChoice": {
+      "label": "Insert as",
+      "link": "Link",
+      "preview": "Preview",
+      "embed": "Embed document",
+      "embedHint": "Show the linked workspace document inline."
+    },
     "editorImage": {
       "tools": "Image tools",
       "resize": "Resize image",
