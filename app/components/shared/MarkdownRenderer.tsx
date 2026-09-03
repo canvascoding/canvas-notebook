@@ -22,6 +22,7 @@ import {
 } from '@/app/lib/markdown/heading-anchor';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
+import { imageDimension, portableImageStyle } from '@/app/lib/markdown/core/portable-image';
 
 interface MarkdownRendererProps {
   content: string;
@@ -173,6 +174,8 @@ export function MarkdownRenderer({
     img: ({
       src,
       alt,
+      width,
+      style,
     }: React.ImgHTMLAttributes<HTMLImageElement>) => {
       if (typeof src !== 'string' || !src) return null;
       const resolvedImage = resolveMarkdownImageUrl(src, sourcePath, {
@@ -190,15 +193,18 @@ export function MarkdownRenderer({
           </span>
         );
       }
+      const sizedWidth = imageDimension(width);
+      const align = style?.marginLeft === 'auto' ? style?.marginRight === 'auto' ? 'center' : 'right' : 'left';
       return (
+        <span style={portableImageStyle({ width: sizedWidth, height: null, align })}>
         <SafeMarkdownImage
           src={src}
           previewSrc={resolvedImage.src}
           alt={alt || ''}
-          imageClassName="my-2 max-h-[320px] w-auto max-w-full rounded-lg object-contain"
+          imageClassName={cn("my-2 h-auto max-w-full rounded-lg object-contain", sizedWidth ? "w-full" : "w-auto")}
           showError
           errorLabel={`Image could not be loaded: ${src}`}
-        />
+        /></span>
       );
     },
     blockquote: ({

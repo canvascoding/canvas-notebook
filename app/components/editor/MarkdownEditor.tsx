@@ -18,7 +18,8 @@ import {
 import { StarterKit } from '@tiptap/starter-kit';
 import { Link } from '@tiptap/extension-link';
 import { Mathematics } from '@tiptap/extension-mathematics';
-import { Image } from '@tiptap/extension-image';
+import { CanvasImage as Image } from '@/app/lib/markdown/core/image';
+import { MarkdownImageControls } from './MarkdownImageControls';
 import { Placeholder } from '@tiptap/extension-placeholder';
 import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
@@ -1562,11 +1563,8 @@ function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandA
   });
 }
 
-function MarkdownImageNodeView({
-  node,
-  selected,
-  filePath,
-}: NodeViewProps & { filePath?: string }) {
+function MarkdownImageNodeView(props: NodeViewProps & { filePath?: string }) {
+  const { node, selected, filePath } = props;
   const src = typeof node.attrs.src === 'string' ? node.attrs.src : '';
   const alt = typeof node.attrs.alt === 'string' ? node.attrs.alt : '';
   const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
@@ -1604,37 +1602,9 @@ function MarkdownImageNodeView({
     );
   }
 
-  return (
-    <NodeViewWrapper
-      as="figure"
-      className={cn(
-        'my-4 max-w-full rounded-md border border-transparent p-1',
-        selected && 'border-primary/60 bg-primary/5',
-      )}
-      contentEditable={false}
-    >
-      {resolvedImage.ok ? (
-        <SafeMarkdownImage
-          src={src}
-          previewSrc={resolvedImage.src}
-          alt={alt}
-          imageClassName="max-h-[60vh] w-auto max-w-full rounded-md object-contain"
-          showError
-          errorLabel={`Image could not be loaded: ${src}`}
-        />
-      ) : (
-        <div
-          role="img"
-          aria-label={resolvedImage.error}
-          title={src}
-          className="inline-flex max-w-full items-center rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive"
-        >
-          {resolvedImage.error}
-        </div>
-      )}
-      {alt ? <figcaption className="mt-1 text-center text-xs text-muted-foreground">{alt}</figcaption> : null}
-    </NodeViewWrapper>
-  );
+  return <MarkdownImageControls {...props}
+    previewSrc={resolvedImage.ok ? resolvedImage.src : undefined}
+    error={resolvedImage.ok ? undefined : resolvedImage.error} />;
 }
 
 function createMarkdownImageExtension(filePath?: string) {

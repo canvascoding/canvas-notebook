@@ -1,4 +1,4 @@
-import Image from '@tiptap/extension-image';
+import { CanvasImage as Image } from './core/image';
 import Link from '@tiptap/extension-link';
 import Mathematics from '@tiptap/extension-mathematics';
 import { CanvasTableKit as TableKit } from '@/app/lib/markdown/core/lists-and-tables';

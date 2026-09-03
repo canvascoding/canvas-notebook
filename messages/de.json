@@ -495,6 +495,17 @@
     "editorTableMoveLeft": "Spalte nach links",
     "editorTableMoveRight": "Spalte nach rechts",
     "editorTableHeaderRequired": "Markdown-Tabellen enthalten immer eine Kopfzeile.",
+    "editorImage": {
+      "tools": "Bildwerkzeuge",
+      "resize": "Bildgröße ändern",
+      "unavailable": "Bild konnte nicht geladen werden.",
+      "left": "Bild links ausrichten",
+      "center": "Bild zentrieren",
+      "right": "Bild rechts ausrichten",
+      "width": "Bildbreite",
+      "auto": "Auto",
+      "reset": "Bildgröße und Ausrichtung zurücksetzen"
+    },
     "editorSelection": {
       "title": "Auswahl formatieren (Alt+F10)",
       "bold": "Fett",

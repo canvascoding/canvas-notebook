@@ -65,6 +65,26 @@
       "name": "alphabetic list compatibility",
       "source": "A. First\nB. Second\n",
       "normalized": "A. First\nB. Second\n"
+    },
+    {
+      "name": "sized-image",
+      "source": "<img src=\"assets/diagram.png\" alt=\"Diagram\" width=\"320\">",
+      "normalized": "<img src=\"assets/diagram.png\" alt=\"Diagram\" width=\"320\">"
+    },
+    {
+      "name": "centered-image",
+      "source": "<img src=\"assets/diagram.png\" alt=\"A &amp; B\" title=\"A &quot;quote&quot;\" width=\"240\" style=\"display:block;max-width:100%;height:auto;margin-left:auto;margin-right:auto\">",
+      "normalized": "<img src=\"assets/diagram.png\" alt=\"A &amp; B\" title=\"A &quot;quote&quot;\" width=\"240\" style=\"display:block;max-width:100%;height:auto;margin-left:auto;margin-right:auto\">"
+    },
+    {
+      "name": "image-in-quote",
+      "source": "> <img src=\"assets/diagram.png\" alt=\"Diagram\" width=\"320\">",
+      "normalized": "> <img src=\"assets/diagram.png\" alt=\"Diagram\" width=\"320\">"
+    },
+    {
+      "name": "image-html-in-code",
+      "source": "```html\n<img src=\"diagram.png\" alt=\"Diagram\" width=\"320\">\n```",
+      "normalized": "```html\n<img src=\"diagram.png\" alt=\"Diagram\" width=\"320\">\n```"
     }
   ],
   "negativePairs": [

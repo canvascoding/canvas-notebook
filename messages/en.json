@@ -496,6 +496,17 @@
     "editorTableMoveLeft": "Move column left",
     "editorTableMoveRight": "Move column right",
     "editorTableHeaderRequired": "Markdown tables always include a header row.",
+    "editorImage": {
+      "tools": "Image tools",
+      "resize": "Resize image",
+      "unavailable": "Image could not be loaded.",
+      "left": "Align image left",
+      "center": "Center image",
+      "right": "Align image right",
+      "width": "Image width",
+      "auto": "Auto",
+      "reset": "Reset image size and alignment"
+    },
     "editorSelection": {
       "title": "Format selection (Alt+F10)",
       "bold": "Bold",

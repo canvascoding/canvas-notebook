@@ -404,7 +404,7 @@
     "cli:portable:dist": "node dist-cli/main.js",
     "server:setup": "bash scripts/server-setup.sh",
     "container:rebuild": "node scripts/setup.mjs",
-    "test:editor:core": "tsx --conditions react-server scripts/markdown-core-test.ts && tsx scripts/markdown-table-commands-test.ts"
+    "test:editor:core": "tsx --conditions react-server scripts/markdown-core-test.ts && tsx scripts/markdown-table-commands-test.ts && tsx scripts/markdown-images-test.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",
