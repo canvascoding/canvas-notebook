@@ -37,7 +37,8 @@ function main(): void {
       userProfile={null}
     />,
   );
-  assert.match(specialist, /lucide-search/u);
+  assert.match(specialist, /data-agent-icon-id="search"/u);
+  assert.match(specialist, /src="\/images\/agents\/origami\/search\.svg"/u);
   assert.doesNotMatch(specialist, /viewBox="0 0 64 64"/u);
 
   const image = renderUserIdentity({
