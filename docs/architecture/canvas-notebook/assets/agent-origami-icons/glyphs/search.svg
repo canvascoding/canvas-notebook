@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Research agent origami companion</title>
+  <desc id="desc">A teal folded paper companion carrying a magnifying lens.</desc>
+  <path d="M15 9 43 5l10 13-3 33-16 8-24-8 2-34Z" fill="#169C91"/>
+  <path d="m15 9 7 10-4 29-8 3 2-34Z" fill="#65D0C4"/>
+  <path d="m43 5-6 15 16-2Z" fill="#35B8AD"/>
+  <path d="m10 51 25-10 15 10-16 8Z" fill="#0D746E"/>
+  <circle cx="25" cy="24" r="2.6" fill="#172033"/>
+  <circle cx="37" cy="22.5" r="2.6" fill="#172033"/>
+  <rect x="19" y="32" width="26" height="19" rx="4" fill="#172033"/>
+  <circle cx="30" cy="40" r="4.2" fill="none" stroke="#fff" stroke-width="2.4"/>
+  <path d="m33.2 43.2 4.6 4.6" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="2.4"/>
+  <path d="m38.5 10.5 4.5-5.5 4.5 8Z" fill="#91E1D7"/>
+</svg>

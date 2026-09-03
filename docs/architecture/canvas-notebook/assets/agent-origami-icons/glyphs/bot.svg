@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">General agent origami companion</title>
+  <desc id="desc">A slate-blue folded paper companion with a simple identity mark.</desc>
+  <path d="M15 9 43 5l10 13-3 33-16 8-24-8 2-34Z" fill="#52657A"/>
+  <path d="m15 9 7 10-4 29-8 3 2-34Z" fill="#8DA0B3"/>
+  <path d="m43 5-6 15 16-2Z" fill="#71859A"/>
+  <path d="m10 51 25-10 15 10-16 8Z" fill="#3B4A5C"/>
+  <circle cx="25" cy="24" r="2.6" fill="#172033"/>
+  <circle cx="37" cy="22.5" r="2.6" fill="#172033"/>
+  <rect x="20" y="32" width="24" height="19" rx="4" fill="#172033"/>
+  <circle cx="32" cy="41.5" r="4" fill="#fff"/>
+  <path d="m38.5 10.5 4.5-5.5 4.5 8Z" fill="#AFC1D1"/>
+</svg>
