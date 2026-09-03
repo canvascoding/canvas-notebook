@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Security agent origami companion</title>
+  <desc id="desc">A broad forest-green folded paper companion standing behind a shield with both arms.</desc>
+  <path d="M11 14 47 9l7 17-8 23-29 1L8 28Z" fill="#2F8466"/>
+  <path d="m11 14 12 13-6 23-9-22Z" fill="#79C2A7"/>
+  <path d="m47 9-7 19 14-2Z" fill="#50A584"/>
+  <path d="M18 34 5 38l4 9 12-6Zm28 0 13 4-4 9-12-6Z" fill="#50A584"/>
+  <path d="m32 30 13 4v9c0 7-5 12-13 16-8-4-13-9-13-16v-9Z" fill="#172033"/>
+  <path d="m32 35 8 2v6c0 4-3 7-8 10-5-3-8-6-8-10v-6Z" fill="#fff"/>
+  <path d="m28 43 3 3 6-7" fill="none" stroke="#2F8466" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2"/>
+  <path d="m17 49 14 2-9 9H6Z" fill="#205E49"/>
+  <path d="m33 51 13-2 11 11H37Z" fill="#267157"/>
+  <circle cx="28" cy="26" r="2.5" fill="#172033"/>
+  <circle cx="40" cy="24.5" r="2.5" fill="#172033"/>
+</svg>

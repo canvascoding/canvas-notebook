@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Email agent origami companion</title>
+  <desc id="desc">A marine-blue folded paper companion holding a large envelope with both hands.</desc>
+  <path d="m14 11 32-2 7 16-7 23-28 2-8-24Z" fill="#4E7FAE"/>
+  <path d="m14 11 10 14-6 25-8-24Z" fill="#8DB8DD"/>
+  <path d="m46 9-7 18 14-2Z" fill="#6999C5"/>
+  <path d="m19 33-13 4 3 8 12-4Z" fill="#6999C5"/>
+  <path d="m45 33 13 4-3 8-12-4Z" fill="#6999C5"/>
+  <rect x="16" y="32" width="32" height="19" rx="3" fill="#172033"/>
+  <path d="M20 37h24v10H20Z" fill="#fff"/>
+  <path d="m20 37 12 8 12-8M20 47l8-6m16 6-8-6" fill="none" stroke="#4E7FAE" stroke-linejoin="round" stroke-width="1.8"/>
+  <path d="m18 49 14 2-9 9H7Z" fill="#345E87"/>
+  <path d="m32 51 14-3 11 12H37Z" fill="#3D6D99"/>
+  <circle cx="27" cy="25" r="2.5" fill="#172033"/>
+  <circle cx="39" cy="24" r="2.5" fill="#172033"/>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Coding agent origami companion</title>
+  <desc id="desc">A wide indigo folded paper companion holding a code panel with both hands.</desc>
+  <path d="m13 13 34-4 7 15-7 24-30 1-8-25Z" fill="#5968D9"/>
+  <path d="m13 13 9 12-5 24-8-25Z" fill="#98A4F4"/>
+  <path d="m47 9-5 17 12-2Z" fill="#7987E8"/>
+  <path d="m17 33-12 5 3 7 11-4Z" fill="#7987E8"/>
+  <path d="m47 33 12 5-3 7-11-4Z" fill="#7987E8"/>
+  <rect x="15" y="32" width="34" height="17" rx="3" fill="#172033"/>
+  <path d="m28 37-4 4 4 4m8-8 4 4-4 4" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4"/>
+  <path d="m18 48 14 1-8 10H8Z" fill="#3F4CAA"/>
+  <path d="m32 49 14-1 10 11H37Z" fill="#4655BC"/>
+  <circle cx="27" cy="25" r="2.5" fill="#172033"/>
+  <circle cx="39" cy="24" r="2.5" fill="#172033"/>
+</svg>

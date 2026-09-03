@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Studio agent origami companion</title>
+  <desc id="desc">A rose folded paper companion painting with a palette in one hand and a raised brush in the other.</desc>
+  <path d="m20 10 25 3 5 17-8 20-22-1-7-23Z" fill="#D85C86"/>
+  <path d="m20 10 8 15-8 24-7-23Z" fill="#F2A0BB"/>
+  <path d="m45 13-8 14 13 3Z" fill="#E77DA0"/>
+  <path d="m18 32-9 1-5 10 8 3 10-8Z" fill="#E77DA0"/>
+  <path d="M5 35c5-4 13-2 14 3 1 4-3 8-8 8-4 0-7-2-7-5 0-2 1-4 1-6Z" fill="#172033"/>
+  <circle cx="9" cy="38" r="1.4" fill="#E6695B"/>
+  <circle cx="13" cy="38" r="1.4" fill="#5968D9"/>
+  <circle cx="10.5" cy="42" r="1.4" fill="#45A467"/>
+  <path d="m46 29 8-14 3 2-6 16Z" fill="#172033"/>
+  <path d="m54 15 2-6 4 3-3 5Z" fill="#FFD0DF"/>
+  <path d="m20 47 11 2-8 10H10Z" fill="#A83E64"/>
+  <path d="m31 49 11-1 9 11H35Z" fill="#B8476E"/>
+  <circle cx="29" cy="27" r="2.5" fill="#172033"/>
+  <circle cx="40" cy="28" r="2.5" fill="#172033"/>
+</svg>

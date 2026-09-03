@@ -28,7 +28,8 @@ function main(): void {
   const specialistIcon = renderToStaticMarkup(
     <AgentIdentityIcon agentId="research-agent" iconId="search" className="h-5 w-5" />,
   );
-  assert.match(specialistIcon, /lucide-search/u);
+  assert.match(specialistIcon, /data-agent-icon-id="search"/u);
+  assert.match(specialistIcon, /src="\/images\/agents\/origami\/search\.svg"/u);
   assert.doesNotMatch(specialistIcon, /viewBox="0 0 64 64"/u);
 
   console.log('bradley-glyph-ui-test: ok');

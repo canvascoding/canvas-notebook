@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Tools agent origami companion</title>
+  <desc id="desc">A compact graphite folded paper companion raising a wrench in one hand.</desc>
+  <path d="m17 14 25-6 8 15-5 26-24 1-9-22Z" fill="#66717C"/>
+  <path d="m17 14 9 11-5 25-9-22Z" fill="#A5AFB8"/>
+  <path d="m42 8-5 17 13-2Z" fill="#7F8B96"/>
+  <path d="m44 24 8-12 6 3-8 17Z" fill="#7F8B96"/>
+  <path d="M61 5a7 7 0 0 1-8 9l-8 13-4-3 8-13a7 7 0 0 1 7-10l-3 5 3 2Z" fill="#172033"/>
+  <path d="m19 48 12 2-8 10H9Z" fill="#454E58"/>
+  <path d="m31 50 14-2 10 12H36Z" fill="#505B66"/>
+  <circle cx="27" cy="27" r="2.5" fill="#172033"/>
+  <circle cx="38" cy="24.5" r="2.5" fill="#172033"/>
+  <path d="m25 24 12-16v17Z" fill="#C8D0D6" opacity=".4"/>
+</svg>

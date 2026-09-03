@@ -1,37 +1,24 @@
 'use client';
 
-import {
-  Bot,
-  Brain,
-  BriefcaseBusiness,
-  CalendarClock,
-  Code2,
-  MessageSquare,
-  Palette,
-  Rocket,
-  Search,
-  ShieldCheck,
-  Sparkles,
-  Wrench,
-  type LucideIcon,
-} from 'lucide-react';
+import Image from 'next/image';
 
 import { DEFAULT_AGENT_ICON_ID, normalizeAgentIconId, type AgentIconId } from '@/app/lib/agents/icons';
 import { cn } from '@/lib/utils';
 
-const AGENT_ICON_COMPONENTS: Record<AgentIconId, LucideIcon> = {
-  bot: Bot,
-  sparkles: Sparkles,
-  search: Search,
-  code: Code2,
-  palette: Palette,
-  briefcase: BriefcaseBusiness,
-  calendar: CalendarClock,
-  messages: MessageSquare,
-  brain: Brain,
-  wrench: Wrench,
-  rocket: Rocket,
-  shield: ShieldCheck,
+const AGENT_ICON_PATHS: Record<AgentIconId, string> = {
+  bot: '/images/agents/origami/bot.svg',
+  sparkles: '/images/agents/origami/sparkles.svg',
+  search: '/images/agents/origami/search.svg',
+  code: '/images/agents/origami/code.svg',
+  palette: '/images/agents/origami/palette.svg',
+  briefcase: '/images/agents/origami/briefcase.svg',
+  calendar: '/images/agents/origami/calendar.svg',
+  messages: '/images/agents/origami/messages.svg',
+  brain: '/images/agents/origami/brain.svg',
+  wrench: '/images/agents/origami/wrench.svg',
+  rocket: '/images/agents/origami/rocket.svg',
+  shield: '/images/agents/origami/shield.svg',
+  email: '/images/agents/origami/email.svg',
 };
 
 export function AgentIcon({
@@ -41,8 +28,23 @@ export function AgentIcon({
   iconId?: AgentIconId | string | null;
   className?: string;
 }) {
-  const Icon = AGENT_ICON_COMPONENTS[normalizeAgentIconId(iconId)] || AGENT_ICON_COMPONENTS[DEFAULT_AGENT_ICON_ID];
-  return <Icon className={className} aria-hidden="true" />;
+  const normalizedIconId = normalizeAgentIconId(iconId);
+  const src = AGENT_ICON_PATHS[normalizedIconId] || AGENT_ICON_PATHS[DEFAULT_AGENT_ICON_ID];
+
+  return (
+    <Image
+      src={src}
+      alt=""
+      aria-hidden="true"
+      width={64}
+      height={64}
+      sizes="64px"
+      draggable={false}
+      unoptimized
+      data-agent-icon-id={normalizedIconId}
+      className={cn('select-none object-contain', className)}
+    />
+  );
 }
 
 export function AgentAvatar({

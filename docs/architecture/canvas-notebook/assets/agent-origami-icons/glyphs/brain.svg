@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Strategy agent origami companion</title>
+  <desc id="desc">A broad violet folded paper companion thinking with one hand at its temple.</desc>
+  <path d="M10 16 24 6l25 5 5 17-9 21-27 1-9-20Z" fill="#8864CC"/>
+  <path d="M10 16 24 6l2 20-8 24-9-20Z" fill="#BCA4E9"/>
+  <path d="m24 6 17 21 8-16Z" fill="#9F80DA"/>
+  <path d="m48 23 10-7 4 5-10 10Z" fill="#9F80DA"/>
+  <circle cx="58" cy="16" r="3" fill="#172033"/>
+  <path d="M29 36v7m0-5-5-4m5 4 5-4m-10 0 5-5 5 5" fill="none" stroke="#172033" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.3"/>
+  <circle cx="24" cy="34" r="2.3" fill="#172033"/>
+  <circle cx="29" cy="29" r="2.3" fill="#172033"/>
+  <circle cx="34" cy="34" r="2.3" fill="#172033"/>
+  <path d="m18 48 13 2-8 10H7Z" fill="#62469B"/>
+  <path d="m31 50 14-2 11 12H36Z" fill="#7050AC"/>
+  <circle cx="29" cy="22" r="2.5" fill="#172033"/>
+  <circle cx="40" cy="23.5" r="2.5" fill="#172033"/>
+</svg>

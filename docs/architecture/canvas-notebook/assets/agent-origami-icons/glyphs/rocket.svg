@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Launch agent origami companion</title>
+  <desc id="desc">A tall orange folded paper companion reaching upward in a launch pose.</desc>
+  <path d="m22 11 20-5 8 14-4 29-14 4-15-6-4-25Z" fill="#E67D35"/>
+  <path d="m22 11 6 12-11 24-4-25Z" fill="#F4B37C"/>
+  <path d="m42 6-5 18 13-4Z" fill="#ED9659"/>
+  <path d="m20 24-10-12-5 4 10 17Z" fill="#ED9659"/>
+  <path d="m46 24 10-12 5 4-10 17Z" fill="#ED9659"/>
+  <path d="m32 17 7 9h-4v13h-6V26h-4Z" fill="#172033"/>
+  <path d="m18 45 13 6-10 9H6Z" fill="#AE5723"/>
+  <path d="m32 52 14-7 12 15H37Z" fill="#BE6128"/>
+  <circle cx="26" cy="26" r="2.5" fill="#172033"/>
+  <circle cx="39" cy="23" r="2.5" fill="#172033"/>
+  <path d="m25 22 12-14v16Z" fill="#FFD2AD" opacity=".45"/>
+</svg>
