@@ -29,9 +29,6 @@ import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import {
-  AlignCenter,
-  AlignLeft,
-  AlignRight,
   AtSign,
   Bold,
   BadgeInfo,
@@ -41,7 +38,6 @@ import {
   ChevronUp,
   Code,
   Code2,
-  Columns3,
   Copy,
   Eye,
   ExternalLink,
@@ -67,7 +63,6 @@ import {
   Pencil,
   Quote,
   Redo2,
-  Rows3,
   Search,
   Sigma,
   SmilePlus,
@@ -75,7 +70,6 @@ import {
   Strikethrough,
   Superscript,
   Table2,
-  Trash2,
   Type,
   Undo2,
   Unlink,
@@ -111,6 +105,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { MarkdownModeBar, MarkdownRichMigration, MarkdownSaveState, useLiveMarkdown, type MarkdownDocumentMode } from './MarkdownDocumentModes';
+import { MarkdownTableMenu } from './MarkdownTableMenu';
 import { MarkdownSelectionMenu } from './MarkdownSelectionMenu';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 import {
@@ -3391,15 +3386,14 @@ function MarkdownTableDialog({
   const t = useTranslations('notebook');
   const [rows, setRows] = useState(3);
   const [cols, setCols] = useState(3);
-  const [withHeaderRow, setWithHeaderRow] = useState(true);
 
   const submit = useCallback(() => {
     onInsert({
       rows: Math.min(20, Math.max(1, rows || 1)),
       cols: Math.min(12, Math.max(1, cols || 1)),
-      withHeaderRow,
+      withHeaderRow: true,
     });
-  }, [cols, onInsert, rows, withHeaderRow]);
+  }, [cols, onInsert, rows]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -3435,14 +3429,7 @@ function MarkdownTableDialog({
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-            <Label htmlFor="markdown-table-header-row">{t('markdownEditorTableHeaderRow')}</Label>
-            <Switch
-              id="markdown-table-header-row"
-              checked={withHeaderRow}
-              onCheckedChange={setWithHeaderRow}
-            />
-          </div>
+          <p className="text-xs text-muted-foreground">{t('editorTableHeaderRequired')}</p>
         </div>
 
         <DialogFooter>
@@ -4152,102 +4139,7 @@ function MarkdownToolbar({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {toolbarState.isTable ? (
-        <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/30 px-2 md:flex">
-          <span className="mr-1 shrink-0 text-xs font-medium text-muted-foreground">
-            {t('markdownEditorTableTools')}
-          </span>
-          <TooltipIconButton
-            label={t('markdownEditorTableAddColumnBefore')}
-            disabled={!canUseCommands || !editor?.can().addColumnBefore()}
-            onClick={() => editor?.chain().focus().addColumnBefore().run()}
-          >
-            <Columns3 />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableAddColumnAfter')}
-            disabled={!canUseCommands || !editor?.can().addColumnAfter()}
-            onClick={() => editor?.chain().focus().addColumnAfter().run()}
-          >
-            <Plus />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableDeleteColumn')}
-            disabled={!canUseCommands || !editor?.can().deleteColumn()}
-            onClick={() => editor?.chain().focus().deleteColumn().run()}
-          >
-            <Trash2 />
-          </TooltipIconButton>
-
-          <ToolbarDivider />
-
-          <TooltipIconButton
-            label={t('markdownEditorTableAddRowBefore')}
-            disabled={!canUseCommands || !editor?.can().addRowBefore()}
-            onClick={() => editor?.chain().focus().addRowBefore().run()}
-          >
-            <Rows3 />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableAddRowAfter')}
-            disabled={!canUseCommands || !editor?.can().addRowAfter()}
-            onClick={() => editor?.chain().focus().addRowAfter().run()}
-          >
-            <Plus />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableDeleteRow')}
-            disabled={!canUseCommands || !editor?.can().deleteRow()}
-            onClick={() => editor?.chain().focus().deleteRow().run()}
-          >
-            <Trash2 />
-          </TooltipIconButton>
-
-          <ToolbarDivider />
-
-          <TooltipIconButton
-            label={t('markdownEditorTableToggleHeaderRow')}
-            disabled={!canUseCommands || !editor?.can().toggleHeaderRow()}
-            onClick={() => editor?.chain().focus().toggleHeaderRow().run()}
-          >
-            <Table2 />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableAlignLeft')}
-            active={toolbarState.cellAlign === 'left'}
-            disabled={!canUseCommands}
-            onClick={() => editor?.chain().focus().setCellAttribute('align', 'left').run()}
-          >
-            <AlignLeft />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableAlignCenter')}
-            active={toolbarState.cellAlign === 'center'}
-            disabled={!canUseCommands}
-            onClick={() => editor?.chain().focus().setCellAttribute('align', 'center').run()}
-          >
-            <AlignCenter />
-          </TooltipIconButton>
-          <TooltipIconButton
-            label={t('markdownEditorTableAlignRight')}
-            active={toolbarState.cellAlign === 'right'}
-            disabled={!canUseCommands}
-            onClick={() => editor?.chain().focus().setCellAttribute('align', 'right').run()}
-          >
-            <AlignRight />
-          </TooltipIconButton>
-
-          <ToolbarDivider />
-
-          <TooltipIconButton
-            label={t('markdownEditorTableDelete')}
-            disabled={!canUseCommands || !editor?.can().deleteTable()}
-            onClick={() => editor?.chain().focus().deleteTable().run()}
-          >
-            <Trash2 />
-          </TooltipIconButton>
-        </div>
-      ) : null}
+      {canUseCommands && editor ? <MarkdownTableMenu editor={editor} suppressed={linkDialogOpen || imageDialogOpen} /> : null}
       {canUseCommands && editor ? <MarkdownSelectionMenu editor={editor} suppressed={linkDialogOpen || Boolean(linkPopover)} onLink={openToolbarLinkDialog} /> : null}
       <MarkdownLinkPopover
         editor={editor}

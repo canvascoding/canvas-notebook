@@ -488,6 +488,14 @@
     }
   },
   "notebook": {
+    "editorTableRow": "Row",
+    "editorTableColumn": "Column",
+    "editorTableColumnAlignment": "Column alignment",
+    "editorTableMoveUp": "Move row up",
+    "editorTableMoveDown": "Move row down",
+    "editorTableMoveLeft": "Move column left",
+    "editorTableMoveRight": "Move column right",
+    "editorTableHeaderRequired": "Markdown tables always include a header row.",
     "editorSelection": {
       "title": "Format selection (Alt+F10)",
       "bold": "Bold",

@@ -56,7 +56,7 @@ export function MarkdownSelectionMenu({ editor, suppressed, onLink }: {
 
   return <BubbleMenu editor={editor} pluginKey="canvas-selection-menu" updateDelay={80}
     appendTo={() => editor.view.dom.closest<HTMLElement>('[role="dialog"]') ?? document.body}
-    options={{ placement: 'top-start', strategy: 'fixed', offset: 10, shift: { padding: 8 }, flip: true }}
+    options={{ placement: 'top-start', strategy: 'fixed', offset: 10, shift: { padding: 8, boundary: editor.view.dom.closest<HTMLElement>('[data-testid="markdown-scroll-container"]') ?? 'clippingAncestors' }, flip: true }}
     shouldShow={({ state: current }) => !suppressed && !dismissed.current && editor.isEditable
       && current.selection instanceof TextSelection && !current.selection.empty && !editor.isActive('codeBlock')
       && Boolean(current.doc.textBetween(current.selection.from, current.selection.to).trim())

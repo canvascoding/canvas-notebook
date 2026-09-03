@@ -8,7 +8,7 @@ Implementation branch: `codex/editor-stability`, server base `32238cfc`, mobile 
 - [x] B: Versioned shared parser rules and fixture parity; syntax-aware table/list normalization and structural validation.
 - [x] C: Read/edit/source modes backed by the current live document; distinct connection, durability and file-checkpoint status; safe recovery actions.
 - [x] D1: Contextual selection formatting.
-- [ ] D2: Contextual table operations.
+- [x] D2: Contextual table operations.
 - [ ] D3: Portable image sizing/alignment with resize controls and renderer parity.
 - [ ] D4: Link/preview/embed paste choices using existing provider support.
 - [ ] D5: Document width and focus behavior where missing.
@@ -46,3 +46,5 @@ Mobile retains its editor and live connection while switching to Read or a read-
 Mobile C acceptance: full `npm run verify` passes. Maestro on the existing iOS 26.3 development simulator confirms the saved empty quote, Read/Edit/read-only rich Source transitions, outline navigation and plain-text live reading/source editing. The hidden live WebView retains layout so its bootstrap handshake runs while reading. Server vector coverage distinguishes durable Yjs state from a file checkpoint and never clears a degraded state merely on acknowledgement. Actual iOS/Android devices were unavailable; no new native binary was built. The reader still displays a literal escaped pipe inside a table code span; include this discovered renderer-parity case in D3.
 
 D1 acceptance: contextual selection toolbar reuses the existing bold/italic/strike/highlight/code commands and link dialog. Alt+F10, arrow navigation, Escape, pointer and touch interaction preserve the ProseMirror selection. The floating menu stays above workspace panes and within the viewport, is absent in Read mode, and produces the expected file checkpoint. Chromium mouse/keyboard/link-dialog/read-mode and 390px touch checks, TypeScript and focused ESLint pass. Native selection gestures remain covered by the existing native toolbar, with real-device acceptance outstanding.
+
+D2 acceptance: table tools now follow the current cell and offer row/column insertion, deletion and movement plus column alignment. Header rows stay in place during moves; explicit row edits promote or create the single Markdown header and carry column alignment to inserted rows. Unrepresentable header/merge toggles are not offered. Shared command fixtures cover seven edit/undo/redo/reload cases in server and mobile. Browser tests confirm row/column moves, alignment, empty-row checkpoint, reload and header deletion, plus the selection-menu regression. Maestro on the iOS development simulator confirms column alignment and inserted rows reach File saved. Full mobile verification, server TypeScript, focused ESLint and core regressions pass. Floating tools are constrained to the document pane. No schema or storage-format change is introduced by these commands.

@@ -1,3 +1,4 @@
+import { portableTableCommands } from './table-commands';
 import { OrderedList, ListItem } from '@tiptap/extension-list';
 import { Table, TableKit } from '@tiptap/extension-table';
 import type { JSONContent, MarkdownParseHelpers, MarkdownToken } from '@tiptap/core';
@@ -77,6 +78,7 @@ function parseTableCell(tokens: MarkdownToken[], helpers: MarkdownParseHelpers):
 }
 
 export const CanvasTable = Table.extend({
+  addCommands() { return portableTableCommands(this.parent?.() ?? {}); },
   parseMarkdown(token, helpers) {
     const alignments = Array.isArray(token.align) ? token.align : [];
     const row = (cells: MarkdownToken[], header: boolean) => helpers.createNode('tableRow', undefined,

@@ -487,6 +487,14 @@
     }
   },
   "notebook": {
+    "editorTableRow": "Zeile",
+    "editorTableColumn": "Spalte",
+    "editorTableColumnAlignment": "Spaltenausrichtung",
+    "editorTableMoveUp": "Zeile nach oben",
+    "editorTableMoveDown": "Zeile nach unten",
+    "editorTableMoveLeft": "Spalte nach links",
+    "editorTableMoveRight": "Spalte nach rechts",
+    "editorTableHeaderRequired": "Markdown-Tabellen enthalten immer eine Kopfzeile.",
     "editorSelection": {
       "title": "Auswahl formatieren (Alt+F10)",
       "bold": "Fett",
