@@ -2622,6 +2622,8 @@
     }
   },
   "terminal": {
+    "disabledByAdmin": "Das Terminal wurde von einem Administrator deaktiviert.",
+    "backToNotebook": "Zum Notebook",
     "metadataTitle": "Terminal | Canvas Notebook",
     "metadataDescription": "Vollbild-Terminal-App für den Canvas-Notebook-Workspace.",
     "title": "Terminal",
@@ -2953,8 +2955,22 @@
     }
   },
   "settings": {
+    "administration": {
+      "terminalTitle": "Terminal",
+      "description": "Direkter Kommandozeilenzugriff für diese Canvas-Instanz.",
+      "enableTerminal": "Terminal aktivieren",
+      "terminalDescription": "Erlaubt Benutzern den direkten Kommandozeilenzugriff. Das Terminal erscheint im App-Menü und im Notebook. Standardmäßig ausgeschaltet.",
+      "disableNote": "Ausschalten beendet laufende Terminal-Sitzungen aller Benutzer. Die Bash-Werkzeuge der KI-Agenten werden separat verwaltet.",
+      "enabled": "Für alle Benutzer freigegeben.",
+      "disabled": "Das Terminal ist ausgeschaltet und ausgeblendet.",
+      "loading": "Terminal-Status wird geladen …",
+      "saving": "Wird gespeichert …",
+      "saved": "Einstellung gespeichert.",
+      "saveError": "Die Änderung konnte nicht vollständig angewendet werden. Bitte versuche es erneut."
+    },
     "title": "Einstellungen",
     "tabs": {
+      "administration": "Administration",
       "general": "Allgemein",
       "mobileApp": "Mobile App",
       "memory": "Memory",
@@ -2992,6 +3008,7 @@
         "system": "System & Verwaltung"
       },
       "descriptions": {
+        "administration": "Instanzweite Funktionen für alle Benutzer freigeben. Nur Administratoren können diese Einstellungen ändern.",
         "general": "Konto, Sprache und grundlegende Instanzoptionen verwalten.",
         "mobileApp": "Canvas Mobile laden und diese Instanz sicher für die Anmeldung vorbereiten.",
         "memory": "Dauerhaften Kontext prüfen und den dedizierten Memory-Reviewer konfigurieren.",

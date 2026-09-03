@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css";
 import "@excalidraw/excalidraw/index.css";
 import "../globals.css";
 import { geistMono, geistSans } from '@/app/lib/fonts';
+import { TerminalAvailabilityProvider } from '@/app/components/terminal/TerminalAvailabilityProvider';
 import { Toaster } from "@/components/ui/sonner";
 import { InlineScript } from '@/app/components/InlineScript';
 import { AppThemeProvider } from "@/app/components/ThemeProvider";
@@ -96,10 +97,12 @@ export default async function LocaleLayout({
               <Suspense fallback={null}>
                 <WorkspaceNavigationSync />
               </Suspense>
-              <WebSocketProvider enabled>
-                {children}
-                <Toaster richColors position="top-right" />
-              </WebSocketProvider>
+              <TerminalAvailabilityProvider>
+                <WebSocketProvider enabled>
+                  {children}
+                  <Toaster richColors position="top-right" />
+                </WebSocketProvider>
+              </TerminalAvailabilityProvider>
             </WorkspaceAppearanceProvider>
           </AppThemeProvider>
         </NextIntlClientProvider>

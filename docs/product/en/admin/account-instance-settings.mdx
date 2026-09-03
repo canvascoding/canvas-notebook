@@ -6,7 +6,7 @@ sectionOrder: 10
 order: 8
 locale: en
 translationKey: admin.account-instance-settings
-updatedAt: 2026-07-17
+updatedAt: 2026-09-03
 ---
 
 # Account and Instance Settings
@@ -24,6 +24,14 @@ Use a password manager and a unique password. If you cannot authenticate, an ope
 Administrators control the server time zone and onboarding state. The time zone influences schedules and due-date interpretation across the instance, so review automations after changing it. Provider verification metadata records which administrator verified a catalog revision and installation.
 
 Other admin-only areas include users, organization permissions, provider catalog, system email, backup and migration, browser runtime, license, and security inventory. Workspace managers can manage their own workspace settings without receiving general server administration.
+
+## Interactive terminal
+
+Open **Settings → Administration** to enable or disable the interactive terminal for the entire instance. Only instance administrators can see this section or change the setting. The terminal is disabled by default, including after an upgrade when no explicit setting has been saved.
+
+Enabling restores the app-menu entry, home-page link, notebook toolbar button and keyboard shortcut, terminal page, help tutorial, and web-app shortcut. Disabling hides these entry points and blocks direct terminal access on the server. Existing installed web-app shortcuts may take time to refresh; their destination remains blocked while the terminal is disabled.
+
+Disabling also ends running terminal sessions for all users. Re-enabling allows new sessions; terminated sessions cannot be recovered. Other open browser sessions receive the updated availability automatically. AI agents' Bash tools are managed separately and are not affected by this setting.
 
 ## Change discipline
 

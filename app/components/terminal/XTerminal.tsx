@@ -1,5 +1,7 @@
 'use client';
 
+import { useTerminalAvailability } from './TerminalAvailabilityProvider';
+
 import { useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Terminal } from '@xterm/xterm';
@@ -68,6 +70,7 @@ function getTerminalTheme(isDark: boolean) {
 }
 
 export function XTerminal({ sessionId }: XTerminalProps) {
+  const { markDisabled } = useTerminalAvailability();
   const t = useTranslations('terminal');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const activeWorkspaceIdRef = useRef<string | null>(activeWorkspaceId);
@@ -90,6 +93,9 @@ export function XTerminal({ sessionId }: XTerminalProps) {
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    let disposed = false;
+    const connectionAbort = new AbortController();
+    isIntentionallyClosed.current = false;
     const initialIsDark = document.documentElement.classList.contains('dark');
 
     // Create terminal with full configuration
@@ -194,16 +200,25 @@ export function XTerminal({ sessionId }: XTerminalProps) {
 
     // Create session and connect SSE
     const connectTerminal = async () => {
+      if (disposed || isIntentionallyClosed.current) return;
       try {
         // First, create the session
         const createResponse = await fetch('/api/terminal/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId, workspaceId: activeWorkspaceIdRef.current }),
+          signal: connectionAbort.signal,
         });
 
+        if (disposed || isIntentionallyClosed.current) return;
         if (!createResponse.ok) {
           const error = await createResponse.json();
+          if (error.code === 'terminal_disabled') {
+            isIntentionallyClosed.current = true;
+            isReady.current = false;
+            markDisabled();
+            return;
+          }
           throw new Error(error.error || t('failedToCreateSession'));
         }
 
@@ -223,6 +238,14 @@ export function XTerminal({ sessionId }: XTerminalProps) {
           try {
             const payload = JSON.parse(event.data);
             
+            if (payload.type === 'disabled') {
+              isIntentionallyClosed.current = true;
+              isReady.current = false;
+              eventSource.close();
+              if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+              markDisabled();
+              return;
+            }
             if (payload.type === 'output') {
               term.write(payload.data);
             } else if (payload.type === 'ready') {
@@ -267,6 +290,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
         }, 15000);
 
       } catch (err: unknown) {
+        if (disposed || isIntentionallyClosed.current) return;
         console.error('[Terminal] Connection error:', err);
         const errorMessage = err instanceof Error ? err.message : t('failedToCreateSession');
         term.write(`\r\n\x1b[31m[${t('connectionFailed', { error: errorMessage })}]\x1b[0m\r\n`);
@@ -445,6 +469,8 @@ export function XTerminal({ sessionId }: XTerminalProps) {
 
     // Cleanup
     return () => {
+      disposed = true;
+      connectionAbort.abort();
       console.log('[Terminal] Cleanup for session', sessionId);
       isIntentionallyClosed.current = true;
       isReady.current = false;
@@ -473,7 +499,7 @@ export function XTerminal({ sessionId }: XTerminalProps) {
       }
       term.dispose();
     };
-  }, [sessionId, t]);
+  }, [sessionId, t, markDisabled]);
 
   useEffect(() => {
     const terminal = terminalRef.current;

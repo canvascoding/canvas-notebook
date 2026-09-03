@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { HelpCircle } from 'lucide-react';
 
+import { useTerminalAvailability } from '@/app/components/terminal/TerminalAvailabilityProvider';
 import { HelpCard } from '@/app/components/help/HelpCard';
 import { HelpDialog } from '@/app/components/help/HelpDialog';
 import { getTutorials, type Tutorial } from '@/app/components/help/help-data';
@@ -11,9 +12,11 @@ import { getTutorials, type Tutorial } from '@/app/components/help/help-data';
 export default function HelpPageClient() {
   const locale = useLocale();
   const t = useTranslations('help');
-  const tutorials = getTutorials(locale);
+  const { terminalEnabled } = useTerminalAvailability();
+  const tutorials = getTutorials(locale, terminalEnabled);
   const [selectedTutorial, setSelectedTutorial] = useState<Tutorial | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const visibleTutorial = tutorials.find(tutorial => tutorial.id === selectedTutorial?.id) ?? null;
 
   function handleOpenTutorial(tutorial: Tutorial) {
     setSelectedTutorial(tutorial);
@@ -54,8 +57,8 @@ export default function HelpPageClient() {
       </div>
 
       <HelpDialog
-        tutorial={selectedTutorial}
-        open={dialogOpen}
+        tutorial={visibleTutorial}
+        open={dialogOpen && Boolean(visibleTutorial)}
         onOpenChange={setDialogOpen}
       />
     </>

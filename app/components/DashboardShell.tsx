@@ -47,6 +47,7 @@ import { AppLayout } from '@/app/components/layout/AppLayout';
 import { ResizeHandle, usePanelResize } from '@/app/components/layout/ResizeHandle';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
+import { useTerminalAvailability } from '@/app/components/terminal/TerminalAvailabilityProvider';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { NotebookDocumentMenu } from '@/app/components/notebook/NotebookDocumentMenu';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
@@ -414,6 +415,7 @@ function clearStoredNotebookOpenFilePathIfMatches(path: string, workspaceId: str
 }
 
 export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }) {
+  const { terminalEnabled } = useTerminalAvailability();
   const locale = useLocale();
   const tNotebook = useTranslations('notebook');
   const tCommon = useTranslations('common');
@@ -957,7 +959,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         } else {
           dispatch({ type: 'SHOW_CHAT' });
         }
-      } else if (key === 'j') {
+      } else if (key === 'j' && terminalEnabled) {
         event.preventDefault();
         dispatch({ type: 'SET_TERMINAL', open: !state.terminalOpen });
       } else if (key === 'b') {
@@ -973,6 +975,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     state.chatDocked,
     state.explorerOpen,
     state.terminalOpen,
+    terminalEnabled,
   ]);
 
   const applyExplorerWidth = useCallback((width: number) => {
@@ -1290,29 +1293,31 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-                <TooltipProvider delayDuration={250}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant={state.terminalOpen ? 'secondary' : 'ghost'}
-                        size="icon-sm"
-                        className="shrink-0"
-                        aria-label={state.terminalOpen ? tNotebook('hideTerminal') : tNotebook('showTerminal')}
-                        aria-pressed={state.terminalOpen}
-                        onClick={() => dispatch({
-                          type: 'SET_TERMINAL',
-                          open: !state.terminalOpen,
-                        })}
-                      >
-                        <SquareTerminal className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {state.terminalOpen ? tNotebook('hideTerminal') : tNotebook('showTerminal')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}J)
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                {terminalEnabled && (
+                  <TooltipProvider delayDuration={250}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant={state.terminalOpen ? 'secondary' : 'ghost'}
+                          size="icon-sm"
+                          className="shrink-0"
+                          aria-label={state.terminalOpen ? tNotebook('hideTerminal') : tNotebook('showTerminal')}
+                          aria-pressed={state.terminalOpen}
+                          onClick={() => dispatch({
+                            type: 'SET_TERMINAL',
+                            open: !state.terminalOpen,
+                          })}
+                        >
+                          <SquareTerminal className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {state.terminalOpen ? tNotebook('hideTerminal') : tNotebook('showTerminal')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}J)
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
               </>
             ) : null}
           </div>
@@ -1470,7 +1475,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   <AppLayout
                     sidebar={<div />}
                     sidebarHidden
-                    terminalVisible={state.terminalOpen}
+                    terminalVisible={terminalEnabled && state.terminalOpen}
                     terminalHidden={documentFocus}
                     sidebarResizeLabel={tNotebook('resizeFileTree')}
                     terminalResizeLabel={tNotebook('resizeTerminal')}
@@ -1530,7 +1535,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                         </SurfaceLayer>
                       </div>
                     }
-                    terminal={<TerminalPanel />}
+                    terminal={terminalEnabled ? <TerminalPanel /> : null}
                   />
                 </div>
 

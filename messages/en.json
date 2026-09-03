@@ -2623,6 +2623,8 @@
     }
   },
   "terminal": {
+    "disabledByAdmin": "The terminal has been disabled by an administrator.",
+    "backToNotebook": "Back to notebook",
     "metadataTitle": "Terminal | Canvas Notebook",
     "metadataDescription": "Fullscreen terminal app for the Canvas Notebook workspace.",
     "title": "Terminal",
@@ -2954,8 +2956,22 @@
     }
   },
   "settings": {
+    "administration": {
+      "terminalTitle": "Terminal",
+      "description": "Direct command-line access for this Canvas instance.",
+      "enableTerminal": "Enable terminal",
+      "terminalDescription": "Allows users to access the command line directly. The terminal appears in the app menu and notebook. Disabled by default.",
+      "disableNote": "Disabling ends running terminal sessions for all users. AI agents’ Bash tools are managed separately.",
+      "enabled": "Enabled for all users.",
+      "disabled": "The terminal is disabled and hidden.",
+      "loading": "Loading terminal status…",
+      "saving": "Saving…",
+      "saved": "Setting saved.",
+      "saveError": "The change could not be fully applied. Please try again."
+    },
     "title": "Settings",
     "tabs": {
+      "administration": "Administration",
       "general": "General",
       "mobileApp": "Mobile App",
       "memory": "Memory",
@@ -2993,6 +3009,7 @@
         "system": "System & Administration"
       },
       "descriptions": {
+        "administration": "Enable instance-wide features for all users. Only administrators can change these settings.",
         "general": "Manage your account, language, and basic instance options.",
         "mobileApp": "Get Canvas Mobile and securely prepare this instance for sign-in.",
         "memory": "Review persistent context and configure the dedicated memory reviewer.",

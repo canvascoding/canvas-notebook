@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { ChevronDown, Terminal, Settings, MessageSquare, FolderOpen, MonitorUp } from 'lucide-react';
+import { useTerminalAvailability } from '@/app/components/terminal/TerminalAvailabilityProvider';
 import { NOTEBOOK_CHAT_HREF } from '@/app/lib/chat/chat-navigation-intent';
 
 interface MoreToolsLink {
@@ -21,10 +22,13 @@ const MORE_TOOLS_LINKS: MoreToolsLink[] = [
 ];
 
 export function MoreToolsSection({ showBrowserLab = false }: { showBrowserLab?: boolean }) {
+  const { terminalEnabled } = useTerminalAvailability();
   const t = useTranslations('home');
   const tApps = useTranslations('home.apps');
   const [isExpanded, setIsExpanded] = useState(false);
-  const links = showBrowserLab ? MORE_TOOLS_LINKS : MORE_TOOLS_LINKS.slice(1);
+  const links = MORE_TOOLS_LINKS.filter(link =>
+    (link.labelKey !== 'browserLab' || showBrowserLab) && (link.labelKey !== 'terminal' || terminalEnabled)
+  );
 
   return (
     <div className="w-full">

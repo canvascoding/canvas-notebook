@@ -590,7 +590,7 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
       { command: 'ollama ps', description: 'Aktuell geladene Modelle anzeigen' },
     ],
     notes: [
-      'Verwende den Terminal-Button oben, um Ollama-Befehle direkt auszuführen',
+      'Führe Ollama-Befehle auf dem Server aus, auf dem Ollama installiert ist',
       'Die Server-URL wird aus Sicht der Canvas-Runtime aufgerufen; in Containern zeigt localhost auf den Container selbst',
       'Für Ollama im Docker-Netzwerk ist häufig eine URL wie http://ollama:11434 passend',
       'OLLAMA_API_KEY ist optional und nur für geschützte Endpunkte erforderlich',
@@ -607,7 +607,7 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
         apiKeyRequired: false,
         setupSteps: [
           'Ollama installieren: https://ollama.ai/',
-          'Öffne das Terminal (Button oben) und führe Befehle aus:',
+          'Führe auf dem Ollama-Server folgende Befehle aus:',
           '  - Modell herunterladen: ollama pull llama3.1',
           '  - Server starten: ollama serve',
           'Verbindung testen: curl http://localhost:11434/api/tags',
@@ -618,7 +618,7 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
           'Kann komplett lokal auf derselben Maschine oder im selben Docker-Netzwerk laufen',
           'Benötigt ausreichend RAM/VRAM für die gewählten Modelle',
           'Funktioniert offline nach dem ersten Download',
-          'Verwende das Terminal für alle Ollama-Befehle',
+          'Die Befehle werden auf dem Ollama-Server ausgeführt',
         ]
       },
       {

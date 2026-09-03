@@ -1,4 +1,7 @@
 import type { MetadataRoute } from 'next';
+import { readTerminalAvailability } from './lib/terminal-policy';
+
+export const dynamic = 'force-dynamic';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -29,7 +32,7 @@ export default function manifest(): MetadataRoute.Manifest {
       },
     ],
     shortcuts: [
-      {
+      ...(readTerminalAvailability().terminalEnabled ? [{
         name: 'Terminal',
         short_name: 'Terminal',
         description: 'Open the fullscreen terminal app.',
@@ -41,7 +44,7 @@ export default function manifest(): MetadataRoute.Manifest {
             type: 'image/png',
           },
         ],
-      },
+      }] : []),
       {
         name: 'Notebook',
         short_name: 'Notebook',

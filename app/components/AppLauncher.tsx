@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { NOTEBOOK_CHAT_HREF } from '@/app/lib/chat/chat-navigation-intent';
+import { useTerminalAvailability } from '@/app/components/terminal/TerminalAvailabilityProvider';
 import { cn } from '@/lib/utils';
 
 interface AppItem {
@@ -123,11 +124,13 @@ function getQuickActions(
 }
 
 export function AppLauncher({ showBrowserLab = false }: { showBrowserLab?: boolean }) {
+  const { terminalEnabled } = useTerminalAvailability();
   const [showMoreApps, setShowMoreApps] = useState(false);
   const moreApps: AppItem[] = showBrowserLab
     ? [...MORE_APPS, { id: 'browserLab', href: '/browser/lab', icon: MonitorUp, hasQuickActions: false }]
     : MORE_APPS;
-  const apps = showMoreApps ? moreApps : APPS;
+  const apps = (showMoreApps ? moreApps : APPS)
+    .filter(app => app.id !== 'terminal' || terminalEnabled);
   const tApps = useTranslations('home.apps');
   const tNav = useTranslations('navigation');
   const tStudio = useTranslations('studio');

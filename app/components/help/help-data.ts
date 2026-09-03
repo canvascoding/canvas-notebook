@@ -520,6 +520,7 @@ Open multiple terminal sessions in parallel for different tasks.
   },
 ];
 
-export function getTutorials(locale: string): Tutorial[] {
-  return locale === 'en' ? enTutorials : deTutorials;
+export function getTutorials(locale: string, terminalEnabled = false): Tutorial[] {
+  const tutorials = locale === 'en' ? enTutorials : deTutorials;
+  return tutorials.filter(tutorial => terminalEnabled || tutorial.id !== 'terminal-basics');
 }

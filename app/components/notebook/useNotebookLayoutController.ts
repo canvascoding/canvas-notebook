@@ -1,5 +1,6 @@
 'use client';
 
+import { useTerminalAvailability } from '@/app/components/terminal/TerminalAvailabilityProvider';
 import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
 
 import {
@@ -32,6 +33,7 @@ function classifyViewport(
 }
 
 export function useNotebookLayoutController() {
+  const { terminalEnabled, ready: terminalPolicyReady } = useTerminalAvailability();
   const [state, dispatch] = useReducer(notebookLayoutReducer, initialNotebookLayoutState);
   const [viewportWidth, setViewportWidth] = useState(0);
   const [explorerWidth, setExplorerWidthState] = useState(NOTEBOOK_EXPLORER_DEFAULT_WIDTH);
@@ -106,6 +108,12 @@ export function useNotebookLayoutController() {
     state.explorerOpen,
     state.terminalOpen,
   ]);
+
+  useEffect(() => {
+    if (preferencesHydrated && terminalPolicyReady && !terminalEnabled && state.terminalOpen) {
+      dispatch({ type: 'SET_TERMINAL', open: false });
+    }
+  }, [preferencesHydrated, terminalPolicyReady, terminalEnabled, state.terminalOpen]);
 
   const setExplorerWidth = useCallback((value: number) => {
     setExplorerWidthState(Math.min(

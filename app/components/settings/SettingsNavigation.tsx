@@ -21,6 +21,7 @@ import {
   Plug,
   Puzzle,
   Settings2,
+  ShieldCheck,
   Smartphone,
   UserRound,
   Users,
@@ -48,6 +49,7 @@ import { cn } from '@/lib/utils';
 
 export type SettingsTab =
   | 'general'
+  | 'administration'
   | 'mobile-app'
   | 'memory'
   | 'integrations'
@@ -178,6 +180,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.systemEmail',
     group: 'connections',
     icon: Mail,
+  },
+  {
+    value: 'administration',
+    labelKey: 'tabs.administration',
+    descriptionKey: 'navigation.descriptions.administration',
+    group: 'system',
+    icon: ShieldCheck,
   },
   {
     value: 'user-management',
