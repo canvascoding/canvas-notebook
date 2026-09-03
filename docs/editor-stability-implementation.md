@@ -72,7 +72,16 @@ All implementation milestones A–D5 are complete on `codex/editor-stability` in
 
 Twelve known, neutral test files were removed from the local Shared Test Workspace and unrelated files were verified unchanged. The task's native app and Metro session were stopped. Original working copies, the managed test stack and production were left unchanged. The isolated host development server is stopped after final verification; it can be restarted from this worktree with the managed host environment.
 
-Release boundary: no push, merge, production deployment, OTA update or native binary was performed. Deploy compatible server/web/mobile codecs together as described above. Before repairing any existing production note, back up its current Yjs state and file checkpoint, validate with the corrected codec and use the normal lifecycle/checkpoint path. No production note was rewritten by this task.
+Release boundary: no production deployment, OTA update or native binary was performed. Deploy compatible server/web/mobile codecs together as described above. Before repairing any existing production note, back up its current Yjs state and file checkpoint, validate with the corrected codec and use the normal lifecycle/checkpoint path. No production note was rewritten by this task.
 
 
 Final GitNexus comparison against `main`: server reports medium aggregate risk; mobile reports critical aggregate risk across the shared Markdown reader, eligibility and document paths. Changed-file review matches the planned scope. The mobile graph also associates eligibility with unrelated route/locale flows, so those counts are not treated as exact runtime reachability. Full mobile verification includes chat-Markdown and the other app domains; physical-device acceptance remains open for release.
+
+
+## Review follow-up: table delimiter escaping
+
+Table output now counts the existing backslash run before each pipe in one pass. Inline prose has already escaped its backslashes; escaping all backslashes again would corrupt ordinary text. The table layer adds only the delimiter protection needed to prevent a cell's contents from becoming extra columns, including inside code spans.
+
+Eighteen shared rich-edit cases cover zero through four backslashes, trailing backslashes, literal entities, consecutive pipes and both header/body cells. Server tests independently parse the output with remark-gfm and verify that the neighboring cell survives, then exercise the actual Yjs checkpoint validator. Mobile runs the same corpus through its editor and structural guard.
+
+GFM limitation: a code span containing an odd number of literal backslashes immediately before a pipe cannot roundtrip losslessly with ordinary backtick syntax. Such edits still fail the unchanged structural checkpoint guard and retain their original rich state for recovery; the escaping fix does not claim to make them saveable or silently drop a backslash. Supporting those values would require a separate, explicit representation decision across all readers. See the [GFM table and code-span rules](https://github.github.com/gfm/#tables-extension-).

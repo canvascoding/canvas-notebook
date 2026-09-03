@@ -77,6 +77,25 @@ function parseTableCell(tokens: MarkdownToken[], helpers: MarkdownParseHelpers):
   return paragraphs;
 }
 
+/** Escape cell delimiters in already-serialized inline Markdown, not raw text. */
+function escapeTableCellPipes(markdown: string): string {
+  let escaped = '';
+  let backslashes = 0;
+  for (const character of markdown) {
+    if (character === '|') {
+      // Prose backslashes are already paired by the inline serializer. Code
+      // spans keep literal backslashes: always leave an odd run before a pipe
+      // so GFM cannot interpret cell content as a column delimiter.
+      // Odd literal runs in code are not losslessly representable by GFM code
+      // spans; the existing structural checkpoint guard must still reject them.
+      escaped += backslashes % 2 === 0 ? '\\' : '\\\\';
+    }
+    escaped += character;
+    backslashes = character === '\\' ? backslashes + 1 : 0;
+  }
+  return escaped;
+}
+
 export const CanvasTable = Table.extend({
   addCommands() { return portableTableCommands(this.parent?.() ?? {}); },
   parseMarkdown(token, helpers) {
@@ -95,9 +114,9 @@ export const CanvasTable = Table.extend({
       header: cell.type === 'tableHeader',
       align: cell.attrs?.align ?? null,
       // Preserve spaces inside code; separate paragraphs from hard breaks.
-      text: (cell.content ?? []).map((block) => helpers.renderChildren([block])
+      text: escapeTableCellPipes((cell.content ?? []).map((block) => helpers.renderChildren([block])
         .replace(/ {2}\r?\n/gu, '<br>').replace(/\r?\n/gu, '<br>'))
-        .join('<br><br>').replace(/\|/gu, '\\|'),
+        .join('<br><br>')),
     })));
     const columns = Math.max(0, ...rows.map((row) => row.length));
     if (!columns) return '';

@@ -5,6 +5,10 @@ import corpus from '../app/lib/markdown/core/fixtures.json';
 import { equivalentMarkdownNormalization } from '../app/lib/markdown/core/equivalence';
 import { analyzeMarkdownRichMode, serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc, validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
+import tableEscapes from '../app/lib/markdown/core/table-escape-fixtures.json';
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import remarkGfm from 'remark-gfm';
 import type { XmlElement } from 'yjs';
 import { getSchema } from '@tiptap/core';
 import { generateUniqueIds } from '@tiptap/extension-unique-id';
@@ -47,3 +51,38 @@ for (const node of corpus.emptyNodes) {
   } finally { doc.destroy(); }
 }
 console.log(`${corpus.emptyNodes.length} empty block states checkpoint without inserted placeholder text.`);
+
+// Exercise rich edits, not just already-valid source, against an independent GFM reader.
+for (const fixture of tableEscapes) {
+  const cell = (text: string, header: boolean, code = false) => ({
+    type: header ? 'tableHeader' : 'tableCell',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text, ...(code ? { marks: [{ type: 'code' }] } : {}) }] }],
+  });
+  // Both the header and body must keep the following cell, even for rejected edits.
+  const json = { type: 'doc', content: [{ type: 'table', content: [true, false].map((header) => ({
+    type: 'tableRow', content: [cell(fixture.text, header, fixture.code), cell('neighbor', header)],
+  })) }] };
+  const schemaDoc = getSchema(extensions).nodeFromJSON(json);
+  schemaDoc.check();
+  const doc = TiptapTransformer.toYdoc(generateUniqueIds(schemaDoc.toJSON(), extensions), 'body', extensions);
+  try {
+    const before = TiptapTransformer.fromYdoc(doc, 'body');
+    const markdown = richMarkdownFromYDoc(doc);
+    const table = unified().use(remarkParse).use(remarkGfm).parse(markdown).children[0];
+    assert.equal(table.type, 'table', fixture.name);
+    if (table.type !== 'table') throw new Error(fixture.name);
+    for (const row of table.children) {
+      assert.equal(row.children.length, 2, `${fixture.name}: no injected columns`);
+      assert.deepEqual(row.children[1].children.map((node) => 'value' in node ? node.value : ''), ['neighbor']);
+      if (fixture.valid) {
+        assert.equal(row.children[0].children.map((node) => 'value' in node ? node.value : '').join(''), fixture.text);
+        if (fixture.code) assert.equal(row.children[0].children[0].type, 'inlineCode');
+      }
+    }
+    const result = validateRichMarkdownYDoc(doc);
+    assert.equal(result.valid, fixture.valid, `${fixture.name}: checkpoint preserves content and marks`);
+    if (!result.valid) assert.equal(result.code, 'roundtrip_unstable');
+    assert.deepEqual(TiptapTransformer.fromYdoc(doc, 'body'), before, `${fixture.name}: validation never rewrites the edit`);
+  } finally { doc.destroy(); }
+}
+console.log(`${tableEscapes.length} table escaping cases preserve cell boundaries and checkpoint guards.`);
