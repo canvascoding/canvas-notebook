@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { promises as fs } from 'fs';
+import { randomUUID } from 'node:crypto';
 
 import { resolveSystemSettingsDir } from '@/app/lib/runtime-data-paths';
 import { serverPreferencesPath } from '@/app/lib/terminal-policy';
@@ -27,6 +28,7 @@ export type DirectMcpServerPreferences = {
 
 export type ServerSettings = {
   terminalEnabled?: boolean;
+  terminalRevocationId?: string;
   terminalUpdatedAt?: string;
   terminalUpdatedBy?: string;
   timeZone?: string;
@@ -134,6 +136,7 @@ function normalizeServerSettings(value: unknown): ServerSettings {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const record = value as {
     terminalEnabled?: unknown;
+    terminalRevocationId?: unknown;
     terminalUpdatedAt?: unknown;
     terminalUpdatedBy?: unknown;
     timeZone?: unknown;
@@ -153,6 +156,7 @@ function normalizeServerSettings(value: unknown): ServerSettings {
   const directMcp = normalizeDirectMcpPreferences(record.directMcp);
   return {
     terminalEnabled: record.terminalEnabled === true,
+    ...(typeof record.terminalRevocationId === 'string' ? { terminalRevocationId: record.terminalRevocationId } : {}),
     ...(typeof record.terminalUpdatedAt === 'string' ? { terminalUpdatedAt: record.terminalUpdatedAt } : {}),
     ...(typeof record.terminalUpdatedBy === 'string' ? { terminalUpdatedBy: record.terminalUpdatedBy } : {}),
     ...(timeZone ? { timeZone } : {}),
@@ -229,6 +233,7 @@ export async function setTerminalEnabled(userId: string, enabled: boolean): Prom
     settings: {
       ...file.settings,
       terminalEnabled: enabled,
+      ...(!enabled ? { terminalRevocationId: randomUUID() } : {}),
       terminalUpdatedAt: new Date().toISOString(),
       terminalUpdatedBy: userId,
     },

@@ -14,6 +14,8 @@ async function main() {
   let user: { id: string; role: string; email: string } | null = null;
   let syncCount = 0;
   let serviceUnavailable = false;
+  let synchronizationBarrier: Promise<void> | null = null;
+  let synchronizationStarted: (() => void) | null = null;
   internal._load = (name, ...args) => {
     if (name === 'server-only') return {};
     if (name === '@/app/lib/auth' || name.endsWith('/app/lib/auth')) {
@@ -22,6 +24,8 @@ async function main() {
     if (name === '@/app/lib/terminal-client' || name.endsWith('/app/lib/terminal-client')) {
       return { getTerminalClient: () => ({ refreshPolicy: async () => {
         syncCount++;
+        synchronizationStarted?.();
+        if (synchronizationBarrier) await synchronizationBarrier;
         if (serviceUnavailable) throw new Error('test service unavailable');
       } }) };
     }
@@ -72,6 +76,21 @@ async function main() {
     const failed = await patch({ terminalEnabled: false });
     assert.equal(failed.status, 503, 'failed runtime synchronization must not report success');
     assert.equal(readTerminalAvailability().terminalEnabled, false, 'persisted denial survives a service failure');
+    serviceUnavailable = false;
+    let releaseSynchronization = () => {};
+    const started = new Promise<void>(resolve => { synchronizationStarted = resolve; });
+    synchronizationBarrier = new Promise<void>(resolve => { releaseSynchronization = resolve; });
+    const disabling = patch({ terminalEnabled: false });
+    await started;
+    const enabling = patch({ terminalEnabled: true });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(readTerminalAvailability().terminalEnabled, false, 'enable must wait until disable has revoked running sessions');
+    synchronizationBarrier = null;
+    synchronizationStarted = null;
+    releaseSynchronization();
+    assert.equal((await disabling).status, 200);
+    assert.equal((await enabling).status, 200);
+    assert.equal(readTerminalAvailability().terminalEnabled, true, 'queued changes recover after a previous service error');
     console.log('terminal-settings-api-test: ok');
   } finally {
     internal._load = originalLoad;

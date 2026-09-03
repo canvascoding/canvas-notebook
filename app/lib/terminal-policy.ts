@@ -5,6 +5,7 @@ import { resolveSystemSettingsDir } from './runtime-data-paths';
 
 export type TerminalAvailability = {
   terminalEnabled: boolean;
+  terminalRevocationId?: string | null;
   terminalUpdatedAt: string | null;
 };
 
@@ -21,6 +22,7 @@ export function readTerminalAvailability(): TerminalAvailability {
     const { settings } = JSON.parse(readFileSync(serverPreferencesPath(), 'utf8'));
     return {
       terminalEnabled: settings?.terminalEnabled === true,
+      terminalRevocationId: typeof settings?.terminalRevocationId === 'string' ? settings.terminalRevocationId : null,
       terminalUpdatedAt: typeof settings?.terminalUpdatedAt === 'string' ? settings.terminalUpdatedAt : null,
     };
   } catch {
@@ -33,7 +35,7 @@ export function subscribeTerminalAvailability(listener: (state: TerminalAvailabi
   let previous = readTerminalAvailability();
   const onChange = () => {
     const next = readTerminalAvailability();
-    if (next.terminalEnabled === previous.terminalEnabled && next.terminalUpdatedAt === previous.terminalUpdatedAt) return;
+    if (next.terminalEnabled === previous.terminalEnabled && next.terminalUpdatedAt === previous.terminalUpdatedAt && next.terminalRevocationId === previous.terminalRevocationId) return;
     previous = next;
     listener(next);
   };
