@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.3.1
-- Lockfile SHA-256: `30a45d5d3a06cb66a58af794c569d9f41eed866968dbe6fd95a25db4be9fecd8`
-- Distributed components: 1510
+- Lockfile SHA-256: `d7096072f6cb14f4e93bb5d43ceb8eb04194eba86171aa09498198bb3a355c76`
+- Distributed components: 1511
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -1075,6 +1075,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | marked-katex-extension | 5.1.10 | runtime | MIT | allowed |
 | marked | 16.4.2 | runtime | MIT | allowed |
 | marked | 17.0.6 | runtime | MIT | allowed |
+| marked | 18.0.3 | runtime | MIT | allowed |
 | marked | 18.0.6 | runtime | MIT | allowed |
 | math-intrinsics | 1.1.0 | runtime | MIT | allowed |
 | mathjax-full | 3.2.2 | runtime | Apache-2.0 | allowed |
@@ -16508,7 +16509,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 8e3a3f82f59a
 
-Applies to marked@16.4.2, marked@17.0.6, marked@18.0.6.
+Applies to marked@16.4.2, marked@17.0.6, marked@18.0.3, marked@18.0.6.
 
 Copyright notices:
 
