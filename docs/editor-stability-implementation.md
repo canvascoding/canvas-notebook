@@ -5,7 +5,7 @@ Implementation branch: `codex/editor-stability`, server base `32238cfc`, mobile 
 ## Sequential milestones
 
 - [x] A: Empty quotes and complete original EOF suffix; Markdown, Yjs, edit/undo/reopen regression coverage in both clients.
-- [ ] B: Versioned shared parser rules and fixture parity; syntax-aware table/list normalization and structural validation.
+- [x] B: Versioned shared parser rules and fixture parity; syntax-aware table/list normalization and structural validation.
 - [ ] C: Read/edit/source modes backed by the current live document; distinct connection, durability and file-checkpoint status; safe recovery actions.
 - [ ] D1: Contextual selection formatting.
 - [ ] D2: Contextual table operations.
@@ -32,3 +32,5 @@ The server owns `app/lib/markdown/core`; mobile ships its generated, versioned c
 Empty headings, list items, quotes, tasks, code, callouts, details and footnotes retain their structure. Empty list paragraphs use the same portable `&nbsp;` whitespace convention as blank paragraphs, without placeholder words; callouts and footnotes no longer acquire invented titles/content during parsing. Ten empty states, thirteen shared source fixtures and six negative semantic-change cases cover both clients. Existing notes are not rewritten or migrated on opening.
 
 Server validation: TypeScript, focused ESLint, rich-block/preservation/hardening suites, PostgreSQL agent-operation integration, and Chromium mobile-API → web edit → file checkpoint → reopen. The slash quote browser regression also passes. New attributes that cannot roundtrip remain rejected. Deploy the matching codec in server/web/mobile together; older clients must not edit newly introduced structural encodings until upgraded.
+
+Mobile B validation: full `npm run verify` passed, including both shared fixture/empty-state DOM checks, existing editor commands, license inventory, Expo Doctor and iOS/Android/Web exports. Automatic footnote cleanup now preserves pre-existing orphan definitions and authoritative imports. No native build or real-device signoff is implied by these checks.
