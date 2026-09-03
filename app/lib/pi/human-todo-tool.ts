@@ -81,8 +81,10 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
         description: 'Optional workspace-relative file paths relevant to the task. Absolute paths, URLs, and traversal are rejected.',
         maxItems: 20,
       })),
-      assigneeUserId: Type.Optional(Type.String({ description: 'Optional user ID to assign the to-do to. For team workspace to-dos the assignee must be a member of the organization.' })),
-      leaveUnassigned: Type.Optional(Type.Boolean({ description: 'Set true only when the to-do should intentionally have no responsible person.' })),
+      assigneeUserId: Type.String({
+        description: 'Required responsible person. Use "me" for the current human workspace user, or provide a user ID. For team workspace to-dos the assignee must be a member of the organization.',
+        minLength: 1,
+      }),
     }),
     execute: async (_toolCallId, params) => {
       try {
@@ -95,6 +97,13 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
         const workspaceScope = executionContext
           ? todoScopeForWorkspace(executionContext)
           : USER_TODO_SCOPE;
+        const requestedAssigneeUserId = typeof input.assigneeUserId === 'string'
+          ? input.assigneeUserId.trim()
+          : '';
+        if (!requestedAssigneeUserId) {
+          throw new Error('assigneeUserId is required for create_human_todo. Use "me" for the current human workspace user.');
+        }
+
         const todo = await createTodo(deps.userId, {
           ...workspaceScope,
           title: String(input.title ?? ''),
@@ -104,9 +113,7 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
           iconKey: isTodoIconKey(input.iconKey) ? input.iconKey : null,
           dueAt: parseDueAt(input.dueAt),
           remindAt: parseDueAt(input.remindAt),
-          assigneeUserId: input.leaveUnassigned === true
-            ? null
-            : typeof input.assigneeUserId === 'string' ? input.assigneeUserId : deps.userId,
+          assigneeUserId: requestedAssigneeUserId === 'me' ? deps.userId : requestedAssigneeUserId,
           sourceType: 'agent',
           sourceAgentId,
           sourceSessionId,

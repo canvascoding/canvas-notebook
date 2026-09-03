@@ -20,9 +20,16 @@ async function main() {
   });
 
   const tool = createHumanTodoTool({ userId, agentId: 'canvas-agent', sessionId: 'session-from-runtime' });
+  const parameterSchema = tool.parameters as unknown as {
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+  assert.equal(parameterSchema.required?.includes('assigneeUserId'), true);
+  assert.equal(parameterSchema.properties?.leaveUnassigned, undefined);
 
   const result = await tool.execute('tool-test', {
     title: 'Review generated summary',
+    assigneeUserId: 'me',
     description: 'Human review is required before publishing.',
     categoryName: 'Prüfen',
     priority: 'high',
@@ -38,7 +45,7 @@ async function main() {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].title, 'Review generated summary');
   assert.equal(rows[0].sourceType, 'agent');
-  assert.equal(rows[0].sourceAgentId, 'canvas-agent');
+  assert.equal(rows[0].sourceAgentId, 'bradley');
   assert.equal(rows[0].sourceSessionId, 'session-from-runtime');
   assert.equal(rows[0].seenAt, null);
   assert.equal(rows[0].priority, 'high');
@@ -54,6 +61,7 @@ async function main() {
 
   const fallbackResult = await tool.execute('tool-test-fallback', {
     title: 'Fallback category test',
+    assigneeUserId: 'me',
     categoryName: 'Does not exist',
   });
   const fallbackText = fallbackResult.content?.[0]?.type === 'text' ? fallbackResult.content[0].text : '';
@@ -69,6 +77,7 @@ async function main() {
 
   const explicitSessionResult = await tool.execute('tool-test-explicit-session', {
     title: 'Explicit session is ignored when runtime session exists',
+    assigneeUserId: 'me',
     sourceSessionId: 'manual-session',
   });
   const explicitSessionText = explicitSessionResult.content?.[0]?.type === 'text' ? explicitSessionResult.content[0].text : '';
@@ -78,15 +87,17 @@ async function main() {
   });
   assert.equal(explicitSessionTodo?.sourceSessionId, 'session-from-runtime');
 
-  const unassignedResult = await tool.execute('tool-test-unassigned', {
-    title: 'Intentionally unassigned',
-    leaveUnassigned: true,
+  const missingAssigneeResult = await tool.execute('tool-test-missing-assignee', {
+    title: 'Missing responsible person',
   });
-  assert.match(unassignedResult.content?.[0]?.type === 'text' ? unassignedResult.content[0].text : '', /Human to-do created/);
-  const unassigned = await db.query.todoItems.findFirst({
-    where: and(eq(todoItems.userId, userId), eq(todoItems.title, 'Intentionally unassigned')),
+  assert.match(
+    missingAssigneeResult.content?.[0]?.type === 'text' ? missingAssigneeResult.content[0].text : '',
+    /assigneeUserId is required/,
+  );
+  const missingAssigneeTodo = await db.query.todoItems.findFirst({
+    where: and(eq(todoItems.userId, userId), eq(todoItems.title, 'Missing responsible person')),
   });
-  assert.equal(unassigned?.assigneeUserId, null);
+  assert.equal(missingAssigneeTodo, undefined);
 
   await db.delete(todoFileLinks).where(eq(todoFileLinks.userId, userId));
   await db.delete(todoItems).where(eq(todoItems.userId, userId));
