@@ -1,9 +1,9 @@
 import 'server-only';
 
 import { promises as fs } from 'fs';
-import path from 'path';
 
 import { resolveSystemSettingsDir } from '@/app/lib/runtime-data-paths';
+import { serverPreferencesPath } from '@/app/lib/terminal-policy';
 import { DEFAULT_USER_TIME_ZONE, isValidTimeZone, normalizeTimeZone } from '@/app/lib/time-zones';
 import {
   DIRECT_MCP_TOOL_CONFIGURATION_VERSION,
@@ -11,8 +11,6 @@ import {
   DIRECT_MCP_TOOL_IDS,
   type DirectMcpToolId,
 } from '@/app/lib/mcp/server/config';
-
-const SERVER_SETTINGS_FILE = 'server-preferences.json';
 
 export const INSTANCE_ONBOARDING_STEPS = ['server', 'license', 'provider', 'workspace', 'review'] as const;
 export type InstanceOnboardingStep = typeof INSTANCE_ONBOARDING_STEPS[number];
@@ -28,6 +26,9 @@ export type DirectMcpServerPreferences = {
 };
 
 export type ServerSettings = {
+  terminalEnabled?: boolean;
+  terminalUpdatedAt?: string;
+  terminalUpdatedBy?: string;
   timeZone?: string;
   updatedAt?: string;
   updatedBy?: string;
@@ -65,7 +66,7 @@ function emptyServerSettingsFile(): ServerSettingsFile {
 }
 
 function serverSettingsFilePath(): string {
-  return path.join(resolveSystemSettingsDir(), SERVER_SETTINGS_FILE);
+  return serverPreferencesPath();
 }
 
 async function ensureSystemSettingsDir(): Promise<void> {
@@ -132,6 +133,9 @@ function normalizeDirectMcpPreferences(value: unknown): DirectMcpServerPreferenc
 function normalizeServerSettings(value: unknown): ServerSettings {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const record = value as {
+    terminalEnabled?: unknown;
+    terminalUpdatedAt?: unknown;
+    terminalUpdatedBy?: unknown;
     timeZone?: unknown;
     updatedAt?: unknown;
     updatedBy?: unknown;
@@ -148,6 +152,9 @@ function normalizeServerSettings(value: unknown): ServerSettings {
   const onboardingStep = normalizeInstanceOnboardingStep(record.onboardingStep);
   const directMcp = normalizeDirectMcpPreferences(record.directMcp);
   return {
+    terminalEnabled: record.terminalEnabled === true,
+    ...(typeof record.terminalUpdatedAt === 'string' ? { terminalUpdatedAt: record.terminalUpdatedAt } : {}),
+    ...(typeof record.terminalUpdatedBy === 'string' ? { terminalUpdatedBy: record.terminalUpdatedBy } : {}),
     ...(timeZone ? { timeZone } : {}),
     ...(typeof record.updatedAt === 'string' ? { updatedAt: record.updatedAt } : {}),
     ...(typeof record.updatedBy === 'string' ? { updatedBy: record.updatedBy } : {}),
@@ -212,6 +219,20 @@ async function writeServerSettingsFileAtomic(payload: ServerSettingsFile): Promi
 export async function getServerSettings(): Promise<ServerSettings> {
   const file = await readServerSettingsFile();
   return file.settings;
+}
+
+export async function setTerminalEnabled(userId: string, enabled: boolean): Promise<void> {
+  if (typeof enabled !== 'boolean') throw new Error('Terminal enabled must be a boolean.');
+  const file = await readServerSettingsFile();
+  await writeServerSettingsFileAtomic({
+    version: 1,
+    settings: {
+      ...file.settings,
+      terminalEnabled: enabled,
+      terminalUpdatedAt: new Date().toISOString(),
+      terminalUpdatedBy: userId,
+    },
+  });
 }
 
 export async function getServerPreferredTimeZone(): Promise<string> {
