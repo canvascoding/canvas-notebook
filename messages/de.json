@@ -487,6 +487,15 @@
     }
   },
   "notebook": {
+    "editorSelection": {
+      "title": "Auswahl formatieren (Alt+F10)",
+      "bold": "Fett",
+      "italic": "Kursiv",
+      "strike": "Durchgestrichen",
+      "highlight": "Hervorheben",
+      "code": "Inline-Code",
+      "link": "Link"
+    },
     "editorModes": {
       "label": "Dokumentansicht",
       "read": "Lesen",

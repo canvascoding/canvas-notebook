@@ -7,7 +7,7 @@ Implementation branch: `codex/editor-stability`, server base `32238cfc`, mobile 
 - [x] A: Empty quotes and complete original EOF suffix; Markdown, Yjs, edit/undo/reopen regression coverage in both clients.
 - [x] B: Versioned shared parser rules and fixture parity; syntax-aware table/list normalization and structural validation.
 - [x] C: Read/edit/source modes backed by the current live document; distinct connection, durability and file-checkpoint status; safe recovery actions.
-- [ ] D1: Contextual selection formatting.
+- [x] D1: Contextual selection formatting.
 - [ ] D2: Contextual table operations.
 - [ ] D3: Portable image sizing/alignment with resize controls and renderer parity.
 - [ ] D4: Link/preview/embed paste choices using existing provider support.
@@ -44,3 +44,5 @@ Connection and durability have separate labels. Validation failures keep the edi
 Mobile retains its editor and live connection while switching to Read or a read-only rich Source view. Plain-text live notes default to formatted reading, with source editing available. The same current content drives reading, copying and sharing. A degraded native editor stays protected until a confirmed checkpoint; offline labels no longer claim unverified device persistence. Mobile exposes clear error text, Markdown copy and safe diagnostic copying. Full `npm run verify` passes. Simulator interaction and device limitations are recorded at milestone acceptance.
 
 Mobile C acceptance: full `npm run verify` passes. Maestro on the existing iOS 26.3 development simulator confirms the saved empty quote, Read/Edit/read-only rich Source transitions, outline navigation and plain-text live reading/source editing. The hidden live WebView retains layout so its bootstrap handshake runs while reading. Server vector coverage distinguishes durable Yjs state from a file checkpoint and never clears a degraded state merely on acknowledgement. Actual iOS/Android devices were unavailable; no new native binary was built. The reader still displays a literal escaped pipe inside a table code span; include this discovered renderer-parity case in D3.
+
+D1 acceptance: contextual selection toolbar reuses the existing bold/italic/strike/highlight/code commands and link dialog. Alt+F10, arrow navigation, Escape, pointer and touch interaction preserve the ProseMirror selection. The floating menu stays above workspace panes and within the viewport, is absent in Read mode, and produces the expected file checkpoint. Chromium mouse/keyboard/link-dialog/read-mode and 390px touch checks, TypeScript and focused ESLint pass. Native selection gestures remain covered by the existing native toolbar, with real-device acceptance outstanding.

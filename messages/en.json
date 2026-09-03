@@ -488,6 +488,15 @@
     }
   },
   "notebook": {
+    "editorSelection": {
+      "title": "Format selection (Alt+F10)",
+      "bold": "Bold",
+      "italic": "Italic",
+      "strike": "Strikethrough",
+      "highlight": "Highlight",
+      "code": "Inline code",
+      "link": "Link"
+    },
     "editorModes": {
       "label": "Document view",
       "read": "Read",

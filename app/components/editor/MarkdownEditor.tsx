@@ -111,6 +111,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { MarkdownModeBar, MarkdownRichMigration, MarkdownSaveState, useLiveMarkdown, type MarkdownDocumentMode } from './MarkdownDocumentModes';
+import { MarkdownSelectionMenu } from './MarkdownSelectionMenu';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 import {
   clampEditorRangeToDoc,
@@ -4247,6 +4248,7 @@ function MarkdownToolbar({
           </TooltipIconButton>
         </div>
       ) : null}
+      {canUseCommands && editor ? <MarkdownSelectionMenu editor={editor} suppressed={linkDialogOpen || Boolean(linkPopover)} onLink={openToolbarLinkDialog} /> : null}
       <MarkdownLinkPopover
         editor={editor}
         state={editor ? linkPopover : null}
