@@ -3,8 +3,8 @@
 This file is generated from `package-lock.json`, installed package license files,
 versioned overrides, and the bundled non-npm component inventory.
 
-- Canvas Notebook version: 2026.9.3.1
-- Lockfile SHA-256: `d7096072f6cb14f4e93bb5d43ceb8eb04194eba86171aa09498198bb3a355c76`
+- Canvas Notebook version: 2026.9.3.2
+- Lockfile SHA-256: `b66b101de4f0cdd802a14ae4e13cf46c0f0fc0b68ea79dd877492001d97e47a2`
 - Distributed components: 1511
 - Release gate: **approved**
 
@@ -16514,7 +16514,9 @@ Applies to marked@16.4.2, marked@17.0.6, marked@18.0.3, marked@18.0.6.
 Copyright notices:
 
 - Copyright (c) 2011-2018, Christopher Jeffrey (https://github.com/chjj/)
+- Copyright (c) 2011-2018, Christopher Jeffrey. (MIT License)
 - Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/)
+- Copyright (c) 2018+, MarkedJS. (MIT License)
 - Copyright © 2004, John Gruber
 
 ```text

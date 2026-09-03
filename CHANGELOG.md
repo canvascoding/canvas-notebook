@@ -11,6 +11,22 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.3.2] - 2026-09-03
+
+### Added
+
+- Added a shared, lossless Markdown conversion core with improved preservation of tables, images, URL pastes, selection formatting, and empty quote blocks.
+- Added live-document modes, explicit recovery state, document focus controls, readable table widths, image resizing, and contextual table and selection tools.
+
+### Changed
+
+- Improved editor collaboration state handling and Bradley brand fallbacks across product surfaces.
+- Updated the multi-architecture release and Control Plane notification workflows to preserve release ordering and provenance.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.3.1] - 2026-09-03
 
 ### Added
