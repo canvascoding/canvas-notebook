@@ -98,9 +98,8 @@ function SetupForm() {
             width={144}
             height={40}
             sizes="(min-width: 640px) 144px, 128px"
-            fallbackSrc="/logo-login.webp"
             className="h-10 max-w-36 shrink-0 object-contain"
-            fallbackClassName="w-10 border border-border object-cover"
+            fallbackClassName="w-10 object-contain"
             brandClassName="w-auto"
           />
           <div className="text-center sm:text-left">

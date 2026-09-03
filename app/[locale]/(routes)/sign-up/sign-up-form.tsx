@@ -89,7 +89,7 @@ function SignUpFormInner() {
             height={48}
             sizes="(min-width: 640px) 144px, 128px"
             className="h-12 max-w-36 shrink-0 object-contain"
-            fallbackClassName="w-12 border border-border object-cover"
+            fallbackClassName="w-12 object-contain"
             brandClassName="w-auto"
           />
           <h1 className="text-center text-3xl font-bold text-foreground">{t('title')}</h1>

@@ -58,7 +58,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
             width={160}
             height={48}
             className="h-12 max-w-40 object-contain"
-            fallbackClassName="w-12 border border-border object-cover"
+            fallbackClassName="w-12 object-contain"
             brandClassName="w-auto"
           />
           <p className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">Canvas Notebook</p>

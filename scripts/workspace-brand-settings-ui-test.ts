@@ -65,7 +65,7 @@ assert.match(appearanceProviderSource, /WorkspaceBrandingContext\.Provider/u);
 assert.match(homeSource, /<WorkspaceBrandLogo/u);
 assert.doesNotMatch(homeSource, /src="\/logo\.jpg"/u);
 assert.match(workspaceBrandLogoSource, /<BrandLogoImage/u);
-assert.match(brandLogoSource, /fallbackSrc = '\/logo\.jpg'/u);
+assert.match(brandLogoSource, /fallbackSrc = '\/images\/bradley\/bradley-icon\.svg'/u);
 assert.match(brandLogoSource, /unoptimized=\{usesBrandLogo \|\| imageProps\.unoptimized\}/u);
 assert.match(brandLogoSource, /onError=\{\(event\) => \{[\s\S]*?setFailedLogoUrl\(logoUrl\)/u);
 

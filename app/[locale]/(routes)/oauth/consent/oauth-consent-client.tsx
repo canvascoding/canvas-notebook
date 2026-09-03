@@ -62,9 +62,8 @@ export function OAuthConsentClient({
               width={136}
               height={40}
               sizes="136px"
-              fallbackSrc="/logo-login.webp"
               className="h-10 max-w-36 object-contain"
-              fallbackClassName="w-10 border border-border object-cover"
+              fallbackClassName="w-10 object-contain"
               brandClassName="w-auto"
             />
             <div className="ml-auto flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">

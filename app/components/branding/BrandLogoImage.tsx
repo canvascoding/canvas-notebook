@@ -18,7 +18,7 @@ export function BrandLogoImage({
   brandClassName,
   className,
   fallbackClassName,
-  fallbackSrc = '/logo.jpg',
+  fallbackSrc = '/images/bradley/bradley-icon.svg',
   logoUrl,
   ...imageProps
 }: BrandLogoImageProps) {

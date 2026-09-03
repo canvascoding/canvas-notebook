@@ -13,9 +13,10 @@ const setupSource = readSource('app/[locale]/(routes)/setup/setup-client.tsx');
 const signUpSource = readSource('app/[locale]/(routes)/sign-up/sign-up-form.tsx');
 const onboardingSource = readSource('app/[locale]/(routes)/onboarding/onboarding-wizard.tsx');
 const onboardingPageSource = readSource('app/[locale]/(routes)/onboarding/page.tsx');
+const publicSharePromotionSource = readSource('app/components/public-sharing/PublicSharePromotion.tsx');
 
 assert.match(publicLogoSource, /logoUrl="\/api\/public\/brand\/logo"/u);
-assert.match(sharedLogoSource, /fallbackSrc = '\/logo\.jpg'/u);
+assert.match(sharedLogoSource, /fallbackSrc = '\/images\/bradley\/bradley-icon\.svg'/u);
 assert.match(sharedLogoSource, /setFailedLogoUrl\(logoUrl\)/u);
 assert.match(routeSource, /readPrimaryOrganizationBrandProfile/u);
 assert.match(routeSource, /state\.profile\.appearance\.enabled/u);
@@ -29,6 +30,7 @@ for (const source of [loginSource, setupSource, signUpSource, onboardingSource])
 }
 
 assert.match(onboardingPageSource, /phase === 'waiting'[\s\S]*?<PublicBrandLogo/u);
+assert.match(publicSharePromotionSource, /src="\/images\/bradley\/bradley-icon\.svg"/u);
 assert.match(loginSource, /flex-col items-center justify-center gap-3 sm:flex-row/u);
 assert.match(setupSource, /flex-col items-center justify-center gap-3 sm:flex-row/u);
 assert.match(signUpSource, /flex-col items-center justify-center gap-3 sm:flex-row/u);

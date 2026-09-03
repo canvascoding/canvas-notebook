@@ -20,7 +20,7 @@ export function PublicSharePromotion() {
         className="group inline-flex min-w-0 max-w-full items-center gap-2 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
         <Image
-          src="/logo-login.webp"
+          src="/images/bradley/bradley-icon.svg"
           alt=""
           aria-hidden="true"
           width={18}
