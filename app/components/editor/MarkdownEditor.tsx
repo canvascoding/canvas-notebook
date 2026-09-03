@@ -2124,6 +2124,7 @@ function createEditorExtensions(
 ) {
   const extensions = [
     StarterKit.configure({
+      blockquote: false,
       codeBlock: false,
       link: false,
       paragraph: false,

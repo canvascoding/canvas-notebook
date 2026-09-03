@@ -222,7 +222,7 @@ export function createRichMarkdownYDoc(markdown: string): YTypes.Doc {
   const json = generateUniqueIds(manager.parse(parts.body), extensions);
   const doc = TiptapTransformer.toYdoc(json, 'body', extensions);
   if (parts.prefix) doc.getText('frontmatter').insert(0, parts.prefix);
-  const finalLineEnding = parts.body.match(/(\r?\n)$/u)?.[1];
+  const finalLineEnding = parts.body.match(/((?:\r?\n)+)$/u)?.[1];
   if (finalLineEnding) doc.getText('bodyFinalLineEnding').insert(0, finalLineEnding);
   return doc;
 }
@@ -268,7 +268,7 @@ export function replaceRichMarkdownInYDoc(
       if (parts.prefix) frontmatter.insert(0, parts.prefix);
       const bodyFinalLineEnding = doc.getText('bodyFinalLineEnding');
       if (bodyFinalLineEnding.length > 0) bodyFinalLineEnding.delete(0, bodyFinalLineEnding.length);
-      const finalLineEnding = parts.body.match(/(\r?\n)$/u)?.[1];
+      const finalLineEnding = parts.body.match(/((?:\r?\n)+)$/u)?.[1];
       if (finalLineEnding) bodyFinalLineEnding.insert(0, finalLineEnding);
     }, origin);
   } finally {

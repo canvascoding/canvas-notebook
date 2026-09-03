@@ -12,6 +12,7 @@ import {
   type Range,
 } from '@tiptap/core';
 import Paragraph from '@tiptap/extension-paragraph';
+import Blockquote from '@tiptap/extension-blockquote';
 import { TextSelection } from '@tiptap/pm/state';
 
 import { ObsidianWikiLink } from './tiptap-obsidian-wiki-link';
@@ -80,6 +81,17 @@ function quoteMarkdown(markdown: string): string {
 }
 
 const EMPTY_PARAGRAPH_MARKDOWN = '&nbsp;';
+
+// A newly inserted quote serializes as `>`. Marked gives it no child tokens,
+// but the blockquote schema requires at least one block, including on reload.
+export const CanvasBlockquote = Blockquote.extend({
+  parseMarkdown(token, helpers) {
+    const parseBlocks = helpers.parseBlockChildren ?? helpers.parseChildren;
+    const children = parseBlocks(token.tokens ?? []);
+    return helpers.createNode('blockquote', undefined,
+      children.length ? children : [helpers.createNode('paragraph')]);
+  },
+});
 const THEMATIC_BREAK_PARAGRAPH_PATTERN = /^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/u;
 
 // Rich Markdown tokenizers need to run before generic block tokenizers, which
@@ -699,6 +711,7 @@ export const MarkdownFootnoteDefinition = Node.create({
 export function canvasRichMarkdownExtensions(options?: { obsidianWikiLink?: AnyExtension }) {
   return [
     CanvasParagraph,
+    CanvasBlockquote,
     CanvasHighlight,
     options?.obsidianWikiLink ?? ObsidianWikiLink,
     CanvasCalloutTitle,

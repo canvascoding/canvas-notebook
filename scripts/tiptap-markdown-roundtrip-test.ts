@@ -273,7 +273,7 @@ async function main() {
     content: sampleMarkdown,
     contentType: 'markdown',
     extensions: [
-      StarterKit.configure({ link: false, paragraph: false }),
+      StarterKit.configure({ link: false, paragraph: false, blockquote: false }),
       Link.configure({ openOnClick: false }),
       Mathematics.configure({
         katexOptions: {
@@ -690,6 +690,27 @@ $$`));
   blockEditor.destroy();
   slashEditor.destroy();
   smallEditor.destroy();
+
+  const quoteEditor = new Editor({
+    content: '<p></p>',
+    extensions: editor.options.extensions,
+  });
+  assert.equal(quoteEditor.commands.toggleBlockquote(), true);
+  quoteEditor.state.doc.check();
+  assert.equal(quoteEditor.getMarkdown().trim(), '>');
+  assert.equal(quoteEditor.commands.undo(), true);
+  assert.equal(quoteEditor.isActive('blockquote'), false);
+  assert.equal(quoteEditor.commands.redo(), true);
+  assert.equal(quoteEditor.isActive('blockquote'), true);
+  quoteEditor.commands.insertContent('Quote text');
+  quoteEditor.commands.selectAll();
+  quoteEditor.commands.deleteSelection();
+  quoteEditor.state.doc.check();
+  quoteEditor.commands.setContent('Before\n\n>\n\n## After', { contentType: 'markdown' });
+  quoteEditor.state.doc.check();
+  assert.equal(quoteEditor.getMarkdown().trim(), 'Before\n\n>\n\n## After');
+  quoteEditor.destroy();
+
   editor.destroy();
 
   console.log('tiptap-markdown-roundtrip-test: ok');
