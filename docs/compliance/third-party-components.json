@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.9.2.3",
-  "lockfileSha256": "58445bd556eab95f6caca3c6af08de502e57e05158d2aa96d1dd8a1e2fbcef5e",
+  "packageVersion": "2026.9.3.1",
+  "lockfileSha256": "30a45d5d3a06cb66a58af794c569d9f41eed866968dbe6fd95a25db4be9fecd8",
   "summary": {
     "totalComponents": 2035,
     "npmComponents": 2011,
@@ -21716,7 +21716,7 @@
     },
     {
       "name": "@tiptap/core",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/core",
       "usage": "runtime",
@@ -21738,7 +21738,7 @@
     },
     {
       "name": "@tiptap/extension-blockquote",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-blockquote",
       "usage": "runtime",
@@ -21760,7 +21760,7 @@
     },
     {
       "name": "@tiptap/extension-bold",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-bold",
       "usage": "runtime",
@@ -21782,7 +21782,7 @@
     },
     {
       "name": "@tiptap/extension-bubble-menu",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-bubble-menu",
       "usage": "runtime",
@@ -21794,17 +21794,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@tiptap/extension-bubble-menu/LICENSE.md",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@tiptap/extension-bubble-menu@3.31.0",
       "licenseTextSha256": "c96e5ecb55ac593157ad1d21d1f44a611187f494a0f04c235a1ae692c88d6ba9",
       "copyrightNotices": [
         "Copyright (c) 2025, Tiptap GmbH"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@tiptap/extension-bubble-menu/-/extension-bubble-menu-3.31.0.tgz#LICENSE.md"
     },
     {
       "name": "@tiptap/extension-bullet-list",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-bullet-list",
       "usage": "runtime",
@@ -21826,7 +21827,7 @@
     },
     {
       "name": "@tiptap/extension-code-block",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-code-block",
       "usage": "runtime",
@@ -21848,7 +21849,7 @@
     },
     {
       "name": "@tiptap/extension-code",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-code",
       "usage": "runtime",
@@ -21870,7 +21871,7 @@
     },
     {
       "name": "@tiptap/extension-collaboration-caret",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-collaboration-caret",
       "usage": "runtime",
@@ -21892,7 +21893,7 @@
     },
     {
       "name": "@tiptap/extension-collaboration",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-collaboration",
       "usage": "runtime",
@@ -21914,7 +21915,7 @@
     },
     {
       "name": "@tiptap/extension-document",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-document",
       "usage": "runtime",
@@ -21936,7 +21937,7 @@
     },
     {
       "name": "@tiptap/extension-dropcursor",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-dropcursor",
       "usage": "runtime",
@@ -21958,7 +21959,7 @@
     },
     {
       "name": "@tiptap/extension-floating-menu",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-floating-menu",
       "usage": "runtime",
@@ -21970,17 +21971,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@tiptap/extension-floating-menu/LICENSE.md",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@tiptap/extension-floating-menu@3.31.0",
       "licenseTextSha256": "c96e5ecb55ac593157ad1d21d1f44a611187f494a0f04c235a1ae692c88d6ba9",
       "copyrightNotices": [
         "Copyright (c) 2025, Tiptap GmbH"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@tiptap/extension-floating-menu/-/extension-floating-menu-3.31.0.tgz#LICENSE.md"
     },
     {
       "name": "@tiptap/extension-gapcursor",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-gapcursor",
       "usage": "runtime",
@@ -22002,7 +22004,7 @@
     },
     {
       "name": "@tiptap/extension-hard-break",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-hard-break",
       "usage": "runtime",
@@ -22024,7 +22026,7 @@
     },
     {
       "name": "@tiptap/extension-heading",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-heading",
       "usage": "runtime",
@@ -22046,7 +22048,7 @@
     },
     {
       "name": "@tiptap/extension-horizontal-rule",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-horizontal-rule",
       "usage": "runtime",
@@ -22068,7 +22070,7 @@
     },
     {
       "name": "@tiptap/extension-image",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-image",
       "usage": "runtime",
@@ -22090,7 +22092,7 @@
     },
     {
       "name": "@tiptap/extension-italic",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-italic",
       "usage": "runtime",
@@ -22112,7 +22114,7 @@
     },
     {
       "name": "@tiptap/extension-link",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-link",
       "usage": "runtime",
@@ -22134,7 +22136,7 @@
     },
     {
       "name": "@tiptap/extension-list-item",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-list-item",
       "usage": "runtime",
@@ -22156,7 +22158,7 @@
     },
     {
       "name": "@tiptap/extension-list-keymap",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-list-keymap",
       "usage": "runtime",
@@ -22178,7 +22180,7 @@
     },
     {
       "name": "@tiptap/extension-list",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-list",
       "usage": "runtime",
@@ -22200,7 +22202,7 @@
     },
     {
       "name": "@tiptap/extension-mathematics",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-mathematics",
       "usage": "runtime",
@@ -22222,7 +22224,7 @@
     },
     {
       "name": "@tiptap/extension-ordered-list",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-ordered-list",
       "usage": "runtime",
@@ -22244,7 +22246,7 @@
     },
     {
       "name": "@tiptap/extension-paragraph",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-paragraph",
       "usage": "runtime",
@@ -22266,7 +22268,7 @@
     },
     {
       "name": "@tiptap/extension-placeholder",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-placeholder",
       "usage": "runtime",
@@ -22288,7 +22290,7 @@
     },
     {
       "name": "@tiptap/extension-strike",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-strike",
       "usage": "runtime",
@@ -22310,7 +22312,7 @@
     },
     {
       "name": "@tiptap/extension-table-cell",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-table-cell",
       "usage": "runtime",
@@ -22332,7 +22334,7 @@
     },
     {
       "name": "@tiptap/extension-table-header",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-table-header",
       "usage": "runtime",
@@ -22354,7 +22356,7 @@
     },
     {
       "name": "@tiptap/extension-table-row",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-table-row",
       "usage": "runtime",
@@ -22376,7 +22378,7 @@
     },
     {
       "name": "@tiptap/extension-table",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-table",
       "usage": "runtime",
@@ -22398,7 +22400,7 @@
     },
     {
       "name": "@tiptap/extension-task-item",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-task-item",
       "usage": "runtime",
@@ -22420,7 +22422,7 @@
     },
     {
       "name": "@tiptap/extension-task-list",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-task-list",
       "usage": "runtime",
@@ -22442,7 +22444,7 @@
     },
     {
       "name": "@tiptap/extension-text",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-text",
       "usage": "runtime",
@@ -22464,7 +22466,7 @@
     },
     {
       "name": "@tiptap/extension-underline",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-underline",
       "usage": "runtime",
@@ -22486,7 +22488,7 @@
     },
     {
       "name": "@tiptap/extension-unique-id",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extension-unique-id",
       "usage": "runtime",
@@ -22508,7 +22510,7 @@
     },
     {
       "name": "@tiptap/extensions",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/extensions",
       "usage": "runtime",
@@ -22530,7 +22532,7 @@
     },
     {
       "name": "@tiptap/markdown",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/markdown",
       "usage": "runtime",
@@ -22552,7 +22554,7 @@
     },
     {
       "name": "@tiptap/pm",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/pm",
       "usage": "runtime",
@@ -22574,7 +22576,7 @@
     },
     {
       "name": "@tiptap/react",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/react",
       "usage": "runtime",
@@ -22596,7 +22598,7 @@
     },
     {
       "name": "@tiptap/starter-kit",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/starter-kit",
       "usage": "runtime",
@@ -22618,7 +22620,7 @@
     },
     {
       "name": "@tiptap/suggestion",
-      "versionOrCommit": "3.27.3",
+      "versionOrCommit": "3.31.0",
       "sourceUrl": "https://github.com/ueberdosis/tiptap",
       "packagePathOrArtifact": "node_modules/@tiptap/suggestion",
       "usage": "runtime",
@@ -24453,7 +24455,7 @@
     },
     {
       "name": "@xmldom/xmldom",
-      "versionOrCommit": "0.8.13",
+      "versionOrCommit": "0.8.15",
       "sourceUrl": "https://github.com/xmldom/xmldom",
       "packagePathOrArtifact": "node_modules/@xmldom/xmldom",
       "usage": "runtime",
@@ -25421,7 +25423,7 @@
     },
     {
       "name": "baseline-browser-mapping",
-      "versionOrCommit": "2.10.43",
+      "versionOrCommit": "2.11.20",
       "sourceUrl": "https://github.com/web-platform-dx/baseline-browser-mapping",
       "packagePathOrArtifact": "node_modules/baseline-browser-mapping",
       "usage": "runtime",
@@ -25824,7 +25826,7 @@
     },
     {
       "name": "browserslist",
-      "versionOrCommit": "4.28.6",
+      "versionOrCommit": "4.28.8",
       "sourceUrl": "browserslist/browserslist",
       "packagePathOrArtifact": "node_modules/browserslist",
       "usage": "runtime",
@@ -26089,7 +26091,7 @@
     },
     {
       "name": "caniuse-lite",
-      "versionOrCommit": "1.0.30001805",
+      "versionOrCommit": "1.0.30001810",
       "sourceUrl": "browserslist/caniuse-lite",
       "packagePathOrArtifact": "node_modules/caniuse-lite",
       "usage": "runtime",
@@ -28591,7 +28593,7 @@
     },
     {
       "name": "deepmerge-ts",
-      "versionOrCommit": "7.1.5",
+      "versionOrCommit": "7.1.6",
       "sourceUrl": "https://github.com/RebeccaStevens/deepmerge-ts",
       "packagePathOrArtifact": "node_modules/deepmerge-ts",
       "usage": "runtime",
@@ -29198,7 +29200,7 @@
     },
     {
       "name": "electron-to-chromium",
-      "versionOrCommit": "1.5.389",
+      "versionOrCommit": "1.5.420",
       "sourceUrl": "https://github.com/Kilian/electron-to-chromium",
       "packagePathOrArtifact": "node_modules/electron-to-chromium",
       "usage": "runtime",
@@ -30256,7 +30258,7 @@
     },
     {
       "name": "fast-uri",
-      "versionOrCommit": "3.1.5",
+      "versionOrCommit": "3.1.6",
       "sourceUrl": "https://github.com/fastify/fast-uri",
       "packagePathOrArtifact": "node_modules/fast-uri",
       "usage": "runtime",
@@ -35987,7 +35989,7 @@
     },
     {
       "name": "minimizer-webpack-plugin",
-      "versionOrCommit": "5.6.1",
+      "versionOrCommit": "5.8.0",
       "sourceUrl": "webpack/minimizer-webpack-plugin",
       "packagePathOrArtifact": "node_modules/minimizer-webpack-plugin",
       "usage": "runtime",
@@ -36613,7 +36615,7 @@
     },
     {
       "name": "node-releases",
-      "versionOrCommit": "2.0.51",
+      "versionOrCommit": "2.0.54",
       "sourceUrl": "https://github.com/chicoxyzzy/node-releases",
       "packagePathOrArtifact": "node_modules/node-releases",
       "usage": "runtime",
@@ -39113,7 +39115,7 @@
     {
       "name": "qrcode.react",
       "versionOrCommit": "4.2.0",
-      "sourceUrl": "https://github.com/zpao/qrcode.react",
+      "sourceUrl": "https://github.com/zpao/qrcode.react/tree/f91d2bdcc39def6c5c77178743a44f935a740992",
       "packagePathOrArtifact": "node_modules/qrcode.react",
       "usage": "runtime",
       "distributedIn": [
@@ -39124,17 +39126,18 @@
       ],
       "declaredLicense": "ISC",
       "verifiedLicense": "ISC",
-      "licenseTextRef": "node_modules/qrcode.react/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/qrcode.react@4.2.0",
       "licenseTextSha256": "908a4454d01d77cd6a0ae1eea0bafaa74a2e3befdbc4b7b714de2499a22351ce",
       "copyrightNotices": [
         "Copyright (c) 2015, Paul O’Shannessy"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/qrcode.react/-/qrcode.react-4.2.0.tgz#LICENSE Published source revision: f91d2bdcc39def6c5c77178743a44f935a740992"
     },
     {
       "name": "qs",
-      "versionOrCommit": "6.15.3",
+      "versionOrCommit": "6.16.0",
       "sourceUrl": "https://github.com/ljharb/qs",
       "packagePathOrArtifact": "node_modules/qs",
       "usage": "runtime",
@@ -42037,7 +42040,7 @@
     },
     {
       "name": "terser",
-      "versionOrCommit": "5.50.0",
+      "versionOrCommit": "5.51.2",
       "sourceUrl": "https://github.com/terser/terser",
       "packagePathOrArtifact": "node_modules/terser",
       "usage": "runtime",
@@ -43115,7 +43118,7 @@
     },
     {
       "name": "update-browserslist-db",
-      "versionOrCommit": "1.2.3",
+      "versionOrCommit": "1.3.2",
       "sourceUrl": "browserslist/update-db",
       "packagePathOrArtifact": "node_modules/update-browserslist-db",
       "usage": "runtime",
@@ -43128,9 +43131,9 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/update-browserslist-db/LICENSE",
-      "licenseTextSha256": "c414dde36704bd9c8a76c7aa2921b19270ff9abeb478ea0050250d16cf29b0f6",
+      "licenseTextSha256": "9877e90da14aa8c931a1f9d07cc2a20ce119106e5dab1ebb41af865266d0cd2a",
       "copyrightNotices": [
-        "Copyright 2022 Andrey Sitnik <andrey@sitnik.ru> and other contributors"
+        "Copyright 2022 Andrey Sitnik <andrey@sitnik.es> and other contributors"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -43738,7 +43741,7 @@
     },
     {
       "name": "webpack",
-      "versionOrCommit": "5.109.2",
+      "versionOrCommit": "5.110.3",
       "sourceUrl": "https://github.com/webpack/webpack",
       "packagePathOrArtifact": "node_modules/webpack",
       "usage": "runtime",

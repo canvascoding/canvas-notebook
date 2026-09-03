@@ -11,6 +11,23 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.3.1] - 2026-09-03
+
+### Added
+
+- Added a Bradley QR-card setup flow for connecting the mobile app.
+- Added mobile access to chat context-compaction state and controls.
+- Added a complete origami icon family for specialist agents.
+- Added selectable workspace colors throughout the workspace APIs and settings.
+
+### Changed
+
+- Refined agent identity rendering and require assignees for agent-created todos.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.2.3] - 2026-09-02
 
 ### Added
