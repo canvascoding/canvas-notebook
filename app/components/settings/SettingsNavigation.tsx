@@ -20,6 +20,7 @@ import {
   Plug,
   Puzzle,
   Settings2,
+  Smartphone,
   UserRound,
   Users,
   Waypoints,
@@ -46,6 +47,7 @@ import { cn } from '@/lib/utils';
 
 export type SettingsTab =
   | 'general'
+  | 'mobile-app'
   | 'memory'
   | 'integrations'
   | 'secrets'
@@ -90,6 +92,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.general',
     group: 'account',
     icon: UserRound,
+  },
+  {
+    value: 'mobile-app',
+    labelKey: 'tabs.mobileApp',
+    descriptionKey: 'navigation.descriptions.mobileApp',
+    group: 'account',
+    icon: Smartphone,
   },
   {
     value: 'memory',

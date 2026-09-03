@@ -2057,6 +2057,43 @@
       "version": "v.{version}"
     }
   },
+  "mobileAppSetup": {
+    "available": "Für iPhone verfügbar",
+    "dismiss": "Hinweis zur Mobile App ausblenden",
+    "eyebrow": "Canvas für unterwegs",
+    "title": "Nimm dein Notebook einfach mit.",
+    "description": "Scanne den QR-Code mit deinem iPhone. Canvas Mobile öffnet sich mit genau diesem Server – du musst nur noch deine normalen Zugangsdaten eingeben.",
+    "bradleyAlt": "Bradley, das Canvas-Maskottchen",
+    "serverFallback": "Canvas Notebook",
+    "thisServer": "Dieser Server",
+    "openApp": "In der Mobile App öffnen",
+    "appStore": "Im App Store ansehen",
+    "copyLink": "Einrichtungslink kopieren",
+    "copied": "Link kopiert",
+    "privacy": "Der Link enthält nur die öffentliche Server-Adresse und Instanz-ID. Keine Passwörter, Tokens oder Sitzungsdaten werden übertragen.",
+    "loading": "QR-Code wird vorbereitet",
+    "qrTitle": "QR-Code zum Einrichten von {server} in Canvas Mobile",
+    "scanHint": "Mit der iPhone-Kamera scannen",
+    "loadFailedTitle": "QR-Code nicht verfügbar",
+    "loadFailed": "Die öffentlichen Instanzdaten konnten gerade nicht geladen werden.",
+    "secureRequiredTitle": "HTTPS erforderlich",
+    "secureRequired": "Einrichtungslinks werden nur für sicher erreichbare HTTPS-Instanzen erstellt.",
+    "retry": "Erneut versuchen",
+    "steps": {
+      "scan": {
+        "title": "QR-Code scannen",
+        "description": "Öffne die Kamera auf deinem iPhone und halte sie auf den Code."
+      },
+      "verify": {
+        "title": "Server prüfen",
+        "description": "Die App bestätigt die Identität dieser Canvas-Instanz vor dem Speichern."
+      },
+      "login": {
+        "title": "Sicher anmelden",
+        "description": "Dein Server ist vorausgewählt; dein Passwort bleibt außerhalb des Links."
+      }
+    }
+  },
   "emails": {
     "title": "E-Mail",
     "description": "Verwalte die verbundenen E-Mail-Konten für Postfächer, Versand, Agent-Tools und Systemmails.",
@@ -2682,6 +2719,7 @@
     "title": "Einstellungen",
     "tabs": {
       "general": "Allgemein",
+      "mobileApp": "Mobile App",
       "memory": "Memory",
       "integrations": "Integrationen",
       "secrets": "Secrets",
@@ -2717,6 +2755,7 @@
       },
       "descriptions": {
         "general": "Konto, Sprache und grundlegende Instanzoptionen verwalten.",
+        "mobileApp": "Canvas Mobile laden und diese Instanz sicher für die Anmeldung vorbereiten.",
         "memory": "Dauerhaften Kontext prüfen und den dedizierten Memory-Reviewer konfigurieren.",
         "workspace": "Workspace auswählen, Exporte verwalten und Workspace-Zugriffe prüfen.",
         "brandDesign": "Markenauftritt für Canvas, PDF-Exporte und den aktiven Agent-Kontext festlegen.",
