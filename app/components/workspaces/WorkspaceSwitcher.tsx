@@ -162,6 +162,11 @@ export function WorkspaceSwitcher({
     await refreshWorkspaces();
   }, [refreshWorkspaces]);
 
+  const handleWorkspaceCreated = useCallback(async (workspace: ClientWorkspaceSummary) => {
+    await refreshWorkspaces();
+    setActiveWorkspace(workspace.id, source);
+  }, [refreshWorkspaces, setActiveWorkspace, source]);
+
   const workspaceDialogs = (
     <>
       <CreateWorkspaceDialog
@@ -171,7 +176,7 @@ export function WorkspaceSwitcher({
         hasOrganizationWorkspace={hasOrganizationWorkspace}
         teamFeaturesEnabled={teamFeaturesEnabled}
         projectFeaturesEnabled={projectFeaturesEnabled}
-        onCreated={handleWorkspaceChanged}
+        onCreated={handleWorkspaceCreated}
       />
       <EditWorkspaceDialog
         open={Boolean(editTarget)}
