@@ -387,9 +387,12 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     },
   });
   collaborationInstance = hocuspocus;
-  installCollaborationRoomInspector((documentId) => (
-    hocuspocus.documents.get(documentId)?.getConnectionsCount() || 0
-  ));
+  installCollaborationRoomInspector((documentId) => {
+    const room = hocuspocus.documents.get(documentId);
+    // A disconnected room may still be storing or unloading. Do not migrate
+    // until it is gone, or a new client can receive its previous representation.
+    return room ? Math.max(1, room.getConnectionsCount()) : 0;
+  });
   installCollaborationDocumentReader(async (documentId, workspaceId, read) => {
     const state = await loadCollaborationState(documentId);
     if (!state || state.status !== 'active' || state.workspaceId !== workspaceId) {

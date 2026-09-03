@@ -487,6 +487,24 @@
     }
   },
   "notebook": {
+    "editorModes": {
+      "label": "Dokumentansicht",
+      "read": "Lesen",
+      "rich": "Bearbeiten",
+      "source": "Quelltext",
+      "saveBlocked": "Dateispeicherung pausiert",
+      "recovery": "Die Datei konnte nicht sicher gespeichert werden. Sichere den aktuellen Stand als Kopie. Lesen und Diagnosedetails bleiben verfügbar.",
+      "backup": "Markdown herunterladen",
+      "snapshot": "Wiederherstellungsstand herunterladen",
+      "retry": "Dateispeicherung erneut versuchen",
+      "diagnostics": "Technische Details",
+      "unavailable": "Dieser Live-Stand kann derzeit nicht dargestellt werden. Lade vor dem Schließen den Wiederherstellungsstand herunter.",
+      "liveSource": "Dies ist der aktuelle Live-Quelltext. Änderungen an diesem Rich-Text-Dokument sind unter Bearbeiten möglich.",
+      "migration": "Formatierte Bearbeitung vorbereiten",
+      "migrationBusy": "Wird vorbereitet…",
+      "migrationBlocked": "Andere Bearbeiter oder ausstehende Änderungen verhindern den Wechsel. Bearbeite den Quelltext weiter oder versuche es erneut, nachdem alle Bearbeiter die Notiz geschlossen haben.",
+      "connected": "Verbunden"
+    },
     "badge": "Notebook",
     "logoAlt": "Canvas Notebook Logo",
     "workbenchTitle": "Notebook-Arbeitsbereich",
@@ -1128,7 +1146,7 @@
       "checkpointPending": "Datei-Checkpoint wird erstellt…",
       "checkpointedFile": "Datei-Checkpoint aktuell",
       "checkpointFailed": "Der Kollaborations-Checkpoint konnte nicht erstellt werden.",
-      "checkpointValidationFailed": "Die Rich-Text-Datei konnte nicht sicher synchronisiert werden. Lade das Dokument neu. Falls das Problem bestehen bleibt, wechsle in den Quelltextmodus.",
+      "checkpointValidationFailed": "Die Datei konnte nicht sicher gespeichert werden. Sichere den aktuellen Stand als Kopie; Lesen und Diagnosedetails bleiben verfügbar.",
       "closeBlocked": "Lass dieses Dokument geöffnet, bis die Live-Bearbeitung wieder verbunden und sicher gecheckpointet ist.",
       "remoteCaretLabel": "{name} bearbeitet hier",
       "agentOperations": "Agentenänderungen",

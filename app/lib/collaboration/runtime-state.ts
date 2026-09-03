@@ -4,20 +4,24 @@ import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lo
 
 type RoomInspector = (documentId: string) => number;
 
-let roomInspector: RoomInspector | null = null;
-const pendingRoomAdmissions = new Map<string, number>();
+// Next route bundles and the custom WebSocket server load separate module graphs.
+// Keep their room occupancy and pending admissions in the same process registry.
+const processState = globalThis as typeof globalThis & {
+  __canvasCollaborationRooms?: { inspector: RoomInspector | null; admissions: Map<string, number> };
+};
+const rooms = processState.__canvasCollaborationRooms ??= { inspector: null, admissions: new Map() };
 
 const ROOM_ADMISSION_TIMEOUT_MS = 30_000;
 
 export function installCollaborationRoomInspector(inspector: RoomInspector): () => void {
-  roomInspector = inspector;
+  rooms.inspector = inspector;
   return () => {
-    if (roomInspector === inspector) roomInspector = null;
+    if (rooms.inspector === inspector) rooms.inspector = null;
   };
 }
 
 export function getCollaborationRoomConnectionCount(documentId: string): number {
-  return (roomInspector?.(documentId) ?? 0) + (pendingRoomAdmissions.get(documentId) ?? 0);
+  return (rooms.inspector?.(documentId) ?? 0) + (rooms.admissions.get(documentId) ?? 0);
 }
 
 export function withCollaborationRoomLifecycleLock<T>(
@@ -33,16 +37,16 @@ export function withCollaborationRoomLifecycleLock<T>(
  * lock, so they either finish first or observe this admission as active.
  */
 export function reserveCollaborationRoomAdmission(documentId: string): () => void {
-  pendingRoomAdmissions.set(documentId, (pendingRoomAdmissions.get(documentId) ?? 0) + 1);
+  rooms.admissions.set(documentId, (rooms.admissions.get(documentId) ?? 0) + 1);
   let released = false;
   let timeout: ReturnType<typeof setTimeout> | null = null;
   const release = () => {
     if (released) return;
     released = true;
     if (timeout) clearTimeout(timeout);
-    const next = (pendingRoomAdmissions.get(documentId) ?? 1) - 1;
-    if (next > 0) pendingRoomAdmissions.set(documentId, next);
-    else pendingRoomAdmissions.delete(documentId);
+    const next = (rooms.admissions.get(documentId) ?? 1) - 1;
+    if (next > 0) rooms.admissions.set(documentId, next);
+    else rooms.admissions.delete(documentId);
   };
   timeout = setTimeout(release, ROOM_ADMISSION_TIMEOUT_MS);
   timeout.unref?.();

@@ -156,6 +156,21 @@ collaborationState = reduceTextCollaborationClientState(collaborationState, {
 assert.equal(collaborationState.documentSequence, 8, 'out-of-order server snapshots must not regress durability');
 assert.equal(collaborationState.checkpointStateVector, 'checkpointed-vector');
 
+const blockedState = reduceTextCollaborationClientState(collaborationState, { type: 'degraded', message: 'roundtrip_unstable' });
+const reconnectedState = reduceTextCollaborationClientState(blockedState, { type: 'provider_status', status: 'connected', permission: 'write' });
+assert.equal(reconnectedState.durability, 'degraded', 'a network reconnect cannot repair a deterministic validation error');
+assert.equal(reconnectedState.error, 'roundtrip_unstable');
+const partialAcknowledgement = reduceTextCollaborationClientState(reconnectedState, {
+  type: 'authoritative_snapshot', documentSequence: 9, checkpointSequence: 8,
+  stateVector: 'new-persisted-vector', matchesCurrentDocument: true,
+});
+assert.equal(partialAcknowledgement.durability, 'degraded', 'Yjs persistence alone does not repair the Markdown file');
+const repairedState = reduceTextCollaborationClientState(partialAcknowledgement, {
+  type: 'checkpointed', sequence: 9, stateVector: 'repaired-vector', matchesCurrentDocument: true,
+});
+assert.equal(repairedState.durability, 'checkpointed_file');
+assert.equal(repairedState.error, null);
+
 const pendingKey = getCodeEditorLifecycleKey({
   workspaceId: 'workspace-1',
   path: 'document.md',

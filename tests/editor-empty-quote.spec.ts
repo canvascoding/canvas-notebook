@@ -115,3 +115,70 @@ test('shared Markdown structures render, edit, and checkpoint without losing cel
     await page.request.delete('/api/files/delete', { headers, data: { path } });
   }
 });
+
+test('reading observes live source without rewriting it and migration waits for other editors', async ({ page }, info) => {
+  test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
+  test.setTimeout(120_000);
+  expect((await page.request.post('/api/auth/sign-in/email', {
+    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
+    data: { email: process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL,
+      password: process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD },
+  })).ok()).toBe(true);
+  const { workspaces } = await (await page.request.get('/api/workspaces')).json();
+  const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
+  const headers = { 'x-canvas-workspace-id': workspace.id };
+  const path = `editor-modes-${randomUUID()}.md`;
+  const content = '# Live preview\n\n| Code | Value |\n|---|---|\n| `a\\|b` | Original |\n\n';
+  await page.addInitScript((id) => { localStorage.setItem('canvas.activeWorkspaceId', id); localStorage.setItem('canvas.notebook.chatVisible', 'false'); }, workspace.id);
+  const readContent = async () => (await (await page.request.get(`/api/files/read?path=${encodeURIComponent(path)}`, { headers })).json()).data?.content as string;
+  const uploaded = await page.request.post('/api/files/upload', { headers, multipart: { path: '.', files: { name: path, mimeType: 'text/markdown', buffer: Buffer.from(content) } } });
+  expect(uploaded.ok(), await uploaded.text()).toBe(true);
+  const second = await page.context().newPage();
+  try {
+    await page.goto(`/notebook?path=${encodeURIComponent(path)}`);
+    await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('heading', { name: 'Live preview' })).toBeVisible();
+    expect(await readContent()).toBe(content);
+    await second.goto(`/notebook?path=${encodeURIComponent(path)}`);
+    await second.getByRole('button', { name: 'Source', exact: true }).click();
+    const source = second.locator('.cm-content');
+    await expect(source).toHaveAttribute('contenteditable', 'true');
+    await source.click();
+    await second.keyboard.press('ControlOrMeta+End');
+    await second.keyboard.type('\n\nLive addition');
+    await expect.poll(readContent).toContain('Live addition');
+    await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await page.getByRole('button', { name: 'Prepare formatted editing', exact: true }).click();
+    await expect(page.getByText(/Other editors or pending changes prevent/)).toBeVisible();
+    await second.close();
+    await page.getByRole('button', { name: 'Prepare formatted editing', exact: true }).click();
+    await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true', { timeout: 20_000 });
+    await page.getByRole('button', { name: 'Read', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'false');
+    await expect(page.locator('.cm-content')).toContainText('Live addition');
+    await expect(page.getByTestId('markdown-save-state')).toContainText('File checkpoint current');
+    await page.screenshot({ path: info.outputPath('live-source-modes.png') });
+    await page.route('**/api/files/collaboration/checkpoint', (route) => route.fulfill({ status: 422,
+      contentType: 'application/json', body: JSON.stringify({ success: false, code: 'COLLABORATION_ROUNDTRIP_UNSTABLE', error: 'Rich collaboration checkpoint validation failed (roundtrip_unstable).' }),
+    }));
+    await page.keyboard.press('ControlOrMeta+s');
+    await expect(page.getByTestId('markdown-save-state')).toContainText('The file could not be saved safely');
+    await expect(page.getByRole('button', { name: 'Retry file saving' })).toHaveCount(0);
+    const download = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Download Markdown', exact: true }).click();
+    expect((await download).suggestedFilename()).toBe(path);
+    await page.getByRole('button', { name: 'Read', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
+    await page.screenshot({ path: info.outputPath('checkpoint-recovery.png') });
+
+  } finally {
+    if (!second.isClosed()) await second.close();
+    await page.goto('about:blank');
+    await page.request.delete('/api/files/delete', { headers, data: { path } });
+  }
+});
