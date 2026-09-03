@@ -185,7 +185,7 @@ jobs:
 
           (( manifest_files > 0 ))
 
-      - name: Publish complete desktop release
+      - name: Upload desktop artifacts to the verified release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -204,10 +204,12 @@ jobs:
             exit 1
           fi
 
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" \
-              --title "$GITHUB_REF_NAME" \
-              --notes "Desktop artifacts for $GITHUB_REF_NAME."
-          fi
+          for _ in {1..120}; do
+            if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 15
+          done
+          gh release view "$GITHUB_REF_NAME" >/dev/null
 
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
