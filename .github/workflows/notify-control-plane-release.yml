@@ -1,15 +1,8 @@
 name: Notify Control Plane Release
 
 on:
-  workflow_run:
-    workflows: ["Build and Push (Both Arch)"]
-    types: [completed]
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: Published release tag to register with the Control Plane.
-        required: true
-        type: string
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -17,25 +10,20 @@ permissions:
 
 jobs:
   notify-control-plane:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'v'))
+    if: startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
-    env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.event.workflow_run.head_branch }}
     steps:
       - name: Checkout immutable release source
         uses: actions/checkout@v6
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ github.event.release.tag_name }}
           fetch-depth: 0
 
       - name: Verify published host CLI artifact
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
           release_version="${RELEASE_TAG#v}"
@@ -133,7 +121,7 @@ jobs:
       - name: Resolve immutable release image digest
         id: image
         env:
-          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
           digest="$(docker buildx imagetools inspect "${GHCR_IMAGE}:${RELEASE_TAG}" --format '{{.Manifest.Digest}}')"
@@ -145,7 +133,7 @@ jobs:
         env:
           CONTROL_PLANE_RELEASE_WEBHOOK_URL: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_URL }}
           CONTROL_PLANE_RELEASE_WEBHOOK_SECRET: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET }}
-          MERGE_TAG: ${{ env.RELEASE_TAG }}
+          MERGE_TAG: ${{ github.event.release.tag_name }}
           GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           HOST_CLI_VERSION: ${{ steps.release.outputs.host_cli_version }}
@@ -153,7 +141,7 @@ jobs:
           LINUX_CLI_AMD64_SHA256: ${{ steps.release.outputs.linux_cli_amd64_sha256 }}
           LINUX_CLI_ARM64_SHA256: ${{ steps.release.outputs.linux_cli_arm64_sha256 }}
           RELEASE_REF: ${{ steps.release.outputs.ref }}
-          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
           RELEASE_COMMIT_SHA: ${{ steps.release.outputs.commit_sha }}
           RELEASE_BUILD_RUN_ID: ${{ steps.release.outputs.build_run_id }}
           RELEASE_BUILD_RUN_NUMBER: ${{ steps.release.outputs.build_run_number }}

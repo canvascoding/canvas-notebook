@@ -320,7 +320,7 @@ jobs:
   merge:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       packages: write
     needs: [source, safety-tests, build-amd64, build-arm64]
     steps:
@@ -593,33 +593,3 @@ jobs:
             dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz
             dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.sha256
             dist-release/canvas-notebook-release-metadata.json
-
-      - name: Publish verified release assets
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.source.outputs.release_tag }}
-        run: |
-          set -euo pipefail
-          files=(
-            dist-portable-cli/canvas-notebook-cli.tar.gz
-            dist-portable-cli/canvas-notebook-cli.sha256
-            dist-host-cli/canvas-notebook-host-cli.tar.gz
-            dist-host-cli/canvas-notebook-host-cli.sha256
-            dist-linux-cli/amd64/canvas-notebook-linux-cli-amd64.tar.gz
-            dist-linux-cli/amd64/canvas-notebook-linux-cli-amd64.sha256
-            dist-linux-cli/arm64/canvas-notebook-linux-cli-arm64.tar.gz
-            dist-linux-cli/arm64/canvas-notebook-linux-cli-arm64.sha256
-            dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz
-            dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.sha256
-            dist-release/canvas-notebook-release-metadata.json
-          )
-          for file in "${files[@]}"; do
-            [[ -f "$file" ]]
-          done
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" \
-              --title "Canvas Notebook ${{ needs.source.outputs.release_version }}" \
-              --notes "Release assets for $RELEASE_TAG."
-          fi
-          gh release upload "$RELEASE_TAG" --clobber "${files[@]}"
