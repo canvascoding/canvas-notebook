@@ -18,8 +18,10 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { DirectMcpWorkspaceAccessSwitch } from '@/app/components/settings/DirectMcpWorkspaceAccessSwitch';
 import { WorkspaceMembersEditor } from '@/app/components/settings/WorkspaceMembersEditor';
+import { WorkspaceColorPicker } from '@/app/components/workspaces/WorkspaceColorPicker';
 import { WorkspaceIconPicker } from '@/app/components/workspaces/WorkspaceIconPicker';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
+import { DEFAULT_WORKSPACE_COLOR, type WorkspaceColor } from '@/app/lib/workspaces/colors';
 import { WORKSPACE_DESCRIPTION_MAX_LENGTH } from '@/app/lib/workspaces/description';
 import { getDefaultWorkspaceIcon, type WorkspaceIcon } from '@/app/lib/workspaces/icons';
 
@@ -63,6 +65,7 @@ function EditWorkspaceDialogContent({
   const [icon, setIcon] = useState<WorkspaceIcon>(() => (
     workspace ? workspace.icon ?? getDefaultWorkspaceIcon(workspace.type) : getDefaultWorkspaceIcon('personal')
   ));
+  const [color, setColor] = useState<WorkspaceColor>(() => workspace?.color ?? DEFAULT_WORKSPACE_COLOR);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const supportsMembers = workspace?.type === 'team' || workspace?.type === 'project';
@@ -97,7 +100,7 @@ function EditWorkspaceDialogContent({
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, description: trimmedDescription, icon }),
+        body: JSON.stringify({ name: trimmedName, description: trimmedDescription, icon, color }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
@@ -164,6 +167,8 @@ function EditWorkspaceDialogContent({
               </div>
 
               <WorkspaceIconPicker value={icon} onChange={setIcon} disabled={isSubmitting} />
+
+              <WorkspaceColorPicker value={color} onChange={setColor} disabled={isSubmitting} />
 
               {workspace ? (
                 <section className="rounded-lg border bg-muted/20 p-4" aria-labelledby="workspace-mcp-access-title">

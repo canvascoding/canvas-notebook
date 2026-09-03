@@ -1,3 +1,4 @@
+import type { WorkspaceColor } from '@/app/lib/workspaces/colors';
 import type { WorkspaceIcon } from '@/app/lib/workspaces/icons';
 
 export type ClientWorkspaceType = 'personal' | 'organization' | 'team' | 'project';
@@ -24,6 +25,7 @@ export interface ClientWorkspaceSummary {
   ownerUserId?: string | null;
   rootRelativePath?: string;
   icon?: WorkspaceIcon;
+  color: WorkspaceColor;
   status: ClientWorkspaceStatus;
   isDefault?: boolean;
   permissions: ClientWorkspacePermissions;

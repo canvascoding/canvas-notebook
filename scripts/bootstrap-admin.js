@@ -258,6 +258,7 @@ CREATE TABLE IF NOT EXISTS canvas_workspaces (
   root_relative_path TEXT NOT NULL,
   display_name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
+  workspace_color TEXT NOT NULL DEFAULT '#2563EB',
   status TEXT NOT NULL DEFAULT 'active',
   is_default INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
@@ -487,6 +488,9 @@ CREATE INDEX IF NOT EXISTS idx_team_seat_outbox_control_plane_operation ON team_
   const workspaceColumns = new Set(db.prepare('PRAGMA table_info(canvas_workspaces)').all().map((row) => row.name));
   if (!workspaceColumns.has('description')) {
     db.exec("ALTER TABLE canvas_workspaces ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+  }
+  if (!workspaceColumns.has('workspace_color')) {
+    db.exec("ALTER TABLE canvas_workspaces ADD COLUMN workspace_color TEXT NOT NULL DEFAULT '#2563EB'");
   }
   if (!workspaceColumns.has('is_default')) {
     db.exec('ALTER TABLE canvas_workspaces ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0');

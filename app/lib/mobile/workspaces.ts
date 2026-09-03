@@ -68,6 +68,7 @@ export async function createMobileWorkspace(
     name: unknown;
     description: unknown;
     icon?: unknown;
+    color?: unknown;
     projectId?: unknown;
   },
 ): Promise<MobileWorkspaceSummary> {
@@ -81,6 +82,7 @@ export async function createMobileWorkspace(
       name: input.name,
       description: input.description,
       icon: input.icon,
+      color: input.color,
       projectFeaturesEnabled: areProjectFeaturesEnabled(),
       projectId,
     });
@@ -102,6 +104,7 @@ export async function createMobileWorkspace(
       name: input.name,
       description: input.description,
       icon: input.icon,
+      color: input.color,
       teamFeaturesEnabled: status.teamFeaturesEnabled,
       projectFeaturesEnabled: areProjectFeaturesEnabled(),
       projectId,
@@ -121,6 +124,7 @@ export async function updateMobileWorkspace(
     workspaceId: string;
     name: unknown;
     description: unknown;
+    color?: unknown;
   },
 ): Promise<MobileWorkspaceSummary> {
   if (getDatabaseProvider() === 'postgres') {
@@ -129,6 +133,7 @@ export async function updateMobileWorkspace(
     const workspace = await updatePostgresWorkspaceForActor(input.actor, input.workspaceId, {
       name: input.name,
       description: input.description,
+      color: input.color,
     });
     return serializeMobileWorkspace(workspace);
   }
@@ -143,6 +148,7 @@ export async function updateMobileWorkspace(
       workspaceId: input.workspaceId,
       name: input.name,
       description: input.description,
+      color: input.color,
     });
     sqlite.exec('COMMIT');
     return serializeMobileWorkspace(workspace);

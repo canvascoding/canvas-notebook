@@ -72,6 +72,7 @@ const personalWorkspace: ClientWorkspaceSummary = {
   ownerUserId: 'user_1',
   rootRelativePath: 'workspaces/personal/user_1/files',
   icon: 'notebook-pen',
+  color: '#2563EB',
   status: 'active',
   legacy: false,
   permissions: {
@@ -91,6 +92,7 @@ const teamWorkspace: ClientWorkspaceSummary = {
   organizationId: 'org_1',
   ownerUserId: null,
   rootRelativePath: 'workspaces/team/org_1/files',
+  color: '#047857',
   status: 'active',
   legacy: false,
   permissions: {
@@ -150,6 +152,8 @@ async function main() {
     assert.match(dialogSource, /maxLength=\{WORKSPACE_DESCRIPTION_MAX_LENGTH\}/u);
     assert.match(dialogSource, /fields\.descriptionCount/u);
     assert.match(dialogSource, /description\.trim\(\)/u);
+    assert.match(dialogSource, /<WorkspaceColorPicker/u);
+    assert.match(dialogSource, /color,/u);
   }
   assert.match(
     createWorkspaceDialogSource,
@@ -255,11 +259,13 @@ async function main() {
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.type, 'personal');
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.icon, 'notebook-pen');
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.description, 'Personal planning and notes.');
+  assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.color, '#2563EB');
 
   localStorage.setItem('canvas.activeWorkspaceId', teamWorkspace.id);
   await useWorkspaceStore.getState().hydrateWorkspaces({ force: true });
   assert.equal(useWorkspaceStore.getState().activeWorkspaceId, teamWorkspace.id);
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.type, 'team');
+  assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.color, '#047857');
 
   const receivedDetails: Array<{
     previousWorkspaceId: string | null;

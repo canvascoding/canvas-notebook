@@ -20,6 +20,11 @@ import {
   getDatabaseProviderProblemMessages,
   resolveDatabaseProviderGate,
 } from '@/app/lib/db/provider';
+import {
+  DEFAULT_WORKSPACE_COLOR,
+  parseWorkspaceColor,
+  type WorkspaceColor,
+} from './colors';
 import { getDefaultWorkspaceIcon, isWorkspaceIcon, type WorkspaceIcon } from './icons';
 import {
   WORKSPACE_LAST_MANAGER_CODE,
@@ -32,6 +37,7 @@ import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType }
 import {
   normalizeWorkspaceSlug,
   normalizeWorkspaceDescription,
+  normalizeWorkspaceColor,
   organizationWorkspaceRootRelativePathForSlug,
   personalWorkspaceRootRelativePath,
   personalWorkspaceRootRelativePathForSlug,
@@ -144,6 +150,7 @@ type WorkspaceRow = {
   display_name: string;
   description: string;
   workspace_icon: string | null;
+  workspace_color: string | null;
   status: string;
   is_default: number;
   created_at: number;
@@ -245,6 +252,7 @@ function rowToWorkspaceRecord(row: WorkspaceRow) {
     displayName: row.display_name,
     description: row.description,
     icon: isWorkspaceIcon(row.workspace_icon) ? row.workspace_icon : getDefaultWorkspaceIcon(row.type),
+    color: parseWorkspaceColor(row.workspace_color) || DEFAULT_WORKSPACE_COLOR,
     status: normalizeWorkspaceStatus(row.status),
     isDefault: row.is_default === 1,
     createdAt: row.created_at,
@@ -547,7 +555,7 @@ async function ensurePermissionRow(
 async function getWorkspaceById(database: RuntimeDb, workspaceId: string) {
   const row = await database.get(
     `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
       FROM canvas_workspaces
       WHERE id = ?
       LIMIT 1
@@ -561,7 +569,7 @@ async function getWorkspaceById(database: RuntimeDb, workspaceId: string) {
 async function getPersonalWorkspace(database: RuntimeDb, userId: string) {
   const row = await database.get(
     `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
       FROM canvas_workspaces
       WHERE type = 'personal' AND owner_user_id = ?
       ORDER BY is_default DESC, created_at ASC
@@ -576,7 +584,7 @@ async function getPersonalWorkspace(database: RuntimeDb, userId: string) {
 async function getActiveOrganizationWorkspace(database: RuntimeDb, organizationId: string) {
   const row = await database.get(
     `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
       FROM canvas_workspaces
       WHERE type = 'organization' AND organization_id = ? AND status = 'active'
       ORDER BY created_at ASC
@@ -655,6 +663,7 @@ async function insertWorkspaceRecord(database: RuntimeDb, input: {
   displayName: string;
   description: string;
   icon: WorkspaceIcon;
+  color: WorkspaceColor;
   isDefault?: boolean;
 }) {
   const id = `ws_${randomUUID()}`;
@@ -662,8 +671,8 @@ async function insertWorkspaceRecord(database: RuntimeDb, input: {
   await database.run(
     `
       INSERT INTO canvas_workspaces (
-        id, organization_id, type, owner_user_id, project_id, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+        id, organization_id, type, owner_user_id, project_id, root_relative_path, display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
     `,
     [
       id,
@@ -675,6 +684,7 @@ async function insertWorkspaceRecord(database: RuntimeDb, input: {
       input.displayName,
       input.description,
       input.icon,
+      input.color,
       input.isDefault ? 1 : 0,
       now,
       now,
@@ -1018,6 +1028,7 @@ function workspaceContextFromRecord(
     displayName: record.displayName,
     description: record.description,
     icon: record.icon,
+    color: record.color,
     status: record.status,
     isDefault: record.isDefault,
     actor,
@@ -1127,7 +1138,7 @@ async function listWorkspaceContextsForUser(
 ): Promise<WorkspaceContext[]> {
   const rows = await database.all(
     `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
       FROM canvas_workspaces
       WHERE organization_id = ? AND status = 'active'
         AND (type != 'personal' OR owner_user_id = ?)
@@ -1366,6 +1377,7 @@ export async function createPostgresWorkspaceForActor(
     name: unknown;
     description?: unknown;
     icon?: unknown;
+    color?: unknown;
     projectFeaturesEnabled?: boolean;
     projectId?: string | null;
   },
@@ -1385,6 +1397,7 @@ export async function createPostgresWorkspaceForActor(
     const name = normalizeWorkspaceName(input.name);
     const description = normalizeWorkspaceDescription(input.description);
     const icon = normalizeWorkspaceIcon(input.icon, input.type);
+    const color = normalizeWorkspaceColor(input.color);
     if (
       input.type !== 'personal'
       && input.type !== 'organization'
@@ -1497,6 +1510,7 @@ export async function createPostgresWorkspaceForActor(
       displayName: name,
       description,
       icon,
+      color,
       isDefault: false,
     });
 
@@ -1559,6 +1573,7 @@ export async function updatePostgresWorkspaceForActor(
     name?: unknown;
     description?: unknown;
     icon?: unknown;
+    color?: unknown;
   },
 ): Promise<WorkspaceContext> {
   const database = await openDb();
@@ -1583,14 +1598,16 @@ export async function updatePostgresWorkspaceForActor(
       ? record.description
       : normalizeWorkspaceDescription(input.description);
     const nextIcon = input.icon === undefined ? record.icon : normalizeWorkspaceIcon(input.icon, record.type);
+    const nextColor = input.color === undefined ? record.color : normalizeWorkspaceColor(input.color, record.color);
     if (
       nextName !== record.displayName
       || nextDescription !== record.description
       || nextIcon !== record.icon
+      || nextColor !== record.color
     ) {
       await database.run(
-        'UPDATE canvas_workspaces SET display_name = ?, description = ?, workspace_icon = ?, updated_at = ? WHERE id = ?',
-        [nextName, nextDescription, nextIcon, Date.now(), record.id],
+        'UPDATE canvas_workspaces SET display_name = ?, description = ?, workspace_icon = ?, workspace_color = ?, updated_at = ? WHERE id = ?',
+        [nextName, nextDescription, nextIcon, nextColor, Date.now(), record.id],
       );
     }
 

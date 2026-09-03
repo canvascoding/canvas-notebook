@@ -4238,6 +4238,7 @@
           "descriptionHint": "Diese kurze Einordnung wird dem KI-Agenten im aktiven Workspace mitgegeben.",
           "descriptionCount": "{count}/{max} Zeichen",
           "icon": "Icon",
+          "color": "Farbe",
           "type": "Typ",
           "project": "Projekt",
           "projectPlaceholder": "Projekt auswählen"
@@ -4266,6 +4267,21 @@
             "users-round": "Team",
             "user-round": "Persönlich",
             "building-2": "Unternehmen"
+          }
+        },
+        "colorPicker": {
+          "hint": "Wähle eine Farbe, an der du den Workspace auf einen Blick erkennst.",
+          "colors": {
+            "blue": "Blau",
+            "indigo": "Indigo",
+            "violet": "Violett",
+            "magenta": "Magenta",
+            "rose": "Rosé",
+            "orange": "Orange",
+            "amber": "Bernstein",
+            "emerald": "Smaragd",
+            "teal": "Petrol",
+            "slate": "Schiefer"
           }
         },
         "badges": {
@@ -4350,8 +4366,8 @@
         },
         "editDialog": {
           "title": "Workspace bearbeiten",
-          "description": "Name, Kurzbeschreibung, Icon und Zugriff für {name} anpassen.",
-          "descriptionFallback": "Name, Kurzbeschreibung, Icon und Zugriff des Workspace anpassen.",
+          "description": "Name, Kurzbeschreibung, Icon, Farbe und Zugriff für {name} anpassen.",
+          "descriptionFallback": "Name, Kurzbeschreibung, Icon, Farbe und Zugriff des Workspace anpassen.",
           "cancel": "Abbrechen",
           "save": "Änderungen speichern"
         },

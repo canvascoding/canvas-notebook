@@ -5,6 +5,7 @@ import type {
   ClientWorkspaceSummary,
   ClientWorkspaceType,
 } from '@/app/lib/workspaces/client-types';
+import { DEFAULT_WORKSPACE_COLOR, parseWorkspaceColor } from '@/app/lib/workspaces/colors';
 import { isWorkspaceIcon } from '@/app/lib/workspaces/icons';
 
 export const WORKSPACE_CHANGED_EVENT = 'canvas:workspace-changed';
@@ -126,6 +127,7 @@ function normalizeWorkspace(candidate: unknown): ClientWorkspaceSummary | null {
     ownerUserId: typeof record.ownerUserId === 'string' ? record.ownerUserId : null,
     rootRelativePath: typeof record.rootRelativePath === 'string' ? record.rootRelativePath : undefined,
     icon: isWorkspaceIcon(record.icon) ? record.icon : undefined,
+    color: parseWorkspaceColor(record.color) || DEFAULT_WORKSPACE_COLOR,
     status: record.status === 'archived' || record.status === 'disabled' || record.status === 'recovery_locked' ? record.status : 'active',
     isDefault: Boolean(record.isDefault),
     permissions: {

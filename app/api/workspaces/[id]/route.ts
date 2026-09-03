@@ -158,6 +158,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
               name: payload.name,
               description: payload.description,
               icon: payload.icon,
+              color: payload.color,
             });
         return NextResponse.json({ success: true, workspace });
       } catch (error) {
@@ -192,6 +193,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
             name: payload.name,
             description: payload.description,
             icon: payload.icon,
+            color: payload.color,
           });
       sqlite.exec('COMMIT');
       return NextResponse.json({ success: true, workspace });

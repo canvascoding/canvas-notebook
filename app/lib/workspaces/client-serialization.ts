@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { ClientWorkspaceSummary } from './client-types';
+import { DEFAULT_WORKSPACE_COLOR } from './colors';
 import type { WorkspaceContext } from './types';
 
 export function serializeWorkspaceContext(workspace: WorkspaceContext): ClientWorkspaceSummary {
@@ -15,6 +16,7 @@ export function serializeWorkspaceContext(workspace: WorkspaceContext): ClientWo
     ownerUserId: workspace.ownerUserId,
     rootRelativePath: workspace.rootRelativePath,
     icon: workspace.icon,
+    color: workspace.color || DEFAULT_WORKSPACE_COLOR,
     status: workspace.status || 'active',
     isDefault: Boolean(workspace.isDefault),
     permissions: workspace.permissions,

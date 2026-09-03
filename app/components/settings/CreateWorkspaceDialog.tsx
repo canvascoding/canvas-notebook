@@ -17,8 +17,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { WorkspaceMembersEditor } from '@/app/components/settings/WorkspaceMembersEditor';
+import { WorkspaceColorPicker } from '@/app/components/workspaces/WorkspaceColorPicker';
 import { WorkspaceIconPicker } from '@/app/components/workspaces/WorkspaceIconPicker';
 import type { ClientWorkspaceSummary, ClientWorkspaceType } from '@/app/lib/workspaces/client-types';
+import { DEFAULT_WORKSPACE_COLOR, type WorkspaceColor } from '@/app/lib/workspaces/colors';
 import { WORKSPACE_DESCRIPTION_MAX_LENGTH } from '@/app/lib/workspaces/description';
 import { getDefaultWorkspaceIcon, type WorkspaceIcon } from '@/app/lib/workspaces/icons';
 
@@ -58,6 +60,7 @@ export function CreateWorkspaceDialog({
   const [description, setDescription] = useState('');
   const [type, setType] = useState<CreateWorkspaceType>('personal');
   const [icon, setIcon] = useState<WorkspaceIcon>(getDefaultWorkspaceIcon('personal'));
+  const [color, setColor] = useState<WorkspaceColor>(DEFAULT_WORKSPACE_COLOR);
   const [iconCustomized, setIconCustomized] = useState(false);
   const [projectId, setProjectId] = useState('');
   const [projects, setProjects] = useState<ProjectOption[]>([]);
@@ -138,6 +141,7 @@ export function CreateWorkspaceDialog({
     setDescription('');
     setType('personal');
     setIcon(getDefaultWorkspaceIcon('personal'));
+    setColor(DEFAULT_WORKSPACE_COLOR);
     setIconCustomized(false);
     setProjectId('');
     setCreatedWorkspace(null);
@@ -185,6 +189,7 @@ export function CreateWorkspaceDialog({
           description: trimmedDescription,
           type,
           icon,
+          color,
           projectId: type === 'project' ? projectId : undefined,
         }),
       });
@@ -317,6 +322,8 @@ export function CreateWorkspaceDialog({
               }}
               disabled={isSubmitting}
             />
+
+            <WorkspaceColorPicker value={color} onChange={setColor} disabled={isSubmitting} />
 
             {type === 'project' ? (
               <div className="flex flex-col gap-2">

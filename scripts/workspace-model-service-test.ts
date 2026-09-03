@@ -91,6 +91,7 @@ async function main() {
     assert.equal(ownerWorkspaces[0].isDefault, true);
     assert.equal(ownerWorkspaces[0].permissions.canRead, true);
     assert.equal(ownerWorkspaces[0].permissions.canWrite, true);
+    assert.equal(ownerWorkspaces[0].color, '#2563EB');
     assert.equal(
       ownerWorkspaces[0].rootPath,
       path.join(dataRoot, 'workspaces', 'personal', 'user-owner', 'files')
@@ -191,12 +192,14 @@ async function main() {
       type: 'organization',
       name: 'Canvas Studio',
       description: 'Shared organization knowledge and operations.',
+      color: '#047857',
       teamFeaturesEnabled: true,
     });
     assert.equal(organizationWorkspace.workspaceType, 'organization');
     assert.equal(organizationWorkspace.isDefault, false);
     assert.equal(organizationWorkspace.ownerUserId, null);
     assert.equal(organizationWorkspace.permissions.canManageWorkspace, true);
+    assert.equal(organizationWorkspace.color, '#047857');
     assert.equal(
       organizationWorkspace.rootRelativePath,
       path.posix.join('workspaces', 'organization', organizationId, 'canvas-studio', 'files'),
@@ -210,8 +213,18 @@ async function main() {
       actor: ownerActor,
       workspaceId: organizationWorkspace.workspaceId,
       name: 'Organization Hub',
+      color: '#7C3AED',
     });
     assert.equal(updatedOrganizationWorkspace.displayName, 'Organization Hub');
+    assert.equal(updatedOrganizationWorkspace.color, '#7C3AED');
+    assert.throws(
+      () => updateWorkspaceRecord(sqlite, {
+        actor: ownerActor,
+        workspaceId: organizationWorkspace.workspaceId,
+        color: '#ffffff',
+      }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_COLOR_INVALID',
+    );
     sqlite.prepare('UPDATE canvas_workspaces SET is_default = 1 WHERE id = ?').run(
       organizationWorkspace.workspaceId,
     );

@@ -4239,6 +4239,7 @@
           "descriptionHint": "This short summary is included in the AI agent's active workspace context.",
           "descriptionCount": "{count}/{max} characters",
           "icon": "Icon",
+          "color": "Color",
           "type": "Type",
           "project": "Project",
           "projectPlaceholder": "Select project"
@@ -4267,6 +4268,21 @@
             "users-round": "Team",
             "user-round": "Personal",
             "building-2": "Company"
+          }
+        },
+        "colorPicker": {
+          "hint": "Choose a color that makes this workspace recognizable at a glance.",
+          "colors": {
+            "blue": "Blue",
+            "indigo": "Indigo",
+            "violet": "Violet",
+            "magenta": "Magenta",
+            "rose": "Rose",
+            "orange": "Orange",
+            "amber": "Amber",
+            "emerald": "Emerald",
+            "teal": "Teal",
+            "slate": "Slate"
           }
         },
         "badges": {
@@ -4351,8 +4367,8 @@
         },
         "editDialog": {
           "title": "Edit workspace",
-          "description": "Update the name, short description, icon, and access for {name}.",
-          "descriptionFallback": "Update the workspace name, short description, icon, and access.",
+          "description": "Update the name, short description, icon, color, and access for {name}.",
+          "descriptionFallback": "Update the workspace name, short description, icon, color, and access.",
           "cancel": "Cancel",
           "save": "Save changes"
         },

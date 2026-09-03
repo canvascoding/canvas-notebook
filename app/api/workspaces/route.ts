@@ -119,6 +119,7 @@ export async function POST(request: Request) {
           name: payload.name,
           description: payload.description,
           icon: payload.icon,
+          color: payload.color,
           projectFeaturesEnabled: areProjectFeaturesEnabled(),
           projectId,
         });
@@ -152,6 +153,7 @@ export async function POST(request: Request) {
         name: payload.name,
         description: payload.description,
         icon: payload.icon,
+        color: payload.color,
         teamFeaturesEnabled: status.teamFeaturesEnabled,
         projectFeaturesEnabled: areProjectFeaturesEnabled(),
         projectId,

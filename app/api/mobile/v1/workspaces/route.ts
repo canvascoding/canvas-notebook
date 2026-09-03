@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
       name: payload.name,
       description: payload.description,
       icon: payload.icon,
+      color: payload.color,
       projectId: payload.projectId,
     });
     return NextResponse.json({ success: true, workspace }, { status: 201, headers: responseHeaders });

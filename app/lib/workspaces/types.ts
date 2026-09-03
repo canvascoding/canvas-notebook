@@ -1,5 +1,6 @@
 import 'server-only';
 
+import type { WorkspaceColor } from './colors';
 import type { WorkspaceIcon } from './icons';
 
 export type WorkspaceType = 'personal' | 'organization' | 'team' | 'project';
@@ -31,6 +32,7 @@ export interface WorkspaceContext {
   displayName?: string;
   description?: string;
   icon?: WorkspaceIcon;
+  color?: WorkspaceColor;
   status?: WorkspaceStatus;
   isDefault?: boolean;
   actor?: WorkspaceActor;

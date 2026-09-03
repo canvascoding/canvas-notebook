@@ -566,6 +566,7 @@ export const canvasWorkspaces = sqliteTable("canvas_workspaces", {
   displayName: text("display_name").notNull(),
   description: text("description").notNull().default(""),
   workspaceIcon: text("workspace_icon").notNull().default("user-round"),
+  workspaceColor: text("workspace_color").notNull().default("#2563EB"),
   status: text("status").notNull().default("active"),
   isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),

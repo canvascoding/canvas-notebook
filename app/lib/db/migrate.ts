@@ -519,6 +519,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       display_name TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       workspace_icon TEXT NOT NULL DEFAULT 'user-round',
+      workspace_color TEXT NOT NULL DEFAULT '#2563EB',
       status TEXT NOT NULL DEFAULT 'active',
       is_default INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
@@ -2090,6 +2091,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     project_id: 'TEXT',
     description: "TEXT NOT NULL DEFAULT ''",
     workspace_icon: "TEXT NOT NULL DEFAULT 'user-round'",
+    workspace_color: "TEXT NOT NULL DEFAULT '#2563EB'",
     is_default: 'INTEGER NOT NULL DEFAULT 0',
   });
 

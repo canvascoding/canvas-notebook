@@ -21,6 +21,7 @@ const workspace: WorkspaceContext = {
   rootRelativePath: 'workspaces/personal/user-1/files',
   displayName: 'Mobile Workspace',
   description: 'The first mobile workspace.',
+  color: '#A21CAF',
   status: 'active',
   isDefault: true,
   ownerUserId: 'user-1',
@@ -176,6 +177,7 @@ assert.equal(bootstrap.workspace.activeWorkspaceId, workspace.workspaceId);
 assert.equal(bootstrap.workspace.items[0]?.access, 'manage');
 assert.equal(bootstrap.workspace.items[0]?.legacy, false);
 assert.equal(bootstrap.workspace.items[0]?.permissions.canRunAgent, true);
+assert.equal(bootstrap.workspace.items[0]?.color, '#A21CAF');
 
 const serialized = JSON.stringify(bootstrap);
 assert.equal(serialized.includes('/private/data'), false);

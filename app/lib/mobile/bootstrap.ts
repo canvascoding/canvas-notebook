@@ -3,6 +3,7 @@ import 'server-only';
 import type { MobileCompatibility } from './compatibility';
 import type { MobileUserProfile } from './user-profile';
 import type { WorkspaceListing } from '@/app/lib/workspaces/listing-action';
+import { DEFAULT_WORKSPACE_COLOR } from '@/app/lib/workspaces/colors';
 import type { WorkspaceContext, WorkspacePermissions, WorkspaceUserRole } from '@/app/lib/workspaces/types';
 import { buildPublicRequestUrl } from '@/app/lib/utils/request-origin';
 
@@ -14,6 +15,7 @@ export type MobileWorkspaceSummary = {
   name: string;
   description: string;
   icon: string | null;
+  color: string;
   status: NonNullable<WorkspaceContext['status']>;
   isDefault: boolean;
   legacy: boolean;
@@ -59,6 +61,7 @@ export function serializeMobileWorkspace(workspace: WorkspaceContext): MobileWor
     name: workspace.displayName || workspace.workspaceType,
     description: workspace.description || '',
     icon: workspace.icon || null,
+    color: workspace.color || DEFAULT_WORKSPACE_COLOR,
     status: workspace.status || 'active',
     isDefault: Boolean(workspace.isDefault),
     legacy: workspace.legacy,
