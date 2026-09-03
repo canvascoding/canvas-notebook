@@ -30,6 +30,7 @@ import {
 } from '@/app/lib/chat/message-content';
 import { mobileToolCallId } from '@/app/lib/mobile/tool-call-id';
 import { formatMobileToolInput } from '@/app/lib/mobile/tool-input';
+import { projectMobileCompactBreakMetadata, type MobileCompactBreakMetadata } from '@/app/lib/mobile/compact-break';
 import {
   getActiveRuntimeStatusSummaries,
   getStatus,
@@ -80,8 +81,9 @@ export type MobileChatMessage = {
   id: string;
   sequence: number;
   role: 'user' | 'assistant' | 'system' | 'tool';
-  kind: 'message' | 'tool' | 'error';
+  kind: 'message' | 'tool' | 'error' | 'compact_break';
   text: string;
+  compactMeta?: MobileCompactBreakMetadata;
   clientMessageId?: string;
   toolCallId: string | null;
   toolName: string | null;
@@ -233,6 +235,22 @@ export function serializeMobileChatMessage(input: {
   const piMessage = parsePersistedPiMessage(input.content, 'display');
   const parsed = piMessage as unknown as Record<string, unknown>;
   const rawRole = typeof parsed.role === 'string' ? parsed.role : 'system';
+  if (rawRole === 'compact-break') {
+    const compactMeta = projectMobileCompactBreakMetadata(parsed, input);
+    return {
+      id: String(input.id),
+      sequence: input.sequence,
+      role: 'system',
+      kind: 'compact_break',
+      text: '',
+      compactMeta,
+      toolCallId: null,
+      toolName: null,
+      toolInput: null,
+      attachments: [],
+      createdAt: compactMeta.timestamp,
+    };
+  }
   const role: MobileChatMessage['role'] = rawRole === 'user' || rawRole === 'assistant' || rawRole === 'system'
     ? rawRole
     : 'tool';

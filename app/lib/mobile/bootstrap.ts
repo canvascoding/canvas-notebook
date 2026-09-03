@@ -109,6 +109,7 @@ export function createMobileBootstrap(input: {
     'chat.session_manage',
     'chat.attachments',
     'chat.runtime_control',
+    'chat.compaction',
     'chat.runtime_selection',
     'browser.live_view',
     'agents.manage',
