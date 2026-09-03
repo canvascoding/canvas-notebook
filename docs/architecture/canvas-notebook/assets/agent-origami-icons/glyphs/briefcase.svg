@@ -1,14 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
   <title id="title">Business agent origami companion</title>
-  <desc id="desc">An ochre folded paper companion carrying a compact briefcase mark.</desc>
-  <path d="M15 9 43 5l10 13-3 33-16 8-24-8 2-34Z" fill="#C88A32"/>
-  <path d="m15 9 7 10-4 29-8 3 2-34Z" fill="#E8BC72"/>
-  <path d="m43 5-6 15 16-2Z" fill="#D8A14E"/>
-  <path d="m10 51 25-10 15 10-16 8Z" fill="#926322"/>
-  <circle cx="25" cy="24" r="2.6" fill="#172033"/>
-  <circle cx="37" cy="22.5" r="2.6" fill="#172033"/>
-  <rect x="18" y="32" width="28" height="19" rx="4" fill="#172033"/>
-  <path d="M25 39h14v8H25Zm3-3.5h8V39h-2v-1.5h-4V39h-2Z" fill="#fff"/>
-  <path d="M25 42.5h14" fill="none" stroke="#C88A32" stroke-width="1.5"/>
-  <path d="m38.5 10.5 4.5-5.5 4.5 8Z" fill="#F2D59F"/>
+  <desc id="desc">An ochre folded paper companion carrying a briefcase with both hands.</desc>
+  <path d="m18 8 27 3 7 15-8 24-25-2-7-25Z" fill="#C88A32"/>
+  <path d="m18 8 7 16-6 24-7-25Z" fill="#E8BC72"/>
+  <path d="m45 11-7 16 14-1Z" fill="#D8A14E"/>
+  <path d="m20 33-12 7 4 7 11-6Z" fill="#D8A14E"/>
+  <path d="m44 33 12 7-4 7-11-6Z" fill="#D8A14E"/>
+  <rect x="18" y="35" width="28" height="16" rx="2.5" fill="#172033"/>
+  <path d="M26 35v-4h12v4h-3v-1.5h-6V35Z" fill="#172033"/>
+  <path d="M18 41h28M30 40h4v4h-4Z" fill="#F2D59F"/>
+  <path d="m20 49 12 1-8 10H9Z" fill="#926322"/>
+  <path d="m32 50 12-1 10 11H37Z" fill="#A77127"/>
+  <circle cx="28" cy="26" r="2.5" fill="#172033"/>
+  <circle cx="39" cy="26.5" r="2.5" fill="#172033"/>
 </svg>

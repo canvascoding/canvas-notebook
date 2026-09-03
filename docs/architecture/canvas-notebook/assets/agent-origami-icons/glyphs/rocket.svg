@@ -1,13 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
   <title id="title">Launch agent origami companion</title>
-  <desc id="desc">An orange folded paper companion carrying an upward launch mark.</desc>
-  <path d="M15 9 43 5l10 13-3 33-16 8-24-8 2-34Z" fill="#E67D35"/>
-  <path d="m15 9 7 10-4 29-8 3 2-34Z" fill="#F4B37C"/>
-  <path d="m43 5-6 15 16-2Z" fill="#ED9659"/>
-  <path d="m10 51 25-10 15 10-16 8Z" fill="#AE5723"/>
-  <circle cx="25" cy="24" r="2.6" fill="#172033"/>
-  <circle cx="37" cy="22.5" r="2.6" fill="#172033"/>
-  <rect x="20" y="32" width="24" height="19" rx="4" fill="#172033"/>
-  <path d="m32 35 6 7h-3v5h-6v-5h-3Z" fill="#fff"/>
-  <path d="m38.5 10.5 4.5-5.5 4.5 8Z" fill="#FFD2AD"/>
+  <desc id="desc">A tall orange folded paper companion reaching upward in a launch pose.</desc>
+  <path d="m22 11 20-5 8 14-4 29-14 4-15-6-4-25Z" fill="#E67D35"/>
+  <path d="m22 11 6 12-11 24-4-25Z" fill="#F4B37C"/>
+  <path d="m42 6-5 18 13-4Z" fill="#ED9659"/>
+  <path d="m20 24-10-12-5 4 10 17Z" fill="#ED9659"/>
+  <path d="m46 24 10-12 5 4-10 17Z" fill="#ED9659"/>
+  <path d="m32 17 7 9h-4v13h-6V26h-4Z" fill="#172033"/>
+  <path d="m18 45 13 6-10 9H6Z" fill="#AE5723"/>
+  <path d="m32 52 14-7 12 15H37Z" fill="#BE6128"/>
+  <circle cx="26" cy="26" r="2.5" fill="#172033"/>
+  <circle cx="39" cy="23" r="2.5" fill="#172033"/>
+  <path d="m25 22 12-14v16Z" fill="#FFD2AD" opacity=".45"/>
 </svg>

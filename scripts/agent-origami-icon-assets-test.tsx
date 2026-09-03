@@ -9,7 +9,7 @@ import { AGENT_ICON_IDS } from '../app/lib/agents/icons';
 const root = process.cwd();
 
 function main(): void {
-  assert.equal(AGENT_ICON_IDS.length, 12);
+  assert.equal(AGENT_ICON_IDS.length, 13);
 
   for (const iconId of AGENT_ICON_IDS) {
     const publicPath = path.join(root, 'public', 'images', 'agents', 'origami', `${iconId}.svg`);
@@ -57,7 +57,7 @@ function main(): void {
     ),
     'utf8',
   );
-  assert.equal((board.match(/data:image\/svg\+xml;base64,/gu) || []).length, AGENT_ICON_IDS.length * 3);
+  assert.equal((board.match(/data:image\/svg\+xml;base64,/gu) || []).length, AGENT_ICON_IDS.length * 4);
   assert.doesNotMatch(board, /href="(?!data:|#)/u);
 
   console.log('agent-origami-icon-assets-test: ok');

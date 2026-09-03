@@ -11,6 +11,7 @@ export const AGENT_ICON_IDS = [
   'wrench',
   'rocket',
   'shield',
+  'email',
 ] as const;
 
 export type AgentIconId = (typeof AGENT_ICON_IDS)[number];

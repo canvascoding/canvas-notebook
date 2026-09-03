@@ -1,13 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
   <title id="title">Tools agent origami companion</title>
-  <desc id="desc">A graphite folded paper companion carrying a bold tool mark.</desc>
-  <path d="M15 9 43 5l10 13-3 33-16 8-24-8 2-34Z" fill="#66717C"/>
-  <path d="m15 9 7 10-4 29-8 3 2-34Z" fill="#A5AFB8"/>
-  <path d="m43 5-6 15 16-2Z" fill="#7F8B96"/>
-  <path d="m10 51 25-10 15 10-16 8Z" fill="#454E58"/>
-  <circle cx="25" cy="24" r="2.6" fill="#172033"/>
-  <circle cx="37" cy="22.5" r="2.6" fill="#172033"/>
-  <rect x="19" y="32" width="26" height="19" rx="4" fill="#172033"/>
-  <path d="M37.8 36.5a5 5 0 0 1-6 6L27 47.3l-2.3-2.3 4.8-4.8a5 5 0 0 1 6-6l-2.8 2.8 2 2Z" fill="#fff"/>
-  <path d="m38.5 10.5 4.5-5.5 4.5 8Z" fill="#C8D0D6"/>
+  <desc id="desc">A compact graphite folded paper companion raising a wrench in one hand.</desc>
+  <path d="m17 14 25-6 8 15-5 26-24 1-9-22Z" fill="#66717C"/>
+  <path d="m17 14 9 11-5 25-9-22Z" fill="#A5AFB8"/>
+  <path d="m42 8-5 17 13-2Z" fill="#7F8B96"/>
+  <path d="m44 24 8-12 6 3-8 17Z" fill="#7F8B96"/>
+  <path d="M61 5a7 7 0 0 1-8 9l-8 13-4-3 8-13a7 7 0 0 1 7-10l-3 5 3 2Z" fill="#172033"/>
+  <path d="m19 48 12 2-8 10H9Z" fill="#454E58"/>
+  <path d="m31 50 14-2 10 12H36Z" fill="#505B66"/>
+  <circle cx="27" cy="27" r="2.5" fill="#172033"/>
+  <circle cx="38" cy="24.5" r="2.5" fill="#172033"/>
+  <path d="m25 24 12-16v17Z" fill="#C8D0D6" opacity=".4"/>
 </svg>

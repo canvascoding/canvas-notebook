@@ -4779,7 +4779,8 @@
           "brain": "Strategie",
           "wrench": "Tools",
           "rocket": "Launch",
-          "shield": "Sicherheit"
+          "shield": "Sicherheit",
+          "email": "E-Mail"
         }
       },
       "createDialog": {

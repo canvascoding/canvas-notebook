@@ -1,16 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
   <title id="title">Support agent origami companion</title>
-  <desc id="desc">A cyan folded paper companion carrying a speech bubble mark.</desc>
-  <path d="M15 9 43 5l10 13-3 33-16 8-24-8 2-34Z" fill="#299CC2"/>
-  <path d="m15 9 7 10-4 29-8 3 2-34Z" fill="#79CBE3"/>
-  <path d="m43 5-6 15 16-2Z" fill="#49B4D3"/>
-  <path d="m10 51 25-10 15 10-16 8Z" fill="#1B7190"/>
-  <circle cx="25" cy="24" r="2.6" fill="#172033"/>
-  <circle cx="37" cy="22.5" r="2.6" fill="#172033"/>
-  <rect x="19" y="32" width="26" height="19" rx="4" fill="#172033"/>
-  <path d="M24 37h16v8h-8l-4 3v-3h-4Z" fill="#fff"/>
-  <circle cx="29" cy="41" r="1" fill="#299CC2"/>
-  <circle cx="32" cy="41" r="1" fill="#299CC2"/>
-  <circle cx="35" cy="41" r="1" fill="#299CC2"/>
-  <path d="m38.5 10.5 4.5-5.5 4.5 8Z" fill="#B8E8F4"/>
+  <desc id="desc">A cyan folded paper companion leaning toward a speech bubble held in one hand.</desc>
+  <path d="m14 13 27-4 9 15-4 24-23 3L10 39Z" fill="#299CC2"/>
+  <path d="m14 13 9 11v27L10 39Z" fill="#79CBE3"/>
+  <path d="m41 9-4 17 13-2Z" fill="#49B4D3"/>
+  <path d="m45 31 10-5 5 6-11 8Z" fill="#49B4D3"/>
+  <path d="M40 19h19v13H49l-5 4v-4h-4Z" fill="#172033"/>
+  <circle cx="46" cy="25.5" r="1.4" fill="#fff"/>
+  <circle cx="50" cy="25.5" r="1.4" fill="#fff"/>
+  <circle cx="54" cy="25.5" r="1.4" fill="#fff"/>
+  <path d="m23 49 11 1-8 10H10Z" fill="#1B7190"/>
+  <path d="m34 50 12-3 9 12-17 1Z" fill="#2184A9"/>
+  <circle cx="26" cy="28" r="2.5" fill="#172033"/>
+  <circle cx="37" cy="25.5" r="2.5" fill="#172033"/>
+  <path d="m22 24 15-15v17Z" fill="#B8E8F4" opacity=".45"/>
 </svg>

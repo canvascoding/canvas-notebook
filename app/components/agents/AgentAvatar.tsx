@@ -18,6 +18,7 @@ const AGENT_ICON_PATHS: Record<AgentIconId, string> = {
   wrench: '/images/agents/origami/wrench.svg',
   rocket: '/images/agents/origami/rocket.svg',
   shield: '/images/agents/origami/shield.svg',
+  email: '/images/agents/origami/email.svg',
 };
 
 export function AgentIcon({
