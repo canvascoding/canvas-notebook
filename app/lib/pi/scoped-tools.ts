@@ -53,6 +53,7 @@ import {
   type PublicShareTypeFilter,
 } from '@/app/lib/public-sharing/public-file-shares';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
+import type { UserLocale } from '@/app/lib/user-preferences';
 import {
   createCanvasSkillDraft,
   discardCanvasSkillDraft,
@@ -400,14 +401,17 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
   };
 }
 
-function createMemoryTool(userId?: string, agentId?: string | null): AgentTool {
+function createMemoryTool(userId?: string, agentId?: string | null, accountLocale?: UserLocale): AgentTool {
+  const accountLanguage = accountLocale === 'de'
+    ? 'German (Deutsch)'
+    : accountLocale === 'en' ? 'English' : 'the language configured for the user account';
   return {
     name: 'memory',
     label: 'Managing memory',
     description:
       'Reads and maintains durable database-backed memory. Use the target that matches the current runtime scope. ' +
       'Use only for long-term facts, preferences, and recurring context; never store secrets, logs, temporary tasks, or session summaries. ' +
-      'Write added or updated memory content in the language configured for the user account, while preserving proper names and established technical terms.',
+      `Write added or updated memory content in ${accountLanguage}, matching the user account language, while preserving proper names and established technical terms.`,
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal('read'),
@@ -422,7 +426,7 @@ function createMemoryTool(userId?: string, agentId?: string | null): AgentTool {
         Type.Literal('organization'),
       ], { description: 'Memory scope. Workspace and organization entries are created as pending suggestions.' }),
       id: Type.Optional(Type.String({ description: 'Required for update and delete.' })),
-      content: Type.Optional(Type.String({ description: 'Required for add and update.' })),
+      content: Type.Optional(Type.String({ description: `Required for add and update. Write it in ${accountLanguage}.` })),
       reason: Type.Optional(Type.String({ description: 'Optional short reason for why this memory matters.' })),
     }),
     execute: async (_toolCallId, params) => {
@@ -1289,11 +1293,16 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
   ];
 }
 
-export function createUserScopedTools(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
+export function createUserScopedTools(
+  userId?: string,
+  agentId?: string | null,
+  sessionId?: string | null,
+  options: { accountLocale?: UserLocale } = {},
+): AgentTool[] {
   const sourceAgentId = normalizeManagedAgentId(agentId);
   const tools: AgentTool[] = [
     createMcpProxyTool(userId),
-    createMemoryTool(userId, agentId),
+    createMemoryTool(userId, agentId, options.accountLocale),
     createSessionSearchTool({ userId, agentId, sessionId }),
     createHumanTodoTool({ userId, agentId, sessionId }),
     createPublicShareTool(userId, agentId, sessionId),

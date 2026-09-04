@@ -26,6 +26,7 @@ import { filterToolsForWorkspacePermissions } from '@/app/lib/pi/workspace-tool-
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { getErrorMessage, wrapToolWithExecutionContext } from '@/app/lib/pi/tool-runtime-helpers';
+import { getUserPreferredLocale } from '@/app/lib/user-preferences';
 import {
   createWorkspaceEmailAutomationTools,
   type WorkspaceEmailAutomationToolContext,
@@ -252,7 +253,15 @@ export async function buildPiToolRegistryAsync(
   sessionId?: string | null,
   options: { executionContext?: AgentExecutionContext } = {},
 ): Promise<AgentTool[]> {
-  const userScopedTools = createUserScopedTools(userId, agentId, sessionId);
+  const accountLocale = userId
+    ? await getUserPreferredLocale(userId).catch((error) => {
+        console.warn('[ToolRegistry] Account language unavailable; memory tool uses generic language guidance.', {
+          error: getErrorMessage(error),
+        });
+        return undefined;
+      })
+    : undefined;
+  const userScopedTools = createUserScopedTools(userId, agentId, sessionId, { accountLocale });
   const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
   const agentManagementTools = normalizedAgentId === DEFAULT_MANAGED_AGENT_ID
     ? createAgentManagementTools(userId || '__tool-metadata__', normalizedAgentId, sessionId)

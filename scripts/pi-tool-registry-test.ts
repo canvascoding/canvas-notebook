@@ -106,7 +106,8 @@ async function main() {
   const { createToolLoopGuard } = await import('../app/lib/pi/tool-loop-guard');
   const { getProgressiveGatewayCapabilityNames } = await import('../app/lib/pi/progressive-tool-gateway');
   const { createBrowserGatewayTool } = await import('../app/lib/pi/browser/tool');
-  const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateImageTool, createStudioGenerateVideoTool, filterAutomationExecutionTools, filterEmailEventAutomationTools, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
+  const { buildPiToolRegistry, buildPiToolRegistryAsync, createRipgrepTool, createStudioGenerateImageTool, createStudioGenerateVideoTool, filterAutomationExecutionTools, filterEmailEventAutomationTools, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
+  const { setUserPreferredLocale } = await import('../app/lib/user-preferences');
   const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
   const { writePiRuntimeConfig } = await import('../app/lib/agents/storage');
 
@@ -839,6 +840,11 @@ async function main() {
   assert.equal(defaultEnabledTools.has('mcp'), true);
   assert.equal(defaultEnabledTools.has('memory'), true);
   assert.equal(allTools.some((tool) => tool.name === 'memory'), true);
+  assert.match(allTools.find((tool) => tool.name === 'memory')?.description ?? '', /language configured for the user account/);
+  await setUserPreferredLocale('memory-language-user', 'de');
+  const localizedMemoryTool = (await buildPiToolRegistryAsync('memory-language-user')).find((tool) => tool.name === 'memory');
+  assert.ok(localizedMemoryTool);
+  assert.match(localizedMemoryTool.description ?? '', /German \(Deutsch\), matching the user account language/);
   assert.equal(defaultEnabledTools.has('delegate_task'), true);
   assert.equal(allTools.some((tool) => tool.name === 'delegate_task'), true);
   assert.equal(defaultEnabledTools.has('session_search'), true);

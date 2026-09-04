@@ -71,7 +71,10 @@ Kategorieschluessel sind sprachneutral. Die UI uebersetzt deren sichtbare Namen
 und Beschreibungen zur Laufzeit.
 
 Das direkte `memory`-Tool weist den aktiven Agenten ebenfalls an, neue oder
-geaenderte Inhalte in der konfigurierten Kontosprache zu schreiben.
+geaenderte Inhalte in der konfigurierten Kontosprache zu schreiben. Beim
+asynchronen Runtime-Aufbau wird die konkrete Sprache (`German (Deutsch)` oder
+`English`) sowohl in die Tool-Beschreibung als auch in die Beschreibung des
+`content`-Parameters eingesetzt. Dafuer ist kein eigener Modellaufruf noetig.
 
 ## Logging
 
