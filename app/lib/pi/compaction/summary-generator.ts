@@ -29,6 +29,11 @@ import {
   redactPiCompactionText,
   renderPiCompactionChunkDigests,
 } from './recovery';
+import {
+  getPiCompactionErrorDiagnostics,
+  logPiCompactionDiagnostic,
+  sanitizePiCompactionDiagnosticText,
+} from './diagnostics';
 
 const V2_SUMMARY_OUTPUT_TOKENS = 2_400;
 const V2_DIGEST_OUTPUT_TOKENS = 900;
@@ -291,6 +296,12 @@ export async function generatePiRollingSummaryV2(
   assertActive(input.signal);
   const knownSecrets = input.knownSecrets ?? [];
   const sessionId = input.sessionId ?? '';
+  const diagnosticContext = {
+    sessionId: sessionId || null,
+    provider: input.model.provider,
+    api: input.model.api,
+    model: input.model.id,
+  };
   const recovery = buildPiCompactionRecoveryArtifacts({
     messages: input.messagesToSummarize,
     sessionId,
@@ -298,7 +309,14 @@ export async function generatePiRollingSummaryV2(
     sessionSearchAvailable: input.sessionSearchAvailable ?? false,
     knownSecrets,
   });
-  if (!recovery.redactedTranscript.trim()) return null;
+  if (!recovery.redactedTranscript.trim()) {
+    logPiCompactionDiagnostic('warn', 'summary_candidate_rejected', {
+      ...diagnosticContext,
+      stage: 'input',
+      reason: 'empty_redacted_transcript',
+    });
+    return null;
+  }
 
   const digestBodies: string[] = [];
   for (const chunk of recovery.digestChunks) {
@@ -324,15 +342,45 @@ export async function generatePiRollingSummaryV2(
       });
     } catch (error) {
       if (input.signal?.aborted) throw error;
+      logPiCompactionDiagnostic('warn', 'summary_provider_failure', {
+        ...diagnosticContext,
+        stage: 'digest',
+        outcome: 'exception',
+        chunkOrdinal: chunk.ordinal,
+        chunkTotal: chunk.total,
+        ...getPiCompactionErrorDiagnostics(error, knownSecrets),
+      });
       return null;
     }
-    if (message.stopReason !== 'stop') return null;
+    if (message.stopReason !== 'stop') {
+      logPiCompactionDiagnostic('warn', 'summary_provider_failure', {
+        ...diagnosticContext,
+        stage: 'digest',
+        outcome: 'non_success',
+        chunkOrdinal: chunk.ordinal,
+        chunkTotal: chunk.total,
+        stopReason: message.stopReason,
+        ...(message.errorMessage
+          ? { errorMessage: sanitizePiCompactionDiagnosticText(message.errorMessage, knownSecrets) }
+          : {}),
+      });
+      return null;
+    }
     const digestBody = validateDigestBody(
       extractAssistantText(message),
       knownSecrets,
       V2_DIGEST_OUTPUT_TOKENS * 4,
     );
-    if (!digestBody) return null;
+    if (!digestBody) {
+      logPiCompactionDiagnostic('warn', 'summary_candidate_rejected', {
+        ...diagnosticContext,
+        stage: 'digest',
+        reason: 'invalid_digest_body',
+        chunkOrdinal: chunk.ordinal,
+        chunkTotal: chunk.total,
+      });
+      return null;
+    }
     digestBodies.push(digestBody);
   }
   const digestSection = renderPiCompactionChunkDigests({
@@ -374,9 +422,26 @@ export async function generatePiRollingSummaryV2(
     });
   } catch (error) {
     if (input.signal?.aborted) throw error;
+    logPiCompactionDiagnostic('warn', 'summary_provider_failure', {
+      ...diagnosticContext,
+      stage: 'summary',
+      outcome: 'exception',
+      ...getPiCompactionErrorDiagnostics(error, knownSecrets),
+    });
     return null;
   }
-  if (summaryMessage.stopReason !== 'stop') return null;
+  if (summaryMessage.stopReason !== 'stop') {
+    logPiCompactionDiagnostic('warn', 'summary_provider_failure', {
+      ...diagnosticContext,
+      stage: 'summary',
+      outcome: 'non_success',
+      stopReason: summaryMessage.stopReason,
+      ...(summaryMessage.errorMessage
+        ? { errorMessage: sanitizePiCompactionDiagnosticText(summaryMessage.errorMessage, knownSecrets) }
+        : {}),
+    });
+    return null;
+  }
 
   const maximumSummaryCharacters = Math.min(
     V2_SUMMARY_MAX_CHARACTERS,
@@ -401,5 +466,13 @@ export async function generatePiRollingSummaryV2(
     knownSecrets,
     maximumCharacters: maximumSummaryCharacters,
   });
-  return assembled.ok ? assembled.text : null;
+  if (!assembled.ok) {
+    logPiCompactionDiagnostic('warn', 'summary_candidate_rejected', {
+      ...diagnosticContext,
+      stage: 'summary',
+      reason: assembled.reason ?? 'unknown_validation_failure',
+    });
+    return null;
+  }
+  return assembled.text;
 }

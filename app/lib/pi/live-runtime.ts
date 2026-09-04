@@ -62,6 +62,10 @@ import {
   inspectPiRuntimeCompactionPressure,
   preparePiHermesCompactionCandidate,
 } from '@/app/lib/pi/compaction/runtime-engine';
+import {
+  getPiCompactionErrorDiagnostics,
+  logPiCompactionDiagnostic,
+} from '@/app/lib/pi/compaction/diagnostics';
 import { sessionCompactionWarrantsAnotherPass } from '@/app/lib/pi/compaction/policy';
 import {
   abortPiSessionCompaction,
@@ -662,6 +666,32 @@ export class LivePiRuntime {
     const activeAttempt = getActivePiSessionCompaction(this.getCompactionScope());
     const attemptId = activeAttempt?.attemptId ?? `compact-${randomUUID()}`;
     const ownsStatus = activeAttempt === null;
+    const startedAt = Date.now();
+    const diagnosticContext = {
+      sessionId: this.sessionId,
+      attemptId,
+      trigger: input.kind,
+      cause: input.cause,
+      provider: this.provider,
+      model: this.model.id,
+    };
+    logPiCompactionDiagnostic('info', 'attempt_started', {
+      ...diagnosticContext,
+      ownsStatus,
+      bypassCooldown: input.bypassCooldown === true,
+      selectionMode: input.selectionMode ?? 'automatic',
+      messageCount: input.messages.length,
+      additionalContextTokens: input.additionalContextTokens,
+      systemPromptTokens,
+      toolTokens,
+      beforeEstimatedTokens: before.estimatedHistoryTokens,
+      beforeEstimatedBytes: before.estimatedHistoryBytes,
+      triggerTokens: before.triggerHistoryTokens,
+      targetTokens: before.targetHistoryTokens,
+      summaryRevision: summarySnapshot.summaryRevision,
+      summaryThroughSequence: summarySnapshot.summaryThroughSequence,
+      focusApplied: Boolean(input.focusTopic?.trim()),
+    });
     if (ownsStatus) {
       this.compactionStatus = {
         state: 'running',
@@ -679,45 +709,66 @@ export class LivePiRuntime {
       };
       this.publishStatus();
     }
-    const result = await runPiSessionCompaction({
-      ...this.getCompactionScope(),
-      trigger: input.kind,
-      bypassCooldown: input.bypassCooldown,
-      attemptId,
-      generation,
-      expectedSummaryRevision: summarySnapshot.summaryRevision,
-      expectedThroughSequence: summarySnapshot.summaryThroughSequence,
-      provider: this.provider,
-      model: this.model.id,
-      contractFingerprint: generation,
-      metrics: {
-        beforeEstimatedTokens: before.estimatedHistoryTokens,
-        beforeEstimatedBytes: before.estimatedHistoryBytes,
-        triggerTokens: before.triggerHistoryTokens,
-        targetTokens: before.targetHistoryTokens,
-      },
-      policy: this.options.compactionPolicy,
-      signal: input.signal,
-      isGenerationCurrent: (candidateGeneration) => (
-        !this.disposed
-        && candidateGeneration === this.createCompactionGeneration(input.runtimeContext)
-      ),
-      prepareCandidate: (candidateSignal, reportProgress) => preparePiHermesCompactionCandidate({
-        messages: input.messages.slice(),
-        summary: summarySnapshot,
-        systemPromptTokens,
-        model: this.model,
-        requestOutputTokens: this.requestOutputTokenCap,
-        toolTokens,
-        additionalContextTokens: input.additionalContextTokens,
-        sessionId: this.sessionId,
-        signal: candidateSignal,
-        streamFn: this.options.summaryStreamFn,
-        selectionMode: input.selectionMode ?? 'automatic',
-        focusTopic: input.focusTopic,
-        onSummaryProgress: (progress) => reportProgress(progress),
-      }),
-    });
+    let result: PiCompactionCoordinatorResult;
+    try {
+      result = await runPiSessionCompaction({
+        ...this.getCompactionScope(),
+        trigger: input.kind,
+        bypassCooldown: input.bypassCooldown,
+        attemptId,
+        generation,
+        expectedSummaryRevision: summarySnapshot.summaryRevision,
+        expectedThroughSequence: summarySnapshot.summaryThroughSequence,
+        provider: this.provider,
+        model: this.model.id,
+        contractFingerprint: generation,
+        metrics: {
+          beforeEstimatedTokens: before.estimatedHistoryTokens,
+          beforeEstimatedBytes: before.estimatedHistoryBytes,
+          triggerTokens: before.triggerHistoryTokens,
+          targetTokens: before.targetHistoryTokens,
+        },
+        policy: this.options.compactionPolicy,
+        signal: input.signal,
+        isGenerationCurrent: (candidateGeneration) => (
+          !this.disposed
+          && candidateGeneration === this.createCompactionGeneration(input.runtimeContext)
+        ),
+        prepareCandidate: (candidateSignal, reportProgress) => preparePiHermesCompactionCandidate({
+          messages: input.messages.slice(),
+          summary: summarySnapshot,
+          systemPromptTokens,
+          model: this.model,
+          requestOutputTokens: this.requestOutputTokenCap,
+          toolTokens,
+          additionalContextTokens: input.additionalContextTokens,
+          sessionId: this.sessionId,
+          signal: candidateSignal,
+          streamFn: this.options.summaryStreamFn,
+          selectionMode: input.selectionMode ?? 'automatic',
+          focusTopic: input.focusTopic,
+          onSummaryProgress: (progress) => {
+            reportProgress(progress);
+            if (progress.status === 'started' || progress.status === 'completed') {
+              logPiCompactionDiagnostic('info', 'summary_progress', {
+                ...diagnosticContext,
+                stage: progress.stage,
+                status: progress.status,
+                completed: progress.completed,
+                total: progress.total,
+              });
+            }
+          },
+        }),
+      });
+    } catch (error) {
+      logPiCompactionDiagnostic('error', 'attempt_threw', {
+        ...diagnosticContext,
+        durationMs: Date.now() - startedAt,
+        ...getPiCompactionErrorDiagnostics(error),
+      });
+      throw error;
+    }
     if (ownsStatus && this.compactionStatus.attemptId === result.attemptId) {
       this.compactionStatus = {
         state: result.state === 'cooldown_active'
@@ -739,6 +790,22 @@ export class LivePiRuntime {
       };
       this.publishStatus();
     }
+    const terminalLevel = result.state === 'succeeded' || result.state === 'no_op'
+      ? 'info'
+      : 'warn';
+    logPiCompactionDiagnostic(terminalLevel, 'attempt_finished', {
+      ...diagnosticContext,
+      durationMs: Date.now() - startedAt,
+      state: result.state,
+      reasonCode: result.reasonCode ?? (result.state === 'already_running' ? 'already_running' : null),
+      retryAt: result.retryAt?.toISOString() ?? null,
+      beforeEstimatedTokens: before.estimatedHistoryTokens,
+      afterEstimatedTokens: result.composition?.estimatedHistoryTokens ?? null,
+      omittedMessageCount: result.composition?.omittedMessages.length ?? 0,
+      triggerTokens: result.composition?.triggerHistoryTokens ?? before.triggerHistoryTokens,
+      targetTokens: result.composition?.targetHistoryTokens ?? before.targetHistoryTokens,
+      summaryUpdated: Boolean(result.summary),
+    });
     return result;
   }
 
