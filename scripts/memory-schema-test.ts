@@ -28,6 +28,14 @@ try {
   assert.deepEqual(expectedTables.every((table) => sqliteTables.has(table)), true);
   const organizationPermissionColumns = new Set((sqlite.prepare(`PRAGMA table_info(organization_user_permissions)`).all() as Array<{ name: string }>).map((row) => row.name));
   assert.equal(organizationPermissionColumns.has('can_manage_organization_memory'), true);
+  const reviewJobColumns = new Set((sqlite.prepare(`PRAGMA table_info(memory_review_jobs)`).all() as Array<{ name: string }>).map((row) => row.name));
+  assert.deepEqual([
+    'response_json',
+    'response_hash',
+    'response_recorded_at',
+    'result_json',
+    'failed_at',
+  ].every((column) => reviewJobColumns.has(column)), true);
 
   sqlite.exec(`
     INSERT INTO user (id, name, email, email_verified, created_at, updated_at)

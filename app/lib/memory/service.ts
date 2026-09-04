@@ -6,6 +6,7 @@ import { openDb, type SqlConnection } from '@/app/lib/db';
 import {
   MEMORY_MAX_ENTRY_CHARS,
   MEMORY_PENDING_ARCHIVE_AFTER_MS,
+  MEMORY_REVIEW_MAX_ATTEMPTS,
   type MemoryEntryStatus,
   type MemoryScopePermissions,
   type MemoryScopeType,
@@ -1053,13 +1054,18 @@ export async function updateMemoryReviewRuntimeSettings(params: {
         SET status = 'scheduled', scheduled_for = ?, lease_until = NULL, error_code = NULL
         WHERE organization_id = ?
           AND status = 'awaiting_model_configuration'
+          AND attempts < ?
           AND NOT EXISTS (
             SELECT 1 FROM memory_user_settings user_settings
             WHERE user_settings.user_id = job.user_id
               AND user_settings.automatic_memory_enabled = 0
           )
-      `, [now, params.organizationId]) as { changes?: number };
+      `, [now, params.organizationId, MEMORY_REVIEW_MAX_ATTEMPTS]) as { changes?: number };
       await connection.run('COMMIT');
+      console.info('[MemoryManager] Runtime configuration updated.', {
+        organizationId: params.organizationId,
+        reactivatedJobs: Number(result.changes ?? 0),
+      });
       return {
         reactivatedJobs: Number(result.changes ?? 0),
         settings: {
@@ -1117,12 +1123,13 @@ export async function updateMemoryReviewSettings(
           UPDATE memory_review_jobs AS job
           SET status = 'scheduled', scheduled_for = ?, lease_until = NULL, error_code = NULL
           WHERE user_id = ? AND status = 'awaiting_model_configuration'
+            AND attempts < ?
             AND EXISTS (
               SELECT 1 FROM memory_review_runtime_settings runtime
               WHERE runtime.organization_id = job.organization_id
                 AND runtime.verified_at IS NOT NULL
             )
-        `, [now, userId]) as { changes?: number };
+        `, [now, userId, MEMORY_REVIEW_MAX_ATTEMPTS]) as { changes?: number };
         reactivatedJobs = Number(result.changes ?? 0);
         await connection.run(`
           UPDATE memory_review_jobs AS job
@@ -1143,6 +1150,12 @@ export async function updateMemoryReviewSettings(
         parkedJobs = Number(result.changes ?? 0);
       }
       await connection.run('COMMIT');
+      console.info('[MemoryManager] User review settings updated.', {
+        userId,
+        automaticMemoryEnabled: settings.automaticMemoryEnabled,
+        reactivatedJobs,
+        parkedJobs,
+      });
       return { reactivatedJobs, parkedJobs };
     } catch (error) {
       await connection.run('ROLLBACK');
@@ -1240,8 +1253,10 @@ export async function scheduleMemoryReviewForSession(params: {
       SELECT id FROM memory_review_jobs
       WHERE user_id = ? AND session_id = ? AND from_message_sequence = ?
         AND status IN ('scheduled', 'awaiting_model_configuration', 'queued', 'retry_wait')
+        AND attempts < ?
       ORDER BY created_at ASC LIMIT 1
-    `, [params.userId, params.sessionId, fromMessageSequence]) as { id?: string } | undefined;
+    `, [params.userId, params.sessionId, fromMessageSequence, MEMORY_REVIEW_MAX_ATTEMPTS]) as { id?: string } | undefined;
+    let jobId = existing?.id;
     if (existing?.id) {
       if (automaticMemoryDisabled) {
         await connection.run(`
@@ -1265,13 +1280,14 @@ export async function scheduleMemoryReviewForSession(params: {
         `, [organizationId, throughMessageSequence, triggerType, existing.id]);
       }
     } else {
+      jobId = randomUUID();
       await connection.run(`
         INSERT INTO memory_review_jobs (
           id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
           trigger_type, scheduled_for, status, attempts, error_code, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
       `, [
-        randomUUID(),
+        jobId,
         params.userId,
         organizationId,
         params.sessionId,
@@ -1284,6 +1300,15 @@ export async function scheduleMemoryReviewForSession(params: {
         now,
       ]);
     }
+    console.info('[MemoryManager] Review scheduled.', {
+      jobId,
+      sessionId: params.sessionId,
+      triggerType,
+      fromMessageSequence,
+      throughMessageSequence,
+      status: parkingError ? 'awaiting_model_configuration' : 'scheduled',
+      scheduledFor: parkingError ? null : scheduledFor,
+    });
     return { scheduled: !parkingError, triggerType, fromMessageSequence, throughMessageSequence };
   } finally { await connection.close(); }
 }
@@ -1298,20 +1323,42 @@ export type MemoryReviewJobClaim = {
   throughMessageSequence: number;
   providerInstallationId: string;
   modelId: string;
+  attempts: number;
+  responseJson: string | null;
+  responseHash: string | null;
 };
 
 /** Claims one due job. A configured model is required; there is no chat-model fallback. */
 export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryReviewJobClaim | null> {
   const connection = await openDb();
   try {
-    await connection.run(`
+    const exhausted = await connection.run(`
+      UPDATE memory_review_jobs
+      SET status = 'failed', scheduled_for = NULL, lease_until = NULL,
+        error_code = COALESCE(error_code, 'max_attempts_exceeded'), failed_at = ?
+      WHERE status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration', 'running')
+        AND attempts >= ?
+    `, [now, MEMORY_REVIEW_MAX_ATTEMPTS]) as { changes?: number };
+    if (Number(exhausted.changes ?? 0) > 0) {
+      console.warn('[MemoryManager] Exhausted review jobs closed.', {
+        count: Number(exhausted.changes ?? 0),
+        maxAttempts: MEMORY_REVIEW_MAX_ATTEMPTS,
+      });
+    }
+    const recovered = await connection.run(`
       UPDATE memory_review_jobs
       SET status = 'retry_wait', scheduled_for = ?, lease_until = NULL, error_code = 'lease_expired'
-      WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until <= ?
-    `, [now, now]);
+      WHERE status = 'running' AND attempts < ? AND lease_until IS NOT NULL AND lease_until <= ?
+    `, [now, MEMORY_REVIEW_MAX_ATTEMPTS, now]) as { changes?: number };
+    if (Number(recovered.changes ?? 0) > 0) {
+      console.warn('[MemoryManager] Expired review leases recovered.', {
+        count: Number(recovered.changes ?? 0),
+      });
+    }
     const candidate = await connection.get(`
       SELECT job.id, job.user_id, job.organization_id, job.session_id,
-        job.from_message_sequence, job.through_message_sequence, session.agent_id,
+        job.from_message_sequence, job.through_message_sequence, job.attempts,
+        job.response_json, job.response_hash, session.agent_id,
         user_settings.automatic_memory_enabled,
         runtime.provider_installation_id, runtime.model_id, runtime.verified_at
       FROM memory_review_jobs job
@@ -1320,9 +1367,10 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
       LEFT JOIN memory_review_runtime_settings runtime ON runtime.organization_id = job.organization_id
       WHERE job.status IN ('scheduled', 'retry_wait')
         AND scheduled_for <= ?
+        AND job.attempts < ?
       ORDER BY job.scheduled_for ASC, job.created_at ASC
       LIMIT 1
-    `, [now]) as Record<string, unknown> | undefined;
+    `, [now, MEMORY_REVIEW_MAX_ATTEMPTS]) as Record<string, unknown> | undefined;
     if (!candidate) return null;
     if (candidate.automatic_memory_enabled === false || candidate.automatic_memory_enabled === 0) {
       await connection.run(`UPDATE memory_review_jobs SET status = 'awaiting_model_configuration', scheduled_for = NULL, error_code = 'automatic_memory_disabled' WHERE id = ?`, [candidate.id]);
@@ -1335,16 +1383,26 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
     const changes = await connection.run(`
       UPDATE memory_review_jobs
       SET status = 'running', attempts = attempts + 1, started_at = ?, lease_until = ?
-      WHERE id = ? AND status IN ('scheduled', 'retry_wait')
-    `, [now, now + 5 * 60 * 1000, candidate.id]) as { changes?: number };
+      WHERE id = ? AND status IN ('scheduled', 'retry_wait') AND attempts < ?
+    `, [now, now + 5 * 60 * 1000, candidate.id, MEMORY_REVIEW_MAX_ATTEMPTS]) as { changes?: number };
     if (!changes.changes) return null;
-    return {
+    const claim = {
       id: String(candidate.id), userId: String(candidate.user_id), organizationId: String(candidate.organization_id), sessionId: String(candidate.session_id),
       sourceAgentId: String(candidate.agent_id),
       fromMessageSequence: Number(candidate.from_message_sequence), throughMessageSequence: Number(candidate.through_message_sequence),
       providerInstallationId: String(candidate.provider_installation_id),
       modelId: String(candidate.model_id),
+      attempts: Number(candidate.attempts ?? 0) + 1,
+      responseJson: typeof candidate.response_json === 'string' ? candidate.response_json : null,
+      responseHash: typeof candidate.response_hash === 'string' ? candidate.response_hash : null,
     };
+    console.info('[MemoryManager] Review claimed.', {
+      jobId: claim.id,
+      attempts: claim.attempts,
+      resumedFromCheckpoint: Boolean(claim.responseJson),
+      leaseUntil: now + 5 * 60 * 1000,
+    });
+    return claim;
   } finally { await connection.close(); }
 }
 
@@ -1357,6 +1415,7 @@ export async function parkMemoryReviewJob(id: string, errorCode: string): Promis
         lease_until = NULL, error_code = ?
       WHERE id = ? AND status = 'running'
     `, [errorCode.slice(0, 80), id]);
+    console.warn('[MemoryManager] Review parked.', { jobId: id, errorCode: errorCode.slice(0, 80) });
   } finally {
     await connection.close();
   }
@@ -1587,21 +1646,94 @@ export async function applyMemoryReviewCandidates(params: {
   } finally { await connection.close(); }
 }
 
-export async function completeMemoryReviewJob(id: string, now = Date.now()): Promise<void> {
+export async function recordMemoryReviewResponse(
+  id: string,
+  candidates: MemoryReviewCandidate[],
+  now = Date.now(),
+): Promise<{ responseHash: string; recorded: boolean }> {
+  const responseJson = JSON.stringify(candidates.slice(0, 20));
+  const responseHash = createHash('sha256').update(responseJson).digest('hex');
   const connection = await openDb();
   try {
-    await connection.run(`UPDATE memory_review_jobs SET status = 'completed', completed_at = ?, lease_until = NULL, error_code = NULL WHERE id = ? AND status = 'running'`, [now, id]);
+    const result = await connection.run(`
+      UPDATE memory_review_jobs
+      SET response_json = ?, response_hash = ?, response_recorded_at = ?
+      WHERE id = ? AND status = 'running' AND response_json IS NULL
+    `, [responseJson, responseHash, now, id]) as { changes?: number };
+    const recorded = Number(result.changes ?? 0) > 0;
+    console.info('[MemoryManager] Review response checkpointed.', {
+      jobId: id,
+      candidateCount: candidates.slice(0, 20).length,
+      responseHash: responseHash.slice(0, 12),
+      recorded,
+    });
+    return { responseHash, recorded };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function completeMemoryReviewJob(
+  id: string,
+  resultOrNow?: { added: number; updated: number; archived: number; skipped: number } | number,
+  completedAt = Date.now(),
+): Promise<void> {
+  const result = typeof resultOrNow === 'number' ? undefined : resultOrNow;
+  const now = typeof resultOrNow === 'number' ? resultOrNow : completedAt;
+  const connection = await openDb();
+  try {
+    await connection.run(`UPDATE memory_review_jobs SET status = 'completed', completed_at = ?, lease_until = NULL, error_code = NULL, result_json = ? WHERE id = ? AND status = 'running'`, [now, result ? JSON.stringify(result) : null, id]);
+    console.info('[MemoryManager] Review completed.', { jobId: id, result: result ?? null });
   } finally { await connection.close(); }
 }
 
-export async function retryMemoryReviewJob(id: string, errorCode: string, now = Date.now()): Promise<void> {
+export async function failMemoryReviewJob(id: string, errorCode: string, now = Date.now()): Promise<void> {
+  const connection = await openDb();
+  try {
+    await connection.run(`
+      UPDATE memory_review_jobs
+      SET status = 'failed', scheduled_for = NULL, lease_until = NULL, error_code = ?, failed_at = ?
+      WHERE id = ? AND status = 'running'
+    `, [errorCode.slice(0, 80), now, id]);
+    console.error('[MemoryManager] Review permanently failed.', { jobId: id, errorCode: errorCode.slice(0, 80) });
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function retryMemoryReviewJob(
+  id: string,
+  errorCode: string,
+  now = Date.now(),
+): Promise<{ status: 'retry_wait' | 'failed'; attempts: number; scheduledFor: number | null } | null> {
   const connection = await openDb();
   try {
     const row = await connection.get(`SELECT attempts FROM memory_review_jobs WHERE id = ? AND status = 'running'`, [id]) as { attempts?: number } | undefined;
-    if (!row) return;
+    if (!row) return null;
     const attempts = Number(row.attempts ?? 1);
+    if (attempts >= MEMORY_REVIEW_MAX_ATTEMPTS) {
+      await connection.run(`
+        UPDATE memory_review_jobs
+        SET status = 'failed', scheduled_for = NULL, lease_until = NULL, error_code = ?, failed_at = ?
+        WHERE id = ? AND status = 'running'
+      `, [errorCode.slice(0, 80), now, id]);
+      console.error('[MemoryManager] Review retry budget exhausted.', {
+        jobId: id,
+        attempts,
+        errorCode: errorCode.slice(0, 80),
+      });
+      return { status: 'failed', attempts, scheduledFor: null };
+    }
     const delay = Math.min(15 * 60 * 1000, 30_000 * (2 ** Math.max(0, attempts - 1)));
-    await connection.run(`UPDATE memory_review_jobs SET status = 'retry_wait', scheduled_for = ?, lease_until = NULL, error_code = ? WHERE id = ? AND status = 'running'`, [now + delay, errorCode.slice(0, 80), id]);
+    const scheduledFor = now + delay;
+    await connection.run(`UPDATE memory_review_jobs SET status = 'retry_wait', scheduled_for = ?, lease_until = NULL, error_code = ? WHERE id = ? AND status = 'running'`, [scheduledFor, errorCode.slice(0, 80), id]);
+    console.warn('[MemoryManager] Review retry scheduled.', {
+      jobId: id,
+      attempts,
+      errorCode: errorCode.slice(0, 80),
+      scheduledFor,
+    });
+    return { status: 'retry_wait', attempts, scheduledFor };
   } finally { await connection.close(); }
 }
 
@@ -1609,10 +1741,16 @@ export async function nextMemoryReviewDueAt(): Promise<number | null> {
   const connection = await openDb();
   try {
     const row = await connection.get(`
-      SELECT MIN(scheduled_for) AS scheduled_for FROM memory_review_jobs
-      WHERE status IN ('scheduled', 'retry_wait') AND scheduled_for IS NOT NULL
-    `) as { scheduled_for?: number | null } | undefined;
-    return typeof row?.scheduled_for === 'number' ? row.scheduled_for : null;
+      SELECT MIN(due_at) AS due_at
+      FROM (
+        SELECT scheduled_for AS due_at FROM memory_review_jobs
+        WHERE status IN ('scheduled', 'retry_wait') AND scheduled_for IS NOT NULL
+        UNION ALL
+        SELECT lease_until AS due_at FROM memory_review_jobs
+        WHERE status = 'running' AND lease_until IS NOT NULL
+      ) due_jobs
+    `) as { due_at?: number | null } | undefined;
+    return typeof row?.due_at === 'number' ? row.due_at : null;
   } finally { await connection.close(); }
 }
 

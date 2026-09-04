@@ -39,14 +39,17 @@ async function main(): Promise<void> {
       exportAgentMemory,
       importPersonalMemory,
       listMemoryCollections,
+      nextMemoryReviewDueAt,
       publishMemory,
       readMemory,
       readAgentMemoryOwnerStats,
       readMemoryCollection,
       readMemoryReviewContext,
+      recordMemoryReviewResponse,
       resolveAgentMemoryOwnerForUser,
       restoreMemory,
       runMemoryMaintenanceCycle,
+      retryMemoryReviewJob,
       scheduleMemoryReviewForSession,
       setAgentMemoryArchived,
       transferAgentMemory,
@@ -260,18 +263,23 @@ async function main(): Promise<void> {
       await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 1_002 }),
       { scheduled: false, triggerType: 'turn_interval', fromMessageSequence: 1, throughMessageSequence: 20 },
     );
+    assert.equal(await nextMemoryReviewDueAt(), 301_003);
+    const reviewCandidates = [{
+      action: 'add' as const,
+      target: 'user' as const,
+      category: 'preferences',
+      semanticKey: 'communication.response-length',
+      content: 'Prefers concise responses.',
+      priority: 70,
+      confidence: 0.9,
+      sourceMessageSequence: 1,
+    }];
+    const checkpoint = await recordMemoryReviewResponse(claim!.id, reviewCandidates, 1_003);
+    assert.equal(checkpoint.recorded, true);
+    assert.equal(checkpoint.responseHash.length, 64);
     const reviewResult = await applyMemoryReviewCandidates({
       claim: claim!,
-      candidates: [{
-        action: 'add',
-        target: 'user',
-        category: 'preferences',
-        semanticKey: 'communication.response-length',
-        content: 'Prefers concise responses.',
-        priority: 70,
-        confidence: 0.9,
-        sourceMessageSequence: 1,
-      }],
+      candidates: reviewCandidates,
     });
     assert.deepEqual(reviewResult, { added: 1, updated: 0, archived: 0, skipped: 0 });
     const workspaceReviewResult = await applyMemoryReviewCandidates({
@@ -341,7 +349,61 @@ async function main(): Promise<void> {
       const used = await lastUsedDb.get(`SELECT last_used_at FROM memory_entries WHERE content = 'Prefers concise responses.' LIMIT 1`) as { last_used_at?: number | null } | undefined;
       assert.ok(Number(used?.last_used_at ?? 0) > 0);
     } finally { await lastUsedDb.close(); }
-    await completeMemoryReviewJob(claim!.id, 1_003);
+    await completeMemoryReviewJob(claim!.id, reviewResult, 1_003);
+    const durabilityDb = await openDb();
+    try {
+      const completedJob = await durabilityDb.get(`
+        SELECT response_json, response_hash, response_recorded_at, result_json
+        FROM memory_review_jobs WHERE id = ?
+      `, [claim!.id]) as Record<string, unknown>;
+      assert.equal(completedJob.response_json, JSON.stringify(reviewCandidates));
+      assert.equal(completedJob.response_hash, checkpoint.responseHash);
+      assert.equal(completedJob.response_recorded_at, 1_003);
+      assert.equal(completedJob.result_json, JSON.stringify(reviewResult));
+      await durabilityDb.run(`
+        INSERT INTO memory_review_jobs (
+          id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
+          trigger_type, scheduled_for, status, attempts, lease_until, response_json, response_hash, created_at
+        ) VALUES ('restart-review-job', 'user-1', 'org-1', 'review-session', 21, 22,
+          'idle', NULL, 'running', 1, 2000, ?, ?, 1)
+      `, [JSON.stringify(reviewCandidates), checkpoint.responseHash]);
+      await durabilityDb.run(`
+        INSERT INTO memory_review_jobs (
+          id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
+          trigger_type, scheduled_for, status, attempts, error_code, created_at
+        ) VALUES ('exhausted-legacy-job', 'user-1', 'org-1', 'review-session', 23, 24,
+          'idle', NULL, 'awaiting_model_configuration', 117, 'model_not_configured', 1)
+      `);
+    } finally {
+      await durabilityDb.close();
+    }
+    assert.equal(await nextMemoryReviewDueAt(), 2_000);
+    const resumedClaim = await claimDueMemoryReviewJob(2_000);
+    assert.equal(resumedClaim?.id, 'restart-review-job');
+    assert.equal(resumedClaim?.attempts, 2);
+    assert.equal(resumedClaim?.responseJson, JSON.stringify(reviewCandidates));
+    assert.equal(resumedClaim?.responseHash, checkpoint.responseHash);
+    assert.deepEqual(await retryMemoryReviewJob('restart-review-job', 'temporary_failure', 2_000), {
+      status: 'retry_wait', attempts: 2, scheduledFor: 62_000,
+    });
+    const finalAttempt = await claimDueMemoryReviewJob(62_000);
+    assert.equal(finalAttempt?.attempts, 3);
+    assert.deepEqual(await retryMemoryReviewJob('restart-review-job', 'temporary_failure', 62_000), {
+      status: 'failed', attempts: 3, scheduledFor: null,
+    });
+    const failedJobsDb = await openDb();
+    try {
+      const failedJobs = await failedJobsDb.all(`
+        SELECT id, status, attempts FROM memory_review_jobs
+        WHERE id IN ('restart-review-job', 'exhausted-legacy-job') ORDER BY id
+      `) as Array<{ id: string; status: string; attempts: number }>;
+      assert.deepEqual(failedJobs, [
+        { id: 'exhausted-legacy-job', status: 'failed', attempts: 117 },
+        { id: 'restart-review-job', status: 'failed', attempts: 3 },
+      ]);
+    } finally {
+      await failedJobsDb.close();
+    }
     const personalDeletion = await deletePersonalMemory('user-1');
     assert.ok(personalDeletion.collections >= 1);
     assert.ok(personalDeletion.entries >= 2);

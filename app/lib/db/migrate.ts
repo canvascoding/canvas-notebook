@@ -3843,6 +3843,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       attempts INTEGER NOT NULL DEFAULT 0,
       lease_until INTEGER,
       error_code TEXT,
+      response_json TEXT,
+      response_hash TEXT,
+      response_recorded_at INTEGER,
+      result_json TEXT,
+      failed_at INTEGER,
       created_at INTEGER NOT NULL,
       started_at INTEGER,
       completed_at INTEGER,
@@ -3860,6 +3865,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_memory_review_jobs_organization_status
       ON memory_review_jobs (organization_id, status, scheduled_for);
   `);
+
+  addColumns(sqlite, 'memory_review_jobs', {
+    response_json: 'TEXT',
+    response_hash: 'TEXT',
+    response_recorded_at: 'INTEGER',
+    result_json: 'TEXT',
+    failed_at: 'INTEGER',
+  });
 
   runTeamSeatLegacyBackfill(sqlite);
 }

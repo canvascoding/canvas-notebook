@@ -2537,8 +2537,9 @@ export class LivePiRuntime {
                 sessionId: this.sessionId,
                 userId: this.userId,
               }))
-              .then(() => import('@/app/lib/memory/review-worker'))
-              .then(({ triggerMemoryReviewWorker }) => {
+              .then(async (scheduleResult) => {
+                if (!scheduleResult?.scheduled) return;
+                const { triggerMemoryReviewWorker } = await import('@/app/lib/memory/review-worker');
                 triggerMemoryReviewWorker();
               })
               .catch((error) => {
