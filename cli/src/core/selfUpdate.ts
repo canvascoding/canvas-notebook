@@ -325,6 +325,7 @@ export async function reexecPortableCliIfUpdated(params: {
   json: boolean;
   noBanner: boolean;
 }): Promise<void> {
+  const eventStream = params.args.includes('--event-stream');
   let result: PortableCliUpdateResult;
   try {
     result = await updatePortableCli(params);
@@ -333,7 +334,7 @@ export async function reexecPortableCliIfUpdated(params: {
     return;
   }
   if (result.skipped && isManagedByControlPlane(process.env)) {
-    console.log('Portable CLI self-update skipped: installation is managed by Control Plane.');
+    if (!eventStream) console.log('Portable CLI self-update skipped: installation is managed by Control Plane.');
     return;
   }
   if (!result.changed) return;
@@ -341,8 +342,10 @@ export async function reexecPortableCliIfUpdated(params: {
   const versionText = result.beforeVersion || result.afterVersion
     ? ` ${result.beforeVersion || 'unknown'} -> ${result.afterVersion || 'unknown'}`
     : '';
-  console.log(`Portable CLI updated${versionText}`);
-  console.log(`Restarting ${params.command} with updated CLI...`);
+  if (!eventStream) {
+    console.log(`Portable CLI updated${versionText}`);
+    console.log(`Restarting ${params.command} with updated CLI...`);
+  }
   const child = spawn(process.execPath, [result.mainPath, ...portableCliReexecArgs(params)], {
     env: {
       ...process.env,

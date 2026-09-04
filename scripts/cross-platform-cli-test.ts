@@ -162,6 +162,21 @@ async function captureConsole(fn: () => Promise<void>): Promise<string[]> {
   }
 }
 
+async function captureStdout(fn: () => Promise<void>): Promise<string[]> {
+  const output: string[] = [];
+  const original = process.stdout.write;
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    output.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    await fn();
+    return output.join('').trim().split(/\r?\n/u).filter(Boolean);
+  } finally {
+    process.stdout.write = original;
+  }
+}
+
 async function withTempRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'canvas-cli-test-'));
   try {
@@ -536,6 +551,29 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       else process.env.CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS = originalReserve;
 
       config = await reset();
+      const operationId = '8767a5c7-1a6d-4768-b760-d1c7d42fe095';
+      const eventLines = await captureStdout(() => update(context, docker, config, false, {
+        image: targetImage,
+        eventStream: true,
+        operationId,
+      }));
+      const events = eventLines.map((line) => JSON.parse(line) as {
+        operationId: string;
+        sequence: number;
+        stage: string;
+        status: string;
+      });
+      assert.ok(events.length >= 10);
+      assert.equal(events.every((event) => event.operationId === operationId), true);
+      assert.deepEqual(events.map((event) => event.sequence), events.map((_, index) => index + 1));
+      assert.ok(events.some((event) => event.stage === 'image_pull' && event.status === 'succeeded'));
+      assert.ok(events.some((event) => event.stage === 'container_recreate' && event.status === 'succeeded'));
+      assert.ok(events.some((event) => event.stage === 'health_verification' && event.status === 'succeeded'));
+      assert.ok(events.some((event) => event.stage === 'version_verification' && event.status === 'succeeded'));
+      assert.equal(events.at(-1)?.stage, 'completed');
+      assert.equal(events.at(-1)?.status, 'succeeded');
+
+      config = await reset();
       runner.healthMode = 'new-unhealthy';
       const unhealthy = await captureConsole(() => update(context, docker, config, true, { image: targetImage }));
       assert.equal(process.exitCode, 1);
@@ -543,6 +581,29 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       assert.equal(JSON.parse(unhealthy.at(-1) || '{}').rolledBack, true);
       assert.equal(runner.runningImageId, 'old-image-id');
       assert.equal(runner.mutableImageId, 'old-image-id');
+
+      config = await reset();
+      runner.healthMode = 'new-unhealthy';
+      const failedEventLines = await captureStdout(() => update(context, docker, config, false, {
+        image: targetImage,
+        eventStream: true,
+        operationId: '9e4ec8d8-c11c-4cf8-804f-52fcb5fe6e19',
+      }));
+      const failedEvents = failedEventLines.map((line) => JSON.parse(line) as {
+        stage: string;
+        status: string;
+        errorCode?: string;
+      });
+      assert.equal(process.exitCode, 1);
+      assert.ok(failedEvents.some((event) => (
+        event.stage === 'health_verification'
+        && event.status === 'failed'
+        && event.errorCode === 'health_verification_failed'
+      )));
+      assert.ok(failedEvents.some((event) => event.stage === 'rollback' && event.status === 'succeeded'));
+      assert.equal(failedEvents.at(-1)?.stage, 'completed');
+      assert.equal(failedEvents.at(-1)?.status, 'failed');
+      assert.equal(runner.runningImageId, 'old-image-id');
 
       config = await reset();
       const freshPostgresConfig = materializePostgresInfrastructureConfig(config);

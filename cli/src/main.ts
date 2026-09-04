@@ -56,6 +56,8 @@ import { SpawnCommandRunner } from './core/process';
 import { reexecPortableCliIfUpdated, updatePortableCli } from './core/selfUpdate';
 import { ServiceManager } from './core/service';
 import { isSwapCommand, SwapManager, validateSwapConfig, type SwapStatus } from './core/swap';
+import { type SystemUpdateErrorCode, type SystemUpdateStage } from './core/systemUpdateContract';
+import { SystemUpdateEventReporter } from './core/systemUpdateReporter';
 import type { CanvasCliConfig, RuntimeContext, StatusJson } from './core/types';
 import { CLI_COMMANDS, CLI_GENERATION, CONFIG_SCHEMA_VERSION, resolveCliVersion } from './core/version';
 
@@ -87,7 +89,9 @@ interface EnvOptions {
 }
 
 export interface UpdateOptions {
+  eventStream?: boolean;
   image?: string;
+  operationId?: string;
   requirePinned?: boolean;
 }
 
@@ -108,6 +112,9 @@ function parseArgs(argv: string[]): ParsedArgs {
     if (arg === '--json') {
       json = true;
       noBanner = true;
+    } else if (arg === '--event-stream') {
+      noBanner = true;
+      filtered.push(arg);
     } else if (arg === '--no-banner') {
       noBanner = true;
     } else if (arg === '-V' || arg === '--version') {
@@ -139,7 +146,7 @@ Commands:
   version [--json]                 Show CLI build information and capabilities
   install [--database postgres] [--postgres-mode managed|external] [--database-url-stdin|--database-url-file <path>] [--pgvector required|optional|disabled] [--runtime personal|team]
                                   Generate config, pull image, start container
-  update [--image <name@sha256>] [--require-pinned]
+  update [--image <name@sha256>] [--require-pinned] [--event-stream] [--operation-id <uuid>]
                                  Pull and apply an image with rollback protection
   start                           Start the container and wait for health
   restart                         Recreate the container and wait for health
@@ -379,6 +386,13 @@ function parseUpdateOptions(args: string[]): UpdateOptions {
       i = parsed.nextIndex;
     } else if (arg === '--require-pinned') {
       options.requirePinned = true;
+    } else if (arg === '--event-stream') {
+      options.eventStream = true;
+    } else if (arg === '--operation-id' || arg.startsWith('--operation-id=')) {
+      if (options.operationId) throw new Error('--operation-id can only be provided once.');
+      const parsed = readOptionValue(args, i, '--operation-id');
+      options.operationId = parsed.value;
+      i = parsed.nextIndex;
     } else {
       throw new Error(`Unknown update option: ${arg}`);
     }
@@ -386,7 +400,25 @@ function parseUpdateOptions(args: string[]): UpdateOptions {
   if (options.image && !isPinnedImageReference(options.image)) {
     throw new Error('--image must be an OCI image name pinned to a sha256 digest.');
   }
+  if (options.operationId && !options.eventStream) throw new Error('--operation-id requires --event-stream.');
   return options;
+}
+
+function systemUpdateFailure(stage: string, error: unknown): { stage: SystemUpdateStage; errorCode: SystemUpdateErrorCode } {
+  const message = error instanceof Error ? error.message.toLowerCase() : '';
+  const deadlineExceeded = message.includes('deadline') || message.includes('timeout');
+  let failure: { stage: SystemUpdateStage; errorCode: SystemUpdateErrorCode };
+  switch (stage) {
+    case 'arguments': failure = { stage: 'request_validation', errorCode: 'request_invalid' }; break;
+    case 'postgres_auth': failure = { stage: 'database_preflight', errorCode: 'database_preflight_failed' }; break;
+    case 'pull': failure = { stage: 'image_pull', errorCode: 'image_pull_failed' }; break;
+    case 'apply': failure = { stage: 'container_recreate', errorCode: 'container_recreate_failed' }; break;
+    case 'health': failure = { stage: 'health_verification', errorCode: 'health_verification_failed' }; break;
+    case 'finalize': failure = { stage: 'version_verification', errorCode: 'version_verification_failed' }; break;
+    case 'verify': failure = { stage: 'version_verification', errorCode: 'version_verification_failed' }; break;
+    default: failure = { stage: 'config_preflight', errorCode: 'update_execution_failed' };
+  }
+  return deadlineExceeded ? { ...failure, errorCode: 'deadline_exceeded' } : failure;
 }
 
 function updatePostgresTimeoutSeconds(env: NodeJS.ProcessEnv = process.env): number {
@@ -660,29 +692,41 @@ export async function update(
   json: boolean,
   options: UpdateOptions,
 ): Promise<void> {
+  const reporter = new SystemUpdateEventReporter({
+    enabled: options.eventStream === true,
+    operationId: options.operationId,
+  });
+  const machineOutput = json || options.eventStream === true;
   await appendLog(context, 'update started');
   if (managedByControlPlane(config)) {
     await appendLog(context, 'managed mode: update coordinated by Control Plane');
-    if (!json) {
+    if (!machineOutput) {
       console.log('Managed mode: this update is coordinated by the Control Plane; autonomous auto-update remains disabled.');
     }
   }
   const previousConfigImage = config.image;
   const targetImage = options.image || previousConfigImage;
-  if ((options.requirePinned || managedByControlPlane(config)) && !isPinnedImageReference(targetImage)) {
-    throw new Error('Managed and scheduled updates require an image pinned to a sha256 digest.');
-  }
-  const previousContainer = await docker.containerId(config);
-  const previousImageId = await docker.containerImageId(previousContainer);
+  let previousImageId = '';
   let phase = 'render';
   let appliedNewImage = false;
   let recreated = false;
   let deadline: UpdateDeadline = { deadlineMs: null, rollbackReserveMs: 120000 };
   try {
+    reporter.running('request_validation', 'Validating Canvas Notebook update request.');
     phase = 'arguments';
     deadline = updateDeadline();
+    if ((options.requirePinned || options.eventStream || managedByControlPlane(config)) && !isPinnedImageReference(targetImage)) {
+      throw new Error('Managed, scheduled, and event-stream updates require an image pinned to a sha256 digest.');
+    }
+    reporter.succeeded('request_validation', 'Canvas Notebook update request validated.');
+    reporter.succeeded('operation_lock', 'Exclusive Canvas update access acquired.');
+    reporter.succeeded('release_verification', 'Immutable Canvas Notebook image reference verified.');
+    reporter.skipped('host_cli_capabilities', 'Host CLI capability verification completed before update execution.');
+    const previousContainer = await docker.containerId(config);
+    previousImageId = await docker.containerImageId(previousContainer);
     if (postgresRuntimeDesired(config)) {
       phase = 'postgres_auth';
+      reporter.running('database_preflight', 'Checking PostgreSQL update readiness.');
       const forwardTimeoutMs = remainingUpdateTime(deadline, true);
       const postgresTimeout = Math.min(
         updatePostgresTimeoutSeconds(),
@@ -693,35 +737,49 @@ export async function update(
         docker,
         config,
         ['--timeout', String(postgresTimeout)],
-        json,
+        machineOutput,
         true,
       );
       config = await readConfig(context);
+      reporter.succeeded('database_preflight', 'PostgreSQL update readiness verified.');
+    } else {
+      reporter.skipped('database_preflight', 'No PostgreSQL reconciliation is required.');
     }
     remainingUpdateTime(deadline, true);
+    reporter.running('config_preflight', 'Preparing Canvas Notebook runtime configuration.');
     const next = await syncFiles(context, config);
+    reporter.succeeded('config_preflight', 'Canvas Notebook runtime configuration prepared.');
+    reporter.skipped('backup', 'This update does not require a CLI-managed backup.');
     const runConfig = structuredClone(next);
     runConfig.image = targetImage;
     const targetEnvironment = { ...process.env, CANVAS_IMAGE: targetImage };
     phase = 'pull';
-    await docker.pull(runConfig, json ? 'pipe' : 'inherit', remainingUpdateTime(deadline, true), targetEnvironment);
+    reporter.running('image_pull', 'Pulling the pinned Canvas Notebook image.');
+    await docker.pull(runConfig, machineOutput ? 'pipe' : 'inherit', remainingUpdateTime(deadline, true), targetEnvironment);
+    reporter.succeeded('image_pull', 'Pinned Canvas Notebook image pulled.');
     if (await docker.needsRecreate(runConfig)) {
       phase = 'apply';
       appliedNewImage = true;
+      reporter.running('container_recreate', 'Recreating the Canvas Notebook container.');
       await docker.composeOrThrow(
         runConfig,
         ['up', '-d', '--force-recreate', '--no-deps', context.serviceName],
-        json ? 'pipe' : 'inherit',
+        machineOutput ? 'pipe' : 'inherit',
         remainingUpdateTime(deadline, true),
         targetEnvironment,
       );
       recreated = true;
-    } else if (!json) {
+      reporter.succeeded('container_recreate', 'Canvas Notebook container recreated.');
+    } else if (!machineOutput) {
       console.log('Container already runs the current healthy image; skipping recreate.');
+    } else {
+      reporter.skipped('container_recreate', 'Canvas Notebook already runs the requested image.');
     }
     phase = 'health';
+    reporter.running('health_verification', 'Waiting for Canvas Notebook health.');
     const forwardHealthTimeout = remainingUpdateTime(deadline, true);
     await docker.waitUntilHealthy(runConfig, boundedHealthAttempts(forwardHealthTimeout), forwardHealthTimeout);
+    reporter.succeeded('health_verification', 'Canvas Notebook is healthy.');
     if (options.image) {
       phase = 'finalize';
       const finalizeTimeout = remainingUpdateTime(deadline, true);
@@ -737,13 +795,29 @@ export async function update(
       await writeConfig(persisted);
       await writeEnvFiles(persisted, composePath(persisted.dataDir, context.platform));
     }
+    phase = 'verify';
+    reporter.running('version_verification', 'Verifying the running Canvas Notebook image.');
+    const runningContainer = await docker.containerId(runConfig);
+    const [expectedImageId, runningImageId] = await Promise.all([
+      docker.imageId(targetImage),
+      docker.containerImageId(runningContainer),
+    ]);
+    if (!expectedImageId || !runningImageId || expectedImageId !== runningImageId) {
+      throw new Error('Running Canvas Notebook image does not match the requested update image.');
+    }
+    reporter.succeeded('version_verification', 'Running Canvas Notebook image verified.');
     await docker.pruneUnusedImages(remainingUpdateTime(deadline, true));
     await appendLog(context, 'update completed');
+    reporter.succeeded('completed', 'Canvas Notebook update completed successfully.');
     if (json) console.log(JSON.stringify({ success: true, recreated, healthy: true, rolledBack: false }));
+    else if (options.eventStream) return;
     else console.log(`Canvas Notebook is healthy: ${docker.healthUrl(runConfig)}`);
-  } catch {
+  } catch (error) {
+    const failure = systemUpdateFailure(phase, error);
     let rolledBack = false;
+    reporter.failed(failure.stage, `Canvas Notebook update failed during ${phase}.`, failure.errorCode);
     if (appliedNewImage && previousImageId) {
+      reporter.running('rollback', 'Restoring the previous Canvas Notebook image.');
       try {
         const rollback = await readConfig(context);
         rollback.image = previousConfigImage;
@@ -764,8 +838,10 @@ export async function update(
         const rollbackHealthTimeout = remainingUpdateTime(deadline, false);
         await docker.waitUntilHealthy(rollback, boundedHealthAttempts(rollbackHealthTimeout), rollbackHealthTimeout);
         rolledBack = true;
+        reporter.succeeded('rollback', 'Previous Canvas Notebook image restored.');
       } catch {
         rolledBack = false;
+        reporter.failed('rollback', 'Previous Canvas Notebook image could not be restored.', 'rollback_failed');
       }
     }
     const failurePhase = appliedNewImage && !rolledBack ? 'rollback_failed' : phase;
@@ -776,6 +852,11 @@ export async function update(
         : `Update failed during ${phase}; the running container was not changed.`);
     if (json) {
       console.log(JSON.stringify({ success: false, phase: failurePhase, error: message, rolledBack }));
+      process.exitCode = 1;
+      return;
+    }
+    if (options.eventStream) {
+      reporter.failed('completed', message, rolledBack ? failure.errorCode : (appliedNewImage ? 'rollback_failed' : failure.errorCode));
       process.exitCode = 1;
       return;
     }
