@@ -2115,6 +2115,22 @@ export const pageOnboardingState = sqliteTable("page_onboarding_state", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
+export const mobileAppPromotionStates = sqliteTable("mobile_app_promotion_states", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  promotionVersion: integer("promotion_version").notNull().default(1),
+  impressionCount: integer("impression_count").notNull().default(0),
+  dismissalCount: integer("dismissal_count").notNull().default(0),
+  lastShownAt: integer("last_shown_at", { mode: "timestamp" }),
+  dismissedUntil: integer("dismissed_until", { mode: "timestamp" }),
+  permanentlyDismissedAt: integer("permanently_dismissed_at", { mode: "timestamp" }),
+  ctaClickedAt: integer("cta_clicked_at", { mode: "timestamp" }),
+  lastAction: text("last_action"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  dismissedUntilIdx: index("idx_mobile_app_promotion_dismissed_until").on(table.dismissedUntil),
+}));
+
 export const automationRuns = sqliteTable("automation_runs", {
   id: text("id").primaryKey(),
   jobId: text("job_id").notNull().references(() => automationJobs.id),
