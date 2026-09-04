@@ -12,9 +12,9 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
+import { WorkspaceIdentityMark } from '@/app/components/workspaces/WorkspaceIdentityMark';
 import {
   getWorkspaceKindLabel,
-  renderWorkspaceIcon,
   type WorkspaceKindLabels,
 } from '@/app/components/workspaces/workspace-utils';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
@@ -56,7 +56,7 @@ export function WorkspaceBadge({ workspace: providedWorkspace, compact = false, 
               className
             )}
           >
-            {renderWorkspaceIcon(workspace, 'h-3.5 w-3.5 shrink-0 text-muted-foreground')}
+            <WorkspaceIdentityMark workspace={workspace} className="h-5 w-5 rounded-[5px]" iconClassName="h-3 w-3" />
             {!compact && (
               <span className="min-w-0 truncate">
                 {label}

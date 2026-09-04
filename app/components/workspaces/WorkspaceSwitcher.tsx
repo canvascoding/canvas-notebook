@@ -27,10 +27,10 @@ import {
 import { cn } from '@/lib/utils';
 import { CreateWorkspaceDialog } from '@/app/components/settings/CreateWorkspaceDialog';
 import { EditWorkspaceDialog } from '@/app/components/settings/EditWorkspaceDialog';
+import { WorkspaceIdentityMark } from '@/app/components/workspaces/WorkspaceIdentityMark';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 import {
   getWorkspaceKindLabel,
-  renderWorkspaceIcon,
   type WorkspaceKindLabels,
 } from '@/app/components/workspaces/workspace-utils';
 import {
@@ -215,7 +215,7 @@ export function WorkspaceSwitcher({
                 {isLoading && !initialized ? (
                   <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
                 ) : (
-                  renderWorkspaceIcon(activeWorkspace, 'h-4 w-4 shrink-0')
+                  <WorkspaceIdentityMark workspace={activeWorkspace} className="h-6 w-6" iconClassName="h-3.5 w-3.5" />
                 )}
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold">{activeLabel}</span>
@@ -308,7 +308,7 @@ export function WorkspaceSwitcher({
                     setMobileSheetOpen(false);
                   }}
                 >
-                  {renderWorkspaceIcon(workspace, 'mt-0.5 h-4 w-4 shrink-0')}
+                  <WorkspaceIdentityMark workspace={workspace} className="mt-0.5 h-7 w-7" iconClassName="h-4 w-4" />
                   <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
                       <span className="min-w-0 truncate">{workspace.name}</span>
@@ -382,7 +382,7 @@ export function WorkspaceSwitcher({
           {isLoading && !initialized ? (
             <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
           ) : (
-            renderWorkspaceIcon(activeWorkspace, 'h-3.5 w-3.5 shrink-0')
+            <WorkspaceIdentityMark workspace={activeWorkspace} className="h-5 w-5 rounded-[5px]" iconClassName="h-3 w-3" />
           )}
           <span className={cn(
             'min-w-0 truncate',
@@ -461,7 +461,7 @@ export function WorkspaceSwitcher({
                   data-testid={`workspace-option-${workspace.id}`}
                   className="min-w-0 flex-1 items-start gap-2"
                 >
-                  {renderWorkspaceIcon(workspace, 'mt-0.5 h-4 w-4')}
+                  <WorkspaceIdentityMark workspace={workspace} className="mt-0.5 h-7 w-7" iconClassName="h-4 w-4" />
                   <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
                       <span className="min-w-0 truncate">{workspace.name}</span>
