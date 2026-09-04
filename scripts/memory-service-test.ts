@@ -11,7 +11,19 @@ async function main(): Promise<void> {
 
   const moduleInternals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
   const originalLoad = moduleInternals._load;
-  moduleInternals._load = (request, parent, isMain) => request === 'server-only' ? {} : originalLoad(request, parent, isMain);
+  moduleInternals._load = (request, parent, isMain) => {
+    if (request === 'server-only') return {};
+    if (request === '@earendil-works/pi-ai/compat') {
+      return {
+        createAssistantMessageEventStream: () => { throw new Error('Model streaming must not run while resuming a memory checkpoint.'); },
+        getModels: () => [],
+        getProviders: () => [],
+        registerBuiltInApiProviders: () => undefined,
+        streamSimple: () => { throw new Error('Model streaming must not run while resuming a memory checkpoint.'); },
+      };
+    }
+    return originalLoad(request, parent, isMain);
+  };
   try {
     const { openDb } = await import('../app/lib/db');
     const db = await openDb();
@@ -58,6 +70,7 @@ async function main(): Promise<void> {
       updateMemoryReviewSettings,
       updateMemory,
     } = await import('../app/lib/memory/service');
+    const { runMemoryReviewWorkerCycle } = await import('../app/lib/memory/review-worker');
     const { buildMemoryPromptProjection } = await import('../app/lib/memory/prompt-projection');
     const { ensureLegacyMemoryMigrated } = await import('../app/lib/memory/legacy-migration');
     const { writeManagedAgentFile } = await import('../app/lib/agents/storage');
@@ -458,6 +471,50 @@ async function main(): Promise<void> {
       ]);
     } finally {
       await failedJobsDb.close();
+    }
+    const checkpointRestartDb = await openDb();
+    try {
+      await checkpointRestartDb.run(`
+        INSERT INTO pi_sessions (session_id, user_id, organization_id, agent_id, provider, model, created_at, updated_at)
+        VALUES ('checkpoint-restart-session', 'user-1', 'org-1', 'canvas-agent', 'test', 'test-model', 1, 1)
+      `);
+      const checkpointRestartSession = await checkpointRestartDb.get(`
+        SELECT id FROM pi_sessions WHERE session_id = 'checkpoint-restart-session'
+      `) as { id: number };
+      await checkpointRestartDb.run(`
+        INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
+        VALUES (?, 'user', '{}', 1, 1)
+      `, [checkpointRestartSession.id]);
+      await checkpointRestartDb.run(`
+        INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
+        VALUES (?, 'assistant', '{}', 2, 2)
+      `, [checkpointRestartSession.id]);
+      await checkpointRestartDb.run(`
+        INSERT INTO memory_review_jobs (
+          id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
+          trigger_type, scheduled_for, status, attempts, lease_until,
+          response_json, response_hash, response_recorded_at, created_at
+        ) VALUES ('checkpoint-restart-job', 'user-1', 'org-1', 'checkpoint-restart-session', 1, 2,
+          'idle', NULL, 'running', 1, 1, ?, ?, 1, 1)
+      `, [JSON.stringify(reviewCandidates), checkpoint.responseHash]);
+    } finally {
+      await checkpointRestartDb.close();
+    }
+    assert.equal(await runMemoryReviewWorkerCycle({ maxJobs: 1 }), 1);
+    const checkpointRestartAssertionDb = await openDb();
+    try {
+      const restartedJob = await checkpointRestartAssertionDb.get(`
+        SELECT status, attempts, response_json, response_hash, completed_at, result_json
+        FROM memory_review_jobs WHERE id = 'checkpoint-restart-job'
+      `) as Record<string, unknown>;
+      assert.equal(restartedJob.status, 'completed');
+      assert.equal(restartedJob.attempts, 2);
+      assert.equal(restartedJob.response_json, JSON.stringify(reviewCandidates));
+      assert.equal(restartedJob.response_hash, checkpoint.responseHash);
+      assert.ok(Number(restartedJob.completed_at) > 0);
+      assert.equal(typeof restartedJob.result_json, 'string');
+    } finally {
+      await checkpointRestartAssertionDb.close();
     }
     const recoveryDb = await openDb();
     try {

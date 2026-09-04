@@ -97,4 +97,7 @@ Der Service-Test deckt insbesondere Retry-Limit, Checkpoint-Persistenz,
 Lease-Recovery nach Neustart, Schliessen historisch erschoepfter Jobs,
 Folgejob-Reconciliation, nicht blockierende unkonfigurierte Mandanten,
 idempotente Updates, Kategorien-Normalisierung und das Verhindern leerer
-Collections ab.
+Collections ab. Ein prozessnaher Worker-Zyklus prueft ausserdem, dass ein
+abgelaufener `running`-Job nach einem Neustart aus seinem validierten Checkpoint
+fertiggestellt wird; die Modellstream-Funktionen werfen im Test absichtlich,
+falls der Worker sie dabei doch aufrufen sollte.
