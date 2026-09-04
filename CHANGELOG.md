@@ -11,6 +11,16 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.4.1] - 2026-09-04
+
+### Fixed
+
+- Open newly created workspaces immediately after creation.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.3.2] - 2026-09-03
 
 ### Added
