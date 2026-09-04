@@ -9,6 +9,7 @@ import { resolveDefaultPaths } from '../cli/src/core/platform';
 async function main(): Promise<void> {
   const root = path.resolve(__dirname, '..');
   const paths = resolveDefaultPaths('linux', {
+    NODE_ENV: 'test',
     HOME: '/tmp/canvas-updater-installer-test',
     CANVAS_INSTALL_DIR: '/opt/canvas-notebook',
     CANVAS_DATA_DIR: '/srv/canvas-data',

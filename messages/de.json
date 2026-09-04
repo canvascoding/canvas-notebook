@@ -2797,6 +2797,7 @@
       "usage": "Nutzung",
       "skills": "Plugins",
       "license": "Lizenz",
+      "systemUpdates": "System-Updates",
       "legal": "Rechtliches"
     },
     "navigation": {
@@ -2833,7 +2834,118 @@
         "systemEmail": "Persönliche Inbox sowie – mit Berechtigung – Business Inboxen und die System-E-Mail verwalten.",
         "usage": "Tokenverbrauch, Kosten und Laufzeitereignisse analysieren.",
         "license": "Lizenzstatus und Aktivierung dieser Instanz verwalten.",
+        "systemUpdates": "Updates für diese Canvas-Instanz prüfen, installieren und verfolgen.",
         "legal": "Drittanbieter-Komponenten, Lizenzhinweise und den kommerziellen Release-Status prüfen."
+      }
+    },
+    "updates": {
+      "loading": "Diese Canvas-Installation wird geprüft …",
+      "retry": "Erneut versuchen",
+      "checkAgain": "Erneut prüfen",
+      "cancel": "Abbrechen",
+      "starting": "Wird gestartet …",
+      "unknown": "Unbekannt",
+      "installed": "Auf dieser Instanz installiert",
+      "currentVersion": "Aktuelle Version",
+      "availableVersion": "Verfügbare Version",
+      "platformManaged": "Wird von deiner Deployment-Plattform bereitgestellt",
+      "releaseNotes": "Release Notes",
+      "installUpdate": "Update installieren",
+      "overview": {
+        "title": "Canvas Notebook",
+        "description": "Versionsstatus und Update-Steuerung für diese Installation."
+      },
+      "modes": {
+        "standalone": "Updates direkt verfügbar",
+        "managed": "Verwaltete Updates",
+        "manual": "Über Plattform verwaltet"
+      },
+      "ready": {
+        "title": "Ein Update ist bereit",
+        "description": "Canvas kann dieses Release herunterladen, prüfen und für dich installieren.",
+        "badge": "Update verfügbar",
+        "backupRequired": "Vor dem Austausch des Dienstes ist ein erfolgreich geprüftes Backup erforderlich.",
+        "backupIncluded": "Canvas prüft Release und Installation, bevor der Dienst ausgetauscht wird."
+      },
+      "upToDate": {
+        "title": "Canvas ist aktuell",
+        "description": "Im stabilen Kanal ist kein neueres Release verfügbar."
+      },
+      "manual": {
+        "title": "Update über deine Deployment-Plattform",
+        "descriptions": {
+          "canvas-installer": "Diese Installation wird vom Canvas-Host-Installer gepflegt.",
+          "docker-compose": "Diese Installation folgt dem in Docker Compose konfigurierten Image.",
+          "coolify": "Diese Installation wird über Coolify bereitgestellt und aktualisiert.",
+          "unknown": "Diese Installation wird außerhalb von Canvas verwaltet."
+        },
+        "steps": {
+          "docker-compose": {
+            "pullImage": "Lade das gewünschte Canvas-Notebook-Image auf dem Docker-Host.",
+            "updateCompose": "Trage die unveränderliche Image-Referenz in der Compose-Konfiguration ein.",
+            "recreateService": "Erzeuge den Canvas-Dienst neu und prüfe anschließend seinen Healthcheck."
+          },
+          "coolify": {
+            "openPlatform": "Öffne diese Ressource in Coolify.",
+            "selectRelease": "Wähle das gewünschte Release und starte ein neues Deployment.",
+            "verifyDeployment": "Kehre hierher zurück, sobald der Deployment-Healthcheck erfolgreich ist."
+          },
+          "unknown": {
+            "pullImage": "Öffne das System, das diese Canvas-Instanz bereitstellt.",
+            "updateCompose": "Wähle ein geprüftes Canvas-Notebook-Release.",
+            "recreateService": "Spiele es ein und bestätige, dass Canvas wieder fehlerfrei erreichbar ist."
+          }
+        }
+      },
+      "confirm": {
+        "title": "Canvas {version} installieren?",
+        "description": "Canvas ist kurzzeitig nicht erreichbar, während der Dienst ausgetauscht wird. Lass diese Seite geöffnet; sie verbindet sich automatisch neu.",
+        "backup": "Der Updater prüft das signierte Release, die Konfiguration und die Datenbank und verifiziert danach die neue Version. Schlägt die Prüfung fehl, versucht er ein Rollback.",
+        "backupRequired": "Dieses Release erfordert zusätzlich ein erfolgreiches Backup, bevor der Container ausgetauscht wird.",
+        "action": "Installieren und neu starten"
+      },
+      "reconnecting": {
+        "title": "Canvas wird neu gestartet",
+        "description": "Das Update läuft auf dem Host weiter. Diese Seite verbindet sich automatisch neu, sobald Canvas wieder verfügbar ist."
+      },
+      "operation": {
+        "version": "Zielversion {version}",
+        "progress": "Update-Fortschritt",
+        "failedTitle": "Das Update wurde nicht abgeschlossen",
+        "rolledBackTitle": "Vorherige Version wiederhergestellt",
+        "rolledBackDescription": "Canvas konnte das neue Release nicht verifizieren und hat die vorherige funktionierende Version wiederhergestellt.",
+        "status": {
+          "queued": "Update eingeplant",
+          "preflight": "Installation wird geprüft",
+          "running": "Update wird installiert",
+          "reconnecting": "Canvas wird neu gestartet",
+          "verifying": "Neue Version wird geprüft",
+          "succeeded": "Update abgeschlossen",
+          "rolled_back": "Update zurückgerollt",
+          "failed": "Update fehlgeschlagen",
+          "indeterminate": "Update benötigt Aufmerksamkeit"
+        }
+      },
+      "stages": {
+        "requestValidation": "Anfrage prüfen",
+        "operationLock": "Update-Vorgang reservieren",
+        "releaseVerification": "Signiertes Release prüfen",
+        "hostCliCapabilities": "Host-Updater prüfen",
+        "configPreflight": "Konfiguration prüfen",
+        "databasePreflight": "Datenbank prüfen",
+        "backup": "Backup erstellen",
+        "imagePull": "Release herunterladen",
+        "containerRecreate": "Canvas-Dienst ersetzen",
+        "healthVerification": "Dienstzustand prüfen",
+        "versionVerification": "Installierte Version prüfen",
+        "rollback": "Vorherige Version wiederherstellen",
+        "completed": "Update abschließen"
+      },
+      "errors": {
+        "title": "Update-Status nicht verfügbar",
+        "availability": "Der Update-Status konnte nicht geladen werden.",
+        "operation": "Der Update-Vorgang konnte nicht geladen werden.",
+        "start": "Das Update konnte nicht gestartet werden."
       }
     },
     "legal": {

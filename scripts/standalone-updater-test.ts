@@ -75,6 +75,7 @@ async function signedReleaseFixture(directory: string, transform: (manifest: Sys
   const envelope = { manifest: transform(original), signature: { algorithm: 'ed25519', keyId: 'release-key-1', value: signature } };
   const resolver = new StandaloneReleaseResolver({
     env: {
+      NODE_ENV: 'test',
       CANVAS_UPDATE_TRUST_STORE: trustStore,
       CANVAS_UPDATE_MANIFEST_URL: 'https://updates.example.com/{channel}.json',
     },

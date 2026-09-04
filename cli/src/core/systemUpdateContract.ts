@@ -359,3 +359,65 @@ export function validateSystemUpdateEvent(input: unknown): SystemUpdateValidatio
     },
   };
 }
+
+export function validateSystemUpdateOperation(input: unknown): SystemUpdateValidationResult<SystemUpdateOperation> {
+  if (!isRecord(input)) return { ok: false, error: 'Update operation must be an object.' };
+  if (input.contractVersion !== SYSTEM_UPDATE_CONTRACT_VERSION) {
+    return { ok: false, error: 'Unsupported update operation contract version.' };
+  }
+  if (typeof input.operationId !== 'string' || !UUID_PATTERN.test(input.operationId)) {
+    return { ok: false, error: 'Update operation ID is invalid.' };
+  }
+  if (!isMember(SYSTEM_UPDATE_OPERATION_STATUSES, input.status)) {
+    return { ok: false, error: 'Update operation status is invalid.' };
+  }
+  if (!isMember(SYSTEM_UPDATE_STAGES, input.stage)) {
+    return { ok: false, error: 'Update operation stage is invalid.' };
+  }
+  if (typeof input.targetVersion !== 'string' || !VERSION_PATTERN.test(input.targetVersion)) {
+    return { ok: false, error: 'Update target version is invalid.' };
+  }
+  if (!isBoundedString(input.targetImageRef, 512) || !PINNED_IMAGE_PATTERN.test(input.targetImageRef)) {
+    return { ok: false, error: 'Update target image reference is invalid.' };
+  }
+  if (input.currentVersion !== null && (typeof input.currentVersion !== 'string' || !VERSION_PATTERN.test(input.currentVersion))) {
+    return { ok: false, error: 'Update current version is invalid.' };
+  }
+  if (input.startedAt !== null && !isIsoTimestamp(input.startedAt)) {
+    return { ok: false, error: 'Update start timestamp is invalid.' };
+  }
+  if (!isIsoTimestamp(input.updatedAt)) return { ok: false, error: 'Update timestamp is invalid.' };
+  if (input.completedAt !== null && !isIsoTimestamp(input.completedAt)) {
+    return { ok: false, error: 'Update completion timestamp is invalid.' };
+  }
+  if (typeof input.rolledBack !== 'boolean') return { ok: false, error: 'Update rollback state is invalid.' };
+  if (input.errorCode !== null && !isMember(SYSTEM_UPDATE_ERROR_CODES, input.errorCode)) {
+    return { ok: false, error: 'Update error code is invalid.' };
+  }
+  if (input.error !== null && (typeof input.error !== 'string' || input.error.length > 2048)) {
+    return { ok: false, error: 'Update error message is invalid.' };
+  }
+  if (!Number.isSafeInteger(input.lastSequence) || Number(input.lastSequence) < 0) {
+    return { ok: false, error: 'Update event cursor is invalid.' };
+  }
+
+  return {
+    ok: true,
+    value: {
+      contractVersion: SYSTEM_UPDATE_CONTRACT_VERSION,
+      operationId: input.operationId,
+      status: input.status,
+      stage: input.stage,
+      targetVersion: input.targetVersion,
+      targetImageRef: input.targetImageRef,
+      currentVersion: input.currentVersion as string | null,
+      startedAt: input.startedAt as string | null,
+      updatedAt: input.updatedAt,
+      completedAt: input.completedAt as string | null,
+      rolledBack: input.rolledBack,
+      errorCode: input.errorCode as SystemUpdateErrorCode | null,
+      error: input.error as string | null,
+      lastSequence: Number(input.lastSequence),
+    },
+  };
+}

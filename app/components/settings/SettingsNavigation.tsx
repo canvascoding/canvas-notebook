@@ -17,6 +17,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Palette,
+  PackageCheck,
   Plug,
   Puzzle,
   Settings2,
@@ -63,6 +64,7 @@ export type SettingsTab =
   | 'usage'
   | 'skills'
   | 'license'
+  | 'system-updates'
   | 'legal';
 
 export type SettingsGroup = 'account' | 'workspace' | 'agents' | 'connections' | 'system';
@@ -204,6 +206,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.license',
     group: 'system',
     icon: BadgeCheck,
+  },
+  {
+    value: 'system-updates',
+    labelKey: 'tabs.systemUpdates',
+    descriptionKey: 'navigation.descriptions.systemUpdates',
+    group: 'system',
+    icon: PackageCheck,
   },
   {
     value: 'legal',

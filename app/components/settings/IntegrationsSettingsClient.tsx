@@ -12,6 +12,7 @@ import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { MailboxConnectionForm } from '@/app/components/email/MailboxConnectionForm';
 import { McpServerSettingsPanel } from '@/app/components/settings/McpServerSettingsPanel';
 import { SystemEmailSettingsPanel } from '@/app/components/settings/SystemEmailSettingsPanel';
+import { UpdateCenterPanel } from '@/app/components/settings/UpdateCenterPanel';
 import {
   McpServerDialog,
   collectMcpEnvEntries,
@@ -2407,6 +2408,7 @@ export function IntegrationsSettingsClient({
       if (tab.value === 'user-management') return isAdmin;
       if (tab.value === 'data-migration') return isAdmin;
       if (tab.value === 'ai-providers') return isAdmin;
+      if (tab.value === 'system-updates') return isAdmin;
         return true;
     }),
     [isAdmin],
@@ -3286,6 +3288,8 @@ export function IntegrationsSettingsClient({
               canViewTeamSeatHealth={canViewTeamSeatHealth}
             />
           ))}
+
+          {renderLazyTabContent('system-updates', <UpdateCenterPanel />)}
 
           {renderLazyTabContent('legal', <LegalSettingsPanel />)}
         </div>

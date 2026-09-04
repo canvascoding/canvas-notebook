@@ -2798,6 +2798,7 @@
       "usage": "Usage",
       "skills": "Plugins",
       "license": "License",
+      "systemUpdates": "System Updates",
       "legal": "Legal"
     },
     "navigation": {
@@ -2834,7 +2835,118 @@
         "systemEmail": "Manage your personal inbox and, where permitted, business inboxes and system email.",
         "usage": "Analyze token usage, cost, and runtime events.",
         "license": "Manage the license status and activation of this instance.",
+        "systemUpdates": "Check, install, and follow updates for this Canvas instance.",
         "legal": "Review third-party components, license notices, and commercial release readiness."
+      }
+    },
+    "updates": {
+      "loading": "Checking this Canvas installation…",
+      "retry": "Try again",
+      "checkAgain": "Check again",
+      "cancel": "Cancel",
+      "starting": "Starting…",
+      "unknown": "Unknown",
+      "installed": "Installed on this instance",
+      "currentVersion": "Current version",
+      "availableVersion": "Available version",
+      "platformManaged": "Provided by your deployment platform",
+      "releaseNotes": "Release notes",
+      "installUpdate": "Install update",
+      "overview": {
+        "title": "Canvas Notebook",
+        "description": "Version status and update controls for this installation."
+      },
+      "modes": {
+        "standalone": "Updates available here",
+        "managed": "Managed updates",
+        "manual": "Platform-managed"
+      },
+      "ready": {
+        "title": "An update is ready",
+        "description": "Canvas can download, verify, and install this release for you.",
+        "badge": "Update available",
+        "backupRequired": "A verified backup is required before the service is replaced.",
+        "backupIncluded": "Canvas verifies the release and checks the installation before replacing the service."
+      },
+      "upToDate": {
+        "title": "Canvas is up to date",
+        "description": "No newer release is available on the stable channel."
+      },
+      "manual": {
+        "title": "Update from your deployment platform",
+        "descriptions": {
+          "canvas-installer": "This installation is maintained by the Canvas host installer.",
+          "docker-compose": "This installation follows the image configured in Docker Compose.",
+          "coolify": "This installation is deployed and updated from Coolify.",
+          "unknown": "This installation is managed outside Canvas."
+        },
+        "steps": {
+          "docker-compose": {
+            "pullImage": "Pull the desired Canvas Notebook image on the Docker host.",
+            "updateCompose": "Set the immutable image reference in your Compose configuration.",
+            "recreateService": "Recreate the Canvas service and verify its health check."
+          },
+          "coolify": {
+            "openPlatform": "Open this resource in Coolify.",
+            "selectRelease": "Select the desired release and start a redeploy.",
+            "verifyDeployment": "Return here after the deployment health check succeeds."
+          },
+          "unknown": {
+            "pullImage": "Open the system that deploys this Canvas instance.",
+            "updateCompose": "Select a verified Canvas Notebook release.",
+            "recreateService": "Deploy it and confirm that Canvas becomes healthy again."
+          }
+        }
+      },
+      "confirm": {
+        "title": "Install Canvas {version}?",
+        "description": "Canvas will be unavailable briefly while the service is replaced. Keep this page open; it reconnects automatically.",
+        "backup": "The updater verifies the signed release, checks configuration and database readiness, then verifies the new version. If verification fails, it attempts a rollback.",
+        "backupRequired": "This release additionally requires a successful backup before the container is replaced.",
+        "action": "Install and restart"
+      },
+      "reconnecting": {
+        "title": "Canvas is restarting",
+        "description": "The update keeps running on the host. This page will reconnect automatically when Canvas is available again."
+      },
+      "operation": {
+        "version": "Target version {version}",
+        "progress": "Update progress",
+        "failedTitle": "The update did not complete",
+        "rolledBackTitle": "Previous version restored",
+        "rolledBackDescription": "Canvas could not verify the new release and restored the previous working version.",
+        "status": {
+          "queued": "Update queued",
+          "preflight": "Checking installation",
+          "running": "Installing update",
+          "reconnecting": "Restarting Canvas",
+          "verifying": "Verifying new version",
+          "succeeded": "Update complete",
+          "rolled_back": "Update rolled back",
+          "failed": "Update failed",
+          "indeterminate": "Update needs attention"
+        }
+      },
+      "stages": {
+        "requestValidation": "Validate request",
+        "operationLock": "Reserve update operation",
+        "releaseVerification": "Verify signed release",
+        "hostCliCapabilities": "Check host updater",
+        "configPreflight": "Check configuration",
+        "databasePreflight": "Check database",
+        "backup": "Create backup",
+        "imagePull": "Download release",
+        "containerRecreate": "Replace Canvas service",
+        "healthVerification": "Check service health",
+        "versionVerification": "Verify installed version",
+        "rollback": "Restore previous version",
+        "completed": "Complete update"
+      },
+      "errors": {
+        "title": "Update status unavailable",
+        "availability": "The update status could not be loaded.",
+        "operation": "The update operation could not be loaded.",
+        "start": "The update could not be started."
       }
     },
     "legal": {
