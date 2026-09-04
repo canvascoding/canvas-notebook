@@ -1,12 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowRightLeft, BrainCircuit, Check, Clock3, Download, Loader2, Pencil, Plus, RotateCcw, Save, Send, Sparkles, Trash2, Upload } from 'lucide-react';
+import { Archive, ArrowRightLeft, BookOpenText, BrainCircuit, Check, ChevronRight, Clock3, Download, Loader2, Pencil, Plus, RotateCcw, Save, Send, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
+import { useLocale } from 'next-intl';
 import Link from 'next/link';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { memoryCategoryDescription, memoryCategoryLabel, type MemoryDisplayLocale } from '@/app/lib/memory/categories';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -46,6 +48,7 @@ type Collection = {
   id: string;
   category: string;
   title: string;
+  summary: string | null;
   status: 'active' | 'archived';
   updatedAt: number;
   entryCount: number;
@@ -106,8 +109,10 @@ function scopeFromParam(value: string | null): MemoryScope {
   return value === 'agent' || value === 'workspace' || value === 'organization' ? value : 'user';
 }
 
-function formatDate(value: number): string {
-  return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(value)) : 'Not yet updated';
+function formatDate(value: number, locale: MemoryDisplayLocale): string {
+  return value
+    ? new Intl.DateTimeFormat(locale === 'de' ? 'de-DE' : 'en-US', { dateStyle: 'medium' }).format(new Date(value))
+    : locale === 'de' ? 'Noch nicht aktualisiert' : 'Not yet updated';
 }
 
 async function readJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
@@ -128,6 +133,7 @@ function queryForScope(scope: MemoryScope, agentId: string | null, workspaceId: 
 
 export function MemorySettingsPanel() {
   const searchParams = useSearchParams();
+  const locale: MemoryDisplayLocale = useLocale() === 'en' ? 'en' : 'de';
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
   const workspaceId = searchParams.get('workspaceId') || activeWorkspace?.id || null;
   const [agentId, setAgentId] = useState<string | null>(() => searchParams.get('agentId'));
@@ -166,6 +172,10 @@ export function MemorySettingsPanel() {
     [settings],
   );
   const selectedAgentOwner = useMemo(() => agentOwners.find((owner) => owner.agentId === agentId) ?? null, [agentId, agentOwners]);
+  const selectedCollection = useMemo(
+    () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
+    [collections, selectedCollectionId],
+  );
   const activeTransferTargets = useMemo(() => agentOwners.filter((owner) => owner.status === 'active' && owner.agentId !== agentId), [agentId, agentOwners]);
   const agentMemoryReadOnly = scope === 'agent' && selectedAgentOwner?.status === 'deleted';
   const canUseScope = scope === 'agent' ? Boolean(agentId && selectedAgentOwner) : scope !== 'workspace' || Boolean(workspaceId);
@@ -350,7 +360,6 @@ export function MemorySettingsPanel() {
   };
 
   const exportCurrentCollection = () => {
-    const selectedCollection = collections.find((collection) => collection.id === selectedCollectionId);
     const content = JSON.stringify({ exportedAt: new Date().toISOString(), scope, collection: selectedCollection, entries }, null, 2);
     const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
     const anchor = document.createElement('a');
@@ -526,14 +535,85 @@ export function MemorySettingsPanel() {
           ) : null}
 
           <Card>
-            <CardHeader className="space-y-1"><CardTitle className="text-base">{SCOPE_COPY[scope].label}</CardTitle><CardDescription>{SCOPE_COPY[scope].eyebrow}. Published shared memory is visible to readers; pending suggestions need a manager’s approval.</CardDescription></CardHeader>
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-base">{locale === 'de' ? 'Memory-Bereiche' : 'Memory categories'}</CardTitle>
+              <CardDescription>
+                {locale === 'de'
+                  ? 'Diese Karten sind Kategorien, keine Projekte. Jede Kategorie bündelt einzelne, dauerhaft gespeicherte Memory-Einträge.'
+                  : 'These cards are categories, not projects. Each category groups individual memory entries that remain available over time.'}
+              </CardDescription>
+            </CardHeader>
             <CardContent className="space-y-4">
-              {loading ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading memory…</p> : null}
-              {!loading && collections.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">No collection exists yet. Add a concise fact below to begin.</p> : null}
-              {collections.length > 0 ? <div className="grid gap-2 md:grid-cols-2">{collections.map((collection) => <button type="button" key={collection.id} onClick={() => setSelectedCollectionId(collection.id)} className={cn('rounded-lg border p-3 text-left transition-colors hover:bg-muted/50', selectedCollectionId === collection.id && 'border-primary bg-primary/5 shadow-sm')}><div className="flex items-start justify-between gap-2"><span className="font-medium">{collection.title}</span>{collection.pendingCount > 0 ? <Badge variant="outline">{collection.pendingCount} pending</Badge> : null}</div><p className="mt-1 text-xs text-muted-foreground">{collection.category} · {collection.entryCount} entries · {formatDate(collection.updatedAt)}</p></button>)}</div> : null}
-              {selectedCollectionId ? <div className="flex justify-end"><Button variant="ghost" size="sm" onClick={exportCurrentCollection}><Download className="mr-2 size-4" />Export collection</Button></div> : null}
+              {loading ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{locale === 'de' ? 'Memories werden geladen…' : 'Loading memory…'}</p> : null}
+              {!loading && collections.length === 0 ? (
+                <p className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                  {locale === 'de' ? 'Noch keine Memory-Einträge vorhanden. Füge unten einen dauerhaften Fakt hinzu.' : 'No memory entries yet. Add a durable fact below to begin.'}
+                </p>
+              ) : null}
+              {collections.length > 0 ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {collections.map((collection) => {
+                    const categoryLabel = memoryCategoryLabel(collection.category, locale);
+                    const categoryDescription = memoryCategoryDescription(collection.category, locale);
+                    const selected = selectedCollectionId === collection.id;
+                    return (
+                      <button
+                        type="button"
+                        key={collection.id}
+                        aria-pressed={selected}
+                        onClick={() => setSelectedCollectionId(collection.id)}
+                        className={cn(
+                          'group flex min-h-36 flex-col rounded-xl border bg-card p-4 text-left transition-[border-color,box-shadow,background-color] hover:border-primary/40 hover:bg-muted/20',
+                          selected && 'border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/15',
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <span className={cn('grid size-9 place-items-center rounded-lg border bg-muted/40 text-muted-foreground', selected && 'border-primary/25 bg-primary/10 text-primary')}>
+                            <BookOpenText className="size-4" />
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {collection.pendingCount > 0 ? <Badge variant="outline">{collection.pendingCount} {locale === 'de' ? 'ausstehend' : 'pending'}</Badge> : null}
+                            <ChevronRight className={cn('size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5', selected && 'text-primary')} />
+                          </div>
+                        </div>
+                        <p className="mt-3 font-semibold tracking-tight">{categoryLabel}</p>
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{categoryDescription}</p>
+                        <p className="mt-auto pt-3 text-xs text-muted-foreground">
+                          {collection.entryCount} {locale === 'de' ? (collection.entryCount === 1 ? 'Eintrag' : 'Einträge') : (collection.entryCount === 1 ? 'entry' : 'entries')} · {formatDate(collection.updatedAt, locale)}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
+
+          {selectedCollection ? (
+            <Card className="border-primary/20" data-testid="selected-memory-category">
+              <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex min-w-0 gap-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
+                    <BookOpenText className="size-5" />
+                  </span>
+                  <div className="min-w-0 space-y-1">
+                    <CardDescription>{locale === 'de' ? 'Ausgewählter Memory-Bereich' : 'Selected memory category'}</CardDescription>
+                    <CardTitle className="text-lg">{memoryCategoryLabel(selectedCollection.category, locale)}</CardTitle>
+                    <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{memoryCategoryDescription(selectedCollection.category, locale)}</p>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Badge variant="secondary">{selectedCollection.entryCount} {locale === 'de' ? (selectedCollection.entryCount === 1 ? 'Eintrag' : 'Einträge') : (selectedCollection.entryCount === 1 ? 'entry' : 'entries')}</Badge>
+                      {selectedCollection.pendingCount > 0 ? <Badge variant="outline">{selectedCollection.pendingCount} {locale === 'de' ? 'ausstehend' : 'pending'}</Badge> : null}
+                    </div>
+                  </div>
+                </div>
+                {selectedCollection.entryCount > 0 ? (
+                  <Button variant="outline" size="sm" onClick={exportCurrentCollection}>
+                    <Download className="mr-2 size-4" />{locale === 'de' ? 'Bereich exportieren' : 'Export category'}
+                  </Button>
+                ) : null}
+              </CardHeader>
+            </Card>
+          ) : null}
 
           {scope === 'user' ? <Card className="border-dashed">
             <CardHeader><CardTitle className="text-base">Import or remove private memory</CardTitle><CardDescription>Import only a Canvas memory export you recognize. Shared workspace and organization memory are never imported from this control.</CardDescription></CardHeader>
@@ -551,13 +631,13 @@ export function MemorySettingsPanel() {
 
           <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">{entries.length > 0 ? <Input aria-label="Search memory" value={entryQuery} onChange={(event) => setEntryQuery(event.target.value)} placeholder="Search this collection" className="max-w-sm" /> : null}<select aria-label="Sort memory" className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={entrySort} onChange={(event) => setEntrySort(event.target.value as 'priority' | 'updated' | 'lastUsed')}><option value="priority">Priority</option><option value="updated">Last updated</option><option value="lastUsed">Last used</option></select>{permissions?.canArchive ? <Button size="sm" variant="outline" onClick={() => setShowArchived((value) => !value)}>{showArchived ? 'Hide archived' : 'Show archived'}</Button> : null}</div>
-            {visibleEntries.map((entry) => <Card key={entry.id} className={entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : ''}><CardContent className="pt-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1">{editingId === entry.id ? <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} /> : <p className="whitespace-pre-wrap text-sm leading-6">{entry.content}</p>}<div className="mt-2 flex gap-2"><Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{entry.status}</Badge><span className="text-xs text-muted-foreground">Priority {entry.priority}</span></div></div><div className="flex shrink-0 flex-wrap justify-end gap-1">{!agentMemoryReadOnly && entry.status === 'pending' && permissions?.canPublish ? <Button size="icon" variant="outline" title="Publish" onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status === 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title="Restore" onClick={() => void mutateEntry(entry, 'restore')}><RotateCcw className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canUpdatePublished ? editingId === entry.id ? <Button size="icon" title="Save" onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button> : <Button size="icon" variant="ghost" title="Edit" onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); }}><Pencil className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title="Archive" onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button> : null}</div></div><Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? 'Hide history' : 'History'}</Button>{historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt)}</p>)}</div> : null}</CardContent></Card>)}
+            {visibleEntries.map((entry) => <Card key={entry.id} className={entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : ''}><CardContent className="pt-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1">{editingId === entry.id ? <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} /> : <p className="whitespace-pre-wrap text-sm leading-6">{entry.content}</p>}<div className="mt-2 flex gap-2"><Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{entry.status}</Badge><span className="text-xs text-muted-foreground">Priority {entry.priority}</span></div></div><div className="flex shrink-0 flex-wrap justify-end gap-1">{!agentMemoryReadOnly && entry.status === 'pending' && permissions?.canPublish ? <Button size="icon" variant="outline" title="Publish" onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status === 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title="Restore" onClick={() => void mutateEntry(entry, 'restore')}><RotateCcw className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canUpdatePublished ? editingId === entry.id ? <Button size="icon" title="Save" onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button> : <Button size="icon" variant="ghost" title="Edit" onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); }}><Pencil className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title="Archive" onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button> : null}</div></div><Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? 'Hide history' : 'History'}</Button>{historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt, locale)}</p>)}</div> : null}</CardContent></Card>)}
             {!loading && selectedCollectionId && entries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">This collection has no published entries you can view.</p> : null}
             {!loading && entries.length > 0 && visibleEntries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">No memory entries match this search.</p> : null}
           </div>
         </div>
 
-        <Card className="h-fit xl:sticky xl:top-6"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="size-4 text-primary" />Memory review runtime</CardTitle><CardDescription>Runs every 10 user turns, plus a 15-minute idle flush. Provider and model are managed once for the organization by an administrator.</CardDescription></CardHeader><CardContent className="space-y-5">
+        <Card className="h-fit xl:sticky xl:top-6"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="size-4 text-primary" />Memory review runtime</CardTitle><CardDescription>Queues only after an assistant response with new user turns: every 10 user turns or after 15 minutes of chat inactivity. Server idle cycles never call the model. Failed reviews stop after three attempts, and restart recovery reuses a stored response checkpoint.</CardDescription></CardHeader><CardContent className="space-y-5">
           {settings ? <><div className="flex items-center justify-between gap-3"><div><Label htmlFor="automatic-memory">Automatic memory</Label><p className="text-xs text-muted-foreground">Schedules the reserved reviewer.</p></div><Switch id="automatic-memory" checked={settings.automaticMemoryEnabled} onCheckedChange={(checked) => setSettings({ ...settings, automaticMemoryEnabled: checked })} /></div>
           <div className="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">{settings.canManageMemoryRuntime ? 'Administrator setting · changing it runs a live model verification before it is saved.' : 'Managed by your organization administrator. You can still control whether automatic memory runs for your account.'}</div>
           <div className="space-y-2"><Label htmlFor="memory-provider">Organization provider</Label><select id="memory-provider" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={settings.providerInstallationId ?? ''} disabled={!settings.canManageMemoryRuntime || saving} onChange={(event) => { setSettings({ ...settings, providerInstallationId: event.target.value || null, modelId: null }); setRuntimeDraftChanged(true); }}><option value="">Choose a provider</option>{settings.providers.map((provider) => <option value={provider.installationId} key={provider.installationId}>{provider.name}</option>)}</select></div>
