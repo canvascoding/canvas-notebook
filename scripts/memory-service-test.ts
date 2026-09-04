@@ -422,6 +422,8 @@ async function main(): Promise<void> {
     assert.match(projected, /Prefers concise responses/);
     assert.match(projected, /Use the approved brand voice/);
     assert.match(projected, /Use British spelling in organization material/);
+    assert.match(projected, /\*\*Delivery format\*\* - Keep it concise - Include `file links`/);
+    assert.doesNotMatch(projected, /\n- Keep it concise/);
     const lastUsedDb = await openDb();
     try {
       const used = await lastUsedDb.get(`SELECT last_used_at FROM memory_entries WHERE content = 'Prefers concise responses with direct links.' LIMIT 1`) as { last_used_at?: number | null } | undefined;
