@@ -3,6 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { eq } from 'drizzle-orm';
+
 async function main() {
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'canvas-mobile-promotion-'));
   const previousData = process.env.DATA;
@@ -12,6 +14,7 @@ async function main() {
     const { db } = await import('../app/lib/db');
     const { mobileAppPromotionStates, mobilePushDevices, session, user } = await import('../app/lib/db/schema');
     const {
+      MOBILE_APP_PROMOTION_CTA_DELAY_MS,
       MOBILE_APP_PROMOTION_EXTENDED_DELAY_MS,
       MOBILE_APP_PROMOTION_REPEAT_DELAY_MS,
       parseMobileAppPromotionAction,
@@ -94,6 +97,97 @@ async function main() {
     assert.equal(
       Math.floor((rows[0]?.dismissedUntil?.getTime() ?? 0) / 1_000),
       Math.floor((lastDismissalAt.getTime() + MOBILE_APP_PROMOTION_EXTENDED_DELAY_MS) / 1_000),
+    );
+
+    const concurrentShownUserId = 'mobile-promo-concurrent-shown';
+    await db.insert(user).values({
+      id: concurrentShownUserId,
+      name: 'Concurrent Shown User',
+      email: 'mobile-promo-concurrent-shown@example.test',
+      emailVerified: true,
+      role: 'user',
+      createdAt: accountCreatedAt,
+      updatedAt: accountCreatedAt,
+    });
+    const concurrentShown = await Promise.all(Array.from({ length: 8 }, () => (
+      recordMobileAppPromotionAction({
+        userId: concurrentShownUserId,
+        action: { action: 'shown' },
+        now,
+        rolloutEnabled: true,
+      })
+    )));
+    assert.equal(concurrentShown.filter((result) => result.recorded).length, 1);
+    assert.equal(
+      (await getMobileAppPromotionStatus({ userId: concurrentShownUserId, now, rolloutEnabled: true })).impressionCount,
+      1,
+    );
+
+    const concurrentDismissUserId = 'mobile-promo-concurrent-dismiss';
+    await db.insert(user).values({
+      id: concurrentDismissUserId,
+      name: 'Concurrent Dismiss User',
+      email: 'mobile-promo-concurrent-dismiss@example.test',
+      emailVerified: true,
+      role: 'user',
+      createdAt: accountCreatedAt,
+      updatedAt: accountCreatedAt,
+    });
+    await Promise.all(Array.from({ length: 8 }, () => (
+      recordMobileAppPromotionAction({
+        userId: concurrentDismissUserId,
+        action: { action: 'dismissed', source: 'dialog' },
+        now,
+        rolloutEnabled: true,
+      })
+    )));
+    const [concurrentDismissRow] = await db.select()
+      .from(mobileAppPromotionStates)
+      .where(eq(mobileAppPromotionStates.userId, concurrentDismissUserId));
+    assert.equal(concurrentDismissRow?.dismissalCount, 8);
+    assert.equal(
+      concurrentDismissRow?.dismissedUntil?.getTime(),
+      now.getTime() + MOBILE_APP_PROMOTION_EXTENDED_DELAY_MS,
+    );
+
+    const concurrentOptOutUserId = 'mobile-promo-concurrent-opt-out';
+    await db.insert(user).values({
+      id: concurrentOptOutUserId,
+      name: 'Concurrent Opt-out User',
+      email: 'mobile-promo-concurrent-opt-out@example.test',
+      emailVerified: true,
+      role: 'user',
+      createdAt: accountCreatedAt,
+      updatedAt: accountCreatedAt,
+    });
+    await Promise.all([
+      recordMobileAppPromotionAction({
+        userId: concurrentOptOutUserId,
+        action: { action: 'permanently_dismissed' },
+        now,
+        rolloutEnabled: true,
+      }),
+      recordMobileAppPromotionAction({
+        userId: concurrentOptOutUserId,
+        action: { action: 'cta_clicked', kind: 'open-app' },
+        now,
+        rolloutEnabled: true,
+      }),
+      recordMobileAppPromotionAction({
+        userId: concurrentOptOutUserId,
+        action: { action: 'dismissed', source: 'dialog' },
+        now,
+        rolloutEnabled: true,
+      }),
+    ]);
+    const [concurrentOptOutRow] = await db.select()
+      .from(mobileAppPromotionStates)
+      .where(eq(mobileAppPromotionStates.userId, concurrentOptOutUserId));
+    assert.ok(concurrentOptOutRow?.permanentlyDismissedAt);
+    assert.equal(concurrentOptOutRow?.dismissalCount, 1);
+    assert.equal(
+      concurrentOptOutRow?.dismissedUntil?.getTime(),
+      now.getTime() + MOBILE_APP_PROMOTION_CTA_DELAY_MS,
     );
 
     const authSessionId = 'mobile-promo-session';
