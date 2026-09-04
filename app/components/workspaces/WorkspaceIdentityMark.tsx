@@ -28,7 +28,7 @@ export function WorkspaceIdentityMark({
       )}
       style={{ backgroundColor: color }}
     >
-      {renderWorkspaceIcon(workspace, iconClassName)}
+      {renderWorkspaceIcon(workspace, cn('text-white', iconClassName))}
     </span>
   );
 }
