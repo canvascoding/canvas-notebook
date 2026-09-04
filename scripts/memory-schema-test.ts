@@ -36,6 +36,12 @@ try {
     'result_json',
     'failed_at',
   ].every((column) => reviewJobColumns.has(column)), true);
+  const memorySettingsColumns = new Set((sqlite.prepare(`PRAGMA table_info(memory_user_settings)`).all() as Array<{ name: string }>).map((row) => row.name));
+  assert.deepEqual([
+    'automatic_memory_enabled_at',
+    'automatic_memory_disabled_at',
+    'settings_revision',
+  ].every((column) => memorySettingsColumns.has(column)), true);
 
   sqlite.exec(`
     INSERT INTO user (id, name, email, email_verified, created_at, updated_at)
@@ -49,7 +55,7 @@ try {
     WHERE user_id = 'memory-user'
   `).get() as { automatic_memory_enabled: number; memory_prompt_max_tokens: number; sensitive_memory_enabled: number };
   assert.deepEqual(settings, {
-    automatic_memory_enabled: 1,
+    automatic_memory_enabled: 0,
     memory_prompt_max_tokens: 2000,
     sensitive_memory_enabled: 0,
   });
@@ -87,6 +93,42 @@ try {
   assert.deepEqual(expectedTables.every((table) => postgresTables.has(table)), true);
 } finally {
   sqlite.close();
+}
+
+const legacySqlite = new Database(':memory:');
+try {
+  legacySqlite.exec(`
+    CREATE TABLE user (
+      id TEXT PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      email_verified INTEGER NOT NULL,
+      image TEXT,
+      role TEXT,
+      banned INTEGER,
+      ban_reason TEXT,
+      ban_expires INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    INSERT INTO user (id, name, email, email_verified, created_at, updated_at)
+    VALUES ('legacy-user', 'Legacy User', 'legacy@example.test', 1, 10, 20);
+  `);
+  runMigrations(legacySqlite);
+  runMigrations(legacySqlite);
+  const preserved = legacySqlite.prepare(`
+    SELECT automatic_memory_enabled, automatic_memory_enabled_at,
+      automatic_memory_disabled_at, settings_revision
+    FROM memory_user_settings WHERE user_id = 'legacy-user'
+  `).get();
+  assert.deepEqual(preserved, {
+    automatic_memory_enabled: 1,
+    automatic_memory_enabled_at: 10,
+    automatic_memory_disabled_at: null,
+    settings_revision: 1,
+  });
+} finally {
+  legacySqlite.close();
 }
 
 console.log('memory-schema-test: ok');

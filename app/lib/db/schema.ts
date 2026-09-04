@@ -1472,7 +1472,10 @@ export const piMessages = sqliteTable("pi_messages", {
 
 export const memoryUserSettings = sqliteTable("memory_user_settings", {
   userId: text("user_id").primaryKey().references(() => user.id, { onDelete: 'cascade' }),
-  automaticMemoryEnabled: integer("automatic_memory_enabled", { mode: "boolean" }).notNull().default(true),
+  automaticMemoryEnabled: integer("automatic_memory_enabled", { mode: "boolean" }).notNull().default(false),
+  automaticMemoryEnabledAt: integer("automatic_memory_enabled_at", { mode: "timestamp" }),
+  automaticMemoryDisabledAt: integer("automatic_memory_disabled_at", { mode: "timestamp" }),
+  settingsRevision: integer("settings_revision").notNull().default(1),
   providerInstallationId: text("provider_installation_id"),
   modelId: text("model_id"),
   memoryPromptMaxTokens: integer("memory_prompt_max_tokens").notNull().default(2_000),

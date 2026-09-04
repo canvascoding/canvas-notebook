@@ -4,6 +4,7 @@ import { Pool, types } from 'pg';
 
 import * as schema from './schema';
 import {
+  MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY,
   TEAM_SEAT_LEGACY_MIGRATION_KEY,
   TEAM_SEAT_LEGACY_MIGRATION_METADATA,
   TEAM_SEAT_LEGACY_MIGRATION_REASON,
@@ -561,6 +562,75 @@ $team_seat_legacy_backfill$;
 
 export async function runPostgresTeamSeatLegacyBackfill(pool: PgQueryable): Promise<void> {
   await pool.query(TEAM_SEAT_LEGACY_POSTGRES_BACKFILL_SQL);
+}
+
+export const MEMORY_REVIEWER_OPT_IN_POSTGRES_BACKFILL_SQL = `
+DO $memory_reviewer_opt_in_backfill$
+DECLARE
+  migration_now bigint := floor(extract(epoch from clock_timestamp()) * 1000)::bigint;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('${MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY}'));
+
+  IF EXISTS (
+    SELECT 1 FROM canvas_data_migrations
+    WHERE migration_key = '${MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY}'
+  ) THEN
+    RETURN;
+  END IF;
+
+  UPDATE memory_user_settings
+  SET automatic_memory_enabled_at = CASE
+        WHEN automatic_memory_enabled = 1
+          THEN COALESCE(automatic_memory_enabled_at, created_at, updated_at, migration_now)
+        ELSE automatic_memory_enabled_at
+      END,
+      automatic_memory_disabled_at = CASE
+        WHEN automatic_memory_enabled = 0
+          THEN COALESCE(automatic_memory_disabled_at, updated_at, created_at, migration_now)
+        ELSE NULL
+      END,
+      settings_revision = GREATEST(settings_revision, 1);
+
+  INSERT INTO memory_user_settings (
+    user_id, automatic_memory_enabled, automatic_memory_enabled_at,
+    automatic_memory_disabled_at, settings_revision,
+    memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at
+  )
+  SELECT id, 1, COALESCE(created_at, migration_now), NULL, 1, 2000, 0,
+    COALESCE(created_at, migration_now), COALESCE(updated_at, created_at, migration_now)
+  FROM "user"
+  ON CONFLICT (user_id) DO NOTHING;
+
+  UPDATE memory_review_jobs
+  SET status = 'completed', scheduled_for = NULL, lease_until = NULL,
+    error_code = NULL, completed_at = migration_now,
+    result_json = '{"cancelled":true,"reason":"automatic_memory_disabled"}'
+  WHERE status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration', 'running')
+    AND error_code = 'automatic_memory_disabled';
+
+  INSERT INTO canvas_data_migrations (migration_key, completed_at, metadata_json)
+  VALUES (
+    '${MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY}',
+    migration_now,
+    '{"defaultForNewUsers":false,"preservedExistingUsers":true}'
+  )
+  ON CONFLICT (migration_key) DO NOTHING;
+END
+$memory_reviewer_opt_in_backfill$;
+`;
+
+export async function runPostgresMemoryReviewerOptInBackfill(pool: PgQueryable): Promise<void> {
+  const before = await pool.query(
+    'SELECT 1 FROM canvas_data_migrations WHERE migration_key = $1 LIMIT 1',
+    [MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY],
+  );
+  await pool.query(MEMORY_REVIEWER_OPT_IN_POSTGRES_BACKFILL_SQL);
+  if (before.rowCount === 0) {
+    console.info('[MemoryManager] Automatic-review opt-in migration completed.', {
+      migrationKey: MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY,
+      databaseProvider: 'postgres',
+    });
+  }
 }
 
 export function createPostgresPool(): Pool {
@@ -1270,6 +1340,9 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
       await pool.query(createColumnAddSql(table, column));
     }
   }
+
+  await pool.query('ALTER TABLE memory_user_settings ALTER COLUMN automatic_memory_enabled SET DEFAULT 0');
+  await runPostgresMemoryReviewerOptInBackfill(pool);
 
   await pool.query(`
     UPDATE memory_review_jobs job

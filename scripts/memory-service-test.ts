@@ -50,6 +50,7 @@ async function main(): Promise<void> {
       deleteMemory,
       exportAgentMemory,
       importPersonalMemory,
+      isMemoryReviewJobRunnable,
       listMemoryCollections,
       nextMemoryReviewDueAt,
       publishMemory,
@@ -69,6 +70,7 @@ async function main(): Promise<void> {
       updateMemoryReviewRuntimeSettings,
       updateMemoryReviewSettings,
       updateMemory,
+      MemoryReviewCancelledError,
     } = await import('../app/lib/memory/service');
     const { runMemoryReviewWorkerCycle } = await import('../app/lib/memory/review-worker');
     const { buildMemoryPromptProjection } = await import('../app/lib/memory/prompt-projection');
@@ -193,9 +195,14 @@ async function main(): Promise<void> {
         `, [session.id, sequence % 2 === 1 ? 'user' : 'assistant', '{}', sequence, sequence]);
       }
     } finally { await sessionDb.close(); }
+    // New users are opt-in: a missing settings row cannot schedule or claim work.
+    assert.equal(await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 1_000 }), null);
+    assert.equal(await claimDueMemoryReviewJob(1_000), null);
+    assert.deepEqual(await updateMemoryReviewSettings('user-1', {
+      automaticMemoryEnabled: true,
+    }, 1), { reactivatedJobs: 0, cancelledJobs: 0, settingsRevision: 1 });
     const scheduled = await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 1_000 });
     assert.deepEqual(scheduled, { scheduled: false, triggerType: 'turn_interval', fromMessageSequence: 1, throughMessageSequence: 20 });
-    assert.equal(await claimDueMemoryReviewJob(1_000), null);
     const jobDb = await openDb();
     try {
       const job = await jobDb.get(`SELECT status, scheduled_for FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string; scheduled_for: number | null };
@@ -204,17 +211,17 @@ async function main(): Promise<void> {
     } finally { await jobDb.close(); }
     assert.deepEqual(await updateMemoryReviewSettings('user-1', {
       automaticMemoryEnabled: false,
-      memoryPromptMaxTokens: 2_000,
-      sensitiveMemoryEnabled: false,
-    }, 1_001), { reactivatedJobs: 0, parkedJobs: 1 });
-    assert.deepEqual(
-      await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 1_002 }),
-      { scheduled: false, triggerType: 'turn_interval', fromMessageSequence: 1, throughMessageSequence: 20 },
-    );
+    }, 1_001), { reactivatedJobs: 0, cancelledJobs: 1, settingsRevision: 2 });
+    assert.equal(await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 1_002 }), null);
     const disabledDb = await openDb();
     try {
-      const job = await disabledDb.get(`SELECT status, scheduled_for, error_code FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string; scheduled_for: number | null; error_code: string | null };
-      assert.deepEqual(job, { status: 'awaiting_model_configuration', scheduled_for: null, error_code: 'automatic_memory_disabled' });
+      const job = await disabledDb.get(`SELECT status, scheduled_for, error_code, result_json FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string; scheduled_for: number | null; error_code: string | null; result_json: string | null };
+      assert.deepEqual(job, {
+        status: 'completed',
+        scheduled_for: null,
+        error_code: null,
+        result_json: JSON.stringify({ cancelled: true, reason: 'automatic_memory_disabled', settingsRevision: 2 }),
+      });
     } finally { await disabledDb.close(); }
     assert.deepEqual(await updateMemoryReviewRuntimeSettings({
       organizationId: 'org-1',
@@ -262,12 +269,25 @@ async function main(): Promise<void> {
     await completeMemoryReviewJob('runnable-review-job');
     assert.deepEqual(await updateMemoryReviewSettings('user-1', {
       automaticMemoryEnabled: true,
-      memoryPromptMaxTokens: 2_000,
-      sensitiveMemoryEnabled: false,
-    }, 1_003), { reactivatedJobs: 1, parkedJobs: 0 });
+    }, 1_003), { reactivatedJobs: 0, cancelledJobs: 0, settingsRevision: 3 });
+    assert.equal(await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 1_003 }), null);
+    const newTurnsDb = await openDb();
+    try {
+      const session = await newTurnsDb.get(`SELECT id FROM pi_sessions WHERE session_id = 'review-session'`) as { id: number };
+      for (let sequence = 21; sequence <= 40; sequence += 1) {
+        await newTurnsDb.run(`
+          INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
+          VALUES (?, ?, ?, ?, ?)
+        `, [session.id, sequence % 2 === 1 ? 'user' : 'assistant', '{}', 1_003 + sequence, sequence]);
+      }
+    } finally { await newTurnsDb.close(); }
+    assert.deepEqual(
+      await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 1_003 }),
+      { scheduled: true, triggerType: 'turn_interval', fromMessageSequence: 21, throughMessageSequence: 40 },
+    );
     const reactivatedDb = await openDb();
     try {
-      const job = await reactivatedDb.get(`SELECT status, scheduled_for, error_code FROM memory_review_jobs WHERE session_id = 'review-session'`) as { status: string; scheduled_for: number | null; error_code: string | null };
+      const job = await reactivatedDb.get(`SELECT status, scheduled_for, error_code FROM memory_review_jobs WHERE session_id = 'review-session' AND status = 'scheduled'`) as { status: string; scheduled_for: number | null; error_code: string | null };
       assert.deepEqual(job, { status: 'scheduled', scheduled_for: 1_003, error_code: null });
     } finally { await reactivatedDb.close(); }
     const claim = await claimDueMemoryReviewJob(1_003);
@@ -275,7 +295,7 @@ async function main(): Promise<void> {
     assert.equal(claim?.modelId, 'review-model');
     assert.deepEqual(
       await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 1_002 }),
-      { scheduled: false, triggerType: 'turn_interval', fromMessageSequence: 1, throughMessageSequence: 20 },
+      { scheduled: false, triggerType: 'turn_interval', fromMessageSequence: 21, throughMessageSequence: 40 },
     );
     assert.equal(await nextMemoryReviewDueAt(), 301_003);
     const reviewCandidates = [{
@@ -286,7 +306,7 @@ async function main(): Promise<void> {
       content: 'Prefers concise responses.',
       priority: 70,
       confidence: 0.9,
-      sourceMessageSequence: 1,
+      sourceMessageSequence: 21,
     }];
     const checkpoint = await recordMemoryReviewResponse(claim!.id, reviewCandidates, 1_003);
     assert.equal(checkpoint.recorded, true);
@@ -305,7 +325,7 @@ async function main(): Promise<void> {
       priority: 70,
       sensitivity: 'standard' as const,
       confidence: 0.9,
-      sourceMessageSequence: 1,
+      sourceMessageSequence: 21,
     }];
     assert.deepEqual(await applyMemoryReviewCandidates({ claim: claim!, candidates: reviewedUpdate }), {
       added: 0, updated: 1, archived: 0, skipped: 0,
@@ -324,7 +344,7 @@ async function main(): Promise<void> {
         content: 'Use the approved workspace tone in customer-facing material.',
         priority: 60,
         confidence: 0.9,
-        sourceMessageSequence: 1,
+        sourceMessageSequence: 21,
       }],
     });
     assert.deepEqual(workspaceReviewResult, { added: 1, updated: 0, archived: 0, skipped: 0 });
@@ -352,7 +372,7 @@ async function main(): Promise<void> {
         content: 'Use the approved organization terminology in published material.',
         priority: 60,
         confidence: 0.9,
-        sourceMessageSequence: 1,
+        sourceMessageSequence: 21,
       }],
     });
     assert.deepEqual(organizationReviewResult, { added: 1, updated: 0, archived: 0, skipped: 0 });
@@ -418,6 +438,67 @@ async function main(): Promise<void> {
       assert.ok(Number(used?.last_used_at ?? 0) > 0);
     } finally { await lastUsedDb.close(); }
     await completeMemoryReviewJob(claim!.id, reviewResult, 1_003);
+    const cancellationSetupDb = await openDb();
+    try {
+      await cancellationSetupDb.run(`
+        INSERT INTO pi_sessions (session_id, user_id, organization_id, agent_id, provider, model, created_at, updated_at)
+        VALUES ('cancellation-session', 'user-1', 'org-1', 'canvas-agent', 'test', 'test-model', 1, 1)
+      `);
+      const cancellationSession = await cancellationSetupDb.get(`
+        SELECT id FROM pi_sessions WHERE session_id = 'cancellation-session'
+      `) as { id: number };
+      await cancellationSetupDb.run(`
+        INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
+        VALUES (?, 'user', '{}', 1004, 1)
+      `, [cancellationSession.id]);
+      await cancellationSetupDb.run(`
+        INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
+        VALUES (?, 'assistant', '{}', 1005, 2)
+      `, [cancellationSession.id]);
+      await cancellationSetupDb.run(`
+        INSERT INTO memory_review_jobs (
+          id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
+          trigger_type, scheduled_for, status, attempts, created_at
+        ) VALUES ('cancellation-job', 'user-1', 'org-1', 'cancellation-session', 1, 2,
+          'idle', 1004, 'scheduled', 0, 1004)
+      `);
+    } finally {
+      await cancellationSetupDb.close();
+    }
+    const cancellationClaim = await claimDueMemoryReviewJob(1_004);
+    assert.equal(cancellationClaim?.id, 'cancellation-job');
+    assert.equal(await isMemoryReviewJobRunnable(cancellationClaim!), true);
+    assert.deepEqual(await updateMemoryReviewSettings('user-1', {
+      automaticMemoryEnabled: false,
+    }, 1_005), { reactivatedJobs: 0, cancelledJobs: 1, settingsRevision: 4 });
+    assert.equal(await isMemoryReviewJobRunnable(cancellationClaim!), false);
+    await assert.rejects(
+      () => applyMemoryReviewCandidates({ claim: cancellationClaim!, candidates: reviewCandidates }),
+      MemoryReviewCancelledError,
+    );
+    assert.equal((await recordMemoryReviewResponse(cancellationClaim!.id, reviewCandidates, 1_005)).recorded, false);
+    assert.equal(await completeMemoryReviewJob(cancellationClaim!.id, reviewResult, 1_005), false);
+    assert.equal(await runMemoryReviewWorkerCycle({ maxJobs: 1 }), 0);
+    assert.deepEqual(await updateMemoryReviewSettings('user-1', {
+      automaticMemoryEnabled: true,
+    }, 1_006), { reactivatedJobs: 0, cancelledJobs: 0, settingsRevision: 5 });
+    assert.deepEqual(await updateMemoryReviewSettings('user-1', {
+      memoryPromptMaxTokens: 1_500,
+    }, 1_007), { reactivatedJobs: 0, cancelledJobs: 0, settingsRevision: 5 });
+    const partialSettingsDb = await openDb();
+    try {
+      const partialSettings = await partialSettingsDb.get(`
+        SELECT automatic_memory_enabled, memory_prompt_max_tokens, settings_revision
+        FROM memory_user_settings WHERE user_id = 'user-1'
+      `);
+      assert.deepEqual(partialSettings, {
+        automatic_memory_enabled: 1,
+        memory_prompt_max_tokens: 1500,
+        settings_revision: 5,
+      });
+    } finally {
+      await partialSettingsDb.close();
+    }
     const durabilityDb = await openDb();
     try {
       const completedJob = await durabilityDb.get(`
@@ -432,14 +513,14 @@ async function main(): Promise<void> {
         INSERT INTO memory_review_jobs (
           id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
           trigger_type, scheduled_for, status, attempts, lease_until, response_json, response_hash, created_at
-        ) VALUES ('restart-review-job', 'user-1', 'org-1', 'review-session', 21, 22,
+        ) VALUES ('restart-review-job', 'user-1', 'org-1', 'review-session', 41, 42,
           'idle', NULL, 'running', 1, 2000, ?, ?, 1)
       `, [JSON.stringify(reviewCandidates), checkpoint.responseHash]);
       await durabilityDb.run(`
         INSERT INTO memory_review_jobs (
           id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
           trigger_type, scheduled_for, status, attempts, error_code, created_at
-        ) VALUES ('exhausted-legacy-job', 'user-1', 'org-1', 'review-session', 23, 24,
+        ) VALUES ('exhausted-legacy-job', 'user-1', 'org-1', 'review-session', 43, 44,
           'idle', NULL, 'awaiting_model_configuration', 117, 'model_not_configured', 1)
       `);
     } finally {
@@ -519,11 +600,11 @@ async function main(): Promise<void> {
     const recoveryDb = await openDb();
     try {
       const reviewSession = await recoveryDb.get(`SELECT id FROM pi_sessions WHERE session_id = 'review-session'`) as { id: number };
-      for (let sequence = 21; sequence <= 26; sequence += 1) {
+      for (let sequence = 41; sequence <= 46; sequence += 1) {
         await recoveryDb.run(`
           INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
           VALUES (?, ?, ?, ?, ?)
-        `, [reviewSession.id, sequence % 2 === 1 ? 'user' : 'assistant', '{}', sequence, sequence]);
+        `, [reviewSession.id, sequence % 2 === 1 ? 'user' : 'assistant', '{}', 2_000 + sequence, sequence]);
       }
       await recoveryDb.run(`
         INSERT INTO pi_sessions (session_id, user_id, organization_id, agent_id, provider, model, created_at, updated_at)
@@ -571,7 +652,7 @@ async function main(): Promise<void> {
     }
     assert.deepEqual(
       await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 70_000 }),
-      { scheduled: true, triggerType: 'idle', fromMessageSequence: 25, throughMessageSequence: 26 },
+      { scheduled: true, triggerType: 'idle', fromMessageSequence: 45, throughMessageSequence: 46 },
     );
     const reconciliation = await scheduleUnreviewedMemorySessions(80_000);
     assert.deepEqual(reconciliation, { scanned: 1, scheduled: 1 });
@@ -594,9 +675,9 @@ async function main(): Promise<void> {
         SELECT status, scheduled_for, error_code FROM memory_review_jobs WHERE id = 'unconfigured-front-job'
       `) as Record<string, unknown>;
       assert.deepEqual(parked, {
-        status: 'awaiting_model_configuration',
+        status: 'completed',
         scheduled_for: null,
-        error_code: 'model_not_configured',
+        error_code: null,
       });
       const historicalJob = await recoveryAssertionsDb.get(`
         SELECT id FROM memory_review_jobs WHERE session_id = 'historical-session-without-review'
