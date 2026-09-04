@@ -18,6 +18,11 @@ import {
 } from './systemUpdateContract';
 import { createStandaloneUpdateOperation, StandaloneUpdateJournal } from './standaloneUpdateJournal';
 import { compareCanvasVersions, StandaloneReleaseResolver, type VerifiedStandaloneRelease } from './standaloneUpdateRelease';
+import {
+  createStandaloneUpdateStatusServer,
+  STANDALONE_UPDATE_STATUS_PORT,
+  StandaloneUpdateStatusTickets,
+} from './standaloneUpdateStatus';
 
 export const STANDALONE_UPDATER_IDLE_GRACE_MS = 10 * 60 * 1000;
 const MAX_REQUEST_BODY_BYTES = 4096;
@@ -496,7 +501,12 @@ function sendJson(response: ServerResponse, statusCode: number, body: unknown): 
   response.end(content);
 }
 
-async function handleRequest(updater: StandaloneUpdater, request: IncomingMessage, response: ServerResponse): Promise<void> {
+async function handleRequest(
+  updater: StandaloneUpdater,
+  statusTickets: StandaloneUpdateStatusTickets | null,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
   try {
     const url = new URL(request.url || '/', 'http://canvas-updater.local');
     if (request.method === 'GET' && url.pathname === '/v1/health') {
@@ -516,6 +526,15 @@ async function handleRequest(updater: StandaloneUpdater, request: IncomingMessag
         statusUrl: `/v1/operations/${operation.operationId}`,
         eventsUrl: `/v1/operations/${operation.operationId}/events`,
       });
+      return;
+    }
+    const ticketMatch = /^\/v1\/operations\/([0-9a-f-]+)\/status-ticket$/iu.exec(url.pathname);
+    if (request.method === 'POST' && ticketMatch) {
+      const operationId = ticketMatch[1];
+      if (!UUID_PATTERN.test(operationId)) throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Update operation ID is invalid.');
+      if (!statusTickets) throw new StandaloneUpdaterHttpError(503, 'status_unavailable', 'Downtime-safe update status is unavailable.');
+      if (!await updater.getOperation(operationId)) throw new StandaloneUpdaterHttpError(404, 'operation_not_found', 'Update operation was not found.');
+      sendJson(response, 201, statusTickets.issue(operationId));
       return;
     }
     const match = /^\/v1\/operations\/([0-9a-f-]+)(\/events)?$/iu.exec(url.pathname);
@@ -546,9 +565,12 @@ async function handleRequest(updater: StandaloneUpdater, request: IncomingMessag
   }
 }
 
-export function createStandaloneUpdaterHttpServer(updater: StandaloneUpdater): http.Server {
+export function createStandaloneUpdaterHttpServer(
+  updater: StandaloneUpdater,
+  statusTickets: StandaloneUpdateStatusTickets | null = null,
+): http.Server {
   const server = http.createServer((request, response) => {
-    void handleRequest(updater, request, response);
+    void handleRequest(updater, statusTickets, request, response);
   });
   server.keepAliveTimeout = 5_000;
   server.headersTimeout = 10_000;
@@ -664,7 +686,25 @@ export async function runStandaloneUpdaterFromEnvironment(env: NodeJS.ProcessEnv
     if (!busy) armIdleTimer();
   } });
   await updater.initialize();
-  const server = createStandaloneUpdaterHttpServer(updater);
+  const stateRoot = String(env.CANVAS_UPDATER_STATE_DIR || '/var/lib/canvas-notebook-updater');
+  const statusTickets = new StandaloneUpdateStatusTickets(stateRoot);
+  await statusTickets.initialize();
+  const server = createStandaloneUpdaterHttpServer(updater, statusTickets);
+  const statusServer = createStandaloneUpdateStatusServer(updater, statusTickets);
+  const configuredStatusPort = Number(env.CANVAS_UPDATER_STATUS_PORT || STANDALONE_UPDATE_STATUS_PORT);
+  if (!Number.isInteger(configuredStatusPort) || configuredStatusPort < 1024 || configuredStatusPort > 65535) {
+    throw new Error('CANVAS_UPDATER_STATUS_PORT is invalid.');
+  }
+  let statusListening = false;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      statusServer.once('error', reject);
+      statusServer.listen(configuredStatusPort, '127.0.0.1', resolve);
+    });
+    statusListening = true;
+  } catch (error) {
+    console.warn(`Downtime-safe update status is unavailable: ${safeMessage(error, 'status listener failed')}`);
+  }
   server.on('request', () => armIdleTimer());
   const fd = inheritedSocketFd(env);
   const socketPath = String(env.CANVAS_UPDATER_SOCKET_PATH || '').trim();
@@ -691,5 +731,6 @@ export async function runStandaloneUpdaterFromEnvironment(env: NodeJS.ProcessEnv
     server.once('error', reject);
   });
   if (idleTimer) clearTimeout(idleTimer);
+  if (statusListening) await new Promise<void>((resolve) => statusServer.close(() => resolve()));
   if (socketPath) await fs.rm(socketPath, { force: true });
 }

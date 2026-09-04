@@ -36,6 +36,12 @@ export interface SystemUpdateOperationSnapshot {
   events: SystemUpdateEvent[];
 }
 
+export interface SystemUpdateStatusAccess {
+  path: string;
+  ticket: string;
+  expiresAt: string;
+}
+
 export interface StartSystemUpdateInput {
   channel: SystemUpdateReleaseChannel;
   expectedReleaseId?: string;
@@ -47,6 +53,7 @@ export interface SystemUpdateBackend {
   startUpdate(input: StartSystemUpdateInput): Promise<SystemUpdateOperationView>;
   getOperation(operationId: string): Promise<SystemUpdateOperationView>;
   getEvents(operationId: string, afterSequence: number): Promise<SystemUpdateOperationSnapshot>;
+  createStatusAccess(operationId: string): Promise<SystemUpdateStatusAccess | null>;
 }
 
 export class SystemUpdateBackendError extends Error {

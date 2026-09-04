@@ -18,6 +18,7 @@ import {
   type SystemUpdateBackend,
   type SystemUpdateOperationSnapshot,
   type SystemUpdateOperationView,
+  type SystemUpdateStatusAccess,
   withoutSensitiveOperationFields,
 } from './types';
 
@@ -172,5 +173,21 @@ export class StandaloneSystemUpdateBackend implements SystemUpdateBackend {
       operation: withoutSensitiveOperationFields(operation),
       events: parseEventList(candidate.events, operationId),
     };
+  }
+
+  async createStatusAccess(operationId: string): Promise<SystemUpdateStatusAccess> {
+    const response = await this.request('POST', `/v1/operations/${encodeURIComponent(operationId)}/status-ticket`);
+    if (typeof response !== 'object' || response === null || Array.isArray(response)) {
+      throw new SystemUpdateBackendError(502, 'updater_protocol_invalid', 'Updater status access response is invalid.');
+    }
+    const candidate = response as Partial<SystemUpdateStatusAccess>;
+    if (
+      candidate.path !== `/__canvas-host/operations/${operationId}/events` ||
+      typeof candidate.ticket !== 'string' || !/^[A-Za-z0-9_-]{40,1024}\.[A-Za-z0-9_-]{43}$/u.test(candidate.ticket) ||
+      typeof candidate.expiresAt !== 'string' || !Number.isFinite(Date.parse(candidate.expiresAt))
+    ) {
+      throw new SystemUpdateBackendError(502, 'updater_protocol_invalid', 'Updater status access response is invalid.');
+    }
+    return candidate as SystemUpdateStatusAccess;
   }
 }

@@ -7,6 +7,7 @@ import path from 'node:path';
 import type { CanvasCliConfig, CommandResult, CommandRunner, RuntimeContext } from './types';
 
 const MANAGED_MARKER = '# Managed by Canvas Notebook';
+const UPDATE_STATUS_PORT = 3457;
 
 export interface CaddyTarget {
   baseUrl: string;
@@ -78,7 +79,7 @@ export function resolveCaddyTarget(config: CanvasCliConfig): CaddyTarget {
 export function renderCaddyfile(domain: string, hostPort: number): string {
   validateHostname(domain);
   if (!Number.isInteger(hostPort) || hostPort < 1 || hostPort > 65535) throw new Error(`Invalid Caddy upstream port: ${hostPort}`);
-  return `${MANAGED_MARKER}\n${domain} {\n\treverse_proxy localhost:${hostPort} {\n\t\theader_up X-Forwarded-Port 443\n\t}\n}\n`;
+  return `${MANAGED_MARKER}\n${domain} {\n\thandle /__canvas-host/operations/* {\n\t\t@not_read not method GET\n\t\trespond @not_read 405\n\t\treverse_proxy 127.0.0.1:${UPDATE_STATUS_PORT}\n\t}\n\thandle /__canvas-host/* {\n\t\trespond 404\n\t}\n\thandle {\n\t\treverse_proxy localhost:${hostPort} {\n\t\t\theader_up X-Forwarded-Port 443\n\t\t}\n\t}\n}\n`;
 }
 
 export function isCaddyCommand(command: string): boolean {
@@ -120,6 +121,9 @@ function contentIssues(content: string, domain: string, hostPort: number): strin
   if (knownDefaultSite(content)) issues.push('default_site_present');
   if (!normalized.startsWith(`${domain} {`)) issues.push('domain_mismatch');
   if (!normalized.includes(`reverse_proxy localhost:${hostPort}`)) issues.push('upstream_mismatch');
+  if (!normalized.includes(`handle /__canvas-host/operations/*`) ||
+    !normalized.includes(`reverse_proxy 127.0.0.1:${UPDATE_STATUS_PORT}`) ||
+    !normalized.includes('@not_read not method GET')) issues.push('missing_update_status_proxy');
   if (!normalized.includes('header_up X-Forwarded-Port 443')) issues.push('missing_forwarded_port');
   if (!recognizedCanvasSite(content, domain) && !knownDefaultSite(content)) issues.push('unmanaged_caddyfile');
   return [...new Set(issues)];

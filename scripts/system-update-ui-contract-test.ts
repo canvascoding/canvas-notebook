@@ -19,6 +19,9 @@ async function main(): Promise<void> {
   assert.match(route, /recordAuditEvent/u);
   assert.match(panel, /canvas\.system-update\.operation-id/u);
   assert.match(panel, /setConnectionInterrupted\(true\)/u);
+  assert.match(panel, /text\/event-stream/u);
+  assert.match(panel, /Authorization: `Bearer \$\{statusAccess\.ticket\}`/u);
+  assert.match(panel, /fetch\('\/api\/health'/u);
   assert.doesNotMatch(panel, /targetImageRef/u, 'the update UI must not accept or display arbitrary image references');
   assert.match(compose, /canvas-notebook-updater\.sock:\/run\/canvas-notebook-updater\.sock/u);
   assert.doesNotMatch(compose, /docker\.sock/u, 'the application container must not receive the Docker socket');

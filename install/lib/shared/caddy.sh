@@ -14,7 +14,7 @@ CADDYFILE="/etc/caddy/Caddyfile"
 
 caddy_site_block() {
   local domain="$1"
-  printf '%s {\n    reverse_proxy localhost:3456 {\n        header_up X-Forwarded-Port 443\n    }\n}\n' "$domain"
+  printf '%s {\n    handle /__canvas-host/operations/* {\n        @not_read not method GET\n        respond @not_read 405\n        reverse_proxy 127.0.0.1:3457\n    }\n    handle /__canvas-host/* {\n        respond 404\n    }\n    handle {\n        reverse_proxy localhost:3456 {\n            header_up X-Forwarded-Port 443\n        }\n    }\n}\n' "$domain"
 }
 
 write_caddy_config() {
@@ -81,7 +81,7 @@ caddy_fix() {
       fixed_something=true
     else
       local current_block expected_block
-      current_block="$(grep -A3 "^${domain}[[:space:]]*{" "$CADDYFILE" 2>/dev/null)"
+      current_block="$(cat "$CADDYFILE" 2>/dev/null)"
       expected_block="$(caddy_site_block "$domain")"
       if [[ "$current_block" != "$expected_block" ]]; then
         info "Updating domain config in ${CADDYFILE}"

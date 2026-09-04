@@ -126,6 +126,10 @@ async function main(): Promise<void> {
     assert.equal(applied.reloaded, true);
     assert.equal(applied.inSync, true);
     assert.equal(await fs.readFile(caddyfile, 'utf8'), renderCaddyfile('notebook.example.com', 3456));
+    assert.match(await fs.readFile(caddyfile, 'utf8'), /handle \/__canvas-host\/operations\/\*/u);
+    assert.match(await fs.readFile(caddyfile, 'utf8'), /@not_read not method GET/u);
+    assert.match(await fs.readFile(caddyfile, 'utf8'), /respond @not_read 405/u);
+    assert.match(await fs.readFile(caddyfile, 'utf8'), /reverse_proxy 127\.0\.0\.1:3457/u);
     assert.equal((await fs.stat(caddyfile)).mode & 0o777, 0o644);
     const validation = runner.calls.find((call) => call.command === 'caddy' && call.args[0] === 'validate');
     assert.ok(validation, 'candidate must be validated');

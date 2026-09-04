@@ -77,6 +77,14 @@ async function main(): Promise<void> {
       sendJson(response, 200, { operation, events: [updateEvent] });
       return;
     }
+    if (request.method === 'POST' && request.url === `/v1/operations/${operationId}/status-ticket`) {
+      sendJson(response, 201, {
+        path: `/__canvas-host/operations/${operationId}/events`,
+        ticket: `${'a'.repeat(40)}.${'b'.repeat(43)}`,
+        expiresAt: '2026-09-04T12:20:00.000Z',
+      });
+      return;
+    }
     sendJson(response, 404, { error: { code: 'not_found', message: 'Not found.' } });
   });
 
@@ -107,6 +115,8 @@ async function main(): Promise<void> {
     assert.equal(snapshot.events.length, 1);
     assert.equal(snapshot.events[0].operationId, operationId);
     assert.equal('targetImageRef' in snapshot.operation, false);
+    const statusAccess = await backend.createStatusAccess(operationId);
+    assert.equal(statusAccess.path, `/__canvas-host/operations/${operationId}/events`);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await fs.rm(socketPath, { force: true });

@@ -34,11 +34,13 @@ import {
   type SystemUpdateAvailability,
   type SystemUpdateOperationSnapshot,
   type SystemUpdateOperationView,
+  type SystemUpdateStatusAccess,
 } from '@/app/lib/system-updates/types';
 import type { SystemUpdateEvent, SystemUpdateStage } from '@/cli/src/core/systemUpdateContract';
 import { cn } from '@/lib/utils';
 
 const ACTIVE_OPERATION_STORAGE_KEY = 'canvas.system-update.operation-id';
+const STATUS_ACCESS_STORAGE_KEY = 'canvas.system-update.status-access';
 const POLL_INTERVAL_MS = 2_000;
 const TERMINAL_STATUSES = new Set(['succeeded', 'rolled_back', 'failed', 'indeterminate']);
 
@@ -79,6 +81,47 @@ function eventByStage(events: SystemUpdateEvent[]): Map<SystemUpdateStage, Syste
   return result;
 }
 
+function mergeUpdateEvents(current: SystemUpdateEvent[], incoming: SystemUpdateEvent[]): SystemUpdateEvent[] {
+  const byId = new Map(current.map((event) => [event.eventId, event]));
+  for (const event of incoming) byId.set(event.eventId, event);
+  return [...byId.values()].sort((left, right) => left.sequence - right.sequence);
+}
+
+async function consumeStatusStream(
+  response: Response,
+  operationId: string,
+  onOperation: (operation: SystemUpdateOperationView) => void,
+  onEvent: (event: SystemUpdateEvent) => void,
+): Promise<void> {
+  if (!response.ok || !response.body || !response.headers.get('content-type')?.includes('text/event-stream')) {
+    throw new Error('Downtime-safe update status is unavailable.');
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const result = await reader.read();
+    if (result.done) break;
+    buffer += decoder.decode(result.value, { stream: true }).replace(/\r\n/gu, '\n');
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary >= 0) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf('\n\n');
+      const eventName = frame.split('\n').find((line) => line.startsWith('event: '))?.slice(7);
+      const data = frame.split('\n').filter((line) => line.startsWith('data: ')).map((line) => line.slice(6)).join('\n');
+      if (!data) continue;
+      const parsed = JSON.parse(data) as Record<string, unknown>;
+      if (parsed.operationId !== operationId) continue;
+      if (eventName === 'operation' && typeof parsed.status === 'string' && typeof parsed.stage === 'string') {
+        onOperation(parsed as unknown as SystemUpdateOperationView);
+      } else if (eventName === 'update' && typeof parsed.eventId === 'string' && typeof parsed.sequence === 'number') {
+        onEvent(parsed as unknown as SystemUpdateEvent);
+      }
+    }
+  }
+}
+
 export function UpdateCenterPanel() {
   const t = useTranslations('settings.updates');
   const locale = useLocale();
@@ -90,7 +133,9 @@ export function UpdateCenterPanel() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connectionInterrupted, setConnectionInterrupted] = useState(false);
+  const [statusAccess, setStatusAccess] = useState<SystemUpdateStatusAccess | null>(null);
   const eventCursorRef = useRef(0);
+  const reloadScheduledRef = useRef(false);
 
   const loadAvailability = useCallback(async () => {
     setLoading(true);
@@ -115,11 +160,7 @@ export function UpdateCenterPanel() {
       const payload = await readApiJson<{ success: true } & SystemUpdateOperationSnapshot>(response);
       setOperation(payload.operation);
       if (payload.events.length > 0) {
-        setEvents((current) => {
-          const byId = new Map(current.map((event) => [event.eventId, event]));
-          for (const event of payload.events) byId.set(event.eventId, event);
-          return [...byId.values()].sort((left, right) => left.sequence - right.sequence);
-        });
+        setEvents((current) => mergeUpdateEvents(current, payload.events));
         eventCursorRef.current = Math.max(eventCursorRef.current, ...payload.events.map((event) => event.sequence));
       }
       setConnectionInterrupted(false);
@@ -131,30 +172,99 @@ export function UpdateCenterPanel() {
     } catch (loadError) {
       if (quiet) {
         setConnectionInterrupted(true);
+        void fetch('/api/health', { cache: 'no-store' }).then((health) => {
+          if (health.ok) setConnectionInterrupted(false);
+        }).catch(() => undefined);
       } else {
         setError(loadError instanceof Error ? loadError.message : t('errors.operation'));
       }
     }
   }, [loadAvailability, t]);
 
+  const requestStatusAccess = useCallback(async (operationId: string) => {
+    try {
+      const response = await fetch(`/api/admin/system-updates/${encodeURIComponent(operationId)}/status-access`, {
+        method: 'POST',
+        cache: 'no-store',
+      });
+      const payload = await readApiJson<{ success: true; access: SystemUpdateStatusAccess | null }>(response);
+      setStatusAccess(payload.access);
+      if (payload.access) {
+        window.sessionStorage.setItem(STATUS_ACCESS_STORAGE_KEY, JSON.stringify({ operationId, ...payload.access }));
+      }
+    } catch {
+      // The normal application API polling remains the fallback without Caddy.
+    }
+  }, []);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadAvailability();
       try {
         const storedOperationId = window.localStorage.getItem(ACTIVE_OPERATION_STORAGE_KEY);
-        if (storedOperationId) void loadOperation(storedOperationId);
+        if (storedOperationId) {
+          void loadOperation(storedOperationId);
+          const storedAccess = window.sessionStorage.getItem(STATUS_ACCESS_STORAGE_KEY);
+          if (storedAccess) {
+            const parsed = JSON.parse(storedAccess) as SystemUpdateStatusAccess & { operationId?: string };
+            if (parsed.operationId === storedOperationId && Date.parse(parsed.expiresAt) > Date.now()) setStatusAccess(parsed);
+            else void requestStatusAccess(storedOperationId);
+          } else {
+            void requestStatusAccess(storedOperationId);
+          }
+        }
       } catch {
         // The update remains observable for this page even without browser storage.
       }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [loadAvailability, loadOperation]);
+  }, [loadAvailability, loadOperation, requestStatusAccess]);
 
   useEffect(() => {
     if (!operation || isTerminal(operation)) return;
     const timer = window.setInterval(() => void loadOperation(operation.operationId, true), POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
   }, [loadOperation, operation]);
+
+  const streamOperationId = operation && !isTerminal(operation) ? operation.operationId : null;
+  useEffect(() => {
+    if (!streamOperationId || !statusAccess || Date.parse(statusAccess.expiresAt) <= Date.now()) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void fetch(`${statusAccess.path}?after=${eventCursorRef.current}`, {
+        headers: { Accept: 'text/event-stream', Authorization: `Bearer ${statusAccess.ticket}` },
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal: controller.signal,
+      }).then((response) => consumeStatusStream(
+        response,
+        streamOperationId,
+        (nextOperation) => {
+          setOperation(nextOperation);
+          setConnectionInterrupted(false);
+          if (isTerminal(nextOperation)) {
+            window.localStorage.removeItem(ACTIVE_OPERATION_STORAGE_KEY);
+            window.sessionStorage.removeItem(STATUS_ACCESS_STORAGE_KEY);
+            if (nextOperation.status === 'succeeded' && !reloadScheduledRef.current) {
+              reloadScheduledRef.current = true;
+              window.setTimeout(() => window.location.reload(), 1_500);
+            }
+          }
+        },
+        (event) => {
+          eventCursorRef.current = Math.max(eventCursorRef.current, event.sequence);
+          setEvents((current) => mergeUpdateEvents(current, [event]));
+          setConnectionInterrupted(false);
+        },
+      )).catch(() => {
+        // The authenticated application polling continues as the no-Caddy fallback.
+      });
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [statusAccess, streamOperationId]);
 
   const startUpdate = async () => {
     if (!availability?.release) return;
@@ -176,6 +286,7 @@ export function UpdateCenterPanel() {
       } catch {
         // Polling still works while this page remains open.
       }
+      void requestStatusAccess(payload.operation.operationId);
       void loadOperation(payload.operation.operationId, true);
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : t('errors.start'));

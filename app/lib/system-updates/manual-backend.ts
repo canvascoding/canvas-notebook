@@ -11,6 +11,7 @@ import {
   type SystemUpdateOperationSnapshot,
   type SystemUpdateOperationView,
   type SystemUpdatePlatform,
+  type SystemUpdateStatusAccess,
 } from './types';
 
 function detectManualPlatform(env: NodeJS.ProcessEnv): SystemUpdatePlatform {
@@ -65,5 +66,9 @@ export class ManualSystemUpdateBackend implements SystemUpdateBackend {
 
   async getEvents(_operationId: string, _afterSequence: number): Promise<SystemUpdateOperationSnapshot> {
     throw new SystemUpdateBackendError(404, 'operation_not_found', 'Update operation was not found.');
+  }
+
+  async createStatusAccess(_operationId: string): Promise<SystemUpdateStatusAccess | null> {
+    return null;
   }
 }
