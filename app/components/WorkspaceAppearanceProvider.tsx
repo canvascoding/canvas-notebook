@@ -132,20 +132,21 @@ export function WorkspaceAppearanceProvider({ children }: { children: ReactNode 
 
   useLayoutEffect(() => {
     const root = document.documentElement;
-    if (!workspaceAppearanceAllowed || !activeWorkspaceId) {
+    if (!workspaceAppearanceAllowed || !activeWorkspace) {
       clearWorkspaceAppearance(root);
       return;
     }
+    const workspaceId = activeWorkspace.id;
 
-    const definition = loadedBranding?.workspaceId === activeWorkspaceId
+    const definition = loadedBranding?.workspaceId === workspaceId
       ? loadedBranding.definition
-      : readCachedAppearance(activeWorkspaceId);
+      : readCachedAppearance(workspaceId);
     if (definition?.enabled) {
-      applyWorkspaceAppearance(root, activeWorkspaceId, definition, resolvedTheme);
+      applyWorkspaceAppearance(root, workspaceId, definition, resolvedTheme);
     } else {
-      applyWorkspaceAccent(root, activeWorkspaceId, activeWorkspace.color, resolvedTheme);
+      applyWorkspaceAccent(root, workspaceId, activeWorkspace.color, resolvedTheme);
     }
-  }, [activeWorkspace?.color, activeWorkspaceId, loadedBranding, resolvedTheme, workspaceAppearanceAllowed]);
+  }, [activeWorkspace, loadedBranding, resolvedTheme, workspaceAppearanceAllowed]);
 
   useEffect(() => {
     if (!workspaceAppearanceAllowed || !activeWorkspaceId) return;

@@ -11,7 +11,7 @@ const appearanceProviderSource = readFileSync(
 assert.match(appearanceProviderSource, /const activeWorkspace = useWorkspaceStore\(selectActiveWorkspace\)/u);
 assert.match(
   appearanceProviderSource,
-  /definition\?\.enabled[\s\S]*?applyWorkspaceAppearance[\s\S]*?applyWorkspaceAccent\(root, activeWorkspaceId, activeWorkspace\.color/u,
+  /definition\?\.enabled[\s\S]*?applyWorkspaceAppearance[\s\S]*?applyWorkspaceAccent\(root, workspaceId, activeWorkspace\.color/u,
   'The standard Canvas appearance must use the active workspace color without replacing a full brand profile.',
 );
 assert.match(appearanceProviderSource, /root\.dataset\.workspaceAppearance = 'accent'/u);
