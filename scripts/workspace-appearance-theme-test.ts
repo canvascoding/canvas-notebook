@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import {
+  createWorkspaceAccentCssTokens,
   createWorkspaceAppearanceCssTokens,
   normalizeWorkspaceAppearanceDefinition,
   workspaceAppearanceContrastRatio,
@@ -44,5 +45,18 @@ const dark = createWorkspaceAppearanceCssTokens(definition, 'dark');
 assert.notEqual(dark['--background'], light['--background']);
 assert.ok(workspaceAppearanceContrastRatio(dark['--foreground'], dark['--background']) >= 4.5);
 assert.ok(workspaceAppearanceContrastRatio(dark['--muted-foreground'], dark['--muted']) >= 4.5);
+
+const workspaceAccent = createWorkspaceAccentCssTokens('#047857', 'light');
+assert.equal(workspaceAccent['--primary'], '#047857');
+assert.equal(workspaceAccent['--ring'], workspaceAccent['--primary']);
+assert.equal(workspaceAccent['--sidebar-primary'], workspaceAccent['--primary']);
+assert.ok(workspaceAppearanceContrastRatio(workspaceAccent['--primary-foreground'], workspaceAccent['--primary']) >= 4.5);
+
+const darkWorkspaceAccent = createWorkspaceAccentCssTokens('#A16207', 'dark');
+assert.ok(workspaceAppearanceContrastRatio(darkWorkspaceAccent['--primary'], '#090c12') >= 3);
+assert.notEqual(darkWorkspaceAccent['--accent'], workspaceAccent['--accent']);
+
+const fallbackAccent = createWorkspaceAccentCssTokens('not-a-color', 'light');
+assert.equal(fallbackAccent['--primary'], '#2563eb');
 
 console.log('workspace-appearance-theme-test: ok');

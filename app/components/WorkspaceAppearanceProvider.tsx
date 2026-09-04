@@ -17,15 +17,17 @@ import {
   WorkspaceBrandingContext,
 } from '@/app/components/workspaces/WorkspaceBrandingContext';
 import {
+  WORKSPACE_ACCENT_CSS_PROPERTIES,
   WORKSPACE_APPEARANCE_CSS_PROPERTIES,
   WORKSPACE_APPEARANCE_UPDATED_EVENT,
+  createWorkspaceAccentCssTokens,
   createWorkspaceAppearanceCssTokens,
   normalizeWorkspaceAppearanceDefinition,
   workspaceAppearanceDefinitionFromProfile,
   type WorkspaceAppearanceDefinition,
 } from '@/app/lib/workspaces/appearance-theme';
 import { normalizeWorkspaceBrandProfile } from '@/app/lib/workspaces/brand-profile';
-import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 
 const CACHE_PREFIX = 'canvas.workspaceAppearance.';
 const NON_WORKSPACE_ROUTE_PATTERN = /\/(?:login|sign-in|sign-up|setup|onboarding)(?:\/|$)/u;
@@ -97,10 +99,26 @@ function applyWorkspaceAppearance(
   }
 }
 
+function applyWorkspaceAccent(
+  root: HTMLElement,
+  workspaceId: string,
+  accentColor: string,
+  mode: 'light' | 'dark',
+) {
+  clearWorkspaceAppearance(root);
+  const tokens = createWorkspaceAccentCssTokens(accentColor, mode);
+  root.dataset.workspaceAppearance = 'accent';
+  root.dataset.workspaceAppearanceWorkspace = workspaceId;
+  for (const property of WORKSPACE_ACCENT_CSS_PROPERTIES) {
+    root.style.setProperty(property, tokens[property]);
+  }
+}
+
 export function WorkspaceAppearanceProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { resolvedTheme } = useTheme();
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
+  const activeWorkspaceId = activeWorkspace?.id || null;
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const [loadedBranding, setLoadedBranding] = useState<LoadedWorkspaceBranding | null>(null);
   const [refreshRevision, setRefreshRevision] = useState(0);
@@ -122,12 +140,12 @@ export function WorkspaceAppearanceProvider({ children }: { children: ReactNode 
     const definition = loadedBranding?.workspaceId === activeWorkspaceId
       ? loadedBranding.definition
       : readCachedAppearance(activeWorkspaceId);
-    if (!definition) {
-      clearWorkspaceAppearance(root);
-      return;
+    if (definition?.enabled) {
+      applyWorkspaceAppearance(root, activeWorkspaceId, definition, resolvedTheme);
+    } else {
+      applyWorkspaceAccent(root, activeWorkspaceId, activeWorkspace.color, resolvedTheme);
     }
-    applyWorkspaceAppearance(root, activeWorkspaceId, definition, resolvedTheme);
-  }, [activeWorkspaceId, loadedBranding, resolvedTheme, workspaceAppearanceAllowed]);
+  }, [activeWorkspace?.color, activeWorkspaceId, loadedBranding, resolvedTheme, workspaceAppearanceAllowed]);
 
   useEffect(() => {
     if (!workspaceAppearanceAllowed || !activeWorkspaceId) return;
