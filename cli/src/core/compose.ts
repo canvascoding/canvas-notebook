@@ -10,6 +10,15 @@ function yamlDoubleQuote(value: string): string {
 
 export function renderComposeFile(config: CanvasCliConfig, platform: HostPlatform): string {
   const envFile = composePath(config.paths.containerEnvFile, platform);
+  const standaloneUpdaterEnabled = platform === 'linux' && ['true', '1', 'yes', 'on'].includes(
+    String(config.env.CANVAS_STANDALONE_UPDATER_ENABLED || '').trim().toLowerCase(),
+  );
+  const updaterGroup = standaloneUpdaterEnabled
+    ? `    group_add:\n      - "\${CANVAS_UPDATER_GID:?CANVAS_UPDATER_GID is required for standalone updates}"\n`
+    : '';
+  const updaterVolume = standaloneUpdaterEnabled
+    ? '      - "/run/canvas-notebook-updater.sock:/run/canvas-notebook-updater.sock"\n'
+    : '';
 
   return `services:
   canvas-notebook:
@@ -19,13 +28,13 @@ export function renderComposeFile(config: CanvasCliConfig, platform: HostPlatfor
       - "\${HOST_PORT:-3456}:\${CONTAINER_PORT:-3000}"
     env_file:
       - ${yamlDoubleQuote(envFile)}
-    depends_on:
+${updaterGroup}    depends_on:
       postgres:
         condition: service_healthy
         required: false
     volumes:
       - "\${DATA_DIR:-./data}:/data"
-    restart: unless-stopped
+${updaterVolume}    restart: unless-stopped
 
   postgres:
     profiles:

@@ -75,6 +75,7 @@ SUPPORT_DIR="$ROOT_DIR/install"
 config_json_init
 configure_compose_values
 configure_database_values
+prepare_standalone_updater_config
 config_json_to_env
 mkdir -p "$(dirname "$CANVAS_CLI_PATH")"
 if ! install_management_cli > "$TMP_DIR/install-management-cli.log" 2>&1; then
@@ -151,6 +152,8 @@ jq -e '
   .env.CANVAS_POSTGRES_REQUIRED == true and
   .env.CANVAS_POSTGRES_VECTOR_ENABLED == true and
   .autoUpdate.enabled == false and
+  .env.CANVAS_STANDALONE_UPDATER_ENABLED == false and
+  .env.CANVAS_UPDATER_GID == "" and
   .env.DATABASE_URL == "postgresql://canvas:safe-postgres-password@postgres:5432/canvas_notebook"
 ' "$CANVAS_CONFIG_JSON" >/dev/null
 

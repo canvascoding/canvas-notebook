@@ -84,6 +84,8 @@ jobs:
           npm run test:cli:admin
           npm run test:cli:backup
           npm run test:install:managed-env
+          npm run test:cli:updater
+          npm run test:install:updater
 
       - name: Verify update rollback and CLI artifact gate
         run: |

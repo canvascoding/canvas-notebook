@@ -1,9 +1,9 @@
 [Unit]
 Description=Canvas Notebook Auto-Update
-After=docker.service network-online.target
-Wants=docker.service network-online.target
+After=canvas-notebook-updater.socket network-online.target
+Wants=canvas-notebook-updater.socket network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=__CLI_PATH__ update --require-pinned --no-banner
-TimeoutStartSec=10800
+ExecStart=__CLI_PATH__ updater-trigger --channel stable --no-banner
+TimeoutStartSec=120

@@ -23,6 +23,7 @@ import {
   createStandaloneUpdaterHttpServer,
   STANDALONE_UPDATER_IDLE_GRACE_MS,
   StandaloneUpdater,
+  triggerStandaloneUpdateFromHost,
 } from '../cli/src/core/standaloneUpdater';
 
 const digest = 'a'.repeat(64);
@@ -142,6 +143,41 @@ async function main(): Promise<void> {
 
     await fs.chmod(path.join(directory, 'update-trust.json'), 0o666);
     await assert.rejects(() => resolver.resolve('stable'), /must not be group- or world-writable/u);
+  });
+
+  await withTempDirectory(async (directory) => {
+    const { resolver } = await signedReleaseFixture(directory);
+    const updater = new StandaloneUpdater({
+      journal: new StandaloneUpdateJournal(path.join(directory, 'journal')),
+      releaseResolver: resolver,
+      currentVersion: async () => ({ appVersion: '2026.9.5', cliVersion: '2026.9.5' }),
+      prepareHostCli: async () => undefined,
+      executeUpdate: async () => {
+        throw new Error('up-to-date trigger must not execute an update');
+      },
+    });
+    await updater.initialize();
+    const socketPath = path.join('/tmp', `canvas-updater-current-${process.pid}-${crypto.randomBytes(4).toString('hex')}.sock`);
+    const server = createStandaloneUpdaterHttpServer(updater);
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(socketPath, resolve);
+    });
+    try {
+      const result = await triggerStandaloneUpdateFromHost('stable', {
+        ...process.env,
+        CANVAS_UPDATER_SOCKET_PATH: socketPath,
+      });
+      assert.deepEqual(result, {
+        started: false,
+        operationId: null,
+        targetVersion: '2026.9.5',
+        reason: 'up_to_date',
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await fs.rm(socketPath, { force: true });
+    }
   });
 
   await withTempDirectory(async (directory) => {

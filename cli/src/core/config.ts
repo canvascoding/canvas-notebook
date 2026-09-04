@@ -41,6 +41,8 @@ const DEFAULT_ENV: Record<string, EnvValue> = {
   CANVAS_POSTGRES_DB: DEFAULT_POSTGRES_DB,
   CANVAS_POSTGRES_USER: DEFAULT_POSTGRES_USER,
   CANVAS_POSTGRES_PASSWORD: '',
+  CANVAS_STANDALONE_UPDATER_ENABLED: false,
+  CANVAS_UPDATER_GID: '',
 };
 
 export function createDefaultConfig(paths: CliPaths, platform: HostPlatform): CanvasCliConfig {
@@ -542,6 +544,8 @@ export function composeEnvText(config: CanvasCliConfig, composeDataDir: string):
     CANVAS_POSTGRES_DB: config.env.CANVAS_POSTGRES_DB || 'canvas_notebook',
     CANVAS_POSTGRES_USER: config.env.CANVAS_POSTGRES_USER || 'canvas',
     CANVAS_POSTGRES_PASSWORD: config.env.CANVAS_POSTGRES_PASSWORD || '',
+    CANVAS_STANDALONE_UPDATER_ENABLED: config.env.CANVAS_STANDALONE_UPDATER_ENABLED || false,
+    CANVAS_UPDATER_GID: config.env.CANVAS_UPDATER_GID || '',
   };
 
   return [

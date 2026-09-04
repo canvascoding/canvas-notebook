@@ -65,7 +65,7 @@ export function renderAutoUpdateTimer(schedule: string): string {
 }
 
 export function renderAutoUpdateService(cliPath: string): string {
-  return `${MANAGED_MARKER}\n[Unit]\nDescription=Canvas Notebook Auto-Update\nAfter=docker.service network-online.target\nWants=docker.service network-online.target\n\n[Service]\nType=oneshot\nExecStart=${systemdQuote(cliPath)} update --require-pinned --no-banner\nTimeoutStartSec=10800\n`;
+  return `${MANAGED_MARKER}\n[Unit]\nDescription=Canvas Notebook Auto-Update\nAfter=canvas-notebook-updater.socket network-online.target\nWants=canvas-notebook-updater.socket network-online.target\n\n[Service]\nType=oneshot\nExecStart=${systemdQuote(cliPath)} updater-trigger --channel stable --no-banner\nTimeoutStartSec=120\n`;
 }
 
 function recognizedTimerUnit(content: string): boolean {
@@ -77,7 +77,7 @@ function recognizedTimerUnit(content: string): boolean {
 function recognizedServiceUnit(content: string): boolean {
   return content.includes(MANAGED_MARKER) ||
     (content.includes('Description=Canvas Notebook Auto-Update') &&
-      content.includes('[Service]') && /ExecStart=.*canvas-notebook.* update --require-pinned --no-banner/u.test(content));
+      content.includes('[Service]') && /ExecStart=.*canvas-notebook.* updater-trigger --channel stable --no-banner/u.test(content));
 }
 
 export function isAutoUpdateCommand(command: string): boolean {
@@ -98,7 +98,7 @@ export class SystemdUnitStore {
   }
 
   path(name: string): string {
-    if (!/^[a-z0-9][a-z0-9.-]+\.(?:service|timer)$/u.test(name)) throw new Error(`Invalid systemd unit name: ${name}`);
+    if (!/^[a-z0-9][a-z0-9.-]+\.(?:service|socket|timer)$/u.test(name)) throw new Error(`Invalid systemd unit name: ${name}`);
     return path.join(this.root, name);
   }
 

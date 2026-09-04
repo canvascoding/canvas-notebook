@@ -55,7 +55,7 @@ import {
 import { SpawnCommandRunner } from './core/process';
 import { reexecPortableCliIfUpdated, updatePortableCli } from './core/selfUpdate';
 import { ServiceManager } from './core/service';
-import { runStandaloneUpdaterFromEnvironment } from './core/standaloneUpdater';
+import { runStandaloneUpdaterFromEnvironment, triggerStandaloneUpdateFromHost } from './core/standaloneUpdater';
 import { isSwapCommand, SwapManager, validateSwapConfig, type SwapStatus } from './core/swap';
 import { type SystemUpdateErrorCode, type SystemUpdateStage } from './core/systemUpdateContract';
 import { SystemUpdateEventReporter } from './core/systemUpdateReporter';
@@ -196,6 +196,8 @@ Commands:
                                   Reconcile Postgres auth, then apply the app
   service status|install|uninstall
   updater-service                 Run the socket-activated standalone updater (Linux only)
+  updater-trigger [--channel stable|beta]
+                                  Trigger a verified standalone update (Linux only)
 `);
 }
 
@@ -919,12 +921,32 @@ async function diagnosePayload(
   context: RuntimeContext,
   docker: DockerManager,
   services: ServiceManager,
+  runner: SpawnCommandRunner,
   config: CanvasCliConfig,
 ) {
-  const [status, vm, dockerReachable] = await Promise.all([
+  const managed = managedByControlPlane(config);
+  const standaloneConfigured = ['true', '1', 'yes', 'on'].includes(
+    String(config.env.CANVAS_STANDALONE_UPDATER_ENABLED || '').trim().toLowerCase(),
+  );
+  const [status, vm, dockerReachable, updaterSocketState, updaterServiceState, trustStoreInstalled] = await Promise.all([
     statusJson(context, docker, services, config),
     collectHostResources(config.paths.installDir),
     docker.isReachable().catch(() => false),
+    context.platform === 'linux' && standaloneConfigured
+      ? runner.run('systemctl', ['is-active', 'canvas-notebook-updater.socket']).then(
+        (result) => result.stdout.trim() || result.stderr.trim() || 'inactive',
+        () => 'unknown',
+      )
+      : Promise.resolve('not-installed'),
+    context.platform === 'linux' && standaloneConfigured
+      ? runner.run('systemctl', ['is-active', 'canvas-notebook-updater.service']).then(
+        (result) => result.stdout.trim() || result.stderr.trim() || 'inactive',
+        () => 'unknown',
+      )
+      : Promise.resolve('not-installed'),
+    context.platform === 'linux' && standaloneConfigured
+      ? fs.access('/etc/canvas-notebook/update-trust.json').then(() => true, () => false)
+      : Promise.resolve(false),
   ]);
   return {
     status,
@@ -932,6 +954,14 @@ async function diagnosePayload(
     platform: context.platform,
     dockerReachable,
     healthUrl: docker.healthUrl(config),
+    updater: {
+      authority: managed ? 'managed' : standaloneConfigured ? 'standalone' : 'manual',
+      configured: standaloneConfigured,
+      socketState: updaterSocketState,
+      serviceState: updaterServiceState,
+      trustStoreInstalled,
+      idleProcessExpected: standaloneConfigured ? 0 : null,
+    },
   };
 }
 
@@ -1873,6 +1903,26 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (parsed.command === 'updater-trigger') {
+    if (context.platform !== 'linux') throw new Error('Standalone updater trigger is only supported on Linux.');
+    let channel: 'stable' | 'beta' = 'stable';
+    if (parsed.args.length > 0) {
+      if (parsed.args[0] !== '--channel' && !parsed.args[0].startsWith('--channel=')) {
+        throw new Error('Usage: canvas-notebook updater-trigger [--channel stable|beta] --no-banner');
+      }
+      const parsedChannel = readOptionValue(parsed.args, 0, '--channel');
+      if (parsedChannel.nextIndex !== parsed.args.length - 1 || (parsedChannel.value !== 'stable' && parsedChannel.value !== 'beta')) {
+        throw new Error('Usage: canvas-notebook updater-trigger [--channel stable|beta] --no-banner');
+      }
+      channel = parsedChannel.value;
+    }
+    const result = await triggerStandaloneUpdateFromHost(channel);
+    if (parsed.json) console.log(JSON.stringify(result));
+    else if (result.started) console.log(`Canvas Notebook update ${result.operationId} accepted for ${result.targetVersion}.`);
+    else console.log(`Canvas Notebook ${result.targetVersion || ''} is already current.`.replace(/\s+/gu, ' ').trim());
+    return;
+  }
+
   const operationLock = commandRequiresOperationLock(parsed.command, parsed.args)
     ? await acquireOperationLock(context, parsed.command)
     : null;
@@ -1983,7 +2033,7 @@ async function main(): Promise<void> {
     }
     case 'diagnose': {
       if (parsed.args.length > 0) throw new Error('Usage: canvas-notebook diagnose [--json]');
-      const diagnosis = await diagnosePayload(context, docker, services, config);
+      const diagnosis = await diagnosePayload(context, docker, services, runner, config);
       if (parsed.json) console.log(JSON.stringify(diagnosis));
       else {
         console.log('== Canvas Notebook ==');
@@ -1993,6 +2043,9 @@ async function main(): Promise<void> {
         console.log(`Health: ${diagnosis.status.healthy ? 'ok' : 'failed'}`);
         console.log(`Docker: ${diagnosis.dockerReachable ? 'reachable' : 'not reachable'}`);
         console.log(`Container: ${diagnosis.status.container?.status || 'not available'}`);
+        console.log(`Update authority: ${diagnosis.updater.authority}`);
+        console.log(`Updater socket: ${diagnosis.updater.socketState}`);
+        console.log(`Update trust store: ${diagnosis.updater.trustStoreInstalled ? 'installed' : 'not installed'}`);
         console.log('');
         console.log('== Host resources ==');
         console.log(`Memory: ${diagnosis.vm.memoryAvailableBytes}/${diagnosis.vm.memoryTotalBytes} bytes available`);

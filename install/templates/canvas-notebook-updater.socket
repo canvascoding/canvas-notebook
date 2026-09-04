@@ -1,0 +1,13 @@
+# Managed by Canvas Notebook
+[Unit]
+Description=Canvas Notebook Standalone Updater API Socket
+
+[Socket]
+ListenStream=/run/canvas-notebook-updater.sock
+SocketUser=root
+SocketGroup=canvas-notebook-updater
+SocketMode=0660
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target

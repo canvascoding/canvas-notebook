@@ -43,7 +43,6 @@ export const CLI_COMMANDS = [
   'backup',
   'database',
   'service',
-  'updater-service',
 ] as const;
 
 async function readVersionFromRoot(root: string): Promise<string> {

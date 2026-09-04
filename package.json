@@ -317,6 +317,8 @@
     "test:cli:caddy-linux-integration": "bash scripts/portable-cli-linux-caddy-integration-test.sh",
     "test:cli:auto-update-portable": "tsx scripts/portable-cli-auto-update-test.ts",
     "test:cli:auto-update-linux-integration": "bash scripts/portable-cli-linux-auto-update-integration-test.sh",
+    "test:cli:updater": "tsx scripts/standalone-updater-test.ts",
+    "test:install:updater": "tsx scripts/standalone-updater-installer-test.ts && tsx scripts/portable-cli-service-test.ts",
     "test:cli:service-portable": "tsx scripts/portable-cli-service-test.ts",
     "test:cli:service-linux-integration": "bash scripts/portable-cli-linux-service-integration-test.sh",
     "test:cli:update-rollback": "bash scripts/cli-update-rollback-test.sh",

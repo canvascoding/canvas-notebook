@@ -1,7 +1,7 @@
 [Unit]
 Description=Canvas Notebook
-Requires=docker.service
-After=docker.service network-online.target
+Requires=docker.service __UPDATER_REQUIRES__
+After=docker.service network-online.target __UPDATER_AFTER__
 Wants=network-online.target
 
 [Service]

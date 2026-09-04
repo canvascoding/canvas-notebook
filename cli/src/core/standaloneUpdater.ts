@@ -68,6 +68,13 @@ export interface StandaloneUpdaterOptions {
   onBusyChange?: (busy: boolean) => void;
 }
 
+export interface StandaloneUpdaterTriggerResult {
+  started: boolean;
+  operationId: string | null;
+  targetVersion: string | null;
+  reason: 'started' | 'up_to_date';
+}
+
 class StandaloneUpdaterHttpError extends Error {
   constructor(
     readonly statusCode: number,
@@ -560,6 +567,84 @@ function inheritedSocketFd(env: NodeJS.ProcessEnv): number | null {
   const listenPid = Number(env.LISTEN_PID || 0);
   if (listenPid && listenPid !== process.pid) throw new Error('Inherited updater socket belongs to another process.');
   return 3;
+}
+
+async function requestLocalUpdater<T>(
+  env: NodeJS.ProcessEnv,
+  method: 'GET' | 'POST',
+  requestPath: string,
+  body?: unknown,
+): Promise<T> {
+  const socketPath = String(env.CANVAS_UPDATER_SOCKET_PATH || '/run/canvas-notebook-updater.sock');
+  if (!path.isAbsolute(socketPath)) throw new Error('CANVAS_UPDATER_SOCKET_PATH must be absolute.');
+  const payload = body === undefined ? null : Buffer.from(JSON.stringify(body), 'utf8');
+  return new Promise<T>((resolve, reject) => {
+    const request = http.request({
+      socketPath,
+      path: requestPath,
+      method,
+      headers: payload ? { 'content-type': 'application/json', 'content-length': payload.length } : undefined,
+      timeout: 20_000,
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      let bytes = 0;
+      response.on('data', (chunk: Buffer) => {
+        bytes += chunk.length;
+        if (bytes > 256 * 1024) {
+          request.destroy(new Error('Standalone updater response is too large.'));
+          return;
+        }
+        chunks.push(Buffer.from(chunk));
+      });
+      response.on('end', () => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+        } catch {
+          reject(new Error('Standalone updater returned invalid JSON.'));
+          return;
+        }
+        if ((response.statusCode || 500) >= 400) {
+          const message = typeof parsed === 'object' && parsed !== null &&
+            typeof (parsed as { error?: { message?: unknown } }).error?.message === 'string'
+            ? String((parsed as { error: { message: string } }).error.message)
+            : `Standalone updater request failed with HTTP ${response.statusCode || 500}.`;
+          reject(new Error(safeMessage(message, 'Standalone updater request failed.')));
+          return;
+        }
+        resolve(parsed as T);
+      });
+    });
+    request.on('timeout', () => request.destroy(new Error('Standalone updater request timed out.')));
+    request.on('error', reject);
+    if (payload) request.write(payload);
+    request.end();
+  });
+}
+
+export async function triggerStandaloneUpdateFromHost(
+  channel: SystemUpdateReleaseChannel,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<StandaloneUpdaterTriggerResult> {
+  const availability = await requestLocalUpdater<StandaloneUpdateAvailability>(
+    env,
+    'GET',
+    `/v1/availability?channel=${encodeURIComponent(channel)}`,
+  );
+  if (!availability.updateAvailable) {
+    return { started: false, operationId: null, targetVersion: availability.release.version, reason: 'up_to_date' };
+  }
+  if (!availability.ready) throw new Error(`Standalone update preflight failed: ${availability.reasons.join(', ')}`);
+  const started = await requestLocalUpdater<{ operation: SystemUpdateOperation }>(env, 'POST', '/v1/updates', {
+    channel,
+    expectedReleaseId: availability.release.releaseId,
+  });
+  return {
+    started: true,
+    operationId: started.operation.operationId,
+    targetVersion: started.operation.targetVersion,
+    reason: 'started',
+  };
 }
 
 export async function runStandaloneUpdaterFromEnvironment(env: NodeJS.ProcessEnv = process.env): Promise<void> {

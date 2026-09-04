@@ -12,6 +12,8 @@ export { resolveCliPath } from './cliPath';
 const MACOS_LABEL = 'io.canvasstudios.notebook';
 const WINDOWS_TASK_NAME = 'Canvas Notebook';
 const LINUX_SERVICE_NAME = 'canvas-notebook.service';
+const UPDATER_SERVICE_NAME = 'canvas-notebook-updater.service';
+const UPDATER_SOCKET_NAME = 'canvas-notebook-updater.socket';
 const MANAGED_MARKER = '# Managed by Canvas Notebook';
 
 function xmlEscape(value: string): string {
@@ -34,13 +36,28 @@ function systemdPath(value: string): string {
 }
 
 export function renderLinuxSystemdService(config: CanvasCliConfig, cliPath: string): string {
-  return `${MANAGED_MARKER}\n[Unit]\nDescription=Canvas Notebook\nRequires=docker.service\nAfter=docker.service network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nWorkingDirectory=${systemdPath(config.paths.installDir)}\nEnvironment=${systemdQuote(`CANVAS_MANAGER_LOG_DIR=${path.dirname(config.paths.logFile)}`)}\nExecStart=${systemdQuote(cliPath)} start --no-banner\nExecStop=${systemdQuote(cliPath)} stop --no-banner\nExecReload=${systemdQuote(cliPath)} restart --no-banner\nTimeoutStartSec=10800\nTimeoutStopSec=120\n\n[Install]\nWantedBy=multi-user.target\n`;
+  const updaterDependency = ['true', '1', 'yes', 'on'].includes(
+    String(config.env.CANVAS_STANDALONE_UPDATER_ENABLED || '').trim().toLowerCase(),
+  ) ? ' canvas-notebook-updater.socket' : '';
+  return `${MANAGED_MARKER}\n[Unit]\nDescription=Canvas Notebook\nRequires=docker.service${updaterDependency}\nAfter=docker.service network-online.target${updaterDependency}\nWants=network-online.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nWorkingDirectory=${systemdPath(config.paths.installDir)}\nEnvironment=${systemdQuote(`CANVAS_MANAGER_LOG_DIR=${path.dirname(config.paths.logFile)}`)}\nExecStart=${systemdQuote(cliPath)} start --no-banner\nExecStop=${systemdQuote(cliPath)} stop --no-banner\nExecReload=${systemdQuote(cliPath)} restart --no-banner\nTimeoutStartSec=10800\nTimeoutStopSec=120\n\n[Install]\nWantedBy=multi-user.target\n`;
 }
 
 function recognizedLinuxService(content: string): boolean {
   return content.includes(MANAGED_MARKER) ||
     (content.includes('Description=Canvas Notebook') && content.includes('RemainAfterExit=yes') &&
       /ExecStart=.*canvas-notebook.* start --no-banner/u.test(content) && content.includes('WantedBy=multi-user.target'));
+}
+
+function recognizedUpdaterService(content: string): boolean {
+  return content.includes(MANAGED_MARKER) &&
+    content.includes('Description=Canvas Notebook Standalone Updater') &&
+    /ExecStart=.*canvas-notebook.* updater-service --no-banner/u.test(content);
+}
+
+function recognizedUpdaterSocket(content: string): boolean {
+  return content.includes(MANAGED_MARKER) &&
+    content.includes('ListenStream=/run/canvas-notebook-updater.sock') &&
+    content.includes('SocketGroup=canvas-notebook-updater');
 }
 
 export function macosLaunchAgentPath(homeDir = os.homedir()): string {
@@ -188,15 +205,30 @@ export class ServiceManager {
     if (config.platform.serviceMode === 'systemd') {
       const units = new SystemdUnitStore(this.runner, this.env);
       await units.assertSafeRoot();
+      const [updaterService, updaterSocket] = await Promise.all([
+        units.read(UPDATER_SERVICE_NAME),
+        units.read(UPDATER_SOCKET_NAME),
+      ]);
+      if (updaterService !== null && !recognizedUpdaterService(updaterService)) {
+        throw new Error(`Refusing to remove unmanaged systemd unit: ${units.path(UPDATER_SERVICE_NAME)}`);
+      }
+      if (updaterSocket !== null && !recognizedUpdaterSocket(updaterSocket)) {
+        throw new Error(`Refusing to remove unmanaged systemd unit: ${units.path(UPDATER_SOCKET_NAME)}`);
+      }
       const current = await units.read(LINUX_SERVICE_NAME);
       if (current !== null && !recognizedLinuxService(current)) {
         throw new Error(`Refusing to remove unmanaged systemd unit: ${units.path(LINUX_SERVICE_NAME)}`);
       }
+      await units.runRoot('systemctl', ['stop', UPDATER_SERVICE_NAME]);
+      await units.runRoot('systemctl', ['stop', UPDATER_SOCKET_NAME]);
+      await units.runRoot('systemctl', ['disable', UPDATER_SOCKET_NAME]);
+      if (updaterService !== null) await units.remove(UPDATER_SERVICE_NAME);
+      if (updaterSocket !== null) await units.remove(UPDATER_SOCKET_NAME);
       await units.runRoot('systemctl', ['stop', LINUX_SERVICE_NAME]);
       await units.runRoot('systemctl', ['disable', LINUX_SERVICE_NAME]);
       if (current !== null) await units.remove(LINUX_SERVICE_NAME);
       await units.runRootOrThrow('systemctl', ['daemon-reload']);
-      await units.runRoot('systemctl', ['reset-failed', LINUX_SERVICE_NAME]);
+      await units.runRoot('systemctl', ['reset-failed', LINUX_SERVICE_NAME, UPDATER_SERVICE_NAME, UPDATER_SOCKET_NAME]);
       return `systemd service removed: ${units.path(LINUX_SERVICE_NAME)}`;
     }
     if (config.platform.serviceMode === 'launchd') {

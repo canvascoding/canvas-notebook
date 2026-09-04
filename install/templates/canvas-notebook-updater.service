@@ -1,0 +1,33 @@
+# Managed by Canvas Notebook
+[Unit]
+Description=Canvas Notebook Standalone Updater
+Requires=canvas-notebook-updater.socket docker.service
+After=canvas-notebook-updater.socket docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=CANVAS_CLI_PATH=__CLI_PATH__
+Environment=CANVAS_UPDATER_STATE_DIR=/var/lib/canvas-notebook-updater
+Environment=CANVAS_UPDATE_TRUST_STORE=/etc/canvas-notebook/update-trust.json
+ExecStart=__CLI_PATH__ updater-service --no-banner
+TimeoutStartSec=10800
+TimeoutStopSec=30
+KillMode=mixed
+Restart=no
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryHigh=75M
+MemoryMax=128M
+TasksMax=64

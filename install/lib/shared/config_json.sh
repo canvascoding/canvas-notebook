@@ -48,7 +48,9 @@ CONFIG_JSON_DEFAULTS='{
     "CANVAS_POSTGRES_DATA_VOLUME": "canvas-postgres-data",
     "CANVAS_POSTGRES_DB": "canvas_notebook",
     "CANVAS_POSTGRES_USER": "canvas",
-    "CANVAS_POSTGRES_PASSWORD": ""
+    "CANVAS_POSTGRES_PASSWORD": "",
+    "CANVAS_STANDALONE_UPDATER_ENABLED": false,
+    "CANVAS_UPDATER_GID": ""
   }
 }'
 
@@ -664,7 +666,7 @@ config_json_to_env() {
       printf 'DATA_DIR=%s\n' "$data_dir"
     fi
   } > "$compose_tmp"
-  local database_provider postgres_mode postgres_profile postgres_image postgres_volume postgres_db postgres_user postgres_password
+  local database_provider postgres_mode postgres_profile postgres_image postgres_volume postgres_db postgres_user postgres_password updater_enabled updater_gid
   database_provider="$(config_json_normalize_database_provider "$(config_json_read env.CANVAS_DATABASE_PROVIDER)")"
   postgres_mode="$(config_json_read env.CANVAS_POSTGRES_MODE)"
   if [[ "$database_provider" == "postgres" ]]; then
@@ -682,6 +684,8 @@ config_json_to_env() {
   postgres_db="$(config_json_read env.CANVAS_POSTGRES_DB)"
   postgres_user="$(config_json_read env.CANVAS_POSTGRES_USER)"
   postgres_password="$(config_json_read env.CANVAS_POSTGRES_PASSWORD)"
+  updater_enabled="$(config_json_read env.CANVAS_STANDALONE_UPDATER_ENABLED)"
+  updater_gid="$(config_json_read env.CANVAS_UPDATER_GID)"
   {
     printf 'COMPOSE_PROFILES=%s\n' "$postgres_profile"
     printf 'CANVAS_DATABASE_PROVIDER=%s\n' "$database_provider"
@@ -691,6 +695,8 @@ config_json_to_env() {
     printf 'CANVAS_POSTGRES_DB=%s\n' "${postgres_db:-canvas_notebook}"
     printf 'CANVAS_POSTGRES_USER=%s\n' "${postgres_user:-canvas}"
     printf 'CANVAS_POSTGRES_PASSWORD=%s\n' "$postgres_password"
+    printf 'CANVAS_STANDALONE_UPDATER_ENABLED=%s\n' "${updater_enabled:-false}"
+    printf 'CANVAS_UPDATER_GID=%s\n' "$updater_gid"
   } >> "$compose_tmp"
   _write_secure_config_file "$COMPOSE_ENV_PATH" "$compose_tmp"
   rm -f "$compose_tmp"

@@ -179,8 +179,8 @@ canvas_operation_lock_acquire borrowed-child
   const installer = await fs.readFile(path.join(root, 'install.sh'), 'utf8');
   const systemdInstaller = await fs.readFile(path.join(root, 'install/lib/systemd.sh'), 'utf8');
   const autoUpdateCommands = await fs.readFile(path.join(root, 'install/lib/commands/auto_update.sh'), 'utf8');
-  assert.match(updateUnit, /^TimeoutStartSec=10800$/mu);
-  assert.match(updateUnit, /^ExecStart=.* update --require-pinned --no-banner$/mu);
+  assert.match(updateUnit, /^TimeoutStartSec=120$/mu);
+  assert.match(updateUnit, /^ExecStart=.* updater-trigger --channel stable --no-banner$/mu);
   assert.equal(updateUnit.includes(' cli-update '), false);
   assert.match(serviceUnit, /^TimeoutStartSec=10800$/mu);
   assert.equal(updateUnit.includes('TimeoutStartSec=infinity'), false);

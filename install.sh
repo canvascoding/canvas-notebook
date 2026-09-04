@@ -434,7 +434,10 @@ run_cli_update_only() {
     config_json_init
   fi
 
+  prepare_standalone_updater_config
+  config_json_to_env
   install_management_cli
+  install_standalone_updater
   install_systemd_service
   install_update_timer
   ok "Canvas Notebook management CLI updated"
@@ -460,6 +463,7 @@ run_prebuilt_install() {
   configure_secrets
   configure_compose_values
   configure_database_values
+  prepare_standalone_updater_config
 
   if [[ -n "$DATA_DIR" ]]; then
     config_json_write dataDir "$DATA_DIR"
@@ -474,6 +478,7 @@ run_prebuilt_install() {
   cleanup_docker_artifacts
   install_manager_config
   install_management_cli
+  install_standalone_updater
   install_systemd_service
   install_update_timer
   apply_transient_admin_credentials

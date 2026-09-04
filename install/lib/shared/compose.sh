@@ -105,7 +105,7 @@ ensure_env_file() {
 }
 
 write_managed_compose_file() {
-  local dest="$1" tmp
+  local dest="$1" tmp rendered updater_enabled updater_gid
   tmp="$(mktemp)"
   cat > "$tmp" <<'EOCOMPOSE'
 services:
@@ -116,12 +116,14 @@ services:
       - "${HOST_PORT:-3456}:${CONTAINER_PORT:-3000}"
     env_file:
       - ${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/canvas-notebook.env
+    # __CANVAS_UPDATER_GROUP__
     depends_on:
       postgres:
         condition: service_healthy
         required: false
     volumes:
       - ${DATA_DIR:-./data}:/data
+      # __CANVAS_UPDATER_VOLUME__
     restart: unless-stopped
 
   postgres:
@@ -146,6 +148,27 @@ volumes:
   canvas-postgres-data:
     name: ${CANVAS_POSTGRES_DATA_VOLUME:-canvas-postgres-data}
 EOCOMPOSE
+
+  updater_enabled="$(config_json_read env.CANVAS_STANDALONE_UPDATER_ENABLED 2>/dev/null || true)"
+  updater_gid="$(config_json_read env.CANVAS_UPDATER_GID 2>/dev/null || true)"
+  rendered="$(mktemp)"
+  awk -v enabled="$updater_enabled" -v gid="$updater_gid" '
+    /# __CANVAS_UPDATER_GROUP__/ {
+      if (enabled == "true" && gid ~ /^[0-9]+$/) {
+        print "    group_add:"
+        print "      - \"${CANVAS_UPDATER_GID:?CANVAS_UPDATER_GID is required for standalone updates}\""
+      }
+      next
+    }
+    /# __CANVAS_UPDATER_VOLUME__/ {
+      if (enabled == "true" && gid ~ /^[0-9]+$/) {
+        print "      - /run/canvas-notebook-updater.sock:/run/canvas-notebook-updater.sock"
+      }
+      next
+    }
+    { print }
+  ' "$tmp" > "$rendered"
+  mv "$rendered" "$tmp"
 
   _write_owned_file "$dest" "$tmp"
   rm -f "$tmp"

@@ -139,8 +139,110 @@ install_management_cli() {
   info "Run: canvas-notebook help"
 }
 
+prepare_standalone_updater_config() {
+  local updater_group="canvas-notebook-updater" updater_gid=""
+
+  require_jq
+  if ! command -v systemctl >/dev/null 2>&1 || \
+    { declare -f config_json_managed_by_control_plane >/dev/null 2>&1 && config_json_managed_by_control_plane; }; then
+    config_json_write env.CANVAS_STANDALONE_UPDATER_ENABLED false
+    config_json_write env.CANVAS_UPDATER_GID ""
+    return 0
+  fi
+
+  if ! getent group "$updater_group" >/dev/null 2>&1; then
+    if command -v groupadd >/dev/null 2>&1; then
+      run_root groupadd --system "$updater_group"
+    elif command -v addgroup >/dev/null 2>&1; then
+      run_root addgroup --system "$updater_group"
+    else
+      fail "groupadd or addgroup is required for the standalone updater socket"
+    fi
+  fi
+  updater_gid="$(getent group "$updater_group" | cut -d: -f3)"
+  [[ "$updater_gid" =~ ^[0-9]+$ ]] || fail "Could not resolve ${updater_group} group ID"
+  config_json_write env.CANVAS_STANDALONE_UPDATER_ENABLED true
+  config_json_write env.CANVAS_UPDATER_GID "$updater_gid"
+}
+
+remove_standalone_updater_units() {
+  local socket_unit="canvas-notebook-updater.socket" service_unit="canvas-notebook-updater.service"
+  local socket_path="/etc/systemd/system/${socket_unit}" service_path="/etc/systemd/system/${service_unit}"
+  run_root systemctl stop "$service_unit" >/dev/null 2>&1 || true
+  run_root systemctl stop "$socket_unit" >/dev/null 2>&1 || true
+  run_root systemctl disable "$socket_unit" >/dev/null 2>&1 || true
+  run_root rm -f "$socket_path" "$service_path"
+  run_root systemctl daemon-reload
+  run_root systemctl reset-failed "$socket_unit" "$service_unit" >/dev/null 2>&1 || true
+}
+
+install_standalone_updater() {
+  local socket_unit="canvas-notebook-updater.socket" service_unit="canvas-notebook-updater.service"
+  local socket_path="/etc/systemd/system/${socket_unit}" service_path="/etc/systemd/system/${service_unit}"
+  local cli_path="${CANVAS_CLI_PATH:-/usr/local/bin/canvas-notebook}" template_dir
+  local tmp_dir tmp_socket tmp_service escaped_cli_path trust_source="" trust_target="/etc/canvas-notebook/update-trust.json"
+  local state_dir="/var/lib/canvas-notebook-updater"
+
+  if ! command -v systemctl >/dev/null 2>&1; then
+    warn "systemd not found — standalone in-app updates are unavailable."
+    return 0
+  fi
+  if declare -f config_json_managed_by_control_plane >/dev/null 2>&1 && config_json_managed_by_control_plane; then
+    section "Standalone updater"
+    remove_standalone_updater_units
+    ok "Standalone updater disabled (managed mode)"
+    return 0
+  fi
+
+  template_dir="${SUPPORT_DIR:-${INSTALL_DIR:-/opt/canvas-notebook}}/templates"
+  [[ -f "${template_dir}/${socket_unit}" && ! -L "${template_dir}/${socket_unit}" ]] || fail "Standalone updater socket template is missing"
+  [[ -f "${template_dir}/${service_unit}" && ! -L "${template_dir}/${service_unit}" ]] || fail "Standalone updater service template is missing"
+  tmp_dir="$(mktemp -d)"
+  tmp_socket="${tmp_dir}/${socket_unit}"
+  tmp_service="${tmp_dir}/${service_unit}"
+  escaped_cli_path="$(sed_replacement_escape "$cli_path")"
+  sed -e "s|__CLI_PATH__|${escaped_cli_path}|g" "${template_dir}/${socket_unit}" > "$tmp_socket"
+  sed -e "s|__CLI_PATH__|${escaped_cli_path}|g" "${template_dir}/${service_unit}" > "$tmp_service"
+
+  if command -v systemd-analyze >/dev/null 2>&1; then
+    systemd-analyze verify "$tmp_socket" "$tmp_service" >/dev/null || {
+      rm -rf "$tmp_dir"
+      fail "Standalone updater systemd units failed validation"
+    }
+  fi
+
+  if [[ -n "${CANVAS_UPDATE_TRUST_STORE_SOURCE:-}" ]]; then
+    trust_source="$CANVAS_UPDATE_TRUST_STORE_SOURCE"
+    [[ -f "$trust_source" && ! -L "$trust_source" ]] || fail "Configured update trust store is missing or unsafe"
+  elif [[ -f "${SUPPORT_DIR}/keys/update-trust.json" && ! -L "${SUPPORT_DIR}/keys/update-trust.json" ]]; then
+    trust_source="${SUPPORT_DIR}/keys/update-trust.json"
+  fi
+  if [[ -n "$trust_source" ]]; then
+    jq -e '.version == 1 and (.keys | type == "array" and length > 0) and all(.keys[]; .algorithm == "ed25519" and (.keyId | type == "string") and (.publicKey | type == "string"))' \
+      "$trust_source" >/dev/null || fail "Update trust store is invalid"
+    run_root install -d -m 755 /etc/canvas-notebook
+    run_root install -m 644 "$trust_source" "$trust_target"
+  elif [[ ! -f "$trust_target" ]]; then
+    warn "No update trust store was installed; in-app updates remain fail-closed until ${trust_target} is provisioned."
+  fi
+
+  section "Standalone updater"
+  run_root install -d -m 700 "$state_dir"
+  run_root install -m 644 "$tmp_socket" "$socket_path"
+  run_root install -m 644 "$tmp_service" "$service_path"
+  rm -rf "$tmp_dir"
+  run_root systemctl daemon-reload
+  run_root systemctl enable "$socket_unit" >/dev/null
+  if [[ "${CLI_UPDATE_ONLY:-false}" != "true" ]]; then
+    run_root systemctl stop "$service_unit" >/dev/null 2>&1 || true
+    run_root systemctl restart "$socket_unit"
+  fi
+  ok "Standalone updater socket installed"
+  info "Updater status: systemctl status ${socket_unit}"
+}
+
 install_systemd_service() {
-  local service_path cli_path tmp_service escaped_install_dir escaped_cli_path
+  local service_path cli_path tmp_service escaped_install_dir escaped_cli_path updater_dependency
   service_path="/etc/systemd/system/${SYSTEMD_SERVICE}"
   cli_path="${CANVAS_CLI_PATH:-/usr/local/bin/canvas-notebook}"
   tmp_service="$(mktemp)"
@@ -153,9 +255,15 @@ install_systemd_service() {
 
   escaped_install_dir="$(sed_replacement_escape "$INSTALL_DIR")"
   escaped_cli_path="$(sed_replacement_escape "$cli_path")"
+  updater_dependency=""
+  if [[ "$(config_json_read env.CANVAS_STANDALONE_UPDATER_ENABLED 2>/dev/null || true)" == "true" ]]; then
+    updater_dependency="canvas-notebook-updater.socket"
+  fi
   local template_dir="${SUPPORT_DIR:-${INSTALL_DIR:-/opt/canvas-notebook}}/templates"
   sed -e "s|__INSTALL_DIR__|${escaped_install_dir}|g" \
       -e "s|__CLI_PATH__|${escaped_cli_path}|g" \
+      -e "s|__UPDATER_REQUIRES__|${updater_dependency}|g" \
+      -e "s|__UPDATER_AFTER__|${updater_dependency}|g" \
       "${template_dir}/canvas-notebook.service" > "$tmp_service"
 
   section "System service"

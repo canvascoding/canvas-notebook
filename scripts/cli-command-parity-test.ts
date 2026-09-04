@@ -349,7 +349,7 @@ async function runDifferentialContract(): Promise<void> {
 
     const legacyRuntime = await prepareRuntime('legacy');
     const typescriptRuntime = await prepareRuntime('typescript');
-    const tsxPath = path.join(root, 'node_modules', '.bin', 'tsx');
+    const tsxPath = process.env.CANVAS_TEST_TSX_PATH || path.join(root, 'node_modules', '.bin', 'tsx');
     const runLegacy = (args: string[]) => execFileAsync(legacyCliPath, args, {
       cwd: root,
       env: legacyRuntime.env,

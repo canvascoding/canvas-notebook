@@ -67,9 +67,16 @@ async function main(): Promise<void> {
     const verify = runner.calls.find((call) => call.command === 'systemd-analyze');
     assert.ok(verify);
     assert.equal(verify.liveContent, null, 'service must be validated before the live write');
+    const unitRoot = path.dirname(servicePath);
+    const updaterService = path.join(unitRoot, 'canvas-notebook-updater.service');
+    const updaterSocket = path.join(unitRoot, 'canvas-notebook-updater.socket');
+    await fs.writeFile(updaterService, '# Managed by Canvas Notebook\n[Unit]\nDescription=Canvas Notebook Standalone Updater\n[Service]\nExecStart=/usr/local/bin/canvas-notebook updater-service --no-banner\n', 'utf8');
+    await fs.writeFile(updaterSocket, '# Managed by Canvas Notebook\n[Socket]\nListenStream=/run/canvas-notebook-updater.sock\nSocketGroup=canvas-notebook-updater\n', 'utf8');
     const removed = await manager.uninstall(config);
     assert.match(removed, /removed/u);
     await assert.rejects(fs.stat(servicePath), /ENOENT/u);
+    await assert.rejects(fs.stat(updaterService), /ENOENT/u);
+    await assert.rejects(fs.stat(updaterSocket), /ENOENT/u);
   });
 
   await withFixture(async ({ servicePath, manager, config }) => {
@@ -78,6 +85,13 @@ async function main(): Promise<void> {
     await assert.rejects(() => manager.install(config), /Refusing to overwrite unmanaged systemd unit/u);
     await assert.rejects(() => manager.uninstall(config), /Refusing to remove unmanaged systemd unit/u);
     assert.equal(await fs.readFile(servicePath, 'utf8'), unmanaged);
+  });
+
+  await withFixture(async ({ servicePath, manager, config }) => {
+    const updaterSocket = path.join(path.dirname(servicePath), 'canvas-notebook-updater.socket');
+    await fs.writeFile(updaterSocket, '[Socket]\nListenStream=/tmp/foreign.sock\n', 'utf8');
+    await assert.rejects(() => manager.uninstall(config), /Refusing to remove unmanaged systemd unit/u);
+    assert.equal(await fs.readFile(updaterSocket, 'utf8'), '[Socket]\nListenStream=/tmp/foreign.sock\n');
   });
 
   await withFixture(async ({ servicePath, manager, runner, config }) => {
