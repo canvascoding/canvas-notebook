@@ -276,6 +276,15 @@ const AUTOMATION_NAME_FIELD_CLASS = 'h-11 w-full min-w-0 max-w-full box-border r
 const AUTOMATION_MONO_FIELD_CLASS = 'h-10 w-full min-w-0 max-w-full box-border rounded-md border border-input bg-background px-3 font-mono text-xs';
 const AUTOMATION_TEXTAREA_CLASS = 'h-24 w-full min-w-0 max-w-full box-border resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs';
 
+function automationPromptPreview(prompt: string): string {
+  return prompt
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]*)\]/g, '$1')
+    .replace(/[`*_~>#]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 type AutomationPromptEditorProps = {
   value: string;
   onChange: (value: string) => void;
@@ -2614,9 +2623,9 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                                       {workspaceById.get(job.workspaceId || '')?.name || workspaceScopeLabel({ type: job.workspaceType }, t)}
                                     </Badge>
                                   </div>
-                                  <div className="mt-1 max-h-[2.5em] overflow-hidden text-xs text-muted-foreground">
-                                    <MarkdownRenderer content={job.prompt} variant="muted" />
-                                  </div>
+                                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground" title={automationPromptPreview(job.prompt)}>
+                                    {automationPromptPreview(job.prompt)}
+                                  </p>
                                   <div className="mt-3 grid min-w-0 gap-x-4 gap-y-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
                                     <span className="flex min-w-0 items-center gap-1.5 truncate"><Clock3 className="h-3.5 w-3.5 shrink-0" />{describeFriendlyScheduleLocalized(job.schedule, t, weekdayLabels)}</span>
                                     <span className="flex min-w-0 items-center gap-1.5 truncate"><Webhook className="h-3.5 w-3.5 shrink-0" />{job.triggerKind === 'event' ? t('trigger.emailEvent') : t('trigger.schedule')}</span>
@@ -2657,9 +2666,14 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
               <div className="space-y-5 px-5 py-5 sm:px-6">
                 <div className="rounded-lg border bg-background p-3.5">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{t('editor.fields.prompt')}</p>
-                  <div className="mt-2 max-h-28 overflow-hidden text-sm leading-6 text-muted-foreground">
-                    <MarkdownRenderer content={previewJob.prompt} variant="muted" />
-                  </div>
+                  <ScrollArea
+                    className="mt-2 h-[min(22rem,40dvh)] rounded-md border bg-muted/20"
+                    data-testid="automation-preview-prompt-scroll"
+                  >
+                    <div className="min-w-0 p-3 text-sm leading-6 text-muted-foreground">
+                      <MarkdownRenderer content={previewJob.prompt} variant="muted" />
+                    </div>
+                  </ScrollArea>
                 </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-lg border p-3">
