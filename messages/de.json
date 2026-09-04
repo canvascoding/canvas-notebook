@@ -2120,6 +2120,8 @@
   "mobileAppSetup": {
     "available": "Für iPhone verfügbar",
     "dismiss": "Hinweis zur Mobile App ausblenden",
+    "reminderHint": "Beim Schließen erinnern wir dich frühestens in 30 Tagen wieder.",
+    "neverShow": "Nicht mehr anzeigen",
     "eyebrow": "Canvas für unterwegs",
     "title": "Nimm dein Notebook einfach mit.",
     "description": "Scanne den QR-Code mit deinem iPhone. Canvas Mobile öffnet sich mit genau diesem Server – du musst nur noch deine normalen Zugangsdaten eingeben.",

@@ -11,7 +11,7 @@ import { HomeAttentionPanel } from './HomeAttentionPanel';
 import { HomeFocusCards } from './HomeFocusCards';
 import { HomeAppLinks } from './HomeAppLinks';
 import { MoreToolsSection } from './MoreToolsSection';
-import { HomeMobileAppPromo } from '@/app/components/mobile/MobileAppSetupCard';
+import { HomeMobileAppPromo } from '@/app/components/mobile/HomeMobileAppPromo';
 
 export function HomeWorkspaceView({
   showBrowserLab = false,
@@ -96,7 +96,9 @@ export function HomeWorkspaceView({
         </section>
 
         <HomeFocusCards summary={summary} />
-        <HomeMobileAppPromo />
+        <HomeMobileAppPromo
+          hasPriorityAttention={Boolean(summary?.items.some((item) => item.unread && item.priority === 'high'))}
+        />
         <HomeAppLinks />
 
         <MoreToolsSection showBrowserLab={showBrowserLab} />

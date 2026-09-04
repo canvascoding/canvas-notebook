@@ -4,11 +4,6 @@ import { NextIntlClientProvider } from 'next-intl';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import {
-  HomeMobileAppPromo,
-  MobileAppSetupCard,
-} from '../app/components/mobile/MobileAppSetupCard';
-
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   pretendToBeVisual: true,
   url: 'https://notebook.example.com/de',
@@ -17,8 +12,16 @@ Object.defineProperty(globalThis, 'window', { value: dom.window, configurable: t
 Object.defineProperty(globalThis, 'document', { value: dom.window.document, configurable: true });
 Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
 Object.defineProperty(globalThis, 'HTMLElement', { value: dom.window.HTMLElement, configurable: true });
+Object.defineProperty(globalThis, 'HTMLInputElement', { value: dom.window.HTMLInputElement, configurable: true });
+Object.defineProperty(globalThis, 'HTMLButtonElement', { value: dom.window.HTMLButtonElement, configurable: true });
+Object.defineProperty(globalThis, 'HTMLAnchorElement', { value: dom.window.HTMLAnchorElement, configurable: true });
 Object.defineProperty(globalThis, 'SVGElement', { value: dom.window.SVGElement, configurable: true });
 Object.defineProperty(globalThis, 'Node', { value: dom.window.Node, configurable: true });
+Object.defineProperty(globalThis, 'NodeFilter', { value: dom.window.NodeFilter, configurable: true });
+Object.defineProperty(globalThis, 'Event', { value: dom.window.Event, configurable: true });
+Object.defineProperty(globalThis, 'CustomEvent', { value: dom.window.CustomEvent, configurable: true });
+Object.defineProperty(globalThis, 'MutationObserver', { value: dom.window.MutationObserver, configurable: true });
+Object.defineProperty(globalThis, 'getComputedStyle', { value: dom.window.getComputedStyle, configurable: true });
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
 
 const instanceId = 'cni_0123456789abcdef01234567';
@@ -42,6 +45,8 @@ const messages = {
   mobileAppSetup: {
     available: 'Available for iPhone',
     dismiss: 'Dismiss the Mobile App notice',
+    reminderHint: 'We will wait before reminding you again.',
+    neverShow: "Don't show this again",
     eyebrow: 'Canvas on the go',
     title: 'Take your notebook with you.',
     description: 'Scan the QR code with your iPhone.',
@@ -86,6 +91,8 @@ function renderWithMessages(container: HTMLElement, children: React.ReactNode) {
 }
 
 async function main() {
+  const { MobileAppSetupCard, MobileAppSetupDialog } = await import('../app/components/mobile/MobileAppSetupCard');
+  const { HomeMobileAppPromo } = await import('../app/components/mobile/HomeMobileAppPromo');
   const settingsContainer = document.createElement('div');
   document.body.appendChild(settingsContainer);
   let settingsRoot: ReturnType<typeof createRoot>;
@@ -112,39 +119,50 @@ async function main() {
   await act(async () => settingsRoot!.unmount());
   settingsContainer.remove();
 
+  const dialogContainer = document.createElement('div');
+  document.body.appendChild(dialogContainer);
+  let dialogRoot: ReturnType<typeof createRoot>;
+  let dialogOpen = true;
+  let permanentlyDismissed = false;
+  await act(async () => {
+    dialogRoot = renderWithMessages(dialogContainer, (
+      <MobileAppSetupDialog
+        open={dialogOpen}
+        onOpenChange={(open) => { dialogOpen = open; }}
+        onPermanentDismiss={() => { permanentlyDismissed = true; }}
+      />
+    ));
+  });
+  await settle();
+  assert.match(document.body.textContent ?? '', /Take your notebook with you\./u);
+  assert.match(document.body.textContent ?? '', /We will wait before reminding you again\./u);
+  assert.equal(document.body.querySelector('[role="dialog"]') !== null, true);
+  assert.equal(document.body.querySelector('img[alt="Bradley, the Canvas mascot"]') !== null, true);
+
+  const dismissButton = document.body.querySelector<HTMLButtonElement>('button[aria-label="Dismiss the Mobile App notice"]');
+  assert.ok(dismissButton);
+  await act(async () => {
+    dismissButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  });
+  assert.equal(dialogOpen, false);
+  assert.equal(permanentlyDismissed, false);
+
+  await act(async () => dialogRoot!.unmount());
+  dialogContainer.remove();
+
   window.localStorage.clear();
+  window.sessionStorage.clear();
   const homeContainer = document.createElement('div');
   document.body.appendChild(homeContainer);
   let homeRoot: ReturnType<typeof createRoot>;
   await act(async () => {
     homeRoot = renderWithMessages(homeContainer, <HomeMobileAppPromo />);
   });
-  await settle(25);
   await settle();
-  assert.match(homeContainer.textContent ?? '', /Take your notebook with you\./u);
-
-  const dismissButton = homeContainer.querySelector<HTMLButtonElement>('button[aria-label="Dismiss the Mobile App notice"]');
-  assert.ok(dismissButton);
-  await act(async () => {
-    dismissButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-  });
-  assert.equal(homeContainer.textContent, '');
-  assert.equal(window.localStorage.getItem('canvas-home-mobile-app-promo-v1'), 'dismissed');
+  assert.equal(homeContainer.textContent, '', 'The home promotion must not be embedded or open immediately');
 
   await act(async () => homeRoot!.unmount());
   homeContainer.remove();
-
-  const dismissedContainer = document.createElement('div');
-  document.body.appendChild(dismissedContainer);
-  let dismissedRoot: ReturnType<typeof createRoot>;
-  await act(async () => {
-    dismissedRoot = renderWithMessages(dismissedContainer, <HomeMobileAppPromo />);
-  });
-  await settle(25);
-  assert.equal(dismissedContainer.textContent, '');
-
-  await act(async () => dismissedRoot!.unmount());
-  dismissedContainer.remove();
   console.log('mobile setup card UI test: ok');
 }
 
