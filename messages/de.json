@@ -2890,6 +2890,10 @@
             "selectRelease": "Wähle das gewünschte Release und starte ein neues Deployment.",
             "verifyDeployment": "Kehre hierher zurück, sobald der Deployment-Healthcheck erfolgreich ist."
           },
+          "canvas-installer": {
+            "runCliUpdate": "Führe auf dem Canvas-Host den Befehl canvas-notebook update aus.",
+            "verifyDeployment": "Kehre hierher zurück, sobald Canvas wieder erreichbar und der Healthcheck erfolgreich ist."
+          },
           "unknown": {
             "pullImage": "Öffne das System, das diese Canvas-Instanz bereitstellt.",
             "updateCompose": "Wähle ein geprüftes Canvas-Notebook-Release.",

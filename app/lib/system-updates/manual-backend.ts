@@ -15,7 +15,11 @@ import {
 } from './types';
 
 function detectManualPlatform(env: NodeJS.ProcessEnv): SystemUpdatePlatform {
-  if (env.COOLIFY_RESOURCE_UUID || env.COOLIFY_FQDN || env.SOURCE_COMMIT) return 'coolify';
+  const configured = env.CANVAS_DEPLOYMENT_PLATFORM?.trim().toLowerCase();
+  if (configured === 'coolify') return 'coolify';
+  if (configured === 'docker-compose' || configured === 'compose') return 'docker-compose';
+  if (configured === 'canvas-installer') return 'canvas-installer';
+  if (env.COOLIFY_RESOURCE_UUID || env.COOLIFY_FQDN) return 'coolify';
   if (env.COMPOSE_PROJECT_NAME || env.DOCKER_COMPOSE) return 'docker-compose';
   return 'unknown';
 }
@@ -24,6 +28,10 @@ function instructionsForPlatform(platform: SystemUpdatePlatform): string[] {
   if (platform === 'coolify') return [
     'openPlatform',
     'selectRelease',
+    'verifyDeployment',
+  ];
+  if (platform === 'canvas-installer') return [
+    'runCliUpdate',
     'verifyDeployment',
   ];
   return [

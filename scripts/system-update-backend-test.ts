@@ -133,6 +133,20 @@ async function main(): Promise<void> {
   assert.equal(manualAvailability.updateAvailable, null);
   await assert.rejects(() => coolify.startUpdate({ channel: 'stable' }), /deployment platform/u);
 
+  const compose = new ManualSystemUpdateBackend({
+    ...process.env,
+    CANVAS_DEPLOYMENT_PLATFORM: 'docker-compose',
+  });
+  assert.equal((await compose.getAvailability('stable')).platform, 'docker-compose');
+
+  const installer = new ManualSystemUpdateBackend({
+    ...process.env,
+    CANVAS_DEPLOYMENT_PLATFORM: 'canvas-installer',
+  });
+  const installerAvailability = await installer.getAvailability('stable');
+  assert.equal(installerAvailability.platform, 'canvas-installer');
+  assert.deepEqual(installerAvailability.instructions, ['runCliUpdate', 'verifyDeployment']);
+
   const managedOperation = Object.fromEntries(
     Object.entries(operation).filter(([key]) => key !== 'targetImageRef'),
   );

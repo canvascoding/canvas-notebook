@@ -2891,6 +2891,10 @@
             "selectRelease": "Select the desired release and start a redeploy.",
             "verifyDeployment": "Return here after the deployment health check succeeds."
           },
+          "canvas-installer": {
+            "runCliUpdate": "Run canvas-notebook update on the Canvas host.",
+            "verifyDeployment": "Return here after Canvas is reachable again and its health check succeeds."
+          },
           "unknown": {
             "pullImage": "Open the system that deploys this Canvas instance.",
             "updateCompose": "Select a verified Canvas Notebook release.",

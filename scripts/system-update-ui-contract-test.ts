@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   assert.doesNotMatch(panel, /targetImageRef/u, 'the update UI must not accept or display arbitrary image references');
   assert.match(compose, /canvas-notebook-updater\.sock:\/run\/canvas-notebook-updater\.sock/u);
   assert.doesNotMatch(compose, /docker\.sock/u, 'the application container must not receive the Docker socket');
+  assert.match(compose, /CANVAS_DEPLOYMENT_PLATFORM: canvas-installer/u);
 
   console.log('system update UI contract test passed');
 }

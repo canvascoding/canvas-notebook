@@ -116,6 +116,8 @@ services:
       - "${HOST_PORT:-3456}:${CONTAINER_PORT:-3000}"
     env_file:
       - ${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/canvas-notebook.env
+    environment:
+      CANVAS_DEPLOYMENT_PLATFORM: canvas-installer
     # __CANVAS_UPDATER_GROUP__
     depends_on:
       postgres:

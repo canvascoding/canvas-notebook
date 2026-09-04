@@ -28,6 +28,7 @@ services:
       - 'DATABASE_URL=postgresql://$SERVICE_USER_POSTGRES:$SERVICE_PASSWORD_POSTGRES@postgres:5432/${POSTGRES_DB:-canvas_notebook}'
       - 'CANVAS_POSTGRES_VECTOR_ENABLED=${CANVAS_POSTGRES_VECTOR_ENABLED:-true}'
       - 'LOG_LEVEL=${LOG_LEVEL:-info}'
+      - CANVAS_DEPLOYMENT_PLATFORM=coolify
     volumes:
       - 'canvas-data:/data'
     depends_on:

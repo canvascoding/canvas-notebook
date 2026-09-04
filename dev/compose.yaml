@@ -18,6 +18,7 @@ services:
 
       # Logging level: off | error | warn | info | debug (default: info)
       LOG_LEVEL: "info"
+      CANVAS_DEPLOYMENT_PLATFORM: docker-compose
 
     volumes:
       - ../data:/data
