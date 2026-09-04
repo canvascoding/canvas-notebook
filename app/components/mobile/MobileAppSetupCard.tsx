@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowUpRight, Check, Copy, Download, Loader2, QrCode, ShieldCheck, Smartphone, X } from 'lucide-react';
+import { ArrowUpRight, Check, Clock3, Copy, Download, Loader2, QrCode, ShieldCheck, Smartphone, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -13,13 +13,20 @@ import {
   type MobileSetupCompatibility,
 } from '@/app/lib/mobile/setup-link';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 
-const HOME_PROMO_DISMISSAL_KEY = 'canvas-home-mobile-app-promo-v1';
+export type MobileAppSetupAction = 'open-app' | 'app-store' | 'copy-link';
 
 type MobileAppSetupCardProps = {
-  placement: 'home' | 'settings';
-  onDismiss?: () => void;
+  placement: 'dialog' | 'settings';
+  onAction?: (action: MobileAppSetupAction) => void;
 };
 
 type SetupState =
@@ -66,12 +73,12 @@ function useMobileSetupState(revision: number): SetupState {
   return state;
 }
 
-export function MobileAppSetupCard({ placement, onDismiss }: MobileAppSetupCardProps) {
+export function MobileAppSetupCard({ placement, onAction }: MobileAppSetupCardProps) {
   const t = useTranslations('mobileAppSetup');
   const [revision, setRevision] = useState(0);
   const [copied, setCopied] = useState(false);
   const state = useMobileSetupState(revision);
-  const isHome = placement === 'home';
+  const isDialog = placement === 'dialog';
   const serverLabel = state.status === 'ready'
     ? state.compatibility.instance.name
     : t('serverFallback');
@@ -82,41 +89,33 @@ export function MobileAppSetupCard({ placement, onDismiss }: MobileAppSetupCardP
     try {
       await navigator.clipboard.writeText(state.setupLink);
       setCopied(true);
+      onAction?.('copy-link');
       window.setTimeout(() => setCopied(false), 2_500);
     } catch {
       setCopied(false);
     }
-  }, [state]);
+  }, [onAction, state]);
 
   return (
     <section
       aria-labelledby={`mobile-app-setup-title-${placement}`}
       className={cn(
         'relative isolate overflow-hidden border border-border bg-card shadow-sm',
-        isHome ? 'min-h-[22rem]' : 'min-h-[30rem]',
+        isDialog ? 'min-h-[22rem] border-0 shadow-none' : 'min-h-[30rem]',
       )}
     >
       <div className="absolute inset-0 -z-20 bg-gradient-to-br from-card via-card to-muted/50" />
       <div className="absolute -left-24 -top-24 -z-10 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
       <div className="absolute inset-y-0 left-0 -z-10 w-px bg-primary" />
-      <div className="absolute right-5 top-5 flex items-center gap-2 text-[0.62rem] font-bold uppercase tracking-[0.2em] text-muted-foreground">
-        <span className="h-1.5 w-1.5 bg-emerald-500" aria-hidden="true" />
-        {t('available')}
-      </div>
-
-      {onDismiss ? (
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="absolute right-3 top-12 z-20 flex h-9 w-9 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={t('dismiss')}
-        >
-          <X className="h-4 w-4" />
-        </button>
+      {!isDialog ? (
+        <div className="absolute right-5 top-5 flex items-center gap-2 text-[0.62rem] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+          <span className="h-1.5 w-1.5 bg-emerald-500" aria-hidden="true" />
+          {t('available')}
+        </div>
       ) : null}
 
-      <div className={cn('grid h-full', isHome ? 'lg:grid-cols-[minmax(0,1fr)_16rem]' : 'lg:grid-cols-[minmax(0,1fr)_20rem]')}>
-        <div className={cn('relative flex min-w-0 flex-col px-5 pb-5 pt-16 sm:px-7 sm:pb-7', !isHome && 'lg:px-10 lg:pb-10')}>
+      <div className={cn('grid h-full', isDialog ? 'lg:grid-cols-[minmax(0,1fr)_18rem]' : 'lg:grid-cols-[minmax(0,1fr)_20rem]')}>
+        <div className={cn('relative flex min-w-0 flex-col px-5 pb-5 sm:px-7 sm:pb-7', isDialog ? 'pt-7 sm:pt-9' : 'pt-16 lg:px-10 lg:pb-10')}>
           <div className="max-w-2xl">
             <div className="mb-5 flex items-center gap-3">
               <span className="flex h-10 w-10 items-center justify-center border border-primary/30 bg-primary/10 text-primary">
@@ -124,7 +123,7 @@ export function MobileAppSetupCard({ placement, onDismiss }: MobileAppSetupCardP
               </span>
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">{t('eyebrow')}</p>
             </div>
-            <h3 id={`mobile-app-setup-title-${placement}`} className={cn('font-semibold leading-[1.05] tracking-[-0.04em]', isHome ? 'text-3xl sm:text-4xl' : 'text-4xl sm:text-5xl')}>
+            <h3 id={`mobile-app-setup-title-${placement}`} className={cn('font-semibold leading-[1.05] tracking-[-0.04em]', isDialog ? 'text-3xl sm:text-4xl' : 'text-4xl sm:text-5xl')}>
               {t('title')}
             </h3>
             <p className="mt-4 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
@@ -145,14 +144,14 @@ export function MobileAppSetupCard({ placement, onDismiss }: MobileAppSetupCardP
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             {state.status === 'ready' ? (
               <Button asChild className="rounded-none">
-                <a href={state.setupLink}>
+                <a href={state.setupLink} onClick={() => onAction?.('open-app')}>
                   <Smartphone className="h-4 w-4" />
                   {t('openApp')}
                 </a>
               </Button>
             ) : null}
             <Button asChild variant="outline" className="rounded-none">
-              <a href={MOBILE_APP_STORE_URL} target="_blank" rel="noreferrer">
+              <a href={MOBILE_APP_STORE_URL} target="_blank" rel="noreferrer" onClick={() => onAction?.('app-store')}>
                 <Download className="h-4 w-4" />
                 {t('appStore')}
                 <ArrowUpRight className="h-3.5 w-3.5" />
@@ -229,33 +228,65 @@ export function MobileAppSetupCard({ placement, onDismiss }: MobileAppSetupCardP
   );
 }
 
-export function HomeMobileAppPromo() {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      try {
-        setVisible(window.localStorage.getItem(HOME_PROMO_DISMISSAL_KEY) !== 'dismissed');
-      } catch {
-        setVisible(true);
-      }
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, []);
-
-  if (!visible) return null;
-
+export function MobileAppSetupDialog({
+  open,
+  onOpenChange,
+  onPermanentDismiss,
+  onAction,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onPermanentDismiss: () => void;
+  onAction?: (action: MobileAppSetupAction) => void;
+}) {
+  const t = useTranslations('mobileAppSetup');
   return (
-    <MobileAppSetupCard
-      placement="home"
-      onDismiss={() => {
-        try {
-          window.localStorage.setItem(HOME_PROMO_DISMISSAL_KEY, 'dismissed');
-        } catch {
-          // The card can still be dismissed for this page view without persistent storage.
-        }
-        setVisible(false);
-      }}
-    />
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="max-h-[calc(100dvh-2rem)] max-w-[calc(100%-1.25rem)] gap-0 overflow-y-auto rounded-none border-border p-0 shadow-2xl sm:max-w-5xl"
+      >
+        <DialogTitle className="sr-only">{t('title')}</DialogTitle>
+        <DialogDescription className="sr-only">{t('description')}</DialogDescription>
+
+        <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border bg-background px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center border border-primary/30 bg-primary/10 text-primary">
+              <Smartphone className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">Canvas Mobile</p>
+              <p className="mt-0.5 flex items-center gap-2 text-[0.62rem] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                <span className="h-1.5 w-1.5 bg-emerald-500" aria-hidden="true" />
+                {t('available')}
+              </p>
+            </div>
+          </div>
+          <DialogClose asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-11 w-11 shrink-0 rounded-none"
+              aria-label={t('dismiss')}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </DialogClose>
+        </header>
+
+        <MobileAppSetupCard placement="dialog" onAction={onAction} />
+
+        <footer className="flex flex-col gap-3 border-t border-border bg-muted/25 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+          <p className="flex items-center gap-2 text-xs leading-5 text-muted-foreground">
+            <Clock3 className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {t('reminderHint')}
+          </p>
+          <Button type="button" variant="ghost" className="h-10 justify-start rounded-none sm:justify-center" onClick={onPermanentDismiss}>
+            {t('neverShow')}
+          </Button>
+        </footer>
+      </DialogContent>
+    </Dialog>
   );
 }

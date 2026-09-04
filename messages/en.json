@@ -2121,6 +2121,8 @@
   "mobileAppSetup": {
     "available": "Available for iPhone",
     "dismiss": "Dismiss the Mobile App notice",
+    "reminderHint": "If you close this, we will wait at least 30 days before reminding you again.",
+    "neverShow": "Don't show this again",
     "eyebrow": "Canvas on the go",
     "title": "Take your notebook with you.",
     "description": "Scan the QR code with your iPhone. Canvas Mobile opens with this exact server selected – all that remains is signing in with your normal credentials.",

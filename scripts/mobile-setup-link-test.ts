@@ -32,13 +32,18 @@ assert.equal(isMobileSetupCompatibility({
 }), false);
 
 const setupCardSource = readFileSync('app/components/mobile/MobileAppSetupCard.tsx', 'utf8');
+const homePromoSource = readFileSync('app/components/mobile/HomeMobileAppPromo.tsx', 'utf8');
 const homeSource = readFileSync('app/components/home/HomeWorkspaceView.tsx', 'utf8');
 const settingsNavigationSource = readFileSync('app/components/settings/SettingsNavigation.tsx', 'utf8');
 const settingsClientSource = readFileSync('app/components/settings/IntegrationsSettingsClient.tsx', 'utf8');
 assert.match(setupCardSource, /<QRCodeSVG/u);
 assert.match(setupCardSource, /bradley-character-starter\.png/u);
-assert.match(setupCardSource, /HOME_PROMO_DISMISSAL_KEY/u);
-assert.match(homeSource, /<HomeMobileAppPromo \/>/u);
+assert.match(setupCardSource, /<DialogContent/u);
+assert.match(setupCardSource, /onPermanentDismiss/u);
+assert.match(homePromoSource, /ACTIVE_USAGE_DELAY_MS\s*=\s*45_000/u);
+assert.match(homePromoSource, /SESSION_IMPRESSION_KEY/u);
+assert.match(homePromoSource, /LEGACY_DISMISSAL_KEY/u);
+assert.match(homeSource, /<HomeMobileAppPromo/u);
 assert.match(settingsNavigationSource, /value: 'mobile-app'/u);
 assert.match(settingsClientSource, /<MobileAppSetupCard placement="settings" \/>/u);
 

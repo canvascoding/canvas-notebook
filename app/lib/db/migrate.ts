@@ -1753,6 +1753,21 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS mobile_app_promotion_states (
+      user_id TEXT PRIMARY KEY NOT NULL,
+      promotion_version INTEGER NOT NULL DEFAULT 1,
+      impression_count INTEGER NOT NULL DEFAULT 0,
+      dismissal_count INTEGER NOT NULL DEFAULT 0,
+      last_shown_at INTEGER,
+      dismissed_until INTEGER,
+      permanently_dismissed_at INTEGER,
+      cta_clicked_at INTEGER,
+      last_action TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS onboarding_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       completed_at INTEGER NOT NULL,
@@ -2454,6 +2469,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_user_hint_state_user_page ON user_hint_state (user_id, page);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_page_onboarding_state_user_page ON page_onboarding_state (user_id, page);
     CREATE INDEX IF NOT EXISTS idx_page_onboarding_state_user_completed ON page_onboarding_state (user_id, completed);
+    CREATE INDEX IF NOT EXISTS idx_mobile_app_promotion_dismissed_until ON mobile_app_promotion_states (dismissed_until);
     CREATE INDEX IF NOT EXISTS idx_oauth_tokens_provider ON oauth_tokens (provider);
     CREATE INDEX IF NOT EXISTS idx_oauth_tokens_valid ON oauth_tokens (provider, is_valid);
     CREATE INDEX IF NOT EXISTS idx_license_certs_instance ON license_certs (instance_id);
