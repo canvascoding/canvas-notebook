@@ -28,6 +28,7 @@ Der aktive Architekturplan fuer den Team-Workspace-Umbau liegt im Unterprojekt:
 - `browser-desktop-plan.md`: optionaler, manuell bedienbarer grafischer Browser-Desktop als vom vorhandenen Puppeteer-Headless-Pfad getrennter Compose-Dienst; deckt Netzwerk-Egress, Auth-Proxy, Profilpersistenz, Managed- und Self-Hosted-Lifecycle sowie Ressourcen- und Sicherheitsgrenzen ab.
 - `postgres-only-cli-installation-plan.md`: schrittweiser Plan fuer PostgreSQL-only Fresh Installs und Updates mit lokal verwaltetem oder extern gehostetem PostgreSQL, sicherer URL-Eingabe, Verbindungs-/pgvector-Preflight, fail-closed Entfernung von SQLite sowie Control-Plane-/Agent-Anpassungen.
 - `memory-reviewer-admin-onboarding-plan.md`: verpflichtende organisationsweite Provider-/Modellwahl fuer den isolierten Memory-Reviewer im Administrator-Onboarding, Queue-Reaktivierung und reiner PostgreSQL-Schemamigrationspfad ohne SQLite-Abhaengigkeit.
+- `memory-system-runtime.md`: produktiver Memory-Worker mit Token-/Retry-Grenzen, persistiertem Neustart-Checkpoint, stabiler Kategorien-Taxonomie, Kontosprache, UI-Semantik und datensparsamen Betriebslogs.
 - `electron-workspace-drive/README.md`: Einstieg in das Planungspaket fuer den bidirektionalen Electron Workspace Drive mit Hauptplan, V1-Pipeline und maschinenlesbarer Taskliste.
 - `todo.json`: maschinenlesbarer Aufgabenindex ueber Notebook-, Control-Plane- und Cross-Repo-Aufgaben.
 
