@@ -475,6 +475,22 @@ async function main(): Promise<void> {
       const backstopSession = await recoveryDb.get(`SELECT id FROM pi_sessions WHERE session_id = 'backstop-session'`) as { id: number };
       await recoveryDb.run(`INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence) VALUES (?, 'user', '{}', 1, 1)`, [backstopSession.id]);
       await recoveryDb.run(`INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence) VALUES (?, 'assistant', '{}', 2, 2)`, [backstopSession.id]);
+      await recoveryDb.run(`INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence) VALUES (?, 'user', '{}', 3, 3)`, [backstopSession.id]);
+      await recoveryDb.run(`INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence) VALUES (?, 'assistant', '{}', 4, 4)`, [backstopSession.id]);
+      await recoveryDb.run(`
+        INSERT INTO memory_review_jobs (
+          id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
+          trigger_type, scheduled_for, status, attempts, completed_at, created_at
+        ) VALUES ('backstop-history-job', 'user-reader', 'org-1', 'backstop-session', 1, 2,
+          'idle', NULL, 'completed', 1, 70000, 1)
+      `);
+      await recoveryDb.run(`
+        INSERT INTO pi_sessions (session_id, user_id, organization_id, agent_id, provider, model, created_at, updated_at)
+        VALUES ('historical-session-without-review', 'user-reader', 'org-1', 'reader-agent', 'test', 'test-model', 1, 1)
+      `);
+      const historicalSession = await recoveryDb.get(`SELECT id FROM pi_sessions WHERE session_id = 'historical-session-without-review'`) as { id: number };
+      await recoveryDb.run(`INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence) VALUES (?, 'user', '{}', 1, 1)`, [historicalSession.id]);
+      await recoveryDb.run(`INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence) VALUES (?, 'assistant', '{}', 2, 2)`, [historicalSession.id]);
       await recoveryDb.run(`
         INSERT INTO pi_sessions (session_id, user_id, organization_id, agent_id, provider, model, created_at, updated_at)
         VALUES ('unconfigured-session', 'user-external', 'org-2', 'external-agent', 'test', 'test-model', 1, 1)
@@ -501,8 +517,7 @@ async function main(): Promise<void> {
       { scheduled: true, triggerType: 'idle', fromMessageSequence: 25, throughMessageSequence: 26 },
     );
     const reconciliation = await scheduleUnreviewedMemorySessions(80_000);
-    assert.ok(reconciliation.scanned >= 1);
-    assert.ok(reconciliation.scheduled >= 1);
+    assert.deepEqual(reconciliation, { scanned: 1, scheduled: 1 });
     const configuredBehindClaim = await claimDueMemoryReviewJob(80_000);
     assert.equal(configuredBehindClaim?.id, 'configured-behind-job');
     await completeMemoryReviewJob('configured-behind-job', 80_000);
@@ -510,11 +525,11 @@ async function main(): Promise<void> {
     try {
       const backstopJob = await recoveryAssertionsDb.get(`
         SELECT from_message_sequence, through_message_sequence, status, scheduled_for
-        FROM memory_review_jobs WHERE session_id = 'backstop-session'
+        FROM memory_review_jobs WHERE session_id = 'backstop-session' AND status = 'scheduled'
       `) as Record<string, unknown>;
       assert.deepEqual(backstopJob, {
-        from_message_sequence: 1,
-        through_message_sequence: 2,
+        from_message_sequence: 3,
+        through_message_sequence: 4,
         status: 'scheduled',
         scheduled_for: 980_000,
       });
@@ -526,6 +541,10 @@ async function main(): Promise<void> {
         scheduled_for: null,
         error_code: 'model_not_configured',
       });
+      const historicalJob = await recoveryAssertionsDb.get(`
+        SELECT id FROM memory_review_jobs WHERE session_id = 'historical-session-without-review'
+      `);
+      assert.equal(historicalJob, undefined);
     } finally {
       await recoveryAssertionsDb.close();
     }

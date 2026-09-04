@@ -1340,6 +1340,15 @@ export async function scheduleUnreviewedMemorySessions(
       SELECT session.user_id, session.session_id
       FROM pi_sessions session
       WHERE session.organization_id IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM memory_review_jobs previous_terminal_job
+          WHERE previous_terminal_job.user_id = session.user_id
+            AND previous_terminal_job.session_id = session.session_id
+            AND (
+              previous_terminal_job.status IN ('completed', 'failed')
+              OR previous_terminal_job.attempts >= ?
+            )
+        )
         AND NOT EXISTS (
           SELECT 1 FROM memory_review_jobs active_job
           WHERE active_job.user_id = session.user_id
@@ -1367,7 +1376,7 @@ export async function scheduleUnreviewedMemorySessions(
         )
       ORDER BY session.updated_at DESC, session.id DESC
       LIMIT ?
-    `, [MEMORY_REVIEW_MAX_ATTEMPTS, boundedLimit]) as Array<{ user_id: string; session_id: string }>;
+    `, [MEMORY_REVIEW_MAX_ATTEMPTS, MEMORY_REVIEW_MAX_ATTEMPTS, boundedLimit]) as Array<{ user_id: string; session_id: string }>;
     let scheduled = 0;
     for (const row of rows) {
       const result = await scheduleMemoryReviewForSession({

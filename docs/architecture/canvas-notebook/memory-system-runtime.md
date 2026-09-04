@@ -30,8 +30,11 @@ nur nach erfolgreichem Claim eines faelligen Jobs erlaubt.
 Bei jedem Worker-Zyklus gleicht ein rein datenbankbasierter Backstop Sessions
 mit beantworteten, aber noch nicht eingeplanten User-Turns ab. Damit wird auch
 die schmale Absturz-Luecke zwischen Job-Completion und Planung des Folgejobs
-geschlossen. Fehlgeschlagene, endgueltig ausgeschoepfte Bereiche gelten dabei
-als abgearbeitet; nur spaetere Nachrichten koennen einen neuen Job erzeugen.
+geschlossen. Der Backstop betrachtet nur Sessions mit bereits vorhandener
+terminaler Review-Historie; historische Chats ohne Memory-Job werden beim
+ersten Start daher nicht nachtraeglich und kostenpflichtig abgearbeitet.
+Fehlgeschlagene, endgueltig ausgeschoepfte Bereiche gelten als abgearbeitet;
+nur spaetere Nachrichten koennen einen neuen Job erzeugen.
 
 Schutzgrenzen:
 
