@@ -53,6 +53,13 @@ theme: default
   assert.equal(mobilePreview.deck.slides[0]?.width, 1280);
   assert.equal(mobilePreview.deck.slides[0]?.height, 720);
   assert.match(mobilePreview.html, /\.marpit>svg\[data-canvas-active="true"\]/u);
+  const scriptNonce = mobilePreview.html.match(/script-src 'nonce-([^']+)'/u)?.[1];
+  assert.ok(scriptNonce);
+  const scripts = Array.from(mobilePreview.html.matchAll(/<script\b([^>]*)>/gu));
+  assert.ok(scripts.length > 0);
+  assert.ok(scripts.every((script) => script[1]?.includes(`nonce="${scriptNonce}"`)));
+  assert.doesNotMatch(mobilePreview.html, /script-src 'unsafe-inline'/u);
+  assert.doesNotMatch(mobilePreview.html, /<script\b[^>]*\bsrc=/u);
   assert.doesNotMatch(mobilePreview.html, /img-src[^>]*https:/u);
 
   const remotePreview = await renderMarpMarkdownToMobilePreview(

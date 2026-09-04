@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { Marp } from '@marp-team/marp-core';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
@@ -425,6 +426,10 @@ function appendMarpSlideCaptions(html: string): string {
   });
 }
 
+function authorizeMarpBrowserScripts(html: string, nonce: string): string {
+  return html.replace(/<script(?=\s|>)/gu, `<script nonce="${nonce}"`);
+}
+
 function createMarpRenderer() {
   return new Marp({
     html: HTML_ALLOWLIST,
@@ -612,8 +617,10 @@ export async function renderMarpMarkdownToMobilePreview(
   });
   const slides = marpSlides(renderedHtml);
   const title = options.title || path.basename(options.filePath);
+  const scriptNonce = randomBytes(18).toString('base64');
+  const mobileHtml = authorizeMarpBrowserScripts(appendMarpSlideCaptions(renderedHtml), scriptNonce);
   const html = `<!DOCTYPE html>
-<html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; font-src data:; img-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"><title>${escapeHtml(title)}</title><style>${css}</style><style>html,body{width:100%;height:100%;margin:0;background:#111827;overflow:hidden}.marpit{width:100%;height:100%;display:flex;align-items:center;justify-content:center}.marpit>svg{display:none;width:100% !important;height:auto !important;max-width:100%;max-height:100%;background:#fff}.marpit>svg[data-canvas-active="true"]{display:block}.marp-slide-caption{display:none}</style></head><body>${appendMarpSlideCaptions(renderedHtml)}</body></html>`;
+<html lang="de"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${scriptNonce}'; style-src 'unsafe-inline'; font-src data:; img-src data: blob:; media-src data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"><title>${escapeHtml(title)}</title><style>${css}</style><style>html,body{width:100%;height:100%;margin:0;background:#111827;overflow:hidden}.marpit{width:100%;height:100%;display:flex;align-items:center;justify-content:center}.marpit>svg{display:none;width:100% !important;height:auto !important;max-width:100%;max-height:100%;background:#fff}.marpit>svg[data-canvas-active="true"]{display:block}.marp-slide-caption{display:none}</style></head><body>${mobileHtml}</body></html>`;
 
   if (Buffer.byteLength(html, 'utf8') > MAX_MOBILE_DOCUMENT_SIZE) {
     throw new MarpMobilePreviewTooLargeError();
