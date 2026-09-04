@@ -11,6 +11,21 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.4.2] - 2026-09-04
+
+### Added
+
+- Added workspace accent colors and identity marks across workspace setup, navigation, and settings.
+- Added compaction diagnostics for clearer runtime summary and recovery visibility.
+
+### Changed
+
+- Refined workspace appearance theming and branded workspace creation flows.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.4.1] - 2026-09-04
 
 ### Fixed
