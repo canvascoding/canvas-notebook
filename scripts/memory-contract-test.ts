@@ -17,6 +17,12 @@ import {
   resolveMemoryPromptTokenBudget,
   resolveMemoryScopePermissions,
 } from '../app/lib/memory/contract';
+import {
+  canonicalMemoryCategory,
+  memoryCategoryDescription,
+  memoryCategoryLabel,
+  memoryReviewLanguageInstruction,
+} from '../app/lib/memory/categories';
 
 function main() {
   assert.equal(MEMORY_REVIEW_USER_TURN_INTERVAL, 10);
@@ -27,6 +33,17 @@ function main() {
   assert.equal(MEMORY_RECOMMENDED_ENTRY_CHARS, 400);
   assert.equal(MEMORY_MAX_ENTRY_CHARS, 800);
   assert.equal(DEFAULT_MEMORY_PROMPT_MAX_TOKENS, 2_000);
+
+  assert.equal(canonicalMemoryCategory('organization', 'service-provider'), 'profile');
+  assert.equal(canonicalMemoryCategory('organization', 'brand-structure'), 'brand');
+  assert.equal(canonicalMemoryCategory('organization', 'business-structure'), 'profile');
+  assert.equal(canonicalMemoryCategory('workspace', 'approved-decisions'), 'decisions');
+  assert.equal(canonicalMemoryCategory('user', 'response-style'), 'communication');
+  assert.equal(canonicalMemoryCategory('agent', 'anything-at-all'), 'agent-context');
+  assert.equal(memoryCategoryLabel('brand', 'de'), 'Marke');
+  assert.equal(memoryCategoryDescription('conventions', 'de'), 'Verbindliche Standards, Regeln und Terminologie.');
+  assert.match(memoryReviewLanguageInstruction('de'), /in German/);
+  assert.match(memoryReviewLanguageInstruction('en'), /in English/);
 
   assert.equal(initialMemoryEntryStatus('user'), 'published');
   assert.equal(initialMemoryEntryStatus('agent'), 'published');

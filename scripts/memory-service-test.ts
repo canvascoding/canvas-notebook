@@ -329,6 +329,43 @@ async function main(): Promise<void> {
     assert.ok(organizationReviewCollection);
     const organizationReviewEntries = await readMemoryCollection({ target: 'organization', userId: 'user-1', organizationId: 'org-1', collectionId: organizationReviewCollection.id });
     assert.equal(organizationReviewEntries.entries.some((entry) => entry.status === 'pending' && /approved organization terminology/.test(entry.content)), true);
+    const collectionCountDb = await openDb();
+    let organizationCollectionCountBeforeInvalid = 0;
+    try {
+      const count = await collectionCountDb.get(`SELECT COUNT(*) AS count FROM memory_collections WHERE organization_id = 'org-1'`) as { count: number };
+      organizationCollectionCountBeforeInvalid = Number(count.count);
+    } finally {
+      await collectionCountDb.close();
+    }
+    const invalidOrganizationCandidate = await applyMemoryReviewCandidates({
+      claim: claim!,
+      scopeContext: { organizationId: 'org-1' },
+      candidates: [{
+        action: 'add', target: 'organization', category: 'brand-structure', content: '', priority: 60,
+      }],
+    });
+    assert.deepEqual(invalidOrganizationCandidate, { added: 0, updated: 0, archived: 0, skipped: 1 });
+    const collectionCountAfterInvalidDb = await openDb();
+    try {
+      const count = await collectionCountAfterInvalidDb.get(`SELECT COUNT(*) AS count FROM memory_collections WHERE organization_id = 'org-1'`) as { count: number };
+      assert.equal(Number(count.count), organizationCollectionCountBeforeInvalid);
+    } finally {
+      await collectionCountAfterInvalidDb.close();
+    }
+    const organizationProfileResult = await applyMemoryReviewCandidates({
+      claim: claim!,
+      scopeContext: { organizationId: 'org-1' },
+      candidates: [
+        { action: 'add', target: 'organization', category: 'service-provider', content: 'The organization works with a specialized service provider.', priority: 50 },
+        { action: 'add', target: 'organization', category: 'business-structure', content: 'The organization uses a matrix business structure.', priority: 50 },
+      ],
+    });
+    assert.deepEqual(organizationProfileResult, { added: 2, updated: 0, archived: 0, skipped: 0 });
+    const organizationProfileCollections = (await listMemoryCollections({
+      target: 'organization', userId: 'user-1', organizationId: 'org-1',
+    })).filter((collection) => collection.category === 'profile');
+    assert.equal(organizationProfileCollections.length, 1);
+    assert.equal(organizationProfileCollections[0]?.entryCount, 2);
     const reviewContext = await readMemoryReviewContext({
       userId: 'user-1', sourceAgentId: 'canvas-agent', workspaceId: 'workspace-1', organizationId: 'org-1',
     });
@@ -435,9 +472,13 @@ async function main(): Promise<void> {
       }
       const workspaceCollection = await maintenanceDb.get(`SELECT id FROM memory_collections WHERE workspace_id = 'workspace-1' LIMIT 1`) as { id: string };
       await maintenanceDb.run(`INSERT INTO memory_entries (id, collection_id, content, normalized_content_hash, status, priority, pinned, sensitivity, estimated_tokens, created_by_actor_type, created_by_user_id, revision, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', 50, 0, 'standard', 4, 'user', 'user-1', 1, 1, 1)`, [pendingId, workspaceCollection.id, pendingId, pendingId]);
+      await maintenanceDb.run(`INSERT INTO memory_collections (id, scope_type, user_id, category, title, status, created_at, updated_at) VALUES ('empty-collection-for-cleanup', 'user', 'user-1', 'context', 'Context', 'active', 1, 1)`);
+      assert.equal((await listMemoryCollections(scope)).some((collection) => collection.id === 'empty-collection-for-cleanup'), false);
       assert.deepEqual(await runMemoryMaintenanceCycle(100 * 24 * 60 * 60 * 1000), { archived: 2 });
       const statuses = await maintenanceDb.all(`SELECT id, status FROM memory_entries WHERE id IN (?, ?, ?) ORDER BY id`, [pendingId, pinnedId, staleId]) as Array<{ id: string; status: string }>;
       assert.deepEqual(statuses, [{ id: pendingId, status: 'archived' }, { id: pinnedId, status: 'published' }, { id: staleId, status: 'archived' }]);
+      const emptyCollection = await maintenanceDb.get(`SELECT id FROM memory_collections WHERE id = 'empty-collection-for-cleanup'`);
+      assert.equal(emptyCollection, undefined);
     } finally { await maintenanceDb.close(); }
   } finally {
     moduleInternals._load = originalLoad;

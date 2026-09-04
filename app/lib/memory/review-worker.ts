@@ -10,6 +10,7 @@ import { prepareMessagesForEffectiveModel } from '@/app/lib/pi/multimodal-prepar
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { persistPiUsageEventsWithContext } from '@/app/lib/pi/usage-events';
 import { withPiRequestOutputTokenCap } from '@/app/lib/pi/context-budget';
+import { getUserPreferredLocale, type UserLocale } from '@/app/lib/user-preferences';
 import {
   applyMemoryReviewCandidates,
   claimDueMemoryReviewJob,
@@ -30,6 +31,7 @@ import {
 } from './service';
 import { MEMORY_MANAGER_AGENT_ID } from './constants';
 import { MEMORY_REVIEW_OUTPUT_TOKENS } from './contract';
+import { memoryReviewLanguageInstruction } from './categories';
 import { memoryReviewErrorCode, selectMemoryReviewThinkingLevel } from './review-runtime';
 
 export { MEMORY_MANAGER_AGENT_ID } from './constants';
@@ -109,6 +111,7 @@ function buildReviewPrompt(input: {
   transcript: string;
   existing: Awaited<ReturnType<typeof readMemoryReviewContext>>;
   allowedTargets: Awaited<ReturnType<typeof resolveMemoryReviewTargets>>;
+  locale: UserLocale;
 }): Extract<AgentMessage, { role: 'user' }> {
   const existing = input.existing.map((entry) => ({
     entryId: entry.id,
@@ -126,6 +129,8 @@ function buildReviewPrompt(input: {
       `The available scopes are ${input.allowedTargets.map((target) => `"${target}"`).join(', ')}. Never emit IDs for users, agents, workspaces, organizations, sessions, or collections.`,
       'Workspace and organization candidates must use action "add" only; they become pending suggestions for a manager. For a private correction, use action "update" and an existing entryId or semanticKey. Never update or archive a pinned entry. Prefer no candidate when uncertain.',
       'Each content value must be self-contained, factual, and at most 800 characters. Sensitive content needs sensitivity "sensitive"; it may be discarded by policy.',
+      memoryReviewLanguageInstruction(input.locale),
+      'Use only these stable categories: user = profile, preferences, communication, interests, tech-stack, recent-work, area; agent = agent-context; workspace or organization = profile, context, decisions, conventions, brand.',
       'Return JSON only, with this exact shape: {"candidates":[{"action":"add|update|archive","target":"user|agent|workspace|organization","category":"...","semanticKey":"...","entryId":"...","content":"...","priority":0,"sensitivity":"standard|sensitive","confidence":0,"sourceMessageSequence":0}]}.',
       'Do not include a rationale, markdown fences, or any keys outside that schema.',
       '',
@@ -241,7 +246,7 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
           thinkingLevel: selectMemoryReviewThinkingLevel(configuredModel.thinkingLevels),
         },
       });
-      const [sourceMessages, existing, reviewTargets] = await Promise.all([
+      const [sourceMessages, existing, reviewTargets, preferredLocale] = await Promise.all([
         loadMemoryReviewSourceMessages(claim),
         readMemoryReviewContext({
           userId: claim.userId,
@@ -254,12 +259,20 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
           workspaceId: executionContext.workspaceId,
           organizationId: claim.organizationId,
         }),
+        getUserPreferredLocale(claim.userId),
       ]);
       const promptMessage = buildReviewPrompt({
         claim,
         transcript: compactUserTranscript(claim, sourceMessages),
         existing,
         allowedTargets: reviewTargets,
+        locale: preferredLocale,
+      });
+      console.info('[MemoryManager] Review prompt prepared.', {
+        jobId: claim.id,
+        locale: preferredLocale,
+        sourceMessageCount: sourceMessages.length,
+        existingMemoryCount: existing.length,
       });
       const { agentLoop } = await import('@earendil-works/pi-agent-core');
       const context: AgentContext = { systemPrompt: [

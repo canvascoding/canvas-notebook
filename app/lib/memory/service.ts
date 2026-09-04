@@ -18,6 +18,11 @@ import { readOrganizationPermissionForUser } from '@/app/lib/organization/permis
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { getAgentAccess } from '@/app/lib/agents/access';
 import { getAgentProfile } from '@/app/lib/agents/registry';
+import {
+  canonicalMemoryCategory,
+  memoryCategoryDescription,
+  memoryCategoryLabel,
+} from './categories';
 
 export type MemoryTarget = MemoryScopeType;
 export type MemoryAction = 'read' | 'add' | 'update' | 'delete';
@@ -43,6 +48,7 @@ export type MemoryCollectionSummary = {
   id: string;
   category: string;
   title: string;
+  summary: string | null;
   status: 'active' | 'archived';
   updatedAt: number;
   entryCount: number;
@@ -409,11 +415,6 @@ function toEntry(row: Record<string, unknown>): MemoryEntry {
   };
 }
 
-function normalizedCategory(value: string | undefined): string {
-  const normalized = value?.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-') || 'context';
-  return /^[a-z][a-z0-9-]{0,63}$/u.test(normalized) ? normalized : 'context';
-}
-
 function normalizedSemanticKey(value: string | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) return null;
@@ -435,9 +436,7 @@ async function findCollectionIdWithConnection(
 ): Promise<string | null> {
   assertCompleteMemoryScopeIdentity(scopeIdentity(scope));
   const where = scopeWhere(scope);
-  const resolvedCategory = category
-    ? normalizedCategory(category)
-    : (scope.target === 'agent' ? 'agent-context' : 'context');
+  const resolvedCategory = canonicalMemoryCategory(scope.target, category);
   const existing = await connection.get(`
     SELECT id FROM memory_collections
     WHERE ${where.sql} AND status = 'active' AND category = ?
@@ -455,11 +454,11 @@ async function findCollectionIdWithConnection(
     resolvedCategory,
   ]);
   const now = Date.now();
-  await connection.run(`
+  const inserted = await connection.run(`
     INSERT INTO memory_collections (
       id, scope_type, user_id, agent_id, organization_id, workspace_id,
-      category, title, sensitivity, status, revision, created_by_user_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'standard', 'active', 1, ?, ?, ?)
+      category, title, summary, sensitivity, status, revision, created_by_user_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', 'active', 1, ?, ?, ?)
     ON CONFLICT (id) DO NOTHING
   `, [
     id, scope.target, scope.userId,
@@ -467,9 +466,17 @@ async function findCollectionIdWithConnection(
     scope.target === 'organization' ? scope.organizationId ?? null : null,
     scope.target === 'workspace' ? scope.workspaceId ?? null : null,
     resolvedCategory,
-    scope.target === 'agent' ? 'Agent memory' : `${scope.target[0].toUpperCase()}${scope.target.slice(1)} memory`,
+    memoryCategoryLabel(resolvedCategory, 'en'),
+    memoryCategoryDescription(resolvedCategory, 'en'),
     scope.userId, now, now,
-  ]);
+  ]) as { changes?: number };
+  if (Number(inserted.changes ?? 0) > 0) {
+    console.info('[MemoryManager] Memory collection created.', {
+      collectionId: id,
+      scopeType: scope.target,
+      category: resolvedCategory,
+    });
+  }
   return id;
 }
 
@@ -508,7 +515,7 @@ export async function listMemoryCollections(scope: MemoryServiceScope): Promise<
   try {
     const where = scopeWhere(scope);
     const rows = await connection.all(`
-      SELECT collection.id, collection.category, collection.title, collection.status, collection.updated_at,
+      SELECT collection.id, collection.category, collection.title, collection.summary, collection.status, collection.updated_at,
         COUNT(entry.id) AS entry_count,
         COALESCE(SUM(CASE WHEN entry.status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_count
       FROM memory_collections collection
@@ -517,12 +524,14 @@ export async function listMemoryCollections(scope: MemoryServiceScope): Promise<
         AND (? = 1 OR entry.status = 'published')
       WHERE ${where.sql}
       GROUP BY collection.id
+      HAVING COUNT(entry.id) > 0
       ORDER BY collection.updated_at DESC, collection.id ASC
     `, [permissions.canPublish ? 1 : 0, ...where.params]) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       id: String(row.id),
       category: String(row.category),
       title: String(row.title),
+      summary: typeof row.summary === 'string' ? row.summary : null,
       status: row.status === 'archived' ? 'archived' : 'active',
       updatedAt: Number(row.updated_at),
       entryCount: Number(row.entry_count),
@@ -1565,9 +1574,22 @@ export async function applyMemoryReviewCandidates(params: {
         result.skipped += 1;
         continue;
       }
+      let content: string | null = null;
+      if (candidate.action !== 'archive') {
+        if (candidate.sensitivity === 'sensitive' && !sensitiveAllowed) {
+          result.skipped += 1;
+          continue;
+        }
+        try {
+          content = assertMemoryContent(candidate.content ?? '');
+        } catch {
+          result.skipped += 1;
+          continue;
+        }
+      }
       const semanticKey = normalizedSemanticKey(candidate.semanticKey);
-      const category = normalizedCategory(candidate.category);
-      const collectionId = await findCollectionId(scope, candidate.action !== 'archive', category);
+      const category = canonicalMemoryCategory(scope.target, candidate.category);
+      const collectionId = await findCollectionIdWithConnection(connection, scope, candidate.action !== 'archive', category);
       if (!collectionId) {
         result.skipped += 1;
         continue;
@@ -1591,24 +1613,13 @@ export async function applyMemoryReviewCandidates(params: {
         result.archived += 1;
         continue;
       }
-      if (candidate.sensitivity === 'sensitive' && !sensitiveAllowed) {
-        result.skipped += 1;
-        continue;
-      }
-      let content: string;
-      try {
-        content = assertMemoryContent(candidate.content ?? '');
-      } catch {
-        result.skipped += 1;
-        continue;
-      }
       if (existing?.id && existing.pinned) {
         result.skipped += 1;
         continue;
       }
       const now = Date.now();
       const sourceMessageId = await sourceMessageIdForReview(connection, params.claim, candidate.sourceMessageSequence);
-      if (existing?.id && candidate.action === 'update') {
+      if (existing?.id && candidate.action === 'update' && content) {
         await connection.run(`
           UPDATE memory_entries
           SET content = ?, normalized_content_hash = ?, priority = ?, sensitivity = ?, confidence = ?,
@@ -1621,7 +1632,7 @@ export async function applyMemoryReviewCandidates(params: {
       }
       const duplicate = await connection.get(`
         SELECT id FROM memory_entries WHERE collection_id = ? AND normalized_content_hash = ? AND status != 'archived' LIMIT 1
-      `, [collectionId, contentHash(content)]) as { id?: string } | undefined;
+      `, [collectionId, contentHash(content!)]) as { id?: string } | undefined;
       if (duplicate?.id) {
         result.skipped += 1;
         continue;
@@ -1634,14 +1645,19 @@ export async function applyMemoryReviewCandidates(params: {
           created_by_actor_type, created_by_user_id, last_confirmed_at, revision, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'memory_manager', ?, ?, 1, ?, ?)
       `, [
-        entryId, collectionId, semanticKey, content, contentHash(content), initialMemoryEntryStatus(scope.target),
+        entryId, collectionId, semanticKey, content!, contentHash(content!), initialMemoryEntryStatus(scope.target),
         reviewedPriority(candidate.priority), candidate.sensitivity ?? 'standard', reviewedConfidence(candidate.confidence),
-        Math.max(1, Math.ceil(content.length / 4)), params.claim.sessionId, sourceMessageId, params.claim.sourceAgentId,
+        Math.max(1, Math.ceil(content!.length / 4)), params.claim.sessionId, sourceMessageId, params.claim.sourceAgentId,
         params.claim.userId, now, now, now,
       ]);
       await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, session_id, source_message_id, decision_code, created_at) VALUES (?, ?, 'add', 'memory_manager', ?, ?, ?, 'automatic_review', ?)`, [randomUUID(), entryId, params.claim.userId, params.claim.sessionId, sourceMessageId, now]);
       result.added += 1;
     }
+    console.info('[MemoryManager] Review candidates applied.', {
+      jobId: params.claim.id,
+      candidateCount: params.candidates.slice(0, 20).length,
+      result,
+    });
     return result;
   } finally { await connection.close(); }
 }
@@ -1791,6 +1807,16 @@ export async function runMemoryMaintenanceCycle(now = Date.now()): Promise<{ arc
       await connection.run(`UPDATE memory_entries SET status = 'archived', revision = revision + 1, updated_at = ? WHERE id = ? AND status = 'pending' AND pinned = 0`, [now, row.id]);
       await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'archive', 'memory_manager', ?, 'automatic_maintenance_pending_expired', ?)`, [randomUUID(), row.id, row.user_id, now]);
       archived += 1;
+    }
+    const emptyCollections = await connection.run(`
+      DELETE FROM memory_collections
+      WHERE NOT EXISTS (
+        SELECT 1 FROM memory_entries entry WHERE entry.collection_id = memory_collections.id
+      )
+    `) as { changes?: number };
+    const deletedEmptyCollections = Number(emptyCollections.changes ?? 0);
+    if (archived > 0 || deletedEmptyCollections > 0) {
+      console.info('[MemoryManager] Maintenance completed.', { archived, deletedEmptyCollections });
     }
     return { archived };
   } finally { await connection.close(); }

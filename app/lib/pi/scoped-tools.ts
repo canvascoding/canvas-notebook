@@ -406,7 +406,8 @@ function createMemoryTool(userId?: string, agentId?: string | null): AgentTool {
     label: 'Managing memory',
     description:
       'Reads and maintains durable database-backed memory. Use the target that matches the current runtime scope. ' +
-      'Use only for long-term facts, preferences, and recurring context; never store secrets, logs, temporary tasks, or session summaries.',
+      'Use only for long-term facts, preferences, and recurring context; never store secrets, logs, temporary tasks, or session summaries. ' +
+      'Write added or updated memory content in the language configured for the user account, while preserving proper names and established technical terms.',
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal('read'),
