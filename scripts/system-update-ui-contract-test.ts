@@ -4,8 +4,9 @@ import path from 'node:path';
 
 async function main(): Promise<void> {
   const root = path.resolve(__dirname, '..');
-  const [panel, settings, navigation, route, compose] = await Promise.all([
+  const [panel, sections, settings, navigation, route, compose] = await Promise.all([
     fs.readFile(path.join(root, 'app/components/settings/UpdateCenterPanel.tsx'), 'utf8'),
+    fs.readFile(path.join(root, 'app/components/settings/UpdateCenterSections.tsx'), 'utf8'),
     fs.readFile(path.join(root, 'app/components/settings/IntegrationsSettingsClient.tsx'), 'utf8'),
     fs.readFile(path.join(root, 'app/components/settings/SettingsNavigation.tsx'), 'utf8'),
     fs.readFile(path.join(root, 'app/api/admin/system-updates/route.ts'), 'utf8'),
@@ -22,8 +23,13 @@ async function main(): Promise<void> {
   assert.match(panel, /text\/event-stream/u);
   assert.match(panel, /Authorization: `Bearer \$\{statusAccess\.ticket\}`/u);
   assert.match(panel, /fetch\('\/api\/health'/u);
-  assert.match(panel, /availability && availability\.mode !== 'manual'/u);
-  assert.doesNotMatch(panel, /targetImageRef/u, 'the update UI must not accept or display arbitrary image references');
+  assert.match(panel, /<UpdateAvailabilityCard/u);
+  assert.match(panel, /<UpdateOperationCard/u);
+  assert.match(sections, /availability\.mode === 'manual'/u);
+  assert.match(sections, /function UpdateDetailsDisclosure/u);
+  assert.match(sections, /const \[open, setOpen\] = useState\(false\)/u, 'technical details must be collapsed by default');
+  assert.match(sections, /SYSTEM_UPDATE_USER_PHASE_ORDER\.map/u, 'the main progress view must use user-facing phases');
+  assert.doesNotMatch(`${panel}\n${sections}`, /targetImageRef/u, 'the update UI must not accept or display arbitrary image references');
   assert.match(compose, /canvas-notebook-updater\.sock:\/run\/canvas-notebook-updater\.sock/u);
   assert.doesNotMatch(compose, /docker\.sock/u, 'the application container must not receive the Docker socket');
   assert.match(compose, /CANVAS_DEPLOYMENT_PLATFORM: canvas-installer/u);

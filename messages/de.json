@@ -2860,19 +2860,40 @@
         "managed": "Verwaltete Updates",
         "manual": "Über Plattform verwaltet"
       },
+      "channels": {
+        "stable": "Stabil",
+        "beta": "Beta"
+      },
+      "details": {
+        "title": "Technische Details",
+        "show": "Anzeigen",
+        "hide": "Ausblenden",
+        "mode": "Update-Verwaltung",
+        "channel": "Release-Kanal",
+        "errorCode": "Fehlercode",
+        "message": "Host-Meldung"
+      },
       "ready": {
         "title": "Ein Update ist bereit",
         "description": "Canvas kann dieses Release herunterladen, prüfen und für dich installieren.",
         "badge": "Update verfügbar",
+        "versionChange": "Versionswechsel",
         "backupRequired": "Vor dem Austausch des Dienstes ist ein erfolgreich geprüftes Backup erforderlich.",
-        "backupIncluded": "Canvas prüft Release und Installation, bevor der Dienst ausgetauscht wird."
+        "backupIncluded": "Canvas prüft Release und Installation, bevor der Dienst ausgetauscht wird.",
+        "actionHint": "Canvas übernimmt Download, Installation, Neustart und Prüfung."
       },
       "upToDate": {
         "title": "Canvas ist aktuell",
         "description": "Im stabilen Kanal ist kein neueres Release verfügbar."
       },
+      "unavailable": {
+        "title": "Update-Stand kann nicht bestätigt werden",
+        "description": "Canvas konnte derzeit nicht zuverlässig feststellen, ob ein neueres Release verfügbar ist."
+      },
       "manual": {
-        "title": "Update über deine Deployment-Plattform",
+        "title": "Update außerhalb von Canvas",
+        "userDescription": "Diese Installation wird von einem externen System aktualisiert. Wenn du dieses System nicht verwaltest, wende dich an deine Administration.",
+        "adminInstructions": "Anleitung für Administratoren",
         "descriptions": {
           "canvas-installer": "Diese Installation wird vom Canvas-Host-Installer gepflegt.",
           "docker-compose": "Diese Installation folgt dem in Docker Compose konfigurierten Image.",
@@ -2904,6 +2925,7 @@
       "confirm": {
         "title": "Canvas {version} installieren?",
         "description": "Canvas ist kurzzeitig nicht erreichbar, während der Dienst ausgetauscht wird. Lass diese Seite geöffnet; sie verbindet sich automatisch neu.",
+        "versionChange": "Geplanter Versionswechsel",
         "backup": "Der Updater prüft das signierte Release, die Konfiguration und die Datenbank und verifiziert danach die neue Version. Schlägt die Prüfung fehl, versucht er ein Rollback.",
         "backupRequired": "Dieses Release erfordert zusätzlich ein erfolgreiches Backup, bevor der Container ausgetauscht wird.",
         "action": "Installieren und neu starten"
@@ -2915,9 +2937,17 @@
       "operation": {
         "version": "Zielversion {version}",
         "progress": "Update-Fortschritt",
+        "phases": "Update-Phasen",
+        "succeededDescription": "Canvas {version} wurde erfolgreich installiert und geprüft.",
         "failedTitle": "Das Update wurde nicht abgeschlossen",
+        "nextStep": "Prüfe, ob Canvas erreichbar ist. Öffne die technischen Details nur, wenn du den Fehler selbst untersuchen oder an deine Administration weitergeben möchtest.",
+        "returnToOverview": "Zur Update-Übersicht",
         "rolledBackTitle": "Vorherige Version wiederhergestellt",
         "rolledBackDescription": "Canvas konnte das neue Release nicht verifizieren und hat die vorherige funktionierende Version wiederhergestellt.",
+        "problemDescriptions": {
+          "failed": "Canvas konnte das Update nicht sicher abschließen.",
+          "indeterminate": "Canvas kann den endgültigen Zustand dieses Updates derzeit nicht bestätigen."
+        },
         "status": {
           "queued": "Update eingeplant",
           "preflight": "Installation wird geprüft",
@@ -2928,6 +2958,49 @@
           "rolled_back": "Update zurückgerollt",
           "failed": "Update fehlgeschlagen",
           "indeterminate": "Update benötigt Aufmerksamkeit"
+        }
+      },
+      "readiness": {
+        "title": "Das Update kann noch nicht gestartet werden",
+        "actionHint": "Behebe zuerst den genannten Punkt und prüfe anschließend erneut.",
+        "action": "Noch nicht verfügbar",
+        "reasons": {
+          "currentVersionUnknown": "Die installierte Canvas-Version konnte nicht zuverlässig ermittelt werden.",
+          "hostCliVersionUnknown": "Der Host-Updater muss geprüft oder aktualisiert werden.",
+          "minimumVersionNotMet": "Vor diesem Release ist zunächst ein kompatibles Zwischenupdate erforderlich.",
+          "technicalReviewRequired": "Diese Installation benötigt vor dem Update eine technische Prüfung."
+        }
+      },
+      "phases": {
+        "preparing": {
+          "label": "Vorbereiten",
+          "title": "Installation wird vorbereitet",
+          "description": "Canvas prüft Release, Host, Konfiguration und Datenbank, bevor Änderungen vorgenommen werden."
+        },
+        "safeguarding": {
+          "label": "Sichern",
+          "title": "Daten werden gesichert",
+          "description": "Canvas erstellt und prüft die für dieses Update erforderliche Sicherung."
+        },
+        "installing": {
+          "label": "Installieren",
+          "title": "Update wird installiert",
+          "description": "Das geprüfte Release wird geladen und der Canvas-Dienst wird ersetzt."
+        },
+        "restarting": {
+          "label": "Neu starten",
+          "title": "Canvas wird neu gestartet und geprüft",
+          "description": "Die neue Version startet. Canvas verbindet diese Seite anschließend automatisch wieder."
+        },
+        "restoring": {
+          "label": "Wiederherstellen",
+          "title": "Vorherige Version wird wiederhergestellt",
+          "description": "Die neue Version konnte nicht sicher bestätigt werden. Canvas stellt die letzte funktionierende Version wieder her."
+        },
+        "completed": {
+          "label": "Abgeschlossen",
+          "title": "Update abgeschlossen",
+          "description": "Die neue Version wurde installiert und erfolgreich geprüft."
         }
       },
       "stages": {

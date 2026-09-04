@@ -2861,19 +2861,40 @@
         "managed": "Managed updates",
         "manual": "Platform-managed"
       },
+      "channels": {
+        "stable": "Stable",
+        "beta": "Beta"
+      },
+      "details": {
+        "title": "Technical details",
+        "show": "Show",
+        "hide": "Hide",
+        "mode": "Update management",
+        "channel": "Release channel",
+        "errorCode": "Error code",
+        "message": "Host message"
+      },
       "ready": {
         "title": "An update is ready",
         "description": "Canvas can download, verify, and install this release for you.",
         "badge": "Update available",
+        "versionChange": "Version change",
         "backupRequired": "A verified backup is required before the service is replaced.",
-        "backupIncluded": "Canvas verifies the release and checks the installation before replacing the service."
+        "backupIncluded": "Canvas verifies the release and checks the installation before replacing the service.",
+        "actionHint": "Canvas handles the download, installation, restart, and verification."
       },
       "upToDate": {
         "title": "Canvas is up to date",
         "description": "No newer release is available on the stable channel."
       },
+      "unavailable": {
+        "title": "Update status cannot be confirmed",
+        "description": "Canvas could not reliably determine whether a newer release is currently available."
+      },
       "manual": {
-        "title": "Update from your deployment platform",
+        "title": "Update outside Canvas",
+        "userDescription": "This installation is updated by an external system. If you do not manage that system, contact your administrator.",
+        "adminInstructions": "Instructions for administrators",
         "descriptions": {
           "canvas-installer": "This installation is maintained by the Canvas host installer.",
           "docker-compose": "This installation follows the image configured in Docker Compose.",
@@ -2905,6 +2926,7 @@
       "confirm": {
         "title": "Install Canvas {version}?",
         "description": "Canvas will be unavailable briefly while the service is replaced. Keep this page open; it reconnects automatically.",
+        "versionChange": "Planned version change",
         "backup": "The updater verifies the signed release, checks configuration and database readiness, then verifies the new version. If verification fails, it attempts a rollback.",
         "backupRequired": "This release additionally requires a successful backup before the container is replaced.",
         "action": "Install and restart"
@@ -2916,9 +2938,17 @@
       "operation": {
         "version": "Target version {version}",
         "progress": "Update progress",
+        "phases": "Update phases",
+        "succeededDescription": "Canvas {version} was installed and verified successfully.",
         "failedTitle": "The update did not complete",
+        "nextStep": "Check whether Canvas is reachable. Open the technical details only if you want to investigate the issue or share it with your administrator.",
+        "returnToOverview": "Return to update overview",
         "rolledBackTitle": "Previous version restored",
         "rolledBackDescription": "Canvas could not verify the new release and restored the previous working version.",
+        "problemDescriptions": {
+          "failed": "Canvas could not complete the update safely.",
+          "indeterminate": "Canvas cannot currently confirm the final state of this update."
+        },
         "status": {
           "queued": "Update queued",
           "preflight": "Checking installation",
@@ -2929,6 +2959,49 @@
           "rolled_back": "Update rolled back",
           "failed": "Update failed",
           "indeterminate": "Update needs attention"
+        }
+      },
+      "readiness": {
+        "title": "The update cannot start yet",
+        "actionHint": "Resolve the listed issue first, then check again.",
+        "action": "Not available yet",
+        "reasons": {
+          "currentVersionUnknown": "The installed Canvas version could not be determined reliably.",
+          "hostCliVersionUnknown": "The host updater needs to be checked or updated.",
+          "minimumVersionNotMet": "A compatible intermediate update is required before this release.",
+          "technicalReviewRequired": "This installation needs a technical review before it can be updated."
+        }
+      },
+      "phases": {
+        "preparing": {
+          "label": "Prepare",
+          "title": "Preparing the installation",
+          "description": "Canvas checks the release, host, configuration, and database before making changes."
+        },
+        "safeguarding": {
+          "label": "Protect data",
+          "title": "Protecting your data",
+          "description": "Canvas creates and verifies the backup required for this update."
+        },
+        "installing": {
+          "label": "Install",
+          "title": "Installing the update",
+          "description": "The verified release is downloaded and the Canvas service is replaced."
+        },
+        "restarting": {
+          "label": "Restart",
+          "title": "Restarting and checking Canvas",
+          "description": "The new version is starting. Canvas reconnects this page automatically afterward."
+        },
+        "restoring": {
+          "label": "Restore",
+          "title": "Restoring the previous version",
+          "description": "The new version could not be confirmed safely. Canvas is restoring the last working version."
+        },
+        "completed": {
+          "label": "Complete",
+          "title": "Update complete",
+          "description": "The new version was installed and verified successfully."
         }
       },
       "stages": {
