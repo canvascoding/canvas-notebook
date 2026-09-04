@@ -241,7 +241,7 @@
     "test:composio:user-scope": "tsx scripts/composio-user-scope-test.ts",
     "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",
     "test:auth:seat-limit": "tsx --conditions react-server scripts/auth-seat-limit-test.ts",
-    "test:mobile:compatibility": "tsx --conditions react-server scripts/mobile-compatibility-test.ts && tsx --conditions react-server scripts/mobile-compatibility-route-test.ts && tsx --conditions react-server scripts/mobile-app-promotion-test.ts && tsx scripts/mobile-setup-link-test.ts && tsx scripts/mobile-setup-card-ui-test.tsx",
+    "test:mobile:compatibility": "tsx --conditions react-server scripts/mobile-compatibility-test.ts && tsx --conditions react-server scripts/mobile-compatibility-route-test.ts && tsx --conditions react-server scripts/mobile-app-promotion-test.ts && tsx --conditions react-server scripts/mobile-app-promotion-postgres-test.ts && tsx scripts/mobile-setup-link-test.ts && tsx scripts/mobile-setup-card-ui-test.tsx",
     "test:mobile:bootstrap": "tsx --conditions react-server scripts/mobile-bootstrap-test.ts && tsx --conditions react-server scripts/mobile-bootstrap-route-test.ts",
     "test:mobile:account": "tsx --conditions react-server scripts/mobile-account-preferences-test.ts && tsx --conditions react-server scripts/mobile-account-profile-test.ts",
     "test:mobile:brand": "tsx --conditions react-server scripts/mobile-workspace-brand-route-test.ts",
