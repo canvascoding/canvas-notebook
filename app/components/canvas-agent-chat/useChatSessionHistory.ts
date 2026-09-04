@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { useTranslations } from 'next-intl';
 import type { ChatHistoryPanelLabels } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
-import { fetchChatSessions, patchChatSessions } from '@/app/lib/chat/session-api';
+import { fetchChatSessions, patchChatSessions, searchChatSessions } from '@/app/lib/chat/session-api';
 import { updateCachedChatSessionTitle } from '@/app/lib/chat/session-cache';
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
@@ -24,6 +24,7 @@ import type {
   ChatHistoryAgentOption,
   ChatHistoryGroup,
   ChatHistoryGroups,
+  ChatHistorySearchResult,
 } from '@/app/lib/chat/types';
 
 type ChatTranslator = ReturnType<typeof useTranslations<'chat'>>;
@@ -95,6 +96,8 @@ export function useChatSessionHistory({
   const [historySearchQuery, setHistorySearchQuery] = useState('');
   const [historyUnreadOnly, setHistoryUnreadOnly] = useState(false);
   const [historyAgentFilter, setHistoryAgentFilter] = useState('all');
+  const [historySearchResults, setHistorySearchResults] = useState<ChatHistorySearchResult[]>([]);
+  const [resolvedHistorySearchKey, setResolvedHistorySearchKey] = useState('');
   const [historySidebarWidth, setHistorySidebarWidth] = useState(getStoredHistorySidebarWidth);
   const [latestSession, setLatestSession] = useState<AISession | null>(null);
   const [totalUnreadCount, setTotalUnreadCount] = useState(0);
@@ -187,6 +190,8 @@ export function useChatSessionHistory({
     setHistory([]);
     setLatestSession(null);
     setTotalUnreadCount(0);
+    setHistorySearchResults([]);
+    setResolvedHistorySearchKey('');
   }, []);
 
   useEffect(() => {
@@ -415,6 +420,57 @@ export function useChatSessionHistory({
     });
   }, [availableAgents, history]);
 
+  const normalizedHistorySearchQuery = historySearchQuery.replace(/\s+/g, ' ').trim();
+  const historySearchKey = JSON.stringify([
+    normalizedHistorySearchQuery,
+    historyAgentFilter,
+    activeWorkspaceId ?? null,
+    historyUnreadOnly,
+  ]);
+  const isSearchingHistory = normalizedHistorySearchQuery.length >= 2
+    && resolvedHistorySearchKey !== historySearchKey;
+
+  useEffect(() => {
+    const query = normalizedHistorySearchQuery;
+
+    if (query.length < 2) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      void searchChatSessions({
+        query,
+        agentId: historyAgentFilter,
+        workspaceId: activeWorkspaceId,
+        unreadOnly: historyUnreadOnly,
+        signal: controller.signal,
+      })
+        .then((results) => {
+          if (controller.signal.aborted) return;
+          setHistorySearchResults(results);
+          setResolvedHistorySearchKey(historySearchKey);
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          console.error('Failed to search chat history', error);
+          setResolvedHistorySearchKey(historySearchKey);
+        });
+    }, 275);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [activeWorkspaceId, historyAgentFilter, historySearchKey, historyUnreadOnly, normalizedHistorySearchQuery]);
+
+  const historySearchMatchesBySessionId = useMemo(() => {
+    if (historySearchKey !== resolvedHistorySearchKey) {
+      return new Map<string, ChatHistorySearchResult['match']>();
+    }
+    return new Map(historySearchResults.map((result) => [result.session.sessionId, result.match]));
+  }, [historySearchKey, historySearchResults, resolvedHistorySearchKey]);
+
   const filteredHistory = useMemo<ChatHistoryGroups>(() => {
     let filtered = [...history];
 
@@ -426,17 +482,40 @@ export function useChatSessionHistory({
       filtered = filtered.filter((candidate) => (candidate.agentId || CHAT_AGENT_ID) === historyAgentFilter);
     }
 
-    const trimmedQuery = historySearchQuery.trim();
+    const trimmedQuery = historySearchQuery.replace(/\s+/g, ' ').trim();
     if (trimmedQuery) {
       const query = trimmedQuery.toLowerCase();
-      filtered = filtered.filter((candidate) =>
+      const localMetadataMatches = filtered.filter((candidate) =>
         candidate.title?.toLowerCase().includes(query) ||
         candidate.sessionId.toLowerCase().includes(query) ||
         (agentProfilesById.get(candidate.agentId || CHAT_AGENT_ID)?.name || getAgentDisplayName(candidate.agentId)).toLowerCase().includes(query)
       );
+
+      if (historySearchKey === resolvedHistorySearchKey) {
+        const matchesFilter = (candidate: AISession) => (
+          (!historyUnreadOnly || candidate.hasUnread)
+          && (historyAgentFilter === 'all' || (candidate.agentId || CHAT_AGENT_ID) === historyAgentFilter)
+        );
+        const titleResults = historySearchResults
+          .filter((result) => result.match.kind === 'title' && matchesFilter(result.session))
+          .map((result) => result.session);
+        const contentResults = historySearchResults
+          .filter((result) => result.match.kind === 'content' && matchesFilter(result.session))
+          .map((result) => result.session);
+        const seen = new Set<string>();
+        filtered = [...titleResults, ...localMetadataMatches, ...contentResults].filter((candidate) => {
+          if (seen.has(candidate.sessionId)) return false;
+          seen.add(candidate.sessionId);
+          return true;
+        });
+      } else {
+        filtered = localMetadataMatches;
+      }
     }
 
     const grouped: ChatHistoryGroups = {
+      searchTitle: [],
+      searchContent: [],
       today: [],
       last7: [],
       last14: [],
@@ -444,15 +523,34 @@ export function useChatSessionHistory({
       older: [],
     };
 
-    sortSessionsByRecentActivity(filtered).forEach((session) => {
-      const group = getSessionTimeGroup(session.createdAt);
-      grouped[group].push(session);
-    });
+    if (trimmedQuery) {
+      filtered.forEach((session) => {
+        const match = historySearchMatchesBySessionId.get(session.sessionId);
+        grouped[match?.kind === 'content' ? 'searchContent' : 'searchTitle'].push(session);
+      });
+    } else {
+      sortSessionsByRecentActivity(filtered).forEach((session) => {
+        const group = getSessionTimeGroup(session.createdAt);
+        grouped[group].push(session);
+      });
+    }
 
     return grouped;
-  }, [agentProfilesById, history, historyAgentFilter, historySearchQuery, historyUnreadOnly]);
+  }, [
+    agentProfilesById,
+    history,
+    historyAgentFilter,
+    historySearchMatchesBySessionId,
+    historySearchQuery,
+    historySearchResults,
+    historyUnreadOnly,
+    historySearchKey,
+    resolvedHistorySearchKey,
+  ]);
 
   const historyGroupLabels = useMemo<Record<ChatHistoryGroup, string>>(() => ({
+    searchTitle: t('groupTitleMatches'),
+    searchContent: t('groupContentMatches'),
     today: t('groupToday'),
     last7: t('groupLast7Days'),
     last14: t('groupLast14Days'),
@@ -463,6 +561,8 @@ export function useChatSessionHistory({
   const historyPanelLabels = useMemo<ChatHistoryPanelLabels>(() => ({
     chatHistory: t('chatHistory'),
     searchSessions: t('searchSessions'),
+    searchingSessions: t('searchingSessions'),
+    matchInChat: t('matchInChat'),
     filterAllAgents: t('filterAllAgents'),
     filterUnreadOnly: t('filterUnreadOnly'),
     filterAllSessions: t('filterAllSessions'),
@@ -491,9 +591,11 @@ export function useChatSessionHistory({
     historyPanelLabels,
     historyRef,
     historySearchQuery,
+    historySearchMatchesBySessionId,
     historySidebarWidth,
     historyUnreadOnly,
     isLoadingHistory,
+    isSearchingHistory,
     latestSession,
     loadSessionList,
     markAllAsRead,

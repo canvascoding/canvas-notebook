@@ -7,7 +7,9 @@ import {
   Eye,
   EyeOff,
   History,
+  Loader2,
   Mail,
+  MessageSquareText,
   MoreHorizontal,
   Pencil,
   Search,
@@ -25,11 +27,20 @@ import type {
   ChatHistoryGroup,
   ChatHistoryGroups,
   ChatHistoryPanelVariant,
+  ChatHistorySearchMatch,
 } from '@/app/lib/chat/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
-const CHAT_HISTORY_GROUP_ORDER: ChatHistoryGroup[] = ['today', 'last7', 'last14', 'last30', 'older'];
+const CHAT_HISTORY_GROUP_ORDER: ChatHistoryGroup[] = [
+  'searchTitle',
+  'searchContent',
+  'today',
+  'last7',
+  'last14',
+  'last30',
+  'older',
+];
 
 type ChatHistorySessionRowProps = {
   session: AISession;
@@ -42,6 +53,8 @@ type ChatHistorySessionRowProps = {
   renameSessionLabel: string;
   markAsUnreadLabel: string;
   deleteSessionLabel: string;
+  matchInChatLabel: string;
+  searchMatch?: ChatHistorySearchMatch;
   onLoadSession: (session: AISession) => void | Promise<void>;
   onRenameSession: (session: AISession) => void | Promise<void>;
   onMarkSessionAsUnread: (session: AISession) => void | Promise<void>;
@@ -72,6 +85,8 @@ function ChatHistorySessionRow({
   renameSessionLabel,
   markAsUnreadLabel,
   deleteSessionLabel,
+  matchInChatLabel,
+  searchMatch,
   onLoadSession,
   onRenameSession,
   onMarkSessionAsUnread,
@@ -143,6 +158,15 @@ function ChatHistorySessionRow({
               <span className="min-w-0 max-w-[9rem] truncate">{agentName}</span>
             </span>
           </div>
+          {searchMatch?.kind === 'content' && searchMatch.snippet ? (
+            <div className="mt-2 flex min-w-0 gap-1.5 rounded-md border border-primary/15 bg-primary/[0.04] px-2 py-1.5 text-[11px] leading-4 text-muted-foreground">
+              <MessageSquareText aria-hidden="true" className="mt-0.5 h-3 w-3 shrink-0 text-primary/70" />
+              <p className="min-w-0 line-clamp-2">
+                <span className="mr-1 font-semibold text-foreground/75">{matchInChatLabel}</span>
+                {searchMatch.snippet}
+              </p>
+            </div>
+          ) : null}
         </div>
       </button>
       <Popover open={actionsOpen} onOpenChange={setActionsOpen}>
@@ -201,6 +225,8 @@ function ChatHistorySessionRow({
 export type ChatHistoryPanelLabels = {
   chatHistory: string;
   searchSessions: string;
+  searchingSessions: string;
+  matchInChat: string;
   filterAllAgents: string;
   filterUnreadOnly: string;
   filterAllSessions: string;
@@ -223,6 +249,8 @@ export type ChatHistoryPanelProps = {
   history: AISession[];
   filteredHistory: ChatHistoryGroups;
   historySearchQuery: string;
+  historySearchMatchesBySessionId: Map<string, ChatHistorySearchMatch>;
+  isSearchingHistory: boolean;
   historyUnreadOnly: boolean;
   historyAgentFilter: string;
   historyAgentOptions: ChatHistoryAgentOption[];
@@ -249,6 +277,8 @@ export function ChatHistoryPanel({
   history,
   filteredHistory,
   historySearchQuery,
+  historySearchMatchesBySessionId,
+  isSearchingHistory,
   historyUnreadOnly,
   historyAgentFilter,
   historyAgentOptions,
@@ -309,12 +339,22 @@ export function ChatHistoryPanel({
             value={historySearchQuery}
             onChange={(event) => onSearchQueryChange(event.target.value)}
             placeholder={labels.searchSessions}
+            aria-busy={isSearchingHistory}
             className="h-10 w-full rounded-md border border-border bg-background px-3 pl-9 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
           />
-          <Search
-            size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
+          {isSearchingHistory ? (
+            <Loader2
+              aria-label={labels.searchingSessions}
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 animate-spin text-primary"
+            />
+          ) : (
+            <Search
+              aria-hidden="true"
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+          )}
         </div>
 
         <div className="flex gap-1.5 overflow-x-auto pb-1">
@@ -411,6 +451,8 @@ export function ChatHistoryPanel({
                     renameSessionLabel={labels.renameSession}
                     markAsUnreadLabel={labels.markAsUnread}
                     deleteSessionLabel={labels.deleteSession}
+                    matchInChatLabel={labels.matchInChat}
+                    searchMatch={historySearchMatchesBySessionId.get(session.sessionId)}
                     onLoadSession={onLoadSession}
                     onRenameSession={onRenameSession}
                     onMarkSessionAsUnread={onMarkSessionAsUnread}

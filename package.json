@@ -80,7 +80,7 @@
     "test:pi:workspace-tree": "tsx --conditions react-server scripts/workspace-file-tree-context-test.ts",
     "test:search": "tsx scripts/brave-search-service-test.ts",
     "test:pi:session-search": "tsx scripts/pi-session-search-tool-test.ts",
-    "test:chat:history-search": "tsx scripts/chat-history-search-test.ts && tsx scripts/chat-history-search-route-test.ts && npm run test:pi:session-search",
+    "test:chat:history-search": "tsx scripts/chat-history-search-test.ts && tsx scripts/chat-history-search-route-test.ts && tsx scripts/chat-history-search-ui-test.tsx && npm run test:pi:session-search",
     "test:pi:delegate-task": "tsx scripts/pi-delegate-task-tool-test.ts",
     "test:pi:delegate-task-runtime": "tsx --conditions react-server scripts/pi-delegate-task-runtime-test.ts",
     "test:pi:delegation-store": "tsx --conditions react-server scripts/pi-delegation-store-test.ts",
