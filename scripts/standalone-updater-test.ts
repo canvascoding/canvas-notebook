@@ -350,6 +350,110 @@ process.exit(2);
     }
   });
 
+  await withTempDirectory(async (directory) => {
+    const { resolver } = await signedReleaseFixture(directory);
+    let executionStarted: (() => void) | null = null;
+    const startedExecution = new Promise<void>((resolve) => { executionStarted = resolve; });
+    const updater = new StandaloneUpdater({
+      journal: new StandaloneUpdateJournal(path.join(directory, 'journal')),
+      releaseResolver: resolver,
+      currentVersion: async () => ({ appVersion: '2026.9.4', cliVersion: '2026.9.5' }),
+      prepareHostCli: async () => undefined,
+      executeUpdate: async (_operation, _onEvent, _release, signal) => {
+        executionStarted!();
+        await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+        return 143;
+      },
+    });
+    await updater.initialize();
+    const socketPath = path.join('/tmp', `canvas-updater-cancel-${process.pid}-${crypto.randomBytes(4).toString('hex')}.sock`);
+    const server = createStandaloneUpdaterHttpServer(updater);
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(socketPath, resolve);
+    });
+    try {
+      const started = await requestJson<{ operation: SystemUpdateOperation }>(socketPath, '/v1/updates', {
+        method: 'POST',
+        body: { channel: 'stable', expectedReleaseId: 'release-2026.9.5' },
+      });
+      await startedExecution;
+      const operationId = started.body.operation.operationId;
+      const canceled = await requestJson<{ operation: SystemUpdateOperation }>(
+        socketPath,
+        `/v1/operations/${operationId}/cancel`,
+        { method: 'POST' },
+      );
+      assert.equal(canceled.status, 200);
+      assert.equal(canceled.body.operation.status, 'failed');
+      assert.equal(canceled.body.operation.errorCode, 'operation_interrupted');
+      const repeated = await requestJson<{ operation: SystemUpdateOperation }>(
+        socketPath,
+        `/v1/operations/${operationId}/cancel`,
+        { method: 'POST' },
+      );
+      assert.equal(repeated.status, 200);
+      assert.equal(repeated.body.operation.completedAt, canceled.body.operation.completedAt);
+      for (let attempt = 0; attempt < 100 && updater.busy; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.equal(updater.busy, false);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await fs.rm(socketPath, { force: true });
+    }
+  });
+
+  await withTempDirectory(async (directory) => {
+    const { resolver } = await signedReleaseFixture(directory);
+    let applyStarted: (() => void) | null = null;
+    let finishExecution: (() => void) | null = null;
+    const startedApply = new Promise<void>((resolve) => { applyStarted = resolve; });
+    const executionGate = new Promise<void>((resolve) => { finishExecution = resolve; });
+    const updater = new StandaloneUpdater({
+      journal: new StandaloneUpdateJournal(path.join(directory, 'journal')),
+      releaseResolver: resolver,
+      currentVersion: async () => ({ appVersion: '2026.9.4', cliVersion: '2026.9.5' }),
+      prepareHostCli: async () => undefined,
+      executeUpdate: async (operation, onEvent) => {
+        await onEvent(event(operation.operationId, 1, 'image_pull', 'running'));
+        applyStarted!();
+        await executionGate;
+        await onEvent(event(operation.operationId, 2, 'completed', 'succeeded'));
+        return 0;
+      },
+    });
+    await updater.initialize();
+    const socketPath = path.join('/tmp', `canvas-updater-no-cancel-${process.pid}-${crypto.randomBytes(4).toString('hex')}.sock`);
+    const server = createStandaloneUpdaterHttpServer(updater);
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(socketPath, resolve);
+    });
+    try {
+      const started = await requestJson<{ operation: SystemUpdateOperation }>(socketPath, '/v1/updates', {
+        method: 'POST',
+        body: { channel: 'stable', expectedReleaseId: 'release-2026.9.5' },
+      });
+      await startedApply;
+      const blocked = await requestJson<{ error: { code: string } }>(
+        socketPath,
+        `/v1/operations/${started.body.operation.operationId}/cancel`,
+        { method: 'POST' },
+      );
+      assert.equal(blocked.status, 409);
+      assert.equal(blocked.body.error.code, 'operation_conflict');
+      finishExecution!();
+      for (let attempt = 0; attempt < 100 && updater.busy; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      assert.equal((await updater.getOperation(started.body.operation.operationId))?.status, 'succeeded');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await fs.rm(socketPath, { force: true });
+    }
+  });
+
   console.log('standalone-updater-test: ok');
 }
 

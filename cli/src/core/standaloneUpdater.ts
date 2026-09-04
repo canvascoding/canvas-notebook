@@ -67,6 +67,7 @@ export interface StandaloneUpdaterOptions {
     operation: SystemUpdateOperation,
     onEvent: (event: SystemUpdateEvent) => Promise<void>,
     release: VerifiedStandaloneRelease,
+    signal: AbortSignal,
   ) => Promise<number>;
   prepareHostCli?: (release: VerifiedStandaloneRelease, current: CurrentCanvasVersion) => Promise<void>;
   now?: () => Date;
@@ -181,6 +182,7 @@ async function executeCliUpdate(
   operation: SystemUpdateOperation,
   onEvent: (event: SystemUpdateEvent) => Promise<void>,
   release: VerifiedStandaloneRelease,
+  signal: AbortSignal,
 ): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = spawn(resolveCliPath(env), [
@@ -202,6 +204,9 @@ async function executeCliUpdate(
     });
     const stderr: Buffer[] = [];
     let stderrBytes = 0;
+    const abort = () => child.kill('SIGTERM');
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
     child.stderr.on('data', (chunk: Buffer) => {
       if (stderrBytes >= MAX_STDERR_BYTES) return;
       const value = Buffer.from(chunk).subarray(0, MAX_STDERR_BYTES - stderrBytes);
@@ -237,6 +242,7 @@ async function executeCliUpdate(
     });
     child.on('error', reject);
     child.on('close', (code) => {
+      signal.removeEventListener('abort', abort);
       processing.then(() => {
         if (protocolError) reject(protocolError);
         else if ((code ?? 1) !== 0 && stderrBytes > 0) {
@@ -301,6 +307,7 @@ export class StandaloneUpdater {
   private readonly now: () => Date;
   private readonly onBusyChange: (busy: boolean) => void;
   private activeOperationId: string | null = null;
+  private activeAbortController: AbortController | null = null;
   private reserving = false;
 
   constructor(options: StandaloneUpdaterOptions = {}) {
@@ -310,7 +317,7 @@ export class StandaloneUpdater {
     );
     this.releaseResolver = options.releaseResolver || new StandaloneReleaseResolver({ env: this.env });
     this.currentVersion = options.currentVersion || (() => readCurrentCanvasVersion(this.env));
-    this.executeUpdate = options.executeUpdate || ((operation, onEvent, release) => executeCliUpdate(this.env, operation, onEvent, release));
+    this.executeUpdate = options.executeUpdate || ((operation, onEvent, release, signal) => executeCliUpdate(this.env, operation, onEvent, release, signal));
     this.prepareHostCli = options.prepareHostCli || ((release, current) => prepareVerifiedHostCli(this.env, release, current));
     this.now = options.now || (() => new Date());
     this.onBusyChange = options.onBusyChange || (() => undefined);
@@ -389,8 +396,10 @@ export class StandaloneUpdater {
       });
       await this.journal.writeOperation(operation);
       this.activeOperationId = operation.operationId;
+      const abortController = new AbortController();
+      this.activeAbortController = abortController;
       this.reserving = false;
-      setImmediate(() => void this.runOperation(operation, release, current));
+      setImmediate(() => void this.runOperation(operation, release, current, abortController));
       return operation;
     } catch (error) {
       this.reserving = false;
@@ -402,6 +411,7 @@ export class StandaloneUpdater {
   private async recordEvent(operationId: string, event: SystemUpdateEvent): Promise<void> {
     const operation = await this.journal.readOperation(operationId);
     if (!operation) throw new Error('Active update operation disappeared from the journal.');
+    if (isTerminalSystemUpdateStatus(operation.status)) throw new Error('Update operation is already terminal.');
     if (event.sequence !== operation.lastSequence + 1) throw new Error('Canvas CLI update event sequence is not contiguous.');
     await this.journal.appendEvent(event);
     const rolledBack = operation.rolledBack || (event.stage === 'rollback' && event.status === 'succeeded');
@@ -425,10 +435,17 @@ export class StandaloneUpdater {
     initial: SystemUpdateOperation,
     release: VerifiedStandaloneRelease,
     current: CurrentCanvasVersion,
+    abortController: AbortController,
   ): Promise<void> {
     try {
       await this.prepareHostCli(release, current);
-      const exitCode = await this.executeUpdate!(initial, (event) => this.recordEvent(initial.operationId, event), release);
+      if (abortController.signal.aborted) throw new Error('Canvas Notebook update was canceled before the apply phase.');
+      const exitCode = await this.executeUpdate!(
+        initial,
+        (event) => this.recordEvent(initial.operationId, event),
+        release,
+        abortController.signal,
+      );
       const operation = await this.journal.readOperation(initial.operationId);
       if (operation && !isTerminalSystemUpdateStatus(operation.status)) {
         const completedAt = this.now().toISOString();
@@ -458,6 +475,7 @@ export class StandaloneUpdater {
       }
     } finally {
       this.activeOperationId = null;
+      if (this.activeAbortController === abortController) this.activeAbortController = null;
       await this.journal.rotate().catch(() => undefined);
       this.onBusyChange(false);
     }
@@ -469,6 +487,37 @@ export class StandaloneUpdater {
 
   async getEvents(operationId: string, afterSequence: number): Promise<SystemUpdateEvent[]> {
     return this.journal.readEvents(operationId, afterSequence);
+  }
+
+  async cancelUpdate(operationId: string): Promise<SystemUpdateOperation> {
+    const operation = await this.journal.readOperation(operationId);
+    if (!operation) throw new StandaloneUpdaterHttpError(404, 'operation_not_found', 'Update operation was not found.');
+    if (isTerminalSystemUpdateStatus(operation.status)) return operation;
+    if (this.activeOperationId !== operationId || !this.activeAbortController) {
+      throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Update operation cannot be canceled from this updater process.');
+    }
+    if ([
+      'image_pull',
+      'container_recreate',
+      'health_verification',
+      'version_verification',
+      'rollback',
+      'completed',
+    ].includes(operation.stage)) {
+      throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Update can no longer be canceled after the apply phase has started.');
+    }
+    const completedAt = this.now().toISOString();
+    const canceled: SystemUpdateOperation = {
+      ...operation,
+      status: 'failed',
+      updatedAt: completedAt,
+      completedAt,
+      errorCode: 'operation_interrupted',
+      error: 'Canvas Notebook update was canceled before the apply phase.',
+    };
+    await this.journal.writeOperation(canceled);
+    this.activeAbortController.abort();
+    return canceled;
   }
 }
 
@@ -535,6 +584,14 @@ async function handleRequest(
       if (!statusTickets) throw new StandaloneUpdaterHttpError(503, 'status_unavailable', 'Downtime-safe update status is unavailable.');
       if (!await updater.getOperation(operationId)) throw new StandaloneUpdaterHttpError(404, 'operation_not_found', 'Update operation was not found.');
       sendJson(response, 201, statusTickets.issue(operationId));
+      return;
+    }
+    const cancelMatch = /^\/v1\/operations\/([0-9a-f-]+)\/cancel$/iu.exec(url.pathname);
+    if (request.method === 'POST' && cancelMatch) {
+      const operationId = cancelMatch[1];
+      if (!UUID_PATTERN.test(operationId)) throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Update operation ID is invalid.');
+      if ([...url.searchParams.keys()].length > 0) throw new StandaloneUpdaterHttpError(400, 'request_invalid', 'Cancel request contains unsupported parameters.');
+      sendJson(response, 200, { operation: await updater.cancelUpdate(operationId) });
       return;
     }
     const match = /^\/v1\/operations\/([0-9a-f-]+)(\/events)?$/iu.exec(url.pathname);
