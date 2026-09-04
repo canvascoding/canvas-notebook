@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import type { SystemUpdateEvent, SystemUpdateOperation } from '../cli/src/core/systemUpdateContract';
 import { ManualSystemUpdateBackend } from '../app/lib/system-updates/manual-backend';
+import { ManagedSystemUpdateBackend } from '../app/lib/system-updates/managed-backend';
 import { StandaloneSystemUpdateBackend } from '../app/lib/system-updates/standalone-backend';
 
 const operationId = crypto.randomUUID();
@@ -131,6 +132,90 @@ async function main(): Promise<void> {
   assert.equal(manualAvailability.platform, 'coolify');
   assert.equal(manualAvailability.updateAvailable, null);
   await assert.rejects(() => coolify.startUpdate({ channel: 'stable' }), /deployment platform/u);
+
+  const managedOperation = Object.fromEntries(
+    Object.entries(operation).filter(([key]) => key !== 'targetImageRef'),
+  );
+  const managedToken = 'managed-instance-token';
+  const managedRequests: Array<{ authorization?: string; method?: string; url?: string; body?: string }> = [];
+  const managedServer = http.createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+    request.on('end', () => {
+      managedRequests.push({
+        authorization: request.headers.authorization,
+        method: request.method,
+        url: request.url,
+        body: Buffer.concat(chunks).toString('utf8'),
+      });
+      if (request.method === 'GET' && request.url === '/v1/managed-system-updates/availability?channel=stable') {
+        sendJson(response, 200, {
+          contractVersion: 1,
+          mode: 'managed',
+          platform: 'canvas-installer',
+          channel: 'stable',
+          currentVersion: '2026.9.4.2',
+          updateAvailable: true,
+          ready: true,
+          reasons: [],
+          release: {
+            releaseId: crypto.randomUUID(),
+            version: '2026.9.5',
+            publishedAt: now,
+            backupRequired: false,
+            releaseNotesUrl: 'https://example.com/releases/2026.9.5',
+          },
+          instructions: [],
+        });
+        return;
+      }
+      if (request.method === 'POST' && request.url === '/v1/managed-system-updates') {
+        sendJson(response, 202, { operation: managedOperation });
+        return;
+      }
+      if (request.method === 'GET' && request.url === `/v1/managed-system-updates/${operationId}`) {
+        sendJson(response, 200, { operation: managedOperation });
+        return;
+      }
+      if (request.method === 'GET' && request.url === `/v1/managed-system-updates/${operationId}/events?after=0`) {
+        sendJson(response, 200, { operation: managedOperation, events: [updateEvent] });
+        return;
+      }
+      sendJson(response, 404, { error: 'Not found.', code: 'not_found' });
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    managedServer.once('error', reject);
+    managedServer.listen(0, '127.0.0.1', resolve);
+  });
+  const address = managedServer.address();
+  assert.ok(address && typeof address === 'object');
+  const previousControlPlaneUrl = process.env.CANVAS_CONTROL_PLANE_URL;
+  process.env.CANVAS_CONTROL_PLANE_URL = `http://127.0.0.1:${address.port}`;
+  try {
+    const backend = new ManagedSystemUpdateBackend({
+      ...process.env,
+      CANVAS_INSTANCE_TOKEN: managedToken,
+    });
+    const availability = await backend.getAvailability('stable');
+    assert.equal(availability.mode, 'managed');
+    assert.equal(availability.ready, true);
+    const releaseId = availability.release?.releaseId;
+    assert.ok(releaseId);
+    const started = await backend.startUpdate({ channel: 'stable', expectedReleaseId: releaseId });
+    assert.equal(started.operationId, operationId);
+    assert.equal('targetImageRef' in started, false);
+    assert.equal((await backend.getOperation(operationId)).stage, 'image_pull');
+    assert.equal((await backend.getEvents(operationId, 0)).events.length, 1);
+    assert.equal(await backend.createStatusAccess(operationId), null);
+    assert.ok(managedRequests.every((request) => request.authorization === `Bearer ${managedToken}`));
+    const startRequest = managedRequests.find((request) => request.method === 'POST');
+    assert.deepEqual(JSON.parse(startRequest?.body || '{}'), { channel: 'stable', expectedReleaseId: releaseId });
+  } finally {
+    if (previousControlPlaneUrl === undefined) delete process.env.CANVAS_CONTROL_PLANE_URL;
+    else process.env.CANVAS_CONTROL_PLANE_URL = previousControlPlaneUrl;
+    await new Promise<void>((resolve) => managedServer.close(() => resolve()));
+  }
 
   console.log('system update backend test passed');
 }

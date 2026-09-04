@@ -4,6 +4,7 @@ import type {
   SystemUpdateReleaseChannel,
   SystemUpdateStage,
 } from '@/cli/src/core/systemUpdateContract';
+import { validateSystemUpdateOperation } from '@/cli/src/core/systemUpdateContract';
 
 export type SystemUpdateMode = 'standalone' | 'managed' | 'manual';
 export type SystemUpdatePlatform = 'canvas-installer' | 'docker-compose' | 'coolify' | 'unknown';
@@ -70,6 +71,15 @@ export class SystemUpdateBackendError extends Error {
 export function withoutSensitiveOperationFields(operation: SystemUpdateOperation): SystemUpdateOperationView {
   const { targetImageRef: _targetImageRef, ...safeOperation } = operation;
   return safeOperation;
+}
+
+export function validateSystemUpdateOperationView(value: unknown): SystemUpdateOperationView | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value) || 'targetImageRef' in value) return null;
+  const validation = validateSystemUpdateOperation({
+    ...value,
+    targetImageRef: `ghcr.io/canvascoding/contract-redacted@sha256:${'0'.repeat(64)}`,
+  });
+  return validation.ok ? withoutSensitiveOperationFields(validation.value) : null;
 }
 
 export const SYSTEM_UPDATE_STAGE_ORDER: readonly SystemUpdateStage[] = [

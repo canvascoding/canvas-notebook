@@ -410,7 +410,7 @@ export function UpdateCenterPanel() {
         </Card>
       )}
 
-      {availability?.mode === 'standalone' && !active && !operation && (
+      {availability && availability.mode !== 'manual' && !active && !operation && (
         <Card>
           <CardHeader>
             <div className="flex items-start justify-between gap-4">
