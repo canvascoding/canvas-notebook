@@ -133,6 +133,7 @@ const SECRET_PATTERNS = [
   /\bsk-[A-Za-z0-9_-]{20,}\b/,
   /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/,
 ];
+const EMPTY_COLLECTION_CLEANUP_GRACE_MS = 60 * 60 * 1000;
 
 /**
  * Proves that an agent-memory owner is either currently usable by the user or
@@ -1216,12 +1217,13 @@ export async function scheduleMemoryReviewForSession(params: {
     const parkingError = automaticMemoryDisabled
       ? 'automatic_memory_disabled'
       : runtimeConfigured ? null : 'model_not_configured';
-    const completed = await connection.get(`
+    const terminal = await connection.get(`
       SELECT COALESCE(MAX(through_message_sequence), 0) AS sequence
       FROM memory_review_jobs
-      WHERE user_id = ? AND session_id = ? AND status = 'completed'
-    `, [params.userId, params.sessionId]) as { sequence?: number } | undefined;
-    const fromMessageSequence = Number(completed?.sequence ?? 0) + 1;
+      WHERE user_id = ? AND session_id = ?
+        AND (status IN ('completed', 'failed') OR attempts >= ?)
+    `, [params.userId, params.sessionId, MEMORY_REVIEW_MAX_ATTEMPTS]) as { sequence?: number } | undefined;
+    const fromMessageSequence = Number(terminal?.sequence ?? 0) + 1;
     const delta = await connection.get(`
       SELECT COUNT(*) AS user_turn_count, MAX(sequence) AS through_message_sequence
       FROM pi_messages
@@ -1322,6 +1324,71 @@ export async function scheduleMemoryReviewForSession(params: {
   } finally { await connection.close(); }
 }
 
+/**
+ * Repairs the narrow completion-to-successor scheduling window after a crash.
+ * It scans only sessions with a completed assistant reply after an unreviewed
+ * user turn and never invokes a model itself.
+ */
+export async function scheduleUnreviewedMemorySessions(
+  now = Date.now(),
+  limit = 100,
+): Promise<{ scanned: number; scheduled: number }> {
+  const boundedLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+  const connection = await openDb();
+  try {
+    const rows = await connection.all(`
+      SELECT session.user_id, session.session_id
+      FROM pi_sessions session
+      WHERE session.organization_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_review_jobs active_job
+          WHERE active_job.user_id = session.user_id
+            AND active_job.session_id = session.session_id
+            AND active_job.status IN ('scheduled', 'awaiting_model_configuration', 'queued', 'retry_wait', 'running')
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM pi_messages user_message
+          WHERE user_message.pi_session_db_id = session.id
+            AND user_message.role = 'user'
+            AND user_message.sequence > COALESCE((
+              SELECT MAX(terminal_job.through_message_sequence)
+              FROM memory_review_jobs terminal_job
+              WHERE terminal_job.user_id = session.user_id
+                AND terminal_job.session_id = session.session_id
+                AND (terminal_job.status IN ('completed', 'failed') OR terminal_job.attempts >= ?)
+            ), 0)
+            AND EXISTS (
+              SELECT 1 FROM pi_messages assistant_message
+              WHERE assistant_message.pi_session_db_id = session.id
+                AND assistant_message.role = 'assistant'
+                AND assistant_message.sequence > user_message.sequence
+            )
+        )
+      ORDER BY session.updated_at DESC, session.id DESC
+      LIMIT ?
+    `, [MEMORY_REVIEW_MAX_ATTEMPTS, boundedLimit]) as Array<{ user_id: string; session_id: string }>;
+    let scheduled = 0;
+    for (const row of rows) {
+      const result = await scheduleMemoryReviewForSession({
+        userId: row.user_id,
+        sessionId: row.session_id,
+        now,
+      });
+      if (result?.scheduled) scheduled += 1;
+    }
+    if (rows.length > 0) {
+      console.info('[MemoryManager] Unreviewed sessions reconciled.', {
+        scanned: rows.length,
+        scheduled,
+      });
+    }
+    return { scanned: rows.length, scheduled };
+  } finally {
+    await connection.close();
+  }
+}
+
 export type MemoryReviewJobClaim = {
   id: string;
   userId: string;
@@ -1364,6 +1431,36 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
         count: Number(recovered.changes ?? 0),
       });
     }
+    const disabled = await connection.run(`
+      UPDATE memory_review_jobs AS job
+      SET status = 'awaiting_model_configuration', scheduled_for = NULL,
+        lease_until = NULL, error_code = 'automatic_memory_disabled'
+      WHERE job.status IN ('scheduled', 'retry_wait')
+        AND EXISTS (
+          SELECT 1 FROM memory_user_settings user_settings
+          WHERE user_settings.user_id = job.user_id
+            AND user_settings.automatic_memory_enabled = 0
+        )
+    `) as { changes?: number };
+    const unconfigured = await connection.run(`
+      UPDATE memory_review_jobs AS job
+      SET status = 'awaiting_model_configuration', scheduled_for = NULL,
+        lease_until = NULL, error_code = 'model_not_configured'
+      WHERE job.status IN ('scheduled', 'retry_wait')
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_review_runtime_settings runtime
+          WHERE runtime.organization_id = job.organization_id
+            AND runtime.provider_installation_id IS NOT NULL
+            AND runtime.model_id IS NOT NULL
+            AND runtime.verified_at > 0
+        )
+    `) as { changes?: number };
+    if (Number(disabled.changes ?? 0) > 0 || Number(unconfigured.changes ?? 0) > 0) {
+      console.info('[MemoryManager] Unrunnable review jobs parked.', {
+        automaticMemoryDisabled: Number(disabled.changes ?? 0),
+        modelNotConfigured: Number(unconfigured.changes ?? 0),
+      });
+    }
     const candidate = await connection.get(`
       SELECT job.id, job.user_id, job.organization_id, job.session_id,
         job.from_message_sequence, job.through_message_sequence, job.attempts,
@@ -1377,6 +1474,10 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
       WHERE job.status IN ('scheduled', 'retry_wait')
         AND scheduled_for <= ?
         AND job.attempts < ?
+        AND COALESCE(user_settings.automatic_memory_enabled, 1) = 1
+        AND runtime.provider_installation_id IS NOT NULL
+        AND runtime.model_id IS NOT NULL
+        AND runtime.verified_at > 0
       ORDER BY job.scheduled_for ASC, job.created_at ASC
       LIMIT 1
     `, [now, MEMORY_REVIEW_MAX_ATTEMPTS]) as Record<string, unknown> | undefined;
@@ -1595,12 +1696,21 @@ export async function applyMemoryReviewCandidates(params: {
         continue;
       }
       const existing = await connection.get(`
-        SELECT id, pinned, status, semantic_key FROM memory_entries
+        SELECT id, pinned, status, semantic_key, normalized_content_hash,
+          priority, sensitivity, confidence
+        FROM memory_entries
         WHERE collection_id = ? AND status != 'archived'
           AND (semantic_key = ? OR id = ?)
         ORDER BY updated_at DESC LIMIT 1
       `, [collectionId, semanticKey, candidate.entryId ?? null]) as {
-        id?: string; pinned?: number | boolean; status?: string; semantic_key?: string | null;
+        id?: string;
+        pinned?: number | boolean;
+        status?: string;
+        semantic_key?: string | null;
+        normalized_content_hash?: string;
+        priority?: number;
+        sensitivity?: string;
+        confidence?: number | null;
       } | undefined;
       if (candidate.action === 'archive') {
         if (!existing?.id || existing.pinned) {
@@ -1620,12 +1730,25 @@ export async function applyMemoryReviewCandidates(params: {
       const now = Date.now();
       const sourceMessageId = await sourceMessageIdForReview(connection, params.claim, candidate.sourceMessageSequence);
       if (existing?.id && candidate.action === 'update' && content) {
+        const nextHash = contentHash(content);
+        const nextPriority = reviewedPriority(candidate.priority);
+        const nextSensitivity = candidate.sensitivity ?? 'standard';
+        const nextConfidence = reviewedConfidence(candidate.confidence);
+        if (
+          existing.normalized_content_hash === nextHash
+          && Number(existing.priority) === nextPriority
+          && existing.sensitivity === nextSensitivity
+          && (existing.confidence ?? null) === nextConfidence
+        ) {
+          result.skipped += 1;
+          continue;
+        }
         await connection.run(`
           UPDATE memory_entries
           SET content = ?, normalized_content_hash = ?, priority = ?, sensitivity = ?, confidence = ?,
             last_confirmed_at = ?, revision = revision + 1, updated_at = ?
           WHERE id = ?
-        `, [content, contentHash(content), reviewedPriority(candidate.priority), candidate.sensitivity ?? 'standard', reviewedConfidence(candidate.confidence), now, now, existing.id]);
+        `, [content, nextHash, nextPriority, nextSensitivity, nextConfidence, now, now, existing.id]);
         await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, session_id, source_message_id, decision_code, created_at) VALUES (?, ?, 'update', 'memory_manager', ?, ?, ?, 'automatic_review', ?)`, [randomUUID(), existing.id, params.claim.userId, params.claim.sessionId, sourceMessageId, now]);
         result.updated += 1;
         continue;
@@ -1813,7 +1936,8 @@ export async function runMemoryMaintenanceCycle(now = Date.now()): Promise<{ arc
       WHERE NOT EXISTS (
         SELECT 1 FROM memory_entries entry WHERE entry.collection_id = memory_collections.id
       )
-    `) as { changes?: number };
+        AND updated_at <= ?
+    `, [now - EMPTY_COLLECTION_CLEANUP_GRACE_MS]) as { changes?: number };
     const deletedEmptyCollections = Number(emptyCollections.changes ?? 0);
     if (archived > 0 || deletedEmptyCollections > 0) {
       console.info('[MemoryManager] Maintenance completed.', { archived, deletedEmptyCollections });

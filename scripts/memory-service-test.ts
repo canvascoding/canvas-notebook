@@ -51,6 +51,7 @@ async function main(): Promise<void> {
       runMemoryMaintenanceCycle,
       retryMemoryReviewJob,
       scheduleMemoryReviewForSession,
+      scheduleUnreviewedMemorySessions,
       setAgentMemoryArchived,
       transferAgentMemory,
       updateMemoryReviewRuntimeSettings,
@@ -282,6 +283,23 @@ async function main(): Promise<void> {
       candidates: reviewCandidates,
     });
     assert.deepEqual(reviewResult, { added: 1, updated: 0, archived: 0, skipped: 0 });
+    const reviewedUpdate = [{
+      action: 'update' as const,
+      target: 'user' as const,
+      category: 'preferences',
+      semanticKey: 'communication.response-length',
+      content: 'Prefers concise responses with direct links.',
+      priority: 70,
+      sensitivity: 'standard' as const,
+      confidence: 0.9,
+      sourceMessageSequence: 1,
+    }];
+    assert.deepEqual(await applyMemoryReviewCandidates({ claim: claim!, candidates: reviewedUpdate }), {
+      added: 0, updated: 1, archived: 0, skipped: 0,
+    });
+    assert.deepEqual(await applyMemoryReviewCandidates({ claim: claim!, candidates: reviewedUpdate }), {
+      added: 0, updated: 0, archived: 0, skipped: 1,
+    });
     const workspaceReviewResult = await applyMemoryReviewCandidates({
       claim: claim!,
       scopeContext: { workspaceId: 'workspace-1', organizationId: 'org-1' },
@@ -383,7 +401,7 @@ async function main(): Promise<void> {
     assert.match(projected, /Use British spelling in organization material/);
     const lastUsedDb = await openDb();
     try {
-      const used = await lastUsedDb.get(`SELECT last_used_at FROM memory_entries WHERE content = 'Prefers concise responses.' LIMIT 1`) as { last_used_at?: number | null } | undefined;
+      const used = await lastUsedDb.get(`SELECT last_used_at FROM memory_entries WHERE content = 'Prefers concise responses with direct links.' LIMIT 1`) as { last_used_at?: number | null } | undefined;
       assert.ok(Number(used?.last_used_at ?? 0) > 0);
     } finally { await lastUsedDb.close(); }
     await completeMemoryReviewJob(claim!.id, reviewResult, 1_003);
@@ -441,6 +459,76 @@ async function main(): Promise<void> {
     } finally {
       await failedJobsDb.close();
     }
+    const recoveryDb = await openDb();
+    try {
+      const reviewSession = await recoveryDb.get(`SELECT id FROM pi_sessions WHERE session_id = 'review-session'`) as { id: number };
+      for (let sequence = 21; sequence <= 26; sequence += 1) {
+        await recoveryDb.run(`
+          INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
+          VALUES (?, ?, ?, ?, ?)
+        `, [reviewSession.id, sequence % 2 === 1 ? 'user' : 'assistant', '{}', sequence, sequence]);
+      }
+      await recoveryDb.run(`
+        INSERT INTO pi_sessions (session_id, user_id, organization_id, agent_id, provider, model, created_at, updated_at)
+        VALUES ('backstop-session', 'user-reader', 'org-1', 'reader-agent', 'test', 'test-model', 1, 80000)
+      `);
+      const backstopSession = await recoveryDb.get(`SELECT id FROM pi_sessions WHERE session_id = 'backstop-session'`) as { id: number };
+      await recoveryDb.run(`INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence) VALUES (?, 'user', '{}', 1, 1)`, [backstopSession.id]);
+      await recoveryDb.run(`INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence) VALUES (?, 'assistant', '{}', 2, 2)`, [backstopSession.id]);
+      await recoveryDb.run(`
+        INSERT INTO pi_sessions (session_id, user_id, organization_id, agent_id, provider, model, created_at, updated_at)
+        VALUES ('unconfigured-session', 'user-external', 'org-2', 'external-agent', 'test', 'test-model', 1, 1)
+      `);
+      await recoveryDb.run(`
+        INSERT INTO memory_review_jobs (
+          id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
+          trigger_type, scheduled_for, status, attempts, created_at
+        ) VALUES ('unconfigured-front-job', 'user-external', 'org-2', 'unconfigured-session', 1, 2,
+          'idle', 79999, 'scheduled', 0, 1)
+      `);
+      await recoveryDb.run(`
+        INSERT INTO memory_review_jobs (
+          id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
+          trigger_type, scheduled_for, status, attempts, created_at
+        ) VALUES ('configured-behind-job', 'user-reader', 'org-1', 'runnable-review-session', 3, 4,
+          'idle', 80000, 'scheduled', 0, 1)
+      `);
+    } finally {
+      await recoveryDb.close();
+    }
+    assert.deepEqual(
+      await scheduleMemoryReviewForSession({ userId: 'user-1', sessionId: 'review-session', now: 70_000 }),
+      { scheduled: true, triggerType: 'idle', fromMessageSequence: 25, throughMessageSequence: 26 },
+    );
+    const reconciliation = await scheduleUnreviewedMemorySessions(80_000);
+    assert.ok(reconciliation.scanned >= 1);
+    assert.ok(reconciliation.scheduled >= 1);
+    const configuredBehindClaim = await claimDueMemoryReviewJob(80_000);
+    assert.equal(configuredBehindClaim?.id, 'configured-behind-job');
+    await completeMemoryReviewJob('configured-behind-job', 80_000);
+    const recoveryAssertionsDb = await openDb();
+    try {
+      const backstopJob = await recoveryAssertionsDb.get(`
+        SELECT from_message_sequence, through_message_sequence, status, scheduled_for
+        FROM memory_review_jobs WHERE session_id = 'backstop-session'
+      `) as Record<string, unknown>;
+      assert.deepEqual(backstopJob, {
+        from_message_sequence: 1,
+        through_message_sequence: 2,
+        status: 'scheduled',
+        scheduled_for: 980_000,
+      });
+      const parked = await recoveryAssertionsDb.get(`
+        SELECT status, scheduled_for, error_code FROM memory_review_jobs WHERE id = 'unconfigured-front-job'
+      `) as Record<string, unknown>;
+      assert.deepEqual(parked, {
+        status: 'awaiting_model_configuration',
+        scheduled_for: null,
+        error_code: 'model_not_configured',
+      });
+    } finally {
+      await recoveryAssertionsDb.close();
+    }
     const personalDeletion = await deletePersonalMemory('user-1');
     assert.ok(personalDeletion.collections >= 1);
     assert.ok(personalDeletion.entries >= 2);
@@ -473,12 +561,16 @@ async function main(): Promise<void> {
       const workspaceCollection = await maintenanceDb.get(`SELECT id FROM memory_collections WHERE workspace_id = 'workspace-1' LIMIT 1`) as { id: string };
       await maintenanceDb.run(`INSERT INTO memory_entries (id, collection_id, content, normalized_content_hash, status, priority, pinned, sensitivity, estimated_tokens, created_by_actor_type, created_by_user_id, revision, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', 50, 0, 'standard', 4, 'user', 'user-1', 1, 1, 1)`, [pendingId, workspaceCollection.id, pendingId, pendingId]);
       await maintenanceDb.run(`INSERT INTO memory_collections (id, scope_type, user_id, category, title, status, created_at, updated_at) VALUES ('empty-collection-for-cleanup', 'user', 'user-1', 'context', 'Context', 'active', 1, 1)`);
+      const maintenanceNow = 100 * 24 * 60 * 60 * 1000;
+      await maintenanceDb.run(`INSERT INTO memory_collections (id, scope_type, user_id, category, title, status, created_at, updated_at) VALUES ('recent-empty-collection', 'user', 'user-1', 'context', 'Context', 'active', ?, ?)`, [maintenanceNow, maintenanceNow]);
       assert.equal((await listMemoryCollections(scope)).some((collection) => collection.id === 'empty-collection-for-cleanup'), false);
-      assert.deepEqual(await runMemoryMaintenanceCycle(100 * 24 * 60 * 60 * 1000), { archived: 2 });
+      assert.deepEqual(await runMemoryMaintenanceCycle(maintenanceNow), { archived: 2 });
       const statuses = await maintenanceDb.all(`SELECT id, status FROM memory_entries WHERE id IN (?, ?, ?) ORDER BY id`, [pendingId, pinnedId, staleId]) as Array<{ id: string; status: string }>;
       assert.deepEqual(statuses, [{ id: pendingId, status: 'archived' }, { id: pinnedId, status: 'published' }, { id: staleId, status: 'archived' }]);
       const emptyCollection = await maintenanceDb.get(`SELECT id FROM memory_collections WHERE id = 'empty-collection-for-cleanup'`);
       assert.equal(emptyCollection, undefined);
+      const recentEmptyCollection = await maintenanceDb.get(`SELECT id FROM memory_collections WHERE id = 'recent-empty-collection'`);
+      assert.deepEqual(recentEmptyCollection, { id: 'recent-empty-collection' });
     } finally { await maintenanceDb.close(); }
   } finally {
     moduleInternals._load = originalLoad;

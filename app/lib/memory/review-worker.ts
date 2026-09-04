@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { createHash } from 'node:crypto';
+
 import type { AgentContext, AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core';
 
 import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
@@ -25,6 +27,7 @@ import {
   runMemoryMaintenanceCycle,
   retryMemoryReviewJob,
   scheduleMemoryReviewForSession,
+  scheduleUnreviewedMemorySessions,
   type MemoryReviewCandidate,
   type MemoryReviewJobClaim,
   type MemoryReviewScopeContext,
@@ -181,8 +184,12 @@ function parseCandidates(response: string): MemoryReviewCandidate[] {
   }).slice(0, 20);
 }
 
-function parseCheckpointedCandidates(responseJson: string): MemoryReviewCandidate[] {
+function parseCheckpointedCandidates(responseJson: string, responseHash: string | null): MemoryReviewCandidate[] {
   try {
+    const actualHash = createHash('sha256').update(responseJson).digest('hex');
+    if (!responseHash || actualHash !== responseHash) {
+      throw new InvalidMemoryReviewResponseError('Stored memory review checkpoint failed integrity validation.');
+    }
     return parseCandidates(JSON.stringify({ candidates: JSON.parse(responseJson) }));
   } catch (error) {
     if (error instanceof InvalidMemoryReviewResponseError) throw error;
@@ -204,7 +211,7 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
     }
     let candidates: MemoryReviewCandidate[];
     if (claim.responseJson) {
-      candidates = parseCheckpointedCandidates(claim.responseJson);
+      candidates = parseCheckpointedCandidates(claim.responseJson, claim.responseHash);
       console.info('[MemoryManager] Resuming review from response checkpoint.', {
         jobId: claim.id,
         responseHash: claim.responseHash?.slice(0, 12) ?? null,
@@ -305,6 +312,12 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
         )) {
           if (event.type === 'agent_end') finalMessages = event.messages;
         }
+      } finally {
+        clearTimeout(timeout);
+      }
+      candidates = parseCandidates(latestAssistantText(finalMessages));
+      await recordMemoryReviewResponse(claim.id, candidates);
+      try {
         await persistPiUsageEventsWithContext({
           sessionId: `memory-review:${claim.id}`,
           userId: claim.userId,
@@ -317,11 +330,12 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
             agentId: MEMORY_MANAGER_AGENT_ID,
           },
         });
-      } finally {
-        clearTimeout(timeout);
+      } catch (error) {
+        console.error('[MemoryManager] Usage persistence failed after response checkpoint.', {
+          jobId: claim.id,
+          errorCode: memoryReviewErrorCode(error),
+        });
       }
-      candidates = parseCandidates(latestAssistantText(finalMessages));
-      await recordMemoryReviewResponse(claim.id, candidates);
     }
     const scopeContext: MemoryReviewScopeContext = {
       workspaceId: executionContext.workspaceId,
@@ -343,6 +357,7 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
 export async function runMemoryReviewWorkerCycle(options: { maxJobs?: number } = {}): Promise<number> {
   let completed = 0;
   const maxJobs = options.maxJobs ?? 1;
+  await scheduleUnreviewedMemorySessions();
   for (let index = 0; index < maxJobs; index += 1) {
     const claim = await claimDueMemoryReviewJob();
     if (!claim) break;
@@ -353,6 +368,7 @@ export async function runMemoryReviewWorkerCycle(options: { maxJobs?: number } =
       console.error('[MemoryManager] Review failed.', { jobId: claim.id, errorCode: memoryReviewErrorCode(error) });
     }
   }
+  await scheduleUnreviewedMemorySessions();
   await runMemoryMaintenanceCycle();
   return completed;
 }
