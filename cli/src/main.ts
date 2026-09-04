@@ -55,6 +55,7 @@ import {
 import { SpawnCommandRunner } from './core/process';
 import { reexecPortableCliIfUpdated, updatePortableCli } from './core/selfUpdate';
 import { ServiceManager } from './core/service';
+import { runStandaloneUpdaterFromEnvironment } from './core/standaloneUpdater';
 import { isSwapCommand, SwapManager, validateSwapConfig, type SwapStatus } from './core/swap';
 import { type SystemUpdateErrorCode, type SystemUpdateStage } from './core/systemUpdateContract';
 import { SystemUpdateEventReporter } from './core/systemUpdateReporter';
@@ -89,6 +90,7 @@ interface EnvOptions {
 }
 
 export interface UpdateOptions {
+  backupRequired?: boolean;
   eventStream?: boolean;
   image?: string;
   operationId?: string;
@@ -146,7 +148,7 @@ Commands:
   version [--json]                 Show CLI build information and capabilities
   install [--database postgres] [--postgres-mode managed|external] [--database-url-stdin|--database-url-file <path>] [--pgvector required|optional|disabled] [--runtime personal|team]
                                   Generate config, pull image, start container
-  update [--image <name@sha256>] [--require-pinned] [--event-stream] [--operation-id <uuid>]
+  update [--image <name@sha256>] [--require-pinned] [--backup-required] [--event-stream] [--operation-id <uuid>]
                                  Pull and apply an image with rollback protection
   start                           Start the container and wait for health
   restart                         Recreate the container and wait for health
@@ -193,6 +195,7 @@ Commands:
   database reconcile-postgres-auth --timeout <seconds>
                                   Reconcile Postgres auth, then apply the app
   service status|install|uninstall
+  updater-service                 Run the socket-activated standalone updater (Linux only)
 `);
 }
 
@@ -386,6 +389,8 @@ function parseUpdateOptions(args: string[]): UpdateOptions {
       i = parsed.nextIndex;
     } else if (arg === '--require-pinned') {
       options.requirePinned = true;
+    } else if (arg === '--backup-required') {
+      options.backupRequired = true;
     } else if (arg === '--event-stream') {
       options.eventStream = true;
     } else if (arg === '--operation-id' || arg.startsWith('--operation-id=')) {
@@ -411,6 +416,7 @@ function systemUpdateFailure(stage: string, error: unknown): { stage: SystemUpda
   switch (stage) {
     case 'arguments': failure = { stage: 'request_validation', errorCode: 'request_invalid' }; break;
     case 'postgres_auth': failure = { stage: 'database_preflight', errorCode: 'database_preflight_failed' }; break;
+    case 'backup': failure = { stage: 'backup', errorCode: 'backup_failed' }; break;
     case 'pull': failure = { stage: 'image_pull', errorCode: 'image_pull_failed' }; break;
     case 'apply': failure = { stage: 'container_recreate', errorCode: 'container_recreate_failed' }; break;
     case 'health': failure = { stage: 'health_verification', errorCode: 'health_verification_failed' }; break;
@@ -749,7 +755,14 @@ export async function update(
     reporter.running('config_preflight', 'Preparing Canvas Notebook runtime configuration.');
     const next = await syncFiles(context, config);
     reporter.succeeded('config_preflight', 'Canvas Notebook runtime configuration prepared.');
-    reporter.skipped('backup', 'This update does not require a CLI-managed backup.');
+    if (options.backupRequired) {
+      phase = 'backup';
+      reporter.running('backup', 'Creating the required Canvas Notebook backup.');
+      await backup(context, docker, next, ['create'], true, true);
+      reporter.succeeded('backup', 'Required Canvas Notebook backup completed.');
+    } else {
+      reporter.skipped('backup', 'This update does not require a CLI-managed backup.');
+    }
     const runConfig = structuredClone(next);
     runConfig.image = targetImage;
     const targetEnvironment = { ...process.env, CANVAS_IMAGE: targetImage };
@@ -1731,7 +1744,14 @@ async function database(context: RuntimeContext, docker: DockerManager, config: 
   throw new Error(`Unknown database subcommand: ${subcommand}`);
 }
 
-async function backup(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {
+async function backup(
+  context: RuntimeContext,
+  docker: DockerManager,
+  config: CanvasCliConfig,
+  args: string[],
+  json: boolean,
+  quiet = false,
+): Promise<void> {
   const subcommand = args.shift();
   if (!subcommand || subcommand === '-h' || subcommand === '--help') {
     throw new Error('Usage: canvas-notebook backup create [--output <path>] [--json] [--no-wait]');
@@ -1785,6 +1805,9 @@ async function backup(context: RuntimeContext, docker: DockerManager, config: Ca
     outputPath = await copyFileAtomically(latestHostPath, options.output);
   }
 
+  if (quiet) {
+    return;
+  }
   if (json) {
     console.log(JSON.stringify({
       ...payload,
@@ -1840,6 +1863,13 @@ async function main(): Promise<void> {
     if (parsed.json) console.log(JSON.stringify({ success: false, error }));
     else console.error(error);
     process.exitCode = 1;
+    return;
+  }
+
+  if (parsed.command === 'updater-service') {
+    if (context.platform !== 'linux') throw new Error('Standalone updater service is only supported on Linux.');
+    if (parsed.args.length > 0) throw new Error('Usage: canvas-notebook updater-service --no-banner');
+    await runStandaloneUpdaterFromEnvironment();
     return;
   }
 
