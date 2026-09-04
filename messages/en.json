@@ -2841,6 +2841,118 @@
         "legal": "Review third-party components, license notices, and commercial release readiness."
       }
     },
+    "memoryPanel": {
+      "eyebrow": "Persistent context",
+      "title": "Memory Manager",
+      "description": "Review and manage durable context. Automatic review is optional and uses a dedicated, isolated system agent.",
+      "loading": "Loading…",
+      "scopeAriaLabel": "Memory scope",
+      "scopes": {
+        "user": "My memory",
+        "agent": "Agent memory",
+        "workspace": "Workspace",
+        "organization": "Organization"
+      },
+      "categories": {
+        "title": "Memory categories",
+        "description": "These cards are categories, not projects. Each category groups individual memory entries that remain available over time.",
+        "loading": "Loading memories…",
+        "empty": "No memory entries yet. Add a durable fact below to begin.",
+        "pending": "{count, plural, one {# pending} other {# pending}}",
+        "entries": "{count, plural, one {# entry} other {# entries}}",
+        "selected": "Selected memory category",
+        "export": "Export category"
+      },
+      "entries": {
+        "searchLabel": "Search memory",
+        "searchPlaceholder": "Search this category",
+        "sortLabel": "Sort memory",
+        "sortPriority": "Priority",
+        "sortUpdated": "Last updated",
+        "sortLastUsed": "Last used",
+        "showArchived": "Show archived",
+        "hideArchived": "Hide archived",
+        "status": {
+          "pending": "Pending",
+          "published": "Published",
+          "archived": "Archived"
+        },
+        "priority": "Priority {priority}",
+        "publish": "Publish",
+        "restore": "Restore",
+        "save": "Save",
+        "edit": "Edit",
+        "archive": "Archive",
+        "history": "History",
+        "hideHistory": "Hide history",
+        "empty": "This category has no published entries you can view.",
+        "noSearchResults": "No memory entries match this search."
+      },
+      "editor": {
+        "title": "Add a durable fact",
+        "description": "Keep it atomic and useful across future conversations. Secrets, session logs, and temporary tasks are rejected.",
+        "placeholder": "e.g. Prefers short, decisive weekly updates.",
+        "deletedAgentReadOnly": "Deleted-agent memory is read-only until transferred.",
+        "suggest": "Suggest memory",
+        "save": "Save memory"
+      },
+      "privateData": {
+        "title": "Import or remove private memory",
+        "description": "Import only a Canvas memory export you recognize. Shared workspace and organization memory are never imported from this control.",
+        "import": "Import JSON",
+        "delete": "Delete all private memory"
+      },
+      "notices": {
+        "suggestionCreated": "Memory suggestion created for review.",
+        "memorySaved": "Memory saved.",
+        "published": "Suggestion published.",
+        "restored": "Memory restored.",
+        "archived": "Memory archived.",
+        "updated": "Memory updated."
+      },
+      "errors": {
+        "loadMemory": "Memory could not be loaded.",
+        "loadEntries": "Memory entries could not be loaded.",
+        "addMemory": "Memory could not be added.",
+        "updateMemory": "Memory could not be updated.",
+        "loadHistory": "Memory history could not be loaded."
+      },
+      "reviewer": {
+        "title": "Automatic memory review",
+        "enabled": "On",
+        "disabled": "Off",
+        "serverDisabled": "Disabled by server",
+        "enabledDescription": "Only new user turns are reviewed. With no new chat activity, no model request is made and no tokens are used.",
+        "disabledDescription": "No chats are queued or reviewed. Your saved memories and all manual controls remain available.",
+        "serverDisabledDescription": "Automatic review is disabled for this Canvas installation. Saved memories and manual controls remain available.",
+        "toggleLabel": "Automatic memory review",
+        "saving": "Saving automatic memory preference",
+        "enabledNotice": "Automatic memory review is on for new chats.",
+        "disabledNotice": "Automatic memory review is off. Pending and active reviews were stopped.",
+        "saveError": "Memory settings could not be saved.",
+        "runtimeTitle": "Review configuration",
+        "runtimeDescription": "The dedicated reviewer starts only after an assistant response containing new user turns. Restart recovery is durable and never uses a hidden chat-model fallback.",
+        "adminRuntimeHint": "Organization setting. Provider or model changes are verified independently from your personal preference.",
+        "memberRuntimeHint": "Provider and model are managed by your organization administrator.",
+        "provider": "Organization provider",
+        "chooseProvider": "Choose a provider",
+        "model": "Memory Reviewer model",
+        "chooseModel": "Choose a model",
+        "runtimeVerified": "Verified for the current provider catalog.",
+        "runtimeVerificationNeeded": "Verification is required before queued work can run.",
+        "runtimeWaitingForAdmin": "The queue waits safely until an administrator verifies a model.",
+        "verifyRuntime": "Verify organization runtime",
+        "chooseRuntimeError": "Choose a ready provider and model before verifying the organization Memory Reviewer.",
+        "runtimeSaved": "The organization Memory Reviewer runtime was verified.",
+        "runtimeSaveError": "The organization Memory Reviewer runtime could not be saved.",
+        "promptBudget": "Prompt budget (tokens)",
+        "promptBudgetHint": "Hard limit: 4,000 tokens and at most 10% of the usable context.",
+        "savePersonal": "Save personal review settings",
+        "personalSaved": "Your personal memory review settings were saved.",
+        "queue": "Review queue",
+        "jobs": "{count, plural, one {# job} other {# jobs}}"
+      }
+    },
     "updates": {
       "loading": "Checking this Canvas installation…",
       "retry": "Try again",
@@ -4877,6 +4989,7 @@
     },
     "agentPanel": {
       "memoryReviewer": {
+        "loading": "Loading reviewer status…",
         "name": "Memory Review Agent",
         "reserved": "Reserved system agent",
         "nonChat": "Not available in chat",
@@ -4887,6 +5000,10 @@
         "jobs": "{count, plural, one {# job} other {# jobs}}",
         "ready": "Ready",
         "running": "Running",
+        "disabled": "Disabled",
+        "serverDisabled": "Disabled by server",
+        "disabledDescription": "Automatic review is off. Saved memories and manual controls remain available.",
+        "serverDisabledDescription": "Automatic review is disabled for this Canvas installation.",
         "setupNeeded": "Setup needed",
         "notConfigured": "Not configured",
         "configure": "Configure memory reviews",

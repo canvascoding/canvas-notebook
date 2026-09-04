@@ -2840,6 +2840,118 @@
         "legal": "Drittanbieter-Komponenten, Lizenzhinweise und den kommerziellen Release-Status prüfen."
       }
     },
+    "memoryPanel": {
+      "eyebrow": "Dauerhafter Kontext",
+      "title": "Memory Manager",
+      "description": "Prüfe und verwalte dauerhaft gespeicherten Kontext. Die automatische Prüfung ist optional und nutzt einen eigenen, isolierten System-Agenten.",
+      "loading": "Wird geladen …",
+      "scopeAriaLabel": "Memory-Bereich",
+      "scopes": {
+        "user": "Meine Memories",
+        "agent": "Agent-Memories",
+        "workspace": "Workspace",
+        "organization": "Organisation"
+      },
+      "categories": {
+        "title": "Memory-Bereiche",
+        "description": "Diese Karten sind Kategorien, keine Projekte. Jede Kategorie bündelt einzelne, dauerhaft gespeicherte Memory-Einträge.",
+        "loading": "Memories werden geladen …",
+        "empty": "Noch keine Memory-Einträge vorhanden. Füge unten einen dauerhaften Fakt hinzu.",
+        "pending": "{count, plural, one {# ausstehend} other {# ausstehend}}",
+        "entries": "{count, plural, one {# Eintrag} other {# Einträge}}",
+        "selected": "Ausgewählter Memory-Bereich",
+        "export": "Bereich exportieren"
+      },
+      "entries": {
+        "searchLabel": "Memories durchsuchen",
+        "searchPlaceholder": "Diesen Bereich durchsuchen",
+        "sortLabel": "Memories sortieren",
+        "sortPriority": "Priorität",
+        "sortUpdated": "Zuletzt aktualisiert",
+        "sortLastUsed": "Zuletzt verwendet",
+        "showArchived": "Archivierte anzeigen",
+        "hideArchived": "Archivierte ausblenden",
+        "status": {
+          "pending": "Ausstehend",
+          "published": "Veröffentlicht",
+          "archived": "Archiviert"
+        },
+        "priority": "Priorität {priority}",
+        "publish": "Veröffentlichen",
+        "restore": "Wiederherstellen",
+        "save": "Speichern",
+        "edit": "Bearbeiten",
+        "archive": "Archivieren",
+        "history": "Verlauf",
+        "hideHistory": "Verlauf ausblenden",
+        "empty": "Dieser Bereich enthält keine veröffentlichten Einträge, die du sehen kannst.",
+        "noSearchResults": "Keine Memory-Einträge entsprechen dieser Suche."
+      },
+      "editor": {
+        "title": "Dauerhaften Fakt hinzufügen",
+        "description": "Halte ihn einzeln und für zukünftige Gespräche nützlich. Secrets, Sitzungsprotokolle und vorübergehende Aufgaben werden abgelehnt.",
+        "placeholder": "z. B. Bevorzugt kurze, eindeutige Wochen-Updates.",
+        "deletedAgentReadOnly": "Memories gelöschter Agents bleiben schreibgeschützt, bis sie übertragen werden.",
+        "suggest": "Memory vorschlagen",
+        "save": "Memory speichern"
+      },
+      "privateData": {
+        "title": "Private Memories importieren oder entfernen",
+        "description": "Importiere nur einen dir bekannten Canvas-Memory-Export. Geteilte Workspace- und Organisations-Memories werden hier nie importiert.",
+        "import": "JSON importieren",
+        "delete": "Alle privaten Memories löschen"
+      },
+      "notices": {
+        "suggestionCreated": "Der Memory-Vorschlag wurde zur Prüfung erstellt.",
+        "memorySaved": "Memory wurde gespeichert.",
+        "published": "Der Vorschlag wurde veröffentlicht.",
+        "restored": "Memory wurde wiederhergestellt.",
+        "archived": "Memory wurde archiviert.",
+        "updated": "Memory wurde aktualisiert."
+      },
+      "errors": {
+        "loadMemory": "Memories konnten nicht geladen werden.",
+        "loadEntries": "Memory-Einträge konnten nicht geladen werden.",
+        "addMemory": "Memory konnte nicht hinzugefügt werden.",
+        "updateMemory": "Memory konnte nicht aktualisiert werden.",
+        "loadHistory": "Der Memory-Verlauf konnte nicht geladen werden."
+      },
+      "reviewer": {
+        "title": "Automatische Memory-Prüfung",
+        "enabled": "An",
+        "disabled": "Aus",
+        "serverDisabled": "Serverseitig deaktiviert",
+        "enabledDescription": "Nur neue Nutzernachrichten werden geprüft. Ohne neue Chat-Aktivität erfolgt kein Modellaufruf und es werden keine Tokens verbraucht.",
+        "disabledDescription": "Chats werden weder vorgemerkt noch geprüft. Gespeicherte Memories und alle manuellen Funktionen bleiben verfügbar.",
+        "serverDisabledDescription": "Die automatische Prüfung ist für diese Canvas-Installation deaktiviert. Gespeicherte Memories und manuelle Funktionen bleiben verfügbar.",
+        "toggleLabel": "Automatische Memory-Prüfung",
+        "saving": "Einstellung für automatische Memories wird gespeichert",
+        "enabledNotice": "Die automatische Memory-Prüfung ist für neue Chats aktiviert.",
+        "disabledNotice": "Die automatische Memory-Prüfung ist aus. Vorgemerkte und laufende Prüfungen wurden beendet.",
+        "saveError": "Die Memory-Einstellungen konnten nicht gespeichert werden.",
+        "runtimeTitle": "Review-Konfiguration",
+        "runtimeDescription": "Der eigene Reviewer startet nur nach einer Assistant-Antwort mit neuen Nutzernachrichten. Die Wiederaufnahme nach einem Neustart ist dauerhaft abgesichert und verwendet kein verstecktes Chatmodell.",
+        "adminRuntimeHint": "Organisationseinstellung. Änderungen an Provider oder Modell werden unabhängig von deiner persönlichen Einstellung geprüft.",
+        "memberRuntimeHint": "Provider und Modell werden von der Organisationsverwaltung festgelegt.",
+        "provider": "Organisations-Provider",
+        "chooseProvider": "Provider auswählen",
+        "model": "Memory-Reviewer-Modell",
+        "chooseModel": "Modell auswählen",
+        "runtimeVerified": "Für den aktuellen Provider-Katalog verifiziert.",
+        "runtimeVerificationNeeded": "Vor der Verarbeitung vorgemerkter Prüfungen ist eine Verifizierung erforderlich.",
+        "runtimeWaitingForAdmin": "Die Warteschlange wartet sicher, bis ein Administrator ein Modell verifiziert.",
+        "verifyRuntime": "Organisations-Runtime verifizieren",
+        "chooseRuntimeError": "Wähle einen verfügbaren Provider und ein Modell, bevor du den Memory-Reviewer verifizierst.",
+        "runtimeSaved": "Die Organisations-Runtime des Memory-Reviewers wurde verifiziert.",
+        "runtimeSaveError": "Die Organisations-Runtime des Memory-Reviewers konnte nicht gespeichert werden.",
+        "promptBudget": "Prompt-Budget (Tokens)",
+        "promptBudgetHint": "Festes Limit: 4.000 Tokens und höchstens 10 % des nutzbaren Kontexts.",
+        "savePersonal": "Persönliche Review-Einstellungen speichern",
+        "personalSaved": "Deine persönlichen Memory-Review-Einstellungen wurden gespeichert.",
+        "queue": "Review-Warteschlange",
+        "jobs": "{count, plural, one {# Job} other {# Jobs}}"
+      }
+    },
     "updates": {
       "loading": "Diese Canvas-Installation wird geprüft …",
       "retry": "Erneut versuchen",
@@ -4876,6 +4988,7 @@
     },
     "agentPanel": {
       "memoryReviewer": {
+        "loading": "Reviewer-Status wird geladen…",
         "name": "Memory-Review-Agent",
         "reserved": "Reservierter System-Agent",
         "nonChat": "Nicht im Chat auswählbar",
@@ -4886,6 +4999,10 @@
         "jobs": "{count, plural, one {# Job} other {# Jobs}}",
         "ready": "Bereit",
         "running": "Läuft",
+        "disabled": "Deaktiviert",
+        "serverDisabled": "Serverseitig deaktiviert",
+        "disabledDescription": "Die automatische Prüfung ist aus. Gespeicherte Memories und manuelle Funktionen bleiben verfügbar.",
+        "serverDisabledDescription": "Die automatische Prüfung ist für diese Canvas-Installation deaktiviert.",
         "setupNeeded": "Einrichtung nötig",
         "notConfigured": "Nicht konfiguriert",
         "configure": "Memory-Reviews konfigurieren",

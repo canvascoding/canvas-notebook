@@ -27,6 +27,40 @@ Der Worker darf beim Serverstart und fuer Wartung die Queue in der Datenbank
 pruefen. Eine leere Queue verursacht keinen Modellaufruf. Ein Modellaufruf ist
 nur nach erfolgreichem Claim eines faelligen Jobs erlaubt.
 
+## Reviewer ein- und ausschalten
+
+Die automatische Pruefung ist eine persistente Einstellung pro User. Neue
+Accounts starten mit ausgeschaltetem Reviewer; bei der einmaligen Migration
+bleiben bestehende Accounts aktiviert, damit ein Update ihr bisheriges
+Verhalten nicht still veraendert. `automatic_memory_enabled_at`,
+`automatic_memory_disabled_at` und `settings_revision` machen jeden Wechsel
+nachvollziehbar und ueber Prozessneustarts hinweg eindeutig.
+
+Der Schalter in den Memory Settings speichert sofort. Beim Ausschalten werden
+wartende, geparkte und laufende Jobs des Users terminal als abgebrochen
+markiert. Ein gerade laufender Modellstream erhaelt zusaetzlich ein
+Abort-Signal. Vor jedem teuren oder schreibenden Worker-Schritt wird die
+persistierte Einstellung samt Revision erneut geprueft; dadurch kann ein alter
+Claim nach dem Ausschalten weder erneut versuchen noch Memories schreiben.
+
+Beim erneuten Einschalten werden Nachrichten aus dem ausgeschalteten Zeitraum
+nicht nachtraeglich abgearbeitet. Nur User-Nachrichten ab dem neuen
+Aktivierungszeitpunkt koennen einen Job erzeugen. Bereits gespeicherte Memories
+und alle manuellen Import-, Export-, Erstell- und Verwaltungsfunktionen bleiben
+waehrenddessen verfuegbar.
+
+Die UI folgt Progressive Disclosure: Im ausgeschalteten Zustand bleiben nur
+Reviewer-Status und Schalter sichtbar. Provider, Modell, Prompt-Budget und
+Queue erscheinen erst nach dem Einschalten. Die Memory-Kategorien und ihre
+Eintraege sind davon unabhaengig. Beim Scope-Wechsel wird der vorherige Inhalt
+sofort entfernt, bis die Daten des neuen Scopes geladen sind.
+
+Als serverweiter Kill Switch steht
+`CANVAS_MEMORY_REVIEW_WORKER_ENABLED=false` zur Verfuegung. Er stoppt den
+Worker unabhaengig von der gespeicherten User-Praeferenz, veraendert diese aber
+nicht. Settings und Agent-Karte zeigen diesen Betriebszustand als serverweit
+deaktiviert statt als fehlende Modellkonfiguration an.
+
 Bei jedem Worker-Zyklus gleicht ein rein datenbankbasierter Backstop Sessions
 mit beantworteten, aber noch nicht eingeplanten User-Turns ab. Damit wird auch
 die schmale Absturz-Luecke zwischen Job-Completion und Planung des Folgejobs
@@ -80,10 +114,11 @@ asynchronen Runtime-Aufbau wird die konkrete Sprache (`German (Deutsch)` oder
 
 Strukturierte `[MemoryManager]`-Logs existieren fuer Scheduling, Claim,
 Checkpoint, Wiederaufnahme, Apply-Ergebnis, Completion, Retry, permanentes
-Fehlschlagen, Lease-Recovery, Collection-Erzeugung und Wartung. Geloggt werden
-nur technische IDs, Kategorien, Zaehler, Status, Zeitpunkte, Hash-Praefixe und
-Fehlercodes. Chattexte, Memory-Inhalte, Provider-Secrets und Modellantworten
-duerfen nicht in Logs geschrieben werden.
+Fehlschlagen, Lease-Recovery, Collection-Erzeugung, Wartung, Migration,
+User-Schalter, Job-Abbruch und den serverweiten Kill Switch. Geloggt werden nur
+technische IDs, Kategorien, Zaehler, Status, Zeitpunkte, Revisionen,
+Hash-Praefixe und Fehlercodes. Chattexte, Memory-Inhalte, Provider-Secrets und
+Modellantworten duerfen nicht in Logs geschrieben werden.
 
 ## Relevante Tests
 
@@ -96,8 +131,14 @@ duerfen nicht in Logs geschrieben werden.
 Der Service-Test deckt insbesondere Retry-Limit, Checkpoint-Persistenz,
 Lease-Recovery nach Neustart, Schliessen historisch erschoepfter Jobs,
 Folgejob-Reconciliation, nicht blockierende unkonfigurierte Mandanten,
-idempotente Updates, Kategorien-Normalisierung und das Verhindern leerer
-Collections ab. Ein prozessnaher Worker-Zyklus prueft ausserdem, dass ein
+idempotente Updates, das dauerhafte Opt-out, Abbruch laufender Jobs,
+unterdrueckte Backlogs nach erneutem Einschalten, Kategorien-Normalisierung und
+das Verhindern leerer Collections ab. Ein prozessnaher Worker-Zyklus prueft ausserdem, dass ein
 abgelaufener `running`-Job nach einem Neustart aus seinem validierten Checkpoint
 fertiggestellt wird; die Modellstream-Funktionen werfen im Test absichtlich,
 falls der Worker sie dabei doch aufrufen sollte.
+
+Der UI-Akzeptanztest `tests/memory-personal-ui.spec.ts` prueft die sofortige
+Speicherung des Schalters, Progressive Disclosure, lokalisierte deutsche
+Kategorien, leere Scopes ohne `0 Eintraege`-Karten, Desktop/Mobile-Layout und
+in zwei getrennten Serverprozessen die Persistenz von Opt-out und Memories.
