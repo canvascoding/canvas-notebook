@@ -16,9 +16,9 @@ import { useTranslations } from 'next-intl';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { WorkspaceIdentityMark } from '@/app/components/workspaces/WorkspaceIdentityMark';
 import {
   getWorkspaceKindLabel,
-  renderWorkspaceIcon,
   type WorkspaceKindLabels,
 } from '@/app/components/workspaces/workspace-utils';
 import { canExportWorkspaceFiles } from '@/app/lib/workspaces/export-access';
@@ -230,7 +230,7 @@ export function WorkspaceExportCard({ isAdmin = false }: WorkspaceExportCardProp
           ) : selectedWorkspace ? (
             <div className="flex min-w-0 items-center gap-3 rounded-md border border-border bg-muted/30 px-3 py-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background">
-                {renderWorkspaceIcon(selectedWorkspace, 'h-4 w-4 text-muted-foreground')}
+                <WorkspaceIdentityMark workspace={selectedWorkspace} className="h-7 w-7" iconClassName="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{selectedWorkspace.name}</p>

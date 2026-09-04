@@ -180,6 +180,18 @@ async function main() {
     path.join(process.cwd(), 'app', 'components', 'workspaces', 'WorkspaceSwitcher.tsx'),
     'utf8',
   );
+  const workspaceIdentityMarkSource = fs.readFileSync(
+    path.join(process.cwd(), 'app', 'components', 'workspaces', 'WorkspaceIdentityMark.tsx'),
+    'utf8',
+  );
+  const workspaceBadgeSource = fs.readFileSync(
+    path.join(process.cwd(), 'app', 'components', 'workspaces', 'WorkspaceBadge.tsx'),
+    'utf8',
+  );
+  const workspaceExportCardSource = fs.readFileSync(
+    path.join(process.cwd(), 'app', 'components', 'settings', 'WorkspaceExportCard.tsx'),
+    'utf8',
+  );
   assert.match(chatHeaderSource, /@container relative z-10/u);
   assert.match(chatHeaderSource, /\{sessionId \? \(/u);
   assert.match(chatHeaderSource, /hidden @\[44rem\]:inline-flex/u);
@@ -193,6 +205,12 @@ async function main() {
   );
   assert.match(workspaceSwitcherSource, /const mobileSheetOpen = controlledMobileSheetOpen \?\? internalMobileSheetOpen/u);
   assert.match(workspaceSwitcherSource, /\{!hideMobileSheetTrigger \? \(\s*<SheetTrigger asChild>/u);
+  assert.match(workspaceIdentityMarkSource, /data-workspace-color=\{color\}/u);
+  assert.match(workspaceIdentityMarkSource, /style=\{\{ backgroundColor: color \}\}/u);
+  assert.ok((workspaceSwitcherSource.match(/<WorkspaceIdentityMark/gu) || []).length >= 4);
+  assert.match(workspaceBadgeSource, /<WorkspaceIdentityMark/u);
+  assert.match(workspaceManagementCardSource, /<WorkspaceIdentityMark/u);
+  assert.match(workspaceExportCardSource, /<WorkspaceIdentityMark/u);
 
   const {
     WORKSPACE_CHANGED_EVENT,

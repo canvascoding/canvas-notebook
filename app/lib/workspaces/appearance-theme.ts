@@ -52,6 +52,23 @@ export const WORKSPACE_APPEARANCE_CSS_PROPERTIES = [
 export type WorkspaceAppearanceCssProperty = (typeof WORKSPACE_APPEARANCE_CSS_PROPERTIES)[number];
 export type WorkspaceAppearanceCssTokens = Record<WorkspaceAppearanceCssProperty, string>;
 
+export const WORKSPACE_ACCENT_CSS_PROPERTIES = [
+  '--primary',
+  '--primary-foreground',
+  '--accent',
+  '--accent-foreground',
+  '--ring',
+  '--chart-1',
+  '--sidebar-primary',
+  '--sidebar-primary-foreground',
+  '--sidebar-accent',
+  '--sidebar-accent-foreground',
+  '--sidebar-ring',
+] as const satisfies readonly WorkspaceAppearanceCssProperty[];
+
+export type WorkspaceAccentCssProperty = (typeof WORKSPACE_ACCENT_CSS_PROPERTIES)[number];
+export type WorkspaceAccentCssTokens = Record<WorkspaceAccentCssProperty, string>;
+
 const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/iu;
 
 type RgbColor = { red: number; green: number; blue: number };
@@ -202,6 +219,32 @@ export function createWorkspaceAppearanceCssTokens(
     '--sidebar-accent': accent,
     '--sidebar-accent-foreground': foreground,
     '--sidebar-border': border,
+    '--sidebar-ring': primary,
+  };
+}
+
+export function createWorkspaceAccentCssTokens(
+  accentColor: string,
+  mode: WorkspaceAppearanceColorMode,
+): WorkspaceAccentCssTokens {
+  const configuredAccent = HEX_COLOR_PATTERN.test(accentColor) ? accentColor.toLowerCase() : '#2563eb';
+  const background = mode === 'dark' ? '#090c12' : '#ffffff';
+  const foreground = mode === 'dark' ? '#f7f8fa' : '#111111';
+  const primary = ensureContrast(configuredAccent, background, 3);
+  const primaryForeground = bestContrastColor(primary);
+  const accent = mixWorkspaceAppearanceColor(background, primary, mode === 'dark' ? 0.24 : 0.12);
+
+  return {
+    '--primary': primary,
+    '--primary-foreground': primaryForeground,
+    '--accent': accent,
+    '--accent-foreground': foreground,
+    '--ring': primary,
+    '--chart-1': primary,
+    '--sidebar-primary': primary,
+    '--sidebar-primary-foreground': primaryForeground,
+    '--sidebar-accent': accent,
+    '--sidebar-accent-foreground': foreground,
     '--sidebar-ring': primary,
   };
 }
