@@ -275,6 +275,7 @@ const AUTOMATION_FIELD_CLASS = 'h-10 w-full min-w-0 max-w-full box-border rounde
 const AUTOMATION_NAME_FIELD_CLASS = 'h-11 w-full min-w-0 max-w-full box-border rounded-md border border-input bg-background px-3 text-base font-medium';
 const AUTOMATION_MONO_FIELD_CLASS = 'h-10 w-full min-w-0 max-w-full box-border rounded-md border border-input bg-background px-3 font-mono text-xs';
 const AUTOMATION_TEXTAREA_CLASS = 'h-24 w-full min-w-0 max-w-full box-border resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-xs';
+const AUTOMATION_PROMPT_EDITOR_SIZE_CLASS = 'h-96 min-h-96 w-full max-w-full resize-y';
 
 function automationPromptPreview(prompt: string): string {
   return prompt
@@ -2293,7 +2294,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                     <span className="text-xs text-muted-foreground">{t('editor.fields.prompt')}</span>
                     <AutomationPromptEditor
                       testId="automation-prompt"
-                      heightClassName="h-48"
+                      heightClassName={AUTOMATION_PROMPT_EDITOR_SIZE_CLASS}
                       value={draft.prompt}
                       onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))}
                     />
@@ -2745,7 +2746,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                   <input data-testid="automation-name" className={AUTOMATION_NAME_FIELD_CLASS} value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder={t('editor.placeholders.name')} />
                   <AutomationPromptEditor
                     testId="automation-prompt"
-                    heightClassName="h-[14rem] w-full max-w-full sm:h-[18rem]"
+                    heightClassName={AUTOMATION_PROMPT_EDITOR_SIZE_CLASS}
                     value={draft.prompt}
                     onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))}
                   />
@@ -2820,7 +2821,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                       />
                       {renderWorkspaceSelector('customWebhook')}
                       <AutomationPromptEditor
-                        heightClassName="h-[14rem] w-full"
+                        heightClassName={AUTOMATION_PROMPT_EDITOR_SIZE_CLASS}
                         value={customWebhookDraft.prompt}
                         onChange={(value) => setCustomWebhookDraft((current) => ({ ...current, prompt: value }))}
                       />
@@ -3005,7 +3006,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                         <p className="mt-1">{t('triggers.promptHintDescription')}</p>
                       </div>
                       <AutomationPromptEditor
-                        heightClassName="h-[14rem] w-full"
+                        heightClassName={AUTOMATION_PROMPT_EDITOR_SIZE_CLASS}
                         value={triggerDraft.prompt}
                         onChange={(value) => setTriggerDraft((current) => ({ ...current, prompt: value }))}
                       />
