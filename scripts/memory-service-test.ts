@@ -144,6 +144,16 @@ async function main(): Promise<void> {
     });
     assert.deepEqual(imported, { added: 2, skipped: 0 });
     assert.equal((await readMemory(scope)).entries.length, 2);
+    const markdownContent = '**Delivery format**\r\n\r\n- Keep it concise\r\n- Include `file links`';
+    const markdownMemory = await addMemory({ ...scope, content: markdownContent });
+    assert.equal(markdownMemory.changed, true);
+    assert.equal(markdownMemory.entry?.content, '**Delivery format**\n\n- Keep it concise\n- Include `file links`');
+    const markdownDuplicate = await addMemory({
+      ...scope,
+      content: '**Delivery format** - Keep it concise - Include `file links`',
+    });
+    assert.equal(markdownDuplicate.changed, false);
+    assert.equal(markdownDuplicate.entry?.id, markdownMemory.entry?.id);
     await assert.rejects(() => addMemory({ ...scope, content: 'x'.repeat(801) }), /800 characters/);
     await assert.rejects(() => addMemory({ ...scope, content: 'API_KEY=secret-value' }), /secret or credential/);
 
