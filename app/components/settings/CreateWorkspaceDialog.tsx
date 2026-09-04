@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useId, useMemo, useState } from 'react';
-import { Loader2, Plus } from 'lucide-react';
+import { CheckCircle2, Loader2, Palette, Plus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
@@ -18,7 +19,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { WorkspaceMembersEditor } from '@/app/components/settings/WorkspaceMembersEditor';
 import { WorkspaceColorPicker } from '@/app/components/workspaces/WorkspaceColorPicker';
+import { WorkspaceIdentityMark } from '@/app/components/workspaces/WorkspaceIdentityMark';
 import { WorkspaceIconPicker } from '@/app/components/workspaces/WorkspaceIconPicker';
+import { workspaceBrandDesignHref } from '@/app/lib/workspaces/brand-navigation';
 import type { ClientWorkspaceSummary, ClientWorkspaceType } from '@/app/lib/workspaces/client-types';
 import { DEFAULT_WORKSPACE_COLOR, type WorkspaceColor } from '@/app/lib/workspaces/colors';
 import { WORKSPACE_DESCRIPTION_MAX_LENGTH } from '@/app/lib/workspaces/description';
@@ -68,6 +71,7 @@ export function CreateWorkspaceDialog({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdWorkspace, setCreatedWorkspace] = useState<ClientWorkspaceSummary | null>(null);
+  const createdWorkspaceSupportsMembers = createdWorkspace?.type === 'team' || createdWorkspace?.type === 'project';
 
   const loadProjects = useCallback(async () => {
     if (!open || !projectFeaturesEnabled || !canCreateSharedWorkspace) return;
@@ -202,12 +206,7 @@ export function CreateWorkspaceDialog({
       }
       const workspace = payload.workspace as ClientWorkspaceSummary;
       await onCreated(workspace);
-      if (workspace.type === 'team' || workspace.type === 'project') {
-        setCreatedWorkspace(workspace);
-      } else {
-        resetForm();
-        onOpenChange(false);
-      }
+      setCreatedWorkspace(workspace);
     } catch (err) {
       const message = err instanceof Error ? err.message : t('errors.createFailed');
       setError(message);
@@ -218,22 +217,49 @@ export function CreateWorkspaceDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className={createdWorkspace ? "!flex max-h-[calc(100dvh-2rem)] !w-[min(100%_-_2rem,_48rem)] !max-w-none !flex-col !gap-0 !overflow-hidden !p-0 sm:!max-w-none" : undefined}>
+      <DialogContent className={createdWorkspaceSupportsMembers ? "!flex max-h-[calc(100dvh-2rem)] !w-[min(100%_-_2rem,_48rem)] !max-w-none !flex-col !gap-0 !overflow-hidden !p-0 sm:!max-w-none" : undefined}>
         {createdWorkspace ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <DialogHeader className="border-b border-border px-5 py-5 pr-12 sm:px-6 sm:pr-14">
-              <DialogTitle>{t('createDialog.accessTitle', { name: createdWorkspace.name })}</DialogTitle>
-              <DialogDescription>{t('createDialog.accessDescription')}</DialogDescription>
+              <DialogTitle>
+                {createdWorkspaceSupportsMembers
+                  ? t('createDialog.accessTitle', { name: createdWorkspace.name })
+                  : t('createDialog.createdTitle', { name: createdWorkspace.name })}
+              </DialogTitle>
+              <DialogDescription>
+                {createdWorkspaceSupportsMembers
+                  ? t('createDialog.accessDescription')
+                  : t('createDialog.createdDescription')}
+              </DialogDescription>
             </DialogHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
-              <WorkspaceMembersEditor
-                key={createdWorkspace.id}
-                active={open}
-                workspace={createdWorkspace}
-                onChanged={() => onCreated(createdWorkspace)}
-              />
+              {createdWorkspaceSupportsMembers ? (
+                <WorkspaceMembersEditor
+                  key={createdWorkspace.id}
+                  active={open}
+                  workspace={createdWorkspace}
+                  onChanged={() => onCreated(createdWorkspace)}
+                />
+              ) : (
+                <div className="flex items-start gap-4 rounded-xl border border-primary/20 bg-primary/[0.045] p-4">
+                  <WorkspaceIdentityMark workspace={createdWorkspace} className="h-11 w-11 rounded-xl" iconClassName="h-5 w-5" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-semibold">{createdWorkspace.name}</p>
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('brandDesign.createdHint')}</p>
+                  </div>
+                </div>
+              )}
             </div>
-            <DialogFooter className="border-t border-border px-5 py-4 sm:px-6">
+            <DialogFooter className="gap-2 border-t border-border px-5 py-4 sm:px-6">
+              <Button type="button" variant="outline" asChild>
+                <Link href={workspaceBrandDesignHref(createdWorkspace.id)} onClick={() => handleOpenChange(false)}>
+                  <Palette data-icon="inline-start" />
+                  {t('brandDesign.open')}
+                </Link>
+              </Button>
               <Button type="button" onClick={() => handleOpenChange(false)}>
                 {t('createDialog.done')}
               </Button>

@@ -4037,7 +4037,7 @@
         "usageTitle": "Wo soll das Profil verwendet werden?",
         "usageDescription": "Beide Bereiche verwenden dieselben Designwerte und können unabhängig aktiviert werden.",
         "canvasTitle": "Canvas-Oberfläche",
-        "canvasDescription": "Farben, Schrift und Ecken im Workspace",
+        "canvasDescription": "Vollständiges Brand-Design im Workspace; sonst gilt der Canvas-Standard mit Workspace-Akzent",
         "documentsTitle": "PDFs und Agent",
         "documentsDescription": "Dokumentdesign und Markenrichtlinien",
         "sharedSettings": "Änderungen am Preset oder an den individuellen Einstellungen wirken in beiden Bereichen."
@@ -4054,7 +4054,7 @@
         "description": "Ein einfaches Grunddesign für den gesamten Workspace. Die gleichen Farben und die gleiche Schrift werden auch in deinen Dokumenten verwendet.",
         "apply": "In Canvas verwenden",
         "on": "Oberfläche folgt dem Brand-Design",
-        "off": "Oberfläche bleibt im Canvas-Standard",
+        "off": "Canvas-Standard mit Workspace-Akzent",
         "base": {
           "title": "Grunddesign",
           "description": "Drei Farben und eine Schrift reichen aus. Passende Flächen, Rahmen und Zustände erzeugt Canvas automatisch."
@@ -4294,7 +4294,7 @@
           "descriptionHint": "Diese kurze Einordnung wird dem KI-Agenten im aktiven Workspace mitgegeben.",
           "descriptionCount": "{count}/{max} Zeichen",
           "icon": "Icon",
-          "color": "Farbe",
+          "color": "Workspace-Akzent",
           "type": "Typ",
           "project": "Projekt",
           "projectPlaceholder": "Projekt auswählen"
@@ -4326,7 +4326,7 @@
           }
         },
         "colorPicker": {
-          "hint": "Wähle eine Farbe, an der du den Workspace auf einen Blick erkennst.",
+          "hint": "Diese Farbe kennzeichnet den Workspace und dient im Canvas-Standard automatisch als Akzent.",
           "colors": {
             "blue": "Blau",
             "indigo": "Indigo",
@@ -4418,6 +4418,8 @@
           "cancel": "Abbrechen",
           "accessTitle": "Zugriff für {name} festlegen",
           "accessDescription": "Der Workspace ist erstellt. Füge jetzt Nutzer hinzu und passe ihre Zugriffsrollen an.",
+          "createdTitle": "{name} ist bereit",
+          "createdDescription": "Der Workspace wurde erstellt und verwendet seine Farbe bereits als Canvas-Akzent.",
           "done": "Fertig"
         },
         "editDialog": {
@@ -4426,6 +4428,13 @@
           "descriptionFallback": "Name, Kurzbeschreibung, Icon, Farbe und Zugriff des Workspace anpassen.",
           "cancel": "Abbrechen",
           "save": "Änderungen speichern"
+        },
+        "brandDesign": {
+          "title": "Design & Logo",
+          "description": "Ohne eigenes Brand-Design bleibt Canvas im Standarddesign und verwendet den Workspace-Akzent. Logo, Schrift und weitere Farben kannst du zentral ergänzen.",
+          "saveAndOpen": "Speichern & Design öffnen",
+          "open": "Design & Logo einrichten",
+          "createdHint": "Der Workspace-Akzent ist aktiv. Optional kannst du jetzt Logo, Schrift und Dokumentdesign ergänzen."
         },
         "mcp": {
           "title": "Direct-MCP-Zugriff",

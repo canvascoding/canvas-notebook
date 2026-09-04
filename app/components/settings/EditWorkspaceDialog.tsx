@@ -1,8 +1,9 @@
 'use client';
 
 import { FormEvent, useId, useState } from 'react';
-import { Loader2, Save } from 'lucide-react';
+import { Loader2, Palette, Save } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -20,6 +21,7 @@ import { DirectMcpWorkspaceAccessSwitch } from '@/app/components/settings/Direct
 import { WorkspaceMembersEditor } from '@/app/components/settings/WorkspaceMembersEditor';
 import { WorkspaceColorPicker } from '@/app/components/workspaces/WorkspaceColorPicker';
 import { WorkspaceIconPicker } from '@/app/components/workspaces/WorkspaceIconPicker';
+import { workspaceBrandDesignHref } from '@/app/lib/workspaces/brand-navigation';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 import { DEFAULT_WORKSPACE_COLOR, type WorkspaceColor } from '@/app/lib/workspaces/colors';
 import { WORKSPACE_DESCRIPTION_MAX_LENGTH } from '@/app/lib/workspaces/description';
@@ -58,6 +60,7 @@ function EditWorkspaceDialogContent({
   onChanged,
 }: EditWorkspaceDialogProps) {
   const t = useTranslations('settings.workspacePanel.management');
+  const router = useRouter();
   const nameId = useId();
   const descriptionId = useId();
   const [name, setName] = useState(() => workspace?.name ?? '');
@@ -78,6 +81,8 @@ function EditWorkspaceDialogContent({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!workspace) return;
+    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLElement | null;
+    const shouldOpenBrandDesign = submitter?.dataset.workspaceSubmitIntent === 'brand-design';
     const trimmedName = name.trim();
     if (!trimmedName) {
       setError(t('errors.nameRequired'));
@@ -108,6 +113,7 @@ function EditWorkspaceDialogContent({
       }
       await onChanged();
       onOpenChange(false);
+      if (shouldOpenBrandDesign) router.push(workspaceBrandDesignHref(workspace.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : t('errors.updateFailed'));
     } finally {
@@ -169,6 +175,33 @@ function EditWorkspaceDialogContent({
               <WorkspaceIconPicker value={icon} onChange={setIcon} disabled={isSubmitting} />
 
               <WorkspaceColorPicker value={color} onChange={setColor} disabled={isSubmitting} />
+
+              {workspace?.permissions.canManageWorkspace ? (
+                <section className="rounded-xl border border-primary/20 bg-primary/[0.045] p-4" aria-labelledby="workspace-brand-design-title">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                        <Palette className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <h3 id="workspace-brand-design-title" className="text-sm font-semibold">{t('brandDesign.title')}</h3>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('brandDesign.description')}</p>
+                      </div>
+                    </div>
+                    <Button
+                      type="submit"
+                      variant="outline"
+                      size="sm"
+                      data-workspace-submit-intent="brand-design"
+                      disabled={isSubmitting || !name.trim()}
+                      className="shrink-0 bg-background/80"
+                    >
+                      <Palette data-icon="inline-start" />
+                      {t('brandDesign.saveAndOpen')}
+                    </Button>
+                  </div>
+                </section>
+              ) : null}
 
               {workspace ? (
                 <section className="rounded-lg border bg-muted/20 p-4" aria-labelledby="workspace-mcp-access-title">

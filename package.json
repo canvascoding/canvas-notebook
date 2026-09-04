@@ -355,6 +355,7 @@
     "test:workspace:api-routes:orbstack": "bash scripts/workspace-api-routes-orbstack-test.sh",
     "test:workspace:switcher-ui": "tsx scripts/workspace-switcher-ui-test.ts",
     "test:workspace:appearance": "tsx scripts/workspace-appearance-theme-test.ts && tsx scripts/workspace-accent-ui-test.ts",
+    "test:workspace:branding": "tsx scripts/workspace-brand-workflow-ui-test.ts",
     "test:workspace:cross-copy": "tsx --conditions react-server scripts/workspace-cross-copy-test.ts",
     "test:workspace:reference-client": "tsx scripts/workspace-reference-client-test.ts",
     "test:workspace:trash-client": "tsx scripts/workspace-trash-client-test.ts",

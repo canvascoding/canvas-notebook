@@ -4038,7 +4038,7 @@
         "usageTitle": "Where should this profile be used?",
         "usageDescription": "Both areas use the same design values and can be enabled independently.",
         "canvasTitle": "Canvas interface",
-        "canvasDescription": "Colors, font, and corners in the workspace",
+        "canvasDescription": "Full brand design in the workspace; otherwise Canvas stays standard with the workspace accent",
         "documentsTitle": "PDFs and agent",
         "documentsDescription": "Document design and brand guidelines",
         "sharedSettings": "Changes to the preset or custom settings flow through to both areas."
@@ -4055,7 +4055,7 @@
         "description": "A simple foundation for the whole workspace. The same colors and font are also used in your documents.",
         "apply": "Use in Canvas",
         "on": "The interface follows the brand design",
-        "off": "The interface keeps the Canvas default",
+        "off": "Standard Canvas design with workspace accent",
         "base": {
           "title": "Foundation",
           "description": "Three colors and one font are enough. Canvas creates matching surfaces, borders, and states automatically."
@@ -4295,7 +4295,7 @@
           "descriptionHint": "This short summary is included in the AI agent's active workspace context.",
           "descriptionCount": "{count}/{max} characters",
           "icon": "Icon",
-          "color": "Color",
+          "color": "Workspace accent",
           "type": "Type",
           "project": "Project",
           "projectPlaceholder": "Select project"
@@ -4327,7 +4327,7 @@
           }
         },
         "colorPicker": {
-          "hint": "Choose a color that makes this workspace recognizable at a glance.",
+          "hint": "This color identifies the workspace and automatically becomes its accent in the standard Canvas design.",
           "colors": {
             "blue": "Blue",
             "indigo": "Indigo",
@@ -4419,6 +4419,8 @@
           "cancel": "Cancel",
           "accessTitle": "Set access for {name}",
           "accessDescription": "The workspace has been created. Add users and adjust their access roles now.",
+          "createdTitle": "{name} is ready",
+          "createdDescription": "The workspace has been created and already uses its color as the Canvas accent.",
           "done": "Done"
         },
         "editDialog": {
@@ -4427,6 +4429,13 @@
           "descriptionFallback": "Update the workspace name, short description, icon, color, and access.",
           "cancel": "Cancel",
           "save": "Save changes"
+        },
+        "brandDesign": {
+          "title": "Design & logo",
+          "description": "Without custom brand design, Canvas keeps its standard design and uses the workspace accent. Add a logo, fonts, and more colors centrally when needed.",
+          "saveAndOpen": "Save & open design",
+          "open": "Set up design & logo",
+          "createdHint": "The workspace accent is active. You can now optionally add a logo, fonts, and document design."
         },
         "mcp": {
           "title": "Direct MCP access",

@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { useSearchParams } from 'next/navigation';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import { AlignLeft, AlignRight, Boxes, Building2, CheckCircle2, FileImage, FileText, Loader2, Monitor, Palette, RotateCcw, Save, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Upload } from 'lucide-react';
@@ -587,14 +588,19 @@ export function BrandSettingsPanel({
   canManageOrganizationBrand?: boolean;
 }) {
   const t = useTranslations('settings.brandDesign');
+  const searchParams = useSearchParams();
+  const requestedScope = searchParams.get('scope');
+  const requestedWorkspaceId = searchParams.get('workspaceId')?.trim() || null;
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
   const organizationId = useWorkspaceStore((state) => state.organizationId);
   const initialized = useWorkspaceStore((state) => state.initialized);
   const isWorkspaceLoading = useWorkspaceStore((state) => state.isLoading);
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
-  const [scope, setScope] = useState<BrandScope>(() => canManageOrganizationBrand ? 'organization' : 'workspace');
-  const [manualWorkspaceId, setManualWorkspaceId] = useState<string | null>(null);
+  const [scope, setScope] = useState<BrandScope>(() => (
+    requestedScope === 'workspace' || !canManageOrganizationBrand ? 'workspace' : 'organization'
+  ));
+  const [manualWorkspaceId, setManualWorkspaceId] = useState<string | null>(() => requestedWorkspaceId);
   const [profile, setProfile] = useState<WorkspaceBrandProfile>(() => cloneWorkspaceBrandProfile(WORKSPACE_BRAND_PRESETS.canvas));
   const [savedProfile, setSavedProfile] = useState<WorkspaceBrandProfile>(() => cloneWorkspaceBrandProfile(WORKSPACE_BRAND_PRESETS.canvas));
   const [configured, setConfigured] = useState(false);
