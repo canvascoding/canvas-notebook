@@ -1,5 +1,10 @@
 import { safeFetchJson } from '@/app/lib/chat/fetch-json';
-import type { AISession, ChatRequestContext, PersistedChatMessage } from '@/app/lib/chat/types';
+import type {
+  AISession,
+  ChatHistorySearchResult,
+  ChatRequestContext,
+  PersistedChatMessage,
+} from '@/app/lib/chat/types';
 import type {
   AiEffectiveRuntimeResolution,
   AiRuntimeSelection,
@@ -70,6 +75,31 @@ export async function fetchChatSessions(agentId = 'all', options: { workspaceId?
   const res = await fetch(`/api/sessions?${params.toString()}`);
   const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
   return data?.success ? data.sessions || [] : [];
+}
+
+export async function searchChatSessions(params: {
+  query: string;
+  agentId?: string;
+  workspaceId?: string | null;
+  unreadOnly?: boolean;
+  signal?: AbortSignal;
+}): Promise<ChatHistorySearchResult[]> {
+  const searchParams = new URLSearchParams({
+    query: params.query,
+    agentId: params.agentId || 'all',
+  });
+  if (params.workspaceId) {
+    searchParams.set('workspaceId', params.workspaceId);
+  }
+  if (params.unreadOnly) {
+    searchParams.set('unreadOnly', 'true');
+  }
+
+  const response = await fetch(`/api/sessions/search?${searchParams.toString()}`, {
+    ...(params.signal ? { signal: params.signal } : {}),
+  });
+  const data = await safeFetchJson<{ success: boolean; results?: ChatHistorySearchResult[] }>(response);
+  return data?.success ? data.results || [] : [];
 }
 
 export async function createChatSession(payload: CreateChatSessionPayload): Promise<CreateChatSessionResponse | null> {

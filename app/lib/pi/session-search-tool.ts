@@ -9,6 +9,11 @@ import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import type { WorkspaceType } from '@/app/lib/workspaces/types';
+import {
+  escapeSessionSearchLikeValue,
+  extractAgentMessageText,
+  truncateSessionSearchText,
+} from '@/app/lib/chat/session-search-text';
 
 type SessionSearchArgs = {
   query?: string;
@@ -51,10 +56,6 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
   return Math.max(min, Math.min(Math.trunc(value), max));
 }
 
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
-}
-
 function parseRoleFilter(value?: string): Set<string> {
   const roles = (value || 'user,assistant')
     .split(',')
@@ -71,48 +72,12 @@ function safeParseMessage(row: PiMessageRow): AgentMessage | null {
   }
 }
 
-function extractMessageText(message: AgentMessage | null): string {
-  if (!message) {
-    return '';
-  }
-  if (!('content' in message)) {
-    return `[${message.role}]`;
-  }
-  const content = message.content;
-  if (typeof content === 'string') {
-    return content;
-  }
-  if (!Array.isArray(content)) {
-    return '';
-  }
-  return content
-    .map((part) => {
-      if (part && typeof part === 'object' && 'type' in part && part.type === 'text' && typeof (part as { text?: unknown }).text === 'string') {
-        return (part as { text: string }).text;
-      }
-      if (part && typeof part === 'object' && 'type' in part && part.type === 'image') {
-        return '[image]';
-      }
-      return '';
-    })
-    .filter(Boolean)
-    .join('\n');
-}
-
-function truncate(value: string, maxLength: number): string {
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-  return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
-}
-
 function shapeMessage(row: PiMessageRow, anchorId?: number) {
   const parsed = safeParseMessage(row);
   return {
     id: row.id,
     role: row.role,
-    text: truncate(extractMessageText(parsed), 1200),
+    text: truncateSessionSearchText(extractAgentMessageText(parsed), 1200),
     timestamp: row.timestamp,
     ...(row.id === anchorId ? { anchor: true } : {}),
   };
@@ -244,7 +209,7 @@ async function searchSessions(userId: string, agentId: string, scope: SessionSea
 
   const roleFilter = parseRoleFilter(args.role_filter);
   const limit = clampNumber(args.limit, DEFAULT_DISCOVERY_LIMIT, 1, MAX_DISCOVERY_LIMIT);
-  const likePattern = `%${escapeLike(query)}%`;
+  const likePattern = `%${escapeSessionSearchLikeValue(query)}%`;
   const roleConditions = [...roleFilter].map((role) => eq(piMessages.role, role));
   const rows = await db
     .select({
@@ -278,7 +243,7 @@ async function searchSessions(userId: string, agentId: string, scope: SessionSea
     results.push({
       session: sessionSummary(row.session),
       match_message_id: row.message.id,
-      snippet: truncate(extractMessageText(safeParseMessage(row.message)), 500),
+      snippet: truncateSessionSearchText(extractAgentMessageText(safeParseMessage(row.message)), 500),
       messages: view?.messages ?? [shapeMessage(row.message, row.message.id)],
       bookend_start: allMessages.slice(0, 3).map((message) => shapeMessage(message)),
       bookend_end: allMessages.slice(-3).map((message) => shapeMessage(message)),
@@ -359,14 +324,14 @@ export function createSessionSearchTool(deps: {
         const ambientContext = getAgentExecutionContext();
         let scope: SessionSearchScope | null = null;
         if (deps.sessionId) {
-          const sessions = await db.query.piSessions.findMany({
-            where: and(
+          const sessions = await db
+            .select({ agentId: piSessions.agentId })
+            .from(piSessions)
+            .where(and(
               eq(piSessions.sessionId, deps.sessionId),
               eq(piSessions.userId, deps.userId),
-            ),
-            columns: { agentId: true },
-            limit: 3,
-          });
+            ))
+            .limit(3);
           if (sessions.length !== 1 || sessions[0].agentId !== agentId) {
             throw new Error('Workspace-scoped source session is missing or ambiguous.');
           }

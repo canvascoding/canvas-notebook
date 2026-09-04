@@ -157,6 +157,18 @@ export interface AISession {
   };
 }
 
+export type ChatHistorySearchMatch = {
+  kind: 'title' | 'content';
+  messageId?: number;
+  role?: string;
+  snippet?: string;
+};
+
+export type ChatHistorySearchResult = {
+  session: AISession;
+  match: ChatHistorySearchMatch;
+};
+
 export type CachedChatSession = {
   version: 1;
   session: AISession;
@@ -267,7 +279,14 @@ export type AgentProfile = {
   };
 };
 
-export type ChatHistoryGroup = 'today' | 'last7' | 'last14' | 'last30' | 'older';
+export type ChatHistoryGroup =
+  | 'searchTitle'
+  | 'searchContent'
+  | 'today'
+  | 'last7'
+  | 'last14'
+  | 'last30'
+  | 'older';
 export type ChatHistoryGroups = Record<ChatHistoryGroup, AISession[]>;
 export type ChatHistoryPanelVariant = 'sidebar' | 'overlay';
 export type ChatHistoryAgentOption = {

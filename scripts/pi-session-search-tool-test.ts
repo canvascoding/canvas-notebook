@@ -111,7 +111,7 @@ async function main() {
     const [alphaSession] = await db.insert(piSessions).values({
       sessionId: 'sess-alpha',
       userId: 'user-1',
-      agentId: 'canvas-agent',
+      agentId: 'bradley',
       workspaceId: 'workspace-current',
       workspaceType: 'personal',
       provider: 'test-provider',
@@ -127,7 +127,7 @@ async function main() {
     const [budgetSession] = await db.insert(piSessions).values({
       sessionId: 'sess-budget',
       userId: 'user-1',
-      agentId: 'canvas-agent',
+      agentId: 'bradley',
       provider: 'test-provider',
       model: 'test-model',
       thinkingLevel: null,
@@ -157,7 +157,7 @@ async function main() {
     const [otherUserSession] = await db.insert(piSessions).values({
       sessionId: 'sess-other-user',
       userId: 'user-2',
-      agentId: 'canvas-agent',
+      agentId: 'bradley',
       workspaceId: 'workspace-current',
       workspaceType: 'personal',
       provider: 'test-provider',
@@ -173,7 +173,7 @@ async function main() {
     const [otherWorkspaceSession] = await db.insert(piSessions).values({
       sessionId: 'sess-other-workspace',
       userId: 'user-1',
-      agentId: 'canvas-agent',
+      agentId: 'bradley',
       workspaceId: 'workspace-other',
       workspaceType: 'personal',
       provider: 'test-provider',
@@ -189,7 +189,7 @@ async function main() {
     const [teamSession] = await db.insert(piSessions).values({
       sessionId: 'sess-team',
       userId: 'user-1',
-      agentId: 'canvas-agent',
+      agentId: 'bradley',
       workspaceId: 'workspace-team',
       workspaceType: 'team',
       provider: 'test-provider',
@@ -209,48 +209,56 @@ async function main() {
         role: 'user',
         content: JSON.stringify(userMessage('Can you recover the Alpha launch decision?', 1000)),
         timestamp: 1000,
+        sequence: 1,
       },
       {
         piSessionDbId: alphaSession.id,
         role: 'assistant',
         content: JSON.stringify(assistantMessage('The Alpha launch decision was to ship Friday.', 2000)),
         timestamp: 2000,
+        sequence: 2,
       },
       {
         piSessionDbId: budgetSession.id,
         role: 'user',
         content: JSON.stringify(userMessage('Budget planning and vendor notes', 3000)),
         timestamp: 3000,
+        sequence: 1,
       },
       {
         piSessionDbId: budgetSession.id,
         role: 'assistant',
         content: JSON.stringify(assistantMessage('The vendor notes have no launch keyword.', 4000)),
         timestamp: 4000,
+        sequence: 2,
       },
       {
         piSessionDbId: otherAgentSession.id,
         role: 'user',
         content: JSON.stringify(userMessage('Alpha belongs to another agent', 5000)),
         timestamp: 5000,
+        sequence: 1,
       },
       {
         piSessionDbId: otherUserSession.id,
         role: 'user',
         content: JSON.stringify(userMessage('Alpha belongs to another user', 6000)),
         timestamp: 6000,
+        sequence: 1,
       },
       {
         piSessionDbId: otherWorkspaceSession.id,
         role: 'user',
         content: JSON.stringify(userMessage('Alpha belongs to another workspace', 6500)),
         timestamp: 6500,
+        sequence: 1,
       },
       {
         piSessionDbId: teamSession.id,
         role: 'user',
         content: JSON.stringify(userMessage('Orion belongs to the team workspace', 6600)),
         timestamp: 6600,
+        sequence: 1,
       },
     ]);
 
@@ -259,6 +267,7 @@ async function main() {
       role: 'assistant',
       content: JSON.stringify(assistantMessage('Anchor details for Alpha post-launch followup.', 7000)),
       timestamp: 7000,
+      sequence: 3,
     }).returning();
 
     const tool = createSessionSearchTool({
