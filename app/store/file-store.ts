@@ -111,6 +111,7 @@ const TEXT_EXTENSIONS = new Set([
 
 const EXPLORER_STATE_STORAGE_KEY = 'canvas.fileExplorerState';
 const saveFileQueues = new Map<string, Promise<void>>();
+let fileRefreshRequestId = 0;
 const subdirectoryLoadPromises = new Map<string, { noCache: boolean; promise: Promise<void> }>();
 const DEFAULT_TREE_DEPTH = 0;
 const SUBDIRECTORY_TREE_DEPTH = 0;
@@ -925,13 +926,26 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       return null;
     }
 
+    const requestId = ++fileRefreshRequestId;
+    const originalFile = get().currentFile;
+    const loadRequestId = get().fileLoadRequestId;
+    const openRequestId = get().openFileRequestId;
+    const isCurrent = () => (
+      fileRefreshRequestId === requestId
+      && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+      && get().currentFileWorkspaceId === workspaceId
+      && get().currentFile === originalFile
+      && get().fileLoadRequestId === loadRequestId
+      && get().openFileRequestId === openRequestId
+    );
+
     try {
       const data = await readWorkspaceFile(path, {
         noCache: true,
         fallbackMessage: 'Failed to refresh file',
         workspaceId,
       });
-      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) {
+      if (!isCurrent()) {
         return null;
       }
       const currentFile = get().currentFile;
@@ -964,6 +978,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
       return refreshedFile;
     } catch (error) {
+      if (!isCurrent()) return null;
       if (error instanceof Response && error.status === 404 && get().currentFile?.path === path) {
         set((state) => ({
           selectedNode: state.selectedNode?.path === path ? null : state.selectedNode,
@@ -1001,7 +1016,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       };
     }
     const openRequestId = get().openFileRequestId + 1;
-    set({ openFileRequestId: openRequestId, searchQuery: '' });
+    // Even selecting the already open file cancels an older in-flight load.
+    set((state) => ({
+      openFileRequestId: openRequestId,
+      fileLoadRequestId: state.fileLoadRequestId + 1,
+      isLoadingFile: false,
+      loadingFilePath: null,
+      searchQuery: '',
+    }));
 
     const isLatestOpen = () => (
       get().openFileRequestId === openRequestId &&

@@ -1076,15 +1076,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     setMobileExplorerOpen(false);
   }, [showOpenedDocument]);
   const handleSelectDocumentTab = useCallback(async (path: string) => {
-    if (documentTabsRef.current.activePath === path && currentFile?.path === path) {
-      showOpenedDocument(true);
-      return;
-    }
     const result = await openNotebookFile(path, { dockChatIfFull: true });
     if (result?.status !== 'opened' && result?.status !== 'superseded') {
       toast.error(result?.error || tNotebook('failedToLoadPreview'));
     }
-  }, [currentFile?.path, openNotebookFile, showOpenedDocument, tNotebook]);
+  }, [openNotebookFile, tNotebook]);
 
   const chatVisible =
     !documentFocus && (state.mainSurface === 'chat' || state.chatDocked || browserActivityUsesSheet);
