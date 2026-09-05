@@ -841,6 +841,8 @@ async function main() {
   assert.equal(defaultEnabledTools.has('memory'), true);
   assert.equal(allTools.some((tool) => tool.name === 'memory'), true);
   assert.match(allTools.find((tool) => tool.name === 'memory')?.description ?? '', /language configured for the user account/);
+  assert.match(allTools.find((tool) => tool.name === 'memory')?.description ?? '', /compact Markdown/);
+  assert.match(allTools.find((tool) => tool.name === 'memory')?.description ?? '', /Do not use headings, raw HTML, images/);
   await setUserPreferredLocale('memory-language-user', 'de');
   const localizedMemoryTool = (await buildPiToolRegistryAsync('memory-language-user')).find((tool) => tool.name === 'memory');
   assert.ok(localizedMemoryTool);

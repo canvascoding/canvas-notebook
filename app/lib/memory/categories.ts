@@ -2,6 +2,9 @@ import type { MemoryScopeType } from './contract';
 
 export type MemoryDisplayLocale = 'de' | 'en';
 
+export const MEMORY_MARKDOWN_CONTENT_GUIDANCE =
+  'Use compact Markdown only when it improves readability: paragraphs, emphasis, inline code, lists, quotes, and links are supported. Do not use headings, raw HTML, images, or wiki/workspace embeds.';
+
 export const CANONICAL_MEMORY_CATEGORIES = [
   'profile',
   'preferences',

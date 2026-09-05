@@ -110,6 +110,26 @@ asynchronen Runtime-Aufbau wird die konkrete Sprache (`German (Deutsch)` oder
 `English`) sowohl in die Tool-Beschreibung als auch in die Beschreibung des
 `content`-Parameters eingesetzt. Dafuer ist kein eigener Modellaufruf noetig.
 
+## Markdown-Inhalte
+
+Memory-Entries werden als Text in der Datenbank gespeichert und duerfen eine
+kompakte, sichere Markdown-Teilmenge enthalten: Absaetze, Hervorhebungen,
+Inline-Code, Listen, Zitate und Links. Ueberschriften, Raw HTML, Bilder sowie
+Wiki- oder Workspace-Embeds sind fuer Memory-Inhalte nicht vorgesehen.
+
+Der Memory-Service vereinheitlicht Windows-Zeilenenden zu `\n` und entfernt
+nur aeusseren Whitespace. Interne Zeilenumbrueche bleiben erhalten. Fuer
+Deduplizierung und Secret-Pruefung wird weiterhin eine separate, auf einzelne
+Leerzeichen reduzierte Vergleichsform verwendet. So bleiben Markdown-Struktur
+und bisherige Duplikaterkennung gleichzeitig erhalten.
+
+Die Settings-Oberflaeche rendert gespeicherte Inhalte mit einem dedizierten,
+restriktiven Memory-Renderer. Er kann keine Bilder laden und keine
+Workspace-Inhalte einbetten. Im Bearbeitungsmodus bleibt das originale
+Markdown im Textfeld sichtbar. Die Prompt-Projektion fuer Agenten wird dagegen
+weiterhin auf eine einzelne Faktenzeile reduziert, damit ein mehrzeiliger
+Entry die Struktur des Systemprompts nicht veraendern kann.
+
 ## Logging
 
 Strukturierte `[MemoryManager]`-Logs existieren fuer Scheduling, Claim,
@@ -120,11 +140,16 @@ technische IDs, Kategorien, Zaehler, Status, Zeitpunkte, Revisionen,
 Hash-Praefixe und Fehlercodes. Chattexte, Memory-Inhalte, Provider-Secrets und
 Modellantworten duerfen nicht in Logs geschrieben werden.
 
+Direkte Add- und Update-Schreibvorgaenge erzeugen zusaetzlich ein
+`[Memory] Entry stored.`-Log mit Operation, Scope, Entry-/Collection-ID,
+Status sowie Zeichen- und Zeilenanzahl. Der Inhalt selbst wird nicht geloggt.
+
 ## Relevante Tests
 
 - `npm run test:memory:contract`
 - `npm run test:memory:schema`
 - `npm run test:memory:service`
+- `npm run test:memory:markdown-renderer`
 - `npm run test:memory:review-runtime`
 - `npm run build`
 

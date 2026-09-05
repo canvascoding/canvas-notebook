@@ -303,7 +303,18 @@ export async function deleteAgentMemory(userId: string, agentId: string): Promis
 }
 
 function normalizedContent(content: string): string {
-  return content.replace(/\s+/g, ' ').trim();
+  return storedMemoryContent(content).replace(/\s+/g, ' ').trim();
+}
+
+function storedMemoryContent(content: string): string {
+  return content.replace(/\r\n?/g, '\n').trim();
+}
+
+function memoryContentLogFields(content: string) {
+  return {
+    characterCount: content.length,
+    lineCount: content.split('\n').length,
+  };
 }
 
 function contentHash(content: string): string {
@@ -311,15 +322,16 @@ function contentHash(content: string): string {
 }
 
 function assertMemoryContent(content: string): string {
-  const normalized = normalizedContent(content);
+  const stored = storedMemoryContent(content);
+  const normalized = normalizedContent(stored);
   if (!normalized) throw new Error('Memory content must not be empty.');
-  if (normalized.length > MEMORY_MAX_ENTRY_CHARS) {
+  if (stored.length > MEMORY_MAX_ENTRY_CHARS) {
     throw new Error(`Memory content must be ${MEMORY_MAX_ENTRY_CHARS} characters or less.`);
   }
   if (SECRET_PATTERNS.some((pattern) => pattern.test(normalized))) {
     throw new Error('Memory content appears to contain a secret or credential.');
   }
-  return normalized;
+  return stored;
 }
 
 function scopeIdentity(scope: MemoryServiceScope) {
@@ -818,6 +830,14 @@ export async function addMemory(scope: MemoryServiceScope & { content: string })
       INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at)
       VALUES (?, ?, 'add', 'assistant', ?, 'explicit_memory_tool', ?)
     `, [randomUUID(), entry.id, scope.userId, now]);
+    console.info('[Memory] Entry stored.', {
+      operation: 'add',
+      target: scope.target,
+      entryId: entry.id,
+      collectionId,
+      status: entry.status,
+      ...memoryContentLogFields(content),
+    });
     const result = await readMemory(scope);
     return { ...result, changed: true, entry };
   } finally {
@@ -909,6 +929,14 @@ export async function updateMemory(scope: MemoryServiceScope & { id: string; con
     const now = Date.now();
     await connection.run(`UPDATE memory_entries SET content = ?, normalized_content_hash = ?, estimated_tokens = ?, revision = revision + 1, updated_at = ? WHERE id = ?`, [content, contentHash(content), Math.max(1, Math.ceil(content.length / 4)), now, id]);
     await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'update', 'assistant', ?, 'explicit_memory_tool', ?)`, [randomUUID(), id, scope.userId, now]);
+    console.info('[Memory] Entry stored.', {
+      operation: 'update',
+      target: scope.target,
+      entryId: id,
+      collectionId: String(existing.collection_id),
+      status: String(existing.status),
+      ...memoryContentLogFields(content),
+    });
     const result = await readMemory(scope);
     return { ...result, changed: true, entry: result.entries.find((entry) => entry.id === id) };
   } finally { await connection.close(); }
