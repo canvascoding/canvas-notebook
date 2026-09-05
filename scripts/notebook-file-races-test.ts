@@ -42,5 +42,17 @@ async function main() {
  await first;
  assert.equal(useFileStore.getState().currentFile?.content, 'NEW');
  console.log('refresh ordering: ok');
+ setup();
+ useEditorStore.getState().setActiveFile('a.txt', 'original A');
+ const afterTyping = deferred<Response>();
+ globalThis.fetch = (async () => afterTyping.promise) as typeof fetch;
+ const refreshingCleanFile = useFileStore.getState().refreshCurrentFileContent('a.txt');
+ useEditorStore.getState().updateDraft('new local draft');
+ afterTyping.resolve(Response.json({success:true,data:file('a.txt','external change')}));
+ assert.equal(await refreshingCleanFile, null);
+ assert.equal(useFileStore.getState().currentFile?.content, 'original A');
+ assert.equal(useEditorStore.getState().draft, 'new local draft');
+ console.log('refresh preserves edits made during the request: ok');
+
 }
 main().catch(error => { console.error(error); process.exitCode=1; });

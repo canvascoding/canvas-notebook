@@ -340,7 +340,7 @@ interface FileStoreState {
   refreshVisibleTree: () => Promise<void>;
   loadSubdirectory: (dirPath: string, noCache?: boolean, expand?: boolean, workspaceId?: string | null) => Promise<void>;
   loadFile: (path: string, noCache?: boolean, workspaceId?: string | null) => Promise<FileLoadResult>;
-  refreshCurrentFileContent: (path: string) => Promise<CurrentFile | null>;
+  refreshCurrentFileContent: (path: string, options?: { allowDirty?: boolean }) => Promise<CurrentFile | null>;
   revealAndLoadFile: (path: string, options?: OpenWorkspaceFileOptions) => Promise<OpenWorkspaceFileResult>;
   closeFile: (path: string) => Promise<boolean>;
   prepareCurrentFileForTransition: () => Promise<void>;
@@ -923,7 +923,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  refreshCurrentFileContent: async (path: string) => {
+  refreshCurrentFileContent: async (path: string, options = {}) => {
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
     if (get().currentFile?.path !== path || get().currentFileWorkspaceId !== workspaceId) {
       return null;
@@ -941,6 +941,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const openRequestId = get().openFileRequestId;
     const isCurrent = () => (
       fileRefreshRequestId === requestId
+      && (options.allowDirty || !useEditorStore.getState().isDirty)
       && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
       && get().currentFileWorkspaceId === workspaceId
       && get().currentFile === originalFile

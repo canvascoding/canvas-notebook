@@ -861,7 +861,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     const isCurrent = captureEditorScope();
     setIsResolvingExternalTextChange(true);
     try {
-      const refreshed = await refreshCurrentFileContent(change.path);
+      const refreshed = await refreshCurrentFileContent(change.path, { allowDirty: true });
       if (!isCurrent()) return;
       if (!refreshed) {
         throw new Error(t('externalChangeLoadFailed'));
@@ -888,7 +888,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     const isCurrent = captureEditorScope();
     setIsResolvingExternalTextChange(true);
     try {
-      const refreshed = await refreshCurrentFileContent(change.path);
+      const refreshed = await refreshCurrentFileContent(change.path, { allowDirty: true });
       if (!isCurrent()) return;
       if (!refreshed) {
         throw new Error(t('externalChangeLoadFailed'));
@@ -1418,7 +1418,6 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               node={currentFileNode}
               showCreateActions={false}
               showMultiSelectActions={false}
-              onAfterDelete={() => onClosePreview?.()}
               contentProps={{ align: 'end' }}
             >
               <Button
