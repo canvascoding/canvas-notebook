@@ -157,7 +157,8 @@ async function deleteBrowserLabTestSession(page: Page, session: SessionSummary):
   if (!session.createdByTest) return;
   if (session.createdAgentRevision !== undefined) {
     const closed = await page.request.post('/api/agents/browser', {
-      data: { action: 'delete_profile', agentId: session.agentId },
+      data: { action: 'delete_profile', agentId: session.agentId, sessionId: session.sessionId },
+      timeout: 15_000,
     });
     expect(closed.ok()).toBeTruthy();
   }
@@ -470,11 +471,14 @@ test.describe('Browser Lab', () => {
       await address.fill(fixtureUrl);
       await page.getByRole('button', { name: labels.navigate }).click();
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
-      await expect(page.getByRole('button', { name: labels.back })).toBeEnabled();
-      await page.getByRole('button', { name: labels.back }).click();
-      await expect(address).toHaveValue('about:blank', { timeout: 30_000 });
+      // Chromium can replace the initial about:blank entry. Create real history.
+      await address.fill(`${fixtureUrl}#history`);
+      await page.getByRole('button', { name: labels.navigate }).click();
+      await expect(page.getByTitle(labels.back)).toBeEnabled();
+      await page.getByTitle(labels.back).click();
+      await expect(address).toHaveValue(fixtureUrl, { timeout: 30_000 });
       await page.getByRole('button', { name: /^(Vor|Forward)$/ }).click();
-      await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
+      await expect(address).toHaveValue(`${fixtureUrl}#history`, { timeout: 30_000 });
       await page.getByRole('button', { name: labels.reload }).click();
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
 
@@ -539,7 +543,42 @@ test.describe('Browser Lab', () => {
 
       await page.getByTitle(labels.disconnect).click();
       expect(pageErrors).toEqual([]);
+    } catch (error) {
+      console.error('Browser cooperative flow failed:', error);
+      throw error;
     } finally {
+      await deleteBrowserLabTestSession(page, session);
+    }
+  });
+
+  test('stops all viewers when their managed browser session is closed', async ({ page }) => {
+    test.slow();
+    await login(page, null);
+    const session = await findBrowserLabSession(page);
+    const spectator = await page.context().newPage();
+    try {
+      const url = `/browser/lab?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`;
+      for (const viewer of [page, spectator]) {
+        await viewer.goto(url);
+        await expect(viewer.getByRole('button', { name: labels.connect })).toBeEnabled({ timeout: 60_000 });
+        await viewer.getByRole('button', { name: labels.connect }).click();
+        await expect(viewer.locator('img[tabindex]')).toBeVisible({ timeout: 60_000 });
+      }
+      const stopped = await page.request.post('/api/agents/browser', {
+        data: { action: 'close_session', agentId: session.agentId, sessionId: session.sessionId },
+      });
+      expect(stopped.ok()).toBeTruthy();
+      for (const viewer of [page, spectator]) {
+        await expect(viewer.getByText(/^(Die Browser-Sitzung wurde beendet\.|The browser session was closed\.)$/)).toBeVisible();
+        await expect(viewer.getByLabel(labels.address)).toBeDisabled();
+      }
+      // Wait beyond several capture ticks: a queued screenshot used to restart it.
+      await page.waitForTimeout(1200);
+      const status = await page.request.get(`/api/agents/browser?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);
+      expect((await status.json()).data.profile.sessionRunning).toBe(false);
+    } finally {
+      await spectator.close();
+      await page.goto('about:blank');
       await deleteBrowserLabTestSession(page, session);
     }
   });

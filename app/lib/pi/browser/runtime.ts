@@ -35,12 +35,14 @@ export type BrowserRuntimeContext = {
 };
 
 type BrowserProfileState = {
+  closing: boolean;
   browser: Browser | null;
   launchPromise: Promise<Browser> | null;
   sessions: Map<string, BrowserSessionState>;
 };
 
 type BrowserSessionState = {
+  closed: boolean;
   activePage: Page | null;
   pages: Map<string, Page>;
   nextTabId: number;
@@ -56,6 +58,7 @@ type BrowserSessionState = {
 
 type BrowserRuntimeGlobal = typeof globalThis & {
   __canvasBrowserProfilesV1?: Map<string, BrowserProfileState>;
+  __canvasBrowserCloseListeners?: Map<string, Set<() => void>>;
 };
 
 // The custom WebSocket server and Next.js route handlers can load this module
@@ -64,6 +67,18 @@ type BrowserRuntimeGlobal = typeof globalThis & {
 const runtimeGlobal = globalThis as BrowserRuntimeGlobal;
 const browserProfiles = runtimeGlobal.__canvasBrowserProfilesV1 ?? new Map<string, BrowserProfileState>();
 runtimeGlobal.__canvasBrowserProfilesV1 = browserProfiles;
+const closeListeners = runtimeGlobal.__canvasBrowserCloseListeners ??= new Map();
+
+export function subscribeBrowserRuntimeClosed(context: BrowserRuntimeContext, listener: () => void): () => void {
+  const key = getBrowserRuntimeContextKey(context);
+  const listeners = closeListeners.get(key) ?? new Set<() => void>();
+  closeListeners.set(key, listeners);
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size && closeListeners.get(key) === listeners) closeListeners.delete(key);
+  };
+}
 const requestPolicyPages = new WeakSet<Page>();
 const CHROME_PROFILE_STARTUP_ARTIFACTS = [
   'SingletonLock',
@@ -73,6 +88,7 @@ const CHROME_PROFILE_STARTUP_ARTIFACTS = [
 ] as const;
 
 function publishClosedBrowserSession(contextKey: string): void {
+  for (const listener of [...closeListeners.get(contextKey) ?? []]) listener();
   publishBrowserSessionSnapshot(contextKey, {
     running: false,
     controlMode: 'agent',
@@ -192,6 +208,7 @@ export function getBrowserProfileContextKey(context: BrowserRuntimeContext = {})
 
 function createSessionState(): BrowserSessionState {
   return {
+    closed: false,
     activePage: null,
     pages: new Map(),
     nextTabId: 1,
@@ -302,6 +319,7 @@ function getOrCreateProfileState(context: BrowserRuntimeContext = {}): BrowserPr
   const profileKey = getProfileKey(context);
   const existing = browserProfiles.get(profileKey);
   if (existing) {
+    if (existing.closing) throw new Error('Browser runtime closed.');
     return existing;
   }
 
@@ -316,6 +334,7 @@ function getOrCreateProfileState(context: BrowserRuntimeContext = {}): BrowserPr
   }
 
   const profile: BrowserProfileState = {
+    closing: false,
     browser: null,
     launchPromise: null,
     sessions: new Map(),
@@ -356,6 +375,7 @@ export async function withBrowserRuntimeLock<T>(
   await previousLock.catch(() => undefined);
 
   try {
+    assertCurrentSession(context, session);
     return await fn();
   } finally {
     releaseCurrentLock();
@@ -363,7 +383,8 @@ export async function withBrowserRuntimeLock<T>(
 }
 
 export function scheduleIdleClose(context: BrowserRuntimeContext = {}): void {
-  const session = getOrCreateSessionState(context);
+  const session = browserProfiles.get(getProfileKey(context))?.sessions.get(getSessionKey(context));
+  if (!session || session.closed) return;
 
   if (session.idleTimer) {
     clearTimeout(session.idleTimer);
@@ -420,6 +441,10 @@ function bindSessionPage(session: BrowserSessionState, page: Page): string {
   page.on('popup', (popup: Page | null) => {
     if (!popup) return;
     void configureRequestPolicy(popup).then(() => {
+      if (session.closed) {
+        void popup.close().catch(() => undefined);
+        return;
+      }
       popup.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
       popup.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
       bindSessionPage(session, popup);
@@ -445,13 +470,15 @@ async function closeProfileIfUnused(profileKey: string, profile: BrowserProfileS
   }
 
   const currentBrowser = profile.browser;
+  profile.closing = true;
+  const pendingLaunch = profile.launchPromise;
   profile.browser = null;
-  profile.launchPromise = null;
-  browserProfiles.delete(profileKey);
 
   if (currentBrowser?.connected) {
     await currentBrowser.close().catch(() => undefined);
   }
+  await pendingLaunch?.catch(() => undefined);
+  if (browserProfiles.get(profileKey) === profile) browserProfiles.delete(profileKey);
 }
 
 async function configureRequestPolicy(page: Page): Promise<void> {
@@ -494,6 +521,10 @@ function bindCreatedTargetToSession(profile: BrowserProfileState, target: Target
   void target.page().then(async (page) => {
     if (!page) return;
     await configureRequestPolicy(page);
+    if (session.closed) {
+      await page.close().catch(() => undefined);
+      return;
+    }
     page.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
     bindSessionPage(session, page);
@@ -515,35 +546,49 @@ async function ensureBrowser(context: BrowserRuntimeContext = {}): Promise<Brows
 
   const userDataDir = getProfileUserDataDir(context);
   const launchSpec = buildBrowserLaunchSpec({ userDataDir });
-  const preparation = await prepareBrowserProfileForLaunch(launchSpec.userDataDir);
-  if (preparation.removedArtifacts.length > 0) {
-    console.info('[BrowserRuntime] Removed stale Chromium profile startup artifacts before launch:', {
-      profileKey: getProfileKey(context),
-      removedArtifacts: preparation.removedArtifacts,
-    });
-  }
+  // Publish the promise before profile preparation yields; sessions share this launch.
+  profile.launchPromise = (async () => {
+    const preparation = await prepareBrowserProfileForLaunch(launchSpec.userDataDir);
+    if (preparation.removedArtifacts.length > 0) {
+      console.info('[BrowserRuntime] Removed stale Chromium profile startup artifacts before launch:', {
+        profileKey: getProfileKey(context),
+        removedArtifacts: preparation.removedArtifacts,
+      });
+    }
 
-  profile.launchPromise = puppeteer.launch({
-    executablePath: launchSpec.executablePath,
-    headless: launchSpec.headless,
-    args: launchSpec.args,
-    pipe: launchSpec.pipe,
-    defaultViewport: { width: 1280, height: 800 },
-  }).then((launchedBrowser) => {
-    profile.browser = launchedBrowser;
-    profile.browser.on('targetcreated', (target) => bindCreatedTargetToSession(profile, target));
-    profile.browser.on('disconnected', () => {
-      profile.browser = null;
-      for (const [sessionKey, session] of profile.sessions) {
-        session.activePage = null;
-        session.pages.clear();
-        session.targetStore.clear();
-        publishClosedBrowserSession(sessionKey);
+    if (profile.closing || browserProfiles.get(getProfileKey(context)) !== profile || ![...profile.sessions.values()].some((session) => !session.closed)) {
+      throw new Error('Browser runtime closed.');
+    }
+    return puppeteer.launch({
+      executablePath: launchSpec.executablePath,
+      headless: launchSpec.headless,
+      args: launchSpec.args,
+      pipe: launchSpec.pipe,
+      defaultViewport: { width: 1280, height: 800 },
+    }).then(async (launchedBrowser) => {
+      if (profile.closing || browserProfiles.get(getProfileKey(context)) !== profile || ![...profile.sessions.values()].some((session) => !session.closed)) {
+        await launchedBrowser.close().catch(() => undefined);
+        throw new Error('Browser runtime closed.');
       }
+      profile.browser = launchedBrowser;
+      profile.browser.on('targetcreated', (target) => bindCreatedTargetToSession(profile, target));
+      profile.browser.on('disconnected', () => {
+        profile.browser = null;
+        for (const [sessionKey, session] of profile.sessions) {
+          session.closed = true;
+          if (session.idleTimer) clearTimeout(session.idleTimer);
+          session.idleTimer = null;
+          session.activePage = null;
+          session.pages.clear();
+          session.targetStore.clear();
+          publishClosedBrowserSession(sessionKey);
+        }
+        profile.sessions.clear();
+      });
+      scheduleIdleClose(context);
+      return launchedBrowser;
     });
-    scheduleIdleClose(context);
-    return launchedBrowser;
-  }).finally(() => {
+  })().finally(() => {
     profile.launchPromise = null;
   });
 
@@ -552,18 +597,33 @@ async function ensureBrowser(context: BrowserRuntimeContext = {}): Promise<Brows
 
 export async function ensurePage(context: BrowserRuntimeContext = {}): Promise<Page> {
   const session = getOrCreateSessionState(context);
+  assertCurrentSession(context, session);
   const browser = await ensureBrowser(context);
+  assertCurrentSession(context, session);
   if (session.activePage && !session.activePage.isClosed()) {
     return session.activePage;
   }
 
-  session.activePage = await browser.newPage();
-  await configureRequestPolicy(session.activePage);
-  session.activePage.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
-  session.activePage.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
-  bindSessionPage(session, session.activePage);
+  const page = await browser.newPage();
+  try {
+    assertCurrentSession(context, session);
+    await configureRequestPolicy(page);
+    assertCurrentSession(context, session);
+    page.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
+    page.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
+    bindSessionPage(session, page);
+    session.activePage = page;
+    return page;
+  } catch (error) {
+    await page.close().catch(() => undefined);
+    throw error;
+  }
+}
 
-  return session.activePage;
+function assertCurrentSession(context: BrowserRuntimeContext, session: BrowserSessionState): void {
+  if (session.closed || browserProfiles.get(getProfileKey(context))?.sessions.get(getSessionKey(context)) !== session) {
+    throw new Error('Browser runtime closed.');
+  }
 }
 
 export async function getBrowserRuntimeTabs(
@@ -652,6 +712,9 @@ export async function closeBrowserRuntime(
     return;
   }
 
+  session.closed = true;
+  publishClosedBrowserSession(sessionKey);
+
   if (session.idleTimer) {
     clearTimeout(session.idleTimer);
     session.idleTimer = null;
@@ -675,7 +738,6 @@ export async function closeBrowserRuntime(
 
   profile.sessions.delete(sessionKey);
   await closeProfileIfUnused(profileKey, profile);
-  publishClosedBrowserSession(sessionKey);
 }
 
 export async function resetBrowserSessionPage(
@@ -717,7 +779,7 @@ export async function resetBrowserSessionPage(
 export async function getStatusDetails(context: BrowserRuntimeContext = {}): Promise<BrowserStatusDetails> {
   const profile = browserProfiles.get(getProfileKey(context));
   const session = profile?.sessions.get(getSessionKey(context));
-  if (!profile?.browser?.connected || !session) {
+  if (!profile?.browser?.connected || !session || session.closed) {
     return {
       running: false,
       activeTabId: null,
@@ -728,12 +790,14 @@ export async function getStatusDetails(context: BrowserRuntimeContext = {}): Pro
 
   const tabs = await getBrowserRuntimeTabs(context);
   const page = session?.activePage && !session.activePage.isClosed() ? session.activePage : null;
+  const activeTitle = page ? await page.title().catch(() => null) : null;
+  if (session.closed) return { running: false, activeTabId: null, pendingDialog: null, tabs: [] };
   return {
     running: true,
     pageCount: tabs.length,
     activeTabId: getActiveBrowserRuntimeTabId(context),
     activeUrl: page?.url() || null,
-    activeTitle: page ? await page.title().catch(() => null) : null,
+    activeTitle,
     idleCloseMs: IDLE_CLOSE_MS,
     pendingDialog: session?.pendingDialog?.details ?? null,
     tabs,
@@ -776,6 +840,12 @@ export async function deleteBrowserProfile(context: BrowserRuntimeContext = {}):
   const profile = browserProfiles.get(profileKey);
 
   if (profile) {
+    profile.closing = true;
+    // Invalidate every session before yielding to page cleanup.
+    for (const [sessionKey, session] of profile.sessions) {
+      session.closed = true;
+      publishClosedBrowserSession(sessionKey);
+    }
     for (const session of profile.sessions.values()) {
       if (session.idleTimer) {
         clearTimeout(session.idleTimer);
@@ -795,13 +865,14 @@ export async function deleteBrowserProfile(context: BrowserRuntimeContext = {}):
     }
 
     const browser = profile.browser;
+    const pendingLaunch = profile.launchPromise;
     profile.browser = null;
-    profile.launchPromise = null;
     profile.sessions.clear();
-    browserProfiles.delete(profileKey);
     if (browser?.connected) {
       await browser.close().catch(() => undefined);
     }
+    await pendingLaunch?.catch(() => undefined);
+    if (browserProfiles.get(profileKey) === profile) browserProfiles.delete(profileKey);
   }
 
   await fs.rm(userDataDir, { recursive: true, force: true }).catch(() => undefined);

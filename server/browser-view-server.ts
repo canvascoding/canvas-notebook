@@ -19,6 +19,7 @@ import {
   type BrowserViewRateLimitState,
 } from '@/app/lib/pi/browser/view-rate-limit';
 import { BrowserViewService, type BrowserViewServerMessage } from '@/app/lib/pi/browser/view-service';
+import { subscribeBrowserRuntimeClosed } from '@/app/lib/pi/browser/runtime';
 import { verifyBrowserViewTicket } from '@/app/lib/pi/browser/view-ticket';
 import type {
   BrowserViewControlMode,
@@ -64,10 +65,13 @@ type BrowserConnection = {
   operationQueue: Promise<void>;
   subscribeTimeout: ReturnType<typeof setTimeout> | null;
   mobileScope: MobileBrowserViewTicketIdentity | null;
+  closed: boolean;
+  viewId: string | null;
+  unsubscribeRuntime: (() => void) | null;
 };
 
 const activeServices = new Set<BrowserViewService>();
-const activeViewIds = new Set<string>();
+const activeViewIds = new Map<string, BrowserConnection>();
 const connections = new Set<BrowserConnection>();
 
 function normalizeBrowserViewPath(requestUrl?: string): string | null {
@@ -107,6 +111,7 @@ function isInputMessage(message: ClientMessage): boolean {
 }
 
 async function subscribe(connection: BrowserConnection, token: string): Promise<void> {
+  if (connection.closed || connection.ws.readyState !== WebSocket.OPEN) return;
   if (connection.service) throw new Error('Browser view is already subscribed.');
   const claims = verifyBrowserViewTicket(token);
   if (claims.userId !== connection.userId || claims.authSessionId !== connection.authSessionId) {
@@ -127,10 +132,18 @@ async function subscribe(connection: BrowserConnection, token: string): Promise<
   if (activeViewIds.has(claims.viewId)) {
     throw new Error('Browser view ticket is already connected.');
   }
-  if (connection.subscribeTimeout) {
-    clearTimeout(connection.subscribeTimeout);
-    connection.subscribeTimeout = null;
-  }
+  // Reserve before the first await so two sockets cannot redeem the same ticket.
+  activeViewIds.set(claims.viewId, connection);
+  connection.viewId = claims.viewId;
+  // A runtime stop also invalidates subscriptions that are still authorizing.
+  connection.unsubscribeRuntime = subscribeBrowserRuntimeClosed({
+    userId: claims.userId, agentId: claims.agentId, sessionId: claims.agentSessionId,
+    workspaceId: claims.workspaceId, workspaceType: claims.workspaceType, organizationId: claims.organizationId,
+  }, () => {
+    sendError(connection.ws, { code: 'SESSION_CLOSED', error: 'The browser session was closed.', retryable: false, fatal: true });
+    cleanupConnection(connection);
+    connection.ws.close(1000, 'Browser session closed');
+  });
 
   const session = await assertUnambiguousOwnedPiSessionForRuntime({
     sessionId: claims.agentSessionId,
@@ -152,27 +165,34 @@ async function subscribe(connection: BrowserConnection, token: string): Promise<
 
   await assertBrowserRuntimeAvailable();
   const budget = await resolveBrowserViewResourceBudget();
+  if (connection.closed || connection.ws.readyState !== WebSocket.OPEN) return;
   if (!budget.allowed) throw new Error(budget.reason || 'Interactive browser view is unavailable.');
   if (activeServices.size >= budget.maxConcurrentViews) {
     throw new Error('Interactive browser view capacity is currently exhausted.');
   }
 
-  const service = new BrowserViewService(claims, budget, (message) => sendJson(connection.ws, message));
+  const service = new BrowserViewService(claims, budget, (message) => sendJson(connection.ws, message), () => {
+    cleanupConnection(connection);
+    connection.ws.close(1000, 'Browser view closed');
+  });
   connection.service = service;
   activeServices.add(service);
-  activeViewIds.add(claims.viewId);
   try {
     await service.start();
+    if (connection.closed) return;
+    if (connection.subscribeTimeout) clearTimeout(connection.subscribeTimeout);
+    connection.subscribeTimeout = null;
   } catch (error) {
-    service.close();
+    // Send the classified failure before cleanup closes the transport.
+    sendError(connection.ws, browserViewFailure(error, 'subscribe'));
+    cleanupConnection(connection);
+    connection.ws.close(1011, 'Subscription failed');
     activeServices.delete(service);
-    activeViewIds.delete(claims.viewId);
-    connection.service = null;
-    throw error;
   }
 }
 
 async function handleMessage(connection: BrowserConnection, message: ClientMessage): Promise<void> {
+  if (connection.closed || connection.ws.readyState !== WebSocket.OPEN) return;
   const rateLimitedMessage = message.type !== 'frame_ack' && message.type !== 'heartbeat';
   if (rateLimitedMessage && !allowBrowserViewMessage(connection.rateLimit, isInputMessage(message))) {
     throw new Error('Browser view rate limit exceeded.');
@@ -254,6 +274,7 @@ async function handleMessage(connection: BrowserConnection, message: ClientMessa
 async function handleConnection(ws: WebSocket, request: http.IncomingMessage): Promise<void> {
   const mobileScope = consumeMobileBrowserViewTicket(request.headers);
   const cookieAuth = mobileScope ? null : await authenticateWebSocketConnection(request.headers);
+  if (ws.readyState !== WebSocket.OPEN) return;
   const userId = mobileScope?.userId || cookieAuth?.userId;
   const authSessionId = mobileScope?.authSessionId || cookieAuth?.sessionId;
   if ((!mobileScope && !cookieAuth?.isAuthenticated) || !userId || !authSessionId) {
@@ -278,10 +299,14 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
     operationQueue: Promise.resolve(),
     subscribeTimeout: null,
     mobileScope,
+    closed: false,
+    viewId: null,
+    unsubscribeRuntime: null,
   };
   connection.subscribeTimeout = setTimeout(() => {
-    if (!connection.service && ws.readyState === WebSocket.OPEN) {
+    if (!connection.closed && ws.readyState === WebSocket.OPEN) {
       sendError(ws, { code: 'TICKET_EXPIRED', error: 'Browser view subscription timed out.', retryable: true, fatal: true });
+      cleanupConnection(connection);
       ws.close(4008, 'Subscription timeout');
     }
   }, SUBSCRIBE_TIMEOUT_MS);
@@ -312,6 +337,7 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
       return;
     }
     const handleFailure = (error: unknown) => {
+      if (connection.closed) return;
       const context = message.type === 'view_subscribe'
         ? 'subscribe'
         : message.type === 'navigate'
@@ -319,7 +345,10 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
           : 'operation';
       const failure = browserViewFailure(error, context);
       sendError(ws, failure);
-      if (failure.fatal && ws.readyState === WebSocket.OPEN) ws.close(1011, failure.code);
+      if (failure.fatal) {
+        cleanupConnection(connection);
+        if (ws.readyState === WebSocket.OPEN) ws.close(1011, failure.code);
+      }
     };
     if (message.type === 'browser_action' && message.action === 'stop') {
       void handleMessage(connection, message).catch(handleFailure);
@@ -329,21 +358,30 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
       .then(() => handleMessage(connection, message))
       .catch(handleFailure);
   });
-  const cleanup = () => {
-    connections.delete(connection);
-    if (connection.subscribeTimeout) {
-      clearTimeout(connection.subscribeTimeout);
-      connection.subscribeTimeout = null;
-    }
-    if (connection.service) {
-      connection.service.close();
-      activeServices.delete(connection.service);
-      activeViewIds.delete(connection.service.claims.viewId);
-      connection.service = null;
-    }
-  };
-  ws.once('close', cleanup);
-  ws.once('error', cleanup);
+  ws.once('close', () => cleanupConnection(connection));
+  ws.once('error', () => cleanupConnection(connection));
+}
+
+function cleanupConnection(connection: BrowserConnection): void {
+  if (connection.closed) return;
+  connection.closed = true;
+  connection.unsubscribeRuntime?.();
+  connection.unsubscribeRuntime = null;
+  connections.delete(connection);
+  if (connection.subscribeTimeout) {
+    clearTimeout(connection.subscribeTimeout);
+    connection.subscribeTimeout = null;
+  }
+  if (connection.service) {
+    const service = connection.service;
+    connection.service = null;
+    activeServices.delete(service);
+    service.close();
+  }
+  if (connection.viewId && activeViewIds.get(connection.viewId) === connection) {
+    activeViewIds.delete(connection.viewId);
+  }
+  connection.viewId = null;
 }
 
 export function createBrowserViewServer(server: http.Server): WebSocketServer {

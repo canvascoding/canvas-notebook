@@ -23,6 +23,10 @@ export function browserViewFailure(
   const message = error instanceof Error ? error.message : '';
   const normalized = message.toLowerCase();
 
+  if (normalized.includes('browser runtime closed') || normalized.includes('browser view closed')) {
+    return failure('SESSION_CLOSED', 'The browser session was closed.', false, true);
+  }
+
   if (normalized.includes('ticket') && normalized.includes('expired')) {
     return failure('TICKET_EXPIRED', 'The browser view ticket expired.', true, true);
   }
