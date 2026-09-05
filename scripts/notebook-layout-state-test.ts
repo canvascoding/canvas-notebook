@@ -328,3 +328,10 @@ assert.equal(notebookContextIntentFromAgentEvent({
 }), null);
 
 console.log('notebook-layout-state-test: ok');
+
+const backgroundActivity = notebookLayoutReducer(documentState, {
+  type: 'CONTEXT_OPENED', surface: 'email', activate: false,
+});
+assert.equal(backgroundActivity.mainSurface, 'document');
+assert.equal(backgroundActivity.emailAvailable, true);
+assert.equal(backgroundActivity.lastWorkSurface, 'document');

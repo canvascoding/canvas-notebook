@@ -370,6 +370,12 @@
         }
       },
       "notebook": {
+    "openDocuments": "Open documents",
+    "noOpenDocuments": "No documents open",
+    "reopenClosedDocument": "Reopen closed tab",
+    "contextAvailable": "New agent activity available",
+    "retryOperation": "Try again",
+    "closeUnavailableDocument": "Close tab",
         "fileBrowser": {
           "title": "File browser",
           "description": "View all files in your workspace. Create new ones, upload, or drag & drop."

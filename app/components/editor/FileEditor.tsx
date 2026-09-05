@@ -432,6 +432,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     saveFile,
     downloadFile,
     loadFile,
+    revealAndLoadFile,
     refreshCurrentFileContent,
     fileTree,
     currentDirectory,
@@ -446,6 +447,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     saveFile: state.saveFile,
     downloadFile: state.downloadFile,
     loadFile: state.loadFile,
+    revealAndLoadFile: state.revealAndLoadFile,
     refreshCurrentFileContent: state.refreshCurrentFileContent,
     fileTree: state.fileTree,
     currentDirectory: state.currentDirectory,
@@ -732,10 +734,10 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const htmlViewMode: HtmlViewMode = isHtml && htmlViewPreference.path === currentFile?.path
     ? htmlViewPreference.mode
     : 'preview';
-  const displayFileError = fileError && (!currentFile || !fileErrorPath || fileErrorPath === currentFile.path)
+  const displayFileError = fileError && !currentFile
     ? fileError
     : null;
-  const backgroundFileError = fileError && currentFile && fileErrorPath && fileErrorPath !== currentFile.path
+  const backgroundFileError = fileError && currentFile
     ? fileError
     : null;
 
@@ -1186,6 +1188,25 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     };
   }, [currentFile?.collaboration?.crdtCapable, currentFile?.path, isExcalidraw, isText, refreshCurrentFileContent]);
 
+  const retryOperation = async () => {
+    try {
+      if (currentFile && (isDirty || isCrdtCollaboration || isSceneCollaboration)) {
+        await useFileStore.getState().prepareCurrentFileForTransition();
+      } else {
+        const path = fileErrorPath || missingFilePath || currentFile?.path;
+        if (path) await revealAndLoadFile(path, { workspaceId: currentFileWorkspaceId ?? undefined });
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('failedToLoadPreview'));
+    }
+  };
+  const recoveryActions = (
+    <div className="mt-3 flex flex-wrap justify-center gap-2">
+      <Button variant="outline" size="sm" onClick={() => void retryOperation()}>{t('retryOperation')}</Button>
+      {onClosePreview ? <Button variant="ghost" size="sm" onClick={handleClosePreview}>{t('closeUnavailableDocument')}</Button> : null}
+    </div>
+  );
+
   if (isLoadingFile && !currentFile) {
     const pendingPath = loadingFilePath ?? null;
     if (shouldShowImageLoadingSkeleton(pendingPath)) {
@@ -1208,6 +1229,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <AlertCircle className="h-6 w-6 text-destructive" />
         <p className="text-sm text-destructive">{displayFileError}</p>
+        {recoveryActions}
       </div>
     );
   }
@@ -1222,6 +1244,8 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         <Info className="h-6 w-6" />
         <p className="text-sm font-medium text-foreground">{t('fileUnavailableTitle')}</p>
         <p className="max-w-md text-sm">{t('fileUnavailableDescription')}</p>
+        <p className="max-w-md break-all font-mono text-xs">{missingFilePath}</p>
+        {recoveryActions}
       </div>
     );
   }
@@ -1254,6 +1278,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         <div className="absolute left-1/2 top-12 z-40 flex max-w-[min(90%,36rem)] -translate-x-1/2 items-start gap-2 rounded-md border border-destructive/40 bg-background px-3 py-2 text-sm text-destructive shadow-md">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{backgroundFileError}</span>
+          {!activeExternalTextChange ? <Button variant="outline" size="sm" onClick={() => void retryOperation()}>{t('retryOperation')}</Button> : null}
         </div>
       ) : null}
       <TooltipProvider delayDuration={150}>
@@ -1375,8 +1400,9 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             ) : null}
             <FileHeaderTooltip label={saveStatusLabel}>
               <span
-                className={`flex h-6 w-6 shrink-0 items-center justify-center gap-1 rounded-sm px-0 text-xs 2xl:w-auto 2xl:max-w-36 2xl:px-1.5 ${saveStatusTone}`}
+                className={`flex h-6 max-w-36 shrink-0 items-center justify-center gap-1 rounded-sm px-1.5 text-xs ${saveStatusTone}`}
                 aria-label={saveStatusLabel}
+                role="status"
               >
                 {displaySaveError ? (
                   <AlertCircle className="h-3.5 w-3.5" />
@@ -1385,7 +1411,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                 ) : (
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 )}
-                <span className="hidden truncate 2xl:inline">{saveStatusInlineText}</span>
+                <span className="truncate">{saveStatusInlineText}</span>
               </span>
             </FileHeaderTooltip>
             <FileActionsDropdown

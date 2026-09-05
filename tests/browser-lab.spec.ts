@@ -576,10 +576,10 @@ test.describe('Browser Lab', () => {
 
       await expect(page.getByTestId('notebook-surface-browser')).toHaveAttribute(
         'aria-selected',
-        'true',
+        'false',
         { timeout: 30_000 },
       );
-      await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('data-chat-placement', 'side');
+      await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('data-chat-placement', 'main');
       await page.getByTestId('notebook-surface-chat').click();
       await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('aria-hidden', 'false');
       const liveBrowserLink = page.getByTestId('chat-live-browser-link');

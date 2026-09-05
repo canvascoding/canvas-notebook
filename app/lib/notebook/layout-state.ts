@@ -27,7 +27,7 @@ export type NotebookLayoutAction =
   | { type: 'SHOW_SURFACE'; surface: NotebookWorkSurface }
   | { type: 'DOCUMENT_OPENED'; dockChatIfFull?: boolean }
   | { type: 'DOCUMENT_CLOSED' }
-  | { type: 'CONTEXT_OPENED'; surface: NotebookContextSurface }
+  | { type: 'CONTEXT_OPENED'; surface: NotebookContextSurface; activate?: boolean }
   | { type: 'CONTEXT_CLOSED'; surface: NotebookContextSurface }
   | { type: 'SET_EXPLORER'; open: boolean }
   | { type: 'SET_CHAT_DOCKED'; docked: boolean }
@@ -198,6 +198,7 @@ export function notebookLayoutReducer(
 
     case 'CONTEXT_OPENED': {
       const availabilityKey = action.surface === 'email' ? 'emailAvailable' : 'browserAvailable';
+      if (action.activate === false) return { ...state, [availabilityKey]: true };
       return withMainSurface(
         {
           ...state,

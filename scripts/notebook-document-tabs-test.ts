@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 
 import {
   NOTEBOOK_MAX_OPEN_DOCUMENTS,
+  visibleNotebookDocumentPaths,
+  notebookDocumentLabel,
   closeNotebookDocumentTabsAtPaths,
   activateNotebookDocumentTab,
   closeNotebookDocumentTab,
@@ -59,20 +61,18 @@ for (let index = 0; index < NOTEBOOK_MAX_OPEN_DOCUMENTS; index += 1) {
   limitedState = openNotebookDocumentTab(limitedState, `doc-${index}.md`).state;
 }
 const limitedResult = openNotebookDocumentTab(limitedState, 'one-too-many.md');
-assert.equal(limitedResult.status, 'opened');
-assert.deepEqual(limitedResult.state, {
-  activePath: 'one-too-many.md',
-  openPaths: [
-    'doc-1.md',
-    'doc-2.md',
-    'doc-3.md',
-    'doc-4.md',
-    'doc-5.md',
-    'doc-6.md',
-    'doc-7.md',
-    'one-too-many.md',
-  ],
-}, 'opening a ninth document must evict the oldest background document');
+assert.equal(limitedResult.status, 'limit-reached');
+assert.equal(limitedResult.state, limitedState, 'the safety limit must never silently close a document');
+let nineDocuments = emptyNotebookDocumentTabsState();
+for (let index = 0; index < 9; index += 1) {
+  nineDocuments = openNotebookDocumentTab(nineDocuments, `doc-${index}.md`).state;
+}
+assert.equal(nineDocuments.openPaths.length, 9);
+assert.equal(nineDocuments.openPaths[0], 'doc-0.md');
+assert.equal(visibleNotebookDocumentPaths(nineDocuments).length, 8);
+assert.ok(visibleNotebookDocumentPaths(nineDocuments).includes('doc-8.md'));
+assert.equal(notebookDocumentLabel('a/index.md', ['a/index.md', 'b/index.md']), 'a/index.md');
+assert.equal(notebookDocumentLabel('a/index.md', ['a/index.md', 'b/other.md']), 'index.md');
 
 const renamed = renameNotebookDocumentTabs({
   activePath: 'notes/daily/today.md',

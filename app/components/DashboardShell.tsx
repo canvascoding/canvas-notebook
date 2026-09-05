@@ -49,6 +49,7 @@ import { NotificationBell } from '@/app/components/notifications/NotificationBel
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { NotebookDocumentMenu } from '@/app/components/notebook/NotebookDocumentMenu';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
 import { useNotebookLayoutController } from '@/app/components/notebook/useNotebookLayoutController';
 import { useNotebookToolContext } from '@/app/components/notebook/useNotebookToolContext';
@@ -107,6 +108,8 @@ import type {
 } from '@/app/lib/notebook/context-surface';
 import {
   NOTEBOOK_MAX_OPEN_DOCUMENTS,
+  visibleNotebookDocumentPaths,
+  notebookDocumentLabel,
   closeNotebookDocumentTabsAtPaths,
   closeNotebookDocumentTab,
   emptyNotebookDocumentTabsState,
@@ -134,6 +137,8 @@ type SurfaceTabProps = {
   controlsId: string;
   icon: ReactNode;
   label: string;
+  title?: string;
+  activityLabel?: string;
   onClose?: () => void;
   onSelect: () => void;
   testId: string;
@@ -149,13 +154,15 @@ function SurfaceTab({
   controlsId,
   icon,
   label,
+  title,
+  activityLabel,
   onClose,
   onSelect,
   testId,
 }: SurfaceTabProps) {
   return (
     <div
-      title={label}
+      title={title || label}
       className={cn(
         'group/tab flex h-10 shrink-0 items-center overflow-hidden rounded-md border transition-colors sm:h-8',
         active
@@ -169,17 +176,22 @@ function SurfaceTab({
         role="tab"
         aria-controls={controlsId}
         aria-selected={active}
+        tabIndex={active ? 0 : -1}
         data-testid={testId}
         className="flex h-full min-w-0 items-center gap-1 px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:gap-2 sm:px-2.5"
         onClick={onSelect}
       >
         {icon}
+        {activityLabel && !active ? (
+          <span aria-label={activityLabel} className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+        ) : null}
         <span className="max-w-28 truncate sm:max-w-52">{label}</span>
       </button>
       {onClose ? (
         <button
           type="button"
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring sm:mr-1 sm:h-6 sm:w-6"
+          tabIndex={active ? 0 : -1}
           aria-label={closeLabel}
           title={closeLabel}
           onClick={onClose}
@@ -460,10 +472,17 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const initialNotebookStateResolvedRef = useRef(false);
   const previousCurrentFileIdentityRef = useRef<string | null>(null);
   const documentTabsRef = useRef(documentTabs);
+  const [closedDocuments, setClosedDocuments] = useState<Record<string, string[]>>({});
+  const rememberClosedDocument = useCallback((workspaceId: string, path: string) => {
+    setClosedDocuments((current) => ({
+      ...current, [workspaceId]: [...(current[workspaceId] || []).filter((item) => item !== path), path].slice(-20),
+    }));
+  }, []);
   const documentTabsWorkspaceIdRef = useRef<string | null>(null);
 
   const currentFile = useFileStore((fileState) => fileState.currentFile);
   const isLoadingFile = useFileStore((fileState) => fileState.isLoadingFile);
+  const missingFilePath = useFileStore((fileState) => fileState.missingFilePath);
   const fileError = useFileStore((fileState) => fileState.fileError);
   const currentDirectory = useFileStore((fileState) => fileState.currentDirectory);
   const activeWorkspaceId = useWorkspaceStore((workspaceState) => workspaceState.activeWorkspaceId);
@@ -485,14 +504,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const shouldForceChatOpen = shouldOpenRouteChat || hasStoredInitialPrompt;
 
   const handleContextOpen = useCallback((surface: NotebookContextSurface) => {
-    if (surface === 'browser') {
-      setBrowserActivityOpen(true);
-    }
-    dispatch({ type: 'CONTEXT_OPENED', surface });
-    if (surface === 'browser' && layout.canDockChat) {
-      dispatch({ type: 'SET_CHAT_DOCKED', docked: true });
-    }
-  }, [dispatch, layout.canDockChat]);
+    dispatch({ type: 'CONTEXT_OPENED', surface, activate: false });
+  }, [dispatch]);
   const handleContextUnavailable = useCallback((surface: NotebookContextSurface) => {
     if (surface === 'browser') {
       setBrowserActivityOpen(false);
@@ -787,7 +800,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       dispatch({ type: 'CONTEXT_CLOSED', surface: 'email' });
       dispatch({ type: 'CONTEXT_CLOSED', surface: 'browser' });
 
-      if (routeFilePath) return;
       if (!restoredTabs.activePath) {
         dispatch({ type: 'SHOW_CHAT' });
         return;
@@ -817,12 +829,14 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const currentTabs = documentTabsRef.current;
     if (!currentTabs.openPaths.includes(path)) return;
     if (currentTabs.activePath !== path) {
+      rememberClosedDocument(activeWorkspaceId, path);
       replaceDocumentTabs(activeWorkspaceId, closeNotebookDocumentTab(currentTabs, path));
       return;
     }
     try {
       if (!(await useFileStore.getState().closeFile(path))) return;
       if (useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId) return;
+      rememberClosedDocument(activeWorkspaceId, path);
       const nextTabs = closeNotebookDocumentTab(documentTabsRef.current, path);
       replaceDocumentTabs(activeWorkspaceId, nextTabs);
       openedPathRef.current = null;
@@ -832,12 +846,17 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : tNotebook('failedToSaveFile'));
     }
-  }, [activeWorkspaceId, dispatch, openNotebookFile, replaceDocumentTabs, tNotebook]);
+  }, [activeWorkspaceId, dispatch, openNotebookFile, replaceDocumentTabs, rememberClosedDocument, tNotebook]);
 
   const handleCloseDocument = useCallback(() => {
     const activePath = documentTabsRef.current.activePath;
     if (activePath) void handleCloseDocumentTab(activePath);
-  }, [handleCloseDocumentTab]);
+    else {
+      useFileStore.getState().clearCurrentFile();
+      openedPathRef.current = null;
+      dispatch({ type: 'DOCUMENT_CLOSED' });
+    }
+  }, [dispatch, handleCloseDocumentTab]);
 
   useEffect(() => {
     const closeDocumentTabsAtPaths = (paths: Iterable<string>) => {
@@ -1051,7 +1070,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       onOpenLiveBrowser={openLiveBrowser}
     />
   );
-  const documentContent = currentFile || isLoadingFile || fileError
+  const documentContent = currentFile || isLoadingFile || fileError || missingFilePath
     ? <FileEditor key={activeWorkspaceId} onClosePreview={handleCloseDocument} />
     : (
       <NotebookEmptyDocumentState
@@ -1155,6 +1174,17 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               ref={surfaceTabsRef}
               role="tablist"
               aria-label={tNotebook('surfaceTabsLabel')}
+              onKeyDown={(event) => {
+                if (!(event.target instanceof HTMLElement) || event.target.getAttribute('role') !== 'tab') return;
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+                const index = tabs.indexOf(event.target as HTMLButtonElement);
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+                  : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+                event.preventDefault();
+                tabs[next]?.focus();
+                tabs[next]?.click();
+              }}
               className="flex min-w-0 flex-1 touch-pan-x items-center gap-1 overflow-x-auto overscroll-x-contain scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
               <SurfaceTab
@@ -1165,11 +1195,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 onSelect={showChat}
                 testId="notebook-surface-chat"
               />
-              {documentTabs.openPaths.map((path, index) => {
-                const label = path.split('/').filter(Boolean).pop() || path;
+              {visibleNotebookDocumentPaths(documentTabs).map((path) => {
+                const index = documentTabs.openPaths.indexOf(path);
+                const label = notebookDocumentLabel(path, documentTabs.openPaths);
                 return (
                   <SurfaceTab
                     key={path}
+                    title={path}
                     active={
                       state.mainSurface === 'document'
                       && documentTabs.activePath === path
@@ -1191,6 +1223,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   controlsId={surfacePanelIds.email}
                   icon={<Mail className="h-3.5 w-3.5 shrink-0" />}
                   label={tNotebook('emailSurface')}
+                  activityLabel={emailContext ? tNotebook('contextAvailable') : undefined}
                   onClose={() => handleCloseContext('email')}
                   onSelect={() => showSurface('email')}
                   testId="notebook-surface-email"
@@ -1203,6 +1236,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   controlsId={surfacePanelIds.browser}
                   icon={<Globe2 className="h-3.5 w-3.5 shrink-0" />}
                   label={tNotebook('browserSurface')}
+                  activityLabel={browserContext ? tNotebook('contextAvailable') : undefined}
                   onClose={() => handleCloseContext('browser')}
                   onSelect={() => showSurface('browser')}
                   testId="notebook-surface-browser"
@@ -1210,6 +1244,26 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               ) : null}
             </div>
 
+            <NotebookDocumentMenu
+              paths={documentTabs.openPaths}
+              activePath={documentTabs.activePath}
+              canReopen={Boolean(activeWorkspaceId && closedDocuments[activeWorkspaceId]?.length)}
+              onSelect={(path) => void handleSelectDocumentTab(path)}
+              onReopen={() => {
+                if (!activeWorkspaceId) return;
+                const path = closedDocuments[activeWorkspaceId]?.at(-1);
+                if (!path) return;
+                void openNotebookFile(path, { dockChatIfFull: true }).then((result) => {
+                  if (result?.status === 'opened') {
+                    setClosedDocuments((current) => ({
+                      ...current, [activeWorkspaceId]: (current[activeWorkspaceId] || []).filter((item) => item !== path),
+                    }));
+                  } else if (result?.status !== 'superseded') {
+                    toast.error(result?.error || tNotebook('failedToLoadPreview'));
+                  }
+                });
+              }}
+            />
             {layout.isDesktop ? (
               <>
                 <TooltipProvider delayDuration={250}>

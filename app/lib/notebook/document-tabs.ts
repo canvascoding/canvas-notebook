@@ -3,7 +3,7 @@ import {
   readStoredNotebookOpenFilePath,
 } from '@/app/lib/files/notebook-open-file-storage';
 
-export const NOTEBOOK_MAX_OPEN_DOCUMENTS = 8;
+export const NOTEBOOK_MAX_OPEN_DOCUMENTS = 100;
 export const NOTEBOOK_DOCUMENT_TABS_STORAGE_VERSION = 1;
 
 const NOTEBOOK_DOCUMENT_TABS_STORAGE_KEY = 'canvas.notebookDocumentTabs.v1';
@@ -85,13 +85,7 @@ export function openNotebookDocumentTab(
   }
 
   if (state.openPaths.length >= NOTEBOOK_MAX_OPEN_DOCUMENTS) {
-    return {
-      status: 'opened',
-      state: {
-        activePath: normalizedPath,
-        openPaths: [...state.openPaths.slice(1), normalizedPath],
-      },
-    };
+    return { status: 'limit-reached', state };
   }
 
   return {
@@ -206,4 +200,19 @@ export function writeNotebookDocumentTabs(
     ...normalizedState,
     version: NOTEBOOK_DOCUMENT_TABS_STORAGE_VERSION,
   } satisfies StoredNotebookDocumentTabs));
+}
+
+/** The strip stays compact; the menu retains every document, including the active one. */
+export function visibleNotebookDocumentPaths(state: NotebookDocumentTabsState, limit = 8): string[] {
+  const visible = state.openPaths.slice(0, limit);
+  if (state.activePath && !visible.includes(state.activePath)) {
+    return [...visible.slice(0, limit - 1), state.activePath];
+  }
+  return visible;
+}
+
+export function notebookDocumentLabel(path: string, openPaths: string[]): string {
+  const name = path.split('/').pop() || path;
+  return openPaths.some((other) => other !== path && other.split('/').pop() === name)
+    ? path : name;
 }
