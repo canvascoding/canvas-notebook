@@ -33,7 +33,6 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
 import { NOTEBOOK_CHAT_HREF } from '@/app/lib/chat/chat-navigation-intent';
 import { cn } from '@/lib/utils';
 
@@ -292,7 +291,6 @@ export function AppLauncher() {
           </SheetContent>
         </Sheet>
       )}
-      <HelpDropdown />
     </>
   );
 }
