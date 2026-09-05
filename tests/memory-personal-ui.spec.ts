@@ -4,8 +4,9 @@ const EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL;
 const PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD;
 const enabled = process.env.E2E_MEMORY_UI === '1' && Boolean(EMAIL && PASSWORD);
 const restartPhase = process.env.E2E_MEMORY_RESTART_PHASE;
-const restartMemory = process.env.E2E_MEMORY_RESTART_CONTENT
-  || 'UI-Neustartprüfung: Antworten sollen klare nächste Schritte enthalten.';
+const restartMemoryDetail = process.env.E2E_MEMORY_RESTART_CONTENT
+  || 'Antworten sollen klare nächste Schritte enthalten.';
+const restartMemory = `**UI-Neustartprüfung**\n\n- ${restartMemoryDetail}\n- Markdown bleibt formatiert.`;
 
 async function login(page: Page) {
   await page.goto('/en/login');
@@ -95,7 +96,7 @@ test.describe('Memory Manager settings', () => {
       await expect(page.getByText('Memory saved.', { exact: true })).toBeVisible();
     }
 
-    const contextCategory = page.getByRole('button', { name: /Kontext.*Eintrag/u }).first();
+    const contextCategory = page.getByRole('button', { name: /Kontext[\s\S]*Eintr(?:ag|äge)/u }).first();
     await expect(contextCategory).toBeVisible();
     await contextCategory.click();
 
@@ -104,10 +105,15 @@ test.describe('Memory Manager settings', () => {
     await expect(selectedCategory.getByText('Ausgewählter Memory-Bereich', { exact: true })).toBeVisible();
     await expect(selectedCategory.getByText('Kontext', { exact: true })).toBeVisible();
     await expect(selectedCategory.getByText('Gemeinsamer, dauerhaft relevanter Kontext.', { exact: true })).toBeVisible();
-    await expect(page.getByText(restartMemory, { exact: true })).toBeVisible();
+    const renderedMemory = page.getByTestId('memory-markdown-content').filter({ hasText: 'UI-Neustartprüfung' }).first();
+    await expect(renderedMemory).toBeVisible();
+    await expect(renderedMemory.locator('strong')).toHaveText('UI-Neustartprüfung');
+    await expect(renderedMemory.locator('li')).toHaveCount(2);
+    await expect(renderedMemory.getByText(restartMemoryDetail, { exact: true })).toBeVisible();
+    await expect(renderedMemory.getByText('Markdown bleibt formatiert.', { exact: true })).toBeVisible();
 
     const selectedBox = await selectedCategory.boundingBox();
-    const memoryBox = await page.getByText(restartMemory, { exact: true }).boundingBox();
+    const memoryBox = await renderedMemory.boundingBox();
     expect(selectedBox).not.toBeNull();
     expect(memoryBox).not.toBeNull();
     expect(memoryBox!.y).toBeGreaterThan(selectedBox!.y + selectedBox!.height - 1);
@@ -116,7 +122,7 @@ test.describe('Memory Manager settings', () => {
     await search.fill('kein-treffer-fuer-diesen-ui-test');
     await expect(page.getByText('No memory entries match this search.', { exact: true })).toBeVisible();
     await search.fill('');
-    await expect(page.getByText(restartMemory, { exact: true })).toBeVisible();
+    await expect(renderedMemory).toBeVisible();
 
     await page.screenshot({ path: testInfo.outputPath(`memory-german-${restartPhase}-desktop.png`), fullPage: true });
 
@@ -127,7 +133,7 @@ test.describe('Memory Manager settings', () => {
     await page.screenshot({ path: testInfo.outputPath(`memory-organization-${restartPhase}-desktop.png`), fullPage: true });
 
     await scopeTabs.getByRole('button', { name: 'My memory' }).click();
-    await expect(page.getByText(restartMemory, { exact: true })).toBeVisible();
+    await expect(renderedMemory).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     const viewportMetrics = await page.evaluate(() => ({
       clientWidth: document.documentElement.clientWidth,

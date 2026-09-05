@@ -34,7 +34,7 @@ import {
 } from './service';
 import { MEMORY_MANAGER_AGENT_ID } from './constants';
 import { MEMORY_REVIEW_OUTPUT_TOKENS } from './contract';
-import { memoryReviewLanguageInstruction } from './categories';
+import { MEMORY_MARKDOWN_CONTENT_GUIDANCE, memoryReviewLanguageInstruction } from './categories';
 import { memoryReviewErrorCode, selectMemoryReviewThinkingLevel } from './review-runtime';
 
 export { MEMORY_MANAGER_AGENT_ID } from './constants';
@@ -133,6 +133,7 @@ function buildReviewPrompt(input: {
       'Workspace and organization candidates must use action "add" only; they become pending suggestions for a manager. For a private correction, use action "update" and an existing entryId or semanticKey. Never update or archive a pinned entry. Prefer no candidate when uncertain.',
       'Each content value must be self-contained, factual, and at most 800 characters. Sensitive content needs sensitivity "sensitive"; it may be discarded by policy.',
       memoryReviewLanguageInstruction(input.locale),
+      MEMORY_MARKDOWN_CONTENT_GUIDANCE,
       'Use only these stable categories: user = profile, preferences, communication, interests, tech-stack, recent-work, area; agent = agent-context; workspace or organization = profile, context, decisions, conventions, brand.',
       'Return JSON only, with this exact shape: {"candidates":[{"action":"add|update|archive","target":"user|agent|workspace|organization","category":"...","semanticKey":"...","entryId":"...","content":"...","priority":0,"sensitivity":"standard|sensitive","confidence":0,"sourceMessageSequence":0}]}.',
       'Do not include a rationale, markdown fences, or any keys outside that schema.',

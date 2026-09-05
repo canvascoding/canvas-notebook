@@ -54,6 +54,7 @@ import {
 } from '@/app/lib/public-sharing/public-file-shares';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import type { UserLocale } from '@/app/lib/user-preferences';
+import { MEMORY_MARKDOWN_CONTENT_GUIDANCE } from '@/app/lib/memory/categories';
 import {
   createCanvasSkillDraft,
   discardCanvasSkillDraft,
@@ -411,7 +412,8 @@ function createMemoryTool(userId?: string, agentId?: string | null, accountLocal
     description:
       'Reads and maintains durable database-backed memory. Use the target that matches the current runtime scope. ' +
       'Use only for long-term facts, preferences, and recurring context; never store secrets, logs, temporary tasks, or session summaries. ' +
-      `Write added or updated memory content in ${accountLanguage}, matching the user account language, while preserving proper names and established technical terms.`,
+      `Write added or updated memory content in ${accountLanguage}, matching the user account language, while preserving proper names and established technical terms. ` +
+      MEMORY_MARKDOWN_CONTENT_GUIDANCE,
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal('read'),
@@ -426,7 +428,7 @@ function createMemoryTool(userId?: string, agentId?: string | null, accountLocal
         Type.Literal('organization'),
       ], { description: 'Memory scope. Workspace and organization entries are created as pending suggestions.' }),
       id: Type.Optional(Type.String({ description: 'Required for update and delete.' })),
-      content: Type.Optional(Type.String({ description: `Required for add and update. Write it in ${accountLanguage}.` })),
+      content: Type.Optional(Type.String({ description: `Required for add and update. Write it in ${accountLanguage}. ${MEMORY_MARKDOWN_CONTENT_GUIDANCE}` })),
       reason: Type.Optional(Type.String({ description: 'Optional short reason for why this memory matters.' })),
     }),
     execute: async (_toolCallId, params) => {
