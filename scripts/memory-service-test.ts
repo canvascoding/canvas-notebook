@@ -353,6 +353,48 @@ async function main(): Promise<void> {
     assert.ok(workspaceReviewCollection);
     const workspaceReviewEntries = await readMemoryCollection({ ...workspaceScope, collectionId: workspaceReviewCollection.id });
     assert.equal(workspaceReviewEntries.entries.some((entry) => entry.status === 'pending' && /approved workspace tone/.test(entry.content)), true);
+    const revocationDb = await openDb();
+    let targetReads = 0;
+    const concurrentlyRevokedWorkspaceCandidate = {
+      action: 'add' as const,
+      category: 'decisions',
+      semanticKey: 'workspace.revoked-write',
+      content: 'This proposal must not survive a concurrent permission revocation.',
+      priority: 60,
+      get target() {
+        targetReads += 1;
+        if (targetReads === 3) {
+          // The preflight permission lookup has already captured the writable
+          // workspace. Revoke it before the review opens its write transaction.
+          queueMicrotask(() => {
+            void revocationDb.run(`
+              UPDATE canvas_workspace_members
+              SET can_write = 0, updated_at = 2
+              WHERE workspace_id = 'workspace-1' AND user_id = 'user-1'
+            `);
+          });
+        }
+        return 'workspace' as const;
+      },
+    };
+    const revokedWorkspaceReviewResult = await applyMemoryReviewCandidates({
+      claim: claim!,
+      scopeContext: { workspaceId: 'workspace-1' },
+      candidates: [concurrentlyRevokedWorkspaceCandidate],
+    });
+    assert.deepEqual(revokedWorkspaceReviewResult, { added: 0, updated: 0, archived: 0, skipped: 1 });
+    const revokedWorkspaceCollection = (await listMemoryCollections(workspaceScope))
+      .find((collection) => collection.category === 'decisions');
+    const revokedWorkspaceEntries = revokedWorkspaceCollection
+      ? await readMemoryCollection({ ...workspaceScope, collectionId: revokedWorkspaceCollection.id })
+      : null;
+    assert.equal(revokedWorkspaceEntries?.entries.some((entry) => entry.semanticKey === 'workspace.revoked-write') ?? false, false);
+    await revocationDb.run(`
+      UPDATE canvas_workspace_members
+      SET can_write = 1, updated_at = 3
+      WHERE workspace_id = 'workspace-1' AND user_id = 'user-1'
+    `);
+    await revocationDb.close();
     const rejectedSharedMutation = await applyMemoryReviewCandidates({
       claim: claim!,
       scopeContext: { workspaceId: 'workspace-1' },

@@ -18,6 +18,7 @@ import { readOrganizationPermissionForUser } from '@/app/lib/organization/permis
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { getAgentAccess } from '@/app/lib/agents/access';
 import { getAgentProfile } from '@/app/lib/agents/registry';
+import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import {
   canonicalMemoryCategory,
   memoryCategoryDescription,
@@ -1750,6 +1751,122 @@ async function sourceMessageIdForReview(
   return row?.id ?? null;
 }
 
+function enabledDatabaseFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
+/** Revalidates and locks shared-scope authorization at the review write boundary. */
+async function canSuggestSharedMemoryWithConnection(
+  connection: SqlConnection,
+  scope: MemoryServiceScope,
+): Promise<boolean> {
+  const rowLock = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
+  if (scope.target === 'organization') {
+    const permission = await connection.get(`
+      SELECT role, status
+      FROM organization_user_permissions
+      WHERE organization_id = ? AND user_id = ?
+      LIMIT 1${rowLock}
+    `, [scope.organizationId, scope.userId]) as { role?: string; status?: string } | undefined;
+    return permission?.status === 'active' && permission.role !== 'external';
+  }
+  if (scope.target !== 'workspace') return true;
+
+  const workspace = await connection.get(`
+    SELECT id, organization_id, type, owner_user_id, project_id, status
+    FROM canvas_workspaces
+    WHERE id = ?
+    LIMIT 1${rowLock}
+  `, [scope.workspaceId]) as {
+    id?: string;
+    organization_id?: string;
+    type?: string;
+    owner_user_id?: string | null;
+    project_id?: string | null;
+    status?: string;
+  } | undefined;
+  if (!workspace?.id || workspace.status !== 'active' || !workspace.organization_id) return false;
+
+  const user = await connection.get(`
+    SELECT id, email, role
+    FROM "user"
+    WHERE id = ?
+    LIMIT 1${rowLock}
+  `, [scope.userId]) as { id?: string; email?: string | null; role?: string | null } | undefined;
+  if (!user?.id) return false;
+  const actorRole = resolveWorkspaceActor({ id: user.id, email: user.email, role: user.role }).role;
+  const isAdminLike = actorRole === 'owner' || actorRole === 'admin';
+  if (workspace.type === 'personal') {
+    return actorRole !== 'external' && workspace.owner_user_id === scope.userId;
+  }
+
+  const organizationPermission = await connection.get(`
+    SELECT role, status, can_write_team_workspace
+    FROM organization_user_permissions
+    WHERE organization_id = ? AND user_id = ?
+    LIMIT 1${rowLock}
+  `, [workspace.organization_id, scope.userId]) as {
+    role?: string;
+    status?: string;
+    can_write_team_workspace?: unknown;
+  } | undefined;
+  const activeInternalMember = organizationPermission?.status === 'active'
+    && organizationPermission.role !== 'external';
+
+  if (workspace.type === 'organization') {
+    return activeInternalMember && (
+      isAdminLike || enabledDatabaseFlag(organizationPermission?.can_write_team_workspace)
+    );
+  }
+  if (workspace.type === 'team') {
+    const membership = await connection.get(`
+      SELECT role, status, can_write
+      FROM canvas_workspace_members
+      WHERE workspace_id = ? AND user_id = ?
+      LIMIT 1${rowLock}
+    `, [workspace.id, scope.userId]) as {
+      role?: string;
+      status?: string;
+      can_write?: unknown;
+    } | undefined;
+    return activeInternalMember && (
+      isAdminLike || (
+        membership?.status === 'active'
+        && membership.role !== 'external'
+        && enabledDatabaseFlag(membership.can_write)
+      )
+    );
+  }
+  if (workspace.type !== 'project' || !workspace.project_id) return false;
+
+  const projectMembership = await connection.get(`
+    SELECT role, status, can_read, can_write, can_manage
+    FROM canvas_project_members
+    WHERE organization_id = ? AND project_id = ? AND user_id = ?
+    LIMIT 1${rowLock}
+  `, [workspace.organization_id, workspace.project_id, scope.userId]) as {
+    role?: string;
+    status?: string;
+    can_read?: unknown;
+    can_write?: unknown;
+    can_manage?: unknown;
+  } | undefined;
+  const activeProjectMembership = projectMembership?.status === 'active';
+  const canReadProject = organizationPermission
+    ? organizationPermission.status === 'active' && (
+      isAdminLike || (activeProjectMembership && enabledDatabaseFlag(projectMembership?.can_read))
+    )
+    : projectMembership?.role === 'external'
+      && activeProjectMembership
+      && enabledDatabaseFlag(projectMembership?.can_read);
+  return Boolean(canReadProject && (
+    isAdminLike || (activeProjectMembership && (
+      enabledDatabaseFlag(projectMembership?.can_write)
+      || enabledDatabaseFlag(projectMembership?.can_manage)
+    ))
+  ));
+}
+
 /** Applies validated, compact candidates. Scope identifiers always come from the claimed session. */
 export async function applyMemoryReviewCandidates(params: {
   claim: MemoryReviewJobClaim;
@@ -1782,11 +1899,30 @@ export async function applyMemoryReviewCandidates(params: {
       if (!executionGuard) throw new MemoryReviewCancelledError();
       const sensitiveAllowed = executionGuard.sensitive_memory_enabled === true
         || executionGuard.sensitive_memory_enabled === 1;
+      const sharedAuthorizationByTarget = new Map<MemoryTarget, boolean>();
     for (const candidate of params.candidates.slice(0, 20)) {
       const scope = scopeForReviewCandidate(params.claim, candidate.target, params.scopeContext ?? {});
       if (!scope || !canSuggestByTarget.get(candidate.target)) {
         result.skipped += 1;
         continue;
+      }
+      if (scope.target === 'workspace' || scope.target === 'organization') {
+        if (!sharedAuthorizationByTarget.has(scope.target)) {
+          const canSuggest = await canSuggestSharedMemoryWithConnection(connection, scope);
+          sharedAuthorizationByTarget.set(scope.target, canSuggest);
+          if (!canSuggest) {
+            console.warn('[MemoryManager] Shared review authorization changed before write; candidates will be skipped.', {
+              jobId: params.claim.id,
+              target: scope.target,
+              workspaceId: scope.workspaceId ?? null,
+              organizationId: scope.organizationId ?? null,
+            });
+          }
+        }
+        if (!sharedAuthorizationByTarget.get(scope.target)) {
+          result.skipped += 1;
+          continue;
+        }
       }
       // Shared reviews can only create proposals. They never silently mutate
       // context that is visible to other members.
