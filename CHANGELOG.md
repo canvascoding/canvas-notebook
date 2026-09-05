@@ -11,6 +11,23 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.5.1] - 2026-09-05
+
+### Added
+
+- Added an in-app system update center with structured progress, durable status, and support for managed and standalone host updates.
+- Added server-side chat-history search and a quiet mobile-app promotion flow.
+- Added durable, localized personal-memory review controls, category handling, and safe Markdown rendering.
+
+### Changed
+
+- Improved standalone updater installation, socket activation, CLI progress reporting, and release-safe update contracts.
+- Refined automation prompt editing, mobile Marp rendering, workspace icon contrast, and memory-runtime safeguards.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.4.2] - 2026-09-04
 
 ### Added
