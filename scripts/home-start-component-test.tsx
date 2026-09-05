@@ -51,6 +51,9 @@ async function main() {
   await settle();
   assert.equal(screen.getAllByRole('link').filter((link) => link.getAttribute('href')?.includes('path=')).length, 5);
   assert.equal(screen.getByRole('link', { name: /Notiz 0/ }).getAttribute('href'), '/de/notebook?path=Notes%2Ffile-0.md&workspaceId=one');
+  fireEvent.click(screen.getByRole('button', { pressed: true }));
+  await settle();
+  assert.ok(screen.queryByRole('link', { name: /Notiz 0/ }), 'selecting the active view must keep files accessible');
   fireEvent.click(screen.getByRole('button', { name: 'Weitere Dateien anzeigen' }));
   await settle();
   assert.ok(screen.getByRole('link', { name: /Notiz 7/ }));

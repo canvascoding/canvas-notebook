@@ -52,9 +52,10 @@ export function HomeFilesPanel({ workspace }: { workspace: ClientWorkspaceSummar
   }, [workspace.id, view, query, expanded, revision]);
 
   const changeView = (next: QuickAccessView) => {
+    const nextExpanded = next === 'all' || next === 'frequent';
+    if (next !== view || query !== '' || nextExpanded !== expanded) setLoading(true);
     setView(next);
-    setLoading(true);
-    setExpanded(next === 'all' || next === 'frequent');
+    setExpanded(nextExpanded);
   };
 
   const importFiles = async (files: File[]) => {
