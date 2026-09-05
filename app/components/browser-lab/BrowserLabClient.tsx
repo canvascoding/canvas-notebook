@@ -51,7 +51,7 @@ import type {
   BrowserViewState,
 } from '@/app/lib/pi/browser/types';
 import { normalizeBrowserAddressInput } from '@/app/lib/pi/browser/address';
-import { closeBrowserWebSocket } from '@/app/lib/pi/browser/client-websocket';
+import { BrowserViewConnection } from '@/app/lib/pi/browser/client-connection';
 import { MAX_BROWSER_CLIPBOARD_TEXT_BYTES } from '@/app/lib/pi/browser/view-clipboard';
 import { Link } from '@/i18n/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -411,8 +411,8 @@ export function BrowserLabClient({
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const [viewState, setViewState] = useState<BrowserViewState | null>(null);
-const [frameUrl, setFrameUrl] = useState<string | null>(null);
-  const [frameSequence, setFrameSequence] = useState(0);
+  const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  const [frameAck, setFrameAck] = useState<{ acknowledge: () => void } | null>(null);
   const [address, setAddress] = useState('about:blank');
   const [failure, setFailure] = useState<BrowserViewFailure | null>(null);
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceBrowserFile[]>([]);
@@ -427,9 +427,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const lastBrowserAddressRef = useRef('about:blank');
   const submittedAddressRef = useRef<string | null>(null);
   const pendingClipboardCopiesRef = useRef(new Set<string>());
-  const socketRef = useRef<WebSocket | null>(null);
-  const connectTimeoutRef = useRef<number | null>(null);
-  const intentionalCloseRef = useRef(false);
+  const [connection] = useState(() => new BrowserViewConnection());
   const imageRef = useRef<HTMLImageElement | null>(null);
   const lastPointerMoveAtRef = useRef(0);
   const autoConnectedContextRef = useRef<string | null>(null);
@@ -481,25 +479,25 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
   }, [embeddedChat, openSelectedChat, selectedSession, viewerEnabled]);
 
   const disconnect = useCallback((options: { preserveFailure?: boolean; preserveFrame?: boolean } = {}) => {
-    intentionalCloseRef.current = true;
-    if (connectTimeoutRef.current !== null) {
-      window.clearTimeout(connectTimeoutRef.current);
-      connectTimeoutRef.current = null;
-    }
-    const socket = socketRef.current;
-    socketRef.current = null;
-    if (socket && socket.readyState < WebSocket.CLOSING) closeBrowserWebSocket(socket, 1000, 'View closed');
+    connection.close();
+    setFrameAck(null);
+    addressEditingRef.current = false;
+    submittedAddressRef.current = null;
+    lastBrowserAddressRef.current = 'about:blank';
     setConnectionStatus('idle');
     if (!options.preserveFrame) {
       setViewState(null);
       setFrameUrl(null);
-      setFrameSequence(0);
     }
     pendingClipboardCopiesRef.current.clear();
     if (!options.preserveFailure) setFailure(null);
-  }, []);
+  }, [connection]);
 
-  useEffect(() => () => disconnect(), [disconnect]);
+  useEffect(() => () => {
+    connection.close();
+    autoConnectedContextRef.current = null;
+    pendingClipboardCopiesRef.current.clear();
+  }, [connection, initialAgentId, initialSessionId, selectedAgentId, selectedSessionId, viewerEnabled]);
 
   useEffect(() => {
     const updateDocumentVisibility = () => {
@@ -528,13 +526,14 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!viewerEnabled) return;
     let cancelled = false;
+    const catalogRequest = new AbortController();
     void (async () => {
       setCatalogLoading(true);
       setFailure(null);
       try {
         const [agentsResponse, sessionsResponse] = await Promise.all([
-          fetch('/api/agents', { credentials: 'include' }),
-          fetch('/api/sessions?agentId=all', { credentials: 'include' }),
+          fetch('/api/agents', { credentials: 'include', signal: catalogRequest.signal }),
+          fetch('/api/sessions?agentId=all', { credentials: 'include', signal: catalogRequest.signal }),
         ]);
         const agentsPayload = await agentsResponse.json() as {
           success?: boolean;
@@ -580,7 +579,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
         if (!cancelled) setCatalogLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; catalogRequest.abort(); };
   }, [initialAgentId, initialSessionId, isLiveView, t.contextUnavailable, t.errors.CONNECTION_FAILED, viewerEnabled]);
 
   const fileChooserOpenedAt = viewState?.pendingFileChooser?.openedAt ?? null;
@@ -631,25 +630,29 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
   }, [fileChooserOpenedAt, fileSearch, selectedAgentId, selectedSessionId, t]);
 
   const send = useCallback((message: Record<string, unknown>) => {
-    const socket = socketRef.current;
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
-  }, []);
+    connection.send(message);
+  }, [connection]);
 
   useEffect(() => {
-    if (frameSequence > 0) send({ type: 'frame_ack', sequence: frameSequence });
-  }, [frameSequence, send]);
+    frameAck?.acknowledge();
+  }, [frameAck]);
 
   const connect = useCallback(async () => {
     if (!viewerEnabled || !selectedAgentId || !selectedSessionId) return;
+    if (isLiveView && (selectedAgentId !== initialAgentId || selectedSessionId !== initialSessionId)) return;
     const preserveFrame = connectionStatus === 'failed' && Boolean(frameUrl);
     disconnect({ preserveFailure: true, preserveFrame });
-    intentionalCloseRef.current = false;
+    const attempt = connection.begin(() => {
+      setFailure(clientFailure(t, 'CONNECTION_TIMEOUT', true, true));
+      setConnectionStatus('failed');
+    });
     setConnectionStatus('connecting');
     setFailure(null);
     try {
       const response = await fetch('/api/browser/view', {
         method: 'POST',
         credentials: 'include',
+        signal: attempt.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId: selectedAgentId,
@@ -658,7 +661,9 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
         }),
       });
       const payload = await response.json() as ViewTicketResponse;
+      if (!attempt.isCurrent()) return;
       if (!response.ok || !payload.success || !payload.data) {
+        attempt.close();
         const code = payload.code || 'CONNECTION_FAILED';
         setFailure(localizedFailure(t, {
           code,
@@ -670,24 +675,22 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
         return;
       }
       const socket = new WebSocket(socketUrl(payload.data.websocketUrl));
-      socketRef.current = socket;
+      if (!attempt.attach(socket)) return;
       socket.addEventListener('message', (event) => {
+        if (!attempt.isCurrent()) return;
         let message: BrowserSocketMessage;
         try {
           message = JSON.parse(String(event.data)) as BrowserSocketMessage;
         } catch {
           setFailure(clientFailure(t, 'INVALID_MESSAGE', false, true));
           setConnectionStatus('failed');
-          closeBrowserWebSocket(socket, 1002, 'Invalid browser message');
+          attempt.close(1002, 'Invalid browser message');
           return;
         }
         if (message.type === 'auth_success') {
           socket.send(JSON.stringify({ type: 'view_subscribe', ticket: payload.data!.ticket }));
         } else if (message.type === 'ready') {
-          if (connectTimeoutRef.current !== null) {
-            window.clearTimeout(connectTimeoutRef.current);
-            connectTimeoutRef.current = null;
-          }
+          attempt.ready();
           socket.send(JSON.stringify({ type: 'control_request', mode: 'user' }));
           setFailure(null);
           setConnectionStatus('live');
@@ -696,7 +699,11 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
           const nextFrameUrl = browserFrameUrl(message.mimeType, message.data);
           if (!nextFrameUrl) return;
           setFrameUrl(nextFrameUrl);
-          setFrameSequence(message.sequence);
+          setFrameAck({ acknowledge: () => {
+            if (attempt.isCurrent() && socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'frame_ack', sequence: message.sequence }));
+            }
+          } });
         } else if (message.type === 'state') {
           setViewState(message.state);
           if (message.state.url) {
@@ -721,54 +728,43 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
             return;
           }
           void writeSystemClipboard(message.text)
-            .then(() => setClipboardNotice({ message: t.clipboardCopied, tone: 'success' }))
-            .catch(() => setClipboardNotice({ message: t.clipboardWriteBlocked, tone: 'error' }));
+            .then(() => { if (attempt.isCurrent()) setClipboardNotice({ message: t.clipboardCopied, tone: 'success' }); })
+            .catch(() => { if (attempt.isCurrent()) setClipboardNotice({ message: t.clipboardWriteBlocked, tone: 'error' }); });
         } else if (message.type === 'error') {
           setFailure(localizedFailure(t, message));
           if (message.fatal) {
             setConnectionStatus('failed');
-            closeBrowserWebSocket(socket, 1011, message.code);
+            attempt.close(1011, message.code);
           }
         }
       });
       socket.addEventListener('close', () => {
-        if (socketRef.current === socket) {
-          socketRef.current = null;
-          if (connectTimeoutRef.current !== null) {
-            window.clearTimeout(connectTimeoutRef.current);
-            connectTimeoutRef.current = null;
-          }
-          if (intentionalCloseRef.current) {
-            setConnectionStatus('idle');
-          } else {
-            setFailure((current) => current ?? clientFailure(t, 'CONNECTION_LOST', true, true));
-            setConnectionStatus('failed');
-          }
-        }
+        if (!attempt.isCurrent()) return;
+        attempt.close();
+        setFailure((current) => current ?? clientFailure(t, 'CONNECTION_LOST', true, true));
+        setConnectionStatus('failed');
       });
       socket.addEventListener('error', () => {
+        if (!attempt.isCurrent()) return;
+        attempt.close();
         setFailure(clientFailure(t, 'CONNECTION_FAILED', true, true));
-      });
-      connectTimeoutRef.current = window.setTimeout(() => {
-        if (socketRef.current !== socket) return;
-        setFailure(clientFailure(t, 'CONNECTION_TIMEOUT', true, true));
         setConnectionStatus('failed');
-        closeBrowserWebSocket(socket, 4000, 'Connection timeout');
-      }, 15_000);
+      });
     } catch (connectError) {
+      if (!attempt.isCurrent()) return;
+      attempt.close();
       setConnectionStatus('failed');
       setFailure({
         ...clientFailure(t, 'CONNECTION_FAILED', true, true),
         error: connectError instanceof Error ? connectError.message : t.errors.CONNECTION_FAILED,
       });
     }
-  }, [connectionStatus, disconnect, frameUrl, isLiveView, selectedAgentId, selectedSessionId, t, viewerEnabled]);
+  }, [connection, connectionStatus, disconnect, frameUrl, initialAgentId, initialSessionId, isLiveView, selectedAgentId, selectedSessionId, t, viewerEnabled]);
 
   useEffect(() => {
     if (!viewerEnabled || !isLiveView || catalogLoading || !selectedAgentId || !selectedSessionId) return;
     const contextKey = `${selectedAgentId}:${selectedSessionId}:${autoConnectKey || ''}`;
     if (autoConnectedContextRef.current === contextKey) return;
-    if (connectionStatus === 'live') return;
     const timeout = window.setTimeout(() => {
       autoConnectedContextRef.current = contextKey;
       void connect();

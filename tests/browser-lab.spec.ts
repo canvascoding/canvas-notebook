@@ -658,6 +658,56 @@ test.describe('Browser Lab', () => {
     }
   });
 
+  test('cancels a pending notebook browser ticket when its surface is closed', async ({ page }) => {
+    test.slow();
+    await login(page, null);
+    const session = await findBrowserLabSession(page);
+    let releaseTicket!: () => void;
+    const ticketGate = new Promise<void>((resolve) => { releaseTicket = resolve; });
+    let finishTicket!: () => void;
+    const ticketFinished = new Promise<void>((resolve) => { finishTicket = resolve; });
+    let requests = 0;
+    const frameCounts: number[] = [];
+    page.on('websocket', (socket) => {
+      if (!socket.url().endsWith('/ws/browser')) return;
+      const index = frameCounts.push(0) - 1;
+      socket.on('framereceived', ({ payload }) => {
+        if (JSON.parse(String(payload)).type === 'frame') frameCounts[index] += 1;
+      });
+    });
+    await exposeBrowserRuntimeToNotebook(page, session.sessionId);
+    await page.route('**/api/browser/view', async (route) => {
+      requests += 1;
+      if (requests !== 1) return route.continue();
+      await ticketGate;
+      try {
+        await route.fulfill({
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, data: { ticket: 'obsolete', websocketUrl: '/ws/browser' } }),
+        });
+      } finally {
+        finishTicket();
+      }
+    });
+    try {
+      await page.goto(`/notebook?chat=open&session=${encodeURIComponent(session.sessionId)}`);
+      await expect.poll(() => requests, { timeout: 30_000 }).toBe(1);
+      await page.getByRole('button', { name: /^(Browser-Arbeitsfläche schließen|Close browser work area)$/ }).click();
+      releaseTicket();
+      await ticketFinished;
+      await expect(page.getByTestId('notebook-surface-browser')).toHaveCount(0);
+      expect(frameCounts).toHaveLength(0);
+      await page.getByTestId('chat-live-browser-link').click();
+      await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
+      await expect.poll(() => frameCounts[0], { timeout: 15_000 }).toBeGreaterThan(1);
+      expect(frameCounts).toHaveLength(1);
+    } finally {
+      releaseTicket();
+      await page.goto('about:blank');
+      await deleteBrowserLabTestSession(page, session);
+    }
+  });
+
   test('moves browser uploads and downloads through the session workspace', async ({ page }) => {
     const fixtureName = `browser-lab-upload-${Date.now()}.txt`;
     const fixtureContent = 'Canvas Browser Lab upload fixture.';

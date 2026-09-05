@@ -165,6 +165,7 @@
     "test:plugins:agent-workspace": "tsx --conditions react-server scripts/agent-plugin-workspace-test.ts",
     "test:browser-export": "tsx scripts/browser-export-service-test.ts",
     "test:browser-address": "tsx scripts/browser-address-test.ts",
+    "test:browser:connection": "tsx scripts/browser-websocket-client-test.ts && tsx scripts/browser-connection-lifecycle-test.ts",
     "test:browser-start": "tsx scripts/browser-runtime-test.ts",
     "test:browser-url-policy": "tsx scripts/browser-url-policy-test.ts",
     "test:terminal:security": "tsx scripts/terminal-route-ownership-test.ts && node scripts/test-terminal-service.js",
