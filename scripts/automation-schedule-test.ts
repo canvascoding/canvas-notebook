@@ -283,9 +283,9 @@ const prompt = buildAutomationPrompt({
   effectiveTargetOutputPath: 'reports/daily',
 });
 
-assert.match(prompt, /If you create workspace deliverables, write them to: `reports\/daily`/);
+assert.match(prompt, /Do not create workspace files unless the configured task explicitly requires a file/);
 assert.match(prompt, /\*\*Automation name:\*\* Daily Briefing/);
-assert.match(prompt, /\*\*Relevant workspace paths:\*\*\n- README\.md/);
+assert.doesNotMatch(prompt, /Relevant workspace paths|reports\/daily|README\.md/);
 assert.match(prompt, /\*\*Preferred skill:\*\* `\/pdf`/);
 assert.match(prompt, /Run logs and metadata are stored automatically in the database/);
 

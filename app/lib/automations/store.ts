@@ -13,7 +13,7 @@ import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import { requireActiveWorkspaceMailboxForAutomation } from '@/app/lib/email/account-store';
 
-import { getEffectiveAutomationTargetOutputPath } from './paths';
+import { inlineLegacyAutomationPaths } from './legacy-paths';
 import { computeNextRunAt, validateFriendlySchedule } from './schedule';
 import { generateAutomationWebhookSecret } from './webhook-secret';
 import {
@@ -538,11 +538,11 @@ function mapJobRow(
     serviceActorId: row.serviceActorId ?? null,
     approvedByUserId: row.approvedByUserId ?? null,
     lastEditedByUserId: row.lastEditedByUserId ?? row.createdByUserId,
-    prompt: row.prompt,
+    prompt: inlineLegacyAutomationPaths({ prompt: row.prompt, workspaceContextPaths, targetOutputPath }),
     preferredSkill: ensurePreferredSkill(row.preferredSkill),
-    workspaceContextPaths,
-    targetOutputPath,
-    effectiveTargetOutputPath: getEffectiveAutomationTargetOutputPath({ name: row.name, targetOutputPath }),
+    workspaceContextPaths: [],
+    targetOutputPath: null,
+    effectiveTargetOutputPath: '',
     schedule,
     timeZone: row.timeZone,
     nextRunAt: toIsoString(row.nextRunAt),
@@ -670,6 +670,7 @@ async function mapJobRowWithWebhookTrigger(row: typeof automationJobs.$inferSele
 
 export async function listAutomationJobs(userId: string): Promise<AutomationJobRecord[]> {
   await migrateLegacyHeartbeatJobs();
+  await migrateLegacyAutomationPaths();
   const access = await getAutomationListAccess(userId);
   const personalAccess = and(
     or(
@@ -767,6 +768,7 @@ export async function updateComposioAutomationTriggerBinding(input: {
 }
 
 export async function getAutomationJob(jobId: string): Promise<AutomationJobRecord | null> {
+  await migrateLegacyAutomationPaths(jobId);
   const row = await db.query.automationJobs.findFirst({
     where: eq(automationJobs.id, jobId),
   });
@@ -905,15 +907,17 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
   const policyUser = normalizePolicyUser(user);
   const userId = policyUser.id;
   const name = normalizeString(input.name, 'Name', 120);
-  const prompt = normalizeString(input.prompt, 'Prompt', 12_000);
+  const prompt = inlineLegacyAutomationPaths({
+    prompt: normalizeString(input.prompt, 'Prompt', 32_000),
+    workspaceContextPaths: normalizeWorkspaceContextPaths(input.workspaceContextPaths),
+    targetOutputPath: normalizeTargetOutputPath(input.targetOutputPath),
+  });
   const preferredSkill = ensurePreferredSkill(input.preferredSkill);
   const agentId = normalizeAgentId(input.agentId);
   const deliveryMode = normalizeDeliveryMode(input.deliveryMode);
   const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode);
   const resultPolicy = normalizeAutomationResultPolicy(input.resultPolicy);
   const triggerKind = normalizeAutomationJobTriggerKind(input.triggerKind, 'schedule');
-  const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
-  const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const preferredTimeZone = await getServerPreferredTimeZone();
   const { schedule, error } = validateFriendlySchedule(applyDefaultScheduleTimeZone(input.schedule, preferredTimeZone));
   if (!schedule || error) {
@@ -966,8 +970,8 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
       lastEditedByUserId: automationScope.lastEditedByUserId,
       prompt,
       preferredSkill,
-      workspaceContextPathsJson: JSON.stringify(workspaceContextPaths),
-      targetOutputPath,
+      workspaceContextPathsJson: '[]',
+      targetOutputPath: null,
       scheduleKind: schedule.kind,
       scheduleConfigJson: JSON.stringify(schedule),
       timeZone: schedule.timeZone,
@@ -997,13 +1001,15 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
   const policyUser = normalizePolicyUser(user);
   const userId = policyUser.id;
   const name = normalizeString(input.name, 'Name', 120);
-  const prompt = normalizeString(input.prompt, 'Prompt', 12_000);
+  const prompt = inlineLegacyAutomationPaths({
+    prompt: normalizeString(input.prompt, 'Prompt', 32_000),
+    workspaceContextPaths: normalizeWorkspaceContextPaths(input.workspaceContextPaths),
+    targetOutputPath: normalizeTargetOutputPath(input.targetOutputPath),
+  });
   const preferredSkill = ensurePreferredSkill(input.preferredSkill);
   const agentId = normalizeAgentId(input.agentId);
   const deliveryMode = normalizeDeliveryMode(input.deliveryMode);
   const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode);
-  const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
-  const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const composioTriggerId = normalizeString(input.composioTriggerId, 'Composio trigger ID', 500);
   const composioTriggerSlug = normalizeString(input.composioTriggerSlug, 'Composio trigger slug', 500);
   const composioToolkitSlug = normalizeString(input.composioToolkitSlug, 'Composio toolkit slug', 120);
@@ -1041,8 +1047,8 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
       lastEditedByUserId: automationScope.lastEditedByUserId,
       prompt,
       preferredSkill,
-      workspaceContextPathsJson: JSON.stringify(workspaceContextPaths),
-      targetOutputPath,
+      workspaceContextPathsJson: '[]',
+      targetOutputPath: null,
       scheduleKind: 'webhook',
       scheduleConfigJson: JSON.stringify(schedule),
       timeZone: schedule.timeZone,
@@ -1082,13 +1088,15 @@ export async function createCustomWebhookAutomationJob(
   const policyUser = normalizePolicyUser(user);
   const userId = policyUser.id;
   const name = normalizeString(input.name, 'Name', 120);
-  const prompt = normalizeString(input.prompt, 'Prompt', 12_000);
+  const prompt = inlineLegacyAutomationPaths({
+    prompt: normalizeString(input.prompt, 'Prompt', 32_000),
+    workspaceContextPaths: normalizeWorkspaceContextPaths(input.workspaceContextPaths),
+    targetOutputPath: normalizeTargetOutputPath(input.targetOutputPath),
+  });
   const preferredSkill = ensurePreferredSkill(input.preferredSkill);
   const agentId = normalizeAgentId(input.agentId);
   const deliveryMode = normalizeDeliveryMode(input.deliveryMode);
   const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode);
-  const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
-  const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const now = new Date();
   const id = `job-${randomUUID()}`;
   const webhookId = generateAutomationWebhookId();
@@ -1120,8 +1128,8 @@ export async function createCustomWebhookAutomationJob(
     lastEditedByUserId: automationScope.lastEditedByUserId,
     prompt,
     preferredSkill,
-    workspaceContextPathsJson: JSON.stringify(workspaceContextPaths),
-    targetOutputPath,
+    workspaceContextPathsJson: '[]',
+    targetOutputPath: null,
     scheduleKind: 'webhook',
     scheduleConfigJson: JSON.stringify(schedule),
     timeZone: schedule.timeZone,
@@ -1241,16 +1249,18 @@ export async function updateAutomationJob(
     .update(automationJobs)
     .set({
       name: input.name ? normalizeString(input.name, 'Name', 120) : existing.name,
-      prompt: input.prompt ? normalizeString(input.prompt, 'Prompt', 12_000) : existing.prompt,
+      prompt: inlineLegacyAutomationPaths({
+        prompt: input.prompt === undefined ? existing.prompt : normalizeString(input.prompt, 'Prompt', 32_000),
+        workspaceContextPaths: input.workspaceContextPaths === undefined
+          ? JSON.parse(existing.workspaceContextPathsJson)
+          : normalizeWorkspaceContextPaths(input.workspaceContextPaths),
+        targetOutputPath: input.targetOutputPath === undefined ? existing.targetOutputPath : normalizeTargetOutputPath(input.targetOutputPath),
+      }),
       preferredSkill: input.preferredSkill === undefined
         ? ensurePreferredSkill(existing.preferredSkill)
         : ensurePreferredSkill(input.preferredSkill),
-      workspaceContextPathsJson: input.workspaceContextPaths
-        ? JSON.stringify(normalizeWorkspaceContextPaths(input.workspaceContextPaths))
-        : existing.workspaceContextPathsJson,
-      targetOutputPath: input.targetOutputPath === undefined
-        ? existing.targetOutputPath
-        : normalizeTargetOutputPath(input.targetOutputPath),
+      workspaceContextPathsJson: '[]',
+      targetOutputPath: null,
       agentId: input.agentId === undefined ? existing.agentId : normalizeAgentId(input.agentId),
       deliveryMode: input.deliveryMode === undefined ? existing.deliveryMode : normalizeDeliveryMode(input.deliveryMode),
       deliveryChannelId: input.deliveryChannelId === undefined
@@ -1706,6 +1716,7 @@ export async function markAutomationWebhookEventStatus(id: string, status: strin
 
 export async function listDueAutomationJobs(now = new Date()): Promise<AutomationJobRecord[]> {
   await migrateLegacyHeartbeatJobs();
+  await migrateLegacyAutomationPaths();
   const rows = await db
     .select()
     .from(automationJobs)
@@ -2337,4 +2348,35 @@ export async function migrateLegacyHeartbeatJobs(): Promise<number> {
     console.log(`[Automationen] Migrated ${migratedCount} legacy heartbeat job(s) to workspace automations.`);
   }
   return migratedCount;
+}
+
+/** Idempotent data migration; compare the original values to avoid overwriting an edit. */
+export async function migrateLegacyAutomationPaths(jobId?: string): Promise<number> {
+  const rows = await db.select().from(automationJobs).where(and(
+    jobId ? eq(automationJobs.id, jobId) : undefined,
+    or(ne(automationJobs.workspaceContextPathsJson, '[]'), sql`${automationJobs.targetOutputPath} IS NOT NULL`),
+  ));
+  let count = 0;
+  for (const row of rows) {
+    const prompt = inlineLegacyAutomationPaths({
+      prompt: row.prompt,
+      workspaceContextPaths: JSON.parse(row.workspaceContextPathsJson),
+      targetOutputPath: row.targetOutputPath,
+    });
+    const updated = await db.update(automationJobs).set({
+      prompt,
+      workspaceContextPathsJson: '[]',
+      targetOutputPath: null,
+      revision: row.revision + 1,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(automationJobs.id, row.id),
+      eq(automationJobs.revision, row.revision),
+      eq(automationJobs.prompt, row.prompt),
+      eq(automationJobs.workspaceContextPathsJson, row.workspaceContextPathsJson),
+      row.targetOutputPath === null ? sql`${automationJobs.targetOutputPath} IS NULL` : eq(automationJobs.targetOutputPath, row.targetOutputPath),
+    )).returning({ id: automationJobs.id });
+    count += updated.length;
+  }
+  return count;
 }

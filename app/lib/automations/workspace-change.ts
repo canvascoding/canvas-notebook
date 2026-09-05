@@ -1,7 +1,5 @@
 import 'server-only';
 
-import { promises as fs } from 'node:fs';
-
 import { resolveExecutableAgentRuntime } from '@/app/lib/agent-runtime-policy/provider-runtime';
 import { getAgentProfile } from '@/app/lib/agents/registry';
 import { getChannelDeliveryReadiness } from '@/app/lib/channels/availability';
@@ -12,7 +10,6 @@ import { findOwnedPiSessionForRuntime, isPiSessionInWorkspace } from '@/app/lib/
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
 import { readEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
-import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 import {
@@ -95,52 +92,6 @@ async function sourceWorkspaceSummary(job: AutomationJobRecord, actorUserId: str
       name: job.workspaceId,
     };
   }
-}
-
-async function validateWorkspacePaths(
-  job: AutomationJobRecord,
-  workspace: WorkspaceContext,
-): Promise<AutomationWorkspaceChangeIssue[]> {
-  const issues = await Promise.all(job.workspaceContextPaths.map(async (workspacePath) => {
-    const absolutePath = resolveWorkspacePath(workspace, workspacePath).absolutePath;
-    try {
-      await fs.access(absolutePath);
-      return null;
-    } catch {
-      return issue(
-        'CONTEXT_PATH_MISSING',
-        'warning',
-        `The context path "${workspacePath}" does not exist in the target workspace.`,
-        { field: 'workspaceContextPaths', value: workspacePath },
-      );
-    }
-  }));
-
-  if (job.targetOutputPath) {
-    const absoluteTargetPath = resolveWorkspacePath(workspace, job.targetOutputPath).absolutePath;
-    try {
-      const stats = await fs.lstat(absoluteTargetPath);
-      if (!stats.isDirectory()) {
-        issues.push(issue(
-          'OUTPUT_PATH_CONFLICT',
-          'blocker',
-          `The output path "${job.targetOutputPath}" is a file in the target workspace. Choose a directory before moving.`,
-          { field: 'targetOutputPath', value: job.targetOutputPath },
-        ));
-      }
-    } catch (error) {
-      if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) {
-        issues.push(issue(
-          'OUTPUT_PATH_CONFLICT',
-          'blocker',
-          `The output path "${job.targetOutputPath}" cannot be validated in the target workspace.`,
-          { field: 'targetOutputPath', value: job.targetOutputPath },
-        ));
-      }
-    }
-  }
-
-  return issues.filter((entry): entry is AutomationWorkspaceChangeIssue => Boolean(entry));
 }
 
 async function prepareAutomationWorkspaceChange(
@@ -244,7 +195,6 @@ async function prepareAutomationWorkspaceChange(
     }
   }
 
-  issues.push(...await validateWorkspacePaths(job, executionWorkspace));
 
   if (agent && !issues.some((entry) => entry.code === 'EXECUTOR_NO_ACCESS')) {
     try {

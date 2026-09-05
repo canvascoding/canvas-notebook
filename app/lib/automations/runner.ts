@@ -1,4 +1,3 @@
-import path from 'node:path';
 
 import { agentLoop, type AgentContext, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { Api, ProviderId } from '@earendil-works/pi-ai';
@@ -10,7 +9,6 @@ import {
 } from '@/app/lib/agent-runtime-policy/provider-runtime';
 import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-runtime-policy/runtime-snapshot';
 import { SessionRuntimeContextRevisionConflictError } from '@/app/lib/agent-runtime-policy/runtime-store';
-import { createDirectory } from '@/app/lib/filesystem/workspace-files';
 import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
 import { withPiProviderOverflowRecovery } from '@/app/lib/pi/provider-overflow-recovery';
 import {
@@ -60,7 +58,6 @@ import {
   effectiveToolManifestHas,
 } from '@/app/lib/pi/effective-tool-manifest';
 
-import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { prepareAutomationHistoryWithCompaction } from './history-compaction';
 import { recoverAutomationRuntimePayload } from './runtime-compaction';
 import { buildAutomationPrompt } from './prompt';
@@ -367,11 +364,10 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     });
     const piSessionId = deliveryResolution.sessionId;
     const piSessionTitle = buildAutomationSessionTitle(job.name);
-    const effectiveTargetOutputPath = getEffectiveAutomationTargetOutputPath(job);
     const startedRun = await markAutomationRunStarted(run.id, {
       outputDir: null,
-      targetOutputPath: job.targetOutputPath,
-      effectiveTargetOutputPath: effectiveTargetOutputPath || null,
+      targetOutputPath: null,
+      effectiveTargetOutputPath: null,
       logPath: '',
       resultPath: null,
       piSessionId,
@@ -421,14 +417,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               () => runWithAgentExecutionContext(executionContext, async () => {
       assertAutomationExecutionActive(executionSignal);
 
-      if (effectiveTargetOutputPath) {
-        const targetParentDir = path.posix.dirname(effectiveTargetOutputPath);
-        if (targetParentDir && targetParentDir !== '.') {
-          await createDirectory(targetParentDir, { workspace: automationWorkspace });
-        }
-      }
-      assertAutomationExecutionActive(executionSignal);
-
       const jobPrompt = job.prompt;
       assertAutomationExecutionActive(executionSignal);
       const workspaceEmailAttention = job.resultPolicy === 'deliver_relevant_only'
@@ -437,11 +425,9 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       assertAutomationExecutionActive(executionSignal);
       const promptText = buildAutomationPrompt({
         name: job.name,
-        workspaceContextPaths: job.workspaceContextPaths,
         prompt: jobPrompt,
         preferredSkill: job.preferredSkill,
         resultPolicy: job.resultPolicy,
-        effectiveTargetOutputPath,
         webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,
         emailInboxEventContext,
         workspaceEmailAttention,
@@ -896,8 +882,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               },
             } : {}),
             status: 'success',
-            targetOutputPath: job.targetOutputPath,
-            effectiveTargetOutputPath,
+            targetOutputPath: null,
+            effectiveTargetOutputPath: null,
           },
           expectation: runTransitionExpectation,
         });
@@ -976,8 +962,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             loopQuiescent: true,
             retryAt: retryAt.toISOString(),
             error: message,
-            targetOutputPath: job.targetOutputPath,
-            effectiveTargetOutputPath,
+            targetOutputPath: null,
+            effectiveTargetOutputPath: null,
           }, runTransitionExpectation, failureResultText);
           if (!retryScheduled) {
             console.warn(`[Automationen] Run ${runId} could not schedule a retry because its status or attempt changed`);
@@ -1003,8 +989,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             error: message,
             automationPaused: pauseJobAfterFailure,
             automationPauseReason: dispatchResult?.skippedReason ?? null,
-            targetOutputPath: job.targetOutputPath,
-            effectiveTargetOutputPath,
+            targetOutputPath: null,
+            effectiveTargetOutputPath: null,
           },
           expectation: runTransitionExpectation,
         });

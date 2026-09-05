@@ -3,9 +3,12 @@ import { NO_ACTION_TOKEN } from './result-policy';
 
 type BuildAutomationPromptInput = Pick<
   AutomationJobRecord,
-  'name' | 'workspaceContextPaths' | 'prompt' | 'preferredSkill'
+  'name' | 'prompt' | 'preferredSkill'
 > & {
   resultPolicy?: AutomationResultPolicy;
+  /** @deprecated Accepted for older callers; file instructions belong in prompt. */
+  workspaceContextPaths?: string[];
+  /** @deprecated Run output is stored in the database. */
   effectiveTargetOutputPath?: string | null;
   webhookContext?: {
     provider: string;
@@ -45,17 +48,7 @@ export function buildAutomationPrompt(input: BuildAutomationPromptInput): string
     `**Automation name:** ${input.name}`,
   ];
 
-  if (input.workspaceContextPaths.length > 0) {
-    sections.push(`**Relevant workspace paths:**\n${input.workspaceContextPaths.map((entry) => `- ${entry}`).join('\n')}`);
-  } else {
-    sections.push('**Relevant workspace paths:**\n- none selected');
-  }
-
-  if (input.effectiveTargetOutputPath) {
-    sections.push(`**Workspace output:** If you create workspace deliverables, write them to: \`${input.effectiveTargetOutputPath}\`.`);
-  } else {
-    sections.push('**Workspace output:** Do not create workspace files unless the configured task explicitly requires a file. Your final answer is stored in the automation run record.');
-  }
+  sections.push('**Workspace output:** Do not create workspace files unless the configured task explicitly requires a file. Your final answer is stored in the automation run record.');
   if (input.preferredSkill && input.preferredSkill !== 'auto') {
     sections.push(`**Preferred skill:** \`/${input.preferredSkill}\``);
   }
@@ -130,7 +123,7 @@ export function buildAutomationPrompt(input: BuildAutomationPromptInput): string
   }
 
   sections.push(`### Task\n${input.prompt}`);
-  sections.push('**Workspace file operations:** Use workspace-relative file operations. Read the listed paths when relevant instead of assuming their contents.');
+  sections.push('**Workspace file operations:** Use workspace-relative file operations. Read paths mentioned in the task when relevant instead of assuming their contents.');
 
   return sections.join('\n\n');
 }

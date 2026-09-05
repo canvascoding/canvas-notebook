@@ -82,6 +82,7 @@ export type AutomationJobRecord = {
   lastEditedByUserId: string | null;
   prompt: string;
   preferredSkill: AutomationPreferredSkill;
+  /** @deprecated Compatibility only; relevant paths are part of prompt. */
   workspaceContextPaths: string[];
   targetOutputPath: string | null;
   effectiveTargetOutputPath: string;
@@ -158,7 +159,9 @@ export type CreateAutomationJobInput = {
   scope?: AutomationScope | 'team';
   workspaceId?: string | null;
   responsibleUserId?: string | null;
+  /** @deprecated Older clients are normalized into prompt. */
   workspaceContextPaths?: string[];
+  /** @deprecated Older clients are normalized into prompt; never used for run storage. */
   targetOutputPath?: string | null;
   preferredSkill?: AutomationPreferredSkill;
   agentId?: string;
@@ -180,7 +183,9 @@ export type CreateWebhookAutomationJobInput = {
   scope?: AutomationScope | 'team';
   workspaceId?: string | null;
   responsibleUserId?: string | null;
+  /** @deprecated Older clients are normalized into prompt. */
   workspaceContextPaths?: string[];
+  /** @deprecated Older clients are normalized into prompt; never used for run storage. */
   targetOutputPath?: string | null;
   preferredSkill?: AutomationPreferredSkill;
   agentId?: string;
@@ -205,7 +210,9 @@ export type CreateCustomWebhookAutomationJobInput = {
   scope?: AutomationScope | 'team';
   workspaceId?: string | null;
   responsibleUserId?: string | null;
+  /** @deprecated Older clients are normalized into prompt. */
   workspaceContextPaths?: string[];
+  /** @deprecated Older clients are normalized into prompt; never used for run storage. */
   targetOutputPath?: string | null;
   preferredSkill?: AutomationPreferredSkill;
   agentId?: string;

@@ -112,7 +112,6 @@ function formatAutomationPromptBlock(prompt: string): string {
 
 function formatAutomationJob(job: AutomationJobRecord, options: { includeFullPrompt?: boolean } = {}): string {
   const schedule = JSON.stringify(job.schedule);
-  const outputPath = job.targetOutputPath || job.effectiveTargetOutputPath || 'none';
   const lines = [
     `ID: ${job.id}`,
     `Name: ${job.name}`,
@@ -125,8 +124,6 @@ function formatAutomationJob(job: AutomationJobRecord, options: { includeFullPro
     `Next run: ${job.nextRunAt || 'not scheduled'}`,
     `Last run: ${job.lastRunAt || 'never'}`,
     `Last run status: ${job.lastRunStatus || 'n/a'}`,
-    `Output: ${outputPath}`,
-    `Context paths: ${job.workspaceContextPaths.length > 0 ? job.workspaceContextPaths.join(', ') : 'none'}`,
     `Agent ID: ${job.agentId}`,
     `Delivery: mode=${job.deliveryMode}, channel=${job.deliveryChannelId || 'none'}, sessionMode=${job.deliverySessionMode}`,
     `Updated at: ${job.updatedAt}`,
@@ -202,30 +199,6 @@ function normalizeAutomationSchedule(schedule: {
     default:
       throw new Error(`Unsupported automation schedule kind: ${schedule.kind}`);
   }
-}
-
-function normalizeAutomationWorkspacePaths(paths: string[] | undefined): string[] | undefined {
-  if (!paths) {
-    return undefined;
-  }
-
-  const normalized = paths
-    .map((entry) => entry.trim().replace(/^\/+|^\.\/+/, ''))
-    .filter(Boolean)
-    .slice(0, 20);
-
-  return normalized.length > 0 ? normalized : undefined;
-}
-
-function normalizeAutomationWorkspacePathsForUpdate(paths: string[] | undefined): string[] | undefined {
-  if (paths === undefined) {
-    return undefined;
-  }
-
-  return paths
-    .map((entry) => entry.trim().replace(/^\/+|^\.\/+/, ''))
-    .filter(Boolean)
-    .slice(0, 20);
 }
 
 async function getUserOwnedAutomationJob(userId: string, jobId: string): Promise<AutomationJobRecord> {
@@ -1371,7 +1344,7 @@ export function createUserScopedTools(
     {
       name: 'create_automation_job',
       label: 'Creating automation job',
-      description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), monthly (dayOfMonth+time), interval (every+unit). Use monthly directly for monthly requests; do not emulate it with a weekly or daily schedule and a prompt guard. Optional: targetOutputPath (where to save results), workspaceContextPaths (context files), status (active/paused).',
+      description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), monthly (dayOfMonth+time), interval (every+unit). Use monthly directly for monthly requests; do not emulate it with a weekly or daily schedule and a prompt guard. Mention any relevant files or required file deliverables in the prompt. Run results and logs are stored in the database. Optional: status (active/paused).',
       parameters: Type.Object({
         name: Type.String({ description: 'Name of the automation job (max 120 chars)' }),
         prompt: Type.String({ description: 'The script/prompt to execute when the job runs' }),
@@ -1385,12 +1358,10 @@ export function createUserScopedTools(
           unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
           timeZone: Type.Optional(Type.String({ description: 'Timezone (default: user preference, initially Europe/Berlin)' })),
         }),
-        targetOutputPath: Type.Optional(Type.String({ description: 'Where to save job outputs (relative to workspace)' })),
-        workspaceContextPaths: Type.Optional(Type.Array(Type.String(), { description: 'Array of file paths to include as context' })),
         status: Type.Optional(Type.String({ description: 'Job status: active (default) or paused' })),
       }),
       execute: async (toolCallId, params) => {
-        const { name, prompt, schedule, targetOutputPath, workspaceContextPaths, status } = params as {
+        const { name, prompt, schedule, status } = params as {
           name: string;
           prompt: string;
           schedule: {
@@ -1403,8 +1374,6 @@ export function createUserScopedTools(
             unit?: string;
             timeZone?: string;
           };
-          targetOutputPath?: string;
-          workspaceContextPaths?: string[];
           status?: string;
         };
         try {
@@ -1418,8 +1387,6 @@ export function createUserScopedTools(
               scope: executionContext?.workspaceType === 'organization' || executionContext?.workspaceType === 'team' ? 'organization' : 'personal',
               workspaceId: executionContext?.workspaceId ?? null,
               schedule: normalizeAutomationSchedule(schedule, preferredTimeZone),
-              targetOutputPath: normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
-              workspaceContextPaths: normalizeAutomationWorkspacePaths(workspaceContextPaths),
               status: normalizeAutomationStatus(status) || 'active',
             },
             scopedUserId,
@@ -1440,7 +1407,7 @@ export function createUserScopedTools(
     {
       name: 'update_automation_job',
       label: 'Updating automation job',
-      description: 'Updates an existing automation job. Required: jobId. Optional: name, prompt, schedule, targetOutputPath, workspaceContextPaths, status (active/paused). Schedule types include monthly (dayOfMonth+time); use it directly instead of adding date guards to daily or weekly prompts. Before changing prompt, call inspect_automation_job, preserve the existing prompt text, edit only the requested parts, and pass expectedPrompt or expectedUpdatedAt to avoid overwriting a newer version.',
+      description: 'Updates an existing automation job. Required: jobId. Optional: name, prompt, schedule, status (active/paused). Mention relevant paths and required file deliverables in the prompt. Schedule types include monthly (dayOfMonth+time); use it directly instead of adding date guards to daily or weekly prompts. Before changing prompt, call inspect_automation_job, preserve the existing prompt text, edit only the requested parts, and pass expectedPrompt or expectedUpdatedAt to avoid overwriting a newer version.',
       parameters: Type.Object({
         jobId: Type.String({ description: 'ID of the job to update' }),
         name: Type.Optional(Type.String({ description: 'New name for the job' })),
@@ -1457,12 +1424,10 @@ export function createUserScopedTools(
           unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
           timeZone: Type.Optional(Type.String({ description: 'Timezone' })),
         })),
-        targetOutputPath: Type.Optional(Type.String({ description: 'Where to save outputs' })),
-        workspaceContextPaths: Type.Optional(Type.Array(Type.String(), { description: 'Context file paths' })),
         status: Type.Optional(Type.String({ description: 'active or paused' })),
       }),
       execute: async (toolCallId, params) => {
-        const { jobId, name, prompt, expectedPrompt, expectedUpdatedAt, schedule, targetOutputPath, workspaceContextPaths, status } = params as {
+        const { jobId, name, prompt, expectedPrompt, expectedUpdatedAt, schedule, status } = params as {
           jobId: string;
           name?: string;
           prompt?: string;
@@ -1478,14 +1443,12 @@ export function createUserScopedTools(
             unit?: string;
             timeZone?: string;
           };
-          targetOutputPath?: string;
-          workspaceContextPaths?: string[];
           status?: string;
         };
         try {
           const scopedUserId = requireToolUserId(userId, 'automation tools');
           const existingJob = await getUserOwnedAutomationJob(scopedUserId, jobId);
-          const normalizedPrompt = normalizeOptionalString(prompt)?.slice(0, 12000);
+          const normalizedPrompt = normalizeOptionalString(prompt)?.slice(0, 32000);
           if (normalizedPrompt !== undefined && expectedPrompt === undefined && expectedUpdatedAt === undefined) {
             throw new Error('Prompt updates require expectedPrompt or expectedUpdatedAt from inspect_automation_job. Inspect the automation first, then submit the complete revised prompt.');
           }
@@ -1499,10 +1462,6 @@ export function createUserScopedTools(
           const updatedJob = await updateAutomationJob(jobId, {
             name: normalizeOptionalString(name)?.slice(0, 120),
             prompt: normalizedPrompt,
-            targetOutputPath: targetOutputPath === undefined
-              ? undefined
-              : normalizeOptionalString(targetOutputPath)?.replace(/^\/+|^\.\/+/, '') || null,
-            workspaceContextPaths: normalizeAutomationWorkspacePathsForUpdate(workspaceContextPaths),
             status: normalizeAutomationStatus(status),
             schedule: schedule ? normalizeAutomationSchedule(schedule, existingJob.timeZone || preferredTimeZone) : undefined,
           }, { actorUserId: scopedUserId });
