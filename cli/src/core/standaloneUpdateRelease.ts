@@ -116,8 +116,23 @@ async function responseJsonWithinLimit(response: Response): Promise<unknown> {
   if (!response.ok) throw new Error(`Update release is unavailable (HTTP ${response.status}).`);
   const declaredLength = Number(response.headers.get('content-length') || 0);
   if (declaredLength > MAX_MANIFEST_BYTES) throw new Error('Update manifest is too large.');
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length > MAX_MANIFEST_BYTES) throw new Error('Update manifest is too large.');
+  if (!response.body) throw new Error('Update manifest response is empty.');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_MANIFEST_BYTES) {
+        void reader.cancel().catch(() => undefined);
+        throw new Error('Update manifest is too large.');
+      }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = Buffer.concat(chunks);
   try {
     return JSON.parse(bytes.toString('utf8')) as unknown;
   } catch {
@@ -178,22 +193,24 @@ export class StandaloneReleaseResolver {
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     timeout.unref();
     let response: Response;
+    let manifestInput: unknown;
     try {
       response = await this.fetchImplementation(manifestUrl(channel, this.env), {
         headers: { accept: 'application/json' },
         redirect: 'follow',
         signal: controller.signal,
       });
+      if (new URL(response.url || manifestUrl(channel, this.env)).protocol !== 'https:') {
+        throw new Error('Update manifest redirect must use HTTPS.');
+      }
+      manifestInput = await responseJsonWithinLimit(response);
     } catch (error) {
-      if ((error as Error).name === 'AbortError') throw new Error('Update manifest request timed out.');
-      throw new Error('Update release information could not be loaded.');
+      if (controller.signal.aborted) throw new Error('Update manifest request timed out.');
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
-    if (new URL(response.url || manifestUrl(channel, this.env)).protocol !== 'https:') {
-      throw new Error('Update manifest redirect must use HTTPS.');
-    }
-    const parsed = validateSystemUpdateSignedReleaseManifest(await responseJsonWithinLimit(response));
+    const parsed = validateSystemUpdateSignedReleaseManifest(manifestInput);
     if (!parsed.ok) throw new Error(parsed.error);
     if (parsed.value.manifest.channel !== channel) throw new Error('Update manifest channel does not match the request.');
     const now = this.now();
