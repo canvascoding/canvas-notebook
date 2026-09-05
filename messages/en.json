@@ -2,6 +2,8 @@
   "common": {
     "cancel": "Cancel",
     "back": "Back",
+    "home": "Home",
+    "openNavigationMenu": "Open navigation menu",
     "suite": "Suite",
     "terminal": "Terminal",
     "aiChat": "AI Chat",
