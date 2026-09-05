@@ -61,7 +61,7 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
                   </span>
                   {item.priority === 'high' ? <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-label={tn('highPriority')} /> : null}
                 </Link>
-                {item.unread || dismissible ? <div className="flex justify-end gap-1 px-1">
+                {item.unread || dismissible ? <div className="flex flex-wrap justify-end gap-1 px-1">
                   {item.unread ? <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" disabled={pending !== null} onClick={() => void act(item)}><Check className="h-3 w-3" />{tn('markRead')}</Button> : null}
                   {dismissible ? <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" disabled={pending !== null} onClick={() => void act(item, true)}><X className="h-3 w-3" />{tn('dismiss')}</Button> : null}
                 </div> : null}
