@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { recordOpenedWorkspaceFile } from '@/app/lib/files/quick-access-client';
 import type {
   BrowserMode,
   CurrentFile,
@@ -1112,6 +1113,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     };
     get().selectNode(selectedNode);
     get().mobileFileOpened(normalizedPath, options.transitionId);
+    if (workspaceId) void recordOpenedWorkspaceFile(workspaceId, normalizedPath);
     return { status: 'opened', path: normalizedPath };
   },
 
