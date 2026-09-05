@@ -175,6 +175,7 @@
     "test:layout-scripts": "tsx scripts/layout-script-test.ts",
     "test:notebook:tabs": "tsx scripts/notebook-document-tabs-test.ts",
     "test:notebook:context": "tsx scripts/notebook-chat-context-test.ts",
+    "test:notebook:browser": "tsx scripts/notebook-tool-context-test.tsx && tsx scripts/notebook-browser-lifecycle-test.tsx && tsx scripts/notebook-layout-state-test.ts",
     "test:files:zip": "tsx --conditions react-server scripts/zip-extraction-test.ts",
     "test:files:sort": "tsx scripts/file-sort-test.ts",
     "test:files:metadata": "tsx scripts/file-metadata-format-test.ts",

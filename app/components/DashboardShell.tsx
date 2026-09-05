@@ -504,6 +504,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     browserContext,
     clearEmail,
     clearBrowser,
+    openBrowser,
   } = useNotebookToolContext({
     chatContext: activeChatContext,
     runtimeStatus: activeRuntimeStatus,
@@ -1051,12 +1052,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     dispatch({ type: 'SHOW_SURFACE', surface });
   }, [dispatch]);
   const openLiveBrowser = useCallback(() => {
-    setBrowserActivityOpen(true);
-    dispatch({ type: 'CONTEXT_OPENED', surface: 'browser' });
-    if (layout.canDockChat) {
-      dispatch({ type: 'SET_CHAT_DOCKED', docked: true });
-    }
-  }, [dispatch, layout.canDockChat]);
+    openBrowser();
+  }, [openBrowser]);
   const browserActivityUsesSheet =
     !layout.canDockChat && browserActivityOpen && state.mainSurface === 'browser';
   const browserActivityVisible = layout.canDockChat
@@ -1350,6 +1347,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                     />
                     <div className="min-h-0 flex-1">
                       <BrowserLabClient
+                        key={`${browserContext.agentId}:${browserContext.sessionId}`}
                         autoConnectKey={browserContext.sessionId}
                         enabled={state.mainSurface === 'browser'}
                         locale={locale}
@@ -1507,6 +1505,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                               />
                               <div className="min-h-0 flex-1">
                                 <BrowserLabClient
+                                  key={`${browserContext.agentId}:${browserContext.sessionId}`}
                                   autoConnectKey={browserContext.sessionId}
                                   enabled={state.mainSurface === 'browser'}
                                   locale={locale}

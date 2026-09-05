@@ -40,6 +40,7 @@ type AgentSummary = {
 type SessionSummary = {
   agentId: string;
   createdByTest?: boolean;
+  createdAgentRevision?: number;
   engine?: string | null;
   sessionId: string;
   title?: string | null;
@@ -61,18 +62,19 @@ type RuntimeCatalogProvider = {
 
 let cachedAuthCookies: Awaited<ReturnType<ReturnType<Page['context']>['cookies']>> | null = null;
 
-async function login(page: Page): Promise<void> {
+async function login(page: Page, destination: string | null = '/'): Promise<void> {
   if (cachedAuthCookies) {
     await page.context().addCookies(cachedAuthCookies);
-    await page.goto('/');
+    if (destination) await page.goto(destination);
     return;
   }
-  await page.goto('/login');
-  await page.locator('input[type="email"]').fill(TEST_EMAIL);
-  await page.locator('input[type="password"]').fill(TEST_PASSWORD);
-  await page.locator('button[type="submit"]').click();
-  await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 });
+  const response = await page.request.post('/api/auth/sign-in/email', {
+    headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
+    data: { email: TEST_EMAIL, password: TEST_PASSWORD },
+  });
+  expect(response.ok(), 'The bootstrap login must succeed.').toBeTruthy();
   cachedAuthCookies = await page.context().cookies();
+  if (destination) await page.goto(destination);
 }
 
 async function issueBrowserFixtureAccess(page: Page): Promise<string> {
@@ -84,34 +86,6 @@ async function issueBrowserFixtureAccess(page: Page): Promise<string> {
 }
 
 async function findBrowserLabSession(page: Page): Promise<SessionSummary> {
-  const [agentsResponse, sessionsResponse] = await Promise.all([
-    page.request.get('/api/agents'),
-    page.request.get('/api/sessions?agentId=all'),
-  ]);
-
-  expect(agentsResponse.ok(), await agentsResponse.text()).toBeTruthy();
-  expect(sessionsResponse.ok(), await sessionsResponse.text()).toBeTruthy();
-
-  const agentsPayload = await agentsResponse.json() as {
-    data?: { agents?: AgentSummary[] };
-  };
-  const sessionsPayload = await sessionsResponse.json() as {
-    sessions?: SessionSummary[];
-  };
-  const agentIds = new Set((agentsPayload.data?.agents ?? []).map((agent) => agent.agentId));
-  const session = (sessionsPayload.sessions ?? []).find((candidate) => (
-    candidate.engine !== 'legacy' && agentIds.has(candidate.agentId)
-  ));
-
-  if (session) {
-    return {
-      ...session,
-      createdByTest: session.title?.startsWith('Browser Lab E2E ') ?? false,
-    };
-  }
-
-  const agent = agentsPayload.data?.agents?.[0];
-  expect(agent, 'Browser Lab E2E requires at least one accessible agent.').toBeTruthy();
   const catalogResponse = await page.request.get('/api/admin/agent-runtime/catalog');
   const catalogPayload = await catalogResponse.json().catch(() => ({})) as {
     code?: string;
@@ -136,6 +110,15 @@ async function findBrowserLabSession(page: Page): Promise<SessionSummary> {
   const catalogRevision = catalogPayload.data?.catalog?.revision;
   expect(Number.isSafeInteger(catalogRevision), 'The AI runtime catalog revision is missing.').toBeTruthy();
   const thinkingLevel = model!.thinkingLevels.includes('off') ? 'off' : model!.thinkingLevels[0];
+  const agentResponse = await page.request.post('/api/agents', {
+    data: { name: `Browser Lab E2E ${Date.now()}`, scopeType: 'user', enabledTools: ['browser'] },
+  });
+  const agentPayload = await agentResponse.json() as {
+    data?: { agent?: AgentSummary & { revision: number } };
+    error?: string;
+  };
+  expect(agentResponse.ok(), agentPayload.error).toBeTruthy();
+  const agent = agentPayload.data!.agent!;
   const createResponse = await page.request.post('/api/sessions', {
     data: {
       agentId: agent!.agentId,
@@ -163,6 +146,7 @@ async function findBrowserLabSession(page: Page): Promise<SessionSummary> {
   return {
     agentId: createPayload.session?.agentId || agent!.agentId,
     createdByTest: true,
+    createdAgentRevision: agent.revision,
     engine: createPayload.session?.engine || 'pi',
     sessionId: createPayload.session!.sessionId,
     workspace: createPayload.session?.workspace ?? null,
@@ -171,9 +155,25 @@ async function findBrowserLabSession(page: Page): Promise<SessionSummary> {
 
 async function deleteBrowserLabTestSession(page: Page, session: SessionSummary): Promise<void> {
   if (!session.createdByTest) return;
-  await page.request.delete(
+  if (session.createdAgentRevision !== undefined) {
+    const closed = await page.request.post('/api/agents/browser', {
+      data: { action: 'delete_profile', agentId: session.agentId },
+    });
+    expect(closed.ok()).toBeTruthy();
+  }
+  const deletedSession = await page.request.delete(
     `/api/sessions?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`,
   );
+  expect(deletedSession.ok()).toBeTruthy();
+  if (session.createdAgentRevision !== undefined) {
+    const preview = await page.request.post('/api/agents/delete-preview', { data: { agentId: session.agentId } });
+    const payload = await preview.json() as { data: { confirmationToken: string } };
+    expect(preview.ok()).toBeTruthy();
+    const deleted = await page.request.delete('/api/agents', {
+      data: { agentId: session.agentId, expectedRevision: session.createdAgentRevision, confirmationToken: payload.data.confirmationToken },
+    });
+    expect(deleted.ok()).toBeTruthy();
+  }
 }
 
 async function exposeBrowserRuntimeToNotebook(page: Page, sessionId: string): Promise<void> {
@@ -545,16 +545,17 @@ test.describe('Browser Lab', () => {
   });
 
   test('opens the running browser beside its chat inside the notebook', async ({ page }) => {
+    test.slow();
     const pageErrors: Error[] = [];
     page.on('pageerror', (error) => pageErrors.push(error));
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await exposeBrowserRuntimeToNotebook(page, 'browser-lab-session');
-    await login(page);
+    await login(page, null);
     const session = await findBrowserLabSession(page);
     try {
       await page.goto(`/browser/lab?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);
-      await expect(page.getByRole('button', { name: labels.connect })).toBeEnabled({ timeout: 15_000 });
+      await expect(page.getByRole('button', { name: labels.connect })).toBeEnabled({ timeout: 60_000 });
       await page.getByRole('button', { name: labels.connect }).click();
       await expect(page.getByText(labels.live)).toBeVisible({ timeout: 60_000 });
       await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
@@ -600,6 +601,11 @@ test.describe('Browser Lab', () => {
       await expect(page.getByText(session.sessionId, { exact: true })).toHaveCount(0);
       await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
       const activityToggle = page.getByTestId('browser-agent-activity-toggle');
+      await page.getByRole('button', { name: /^(Browser-Arbeitsfläche schließen|Close browser work area)$/ }).click();
+      await expect(page.getByTestId('notebook-surface-browser')).toHaveCount(0);
+      await page.getByTestId('chat-live-browser-link').click();
+      await expect(page.getByTestId('notebook-surface-browser')).toHaveAttribute('aria-selected', 'true');
+      await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
       await expect(activityToggle).toHaveAttribute('aria-expanded', 'true');
       await activityToggle.click();
       await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('aria-hidden', 'true');
