@@ -350,7 +350,7 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
         if (ws.readyState === WebSocket.OPEN) ws.close(1011, failure.code);
       }
     };
-    if (message.type === 'browser_action' && message.action === 'stop') {
+    if (message.type === 'dialog_resolve' || (message.type === 'browser_action' && message.action === 'stop')) {
       void handleMessage(connection, message).catch(handleFailure);
       return;
     }

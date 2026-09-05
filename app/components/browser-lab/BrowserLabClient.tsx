@@ -92,7 +92,12 @@ type BrowserSocketMessage =
   | { type: 'clipboard_text'; requestId: string; text: string }
   | ({ type: 'error' } & BrowserViewFailure);
 
-type ConnectionStatus = 'connecting' | 'failed' | 'idle' | 'live';
+type ConnectionStatus = 'connecting' | 'reconnecting' | 'failed' | 'idle' | 'live';
+
+const RECONNECT_DELAYS = [1000, 2000, 4000];
+const AUTOMATIC_RECONNECT_CODES = new Set<BrowserViewErrorCode>([
+  'CONNECTION_FAILED', 'CONNECTION_LOST', 'CONNECTION_TIMEOUT', 'TICKET_EXPIRED',
+]);
 
 type WorkspaceBrowserFile = {
   name: string;
@@ -138,6 +143,9 @@ const copy = {
     disconnected: 'Nicht verbunden',
     failed: 'Verbindung unterbrochen',
     connecting: 'Verbindung wird aufgebaut',
+    reconnecting: 'Verbindung wird wiederhergestellt',
+    staleFrame: 'Letztes Browserbild – noch nicht wieder live. Eingaben sind gesperrt.',
+    promptInput: 'Antwort auf den Dialog',
     live: 'Live verbunden',
     failureTitle: 'Die Live-Ansicht braucht Aufmerksamkeit',
     failureDescription: 'Das letzte Browserbild bleibt zur Orientierung sichtbar. Eingaben sind bis zur erneuten Verbindung gesperrt.',
@@ -159,6 +167,7 @@ const copy = {
     clipboardTooLarge: 'Der Zwischenablagentext ist zu groß.',
     modeAgent: 'Agent steuert',
     modeUser: 'Gemeinsam aktiv',
+    modeOther: 'Andere Browseransicht steuert',
     modeView: 'Ansehen',
     takeoverWarning: 'Du kannst klicken und tippen, während der Agent weiterarbeitet. Gleichzeitige Browseraktionen werden automatisch geordnet.',
     emptyTitle: 'Noch kein Browserbild',
@@ -246,6 +255,9 @@ const copy = {
     disconnected: 'Disconnected',
     failed: 'Connection interrupted',
     connecting: 'Connecting',
+    reconnecting: 'Reconnecting',
+    staleFrame: 'Last browser frame — not live yet. Input is disabled.',
+    promptInput: 'Dialog response',
     live: 'Live connected',
     failureTitle: 'The live view needs attention',
     failureDescription: 'The last browser frame remains visible for context. Input stays locked until you reconnect.',
@@ -267,6 +279,7 @@ const copy = {
     clipboardTooLarge: 'The clipboard text is too large.',
     modeAgent: 'Agent controls',
     modeUser: 'Working together',
+    modeOther: 'Another browser view controls',
     modeView: 'Viewing',
     takeoverWarning: 'You can click and type while the agent keeps working. Simultaneous browser actions are ordered automatically.',
     emptyTitle: 'No browser frame yet',
@@ -328,6 +341,27 @@ const copy = {
 } as const;
 
 type BrowserLabCopy = (typeof copy)[keyof typeof copy];
+
+function BrowserDialogBar({ dialog, disabled, onResolve, t }: {
+  dialog: NonNullable<BrowserViewState['pendingDialog']>;
+  disabled: boolean;
+  onResolve: (accept: boolean, promptText?: string) => void;
+  t: BrowserLabCopy;
+}) {
+  const [promptText, setPromptText] = useState(dialog.defaultValue || '');
+  return (
+    <form onSubmit={(event) => { event.preventDefault(); onResolve(true, promptText); }} className="flex shrink-0 flex-wrap items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs" data-testid="browser-dialog">
+      <ShieldAlert className="h-4 w-4 text-amber-600" />
+      <span className="font-medium">{t.dialog}</span>
+      <span className="min-w-0 flex-1 break-words text-muted-foreground">{dialog.message}</span>
+      {dialog.type === 'prompt' ? (
+        <Input aria-label={t.promptInput} value={promptText} onChange={(event) => setPromptText(event.target.value)} disabled={disabled} className="min-w-0 basis-full" />
+      ) : null}
+      <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => onResolve(false)}>{t.dismiss}</Button>
+      <Button type="submit" size="sm" disabled={disabled}>{t.accept}</Button>
+    </form>
+  );
+}
 
 function localizedFailure(t: BrowserLabCopy, failure: BrowserViewFailure): BrowserViewFailure {
   return { ...failure, error: t.errors[failure.code] || failure.error };
@@ -433,7 +467,17 @@ export function BrowserLabClient({
   const imageRef = useRef<HTMLImageElement | null>(null);
   const lastPointerMoveAtRef = useRef(0);
   const autoConnectedContextRef = useRef<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const stableConnectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activePointerRef = useRef<{ id: number; button: 'left' | 'middle' | 'right' } | null>(null);
   const viewerEnabled = enabled && documentVisible;
+  const willReconnect = connectionStatus === 'failed' && Boolean(failure?.retryable)
+    && Boolean(failure && AUTOMATIC_RECONNECT_CODES.has(failure.code))
+    && retryCount < RECONNECT_DELAYS.length && viewerEnabled;
+  const reconnecting = connectionStatus === 'reconnecting' || willReconnect;
+  const connectionPending = connectionStatus === 'connecting' || reconnecting;
+  const connectionLabel = reconnecting ? t.reconnecting : connectionStatus === 'live' ? t.live
+    : connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failed : t.disconnected;
 
   const availableSessions = useMemo(
     () => sessions.filter((session) => session.engine !== 'legacy' && session.agentId === selectedAgentId),
@@ -480,8 +524,12 @@ export function BrowserLabClient({
     };
   }, [embeddedChat, openSelectedChat, selectedSession, viewerEnabled]);
 
-  const disconnect = useCallback((options: { preserveFailure?: boolean; preserveFrame?: boolean } = {}) => {
+  const disconnect = useCallback((options: { preserveFailure?: boolean; preserveFrame?: boolean; preserveRetryBudget?: boolean } = {}) => {
     connection.close();
+    if (stableConnectionTimerRef.current) clearTimeout(stableConnectionTimerRef.current);
+    stableConnectionTimerRef.current = null;
+    if (!options.preserveRetryBudget) setRetryCount(0);
+    activePointerRef.current = null;
     setFrameAck(null);
     addressEditingRef.current = false;
     submittedAddressRef.current = null;
@@ -497,6 +545,10 @@ export function BrowserLabClient({
 
   useEffect(() => () => {
     connection.close();
+    if (stableConnectionTimerRef.current) clearTimeout(stableConnectionTimerRef.current);
+    stableConnectionTimerRef.current = null;
+    setRetryCount(0);
+    activePointerRef.current = null;
     autoConnectedContextRef.current = null;
     pendingClipboardCopiesRef.current.clear();
   }, [connection, initialAgentId, initialSessionId, selectedAgentId, selectedSessionId, viewerEnabled]);
@@ -639,16 +691,16 @@ export function BrowserLabClient({
     frameAck?.acknowledge();
   }, [frameAck]);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (options: { automatic?: boolean } = {}) => {
     if (!viewerEnabled || !selectedAgentId || !selectedSessionId) return;
     if (isLiveView && (selectedAgentId !== initialAgentId || selectedSessionId !== initialSessionId)) return;
-    const preserveFrame = connectionStatus === 'failed' && Boolean(frameUrl);
-    disconnect({ preserveFailure: true, preserveFrame });
+    const preserveFrame = Boolean(frameUrl);
+    disconnect({ preserveFailure: true, preserveFrame, preserveRetryBudget: options.automatic });
     const attempt = connection.begin(() => {
       setFailure(clientFailure(t, 'CONNECTION_TIMEOUT', true, true));
       setConnectionStatus('failed');
     });
-    setConnectionStatus('connecting');
+    setConnectionStatus(options.automatic ? 'reconnecting' : 'connecting');
     setFailure(null);
     try {
       const response = await fetch('/api/browser/view', {
@@ -678,6 +730,20 @@ export function BrowserLabClient({
       }
       const socket = new WebSocket(socketUrl(payload.data.websocketUrl));
       if (!attempt.attach(socket)) return;
+      let ready = false;
+      let receivedState = false;
+      let receivedFrame = false;
+      let live = false;
+      const confirmLive = () => {
+        if (live || !ready || !receivedState || !receivedFrame) return;
+        live = true;
+        attempt.ready();
+        setConnectionStatus('live');
+        // A briefly flapping socket must not reset the retry budget indefinitely.
+        stableConnectionTimerRef.current = setTimeout(() => {
+          if (attempt.isCurrent()) setRetryCount(0);
+        }, 10_000);
+      };
       socket.addEventListener('message', (event) => {
         if (!attempt.isCurrent()) return;
         let message: BrowserSocketMessage;
@@ -692,22 +758,30 @@ export function BrowserLabClient({
         if (message.type === 'auth_success') {
           socket.send(JSON.stringify({ type: 'view_subscribe', ticket: payload.data!.ticket }));
         } else if (message.type === 'ready') {
-          attempt.ready();
+          ready = true;
           socket.send(JSON.stringify({ type: 'control_request', mode: 'user' }));
           setFailure(null);
-          setConnectionStatus('live');
+          confirmLive();
           if (!isLiveView) setSessionSetupOpen(false);
         } else if (message.type === 'frame') {
           const nextFrameUrl = browserFrameUrl(message.mimeType, message.data);
           if (!nextFrameUrl) return;
+          receivedFrame = true;
           setFrameUrl(nextFrameUrl);
+          confirmLive();
           setFrameAck({ acknowledge: () => {
             if (attempt.isCurrent() && socket.readyState === WebSocket.OPEN) {
               socket.send(JSON.stringify({ type: 'frame_ack', sequence: message.sequence }));
             }
           } });
         } else if (message.type === 'state') {
+          receivedState = true;
           setViewState(message.state);
+          confirmLive();
+          if (ready && message.state.mode === 'view' && !message.state.controlOwnerViewId) {
+            // A reconnect can precede the old socket's cleanup or lease expiry.
+            socket.send(JSON.stringify({ type: 'control_request', mode: 'user' }));
+          }
           if (message.state.url) {
             const previousBrowserAddress = lastBrowserAddressRef.current;
             lastBrowserAddressRef.current = message.state.url;
@@ -743,7 +817,7 @@ export function BrowserLabClient({
       socket.addEventListener('close', () => {
         if (!attempt.isCurrent()) return;
         attempt.close();
-        setFailure((current) => current ?? clientFailure(t, 'CONNECTION_LOST', true, true));
+        setFailure(clientFailure(t, 'CONNECTION_LOST', true, true));
         setConnectionStatus('failed');
       });
       socket.addEventListener('error', () => {
@@ -761,7 +835,17 @@ export function BrowserLabClient({
         error: connectError instanceof Error ? connectError.message : t.errors.CONNECTION_FAILED,
       });
     }
-  }, [connection, connectionStatus, disconnect, frameUrl, initialAgentId, initialSessionId, isLiveView, selectedAgentId, selectedSessionId, t, viewerEnabled]);
+  }, [connection, disconnect, frameUrl, initialAgentId, initialSessionId, isLiveView, selectedAgentId, selectedSessionId, t, viewerEnabled]);
+
+  useEffect(() => {
+    if (!willReconnect) return;
+    const delay = RECONNECT_DELAYS[retryCount];
+    const timer = window.setTimeout(() => {
+      setRetryCount((count) => count + 1);
+      void connect({ automatic: true });
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [connect, retryCount, willReconnect]);
 
   useEffect(() => {
     if (!viewerEnabled || !isLiveView || catalogLoading || !selectedAgentId || !selectedSessionId) return;
@@ -835,16 +919,19 @@ export function BrowserLabClient({
   }, [viewState?.viewport]);
 
   const handlePointerDown = useCallback((event: PointerEvent<HTMLImageElement>) => {
-    if (!userControls) return;
+    if (!userControls || activePointerRef.current) return;
     event.preventDefault();
     event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
     const point = scaledPoint(event);
-    if (point) send({ type: 'input_mouse', action: 'down', ...point, button: mouseButton(event.button) });
+    if (point) {
+      activePointerRef.current = { id: event.pointerId, button: mouseButton(event.button) };
+      send({ type: 'input_mouse', action: 'down', ...point, button: mouseButton(event.button) });
+    }
   }, [scaledPoint, send, userControls]);
 
   const handlePointerMove = useCallback((event: PointerEvent<HTMLImageElement>) => {
-    if (!userControls || event.buttons === 0) return;
+    if (!userControls || (event.pointerType === 'touch' && !activePointerRef.current)) return;
     const now = performance.now();
     if (now - lastPointerMoveAtRef.current < 32) return;
     lastPointerMoveAtRef.current = now;
@@ -853,11 +940,14 @@ export function BrowserLabClient({
   }, [scaledPoint, send, userControls]);
 
   const handlePointerUp = useCallback((event: PointerEvent<HTMLImageElement>) => {
-    if (!userControls) return;
+    const pointer = activePointerRef.current;
+    if (!pointer || pointer.id !== event.pointerId) return;
+    activePointerRef.current = null;
     event.preventDefault();
     const point = scaledPoint(event);
-    if (point) send({ type: 'input_mouse', action: 'up', ...point, button: mouseButton(event.button) });
-  }, [scaledPoint, send, userControls]);
+    if (point) send({ type: 'input_mouse', action: 'up', ...point, button: pointer.button });
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }, [scaledPoint, send]);
 
   const handleKeyDown = useCallback((event: KeyboardEvent<HTMLImageElement>) => {
     if (!userControls || event.nativeEvent.isComposing) return;
@@ -929,7 +1019,9 @@ export function BrowserLabClient({
     send({ type: 'navigate', url: normalizedAddress });
   }, [address, send]);
 
-  const modeLabel = viewState?.mode === 'user' ? t.modeUser : viewState?.mode === 'view' ? t.modeView : t.modeAgent;
+  const modeLabel = viewState?.mode === 'user'
+    ? viewState.controlOwnerViewId === viewState.viewId ? t.modeUser : t.modeOther
+    : viewState?.mode === 'view' ? t.modeView : t.modeAgent;
 
   return (
     <div
@@ -977,13 +1069,13 @@ export function BrowserLabClient({
                 </Button>
                 <Button
                   className="h-10 gap-2"
-                  disabled={!selectedSessionId || catalogLoading || connectionStatus === 'connecting'}
+                  disabled={!selectedSessionId || catalogLoading || connectionPending}
                   onClick={() => void connect()}
                 >
-                  {connectionStatus === 'connecting' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MonitorUp className="h-4 w-4" />}
+                  {connectionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MonitorUp className="h-4 w-4" />}
                   {connectionStatus === 'live' || connectionStatus === 'failed' ? t.reconnect : t.connect}
                 </Button>
-                {connectionStatus === 'live' ? (
+                {connectionStatus === 'live' || connectionPending ? (
                   <Button variant="outline" size="icon" className="h-10 w-10" onClick={() => disconnect()} title={t.disconnect}>
                     <Unplug className="h-4 w-4" />
                   </Button>
@@ -999,7 +1091,7 @@ export function BrowserLabClient({
                 <span>{t.agent}</span>
                 <select
                   value={selectedAgentId}
-                  disabled={catalogLoading || connectionStatus === 'connecting' || connectionStatus === 'live'}
+                  disabled={catalogLoading || connectionPending || connectionStatus === 'live'}
                   onChange={(event) => {
                     disconnect();
                     const nextAgentId = event.target.value;
@@ -1017,7 +1109,7 @@ export function BrowserLabClient({
                 <span>{t.session}</span>
                 <select
                   value={selectedSessionId}
-                  disabled={catalogLoading || connectionStatus === 'connecting' || connectionStatus === 'live' || availableSessions.length === 0}
+                  disabled={catalogLoading || connectionPending || connectionStatus === 'live' || availableSessions.length === 0}
                   onChange={(event) => {
                     disconnect();
                     setSelectedSessionId(event.target.value);
@@ -1053,13 +1145,13 @@ export function BrowserLabClient({
                 )}
                 <Button
                   className="h-10 gap-2"
-                  disabled={!selectedSessionId || catalogLoading || connectionStatus === 'connecting'}
+                  disabled={!selectedSessionId || catalogLoading || connectionPending}
                   onClick={() => void connect()}
                 >
-                  {connectionStatus === 'connecting' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MonitorUp className="h-4 w-4" />}
+                  {connectionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MonitorUp className="h-4 w-4" />}
                   {connectionStatus === 'live' || connectionStatus === 'failed' ? t.reconnect : t.connect}
                 </Button>
-                {connectionStatus === 'live' ? (
+                {connectionStatus === 'live' || connectionPending ? (
                   <Button variant="outline" size="icon" className="h-10 w-10" onClick={() => disconnect()} title={t.disconnect}>
                     <Unplug className="h-4 w-4" />
                   </Button>
@@ -1093,7 +1185,7 @@ export function BrowserLabClient({
                 <span className={cn(
                   'h-2 w-2 shrink-0 rounded-full',
                   connectionStatus === 'live' ? 'bg-emerald-500' : 'bg-muted-foreground/40',
-                )} aria-label={`${t.status}: ${connectionStatus === 'live' ? t.live : t.disconnected}`} />
+                )} aria-label={`${t.status}: ${connectionLabel}`} />
                 <Bot className="h-4 w-4 shrink-0 text-primary" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-medium text-foreground">
@@ -1126,7 +1218,7 @@ export function BrowserLabClient({
                   </Button>
                 )
               ) : null}
-              {connectionStatus === 'live' ? (
+              {connectionStatus === 'live' || connectionPending ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -1369,13 +1461,8 @@ export function BrowserLabClient({
           ) : null}
 
           {viewState?.pendingDialog ? (
-            <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs">
-              <ShieldAlert className="h-4 w-4 text-amber-600" />
-              <span className="font-medium">{t.dialog}</span>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">{viewState.pendingDialog.message}</span>
-              <Button size="sm" variant="ghost" disabled={!userControls} onClick={() => send({ type: 'dialog_resolve', accept: false })}>{t.dismiss}</Button>
-              <Button size="sm" disabled={!userControls} onClick={() => send({ type: 'dialog_resolve', accept: true })}>{t.accept}</Button>
-            </div>
+            <BrowserDialogBar key={viewState.pendingDialog.openedAt} dialog={viewState.pendingDialog} disabled={!userControls} t={t}
+              onResolve={(accept, promptText) => send({ type: 'dialog_resolve', accept, promptText })} />
           ) : null}
 
           {viewState?.pendingFileChooser ? (
@@ -1456,40 +1543,44 @@ export function BrowserLabClient({
                 alt={viewState?.title || 'Live browser'}
                 draggable={false}
                 tabIndex={userControls ? 0 : -1}
+                data-live={connectionStatus === 'live'}
                 onContextMenu={(event) => event.preventDefault()}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onLostPointerCapture={handlePointerUp}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
                 onWheel={handleWheel}
                 className={cn(
-                  'relative max-h-full max-w-full select-none rounded-lg border border-white/10 bg-white shadow-[0_32px_100px_-28px_rgba(0,0,0,.9)] outline-none',
+                  'relative max-h-full max-w-full touch-none select-none rounded-lg border border-white/10 bg-white shadow-[0_32px_100px_-28px_rgba(0,0,0,.9)] outline-none',
+                  connectionStatus !== 'live' && 'opacity-50',
                   userControls ? 'cursor-default focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-[#11130f]' : 'cursor-not-allowed',
                 )}
               />
             ) : (
               <div className="relative max-w-sm text-center text-white/80">
-                {connectionStatus === 'connecting'
+                {connectionPending
                   ? <Loader2 className="mx-auto mb-5 h-9 w-9 animate-spin text-primary" />
                   : connectionStatus === 'failed'
                     ? <ShieldAlert className="mx-auto mb-5 h-9 w-9 text-amber-400" />
                     : <Globe2 className="mx-auto mb-5 h-9 w-9 text-white/35" />}
                 <h3 className="text-lg font-semibold">
-                  {connectionStatus === 'connecting' ? t.loading : connectionStatus === 'failed' ? t.failureTitle : t.emptyTitle}
+                  {connectionPending ? t.loading : connectionStatus === 'failed' ? t.failureTitle : t.emptyTitle}
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-white/45">
-                  {connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failureDescription : t.emptyDescription}
+                  {connectionPending ? connectionLabel : connectionStatus === 'failed' ? t.failureDescription : t.emptyDescription}
                 </p>
               </div>
             )}
-            {frameUrl && connectionStatus === 'failed' ? (
+            {frameUrl && connectionStatus !== 'live' ? (
               <div className="absolute inset-x-3 bottom-3 z-10 rounded-lg border border-amber-300/20 bg-[#171912]/90 p-3 text-left text-xs text-white/80 shadow-2xl backdrop-blur md:inset-x-5 md:bottom-5">
                 <div className="flex items-start gap-2">
                   <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
                   <div>
-                    <p className="font-medium text-white">{t.failureTitle}</p>
-                    <p className="mt-1 leading-5 text-white/55">{t.failureDescription}</p>
+                    <p className="font-medium text-white">{connectionPending ? connectionLabel : t.failureTitle}</p>
+                    <p className="mt-1 leading-5 text-white/55">{t.staleFrame}</p>
                   </div>
                 </div>
               </div>
@@ -1501,7 +1592,7 @@ export function BrowserLabClient({
             ) : null}
           </div>
 
-          {failure ? (
+          {failure && !willReconnect ? (
             <div role="alert" aria-live="polite" className="flex shrink-0 flex-wrap items-center gap-2 border-t border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               <ShieldAlert className="h-4 w-4 shrink-0" />
               <span className="min-w-[220px] flex-1">{failure.error}</span>
@@ -1531,7 +1622,7 @@ export function BrowserLabClient({
               'h-2 w-2 rounded-full',
               connectionStatus === 'live'
                 ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,.8)]'
-                : connectionStatus === 'connecting'
+                : connectionPending
                   ? 'animate-pulse bg-amber-500'
                   : connectionStatus === 'failed'
                     ? 'bg-destructive shadow-[0_0_12px_hsl(var(--destructive)/.6)]'
@@ -1543,7 +1634,7 @@ export function BrowserLabClient({
               <div className="rounded-lg border border-border/70 bg-background/65 p-3">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t.status}</div>
                 <div className="mt-1.5 font-medium text-foreground" aria-live="polite">
-                  {connectionStatus === 'live' ? t.live : connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failed : t.disconnected}
+                  {connectionLabel}
                 </div>
               </div>
               <div className="rounded-lg border border-border/70 bg-background/65 p-3">
@@ -1562,7 +1653,7 @@ export function BrowserLabClient({
             </div>
           ) : (
             <dl className="space-y-3 text-xs">
-              <DiagnosticRow label={t.status} value={connectionStatus === 'live' ? t.live : connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failed : t.disconnected} />
+              <DiagnosticRow label={t.status} value={connectionLabel} />
               <DiagnosticRow label={t.agent} value={viewState?.agentId || selectedAgentId || '—'} mono />
               <DiagnosticRow label={t.session} value={viewState?.agentSessionId || selectedSessionId || '—'} mono />
               <DiagnosticRow label={t.workspace} value={viewState?.workspaceId || '—'} mono />

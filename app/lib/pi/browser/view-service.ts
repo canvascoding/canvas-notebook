@@ -16,6 +16,7 @@ import {
   getActiveBrowserRuntimeTabId,
   getBrowserRuntimeContextKey,
   getBrowserRuntimeTabs,
+  getBrowserPageTitle,
   getPendingDialogDetails,
   resetBrowserSessionPage,
   scheduleIdleClose,
@@ -23,7 +24,7 @@ import {
   withBrowserRuntimeLock,
   type BrowserRuntimeContext,
 } from './runtime';
-import { publishBrowserSessionSnapshot } from './session-state';
+import { getBrowserSessionSnapshot, publishBrowserSessionSnapshot } from './session-state';
 import { refreshBrowserSessionSnapshot } from './session-state-service';
 import {
   assertBrowserUserControl,
@@ -77,6 +78,7 @@ type PageTransferBinding = {
   frameIds: Set<string>;
   activeDownloadId: string | null;
   downloads: Map<string, { fileName: string; accepted: boolean }>;
+  onDialog: () => void;
 };
 
 function collectFrameIds(frameTree: Protocol.Page.FrameTree, frameIds = new Set<string>()): Set<string> {
@@ -143,6 +145,7 @@ export class BrowserViewService {
   private sequence = 0;
   private acknowledgedSequence = 0;
   private lastState = '';
+  private currentViewState: BrowserViewState | null = null;
   private lastErrorCode = '';
   private navigationStopRequested = false;
   private pendingFileChooser: { chooser: FileChooser; page: Page; openedAt: string } | null = null;
@@ -151,6 +154,7 @@ export class BrowserViewService {
   private browserDownloadClient: CDPSession | null = null;
   private downloadStagingDirectory: string | null = null;
   private downloads = new Map<string, BrowserViewDownload>();
+  private pressedMouseButtons = new Map<Page, Set<'left' | 'middle' | 'right'>>();
 
   constructor(
     readonly claims: BrowserViewTicketClaims,
@@ -334,8 +338,10 @@ export class BrowserViewService {
         frameIds: collectFrameIds(frameTree.frameTree),
         activeDownloadId: null,
         downloads: new Map(),
+        onDialog: () => this.publishPendingDialog(),
       };
       this.pageTransfers.set(page, binding);
+      page.on('dialog', binding.onDialog);
       pageClient.on('Page.frameAttached', (event: Protocol.Page.FrameAttachedEvent) => {
         binding.frameIds.add(event.frameId);
       });
@@ -469,6 +475,7 @@ export class BrowserViewService {
     const binding = this.pageTransfers.get(page);
     if (!binding) return;
     this.pageTransfers.delete(page);
+    page.off('dialog', binding.onDialog);
     for (const guid of binding.downloads.keys()) {
       await this.browserDownloadClient?.send('Browser.cancelDownload', { guid }).catch(() => undefined);
       await this.cleanupDownloadFile(guid);
@@ -491,7 +498,7 @@ export class BrowserViewService {
         .get(page)
         ?.pageClient.send('Page.getNavigationHistory')
         .catch(() => null);
-      const sensitiveInputFocused = await page.evaluate(() => {
+      const sensitiveInputFocused = getPendingDialogDetails(this.context) ? false : await page.evaluate(() => {
         const active = document.activeElement;
         if (!(active instanceof HTMLInputElement)) return false;
         const autocomplete = active.autocomplete.toLowerCase();
@@ -517,7 +524,7 @@ export class BrowserViewService {
         controlOwnerViewId: control.ownerViewId,
         leaseExpiresAt: control.leaseExpiresAt ? new Date(control.leaseExpiresAt).toISOString() : null,
         activeTabId: getActiveBrowserRuntimeTabId(this.context),
-        title: await page.title().catch(() => ''),
+        title: await getBrowserPageTitle(page).catch(() => ''),
         url: page.url(),
         canGoBack: Boolean(navigationHistory && navigationHistory.currentIndex > 0),
         canGoForward: Boolean(
@@ -544,6 +551,7 @@ export class BrowserViewService {
     if (this.closed) return;
     const state = await this.getState();
     if (this.closed) return;
+    this.currentViewState = state;
     publishBrowserSessionSnapshot(getBrowserRuntimeContextKey(this.context), {
       running: true,
       controlMode: state.mode,
@@ -561,6 +569,17 @@ export class BrowserViewService {
     if (!force && serialized === this.lastState) return;
     this.lastState = serialized;
     this.send({ type: 'state', state });
+  }
+
+  private publishPendingDialog(): void {
+    if (this.closed || !this.currentViewState) return;
+    // A click/evaluate may hold the action lock until this dialog is answered.
+    const state = { ...this.currentViewState, pendingDialog: getPendingDialogDetails(this.context) };
+    this.currentViewState = state;
+    this.send({ type: 'state', state });
+    const key = getBrowserRuntimeContextKey(this.context);
+    const snapshot = getBrowserSessionSnapshot(key);
+    if (snapshot) publishBrowserSessionSnapshot(key, { ...snapshot, hasPendingDialog: Boolean(state.pendingDialog) });
   }
 
   async requestControl(mode: BrowserViewControlMode): Promise<void> {
@@ -753,14 +772,19 @@ export class BrowserViewService {
         await page.mouse.move(x, y);
       } else if (input.action === 'down') {
         await page.mouse.move(x, y);
+        this.assertOpen();
+        const pressed = this.pressedMouseButtons.get(page) ?? new Set();
+        pressed.add(button);
+        this.pressedMouseButtons.set(page, pressed);
         await page.mouse.down({ button });
       } else if (input.action === 'up') {
         await page.mouse.move(x, y);
         await page.mouse.up({ button });
+        this.pressedMouseButtons.get(page)?.delete(button);
       } else {
         await page.mouse.click(x, y, { button });
       }
-    });
+    }, { trackInteraction: input.action !== 'move' });
   }
 
   async key(input: { key: string; text?: string; modifiers?: string[] }): Promise<void> {
@@ -791,10 +815,13 @@ export class BrowserViewService {
   }
 
   async resolveDialog(accept: boolean, promptText?: string): Promise<void> {
-    await this.withUserControl(async () => {
-      if (accept) await acceptPendingDialog(this.context, promptText?.slice(0, 500));
-      else await dismissPendingDialog(this.context);
-    });
+    this.assertOpen();
+    assertBrowserUserControl(this.context, this.claims.viewId);
+    if (accept) await acceptPendingDialog(this.context, promptText?.slice(0, 500));
+    else await dismissPendingDialog(this.context);
+    this.assertOpen();
+    recordBrowserUserInteraction(this.context, this.claims.viewId);
+    scheduleIdleClose(this.context);
     await this.audit('browser_view.resolve_dialog', { accepted: accept });
     await this.publishState(true);
   }
@@ -908,6 +935,12 @@ export class BrowserViewService {
     this.closed = true;
     this.unsubscribeRuntime?.();
     this.unsubscribeRuntime = null;
+    for (const [page, buttons] of this.pressedMouseButtons) {
+      if (!page.isClosed()) {
+        for (const button of buttons) void page.mouse.up({ button }).catch(() => undefined);
+      }
+    }
+    this.pressedMouseButtons.clear();
     if (this.captureTimer) clearInterval(this.captureTimer);
     this.captureTimer = null;
     if (this.interactionPublishTimer) clearTimeout(this.interactionPublishTimer);

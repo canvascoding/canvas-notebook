@@ -551,6 +551,147 @@ test.describe('Browser Lab', () => {
     }
   });
 
+  test('reconnects automatically and keeps stale frames locked until a fresh frame arrives', async ({ page }) => {
+    await login(page, null);
+    const session = await findBrowserLabSession(page);
+    const sockets: WebSocketRoute[] = [];
+    const upstreams: WebSocketRoute[] = [];
+    const heldFrames: Array<string | Buffer> = [];
+    const connectionEvents: unknown[] = [];
+    let holdFrames = true;
+    await page.routeWebSocket('**/ws/browser', (ws) => {
+      sockets.push(ws);
+      const number = sockets.length;
+      const upstream = ws.connectToServer();
+      upstreams.push(upstream);
+      // Keep the old server transport alive until the delayed cleanup below.
+      ws.onClose(() => {});
+      upstream.onMessage((raw) => {
+        const message = JSON.parse(String(raw));
+        if (message.type === 'state') connectionEvents.push({ number, type: 'state', mode: message.state.mode, owner: message.state.controlOwnerViewId, view: message.state.viewId });
+        if (message.type === 'error') connectionEvents.push({ number, type: 'error', code: message.code });
+        if (number === 2 && holdFrames && message.type === 'frame') heldFrames.push(raw);
+        else ws.send(raw);
+      });
+      ws.onMessage((raw) => {
+        const message = JSON.parse(String(raw));
+        connectionEvents.push({ number, client: message.type });
+        upstream.send(raw);
+      });
+    });
+    try {
+      await page.goto(`/browser/lab?agentId=${session.agentId}&sessionId=${session.sessionId}`);
+      await page.getByRole('button', { name: labels.connect }).click();
+      const frame = page.locator('img[tabindex]');
+      await expect(frame).toHaveAttribute('data-live', 'true', { timeout: 60_000 });
+      await sockets[0].close({ code: 1012, reason: 'Test transport restart' });
+      await expect.poll(() => sockets.length).toBe(2);
+      await expect.poll(() => heldFrames.length).toBeGreaterThan(0);
+      await expect(frame).toHaveAttribute('data-live', 'false');
+      await expect(page.getByLabel(labels.address)).toBeDisabled();
+      await expect(page.getByText(/^(Letztes Browserbild|Last browser frame)/)).toBeVisible();
+      holdFrames = false;
+      for (const message of heldFrames) sockets[1].send(message);
+      await expect(frame).toHaveAttribute('data-live', 'true');
+      // Simulate the server discovering the old transport loss after reconnect.
+      // Native browser WebSocket.close only accepts 1000 or application codes.
+      await upstreams[0].close({ code: 1000, reason: 'Old transport released' });
+      try {
+        await expect(page.getByLabel(labels.address)).toBeEnabled();
+      } catch (error) {
+        console.error('Reconnect events:', JSON.stringify(connectionEvents.slice(-40)));
+        throw error;
+      }
+      expect(sockets).toHaveLength(2);
+    } finally {
+      await page.goto('about:blank');
+      await deleteBrowserLabTestSession(page, session);
+    }
+  });
+
+  test('bounds automatic retry attempts and permits canceling a retry', async ({ page }) => {
+    await login(page, null);
+    const session = await findBrowserLabSession(page);
+    let requests = 0;
+    await page.route('**/api/browser/view', async (route) => {
+      requests++;
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({
+        success: false, code: 'CONNECTION_FAILED', retryable: true, fatal: true,
+      }) });
+    });
+    try {
+      await page.goto(`/browser/lab?agentId=${session.agentId}&sessionId=${session.sessionId}`);
+      await page.getByRole('button', { name: labels.connect }).click();
+      await expect.poll(() => requests, { timeout: 15_000 }).toBe(4);
+      await expect(page.getByRole('button', { name: labels.retry })).toBeVisible();
+      await page.waitForTimeout(1200);
+      expect(requests).toBe(4);
+      await page.getByRole('button', { name: labels.retry }).click();
+      await expect.poll(() => requests).toBe(5);
+      await page.getByTitle(labels.disconnect).click();
+      await page.waitForTimeout(2200);
+      expect(requests).toBe(5);
+    } finally {
+      await page.goto('about:blank');
+      await deleteBrowserLabTestSession(page, session);
+    }
+  });
+
+  test('forwards hover and resolves a real browser prompt with user text', async ({ page }) => {
+    await login(page, null);
+    const session = await findBrowserLabSession(page);
+    const access = await issueBrowserFixtureAccess(page);
+    let viewport = { width: 1280, height: 800 };
+    const mouseActions: string[] = [];
+    page.on('websocket', (socket) => {
+      if (!socket.url().includes('/ws/browser')) return;
+      socket.on('framereceived', ({ payload }) => {
+        const message = JSON.parse(String(payload));
+        if (message.type === 'state') viewport = message.state.viewport;
+      });
+      socket.on('framesent', ({ payload }) => {
+        const message = JSON.parse(String(payload));
+        if (message.type === 'input_mouse') mouseActions.push(message.action);
+      });
+    });
+    try {
+      await page.goto(`/browser/lab?agentId=${session.agentId}&sessionId=${session.sessionId}`);
+      await page.getByRole('button', { name: labels.connect }).click();
+      const frame = page.locator('img[tabindex]');
+      await expect(frame).toHaveAttribute('data-live', 'true', { timeout: 60_000 });
+      const address = page.getByLabel(labels.address);
+      await address.fill(`http://localhost:3000/api/browser/view/fixture-page?access=${encodeURIComponent(access)}`);
+      await address.press('Enter');
+      await expect(frame).toHaveAttribute('alt', 'Browser transfer fixture', { timeout: 30_000 });
+      const bounds = await frame.boundingBox();
+      expect(bounds).toBeTruthy();
+      const point = (x: number, y: number) => ({ x: bounds!.x + x * bounds!.width / viewport.width, y: bounds!.y + y * bounds!.height / viewport.height });
+      const hover = point(230, 36);
+      await page.mouse.move(hover.x, hover.y);
+      await expect(frame).toHaveAttribute('alt', 'Hover received');
+      await page.mouse.down();
+      await expect.poll(() => mouseActions.at(-1)).toBe('down');
+      await frame.dispatchEvent('pointercancel', {
+        pointerId: 1, pointerType: 'mouse', clientX: hover.x, clientY: hover.y, button: 0, buttons: 0,
+      });
+      await expect.poll(() => mouseActions.at(-1)).toBe('up');
+      await page.mouse.up();
+      const prompt = point(80, 36);
+      await page.mouse.click(prompt.x, prompt.y);
+      const dialog = page.getByTestId('browser-dialog');
+      await expect(dialog).toBeVisible({ timeout: 10_000 });
+      const input = dialog.getByRole('textbox');
+      await expect(input).toHaveValue('default value');
+      await input.fill('Notebook roundtrip');
+      await input.press('Enter');
+      await expect(dialog).toBeHidden();
+      await expect(frame).toHaveAttribute('alt', 'Prompt: Notebook roundtrip');
+    } finally {
+      await page.goto('about:blank');
+      await deleteBrowserLabTestSession(page, session);
+    }
+  });
+
   test('stops all viewers when their managed browser session is closed', async ({ page }) => {
     test.slow();
     await login(page, null);

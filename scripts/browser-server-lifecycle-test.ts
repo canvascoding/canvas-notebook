@@ -24,11 +24,15 @@ let scopeGate = Promise.resolve();
 let startGate = Promise.resolve();
 let created = 0;
 let live = 0;
+let releaseDialogAction = () => {};
+let dialogResolved = false;
 const stopListeners = new Set<() => void>();
 class Service {
   closed = false;
   constructor(readonly claims: { viewId: string }, _budget: unknown, private send: (value: unknown) => void, private onClosed: () => void) { created++; live++; }
   async start() { await startGate; if (!this.closed) this.send({ type: 'ready' }); }
+  async navigate() { await new Promise<void>((resolve) => { releaseDialogAction = resolve; }); }
+  async resolveDialog() { dialogResolved = true; releaseDialogAction(); }
   close() { if (this.closed) return; this.closed = true; live--; this.onClosed(); }
 }
 const internals = Module as typeof Module & { _load: (name: string, parent: NodeModule | null, main: boolean) => unknown };
@@ -95,6 +99,11 @@ async function main() {
     // A leaked reservation/service/connection would block this retry or exhaust capacity.
     const retry = await connect(); retry.subscribe('same'); await tick();
     assert.equal(retry.messages.some((m) => m.type === 'ready'), true);
+    retry.emit('message', Buffer.from(JSON.stringify({ type: 'navigate', url: 'about:blank' })));
+    await tick();
+    retry.emit('message', Buffer.from(JSON.stringify({ type: 'dialog_resolve', accept: true })));
+    await tick();
+    assert.equal(dialogResolved, true, 'dialog answers must bypass the action waiting for that answer');
     assert.equal(live, 1); retry.close(); assert.equal(live, 0);
 
     const stalledStart = deferred(); startGate = stalledStart.promise;

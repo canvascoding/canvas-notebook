@@ -26,12 +26,18 @@ class Client extends EventEmitter {
   constructor() { super(); clients.push(this); }
   async send(method: string) {
     if (method === 'Browser.setDownloadBehavior') await transferGate;
-    return { frameTree: { frame: { id: 'frame' } }, currentIndex: 0, entries: [] };
+    return { frameTree: { frame: { id: 'frame' } }, currentIndex: 0, entries: [], targetInfo: { title: 'Test' } };
   }
   async detach() { this.detached = true; }
 }
 class FakePage extends EventEmitter {
   closed = false;
+  pressedButtons = new Set<string>();
+  mouse = {
+    move: async () => {},
+    down: async ({ button }: { button: string }) => { this.pressedButtons.add(button); },
+    up: async ({ button }: { button: string }) => { this.pressedButtons.delete(button); },
+  };
   constructor(private owner: FakeBrowser) { super(); }
   browser() { return this.owner; }
   target() { return this; }
@@ -145,8 +151,32 @@ async function main() {
     const spectator = makeView('second', messages, () => { closed++; });
     await viewer.start(); await spectator.start();
     assert.equal(closed, 0);
+    await viewer.requestControl('user');
+    const heldDialog = deferred();
+    const dialogAction = runtime.withBrowserRuntimeLock(context, () => heldDialog.promise);
+    await tick();
+    let answer = '';
+    const activePage = browsers.at(-1)!.pages.at(-1)!;
+    activePage.emit('dialog', {
+      type: () => 'prompt', message: () => 'Test prompt', defaultValue: () => 'initial',
+      accept: async (text: string) => { answer = text; heldDialog.resolve(); },
+    });
+    assert.ok(messages.some((message) => {
+      const value = message as { type: string; state?: { pendingDialog?: { message?: string } } };
+      return value.type === 'state' && value.state?.pendingDialog?.message === 'Test prompt';
+    }), 'dialogs must be published even while their triggering action holds the lock');
+    const resolveDialog = viewer.resolveDialog(true, 'user input');
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([resolveDialog, new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error('Dialog resolution deadlocked')), 1000); })]);
+    } finally { clearTimeout(deadline); heldDialog.resolve(); }
+    await dialogAction;
+    assert.equal(answer, 'user input');
+    await viewer.mouse({ action: 'down', x: 10, y: 10 });
+    assert.equal(activePage.pressedButtons.size, 1);
     const pagesBeforeStop = newPages;
     await runtime.closeBrowserRuntime(context, 'agent close');
+    assert.equal(activePage.pressedButtons.size, 0, 'closing a view must release held mouse buttons');
     assert.equal(closed, 2, 'a runtime stop must close every attached viewer');
     await viewer.publishState(true); viewer.heartbeat();
     await spectator.publishState(true); spectator.heartbeat();

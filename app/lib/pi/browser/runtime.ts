@@ -626,6 +626,17 @@ function assertCurrentSession(context: BrowserRuntimeContext, session: BrowserSe
   }
 }
 
+export async function getBrowserPageTitle(page: Page): Promise<string> {
+  // Reading document.title would wait for an open JavaScript dialog to close.
+  const client = await page.createCDPSession();
+  try {
+    const { targetInfo } = await client.send('Target.getTargetInfo');
+    return targetInfo.title;
+  } finally {
+    await client.detach().catch(() => undefined);
+  }
+}
+
 export async function getBrowserRuntimeTabs(
   context: BrowserRuntimeContext = {},
 ): Promise<BrowserRuntimeTab[]> {
@@ -637,7 +648,7 @@ export async function getBrowserRuntimeTabs(
     if (page.isClosed()) return null;
     return {
       id,
-      title: await page.title().catch(() => ''),
+      title: await getBrowserPageTitle(page).catch(() => ''),
       url: page.url(),
       active: session.activePage === page,
     } satisfies BrowserRuntimeTab;
@@ -790,7 +801,7 @@ export async function getStatusDetails(context: BrowserRuntimeContext = {}): Pro
 
   const tabs = await getBrowserRuntimeTabs(context);
   const page = session?.activePage && !session.activePage.isClosed() ? session.activePage : null;
-  const activeTitle = page ? await page.title().catch(() => null) : null;
+  const activeTitle = page ? await getBrowserPageTitle(page).catch(() => null) : null;
   if (session.closed) return { running: false, activeTabId: null, pendingDialog: null, tabs: [] };
   return {
     running: true,
@@ -828,7 +839,7 @@ export async function getBrowserProfileDetails(context: BrowserRuntimeContext = 
     activeSessionCount: profile?.sessions.size ?? 0,
     pageCount: running ? pages.length : undefined,
     activeUrl: page?.url() || null,
-    activeTitle: page ? await page.title().catch(() => null) : null,
+    activeTitle: page ? await getBrowserPageTitle(page).catch(() => null) : null,
     idleCloseMs: IDLE_CLOSE_MS,
     pendingDialog: session?.pendingDialog?.details ?? null,
   };
