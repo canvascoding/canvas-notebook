@@ -471,10 +471,10 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
   };
 
   useEffect(() => {
-    if (textareaRef.current) {
+    if (!compact && textareaRef.current) {
       textareaRef.current.focus();
     }
-  }, []);
+  }, [compact]);
 
   const { isDraggingFiles, dropHandlers } = useChatFileDrop({
     disabled: isUploading || isStudioMode,
