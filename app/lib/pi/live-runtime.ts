@@ -735,6 +735,7 @@ export class LivePiRuntime {
           && candidateGeneration === this.createCompactionGeneration(input.runtimeContext)
         ),
         prepareCandidate: (candidateSignal, reportProgress) => preparePiHermesCompactionCandidate({
+          compactionAttemptId: attemptId,
           messages: input.messages.slice(),
           summary: summarySnapshot,
           systemPromptTokens,
@@ -762,6 +763,17 @@ export class LivePiRuntime {
         }),
       });
     } catch (error) {
+      // Store/setup failures can escape the coordinator. Do not leave clients
+      // displaying a permanent spinner after this attempt has terminated.
+      if (ownsStatus && this.compactionStatus.attemptId === attemptId) {
+        this.compactionStatus = {
+          ...this.compactionStatus,
+          state: input.signal?.aborted ? 'aborted' : 'failed',
+          reasonCode: input.signal?.aborted ? 'aborted' : 'compaction_error',
+          retryAfter: null,
+        };
+        this.publishStatus();
+      }
       logPiCompactionDiagnostic('error', 'attempt_threw', {
         ...diagnosticContext,
         durationMs: Date.now() - startedAt,

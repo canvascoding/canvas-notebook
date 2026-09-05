@@ -134,6 +134,7 @@ export function inspectPiRuntimeCompactionPressure(input: {
 }
 
 export type PreparePiHermesCompactionCandidateInput = Readonly<{
+  compactionAttemptId?: string;
   messages: AgentMessage[];
   summary: PiSessionSummaryState;
   systemPromptTokens: number;
@@ -204,6 +205,7 @@ export async function preparePiHermesCompactionCandidate(
     }
   }
   const candidate = await preparePiHistoryContext({
+    compactionAttemptId: input.compactionAttemptId,
     messages: [...pruning.messages],
     summary: input.summary,
     systemPromptTokens: input.systemPromptTokens,

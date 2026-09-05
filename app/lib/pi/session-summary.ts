@@ -23,6 +23,7 @@ import {
 } from './compaction/summary-generator';
 
 export type PreparePiHistoryContextOptions = {
+  compactionAttemptId?: string;
   messages: AgentMessage[];
   summary: PiSessionSummaryState;
   systemPromptTokens: number;
@@ -46,6 +47,7 @@ export type PreparePiHistoryContextOptions = {
 };
 
 export type SummarizeHistoryInput = {
+  compactionAttemptId?: string;
   previousSummaryText: string | null;
   messagesToSummarize: AgentMessage[];
   model: Model<Api>;
@@ -291,6 +293,7 @@ async function sanitizeMessagesForSummary(messages: AgentMessage[]): Promise<Use
 }
 
 export async function summarizePiSessionHistory({
+  compactionAttemptId,
   previousSummaryText,
   messagesToSummarize,
   model,
@@ -312,6 +315,7 @@ export async function summarizePiSessionHistory({
 
   if (summaryMode === 'hermes_v2') {
     return generatePiRollingSummaryV2({
+      compactionAttemptId,
       previousSummaryText,
       messagesToSummarize,
       model,
@@ -407,6 +411,7 @@ export async function summarizePiSessionHistory({
 }
 
 export async function preparePiHistoryContext({
+  compactionAttemptId,
   messages,
   summary,
   systemPromptTokens,
@@ -478,6 +483,7 @@ export async function preparePiHistoryContext({
   try {
     summaryAttempted = true;
     const summaryText = await summarizePiSessionHistory({
+      compactionAttemptId,
       previousSummaryText: nextSummary.summaryText,
       messagesToSummarize: unsummarizedMessages,
       model,
