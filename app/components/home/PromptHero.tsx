@@ -40,6 +40,7 @@ export type HomePromptMode = 'notebook' | 'studio';
 
 interface PromptHeroProps {
   onModeChange?: (mode: HomePromptMode) => void;
+  compact?: boolean;
 }
 
 const DEFAULT_AGENT_PROFILE: AgentProfile = {
@@ -58,11 +59,12 @@ function createProgressItems(files: File[]): ImagePreprocessProgressItem[] {
   }));
 }
 
-export function PromptHero({ onModeChange }: PromptHeroProps = {}) {
+export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = {}) {
   const locale = useLocale();
   const tHome = useTranslations('home');
   const tChat = useTranslations('chat');
   const [prompt, setPrompt] = useState('');
+  const [expanded, setExpanded] = useState(!compact);
   const [mode, setMode] = useState<HomePromptMode>('notebook');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -311,6 +313,7 @@ export function PromptHero({ onModeChange }: PromptHeroProps = {}) {
   const uploadFiles = useCallback((fileList: File[] | FileList | null | undefined) => {
     const files = Array.from(fileList || []);
     if (files.length > 0) {
+      setExpanded(true);
       void preprocessAndUpload(files);
     }
   }, [preprocessAndUpload]);
@@ -512,11 +515,11 @@ export function PromptHero({ onModeChange }: PromptHeroProps = {}) {
 
   return (
     <>
-    <div id="onboarding-home-promptHero" className="mx-auto w-full max-w-2xl">
-      <form onSubmit={handleSubmit} className="space-y-3">
+    <div id="onboarding-home-promptHero" className="w-full">
+      <form onSubmit={handleSubmit} onFocus={() => setExpanded(true)} className="space-y-3">
         <h2 className="sr-only">{tHome('focus.composer.title')}</h2>
 
-        <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/50 p-1" role="tablist" aria-label={tHome('focus.composer.modeLabel')}>
+        {expanded ? <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/50 p-1" role="tablist" aria-label={tHome('focus.composer.modeLabel')}>
           <button
             type="button"
             role="tab"
@@ -537,7 +540,7 @@ export function PromptHero({ onModeChange }: PromptHeroProps = {}) {
             <Sparkles className="h-3.5 w-3.5" />
             {tHome('focus.composer.studio')}
           </button>
-        </div>
+        </div> : null}
 
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 border border-border bg-muted/60 p-2">
@@ -575,13 +578,14 @@ export function PromptHero({ onModeChange }: PromptHeroProps = {}) {
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={isStudioMode ? tHome('focus.composer.studioPlaceholder') : tHome('hero.placeholder')}
+            placeholder={isStudioMode ? tHome('focus.composer.studioPlaceholder') : compact ? tHome('start.aiPlaceholder') : tHome('hero.placeholder')}
+            aria-label={tHome('start.aiPlaceholder')}
             data-prompt-hero-textarea
-            className={`min-h-24 w-full resize-y rounded-lg border bg-background p-3 text-base focus:outline-none focus:ring-2 ${isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : 'border-border focus:ring-ring'} ${prompt.length === 0 ? 'placeholder:text-transparent' : 'placeholder:text-muted-foreground'}`}
-            rows={3}
+            className={`${expanded ? 'min-h-24' : 'h-12 min-h-12'} w-full resize-y rounded-lg border bg-background p-3 text-base focus:outline-none focus:ring-2 ${isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : 'border-border focus:ring-ring'} ${!compact && prompt.length === 0 ? 'placeholder:text-transparent' : 'placeholder:text-muted-foreground'}`}
+            rows={expanded ? 3 : 1}
             {...(!isStudioMode ? dropHandlers : {})}
           />
-          {prompt.length === 0 ? (
+          {prompt.length === 0 && !compact ? (
             <TypewriterPromptSuggestion
               suggestions={promptSuggestions}
               testId="home-prompt-suggestion"
@@ -629,7 +633,7 @@ export function PromptHero({ onModeChange }: PromptHeroProps = {}) {
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3">
+        {expanded ? <div className="flex items-center justify-between gap-3">
           {isStudioMode ? (
             <p className="text-xs text-muted-foreground">{tHome('focus.composer.studioDescription')}</p>
           ) : (
@@ -678,7 +682,7 @@ export function PromptHero({ onModeChange }: PromptHeroProps = {}) {
             {isStudioMode ? <Sparkles className="h-4 w-4" /> : <Send className="h-4 w-4" />}
             <span className="sr-only sm:not-sr-only">{isStudioMode ? tHome('focus.composer.studioSubmit') : tHome('hero.submit')}</span>
           </button>
-        </div>
+        </div> : null}
       </form>
     </div>
 

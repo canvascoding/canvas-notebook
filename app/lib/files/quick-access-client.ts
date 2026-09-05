@@ -1,7 +1,7 @@
 import { workspaceHeaders } from './client';
-import type { QuickAccessResult, QuickAccessView } from './quick-access';
+import type { QuickAccessPage, QuickAccessView } from './quick-access';
 
-export async function loadQuickAccessFiles(workspaceId: string, view: QuickAccessView, query: string, limit: number, signal: AbortSignal): Promise<QuickAccessResult> {
+export async function loadQuickAccessFiles(workspaceId: string, view: QuickAccessView, query: string, limit: number, signal: AbortSignal): Promise<QuickAccessPage> {
   const params = new URLSearchParams({ view, q: query, limit: String(limit) });
   const response = await fetch(`/api/files/quick-access?${params}`, {
     headers: workspaceHeaders(workspaceId), credentials: 'include', cache: 'no-store', signal,

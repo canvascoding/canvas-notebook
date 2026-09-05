@@ -27,9 +27,11 @@ export function MoreToolsSection({ showBrowserLab = false }: { showBrowserLab?: 
   const links = showBrowserLab ? MORE_TOOLS_LINKS : MORE_TOOLS_LINKS.slice(1);
 
   return (
-    <div className="mx-auto w-full max-w-2xl">
+    <div className="w-full">
       <button
         type="button"
+        aria-expanded={isExpanded}
+        aria-controls="home-more-tools"
         onClick={() => setIsExpanded(!isExpanded)}
         className="flex w-full items-center gap-2 border-t border-border pt-4 text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground transition-colors hover:text-foreground"
       >
@@ -37,7 +39,7 @@ export function MoreToolsSection({ showBrowserLab = false }: { showBrowserLab?: 
         {t('sections.moreTools')}
       </button>
       {isExpanded && (
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+        <div id="home-more-tools" className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
           {links.map((link) => {
             const Icon = link.icon;
             return (

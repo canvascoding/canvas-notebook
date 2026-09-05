@@ -44,6 +44,8 @@
     "testenv:status": "bash \"${CODEX_HOME:-$HOME/.codex}/skills/canvas-local-team-seat-dev/scripts/status-local.sh\"",
     "testenv:stop": "bash \"${CODEX_HOME:-$HOME/.codex}/skills/canvas-local-team-seat-dev/scripts/stop-local.sh\"",
     "lint": "eslint",
+    "test:home": "tsx --conditions react-server scripts/file-quick-access-test.ts && tsx scripts/file-visit-open-flow-test.ts && tsx scripts/home-notifications-test.ts && tsx scripts/home-start-component-test.tsx",
+    "test:home:api": "node scripts/home-quick-access-api-test.mjs",
     "test:smoke": "node scripts/smoke-test.mjs",
     "test:integration": "node scripts/integration-test.mjs",
     "test:integration:pi": "node scripts/pi-integration-test.mjs",

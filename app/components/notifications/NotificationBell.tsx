@@ -21,19 +21,13 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
+import { notificationHref, updateNotification, type NotificationMutation } from './notification-actions';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
 import {
   readNotificationSummary,
   type NotificationItem,
   type NotificationSummary,
 } from './notification-summary';
-
-type NotificationMutation = {
-  action: 'mark_all_read' | 'mark_item_read' | 'set_item_read_state' | 'dismiss_item';
-  itemId?: string;
-  workspaceId?: string;
-  read?: boolean;
-};
 
 function formatBadgeCount(count: number) {
   if (count <= 0) return '';
@@ -44,23 +38,6 @@ function formatDate(value: string, locale: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return new Intl.DateTimeFormat(locale, { dateStyle: 'short' }).format(date);
-}
-
-function notificationHref(item: NotificationItem): string {
-  switch (item.target.kind) {
-    case 'chat':
-      return buildChatSessionHref('/notebook', item.target.sessionId, item.workspaceId);
-    case 'todo':
-      return `/todos?todo=${encodeURIComponent(item.target.todoId)}&workspaceId=${encodeURIComponent(item.workspaceId)}`;
-    case 'email':
-      return item.target.draftId
-        ? `/emails?outboxDraft=${encodeURIComponent(item.target.draftId)}${item.target.scope === 'workspace' ? `&workspaceId=${encodeURIComponent(item.workspaceId)}` : ''}`
-        : '/emails';
-    case 'studio':
-      return '/studio';
-    case 'automation':
-      return '/automations';
-  }
 }
 
 function notificationIcon(item: NotificationItem) {
@@ -130,17 +107,7 @@ export function NotificationBell() {
   }, [refresh]);
 
   const mutateInbox = useCallback(async (payload: NotificationMutation) => {
-    const response = await fetch('/api/notifications/summary', {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const body = await response.json().catch(() => null) as { success?: boolean; error?: string } | null;
-    if (!response.ok || !body?.success) {
-      throw new Error(body?.error || 'Failed to update notifications.');
-    }
-    window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+    await updateNotification(payload);
   }, []);
 
   const markAllRead = useCallback(async () => {

@@ -8,6 +8,7 @@ export type QuickAccessFile = Pick<FileNode, 'path' | 'name' | 'title' | 'isFavo
   openedAt: number | null;
 };
 export type QuickAccessResult = { files: QuickAccessFile[]; total: number; workspaceFileCount: number };
+export type QuickAccessPage = QuickAccessResult & { favorites: QuickAccessFile[]; view: QuickAccessView };
 
 export function normalizeFileVisits(value: unknown): FileVisit[] {
   if (!Array.isArray(value)) return [];

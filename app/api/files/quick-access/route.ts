@@ -29,7 +29,17 @@ export async function GET(request: NextRequest) {
     const nodes = await enrichWorkspaceFileNodes({
       nodes: references, workspace: result.workspace, userId: result.session.user.id,
     });
-    return jsonSuccess({ data: selectQuickAccessFiles(nodes, visits, view as QuickAccessView, (params.get('q') || '').slice(0, 256), limit) }, {
+    const query = (params.get('q') || '').trim().slice(0, 256);
+    let activeView = view as QuickAccessView;
+    let data = selectQuickAccessFiles(nodes, visits, activeView, query, limit);
+    if (activeView === 'recent' && !query && data.total === 0 && data.workspaceFileCount > 0) {
+      activeView = 'all';
+      data = selectQuickAccessFiles(nodes, visits, activeView, '', limit);
+    }
+    const favorites = view === 'recent' && !query
+      ? selectQuickAccessFiles(nodes, visits, 'favorites', '', 3).files
+      : [];
+    return jsonSuccess({ data: { ...data, favorites, view: activeView } }, {
       headers: { 'Cache-Control': 'private, no-store' },
     });
   } catch (error) {

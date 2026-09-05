@@ -1,131 +1,75 @@
 'use client';
 
-import { Bell, CheckCircle2, Clock3, FolderKanban, MessageSquare } from 'lucide-react';
-import { useLocale, useTranslations } from 'next-intl';
-
+import { useState } from 'react';
+import { Bell, Check, ChevronDown, CircleAlert, ImageIcon, ListTodo, Mail, MessageSquare, Workflow, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
-import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
+import { Button } from '@/components/ui/button';
 import type { NotificationItem, NotificationSummary } from '@/app/components/notifications/notification-summary';
+import { homeNotificationItems, notificationHref, updateNotification } from '@/app/components/notifications/notification-actions';
 
-type HomeAttentionPanelProps = {
-  summary: NotificationSummary | null;
-  isLoading: boolean;
-};
+const ICONS = { chat: MessageSquare, todo: ListTodo, email: Mail, studio: ImageIcon, automation: Workflow };
 
-type ChatNotificationItem = NotificationItem & {
-  type: 'chat.response';
-  target: { kind: 'chat'; sessionId: string };
-};
+export function HomeAttentionPanel({ summary, isLoading }: { summary: NotificationSummary | null; isLoading: boolean }) {
+  const t = useTranslations('home.start');
+  const tn = useTranslations('notifications');
+  const [expanded, setExpanded] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+  const items = homeNotificationItems(summary);
+  const visible = expanded ? items : items.slice(0, 3);
 
-type TodoNotificationItem = NotificationItem & {
-  type: 'todo.attention';
-  target: { kind: 'todo'; todoId: string };
-};
-
-function isChatNotification(item: NotificationItem): item is ChatNotificationItem {
-  return item.type === 'chat.response' && item.target.kind === 'chat';
-}
-
-function isTodoNotification(item: NotificationItem): item is TodoNotificationItem {
-  return item.type === 'todo.attention' && item.target.kind === 'todo';
-}
-
-function formatDate(value: string | null, locale: string) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'short' }).format(date);
-}
-
-export function HomeAttentionPanel({ summary, isLoading }: HomeAttentionPanelProps) {
-  const t = useTranslations('home.focus.attention');
-  const locale = useLocale();
-  const sessionItems = summary?.items.filter(isChatNotification).slice(0, 3) ?? [];
-  const todoItems = summary?.sections.todoAttention?.filter(isTodoNotification).slice(0, 3) ?? [];
-  const attentionCount = (summary?.counts.chat ?? 0) + (summary?.counts.todoAttention ?? 0);
+  const act = async (item: NotificationItem, dismiss = false) => {
+    setPending(item.id);
+    setError(false);
+    try {
+      await updateNotification({ action: dismiss ? 'dismiss_item' : 'mark_item_read', itemId: item.id, workspaceId: item.workspaceId });
+    } catch {
+      setError(true);
+    } finally {
+      setPending(null);
+    }
+  };
 
   return (
-    <aside className="hidden xl:sticky xl:top-6 xl:block xl:self-start" aria-label={t('title')}>
-      <div className="border border-border bg-card shadow-sm">
-        <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3.5">
-          <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Bell className="h-4 w-4" />
-            </span>
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight">{t('title')}</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {isLoading ? t('loading') : t('summary', { count: attentionCount })}
-              </p>
-            </div>
-          </div>
-          {attentionCount > 0 ? (
-            <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
-              {attentionCount > 99 ? '99+' : attentionCount}
-            </span>
-          ) : null}
+    <aside className="min-w-0 rounded-xl border border-border bg-card lg:sticky lg:top-0 lg:col-start-2 lg:row-span-3 lg:row-start-1" aria-labelledby="home-attention-heading">
+      <div className="flex items-center gap-3 px-4 py-4">
+        <Bell className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <h2 id="home-attention-heading" className="text-sm font-semibold">{t('notifications')}</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">{isLoading ? tn('loading') : !summary ? t('notificationsFailed') : t('attentionCount', { count: items.length })}</p>
         </div>
-
-        <div className="divide-y divide-border">
-          <section className="px-2 py-3" aria-labelledby="home-attention-sessions">
-            <div className="flex items-center justify-between gap-3 px-2 pb-1.5">
-              <h3 id="home-attention-sessions" className="text-[10px] font-bold tracking-[0.16em] text-muted-foreground uppercase">
-                {t('sessions.title')}
-              </h3>
-              <span className="text-xs text-muted-foreground">{summary?.counts.chat ?? 0}</span>
-            </div>
-            {sessionItems.length === 0 ? (
-              <p className="px-2 py-2 text-sm text-muted-foreground">{t('sessions.empty')}</p>
-            ) : sessionItems.map((session) => (
-              <Link
-                key={session.id}
-                href={buildChatSessionHref('/notebook', session.target.sessionId, session.workspaceId)}
-                className="flex items-start gap-2.5 px-2 py-2 transition-colors hover:bg-accent"
-              >
-                <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">{session.title}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {formatDate(session.occurredAt, locale) ?? t('sessions.newResponse')}
+        <button type="button" className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-accent lg:hidden" aria-label={expanded ? t('showLess') : t('showNotifications')} aria-expanded={expanded} aria-controls="home-attention-items" onClick={() => setExpanded((value) => !value)}>
+          <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+      <div id="home-attention-items" className={`${expanded ? 'block' : 'hidden lg:block'} border-t border-border`}>
+        {!isLoading && !summary ? <div className="px-4 py-4"><Button variant="outline" size="sm" onClick={() => window.dispatchEvent(new CustomEvent('notification_summary_updated'))}>{t('retry')}</Button></div>
+          : isLoading ? <p className="px-4 py-5 text-sm text-muted-foreground" role="status">{tn('loading')}</p>
+          : items.length === 0 ? <div className="flex items-start gap-2 px-4 py-5"><Check className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><p className="text-sm text-muted-foreground">{t('noAttention')}</p></div>
+          : <ul className="divide-y divide-border/60 px-2">
+            {visible.map((item) => {
+              const Icon = ICONS[item.target.kind];
+              const dismissible = item.target.kind === 'studio' || item.target.kind === 'automation';
+              return <li key={`${item.workspaceId}:${item.id}`} className="py-2">
+                <Link href={notificationHref(item)} onClick={() => { if (item.unread) void act(item); }} className="flex items-start gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-accent">
+                  <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${item.priority === 'high' ? 'text-destructive' : 'text-muted-foreground'}`} />
+                  <span className="min-w-0 flex-1">
+                    <span className="line-clamp-2 text-sm font-medium">{item.title}</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">{item.detail || tn(`types.${item.target.kind}`)}</span>
+                    {item.workspaceName ? <span className="mt-1 block truncate text-xs text-muted-foreground">{item.workspaceName}</span> : null}
                   </span>
-                  {session.workspaceName ? (
-                    <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                      <FolderKanban className="h-3 w-3 shrink-0" />
-                      {t('sessions.workspace', { workspace: session.workspaceName })}
-                    </span>
-                  ) : null}
-                </span>
-              </Link>
-            ))}
-          </section>
-
-          <section className="px-2 py-3" aria-labelledby="home-attention-todos">
-            <div className="flex items-center justify-between gap-3 px-2 pb-1.5">
-              <h3 id="home-attention-todos" className="text-[10px] font-bold tracking-[0.16em] text-muted-foreground uppercase">
-                {t('todos.title')}
-              </h3>
-              <span className="text-xs text-muted-foreground">{summary?.counts.todoAttention ?? 0}</span>
-            </div>
-            {todoItems.length === 0 ? (
-              <p className="px-2 py-2 text-sm text-muted-foreground">{t('todos.empty')}</p>
-            ) : todoItems.map((todo) => (
-              <Link
-                key={todo.id}
-                href={`/todos?todo=${encodeURIComponent(todo.target.todoId)}${todo.workspaceId ? `&workspaceId=${encodeURIComponent(todo.workspaceId)}` : ''}`}
-                className="flex items-start gap-2.5 px-2 py-2 transition-colors hover:bg-accent"
-              >
-                {todo.priority === 'high' ? <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-destructive" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">{todo.title}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {todo.detail ?? (todo.priority === 'high' ? t('todos.due') : t('todos.unread'))}
-                  </span>
-                </span>
-              </Link>
-            ))}
-          </section>
-        </div>
-
+                  {item.priority === 'high' ? <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-label={tn('highPriority')} /> : null}
+                </Link>
+                {item.unread || dismissible ? <div className="flex justify-end gap-1 px-1">
+                  {item.unread ? <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" disabled={pending !== null} onClick={() => void act(item)}><Check className="h-3 w-3" />{tn('markRead')}</Button> : null}
+                  {dismissible ? <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" disabled={pending !== null} onClick={() => void act(item, true)}><X className="h-3 w-3" />{tn('dismiss')}</Button> : null}
+                </div> : null}
+              </li>;
+            })}
+          </ul>}
+        {error ? <p role="alert" className="px-4 pb-3 text-xs text-destructive">{t('notificationActionFailed')}</p> : null}
+        {items.length > 3 ? <div className="border-t border-border p-2"><Button variant="ghost" size="sm" className="w-full text-xs" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? t('showLess') : t('moreNotifications', { count: items.length - 3 })}<ChevronDown className={`h-3.5 w-3.5 ${expanded ? 'rotate-180' : ''}`} /></Button></div> : null}
       </div>
     </aside>
   );
