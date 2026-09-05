@@ -84,6 +84,11 @@ async function main(): Promise<void> {
     assert.equal(signStep.env.CANVAS_UPDATE_SIGNING_KEY_ID, publicStore.keys[0].keyId);
     assert.match(signStep.if, /refs\/tags\/v/u);
     assert.match(signStep.env.CANVAS_UPDATE_SIGNING_PRIVATE_KEY, /secrets.CANVAS_UPDATE_SIGNING_PRIVATE_KEY/u);
+    for (const job of Object.values(buildWorkflow.jobs) as Array<{ steps?: Array<{ uses?: string }> }>) {
+      for (const step of job.steps || []) {
+        if (step.uses) assert.match(step.uses, /@[a-f0-9]{40}$/u, `Mutable GitHub Action: ${step.uses}`);
+      }
+    }
     const bundle = steps.find((step: { name: string }) => step.name === 'Upload gated release bundle');
     assert.match(bundle.with.path, /canvas-notebook-update-stable.json/u);
     const publicationSource = await fs.readFile('.github/workflows/publish-standalone-update.yml', 'utf8');
