@@ -15,6 +15,7 @@ import {
 } from '@/app/lib/files/client';
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { useEditorStore } from '@/app/store/editor-store';
+import { getDocumentTransitionGuard, registerDocumentTransitionGuard } from '@/app/lib/files/document-transition';
 import type { CollaborationDocument } from '@/app/lib/collaboration/client';
 import {
   CollaborationCheckpointRequestError,
@@ -471,7 +472,6 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     mode: 'markdown' | 'slides';
   }>({ path: null, mode: 'markdown' });
   const [marpRefreshKey, setMarpRefreshKey] = useState(0);
-  const [isClosingPreview, setIsClosingPreview] = useState(false);
   const [externalTextChange, setExternalTextChange] = useState<ExternalTextChange | null>(null);
   const [isResolvingExternalTextChange, setIsResolvingExternalTextChange] = useState(false);
   const currentFilePath = currentFile?.path ?? null;
@@ -939,68 +939,49 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     }
   }, [activeExternalTextChange, revealAndLoadFile, saveTrackedFile, setSaveError, t]);
 
-  const handleClosePreview = useCallback(async () => {
-    if (isClosingPreview) return;
-
-    const {
-      activePath: pathToSave,
-      draft: contentToSave,
-      isDirty: hasUnsavedChanges,
-    } = useEditorStore.getState();
-
-    setIsClosingPreview(true);
-
-    try {
-      if (saveTimeoutRef.current) {
-        window.clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = null;
-      }
-
-      if (pathToSave && isCrdtCollaboration && activeCollaborationDocument) {
-        if (
-          activeCollaborationDocument.connection === 'offline'
+  useEffect(() => {
+    if (!currentFilePath || isSceneCollaboration) return;
+    const workspaceId = useFileStore.getState().currentFileWorkspaceId;
+    return registerDocumentTransitionGuard(workspaceId, currentFilePath, {
+      hasPendingChanges: () => useEditorStore.getState().isDirty || Boolean(
+        isCrdtCollaboration && activeCollaborationDocument?.durability !== 'checkpointed_file',
+      ),
+      prepare: async () => {
+        if (activeExternalTextChangePath === currentFilePath) {
+          throw new Error(t('externalChangeSaveBlocked'));
+        }
+        if (!isCrdtCollaboration) return;
+        if (!activeCollaborationDocument) throw new Error(t('collaboration.connecting'));
+        if (activeCollaborationDocument.connection === 'offline'
           || activeCollaborationDocument.connection === 'denied'
-          || activeCollaborationDocument.durability === 'degraded'
-        ) {
-          const message = t('collaboration.closeBlocked');
-          toast.error(message);
-          return;
+          || activeCollaborationDocument.durability === 'degraded') {
+          throw new Error(t('collaboration.closeBlocked'));
         }
         if (activeCollaborationDocument.durability !== 'checkpointed_file') {
           await activeCollaborationDocument.requestCheckpoint();
         }
-      } else if (pathToSave && hasUnsavedChanges && !isSceneCollaboration) {
-        if (activeExternalTextChangePath === pathToSave) {
-          const message = t('externalChangeSaveBlocked');
-          setSaveError(message);
-          toast.error(message);
-          return;
-        }
+      },
+    });
+  }, [activeCollaborationDocument, activeExternalTextChangePath, currentFilePath,
+    isCrdtCollaboration, isSceneCollaboration, t]);
 
-        markSaving();
-        await saveTrackedFile(pathToSave, contentToSave);
-        const latestState = useEditorStore.getState();
-        if (
-          latestState.activePath === pathToSave &&
-          latestState.draft === contentToSave
-        ) {
-          markSaved();
-        }
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      const { currentFile: file, currentFileWorkspaceId: workspaceId } = useFileStore.getState();
+      if (useEditorStore.getState().isDirty
+        || (file && getDocumentTransitionGuard(workspaceId, file.path)?.hasPendingChanges())) {
+        event.preventDefault();
+        event.returnValue = '';
       }
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, []);
 
-      onClosePreview?.();
-    } catch (error) {
-      if (pathToSave) {
-        handleSaveError(error, pathToSave);
-      } else {
-        const message = getSaveErrorMessage(error);
-        setSaveError(message);
-        toast.error(message);
-      }
-    } finally {
-      setIsClosingPreview(false);
-    }
-  }, [activeCollaborationDocument, activeExternalTextChangePath, getSaveErrorMessage, handleSaveError, isClosingPreview, isCrdtCollaboration, isSceneCollaboration, markSaved, markSaving, onClosePreview, saveTrackedFile, setSaveError, t]);
+  const handleClosePreview = useCallback(() => {
+    // The owner handles the same guarded close used by tabs and workspace changes.
+    onClosePreview?.();
+  }, [onClosePreview]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -1408,10 +1389,10 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                   size="sm"
                   className="h-6 w-6 shrink-0 p-0"
                   onClick={() => void handleClosePreview()}
-                  disabled={isClosingPreview}
+                  disabled={isSaving}
                   aria-label="Close preview"
                 >
-                  {isClosingPreview ? (
+                  {isSaving ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <X className="h-3.5 w-3.5" />

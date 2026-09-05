@@ -49,7 +49,7 @@ interface WorkspaceStoreState {
   error: string | null;
   lastUpdatedAt: number | null;
   hydrateWorkspaces: (options?: { force?: boolean }) => Promise<void>;
-  setActiveWorkspace: (workspaceId: string, source?: WorkspaceSwitchSource) => boolean;
+  setActiveWorkspace: (workspaceId: string, source?: WorkspaceSwitchSource) => Promise<boolean>;
   refreshWorkspaces: () => Promise<void>;
 }
 
@@ -182,6 +182,8 @@ export function selectActiveWorkspace(state: Pick<WorkspaceStoreState, 'workspac
   return state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId) || null;
 }
 
+let workspaceSwitchRequestId = 0;
+
 let workspaceHydrationPromise: Promise<void> | null = null;
 
 export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
@@ -273,13 +275,28 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     }
   },
 
-  setActiveWorkspace: (workspaceId, source = 'system') => {
+  setActiveWorkspace: async (workspaceId, source = 'system') => {
+    const requestId = ++workspaceSwitchRequestId;
     const workspace = get().workspaces.find((candidate) => candidate.id === workspaceId);
     if (!workspace || workspace.status !== 'active' || !workspace.permissions.canRead) return false;
 
     const previousWorkspaceId = get().activeWorkspaceId;
     if (previousWorkspaceId === workspace.id) return false;
 
+    try {
+      const { useFileStore } = await import('@/app/store/file-store');
+      if (requestId !== workspaceSwitchRequestId || get().activeWorkspaceId !== previousWorkspaceId) return false;
+      await useFileStore.getState().prepareCurrentFileForTransition();
+      if (requestId !== workspaceSwitchRequestId || get().activeWorkspaceId !== previousWorkspaceId) return false;
+    } catch (error) {
+      if (requestId === workspaceSwitchRequestId) set({
+        error: error instanceof Error ? error.message : 'Could not save the current document.',
+      });
+      return false;
+    }
+    // Permissions may have changed while the editor was saving.
+    const latestWorkspace = get().workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!latestWorkspace || latestWorkspace.status !== 'active' || !latestWorkspace.permissions.canRead) return false;
     writeCachedActiveWorkspaceId(workspace.id);
     set({
       activeWorkspaceId: workspace.id,

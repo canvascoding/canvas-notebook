@@ -23,7 +23,8 @@ export function WorkspaceNavigationSync() {
 
       const workspaceState = useWorkspaceStore.getState();
       if (workspaceState.activeWorkspaceId === requestedWorkspaceId) return;
-      if (workspaceState.setActiveWorkspace(requestedWorkspaceId, 'system')) return;
+      if (await workspaceState.setActiveWorkspace(requestedWorkspaceId, 'system')) return;
+      if (cancelled) return;
 
       // Do not open a workspace-scoped target in whichever workspace happens to
       // be active when the requested workspace is unavailable.

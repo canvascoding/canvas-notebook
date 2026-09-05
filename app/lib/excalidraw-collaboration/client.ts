@@ -76,6 +76,8 @@ type Entry = {
 };
 
 export type ExcalidrawCollaborationDocument = {
+  prepareToLeave: () => Promise<void>;
+  hasPendingChanges: () => boolean;
   registryKey: string;
   session: CollaborationSessionResponse | null;
   status: CollaborationConnectionStatus;
@@ -441,8 +443,62 @@ function createEntry(key: string, path: string): Entry {
   };
 }
 
+function hasPendingSceneChanges(entry: Entry): boolean {
+  return entry.pending.size > 0 || Boolean(entry.latestAppState && (
+    JSON.stringify(sharedAppState(entry.latestAppState)) !== entry.sentAppState
+    || entry.latestElements.some((element) => (
+      entry.sentElements.get(element.id) !== elementFingerprint(element as ExcalidrawElementRecord)
+    ))
+  ));
+}
+
+async function prepareSceneToLeave(entry: Entry): Promise<void> {
+  const assertConnected = () => {
+    if (!entry.initialized || entry.status === 'offline' || entry.status === 'connecting'
+      || entry.status === 'degraded' || entry.stopped) {
+      throw new Error(entry.error || 'The drawing is not saved. Reconnect before leaving.');
+    }
+  };
+  assertConnected();
+  let uploadTimeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+    (async () => {
+      await flushLocalScene(entry);
+      assertConnected();
+      if (!hasPendingSceneChanges(entry)) return;
+      await new Promise<void>((resolve, reject) => {
+        const check = () => {
+          try {
+            assertConnected();
+            if (hasPendingSceneChanges(entry)) return;
+            cleanup();
+            resolve();
+          } catch (error) { cleanup(); reject(error); }
+        };
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error('The drawing is still saving. Please retry.'));
+        }, 10_000);
+        const cleanup = () => { clearTimeout(timeout); entry.listeners.delete(check); };
+        entry.listeners.add(check);
+        check();
+      });
+    })(),
+    // Asset uploads can also stall; leaving must remain recoverable.
+    new Promise<never>((_, reject) => {
+      uploadTimeout = setTimeout(() => reject(new Error('The drawing is still saving. Please retry.')), 15_000);
+    }),
+    ]);
+  } finally {
+    if (uploadTimeout) clearTimeout(uploadTimeout);
+  }
+}
+
 function snapshot(entry: Entry): ExcalidrawCollaborationDocument {
   return {
+    prepareToLeave: () => prepareSceneToLeave(entry),
+    hasPendingChanges: () => hasPendingSceneChanges(entry),
     registryKey: entry.key,
     session: entry.session,
     status: entry.status,

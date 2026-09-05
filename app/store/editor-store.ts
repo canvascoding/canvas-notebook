@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 interface EditorState {
+  sessionId: number;
   activePath: string | null;
   draft: string;
   baseContent: string;
@@ -18,6 +19,7 @@ interface EditorState {
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
+  sessionId: 0,
   activePath: null,
   draft: '',
   baseContent: '',
@@ -27,6 +29,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   saveError: null,
   setActiveFile: (path: string, content: string) =>
     set({
+      sessionId: get().sessionId + 1,
       activePath: path,
       draft: content,
       baseContent: content,
@@ -62,6 +65,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ saveError: error, isSaving: false }),
   clear: () =>
     set({
+      sessionId: get().sessionId + 1,
       activePath: null,
       draft: '',
       baseContent: '',

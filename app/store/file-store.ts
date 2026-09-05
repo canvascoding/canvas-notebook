@@ -57,6 +57,7 @@ import {
   notifyWorkspacePathRenamed,
   notifyWorkspacePathsDeleted,
 } from '@/app/lib/files/workspace-file-events';
+import { getDocumentTransitionGuard } from '@/app/lib/files/document-transition';
 import { checkNotebookDocumentOpen } from '@/app/lib/notebook/document-tab-open-guard';
 
 export type {
@@ -339,6 +340,8 @@ interface FileStoreState {
   loadFile: (path: string, noCache?: boolean, workspaceId?: string | null) => Promise<FileLoadResult>;
   refreshCurrentFileContent: (path: string) => Promise<CurrentFile | null>;
   revealAndLoadFile: (path: string, options?: OpenWorkspaceFileOptions) => Promise<OpenWorkspaceFileResult>;
+  closeFile: (path: string) => Promise<boolean>;
+  prepareCurrentFileForTransition: () => Promise<void>;
   saveFile: (path: string, content: string, workspaceId?: string | null) => Promise<void>;
   selectNode: (
     node: FileNode,
@@ -842,6 +845,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         return { status: 'superseded', path };
       }
 
+      const latestEditor = useEditorStore.getState();
+      if (latestEditor.isDirty && latestEditor.activePath && latestEditor.activePath !== path) {
+        throw new Error('The current file changed while loading. Please save it and retry.');
+      }
       const fileName = path.split('/').pop() || path;
       const loadedFile: CurrentFile = {
         path,
@@ -1034,40 +1041,15 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       return { status: 'superseded', path: normalizedPath };
     }
 
-    const currentEditor = useEditorStore.getState();
-    if (
-      currentEditor.isDirty &&
-      currentEditor.activePath &&
-      currentEditor.activePath !== normalizedPath
-    ) {
+    if (get().currentFile?.path !== normalizedPath) {
       try {
-        useEditorStore.getState().markSaving();
-        await get().saveFile(currentEditor.activePath, currentEditor.draft, workspaceId);
-        if (!isLatestOpen()) {
-          return { status: 'superseded', path: normalizedPath };
-        }
-
-        const latestEditor = useEditorStore.getState();
-        if (
-          latestEditor.activePath !== currentEditor.activePath ||
-          latestEditor.draft !== currentEditor.draft
-        ) {
-          useEditorStore.getState().setSaveError('The file changed while the next file was opening. Please retry.');
-          return {
-            status: 'failed',
-            path: normalizedPath,
-            error: 'The current file changed while saving. Please retry opening the target file.',
-          };
-        }
-        useEditorStore.getState().markSaved();
+        await get().prepareCurrentFileForTransition();
       } catch (error) {
-        if (!isLatestOpen()) {
-          return { status: 'superseded', path: normalizedPath };
-        }
-        const message = error instanceof Error ? error.message : 'Failed to save the current file';
-        useEditorStore.getState().setSaveError(message);
-        return { status: 'failed', path: normalizedPath, error: message };
+        if (!isLatestOpen()) return { status: 'superseded', path: normalizedPath };
+        return { status: 'failed', path: normalizedPath,
+          error: error instanceof Error ? error.message : 'Failed to save the current file' };
       }
+      if (!isLatestOpen()) return { status: 'superseded', path: normalizedPath };
     }
 
     const parentDir = getParentDirectory(normalizedPath);
@@ -1128,6 +1110,57 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     get().selectNode(selectedNode);
     get().mobileFileOpened(normalizedPath, options.transitionId);
     return { status: 'opened', path: normalizedPath };
+  },
+
+  closeFile: async (path: string) => {
+    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    if (get().currentFile && get().currentFile?.path !== path) return false;
+    const requestId = get().openFileRequestId + 1;
+    set((state) => ({ openFileRequestId: requestId,
+      fileLoadRequestId: state.fileLoadRequestId + 1,
+      isLoadingFile: false, loadingFilePath: null }));
+    await get().prepareCurrentFileForTransition();
+    if (get().openFileRequestId !== requestId
+      || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return false;
+    get().clearCurrentFile();
+    useEditorStore.getState().clear();
+    return true;
+  },
+
+  prepareCurrentFileForTransition: async () => {
+    const { currentFile, currentFileWorkspaceId, fileLoadRequestId } = get();
+    if (!currentFile) return;
+    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    if (currentFileWorkspaceId !== workspaceId) throw new Error('The workspace changed. Please retry.');
+    const editor = useEditorStore.getState();
+    const isCurrent = () => (
+      useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+      && get().currentFile?.path === currentFile.path
+      && get().fileLoadRequestId === fileLoadRequestId
+      && useEditorStore.getState().sessionId === editor.sessionId
+    );
+    try {
+      const guard = getDocumentTransitionGuard(workspaceId, currentFile.path);
+      if (guard) await guard.prepare();
+      else if (currentFile.collaboration?.crdtCapable || currentFile.collaboration?.sceneCapable) {
+        throw new Error('The editor is still connecting. Please retry when the document is saved.');
+      }
+      if (!isCurrent()) throw new Error('The document changed. Please retry.');
+      if (!currentFile.collaboration?.crdtCapable && !currentFile.collaboration?.sceneCapable
+        && editor.activePath === currentFile.path && editor.isDirty) {
+        editor.markSaving();
+        await get().saveFile(currentFile.path, editor.draft, workspaceId);
+        if (!isCurrent() || useEditorStore.getState().draft !== editor.draft) {
+          throw new Error('The file changed while saving. Please retry.');
+        }
+        useEditorStore.getState().markSaved();
+      }
+    } catch (error) {
+      if (isCurrent()) useEditorStore.getState().setSaveError(
+        error instanceof Error ? error.message : 'Failed to save the current file',
+      );
+      throw error;
+    }
   },
 
   saveFile: async (path: string, content: string, requestedWorkspaceId?: string | null) => {

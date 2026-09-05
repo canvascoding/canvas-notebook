@@ -62,7 +62,7 @@ export function FilePreviewDialog({
   onZipExtracted,
 }: FilePreviewDialogProps) {
   const t = useTranslations('notebook');
-  const { currentFile, isLoadingFile, loadingFilePath, loadFile, downloadFile, clearCurrentFile } = useFileStore();
+  const { currentFile, isLoadingFile, loadingFilePath, loadFile, downloadFile } = useFileStore();
   const [isExtracting, setIsExtracting] = useState(false);
   const isZipArchive = path ? getExtension(path) === 'zip' : false;
 
@@ -83,10 +83,14 @@ export function FilePreviewDialog({
   const isActiveExcalidraw = activePath ? isExcalidrawFilePath(activePath) : false;
   const currentIndex = activePath ? imagePaths.indexOf(activePath) : -1;
 
-  const handleClose = useCallback(() => {
-    clearCurrentFile();
-    onClose();
-  }, [clearCurrentFile, onClose]);
+  const handleClose = useCallback(async () => {
+    if (!activePath) { onClose(); return; }
+    try {
+      if (await useFileStore.getState().closeFile(activePath)) onClose();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('failedToSaveFile'));
+    }
+  }, [activePath, onClose, t]);
 
   const handleExtractZip = useCallback(async () => {
     if (!path || isExtracting) return;

@@ -37,6 +37,7 @@ import { useTheme } from '@/app/components/ThemeProvider';
 import { EXCALIDRAW_FILE_SOURCE, createEmptyExcalidrawFileContent } from '@/app/lib/excalidraw-file';
 import { parseExcalidrawContent } from '@/app/lib/excalidraw-scene';
 import { useExcalidrawCollaboration } from '@/app/lib/excalidraw-collaboration/client';
+import { registerDocumentTransitionGuard } from '@/app/lib/files/document-transition';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { CodeEditor } from './CodeEditorClient';
 import { ExcalidrawAgentOperations } from './ExcalidrawAgentOperations';
@@ -184,6 +185,16 @@ export function ExcalidrawEditor({ path, value, onChange, collaborationEnabled =
     workspaceId: activeWorkspaceId,
     path,
   });
+  useEffect(() => {
+    if (!collaborationEnabled) return;
+    return registerDocumentTransitionGuard(activeWorkspaceId, path, {
+      hasPendingChanges: () => !collaboration || collaboration.hasPendingChanges(),
+      prepare: async () => {
+        if (!collaboration) throw new Error(t('collaboration.connecting'));
+        await collaboration.prepareToLeave();
+      },
+    });
+  }, [activeWorkspaceId, collaboration, collaborationEnabled, path, t]);
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const loadingAssetsRef = useRef(new Set<string>());
   const lastSerializedRef = useRef(value);

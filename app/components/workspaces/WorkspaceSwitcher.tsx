@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Check, ChevronsUpDown, Loader2, Lock, Pencil, Plus, RefreshCw, Star, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -127,8 +128,11 @@ export function WorkspaceSwitcher({
   }, [hydrateWorkspaces]);
 
   const handleSelect = useCallback(
-    (workspace: ClientWorkspaceSummary) => {
-      setActiveWorkspace(workspace.id, source);
+    async (workspace: ClientWorkspaceSummary) => {
+      if (!(await setActiveWorkspace(workspace.id, source))) {
+        const message = useWorkspaceStore.getState().error;
+        if (message) toast.error(message);
+      }
     },
     [setActiveWorkspace, source]
   );
@@ -164,8 +168,8 @@ export function WorkspaceSwitcher({
 
   const handleWorkspaceCreated = useCallback(async (workspace: ClientWorkspaceSummary) => {
     await refreshWorkspaces();
-    setActiveWorkspace(workspace.id, source);
-  }, [refreshWorkspaces, setActiveWorkspace, source]);
+    await handleSelect(workspace);
+  }, [handleSelect, refreshWorkspaces]);
 
   const workspaceDialogs = (
     <>

@@ -294,7 +294,7 @@ async function main() {
     receivedDetails.push((event as CustomEvent).detail);
   });
 
-  const changed = useWorkspaceStore.getState().setActiveWorkspace(personalWorkspace.id, 'test');
+  const changed = await useWorkspaceStore.getState().setActiveWorkspace(personalWorkspace.id, 'test');
   assert.equal(changed, true);
   assert.equal(useWorkspaceStore.getState().activeWorkspaceId, personalWorkspace.id);
   const [receivedDetail] = receivedDetails;
@@ -302,7 +302,7 @@ async function main() {
   assert.equal(receivedDetail.activeWorkspaceId, personalWorkspace.id);
   assert.equal(receivedDetail.source, 'test');
 
-  const unchanged = useWorkspaceStore.getState().setActiveWorkspace(personalWorkspace.id, 'test');
+  const unchanged = await useWorkspaceStore.getState().setActiveWorkspace(personalWorkspace.id, 'test');
   assert.equal(unchanged, false);
 
   (globalThis as unknown as { fetch: typeof fetch }).fetch = async () => (
@@ -326,7 +326,7 @@ async function main() {
   assert.equal(useWorkspaceStore.getState().teamFeaturesEnabled, false);
   assert.equal(useWorkspaceStore.getState().canCreateSharedWorkspaces, false);
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.id, personalWorkspace.id);
-  const personalWorkspaceChanged = useWorkspaceStore.getState().setActiveWorkspace(additionalPersonalWorkspace.id, 'test');
+  const personalWorkspaceChanged = await useWorkspaceStore.getState().setActiveWorkspace(additionalPersonalWorkspace.id, 'test');
   assert.equal(personalWorkspaceChanged, true);
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.id, additionalPersonalWorkspace.id);
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.type, 'personal');

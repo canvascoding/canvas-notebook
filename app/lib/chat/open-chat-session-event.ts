@@ -39,7 +39,7 @@ export function handleOpenChatSessionEvent(
   event: Event,
   options: {
     activeWorkspaceId: string | null;
-    switchWorkspace: (workspaceId: string) => boolean;
+    switchWorkspace: (workspaceId: string) => boolean | Promise<boolean>;
     openSession: (sessionId: string) => void;
   },
 ): boolean {
@@ -47,12 +47,17 @@ export function handleOpenChatSessionEvent(
   if (!sessionId) return false;
 
   const workspaceId = getOpenChatSessionEventWorkspaceId(event);
-  if (
-    workspaceId
-    && workspaceId !== options.activeWorkspaceId
-    && !options.switchWorkspace(workspaceId)
-  ) {
-    return false;
+  if (workspaceId && workspaceId !== options.activeWorkspaceId) {
+    const switched = options.switchWorkspace(workspaceId);
+    if (typeof switched !== 'boolean') {
+      // Claim synchronously so the dispatcher does not navigate around the save guard.
+      markOpenChatSessionEventHandled(event);
+      void switched.then((allowed) => {
+        if (allowed) options.openSession(sessionId);
+      }).catch(() => undefined);
+      return true;
+    }
+    if (!switched) return false;
   }
 
   markOpenChatSessionEventHandled(event);

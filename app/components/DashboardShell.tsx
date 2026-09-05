@@ -814,73 +814,27 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     return () => window.removeEventListener(WORKSPACE_FILE_OPENED_EVENT, handleWorkspaceFileOpen);
   }, [showOpenedDocument]);
 
-  const flushActiveDocument = useCallback(async (path: string) => {
-    const editorState = useEditorStore.getState();
-    if (editorState.activePath !== path || !editorState.isDirty) return true;
-
-    try {
-      editorState.markSaving();
-      const contentToSave = editorState.draft;
-      await useFileStore.getState().saveFile(path, contentToSave, activeWorkspaceId);
-      const latestEditorState = useEditorStore.getState();
-      if (
-        latestEditorState.activePath !== path
-        || latestEditorState.draft !== contentToSave
-      ) {
-        latestEditorState.setSaveError(tNotebook('fileChangedWhileClosing'));
-        toast.error(tNotebook('fileChangedWhileClosing'));
-        return false;
-      }
-      latestEditorState.markSaved();
-      return true;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : tNotebook('failedToSaveFile');
-      useEditorStore.getState().setSaveError(message);
-      toast.error(message);
-      return false;
-    }
-  }, [activeWorkspaceId, tNotebook]);
-
   const handleCloseDocumentTab = useCallback(async (path: string) => {
     if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
     const currentTabs = documentTabsRef.current;
     if (!currentTabs.openPaths.includes(path)) return;
-
     if (currentTabs.activePath !== path) {
       replaceDocumentTabs(activeWorkspaceId, closeNotebookDocumentTab(currentTabs, path));
       return;
     }
-
-    const closingResult = closeNotebookDocumentTab(currentTabs, path);
-    if (closingResult.activePath) {
-      const openResult = await openNotebookFile(closingResult.activePath);
-      if (openResult?.status !== 'opened') {
-        if (openResult?.status !== 'superseded') {
-          toast.error(openResult?.error || tNotebook('failedToLoadPreview'));
-        }
-        return;
-      }
-      replaceDocumentTabs(
-        activeWorkspaceId,
-        closeNotebookDocumentTab(documentTabsRef.current, path),
-      );
-      return;
+    try {
+      if (!(await useFileStore.getState().closeFile(path))) return;
+      if (useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId) return;
+      const nextTabs = closeNotebookDocumentTab(documentTabsRef.current, path);
+      replaceDocumentTabs(activeWorkspaceId, nextTabs);
+      openedPathRef.current = null;
+      dispatch({ type: 'DOCUMENT_CLOSED' });
+      // Closing succeeds even when the neighboring document no longer exists.
+      if (nextTabs.activePath) await openNotebookFile(nextTabs.activePath);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : tNotebook('failedToSaveFile'));
     }
-
-    if (!(await flushActiveDocument(path))) return;
-    useFileStore.getState().clearCurrentFile();
-    useEditorStore.getState().clear();
-    openedPathRef.current = null;
-    replaceDocumentTabs(activeWorkspaceId, closingResult);
-    dispatch({ type: 'DOCUMENT_CLOSED' });
-  }, [
-    activeWorkspaceId,
-    dispatch,
-    flushActiveDocument,
-    openNotebookFile,
-    replaceDocumentTabs,
-    tNotebook,
-  ]);
+  }, [activeWorkspaceId, dispatch, openNotebookFile, replaceDocumentTabs, tNotebook]);
 
   const handleCloseDocument = useCallback(() => {
     const activePath = documentTabsRef.current.activePath;
