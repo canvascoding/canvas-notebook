@@ -678,6 +678,8 @@ export async function runBrowserGatewayAction(
         };
       }
       const page = await ensurePage(context);
+      // Show the browser before navigation: loading can wait for user dialogs.
+      await refreshBrowserSessionSnapshot(context);
       if (input.url?.trim()) {
         const url = await validateBrowserUrl(input.url);
         await page.goto(url, {

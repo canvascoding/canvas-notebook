@@ -92,7 +92,7 @@ type BrowserSocketMessage =
   | { type: 'clipboard_text'; requestId: string; text: string }
   | ({ type: 'error' } & BrowserViewFailure);
 
-type ConnectionStatus = 'connecting' | 'reconnecting' | 'failed' | 'idle' | 'live';
+type ConnectionStatus = 'connecting' | 'reconnecting' | 'awaiting-dialog' | 'failed' | 'idle' | 'live';
 
 const RECONNECT_DELAYS = [1000, 2000, 4000];
 const AUTOMATIC_RECONNECT_CODES = new Set<BrowserViewErrorCode>([
@@ -146,6 +146,7 @@ const copy = {
     reconnecting: 'Verbindung wird wiederhergestellt',
     staleFrame: 'Letztes Browserbild – noch nicht wieder live. Eingaben sind gesperrt.',
     promptInput: 'Antwort auf den Dialog',
+    awaitingDialog: 'Browser wartet auf eine Dialogantwort',
     live: 'Live verbunden',
     failureTitle: 'Die Live-Ansicht braucht Aufmerksamkeit',
     failureDescription: 'Das letzte Browserbild bleibt zur Orientierung sichtbar. Eingaben sind bis zur erneuten Verbindung gesperrt.',
@@ -258,6 +259,7 @@ const copy = {
     reconnecting: 'Reconnecting',
     staleFrame: 'Last browser frame — not live yet. Input is disabled.',
     promptInput: 'Dialog response',
+    awaitingDialog: 'Browser is waiting for a dialog response',
     live: 'Live connected',
     failureTitle: 'The live view needs attention',
     failureDescription: 'The last browser frame remains visible for context. Input stays locked until you reconnect.',
@@ -475,8 +477,8 @@ export function BrowserLabClient({
     && Boolean(failure && AUTOMATIC_RECONNECT_CODES.has(failure.code))
     && retryCount < RECONNECT_DELAYS.length && viewerEnabled;
   const reconnecting = connectionStatus === 'reconnecting' || willReconnect;
-  const connectionPending = connectionStatus === 'connecting' || reconnecting;
-  const connectionLabel = reconnecting ? t.reconnecting : connectionStatus === 'live' ? t.live
+  const connectionPending = connectionStatus === 'connecting' || connectionStatus === 'awaiting-dialog' || reconnecting;
+  const connectionLabel = connectionStatus === 'awaiting-dialog' ? t.awaitingDialog : reconnecting ? t.reconnecting : connectionStatus === 'live' ? t.live
     : connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failed : t.disconnected;
 
   const availableSessions = useMemo(
@@ -733,9 +735,17 @@ export function BrowserLabClient({
       let ready = false;
       let receivedState = false;
       let receivedFrame = false;
+      let pendingDialog = false;
       let live = false;
       const confirmLive = () => {
-        if (live || !ready || !receivedState || !receivedFrame) return;
+        if (live || !ready || !receivedState) return;
+        if (!receivedFrame) {
+          if (pendingDialog) {
+            attempt.ready();
+            setConnectionStatus('awaiting-dialog');
+          }
+          return;
+        }
         live = true;
         attempt.ready();
         setConnectionStatus('live');
@@ -776,6 +786,7 @@ export function BrowserLabClient({
           } });
         } else if (message.type === 'state') {
           receivedState = true;
+          pendingDialog = Boolean(message.state.pendingDialog);
           setViewState(message.state);
           confirmLive();
           if (ready && message.state.mode === 'view' && !message.state.controlOwnerViewId) {
@@ -868,7 +879,7 @@ export function BrowserLabClient({
   ]);
 
   useEffect(() => {
-    if (connectionStatus !== 'live') return;
+    if (connectionStatus !== 'live' && connectionStatus !== 'awaiting-dialog') return;
     const timer = window.setInterval(() => send({ type: 'heartbeat' }), 10_000);
     return () => window.clearInterval(timer);
   }, [connectionStatus, send]);
@@ -1461,7 +1472,8 @@ export function BrowserLabClient({
           ) : null}
 
           {viewState?.pendingDialog ? (
-            <BrowserDialogBar key={viewState.pendingDialog.openedAt} dialog={viewState.pendingDialog} disabled={!userControls} t={t}
+            <BrowserDialogBar key={viewState.pendingDialog.openedAt} dialog={viewState.pendingDialog}
+              disabled={!(userControls || (connectionStatus === 'awaiting-dialog' && viewState.mode === 'user' && viewState.controlOwnerViewId === viewState.viewId))} t={t}
               onResolve={(accept, promptText) => send({ type: 'dialog_resolve', accept, promptText })} />
           ) : null}
 
@@ -1523,7 +1535,7 @@ export function BrowserLabClient({
             </div>
           ) : null}
 
-          {viewState?.sensitiveInputFocused ? (
+          {viewState?.sensitiveInputFocused && !viewState.pendingDialog ? (
             <div className="flex shrink-0 items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs">
               <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               <div>

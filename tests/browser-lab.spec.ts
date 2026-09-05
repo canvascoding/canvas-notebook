@@ -1,4 +1,5 @@
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
+import net from 'node:net';
 
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
@@ -61,6 +62,32 @@ type RuntimeCatalogProvider = {
 };
 
 let cachedAuthCookies: Awaited<ReturnType<ReturnType<Page['context']>['cookies']>> | null = null;
+
+async function browserRoundtripCommand(page: Page, session: SessionSummary, input?: Record<string, unknown>) {
+  const socketPath = process.env.CANVAS_BROWSER_ROUNDTRIP_SOCKET;
+  if (!socketPath) throw new Error('Start the dev server with the browser roundtrip preload first.');
+  const cookies = await page.context().cookies(process.env.BASE_URL || 'http://localhost:3000');
+  return new Promise<Record<string, unknown> | null>((resolve, reject) => {
+    const socket = net.createConnection(socketPath);
+    let buffer = '';
+    socket.setEncoding('utf8');
+    socket.setTimeout(60_000, () => socket.destroy(new Error('Browser roundtrip command timed out.')));
+    socket.on('error', reject);
+    socket.on('connect', () => socket.write(JSON.stringify({
+      command: input ? 'tool' : 'runtime_status', input,
+      sessionId: session.sessionId, agentId: session.agentId,
+      cookie: cookies.map(({ name, value }) => `${name}=${value}`).join('; '),
+    }) + '\n'));
+    socket.on('data', (chunk) => { buffer += chunk; });
+    socket.on('end', () => {
+      try {
+        const response = JSON.parse(buffer);
+        if (response.error) reject(new Error(response.error));
+        else resolve(response.result);
+      } catch (error) { reject(error); }
+    });
+  });
+}
 
 async function login(page: Page, destination: string | null = '/'): Promise<void> {
   if (cachedAuthCookies) {
@@ -724,6 +751,132 @@ test.describe('Browser Lab', () => {
     }
   });
 
+  test('connects Notebook while agent browser startup awaits a JavaScript prompt', async ({ page }) => {
+    test.skip(!process.env.CANVAS_BROWSER_ROUNDTRIP_SOCKET, 'Requires the explicit dev-only browser tool preload.');
+    test.slow();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await login(page, null);
+    const session = await findBrowserLabSession(page);
+    let starting: ReturnType<typeof browserRoundtripCommand> | undefined;
+    let ticketRequests = 0;
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/api/browser/view' && request.method() === 'POST') ticketRequests++;
+    });
+    try {
+      await page.goto(`/notebook?chat=open&session=${encodeURIComponent(session.sessionId)}`);
+      await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId, { timeout: 30_000 });
+      const access = await issueBrowserFixtureAccess(page);
+      starting = browserRoundtripCommand(page, session, {
+        action: 'start', timeout_ms: 60_000,
+        url: `${process.env.BASE_URL || 'http://localhost:3000'}/api/browser/view/fixture-page?access=${encodeURIComponent(access)}&promptOnLoad=1`,
+      });
+      void starting.catch(() => undefined);
+      const dialog = page.getByTestId('browser-dialog');
+      await expect(dialog).toBeVisible({ timeout: 30_000 });
+      await expect(dialog.getByRole('textbox')).toBeEnabled({ timeout: 20_000 });
+      await expect(page.locator('img[tabindex]')).toHaveCount(0);
+      // Cross both the 15s connection deadline and the 30s control lease.
+      // A user thinking about a prompt must keep the same working connection.
+      await page.waitForTimeout(31_000);
+      expect(ticketRequests).toBe(1);
+      await expect(dialog.getByRole('textbox')).toBeEnabled();
+      await dialog.getByRole('textbox').fill('Startup resolved');
+      await dialog.getByRole('textbox').press('Enter');
+      const result = await starting;
+      expect(result?.details).not.toHaveProperty('error');
+      await expect(page.locator('img[tabindex]')).toHaveAttribute('alt', 'Prompt: Startup resolved');
+      await browserRoundtripCommand(page, session, { action: 'close' });
+      await expect(page.getByTestId('notebook-surface-browser')).toHaveCount(0);
+    } finally {
+      await page.goto('about:blank');
+      await deleteBrowserLabTestSession(page, session);
+      await starting?.catch(() => undefined);
+    }
+  });
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    test(`completes the real agent browser roundtrip in Notebook at ${viewport.width}px`, async ({ page }) => {
+      test.skip(!process.env.CANVAS_BROWSER_ROUNDTRIP_SOCKET, 'Requires the explicit dev-only browser tool preload.');
+      test.slow();
+      await page.setViewportSize(viewport);
+      await login(page, null);
+      const session = await findBrowserLabSession(page);
+      const otherSession = await findBrowserLabSession(page);
+      const errors: Error[] = [];
+      page.on('pageerror', (error) => errors.push(error));
+      let browserViewport = { width: 1280, height: 800 };
+      let browserStates = 0;
+      page.on('websocket', (socket) => {
+        if (!socket.url().includes('/ws/browser')) return;
+        socket.on('framereceived', ({ payload }) => {
+          const message = JSON.parse(String(payload));
+          if (message.type === 'state') { browserViewport = message.state.viewport; browserStates++; }
+        });
+      });
+      const notebookUrl = `/notebook?chat=open&session=${encodeURIComponent(session.sessionId)}`;
+      try {
+        await page.goto(notebookUrl);
+        await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId, { timeout: 30_000 });
+        await expect.poll(async () => Boolean(await browserRoundtripCommand(page, session)), { timeout: 60_000 }).toBe(true);
+        await expect(page.getByTestId('notebook-surface-browser')).toHaveCount(0);
+        const access = await issueBrowserFixtureAccess(page);
+        const started = await browserRoundtripCommand(page, session, {
+          action: 'start', url: `${process.env.BASE_URL || 'http://localhost:3000'}/api/browser/view/fixture-page?access=${encodeURIComponent(access)}`,
+        });
+        expect(started?.details).not.toHaveProperty('error');
+        // No /ws/chat or runtime-status mocks: the real agent runtime must publish this.
+        await expect(page.getByTestId('notebook-surface-browser')).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+        const frame = page.locator('img[tabindex]');
+        await expect(frame).toHaveAttribute('data-live', 'true', { timeout: 30_000 });
+        await expect(frame).toHaveAttribute('alt', 'Browser transfer fixture');
+        await expect(page.getByLabel(labels.address)).toBeEnabled();
+        if (viewport.width < 768) {
+          await page.getByTestId('browser-agent-activity-sheet').getByRole('button', {
+            name: /^(Agent-Aktivität ausblenden|Hide agent activity)$/,
+          }).click();
+          await expect(page.getByTestId('browser-agent-activity-sheet')).toHaveCount(0);
+        }
+        const before = await browserRoundtripCommand(page, session);
+        const beforeRevision = (before?.browser as { interactionRevision?: number } | undefined)?.interactionRevision ?? 0;
+        const bounds = await frame.boundingBox();
+        expect(bounds).toBeTruthy();
+        await page.mouse.click(bounds!.x + 80 * bounds!.width / browserViewport.width, bounds!.y + 36 * bounds!.height / browserViewport.height);
+        const dialog = page.getByTestId('browser-dialog');
+        await expect(dialog).toBeVisible();
+        await dialog.getByRole('textbox').fill(`Roundtrip ${viewport.width}`);
+        await page.screenshot({ path: `test-results/notebook-browser-prompt-${viewport.width}.png` });
+        await dialog.getByRole('textbox').press('Enter');
+        await expect(dialog).toBeHidden();
+        await expect(frame).toHaveAttribute('alt', `Prompt: Roundtrip ${viewport.width}`);
+        const observed = await browserRoundtripCommand(page, session, { action: 'evaluate', script: 'document.title' });
+        expect(observed?.details).toHaveProperty('result', `Prompt: Roundtrip ${viewport.width}`);
+        await expect.poll(async () => ((await browserRoundtripCommand(page, session))?.browser as { interactionRevision?: number })?.interactionRevision ?? 0).toBeGreaterThan(beforeRevision);
+        expect(browserStates).toBeGreaterThan(0);
+
+        await page.goto(`/notebook?chat=open&session=${encodeURIComponent(otherSession.sessionId)}`);
+        await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', otherSession.sessionId);
+        await expect(page.getByTestId('notebook-surface-browser')).toHaveCount(0);
+        await expect(page.locator('img[tabindex]')).toHaveCount(0);
+        await page.goto(notebookUrl);
+        await expect(page.getByTestId('notebook-surface-browser')).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
+        await expect(frame).toHaveAttribute('data-live', 'true');
+        await expect(frame).toHaveAttribute('alt', `Prompt: Roundtrip ${viewport.width}`);
+        const closed = await browserRoundtripCommand(page, session, { action: 'close' });
+        expect(closed?.details).not.toHaveProperty('error');
+        await expect(page.getByTestId('notebook-surface-browser')).toHaveCount(0);
+        await expect(page.getByTestId('chat-live-browser-link')).toHaveCount(0);
+        await expect.poll(async () => Boolean((await browserRoundtripCommand(page, session))?.browser)).toBe(false);
+        const status = await browserRoundtripCommand(page, session, { action: 'status' });
+        expect(status?.details).toHaveProperty('running', false);
+        expect(errors).toEqual([]);
+      } finally {
+        await page.goto('about:blank');
+        await deleteBrowserLabTestSession(page, session);
+        await deleteBrowserLabTestSession(page, otherSession);
+      }
+    });
+  }
+
   test('opens the running browser beside its chat inside the notebook', async ({ page }) => {
     test.slow();
     const pageErrors: Error[] = [];
@@ -924,6 +1077,9 @@ test.describe('Browser Lab', () => {
       await expect(page.getByRole('button', { name: 'Browser transfer fixture', exact: true })).toBeVisible({ timeout: 30_000 });
 
       await frame.focus();
+      // The prompt and hover fixtures precede the file input in tab order.
+      await frame.press('Tab');
+      await frame.press('Tab');
       await frame.press('Tab');
       await frame.press('Space');
       await expect(page.getByText(/^(Workspace-Datei auswählen|Choose a workspace file)$/)).toBeVisible({ timeout: 15_000 });

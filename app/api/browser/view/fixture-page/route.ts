@@ -67,6 +67,9 @@ function fixtureHtml(access: string, nonce: string): string {
       document.title = name === 'No file selected' ? 'Browser transfer fixture' : 'Uploaded: ' + name;
       document.getElementById('download').focus();
     });
+    if (new URL(window.location.href).searchParams.has('promptOnLoad')) {
+      document.getElementById('prompt').click();
+    }
   </script>
 </body>
 </html>`;

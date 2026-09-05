@@ -626,6 +626,12 @@ function assertCurrentSession(context: BrowserRuntimeContext, session: BrowserSe
   }
 }
 
+export function getExistingBrowserPage(context: BrowserRuntimeContext): Page | null {
+  const session = browserProfiles.get(getProfileKey(context))?.sessions.get(getSessionKey(context));
+  const page = session?.activePage;
+  return session && !session.closed && page && !page.isClosed() ? page : null;
+}
+
 export async function getBrowserPageTitle(page: Page): Promise<string> {
   // Reading document.title would wait for an open JavaScript dialog to close.
   const client = await page.createCDPSession();

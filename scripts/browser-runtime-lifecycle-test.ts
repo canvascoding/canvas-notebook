@@ -165,14 +165,27 @@ async function main() {
       const value = message as { type: string; state?: { pendingDialog?: { message?: string } } };
       return value.type === 'state' && value.state?.pendingDialog?.message === 'Test prompt';
     }), 'dialogs must be published even while their triggering action holds the lock');
-    const resolveDialog = viewer.resolveDialog(true, 'user input');
+    const arrivingMessages: unknown[] = [];
+    const arrivingViewer = makeView('arriving', arrivingMessages);
+    let arrivalDeadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([arrivingViewer.start(), new Promise((_, reject) => {
+        arrivalDeadline = setTimeout(() => reject(new Error('Viewer arrival deadlocked behind an agent dialog')), 1000);
+      })]);
+      assert.ok(arrivingMessages.some((message) => (message as { type: string }).type === 'ready'));
+      assert.ok(arrivingMessages.some((message) => (message as { state?: { pendingDialog?: unknown } }).state?.pendingDialog));
+      viewer.close();
+      await arrivingViewer.requestControl('user');
+      await viewer.requestControl('user').then(() => assert.fail('closed viewer regained control'), () => undefined);
+    } finally { clearTimeout(arrivalDeadline); }
+    const resolveDialog = arrivingViewer.resolveDialog(true, 'user input');
     let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([resolveDialog, new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error('Dialog resolution deadlocked')), 1000); })]);
     } finally { clearTimeout(deadline); heldDialog.resolve(); }
     await dialogAction;
     assert.equal(answer, 'user input');
-    await viewer.mouse({ action: 'down', x: 10, y: 10 });
+    await arrivingViewer.mouse({ action: 'down', x: 10, y: 10 });
     assert.equal(activePage.pressedButtons.size, 1);
     const pagesBeforeStop = newPages;
     await runtime.closeBrowserRuntime(context, 'agent close');
