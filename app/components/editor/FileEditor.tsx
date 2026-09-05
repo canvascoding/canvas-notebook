@@ -407,12 +407,23 @@ interface FileEditorProps {
   onClosePreview?: () => void;
 }
 
+class SupersededEditorOperation extends Error {}
+
+function captureEditorScope() {
+  const editorSessionId = useEditorStore.getState().sessionId;
+  const { currentFileWorkspaceId: workspaceId, treeGeneration } = useFileStore.getState();
+  return () => useEditorStore.getState().sessionId === editorSessionId
+    && useFileStore.getState().currentFileWorkspaceId === workspaceId
+    && useFileStore.getState().treeGeneration === treeGeneration;
+}
+
 type HtmlViewMode = 'code' | 'preview';
 
 export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const t = useTranslations('notebook');
   const {
     currentFile,
+    currentFileWorkspaceId,
     isLoadingFile,
     loadingFilePath,
     fileError,
@@ -421,12 +432,12 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     saveFile,
     downloadFile,
     loadFile,
-    revealAndLoadFile,
     refreshCurrentFileContent,
     fileTree,
     currentDirectory,
   } = useFileStore(useShallow((state) => ({
     currentFile: state.currentFile,
+    currentFileWorkspaceId: state.currentFileWorkspaceId,
     isLoadingFile: state.isLoadingFile,
     loadingFilePath: state.loadingFilePath,
     fileError: state.fileError,
@@ -435,7 +446,6 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     saveFile: state.saveFile,
     downloadFile: state.downloadFile,
     loadFile: state.loadFile,
-    revealAndLoadFile: state.revealAndLoadFile,
     refreshCurrentFileContent: state.refreshCurrentFileContent,
     fileTree: state.fileTree,
     currentDirectory: state.currentDirectory,
@@ -519,13 +529,15 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     const editorState = useEditorStore.getState();
     if (editorState.activePath !== path) return null;
 
+    const isCurrent = captureEditorScope();
     const serverFile = await readWorkspaceFile(path, {
+      workspaceId: currentFileWorkspaceId,
       noCache: true,
       fallbackMessage: 'Failed to refresh file',
     });
 
     const latestEditorState = useEditorStore.getState();
-    if (latestEditorState.activePath !== path) return null;
+    if (!isCurrent() || latestEditorState.activePath !== path) return null;
 
     if (
       source === 'watch' &&
@@ -547,19 +559,23 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       source,
     });
     return serverFile;
-  }, []);
+  }, [currentFileWorkspaceId]);
 
   const saveTrackedFile = useCallback(async (path: string, content: string) => {
+    const isCurrent = captureEditorScope();
     localWriteTrackerRef.current.record(path, content);
     try {
-      await saveFile(path, content);
+      await saveFile(path, content, currentFileWorkspaceId);
+      if (!isCurrent()) throw new SupersededEditorOperation();
     } catch (error) {
       localWriteTrackerRef.current.discard(path, content);
+      if (!isCurrent()) throw new SupersededEditorOperation();
       throw error;
     }
-  }, [saveFile]);
+  }, [currentFileWorkspaceId, saveFile]);
 
   const handleSaveError = useCallback((error: unknown, path: string) => {
+    if (error instanceof SupersededEditorOperation) return;
     const message = getSaveErrorMessage(error);
     setSaveError(message);
     toast.error(message);
@@ -840,9 +856,11 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     const change = activeExternalTextChange;
     if (!change) return;
 
+    const isCurrent = captureEditorScope();
     setIsResolvingExternalTextChange(true);
     try {
       const refreshed = await refreshCurrentFileContent(change.path);
+      if (!isCurrent()) return;
       if (!refreshed) {
         throw new Error(t('externalChangeLoadFailed'));
       }
@@ -852,6 +870,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       setSaveError(null);
       toast.success(t('externalChangeReloaded'));
     } catch (error) {
+      if (!isCurrent() || error instanceof SupersededEditorOperation) return;
       const message = error instanceof Error ? error.message : t('externalChangeLoadFailed');
       setSaveError(message);
       toast.error(message);
@@ -864,9 +883,11 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     const change = activeExternalTextChange;
     if (!change) return;
 
+    const isCurrent = captureEditorScope();
     setIsResolvingExternalTextChange(true);
     try {
       const refreshed = await refreshCurrentFileContent(change.path);
+      if (!isCurrent()) return;
       if (!refreshed) {
         throw new Error(t('externalChangeLoadFailed'));
       }
@@ -901,6 +922,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       setExternalTextChange(null);
       toast.success(t('externalChangeMerged'));
     } catch (error) {
+      if (!isCurrent() || error instanceof SupersededEditorOperation) return;
       handleSaveError(error, change.path);
     } finally {
       setIsResolvingExternalTextChange(false);
@@ -922,27 +944,28 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     const change = activeExternalTextChange;
     if (!change) return;
 
+    const isCurrent = captureEditorScope();
     setIsResolvingExternalTextChange(true);
     try {
       const latestEditorState = useEditorStore.getState();
       const copyPath = buildConflictCopyPath(change.path);
       await saveTrackedFile(copyPath, latestEditorState.draft);
-      setExternalTextChange(null);
-      await revealAndLoadFile(copyPath);
+      if (!isCurrent()) return;
+      // Keep the source conflict visible: the copy does not overwrite or resolve it.
       toast.success(t('externalChangeCopySaved'));
     } catch (error) {
+      if (!isCurrent() || error instanceof SupersededEditorOperation) return;
       const message = error instanceof Error ? error.message : t('failedToSaveFile');
       setSaveError(message);
       toast.error(message);
     } finally {
       setIsResolvingExternalTextChange(false);
     }
-  }, [activeExternalTextChange, revealAndLoadFile, saveTrackedFile, setSaveError, t]);
+  }, [activeExternalTextChange, saveTrackedFile, setSaveError, t]);
 
   useEffect(() => {
     if (!currentFilePath || isSceneCollaboration) return;
-    const workspaceId = useFileStore.getState().currentFileWorkspaceId;
-    return registerDocumentTransitionGuard(workspaceId, currentFilePath, {
+    return registerDocumentTransitionGuard(currentFileWorkspaceId, currentFilePath, {
       hasPendingChanges: () => useEditorStore.getState().isDirty || Boolean(
         isCrdtCollaboration && activeCollaborationDocument?.durability !== 'checkpointed_file',
       ),
@@ -963,7 +986,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       },
     });
   }, [activeCollaborationDocument, activeExternalTextChangePath, currentFilePath,
-    isCrdtCollaboration, isSceneCollaboration, t]);
+    isCrdtCollaboration, isSceneCollaboration, currentFileWorkspaceId, t]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {

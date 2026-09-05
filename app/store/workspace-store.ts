@@ -283,8 +283,10 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     const previousWorkspaceId = get().activeWorkspaceId;
     if (previousWorkspaceId === workspace.id) return false;
 
+    let resetWorkspaceView: (id: string) => void;
     try {
       const { useFileStore } = await import('@/app/store/file-store');
+      resetWorkspaceView = useFileStore.getState().resetWorkspaceView;
       if (requestId !== workspaceSwitchRequestId || get().activeWorkspaceId !== previousWorkspaceId) return false;
       await useFileStore.getState().prepareCurrentFileForTransition();
       if (requestId !== workspaceSwitchRequestId || get().activeWorkspaceId !== previousWorkspaceId) return false;
@@ -297,6 +299,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
     // Permissions may have changed while the editor was saving.
     const latestWorkspace = get().workspaces.find((candidate) => candidate.id === workspaceId);
     if (!latestWorkspace || latestWorkspace.status !== 'active' || !latestWorkspace.permissions.canRead) return false;
+    resetWorkspaceView(workspace.id);
     writeCachedActiveWorkspaceId(workspace.id);
     set({
       activeWorkspaceId: workspace.id,

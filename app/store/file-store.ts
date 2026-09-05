@@ -111,6 +111,7 @@ const TEXT_EXTENSIONS = new Set([
 ]);
 
 const EXPLORER_STATE_STORAGE_KEY = 'canvas.fileExplorerState';
+const fileSaveBaselines = new Map<string, { expectedSha256: string | null; baseRevisionId: string | null }>();
 const saveFileQueues = new Map<string, Promise<void>>();
 let fileRefreshRequestId = 0;
 const subdirectoryLoadPromises = new Map<string, { noCache: boolean; promise: Promise<void> }>();
@@ -176,6 +177,7 @@ function enqueueFileSave(workspaceId: string | null, path: string, operation: ()
   void queueTail.finally(() => {
     if (saveFileQueues.get(queueKey) === queueTail) {
       saveFileQueues.delete(queueKey);
+      fileSaveBaselines.delete(queueKey);
     }
   });
 
@@ -1167,30 +1169,43 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const workspaceId = requestedWorkspaceId === undefined
       ? useWorkspaceStore.getState().activeWorkspaceId
       : requestedWorkspaceId;
+    const snapshot = get();
+    const queueKey = `${workspaceId ?? 'legacy'}\0${path}`;
+    const isCurrentScope = () => (
+      useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+      && get().treeGeneration === snapshot.treeGeneration
+    );
+    if (!saveFileQueues.has(queueKey)) {
+      const file = snapshot.currentFileWorkspaceId === workspaceId && snapshot.currentFile?.path === path
+        ? snapshot.currentFile : null;
+      fileSaveBaselines.set(queueKey, {
+        expectedSha256: (isCurrentScope() ? snapshot.fileRevisions[path] : null) ?? file?.stats?.sha256 ?? null,
+        baseRevisionId: file?.revision?.id ?? file?.collaboration?.latestRevision?.id ?? null,
+      });
+    }
     return enqueueFileSave(workspaceId, path, async () => {
-    set({ fileError: null, fileErrorPath: null, missingFilePath: null });
+    if (isCurrentScope() && get().fileLoadRequestId === snapshot.fileLoadRequestId) set({ fileError: null, fileErrorPath: null, missingFilePath: null });
 
     try {
-      const { currentFile: currentFileBeforeSave, fileRevisions } = get();
-      const expectedSha256 = fileRevisions[path]
-        ?? (currentFileBeforeSave?.path === path ? currentFileBeforeSave.stats?.sha256 ?? null : null);
       const result = await writeWorkspaceFile(path, content, {
-        expectedSha256,
-        baseRevisionId: currentFileBeforeSave?.path === path
-          ? currentFileBeforeSave.revision?.id ?? currentFileBeforeSave.collaboration?.latestRevision?.id ?? null
-          : null,
-        workspaceId,
+        ...fileSaveBaselines.get(queueKey), workspaceId,
+      });
+      // A queued save belongs to its original workspace even after navigation.
+      fileSaveBaselines.set(queueKey, {
+        expectedSha256: result.stats?.sha256 ?? null,
+        baseRevisionId: result.revision?.id ?? result.collaboration?.latestRevision?.id ?? null,
       });
 
       if (/\.(?:md|markdown)$/i.test(path)) {
         invalidateWorkspaceLinkIndexCache(workspaceId);
       }
 
-      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
+      if (!isCurrentScope()) return;
 
       // Update current file if it's the same path
       const { currentFile } = get();
-      if (currentFile?.path === path) {
+      if (currentFile?.path === path && get().currentFileWorkspaceId === workspaceId
+        && get().fileLoadRequestId === snapshot.fileLoadRequestId) {
         set((state) => ({
           currentFile: {
             ...currentFile,
@@ -1209,7 +1224,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to save file';
-      if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
+      if (isCurrentScope() && get().fileLoadRequestId === snapshot.fileLoadRequestId) {
         set({
           fileError: message,
           fileErrorPath: path,
@@ -1314,6 +1329,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const pathsToDelete = Array.isArray(paths) ? paths : [paths];
 
     try {
+      const currentPath = get().currentFile?.path;
+      if (currentPath && pathsToDelete.some((path) => isSameOrDescendantPath(currentPath, path))) {
+        await get().prepareCurrentFileForTransition();
+      }
+      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return {};
       const result = await deleteWorkspacePaths(pathsToDelete);
       if (result.failed && result.failed.length > 0) {
         const failedPaths = result.failed.map((f: { path: string; error: string }) => f.path).join(', ');
@@ -1332,7 +1352,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         if (selectedNode?.path === deletedPath) {
           set({ selectedNode: null });
         }
-        if (currentFile?.path === deletedPath) {
+        if (currentFile && isSameOrDescendantPath(currentFile.path, deletedPath)) {
           set((state) => ({
             currentFile: null,
             currentFileWorkspaceId: null,
@@ -1346,6 +1366,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         }
       }
 
+      if (get().loadingFilePath && pathsToDelete.some((path) => isSameOrDescendantPath(get().loadingFilePath!, path))) {
+        set((state) => ({ fileLoadRequestId: state.fileLoadRequestId + 1,
+          openFileRequestId: state.openFileRequestId + 1, isLoadingFile: false, loadingFilePath: null }));
+      }
       set((state) => ({
         multiSelectPaths: new Set(),
         isMultiSelectMode: false,
@@ -1356,7 +1380,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       for (const parentDir of parentDirs) {
         await get().refreshDirectory(parentDir, true, workspaceId);
       }
-      notifyWorkspacePathsDeleted(pathsToDelete);
+      notifyWorkspacePathsDeleted(pathsToDelete, workspaceId);
       return result;
     } catch (error) {
       throw error;
@@ -1366,9 +1390,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   renamePath: async (oldPath: string, newPath: string, overwrite = false, refreshTree = true) => {
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
 
+    const treeGeneration = get().treeGeneration;
     try {
+      if (get().currentFile && isSameOrDescendantPath(get().currentFile!.path, oldPath)) {
+        await get().prepareCurrentFileForTransition();
+      }
+      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
       await renameWorkspacePath(oldPath, newPath, overwrite);
-      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
+      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
 
       const { expandedDirs, selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
 
@@ -1389,6 +1418,18 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       const updatedCurrentFile = currentFile && isSameOrDescendantPath(currentFile.path, oldPath)
         ? { ...currentFile, path: remapDescendantPath(currentFile.path, oldPath, newPath) }
         : currentFile;
+      if (get().loadingFilePath && isSameOrDescendantPath(get().loadingFilePath!, oldPath)) {
+        set((state) => ({ fileLoadRequestId: state.fileLoadRequestId + 1,
+          openFileRequestId: state.openFileRequestId + 1, isLoadingFile: false, loadingFilePath: null }));
+      }
+      const editor = useEditorStore.getState();
+      if (editor.activePath && isSameOrDescendantPath(editor.activePath, oldPath)) {
+        useEditorStore.setState({
+          activePath: remapDescendantPath(editor.activePath, oldPath, newPath),
+          sessionId: editor.sessionId + 1,
+          isSaving: false,
+        });
+      }
       set((state) => ({
         selectedNode: updatedSelectedNode,
         ...(updatedCurrentFile !== currentFile ? {
@@ -1411,11 +1452,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
         for (const dir of getExpandedDescendantDirectories(updatedExpandedDirs, newPath)) {
           if (dir !== newPath) {
-            await get().loadSubdirectory(dir, true);
+            await get().loadSubdirectory(dir, true, false, workspaceId);
           }
         }
       }
-      notifyWorkspacePathRenamed(oldPath, newPath);
+      notifyWorkspacePathRenamed(oldPath, newPath, workspaceId);
     } catch (error) {
       throw error;
     }
@@ -1525,6 +1566,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }));
   },
   resetWorkspaceView: (requestedWorkspaceId?: string | null) => {
+    useEditorStore.getState().clear();
     const workspaceId = requestedWorkspaceId === undefined
       ? useWorkspaceStore.getState().activeWorkspaceId
       : requestedWorkspaceId;

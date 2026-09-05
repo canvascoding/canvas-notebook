@@ -780,8 +780,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         (event as CustomEvent<WorkspaceChangedDetail>).detail;
       openedPathRef.current = routeFilePath;
       previousCurrentFileIdentityRef.current = null;
-      useFileStore.getState().resetWorkspaceView(nextWorkspaceId);
-      useEditorStore.getState().clear();
       const restoredTabs = hydrateDocumentTabs(nextWorkspaceId);
       clearEmail();
       clearBrowser();
@@ -863,12 +861,14 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       dispatch({ type: 'DOCUMENT_CLOSED' });
     };
     const handlePathsDeleted = (event: Event) => {
-      const { paths } = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
+      const { paths, workspaceId } = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
+      if (workspaceId !== activeWorkspaceId || workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
       closeDocumentTabsAtPaths(paths);
     };
     const handlePathRenamed = (event: Event) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
-      const { oldPath, newPath } = (event as CustomEvent<WorkspacePathRenamedDetail>).detail;
+      const { oldPath, newPath, workspaceId } = (event as CustomEvent<WorkspacePathRenamedDetail>).detail;
+      if (workspaceId !== activeWorkspaceId || workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
       replaceDocumentTabs(
         activeWorkspaceId,
         renameNotebookDocumentTabs(documentTabsRef.current, oldPath, newPath),
@@ -1052,7 +1052,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     />
   );
   const documentContent = currentFile || isLoadingFile || fileError
-    ? <FileEditor onClosePreview={handleCloseDocument} />
+    ? <FileEditor key={activeWorkspaceId} onClosePreview={handleCloseDocument} />
     : (
       <NotebookEmptyDocumentState
         onOpenExplorer={() => layout.isMobile

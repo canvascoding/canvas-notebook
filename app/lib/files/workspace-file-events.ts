@@ -10,10 +10,12 @@ export type WorkspaceFileOpenedDetail = {
 };
 
 export type WorkspacePathsDeletedDetail = {
+  workspaceId: string | null;
   paths: string[];
 };
 
 export type WorkspacePathRenamedDetail = {
+  workspaceId: string | null;
   newPath: string;
   oldPath: string;
 };
@@ -28,18 +30,18 @@ export function notifyWorkspaceFileOpened(path: string, source: WorkspaceFileOpe
   );
 }
 
-export function notifyWorkspacePathsDeleted(paths: string[]) {
+export function notifyWorkspacePathsDeleted(paths: string[], workspaceId: string | null) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent<WorkspacePathsDeletedDetail>(
     WORKSPACE_PATHS_DELETED_EVENT,
-    { detail: { paths } },
+    { detail: { paths, workspaceId } },
   ));
 }
 
-export function notifyWorkspacePathRenamed(oldPath: string, newPath: string) {
+export function notifyWorkspacePathRenamed(oldPath: string, newPath: string, workspaceId: string | null) {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent<WorkspacePathRenamedDetail>(
     WORKSPACE_PATH_RENAMED_EVENT,
-    { detail: { oldPath, newPath } },
+    { detail: { oldPath, newPath, workspaceId } },
   ));
 }

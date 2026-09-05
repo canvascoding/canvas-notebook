@@ -62,7 +62,7 @@ export function FilePreviewDialog({
   onZipExtracted,
 }: FilePreviewDialogProps) {
   const t = useTranslations('notebook');
-  const { currentFile, isLoadingFile, loadingFilePath, loadFile, downloadFile } = useFileStore();
+  const { currentFile, currentFileWorkspaceId, isLoadingFile, loadingFilePath, loadFile, downloadFile } = useFileStore();
   const [isExtracting, setIsExtracting] = useState(false);
   const isZipArchive = path ? getExtension(path) === 'zip' : false;
 
@@ -180,7 +180,7 @@ export function FilePreviewDialog({
               </div>
             </div>
           ) : (
-            <FileEditor />
+            <FileEditor key={currentFileWorkspaceId} />
           )}
         </div>
       </DialogContent>
