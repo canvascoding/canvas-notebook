@@ -9,6 +9,7 @@ import { getChannelRegistry } from '@/app/lib/channels/registry';
 import { findOwnedPiSessionForRuntime, isPiSessionInWorkspace } from '@/app/lib/pi/session-runtime-access';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
+import { assertAutomationChatTarget } from './chat-targets';
 import type { AutomationJobRecord } from './types';
 
 const JOB_PAUSING_DELIVERY_FAILURES = new Set([
@@ -178,18 +179,12 @@ export async function resolveAutomationDeliveryTarget(input: {
   let mode: AutomationDeliveryResolution['mode'] = 'new_session';
 
   if (job.deliverySessionMode === 'fixed_session') {
-    const fixedSessionId = job.deliverySessionId?.trim();
-    if (fixedSessionId && await verifySessionOwnership({
-      sessionId: fixedSessionId,
-      userId,
-      agentId: job.agentId,
-      workspace,
-    })) {
-      sessionId = fixedSessionId;
-      mode = 'fixed_session';
-    } else {
-      warnings.push('Fixed delivery session was missing or not accessible for this agent and workspace; created a new automation session instead.');
-    }
+    await assertAutomationChatTarget({
+      deliverySessionMode: 'fixed_session', deliverySessionId: job.deliverySessionId,
+      userId, agentId: job.agentId, ...workspace,
+    });
+    sessionId = job.deliverySessionId!.trim();
+    mode = 'fixed_session';
   } else if (job.deliverySessionMode === 'channel_active') {
     if (delivery.channelSessionKey) {
       const activeSessionId = await getActiveChannelSession({

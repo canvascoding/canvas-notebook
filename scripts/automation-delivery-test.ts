@@ -186,7 +186,7 @@ async function main() {
     createdAt: now,
     updatedAt: now,
   });
-  const crossWorkspace = await resolveAutomationDeliveryTarget({
+  await assert.rejects(resolveAutomationDeliveryTarget({
     job: {
       ...baseJob,
       deliverySessionMode: 'fixed_session',
@@ -195,10 +195,7 @@ async function main() {
     userId,
     defaultSessionId: 'auto-cross-workspace-fallback',
     workspace: personalWorkspace,
-  });
-  assert.equal(crossWorkspace.sessionId, 'auto-cross-workspace-fallback');
-  assert.equal(crossWorkspace.mode, 'new_session');
-  assert.ok(crossWorkspace.warnings.some((warning) => warning.includes('workspace')));
+  }), /selected chat is no longer available/);
 
   await db.insert(piSessions).values({
     sessionId: 'active-session',
@@ -212,6 +209,7 @@ async function main() {
   });
   await setActiveChannelSession({
     userId,
+    agentId: 'canvas-agent',
     channelId: 'telegram',
     channelSessionKey: 'telegram:42',
     sessionId: 'active-session',
@@ -236,6 +234,7 @@ async function main() {
 
   await setActiveChannelSession({
     userId,
+    agentId: 'canvas-agent',
     channelId: 'telegram',
     channelSessionKey: 'telegram:99',
     sessionId: 'cross-workspace-session',

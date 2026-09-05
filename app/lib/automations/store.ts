@@ -13,6 +13,7 @@ import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import { requireActiveWorkspaceMailboxForAutomation } from '@/app/lib/email/account-store';
 
+import { assertAutomationChatTarget, AutomationChatTargetError } from './chat-targets';
 import { inlineLegacyAutomationPaths } from './legacy-paths';
 import { computeNextRunAt, validateFriendlySchedule } from './schedule';
 import { generateAutomationWebhookSecret } from './webhook-secret';
@@ -944,6 +945,11 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
       });
     }
   }
+  await assertAutomationChatTarget({
+    deliverySessionMode, deliverySessionId: input.deliverySessionId,
+    userId: automationScope.responsibleUserId || userId, agentId,
+    workspaceId: automationScope.workspaceId, workspaceType: automationScope.workspaceType,
+  });
   const jobScope = buildAutomationJobScope({ ...automationScope, createdByUserId: userId });
   const now = new Date();
   const nextRunAt = input.status === 'paused' || triggerKind !== 'schedule' ? null : computeNextRunAt(schedule, { from: now });
@@ -1020,6 +1026,11 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
   const id = `job-${randomUUID()}`;
   const preferredTimeZone = await getServerPreferredTimeZone();
   const automationScope = await resolveAutomationScopeForCreate(input, policyUser);
+  await assertAutomationChatTarget({
+    deliverySessionMode, deliverySessionId: input.deliverySessionId,
+    userId: automationScope.responsibleUserId || userId, agentId,
+    workspaceId: automationScope.workspaceId, workspaceType: automationScope.workspaceType,
+  });
   const jobScope = buildAutomationJobScope({ ...automationScope, createdByUserId: userId });
   const schedule: FriendlySchedule = {
     kind: 'webhook',
@@ -1103,6 +1114,11 @@ export async function createCustomWebhookAutomationJob(
   const secret = generateAutomationWebhookSecret();
   const preferredTimeZone = await getServerPreferredTimeZone();
   const automationScope = await resolveAutomationScopeForCreate(input, policyUser);
+  await assertAutomationChatTarget({
+    deliverySessionMode, deliverySessionId: input.deliverySessionId,
+    userId: automationScope.responsibleUserId || userId, agentId,
+    workspaceId: automationScope.workspaceId, workspaceType: automationScope.workspaceType,
+  });
   const jobScope = buildAutomationJobScope({ ...automationScope, createdByUserId: userId });
   const schedule: FriendlySchedule = {
     kind: 'webhook',
@@ -1211,6 +1227,22 @@ export async function updateAutomationJob(
   });
   if (!existing) {
     return null;
+  }
+
+  const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode ?? existing.deliverySessionMode);
+  const deliverySessionId = input.deliverySessionId === undefined ? existing.deliverySessionId : input.deliverySessionId;
+  const agentId = normalizeAgentId(input.agentId ?? existing.agentId);
+  const targetChanged = deliverySessionMode !== existing.deliverySessionMode
+    || deliverySessionId !== existing.deliverySessionId || agentId !== existing.agentId;
+  const executorId = existing.responsibleUserId || existing.ownerUserId || existing.createdByUserId;
+  if (deliverySessionMode === 'fixed_session' && targetChanged && options.actorUserId && options.actorUserId !== executorId) {
+    throw new AutomationChatTargetError();
+  }
+  if (targetChanged || input.status === 'active' || input.prompt !== undefined) {
+    await assertAutomationChatTarget({
+      deliverySessionMode, deliverySessionId, userId: executorId, agentId,
+      workspaceId: existing.workspaceId, workspaceType: normalizeAutomationWorkspaceType(existing.workspaceType),
+    });
   }
 
   const currentSchedule = JSON.parse(existing.scheduleConfigJson) as FriendlySchedule;

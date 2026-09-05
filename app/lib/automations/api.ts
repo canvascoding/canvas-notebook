@@ -8,6 +8,7 @@ import {
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { AutomationChatTargetError } from './chat-targets';
 import { AutomationPolicyError, automationInputRequestsNonPersonalScope } from './policy';
 
 type AutomationPermissionUser = AdminUserCandidate & { id: string };
@@ -90,7 +91,7 @@ export async function assertCanCreateRequestedAutomation(input: unknown, user: A
 }
 
 export function getAutomationRouteErrorStatus(error: unknown, fallbackStatus = 500): number {
-  return error instanceof OrganizationPermissionError || error instanceof AutomationPolicyError
+  return error instanceof OrganizationPermissionError || error instanceof AutomationPolicyError || error instanceof AutomationChatTargetError
     ? error.status
     : fallbackStatus;
 }
