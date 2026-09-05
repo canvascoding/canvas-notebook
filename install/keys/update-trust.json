@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "keys": [
+    {
+      "keyId": "canvas-updates-2026-09",
+      "algorithm": "ed25519",
+      "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA6g+n3u88rkoEA/ryHUEDTG7D6rO7sD6A3egE7jzYPYY=\n-----END PUBLIC KEY-----\n"
+    }
+  ]
+}

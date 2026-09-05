@@ -310,6 +310,7 @@
     "test:cli:postgres-recovery": "tsx scripts/cli-postgres-recovery-state-test.ts",
     "test:release:payload": "node scripts/control-plane-release-payload-test.mjs",
     "test:release:host-cli": "node scripts/host-cli-package-test.mjs",
+    "test:release:updates": "tsx scripts/system-update-release-test.ts",
     "test:release:linux-cli": "node scripts/linux-cli-package-test.mjs",
     "test:release:linux-cli-integration": "bash scripts/linux-cli-package-integration-test.sh",
     "test:release:linux-cli-installer": "bash scripts/linux-cli-installer-test.sh",

@@ -1,0 +1,101 @@
+name: Publish Standalone Update
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Already published stable release tag to verify and repair
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: standalone-update-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease && !github.event.release.draft)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: canvascoding/canvas-notebook
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Check stable release identity
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "$GH_REPO" ]]
+          [[ "$RELEASE_TAG" =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]]
+          gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease |
+            jq -e --arg tag "$RELEASE_TAG" '.tagName == $tag and .isDraft == false and .isPrerelease == false'
+
+      - name: Checkout exact release source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Find successful build for this exact tag
+        run: |
+          set -euo pipefail
+          release_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          [[ "$(git rev-parse HEAD)" == "$release_sha" ]]
+          [[ "v$(node -p "require('./package.json').version")" == "$RELEASE_TAG" ]]
+          run_id="$(gh run list --workflow build-both.yml --event push --branch "$RELEASE_TAG" \
+            --commit "$release_sha" --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          [[ "$run_id" =~ ^[0-9]+$ ]]
+          gh api "repos/${GH_REPO}/actions/runs/${run_id}" |
+            jq -e --arg sha "$release_sha" --arg tag "$RELEASE_TAG" \
+              '.head_sha == $sha and .head_branch == $tag and .event == "push" and
+               .path == ".github/workflows/build-both.yml" and .conclusion == "success"'
+          echo "RELEASE_COMMIT_SHA=${release_sha}" >> "$GITHUB_ENV"
+          echo "RELEASE_RUN_ID=${run_id}" >> "$GITHUB_ENV"
+
+      - name: Download signed artifact and published release inputs
+        run: |
+          set -euo pipefail
+          gh run download "$RELEASE_RUN_ID" --name "standalone-update-${RELEASE_TAG#v}" --dir signed-update
+          gh release download "$RELEASE_TAG" --dir published-update \
+            --pattern canvas-notebook-release-metadata.json \
+            --pattern canvas-notebook-linux-cli-amd64.tar.gz \
+            --pattern canvas-notebook-linux-cli-arm64.tar.gz
+          cmp signed-update/canvas-notebook-release-metadata.json published-update/canvas-notebook-release-metadata.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+
+      - name: Install verification dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify signature, provenance, and public CLI bytes
+        run: >-
+          npx --no-install tsx scripts/system-update-release.ts verify
+          published-update/canvas-notebook-release-metadata.json
+          signed-update/canvas-notebook-update-stable.json
+          published-update
+
+      - name: Attach verified standalone update manifest
+        run: |
+          set -euo pipefail
+          asset_name=canvas-notebook-update-stable.json
+          asset_count="$(gh release view "$RELEASE_TAG" --json assets \
+            --jq '[.assets[] | select(.name == "canvas-notebook-update-stable.json")] | length')"
+          if [[ "$asset_count" == 0 ]]; then
+            # Never overwrite a published manifest. Retrying with identical bytes is safe.
+            gh release upload "$RELEASE_TAG" "signed-update/${asset_name}"
+          else
+            [[ "$asset_count" == 1 ]]
+          fi
+          gh release download "$RELEASE_TAG" --pattern "$asset_name" --dir verified-update
+          cmp "signed-update/${asset_name}" "verified-update/${asset_name}"
