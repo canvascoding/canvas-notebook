@@ -22,7 +22,6 @@ async function main(): Promise<void> {
   assert.match(panel, /setConnectionInterrupted\(true\)/u);
   assert.match(panel, /text\/event-stream/u);
   assert.match(panel, /Authorization: `Bearer \$\{statusAccess\.ticket\}`/u);
-  assert.match(panel, /fetch\('\/api\/health'/u);
   assert.match(panel, /<UpdateAvailabilityCard/u);
   assert.match(panel, /<UpdateOperationCard/u);
   assert.match(sections, /availability\.mode === 'manual'/u);

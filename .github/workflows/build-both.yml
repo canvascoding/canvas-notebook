@@ -25,7 +25,7 @@ jobs:
       release_version: ${{ steps.release.outputs.release_version }}
     steps:
       - name: Checkout release metadata source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
@@ -56,12 +56,12 @@ jobs:
     needs: source
     steps:
       - name: Checkout immutable release source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.source.outputs.commit_sha }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 26
 
@@ -86,6 +86,7 @@ jobs:
           npm run test:install:managed-env
           npm run test:cli:updater
           npm run test:install:updater
+          npm run test:system-updates
 
       - name: Verify update rollback and CLI artifact gate
         run: |
@@ -98,6 +99,7 @@ jobs:
         run: |
           npm run test:release:payload
           npm run test:release:host-cli
+          npm run test:release:updates
 
   build-amd64:
     runs-on: ubuntu-latest
@@ -109,13 +111,13 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.source.outputs.commit_sha }}
 
       - name: Set up Node.js for amd64 Linux CLI
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
           cache: npm
@@ -130,7 +132,7 @@ jobs:
 
       - name: Upload amd64 Linux CLI release asset
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-cli-amd64-${{ needs.source.outputs.release_version }}
           if-no-files-found: error
@@ -144,24 +146,24 @@ jobs:
         run: echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ./Dockerfile
@@ -202,7 +204,7 @@ jobs:
           echo "f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146  runtime-compliance/amd64/vips-8.18.3.tar.xz" | sha256sum -c -
 
       - name: Upload amd64 native compliance evidence
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: runtime-compliance-amd64
           path: runtime-compliance/amd64
@@ -219,13 +221,13 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.source.outputs.commit_sha }}
 
       - name: Set up Node.js for arm64 Linux CLI
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 22
           cache: npm
@@ -240,7 +242,7 @@ jobs:
 
       - name: Upload arm64 Linux CLI release asset
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-cli-arm64-${{ needs.source.outputs.release_version }}
           if-no-files-found: error
@@ -254,24 +256,24 @@ jobs:
         run: echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ./Dockerfile
@@ -312,7 +314,7 @@ jobs:
           echo "f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146  runtime-compliance/arm64/vips-8.18.3.tar.xz" | sha256sum -c -
 
       - name: Upload arm64 native compliance evidence
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: runtime-compliance-arm64
           path: runtime-compliance/arm64
@@ -327,12 +329,12 @@ jobs:
     needs: [source, safety-tests, build-amd64, build-arm64]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.source.outputs.commit_sha }}
 
       - name: Set up Node.js for compliance and release assets
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 26
 
@@ -344,27 +346,27 @@ jobs:
         run: echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Download amd64 native compliance evidence
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: runtime-compliance-amd64
           path: runtime-compliance/amd64
 
       - name: Download arm64 native compliance evidence
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: runtime-compliance-arm64
           path: runtime-compliance/arm64
 
       - name: Download amd64 Linux CLI release asset
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: linux-cli-amd64-${{ needs.source.outputs.release_version }}
           path: dist-linux-cli/amd64
 
       - name: Download arm64 Linux CLI release asset
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: linux-cli-arm64-${{ needs.source.outputs.release_version }}
           path: dist-linux-cli/arm64
@@ -401,7 +403,7 @@ jobs:
           (cd dist-native-compliance && sha256sum "${asset}.tar.gz" > "${asset}.sha256")
 
       - name: Upload native compliance release evidence
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: native-compliance-${{ needs.source.outputs.release_version }}
           path: |
@@ -411,17 +413,17 @@ jobs:
           retention-days: 90
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -576,9 +578,33 @@ jobs:
           fs.writeFileSync('dist-release/canvas-notebook-release-metadata.json', `${JSON.stringify(metadata, null, 2)}\n`);
           NODE
 
+      - name: Sign standalone update manifest
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          RELEASE_TAG: ${{ needs.source.outputs.release_tag }}
+          RELEASE_COMMIT_SHA: ${{ needs.source.outputs.commit_sha }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+          CANVAS_UPDATE_SIGNING_KEY_ID: canvas-updates-2026-09
+          CANVAS_UPDATE_SIGNING_PRIVATE_KEY: ${{ secrets.CANVAS_UPDATE_SIGNING_PRIVATE_KEY }}
+        run: >-
+          npx --no-install tsx scripts/system-update-release.ts sign
+          dist-release/canvas-notebook-release-metadata.json
+          dist-release/canvas-notebook-update-stable.json
+
+      - name: Upload signed standalone update metadata
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: standalone-update-${{ needs.source.outputs.release_version }}
+          if-no-files-found: error
+          retention-days: 90
+          path: |
+            dist-release/canvas-notebook-release-metadata.json
+            dist-release/canvas-notebook-update-stable.json
+
       - name: Upload gated release bundle
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-bundle-${{ needs.source.outputs.release_version }}
           if-no-files-found: error
@@ -595,3 +621,4 @@ jobs:
             dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz
             dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.sha256
             dist-release/canvas-notebook-release-metadata.json
+            dist-release/canvas-notebook-update-stable.json

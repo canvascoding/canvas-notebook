@@ -47,6 +47,7 @@ for (const required of [
   'canvas-notebook-host-cli/install/bin/canvas-notebook',
   'canvas-notebook-host-cli/install/lib/common.sh',
   'canvas-notebook-host-cli/install/lib/systemd.sh',
+  'canvas-notebook-host-cli/install/keys/update-trust.json',
 ]) {
   assert.equal(entries.some((entry) => entry.path === required), true, required);
 }

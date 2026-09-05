@@ -59,6 +59,7 @@ import { runStandaloneUpdaterFromEnvironment, triggerStandaloneUpdateFromHost } 
 import { isSwapCommand, SwapManager, validateSwapConfig, type SwapStatus } from './core/swap';
 import { type SystemUpdateErrorCode, type SystemUpdateStage } from './core/systemUpdateContract';
 import { SystemUpdateEventReporter } from './core/systemUpdateReporter';
+import { beginSystemUpdateApply } from './core/systemUpdateApplyGate';
 import type { CanvasCliConfig, RuntimeContext, StatusJson } from './core/types';
 import { CLI_COMMANDS, CLI_GENERATION, CONFIG_SCHEMA_VERSION, resolveCliVersion } from './core/version';
 
@@ -769,7 +770,10 @@ export async function update(
     runConfig.image = targetImage;
     const targetEnvironment = { ...process.env, CANVAS_IMAGE: targetImage };
     phase = 'pull';
-    reporter.running('image_pull', 'Pulling the pinned Canvas Notebook image.');
+    await beginSystemUpdateApply(reporter, {
+      required: options.eventStream === true && process.env.CANVAS_UPDATE_APPLY_HANDSHAKE === '1',
+      timeoutMs: Math.min(30_000, remainingUpdateTime(deadline, true) ?? 30_000),
+    });
     await docker.pull(runConfig, machineOutput ? 'pipe' : 'inherit', remainingUpdateTime(deadline, true), targetEnvironment);
     reporter.succeeded('image_pull', 'Pinned Canvas Notebook image pulled.');
     if (await docker.needsRecreate(runConfig)) {

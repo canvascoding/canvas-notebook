@@ -25,6 +25,7 @@ import {
 } from '@/app/lib/system-updates/types';
 import { isTerminalSystemUpdateStatus, type SystemUpdateEvent } from '@/cli/src/core/systemUpdateContract';
 import { UpdateAvailabilityCard, UpdateOperationCard } from './UpdateCenterSections';
+import { SystemUpdateObservation } from '@/app/lib/system-updates/observation';
 
 const ACTIVE_OPERATION_STORAGE_KEY = 'canvas.system-update.operation-id';
 const STATUS_ACCESS_STORAGE_KEY = 'canvas.system-update.status-access';
@@ -39,12 +40,6 @@ async function readApiJson<T>(response: Response): Promise<T> {
   }
   if (!payload) throw new Error('The server returned an empty response.');
   return payload;
-}
-
-function mergeUpdateEvents(current: SystemUpdateEvent[], incoming: SystemUpdateEvent[]): SystemUpdateEvent[] {
-  const byId = new Map(current.map((event) => [event.eventId, event]));
-  for (const event of incoming) byId.set(event.eventId, event);
-  return [...byId.values()].sort((left, right) => left.sequence - right.sequence);
 }
 
 async function consumeStatusStream(
@@ -93,8 +88,10 @@ export function UpdateCenterPanel() {
   const [error, setError] = useState<string | null>(null);
   const [connectionInterrupted, setConnectionInterrupted] = useState(false);
   const [statusAccess, setStatusAccess] = useState<SystemUpdateStatusAccess | null>(null);
-  const eventCursorRef = useRef(0);
+  const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
+  const observationRef = useRef<SystemUpdateObservation | null>(null);
   const reloadScheduledRef = useRef(false);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadAvailability = useCallback(async () => {
     setLoading(true);
@@ -110,43 +107,60 @@ export function UpdateCenterPanel() {
     }
   }, [t]);
 
-  const loadOperation = useCallback(async (operationId: string, quiet = false) => {
-    try {
-      const response = await fetch(
-        `/api/admin/system-updates/${encodeURIComponent(operationId)}/events?after=${eventCursorRef.current}`,
-        { cache: 'no-store' },
-      );
-      const payload = await readApiJson<{ success: true } & SystemUpdateOperationSnapshot>(response);
-      setOperation(payload.operation);
-      if (payload.events.length > 0) {
-        setEvents((current) => mergeUpdateEvents(current, payload.events));
-        eventCursorRef.current = Math.max(eventCursorRef.current, ...payload.events.map((event) => event.sequence));
-      }
-      setConnectionInterrupted(false);
-      setError(null);
-      if (isTerminalSystemUpdateStatus(payload.operation.status)) {
+  const acceptOperation = useCallback((next: SystemUpdateOperationView) => {
+    const observation = observationRef.current;
+    if (!observation?.acceptOperation(next)) return;
+    setOperation(observation.operation);
+    setConnectionInterrupted(false);
+    setError(null);
+    if (isTerminalSystemUpdateStatus(next.status)) {
+      setActiveOperationId(null);
+      setStatusAccess(null);
+      try {
         window.localStorage.removeItem(ACTIVE_OPERATION_STORAGE_KEY);
+        window.sessionStorage.removeItem(STATUS_ACCESS_STORAGE_KEY);
+      } catch { /* Completion does not depend on storage availability. */ }
+      if (next.status === 'succeeded' && !reloadScheduledRef.current) {
+        reloadScheduledRef.current = true;
+        reloadTimerRef.current = setTimeout(() => window.location.reload(), 1_500);
+      } else {
         void loadAvailability();
       }
-    } catch (loadError) {
-      if (quiet) {
-        setConnectionInterrupted(true);
-        void fetch('/api/health', { cache: 'no-store' }).then((health) => {
-          if (health.ok) setConnectionInterrupted(false);
-        }).catch(() => undefined);
-      } else {
-        setError(loadError instanceof Error ? loadError.message : t('errors.operation'));
-      }
     }
-  }, [loadAvailability, t]);
+  }, [loadAvailability]);
 
-  const requestStatusAccess = useCallback(async (operationId: string) => {
+  const acceptEvents = useCallback((operationId: string, incoming: SystemUpdateEvent[]) => {
+    const observation = observationRef.current;
+    if (!observation || observation.operationId !== operationId) return;
+    observation.acceptEvents(incoming);
+    setEvents(observation.events);
+  }, []);
+
+  const loadOperation = useCallback(async (operationId: string, signal: AbortSignal) => {
+    try {
+      const response = await fetch(
+        `/api/admin/system-updates/${encodeURIComponent(operationId)}/events?after=${observationRef.current?.cursor || 0}`,
+        { cache: 'no-store', signal },
+      );
+      const payload = await readApiJson<{ success: true } & SystemUpdateOperationSnapshot>(response);
+      if (signal.aborted || observationRef.current?.operationId !== operationId) return;
+      acceptEvents(operationId, payload.events);
+      acceptOperation(payload.operation);
+      setConnectionInterrupted(false);
+    } catch {
+      if (!signal.aborted && observationRef.current?.operationId === operationId) setConnectionInterrupted(true);
+    }
+  }, [acceptEvents, acceptOperation]);
+
+  const requestStatusAccess = useCallback(async (operationId: string, signal: AbortSignal) => {
     try {
       const response = await fetch(`/api/admin/system-updates/${encodeURIComponent(operationId)}/status-access`, {
         method: 'POST',
         cache: 'no-store',
+        signal,
       });
       const payload = await readApiJson<{ success: true; access: SystemUpdateStatusAccess | null }>(response);
+      if (signal.aborted || observationRef.current?.operationId !== operationId) return;
       setStatusAccess(payload.access);
       if (payload.access) {
         window.sessionStorage.setItem(STATUS_ACCESS_STORAGE_KEY, JSON.stringify({ operationId, ...payload.access }));
@@ -162,35 +176,60 @@ export function UpdateCenterPanel() {
       try {
         const storedOperationId = window.localStorage.getItem(ACTIVE_OPERATION_STORAGE_KEY);
         if (storedOperationId) {
-          void loadOperation(storedOperationId);
+          observationRef.current = new SystemUpdateObservation(storedOperationId);
+          setActiveOperationId(storedOperationId);
           const storedAccess = window.sessionStorage.getItem(STATUS_ACCESS_STORAGE_KEY);
           if (storedAccess) {
             const parsed = JSON.parse(storedAccess) as SystemUpdateStatusAccess & { operationId?: string };
-            if (parsed.operationId === storedOperationId && Date.parse(parsed.expiresAt) > Date.now()) setStatusAccess(parsed);
-            else void requestStatusAccess(storedOperationId);
-          } else {
-            void requestStatusAccess(storedOperationId);
+            if (parsed.operationId === storedOperationId && parsed.path === `/__canvas-host/operations/${storedOperationId}/events` && Date.parse(parsed.expiresAt) > Date.now()) setStatusAccess(parsed);
           }
         }
       } catch {
         // The update remains observable for this page even without browser storage.
       }
     }, 0);
-    return () => window.clearTimeout(timer);
-  }, [loadAvailability, loadOperation, requestStatusAccess]);
+    return () => {
+      window.clearTimeout(timer);
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    };
+  }, [loadAvailability]);
 
   useEffect(() => {
-    if (!operation || isTerminalSystemUpdateStatus(operation.status)) return;
-    const timer = window.setInterval(() => void loadOperation(operation.operationId, true), POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [loadOperation, operation]);
+    if (!activeOperationId) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let request: AbortController | null = null;
+    const poll = async () => {
+      request = new AbortController();
+      const timeout = setTimeout(() => request?.abort(), 15_000);
+      await loadOperation(activeOperationId, request.signal);
+      clearTimeout(timeout);
+      if (!disposed) timer = setTimeout(() => void poll(), POLL_INTERVAL_MS);
+    };
+    timer = setTimeout(() => void poll(), 0);
+    return () => { disposed = true; clearTimeout(timer); request?.abort(); };
+  }, [loadOperation, activeOperationId]);
 
-  const streamOperationId = operation && !isTerminalSystemUpdateStatus(operation.status) ? operation.operationId : null;
+  useEffect(() => {
+    if (!activeOperationId) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      await requestStatusAccess(activeOperationId, controller.signal);
+      if (!controller.signal.aborted) timer = setTimeout(() => void refresh(), 60_000);
+    };
+    const delay = statusAccess ? Math.max(0, Date.parse(statusAccess.expiresAt) - Date.now() - 60_000) : 0;
+    timer = setTimeout(() => void refresh(), delay);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [activeOperationId, statusAccess, requestStatusAccess]);
+
+  const streamOperationId = activeOperationId;
   useEffect(() => {
     if (!streamOperationId || !statusAccess || Date.parse(statusAccess.expiresAt) <= Date.now()) return;
     const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      void fetch(`${statusAccess.path}?after=${eventCursorRef.current}`, {
+    let timer: ReturnType<typeof setTimeout>;
+    const connect = async () => {
+      await fetch(`${statusAccess.path}?after=${observationRef.current?.cursor || 0}`, {
         headers: { Accept: 'text/event-stream', Authorization: `Bearer ${statusAccess.ticket}` },
         cache: 'no-store',
         credentials: 'same-origin',
@@ -198,32 +237,23 @@ export function UpdateCenterPanel() {
       }).then((response) => consumeStatusStream(
         response,
         streamOperationId,
-        (nextOperation) => {
-          setOperation(nextOperation);
-          setConnectionInterrupted(false);
-          if (isTerminalSystemUpdateStatus(nextOperation.status)) {
-            window.localStorage.removeItem(ACTIVE_OPERATION_STORAGE_KEY);
-            window.sessionStorage.removeItem(STATUS_ACCESS_STORAGE_KEY);
-            if (nextOperation.status === 'succeeded' && !reloadScheduledRef.current) {
-              reloadScheduledRef.current = true;
-              window.setTimeout(() => window.location.reload(), 1_500);
-            }
-          }
-        },
+        (nextOperation) => { if (!controller.signal.aborted) acceptOperation(nextOperation); },
         (event) => {
-          eventCursorRef.current = Math.max(eventCursorRef.current, event.sequence);
-          setEvents((current) => mergeUpdateEvents(current, [event]));
+          if (controller.signal.aborted) return;
+          acceptEvents(streamOperationId, [event]);
           setConnectionInterrupted(false);
         },
       )).catch(() => {
         // The authenticated application polling continues as the no-Caddy fallback.
       });
-    }, 0);
+      if (!controller.signal.aborted && Date.parse(statusAccess.expiresAt) > Date.now()) timer = setTimeout(() => void connect(), POLL_INTERVAL_MS);
+    };
+    timer = setTimeout(() => void connect(), 0);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [statusAccess, streamOperationId]);
+  }, [statusAccess, streamOperationId, acceptOperation, acceptEvents]);
 
   const startUpdate = async () => {
     if (!availability?.release) return;
@@ -236,17 +266,18 @@ export function UpdateCenterPanel() {
         body: JSON.stringify({ channel: 'stable', expectedReleaseId: availability.release.releaseId }),
       });
       const payload = await readApiJson<{ success: true; operation: SystemUpdateOperationView }>(response);
-      eventCursorRef.current = 0;
+      observationRef.current = new SystemUpdateObservation(payload.operation.operationId);
+      reloadScheduledRef.current = false;
       setEvents([]);
-      setOperation(payload.operation);
+      setStatusAccess(null);
+      setActiveOperationId(payload.operation.operationId);
+      acceptOperation(payload.operation);
       setConfirmOpen(false);
       try {
         window.localStorage.setItem(ACTIVE_OPERATION_STORAGE_KEY, payload.operation.operationId);
       } catch {
         // Polling still works while this page remains open.
       }
-      void requestStatusAccess(payload.operation.operationId);
-      void loadOperation(payload.operation.operationId, true);
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : t('errors.start'));
       setConfirmOpen(false);
@@ -256,11 +287,12 @@ export function UpdateCenterPanel() {
   };
 
   const returnToOverview = () => {
+    observationRef.current = null;
+    setActiveOperationId(null);
     setOperation(null);
     setEvents([]);
     setConnectionInterrupted(false);
     setStatusAccess(null);
-    eventCursorRef.current = 0;
     try {
       window.localStorage.removeItem(ACTIVE_OPERATION_STORAGE_KEY);
       window.sessionStorage.removeItem(STATUS_ACCESS_STORAGE_KEY);
@@ -270,7 +302,7 @@ export function UpdateCenterPanel() {
     void loadAvailability();
   };
 
-  if (loading && !availability) {
+  if (loading && !availability && !activeOperationId && !operation) {
     return (
       <Card>
         <CardContent className="flex min-h-48 items-center justify-center gap-3 text-sm text-muted-foreground">
@@ -296,7 +328,13 @@ export function UpdateCenterPanel() {
         </Alert>
       )}
 
-      {operation ? (
+      {activeOperationId && !operation ? (
+        <Alert>
+          <Loader2 className="animate-spin" aria-hidden="true" />
+          <AlertTitle>{t('reconnecting.title')}</AlertTitle>
+          <AlertDescription>{t('reconnecting.description')}</AlertDescription>
+        </Alert>
+      ) : operation ? (
         <UpdateOperationCard
           operation={operation}
           events={events}

@@ -8,6 +8,7 @@ import readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
 import { resolveCliPath } from './cliPath';
+import { systemUpdateApplyAcknowledgement } from './systemUpdateApplyGate';
 import {
   SYSTEM_UPDATE_CONTRACT_VERSION,
   isTerminalSystemUpdateStatus,
@@ -196,15 +197,19 @@ async function executeCliUpdate(
     ], {
       env: {
         ...env,
+        // The host CLI has already been selected and verified for this release.
+        CANVAS_CLI_SELF_UPDATE: 'false',
+        CANVAS_UPDATE_APPLY_HANDSHAKE: '1',
         CANVAS_UPDATE_DEADLINE_EPOCH_MS: String(Date.now() + UPDATE_DEADLINE_MS),
       },
       shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     });
     const stderr: Buffer[] = [];
     let stderrBytes = 0;
     const abort = () => child.kill('SIGTERM');
+    child.stdin.on('error', () => child.kill('SIGTERM'));
     if (signal.aborted) abort();
     else signal.addEventListener('abort', abort, { once: true });
     child.stderr.on('data', (chunk: Buffer) => {
@@ -235,6 +240,10 @@ async function executeCliUpdate(
           throw new Error(event.ok ? 'Canvas CLI returned an event for another operation.' : event.error);
         }
         await onEvent(event.value);
+        if (event.value.stage === 'image_pull' && event.value.status === 'running') {
+          if (signal.aborted) throw new Error('Update was canceled before apply.');
+          child.stdin.end(`${systemUpdateApplyAcknowledgement(operation.operationId)}\n`);
+        }
       }).catch((error) => {
         protocolError = error instanceof Error ? error : new Error('Canvas CLI update event handling failed.');
         child.kill('SIGTERM');
@@ -260,9 +269,10 @@ async function prepareVerifiedHostCli(
 ): Promise<void> {
   if (current.cliVersion && compareCanvasVersions(current.cliVersion, release.signed.manifest.cliVersion) >= 0) return;
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-updater-cli-'));
-  const checksumPath = path.join(directory, 'canvas-notebook-linux-cli.sha256');
+  const archiveName = `canvas-notebook-linux-cli-${release.architecture}.tar.gz`;
+  const checksumPath = path.join(directory, `canvas-notebook-linux-cli-${release.architecture}.sha256`);
   try {
-    await fs.writeFile(checksumPath, `${release.cliArtifact.sha256}  canvas-notebook-linux-cli.tar.gz\n`, { mode: 0o600 });
+    await fs.writeFile(checksumPath, `${release.cliArtifact.sha256}  ${archiveName}\n`, { mode: 0o600 });
     const result = await new Promise<{ code: number; stderr: string }>((resolve, reject) => {
       const child = spawn(resolveCliPath(env), ['cli-update', '--json', '--no-banner'], {
         env: {
@@ -309,6 +319,13 @@ export class StandaloneUpdater {
   private activeOperationId: string | null = null;
   private activeAbortController: AbortController | null = null;
   private reserving = false;
+  private mutationTail: Promise<void> = Promise.resolve();
+
+  private serializeMutation<T>(action: () => Promise<T>): Promise<T> {
+    const result = this.mutationTail.then(action);
+    this.mutationTail = result.then(() => undefined, () => undefined);
+    return result;
+  }
 
   constructor(options: StandaloneUpdaterOptions = {}) {
     this.env = options.env || process.env;
@@ -409,25 +426,27 @@ export class StandaloneUpdater {
   }
 
   private async recordEvent(operationId: string, event: SystemUpdateEvent): Promise<void> {
-    const operation = await this.journal.readOperation(operationId);
-    if (!operation) throw new Error('Active update operation disappeared from the journal.');
-    if (isTerminalSystemUpdateStatus(operation.status)) throw new Error('Update operation is already terminal.');
-    if (event.sequence !== operation.lastSequence + 1) throw new Error('Canvas CLI update event sequence is not contiguous.');
-    await this.journal.appendEvent(event);
-    const rolledBack = operation.rolledBack || (event.stage === 'rollback' && event.status === 'succeeded');
-    const status = statusForEvent({ ...operation, rolledBack }, event);
-    const terminal = isTerminalSystemUpdateStatus(status);
-    await this.journal.writeOperation({
-      ...operation,
-      status,
-      stage: event.stage,
-      startedAt: operation.startedAt || event.occurredAt,
-      updatedAt: event.occurredAt,
-      completedAt: terminal ? event.occurredAt : null,
-      rolledBack,
-      errorCode: event.status === 'failed' ? (event.errorCode || 'update_execution_failed') : operation.errorCode,
-      error: event.status === 'failed' ? safeMessage(event.message, 'Canvas Notebook update failed.') : operation.error,
-      lastSequence: event.sequence,
+    return this.serializeMutation(async () => {
+      const operation = await this.journal.readOperation(operationId);
+      if (!operation) throw new Error('Active update operation disappeared from the journal.');
+      if (isTerminalSystemUpdateStatus(operation.status)) throw new Error('Update operation is already terminal.');
+      if (event.sequence !== operation.lastSequence + 1) throw new Error('Canvas CLI update event sequence is not contiguous.');
+      await this.journal.appendEvent(event);
+      const rolledBack = operation.rolledBack || (event.stage === 'rollback' && event.status === 'succeeded');
+      const status = statusForEvent({ ...operation, rolledBack }, event);
+      const terminal = isTerminalSystemUpdateStatus(status);
+      await this.journal.writeOperation({
+        ...operation,
+        status,
+        stage: event.stage,
+        startedAt: operation.startedAt || event.occurredAt,
+        updatedAt: event.occurredAt,
+        completedAt: terminal ? event.occurredAt : null,
+        rolledBack,
+        errorCode: event.status === 'failed' ? (event.errorCode || 'update_execution_failed') : operation.errorCode,
+        error: event.status === 'failed' ? safeMessage(event.message, 'Canvas Notebook update failed.') : operation.error,
+        lastSequence: event.sequence,
+    });
     });
   }
 
@@ -446,33 +465,37 @@ export class StandaloneUpdater {
         release,
         abortController.signal,
       );
-      const operation = await this.journal.readOperation(initial.operationId);
-      if (operation && !isTerminalSystemUpdateStatus(operation.status)) {
-        const completedAt = this.now().toISOString();
-        await this.journal.writeOperation({
-          ...operation,
-          status: exitCode === 0 ? 'indeterminate' : (operation.rolledBack ? 'rolled_back' : 'failed'),
-          updatedAt: completedAt,
-          completedAt,
-          errorCode: exitCode === 0 ? 'operation_interrupted' : (operation.errorCode || 'update_execution_failed'),
-          error: operation.error || (exitCode === 0
-            ? 'Canvas CLI exited without a final verification event.'
-            : 'Canvas CLI update execution failed.'),
-        });
-      }
+      await this.serializeMutation(async () => {
+        const operation = await this.journal.readOperation(initial.operationId);
+        if (operation && !isTerminalSystemUpdateStatus(operation.status)) {
+          const completedAt = this.now().toISOString();
+          await this.journal.writeOperation({
+            ...operation,
+            status: exitCode === 0 ? 'indeterminate' : (operation.rolledBack ? 'rolled_back' : 'failed'),
+            updatedAt: completedAt,
+            completedAt,
+            errorCode: exitCode === 0 ? 'operation_interrupted' : (operation.errorCode || 'update_execution_failed'),
+            error: operation.error || (exitCode === 0
+              ? 'Canvas CLI exited without a final verification event.'
+              : 'Canvas CLI update execution failed.'),
+          });
+        }
+      });
     } catch (error) {
-      const operation = await this.journal.readOperation(initial.operationId).catch(() => initial) || initial;
-      if (!isTerminalSystemUpdateStatus(operation.status)) {
-        const completedAt = this.now().toISOString();
-        await this.journal.writeOperation({
-          ...operation,
-          status: operation.rolledBack ? 'rolled_back' : 'failed',
-          updatedAt: completedAt,
-          completedAt,
-          errorCode: operation.errorCode || 'update_execution_failed',
-          error: safeMessage(error, 'Canvas CLI update execution failed.'),
-        });
-      }
+      await this.serializeMutation(async () => {
+        const operation = await this.journal.readOperation(initial.operationId).catch(() => initial) || initial;
+        if (!isTerminalSystemUpdateStatus(operation.status)) {
+          const completedAt = this.now().toISOString();
+          await this.journal.writeOperation({
+            ...operation,
+            status: operation.rolledBack ? 'rolled_back' : 'failed',
+            updatedAt: completedAt,
+            completedAt,
+            errorCode: operation.errorCode || 'update_execution_failed',
+            error: safeMessage(error, 'Canvas CLI update execution failed.'),
+          });
+        }
+      });
     } finally {
       this.activeOperationId = null;
       if (this.activeAbortController === abortController) this.activeAbortController = null;
@@ -490,34 +513,36 @@ export class StandaloneUpdater {
   }
 
   async cancelUpdate(operationId: string): Promise<SystemUpdateOperation> {
-    const operation = await this.journal.readOperation(operationId);
-    if (!operation) throw new StandaloneUpdaterHttpError(404, 'operation_not_found', 'Update operation was not found.');
-    if (isTerminalSystemUpdateStatus(operation.status)) return operation;
-    if (this.activeOperationId !== operationId || !this.activeAbortController) {
-      throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Update operation cannot be canceled from this updater process.');
-    }
-    if ([
-      'image_pull',
-      'container_recreate',
-      'health_verification',
-      'version_verification',
-      'rollback',
-      'completed',
-    ].includes(operation.stage)) {
-      throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Update can no longer be canceled after the apply phase has started.');
-    }
-    const completedAt = this.now().toISOString();
-    const canceled: SystemUpdateOperation = {
-      ...operation,
-      status: 'failed',
-      updatedAt: completedAt,
-      completedAt,
-      errorCode: 'operation_interrupted',
-      error: 'Canvas Notebook update was canceled before the apply phase.',
-    };
-    await this.journal.writeOperation(canceled);
-    this.activeAbortController.abort();
-    return canceled;
+    return this.serializeMutation(async () => {
+      const operation = await this.journal.readOperation(operationId);
+      if (!operation) throw new StandaloneUpdaterHttpError(404, 'operation_not_found', 'Update operation was not found.');
+      if (isTerminalSystemUpdateStatus(operation.status)) return operation;
+      if (this.activeOperationId !== operationId || !this.activeAbortController) {
+        throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Update operation cannot be canceled from this updater process.');
+      }
+      if ([
+        'image_pull',
+        'container_recreate',
+        'health_verification',
+        'version_verification',
+        'rollback',
+        'completed',
+      ].includes(operation.stage)) {
+        throw new StandaloneUpdaterHttpError(409, 'operation_conflict', 'Update can no longer be canceled after the apply phase has started.');
+      }
+      const completedAt = this.now().toISOString();
+      const canceled: SystemUpdateOperation = {
+        ...operation,
+        status: 'failed',
+        updatedAt: completedAt,
+        completedAt,
+        errorCode: 'operation_interrupted',
+        error: 'Canvas Notebook update was canceled before the apply phase.',
+      };
+      await this.journal.writeOperation(canceled);
+      this.activeAbortController.abort();
+      return canceled;
+    });
   }
 }
 

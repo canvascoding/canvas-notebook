@@ -230,7 +230,7 @@ process.exit(2);
     const invocation = JSON.parse(await fs.readFile(cliLog, 'utf8')) as { url: string; checksum: string; version: string };
     assert.equal(invocation.url, 'https://example.com/canvas-notebook-linux-x64.tar.gz');
     assert.equal(invocation.version, '2026.9.5');
-    assert.match(invocation.checksum, new RegExp(`^${'b'.repeat(64)}\\s`, 'u'));
+    assert.equal(invocation.checksum, `${'b'.repeat(64)}  canvas-notebook-linux-cli-amd64.tar.gz\n`);
   });
 
   await withTempDirectory(async (directory) => {

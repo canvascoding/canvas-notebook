@@ -35,6 +35,10 @@
 *.key
 *.pub
 keys/
+# Only the public update trust store is distributed with the installer.
+!/install/keys/
+/install/keys/*
+!/install/keys/update-trust.json
 
 # Security-sensitive files
 *.crt
