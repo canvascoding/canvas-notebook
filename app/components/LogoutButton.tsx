@@ -2,12 +2,13 @@
 
 import { useRouter } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { LogOut } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { authClient } from '@/app/lib/auth-client';
 import { disconnectWebSocketClient } from '@/app/lib/websocket/client';
 
-export function LogoutButton() {
+export function LogoutButton({ asMenuItem = false }: { asMenuItem?: boolean }) {
   const router = useRouter();
   const t = useTranslations('common');
 
@@ -26,6 +27,15 @@ export function LogoutButton() {
       console.error('Logout error:', error);
     }
   };
+
+  if (asMenuItem) {
+    return (
+      <DropdownMenuItem onSelect={() => void handleLogout()} className="min-h-10 cursor-pointer">
+        <LogOut aria-hidden="true" />
+        {t('logout')}
+      </DropdownMenuItem>
+    );
+  }
 
   return (
     <Button

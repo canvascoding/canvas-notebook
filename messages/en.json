@@ -2807,6 +2807,7 @@
     "previewLabel": "Profile preview",
     "shownAs": "This is how other profile surfaces will show you.",
     "profileLinkLabel": "Open settings for {name}",
+    "profileMenuLabel": "Open user menu for {name}",
     "uploadTitle": "Profile photo",
     "uploadDescription": "PNG, JPEG, WebP, HEIC, or HEIF up to 5 MB. Canvas crops it to a square and stores an optimized copy.",
     "dropImage": "Drop one image here or choose a file.",

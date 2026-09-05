@@ -2806,6 +2806,7 @@
     "previewLabel": "Profilvorschau",
     "shownAs": "So wirst du an den persönlichen Stellen in Canvas angezeigt.",
     "profileLinkLabel": "Einstellungen für {name} öffnen",
+    "profileMenuLabel": "Benutzermenü für {name} öffnen",
     "uploadTitle": "Profilfoto",
     "uploadDescription": "PNG, JPEG, WebP, HEIC oder HEIF bis 5 MB. Canvas schneidet das Bild quadratisch zu und speichert eine optimierte Kopie.",
     "dropImage": "Lege ein Bild hier ab oder wähle eine Datei aus.",
