@@ -6378,7 +6378,7 @@
   "automationen": {
     "title": "Automations",
     "intro": {
-      "prefix": "Plan recurring agent jobs for the same workspace. Run history is stored in the database; workspace files are created only when a target path or task requires them.",
+      "prefix": "Let your agents take care of recurring tasks.",
       "suffix": ""
     },
     "overview": {
@@ -6416,7 +6416,7 @@
     "editor": {
       "newTitle": "New automation",
       "editTitle": "Edit automation",
-      "description": "Keep it non-technical. The agent will execute the task in the workspace later.",
+      "description": "Choose an agent, describe the task and set its trigger.",
       "fields": {
         "name": "Name",
         "status": "Status",
@@ -6683,14 +6683,14 @@
     },
     "session": {
       "title": "Run chat",
-      "description": "Read-only history of the linked session. You can continue the same session in chat at any time.",
+      "description": "Read-only history of the linked chat. You can continue the same chat in chat at any time.",
       "openChat": "Open in chat",
       "openNotebook": "Open in Canvas Notebook",
-      "continueChat": "Continue session",
+      "continueChat": "Continue chat",
       "loading": "Loading chat history...",
       "empty": "No chat messages available yet.",
-      "pending": "The session was created but has not been fully persisted yet.",
-      "noSession": "No session has been created for this run yet.",
+      "pending": "The chat was created but has not been fully persisted yet.",
+      "noSession": "No chat has been created for this run yet.",
       "emptyMessage": "No text output available.",
       "roles": {
         "user": "User",
@@ -6765,7 +6765,54 @@
       "jobDeleted": "Automation deleted."
     },
     "confirmDelete": "Delete this automation?",
-    "noneYet": "None yet."
+    "noneYet": "None yet.",
+    "ux": {
+      "agent": "Agent",
+      "chooseAgent": "Choose agent",
+      "searchAgents": "Search agents…",
+      "agentUnavailable": "Agent unavailable",
+      "noAgents": "No matching agents.",
+      "task": "What should happen?",
+      "pathHint": "Mention relevant files or folders directly in the task. If you need a file created, describe it here.",
+      "chatAndDelivery": "Chat & notifications",
+      "chat": "Chat",
+      "channel": "Delivery channel",
+      "chooseChat": "Choose a chat",
+      "searchChats": "Search chats…",
+      "untitledChat": "Untitled chat",
+      "chatUnavailable": "Choose an available chat",
+      "loadingChats": "Loading chats…",
+      "noChats": "No matching chats for this agent and workspace.",
+      "chatLoadFailed": "Chats could not be loaded. Only the person responsible for the automation can select their chats.",
+      "retry": "Try again",
+      "loadMore": "Show more",
+      "moreSettings": "More settings",
+      "latestRun": "Last run",
+      "technicalDetails": "Logs & technical details",
+      "noLogs": "No logs available.",
+      "integrationDetails": "Integration details",
+      "cancel": "Cancel",
+      "pause": "Pause",
+      "activate": "Activate",
+      "edit": "Edit",
+      "editDescription": "Adjust the task or open the settings you want to change.",
+      "chatMode": {
+        "new_session": "New chat",
+        "channel_active": "Active chat",
+        "fixed_session": "Choose chat"
+      },
+      "chatHint": {
+        "new_session": "Each run starts a new chat.",
+        "channel_active": "Uses the chat active at run time for this agent and workspace, including its conversation history. Starts a new chat if none is available.",
+        "fixed_session": "Continues the selected chat with its conversation history. If it is no longer available, the run stops with a clear error."
+      },
+      "logs": "Logs",
+      "metadata": "Metadata",
+      "refresh": "Refresh",
+      "logsFailed": "Logs could not be loaded. Try again.",
+      "loadingLogs": "Loading logs…",
+      "logsTruncated": "The log preview has been truncated."
+    }
   },
   "studio": {
     "title": "Studio",

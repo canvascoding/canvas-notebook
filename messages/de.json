@@ -6377,7 +6377,7 @@
   "automationen": {
     "title": "Automationen",
     "intro": {
-      "prefix": "Plane wiederkehrende Agent-Aufträge für denselben Workspace. Die Laufhistorie liegt in der Datenbank; Workspace-Dateien entstehen nur bei gesetztem Zielpfad oder wenn die Aufgabe sie verlangt.",
+      "prefix": "Aufgaben automatisch erledigen lassen.",
       "suffix": ""
     },
     "overview": {
@@ -6415,7 +6415,7 @@
     "editor": {
       "newTitle": "Neue Automation",
       "editTitle": "Automation bearbeiten",
-      "description": "Nicht technisch formulieren. Der Agent führt den Auftrag später im Workspace aus.",
+      "description": "Agent wählen, Aufgabe beschreiben und Auslöser festlegen.",
       "fields": {
         "name": "Name",
         "status": "Status",
@@ -6681,15 +6681,15 @@
       "piSession": "PI Session"
     },
     "session": {
-      "title": "Run-Chat",
-      "description": "Read-only Verlauf der verknüpften Session. Du kannst die Session jederzeit im Chat weiterführen.",
+      "title": "Chatverlauf",
+      "description": "Hier siehst du den Gesprächsverlauf dieses Laufs. Du kannst den Chat jederzeit fortsetzen.",
       "openChat": "Im Chat öffnen",
       "openNotebook": "Im Canvas Notebook öffnen",
-      "continueChat": "Session fortsetzen",
+      "continueChat": "Chat fortsetzen",
       "loading": "Lade Chatverlauf...",
       "empty": "Noch keine Chat-Nachrichten vorhanden.",
-      "pending": "Die Session wurde angelegt, aber noch nicht vollständig persistiert.",
-      "noSession": "Für diesen Lauf wurde noch keine Session angelegt.",
+      "pending": "Der Chat wird noch gespeichert.",
+      "noSession": "Für diesen Lauf wurde noch kein Chat angelegt.",
       "emptyMessage": "Keine Textausgabe vorhanden.",
       "roles": {
         "user": "User",
@@ -6764,7 +6764,54 @@
       "jobDeleted": "Automation gelöscht."
     },
     "confirmDelete": "Diese Automation wirklich löschen?",
-    "noneYet": "Noch keiner vorhanden."
+    "noneYet": "Noch keiner vorhanden.",
+    "ux": {
+      "agent": "Agent",
+      "chooseAgent": "Agent auswählen",
+      "searchAgents": "Agenten suchen…",
+      "agentUnavailable": "Agent nicht verfügbar",
+      "noAgents": "Keine passenden Agenten.",
+      "task": "Was soll erledigt werden?",
+      "pathHint": "Relevante Dateien oder Ordner direkt in der Aufgabe erwähnen. Wenn eine Datei erstellt werden soll, beschreibe sie hier.",
+      "chatAndDelivery": "Chat & Benachrichtigungen",
+      "chat": "Chat",
+      "channel": "Zielkanal",
+      "chooseChat": "Chat auswählen",
+      "searchChats": "Chats suchen…",
+      "untitledChat": "Unbenannter Chat",
+      "chatUnavailable": "Verfügbaren Chat auswählen",
+      "loadingChats": "Chats werden geladen…",
+      "noChats": "Keine passenden Chats für diesen Agenten und Workspace.",
+      "chatLoadFailed": "Chats konnten nicht geladen werden. Nur die verantwortliche Person kann ihre Chats für die Automation auswählen.",
+      "retry": "Erneut versuchen",
+      "loadMore": "Mehr anzeigen",
+      "moreSettings": "Weitere Einstellungen",
+      "latestRun": "Letzter Lauf",
+      "technicalDetails": "Logs & technische Details",
+      "noLogs": "Keine Logs vorhanden.",
+      "integrationDetails": "Integration einrichten",
+      "cancel": "Abbrechen",
+      "pause": "Pausieren",
+      "activate": "Aktivieren",
+      "edit": "Bearbeiten",
+      "editDescription": "Aufgabe anpassen oder die gewünschten Einstellungen öffnen.",
+      "chatMode": {
+        "new_session": "Neuer Chat",
+        "channel_active": "Aktiver Chat",
+        "fixed_session": "Chat auswählen"
+      },
+      "chatHint": {
+        "new_session": "Jeder Lauf startet einen neuen Chat.",
+        "channel_active": "Verwendet den zum Ausführungszeitpunkt aktiven Chat dieses Agenten im Workspace samt Gesprächsverlauf. Ist keiner verfügbar, wird ein neuer Chat gestartet.",
+        "fixed_session": "Setzt den ausgewählten Chat mit seinem Gesprächsverlauf fort. Ist er nicht mehr verfügbar, endet der Lauf mit einer verständlichen Fehlermeldung."
+      },
+      "logs": "Logs",
+      "metadata": "Metadaten",
+      "refresh": "Aktualisieren",
+      "logsFailed": "Logs konnten nicht geladen werden. Bitte erneut versuchen.",
+      "loadingLogs": "Logs werden geladen…",
+      "logsTruncated": "Die Log-Anzeige wurde gekürzt."
+    }
   },
   "studio": {
     "title": "Studio",
