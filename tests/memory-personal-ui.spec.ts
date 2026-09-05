@@ -28,6 +28,7 @@ async function useGermanAccountLocale(page: Page) {
 async function openGermanPrivateMemory(page: Page) {
   await page.goto('/de/settings?tab=memory&scope=user', { waitUntil: 'domcontentloaded' });
   await expect(page.getByText('Memory Manager', { exact: true })).toBeVisible();
+  await expect(page.getByText('Memory-Bereiche', { exact: true })).toBeVisible();
   await expect(page.getByText('Memories werden geladen…')).not.toBeVisible();
 }
 
@@ -39,7 +40,7 @@ test.describe('Memory Manager settings', () => {
     await login(page);
     await page.goto('/en/settings?tab=memory&scope=user', { waitUntil: 'domcontentloaded' });
     await expect(page.getByText('Memory Manager', { exact: true })).toBeVisible();
-    await expect(page.getByText(/dedicated memory-manager worker/i)).toBeVisible();
+    await expect(page.getByText(/Automatic review is optional/i)).toBeVisible();
     const scopeTabs = page.getByRole('tablist', { name: 'Memory scope' });
     await expect(scopeTabs).toBeVisible();
     await expect(scopeTabs.getByRole('button', { name: 'My memory' })).toBeVisible();
@@ -48,13 +49,18 @@ test.describe('Memory Manager settings', () => {
     await expect(scopeTabs.getByRole('button', { name: 'Organization' })).toBeVisible();
     await expect(page.getByText('Memory categories', { exact: true })).toBeVisible();
     await expect(page.getByText('These cards are categories, not projects. Each category groups individual memory entries that remain available over time.')).toBeVisible();
-    await expect(page.getByText('Memory review runtime', { exact: true })).toBeVisible();
-    await expect(page.getByText(/Server idle cycles never call the model/i)).toBeVisible();
-    await expect(page.getByRole('switch', { name: 'Automatic memory' })).toBeVisible();
-    await expect(page.getByLabel('Organization provider')).toBeVisible();
-    await expect(page.getByLabel('Memory Reviewer model')).toBeVisible();
-    await expect(page.getByLabel('Prompt budget (tokens)')).toHaveValue('2000');
-    await expect(page.getByRole('button', { name: /(?:Save memory settings|Verify reviewer and save)/ })).toBeVisible();
+    const reviewerSwitch = page.getByRole('switch', { name: 'Automatic memory review' });
+    await expect(reviewerSwitch).toBeVisible();
+    await expect(reviewerSwitch).toBeEnabled();
+    if (await reviewerSwitch.isChecked()) {
+      await expect(page.getByTestId('memory-reviewer-settings')).toBeVisible();
+      await expect(page.getByLabel('Organization provider')).toBeVisible();
+      await expect(page.getByLabel('Memory Reviewer model')).toBeVisible();
+      await expect(page.getByLabel('Prompt budget (tokens)')).toBeVisible();
+    } else {
+      await expect(page.getByTestId('memory-reviewer-settings')).toHaveCount(0);
+      await expect(page.getByLabel('Organization provider')).toHaveCount(0);
+    }
     await expect(page.getByRole('button', { name: 'Import JSON' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Delete all private memory' })).toBeVisible();
     await expect(page.getByText('Loading memory…')).not.toBeVisible();
@@ -72,8 +78,59 @@ test.describe('Memory Manager settings', () => {
     await page.goto('/en/settings?tab=agent-settings', { waitUntil: 'domcontentloaded' });
     await expect(page.getByTestId('memory-review-agent-card')).toBeVisible();
     await expect(page.getByText('memory-manager', { exact: true })).toBeVisible();
+    await expect(page.getByText('Loading reviewer status…')).not.toBeVisible();
 
     await page.screenshot({ path: testInfo.outputPath('memory-manager.png'), fullPage: true });
+  });
+
+  test('saves reviewer opt-out immediately and progressively hides reviewer controls', async ({ page }) => {
+    await login(page);
+    await page.goto('/en/settings?tab=memory&scope=user', { waitUntil: 'domcontentloaded' });
+    const settingsResponse = await page.request.get('/api/memory?settings=1');
+    const settingsPayload = await settingsResponse.json() as {
+      success?: boolean;
+      data?: { automaticMemoryEnabled?: boolean; memoryReviewWorkerAvailable?: boolean };
+    };
+    expect(settingsResponse.ok(), JSON.stringify(settingsPayload)).toBeTruthy();
+    test.skip(settingsPayload.data?.memoryReviewWorkerAvailable !== true, 'The server-wide worker kill switch is active.');
+    const originalEnabled = settingsPayload.data?.automaticMemoryEnabled === true;
+    const reviewerSwitch = page.getByRole('switch', { name: 'Automatic memory review' });
+    await expect(reviewerSwitch).toBeEnabled();
+
+    if (!await reviewerSwitch.isChecked()) {
+      const [enableResponse] = await Promise.all([
+        page.waitForResponse((response) => response.url().endsWith('/api/memory') && response.request().method() === 'PATCH'),
+        reviewerSwitch.click(),
+      ]);
+      expect(enableResponse.ok(), await enableResponse.text()).toBeTruthy();
+    }
+    await expect(page.getByTestId('memory-reviewer-settings')).toBeVisible();
+
+    const [disableResponse] = await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith('/api/memory') && response.request().method() === 'PATCH'),
+      reviewerSwitch.click(),
+    ]);
+    expect(disableResponse.ok(), await disableResponse.text()).toBeTruthy();
+    await expect(reviewerSwitch).not.toBeChecked();
+    await expect(page.getByText('No chats are queued or reviewed. Your saved memories and all manual controls remain available.')).toBeVisible();
+    await expect(page.getByTestId('memory-reviewer-settings')).toHaveCount(0);
+    await expect(page.getByLabel('Organization provider')).toHaveCount(0);
+    await expect(page.getByLabel('Memory Reviewer model')).toHaveCount(0);
+    await expect(page.getByLabel('Prompt budget (tokens)')).toHaveCount(0);
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('switch', { name: 'Automatic memory review' })).not.toBeChecked();
+    await expect(page.getByTestId('memory-reviewer-settings')).toHaveCount(0);
+
+    await page.goto('/en/settings?tab=agent-settings', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('memory-review-agent-card')).toBeVisible();
+    await expect(page.getByTestId('memory-review-agent-disabled-copy')).toBeVisible();
+    await expect(page.getByTestId('memory-review-agent-runtime-details')).toHaveCount(0);
+
+    if (originalEnabled) {
+      const restore = await page.request.patch('/api/memory', { data: { automaticMemoryEnabled: true } });
+      expect(restore.ok(), await restore.text()).toBeTruthy();
+    }
   });
 
   test('shows German category names and keeps a private memory across a server restart', async ({ page }, testInfo) => {
@@ -85,19 +142,34 @@ test.describe('Memory Manager settings', () => {
     await useGermanAccountLocale(page);
     await openGermanPrivateMemory(page);
 
-    const scopeTabs = page.getByRole('tablist', { name: 'Memory scope' });
+    const scopeTabs = page.getByRole('tablist', { name: 'Memory-Bereich' });
     await expect(page.getByText('Memory-Bereiche', { exact: true })).toBeVisible();
     await expect(page.getByText('Diese Karten sind Kategorien, keine Projekte. Jede Kategorie bündelt einzelne, dauerhaft gespeicherte Memory-Einträge.')).toBeVisible();
     await expect(page.getByRole('button').filter({ hasText: /^.*0 Einträge.*$/ })).toHaveCount(0);
+    const contextCategory = page.getByRole('button', { name: /^Kontext\b/u }).first();
+    await expect(contextCategory).toBeVisible();
 
     if (restartPhase === 'create') {
-      await page.getByPlaceholder('e.g. Prefers short, decisive weekly updates.').fill(restartMemory);
-      await page.getByRole('button', { name: 'Save memory', exact: true }).click();
-      await expect(page.getByText('Memory saved.', { exact: true })).toBeVisible();
+      const reviewerSwitch = page.getByRole('switch', { name: 'Automatische Memory-Prüfung' });
+      await expect(reviewerSwitch).toBeEnabled();
+      if (await reviewerSwitch.isChecked()) {
+        const [toggleResponse] = await Promise.all([
+          page.waitForResponse((response) => response.url().endsWith('/api/memory') && response.request().method() === 'PATCH'),
+          reviewerSwitch.click(),
+        ]);
+        expect(toggleResponse.ok(), await toggleResponse.text()).toBeTruthy();
+      }
+      await expect(reviewerSwitch).not.toBeChecked();
+      await expect(page.getByTestId('memory-reviewer-settings')).toHaveCount(0);
+      await page.getByPlaceholder('z. B. Bevorzugt kurze, eindeutige Wochen-Updates.').fill(restartMemory);
+      await expect(page.getByRole('button', { name: 'Memory speichern', exact: true })).toBeEnabled();
+      await page.getByRole('button', { name: 'Memory speichern', exact: true }).click();
+      await expect(page.getByText('Memory wurde gespeichert.', { exact: true })).toBeVisible();
+    } else {
+      await expect(page.getByRole('switch', { name: 'Automatische Memory-Prüfung' })).not.toBeChecked();
+      await expect(page.getByTestId('memory-reviewer-settings')).toHaveCount(0);
     }
 
-    const contextCategory = page.getByRole('button', { name: /Kontext[\s\S]*Eintr(?:ag|äge)/u }).first();
-    await expect(contextCategory).toBeVisible();
     await contextCategory.click();
 
     const selectedCategory = page.getByTestId('selected-memory-category');
@@ -118,21 +190,29 @@ test.describe('Memory Manager settings', () => {
     expect(memoryBox).not.toBeNull();
     expect(memoryBox!.y).toBeGreaterThan(selectedBox!.y + selectedBox!.height - 1);
 
-    const search = page.getByLabel('Search memory');
+    const search = page.getByLabel('Memories durchsuchen');
     await search.fill('kein-treffer-fuer-diesen-ui-test');
-    await expect(page.getByText('No memory entries match this search.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Keine Memory-Einträge entsprechen dieser Suche.', { exact: true })).toBeVisible();
     await search.fill('');
     await expect(renderedMemory).toBeVisible();
 
     await page.screenshot({ path: testInfo.outputPath(`memory-german-${restartPhase}-desktop.png`), fullPage: true });
 
-    await scopeTabs.getByRole('button', { name: 'Organization' }).click();
+    const [organizationResponse] = await Promise.all([
+      page.waitForResponse((response) => response.url().includes('/api/memory?scope=organization')),
+      scopeTabs.getByRole('button', { name: 'Organisation' }).click(),
+    ]);
+    expect(organizationResponse.ok(), await organizationResponse.text()).toBeTruthy();
     await expect(page).toHaveURL(/scope=organization/u);
     await expect(page.getByText('Memories werden geladen…')).not.toBeVisible();
     await expect(page.getByRole('button').filter({ hasText: /^.*0 Einträge.*$/ })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath(`memory-organization-${restartPhase}-desktop.png`), fullPage: true });
 
-    await scopeTabs.getByRole('button', { name: 'My memory' }).click();
+    const [privateResponse] = await Promise.all([
+      page.waitForResponse((response) => response.url().includes('/api/memory?scope=user')),
+      scopeTabs.getByRole('button', { name: 'Meine Memories' }).click(),
+    ]);
+    expect(privateResponse.ok(), await privateResponse.text()).toBeTruthy();
     await expect(renderedMemory).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
     const viewportMetrics = await page.evaluate(() => ({

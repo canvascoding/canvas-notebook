@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
 
-import { openDb, type SqlConnection } from '@/app/lib/db';
+import { getDatabaseProvider, openDb, type SqlConnection } from '@/app/lib/db';
 import {
   MEMORY_MAX_ENTRY_CHARS,
   MEMORY_PENDING_ARCHIVE_AFTER_MS,
@@ -18,6 +18,7 @@ import { readOrganizationPermissionForUser } from '@/app/lib/organization/permis
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { getAgentAccess } from '@/app/lib/agents/access';
 import { getAgentProfile } from '@/app/lib/agents/registry';
+import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import {
   canonicalMemoryCategory,
   memoryCategoryDescription,
@@ -1009,10 +1010,17 @@ export type MemoryReviewScheduleResult = {
 };
 
 export type MemoryReviewSettingsUpdate = {
-  automaticMemoryEnabled: boolean;
-  memoryPromptMaxTokens: number;
-  sensitiveMemoryEnabled: boolean;
+  automaticMemoryEnabled?: boolean;
+  memoryPromptMaxTokens?: number;
+  sensitiveMemoryEnabled?: boolean;
 };
+
+export class MemoryReviewCancelledError extends Error {
+  constructor(message = 'Automatic memory review was disabled before the review completed.') {
+    super(message);
+    this.name = 'MemoryReviewCancelledError';
+  }
+}
 
 export type MemoryReviewRuntimeSettings = {
   organizationId: string;
@@ -1092,11 +1100,12 @@ export async function updateMemoryReviewRuntimeSettings(params: {
         SET status = 'scheduled', scheduled_for = ?, lease_until = NULL, error_code = NULL
         WHERE organization_id = ?
           AND status = 'awaiting_model_configuration'
+          AND error_code = 'model_not_configured'
           AND attempts < ?
-          AND NOT EXISTS (
+          AND EXISTS (
             SELECT 1 FROM memory_user_settings user_settings
             WHERE user_settings.user_id = job.user_id
-              AND user_settings.automatic_memory_enabled = 0
+              AND user_settings.automatic_memory_enabled = 1
           )
       `, [now, params.organizationId, MEMORY_REVIEW_MAX_ATTEMPTS]) as { changes?: number };
       await connection.run('COMMIT');
@@ -1130,37 +1139,77 @@ export async function updateMemoryReviewSettings(
   userId: string,
   settings: MemoryReviewSettingsUpdate,
   now = Date.now(),
-): Promise<{ reactivatedJobs: number; parkedJobs: number }> {
+): Promise<{ reactivatedJobs: number; cancelledJobs: number; settingsRevision: number }> {
   const connection = await openDb();
   try {
-    await connection.run('BEGIN');
+    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
     try {
+      const existing = await connection.get(`
+        SELECT automatic_memory_enabled, automatic_memory_enabled_at,
+          automatic_memory_disabled_at, settings_revision,
+          memory_prompt_max_tokens, sensitive_memory_enabled, created_at
+        FROM memory_user_settings
+        WHERE user_id = ?
+        LIMIT 1${getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : ''}
+      `, [userId]) as Record<string, unknown> | undefined;
+      const previousAutomaticMemoryEnabled = existing?.automatic_memory_enabled === true
+        || existing?.automatic_memory_enabled === 1;
+      const automaticMemoryEnabled = settings.automaticMemoryEnabled ?? previousAutomaticMemoryEnabled;
+      const automaticPreferenceChanged = settings.automaticMemoryEnabled !== undefined
+        && automaticMemoryEnabled !== previousAutomaticMemoryEnabled;
+      const previousRevision = Math.max(1, Number(existing?.settings_revision ?? 1));
+      const settingsRevision = existing
+        ? previousRevision + (automaticPreferenceChanged ? 1 : 0)
+        : 1;
+      const automaticMemoryEnabledAt = automaticMemoryEnabled
+        ? automaticPreferenceChanged || !existing
+          ? now
+          : Number(existing.automatic_memory_enabled_at ?? existing.created_at ?? now)
+        : existing?.automatic_memory_enabled_at ?? null;
+      const automaticMemoryDisabledAt = automaticMemoryEnabled
+        ? null
+        : automaticPreferenceChanged || !existing
+          ? now
+          : existing.automatic_memory_disabled_at ?? now;
+      const memoryPromptMaxTokens = settings.memoryPromptMaxTokens
+        ?? Number(existing?.memory_prompt_max_tokens ?? 2_000);
+      const sensitiveMemoryEnabled = settings.sensitiveMemoryEnabled
+        ?? (existing?.sensitive_memory_enabled === true || existing?.sensitive_memory_enabled === 1);
+
       await connection.run(`
         INSERT INTO memory_user_settings (
-          user_id, automatic_memory_enabled, memory_prompt_max_tokens,
-          sensitive_memory_enabled, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+          user_id, automatic_memory_enabled, automatic_memory_enabled_at,
+          automatic_memory_disabled_at, settings_revision,
+          memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
           automatic_memory_enabled = excluded.automatic_memory_enabled,
+          automatic_memory_enabled_at = excluded.automatic_memory_enabled_at,
+          automatic_memory_disabled_at = excluded.automatic_memory_disabled_at,
+          settings_revision = excluded.settings_revision,
           memory_prompt_max_tokens = excluded.memory_prompt_max_tokens,
           sensitive_memory_enabled = excluded.sensitive_memory_enabled,
           updated_at = excluded.updated_at
       `, [
         userId,
-        settings.automaticMemoryEnabled ? 1 : 0,
-        settings.memoryPromptMaxTokens,
-        settings.sensitiveMemoryEnabled ? 1 : 0,
+        automaticMemoryEnabled ? 1 : 0,
+        automaticMemoryEnabledAt,
+        automaticMemoryDisabledAt,
+        settingsRevision,
+        memoryPromptMaxTokens,
+        sensitiveMemoryEnabled ? 1 : 0,
         now,
         now,
       ]);
 
       let reactivatedJobs = 0;
-      let parkedJobs = 0;
-      if (settings.automaticMemoryEnabled) {
+      let cancelledJobs = 0;
+      if (automaticMemoryEnabled) {
         const result = await connection.run(`
           UPDATE memory_review_jobs AS job
           SET status = 'scheduled', scheduled_for = ?, lease_until = NULL, error_code = NULL
           WHERE user_id = ? AND status = 'awaiting_model_configuration'
+            AND error_code = 'model_not_configured'
             AND attempts < ?
             AND EXISTS (
               SELECT 1 FROM memory_review_runtime_settings runtime
@@ -1180,21 +1229,30 @@ export async function updateMemoryReviewSettings(
             )
         `, [userId]);
       } else {
+        const cancellationResult = JSON.stringify({
+          cancelled: true,
+          reason: 'automatic_memory_disabled',
+          settingsRevision,
+        });
         const result = await connection.run(`
           UPDATE memory_review_jobs
-          SET status = 'awaiting_model_configuration', scheduled_for = NULL, lease_until = NULL, error_code = ?
-          WHERE user_id = ? AND status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration')
-        `, ['automatic_memory_disabled', userId]) as { changes?: number };
-        parkedJobs = Number(result.changes ?? 0);
+          SET status = 'completed', scheduled_for = NULL, lease_until = NULL,
+            error_code = NULL, completed_at = ?, result_json = ?
+          WHERE user_id = ?
+            AND status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration', 'running')
+        `, [now, cancellationResult, userId]) as { changes?: number };
+        cancelledJobs = Number(result.changes ?? 0);
       }
       await connection.run('COMMIT');
       console.info('[MemoryManager] User review settings updated.', {
         userId,
-        automaticMemoryEnabled: settings.automaticMemoryEnabled,
+        automaticMemoryEnabled,
+        automaticPreferenceChanged,
+        settingsRevision,
         reactivatedJobs,
-        parkedJobs,
+        cancelledJobs,
       });
-      return { reactivatedJobs, parkedJobs };
+      return { reactivatedJobs, cancelledJobs, settingsRevision };
     } catch (error) {
       await connection.run('ROLLBACK');
       throw error;
@@ -1225,12 +1283,14 @@ export async function scheduleMemoryReviewForSession(params: {
     const organizationId = session.organization_id?.trim();
     if (!organizationId) return null;
     const reviewSettings = await connection.get(`
-      SELECT automatic_memory_enabled
+      SELECT automatic_memory_enabled, automatic_memory_enabled_at
       FROM memory_user_settings
       WHERE user_id = ?
       LIMIT 1
-    `, [params.userId]) as { automatic_memory_enabled?: number | boolean } | undefined;
-    const automaticMemoryDisabled = reviewSettings?.automatic_memory_enabled === false || reviewSettings?.automatic_memory_enabled === 0;
+    `, [params.userId]) as { automatic_memory_enabled?: number | boolean; automatic_memory_enabled_at?: number } | undefined;
+    const automaticMemoryEnabled = reviewSettings?.automatic_memory_enabled === true
+      || reviewSettings?.automatic_memory_enabled === 1;
+    if (!automaticMemoryEnabled) return null;
     const runtimeSettings = await connection.get(`
       SELECT provider_installation_id, model_id, verified_at
       FROM memory_review_runtime_settings
@@ -1242,16 +1302,21 @@ export async function scheduleMemoryReviewForSession(params: {
       && runtimeSettings.model_id
       && Number(runtimeSettings.verified_at) > 0,
     );
-    const parkingError = automaticMemoryDisabled
-      ? 'automatic_memory_disabled'
-      : runtimeConfigured ? null : 'model_not_configured';
+    const parkingError = runtimeConfigured ? null : 'model_not_configured';
     const terminal = await connection.get(`
       SELECT COALESCE(MAX(through_message_sequence), 0) AS sequence
       FROM memory_review_jobs
       WHERE user_id = ? AND session_id = ?
         AND (status IN ('completed', 'failed') OR attempts >= ?)
     `, [params.userId, params.sessionId, MEMORY_REVIEW_MAX_ATTEMPTS]) as { sequence?: number } | undefined;
-    const fromMessageSequence = Number(terminal?.sequence ?? 0) + 1;
+    const firstEligibleUserMessage = await connection.get(`
+      SELECT MIN(sequence) AS sequence
+      FROM pi_messages
+      WHERE pi_session_db_id = ? AND role = 'user' AND timestamp >= ?
+    `, [session.id, Number(reviewSettings.automatic_memory_enabled_at ?? 0)]) as { sequence?: number } | undefined;
+    const firstEligibleSequence = Number(firstEligibleUserMessage?.sequence ?? 0);
+    if (!firstEligibleSequence) return null;
+    const fromMessageSequence = Math.max(Number(terminal?.sequence ?? 0) + 1, firstEligibleSequence);
     const delta = await connection.get(`
       SELECT COUNT(*) AS user_turn_count, MAX(sequence) AS through_message_sequence
       FROM pi_messages
@@ -1297,14 +1362,7 @@ export async function scheduleMemoryReviewForSession(params: {
     `, [params.userId, params.sessionId, fromMessageSequence, MEMORY_REVIEW_MAX_ATTEMPTS]) as { id?: string } | undefined;
     let jobId = existing?.id;
     if (existing?.id) {
-      if (automaticMemoryDisabled) {
-        await connection.run(`
-          UPDATE memory_review_jobs
-          SET organization_id = ?, through_message_sequence = ?, trigger_type = ?, scheduled_for = NULL,
-              status = 'awaiting_model_configuration', lease_until = NULL, error_code = 'automatic_memory_disabled'
-          WHERE id = ?
-        `, [organizationId, throughMessageSequence, triggerType, existing.id]);
-      } else if (runtimeConfigured) {
+      if (runtimeConfigured) {
         await connection.run(`
           UPDATE memory_review_jobs
           SET organization_id = ?, through_message_sequence = ?, trigger_type = ?, scheduled_for = ?, status = 'scheduled', lease_until = NULL, error_code = NULL
@@ -1367,6 +1425,9 @@ export async function scheduleUnreviewedMemorySessions(
     const rows = await connection.all(`
       SELECT session.user_id, session.session_id
       FROM pi_sessions session
+      INNER JOIN memory_user_settings user_settings
+        ON user_settings.user_id = session.user_id
+       AND user_settings.automatic_memory_enabled = 1
       WHERE session.organization_id IS NOT NULL
         AND EXISTS (
           SELECT 1 FROM memory_review_jobs previous_terminal_job
@@ -1388,6 +1449,7 @@ export async function scheduleUnreviewedMemorySessions(
           FROM pi_messages user_message
           WHERE user_message.pi_session_db_id = session.id
             AND user_message.role = 'user'
+            AND user_message.timestamp >= COALESCE(user_settings.automatic_memory_enabled_at, 0)
             AND user_message.sequence > COALESCE((
               SELECT MAX(terminal_job.through_message_sequence)
               FROM memory_review_jobs terminal_job
@@ -1439,6 +1501,7 @@ export type MemoryReviewJobClaim = {
   attempts: number;
   responseJson: string | null;
   responseHash: string | null;
+  settingsRevision: number;
 };
 
 /** Claims one due job. A configured model is required; there is no chat-model fallback. */
@@ -1458,6 +1521,18 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
         maxAttempts: MEMORY_REVIEW_MAX_ATTEMPTS,
       });
     }
+    const disabled = await connection.run(`
+      UPDATE memory_review_jobs AS job
+      SET status = 'completed', scheduled_for = NULL, lease_until = NULL,
+        error_code = NULL, completed_at = ?,
+        result_json = '{"cancelled":true,"reason":"automatic_memory_disabled"}'
+      WHERE job.status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration', 'running')
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_user_settings user_settings
+          WHERE user_settings.user_id = job.user_id
+            AND user_settings.automatic_memory_enabled = 1
+        )
+    `, [now]) as { changes?: number };
     const recovered = await connection.run(`
       UPDATE memory_review_jobs
       SET status = 'retry_wait', scheduled_for = ?, lease_until = NULL, error_code = 'lease_expired'
@@ -1468,17 +1543,6 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
         count: Number(recovered.changes ?? 0),
       });
     }
-    const disabled = await connection.run(`
-      UPDATE memory_review_jobs AS job
-      SET status = 'awaiting_model_configuration', scheduled_for = NULL,
-        lease_until = NULL, error_code = 'automatic_memory_disabled'
-      WHERE job.status IN ('scheduled', 'retry_wait')
-        AND EXISTS (
-          SELECT 1 FROM memory_user_settings user_settings
-          WHERE user_settings.user_id = job.user_id
-            AND user_settings.automatic_memory_enabled = 0
-        )
-    `) as { changes?: number };
     const unconfigured = await connection.run(`
       UPDATE memory_review_jobs AS job
       SET status = 'awaiting_model_configuration', scheduled_for = NULL,
@@ -1493,8 +1557,8 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
         )
     `) as { changes?: number };
     if (Number(disabled.changes ?? 0) > 0 || Number(unconfigured.changes ?? 0) > 0) {
-      console.info('[MemoryManager] Unrunnable review jobs parked.', {
-        automaticMemoryDisabled: Number(disabled.changes ?? 0),
+      console.info('[MemoryManager] Unrunnable review jobs reconciled.', {
+        automaticMemoryCancelled: Number(disabled.changes ?? 0),
         modelNotConfigured: Number(unconfigured.changes ?? 0),
       });
     }
@@ -1502,16 +1566,16 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
       SELECT job.id, job.user_id, job.organization_id, job.session_id,
         job.from_message_sequence, job.through_message_sequence, job.attempts,
         job.response_json, job.response_hash, session.agent_id,
-        user_settings.automatic_memory_enabled,
+        user_settings.automatic_memory_enabled, user_settings.settings_revision,
         runtime.provider_installation_id, runtime.model_id, runtime.verified_at
       FROM memory_review_jobs job
       INNER JOIN pi_sessions session ON session.user_id = job.user_id AND session.session_id = job.session_id
-      LEFT JOIN memory_user_settings user_settings ON user_settings.user_id = job.user_id
+      INNER JOIN memory_user_settings user_settings ON user_settings.user_id = job.user_id
       LEFT JOIN memory_review_runtime_settings runtime ON runtime.organization_id = job.organization_id
       WHERE job.status IN ('scheduled', 'retry_wait')
         AND scheduled_for <= ?
         AND job.attempts < ?
-        AND COALESCE(user_settings.automatic_memory_enabled, 1) = 1
+        AND user_settings.automatic_memory_enabled = 1
         AND runtime.provider_installation_id IS NOT NULL
         AND runtime.model_id IS NOT NULL
         AND runtime.verified_at > 0
@@ -1531,7 +1595,13 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
       UPDATE memory_review_jobs
       SET status = 'running', attempts = attempts + 1, started_at = ?, lease_until = ?
       WHERE id = ? AND status IN ('scheduled', 'retry_wait') AND attempts < ?
-    `, [now, now + 5 * 60 * 1000, candidate.id, MEMORY_REVIEW_MAX_ATTEMPTS]) as { changes?: number };
+        AND EXISTS (
+          SELECT 1 FROM memory_user_settings settings
+          WHERE settings.user_id = memory_review_jobs.user_id
+            AND settings.automatic_memory_enabled = 1
+            AND settings.settings_revision = ?
+        )
+    `, [now, now + 5 * 60 * 1000, candidate.id, MEMORY_REVIEW_MAX_ATTEMPTS, Number(candidate.settings_revision)]) as { changes?: number };
     if (!changes.changes) return null;
     const claim = {
       id: String(candidate.id), userId: String(candidate.user_id), organizationId: String(candidate.organization_id), sessionId: String(candidate.session_id),
@@ -1542,6 +1612,7 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
       attempts: Number(candidate.attempts ?? 0) + 1,
       responseJson: typeof candidate.response_json === 'string' ? candidate.response_json : null,
       responseHash: typeof candidate.response_hash === 'string' ? candidate.response_hash : null,
+      settingsRevision: Number(candidate.settings_revision),
     };
     console.info('[MemoryManager] Review claimed.', {
       jobId: claim.id,
@@ -1551,6 +1622,27 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
     });
     return claim;
   } finally { await connection.close(); }
+}
+
+/** Returns true only while this exact preference generation still owns a running job. */
+export async function isMemoryReviewJobRunnable(
+  claim: Pick<MemoryReviewJobClaim, 'id' | 'userId' | 'settingsRevision'>,
+): Promise<boolean> {
+  const connection = await openDb();
+  try {
+    const row = await connection.get(`
+      SELECT 1 AS runnable
+      FROM memory_review_jobs job
+      INNER JOIN memory_user_settings settings ON settings.user_id = job.user_id
+      WHERE job.id = ? AND job.user_id = ? AND job.status = 'running'
+        AND settings.automatic_memory_enabled = 1
+        AND settings.settings_revision = ?
+      LIMIT 1
+    `, [claim.id, claim.userId, claim.settingsRevision]) as { runnable?: number } | undefined;
+    return Number(row?.runnable ?? 0) === 1;
+  } finally {
+    await connection.close();
+  }
 }
 
 export async function parkMemoryReviewJob(id: string, errorCode: string): Promise<void> {
@@ -1687,6 +1779,122 @@ async function sourceMessageIdForReview(
   return row?.id ?? null;
 }
 
+function enabledDatabaseFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
+/** Revalidates and locks shared-scope authorization at the review write boundary. */
+async function canSuggestSharedMemoryWithConnection(
+  connection: SqlConnection,
+  scope: MemoryServiceScope,
+): Promise<boolean> {
+  const rowLock = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
+  if (scope.target === 'organization') {
+    const permission = await connection.get(`
+      SELECT role, status
+      FROM organization_user_permissions
+      WHERE organization_id = ? AND user_id = ?
+      LIMIT 1${rowLock}
+    `, [scope.organizationId, scope.userId]) as { role?: string; status?: string } | undefined;
+    return permission?.status === 'active' && permission.role !== 'external';
+  }
+  if (scope.target !== 'workspace') return true;
+
+  const workspace = await connection.get(`
+    SELECT id, organization_id, type, owner_user_id, project_id, status
+    FROM canvas_workspaces
+    WHERE id = ?
+    LIMIT 1${rowLock}
+  `, [scope.workspaceId]) as {
+    id?: string;
+    organization_id?: string;
+    type?: string;
+    owner_user_id?: string | null;
+    project_id?: string | null;
+    status?: string;
+  } | undefined;
+  if (!workspace?.id || workspace.status !== 'active' || !workspace.organization_id) return false;
+
+  const user = await connection.get(`
+    SELECT id, email, role
+    FROM "user"
+    WHERE id = ?
+    LIMIT 1${rowLock}
+  `, [scope.userId]) as { id?: string; email?: string | null; role?: string | null } | undefined;
+  if (!user?.id) return false;
+  const actorRole = resolveWorkspaceActor({ id: user.id, email: user.email, role: user.role }).role;
+  const isAdminLike = actorRole === 'owner' || actorRole === 'admin';
+  if (workspace.type === 'personal') {
+    return actorRole !== 'external' && workspace.owner_user_id === scope.userId;
+  }
+
+  const organizationPermission = await connection.get(`
+    SELECT role, status, can_write_team_workspace
+    FROM organization_user_permissions
+    WHERE organization_id = ? AND user_id = ?
+    LIMIT 1${rowLock}
+  `, [workspace.organization_id, scope.userId]) as {
+    role?: string;
+    status?: string;
+    can_write_team_workspace?: unknown;
+  } | undefined;
+  const activeInternalMember = organizationPermission?.status === 'active'
+    && organizationPermission.role !== 'external';
+
+  if (workspace.type === 'organization') {
+    return activeInternalMember && (
+      isAdminLike || enabledDatabaseFlag(organizationPermission?.can_write_team_workspace)
+    );
+  }
+  if (workspace.type === 'team') {
+    const membership = await connection.get(`
+      SELECT role, status, can_write
+      FROM canvas_workspace_members
+      WHERE workspace_id = ? AND user_id = ?
+      LIMIT 1${rowLock}
+    `, [workspace.id, scope.userId]) as {
+      role?: string;
+      status?: string;
+      can_write?: unknown;
+    } | undefined;
+    return activeInternalMember && (
+      isAdminLike || (
+        membership?.status === 'active'
+        && membership.role !== 'external'
+        && enabledDatabaseFlag(membership.can_write)
+      )
+    );
+  }
+  if (workspace.type !== 'project' || !workspace.project_id) return false;
+
+  const projectMembership = await connection.get(`
+    SELECT role, status, can_read, can_write, can_manage
+    FROM canvas_project_members
+    WHERE organization_id = ? AND project_id = ? AND user_id = ?
+    LIMIT 1${rowLock}
+  `, [workspace.organization_id, workspace.project_id, scope.userId]) as {
+    role?: string;
+    status?: string;
+    can_read?: unknown;
+    can_write?: unknown;
+    can_manage?: unknown;
+  } | undefined;
+  const activeProjectMembership = projectMembership?.status === 'active';
+  const canReadProject = organizationPermission
+    ? organizationPermission.status === 'active' && (
+      isAdminLike || (activeProjectMembership && enabledDatabaseFlag(projectMembership?.can_read))
+    )
+    : projectMembership?.role === 'external'
+      && activeProjectMembership
+      && enabledDatabaseFlag(projectMembership?.can_read);
+  return Boolean(canReadProject && (
+    isAdminLike || (activeProjectMembership && (
+      enabledDatabaseFlag(projectMembership?.can_write)
+      || enabledDatabaseFlag(projectMembership?.can_manage)
+    ))
+  ));
+}
+
 /** Applies validated, compact candidates. Scope identifiers always come from the claimed session. */
 export async function applyMemoryReviewCandidates(params: {
   claim: MemoryReviewJobClaim;
@@ -1694,17 +1902,55 @@ export async function applyMemoryReviewCandidates(params: {
   scopeContext?: MemoryReviewScopeContext;
 }): Promise<{ added: number; updated: number; archived: number; skipped: number }> {
   const result = { added: 0, updated: 0, archived: 0, skipped: 0 };
+  const canSuggestByTarget = new Map<MemoryTarget, boolean>();
+  for (const candidate of params.candidates.slice(0, 20)) {
+    const scope = scopeForReviewCandidate(params.claim, candidate.target, params.scopeContext ?? {});
+    if (scope && !canSuggestByTarget.has(candidate.target)) {
+      canSuggestByTarget.set(candidate.target, (await resolveMemoryScopeAccess(scope)).canSuggest);
+    }
+  }
   const connection = await openDb();
   try {
-    const settings = await connection.get(`
-      SELECT sensitive_memory_enabled FROM memory_user_settings WHERE user_id = ?
-    `, [params.claim.userId]) as { sensitive_memory_enabled?: number | boolean } | undefined;
-    const sensitiveAllowed = settings?.sensitive_memory_enabled === true || settings?.sensitive_memory_enabled === 1;
+    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    try {
+      const executionGuard = await connection.get(`
+        SELECT settings.sensitive_memory_enabled
+        FROM memory_review_jobs job
+        INNER JOIN memory_user_settings settings ON settings.user_id = job.user_id
+        WHERE job.id = ? AND job.user_id = ? AND job.status = 'running'
+          AND settings.automatic_memory_enabled = 1
+          AND settings.settings_revision = ?
+        LIMIT 1${getDatabaseProvider() === 'postgres' ? ' FOR UPDATE OF settings' : ''}
+      `, [params.claim.id, params.claim.userId, params.claim.settingsRevision]) as {
+        sensitive_memory_enabled?: number | boolean;
+      } | undefined;
+      if (!executionGuard) throw new MemoryReviewCancelledError();
+      const sensitiveAllowed = executionGuard.sensitive_memory_enabled === true
+        || executionGuard.sensitive_memory_enabled === 1;
+      const sharedAuthorizationByTarget = new Map<MemoryTarget, boolean>();
     for (const candidate of params.candidates.slice(0, 20)) {
       const scope = scopeForReviewCandidate(params.claim, candidate.target, params.scopeContext ?? {});
-      if (!scope || !(await resolveMemoryScopeAccess(scope)).canSuggest) {
+      if (!scope || !canSuggestByTarget.get(candidate.target)) {
         result.skipped += 1;
         continue;
+      }
+      if (scope.target === 'workspace' || scope.target === 'organization') {
+        if (!sharedAuthorizationByTarget.has(scope.target)) {
+          const canSuggest = await canSuggestSharedMemoryWithConnection(connection, scope);
+          sharedAuthorizationByTarget.set(scope.target, canSuggest);
+          if (!canSuggest) {
+            console.warn('[MemoryManager] Shared review authorization changed before write; candidates will be skipped.', {
+              jobId: params.claim.id,
+              target: scope.target,
+              workspaceId: scope.workspaceId ?? null,
+              organizationId: scope.organizationId ?? null,
+            });
+          }
+        }
+        if (!sharedAuthorizationByTarget.get(scope.target)) {
+          result.skipped += 1;
+          continue;
+        }
       }
       // Shared reviews can only create proposals. They never silently mutate
       // context that is visible to other members.
@@ -1813,12 +2059,17 @@ export async function applyMemoryReviewCandidates(params: {
       await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, session_id, source_message_id, decision_code, created_at) VALUES (?, ?, 'add', 'memory_manager', ?, ?, ?, 'automatic_review', ?)`, [randomUUID(), entryId, params.claim.userId, params.claim.sessionId, sourceMessageId, now]);
       result.added += 1;
     }
-    console.info('[MemoryManager] Review candidates applied.', {
-      jobId: params.claim.id,
-      candidateCount: params.candidates.slice(0, 20).length,
-      result,
-    });
-    return result;
+      await connection.run('COMMIT');
+      console.info('[MemoryManager] Review candidates applied.', {
+        jobId: params.claim.id,
+        candidateCount: params.candidates.slice(0, 20).length,
+        result,
+      });
+      return result;
+    } catch (error) {
+      await connection.run('ROLLBACK');
+      throw error;
+    }
   } finally { await connection.close(); }
 }
 
@@ -1853,13 +2104,15 @@ export async function completeMemoryReviewJob(
   id: string,
   resultOrNow?: { added: number; updated: number; archived: number; skipped: number } | number,
   completedAt = Date.now(),
-): Promise<void> {
+): Promise<boolean> {
   const result = typeof resultOrNow === 'number' ? undefined : resultOrNow;
   const now = typeof resultOrNow === 'number' ? resultOrNow : completedAt;
   const connection = await openDb();
   try {
-    await connection.run(`UPDATE memory_review_jobs SET status = 'completed', completed_at = ?, lease_until = NULL, error_code = NULL, result_json = ? WHERE id = ? AND status = 'running'`, [now, result ? JSON.stringify(result) : null, id]);
-    console.info('[MemoryManager] Review completed.', { jobId: id, result: result ?? null });
+    const update = await connection.run(`UPDATE memory_review_jobs SET status = 'completed', completed_at = ?, lease_until = NULL, error_code = NULL, result_json = ? WHERE id = ? AND status = 'running'`, [now, result ? JSON.stringify(result) : null, id]) as { changes?: number };
+    const completed = Number(update.changes ?? 0) > 0;
+    if (completed) console.info('[MemoryManager] Review completed.', { jobId: id, result: result ?? null });
+    return completed;
   } finally { await connection.close(); }
 }
 

@@ -12,6 +12,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 
 type ReviewerSettings = {
   automaticMemoryEnabled: boolean;
+  memoryReviewWorkerAvailable: boolean;
+  runtimeConfigured: boolean;
   providerInstallationId: string | null;
   modelId: string | null;
   review: {
@@ -41,12 +43,13 @@ export function MemoryReviewAgentCard() {
   }, [t]);
 
   const providerName = settings?.providers.find((provider) => provider.installationId === settings.providerInstallationId)?.name;
-  const configured = Boolean(settings?.automaticMemoryEnabled && settings.providerInstallationId && settings.modelId);
+  const reviewerEnabled = Boolean(settings?.automaticMemoryEnabled && settings.memoryReviewWorkerAvailable);
+  const configured = Boolean(reviewerEnabled && settings?.runtimeConfigured);
   const running = settings?.review.status === 'running';
 
   return (
     <Card className="border-primary/25 bg-[linear-gradient(135deg,hsl(var(--primary)/0.08),transparent_55%)]" data-testid="memory-review-agent-card">
-      <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <CardHeader className="gap-4 sm:flex sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 gap-3">
           <AgentAvatar iconId="brain" className="border-primary/30 bg-primary/10 text-primary" />
           <div className="min-w-0 space-y-1">
@@ -59,14 +62,22 @@ export function MemoryReviewAgentCard() {
             <p className="font-mono text-xs text-muted-foreground">memory-manager</p>
           </div>
         </div>
-        {!settings && !error ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : configured ? <Badge className="gap-1.5"><CheckCircle2 className="size-3.5" />{running ? t('running') : t('ready')}</Badge> : <Badge variant="outline" className="gap-1.5"><AlertTriangle className="size-3.5" />{t('setupNeeded')}</Badge>}
+        {!settings && !error ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : !settings?.memoryReviewWorkerAvailable ? <Badge variant="outline">{t('serverDisabled')}</Badge> : !settings.automaticMemoryEnabled ? <Badge variant="outline">{t('disabled')}</Badge> : configured ? <Badge className="gap-1.5"><CheckCircle2 className="size-3.5" />{running ? t('running') : t('ready')}</Badge> : <Badge variant="outline" className="gap-1.5"><AlertTriangle className="size-3.5" />{t('setupNeeded')}</Badge>}
       </CardHeader>
       <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="grid gap-3 text-sm sm:grid-cols-3">
-          <div><p className="text-xs text-muted-foreground">{t('provider')}</p><p className="font-medium">{providerName || t('notConfigured')}</p></div>
-          <div><p className="text-xs text-muted-foreground">{t('model')}</p><p className="font-medium">{settings?.modelId || t('notConfigured')}</p></div>
-          <div><p className="text-xs text-muted-foreground">{t('queue')}</p><p className="flex items-center gap-1.5 font-medium"><Clock3 className="size-3.5" />{t('jobs', { count: settings?.review.count ?? 0 })}</p></div>
-        </div>
+        {!settings && !error ? (
+          <p className="max-w-2xl text-sm text-muted-foreground">{t('loading')}</p>
+        ) : reviewerEnabled ? (
+          <div className="grid gap-3 text-sm sm:grid-cols-3" data-testid="memory-review-agent-runtime-details">
+            <div><p className="text-xs text-muted-foreground">{t('provider')}</p><p className="font-medium">{providerName || t('notConfigured')}</p></div>
+            <div><p className="text-xs text-muted-foreground">{t('model')}</p><p className="font-medium">{settings?.modelId || t('notConfigured')}</p></div>
+            <div><p className="text-xs text-muted-foreground">{t('queue')}</p><p className="flex items-center gap-1.5 font-medium"><Clock3 className="size-3.5" />{t('jobs', { count: settings?.review.count ?? 0 })}</p></div>
+          </div>
+        ) : (
+          <p className="max-w-2xl text-sm text-muted-foreground" data-testid="memory-review-agent-disabled-copy">
+            {!settings?.memoryReviewWorkerAvailable ? t('serverDisabledDescription') : t('disabledDescription')}
+          </p>
+        )}
         <Button asChild size="sm"><Link href="/settings?tab=memory">{t('configure')}</Link></Button>
       </CardContent>
       {error ? <p className="px-6 pb-5 text-sm text-destructive">{error}</p> : null}

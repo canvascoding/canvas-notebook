@@ -7,6 +7,7 @@ export const TEAM_SEAT_LEGACY_MIGRATION_KEY = 'team-seat-memberships-v1';
 export const TEAM_SEAT_LEGACY_MIGRATION_REASON = 'Legacy organization access backfill (non-billable).';
 export const TEAM_SEAT_LEGACY_MIGRATION_METADATA =
   '{"migrationKey":"team-seat-memberships-v1","billableOperation":false}';
+export const MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY = 'memory-reviewer-opt-in-v1';
 
 /**
  * Runs all database migrations synchronously.
@@ -3710,7 +3711,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS memory_user_settings (
       user_id TEXT PRIMARY KEY NOT NULL,
-      automatic_memory_enabled INTEGER NOT NULL DEFAULT 1,
+      automatic_memory_enabled INTEGER NOT NULL DEFAULT 0,
+      automatic_memory_enabled_at INTEGER,
+      automatic_memory_disabled_at INTEGER,
+      settings_revision INTEGER NOT NULL DEFAULT 1,
       provider_installation_id TEXT,
       model_id TEXT,
       memory_prompt_max_tokens INTEGER NOT NULL DEFAULT 2000,
@@ -3890,7 +3894,91 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     failed_at: 'INTEGER',
   });
 
+  addColumns(sqlite, 'memory_user_settings', {
+    automatic_memory_enabled_at: 'INTEGER',
+    automatic_memory_disabled_at: 'INTEGER',
+    settings_revision: 'INTEGER NOT NULL DEFAULT 1',
+  });
+
+  runMemoryReviewerOptInBackfill(sqlite);
   runTeamSeatLegacyBackfill(sqlite);
+}
+
+/**
+ * Preserves the pre-opt-in behavior for users that existed before this
+ * migration. Once the marker exists, users without an explicit settings row
+ * are treated as opted out and must enable automatic review themselves.
+ */
+export function runMemoryReviewerOptInBackfill(sqlite: InstanceType<typeof Database>): void {
+  const completed = sqlite.prepare(`
+    SELECT 1
+    FROM canvas_data_migrations
+    WHERE migration_key = ?
+    LIMIT 1
+  `).get(MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY);
+  if (completed) return;
+
+  const now = Date.now();
+  const missingSettings = Number((sqlite.prepare(`
+    SELECT COUNT(*) AS count
+    FROM user existing_user
+    LEFT JOIN memory_user_settings settings ON settings.user_id = existing_user.id
+    WHERE settings.user_id IS NULL
+  `).get() as { count?: number } | undefined)?.count ?? 0);
+
+  sqlite.exec('SAVEPOINT memory_reviewer_opt_in_v1');
+  try {
+    sqlite.prepare(`
+      UPDATE memory_user_settings
+      SET automatic_memory_enabled_at = CASE
+            WHEN automatic_memory_enabled = 1
+              THEN COALESCE(automatic_memory_enabled_at, created_at, updated_at, ?)
+            ELSE automatic_memory_enabled_at
+          END,
+          automatic_memory_disabled_at = CASE
+            WHEN automatic_memory_enabled = 0
+              THEN COALESCE(automatic_memory_disabled_at, updated_at, created_at, ?)
+            ELSE NULL
+          END,
+          settings_revision = CASE WHEN settings_revision < 1 THEN 1 ELSE settings_revision END
+    `).run(now, now);
+    sqlite.prepare(`
+      INSERT OR IGNORE INTO memory_user_settings (
+        user_id, automatic_memory_enabled, automatic_memory_enabled_at,
+        automatic_memory_disabled_at, settings_revision,
+        memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at
+      )
+      SELECT id, 1, COALESCE(created_at, ?), NULL, 1, 2000, 0,
+        COALESCE(created_at, ?), COALESCE(updated_at, created_at, ?)
+      FROM user
+    `).run(now, now, now);
+    sqlite.prepare(`
+      UPDATE memory_review_jobs
+      SET status = 'completed', scheduled_for = NULL, lease_until = NULL,
+        error_code = NULL, completed_at = ?,
+        result_json = '{"cancelled":true,"reason":"automatic_memory_disabled"}'
+      WHERE status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration', 'running')
+        AND error_code = 'automatic_memory_disabled'
+    `).run(now);
+    sqlite.prepare(`
+      INSERT OR IGNORE INTO canvas_data_migrations (
+        migration_key, completed_at, metadata_json
+      ) VALUES (?, ?, ?)
+    `).run(
+      MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY,
+      now,
+      JSON.stringify({ defaultForNewUsers: false, preservedExistingUsers: missingSettings }),
+    );
+    sqlite.exec('RELEASE SAVEPOINT memory_reviewer_opt_in_v1');
+    console.info('[MemoryManager] Automatic-review opt-in migration completed.', {
+      migrationKey: MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY,
+      preservedExistingUsers: missingSettings,
+    });
+  } catch (error) {
+    sqlite.exec('ROLLBACK TO SAVEPOINT memory_reviewer_opt_in_v1');
+    sqlite.exec('RELEASE SAVEPOINT memory_reviewer_opt_in_v1');
+    throw error;
+  }
 }
 
 /**

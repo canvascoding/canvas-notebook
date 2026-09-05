@@ -18,6 +18,7 @@ import {
   claimDueMemoryReviewJob,
   completeMemoryReviewJob,
   failMemoryReviewJob,
+  isMemoryReviewJobRunnable,
   loadMemoryReviewSourceMessages,
   nextMemoryReviewDueAt,
   parkMemoryReviewJob,
@@ -29,6 +30,7 @@ import {
   scheduleMemoryReviewForSession,
   scheduleUnreviewedMemorySessions,
   type MemoryReviewCandidate,
+  MemoryReviewCancelledError,
   type MemoryReviewJobClaim,
   type MemoryReviewScopeContext,
 } from './service';
@@ -36,6 +38,7 @@ import { MEMORY_MANAGER_AGENT_ID } from './constants';
 import { MEMORY_REVIEW_OUTPUT_TOKENS } from './contract';
 import { MEMORY_MARKDOWN_CONTENT_GUIDANCE, memoryReviewLanguageInstruction } from './categories';
 import { memoryReviewErrorCode, selectMemoryReviewThinkingLevel } from './review-runtime';
+import { memoryReviewWorkerAvailability } from './review-worker-config';
 
 export { MEMORY_MANAGER_AGENT_ID } from './constants';
 
@@ -60,7 +63,37 @@ type MemoryReviewWorkerRuntime = {
 
 type MemoryReviewWorkerGlobal = typeof globalThis & {
   __canvasMemoryReviewWorkerRuntime?: MemoryReviewWorkerRuntime;
+  __canvasMemoryReviewActiveClaims?: Map<string, { userId: string; controller: AbortController }>;
 };
+
+function activeClaims(): Map<string, { userId: string; controller: AbortController }> {
+  const globalRuntime = globalThis as MemoryReviewWorkerGlobal;
+  globalRuntime.__canvasMemoryReviewActiveClaims ??= new Map();
+  return globalRuntime.__canvasMemoryReviewActiveClaims;
+}
+
+async function assertClaimRunnable(claim: MemoryReviewJobClaim, stage: string): Promise<void> {
+  if (await isMemoryReviewJobRunnable(claim)) return;
+  console.info('[MemoryManager] Review execution cancelled.', {
+    jobId: claim.id,
+    userId: claim.userId,
+    stage,
+    settingsRevision: claim.settingsRevision,
+  });
+  throw new MemoryReviewCancelledError();
+}
+
+/** Aborts model streams for one user after their durable opt-out commits. */
+export function cancelActiveMemoryReviewsForUser(userId: string): number {
+  let cancelled = 0;
+  for (const [jobId, active] of activeClaims()) {
+    if (active.userId !== userId || active.controller.signal.aborted) continue;
+    active.controller.abort(new MemoryReviewCancelledError());
+    cancelled += 1;
+    console.info('[MemoryManager] Active review abort requested.', { jobId, userId });
+  }
+  return cancelled;
+}
 
 function extractText(message: AgentMessage): string {
   if (!('content' in message)) return '';
@@ -200,6 +233,7 @@ function parseCheckpointedCandidates(responseJson: string, responseHash: string 
 
 async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
   try {
+    await assertClaimRunnable(claim, 'before_context_resolution');
     await ensureMemoryManagerAgent();
     const executionContext = await resolveAgentExecutionContextForSession({
       sessionId: claim.sessionId,
@@ -212,6 +246,7 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
     }
     let candidates: MemoryReviewCandidate[];
     if (claim.responseJson) {
+      await assertClaimRunnable(claim, 'before_checkpoint_resume');
       candidates = parseCheckpointedCandidates(claim.responseJson, claim.responseHash);
       console.info('[MemoryManager] Resuming review from response checkpoint.', {
         jobId: claim.id,
@@ -219,6 +254,7 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
         candidateCount: candidates.length,
       });
     } else {
+      await assertClaimRunnable(claim, 'before_runtime_resolution');
       const catalog = await readAppRuntimeCatalog(claim.organizationId);
       const provider = catalog.providers.find((candidate) => candidate.installationId === claim.providerInstallationId);
       const model = provider?.models.find((candidate) => candidate.id === claim.modelId);
@@ -290,9 +326,12 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
       ].join('\n'), messages: [], tools: [] };
       let finalMessages: AgentMessage[] = [promptMessage];
       const abortController = new AbortController();
-      const timeout = setTimeout(() => abortController.abort(), 90_000);
+      const claims = activeClaims();
+      claims.set(claim.id, { userId: claim.userId, controller: abortController });
+      const timeout = setTimeout(() => abortController.abort(new Error('Memory review timed out.')), 90_000);
       timeout.unref?.();
       try {
+        await assertClaimRunnable(claim, 'before_model_request');
         const config = {
           model: runtime.model,
           thinkingLevel: runtime.selection.selection.thinkingLevel as ThinkingLevel,
@@ -315,9 +354,12 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
         }
       } finally {
         clearTimeout(timeout);
+        if (claims.get(claim.id)?.controller === abortController) claims.delete(claim.id);
       }
       candidates = parseCandidates(latestAssistantText(finalMessages));
+      await assertClaimRunnable(claim, 'before_response_checkpoint');
       await recordMemoryReviewResponse(claim.id, candidates);
+      await assertClaimRunnable(claim, 'before_usage_persistence');
       try {
         await persistPiUsageEventsWithContext({
           sessionId: `memory-review:${claim.id}`,
@@ -342,10 +384,23 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
       workspaceId: executionContext.workspaceId,
       organizationId: claim.organizationId,
     };
+    await assertClaimRunnable(claim, 'before_candidate_apply');
     const result = await applyMemoryReviewCandidates({ claim, candidates, scopeContext });
-    await completeMemoryReviewJob(claim.id, result);
-    await scheduleMemoryReviewForSession({ userId: claim.userId, sessionId: claim.sessionId });
+    const completed = await completeMemoryReviewJob(claim.id, result);
+    if (completed) {
+      await scheduleMemoryReviewForSession({ userId: claim.userId, sessionId: claim.sessionId });
+    }
   } catch (error) {
+    const cancelled = error instanceof MemoryReviewCancelledError
+      || !(await isMemoryReviewJobRunnable(claim));
+    if (cancelled) {
+      console.info('[MemoryManager] Review stopped without retry.', {
+        jobId: claim.id,
+        userId: claim.userId,
+        errorCode: 'automatic_memory_disabled',
+      });
+      return;
+    }
     if (error instanceof InvalidMemoryReviewResponseError) {
       await failMemoryReviewJob(claim.id, 'invalid_structured_output');
     } else {
@@ -356,6 +411,8 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
 }
 
 export async function runMemoryReviewWorkerCycle(options: { maxJobs?: number } = {}): Promise<number> {
+  const availability = memoryReviewWorkerAvailability();
+  if (!availability.available) return 0;
   let completed = 0;
   const maxJobs = options.maxJobs ?? 1;
   await scheduleUnreviewedMemorySessions();
@@ -412,7 +469,13 @@ export function triggerMemoryReviewWorker(): boolean {
 }
 
 export function initializeMemoryReviewWorkerRuntime(): { started: boolean; trigger: () => void; stop: () => void } {
-  if (process.env.NEXT_PHASE === 'phase-production-build' || process.env.CANVAS_MEMORY_REVIEW_WORKER_ENABLED === 'false') {
+  const availability = memoryReviewWorkerAvailability();
+  if (!availability.available) {
+    if (availability.reason === 'environment_disabled') {
+      console.warn('[MemoryManager] Worker runtime disabled by server configuration.', {
+        environmentVariable: 'CANVAS_MEMORY_REVIEW_WORKER_ENABLED',
+      });
+    }
     return { started: false, trigger: () => {}, stop: () => {} };
   }
   const globalRuntime = globalThis as MemoryReviewWorkerGlobal;
@@ -432,7 +495,13 @@ export function initializeMemoryReviewWorkerRuntime(): { started: boolean; trigg
     stop: () => {
       runtime.stopped = true;
       if (runtime.timer) clearTimeout(runtime.timer);
-      console.info('[MemoryManager] Worker runtime stopped.');
+      let abortedClaims = 0;
+      for (const active of activeClaims().values()) {
+        if (active.controller.signal.aborted) continue;
+        active.controller.abort(new MemoryReviewCancelledError('Memory review worker stopped.'));
+        abortedClaims += 1;
+      }
+      console.info('[MemoryManager] Worker runtime stopped.', { abortedClaims });
     },
   };
 }

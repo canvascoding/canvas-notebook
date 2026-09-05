@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { openDb } from '@/app/lib/db';
 import { readMemoryReviewRuntimeCatalog } from '@/app/lib/memory/runtime-configuration';
+import { memoryReviewWorkerAvailability } from '@/app/lib/memory/review-worker-config';
 import { isOrganizationAdminLike, readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import {
   addMemory,
@@ -71,7 +72,8 @@ async function memorySettings(userId: string) {
   try {
     const settings = await connection.get(`
       SELECT automatic_memory_enabled, memory_prompt_max_tokens,
-        sensitive_memory_enabled, updated_at
+        sensitive_memory_enabled, automatic_memory_enabled_at,
+        automatic_memory_disabled_at, settings_revision, updated_at
       FROM memory_user_settings WHERE user_id = ?
     `, [userId]) as Record<string, unknown> | undefined;
     const review = await connection.get(`
@@ -80,8 +82,10 @@ async function memorySettings(userId: string) {
         SUM(CASE WHEN status IN ('scheduled', 'queued') THEN 1 ELSE 0 END) AS scheduled_count,
         SUM(CASE WHEN status = 'retry_wait' THEN 1 ELSE 0 END) AS retry_count,
         SUM(CASE WHEN status = 'awaiting_model_configuration' THEN 1 ELSE 0 END) AS awaiting_count,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed_count,
-        MAX(CASE WHEN status = 'completed' THEN completed_at ELSE NULL END) AS last_completed_at,
+        SUM(CASE WHEN status = 'completed'
+          AND (result_json IS NULL OR result_json NOT LIKE '%"cancelled":true%') THEN 1 ELSE 0 END) AS completed_count,
+        MAX(CASE WHEN status = 'completed'
+          AND (result_json IS NULL OR result_json NOT LIKE '%"cancelled":true%') THEN completed_at ELSE NULL END) AS last_completed_at,
         MIN(CASE WHEN status IN ('scheduled', 'retry_wait') THEN scheduled_for ELSE NULL END) AS next_scheduled_at,
         MAX(CASE WHEN error_code IS NOT NULL THEN COALESCE(started_at, created_at) ELSE NULL END) AS last_error_at
       FROM memory_review_jobs WHERE user_id = ?
@@ -112,8 +116,14 @@ async function memorySettings(userId: string) {
       ? await readMemoryReviewRuntimeCatalog(organization.organizationId)
       : null;
     const runtimeSettings = runtimeCatalog?.settings ?? null;
+    const workerAvailability = memoryReviewWorkerAvailability();
+    const automaticMemoryEnabled = settings?.automatic_memory_enabled === true
+      || settings?.automatic_memory_enabled === 1;
     return {
-      automaticMemoryEnabled: settings?.automatic_memory_enabled === true || settings?.automatic_memory_enabled === 1,
+      automaticMemoryEnabled,
+      automaticMemoryOperational: automaticMemoryEnabled && workerAvailability.available,
+      memoryReviewWorkerAvailable: workerAvailability.available,
+      memoryReviewWorkerReason: workerAvailability.reason,
       providerInstallationId: runtimeSettings?.providerInstallationId ?? null,
       modelId: runtimeSettings?.modelId ?? null,
       runtimeConfigured: runtimeCatalog?.valid ?? false,
@@ -121,6 +131,9 @@ async function memorySettings(userId: string) {
       catalogRevision: runtimeCatalog?.revision ?? null,
       memoryPromptMaxTokens: Number(settings?.memory_prompt_max_tokens ?? 2_000),
       sensitiveMemoryEnabled: settings?.sensitive_memory_enabled === true || settings?.sensitive_memory_enabled === 1,
+      automaticMemoryEnabledAt: Number(settings?.automatic_memory_enabled_at ?? 0) || null,
+      automaticMemoryDisabledAt: Number(settings?.automatic_memory_disabled_at ?? 0) || null,
+      settingsRevision: Number(settings?.settings_revision ?? 1),
       updatedAt: Number(settings?.updated_at ?? 0),
       review: {
         status: reviewStatus,
@@ -211,22 +224,45 @@ export async function PATCH(request: NextRequest) {
   const payload = await request.json().catch(() => null) as Record<string, unknown> | null;
   if (!payload) return NextResponse.json({ success: false, error: 'Invalid JSON body.' }, { status: 400 });
   try {
-    const automaticMemoryEnabled = payload.automaticMemoryEnabled === true;
-    const sensitiveMemoryEnabled = payload.sensitiveMemoryEnabled === true;
-    const memoryPromptMaxTokens = Number(payload.memoryPromptMaxTokens);
-    if (!Number.isInteger(memoryPromptMaxTokens) || memoryPromptMaxTokens < 0 || memoryPromptMaxTokens > MAX_MEMORY_PROMPT_TOKENS) {
+    const hasAutomaticMemoryEnabled = Object.hasOwn(payload, 'automaticMemoryEnabled');
+    const hasSensitiveMemoryEnabled = Object.hasOwn(payload, 'sensitiveMemoryEnabled');
+    const hasMemoryPromptMaxTokens = Object.hasOwn(payload, 'memoryPromptMaxTokens');
+    if (!hasAutomaticMemoryEnabled && !hasSensitiveMemoryEnabled && !hasMemoryPromptMaxTokens) {
+      throw new Error('At least one personal memory setting is required.');
+    }
+    if (hasAutomaticMemoryEnabled && typeof payload.automaticMemoryEnabled !== 'boolean') {
+      throw new Error('automaticMemoryEnabled must be a boolean.');
+    }
+    if (hasSensitiveMemoryEnabled && typeof payload.sensitiveMemoryEnabled !== 'boolean') {
+      throw new Error('sensitiveMemoryEnabled must be a boolean.');
+    }
+    const memoryPromptMaxTokens = hasMemoryPromptMaxTokens ? Number(payload.memoryPromptMaxTokens) : undefined;
+    if (memoryPromptMaxTokens !== undefined && (!Number.isInteger(memoryPromptMaxTokens) || memoryPromptMaxTokens < 0 || memoryPromptMaxTokens > MAX_MEMORY_PROMPT_TOKENS)) {
       throw new Error(`memoryPromptMaxTokens must be an integer between 0 and ${MAX_MEMORY_PROMPT_TOKENS}.`);
     }
     const reconciliation = await updateMemoryReviewSettings(session.user.id, {
-      automaticMemoryEnabled,
+      automaticMemoryEnabled: hasAutomaticMemoryEnabled ? payload.automaticMemoryEnabled as boolean : undefined,
       memoryPromptMaxTokens,
-      sensitiveMemoryEnabled,
+      sensitiveMemoryEnabled: hasSensitiveMemoryEnabled ? payload.sensitiveMemoryEnabled as boolean : undefined,
     });
-    if (automaticMemoryEnabled) {
+    let abortedActiveReviews = 0;
+    if (payload.automaticMemoryEnabled === true) {
       const { triggerMemoryReviewWorker } = await import('@/app/lib/memory/review-worker');
       triggerMemoryReviewWorker();
+    } else if (payload.automaticMemoryEnabled === false) {
+      const { cancelActiveMemoryReviewsForUser } = await import('@/app/lib/memory/review-worker');
+      abortedActiveReviews = cancelActiveMemoryReviewsForUser(session.user.id);
     }
-    return NextResponse.json({ success: true, data: { ...await memorySettings(session.user.id), reconciliation } });
+    console.info('[MemoryManager] Personal memory settings request applied.', {
+      userId: session.user.id,
+      automaticMemoryEnabled: hasAutomaticMemoryEnabled ? payload.automaticMemoryEnabled : undefined,
+      abortedActiveReviews,
+      settingsRevision: reconciliation.settingsRevision,
+    });
+    return NextResponse.json({
+      success: true,
+      data: { ...await memorySettings(session.user.id), reconciliation: { ...reconciliation, abortedActiveReviews } },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to update memory settings.';
     return NextResponse.json({ success: false, error: message }, { status: 400 });
