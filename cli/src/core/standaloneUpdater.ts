@@ -196,6 +196,8 @@ async function executeCliUpdate(
     ], {
       env: {
         ...env,
+        // The host CLI has already been selected and verified for this release.
+        CANVAS_CLI_SELF_UPDATE: 'false',
         CANVAS_UPDATE_DEADLINE_EPOCH_MS: String(Date.now() + UPDATE_DEADLINE_MS),
       },
       shell: false,
@@ -260,9 +262,10 @@ async function prepareVerifiedHostCli(
 ): Promise<void> {
   if (current.cliVersion && compareCanvasVersions(current.cliVersion, release.signed.manifest.cliVersion) >= 0) return;
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-updater-cli-'));
-  const checksumPath = path.join(directory, 'canvas-notebook-linux-cli.sha256');
+  const archiveName = `canvas-notebook-linux-cli-${release.architecture}.tar.gz`;
+  const checksumPath = path.join(directory, `canvas-notebook-linux-cli-${release.architecture}.sha256`);
   try {
-    await fs.writeFile(checksumPath, `${release.cliArtifact.sha256}  canvas-notebook-linux-cli.tar.gz\n`, { mode: 0o600 });
+    await fs.writeFile(checksumPath, `${release.cliArtifact.sha256}  ${archiveName}\n`, { mode: 0o600 });
     const result = await new Promise<{ code: number; stderr: string }>((resolve, reject) => {
       const child = spawn(resolveCliPath(env), ['cli-update', '--json', '--no-banner'], {
         env: {

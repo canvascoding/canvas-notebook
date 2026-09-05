@@ -198,6 +198,11 @@ retire_legacy_cli() {
 
 activate_entrypoint() {
   local target="$1" tmp="${BIN_PATH}.new.$$"
+  # A service with ProtectSystem=full can update releases under /opt, but
+  # cannot rewrite /usr/local/bin. Its existing managed entrypoint is stable.
+  if [[ -L "$BIN_PATH" && "$(readlink "$BIN_PATH")" == "$target" ]]; then
+    return 0
+  fi
   mkdir -p "$(dirname "$BIN_PATH")"
   rm -f -- "$tmp"
   ln -s "$target" "$tmp"
