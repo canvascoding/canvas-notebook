@@ -195,19 +195,44 @@ async function main() {
 
     const expiredOwner = makeView('expired-owner', []);
     const replacement = makeView('replacement', []);
+    const takeoverProbe = makeView('takeover-probe', []);
     await expiredOwner.start(); await replacement.start();
     await expiredOwner.requestControl('user');
     await expiredOwner.mouse({ action: 'down', x: 10, y: 10 });
+    const releaseMouse = deferred();
+    let releaseStarted = false;
+    let releases = 0;
+    const originalMouseUp = inputPage.mouse.up;
+    inputPage.mouse.up = async (input) => {
+      releases++;
+      releaseStarted = true;
+      await releaseMouse.promise;
+      await originalMouseUp(input);
+    };
     try {
       Date.now = () => realNow() + 31_000;
-      await replacement.requestControl('user');
-      await replacement.mouse({ action: 'down', x: 10, y: 10 });
-      expiredOwner.close();
+      const takeover = replacement.requestControl('user');
+      await until(() => releaseStarted);
+      Date.now = () => realNow() + 62_000;
+      await assert.rejects(takeoverProbe.requestControl('user'), /Another browser view/);
+      const replacementInput = replacement.mouse({ action: 'down', x: 10, y: 10, button: 'right' });
       await tick();
-      assert.equal(inputPage.pressedButtons.size, 1, 'an expired viewer must not release the new owner\'s mouse button');
+      assert.equal(inputPage.pressedButtons.has('right'), false, 'new input must wait for stale mouse cleanup');
+      expiredOwner.close();
+      assert.equal(releases, 1, 'disconnect and takeover must share the same in-flight cleanup');
+      releaseMouse.resolve();
+      await takeover;
+      await replacementInput;
+      assert.deepEqual([...inputPage.pressedButtons], ['right'], 'an old button must be released even if the successor never presses it');
+      expiredOwner.close(); await tick();
+      assert.deepEqual([...inputPage.pressedButtons], ['right'], 'late cleanup must not release the successor button');
+      await replacement.requestControl('agent');
+      assert.equal(inputPage.pressedButtons.size, 0, 'returning control to the agent must release held buttons');
     } finally {
       Date.now = realNow;
-      expiredOwner.close(); replacement.close();
+      releaseMouse.resolve();
+      inputPage.mouse.up = originalMouseUp;
+      expiredOwner.close(); replacement.close(); takeoverProbe.close();
       await tick();
     }
 

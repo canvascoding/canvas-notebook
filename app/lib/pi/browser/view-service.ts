@@ -73,6 +73,8 @@ type BrowserViewSender = (message: BrowserViewServerMessage) => boolean;
 
 const MAX_BUFFERED_FRAME_BYTES = 2 * 1024 * 1024;
 const MAX_VISIBLE_DOWNLOADS = 5;
+// Include views whose mouse-up cleanup is still in flight, even after disconnect.
+const pressedMouseViews = new Map<string, Set<BrowserViewService>>();
 
 type PageTransferBinding = {
   pageClient: CDPSession;
@@ -143,6 +145,9 @@ export class BrowserViewService {
   private captureInFlight = false;
   private closed = false;
   private activeUserPage: Page | null = null;
+  private mouseReleasePromise: Promise<void> | null = null;
+  private controlTransition: Promise<void> = Promise.resolve();
+  private mousePageCloseListeners = new Map<Page, () => void>();
   private unsubscribeRuntime: (() => void) | null = null;
   private sequence = 0;
   private acknowledgedSequence = 0;
@@ -641,7 +646,26 @@ export class BrowserViewService {
     const interactionPolicy = this.claims.interactionPolicy ?? 'exclusive';
     // Active user operations retain their ownership until they settle. Control
     // acquisition must still bypass an agent action waiting for a dialog answer.
-    setBrowserControlMode({ context: this.context, viewId: this.claims.viewId, mode, interactionPolicy });
+    setBrowserControlMode({ context: this.context, viewId: this.claims.viewId, mode: 'user', interactionPolicy });
+    try {
+      this.controlTransition = withBrowserUserControlOperation(this.context, this.claims.viewId, async () => {
+        const views = Array.from(pressedMouseViews.get(getBrowserRuntimeContextKey(this.context)) ?? []);
+        const results = await Promise.allSettled(views
+          .filter((view) => view !== this || mode !== 'user')
+          .map((view) => view.releasePressedMouseButtons()));
+        const failure = results.find((result) => result.status === 'rejected');
+        if (failure?.status === 'rejected') throw failure.reason;
+        this.assertOpen();
+        refreshBrowserControlLease(this.context, this.claims.viewId);
+      });
+      await this.controlTransition;
+      if (mode !== 'user') {
+        setBrowserControlMode({ context: this.context, viewId: this.claims.viewId, mode, interactionPolicy });
+      }
+    } catch (error) {
+      releaseBrowserViewControl(this.context, this.claims.viewId);
+      throw error;
+    }
     if (mode === 'user') {
       if (shouldAbortAgentForBrowserControl(interactionPolicy)) {
         try {
@@ -810,16 +834,72 @@ export class BrowserViewService {
         this.assertOpen();
         const pressed = this.pressedMouseButtons.get(page) ?? new Set();
         pressed.add(button);
+        if (!this.mousePageCloseListeners.has(page)) {
+          const onClose = () => {
+            this.pressedMouseButtons.delete(page);
+            this.forgetReleasedMouseView();
+          };
+          this.mousePageCloseListeners.set(page, onClose);
+          page.once('close', onClose);
+        }
         this.pressedMouseButtons.set(page, pressed);
+        const key = getBrowserRuntimeContextKey(this.context);
+        const views = pressedMouseViews.get(key) ?? new Set<BrowserViewService>();
+        views.add(this);
+        pressedMouseViews.set(key, views);
         await page.mouse.down({ button });
       } else if (input.action === 'up') {
         await page.mouse.move(x, y);
         await page.mouse.up({ button });
-        this.pressedMouseButtons.get(page)?.delete(button);
+        const pressed = this.pressedMouseButtons.get(page);
+        pressed?.delete(button);
+        if (pressed?.size === 0) this.pressedMouseButtons.delete(page);
+        this.forgetReleasedMouseView();
       } else {
         await page.mouse.click(x, y, { button });
       }
     }, { trackInteraction: input.action !== 'move' });
+  }
+
+  private forgetReleasedMouseView(): void {
+    if (this.mouseReleasePromise) return;
+    for (const [page, onClose] of this.mousePageCloseListeners) {
+      if (this.pressedMouseButtons.has(page)) continue;
+      page.off('close', onClose);
+      this.mousePageCloseListeners.delete(page);
+    }
+    if (this.pressedMouseButtons.size) return;
+    const key = getBrowserRuntimeContextKey(this.context);
+    const views = pressedMouseViews.get(key);
+    views?.delete(this);
+    if (views?.size === 0) pressedMouseViews.delete(key);
+  }
+
+  private releasePressedMouseButtons(): Promise<void> {
+    if (this.mouseReleasePromise) return this.mouseReleasePromise;
+    const cleanup: Promise<void>[] = [];
+    for (const [page, buttons] of this.pressedMouseButtons) {
+      if (page.isClosed()) {
+        this.pressedMouseButtons.delete(page);
+        continue;
+      }
+      for (const button of buttons) {
+        cleanup.push(page.mouse.up({ button }).then(() => {
+          buttons.delete(button);
+          if (buttons.size === 0) this.pressedMouseButtons.delete(page);
+        }));
+      }
+    }
+    // Wait for every dispatched mouse-up even if another one fails. A successor
+    // must not start input while cleanup from the previous viewer can still land.
+    this.mouseReleasePromise = Promise.allSettled(cleanup).then((results) => {
+      const failure = results.find((result) => result.status === 'rejected');
+      if (failure?.status === 'rejected') throw failure.reason;
+    }).finally(() => {
+      this.mouseReleasePromise = null;
+      this.forgetReleasedMouseView();
+    });
+    return this.mouseReleasePromise;
   }
 
   async key(input: { key: string; text?: string; modifiers?: string[] }): Promise<void> {
@@ -917,6 +997,7 @@ export class BrowserViewService {
     operation: (page: Page) => Promise<T>,
     options: { trackInteraction?: boolean } = {},
   ): Promise<T> {
+    await this.controlTransition;
     this.assertOpen();
     const result = await withBrowserRuntimeLock(this.context, async () => {
       this.assertOpen();
@@ -991,18 +1072,13 @@ export class BrowserViewService {
       const cleanup: Promise<unknown>[] = [];
       if (pending) cleanup.push(pending.chooser.cancel().catch(() => undefined));
       if (this.activeUserPage) cleanup.push(dismissPendingDialog(this.context).catch(() => undefined));
-      for (const [page, buttons] of this.pressedMouseButtons) {
-        if (!page.isClosed()) {
-          for (const button of buttons) cleanup.push(page.mouse.up({ button }).catch(() => undefined));
-        }
-      }
-      this.pressedMouseButtons.clear();
+      cleanup.push(this.releasePressedMouseButtons());
       await Promise.all(cleanup);
     };
     if (getBrowserControlState(this.context).ownerViewId === this.claims.viewId) {
       void withBrowserUserControlOperation(this.context, this.claims.viewId, releaseInput).catch(() => undefined);
     } else {
-      this.pressedMouseButtons.clear();
+      void this.releasePressedMouseButtons().catch(() => undefined);
     }
     if (this.captureTimer) clearInterval(this.captureTimer);
     this.captureTimer = null;
