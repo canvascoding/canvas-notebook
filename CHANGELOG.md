@@ -11,6 +11,23 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.6.1] - 2026-09-06
+
+### Added
+
+- Added workspace-aware notebook document preservation, quick file access, navigation improvements, and clearer home-screen controls.
+- Added validated, searchable automation chat targeting with progressively disclosed setup controls.
+- Added resilient Browser Lab connection recovery, dialog interaction, lifecycle handling, and browser-control safeguards.
+
+### Changed
+
+- Improved standalone update integrity with signed manifests, verified host CLI activation, cancellation boundaries, and recovery status handling.
+- Hardened context-digest validation and compaction-status reporting for agent runtime sessions.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.5.1] - 2026-09-05
 
 ### Added
