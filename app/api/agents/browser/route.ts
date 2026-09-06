@@ -27,6 +27,7 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 type BrowserActionPayload = {
   action?: 'close_session' | 'delete_profile' | 'launch_probe';
   agentId?: string;
+  sessionId?: string;
 };
 
 type BrowserSettingsPatchPayload = {
@@ -50,6 +51,20 @@ async function requireSession(request: NextRequest) {
   return { session, response: null };
 }
 
+async function resolveBrowserSessionContext(userId: string, agentId: string, sessionId: string) {
+  if (!sessionId) return undefined;
+  const agentSession = await assertUnambiguousOwnedPiSessionForRuntime({ sessionId, userId, agentId });
+  const executionContext = await resolveAgentExecutionContextForSession({
+    sessionId: agentSession.sessionId, userId, agentId: agentSession.agentId,
+  });
+  return {
+    sessionId: agentSession.sessionId,
+    workspaceId: executionContext.workspaceId,
+    workspaceType: executionContext.workspaceType,
+    organizationId: executionContext.organizationId,
+  };
+}
+
 export async function GET(request: NextRequest) {
   const { session, response } = await requireSession(request);
   if (response || !session) {
@@ -69,25 +84,7 @@ export async function GET(request: NextRequest) {
     const agentId = normalizeManagedAgentId(request.nextUrl.searchParams.get('agentId'));
     await requireAgentAccess(session.user.id, agentId, 'canUse');
     const sessionId = request.nextUrl.searchParams.get('sessionId')?.trim() || '';
-    let runtimeContext;
-    if (sessionId) {
-      const agentSession = await assertUnambiguousOwnedPiSessionForRuntime({
-        sessionId,
-        userId: session.user.id,
-        agentId,
-      });
-      const executionContext = await resolveAgentExecutionContextForSession({
-        sessionId: agentSession.sessionId,
-        userId: session.user.id,
-        agentId: agentSession.agentId,
-      });
-      runtimeContext = {
-        sessionId: agentSession.sessionId,
-        workspaceId: executionContext.workspaceId,
-        workspaceType: executionContext.workspaceType,
-        organizationId: executionContext.organizationId,
-      };
-    }
+    const runtimeContext = await resolveBrowserSessionContext(session.user.id, agentId, sessionId);
     const status = await buildBrowserRuntimeStatus({
       userId: session.user.id,
       agentId,
@@ -124,13 +121,14 @@ export async function POST(request: NextRequest) {
     const payload = (await request.json().catch(() => ({}))) as BrowserActionPayload;
     const agentId = normalizeManagedAgentId(payload.agentId);
     await requireAgentAccess(session.user.id, agentId, 'canUse');
-    const context = makeBrowserRuntimeContext(session.user.id, agentId);
+    const runtimeContext = await resolveBrowserSessionContext(session.user.id, agentId, payload.sessionId?.trim() || '');
+    const context = { ...makeBrowserRuntimeContext(session.user.id, agentId), ...runtimeContext };
 
     if (payload.action === 'close_session') {
       await closeBrowserRuntime(context, 'settings');
       return NextResponse.json({
         success: true,
-        data: await buildBrowserRuntimeStatus({ userId: session.user.id, agentId }),
+        data: await buildBrowserRuntimeStatus({ userId: session.user.id, agentId, runtimeContext }),
       });
     }
 
@@ -138,7 +136,7 @@ export async function POST(request: NextRequest) {
       await deleteBrowserProfile(context);
       return NextResponse.json({
         success: true,
-        data: await buildBrowserRuntimeStatus({ userId: session.user.id, agentId }),
+        data: await buildBrowserRuntimeStatus({ userId: session.user.id, agentId, runtimeContext }),
       });
     }
 
@@ -156,6 +154,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: false, error: 'Invalid action.' }, { status: 400 });
   } catch (error) {
+    if (error instanceof PiSessionRuntimeAccessError) {
+      return NextResponse.json({ success: false, error: 'Browser session not found.' }, { status: 404 });
+    }
     const message = error instanceof Error ? error.message : 'Failed to update browser runtime.';
     return NextResponse.json({ success: false, error: message }, { status: error instanceof AgentAccessError ? error.status : 500 });
   }

@@ -67,7 +67,10 @@ function clampNumber(value: unknown, fallback: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return fallback;
   }
-  return Math.max(1, Math.min(Math.trunc(value), max));
+  const rounded = Math.trunc(value);
+  if (rounded > max) return max;
+  if (rounded < 1) return 1;
+  return rounded;
 }
 
 function normalizeAction(value: unknown): BrowserAction {
@@ -678,6 +681,8 @@ export async function runBrowserGatewayAction(
         };
       }
       const page = await ensurePage(context);
+      // Show the browser before navigation: loading can wait for user dialogs.
+      await refreshBrowserSessionSnapshot(context);
       if (input.url?.trim()) {
         const url = await validateBrowserUrl(input.url);
         await page.goto(url, {

@@ -31,6 +31,11 @@ function fixtureHtml(access: string, nonce: string): string {
   </style>
 </head>
 <body>
+  <div style="position:fixed;left:16px;top:16px;display:flex;gap:16px">
+    <button id="prompt" style="width:144px;height:40px">Open prompt</button>
+    <button id="hover" style="width:144px;height:40px">Hover target</button>
+    <output id="interaction"></output>
+  </div>
   <main>
     <small>Browser Lab diagnostic</small>
     <h1>Secure file transfer</h1>
@@ -48,12 +53,23 @@ function fixtureHtml(access: string, nonce: string): string {
     </section>
   </main>
   <script nonce="${nonce}">
+    document.getElementById('prompt').addEventListener('click', function () {
+      const answer = window.prompt('Enter a roundtrip value', 'default value');
+      document.title = answer === null ? 'Prompt canceled' : 'Prompt: ' + answer;
+      document.getElementById('interaction').textContent = document.title;
+    });
+    document.getElementById('hover').addEventListener('mouseenter', function () {
+      document.title = 'Hover received';
+    });
     document.getElementById('upload').addEventListener('change', function (event) {
       const name = event.target.files && event.target.files[0] ? event.target.files[0].name : 'No file selected';
       document.getElementById('selection').textContent = name;
       document.title = name === 'No file selected' ? 'Browser transfer fixture' : 'Uploaded: ' + name;
       document.getElementById('download').focus();
     });
+    if (new URL(window.location.href).searchParams.has('promptOnLoad')) {
+      document.getElementById('prompt').click();
+    }
   </script>
 </body>
 </html>`;

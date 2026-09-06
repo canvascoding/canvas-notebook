@@ -51,7 +51,7 @@ import type {
   BrowserViewState,
 } from '@/app/lib/pi/browser/types';
 import { normalizeBrowserAddressInput } from '@/app/lib/pi/browser/address';
-import { closeBrowserWebSocket } from '@/app/lib/pi/browser/client-websocket';
+import { BrowserViewConnection } from '@/app/lib/pi/browser/client-connection';
 import { MAX_BROWSER_CLIPBOARD_TEXT_BYTES } from '@/app/lib/pi/browser/view-clipboard';
 import { Link } from '@/i18n/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -92,7 +92,12 @@ type BrowserSocketMessage =
   | { type: 'clipboard_text'; requestId: string; text: string }
   | ({ type: 'error' } & BrowserViewFailure);
 
-type ConnectionStatus = 'connecting' | 'failed' | 'idle' | 'live';
+type ConnectionStatus = 'connecting' | 'reconnecting' | 'awaiting-dialog' | 'failed' | 'idle' | 'live';
+
+const RECONNECT_DELAYS = [1000, 2000, 4000];
+const AUTOMATIC_RECONNECT_CODES = new Set<BrowserViewErrorCode>([
+  'CONNECTION_FAILED', 'CONNECTION_LOST', 'CONNECTION_TIMEOUT', 'TICKET_EXPIRED',
+]);
 
 type WorkspaceBrowserFile = {
   name: string;
@@ -138,6 +143,10 @@ const copy = {
     disconnected: 'Nicht verbunden',
     failed: 'Verbindung unterbrochen',
     connecting: 'Verbindung wird aufgebaut',
+    reconnecting: 'Verbindung wird wiederhergestellt',
+    staleFrame: 'Letztes Browserbild – noch nicht wieder live. Eingaben sind gesperrt.',
+    promptInput: 'Antwort auf den Dialog',
+    awaitingDialog: 'Browser wartet auf eine Dialogantwort',
     live: 'Live verbunden',
     failureTitle: 'Die Live-Ansicht braucht Aufmerksamkeit',
     failureDescription: 'Das letzte Browserbild bleibt zur Orientierung sichtbar. Eingaben sind bis zur erneuten Verbindung gesperrt.',
@@ -159,6 +168,7 @@ const copy = {
     clipboardTooLarge: 'Der Zwischenablagentext ist zu groß.',
     modeAgent: 'Agent steuert',
     modeUser: 'Gemeinsam aktiv',
+    modeOther: 'Andere Browseransicht steuert',
     modeView: 'Ansehen',
     takeoverWarning: 'Du kannst klicken und tippen, während der Agent weiterarbeitet. Gleichzeitige Browseraktionen werden automatisch geordnet.',
     emptyTitle: 'Noch kein Browserbild',
@@ -211,6 +221,7 @@ const copy = {
       RATE_LIMITED: 'Zu viele Browseraktionen. Warte kurz und versuche es erneut.',
       RESOURCE_UNAVAILABLE: 'Auf diesem System stehen nicht genug Ressourcen für die Live-Ansicht bereit.',
       SESSION_SCOPE_CHANGED: 'Die Chat- oder Workspace-Zuordnung hat sich geändert. Öffne die Ansicht erneut.',
+      SESSION_CLOSED: 'Die Browser-Sitzung wurde beendet.',
       TICKET_EXPIRED: 'Die kurzlebige Zugriffsberechtigung ist abgelaufen.',
       UNAUTHORIZED: 'Deine Anmeldung ist für diese Browseransicht nicht mehr gültig.',
       VIEW_CONFLICT: 'Diese Browseransicht ist bereits mit einer anderen Verbindung geöffnet.',
@@ -245,6 +256,10 @@ const copy = {
     disconnected: 'Disconnected',
     failed: 'Connection interrupted',
     connecting: 'Connecting',
+    reconnecting: 'Reconnecting',
+    staleFrame: 'Last browser frame — not live yet. Input is disabled.',
+    promptInput: 'Dialog response',
+    awaitingDialog: 'Browser is waiting for a dialog response',
     live: 'Live connected',
     failureTitle: 'The live view needs attention',
     failureDescription: 'The last browser frame remains visible for context. Input stays locked until you reconnect.',
@@ -266,6 +281,7 @@ const copy = {
     clipboardTooLarge: 'The clipboard text is too large.',
     modeAgent: 'Agent controls',
     modeUser: 'Working together',
+    modeOther: 'Another browser view controls',
     modeView: 'Viewing',
     takeoverWarning: 'You can click and type while the agent keeps working. Simultaneous browser actions are ordered automatically.',
     emptyTitle: 'No browser frame yet',
@@ -318,6 +334,7 @@ const copy = {
       RATE_LIMITED: 'Too many browser actions. Wait briefly and try again.',
       RESOURCE_UNAVAILABLE: 'This system does not have enough resources for the live view.',
       SESSION_SCOPE_CHANGED: 'The chat or workspace scope changed. Open the view again.',
+      SESSION_CLOSED: 'The browser session was closed.',
       TICKET_EXPIRED: 'The short-lived browser permission expired.',
       UNAUTHORIZED: 'Your sign-in is no longer valid for this browser view.',
       VIEW_CONFLICT: 'This browser view is already open in another connection.',
@@ -326,6 +343,27 @@ const copy = {
 } as const;
 
 type BrowserLabCopy = (typeof copy)[keyof typeof copy];
+
+function BrowserDialogBar({ dialog, disabled, onResolve, t }: {
+  dialog: NonNullable<BrowserViewState['pendingDialog']>;
+  disabled: boolean;
+  onResolve: (accept: boolean, promptText?: string) => void;
+  t: BrowserLabCopy;
+}) {
+  const [promptText, setPromptText] = useState(dialog.defaultValue || '');
+  return (
+    <form onSubmit={(event) => { event.preventDefault(); onResolve(true, promptText); }} className="flex shrink-0 flex-wrap items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs" data-testid="browser-dialog">
+      <ShieldAlert className="h-4 w-4 text-amber-600" />
+      <span className="font-medium">{t.dialog}</span>
+      <span className="min-w-0 flex-1 break-words text-muted-foreground">{dialog.message}</span>
+      {dialog.type === 'prompt' ? (
+        <Input aria-label={t.promptInput} value={promptText} onChange={(event) => setPromptText(event.target.value)} disabled={disabled} className="min-w-0 basis-full" />
+      ) : null}
+      <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => onResolve(false)}>{t.dismiss}</Button>
+      <Button type="submit" size="sm" disabled={disabled}>{t.accept}</Button>
+    </form>
+  );
+}
 
 function localizedFailure(t: BrowserLabCopy, failure: BrowserViewFailure): BrowserViewFailure {
   return { ...failure, error: t.errors[failure.code] || failure.error };
@@ -411,8 +449,8 @@ export function BrowserLabClient({
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const [viewState, setViewState] = useState<BrowserViewState | null>(null);
-const [frameUrl, setFrameUrl] = useState<string | null>(null);
-  const [frameSequence, setFrameSequence] = useState(0);
+  const [frameUrl, setFrameUrl] = useState<string | null>(null);
+  const [frameAck, setFrameAck] = useState<{ acknowledge: () => void } | null>(null);
   const [address, setAddress] = useState('about:blank');
   const [failure, setFailure] = useState<BrowserViewFailure | null>(null);
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceBrowserFile[]>([]);
@@ -427,13 +465,21 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const lastBrowserAddressRef = useRef('about:blank');
   const submittedAddressRef = useRef<string | null>(null);
   const pendingClipboardCopiesRef = useRef(new Set<string>());
-  const socketRef = useRef<WebSocket | null>(null);
-  const connectTimeoutRef = useRef<number | null>(null);
-  const intentionalCloseRef = useRef(false);
+  const [connection] = useState(() => new BrowserViewConnection());
   const imageRef = useRef<HTMLImageElement | null>(null);
   const lastPointerMoveAtRef = useRef(0);
   const autoConnectedContextRef = useRef<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const stableConnectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activePointerRef = useRef<{ id: number; button: 'left' | 'middle' | 'right' } | null>(null);
   const viewerEnabled = enabled && documentVisible;
+  const willReconnect = connectionStatus === 'failed' && Boolean(failure?.retryable)
+    && Boolean(failure && AUTOMATIC_RECONNECT_CODES.has(failure.code))
+    && retryCount < RECONNECT_DELAYS.length && viewerEnabled;
+  const reconnecting = connectionStatus === 'reconnecting' || willReconnect;
+  const connectionPending = connectionStatus === 'connecting' || connectionStatus === 'awaiting-dialog' || reconnecting;
+  const connectionLabel = connectionStatus === 'awaiting-dialog' ? t.awaitingDialog : reconnecting ? t.reconnecting : connectionStatus === 'live' ? t.live
+    : connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failed : t.disconnected;
 
   const availableSessions = useMemo(
     () => sessions.filter((session) => session.engine !== 'legacy' && session.agentId === selectedAgentId),
@@ -480,26 +526,34 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
     };
   }, [embeddedChat, openSelectedChat, selectedSession, viewerEnabled]);
 
-  const disconnect = useCallback((options: { preserveFailure?: boolean; preserveFrame?: boolean } = {}) => {
-    intentionalCloseRef.current = true;
-    if (connectTimeoutRef.current !== null) {
-      window.clearTimeout(connectTimeoutRef.current);
-      connectTimeoutRef.current = null;
-    }
-    const socket = socketRef.current;
-    socketRef.current = null;
-    if (socket && socket.readyState < WebSocket.CLOSING) closeBrowserWebSocket(socket, 1000, 'View closed');
+  const disconnect = useCallback((options: { preserveFailure?: boolean; preserveFrame?: boolean; preserveRetryBudget?: boolean } = {}) => {
+    connection.close();
+    if (stableConnectionTimerRef.current) clearTimeout(stableConnectionTimerRef.current);
+    stableConnectionTimerRef.current = null;
+    if (!options.preserveRetryBudget) setRetryCount(0);
+    activePointerRef.current = null;
+    setFrameAck(null);
+    addressEditingRef.current = false;
+    submittedAddressRef.current = null;
+    lastBrowserAddressRef.current = 'about:blank';
     setConnectionStatus('idle');
     if (!options.preserveFrame) {
       setViewState(null);
       setFrameUrl(null);
-      setFrameSequence(0);
     }
     pendingClipboardCopiesRef.current.clear();
     if (!options.preserveFailure) setFailure(null);
-  }, []);
+  }, [connection]);
 
-  useEffect(() => () => disconnect(), [disconnect]);
+  useEffect(() => () => {
+    connection.close();
+    if (stableConnectionTimerRef.current) clearTimeout(stableConnectionTimerRef.current);
+    stableConnectionTimerRef.current = null;
+    setRetryCount(0);
+    activePointerRef.current = null;
+    autoConnectedContextRef.current = null;
+    pendingClipboardCopiesRef.current.clear();
+  }, [connection, initialAgentId, initialSessionId, selectedAgentId, selectedSessionId, viewerEnabled]);
 
   useEffect(() => {
     const updateDocumentVisibility = () => {
@@ -528,13 +582,14 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!viewerEnabled) return;
     let cancelled = false;
+    const catalogRequest = new AbortController();
     void (async () => {
       setCatalogLoading(true);
       setFailure(null);
       try {
         const [agentsResponse, sessionsResponse] = await Promise.all([
-          fetch('/api/agents', { credentials: 'include' }),
-          fetch('/api/sessions?agentId=all', { credentials: 'include' }),
+          fetch('/api/agents', { credentials: 'include', signal: catalogRequest.signal }),
+          fetch('/api/sessions?agentId=all', { credentials: 'include', signal: catalogRequest.signal }),
         ]);
         const agentsPayload = await agentsResponse.json() as {
           success?: boolean;
@@ -580,7 +635,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
         if (!cancelled) setCatalogLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; catalogRequest.abort(); };
   }, [initialAgentId, initialSessionId, isLiveView, t.contextUnavailable, t.errors.CONNECTION_FAILED, viewerEnabled]);
 
   const fileChooserOpenedAt = viewState?.pendingFileChooser?.openedAt ?? null;
@@ -631,25 +686,29 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
   }, [fileChooserOpenedAt, fileSearch, selectedAgentId, selectedSessionId, t]);
 
   const send = useCallback((message: Record<string, unknown>) => {
-    const socket = socketRef.current;
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
-  }, []);
+    connection.send(message);
+  }, [connection]);
 
   useEffect(() => {
-    if (frameSequence > 0) send({ type: 'frame_ack', sequence: frameSequence });
-  }, [frameSequence, send]);
+    frameAck?.acknowledge();
+  }, [frameAck]);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (options: { automatic?: boolean } = {}) => {
     if (!viewerEnabled || !selectedAgentId || !selectedSessionId) return;
-    const preserveFrame = connectionStatus === 'failed' && Boolean(frameUrl);
-    disconnect({ preserveFailure: true, preserveFrame });
-    intentionalCloseRef.current = false;
-    setConnectionStatus('connecting');
+    if (isLiveView && (selectedAgentId !== initialAgentId || selectedSessionId !== initialSessionId)) return;
+    const preserveFrame = Boolean(frameUrl);
+    disconnect({ preserveFailure: true, preserveFrame, preserveRetryBudget: options.automatic });
+    const attempt = connection.begin(() => {
+      setFailure(clientFailure(t, 'CONNECTION_TIMEOUT', true, true));
+      setConnectionStatus('failed');
+    });
+    setConnectionStatus(options.automatic ? 'reconnecting' : 'connecting');
     setFailure(null);
     try {
       const response = await fetch('/api/browser/view', {
         method: 'POST',
         credentials: 'include',
+        signal: attempt.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId: selectedAgentId,
@@ -658,7 +717,9 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
         }),
       });
       const payload = await response.json() as ViewTicketResponse;
+      if (!attempt.isCurrent()) return;
       if (!response.ok || !payload.success || !payload.data) {
+        attempt.close();
         const code = payload.code || 'CONNECTION_FAILED';
         setFailure(localizedFailure(t, {
           code,
@@ -670,35 +731,68 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
         return;
       }
       const socket = new WebSocket(socketUrl(payload.data.websocketUrl));
-      socketRef.current = socket;
+      if (!attempt.attach(socket)) return;
+      let ready = false;
+      let receivedState = false;
+      let receivedFrame = false;
+      let pendingDialog = false;
+      let live = false;
+      const confirmLive = () => {
+        if (live || !ready || !receivedState) return;
+        if (!receivedFrame) {
+          if (pendingDialog) {
+            attempt.ready();
+            setConnectionStatus('awaiting-dialog');
+          }
+          return;
+        }
+        live = true;
+        attempt.ready();
+        setConnectionStatus('live');
+        // A briefly flapping socket must not reset the retry budget indefinitely.
+        stableConnectionTimerRef.current = setTimeout(() => {
+          if (attempt.isCurrent()) setRetryCount(0);
+        }, 10_000);
+      };
       socket.addEventListener('message', (event) => {
+        if (!attempt.isCurrent()) return;
         let message: BrowserSocketMessage;
         try {
           message = JSON.parse(String(event.data)) as BrowserSocketMessage;
         } catch {
           setFailure(clientFailure(t, 'INVALID_MESSAGE', false, true));
           setConnectionStatus('failed');
-          closeBrowserWebSocket(socket, 1002, 'Invalid browser message');
+          attempt.close(1002, 'Invalid browser message');
           return;
         }
         if (message.type === 'auth_success') {
           socket.send(JSON.stringify({ type: 'view_subscribe', ticket: payload.data!.ticket }));
         } else if (message.type === 'ready') {
-          if (connectTimeoutRef.current !== null) {
-            window.clearTimeout(connectTimeoutRef.current);
-            connectTimeoutRef.current = null;
-          }
+          ready = true;
           socket.send(JSON.stringify({ type: 'control_request', mode: 'user' }));
           setFailure(null);
-          setConnectionStatus('live');
+          confirmLive();
           if (!isLiveView) setSessionSetupOpen(false);
         } else if (message.type === 'frame') {
           const nextFrameUrl = browserFrameUrl(message.mimeType, message.data);
           if (!nextFrameUrl) return;
+          receivedFrame = true;
           setFrameUrl(nextFrameUrl);
-          setFrameSequence(message.sequence);
+          confirmLive();
+          setFrameAck({ acknowledge: () => {
+            if (attempt.isCurrent() && socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'frame_ack', sequence: message.sequence }));
+            }
+          } });
         } else if (message.type === 'state') {
+          receivedState = true;
+          pendingDialog = Boolean(message.state.pendingDialog);
           setViewState(message.state);
+          confirmLive();
+          if (ready && message.state.mode === 'view' && !message.state.controlOwnerViewId) {
+            // A reconnect can precede the old socket's cleanup or lease expiry.
+            socket.send(JSON.stringify({ type: 'control_request', mode: 'user' }));
+          }
           if (message.state.url) {
             const previousBrowserAddress = lastBrowserAddressRef.current;
             lastBrowserAddressRef.current = message.state.url;
@@ -721,54 +815,53 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
             return;
           }
           void writeSystemClipboard(message.text)
-            .then(() => setClipboardNotice({ message: t.clipboardCopied, tone: 'success' }))
-            .catch(() => setClipboardNotice({ message: t.clipboardWriteBlocked, tone: 'error' }));
+            .then(() => { if (attempt.isCurrent()) setClipboardNotice({ message: t.clipboardCopied, tone: 'success' }); })
+            .catch(() => { if (attempt.isCurrent()) setClipboardNotice({ message: t.clipboardWriteBlocked, tone: 'error' }); });
         } else if (message.type === 'error') {
           setFailure(localizedFailure(t, message));
           if (message.fatal) {
             setConnectionStatus('failed');
-            closeBrowserWebSocket(socket, 1011, message.code);
+            attempt.close(1011, message.code);
           }
         }
       });
       socket.addEventListener('close', () => {
-        if (socketRef.current === socket) {
-          socketRef.current = null;
-          if (connectTimeoutRef.current !== null) {
-            window.clearTimeout(connectTimeoutRef.current);
-            connectTimeoutRef.current = null;
-          }
-          if (intentionalCloseRef.current) {
-            setConnectionStatus('idle');
-          } else {
-            setFailure((current) => current ?? clientFailure(t, 'CONNECTION_LOST', true, true));
-            setConnectionStatus('failed');
-          }
-        }
+        if (!attempt.isCurrent()) return;
+        attempt.close();
+        setFailure(clientFailure(t, 'CONNECTION_LOST', true, true));
+        setConnectionStatus('failed');
       });
       socket.addEventListener('error', () => {
+        if (!attempt.isCurrent()) return;
+        attempt.close();
         setFailure(clientFailure(t, 'CONNECTION_FAILED', true, true));
-      });
-      connectTimeoutRef.current = window.setTimeout(() => {
-        if (socketRef.current !== socket) return;
-        setFailure(clientFailure(t, 'CONNECTION_TIMEOUT', true, true));
         setConnectionStatus('failed');
-        closeBrowserWebSocket(socket, 4000, 'Connection timeout');
-      }, 15_000);
+      });
     } catch (connectError) {
+      if (!attempt.isCurrent()) return;
+      attempt.close();
       setConnectionStatus('failed');
       setFailure({
         ...clientFailure(t, 'CONNECTION_FAILED', true, true),
         error: connectError instanceof Error ? connectError.message : t.errors.CONNECTION_FAILED,
       });
     }
-  }, [connectionStatus, disconnect, frameUrl, isLiveView, selectedAgentId, selectedSessionId, t, viewerEnabled]);
+  }, [connection, disconnect, frameUrl, initialAgentId, initialSessionId, isLiveView, selectedAgentId, selectedSessionId, t, viewerEnabled]);
+
+  useEffect(() => {
+    if (!willReconnect) return;
+    const delay = RECONNECT_DELAYS[retryCount];
+    const timer = window.setTimeout(() => {
+      setRetryCount((count) => count + 1);
+      void connect({ automatic: true });
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [connect, retryCount, willReconnect]);
 
   useEffect(() => {
     if (!viewerEnabled || !isLiveView || catalogLoading || !selectedAgentId || !selectedSessionId) return;
     const contextKey = `${selectedAgentId}:${selectedSessionId}:${autoConnectKey || ''}`;
     if (autoConnectedContextRef.current === contextKey) return;
-    if (connectionStatus === 'live') return;
     const timeout = window.setTimeout(() => {
       autoConnectedContextRef.current = contextKey;
       void connect();
@@ -786,7 +879,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
   ]);
 
   useEffect(() => {
-    if (connectionStatus !== 'live') return;
+    if (connectionStatus !== 'live' && connectionStatus !== 'awaiting-dialog') return;
     const timer = window.setInterval(() => send({ type: 'heartbeat' }), 10_000);
     return () => window.clearInterval(timer);
   }, [connectionStatus, send]);
@@ -837,16 +930,19 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
   }, [viewState?.viewport]);
 
   const handlePointerDown = useCallback((event: PointerEvent<HTMLImageElement>) => {
-    if (!userControls) return;
+    if (!userControls || activePointerRef.current) return;
     event.preventDefault();
     event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
     const point = scaledPoint(event);
-    if (point) send({ type: 'input_mouse', action: 'down', ...point, button: mouseButton(event.button) });
+    if (point) {
+      activePointerRef.current = { id: event.pointerId, button: mouseButton(event.button) };
+      send({ type: 'input_mouse', action: 'down', ...point, button: mouseButton(event.button) });
+    }
   }, [scaledPoint, send, userControls]);
 
   const handlePointerMove = useCallback((event: PointerEvent<HTMLImageElement>) => {
-    if (!userControls || event.buttons === 0) return;
+    if (!userControls || (event.pointerType === 'touch' && !activePointerRef.current)) return;
     const now = performance.now();
     if (now - lastPointerMoveAtRef.current < 32) return;
     lastPointerMoveAtRef.current = now;
@@ -855,11 +951,14 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
   }, [scaledPoint, send, userControls]);
 
   const handlePointerUp = useCallback((event: PointerEvent<HTMLImageElement>) => {
-    if (!userControls) return;
+    const pointer = activePointerRef.current;
+    if (!pointer || pointer.id !== event.pointerId) return;
+    activePointerRef.current = null;
     event.preventDefault();
     const point = scaledPoint(event);
-    if (point) send({ type: 'input_mouse', action: 'up', ...point, button: mouseButton(event.button) });
-  }, [scaledPoint, send, userControls]);
+    if (point) send({ type: 'input_mouse', action: 'up', ...point, button: pointer.button });
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }, [scaledPoint, send]);
 
   const handleKeyDown = useCallback((event: KeyboardEvent<HTMLImageElement>) => {
     if (!userControls || event.nativeEvent.isComposing) return;
@@ -931,7 +1030,9 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
     send({ type: 'navigate', url: normalizedAddress });
   }, [address, send]);
 
-  const modeLabel = viewState?.mode === 'user' ? t.modeUser : viewState?.mode === 'view' ? t.modeView : t.modeAgent;
+  const modeLabel = viewState?.mode === 'user'
+    ? viewState.controlOwnerViewId === viewState.viewId ? t.modeUser : t.modeOther
+    : viewState?.mode === 'view' ? t.modeView : t.modeAgent;
 
   return (
     <div
@@ -979,13 +1080,13 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
                 </Button>
                 <Button
                   className="h-10 gap-2"
-                  disabled={!selectedSessionId || catalogLoading || connectionStatus === 'connecting'}
+                  disabled={!selectedSessionId || catalogLoading || connectionPending}
                   onClick={() => void connect()}
                 >
-                  {connectionStatus === 'connecting' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MonitorUp className="h-4 w-4" />}
+                  {connectionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MonitorUp className="h-4 w-4" />}
                   {connectionStatus === 'live' || connectionStatus === 'failed' ? t.reconnect : t.connect}
                 </Button>
-                {connectionStatus === 'live' ? (
+                {connectionStatus === 'live' || connectionPending ? (
                   <Button variant="outline" size="icon" className="h-10 w-10" onClick={() => disconnect()} title={t.disconnect}>
                     <Unplug className="h-4 w-4" />
                   </Button>
@@ -1001,7 +1102,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
                 <span>{t.agent}</span>
                 <select
                   value={selectedAgentId}
-                  disabled={catalogLoading || connectionStatus === 'connecting' || connectionStatus === 'live'}
+                  disabled={catalogLoading || connectionPending || connectionStatus === 'live'}
                   onChange={(event) => {
                     disconnect();
                     const nextAgentId = event.target.value;
@@ -1019,7 +1120,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
                 <span>{t.session}</span>
                 <select
                   value={selectedSessionId}
-                  disabled={catalogLoading || connectionStatus === 'connecting' || connectionStatus === 'live' || availableSessions.length === 0}
+                  disabled={catalogLoading || connectionPending || connectionStatus === 'live' || availableSessions.length === 0}
                   onChange={(event) => {
                     disconnect();
                     setSelectedSessionId(event.target.value);
@@ -1055,13 +1156,13 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
                 )}
                 <Button
                   className="h-10 gap-2"
-                  disabled={!selectedSessionId || catalogLoading || connectionStatus === 'connecting'}
+                  disabled={!selectedSessionId || catalogLoading || connectionPending}
                   onClick={() => void connect()}
                 >
-                  {connectionStatus === 'connecting' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MonitorUp className="h-4 w-4" />}
+                  {connectionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MonitorUp className="h-4 w-4" />}
                   {connectionStatus === 'live' || connectionStatus === 'failed' ? t.reconnect : t.connect}
                 </Button>
-                {connectionStatus === 'live' ? (
+                {connectionStatus === 'live' || connectionPending ? (
                   <Button variant="outline" size="icon" className="h-10 w-10" onClick={() => disconnect()} title={t.disconnect}>
                     <Unplug className="h-4 w-4" />
                   </Button>
@@ -1095,7 +1196,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
                 <span className={cn(
                   'h-2 w-2 shrink-0 rounded-full',
                   connectionStatus === 'live' ? 'bg-emerald-500' : 'bg-muted-foreground/40',
-                )} aria-label={`${t.status}: ${connectionStatus === 'live' ? t.live : t.disconnected}`} />
+                )} aria-label={`${t.status}: ${connectionLabel}`} />
                 <Bot className="h-4 w-4 shrink-0 text-primary" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-medium text-foreground">
@@ -1128,7 +1229,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
                   </Button>
                 )
               ) : null}
-              {connectionStatus === 'live' ? (
+              {connectionStatus === 'live' || connectionPending ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -1371,13 +1472,9 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
           ) : null}
 
           {viewState?.pendingDialog ? (
-            <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs">
-              <ShieldAlert className="h-4 w-4 text-amber-600" />
-              <span className="font-medium">{t.dialog}</span>
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">{viewState.pendingDialog.message}</span>
-              <Button size="sm" variant="ghost" disabled={!userControls} onClick={() => send({ type: 'dialog_resolve', accept: false })}>{t.dismiss}</Button>
-              <Button size="sm" disabled={!userControls} onClick={() => send({ type: 'dialog_resolve', accept: true })}>{t.accept}</Button>
-            </div>
+            <BrowserDialogBar key={viewState.pendingDialog.openedAt} dialog={viewState.pendingDialog}
+              disabled={!(userControls || (connectionStatus === 'awaiting-dialog' && viewState.mode === 'user' && viewState.controlOwnerViewId === viewState.viewId))} t={t}
+              onResolve={(accept, promptText) => send({ type: 'dialog_resolve', accept, promptText })} />
           ) : null}
 
           {viewState?.pendingFileChooser ? (
@@ -1438,7 +1535,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
             </div>
           ) : null}
 
-          {viewState?.sensitiveInputFocused ? (
+          {viewState?.sensitiveInputFocused && !viewState.pendingDialog ? (
             <div className="flex shrink-0 items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs">
               <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               <div>
@@ -1458,40 +1555,44 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
                 alt={viewState?.title || 'Live browser'}
                 draggable={false}
                 tabIndex={userControls ? 0 : -1}
+                data-live={connectionStatus === 'live'}
                 onContextMenu={(event) => event.preventDefault()}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onLostPointerCapture={handlePointerUp}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
                 onWheel={handleWheel}
                 className={cn(
-                  'relative max-h-full max-w-full select-none rounded-lg border border-white/10 bg-white shadow-[0_32px_100px_-28px_rgba(0,0,0,.9)] outline-none',
+                  'relative max-h-full max-w-full touch-none select-none rounded-lg border border-white/10 bg-white shadow-[0_32px_100px_-28px_rgba(0,0,0,.9)] outline-none',
+                  connectionStatus !== 'live' && 'opacity-50',
                   userControls ? 'cursor-default focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-[#11130f]' : 'cursor-not-allowed',
                 )}
               />
             ) : (
               <div className="relative max-w-sm text-center text-white/80">
-                {connectionStatus === 'connecting'
+                {connectionPending
                   ? <Loader2 className="mx-auto mb-5 h-9 w-9 animate-spin text-primary" />
                   : connectionStatus === 'failed'
                     ? <ShieldAlert className="mx-auto mb-5 h-9 w-9 text-amber-400" />
                     : <Globe2 className="mx-auto mb-5 h-9 w-9 text-white/35" />}
                 <h3 className="text-lg font-semibold">
-                  {connectionStatus === 'connecting' ? t.loading : connectionStatus === 'failed' ? t.failureTitle : t.emptyTitle}
+                  {connectionPending ? t.loading : connectionStatus === 'failed' ? t.failureTitle : t.emptyTitle}
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-white/45">
-                  {connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failureDescription : t.emptyDescription}
+                  {connectionPending ? connectionLabel : connectionStatus === 'failed' ? t.failureDescription : t.emptyDescription}
                 </p>
               </div>
             )}
-            {frameUrl && connectionStatus === 'failed' ? (
+            {frameUrl && connectionStatus !== 'live' ? (
               <div className="absolute inset-x-3 bottom-3 z-10 rounded-lg border border-amber-300/20 bg-[#171912]/90 p-3 text-left text-xs text-white/80 shadow-2xl backdrop-blur md:inset-x-5 md:bottom-5">
                 <div className="flex items-start gap-2">
                   <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
                   <div>
-                    <p className="font-medium text-white">{t.failureTitle}</p>
-                    <p className="mt-1 leading-5 text-white/55">{t.failureDescription}</p>
+                    <p className="font-medium text-white">{connectionPending ? connectionLabel : t.failureTitle}</p>
+                    <p className="mt-1 leading-5 text-white/55">{t.staleFrame}</p>
                   </div>
                 </div>
               </div>
@@ -1503,7 +1604,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
             ) : null}
           </div>
 
-          {failure ? (
+          {failure && !willReconnect ? (
             <div role="alert" aria-live="polite" className="flex shrink-0 flex-wrap items-center gap-2 border-t border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               <ShieldAlert className="h-4 w-4 shrink-0" />
               <span className="min-w-[220px] flex-1">{failure.error}</span>
@@ -1533,7 +1634,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
               'h-2 w-2 rounded-full',
               connectionStatus === 'live'
                 ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,.8)]'
-                : connectionStatus === 'connecting'
+                : connectionPending
                   ? 'animate-pulse bg-amber-500'
                   : connectionStatus === 'failed'
                     ? 'bg-destructive shadow-[0_0_12px_hsl(var(--destructive)/.6)]'
@@ -1545,7 +1646,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
               <div className="rounded-lg border border-border/70 bg-background/65 p-3">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t.status}</div>
                 <div className="mt-1.5 font-medium text-foreground" aria-live="polite">
-                  {connectionStatus === 'live' ? t.live : connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failed : t.disconnected}
+                  {connectionLabel}
                 </div>
               </div>
               <div className="rounded-lg border border-border/70 bg-background/65 p-3">
@@ -1564,7 +1665,7 @@ const [frameUrl, setFrameUrl] = useState<string | null>(null);
             </div>
           ) : (
             <dl className="space-y-3 text-xs">
-              <DiagnosticRow label={t.status} value={connectionStatus === 'live' ? t.live : connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failed : t.disconnected} />
+              <DiagnosticRow label={t.status} value={connectionLabel} />
               <DiagnosticRow label={t.agent} value={viewState?.agentId || selectedAgentId || '—'} mono />
               <DiagnosticRow label={t.session} value={viewState?.agentSessionId || selectedSessionId || '—'} mono />
               <DiagnosticRow label={t.workspace} value={viewState?.workspaceId || '—'} mono />

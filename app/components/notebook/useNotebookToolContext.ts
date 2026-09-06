@@ -48,6 +48,8 @@ export function useNotebookToolContext({
   const browserDismissedRef = useRef(false);
   const dismissedBrowserToolCallIdRef = useRef<string | null>(null);
   const browserSnapshotRef = useRef<NonNullable<RuntimeStatus['browser']> | null>(null);
+  const browserActiveToolRef = useRef<RuntimeStatus['activeTool']>(null);
+  const browserIntentRevisionRef = useRef(0);
   const scopeResetTimerRef = useRef<number | null>(null);
   const onOpenRef = useRef(onOpen);
   const onCloseRef = useRef(onClose);
@@ -69,6 +71,8 @@ export function useNotebookToolContext({
     browserDismissedRef.current = false;
     dismissedBrowserToolCallIdRef.current = null;
     browserSnapshotRef.current = null;
+    browserActiveToolRef.current = null;
+    browserIntentRevisionRef.current += 1;
     onCloseRef.current('email');
     onCloseRef.current('browser');
     if (scopeResetTimerRef.current !== null) {
@@ -97,13 +101,16 @@ export function useNotebookToolContext({
     }
 
     const snapshot = runtimeStatus.browser;
+    browserActiveToolRef.current = runtimeStatus.activeTool?.name === 'browser'
+      ? runtimeStatus.activeTool
+      : null;
     if (!snapshot?.running) {
-      const browserWasActive = browserRevisionRef.current !== null;
-      browserRevisionRef.current = null;
-      browserDismissedRef.current = false;
-      dismissedBrowserToolCallIdRef.current = null;
       browserSnapshotRef.current = null;
       const timeout = window.setTimeout(() => {
+        const browserWasActive = browserRevisionRef.current !== null;
+        browserRevisionRef.current = null;
+        browserDismissedRef.current = false;
+        dismissedBrowserToolCallIdRef.current = null;
         setContext((current) => current.browser
           ? { ...current, browser: null }
           : current);
@@ -114,8 +121,6 @@ export function useNotebookToolContext({
       return () => window.clearTimeout(timeout);
     }
 
-    const previousRevision = browserRevisionRef.current;
-    browserRevisionRef.current = snapshot.revision;
     browserSnapshotRef.current = snapshot;
     const activeBrowserToolCallId = runtimeStatus.activeTool?.name === 'browser'
       ? runtimeStatus.activeTool.toolCallId
@@ -129,8 +134,6 @@ export function useNotebookToolContext({
       if (!isNewBrowserToolCall) {
         return;
       }
-      browserDismissedRef.current = false;
-      dismissedBrowserToolCallIdRef.current = null;
     }
     if (scopeResetTimerRef.current !== null) {
       window.clearTimeout(scopeResetTimerRef.current);
@@ -138,25 +141,30 @@ export function useNotebookToolContext({
     }
 
     const status = runtimeStatus.activeTool?.name === 'browser' ? 'running' : 'complete';
+    const intentRevision = browserIntentRevisionRef.current;
     const timeout = window.setTimeout(() => {
+      if (intentRevision !== browserIntentRevisionRef.current) return;
+      const shouldOpen = browserRevisionRef.current === null || wasDismissed;
+      browserRevisionRef.current = snapshot.revision;
+      browserDismissedRef.current = false;
+      dismissedBrowserToolCallIdRef.current = null;
       setContext((current) => ({
         ...current,
         browser: {
-          ...current.browser,
           kind: 'browser',
           toolCallId: runtimeStatus.activeTool?.name === 'browser'
             ? runtimeStatus.activeTool.toolCallId
-            : current.browser?.toolCallId ?? null,
+            : null,
           toolName: 'browser',
           status,
           agentId: chatContext.agentId,
           sessionId: chatContext.sessionId,
           snapshot,
-          url: snapshot.activeUrl ?? current.browser?.url,
+          url: snapshot.activeUrl ?? undefined,
         },
       }));
 
-      if (previousRevision === null || wasDismissed) {
+      if (shouldOpen) {
         onOpenRef.current('browser');
       }
     }, 0);
@@ -226,20 +234,44 @@ export function useNotebookToolContext({
   }, []);
 
   const clearBrowser = useCallback(() => {
+    browserIntentRevisionRef.current += 1;
+    browserDismissedRef.current = true;
+    dismissedBrowserToolCallIdRef.current = browserActiveToolRef.current?.toolCallId ?? null;
     setContext((current) => {
-      browserDismissedRef.current = true;
-      dismissedBrowserToolCallIdRef.current = current.browser?.toolCallId ?? null;
-      if (current.browser?.toolCallId) {
-        dismissedToolCallsRef.current.add(current.browser.toolCallId);
-      }
       return { ...current, browser: null };
     });
   }, []);
 
+  const openBrowser = useCallback(() => {
+    const scope = chatContextRef.current;
+    const snapshot = browserSnapshotRef.current;
+    if (!scope || !snapshot?.running) return;
+    browserIntentRevisionRef.current += 1;
+    browserDismissedRef.current = false;
+    dismissedBrowserToolCallIdRef.current = null;
+    browserRevisionRef.current = snapshot.revision;
+    const tool = browserActiveToolRef.current;
+    setContext((current) => ({
+      ...current,
+      browser: {
+        kind: 'browser',
+        toolName: 'browser',
+        toolCallId: tool?.toolCallId ?? null,
+        status: tool ? 'running' : 'complete',
+        ...scope,
+        snapshot,
+        url: snapshot.activeUrl ?? undefined,
+      },
+    }));
+    onOpenRef.current('browser');
+  }, []);
+
   return {
     emailContext: context.email,
-    browserContext: context.browser,
+    browserContext: context.browser?.agentId === chatContext?.agentId
+      && context.browser?.sessionId === chatContext?.sessionId ? context.browser : null,
     clearEmail,
     clearBrowser,
+    openBrowser,
   };
 }
