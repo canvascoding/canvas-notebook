@@ -67,7 +67,10 @@ function clampNumber(value: unknown, fallback: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return fallback;
   }
-  return Math.max(1, Math.min(Math.trunc(value), max));
+  const rounded = Math.trunc(value);
+  if (rounded > max) return max;
+  if (rounded < 1) return 1;
+  return rounded;
 }
 
 function normalizeAction(value: unknown): BrowserAction {
@@ -592,7 +595,7 @@ async function evaluateScript(
     timeoutId = setTimeout(() => {
       timedOut = true;
       reject(new Error(`evaluate timed out after ${timeout}ms`));
-    }, Math.min(timeout, MAX_TIMEOUT_MS));
+    }, timeout);
     timeoutId.unref?.();
   });
   let result: unknown;
