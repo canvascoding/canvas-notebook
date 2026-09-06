@@ -592,7 +592,7 @@ async function evaluateScript(
     timeoutId = setTimeout(() => {
       timedOut = true;
       reject(new Error(`evaluate timed out after ${timeout}ms`));
-    }, timeout);
+    }, Math.min(timeout, MAX_TIMEOUT_MS));
     timeoutId.unref?.();
   });
   let result: unknown;
