@@ -28,7 +28,7 @@ import {
 import { getBrowserSessionSnapshot, publishBrowserSessionSnapshot } from './session-state';
 import { refreshBrowserSessionSnapshot } from './session-state-service';
 import {
-  assertBrowserUserControl,
+  withBrowserUserControlOperation,
   getBrowserControlState,
   recordBrowserUserInteraction,
   refreshBrowserControlLease,
@@ -142,6 +142,7 @@ export class BrowserViewService {
   private interactionPublishTimer: NodeJS.Timeout | null = null;
   private captureInFlight = false;
   private closed = false;
+  private activeUserPage: Page | null = null;
   private unsubscribeRuntime: (() => void) | null = null;
   private sequence = 0;
   private acknowledgedSequence = 0;
@@ -638,8 +639,8 @@ export class BrowserViewService {
     this.assertOpen();
     let abortedAgentRun = false;
     const interactionPolicy = this.claims.interactionPolicy ?? 'exclusive';
-    // Control ownership is synchronous metadata. It must not queue behind an
-    // agent action whose JavaScript dialog this viewer needs to answer.
+    // Active user operations retain their ownership until they settle. Control
+    // acquisition must still bypass an agent action waiting for a dialog answer.
     setBrowserControlMode({ context: this.context, viewId: this.claims.viewId, mode, interactionPolicy });
     if (mode === 'user') {
       if (shouldAbortAgentForBrowserControl(interactionPolicy)) {
@@ -724,20 +725,21 @@ export class BrowserViewService {
 
   private async stopNavigation(): Promise<void> {
     this.assertOpen();
-    assertBrowserUserControl(this.context, this.claims.viewId);
-    recordBrowserUserInteraction(this.context, this.claims.viewId);
-    this.navigationStopRequested = true;
-    const page = await ensurePage(this.context);
-    this.assertOpen();
-    const existingClient = this.pageTransfers.get(page)?.pageClient;
-    const temporaryClient = existingClient ? null : await page.createCDPSession();
-    try {
+    await withBrowserUserControlOperation(this.context, this.claims.viewId, async () => {
+      recordBrowserUserInteraction(this.context, this.claims.viewId);
+      this.navigationStopRequested = true;
+      const page = await ensurePage(this.context);
       this.assertOpen();
-      await (existingClient ?? temporaryClient)?.send('Page.stopLoading');
-    } finally {
-      await temporaryClient?.detach().catch(() => undefined);
-    }
-    scheduleIdleClose(this.context);
+      const existingClient = this.pageTransfers.get(page)?.pageClient;
+      const temporaryClient = existingClient ? null : await page.createCDPSession();
+      try {
+        this.assertOpen();
+        await (existingClient ?? temporaryClient)?.send('Page.stopLoading');
+      } finally {
+        await temporaryClient?.detach().catch(() => undefined);
+      }
+      scheduleIdleClose(this.context);
+    });
     await this.audit('browser_view.browser_action', { action: 'stop' });
     await this.publishState(true);
   }
@@ -849,12 +851,13 @@ export class BrowserViewService {
 
   async resolveDialog(accept: boolean, promptText?: string): Promise<void> {
     this.assertOpen();
-    assertBrowserUserControl(this.context, this.claims.viewId);
-    if (accept) await acceptPendingDialog(this.context, promptText?.slice(0, 500));
-    else await dismissPendingDialog(this.context);
-    this.assertOpen();
-    recordBrowserUserInteraction(this.context, this.claims.viewId);
-    scheduleIdleClose(this.context);
+    await withBrowserUserControlOperation(this.context, this.claims.viewId, async () => {
+      if (accept) await acceptPendingDialog(this.context, promptText?.slice(0, 500));
+      else await dismissPendingDialog(this.context);
+      this.assertOpen();
+      recordBrowserUserInteraction(this.context, this.claims.viewId);
+      scheduleIdleClose(this.context);
+    });
     await this.audit('browser_view.resolve_dialog', { accepted: accept });
     await this.publishState(true);
   }
@@ -865,19 +868,20 @@ export class BrowserViewService {
     if (!pending) throw new Error('A browser file chooser is required.');
     await withBrowserRuntimeLock(this.context, async () => {
       this.assertOpen();
-      assertBrowserUserControl(this.context, this.claims.viewId);
-      const resolved = await resolveBrowserUploadFiles(
-        this.context,
-        paths,
-        pending.chooser.isMultiple(),
-      );
-      this.assertOpen();
-      await acceptBrowserFileChooser(pending.page, pending.chooser, resolved.absolutePaths);
-      recordBrowserUserInteraction(this.context, this.claims.viewId);
-      if (this.pendingFileChooser === pending) this.pendingFileChooser = null;
-      this.armFileChooser(pending.page);
-      scheduleIdleClose(this.context);
-      await this.audit('browser_view.upload', { bytes: resolved.totalBytes, files: resolved.absolutePaths.length });
+      return withBrowserUserControlOperation(this.context, this.claims.viewId, async () => {
+        const resolved = await resolveBrowserUploadFiles(
+          this.context,
+          paths,
+          pending.chooser.isMultiple(),
+        );
+        this.assertOpen();
+        await acceptBrowserFileChooser(pending.page, pending.chooser, resolved.absolutePaths);
+        recordBrowserUserInteraction(this.context, this.claims.viewId);
+        if (this.pendingFileChooser === pending) this.pendingFileChooser = null;
+        this.armFileChooser(pending.page);
+        scheduleIdleClose(this.context);
+        await this.audit('browser_view.upload', { bytes: resolved.totalBytes, files: resolved.absolutePaths.length });
+      });
     });
     await this.publishState(true);
   }
@@ -888,11 +892,12 @@ export class BrowserViewService {
     if (!pending) return;
     await withBrowserRuntimeLock(this.context, async () => {
       this.assertOpen();
-      assertBrowserUserControl(this.context, this.claims.viewId);
-      this.pendingFileChooser = null;
-      await pending.chooser.cancel();
-      recordBrowserUserInteraction(this.context, this.claims.viewId);
-      this.armFileChooser(pending.page);
+      return withBrowserUserControlOperation(this.context, this.claims.viewId, async () => {
+        this.pendingFileChooser = null;
+        await pending.chooser.cancel();
+        recordBrowserUserInteraction(this.context, this.claims.viewId);
+        this.armFileChooser(pending.page);
+      });
     });
     await this.publishState(true);
   }
@@ -915,18 +920,30 @@ export class BrowserViewService {
     this.assertOpen();
     const result = await withBrowserRuntimeLock(this.context, async () => {
       this.assertOpen();
-      assertBrowserUserControl(this.context, this.claims.viewId);
-      refreshBrowserControlLease(this.context, this.claims.viewId);
-      const page = await ensurePage(this.context);
-      await this.ensurePageTransfers(page);
-      this.assertOpen();
-      const result = await operation(page);
-      this.assertOpen();
-      if (options.trackInteraction !== false) {
-        recordBrowserUserInteraction(this.context, this.claims.viewId);
-      }
-      scheduleIdleClose(this.context);
-      return result;
+      return withBrowserUserControlOperation(this.context, this.claims.viewId, async () => {
+        refreshBrowserControlLease(this.context, this.claims.viewId);
+        const page = await ensurePage(this.context);
+        await this.ensurePageTransfers(page);
+        this.assertOpen();
+        const dismissIfClosed = () => {
+          if (this.closed) void dismissPendingDialog(this.context).catch(() => undefined);
+        };
+        this.activeUserPage = page;
+        page.on('dialog', dismissIfClosed);
+        let result: T;
+        try {
+          result = await operation(page);
+        } finally {
+          page.off('dialog', dismissIfClosed);
+          this.activeUserPage = null;
+        }
+        this.assertOpen();
+        if (options.trackInteraction !== false) {
+          recordBrowserUserInteraction(this.context, this.claims.viewId);
+        }
+        scheduleIdleClose(this.context);
+        return result;
+      });
     });
     if (options.trackInteraction !== false) this.scheduleInteractionStatePublish();
     return result;
@@ -968,21 +985,31 @@ export class BrowserViewService {
     this.closed = true;
     this.unsubscribeRuntime?.();
     this.unsubscribeRuntime = null;
-    for (const [page, buttons] of this.pressedMouseButtons) {
-      if (!page.isClosed()) {
-        for (const button of buttons) void page.mouse.up({ button }).catch(() => undefined);
+    const pending = this.pendingFileChooser;
+    this.pendingFileChooser = null;
+    const releaseInput = async () => {
+      const cleanup: Promise<unknown>[] = [];
+      if (pending) cleanup.push(pending.chooser.cancel().catch(() => undefined));
+      if (this.activeUserPage) cleanup.push(dismissPendingDialog(this.context).catch(() => undefined));
+      for (const [page, buttons] of this.pressedMouseButtons) {
+        if (!page.isClosed()) {
+          for (const button of buttons) cleanup.push(page.mouse.up({ button }).catch(() => undefined));
+        }
       }
+      this.pressedMouseButtons.clear();
+      await Promise.all(cleanup);
+    };
+    if (getBrowserControlState(this.context).ownerViewId === this.claims.viewId) {
+      void withBrowserUserControlOperation(this.context, this.claims.viewId, releaseInput).catch(() => undefined);
+    } else {
+      this.pressedMouseButtons.clear();
     }
-    this.pressedMouseButtons.clear();
     if (this.captureTimer) clearInterval(this.captureTimer);
     this.captureTimer = null;
     if (this.interactionPublishTimer) clearTimeout(this.interactionPublishTimer);
     this.interactionPublishTimer = null;
     releaseBrowserViewControl(this.context, this.claims.viewId);
     if (refreshSnapshot) void refreshBrowserSessionSnapshot(this.context).catch(() => undefined);
-    const pending = this.pendingFileChooser;
-    this.pendingFileChooser = null;
-    if (pending) void pending.chooser.cancel().catch(() => undefined);
     const releases = Array.from(this.pageTransfers.keys()).map((page) => this.releasePageTransfers(page));
     void Promise.all(releases).finally(() => {
       void this.browserDownloadClient?.detach().catch(() => undefined);

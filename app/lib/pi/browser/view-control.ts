@@ -15,6 +15,7 @@ type BrowserControlState = {
 };
 
 const controlStates = new Map<string, BrowserControlState>();
+const activeInputs = new Map<string, { viewId: string; count: number; releaseRequested: boolean }>();
 
 function runtimeKey(context: BrowserRuntimeContext): string {
   return getBrowserRuntimeContextKey(context);
@@ -30,7 +31,7 @@ function currentState(context: BrowserRuntimeContext, now = Date.now()): Browser
     ownerViewId: null,
     leaseExpiresAt: null,
   };
-  if (state.mode === 'user' && state.leaseExpiresAt !== null && state.leaseExpiresAt <= now) {
+  if (state.mode === 'user' && state.leaseExpiresAt !== null && state.leaseExpiresAt <= now && !activeInputs.has(key)) {
     const expired = {
       ...state,
       mode: 'view',
@@ -58,6 +59,9 @@ export function setBrowserControlMode(input: {
   const current = currentState(input.context, now);
   if (current.mode === 'user' && current.ownerViewId !== input.viewId) {
     throw new Error('Another browser view currently owns user control.');
+  }
+  if (input.mode !== 'user' && activeInputs.has(runtimeKey(input.context))) {
+    throw new Error('Wait for the current browser input to finish before releasing control.');
   }
 
   const interactionPolicy = input.interactionPolicy ?? current.interactionPolicy;
@@ -93,6 +97,11 @@ export function refreshBrowserControlLease(
 }
 
 export function releaseBrowserViewControl(context: BrowserRuntimeContext, viewId: string): void {
+  const active = activeInputs.get(runtimeKey(context));
+  if (active?.viewId === viewId) {
+    active.releaseRequested = true;
+    return;
+  }
   const current = currentState(context);
   if (current.ownerViewId === viewId) {
     controlStates.set(runtimeKey(context), {
@@ -101,6 +110,29 @@ export function releaseBrowserViewControl(context: BrowserRuntimeContext, viewId
       ownerViewId: null,
       leaseExpiresAt: null,
     });
+  }
+}
+
+/** Retain ownership through awaited input, including concurrent dialog/stop commands. */
+export async function withBrowserUserControlOperation<T>(
+  context: BrowserRuntimeContext,
+  viewId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  assertBrowserUserControl(context, viewId);
+  const key = runtimeKey(context);
+  const active = activeInputs.get(key) ?? { viewId, count: 0, releaseRequested: false };
+  if (active.releaseRequested) throw new Error('Browser view closed.');
+  active.count++;
+  activeInputs.set(key, active);
+  try {
+    return await operation();
+  } finally {
+    active.count--;
+    if (active.count === 0) {
+      activeInputs.delete(key);
+      if (active.releaseRequested) releaseBrowserViewControl(context, viewId);
+    }
   }
 }
 

@@ -87,6 +87,7 @@ async function main() {
   const runtime = await import('../app/lib/pi/browser/runtime');
   const { BrowserViewService } = await import('../app/lib/pi/browser/view-service');
   const snapshots = await import('../app/lib/pi/browser/session-state');
+  const controls = await import('../app/lib/pi/browser/view-control');
   internals._load = original;
   const context = { userId: 'test', agentId: 'agent', sessionId: 'one', workspaceId: 'workspace', workspaceType: 'personal', organizationId: null };
   const other = { ...context, sessionId: 'two' };
@@ -145,6 +146,94 @@ async function main() {
     assert.ok(clients.every((client) => client.detached), 'late transfer clients must detach');
     transferGate = Promise.resolve();
 
+    const retentionContext = { ...context, sessionId: 'retention' };
+    controls.setBrowserControlMode({ context: retentionContext, viewId: 'owner', mode: 'user' });
+    const retainOne = deferred(); const retainTwo = deferred();
+    const firstRetained = controls.withBrowserUserControlOperation(retentionContext, 'owner', () => retainOne.promise);
+    const secondRetained = controls.withBrowserUserControlOperation(retentionContext, 'owner', () => retainTwo.promise);
+    assert.throws(() => controls.setBrowserControlMode({ context: retentionContext, viewId: 'owner', mode: 'agent' }), /input to finish/);
+    controls.releaseBrowserViewControl(retentionContext, 'owner');
+    await assert.rejects(controls.withBrowserUserControlOperation(retentionContext, 'owner', async () => {}), /Browser view closed/);
+    retainOne.resolve(); await firstRetained;
+    assert.throws(() => controls.setBrowserControlMode({ context: retentionContext, viewId: 'successor', mode: 'user' }), /Another browser view/);
+    retainTwo.resolve(); await secondRetained;
+    controls.setBrowserControlMode({ context: retentionContext, viewId: 'successor', mode: 'user' });
+    await assert.rejects(controls.withBrowserUserControlOperation(retentionContext, 'successor', async () => { throw new Error('input failed'); }), /input failed/);
+    controls.releaseBrowserViewControl(retentionContext, 'successor');
+    assert.equal(controls.getBrowserControlState(retentionContext).ownerViewId, null, 'failed input must release its retention');
+
+    const inputOwner = makeView('input-owner', []);
+    const inputSuccessor = makeView('input-successor', []);
+    await inputOwner.start(); await inputSuccessor.start();
+    await inputOwner.requestControl('user');
+    const inputPage = browsers.at(-1)!.pages.at(-1)!;
+    const heldInput = deferred();
+    let inputStarted = false;
+    inputPage.mouse.move = async () => { inputStarted = true; await heldInput.promise; };
+    const slowInput = inputOwner.mouse({ action: 'move', x: 10, y: 10 });
+    const closedInput = assert.rejects(slowInput, /Browser view closed/);
+    await until(() => inputStarted);
+    const realNow = Date.now;
+    try {
+      Date.now = () => realNow() + 31_000;
+      assert.equal(controls.getBrowserControlState(context).ownerViewId, 'input-owner');
+      await assert.rejects(inputSuccessor.requestControl('user'), /Another browser view/);
+      inputOwner.close();
+      await assert.rejects(inputSuccessor.requestControl('user'), /Another browser view/);
+      heldInput.resolve();
+      await closedInput;
+      await inputSuccessor.requestControl('user');
+      assert.equal(controls.getBrowserControlState(context).ownerViewId, 'input-successor');
+      await assert.rejects(inputOwner.mouse({ action: 'move', x: 20, y: 20 }), /Browser view closed/);
+    } finally {
+      Date.now = realNow;
+      heldInput.resolve();
+      inputOwner.close(); inputSuccessor.close();
+      inputPage.mouse.move = async () => {};
+      await tick();
+    }
+
+    const expiredOwner = makeView('expired-owner', []);
+    const replacement = makeView('replacement', []);
+    await expiredOwner.start(); await replacement.start();
+    await expiredOwner.requestControl('user');
+    await expiredOwner.mouse({ action: 'down', x: 10, y: 10 });
+    try {
+      Date.now = () => realNow() + 31_000;
+      await replacement.requestControl('user');
+      await replacement.mouse({ action: 'down', x: 10, y: 10 });
+      expiredOwner.close();
+      await tick();
+      assert.equal(inputPage.pressedButtons.size, 1, 'an expired viewer must not release the new owner\'s mouse button');
+    } finally {
+      Date.now = realNow;
+      expiredOwner.close(); replacement.close();
+      await tick();
+    }
+
+    // A disconnected user's pending dialog must settle the retained input so a
+    // replacement view can take control. Agent dialogs are tested separately.
+    const dialogOwner = makeView('dialog-owner', []);
+    await dialogOwner.start(); await dialogOwner.requestControl('user');
+    const orphanedDialog = deferred();
+    let userDialogStarted = false;
+    inputPage.mouse.move = async () => {
+      userDialogStarted = true;
+      inputPage.emit('dialog', {
+        type: () => 'prompt', message: () => 'Orphaned prompt', defaultValue: () => '',
+        dismiss: async () => { orphanedDialog.resolve(); },
+      });
+      await orphanedDialog.promise;
+    };
+    const orphanedInput = dialogOwner.mouse({ action: 'move', x: 1, y: 1 });
+    const orphanedInputRejected = assert.rejects(orphanedInput, /Browser view closed/);
+    await until(() => userDialogStarted);
+    dialogOwner.close();
+    await orphanedInputRejected;
+    await tick();
+    assert.equal(controls.getBrowserControlState(context).ownerViewId, null);
+    inputPage.mouse.move = async () => {};
+
     const messages: Array<unknown> = [];
     let closed = 0;
     const viewer = makeView('first', messages, () => { closed++; });
@@ -175,6 +264,7 @@ async function main() {
       assert.ok(arrivingMessages.some((message) => (message as { type: string }).type === 'ready'));
       assert.ok(arrivingMessages.some((message) => (message as { state?: { pendingDialog?: unknown } }).state?.pendingDialog));
       viewer.close();
+      await tick();
       await arrivingViewer.requestControl('user');
       await viewer.requestControl('user').then(() => assert.fail('closed viewer regained control'), () => undefined);
     } finally { clearTimeout(arrivalDeadline); }
