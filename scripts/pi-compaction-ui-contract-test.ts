@@ -16,6 +16,7 @@ import type { PiHistoryComposition } from '../app/lib/pi/history-budget';
 
 const runtimeServiceSource = fs.readFileSync('app/lib/pi/runtime-service.ts', 'utf8');
 const chatControlSource = fs.readFileSync('app/components/canvas-agent-chat/useChatControlActions.ts', 'utf8');
+const chatHeaderSource = fs.readFileSync('app/components/canvas-agent-chat/ChatHeader.tsx', 'utf8');
 assert.match(
   runtimeServiceSource,
   /case 'compact':\s+return runtimeInstance\.startCompaction\(focusTopic\);/u,
@@ -26,6 +27,11 @@ assert.match(
   chatControlSource,
   /wsRequest<\{ success: boolean; status\?: RuntimeStatus \}>\('get_status'/u,
   'a lost compaction acknowledgement must reconcile authoritative runtime status before showing an error',
+);
+assert.match(
+  chatHeaderSource,
+  /compactionStatus\?\.state === 'succeeded'/u,
+  'candidate/no-op token metrics must not be presented as an applied compaction',
 );
 
 const baseStatus: Omit<RuntimeCompactionStatus, 'state' | 'reasonCode'> = {
@@ -228,6 +234,7 @@ for (const key of [
   'contextPressureLabel',
   'contextPressureTooltip',
   'contextTargetMarker',
+  'contextTargetMarkerWithValue',
   'compactWithFocus',
   'compactionMetrics',
   'compactionStatusCooldown',

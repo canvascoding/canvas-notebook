@@ -117,10 +117,14 @@ export function ChatHeader({
   const compactionLabel = compactionTranslationKey ? t(compactionTranslationKey) : null;
   const compactionCauseKey = getRuntimeCompactionCauseTranslationKey(compactionStatus?.cause);
   const compactionCauseLabel = compactionCauseKey ? t(compactionCauseKey) : null;
-  const hasCompactionMetrics = compactionStatus?.beforeTokens !== null
+  const hasAppliedCompaction = compactionStatus?.state === 'succeeded';
+  const hasCompactionMetrics = hasAppliedCompaction
+    && compactionStatus?.beforeTokens !== null
     && compactionStatus?.beforeTokens !== undefined
     && compactionStatus?.afterTokens !== null
     && compactionStatus?.afterTokens !== undefined;
+  const showCompactionCause = hasAppliedCompaction
+    || Boolean(compactionStatus && !['idle', 'running', 'no_op'].includes(compactionStatus.state));
   const canCompact = Boolean(
     sessionId
     && runtimeStatus?.phase === 'idle'
@@ -302,21 +306,30 @@ export function ChatHeader({
                   {contextDetailedLabel}
                 </p>
                 {runtimeStatus ? (
-                  <div className="relative h-1 overflow-hidden rounded-full bg-muted">
-                    <div
-                      data-testid="chat-context-progress"
-                      className={cn('h-full rounded-full transition-all', contextProgressClass)}
-                      style={{ width: `${contextProgressPercent}%` }}
-                    />
-                    {contextTargetPercent !== null ? (
-                      <span
-                        data-testid="chat-context-target"
-                        className="absolute inset-y-0 w-px bg-foreground/70"
-                        style={{ left: `${contextTargetPercent}%` }}
-                        title={t('contextTargetMarker')}
+                  <>
+                    <div className="relative h-1 overflow-hidden rounded-full bg-muted">
+                      <div
+                        data-testid="chat-context-progress"
+                        className={cn('h-full rounded-full transition-all', contextProgressClass)}
+                        style={{ width: `${contextProgressPercent}%` }}
                       />
+                      {contextTargetPercent !== null ? (
+                        <span
+                          data-testid="chat-context-target"
+                          className="absolute inset-y-0 w-px bg-foreground/70"
+                          style={{ left: `${contextTargetPercent}%` }}
+                          title={t('contextTargetMarker')}
+                        />
+                      ) : null}
+                    </div>
+                    {runtimeStatus.contextPressure ? (
+                      <p className="text-[10px] text-muted-foreground">
+                        {t('contextTargetMarkerWithValue', {
+                          target: formatContextTokens(runtimeStatus.contextPressure.targetTokens),
+                        })}
+                      </p>
                     ) : null}
-                  </div>
+                  </>
                 ) : null}
                 {runtimeStatus?.includedSummary ? (
                   <p className="text-[10px] text-muted-foreground">{t('summaryIncluded')}</p>
@@ -335,7 +348,7 @@ export function ChatHeader({
                     })}
                   </p>
                 ) : null}
-                {compactionCauseLabel ? (
+                {showCompactionCause && compactionCauseLabel ? (
                   <p className="text-[10px] text-muted-foreground">
                     {t('compactionCauseLabel', { cause: compactionCauseLabel })}
                     {compactionStatus?.focusApplied ? ` · ${t('compactionFocusApplied')}` : ''}

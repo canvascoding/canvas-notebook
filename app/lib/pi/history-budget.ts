@@ -413,8 +413,11 @@ export function composePiHistoryForLlm({
   });
   const summaryUsable = Boolean(summaryText) && !boundarySplit;
   const hasPrunedHistory = summaryUsable && hasPrunedSummaryPrefix(historyUnits, summary);
+  const hasAppliedCompaction = summaryUsable
+    && messages.some((message) => message.role === 'compact-break');
   const shouldIncludeSummary = summaryUsable && (
     hasPrunedHistory
+    || hasAppliedCompaction
     || selectionMode === 'force'
     || (selectionMode === 'automatic' && softThresholdExceeded)
     || (selectionMode === 'hard_limit'

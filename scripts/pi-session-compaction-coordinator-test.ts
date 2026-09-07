@@ -210,6 +210,7 @@ async function main(): Promise<void> {
     const succeeded = await first;
     assert.equal(succeeded.state, 'succeeded');
     assert.equal(succeeded.summary?.summaryRevision, 1);
+    assert.equal(succeeded.summarizedMessageCount, 2);
     assert.equal(prepareCalls, 1);
     assert.equal(calls.start, 1);
     assert.equal(calls.commit, 1);

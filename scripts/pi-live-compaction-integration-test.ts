@@ -39,6 +39,7 @@ async function main(): Promise<void> {
   const { db } = await import('../app/lib/db');
   const { piSessionCompactionAttempts, piSessions, user } = await import('../app/lib/db/schema');
   const { LivePiRuntime } = await import('../app/lib/pi/live-runtime');
+  const { estimatePiMessageTokens } = await import('../app/lib/pi/history-budget');
   const { buildPiSystemPromptSnapshotFromText } = await import('../app/lib/pi/system-prompt-snapshot');
   const { loadPiSessionWithSummary, savePiSession } = await import('../app/lib/pi/session-store');
   const { loadLatestPiSessionInputUsage, persistPiUsageEvents } = await import('../app/lib/pi/usage-events');
@@ -280,6 +281,97 @@ async function main(): Promise<void> {
   assert.equal(replacingStatus.finalRequestTokens, null, 'the replaced request payload must not remain exposed during replacement');
   statusRuntime.pendingReplace = null;
 
+  const pruningMessages = Array.from({ length: 15 }, (_, index) => {
+    const toolCallId = `status-pruning-${index}`;
+    return [{
+      role: 'assistant',
+      content: [{ type: 'toolCall', id: toolCallId, name: 'read_file', arguments: { path: `${index}.log` } }],
+      api: 'test',
+      provider: 'test-provider',
+      model: 'test-model',
+      stopReason: 'toolUse',
+      timestamp: now.getTime() + 1_000 + index * 2,
+      sequence: index * 2 + 1,
+    }, {
+      role: 'toolResult',
+      toolCallId,
+      toolName: 'read_file',
+      content: [{ type: 'text', text: `historical output ${index} ${'large result '.repeat(1_000)}` }],
+      isError: false,
+      timestamp: now.getTime() + 1_001 + index * 2,
+      sequence: index * 2 + 2,
+    }] as unknown as AgentMessage[];
+  }).flat();
+  const appliedCompactionMessages = [...pruningMessages, {
+    role: 'compact-break',
+    attemptId: 'status-pruning-compaction',
+    kind: 'manual',
+    omittedMessageCount: 10,
+    timestamp: new Date(now.getTime() + 2_000).toISOString(),
+  } as unknown as AgentMessage];
+  const pruningStatusRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
+  Object.assign(pruningStatusRuntime, {
+    sessionId: 'status-pruning-session',
+    userId,
+    agentId: 'canvas-agent',
+    model: { ...model, contextWindow: 262_000, maxTokens: 20_000 },
+    summary: {
+      summaryText: 'The first five historical tool transactions were compacted.',
+      summaryUpdatedAt: now,
+      summaryThroughTimestamp: now.getTime() + 1_009,
+      summaryThroughSequence: 10,
+      summaryRevision: 1,
+    },
+    requestOutputTokenCap: 20_000,
+    tools: [],
+    lastComposition: null,
+    lastFinalPayloadBudgetSnapshot: null,
+    lastProviderInputUsage: null,
+    isRunning: false,
+    abortRequested: false,
+    activeTool: null,
+    pendingReplace: null,
+    agent: { state: { pendingToolCalls: new Set(), messages: appliedCompactionMessages } },
+    compactionStatus: {
+      state: 'idle', attemptId: null, trigger: null, reasonCode: null, retryAfter: null, omittedMessageCount: 0,
+    },
+    lastCompactionAt: null,
+    lastCompactionKind: null,
+    lastCompactionOmittedCount: 0,
+    statusRevision: 1,
+    getEffectiveSystemPrompt: () => 'status pruning prompt',
+    getEffectiveTools: () => [],
+    getBrowserRuntimeContextTokenEstimate: () => 0,
+    getCompactionScope: () => ({
+      sessionId: 'status-pruning-session', userId, agentId: 'canvas-agent', workspaceId: null,
+    }),
+  });
+  Object.defineProperties(pruningStatusRuntime, {
+    followUpQueue: { value: [] },
+    steeringQueue: { value: [] },
+  });
+  const rawPruningTokens = appliedCompactionMessages.reduce(
+    (total, message) => total + estimatePiMessageTokens(message),
+    0,
+  );
+  const firstPrunedStatus = (pruningStatusRuntime as {
+    getStatus: () => { estimatedHistoryTokens: number; omittedMessageCount: number };
+  }).getStatus();
+  assert(
+    firstPrunedStatus.estimatedHistoryTokens < rawPruningTokens,
+    'idle status must keep an explicitly applied compaction summary active',
+  );
+  assert.equal(firstPrunedStatus.omittedMessageCount, 10);
+  pruningStatusRuntime.lastComposition = null;
+  const recomputedPrunedStatus = (pruningStatusRuntime as {
+    getStatus: () => { estimatedHistoryTokens: number };
+  }).getStatus();
+  assert.equal(
+    recomputedPrunedStatus.estimatedHistoryTokens,
+    firstPrunedStatus.estimatedHistoryTokens,
+    'recomputing idle status must not jump back to the unpruned transcript size',
+  );
+
   const eventRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
   Object.assign(eventRuntime, {
     model,
@@ -408,6 +500,11 @@ async function main(): Promise<void> {
   const marker = (runtime.agent.state.messages as AgentMessage[]).at(-1) as unknown as Record<string, unknown>;
   assert.equal(marker.role, 'compact-break');
   assert.equal(marker.attemptId, attempts[0].id);
+  assert.equal(
+    marker.omittedMessageCount,
+    13,
+    'the public compacted count must report newly summarized messages, not pruning replacements',
+  );
 
   const persistedSession = await db.select().from(piSessions);
   assert.equal(persistedSession[0].summaryRevision, 1);

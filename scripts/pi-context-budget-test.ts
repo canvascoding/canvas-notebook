@@ -326,6 +326,29 @@ async function main() {
     toolkit: 'example',
     timestamp: 11,
   } as unknown as AgentMessage;
+  const appliedSummaryComposition = composePiHistoryForLlm({
+    messages: [...completeRawHistory, marker],
+    summary: {
+      summaryText: 'This summary was explicitly activated by a completed compaction.',
+      summaryUpdatedAt: new Date(),
+      summaryThroughTimestamp: 10,
+      summaryThroughSequence: 1,
+      summaryRevision: 1,
+    },
+    systemPromptTokens: 100,
+    contextWindow: 4_000,
+    modelMaxTokens: 1_000,
+    requestOutputTokens: 800,
+  });
+  assert.equal(appliedSummaryComposition.softThresholdExceeded, false);
+  assert.equal(
+    appliedSummaryComposition.includedSummary,
+    true,
+    'an explicitly applied compaction summary must remain active below the next trigger',
+  );
+  assert.deepEqual(appliedSummaryComposition.keptMessages, [completeRawHistory[1]]);
+  assert.deepEqual(appliedSummaryComposition.omittedMessages, [completeRawHistory[0]]);
+
   const prunedComposition = composePiHistoryForLlm({
     messages: [completeRawHistory[1], marker, authMarker],
     summary: {

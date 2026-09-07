@@ -14,7 +14,9 @@ import {
   type PiContextBudgetSnapshot,
 } from '../context-budget';
 import {
+  composePiHistoryForLlm,
   estimatePiMessageTokens,
+  type PiHistoryComposition,
   type PiHistorySelectionMode,
   type PiSessionSummaryState,
 } from '../history-budget';
@@ -157,9 +159,34 @@ export type PreparePiHermesCompactionCandidateResult = PreparePiHistoryContextRe
   pruning: PiPruningResult;
 }>;
 
-export async function preparePiHermesCompactionCandidate(
-  input: PreparePiHermesCompactionCandidateInput,
-): Promise<PreparePiHermesCompactionCandidateResult> {
+export type ProjectPiHermesHistoryInput = Readonly<{
+  messages: AgentMessage[];
+  summary: PiSessionSummaryState;
+  systemPromptTokens: number;
+  model: Model<Api>;
+  requestOutputTokens: number;
+  toolTokens: number;
+  additionalContextTokens?: number;
+  selectionMode?: PiHistorySelectionMode;
+  policy?: PiContextBudgetPolicy;
+  rolloutMode?: PiCompactionRolloutMode;
+  pruningMode?: 'disabled' | 'candidate';
+}>;
+
+export type PiHermesHistoryProjection = Readonly<{
+  composition: PiHistoryComposition;
+  inspection: PiRuntimeCompactionInspection;
+  pruning: PiPruningResult;
+}>;
+
+/**
+ * Builds the deterministic history projection shared by request preparation
+ * and runtime status. The persisted transcript stays intact; only the LLM
+ * projection receives safe, idempotent pruning.
+ */
+export function projectPiHermesHistory(
+  input: ProjectPiHermesHistoryInput,
+): PiHermesHistoryProjection {
   const policy = validatePiContextBudgetPolicy(
     input.policy ?? DEFAULT_PI_CONTEXT_BUDGET_POLICY,
   );
@@ -178,12 +205,36 @@ export async function preparePiHermesCompactionCandidate(
   const pruning = prunePiSessionHistory({
     messages: input.messages,
     estimateMessageTokens: estimatePiMessageTokens,
-    enabled: rollout.pruningEnabled,
+    enabled: rollout.pruningEnabled && input.pruningMode === 'candidate',
     protectLastMessages: policy.protectLastMessages,
     protectedTailTokenBudget: inspection.budget.targetTailTokens,
     triggerTokens: inspection.budget.triggerTokens,
     currentHistoryTokens: inspection.roughHistoryTokens,
   });
+  const composition = composePiHistoryForLlm({
+    messages: [...pruning.messages],
+    summary: input.summary,
+    systemPromptTokens: input.systemPromptTokens,
+    contextWindow: input.model.contextWindow,
+    modelMaxTokens: input.model.maxTokens,
+    requestOutputTokens: input.requestOutputTokens,
+    toolTokens: input.toolTokens,
+    additionalContextTokens: input.additionalContextTokens,
+    modelIdentity: `${input.model.provider}:${input.model.api}:${input.model.id}`,
+    selectionMode: input.selectionMode ?? 'automatic',
+    policy,
+  });
+  return Object.freeze({ composition, inspection, pruning });
+}
+
+export async function preparePiHermesCompactionCandidate(
+  input: PreparePiHermesCompactionCandidateInput,
+): Promise<PreparePiHermesCompactionCandidateResult> {
+  const policy = validatePiContextBudgetPolicy(
+    input.policy ?? DEFAULT_PI_CONTEXT_BUDGET_POLICY,
+  );
+  const rollout = getPiCompactionRolloutDecision(input.rolloutMode);
+  const projection = projectPiHermesHistory({ ...input, pruningMode: 'candidate' });
   if (rollout.shadowEvaluationEnabled) {
     const telemetry = createPiCompactionShadowTelemetry({
       messages: input.messages,
@@ -206,7 +257,7 @@ export async function preparePiHermesCompactionCandidate(
   }
   const candidate = await preparePiHistoryContext({
     compactionAttemptId: input.compactionAttemptId,
-    messages: [...pruning.messages],
+    messages: [...projection.pruning.messages],
     summary: input.summary,
     systemPromptTokens: input.systemPromptTokens,
     model: input.model,
@@ -223,5 +274,5 @@ export async function preparePiHermesCompactionCandidate(
     authorizedSessionId: input.sessionId,
     onSummaryProgress: input.onSummaryProgress,
   });
-  return Object.freeze({ ...candidate, pruning });
+  return Object.freeze({ ...candidate, pruning: projection.pruning });
 }

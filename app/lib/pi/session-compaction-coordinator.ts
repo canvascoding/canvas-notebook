@@ -57,6 +57,8 @@ export type PiCompactionCoordinatorResult = Readonly<{
   retryAt: Date | null;
   summary: PiSessionSummaryState | null;
   composition: PiHistoryComposition | null;
+  /** Number of newly summarized persisted messages; excludes deterministic tool pruning. */
+  summarizedMessageCount: number;
 }>;
 
 export type PiCompactionCoordinatorStore = Readonly<{
@@ -166,6 +168,7 @@ function result(input: {
   retryAt?: Date | null;
   summary?: PiSessionSummaryState | null;
   composition?: PiHistoryComposition | null;
+  summarizedMessageCount?: number;
 }): PiCompactionCoordinatorResult {
   return Object.freeze({
     state: input.state,
@@ -174,6 +177,7 @@ function result(input: {
     retryAt: input.retryAt ?? null,
     summary: input.summary ?? null,
     composition: input.composition ?? null,
+    summarizedMessageCount: Math.max(0, Math.floor(input.summarizedMessageCount ?? 0)),
   });
 }
 
@@ -684,6 +688,7 @@ export async function runPiSessionCompaction(
       attemptId,
       summary: committed.summary,
       composition: candidate.composition,
+      summarizedMessageCount: candidate.unsummarizedMessageCount,
     });
   } finally {
     if (idleTimeout) clearTimeout(idleTimeout);

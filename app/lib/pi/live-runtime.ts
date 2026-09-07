@@ -23,7 +23,6 @@ import {
   piSystemPromptSnapshotDbFields,
 } from '@/app/lib/pi/system-prompt-snapshot';
 import {
-  composePiHistoryForLlm,
   estimateTextTokens,
   isPiHistoryCompositionSendable,
   type PiHistoryComposition,
@@ -61,6 +60,7 @@ import {
   getPiFinalPayloadRetryLoad,
   inspectPiRuntimeCompactionPressure,
   preparePiHermesCompactionCandidate,
+  projectPiHermesHistory,
 } from '@/app/lib/pi/compaction/runtime-engine';
 import {
   getPiCompactionErrorDiagnostics,
@@ -634,12 +634,19 @@ export class LivePiRuntime {
     additionalContextTokens: number,
     selectionMode: PiHistorySelectionMode = 'automatic',
   ): PiHistoryComposition {
-    return composePiHistoryForLlm({
+    return this.projectHistory(messages, additionalContextTokens, selectionMode).composition;
+  }
+
+  private projectHistory(
+    messages: AgentMessage[],
+    additionalContextTokens: number,
+    selectionMode: PiHistorySelectionMode = 'automatic',
+  ) {
+    return projectPiHermesHistory({
       messages,
       summary: this.summary,
       systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
-      contextWindow: this.model.contextWindow,
-      modelMaxTokens: this.model.maxTokens,
+      model: this.model,
       requestOutputTokens: this.requestOutputTokenCap,
       toolTokens: estimatePiToolSchemaTokens(this.getEffectiveTools()),
       additionalContextTokens,
@@ -785,6 +792,9 @@ export class LivePiRuntime {
       throw error;
     }
     if (ownsStatus && this.compactionStatus.attemptId === result.attemptId) {
+      const summarizedMessageCount = result.state === 'succeeded'
+        ? result.summarizedMessageCount
+        : 0;
       this.compactionStatus = {
         state: result.state === 'cooldown_active'
           || result.state === 'breaker_active'
@@ -796,7 +806,7 @@ export class LivePiRuntime {
         cause: input.cause,
         reasonCode: result.reasonCode ?? (result.state === 'already_running' ? 'already_running' : null),
         retryAfter: result.retryAt?.toISOString() ?? null,
-        omittedMessageCount: result.composition?.omittedMessages.length ?? 0,
+        omittedMessageCount: summarizedMessageCount,
         beforeTokens: before.estimatedHistoryTokens,
         afterTokens: result.composition?.estimatedHistoryTokens ?? null,
         triggerTokens: result.composition?.triggerHistoryTokens ?? before.triggerHistoryTokens,
@@ -817,6 +827,7 @@ export class LivePiRuntime {
       beforeEstimatedTokens: before.estimatedHistoryTokens,
       afterEstimatedTokens: result.composition?.estimatedHistoryTokens ?? null,
       omittedMessageCount: result.composition?.omittedMessages.length ?? 0,
+      summarizedMessageCount: result.summarizedMessageCount,
       triggerTokens: result.composition?.triggerHistoryTokens ?? before.triggerHistoryTokens,
       targetTokens: result.composition?.targetHistoryTokens ?? before.targetHistoryTokens,
       summaryUpdated: Boolean(result.summary),
@@ -923,16 +934,10 @@ export class LivePiRuntime {
 
   getStatus(): PiRuntimeStatus {
     if (!this.lastComposition) {
-      this.lastComposition = composePiHistoryForLlm({
-        messages: this.agent.state.messages,
-        summary: this.summary,
-        systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
-        contextWindow: this.model.contextWindow,
-        modelMaxTokens: this.model.maxTokens,
-        requestOutputTokens: this.requestOutputTokenCap,
-        toolTokens: estimatePiToolSchemaTokens(this.tools),
-        additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
-      });
+      this.lastComposition = this.composeHistory(
+        this.agent.state.messages,
+        this.getBrowserRuntimeContextTokenEstimate(),
+      );
     }
     const composition = this.lastComposition;
     const finalPayloadBudget = this.lastFinalPayloadBudgetSnapshot;
@@ -1143,7 +1148,12 @@ export class LivePiRuntime {
     if (result.state === 'succeeded' && result.summary && result.composition) {
       this.summary = result.summary;
       this.lastComposition = result.composition;
-      this.recordCompaction(result.attemptId, 'manual', result.composition);
+      this.recordCompaction(
+        result.attemptId,
+        'manual',
+        result.composition,
+        result.summarizedMessageCount,
+      );
       await this.persistMessages('turn_end');
       this.lastComposition = this.composeHistory(this.agent.state.messages, additionalContextTokens);
       this.touch();
@@ -1684,7 +1694,12 @@ export class LivePiRuntime {
 
     this.summary = result.summary;
     this.lastComposition = result.composition;
-    this.recordCompaction(result.attemptId, 'automatic', result.composition);
+    this.recordCompaction(
+      result.attemptId,
+      'automatic',
+      result.composition,
+      result.summarizedMessageCount,
+    );
     this.publishStatus();
     return true;
   }
@@ -2080,51 +2095,26 @@ export class LivePiRuntime {
     const additionalContextTokens = runtimeContext ? estimateTextTokens(runtimeContext) : 0;
     const systemPromptTokens = estimateTextTokens(this.getEffectiveSystemPrompt());
     const toolTokens = estimatePiToolSchemaTokens(this.getEffectiveTools());
-    const roughInspection = inspectPiRuntimeCompactionPressure({
-      messages,
+    const projection = this.projectHistory(messages, additionalContextTokens);
+    const preflight = projection.composition;
+    const projectedCandidate = await this.injectRuntimeContext(preflight.llmMessages, runtimeContext);
+    const exactPreflight = await this.buildFinalPayload(projectedCandidate);
+    const exactInspection = inspectPiRuntimeCompactionPressure({
+      messages: projection.pruning.messages,
       model: this.model,
       outputReserveTokens: this.requestOutputTokenCap,
-      fixedRequestTokens:
-        systemPromptTokens
-        + toolTokens
-        + additionalContextTokens
-        + DEFAULT_PI_CONTEXT_BUDGET_POLICY.safetyFloorTokens,
+      fixedRequestTokens: systemPromptTokens + toolTokens + additionalContextTokens,
+      finalSnapshot: exactPreflight.budgetSnapshot,
       providerActualInputTokens: this.lastProviderInputUsage?.inputTokens ?? null,
     });
-    const preflight = this.composeHistory(messages, additionalContextTokens);
-    if (roughInspection.pressure.cheapGatePassed) {
-      const completeCandidate = await this.injectRuntimeContext(messages, runtimeContext);
-      const exactPreflight = await this.buildFinalPayload(completeCandidate);
-      const exactInspection = inspectPiRuntimeCompactionPressure({
-        messages,
-        model: this.model,
-        outputReserveTokens: this.requestOutputTokenCap,
-        fixedRequestTokens: systemPromptTokens + toolTokens + additionalContextTokens,
-        finalSnapshot: exactPreflight.budgetSnapshot,
-        providerActualInputTokens: this.lastProviderInputUsage?.inputTokens ?? null,
-      });
-      if (!exactInspection.pressure.shouldCompact && this.isFinalPayloadSendable(exactPreflight.budgetSnapshot)) {
-        this.lastComposition = this.composeHistory(messages, additionalContextTokens, 'full');
-        this.cachePreparedRuntimePayload(exactPreflight);
-        return completeCandidate;
-      }
-    }
     if (
-      !roughInspection.pressure.cheapGatePassed
-      && (
-        !preflight.softThresholdExceeded
-        && !preflight.contextBudgetExceeded
-        && isPiHistoryCompositionSendable(preflight, this.summary)
-      )
+      !exactInspection.pressure.shouldCompact
+      && this.isFinalPayloadSendable(exactPreflight.budgetSnapshot)
+      && isPiHistoryCompositionSendable(preflight, this.summary)
     ) {
       this.lastComposition = preflight;
-      return this.finalizeContextCandidate({
-        composition: preflight,
-        sourceMessages: messages,
-        runtimeContext,
-        additionalContextTokens,
-        signal,
-      });
+      this.cachePreparedRuntimePayload(exactPreflight);
+      return projectedCandidate;
     }
 
     const result = await this.coordinateCompaction({
@@ -2440,21 +2430,22 @@ export class LivePiRuntime {
     attemptId: string,
     kind: 'manual' | 'automatic',
     composition: PiHistoryComposition,
+    summarizedMessageCount: number,
   ) {
     this.lastCompactionAt = new Date();
     this.lastCompactionKind = kind;
-    this.lastCompactionOmittedCount = composition.omittedMessages.length;
+    this.lastCompactionOmittedCount = summarizedMessageCount;
     this.publish({
       type: 'context_compacted',
       attemptId,
       timestamp: this.lastCompactionAt.toISOString(),
       kind,
-      omittedMessageCount: composition.omittedMessages.length,
+      omittedMessageCount: summarizedMessageCount,
       includedSummary: composition.includedSummary,
     });
     this.agent.state.messages = [
       ...this.agent.state.messages,
-      createCompactBreakMessage(attemptId, kind, this.lastCompactionAt.toISOString(), composition.omittedMessages.length),
+      createCompactBreakMessage(attemptId, kind, this.lastCompactionAt.toISOString(), summarizedMessageCount),
     ];
   }
 
@@ -3075,18 +3066,17 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
   });
   const model = executableRuntime.model;
   const browserRuntimeContextBlock = buildBrowserRuntimeContextBlock(browserSnapshot);
-  const composition = composePiHistoryForLlm({
+  const composition = projectPiHermesHistory({
     messages,
     summary,
     systemPromptTokens: estimateTextTokens(systemPrompt),
-    contextWindow: model.contextWindow,
-    modelMaxTokens: model.maxTokens,
+    model,
     requestOutputTokens: getPiRequestOutputTokenCap(model),
     toolTokens: estimatePiToolSchemaTokens(tools),
     additionalContextTokens: browserRuntimeContextBlock
       ? estimateTextTokens(browserRuntimeContextBlock)
       : 0,
-  });
+  }).composition;
   const contextStatus = createPiRuntimeContextStatusProjection({
     composition,
     contextWindow: model.contextWindow,

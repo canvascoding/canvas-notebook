@@ -17,7 +17,10 @@ import {
   getPiCompactionRolloutDecision,
   resolvePiCompactionRolloutMode,
 } from '../app/lib/pi/compaction/rollout';
-import { preparePiHermesCompactionCandidate } from '../app/lib/pi/compaction/runtime-engine';
+import {
+  preparePiHermesCompactionCandidate,
+  projectPiHermesHistory,
+} from '../app/lib/pi/compaction/runtime-engine';
 
 function assistantText(text: string, timestamp: number): AgentMessage {
   return {
@@ -147,6 +150,41 @@ assert.equal(JSON.stringify(telemetry).includes('SAFE-ROOT'), false, 'shadow tel
 assert.equal(JSON.stringify(telemetry).includes('USER-59'), false, 'shadow telemetry must not leak user text');
 
 async function verifyRuntimeIntegration(): Promise<void> {
+  const effectiveProjection = projectPiHermesHistory({
+    messages,
+    summary: input.summary,
+    systemPromptTokens: input.systemPromptTokens,
+    model: {
+      id: 'rollout-scorecard',
+      name: 'Rollout Scorecard',
+      api: 'openai-completions',
+      provider: 'test',
+      baseUrl: 'http://localhost.invalid/v1',
+      reasoning: false,
+      input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: input.contextWindow,
+      maxTokens: input.modelMaxTokens,
+    },
+    requestOutputTokens: input.requestOutputTokens,
+    toolTokens: input.toolTokens,
+    additionalContextTokens: input.additionalContextTokens,
+    selectionMode: 'automatic',
+    rolloutMode: 'v2',
+    pruningMode: 'candidate',
+  });
+  assert.equal(effectiveProjection.pruning.changed, true);
+  assert(
+    effectiveProjection.composition.estimatedHistoryTokens
+      < effectiveProjection.inspection.roughHistoryTokens,
+    'the shared projection must report the pruned history that will actually be sent',
+  );
+  assert.equal(
+    effectiveProjection.composition.omittedMessages.length,
+    0,
+    'tool-result pruning must not be counted as summarized/omitted messages',
+  );
+
   let runtimeShadowTelemetry: typeof telemetry | null = null;
   const runtimeCandidate = await preparePiHermesCompactionCandidate({
     messages,
