@@ -2372,6 +2372,7 @@ export function IntegrationsSettingsClient({
   const t = useTranslations('settings');
   const locale = useLocale();
   const searchParams = useSearchParams();
+  const locationQuery = searchParams.toString();
 
   const requestedTabParam = searchParams.get('tab');
   const requestedIntegrationsSection = normalizeIntegrationsSection(searchParams.get('section'));
@@ -2706,8 +2707,9 @@ export function IntegrationsSettingsClient({
   }, [effectiveTab, loadMcpConfig, loadMcpStatus, loadState]);
 
   useEffect(() => {
-    const tabParam = searchParams.get('tab');
-    const integrationsSection = normalizeIntegrationsSection(searchParams.get('section'));
+    const locationParams = new URLSearchParams(locationQuery);
+    const tabParam = locationParams.get('tab');
+    const integrationsSection = normalizeIntegrationsSection(locationParams.get('section'));
     const tab = tabParam === 'integrations'
       ? integrationsSection === 'mcpConfig'
         ? 'mcp'
@@ -2726,7 +2728,7 @@ export function IntegrationsSettingsClient({
         return nextTabs;
       });
     });
-  }, [searchParams, visibleSettingsTabs]);
+  }, [locationQuery, visibleSettingsTabs]);
 
   useEffect(() => {
     startTransition(() => {

@@ -541,6 +541,7 @@ export function MemorySettingsPanel() {
   };
 
   const selectCollection = (collectionId: string) => {
+    collectionLoadVersionRef.current += 1;
     entryLoadVersionRef.current += 1;
     setSelectedCollectionId(collectionId);
     setEntryQuery('');

@@ -140,6 +140,21 @@ test.describe('Memory team governance', () => {
       await expect(writerPendingCard).toBeVisible();
       await writerPage.unroute('**/api/memory?**');
 
+      const memorySettingsSection = writerPage.locator('section[aria-labelledby="settings-content-memory"]');
+      await writerPage.evaluate(() => {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', 'general');
+        window.history.pushState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+      });
+      await expect(memorySettingsSection).toBeHidden();
+      await writerPage.evaluate(() => {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', 'memory');
+        window.history.pushState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+      });
+      await expect(memorySettingsSection).toBeVisible();
+      await expect(writerPendingCard).toBeVisible();
+
       const summaryResponse = await page.request.get('/api/notifications/summary');
       const summaryPayload = await summaryResponse.json() as { data?: { sections?: { notifications?: ApprovalNotification[] } } };
       expect(summaryResponse.ok(), JSON.stringify(summaryPayload)).toBeTruthy();
