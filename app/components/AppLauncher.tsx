@@ -20,6 +20,7 @@ import {
   Inbox,
   ShieldCheck,
   Network,
+  MonitorUp,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -116,7 +117,8 @@ function getQuickActions(
   return [];
 }
 
-export function AppLauncher() {
+export function AppLauncher({ showBrowserLab = false }: { showBrowserLab?: boolean }) {
+  const apps: AppItem[] = showBrowserLab ? [...APPS, { id: 'browserLab', href: '/browser/lab', icon: MonitorUp, hasQuickActions: false }] : APPS;
   const tApps = useTranslations('home.apps');
   const tNav = useTranslations('navigation');
   const tStudio = useTranslations('studio');
@@ -142,7 +144,7 @@ export function AppLauncher() {
     }
 
     setActiveActionsApp((current) => (current?.id === app.id ? null : app));
-  }, [isMobile]);
+  }, [isMobile, setMobileActionsApp, setActiveActionsApp]);
 
   const closeLauncher = useCallback(() => {
     setLauncherOpen(false);
@@ -219,7 +221,7 @@ export function AppLauncher() {
           className="w-[258px] p-2 sm:w-[304px] sm:p-3"
         >
           <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
-            {APPS.map((app) => {
+            {apps.map((app) => {
               const Icon = app.icon;
               const active = isPathActive(pathname, app.href);
               const label = tApps(`${app.id}.title` as Parameters<typeof tApps>[0]);

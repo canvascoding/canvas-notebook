@@ -41,7 +41,7 @@ export function HomeFilesPanel({ workspace, workspaceError }: { workspace?: Clie
       setLoading(true);
       setFailed(false);
       try {
-        const data = await loadQuickAccessFiles(workspaceId, view, query, expanded ? 20 : 5, controller.signal);
+        const data = await loadQuickAccessFiles(workspaceId, view, query, expanded ? 20 : 3, controller.signal);
         if (controller.signal.aborted) return;
         setResult(data);
         setFallback(view === 'recent' && data.view === 'all');
@@ -93,12 +93,16 @@ export function HomeFilesPanel({ workspace, workspaceError }: { workspace?: Clie
 
   return (
     <section aria-labelledby="home-files-heading" className="min-w-0" data-testid="home-files">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <div><div className="mb-1 h-4 text-xs font-medium text-muted-foreground">{workspace ? workspace.name : <HomeSkeleton className="h-3 w-24" />}</div><h1 id="home-files-heading" className="text-2xl font-semibold tracking-tight sm:text-3xl">{t('title')}</h1></div>
+      <div className="mb-5 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+        <div className="min-w-0"><div className="mb-1 h-4 truncate text-xs font-medium text-muted-foreground">{workspace ? workspace.name : <HomeSkeleton className="h-3 w-24" />}</div><h1 id="home-files-heading" className="text-2xl font-semibold tracking-tight sm:text-3xl">{t('title')}</h1></div>
         <div className="flex min-h-8 flex-wrap items-center gap-2">
-          {!workspace ? <HomeSkeleton className="h-8 w-64" /> : <>
-          <Button asChild variant="outline" size="sm"><Link href={`/notebook?${new URLSearchParams({ workspaceId: workspace?.id ?? '' })}`}><FolderOpen className="h-4 w-4" />{t('openNotebook')}</Link></Button>
+          {!workspace ? <HomeSkeleton className="h-8 w-72" /> : <>
+          <Button asChild variant="outline" size="sm"><Link href={`/notebook?${new URLSearchParams({ workspaceId: workspace.id })}`} aria-label={t('openNotebook')}><FolderOpen className="h-4 w-4" /><span className="sr-only min-[360px]:not-sr-only">{t('openNotebook')}</span></Link></Button>
           {workspace?.permissions.canWrite ? <Button size="sm" onClick={() => setCreating(true)}><Plus className="h-4 w-4" />{t('newNote')}</Button> : null}
+          {workspace.permissions.canWrite ? <>
+            <input ref={uploadRef} type="file" multiple className="hidden" aria-label={t('importFiles')} onChange={(event) => { void importFiles(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
+            <Button variant="ghost" size="icon" className="h-8 w-8" disabled={uploading} aria-label={uploading ? t('uploading') : t('importFiles')} title={t('importFiles')} onClick={() => uploadRef.current?.click()}>{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}</Button>
+          </> : null}
           </>}
         </div>
       </div>
@@ -108,17 +112,17 @@ export function HomeFilesPanel({ workspace, workspaceError }: { workspace?: Clie
         {query ? <button type="button" onClick={() => { setQuery(''); setLoading(true); }} aria-label={t('clearSearch')} className="absolute right-0 top-0 flex h-10 w-10 items-center justify-center text-muted-foreground"><X className="h-4 w-4" /></button> : null}
       </div>
 
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
+      <div className="mb-2 flex items-center justify-between gap-2 border-b border-border pb-2">
         <div className="flex gap-1" role="group" aria-label={t('fileViews')}>
           {(['recent', 'favorites'] as const).map((option) => <button key={option} type="button" disabled={!workspace} aria-pressed={view === option && !query.trim()} onClick={() => { setQuery(''); changeView(option); }} className={`rounded-md px-2.5 py-2 text-sm transition-colors ${view === option && !query.trim() ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-accent'}`}>{option === 'recent' && fallback && !query.trim() ? t('all') : t(option)}</button>)}
         </div>
         <details className="relative">
-          <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-2 text-xs text-muted-foreground hover:bg-accent">{t('moreViews')}<ChevronDown className="h-3.5 w-3.5" /></summary>
+          <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-2 text-xs text-muted-foreground hover:bg-accent" aria-label={t('moreViews')} title={t('moreViews')}><span className="sr-only sm:not-sr-only">{t('moreViews')}</span><ChevronDown className="h-3.5 w-3.5" /></summary>
           <div className="absolute right-0 z-10 mt-1 w-44 rounded-lg border border-border bg-popover p-1 shadow-md">{(['frequent', 'all'] as const).map((option) => <button key={option} type="button" onClick={(event) => { setQuery(''); changeView(option); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-accent">{t(option)}</button>)}</div>
         </details>
       </div>
-      <div className="min-h-[23rem]" aria-live="polite" aria-busy={!workspaceError && loading}>
-        {workspaceError ? <div className="py-8 text-center"><p role="alert" className="mb-3 text-sm text-muted-foreground">{t('workspaceFailed')}</p><Button variant="outline" size="sm" onClick={() => void useWorkspaceStore.getState().hydrateWorkspaces({ force: true })}>{t('retry')}</Button></div> : loading ? <HomeFileRowsSkeleton /> : failed ? <div className="py-8 text-center"><p role="alert" className="mb-3 text-sm text-muted-foreground">{t('loadFailed')}</p><Button variant="outline" size="sm" onClick={() => setRevision((value) => value + 1)}>{t('retry')}</Button></div> : <>
+      <div className="min-h-60" aria-live="polite" aria-busy={!workspaceError && loading}>
+        {workspaceError ? <div className="py-8 text-center"><p role="alert" className="mb-3 text-sm text-muted-foreground">{t('workspaceFailed')}</p><Button variant="outline" size="sm" onClick={() => void useWorkspaceStore.getState().hydrateWorkspaces({ force: true })}>{t('retry')}</Button></div> : loading ? <HomeFileRowsSkeleton count={3} /> : failed ? <div className="py-8 text-center"><p role="alert" className="mb-3 text-sm text-muted-foreground">{t('loadFailed')}</p><Button variant="outline" size="sm" onClick={() => setRevision((value) => value + 1)}>{t('retry')}</Button></div> : <>
           {(query.trim() || view === 'frequent' || view === 'all') ? <p className="px-3 pt-2 text-xs text-muted-foreground">{query.trim() ? t('results', { count: result?.total ?? 0 }) : t(view)}</p> : null}
           {result?.files.length ? <ul className="divide-y divide-border/50">{result.files.map(renderFile)}</ul> : <div className="flex min-h-40 flex-col items-center justify-center gap-2 px-4 py-6 text-center">
             <FileText className="mb-1 h-6 w-6 text-muted-foreground" />
@@ -129,12 +133,7 @@ export function HomeFilesPanel({ workspace, workspaceError }: { workspace?: Clie
           {expanded ? <div className="mt-2 flex items-center justify-between gap-2"><Button variant="ghost" size="sm" onClick={() => { setExpanded(false); setView('recent'); setLoading(true); }}>{t('showLess')}</Button><Link href={`/files?${new URLSearchParams({ workspaceId: workspace?.id ?? '' })}`} className="text-sm text-muted-foreground hover:underline">{t('browseAll')} →</Link></div> : null}
         </>}
       </div>
-      <div className="flow-root min-h-16">{workspace?.permissions.canWrite ? <div className="mt-3 border-t border-border pt-3">
-        <input ref={uploadRef} type="file" multiple className="hidden" aria-label={t('importFiles')} onChange={(event) => { void importFiles(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
-        <Button variant="ghost" size="sm" disabled={uploading} onClick={() => uploadRef.current?.click()}>{uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}{uploading ? t('uploading') : t('importFiles')}</Button>
-        {uploadError ? <p role="alert" className="mt-2 text-sm text-destructive">{uploadError}</p> : null}
-      </div> : null}
-      </div>
+      {uploadError ? <p role="alert" className="mt-2 text-sm text-destructive">{uploadError}</p> : null}
       {creating && workspace ? <HomeNewNoteDialog workspaceId={workspace.id} onClose={() => setCreating(false)} /> : null}
     </section>
   );

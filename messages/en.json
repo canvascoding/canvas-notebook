@@ -1885,7 +1885,16 @@
     }
   },
   "home": {
+    "pages": {
+      "navigation": "Home views",
+      "continue": "Continue working",
+      "workspace": "Workspace",
+      "toWorkspace": "Go to workspace",
+      "toContinue": "Back to your work",
+      "workspaceDescription": "Organize tasks, communication, and creative work in your workspace."
+    },
     "start": {
+      "allNotifications": "All notifications",
       "title": "Continue working",
       "openNotebook": "Open notebook",
       "newNote": "New note",

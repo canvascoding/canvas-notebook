@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronDown, Sparkles } from 'lucide-react';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
@@ -12,13 +12,13 @@ import { InspirationPanel } from './InspirationPanel';
 import { HomeAttentionPanel } from './HomeAttentionPanel';
 import { HomeFilesPanel } from './HomeFilesPanel';
 import { HomeAppLinks } from './HomeAppLinks';
-import { MoreToolsSection } from './MoreToolsSection';
+import { HomePages } from './HomePages';
 import { HomeMobileAppPromo } from '@/app/components/mobile/HomeMobileAppPromo';
 
 export function HomeWorkspaceView({
-  showBrowserLab = false,
+  introduction,
 }: {
-  showBrowserLab?: boolean;
+  introduction?: ReactNode;
 }) {
   const t = useTranslations('home');
   const [activeCategory, setActiveCategory] = useState<CategoryId | null>(null);
@@ -78,29 +78,32 @@ export function HomeWorkspaceView({
   };
 
   return (
-    <div className="grid gap-6 pb-4 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-x-8">
-      <div className="min-w-0 lg:col-start-1 lg:row-start-1">
-        <HomeFilesPanel key={workspace?.id ?? 'loading'} workspace={workspace} workspaceError={workspaceError} />
-      </div>
-      <HomeAttentionPanel summary={summary} isLoading={isLoadingSummary} />
-      <section className="min-w-0 space-y-3 border-t border-border pt-5 lg:col-start-1 lg:row-start-2" aria-labelledby="home-workspace-prompt">
-        <h2 id="home-workspace-prompt" className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-muted-foreground" />{t('start.aiTitle')}</h2>
-        <PromptHero key={activeWorkspaceId} onModeChange={setPromptMode} compact />
-        {promptMode === 'notebook' ? <div>
-          <button type="button" aria-expanded={showSuggestions} aria-controls="home-suggestions" onClick={() => setShowSuggestions((value) => !value)} className="inline-flex min-h-9 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ChevronDown className={`h-3.5 w-3.5 transition-transform ${showSuggestions ? 'rotate-180' : ''}`} />{t('start.suggestions')}</button>
-          {showSuggestions ? <div id="home-suggestions" className="space-y-3 pt-2">
-            <CategoryPills activeCategory={activeCategory} onCategoryClick={handleCategoryClick} />
-            {activeCategory ? <InspirationPanel category={activeCategory} onClose={() => setActiveCategory(null)} onPromptSelect={handlePromptSelect} /> : null}
+    <HomePages work={<>
+      {introduction}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-x-8">
+        <div className="min-w-0 lg:col-start-1 lg:row-start-1">
+          <HomeFilesPanel key={workspace?.id ?? 'loading'} workspace={workspace} workspaceError={workspace ? undefined : workspaceError} />
+        </div>
+        <div className="lg:col-start-2 lg:row-span-2 lg:row-start-1"><HomeAttentionPanel summary={summary} isLoading={isLoadingSummary} /></div>
+        <section className="min-w-0 space-y-3 border-t border-border pt-5 lg:col-start-1 lg:row-start-2" aria-labelledby="home-workspace-prompt">
+          <h2 id="home-workspace-prompt" className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-muted-foreground" />{t('start.aiTitle')}</h2>
+          <PromptHero key={activeWorkspaceId} onModeChange={setPromptMode} compact />
+          {promptMode === 'notebook' ? <div>
+            <button type="button" aria-expanded={showSuggestions} aria-controls="home-suggestions" onClick={() => setShowSuggestions((value) => !value)} className="inline-flex min-h-9 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ChevronDown className={`h-3.5 w-3.5 transition-transform ${showSuggestions ? 'rotate-180' : ''}`} />{t('start.suggestions')}</button>
+            {showSuggestions ? <div id="home-suggestions" className="space-y-3 pt-2">
+              <CategoryPills activeCategory={activeCategory} onCategoryClick={handleCategoryClick} />
+              {activeCategory ? <InspirationPanel category={activeCategory} onClose={() => setActiveCategory(null)} onPromptSelect={handlePromptSelect} /> : null}
+            </div> : null}
           </div> : null}
-        </div> : null}
-      </section>
-      <div className="min-w-0 space-y-5 lg:col-start-1 lg:row-start-3">
-        <HomeAppLinks />
-        <MoreToolsSection showBrowserLab={showBrowserLab} />
-        <HomeMobileAppPromo
-          hasPriorityAttention={Boolean(summary?.items.some((item) => item.unread && item.priority === 'high'))}
-        />
+        </section>
       </div>
-    </div>
+    </>} workspace={active =>
+      <div className="space-y-8">
+        <HomeAppLinks />
+        {active ? <HomeMobileAppPromo
+          hasPriorityAttention={Boolean(summary?.items.some((item) => item.unread && item.priority === 'high'))}
+        /> : null}
+      </div>
+    } />
   );
 }

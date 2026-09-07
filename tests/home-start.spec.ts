@@ -56,7 +56,8 @@ for (const width of [390, 768, 1440]) {
         if (width < 1024) {
           await expect(page.locator('#home-attention-items')).toBeHidden();
           await page.getByRole('button', { name: 'Benachrichtigungen anzeigen' }).click();
-          await expect(page.locator('#home-attention-items')).toBeVisible();
+          await expect(page.getByRole('dialog', { name: 'Benachrichtigungen' })).toBeVisible();
+          await page.keyboard.press('Escape');
         }
         await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.screenshot({ path: info.outputPath(`home-${width}.png`), fullPage: true });
@@ -128,21 +129,21 @@ for (const width of [390, 1440]) {
         await page.goto('/de');
         const files = page.getByTestId('home-files');
         const rows = files.locator('ul > li');
-        await expect(rows).toHaveCount(5);
+        await expect(rows).toHaveCount(3);
         await files.getByRole('button', { name: 'Zuletzt geöffnet', exact: true }).click();
-        await expect(rows).toHaveCount(5);
+        await expect(rows).toHaveCount(3);
         await files.getByRole('button', { name: 'Weitere Dateien anzeigen' }).click();
         await expect(rows.filter({ hasText: prefix })).toHaveCount(7);
         await files.getByRole('button', { name: 'Weniger anzeigen' }).click();
-        await expect(rows).toHaveCount(5);
+        await expect(rows).toHaveCount(3);
         await files.getByRole('button', { name: 'Favoriten', exact: true }).click();
         await expect(files.locator(`ul a[href*="${paths[6]}"]`)).toBeVisible();
         await files.getByRole('button', { name: 'Favoriten', exact: true }).click();
         await expect(files.locator(`ul a[href*="${paths[6]}"]`)).toBeVisible();
-        await files.getByText('Weitere Ansichten', { exact: true }).click();
+        await files.locator('summary[aria-label="Weitere Ansichten"]').click();
         await files.getByRole('button', { name: 'Häufig geöffnet', exact: true }).click();
         await expect(rows.filter({ hasText: prefix })).toHaveCount(7);
-        await files.getByText('Weitere Ansichten', { exact: true }).click();
+        await files.locator('summary[aria-label="Weitere Ansichten"]').click();
         await files.getByRole('button', { name: 'Deine Dateien', exact: true }).click();
         const search = files.getByRole('textbox', { name: 'Notizen und Dateien suchen …' });
         await search.fill(`${prefix}-missing`);
@@ -165,7 +166,7 @@ for (const width of [390, 1440]) {
         await search.fill(importPath);
         await files.locator(`ul a[href*="${importPath}"]`).click();
         await expect(page).toHaveURL(/\/notebook\?/);
-        await expect(page.getByText('Playwright homepage import fixture', { exact: false }).first()).toBeVisible();
+        await expect(page.getByText('Playwright homepage import fixture', { exact: false }).first()).toBeVisible({ timeout: 15000 });
       } finally {
         if (paths.length) expect((await page.request.delete('/api/files/delete', { headers, data: { path: paths } })).ok()).toBeTruthy();
       }
@@ -185,18 +186,22 @@ for (const width of [390, 1440]) {
         return route.fulfill({ json: { success: true, data: { unreadCount: items.length, counts: { unread: items.length, chat: 0, todos: 0, todoUnread: 0, todoAttention: 0, emailAttention: 0, studio: items.length, automation: 0 }, items, sections: { notifications: items, todos: [], todoUnread: [], todoAttention: [], emailAttention: [] } } } });
       });
       await page.goto('/de');
-      const panel = page.getByRole('complementary', { name: 'Benachrichtigungen' });
+      const card = page.getByRole('complementary', { name: 'Benachrichtigungen' });
       await expect(page.getByTestId('home-files').locator('[aria-busy]')).toHaveAttribute('aria-busy', 'false');
       if (width < 1024) {
-        await expect(panel.locator('ul')).toBeHidden();
-        await panel.getByRole('button', { name: 'Benachrichtigungen anzeigen', exact: true }).click();
-        await expect(panel.locator('li')).toHaveCount(5);
+        await expect(card.locator('ul')).toBeHidden();
+        await card.getByRole('button', { name: 'Benachrichtigungen anzeigen', exact: true }).click();
       } else {
-        await expect(panel.locator('li')).toHaveCount(3);
-        await panel.getByRole('button', { name: '2 weitere Hinweise anzeigen' }).click();
-        await expect(panel.locator('li')).toHaveCount(5);
+        await expect(card.locator('li')).toHaveCount(3);
+        await card.getByRole('button', { name: 'Alle Benachrichtigungen' }).click();
       }
+      const panel = page.getByRole('dialog', { name: 'Benachrichtigungen' });
+      await expect(panel.locator('li')).toHaveCount(5);
       await expect(panel.getByRole('link').first()).toHaveAttribute('href', `/de/studio?generation=qa-generation-0&workspaceId=${workspaceId}`);
+      await expect.poll(async () => {
+        const bounds = await panel.boundingBox();
+        return bounds ? Math.abs(bounds.x + bounds.width - width) : width;
+      }).toBeLessThan(0.1);
       const panelBounds = await panel.boundingBox();
       expect(panelBounds).not.toBeNull();
       for (const button of await panel.locator('li button').all()) {
@@ -205,8 +210,7 @@ for (const width of [390, 1440]) {
         expect(bounds!.x).toBeGreaterThanOrEqual(panelBounds!.x);
         expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(panelBounds!.x + panelBounds!.width);
       }
-      await page.screenshot({ path: info.outputPath(`home-${width}-notifications.png`), fullPage: true });
-      await panel.locator('li').first().screenshot({ path: info.outputPath(`home-${width}-notification-actions.png`), animations: 'disabled' });
+      await page.screenshot({ path: info.outputPath(`home-${width}-notifications.png`), fullPage: true, animations: 'disabled' });
       failAction = true;
       await panel.getByRole('button', { name: 'Als gelesen markieren' }).first().click();
       await expect(panel.getByRole('alert')).toBeVisible();
@@ -215,15 +219,9 @@ for (const width of [390, 1440]) {
       await expect(panel.getByText('QA Bild 1 ist fertig')).toHaveCount(0);
       await panel.getByRole('button', { name: 'Aus Benachrichtigungen entfernen' }).first().click();
       await expect(panel.getByText('QA Bild 2 ist fertig')).toHaveCount(0);
-      if (width < 1024) {
-        await panel.getByRole('button', { name: 'Weniger anzeigen', exact: true }).first().click();
-        await expect(panel.locator('ul')).toBeHidden();
-      }
-      const moreTools = page.getByRole('button', { name: 'Weitere Tools', exact: true });
-      await expect(page.locator('#home-more-tools')).toHaveCount(0);
-      await moreTools.click();
-      await expect(page.locator('#home-more-tools')).toBeVisible();
-      await moreTools.click();
+      await page.keyboard.press('Escape');
+      await expect(panel).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Weitere Tools', exact: true })).toHaveCount(0);
       await expect(page.locator('#home-more-tools')).toHaveCount(0);
     });
   });

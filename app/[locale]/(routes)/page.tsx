@@ -14,6 +14,7 @@ import { VersionUpdateIndicator } from '@/app/components/VersionUpdateIndicator'
 import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { WorkspaceBrandLogo } from '@/app/components/workspaces/WorkspaceBrandLogo';
 import { isBrowserLabAllowed } from '@/app/lib/pi/browser/view-access';
+import homeStyles from '@/app/components/home/home-pages.module.css';
 import { resolveUserProfile } from '@/app/lib/user-profile/service';
 import { UserProfileBadge } from '@/app/components/user-profile/UserProfileBadge';
 
@@ -62,20 +63,14 @@ export default async function Home() {
               <div className="ml-auto flex shrink-0 items-center gap-1 md:gap-3">
                 <WorkspaceSwitcher source="home" variant="compact" />
                 <NotificationBell />
-                <AppLauncher />
+                <AppLauncher showBrowserLab={isBrowserLabAllowed(session.user)} />
                 <UserProfileBadge profile={userProfile} />
               </div>
             </div>
           </header>
 
-          <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pt-5 pb-8 sm:px-4 sm:pt-6 md:px-6 md:pt-8">
-            <div className="mx-auto max-w-6xl space-y-6">
-              {showPersonalTour && <GettingStartedCard />}
-
-              <HomeWorkspaceView
-                showBrowserLab={isBrowserLabAllowed(session.user)}
-              />
-            </div>
+          <main data-home-scroll className={`${homeStyles.scrollArea} min-h-0 flex-1 overflow-y-auto overscroll-contain`}>
+            <HomeWorkspaceView introduction={showPersonalTour ? <div className="mb-6"><GettingStartedCard /></div> : undefined} />
           </main>
 
           <footer className="shrink-0 border-t border-border bg-background/95">

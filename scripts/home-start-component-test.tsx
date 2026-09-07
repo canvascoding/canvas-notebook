@@ -7,7 +7,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
-for (const key of ['self', 'window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement', 'HTMLTextAreaElement', 'Element', 'Node', 'DocumentFragment', 'MutationObserver', 'CustomEvent', 'Event', 'KeyboardEvent', 'getComputedStyle'] as const) {
+for (const key of ['self', 'window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement', 'HTMLTextAreaElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'MutationObserver', 'CustomEvent', 'Event', 'KeyboardEvent', 'getComputedStyle'] as const) {
   Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
 }
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true, writable: true });
@@ -63,7 +63,7 @@ async function main() {
 
   screen = render(wrap(<HomeFilesPanel workspace={workspace} />));
   await settle();
-  assert.equal(screen.getAllByRole('link').filter((link) => link.getAttribute('href')?.includes('path=')).length, 5);
+  assert.equal(screen.getAllByRole('link').filter((link) => link.getAttribute('href')?.includes('path=')).length, 3);
   assert.equal(screen.getByRole('link', { name: /Notiz 0/ }).getAttribute('href'), '/de/notebook?path=Notes%2Ffile-0.md&workspaceId=one');
   fireEvent.click(screen.getByRole('button', { pressed: true }));
   await settle();
@@ -128,10 +128,8 @@ async function main() {
   screen = render(wrap(<HomeAttentionPanel summary={null} isLoading={false} />));
   assert.ok(screen.getByText('Hinweise konnten nicht geladen werden.'));
   assert.ok(!screen.queryByText('Gerade braucht nichts deine Aufmerksamkeit.'));
-  const toggle = screen.getByRole('button', { name: 'Benachrichtigungen anzeigen' });
-  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
-  fireEvent.click(toggle);
-  assert.equal(screen.getByRole('button', { name: 'Weniger anzeigen' }).getAttribute('aria-expanded'), 'true');
+  fireEvent.click(screen.getByRole('button', { name: 'Benachrichtigungen anzeigen' }));
+  assert.ok(screen.getByRole('dialog', { name: 'Benachrichtigungen' }));
   cleanup();
   assert.ok(fetches.length > 0);
   console.log('Home components: direct file access, disclosure, search, errors, empty/read-only states, note creation and notification disclosure passed');
