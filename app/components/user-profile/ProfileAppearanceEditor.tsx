@@ -36,9 +36,11 @@ async function readProfileResponse(response: Response): Promise<ResolvedUserProf
 
 export function ProfileAppearanceEditor({
   initialProfile,
+  onProfileChange,
   className,
 }: {
   initialProfile: ResolvedUserProfile;
+  onProfileChange?: (profile: ResolvedUserProfile) => void;
   className?: string;
 }) {
   const t = useTranslations('userProfile');
@@ -58,7 +60,9 @@ export function ProfileAppearanceEditor({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ avatarKind, ...(iconId ? { iconId } : {}) }),
       });
-      setProfile(await readProfileResponse(response));
+      const nextProfile = await readProfileResponse(response);
+      setProfile(nextProfile);
+      onProfileChange?.(nextProfile);
       toast.success(iconId ? t('iconUpdated') : t('initialsUpdated'));
     } catch (error) {
       console.warn('[UserProfile] Failed to update avatar choice.', error);
@@ -88,7 +92,9 @@ export function ProfileAppearanceEditor({
         credentials: 'include',
         body: formData,
       });
-      setProfile(await readProfileResponse(response));
+      const nextProfile = await readProfileResponse(response);
+      setProfile(nextProfile);
+      onProfileChange?.(nextProfile);
       toast.success(t('imageUpdated'));
     } catch (error) {
       console.warn('[UserProfile] Failed to upload avatar image.', error);

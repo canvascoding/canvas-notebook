@@ -15,8 +15,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
-import { ProfileAppearanceEditor } from '@/app/components/user-profile/ProfileAppearanceEditor';
 import { useTheme, type Theme } from '@/app/components/ThemeProvider';
+import { ProfileAppearanceSettingsCard } from './ProfileAppearanceSettingsCard';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
 
 async function saveUserPreferences(payload: { locale?: string }): Promise<void> {
@@ -355,7 +355,7 @@ export function GeneralSettingsPanel({
           </form>
       </SettingsAccordionCard>
 
-      <ProfileAppearanceEditor initialProfile={initialUserProfile} />
+      <ProfileAppearanceSettingsCard initialProfile={initialUserProfile} />
 
       <ThemePreferenceCard />
 

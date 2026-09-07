@@ -2846,6 +2846,9 @@
   "userProfile": {
     "title": "Your profile appearance",
     "description": "Choose a photo, a personal icon, or your initials. This identity appears on your Canvas home page.",
+    "edit": "Edit",
+    "editHint": "Photo, icon, or initials",
+    "editTitle": "Edit profile appearance",
     "previewLabel": "Profile preview",
     "shownAs": "This is how other profile surfaces will show you.",
     "profileLinkLabel": "Open settings for {name}",

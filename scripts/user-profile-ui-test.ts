@@ -20,6 +20,7 @@ async function main() {
     avatarSource,
     settingsPageSource,
     generalSettingsSource,
+    profileSettingsCardSource,
     onboardingPageSource,
     onboardingWizardSource,
     homePageSource,
@@ -30,6 +31,7 @@ async function main() {
     readFile(path.join(root, 'app/components/user-profile/UserAvatar.tsx'), 'utf8'),
     readFile(path.join(root, 'app/[locale]/(routes)/settings/page.tsx'), 'utf8'),
     readFile(path.join(root, 'app/components/settings/GeneralSettingsPanel.tsx'), 'utf8'),
+    readFile(path.join(root, 'app/components/settings/ProfileAppearanceSettingsCard.tsx'), 'utf8'),
     readFile(path.join(root, 'app/[locale]/(routes)/onboarding/page.tsx'), 'utf8'),
     readFile(path.join(root, 'app/[locale]/(routes)/onboarding/onboarding-wizard.tsx'), 'utf8'),
     readFile(path.join(root, 'app/[locale]/(routes)/page.tsx'), 'utf8'),
@@ -52,7 +54,11 @@ async function main() {
   assert.match(avatarSource, /profile\.initials/, 'avatar must render initials as the final fallback');
   assert.match(settingsPageSource, /resolveUserProfile/, 'settings must resolve the signed-in user profile server-side');
   assert.match(settingsPageSource, /initialUserProfile=\{initialUserProfile\}/, 'settings must pass the profile to the client');
-  assert.match(generalSettingsSource, /<ProfileAppearanceEditor initialProfile=\{initialUserProfile\}/, 'general settings must render the shared editor');
+  assert.match(generalSettingsSource, /<ProfileAppearanceSettingsCard initialProfile=\{initialUserProfile\}/, 'general settings must render the compact profile card');
+  assert.match(profileSettingsCardSource, /<DialogTrigger asChild>/, 'profile editing must open from a compact dialog trigger');
+  assert.match(profileSettingsCardSource, /<UserAvatar profile=\{profile\}/, 'the compact profile card must show the current avatar');
+  assert.match(profileSettingsCardSource, /<Pencil/, 'the compact profile card must expose an edit affordance');
+  assert.match(profileSettingsCardSource, /<ProfileAppearanceEditor[\s\S]*?onProfileChange=\{setProfile\}/, 'the profile dialog must keep its compact summary in sync');
   assert.match(onboardingPageSource, /resolveUserProfile/, 'onboarding must resolve the signed-in user profile server-side');
   assert.match(onboardingWizardSource, /step === 'language'[\s\S]*?<LanguageStep/, 'profile appearance must remain in the existing language step');
   assert.match(onboardingWizardSource, /<ProfileAppearanceEditor initialProfile=\{initialUserProfile\}/, 'language step must render the shared editor');

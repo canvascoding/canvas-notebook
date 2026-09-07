@@ -2845,6 +2845,9 @@
   "userProfile": {
     "title": "Dein persönlicher Auftritt",
     "description": "Wähle ein Foto, ein persönliches Icon oder deine Initialen. Diese Identität erscheint auf deiner Canvas-Startseite.",
+    "edit": "Bearbeiten",
+    "editHint": "Foto, Icon oder Initialen",
+    "editTitle": "Profilauftritt bearbeiten",
     "previewLabel": "Profilvorschau",
     "shownAs": "So wirst du an den persönlichen Stellen in Canvas angezeigt.",
     "profileLinkLabel": "Einstellungen für {name} öffnen",
