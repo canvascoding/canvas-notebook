@@ -95,6 +95,51 @@ test.describe('Memory team governance', () => {
       await expect(writerPendingCard).toContainText('Priority 70 · Important');
       await expect(writerPage.getByRole('button', { name: 'Publish' })).toHaveCount(0);
 
+      let releasePublishedRequest = () => {};
+      let markPublishedRequestStarted = () => {};
+      const publishedRequestGate = new Promise<void>((resolve) => { releasePublishedRequest = resolve; });
+      const publishedRequestStarted = new Promise<void>((resolve) => { markPublishedRequestStarted = resolve; });
+      const isPublishedEntryRequest = (requestUrl: string) => {
+        const url = new URL(requestUrl);
+        return url.pathname === '/api/memory'
+          && url.searchParams.get('workspaceId') === workspaceId
+          && url.searchParams.get('collectionId') === collectionId
+          && url.searchParams.get('status') === 'published';
+      };
+      await writerPage.route('**/api/memory?**', async (route) => {
+        if (isPublishedEntryRequest(route.request().url())) {
+          markPublishedRequestStarted();
+          await publishedRequestGate;
+        }
+        await route.continue();
+      });
+
+      await writerPage.evaluate(() => {
+        const url = new URL(window.location.href);
+        url.searchParams.set('status', 'published');
+        url.searchParams.delete('entryId');
+        window.history.pushState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+      });
+      await publishedRequestStarted;
+      await expect(writerPage.getByTestId('memory-status-published')).toBeVisible();
+      await expect(writerPendingCard).toHaveCount(0);
+
+      await writerPage.evaluate((targetEntryId) => {
+        const url = new URL(window.location.href);
+        url.searchParams.set('status', 'pending');
+        url.searchParams.set('entryId', targetEntryId);
+        window.history.pushState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+      }, entryId!);
+      await expect(writerPage.getByTestId('memory-status-pending')).toBeVisible();
+      await expect(writerPendingCard).toBeVisible();
+
+      const stalePublishedResponse = writerPage.waitForResponse((response) => isPublishedEntryRequest(response.url()));
+      releasePublishedRequest();
+      await stalePublishedResponse;
+      await expect(writerPage.getByTestId('memory-status-pending')).toBeVisible();
+      await expect(writerPendingCard).toBeVisible();
+      await writerPage.unroute('**/api/memory?**');
+
       const summaryResponse = await page.request.get('/api/notifications/summary');
       const summaryPayload = await summaryResponse.json() as { data?: { sections?: { notifications?: ApprovalNotification[] } } };
       expect(summaryResponse.ok(), JSON.stringify(summaryPayload)).toBeTruthy();

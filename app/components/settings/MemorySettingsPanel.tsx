@@ -148,6 +148,7 @@ function queryForScope(
 
 export function MemorySettingsPanel() {
   const searchParams = useSearchParams();
+  const locationQuery = searchParams.toString();
   const t = useTranslations('settings.memoryPanel');
   const locale: MemoryDisplayLocale = useLocale() === 'en' ? 'en' : 'de';
   const workspaces = useWorkspaceStore((state) => state.workspaces);
@@ -191,6 +192,9 @@ export function MemorySettingsPanel() {
   const [deletionDialogOpen, setDeletionDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const lastLocationQueryRef = useRef(locationQuery);
+  const collectionLoadVersionRef = useRef(0);
+  const entryLoadVersionRef = useRef(0);
 
   const selectedProvider = useMemo(
     () => settings?.providers.find((provider) => provider.installationId === settings.providerInstallationId) ?? null,
@@ -241,9 +245,12 @@ export function MemorySettingsPanel() {
   }, []);
 
   const selectAgentOwner = useCallback((nextAgentId: string) => {
+    collectionLoadVersionRef.current += 1;
+    entryLoadVersionRef.current += 1;
     setAgentId(nextAgentId);
     setSelectedCollectionId(null);
     setEntries([]);
+    setHighlightedEntryId(null);
     setEntryView('published');
     setTransferTargetAgentId('');
     const url = new URL(window.location.href);
@@ -257,6 +264,8 @@ export function MemorySettingsPanel() {
   }, []);
 
   const selectWorkspace = useCallback((nextWorkspaceId: string) => {
+    collectionLoadVersionRef.current += 1;
+    entryLoadVersionRef.current += 1;
     setWorkspaceId(nextWorkspaceId);
     setSelectedCollectionId(null);
     setEntries([]);
@@ -265,6 +274,7 @@ export function MemorySettingsPanel() {
     setHistoryForEntryId(null);
     setEntryHistory([]);
     setEditingId(null);
+    setHighlightedEntryId(null);
     const url = new URL(window.location.href);
     url.searchParams.set('tab', 'memory');
     url.searchParams.set('scope', 'workspace');
@@ -278,6 +288,60 @@ export function MemorySettingsPanel() {
   useEffect(() => {
     void hydrateWorkspaces();
   }, [hydrateWorkspaces]);
+
+  useEffect(() => {
+    const previousQuery = lastLocationQueryRef.current;
+    if (previousQuery === locationQuery) return;
+    lastLocationQueryRef.current = locationQuery;
+    const previousParams = new URLSearchParams(previousQuery);
+    const params = new URLSearchParams(locationQuery);
+    const nextScope = scopeFromParam(params.get('scope'));
+    const nextWorkspaceId = params.get('workspaceId');
+    const nextAgentId = params.get('agentId');
+    const nextCollectionId = params.get('collectionId');
+    const nextEntryView = entryViewFromParam(params.get('status'));
+    const nextHighlightedEntryId = params.get('entryId');
+    const scopeChanged = nextScope !== scopeFromParam(previousParams.get('scope'));
+    const workspaceChanged = nextScope === 'workspace' && nextWorkspaceId !== previousParams.get('workspaceId');
+    const agentChanged = nextScope === 'agent' && nextAgentId !== previousParams.get('agentId');
+    const collectionChanged = nextCollectionId !== previousParams.get('collectionId');
+    const viewChanged = nextEntryView !== entryViewFromParam(previousParams.get('status'));
+
+    if (scopeChanged || workspaceChanged || agentChanged) {
+      collectionLoadVersionRef.current += 1;
+      entryLoadVersionRef.current += 1;
+    } else if (collectionChanged || viewChanged) {
+      entryLoadVersionRef.current += 1;
+    }
+
+    initialCollectionIdRef.current = nextCollectionId;
+    const timer = window.setTimeout(() => {
+      if (scopeChanged || workspaceChanged || agentChanged) {
+        setCollections([]);
+        setSelectedCollectionId(nextCollectionId);
+        setEntries([]);
+        setEntryQuery('');
+        setHistoryForEntryId(null);
+        setEntryHistory([]);
+        setEditingId(null);
+        setLoading(true);
+      } else if (collectionChanged || viewChanged) {
+        setEntries([]);
+        setEntryQuery('');
+        setHistoryForEntryId(null);
+        setEntryHistory([]);
+        setEditingId(null);
+      }
+
+      setScope(nextScope);
+      if (nextScope === 'workspace') setWorkspaceId(nextWorkspaceId);
+      if (nextScope === 'agent') setAgentId(nextAgentId);
+      if (collectionChanged) setSelectedCollectionId(nextCollectionId);
+      setEntryView(nextEntryView);
+      setHighlightedEntryId(nextHighlightedEntryId);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [locationQuery]);
 
   useEffect(() => {
     if (scope !== 'workspace' || workspacesLoading || selectedWorkspace) return;
@@ -303,13 +367,17 @@ export function MemorySettingsPanel() {
   }, [agentId, scope, selectAgentOwner]);
 
   const loadCollections = useCallback(async (preferredCollectionId?: string | null) => {
+    const loadVersion = ++collectionLoadVersionRef.current;
     if (!canUseScope) {
-      setCollections([]);
-      setEntries([]);
-      setSelectedCollectionId(null);
+      if (loadVersion === collectionLoadVersionRef.current) {
+        setCollections([]);
+        setEntries([]);
+        setSelectedCollectionId(null);
+      }
       return;
     }
     const data = await readJson<{ collections: Collection[]; entries: Entry[]; permissions: MemoryPermissions }>(`/api/memory?${query.toString()}`);
+    if (loadVersion !== collectionLoadVersionRef.current) return;
     setCollections(data.collections);
     setPermissions(data.permissions);
     const requestedCollectionId = preferredCollectionId ?? initialCollectionIdRef.current;
@@ -321,11 +389,13 @@ export function MemorySettingsPanel() {
   }, [canUseScope, query]);
 
   const loadEntries = useCallback(async (collectionId: string | null, requestedView = entryView) => {
+    const loadVersion = ++entryLoadVersionRef.current;
     if (!collectionId || !canUseScope) {
-      setEntries([]);
+      if (loadVersion === entryLoadVersionRef.current) setEntries([]);
       return;
     }
     const data = await readJson<{ entries: Entry[] }>(`/api/memory?${queryForScope(scope, agentId, workspaceId, collectionId, requestedView).toString()}`);
+    if (loadVersion !== entryLoadVersionRef.current) return;
     setEntries(data.entries);
   }, [agentId, canUseScope, entryView, scope, workspaceId]);
 
@@ -358,6 +428,8 @@ export function MemorySettingsPanel() {
 
   const setScopeWithUrl = (nextScope: MemoryScope) => {
     if (nextScope === scope) return;
+    collectionLoadVersionRef.current += 1;
+    entryLoadVersionRef.current += 1;
     setLoading(true);
     setCollections([]);
     setEntries([]);
@@ -365,6 +437,7 @@ export function MemorySettingsPanel() {
     setHistoryForEntryId(null);
     setEntryHistory([]);
     setEditingId(null);
+    setHighlightedEntryId(null);
     setEntryView('published');
     setScope(nextScope);
     const url = new URL(window.location.href);
@@ -451,30 +524,36 @@ export function MemorySettingsPanel() {
   };
 
   const selectEntryView = (nextView: MemoryEntryView) => {
+    entryLoadVersionRef.current += 1;
     setEntryView(nextView);
     setEntryQuery('');
     setHistoryForEntryId(null);
     setEntryHistory([]);
     setEditingId(null);
+    setHighlightedEntryId(null);
     const url = new URL(window.location.href);
     url.searchParams.set('tab', 'memory');
     url.searchParams.set('scope', scope);
     url.searchParams.set('status', nextView);
     if (selectedCollectionId) url.searchParams.set('collectionId', selectedCollectionId);
+    url.searchParams.delete('entryId');
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   };
 
   const selectCollection = (collectionId: string) => {
+    entryLoadVersionRef.current += 1;
     setSelectedCollectionId(collectionId);
     setEntryQuery('');
     setHistoryForEntryId(null);
     setEntryHistory([]);
     setEditingId(null);
+    setHighlightedEntryId(null);
     const url = new URL(window.location.href);
     url.searchParams.set('tab', 'memory');
     url.searchParams.set('scope', scope);
     url.searchParams.set('collectionId', collectionId);
     url.searchParams.set('status', entryView);
+    url.searchParams.delete('entryId');
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   };
 
