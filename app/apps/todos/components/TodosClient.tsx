@@ -962,7 +962,8 @@ export function TodosClient({ title }: { title: string }) {
       const updated = await readApiData<TodoItem>(response);
       setTodos((current) => {
         const next = current.map((todo) => (todo.id === updated.id ? updated : todo));
-        if (!todoMatchesStatusFilter(updated.status, statusFilter)) {
+        const isDeepLinkedDetail = updated.id === todoIdParam;
+        if (!todoMatchesStatusFilter(updated.status, statusFilter) && !isDeepLinkedDetail) {
           return next.filter((todo) => todo.id !== updated.id);
         }
         return next;
@@ -972,7 +973,7 @@ export function TodosClient({ title }: { title: string }) {
     } finally {
       setIsMutating(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, todoIdParam]);
 
   const handleSelectTodo = useCallback(async (todo: TodoItem) => {
     setSelectedTodoId(todo.id);
@@ -1643,7 +1644,14 @@ export function TodosClient({ title }: { title: string }) {
                       {todo.status === 'done' ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <Circle className="h-5 w-5" />}
                     </button>
 
-                    <div className="min-w-0 flex-1 text-left">
+                    <div
+                      className="min-w-0 flex-1 cursor-pointer text-left"
+                      onClick={(event) => {
+                        const target = event.target;
+                        if (target instanceof Element && target.closest('a, button, input, select, textarea, [role="button"]')) return;
+                        void handleSelectTodo(todo);
+                      }}
+                    >
                       <button
                         type="button"
                         className="flex w-full min-w-0 items-center gap-2 text-left"

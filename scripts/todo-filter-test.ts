@@ -7,11 +7,13 @@ assert.match(source, /function todoMatchesStatusFilter\(todoStatus: TodoStatus, 
 assert.match(source, /const visibleTodos = useMemo\(/);
 assert.match(source, /visibleTodos\.map\(\(todo\) =>/);
 assert.match(source, /current && \(data\.some\(\(todo\) => todo\.id === current\) \|\| current === todoIdParam\)/);
-assert.match(source, /if \(!todoMatchesStatusFilter\(updated\.status, statusFilter\)\)/);
+assert.match(source, /const isDeepLinkedDetail = updated\.id === todoIdParam/);
+assert.match(source, /if \(!todoMatchesStatusFilter\(updated\.status, statusFilter\) && !isDeepLinkedDetail\)/);
 
 const listStart = source.indexOf('visibleTodos.map((todo) =>');
 const previewStart = source.indexOf('<MarkdownRenderer content={todo.description}', listStart);
 assert.ok(listStart >= 0 && previewStart > listStart);
 assert.ok(source.lastIndexOf('</button>', previewStart) > source.lastIndexOf('<button', previewStart));
+assert.match(source, /target\.closest\('a, button, input, select, textarea, \[role="button"\]'\)/);
 
 console.log('todo filter regression contract passed');
