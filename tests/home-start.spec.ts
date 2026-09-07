@@ -61,7 +61,7 @@ for (const width of [390, 768, 1440]) {
         }
         await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.screenshot({ path: info.outputPath(`home-${width}.png`), fullPage: true });
-        await files.getByRole('textbox', { name: 'Notizen und Dateien suchen …' }).fill(path);
+        await files.getByRole('textbox', { name: 'Dateien und Chats suchen …' }).fill(path);
         await expect(files.getByRole('link', { name: new RegExp(path.replace('.md', '')) })).toHaveCount(1);
         await files.getByRole('link', { name: new RegExp(path.replace('.md', '')) }).click();
         await expect(page).toHaveURL(new RegExp(`/notebook\\?.*path=${path}`));
@@ -130,22 +130,21 @@ for (const width of [390, 1440]) {
         const files = page.getByTestId('home-files');
         const rows = files.locator('ul > li');
         await expect(rows).toHaveCount(3);
-        await files.getByRole('button', { name: 'Zuletzt geöffnet', exact: true }).click();
+        await files.getByRole('button', { name: 'Dateien', exact: true }).click();
         await expect(rows).toHaveCount(3);
-        await files.getByRole('button', { name: 'Weitere Dateien anzeigen' }).click();
+        await files.getByRole('button', { name: 'Weitere anzeigen' }).click();
         await expect(rows.filter({ hasText: prefix })).toHaveCount(7);
         await files.getByRole('button', { name: 'Weniger anzeigen' }).click();
         await expect(rows).toHaveCount(3);
-        await files.getByRole('button', { name: 'Favoriten', exact: true }).click();
+        await files.getByRole('combobox', { name: 'Dateiansicht' }).selectOption('favorites');
         await expect(files.locator(`ul a[href*="${paths[6]}"]`)).toBeVisible();
-        await files.getByRole('button', { name: 'Favoriten', exact: true }).click();
+        await files.getByRole('combobox', { name: 'Dateiansicht' }).selectOption('favorites');
         await expect(files.locator(`ul a[href*="${paths[6]}"]`)).toBeVisible();
-        await files.locator('summary[aria-label="Weitere Ansichten"]').click();
-        await files.getByRole('button', { name: 'Häufig geöffnet', exact: true }).click();
+        await files.getByRole('combobox', { name: 'Dateiansicht' }).selectOption('frequent');
+        await files.getByRole('button', { name: 'Weitere anzeigen' }).click();
         await expect(rows.filter({ hasText: prefix })).toHaveCount(7);
-        await files.locator('summary[aria-label="Weitere Ansichten"]').click();
-        await files.getByRole('button', { name: 'Deine Dateien', exact: true }).click();
-        const search = files.getByRole('textbox', { name: 'Notizen und Dateien suchen …' });
+        await files.getByRole('combobox', { name: 'Dateiansicht' }).selectOption('all');
+        const search = files.getByRole('textbox', { name: 'Dateien suchen …' });
         await search.fill(`${prefix}-missing`);
         await expect(files.getByText('Keine passenden Dateien')).toBeVisible();
         await files.getByRole('button', { name: 'Suche löschen' }).click();
@@ -159,7 +158,7 @@ for (const width of [390, 1440]) {
         await page.screenshot({ path: info.outputPath(`home-${width}-search.png`) });
         await page.route('**/api/files/quick-access?**', route => route.fulfill({ status: 503, json: { success: false } }));
         await files.getByRole('button', { name: 'Suche löschen' }).click();
-        await expect(files.getByRole('alert')).toHaveText('Deine Dateien konnten nicht geladen werden.');
+        await expect(files.getByRole('status')).toContainText('Dateien konnten nicht geladen werden.');
         await page.unroute('**/api/files/quick-access?**');
         await files.getByRole('button', { name: 'Erneut versuchen' }).click();
         await expect(files.getByRole('alert')).toHaveCount(0);

@@ -13,6 +13,7 @@ async function openHome(page: import('@playwright/test').Page) {
       total: 20, workspaceFileCount: 20, view: 'recent', favorites: [],
     } } });
   });
+  await page.route('**/api/home/chats?*', route => route.fulfill({ json: { success: true, data: { chats: [], hasMore: false } } }));
   await page.route('**/api/mobile-app-promotion', route => route.fulfill({ json: { success: true, promotion: { eligible: false } } }));
   await page.goto('/de');
   await expect(page.getByTestId('home-files').locator('[aria-busy]')).toHaveAttribute('aria-busy', 'false');
@@ -40,8 +41,8 @@ test('two desktop views snap, navigate with keyboard, and allow long content', a
   await page.keyboard.press('Enter');
   await expect(first).toBeFocused();
   await expect(nav.getByRole('button', { name: 'Weiterarbeiten' })).toHaveAttribute('aria-current', 'step');
-  await page.getByRole('button', { name: 'Weitere Dateien anzeigen' }).click();
-  await expect(page.getByTestId('home-files').locator('li')).toHaveCount(20);
+  await page.getByRole('button', { name: 'Weitere anzeigen' }).click();
+  await expect(page.getByTestId('home-files').locator('li')).toHaveCount(10);
   await expect.poll(() => main.evaluate(el => getComputedStyle(el).scrollSnapType)).toBe('none');
   await page.getByRole('button', { name: 'Weniger anzeigen', exact: true }).click();
   await expect(page.getByTestId('home-files').locator('li')).toHaveCount(3);

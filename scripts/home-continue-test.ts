@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { selectContinueItems } from '../app/lib/home/continue-items';
+const files = [500, 400, 300, 200].map((openedAt, index) => ({ path: `${index}.md`, name: `${index}.md`, openedAt }));
+const chats = [{ sessionId: 'old-chat', title: 'Old chat', activityAt: 100, hasUnread: true }];
+assert.deepEqual(selectContinueItems(files, chats, 'all', 3).map(item => item.key), ['file:0.md', 'file:1.md', 'chat:old-chat']);
+assert.equal(selectContinueItems(files, chats, 'all', 10).length, 5);
+assert.deepEqual(selectContinueItems(files, chats, 'files', 3).map(item => item.key), ['file:0.md', 'file:1.md', 'file:2.md']);
+assert.deepEqual(selectContinueItems(files, chats, 'chats', 3).map(item => item.key), ['chat:old-chat']);
+assert.equal(selectContinueItems([], [], 'all', 3).length, 0);
+assert.equal(selectContinueItems([], chats, 'all', 3)[0].kind, 'chat');
+assert.deepEqual(selectContinueItems([...files].reverse(), [], 'files', 3).map(item => item.key), ['file:3.md', 'file:2.md', 'file:1.md'], 'favorites/frequency order is preserved');
+assert.deepEqual(selectContinueItems(files, [{ ...chats[0], activityAt: 600 }], 'all', 3).map(item => item.kind), ['chat', 'file', 'file']);
+assert.deepEqual(selectContinueItems(files, chats, 'all', 3), selectContinueItems(files, [{ ...chats[0], hasUnread: false }], 'all', 3).map(item => item.kind === 'chat' ? { ...item, chat: chats[0] } : item), 'read status does not change ranking');
+console.log('Home continue selection tests passed');

@@ -1887,6 +1887,34 @@
     }
   },
   "home": {
+    "continue": {
+      "noResults": "Keine passenden Einträge",
+      "all": "Alles",
+      "files": "Dateien",
+      "chats": "Chats",
+      "filters": "Inhalte zum Weiterarbeiten",
+      "search": {
+        "all": "Dateien und Chats suchen …",
+        "files": "Dateien suchen …",
+        "chats": "Chats suchen …"
+      },
+      "file": "Datei",
+      "chat": "Chat",
+      "opened": "geöffnet {time}",
+      "message": "Nachricht {time}",
+      "newReply": "Neue Antwort",
+      "untitledChat": "Unterhaltung",
+      "showMore": "Weitere anzeigen",
+      "allFiles": "Alle Dateien",
+      "allChats": "Alle Chats",
+      "noChats": "Noch keine Unterhaltungen",
+      "empty": "Hier kannst du bald weiterarbeiten",
+      "emptyHint": "Öffne eine Datei oder starte eine Unterhaltung in diesem Workspace.",
+      "searchHint": "Versuche einen anderen Titel oder Suchbegriff.",
+      "failed": "Dateien und Chats konnten nicht geladen werden.",
+      "chatsFailed": "Chats konnten nicht geladen werden.",
+      "filesFailed": "Dateien konnten nicht geladen werden."
+    },
     "pages": {
       "navigation": "Startseitenansichten",
       "continue": "Weiterarbeiten",

@@ -1888,6 +1888,34 @@
     }
   },
   "home": {
+    "continue": {
+      "noResults": "No matching items",
+      "all": "All",
+      "files": "Files",
+      "chats": "Chats",
+      "filters": "Continue working with",
+      "search": {
+        "all": "Search files and chats …",
+        "files": "Search files …",
+        "chats": "Search chats …"
+      },
+      "file": "File",
+      "chat": "Chat",
+      "opened": "opened {time}",
+      "message": "message {time}",
+      "newReply": "New reply",
+      "untitledChat": "Conversation",
+      "showMore": "Show more",
+      "allFiles": "All files",
+      "allChats": "All chats",
+      "noChats": "No conversations yet",
+      "empty": "Your work will appear here",
+      "emptyHint": "Open a file or start a conversation in this workspace.",
+      "searchHint": "Try another title or search term.",
+      "failed": "Files and chats could not be loaded.",
+      "chatsFailed": "Chats could not be loaded.",
+      "filesFailed": "Files could not be loaded."
+    },
     "pages": {
       "navigation": "Home views",
       "continue": "Continue working",

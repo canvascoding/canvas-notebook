@@ -221,7 +221,13 @@ export default function CanvasAgentChat({
   const [input, setInput] = useState<string>('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
+  const requestedHistory = searchParams.get('history') === 'open';
+  const [showHistory, setShowHistory] = useState(requestedHistory);
+  useEffect(() => {
+    if (!requestedHistory) return;
+    const timer = window.setTimeout(() => setShowHistory(true), 0);
+    return () => window.clearTimeout(timer);
+  }, [requestedHistory, requestedWorkspaceId]);
   const [, setShowMobileDetails] = useState(false);
   const {
     activeModel,
