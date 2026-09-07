@@ -810,6 +810,8 @@ export function MemorySettingsPanel() {
                       <button
                         type="button"
                         key={collection.id}
+                        data-testid="memory-category-card"
+                        data-collection-id={collection.id}
                         aria-pressed={selected}
                         onClick={() => selectCollection(collection.id)}
                         className={cn(
@@ -870,16 +872,16 @@ export function MemorySettingsPanel() {
           <div className="space-y-2">
             {selectedCollection ? (
               <div className="flex flex-wrap gap-2 rounded-lg border bg-muted/20 p-2" role="tablist" aria-label={t('entries.statusAriaLabel')}>
-                <Button size="sm" variant={entryView === 'published' ? 'default' : 'ghost'} onClick={() => selectEntryView('published')}>
+                <Button data-testid="memory-status-published" size="sm" variant={entryView === 'published' ? 'default' : 'ghost'} onClick={() => selectEntryView('published')}>
                   {t('entries.views.published', { count: selectedCollection.publishedCount })}
                 </Button>
                 {(selectedCollection.pendingCount > 0 || entryView === 'pending') ? (
-                  <Button size="sm" variant={entryView === 'pending' ? 'default' : 'ghost'} onClick={() => selectEntryView('pending')}>
+                  <Button data-testid="memory-status-pending" size="sm" variant={entryView === 'pending' ? 'default' : 'ghost'} onClick={() => selectEntryView('pending')}>
                     {t('entries.views.pending', { count: selectedCollection.pendingCount })}
                   </Button>
                 ) : null}
                 {(selectedCollection.archivedCount > 0 || entryView === 'archived') && permissions?.canArchive ? (
-                  <Button size="sm" variant={entryView === 'archived' ? 'default' : 'ghost'} onClick={() => selectEntryView('archived')}>
+                  <Button data-testid="memory-status-archived" size="sm" variant={entryView === 'archived' ? 'default' : 'ghost'} onClick={() => selectEntryView('archived')}>
                     {t('entries.views.archived', { count: selectedCollection.archivedCount })}
                   </Button>
                 ) : null}
@@ -890,6 +892,9 @@ export function MemorySettingsPanel() {
               <Card
                 id={`memory-entry-${entry.id}`}
                 key={entry.id}
+                data-testid="memory-entry-card"
+                data-entry-id={entry.id}
+                data-entry-status={entry.status}
                 className={cn(
                   entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : '',
                   highlightedEntryId === entry.id && 'ring-2 ring-primary ring-offset-2',

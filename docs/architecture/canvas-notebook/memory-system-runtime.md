@@ -1,12 +1,16 @@
 # Memory-System: Runtime, Kategorien und Betrieb
 
-Stand: 2026-09-04
+Stand: 2026-09-07
 
 ## Begriffe
 
 - Eine **Collection** ist ein technischer Kategorien-Container, kein Projekt und
   kein einzelnes Memory.
 - Ein **Entry** ist der eigentliche gespeicherte Memory-Inhalt.
+- Der sichtbare Kategoriename (zum Beispiel `Service Provider` oder
+  `Brand Structure`) steht deshalb als Kartenueberschrift. Die Zahl darunter
+  zaehlt alle fuer den User sichtbaren aktiven, ausstehenden und archivierten
+  Entries dieser Kategorie; sie ist keine Anzahl von Projekten.
 - Die Settings-Oberflaeche zeigt nur Collections, die fuer den aktuellen User
   mindestens einen sichtbaren Entry enthalten. Leere Collections werden in der
   Wartung nach einer Sicherheitsfrist von einer Stunde entfernt, damit eine
@@ -15,6 +19,69 @@ Stand: 2026-09-04
   Taxonomie ueberfuehrt. Beispiele: `service-provider` und
   `business-structure` werden im gemeinsamen Scope zu `profile`, waehrend
   `brand-structure` zu `brand` wird.
+
+## Scopes und Auswahl
+
+`My memory`, `Agent memory`, `Workspace` und `Organization` sind getrennte
+Scopes. Agent Memory verlangt die explizite Auswahl eines Agents. Workspace
+Memory verlangt analog die explizite Auswahl eines zugreifbaren Workspaces.
+Die Workspace-Auswahl aendert nicht den global aktiven Workspace der App und
+wird als `workspaceId` in der Settings-URL erhalten. Dadurch kann ein direkter
+Link immer denselben Workspace und dieselbe Kategorie oeffnen.
+
+Innerhalb einer Kategorie trennt die UI `Published`, `Pending` und `Archived`.
+Der Status ist damit keine versteckte Eigenschaft einer Karte. Kategorien, die
+nur archivierte Entries enthalten, bleiben auffindbar, solange der aktuelle
+User sie wiederherstellen darf.
+
+## Gemeinsame Memories und Freigabe
+
+Fuer Workspace- und Organization-Memory gilt:
+
+- ein Manager mit Publish-Recht veroeffentlicht einen manuell angelegten Entry
+  sofort;
+- ein Contributor mit Schreib-, aber ohne Publish-Recht erzeugt einen
+  `pending`-Vorschlag;
+- automatisch extrahierte gemeinsame Memories starten ebenfalls als
+  `pending` und werden nie still veroeffentlicht;
+- ein Contributor kann den eigenen Vorschlag im Pending-Tab sehen, waehrend
+  Manager alle fuer sie freizugebenden Vorschlaege sehen;
+- Reader sehen ausschliesslich veroeffentlichte Entries.
+
+Jeder aktuell berechtigte Approver erhaelt fuer jeden ausstehenden Entry einen
+Hinweis in der Notification Central. Die Benachrichtigung wird zur Laufzeit aus
+dem aktuellen Pending-Status und den aktuellen Berechtigungen abgeleitet:
+Neue Manager sehen bestehende Vorschlaege, entfernte Manager verlieren den
+Hinweis, und nach Publish oder Archivierung verschwindet er automatisch. Ein
+Klick markiert den Hinweis fuer diesen User als gelesen und fuehrt direkt zum
+richtigen Scope, Workspace, Pending-Tab, Kategorie und Entry. Gelesen bedeutet
+nur zur Kenntnis genommen; solange die Freigabe offen ist, bleibt der Hinweis
+sichtbar. Titel und Metadaten sind lokalisiert, der Memory-Inhalt wird nicht als
+Benachrichtigungsvorschau kopiert.
+
+Beim Archivieren merkt sich ein Entry seinen vorherigen Status. Restore setzt
+ihn deshalb wieder auf `pending` oder `published` zurueck. Fuer historische
+Daten ohne diese Information wird konservativ der sichere Status gewaehlt.
+
+## Prioritaet
+
+Die Prioritaet ist eine Ganzzahl von 0 bis 100 und steuert die Reihenfolge bei
+der Anzeige und bei knappem Prompt-Budget. Die UI erklaert die Skala in fuenf
+Baendern:
+
+- 0-24: niedrig;
+- 25-49: Hintergrund;
+- 50-69: normal;
+- 70-89: wichtig;
+- 90-100: essenziell.
+
+Manuell gespeicherte Entries starten bei 70, weil ein User sie bewusst als
+dauerhaftes Wissen eintraegt. Automatisch extrahierte Entries starten ohne
+abweichende Modellbewertung bei 50. Der Reviewer-Prompt fordert eine bewusste
+Einordnung anhand der dauerhaften Relevanz und warnt ausdruecklich davor, alles
+auf 50 zu setzen. Bestehende Daten mit Prioritaet 50 bleiben als neutraler
+Bestand unveraendert. Gepinnte Eintraege haben bei der Prompt-Projektion immer
+Vorrang vor der numerischen Prioritaet.
 
 ## Wann der Reviewer Modell-Tokens verbraucht
 
@@ -140,9 +207,12 @@ technische IDs, Kategorien, Zaehler, Status, Zeitpunkte, Revisionen,
 Hash-Praefixe und Fehlercodes. Chattexte, Memory-Inhalte, Provider-Secrets und
 Modellantworten duerfen nicht in Logs geschrieben werden.
 
-Direkte Add- und Update-Schreibvorgaenge erzeugen zusaetzlich ein
+Direkte Add-, Update-, Publish-, Archive- und Restore-Schreibvorgaenge erzeugen
+zusaetzlich ein
 `[Memory] Entry stored.`-Log mit Operation, Scope, Entry-/Collection-ID,
-Status sowie Zeichen- und Zeilenanzahl. Der Inhalt selbst wird nicht geloggt.
+Status, Prioritaet sowie Zeichen- und Zeilenanzahl. Notification-Read-State-
+Aenderungen loggen nur User-, Entry- und Scope-IDs beziehungsweise Zaehler. Der
+Inhalt selbst wird nicht geloggt.
 
 ## Relevante Tests
 
@@ -158,7 +228,10 @@ Lease-Recovery nach Neustart, Schliessen historisch erschoepfter Jobs,
 Folgejob-Reconciliation, nicht blockierende unkonfigurierte Mandanten,
 idempotente Updates, das dauerhafte Opt-out, Abbruch laufender Jobs,
 unterdrueckte Backlogs nach erneutem Einschalten, Kategorien-Normalisierung und
-das Verhindern leerer Collections ab. Ein prozessnaher Worker-Zyklus prueft ausserdem, dass ein
+das Verhindern leerer Collections ab. Zusaetzlich prueft er Sichtbarkeit und
+Restore fuer Pending/Published/Archived, manuelles Direct Publish, die
+Prioritaetsskala sowie dynamische Approval-Benachrichtigungen inklusive
+Read-State und Berechtigungswechsel. Ein prozessnaher Worker-Zyklus prueft ausserdem, dass ein
 abgelaufener `running`-Job nach einem Neustart aus seinem validierten Checkpoint
 fertiggestellt wird; die Modellstream-Funktionen werfen im Test absichtlich,
 falls der Worker sie dabei doch aufrufen sollte.
@@ -167,3 +240,6 @@ Der UI-Akzeptanztest `tests/memory-personal-ui.spec.ts` prueft die sofortige
 Speicherung des Schalters, Progressive Disclosure, lokalisierte deutsche
 Kategorien, leere Scopes ohne `0 Eintraege`-Karten, Desktop/Mobile-Layout und
 in zwei getrennten Serverprozessen die Persistenz von Opt-out und Memories.
+`tests/memory-team-governance.spec.ts` prueft Workspace-Auswahl, Vorschlag,
+Notification-Central-Deep-Link, Read-State, Freigabe, Rollen-Sichtbarkeit,
+Archivierung und Wiederherstellung.
