@@ -3236,6 +3236,24 @@
       "languageDescription": "Choose the interface language. Changes are applied immediately.",
       "languageActive": "Active",
       "languageSaveFailed": "Could not save the language for email notifications.",
+      "appearance": {
+        "title": "Appearance",
+        "description": "Choose how Canvas appears on this device.",
+        "options": {
+          "light": {
+            "label": "Light",
+            "description": "Always use light mode."
+          },
+          "dark": {
+            "label": "Dark",
+            "description": "Always use dark mode."
+          },
+          "system": {
+            "label": "System",
+            "description": "Follow your operating system setting."
+          }
+        }
+      },
       "timeZone": "Time zone",
       "timeZoneDescription": "Server-wide default time zone for scheduled automations, heartbeats, and the agent time context. Only administrators can change this setting.",
       "timeZoneDefault": "Default for new installations: Europe/Berlin.",

@@ -10,7 +10,6 @@ import { HomeHintProvider } from '@/app/components/onboarding/HomeHintProvider';
 import { isOnboardingHintsEnabled } from '@/app/lib/onboarding/status';
 import { getUserOnboardingState } from '@/app/lib/user-preferences';
 import { GettingStartedCard } from '@/app/components/onboarding/GettingStartedCard';
-import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { VersionUpdateIndicator } from '@/app/components/VersionUpdateIndicator';
 import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { WorkspaceBrandLogo } from '@/app/components/workspaces/WorkspaceBrandLogo';
@@ -64,9 +63,6 @@ export default async function Home() {
                 <WorkspaceSwitcher source="home" variant="compact" />
                 <NotificationBell />
                 <AppLauncher />
-                <div className="hidden min-[380px]:block">
-                  <ThemeToggle />
-                </div>
                 <UserProfileBadge profile={userProfile} />
               </div>
             </div>

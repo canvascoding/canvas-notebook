@@ -9,7 +9,6 @@ import { cn } from '@/lib/utils';
 
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
-import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { AppBackButton } from '@/app/components/navigation/AppBackButton';
@@ -84,7 +83,6 @@ export function SuitePageLayout({
               <WorkspaceSwitcher source="navbar" variant="compact" />
               <NotificationBell />
               <AppLauncher />
-              <ThemeToggle />
             </div>
           </div>
         </header>

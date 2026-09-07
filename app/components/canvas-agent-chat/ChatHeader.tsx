@@ -36,7 +36,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { ChatLiveBrowserLink } from '@/app/components/canvas-agent-chat/ChatLiveBrowserLink';
 import { formatContextTokens } from '@/app/components/canvas-agent-chat/contextStatusDisplay';
@@ -148,7 +147,6 @@ export function ChatHeader({
               <h1 className="hidden truncate text-lg font-bold md:block md:text-2xl">{t('title')}</h1>
             </div>
             <div className="flex items-center gap-1.5 md:gap-4">
-              <ThemeToggle />
               <Button asChild variant="outline" size="sm" className="hidden gap-2 px-2 sm:px-3 md:inline-flex">
                 <Link href="/usage">{t('usage')}</Link>
               </Button>

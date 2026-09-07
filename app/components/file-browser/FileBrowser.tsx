@@ -22,7 +22,6 @@ import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import { getDroppedFiles } from '@/app/lib/drop-traverse';
 import { FilePreviewDialog } from '@/app/components/files/FilePreviewDialog';
-import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { notifyWorkspaceFileOpened } from '@/app/lib/files/workspace-file-events';
 import { PublicShareDialog } from './PublicShareDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
@@ -545,7 +544,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
             <WorkspaceSwitcher source="navbar" variant="compact" />
             <NotificationBell />
             <AppLauncher />
-            <ThemeToggle />
           </div>
         </div>
       </header>

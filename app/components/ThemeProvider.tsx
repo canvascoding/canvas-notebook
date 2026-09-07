@@ -2,8 +2,8 @@
 
 import { createContext, useCallback, useContext, useEffect, useSyncExternalStore, type ReactNode } from 'react';
 
-type Theme = 'light' | 'dark' | 'system';
-type ResolvedTheme = 'light' | 'dark';
+export type Theme = 'light' | 'dark' | 'system';
+export type ResolvedTheme = 'light' | 'dark';
 
 interface ThemeContextValue {
   theme: Theme;
@@ -23,6 +23,10 @@ const STORAGE_KEY = 'theme';
 const DEFAULT_THEME: Theme = 'light';
 const ALL_THEMES: Theme[] = ['light', 'dark', 'system'];
 
+export function isTheme(value: unknown): value is Theme {
+  return typeof value === 'string' && ALL_THEMES.includes(value as Theme);
+}
+
 function applyTheme(resolved: ResolvedTheme) {
   const root = document.documentElement;
   root.classList.remove('light', 'dark');
@@ -31,7 +35,8 @@ function applyTheme(resolved: ResolvedTheme) {
 
 function readStoredTheme(): Theme {
   try {
-    return (localStorage.getItem(STORAGE_KEY) as Theme | null) || DEFAULT_THEME;
+    const storedTheme = localStorage.getItem(STORAGE_KEY);
+    return isTheme(storedTheme) ? storedTheme : DEFAULT_THEME;
   } catch {
     return DEFAULT_THEME;
   }

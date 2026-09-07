@@ -14,7 +14,6 @@ import {
 
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { AiProvidersModelsPanel } from '@/app/components/settings/AiProvidersModelsPanel';
-import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
 import { ProfileAppearanceEditor } from '@/app/components/user-profile/ProfileAppearanceEditor';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
@@ -419,10 +418,6 @@ export default function OnboardingWizard({
       className="fixed inset-0 overflow-y-auto overscroll-contain bg-background text-foreground"
     >
       <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col px-4 py-4 sm:px-6">
-        <div className="mb-4 flex justify-end gap-2">
-          <ThemeToggle />
-        </div>
-
         <div className="flex flex-1 items-start justify-center py-4">
           <div className={`w-full ${step === 'provider' || step === 'profile' || step === 'workspace' || step === 'language' ? 'max-w-5xl' : 'max-w-lg'}`}>
             <div className="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8">

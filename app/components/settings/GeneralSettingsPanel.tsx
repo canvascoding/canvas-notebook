@@ -6,7 +6,7 @@ import { usePathname } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 import { buildLocalePath } from '@/app/lib/locale-path';
 import { useTranslations } from 'next-intl';
-import { Clock3, KeyRound, Languages, Mail, User } from 'lucide-react';
+import { Clock3, KeyRound, Languages, Laptop, Mail, Moon, Sun, User } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import { getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { ProfileAppearanceEditor } from '@/app/components/user-profile/ProfileAppearanceEditor';
+import { useTheme, type Theme } from '@/app/components/ThemeProvider';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
 
 async function saveUserPreferences(payload: { locale?: string }): Promise<void> {
@@ -70,6 +71,60 @@ async function updatePassword(payload: { currentPassword: string; newPassword: s
   if (!response.ok) {
     throw new Error(body.message || `Failed to update password (${response.status}).`);
   }
+}
+
+const themeOptions = [
+  { value: 'light', icon: Sun },
+  { value: 'dark', icon: Moon },
+  { value: 'system', icon: Laptop },
+] as const satisfies ReadonlyArray<{ value: Theme; icon: typeof Sun }>;
+
+function ThemePreferenceCard() {
+  const t = useTranslations('settings.general.appearance');
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <Card>
+      <CardHeader className="px-4 sm:px-6">
+        <div className="flex items-center gap-2">
+          <Laptop className="h-5 w-5 text-muted-foreground" />
+          <CardTitle>{t('title')}</CardTitle>
+        </div>
+        <CardDescription>{t('description')}</CardDescription>
+      </CardHeader>
+      <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
+        <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label={t('title')}>
+          {themeOptions.map(({ value, icon: Icon }) => {
+            const isSelected = theme === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={isSelected}
+                onClick={() => setTheme(value)}
+                className={`group flex min-h-24 items-center gap-3 rounded-xl border p-3 text-left outline-none transition-all focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                  isSelected
+                    ? 'border-primary bg-primary/[0.07] text-primary shadow-sm'
+                    : 'border-border bg-muted/[0.18] hover:border-primary/40 hover:bg-muted/45'
+                }`}
+              >
+                <span className={`flex size-10 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                  isSelected ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground ring-1 ring-border'
+                }`}>
+                  <Icon className="size-5" aria-hidden="true" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">{t(`options.${value}.label`)}</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{t(`options.${value}.description`)}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export function GeneralSettingsPanel({
@@ -301,6 +356,8 @@ export function GeneralSettingsPanel({
       </SettingsAccordionCard>
 
       <ProfileAppearanceEditor initialProfile={initialUserProfile} />
+
+      <ThemePreferenceCard />
 
       <Card>
         <CardHeader className="px-4 sm:px-6">

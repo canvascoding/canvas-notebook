@@ -17,7 +17,6 @@ import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat'
 import { AppBackButton } from '@/app/components/navigation/AppBackButton';
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
-import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { ResizeHandle, usePanelResize } from '@/app/components/layout/ResizeHandle';
 import {
@@ -392,7 +391,6 @@ export function ChatDockShell({
               <NotificationBell />
               <AppLauncher />
               {chatModeControl}
-              <ThemeToggle />
             </div>
           </div>
         </header>

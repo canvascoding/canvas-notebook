@@ -3235,6 +3235,24 @@
       "languageDescription": "Wähle die Sprache der Benutzeroberfläche. Die Änderung wird sofort angewendet.",
       "languageActive": "Aktiv",
       "languageSaveFailed": "Sprache konnte nicht für E-Mail-Benachrichtigungen gespeichert werden.",
+      "appearance": {
+        "title": "Darstellung",
+        "description": "Lege fest, wie Canvas auf diesem Gerät angezeigt wird.",
+        "options": {
+          "light": {
+            "label": "Hell",
+            "description": "Immer den hellen Modus verwenden."
+          },
+          "dark": {
+            "label": "Dunkel",
+            "description": "Immer den dunklen Modus verwenden."
+          },
+          "system": {
+            "label": "System",
+            "description": "Die Einstellung deines Betriebssystems übernehmen."
+          }
+        }
+      },
       "timeZone": "Zeitzone",
       "timeZoneDescription": "Serverweite Standard-Zeitzone für geplante Automationen, Heartbeats und Agent-Zeitkontext. Nur Administratoren können diese Einstellung ändern.",
       "timeZoneDefault": "Standard für neue Installationen: Europe/Berlin.",

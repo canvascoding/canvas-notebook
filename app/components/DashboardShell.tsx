@@ -48,7 +48,6 @@ import { ResizeHandle, usePanelResize } from '@/app/components/layout/ResizeHand
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
-import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { NotebookDocumentMenu } from '@/app/components/notebook/NotebookDocumentMenu';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
 import { useNotebookLayoutController } from '@/app/components/notebook/useNotebookLayoutController';
@@ -1127,7 +1126,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               <WorkspaceSwitcher source="notebook" variant="compact" className="hidden md:inline-flex" />
               <NotificationBell />
               <AppLauncher />
-              <ThemeToggle />
             </div>
           </header>
 
