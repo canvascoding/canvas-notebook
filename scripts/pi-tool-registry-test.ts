@@ -183,6 +183,15 @@ async function main() {
   const editPdfPagesTool = piTools.find((tool) => tool.name === 'edit_pdf_pages');
 
   assert.equal(piTools.some((tool) => tool.name === 'rg'), true);
+  assert.match(rgTool.description, /Always pass a non-empty pattern/);
+  assert.match(rgTool.description, /"pattern":"Acme"/);
+  const rgParameters = rgTool.parameters as {
+    required?: string[];
+    properties?: Record<string, { minLength?: number; description?: string }>;
+  };
+  assert.equal(rgParameters.required?.includes('pattern'), true);
+  assert.equal(rgParameters.properties?.pattern?.minLength, 1);
+  assert.match(rgParameters.properties?.pattern?.description || '', /Required, non-empty/);
   assert.equal(piTools.some((tool) => tool.name === 'qmd'), false);
   assert.equal(piTools.some((tool) => tool.name === 'qmd_search'), false);
   assert.ok(readTool);

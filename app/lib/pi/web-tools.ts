@@ -342,9 +342,17 @@ export function createRipgrepTool(): AgentTool {
   return {
     name: 'rg',
     label: 'Searching text with ripgrep',
-    description: 'Searches file contents with ripgrep. Use this for fast text/content lookup across the workspace before falling back to bash.',
+    description: [
+      'Search file contents with ripgrep for a required text or regular-expression pattern.',
+      'Always pass a non-empty pattern; do not call this tool with an empty object.',
+      'Examples: {"pattern":"Acme"}; {"pattern":"Acme|Contoso","path":"research","glob":"*.md","ignoreCase":true}.',
+      'The path defaults to the active workspace. Use this for fast content lookup before falling back to bash.',
+    ].join(' '),
     parameters: Type.Object({
-      pattern: Type.String({ description: 'Text or regex pattern to search for.' }),
+      pattern: Type.String({
+        minLength: 1,
+        description: 'Required, non-empty text or ripgrep regex to find. Example: "Acme|Contoso". This is the search query, not a file path.',
+      }),
       path: Type.Optional(Type.String({ description: 'Directory or file to search in. Workspace-relative by default; trusted absolute runtime paths are validated server-side. Defaults to the active workspace.' })),
       glob: Type.Optional(Type.String({ description: 'Optional glob filter, for example "**/*.ts" or "*.md".' })),
       ignoreCase: Type.Optional(Type.Boolean({ description: 'Case-insensitive search when true.' })),
