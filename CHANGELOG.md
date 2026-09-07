@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.7.2] - 2026-09-07
+
+### Added
+
+- Added workspace chat continuation, clearer Home work/workspace views, stable loading skeletons, and streamlined access to everyday apps.
+- Added workspace-member management for the mobile API and validated workspace-aware agent loading.
+
+### Changed
+
+- Improved workspace setup dialogs, theme preferences, automation overview layout, and Home navigation accessibility.
+- Improved automation Markdown fields and rich-text content handling.
+
+### Fixed
+
+- Aligned Home navigation behavior with the system theme preference.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.7.1] - 2026-09-07
 
 ### Fixed
