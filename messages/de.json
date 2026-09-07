@@ -2617,11 +2617,12 @@
       "chat": "Neue Agent-Antwort",
       "todo": "To-do benötigt Aufmerksamkeit",
       "studio": "Studio-Ergebnis bereit",
-      "automation": "Automation benötigt Aufmerksamkeit"
+      "automation": "Automation benötigt Aufmerksamkeit",
+      "memory": "Memory-Freigabe erforderlich"
     },
     "empty": {
       "title": "Alles gelesen",
-      "description": "Neue Antworten, To-dos und wichtige Ergebnisse erscheinen hier."
+      "description": "Neue Antworten, Freigaben, To-dos und wichtige Ergebnisse erscheinen hier."
     }
   },
   "todos": {

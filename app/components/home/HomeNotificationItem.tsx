@@ -1,13 +1,13 @@
 'use client';
 
-import { Check, CircleAlert, ImageIcon, ListTodo, Mail, MessageSquare, Workflow, X } from 'lucide-react';
+import { BrainCircuit, Check, CircleAlert, ImageIcon, ListTodo, Mail, MessageSquare, Workflow, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import type { NotificationItem } from '@/app/components/notifications/notification-summary';
 import { notificationHref } from '@/app/components/notifications/notification-actions';
 
-const ICONS = { chat: MessageSquare, todo: ListTodo, email: Mail, studio: ImageIcon, automation: Workflow };
+const ICONS = { chat: MessageSquare, todo: ListTodo, email: Mail, studio: ImageIcon, automation: Workflow, memory: BrainCircuit };
 
 export function HomeNotificationItem({ item, showActions, pending, onRead, onDismiss }: {
   item: NotificationItem;

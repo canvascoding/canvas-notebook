@@ -1565,6 +1565,17 @@ export const memoryEntries = sqliteTable("memory_entries", {
   revisionCheck: check("memory_entries_revision_check", sql`${table.revision} >= 1`),
 }));
 
+export const memoryApprovalReadStates = sqliteTable("memory_approval_read_states", {
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  entryId: text("entry_id").notNull().references(() => memoryEntries.id, { onDelete: "cascade" }),
+  readAt: integer("read_at", { mode: "timestamp" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.userId, table.entryId] }),
+  userReadIdx: index("idx_memory_approval_read_user").on(table.userId, table.readAt),
+}));
+
 export const memoryEvents = sqliteTable("memory_events", {
   id: text("id").primaryKey(),
   entryId: text("entry_id").notNull().references(() => memoryEntries.id, { onDelete: 'cascade' }),

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   Bell,
+  BrainCircuit,
   Check,
   Circle,
   CircleAlert,
@@ -45,6 +46,7 @@ function notificationIcon(item: NotificationItem) {
   if (item.target.kind === 'todo') return ListTodo;
   if (item.target.kind === 'email') return Mail;
   if (item.target.kind === 'studio') return ImageIcon;
+  if (item.target.kind === 'memory') return BrainCircuit;
   return Workflow;
 }
 

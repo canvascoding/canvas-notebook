@@ -9,6 +9,10 @@ import {
 } from '@/app/lib/mobile/inbox';
 import { loadMobileInboxScope } from '@/app/lib/mobile/inbox-scope';
 import { readNotificationAttention } from '@/app/lib/notifications/attention';
+import {
+  markAllMemoryApprovalAttentionRead,
+  markMemoryApprovalAttentionRead,
+} from '@/app/lib/memory/approval-attention';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type PatchPayload = {
@@ -91,10 +95,26 @@ export async function PATCH(request: NextRequest) {
     const scope = await loadMobileInboxScope(session.user);
 
     if (payload.action === 'mark_all_read') {
-      const data = await markMobileAggregateInboxRead({
+      const [inbox, memoryApprovals] = await Promise.all([
+        markMobileAggregateInboxRead({
+          userId: session.user.id,
+          workspaces: scope.includedWorkspaces,
+          category: 'notifications',
+        }),
+        markAllMemoryApprovalAttentionRead({
+          userId: session.user.id,
+          workspaces: scope.includedWorkspaces,
+        }),
+      ]);
+      const data = { inbox, memoryApprovals };
+      return NextResponse.json({ success: true, data });
+    }
+
+    if (payload.action === 'mark_item_read' && payload.itemId?.startsWith('memory:')) {
+      const data = await markMemoryApprovalAttentionRead({
         userId: session.user.id,
         workspaces: scope.includedWorkspaces,
-        category: 'notifications',
+        itemId: payload.itemId,
       });
       return NextResponse.json({ success: true, data });
     }

@@ -171,6 +171,7 @@ export function MemorySettingsPanel() {
   const [entrySort, setEntrySort] = useState<'priority' | 'updated' | 'lastUsed'>('priority');
   const [historyForEntryId, setHistoryForEntryId] = useState<string | null>(null);
   const [entryHistory, setEntryHistory] = useState<MemoryEvent[]>([]);
+  const [highlightedEntryId, setHighlightedEntryId] = useState<string | null>(() => searchParams.get('entryId'));
   const [settings, setSettings] = useState<MemorySettings | null>(null);
   const [runtimeDraftChanged, setRuntimeDraftChanged] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -344,6 +345,14 @@ export function MemorySettingsPanel() {
     return () => window.clearTimeout(timer);
   }, [loadEntries, selectedCollectionId, t]);
 
+  useEffect(() => {
+    if (!highlightedEntryId || !entries.some((entry) => entry.id === highlightedEntryId)) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(`memory-entry-${highlightedEntryId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [entries, highlightedEntryId]);
+
   const setScopeWithUrl = (nextScope: MemoryScope) => {
     if (nextScope === scope) return;
     setLoading(true);
@@ -477,10 +486,12 @@ export function MemorySettingsPanel() {
       const nextView: MemoryEntryView = result.entry?.status === 'pending' ? 'pending' : 'published';
       setDraft('');
       setNotice(result.entry?.status === 'pending' ? t('notices.suggestionCreated') : t('notices.memorySaved'));
+      setHighlightedEntryId(result.entry?.id ?? null);
       if (result.entry?.collectionId) setSelectedCollectionId(result.entry.collectionId);
       selectEntryView(nextView);
       await loadCollections(result.entry?.collectionId ?? selectedCollectionId);
       await loadEntries(result.entry?.collectionId ?? selectedCollectionId, nextView);
+      window.dispatchEvent(new CustomEvent('notification_summary_updated'));
     } catch (addError) { setError(addError instanceof Error ? addError.message : t('errors.addMemory')); }
     finally { setAdding(false); }
   };
@@ -499,6 +510,7 @@ export function MemorySettingsPanel() {
       }
       setEditingId(null); setNotice(action === 'publish' ? t('notices.published') : action === 'restore' ? t('notices.restored') : action === 'archive' ? t('notices.archived') : t('notices.updated'));
       await refreshScope();
+      window.dispatchEvent(new CustomEvent('notification_summary_updated'));
     } catch (mutationError) { setError(mutationError instanceof Error ? mutationError.message : t('errors.updateMemory')); }
   };
 
@@ -871,7 +883,7 @@ export function MemorySettingsPanel() {
               </div>
             ) : null}
             <div className="flex flex-wrap items-center justify-between gap-2">{entries.length > 0 ? <Input aria-label={t('entries.searchLabel')} value={entryQuery} onChange={(event) => setEntryQuery(event.target.value)} placeholder={t('entries.searchPlaceholder')} className="max-w-sm" /> : null}{entries.length > 0 ? <select aria-label={t('entries.sortLabel')} className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={entrySort} onChange={(event) => setEntrySort(event.target.value as 'priority' | 'updated' | 'lastUsed')}><option value="priority">{t('entries.sortPriority')}</option><option value="updated">{t('entries.sortUpdated')}</option><option value="lastUsed">{t('entries.sortLastUsed')}</option></select> : null}</div>
-            {visibleEntries.map((entry) => <Card key={entry.id} className={entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : ''}><CardContent className="pt-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1">{editingId === entry.id ? <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} /> : <MemoryMarkdownContent content={entry.content} />}<div className="mt-2 flex gap-2"><Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{t(`entries.status.${entry.status}`)}</Badge><span className="text-xs text-muted-foreground">{t('entries.priority', { priority: entry.priority })}</span></div></div><div className="flex shrink-0 flex-wrap justify-end gap-1">{!agentMemoryReadOnly && entry.status === 'pending' && permissions?.canPublish ? <Button size="icon" variant="outline" title={t('entries.publish')} onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status === 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title={t('entries.restore')} onClick={() => void mutateEntry(entry, 'restore')}><RotateCcw className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canUpdatePublished ? editingId === entry.id ? <Button size="icon" title={t('entries.save')} onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button> : <Button size="icon" variant="ghost" title={t('entries.edit')} onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); }}><Pencil className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title={t('entries.archive')} onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button> : null}</div></div><Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? t('entries.hideHistory') : t('entries.history')}</Button>{historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt, locale)}</p>)}</div> : null}</CardContent></Card>)}
+            {visibleEntries.map((entry) => <Card id={`memory-entry-${entry.id}`} key={entry.id} className={cn(entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : '', highlightedEntryId === entry.id && 'ring-2 ring-primary ring-offset-2')}><CardContent className="pt-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1">{editingId === entry.id ? <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} /> : <MemoryMarkdownContent content={entry.content} />}<div className="mt-2 flex gap-2"><Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{t(`entries.status.${entry.status}`)}</Badge><span className="text-xs text-muted-foreground">{t('entries.priority', { priority: entry.priority })}</span></div></div><div className="flex shrink-0 flex-wrap justify-end gap-1">{!agentMemoryReadOnly && entry.status === 'pending' && permissions?.canPublish ? <Button size="icon" variant="outline" title={t('entries.publish')} onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status === 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title={t('entries.restore')} onClick={() => void mutateEntry(entry, 'restore')}><RotateCcw className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canUpdatePublished ? editingId === entry.id ? <Button size="icon" title={t('entries.save')} onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button> : <Button size="icon" variant="ghost" title={t('entries.edit')} onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); }}><Pencil className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title={t('entries.archive')} onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button> : null}</div></div><Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? t('entries.hideHistory') : t('entries.history')}</Button>{historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt, locale)}</p>)}</div> : null}</CardContent></Card>)}
             {!loading && selectedCollectionId && entries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">{t(`entries.emptyViews.${entryView}`)}</p> : null}
             {!loading && entries.length > 0 && visibleEntries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">{t('entries.noSearchResults')}</p> : null}
           </div>

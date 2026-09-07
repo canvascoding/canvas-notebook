@@ -22,6 +22,19 @@ export function notificationHref(item: NotificationItem): string {
       return `/studio?${new URLSearchParams({ generation: item.target.generationId, workspaceId: item.workspaceId })}`;
     case 'automation':
       return '/automations';
+    case 'memory': {
+      const params = new URLSearchParams({
+        tab: 'memory',
+        scope: item.target.scope,
+        status: 'pending',
+        collectionId: item.target.collectionId,
+        entryId: item.target.entryId,
+      });
+      if (item.target.scope === 'workspace' && item.target.workspaceId) {
+        params.set('workspaceId', item.target.workspaceId);
+      }
+      return `/settings?${params.toString()}`;
+    }
   }
 }
 

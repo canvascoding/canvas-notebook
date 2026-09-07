@@ -11,20 +11,29 @@ async function main() {
   const email = item('email', { kind: 'email', scope: 'workspace', draftId: 'draft1' });
   const studio = item('studio', { kind: 'studio', generationId: 'gen1' });
   const automation = item('automation', { kind: 'automation', runId: 'run1' }, 'high');
+  const memory = {
+    ...item('memory', { kind: 'memory', scope: 'workspace', entryId: 'entry1', collectionId: 'collection1', workspaceId: 'workspace-a' }),
+    type: 'memory.approval_required' as const,
+  };
   const summary = {
-    items: [chat, todo, email, studio, automation],
-    sections: { notifications: [chat, studio, automation], todoAttention: [todo], emailAttention: [email] },
+    items: [chat, todo, email, studio, automation, memory],
+    sections: { notifications: [chat, studio, automation, memory], todoAttention: [todo], emailAttention: [email] },
   } as NotificationSummary;
   const entries = homeNotificationItems(summary);
-  assert.equal(entries.length, 5, 'the same event appearing in multiple summary sections must be shown once');
+  assert.equal(entries.length, 6, 'the same event appearing in multiple summary sections must be shown once');
   assert.equal(entries[0].priority, 'high');
-  assert.deepEqual(new Set(entries.map((entry) => entry.target.kind)), new Set(['chat', 'todo', 'email', 'studio', 'automation']));
+  assert.deepEqual(new Set(entries.map((entry) => entry.target.kind)), new Set(['chat', 'todo', 'email', 'studio', 'automation', 'memory']));
   assert.deepEqual(homeNotificationItems(null), []);
   const chatLink = new URL(notificationHref(chat), 'http://localhost');
   assert.equal(chatLink.searchParams.get('session'), 'session & 1');
   assert.equal(chatLink.searchParams.get('workspaceId'), 'workspace-a');
   assert.equal(new URL(notificationHref(todo), 'http://localhost').searchParams.get('todo'), 'todo1');
   assert.ok(notificationHref(email).includes('workspaceId=workspace-a'));
+  const memoryLink = new URL(notificationHref(memory), 'http://localhost');
+  assert.equal(memoryLink.pathname, '/settings');
+  assert.equal(memoryLink.searchParams.get('status'), 'pending');
+  assert.equal(memoryLink.searchParams.get('collectionId'), 'collection1');
+  assert.equal(memoryLink.searchParams.get('entryId'), 'entry1');
   const originalFetch = globalThis.fetch;
   const events: string[] = [];
   Object.defineProperty(globalThis, 'window', { value: { dispatchEvent: (event: Event) => events.push(event.type) }, configurable: true });

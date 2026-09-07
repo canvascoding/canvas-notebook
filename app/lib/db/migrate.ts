@@ -118,6 +118,20 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_mobile_inbox_read_workspace
       ON mobile_inbox_read_states (user_id, workspace_id, read_at);
 
+    CREATE TABLE IF NOT EXISTS memory_approval_read_states (
+      user_id TEXT NOT NULL,
+      entry_id TEXT NOT NULL,
+      read_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, entry_id),
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (entry_id) REFERENCES memory_entries(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_memory_approval_read_user
+      ON memory_approval_read_states (user_id, read_at);
+
     CREATE TABLE IF NOT EXISTS account (
       id TEXT PRIMARY KEY NOT NULL,
       account_id TEXT NOT NULL,

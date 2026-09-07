@@ -17,6 +17,7 @@ try {
     'memory_review_runtime_settings',
     'memory_collections',
     'memory_entries',
+    'memory_approval_read_states',
     'memory_events',
     'memory_review_jobs',
   ];

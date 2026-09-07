@@ -72,6 +72,11 @@ async function main(): Promise<void> {
       updateMemory,
       MemoryReviewCancelledError,
     } = await import('../app/lib/memory/service');
+    const {
+      listMemoryApprovalAttention,
+      markAllMemoryApprovalAttentionRead,
+      markMemoryApprovalAttentionRead,
+    } = await import('../app/lib/memory/approval-attention');
     const { runMemoryReviewWorkerCycle } = await import('../app/lib/memory/review-worker');
     const { buildMemoryPromptProjection } = await import('../app/lib/memory/prompt-projection');
     const { ensureLegacyMemoryMigrated } = await import('../app/lib/memory/legacy-migration');
@@ -87,6 +92,22 @@ async function main(): Promise<void> {
       /Built-in agents cannot be recreated/,
     );
     const scope = { target: 'user' as const, userId: 'user-1' };
+    const managedWorkspace = {
+      workspaceId: 'workspace-1',
+      workspaceType: 'team' as const,
+      rootPath: dataDir,
+      displayName: 'Memory workspace',
+      organizationId: 'org-1',
+      permissions: {
+        canRead: true,
+        canWrite: true,
+        canDelete: false,
+        canCreatePublicLinks: false,
+        canManageWorkspace: true,
+        canRunAgent: true,
+      },
+      legacy: false,
+    };
     const added = await addMemory({ ...scope, content: 'Prefers concise answers.' });
     assert.equal(added.changed, true);
     assert.equal(added.entry?.status, 'published');
@@ -136,6 +157,16 @@ async function main(): Promise<void> {
     try {
       await governanceDb.run(`UPDATE canvas_workspace_members SET can_manage = 1 WHERE workspace_id = 'workspace-1' AND user_id = 'user-1'`);
     } finally { await governanceDb.close(); }
+    const workspaceApprovalItems = await listMemoryApprovalAttention({ userId: 'user-1', workspaces: [managedWorkspace] });
+    const workspaceApproval = workspaceApprovalItems.find((item) => item.target.entryId === workspace.entry!.id);
+    assert.equal(workspaceApproval?.unread, true);
+    assert.equal(workspaceApproval?.workspaceName, 'Memory workspace');
+    assert.deepEqual((await listMemoryApprovalAttention({ userId: 'user-reader', workspaces: [{
+      ...managedWorkspace,
+      permissions: { ...managedWorkspace.permissions, canWrite: false, canManageWorkspace: false },
+    }] })).filter((item) => item.target.entryId === workspace.entry!.id), []);
+    await markMemoryApprovalAttentionRead({ userId: 'user-1', workspaces: [managedWorkspace], itemId: workspaceApproval!.id, now: Date.now() + 1 });
+    assert.equal((await listMemoryApprovalAttention({ userId: 'user-1', workspaces: [managedWorkspace] })).find((item) => item.id === workspaceApproval!.id)?.unread, false);
     await deleteMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     const restoredPendingWorkspace = await restoreMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     assert.equal(restoredPendingWorkspace.entry?.status, 'pending');
@@ -145,6 +176,7 @@ async function main(): Promise<void> {
     assert.equal(managerCreatedWorkspace.entry?.status, 'published');
     const publishedWorkspace = await publishMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     assert.equal(publishedWorkspace.entry?.status, 'published');
+    assert.equal((await listMemoryApprovalAttention({ userId: 'user-1', workspaces: [managedWorkspace] })).some((item) => item.target.entryId === workspace.entry!.id), false);
     await deleteMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     const restoredWorkspace = await restoreMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     assert.equal(restoredWorkspace.entry?.status, 'published');
@@ -161,6 +193,12 @@ async function main(): Promise<void> {
     try {
       await organizationPermissionDb.run(`UPDATE organization_user_permissions SET can_manage_organization_memory = 1 WHERE organization_id = 'org-1' AND user_id = 'user-1'`);
     } finally { await organizationPermissionDb.close(); }
+    const organizationApproval = (await listMemoryApprovalAttention({ userId: 'user-1', workspaces: [managedWorkspace] }))
+      .find((item) => item.target.entryId === organizationMemory.entry!.id);
+    assert.equal(organizationApproval?.target.scope, 'organization');
+    assert.equal(organizationApproval?.unread, true);
+    assert.equal((await markAllMemoryApprovalAttentionRead({ userId: 'user-1', workspaces: [managedWorkspace], now: Date.now() + 1 })).updated >= 1, true);
+    assert.equal((await listMemoryApprovalAttention({ userId: 'user-1', workspaces: [managedWorkspace] })).find((item) => item.id === organizationApproval!.id)?.unread, false);
     const publishedOrganization = await publishMemory({ target: 'organization', userId: 'user-1', organizationId: 'org-1', id: organizationMemory.entry!.id });
     assert.equal(publishedOrganization.entry?.status, 'published');
     await assert.rejects(

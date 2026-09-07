@@ -4,13 +4,14 @@ import { listEmailAttention, type EmailAttentionItem } from '@/app/lib/email/inb
 import { countMobileUnreadNotifications, listMobileAggregateInbox, type MobileAggregateInboxItem } from '@/app/lib/mobile/inbox';
 import { listTodos } from '@/app/lib/todos/store';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { listMemoryApprovalAttention, type MemoryApprovalAttentionItem } from '@/app/lib/memory/approval-attention';
 
 import { selectTodoAttention, type TodoAttentionReason } from './attention-policy';
 
-export type NotificationAttentionItem = MobileAggregateInboxItem & {
+export type NotificationAttentionItem = (MobileAggregateInboxItem & {
   workspaceName: string | null;
   todoAttentionReason?: TodoAttentionReason;
-};
+}) | MemoryApprovalAttentionItem;
 
 function workspaceNameById(workspaces: WorkspaceContext[]) {
   return new Map(workspaces.map((workspace) => [workspace.workspaceId, workspace.displayName || workspace.workspaceType]));
@@ -31,7 +32,7 @@ export async function readNotificationAttention(input: {
   const defaultPersonalWorkspace = input.workspaces.find((workspace) => workspace.workspaceType === 'personal' && workspace.isDefault)
     ?? input.workspaces.find((workspace) => workspace.workspaceType === 'personal')
     ?? null;
-  const [events, todos, emailLists, unreadCount] = await Promise.all([
+  const [events, todos, emailLists, mobileUnreadCount, memoryApprovals] = await Promise.all([
     listMobileAggregateInbox({
       userId: input.userId,
       workspaces: input.workspaces,
@@ -50,6 +51,7 @@ export async function readNotificationAttention(input: {
       items: await listEmailAttention({ userId: input.userId, workspace }),
     }))),
     countMobileUnreadNotifications({ userId: input.userId, workspaces: input.workspaces }),
+    listMemoryApprovalAttention({ userId: input.userId, workspaces: input.workspaces }),
   ]);
 
   const todoAttention = selectTodoAttention({ todos, viewerUserId: input.userId, now }).map((todo) => {
@@ -90,10 +92,14 @@ export async function readNotificationAttention(input: {
     || right.id.localeCompare(left.id)
   )).slice(0, 6);
 
-  const notificationItems = events.items.map((item) => ({
+  const eventItems = events.items.map((item) => ({
     ...item,
     workspaceName: names.get(item.workspaceId) ?? null,
   }));
+  const notificationItems: NotificationAttentionItem[] = [...memoryApprovals, ...eventItems]
+    .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id));
+  const memoryApprovalUnread = memoryApprovals.filter((item) => item.unread).length;
+  const unreadCount = mobileUnreadCount + memoryApprovalUnread;
   return {
     unreadCount,
     counts: {
@@ -105,6 +111,7 @@ export async function readNotificationAttention(input: {
       todoUnread: todoAttention.filter((item) => item.unread).length,
       studio: events.counts.studio,
       automation: events.counts.automation,
+      memoryApprovals: memoryApprovals.length,
     },
     sections: {
       notifications: notificationItems,
