@@ -77,8 +77,8 @@ export function FileInfoDialog({ node, open, onOpenChange }: FileInfoDialogProps
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md overflow-hidden p-0">
-        <DialogHeader className="border-b border-border bg-muted/35 px-5 pb-4 pt-5 pr-12">
+      <DialogContent className="max-w-md overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="border-b border-border bg-muted/35 px-4 pb-4 pt-5 pr-12 sm:px-5 sm:pr-12">
           <DialogTitle className="flex min-w-0 items-center gap-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-background shadow-sm">
               <Info className="h-4 w-4 text-muted-foreground" />
@@ -88,32 +88,32 @@ export function FileInfoDialog({ node, open, onOpenChange }: FileInfoDialogProps
           <DialogDescription>{t('fileInfoDescription')}</DialogDescription>
         </DialogHeader>
 
-        <div className="px-5 py-2">
+        <div className="px-4 py-2 sm:px-5">
           <div className="flex min-w-0 items-center gap-3 border-b border-border/70 py-3">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted">
               <FileIcon className="h-4 w-4 text-muted-foreground" />
             </span>
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium" title={displayedFile?.name}>{displayedFile?.name}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block break-words text-sm font-medium sm:truncate" title={displayedFile?.name}>{displayedFile?.name}</span>
               <span className="block text-xs text-muted-foreground">{displayedFile?.type === 'directory' ? t('folder') : t('file')}</span>
             </span>
           </div>
 
-          <dl className="grid grid-cols-[minmax(7.5rem,auto)_minmax(0,1fr)] gap-x-5">
+          <dl className="divide-y divide-border/70 sm:grid sm:grid-cols-[minmax(7.5rem,auto)_minmax(0,1fr)] sm:divide-y-0 sm:gap-x-5">
             {fields.map(([label, value], index) => (
-              <div key={label} className="contents">
-                <dt className={`py-3 text-sm text-muted-foreground ${index < fields.length - 1 ? 'border-b border-border/70' : ''}`}>
+              <div key={label} className="grid gap-1 py-3 sm:contents">
+                <dt className={`text-sm text-muted-foreground sm:py-3 ${index < fields.length - 1 ? 'sm:border-b sm:border-border/70' : ''}`}>
                   {label}
                 </dt>
-                <dd className={`min-w-0 py-3 text-sm font-medium ${index < fields.length - 1 ? 'border-b border-border/70' : ''} ${label === t('fileInfoSize') ? 'tabular-nums' : ''}`}>
-                  <span className="block truncate" title={value}>{value}</span>
+                <dd className={`min-w-0 text-sm font-medium sm:py-3 ${index < fields.length - 1 ? 'sm:border-b sm:border-border/70' : ''} ${label === t('fileInfoSize') ? 'tabular-nums' : ''}`}>
+                  <span className="block break-words sm:truncate" title={value}>{value}</span>
                 </dd>
               </div>
             ))}
           </dl>
         </div>
 
-        <DialogFooter className="border-t border-border bg-muted/20 px-5 py-3">
+        <DialogFooter className="border-t border-border bg-muted/20 px-4 py-3 sm:px-5">
           <Button type="button" onClick={() => onOpenChange(false)}>{t('close')}</Button>
         </DialogFooter>
       </DialogContent>
