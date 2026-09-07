@@ -307,10 +307,10 @@ export function MemorySettingsPanel() {
     const collectionChanged = nextCollectionId !== previousParams.get('collectionId');
     const viewChanged = nextEntryView !== entryViewFromParam(previousParams.get('status'));
 
-    if (scopeChanged || workspaceChanged || agentChanged) {
+    if (scopeChanged || workspaceChanged || agentChanged || collectionChanged) {
       collectionLoadVersionRef.current += 1;
       entryLoadVersionRef.current += 1;
-    } else if (collectionChanged || viewChanged) {
+    } else if (viewChanged) {
       entryLoadVersionRef.current += 1;
     }
 
