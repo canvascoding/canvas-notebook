@@ -6,6 +6,8 @@ import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
   Archive,
+  ArrowDown,
+  ArrowUp,
   BellOff,
   Building2,
   CalendarDays,
@@ -22,9 +24,12 @@ import {
   Globe2,
   MailCheck,
   MailWarning,
+  MailOpen,
   Menu,
   MessageSquare,
   Lightbulb,
+  ListTodo,
+  Minus,
   MoreHorizontal,
   Plus,
   RefreshCcw,
@@ -80,6 +85,7 @@ import {
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 
 type TodoStatus = 'open' | 'done' | 'archived';
 type TodoPriority = 'low' | 'normal' | 'high';
@@ -222,6 +228,25 @@ const statusFilters: StatusFilter[] = ['open', 'done', 'archived', 'all'];
 const readStateFilters: ReadStateFilter[] = ['all', 'unread', 'read'];
 const priorities: TodoPriority[] = ['low', 'normal', 'high'];
 const emptyTodoFileLinks: TodoFileLink[] = [];
+
+const statusFilterIcons: Record<StatusFilter, typeof Circle> = {
+  all: ListTodo,
+  open: Circle,
+  done: CheckCircle2,
+  archived: Archive,
+};
+
+const readStateFilterIcons: Record<ReadStateFilter, typeof Circle> = {
+  all: MailOpen,
+  unread: MailWarning,
+  read: MailCheck,
+};
+
+const priorityFilterIcons: Record<TodoPriority, typeof Circle> = {
+  low: ArrowDown,
+  normal: Minus,
+  high: ArrowUp,
+};
 
 const emptyForm: TodoFormState = {
   title: '',
@@ -412,7 +437,11 @@ function TodoDetailPanel({
       </div>
 
       {todo.description ? (
-        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{todo.description}</p>
+        <MarkdownRenderer
+          content={todo.description}
+          variant="muted"
+          className="text-sm leading-relaxed text-muted-foreground [&_img]:max-h-48 [&_img]:max-w-full [&_img]:object-contain [&_pre]:max-h-64 [&_table]:text-xs"
+        />
       ) : (
         <p className="text-sm text-muted-foreground">{t('states.noDescription')}</p>
       )}
@@ -1251,6 +1280,10 @@ export function TodosClient({ title }: { title: string }) {
             if (closeOnSelect) setFilterSheetOpen(false);
           }}
         >
+          {(() => {
+            const Icon = statusFilterIcons[filter];
+            return <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />;
+          })()}
           <span className="min-w-0 truncate">{t(`filters.status.${filter}`)}</span>
         </button>
       ))}
@@ -1274,6 +1307,10 @@ export function TodosClient({ title }: { title: string }) {
             if (closeOnSelect) setFilterSheetOpen(false);
           }}
         >
+          {(() => {
+            const Icon = readStateFilterIcons[filter];
+            return <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />;
+          })()}
           <span className="min-w-0 truncate">{t(`filters.readState.${filter}`)}</span>
         </button>
       ))}
@@ -1290,6 +1327,7 @@ export function TodosClient({ title }: { title: string }) {
         )}
         onClick={() => { setPriorityFilter(''); if (closeOnSelect) setFilterSheetOpen(false); }}
       >
+        <ListTodo className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         <span className="min-w-0 truncate">{t('filters.allPriorities')}</span>
       </button>
       {priorities.map((priority) => (
@@ -1302,6 +1340,10 @@ export function TodosClient({ title }: { title: string }) {
           )}
           onClick={() => { setPriorityFilter(priority); if (closeOnSelect) setFilterSheetOpen(false); }}
         >
+          {(() => {
+            const Icon = priorityFilterIcons[priority];
+            return <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />;
+          })()}
           <span className="min-w-0 truncate">{t(`priority.${priority}`)}</span>
         </button>
       ))}
@@ -1600,7 +1642,9 @@ export function TodosClient({ title }: { title: string }) {
                         </h4>
                       </div>
                       {todo.description ? (
-                        <p className="mt-1 line-clamp-2 break-words text-sm text-muted-foreground">{todo.description}</p>
+                        <div className="mt-1 max-h-10 overflow-hidden text-sm text-muted-foreground [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-sm [&_pre]:max-h-10 [&_table]:text-[0.65rem] [&_img]:max-h-8 [&_img]:max-w-full [&_img]:object-contain">
+                          <MarkdownRenderer content={todo.description} variant="muted" />
+                        </div>
                       ) : null}
                       <div className="mt-3 flex flex-wrap items-center gap-1.5">
                         {todo.category && (
