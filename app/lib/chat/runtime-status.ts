@@ -52,6 +52,7 @@ export type RuntimeCompactionTranslationKey =
   | 'compactionStatusAlreadyRunning'
   | 'compactionStatusTooLarge'
   | 'compactionStatusSummaryProviderError'
+  | 'compactionStatusNotSmaller'
   | 'compactionStatusSummaryIdleTimeout'
   | 'compactionStatusSummaryTotalTimeout'
   | 'compactionStatusPersistenceConflict'
@@ -87,6 +88,8 @@ export function getRuntimeCompactionStatusTranslationKey(
       return 'compactionStatusAlreadyRunning';
     case 'summary_provider_error':
       return 'compactionStatusSummaryProviderError';
+    case 'summary_not_smaller':
+      return 'compactionStatusNotSmaller';
     case 'summary_idle_timeout':
     case 'summary_timeout':
       return 'compactionStatusSummaryIdleTimeout';

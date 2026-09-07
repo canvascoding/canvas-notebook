@@ -485,7 +485,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     ...scope,
     attemptId: `attempt-${provider}-ineffective-2`,
     state: 'no_op',
-    reasonCode: 'nothing_eligible',
+    reasonCode: 'summary_not_smaller',
     retryAt: new Date('2026-08-27T10:25:30.000Z'),
     now: new Date('2026-08-27T10:20:30.000Z'),
   });

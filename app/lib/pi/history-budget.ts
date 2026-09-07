@@ -209,8 +209,11 @@ function getSummaryMessage(summaryText: string, maxHistoryTokens: number): UserM
     Math.floor(maxHistoryTokens * MAX_SUMMARY_SHARE / TOKENS_PER_CHARACTER),
   );
   const trimmedSummary = summaryText.trim();
+  // A structured V2 summary must remain atomic: truncation can remove task
+  // state, anchors or recovery instructions. The full composition enforces fit.
+  const structuredSummary = trimmedSummary.startsWith('<!-- canvas-session-summary:v2 -->');
   const content =
-    trimmedSummary.length <= maxSummaryCharacters
+    structuredSummary || trimmedSummary.length <= maxSummaryCharacters
       ? trimmedSummary
       : `${trimmedSummary.slice(0, maxSummaryCharacters - 1).trimEnd()}\n…`;
 

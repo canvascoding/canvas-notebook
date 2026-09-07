@@ -172,13 +172,14 @@ export function assemblePiRollingSummary(input: {
   focusTopic?: string | null;
   knownSecrets?: readonly string[];
   maximumCharacters: number;
+  maximumBodyCharacters?: number;
 }): PiRollingSummaryAssembly {
   const validated = validatePiRollingSummaryBody({
     body: input.body,
     hasRealUserTurn: input.hasRealUserTurn,
     focusTopic: input.focusTopic,
     knownSecrets: input.knownSecrets,
-    maximumCharacters: getPiRollingSummaryBodyCharacterLimit(input.maximumCharacters),
+    maximumCharacters: input.maximumBodyCharacters ?? getPiRollingSummaryBodyCharacterLimit(input.maximumCharacters),
   });
   if (!validated.ok || !validated.body) {
     return Object.freeze({ ok: false, text: null, reason: validated.reason });
@@ -213,7 +214,7 @@ export function assemblePiRollingSummary(input: {
   if (mandatoryLength > input.maximumCharacters) {
     return Object.freeze({ ok: false, text: null, reason: 'mandatory_artifacts_too_large' });
   }
-  const digestBudget = input.maximumCharacters - mandatoryLength;
+  const digestBudget = Math.max(0, input.maximumCharacters - mandatoryLength - 1);
   const digestSection = fitDigestSection(
     redactPiCompactionText(input.digestSection, input.knownSecrets ?? []),
     digestBudget,

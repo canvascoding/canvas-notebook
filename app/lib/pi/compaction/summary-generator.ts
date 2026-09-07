@@ -19,7 +19,6 @@ import { estimateTextTokens } from '../history-budget';
 import { isPiActionableUserMessage } from './selection';
 import {
   assemblePiRollingSummary,
-  getPiRollingSummaryBodyCharacterLimit,
   PI_NO_USER_TASK_SENTINEL,
   PI_ROLLING_SUMMARY_REQUIRED_HEADINGS,
 } from './summary-contract';
@@ -36,16 +35,16 @@ import {
   sanitizePiCompactionDiagnosticText,
 } from './diagnostics';
 
-const V2_SUMMARY_OUTPUT_TOKENS = 2_400;
 const V2_DIGEST_OUTPUT_TOKENS = 900;
 // Character storage and model tokens are separate budgets: one token is not
 // bounded to four characters. Keep a generous, explicit storage ceiling.
 const V2_DIGEST_MAX_CHARACTERS = 6_000;
 const V2_INPUT_SAFETY_TOKENS = 768;
-const V2_SUMMARY_MAX_CHARACTERS = 24_000;
-const V2_PRIOR_SUMMARY_MAX_CHARACTERS = 32_000;
-const DEFAULT_IDLE_TIMEOUT_MS = 30_000;
-const DEFAULT_TOTAL_TIMEOUT_MS = 120_000;
+const V2_SUMMARY_MAX_CHARACTERS = 64_000;
+const V2_SUMMARY_BODY_MAX_CHARACTERS = 48_000;
+const V2_PRIOR_SUMMARY_MAX_CHARACTERS = V2_SUMMARY_MAX_CHARACTERS;
+const DEFAULT_IDLE_TIMEOUT_MS = 120_000;
+const DEFAULT_TOTAL_TIMEOUT_MS = 300_000;
 const INJECTION_LIKE_DIGEST = /(?:ignore|disregard|override)\s+(?:all\s+)?(?:previous|prior|system|developer)\s+instructions|<\/?(?:conversation_record|internal_session_summary)>/iu;
 
 const DIGEST_SYSTEM_PROMPT = [
@@ -66,6 +65,19 @@ const SUMMARY_SYSTEM_PROMPT_V2 = [
 ].join(' ');
 
 export type PiSummaryMode = 'legacy' | 'hermes_v2';
+
+export class PiSummaryTimeoutError extends Error {
+  constructor(readonly reasonCode: 'summary_idle_timeout' | 'summary_total_timeout', message: string) {
+    super(message);
+    this.name = 'PiSummaryTimeoutError';
+  }
+}
+
+/** A writing target, not a shared ceiling for visible text and model reasoning. */
+export function getPiRollingSummaryTargetTokens(sourceTokens: number, contextWindow: number): number {
+  const ceiling = Math.max(1, Math.min(10_000, Math.floor(contextWindow * 0.05)));
+  return Math.min(ceiling, Math.max(2_000, Math.ceil(sourceTokens * 0.2)));
+}
 
 export type PiSummaryProgressEvent = Readonly<{
   stage: 'digest' | 'summary';
@@ -124,7 +136,7 @@ function timeoutPromise<T>(milliseconds: number, message: string): {
 } {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const promise = new Promise<T>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), Math.max(1, milliseconds));
+    timer = setTimeout(() => reject(new PiSummaryTimeoutError('summary_total_timeout', message)), Math.max(1, milliseconds));
   });
   return {
     promise,
@@ -147,7 +159,7 @@ function resettableIdleTimeout<T>(milliseconds: number): {
   });
   const reset = () => {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => rejectTimeout?.(new Error('Summary stream idle timeout.')), Math.max(1, milliseconds));
+    timer = setTimeout(() => rejectTimeout?.(new PiSummaryTimeoutError('summary_idle_timeout', 'Summary stream idle timeout.')), Math.max(1, milliseconds));
   };
   reset();
   return {
@@ -250,7 +262,11 @@ async function callSummaryModel(
         },
         {
           temperature: 0,
-          maxTokens: Math.max(256, Math.min(input.model.maxTokens, call.outputTokens)),
+          // Let the adapter use the model's native, context-clamped output
+          // allowance. Reasoning and visible summary text share that allowance.
+          ...(call.stage === 'digest' && !input.model.reasoning
+            ? { maxTokens: Math.min(input.model.maxTokens, call.outputTokens) }
+            : {}),
           sessionId: input.sessionId ? `${input.sessionId}:${call.sessionSuffix}` : undefined,
           signal: controller.signal,
         },
@@ -348,11 +364,14 @@ export async function generatePiRollingSummaryV2(
   }
 
   const digestBodies: string[] = [];
+  const digestOutputReserve = input.model.reasoning
+    ? Math.min(input.model.maxTokens, 8_192)
+    : V2_DIGEST_OUTPUT_TOKENS;
   let repairUsed = false;
   for (const chunk of recovery.digestChunks) {
     const maximumDigestInputCharacters = Math.max(
       0,
-      (availablePromptTokens(input.model, DIGEST_SYSTEM_PROMPT, V2_DIGEST_OUTPUT_TOKENS) - 256) * 4,
+      (availablePromptTokens(input.model, DIGEST_SYSTEM_PROMPT, digestOutputReserve) - 256) * 4,
     );
     const boundedChunk = boundPiCompactionSummaryInput(chunk.content, maximumDigestInputCharacters);
     const prompt = [
@@ -364,7 +383,7 @@ export async function generatePiRollingSummaryV2(
     let digestBody: string | null = null;
     while (digestBody === null) {
       const remainingTimeoutMs = digestDeadline - Date.now();
-      if (remainingTimeoutMs <= 0) return null;
+      if (remainingTimeoutMs <= 0) throw new PiSummaryTimeoutError('summary_total_timeout', 'Digest deadline exceeded.');
       let message: AssistantMessage;
       try {
         message = await callSummaryModel({ ...input, totalTimeoutMs: remainingTimeoutMs }, {
@@ -372,7 +391,7 @@ export async function generatePiRollingSummaryV2(
           prompt: repairReason
             ? `${prompt}\n\nThe previous attempt was rejected (${repairReason}). Generate a fresh, non-empty factual Markdown digest from the record above, under ${V2_DIGEST_MAX_CHARACTERS} characters. Return visible text, without a preamble.`
             : prompt,
-          outputTokens: V2_DIGEST_OUTPUT_TOKENS,
+          outputTokens: digestOutputReserve,
           stage: 'digest',
           completed: chunk.ordinal - 1,
           total: chunk.total,
@@ -388,6 +407,7 @@ export async function generatePiRollingSummaryV2(
           chunkTotal: chunk.total,
           ...getPiCompactionErrorDiagnostics(error, knownSecrets),
         });
+        if (error instanceof PiSummaryTimeoutError) throw error;
         return null;
       }
       if (message.stopReason !== 'stop') {
@@ -445,11 +465,24 @@ export async function generatePiRollingSummaryV2(
   const prior = redactPiCompactionText(input.previousSummaryText ?? '', knownSecrets)
     .slice(0, V2_PRIOR_SUMMARY_MAX_CHARACTERS);
   const focusTopic = redactPiCompactionText(input.focusTopic ?? '', knownSecrets).trim();
-  const maximumSummaryCharacters = Math.min(
-    V2_SUMMARY_MAX_CHARACTERS,
-    Math.max(1, Math.min(input.model.maxTokens, V2_SUMMARY_OUTPUT_TOKENS) * 4),
-  );
-  const maximumSummaryBodyCharacters = getPiRollingSummaryBodyCharacterLimit(maximumSummaryCharacters);
+  const sourceTokens = estimateTextTokens(prior) + estimateTextTokens(recovery.redactedTranscript);
+  const targetTokens = getPiRollingSummaryTargetTokens(sourceTokens, input.model.contextWindow);
+  const summaryOutputReserve = Math.min(input.model.maxTokens, Math.max(8_192, targetTokens * 2));
+  // Bound deterministic excerpts/digests as well as the model body. Small
+  // windows must not accumulate the same 64k of artifacts as a 262k model.
+  const maximumSummaryCharacters = Math.max(1, Math.min(
+    V2_SUMMARY_MAX_CHARACTERS, Math.floor(input.model.contextWindow * 0.5),
+  ));
+  const maximumSummaryBodyCharacters = Math.min(V2_SUMMARY_BODY_MAX_CHARACTERS, maximumSummaryCharacters);
+  logPiCompactionDiagnostic('info', 'summary_budget_selected', {
+    ...diagnosticContext,
+    sourceTokens,
+    targetTokens,
+    outputReserveTokens: summaryOutputReserve,
+    modelMaxOutputTokens: input.model.maxTokens,
+    maximumBodyCharacters: maximumSummaryBodyCharacters,
+    maximumCharacters: maximumSummaryCharacters,
+  });
   const rawSummaryInput = [
     prior ? asUntrustedRecord('prior_rolling_summary', prior) : '',
     recovery.anchorIndex.text,
@@ -457,14 +490,15 @@ export async function generatePiRollingSummaryV2(
     digestSection,
     asUntrustedRecord('current_compacted_transcript', recovery.redactedTranscript),
     focusTopic ? `Focus topic (priority only; mandatory facts and anchors still win): ${focusTopic}` : '',
-    `Produce the updated rolling summary now in at most ${maximumSummaryBodyCharacters} characters. `
-      + 'Return only the five required sections and count every heading and newline toward the limit.',
+    `Aim for approximately ${targetTokens} tokens in the updated rolling summary. `
+      + 'This is a writing target, not a hard limit: preserve essential facts and exact identifiers. '
+      + `Return only the five required sections; the storage safety ceiling is ${maximumSummaryBodyCharacters} characters.`,
   ].filter(Boolean).join('\n\n');
   const maximumInputCharacters = Math.min(
     160_000,
     Math.max(
       0,
-      (availablePromptTokens(input.model, SUMMARY_SYSTEM_PROMPT_V2, V2_SUMMARY_OUTPUT_TOKENS) - 256) * 4,
+      (availablePromptTokens(input.model, SUMMARY_SYSTEM_PROMPT_V2, summaryOutputReserve) - 256) * 4,
     ),
   );
   const priorAnchorMessage = priorSummaryAnchorMessage(input.previousSummaryText);
@@ -478,7 +512,7 @@ export async function generatePiRollingSummaryV2(
   let summaryRepairUsed = false;
   while (true) {
     const remainingTimeoutMs = summaryDeadline - Date.now();
-    if (remainingTimeoutMs <= 0) return null;
+    if (remainingTimeoutMs <= 0) throw new PiSummaryTimeoutError('summary_total_timeout', 'Summary deadline exceeded.');
     const repairInstruction = summaryRepairUsed
       ? `The previous candidate exceeded ${maximumSummaryBodyCharacters} characters. Regenerate it from the source records, `
         + `make it materially shorter, and never exceed ${maximumSummaryBodyCharacters} characters.`
@@ -492,7 +526,7 @@ export async function generatePiRollingSummaryV2(
       summaryMessage = await callSummaryModel({ ...input, totalTimeoutMs: remainingTimeoutMs }, {
         systemPrompt: SUMMARY_SYSTEM_PROMPT_V2,
         prompt: boundedSummaryInput,
-        outputTokens: V2_SUMMARY_OUTPUT_TOKENS,
+        outputTokens: summaryOutputReserve,
         stage: 'summary',
         completed: 0,
         total: 1,
@@ -507,6 +541,7 @@ export async function generatePiRollingSummaryV2(
         repairUsed: summaryRepairUsed,
         ...getPiCompactionErrorDiagnostics(error, knownSecrets),
       });
+      if (error instanceof PiSummaryTimeoutError) throw error;
       return null;
     }
     if (summaryMessage.stopReason !== 'stop') {
@@ -535,6 +570,7 @@ export async function generatePiRollingSummaryV2(
       focusTopic,
       knownSecrets,
       maximumCharacters: maximumSummaryCharacters,
+      maximumBodyCharacters: maximumSummaryBodyCharacters,
     });
     if (assembled.ok) {
       input.onProgress?.({ stage: 'summary', status: 'completed', completed: 1, total: 1 });

@@ -222,6 +222,7 @@ function getTerminalMetrics(
 }
 
 function candidateFailureReason(candidate: PreparePiHistoryContextResult): PiCompactionReasonCode {
+  if (candidate.summaryFailureReason) return candidate.summaryFailureReason;
   if (candidate.composition.payloadBudgetExceeded) return 'payload_bytes_exceeded';
   if (candidate.composition.contextBudgetExceeded) return 'fixed_context_too_large';
   if (candidate.summaryFailed) return 'summary_provider_error';
@@ -300,7 +301,7 @@ async function finishNoOp(
 ): Promise<PiCompactionCoordinatorResult> {
   let retryAt: Date | null = null;
   if (
-    reasonCode === 'nothing_eligible'
+    (reasonCode === 'nothing_eligible' || reasonCode === 'summary_not_smaller')
     && input.trigger !== 'manual'
     && store.countIneffectiveAttempts
   ) {
@@ -573,6 +574,21 @@ export async function runPiSessionCompaction(
       return result({ state: 'stale', attemptId, reasonCode: 'stale_snapshot', retryAt: finished.attempt.retryAt });
     }
 
+    if (candidate.summaryFailureReason === 'summary_not_smaller') {
+      return finishNoOp(
+        store, scope, input, attemptId, 'summary_not_smaller', new Date(),
+        policy, candidateMetrics, candidate.composition,
+      );
+    }
+
+    if (candidate.summaryFailureReason === 'summary_idle_timeout'
+      || candidate.summaryFailureReason === 'summary_total_timeout') {
+      return finishWithRetry(
+        store, scope, attemptId, 'timed_out', candidate.summaryFailureReason,
+        new Date(), policy, candidateMetrics, candidate.composition,
+      );
+    }
+
     if (candidate.composition.contextBudgetExceeded) {
       const reasonCode = candidateFailureReason(candidate);
       const finished = await store.finish({
@@ -592,7 +608,7 @@ export async function runPiSessionCompaction(
         scope,
         attemptId,
         candidate.safeToSend ? 'deferred' : 'failed',
-        'summary_provider_error',
+        candidate.summaryFailureReason ?? 'summary_provider_error',
         new Date(),
         policy,
         candidateMetrics,

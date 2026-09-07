@@ -1353,6 +1353,7 @@
     "compactionStatusAlreadyRunning": "Kontext wird bereits zusammengefasst",
     "compactionStatusTooLarge": "Aktuelle Nachricht oder Anhänge sind zu groß",
     "compactionStatusSummaryProviderError": "Das Zusammenfassungsmodell konnte keine gültige Zusammenfassung erzeugen",
+    "compactionStatusNotSmaller": "Die Zusammenfassung würde den Kontext nicht verkleinern; der bisherige Kontext bleibt erhalten",
     "compactionStatusSummaryIdleTimeout": "Das Zusammenfassungsmodell hat keinen Fortschritt mehr gemacht",
     "compactionStatusSummaryTotalTimeout": "Die Zusammenfassung hat ihr Gesamtzeitlimit überschritten",
     "compactionStatusPersistenceConflict": "Die Zusammenfassung konnte nicht sicher gespeichert werden",

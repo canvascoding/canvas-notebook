@@ -18,9 +18,11 @@ import type { PiContextBudgetPolicy } from './context-budget';
 import { normalizePiMessagesForLlm } from './message-normalization';
 import {
   generatePiRollingSummaryV2,
+  PiSummaryTimeoutError,
   type PiSummaryMode,
   type PiSummaryProgressEvent,
 } from './compaction/summary-generator';
+import { logPiCompactionDiagnostic } from './compaction/diagnostics';
 
 export type PreparePiHistoryContextOptions = {
   compactionAttemptId?: string;
@@ -70,6 +72,7 @@ export type PreparePiHistoryContextResult = {
   summaryAttempted: boolean;
   summaryUpdated: boolean;
   summaryFailed: boolean;
+  summaryFailureReason?: 'summary_idle_timeout' | 'summary_total_timeout' | 'summary_not_smaller' | 'fixed_context_too_large';
   unsummarizedMessageCount: number;
   safeToSend: boolean;
 };
@@ -437,6 +440,7 @@ export async function preparePiHistoryContext({
   let summaryAttempted = false;
   let summaryUpdated = false;
   let summaryFailed = false;
+  let summaryFailureReason: PreparePiHistoryContextResult['summaryFailureReason'];
   let composition = composePiHistoryForLlm({
     messages,
     summary: nextSummary,
@@ -535,10 +539,60 @@ export async function preparePiHistoryContext({
     if (signal?.aborted) throw error;
     summaryAttempted = true;
     summaryFailed = true;
+    if (error instanceof PiSummaryTimeoutError) summaryFailureReason = error.reasonCode;
     console.warn('[PI Summary] Summary candidate generation failed.', {
       sessionId: sessionId ?? null,
       errorName: error instanceof Error ? error.name : 'UnknownError',
     });
+  }
+
+  if (summaryUpdated && summaryMode === 'hermes_v2') {
+    // Compare complete effective histories, never a preflight tail that has
+    // already omitted unsummarized records. A projection marker activates the
+    // candidate summary without mutating the durable history or its boundary.
+    const completeProjection = (state: PiSessionSummaryState) => composePiHistoryForLlm({
+      messages: state.summaryText
+        ? [...messages, { role: 'compact-break' } as AgentMessage]
+        : messages,
+      summary: state,
+      systemPromptTokens,
+      contextWindow: model.contextWindow,
+      modelMaxTokens: model.maxTokens,
+      requestOutputTokens,
+      toolTokens,
+      additionalContextTokens,
+      selectionMode: 'full',
+      policy,
+    });
+    const before = completeProjection(summary);
+    const after = completeProjection(nextSummary);
+    const fits = after.includedSummary
+      && after.minimumRequiredTokens <= after.availableHistoryTokens
+      && after.minimumRequiredBytes <= after.availableHistoryBytes
+      && isPiHistoryCompositionSendable(after, nextSummary);
+    const shrinks = after.minimumRequiredTokens < before.minimumRequiredTokens
+      && after.minimumRequiredBytes < before.minimumRequiredBytes;
+    logPiCompactionDiagnostic(fits && shrinks ? 'info' : 'warn', 'summary_effective_context_checked', {
+      sessionId: sessionId ?? null,
+      attemptId: compactionAttemptId ?? null,
+      beforeTokens: before.minimumRequiredTokens,
+      afterTokens: after.minimumRequiredTokens,
+      beforeBytes: before.minimumRequiredBytes,
+      afterBytes: after.minimumRequiredBytes,
+      availableTokens: after.availableHistoryTokens,
+      availableBytes: after.availableHistoryBytes,
+      fits,
+      shrinks,
+      accepted: fits && shrinks,
+    });
+    if (fits && shrinks) {
+      composition = after;
+    } else {
+      nextSummary = summary;
+      summaryUpdated = false;
+      summaryFailed = true;
+      summaryFailureReason = fits ? 'summary_not_smaller' : 'fixed_context_too_large';
+    }
   }
 
   if (summaryFailed || !isPiHistoryCompositionSendable(composition, nextSummary)) {
@@ -562,6 +616,7 @@ export async function preparePiHistoryContext({
     summaryAttempted,
     summaryUpdated,
     summaryFailed,
+    ...(summaryFailureReason ? { summaryFailureReason } : {}),
     unsummarizedMessageCount: unsummarizedMessages.length,
     safeToSend: isPiHistoryCompositionSendable(composition, nextSummary),
   };

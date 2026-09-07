@@ -119,7 +119,7 @@ async function main() {
   let providerSignal: AbortSignal | undefined;
   let calls = 0;
   const startedAt = Date.now();
-  const result = await generatePiRollingSummaryV2({
+  await assert.rejects(generatePiRollingSummaryV2({
     previousSummaryText: null, messagesToSummarize: messages, model,
     sessionId: 'deadline-test', totalTimeoutMs: 250, idleTimeoutMs: 1000,
     streamFn: async (_model, _context, options) => {
@@ -133,8 +133,7 @@ async function main() {
       }
       return { result: () => new Promise(() => undefined) } as AssistantMessageEventStream;
     },
-  });
-  assert.equal(result, null);
+  }), { name: 'PiSummaryTimeoutError', reasonCode: 'summary_total_timeout' });
   assert.equal(calls, 2);
   assert.ok(Date.now() - startedAt < 400, 'repair must not receive a fresh total timeout');
   assert.equal(providerSignal?.aborted, true);

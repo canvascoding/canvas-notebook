@@ -25,6 +25,7 @@ export type PiCompactionReasonCode =
   | 'active_tool_chain'
   | 'history_not_durable'
   | 'summary_provider_error'
+  | 'summary_not_smaller'
   | 'summary_timeout'
   | 'summary_idle_timeout'
   | 'summary_total_timeout'
@@ -539,7 +540,8 @@ export async function startPiSessionCompactionAttemptOnConnection(
         }
         if (!bypassAvailable) {
           const breakerActive = cooldownAttempt.state === 'no_op'
-            && cooldownAttempt.reason_code === 'nothing_eligible';
+            && (cooldownAttempt.reason_code === 'nothing_eligible'
+              || cooldownAttempt.reason_code === 'summary_not_smaller');
           return {
             status: breakerActive ? 'breaker_active' : 'cooldown_active',
             attempt: mapAttempt(cooldownAttempt),
@@ -651,7 +653,7 @@ export async function countPiSessionCompactionIneffectiveAttemptsOnConnection(
        FROM pi_session_compaction_attempts
        WHERE pi_session_db_id = ?
          AND trigger IN ('automatic', 'automation')
-         AND state = 'no_op' AND reason_code = 'nothing_eligible'
+         AND state = 'no_op' AND reason_code IN ('nothing_eligible', 'summary_not_smaller')
          AND attempt_ordinal > COALESCE((
            SELECT MAX(attempt_ordinal)
            FROM pi_session_compaction_attempts

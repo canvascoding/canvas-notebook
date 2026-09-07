@@ -9,6 +9,7 @@ import {
   type PiCompactionCoordinatorStore,
 } from '../app/lib/pi/session-compaction-coordinator';
 import type { PreparePiHistoryContextResult } from '../app/lib/pi/session-summary';
+import { getRuntimeCompactionStatusTranslationKey, IDLE_RUNTIME_COMPACTION_STATUS } from '../app/lib/chat/runtime-status';
 
 const scope = {
   sessionId: 'session-coordinator',
@@ -185,6 +186,26 @@ async function delay(milliseconds: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  for (const reasonCode of ['summary_idle_timeout', 'summary_total_timeout', 'summary_not_smaller'] as const) {
+    const { store, calls } = createStore();
+    calls.ineffectiveAttempts = 1;
+    const outcome = await runPiSessionCompaction({
+      ...baseRunInput(store),
+      policy: { timeoutMs: 1_000, retryDelaysMs: [25, 50], breakerStrikeLimit: 2 },
+      attemptId: `inner-${reasonCode}`,
+      prepareCandidate: async () => candidate({
+        summaryUpdated: false, summaryFailed: true, summaryFailureReason: reasonCode,
+      }),
+    });
+    assert.equal(outcome.reasonCode, reasonCode);
+    assert.equal(calls.commit, 0, 'rejected candidates must not create a summary boundary');
+    assert.equal(calls.finish.at(-1)?.state, reasonCode === 'summary_not_smaller' ? 'no_op' : 'timed_out');
+    assert.ok(outcome.retryAt, 'timeouts and repeated ineffective attempts must enter cooldown');
+    assert.equal(getRuntimeCompactionStatusTranslationKey({
+      ...IDLE_RUNTIME_COMPACTION_STATUS, state: outcome.state === 'no_op' ? 'no_op' : 'failed', reasonCode,
+    }), reasonCode === 'summary_not_smaller' ? 'compactionStatusNotSmaller'
+      : reasonCode === 'summary_idle_timeout' ? 'compactionStatusSummaryIdleTimeout' : 'compactionStatusSummaryTotalTimeout');
+  }
   {
     const { store, calls } = createStore();
     const pending = deferred<PreparePiHistoryContextResult>();

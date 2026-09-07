@@ -1354,6 +1354,7 @@
     "compactionStatusAlreadyRunning": "Context is already being summarized",
     "compactionStatusTooLarge": "Current message or attachments are too large",
     "compactionStatusSummaryProviderError": "The summary model could not produce a valid summary",
+    "compactionStatusNotSmaller": "The summary would not reduce context; the existing context was kept",
     "compactionStatusSummaryIdleTimeout": "The summary model stopped making progress",
     "compactionStatusSummaryTotalTimeout": "Summarization exceeded its total time limit",
     "compactionStatusPersistenceConflict": "The summary could not be saved safely",
