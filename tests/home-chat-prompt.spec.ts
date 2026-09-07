@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'node:path';
+import { MAIN_AGENT_DISPLAY_NAME } from '../app/lib/agents/main-agent';
 
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 
@@ -75,11 +76,13 @@ test.describe('Home chat prompt', () => {
       });
     });
 
-    await page.goto('/', { waitUntil: 'networkidle' });
+    const agentsLoaded = page.waitForResponse(response => response.url().includes('/api/agents?') && response.ok());
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await agentsLoaded;
 
     await expect(page.getByTestId('home-agent-id')).toBeHidden();
     await page.locator('[data-prompt-hero-textarea]').focus();
-    await expect(page.getByTestId('home-agent-id')).toContainText('Canvas Agent');
+    await expect(page.getByTestId('home-agent-id')).toContainText(MAIN_AGENT_DISPLAY_NAME);
     await page.getByTestId('home-agent-id').click();
     await page.getByRole('button', { name: /LinkedIn Agent\s+linkedin-agent/i }).click();
 
@@ -102,7 +105,9 @@ test.describe('Home chat prompt', () => {
 
   test('redirects into notebook after submitting a prompt on the home page', async ({ page }) => {
     await login(page);
-    await page.goto('/', { waitUntil: 'networkidle' });
+    const agentsLoaded = page.waitForResponse(response => response.url().includes('/api/agents?') && response.ok());
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await agentsLoaded;
     await page.evaluate(() => window.localStorage.setItem('canvas.chatVisible', 'false'));
 
     await page.locator('form textarea').first().fill('Bitte leite mich ins Notebook weiter');
@@ -114,8 +119,7 @@ test.describe('Home chat prompt', () => {
     await expect(page.getByTestId('chat-input')).toBeVisible({ timeout: 15_000 });
     await expect.poll(() => page.url()).not.toContain('session=');
 
-    const storedPrompt = await page.evaluate(() => window.sessionStorage.getItem('canvas.chat.initialPrompt'));
-    expect(storedPrompt).toBeNull();
+    await expect.poll(() => page.evaluate(() => window.sessionStorage.getItem('canvas.chat.initialPrompt')), { timeout: 15000 }).toBeNull();
   });
 
   test('keeps dropped prompt attachments when opening the notebook from home', async ({ page }) => {
@@ -128,7 +132,9 @@ test.describe('Home chat prompt', () => {
       });
     });
 
-    await page.goto('/', { waitUntil: 'networkidle' });
+    const agentsLoaded = page.waitForResponse(response => response.url().includes('/api/agents?') && response.ok());
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await agentsLoaded;
 
     const input = page.locator('[data-prompt-hero-textarea]');
     const dataTransfer = await createFileDataTransfer(page, [

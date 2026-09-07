@@ -27,7 +27,7 @@ import { fetchLastActiveAgentId, saveLastActiveAgentId } from '@/app/lib/chat/ag
 import { getAgentProfileDisplayName } from '@/app/lib/chat/agent-display';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import { listWorkspaceFileReferences, type WorkspaceFileReferenceEntry } from '@/app/lib/files/client';
-import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { HomeStudioPrompt } from './HomeStudioPrompt';
 
 type Attachment = ChatAttachment;
@@ -66,7 +66,7 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
   const [prompt, setPrompt] = useState('');
   const [expanded, setExpanded] = useState(!compact);
   const [mode, setMode] = useState<HomePromptMode>('notebook');
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const activeWorkspaceId = useWorkspaceStore((state) => selectActiveWorkspace(state)?.id ?? null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [agentListState, setAgentListState] = useState<{
@@ -141,11 +141,10 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
         const hasStoredAgent = agents.length === 0 || agents.some((agent) => agent.agentId === lastActiveAgentId);
         setSelectedAgentId(hasStoredAgent ? lastActiveAgentId : DEFAULT_AGENT_ID);
       } catch (error) {
+        if (!isActive) return;
         console.error('Failed to load home agent selector state', error);
-        if (isActive) {
-          setAgentListState({ workspaceId: activeWorkspaceId, agents: [DEFAULT_AGENT_PROFILE] });
-          setSelectedAgentId(DEFAULT_AGENT_ID);
-        }
+        setAgentListState({ workspaceId: activeWorkspaceId, agents: [DEFAULT_AGENT_PROFILE] });
+        setSelectedAgentId(DEFAULT_AGENT_ID);
       }
     };
 
