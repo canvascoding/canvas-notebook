@@ -70,7 +70,11 @@ function readRedirect(data: Record<string, unknown>): URL {
   return new URL(String(data.url), ORIGIN);
 }
 
-function authorizationUrl(clientId: string, resource: string): URL {
+function authorizationUrl(
+  clientId: string,
+  resource: string,
+  requestedScopes: readonly string[] = REQUESTED_SCOPES,
+): URL {
   const challenge = createHash('sha256')
     .update(CODE_VERIFIER)
     .digest('base64url');
@@ -78,7 +82,7 @@ function authorizationUrl(clientId: string, resource: string): URL {
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('client_id', clientId);
   url.searchParams.set('redirect_uri', REDIRECT_URI);
-  url.searchParams.set('scope', REQUESTED_SCOPES.join(' '));
+  url.searchParams.set('scope', requestedScopes.join(' '));
   url.searchParams.set('state', 'protected-resource-test-state');
   url.searchParams.set('resource', resource);
   url.searchParams.set('code_challenge', challenge);
@@ -116,6 +120,8 @@ async function issueTokenSet(
   resource: string,
   existingSessionCookie?: string,
   existingClientId?: string,
+  requestedScopes: readonly string[] = REQUESTED_SCOPES,
+  clientName = 'ChatGPT Protected Resource Test',
 ): Promise<{
   accessToken: string;
   refreshToken: string;
@@ -131,7 +137,7 @@ async function issueTokenSet(
         origin: ORIGIN,
       },
       body: JSON.stringify({
-        client_name: 'ChatGPT Protected Resource Test',
+        client_name: clientName,
         redirect_uris: [REDIRECT_URI],
         token_endpoint_auth_method: 'none',
         grant_types: ['authorization_code', 'refresh_token'],
@@ -161,7 +167,7 @@ async function issueTokenSet(
   })();
 
   const authorizeResponse = await dispatch(new Request(
-    authorizationUrl(clientId, resource),
+    authorizationUrl(clientId, resource, requestedScopes),
     {
       headers: {
         cookie: sessionCookie,
@@ -245,6 +251,10 @@ async function main(): Promise<void> {
       {
         prepareDirectMcpRevocation,
       },
+      {
+        disconnectDirectMcpConnection,
+        listDirectMcpConnections,
+      },
       authRoute,
       canonicalMetadataRoute,
       aliasMetadataRoute,
@@ -255,6 +265,7 @@ async function main(): Promise<void> {
       import('../app/lib/mcp/server/protected-resource-metadata'),
       import('../app/lib/mcp/server/readiness'),
       import('../app/lib/mcp/server/oauth-grant-revocation'),
+      import('../app/lib/mcp/server/connection-management'),
       import('../app/api/auth/[...all]/route'),
       import('../app/.well-known/oauth-protected-resource/mcp/route'),
       import('../app/.well-known/oauth-protected-resource/route'),
@@ -507,6 +518,76 @@ async function main(): Promise<void> {
       refreshAfterAccessTokenRevocation,
     );
     assert.equal(refreshPolicyResponse, null);
+
+    const staleTokenSet = await issueTokenSet(
+      auth,
+      dispatch,
+      issuer,
+      resource,
+      tokenSet.sessionCookie,
+      undefined,
+      REQUESTED_SCOPES,
+      'ChatGPT Reconnect Regression',
+    );
+    const stalePrincipal = await verifyDirectMcpAccessToken(
+      staleTokenSet.accessToken,
+      ['knowledge:read'],
+    );
+    const staleTokenDatabase = await openDb();
+    try {
+      // JWT access tokens are self-contained and are not represented by an
+      // oauth_access_token row. Remove the refresh row to reproduce a client
+      // whose old JWT is the only credential Canvas can still observe.
+      await staleTokenDatabase.run(`
+        DELETE FROM oauth_refresh_token
+        WHERE client_id = ? AND user_id = ?
+      `, [staleTokenSet.clientId, stalePrincipal.userId]);
+    } finally {
+      await staleTokenDatabase.close();
+    }
+    const staleConnection = (await listDirectMcpConnections(stalePrincipal.userId))
+      .find((connection) => connection.clientName === 'ChatGPT Reconnect Regression');
+    assert.ok(staleConnection);
+    assert.deepEqual(
+      await disconnectDirectMcpConnection(stalePrincipal.userId, staleConnection.connectionId),
+      { status: 'disconnected' },
+    );
+    await assertAuthorizationError(
+      () => verifyDirectMcpAccessToken(staleTokenSet.accessToken, ['knowledge:search']),
+      {
+        status: 401,
+        code: 'invalid_token',
+        challengeIncludes: ['error="invalid_token"'],
+      },
+    );
+    await assertAuthorizationError(
+      () => verifyDirectMcpAccessToken(staleTokenSet.accessToken, ['knowledge:read']),
+      { status: 401, code: 'invalid_token' },
+    );
+
+    // Better Auth JWTs use second-resolution iat claims. Cross the revocation
+    // second before reauthorizing the same public client and browser session.
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    const reconnectedTokenSet = await issueTokenSet(
+      auth,
+      dispatch,
+      issuer,
+      resource,
+      staleTokenSet.sessionCookie,
+      staleTokenSet.clientId,
+      DIRECT_MCP_OAUTH_SCOPES,
+    );
+    const reconnectedConnection = (await listDirectMcpConnections(stalePrincipal.userId))
+      .find((connection) => connection.clientName === 'ChatGPT Reconnect Regression');
+    assert.ok(reconnectedConnection);
+    assert.deepEqual(reconnectedConnection.scopes, [...DIRECT_MCP_OAUTH_SCOPES]);
+    await verifyDirectMcpAccessToken(reconnectedTokenSet.accessToken, ['knowledge:search']);
+    await verifyDirectMcpAccessToken(reconnectedTokenSet.accessToken, ['knowledge:write']);
+    await verifyDirectMcpAccessToken(reconnectedTokenSet.accessToken, ['knowledge:assets']);
+    await assertAuthorizationError(
+      () => verifyDirectMcpAccessToken(staleTokenSet.accessToken, ['knowledge:read']),
+      { status: 401, code: 'invalid_token' },
+    );
 
     const errorResponse = new DirectMcpAuthorizationError(
       'invalid_token',

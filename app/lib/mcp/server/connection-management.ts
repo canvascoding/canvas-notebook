@@ -69,9 +69,9 @@ function toSafeCount(value: unknown): number {
 
 function parseScopes(value: unknown): DirectMcpOAuthScope[] {
   let parsed: unknown = value;
-  if (typeof value === 'string') {
+  for (let depth = 0; depth < 2 && typeof parsed === 'string'; depth += 1) {
     try {
-      parsed = JSON.parse(value);
+      parsed = JSON.parse(parsed);
     } catch {
       parsed = [];
     }
@@ -223,7 +223,10 @@ export async function listDirectMcpConnections(
       WHERE oauth_consent.user_id = ?
         AND oauth_client_resource.resource_id = ?
         AND oauth_client.token_endpoint_auth_method = 'none'
-      ORDER BY oauth_consent.updated_at DESC, oauth_consent.created_at DESC
+      ORDER BY
+        oauth_consent.updated_at DESC,
+        oauth_consent.created_at DESC,
+        oauth_consent.id DESC
       LIMIT ?
     `, [userId, directMcpResource(), MAX_CONNECTIONS]) as DirectMcpConnectionRow[];
 
@@ -263,15 +266,15 @@ export async function disconnectDirectMcpConnection(
       return { status: 'not_found' };
     }
 
+    // JWT access tokens are self-contained and do not have an
+    // oauth_access_token row. Revoke this client/user grant across every
+    // surviving user session so a token remains inactive even when the client
+    // never received (or already discarded) a refresh token.
     const sessionRows = await database.all(`
-      SELECT DISTINCT session_id
-      FROM oauth_refresh_token
-      WHERE client_id = ? AND user_id = ? AND session_id IS NOT NULL
-      UNION
-      SELECT DISTINCT session_id
-      FROM oauth_access_token
-      WHERE client_id = ? AND user_id = ? AND session_id IS NOT NULL
-    `, [clientId, userId, clientId, userId]) as Array<{ session_id: string }>;
+      SELECT id AS session_id
+      FROM "session"
+      WHERE user_id = ?
+    `, [userId]) as Array<{ session_id: string }>;
 
     for (const sessionRow of sessionRows) {
       if (!sessionRow.session_id) continue;

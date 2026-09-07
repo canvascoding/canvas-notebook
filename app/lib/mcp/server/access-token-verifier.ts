@@ -28,6 +28,7 @@ type DirectMcpGrantStateRow = {
   client_id: string;
   client_name: string | null;
   client_disabled: unknown;
+  consent_updated_at: unknown;
   revoked_token_hash: string | null;
   grant_revoked_at: unknown;
 };
@@ -257,6 +258,7 @@ export async function loadDirectMcpGrantState(
         oauth_client.client_id AS client_id,
         oauth_client.name AS client_name,
         oauth_client.disabled AS client_disabled,
+        active_consent.updated_at AS consent_updated_at,
         revoked_access_token.token_hash AS revoked_token_hash,
         grant_revocation.revoked_at AS grant_revoked_at
       FROM "session" auth_session
@@ -264,6 +266,18 @@ export async function loadDirectMcpGrantState(
         ON local_user.id = auth_session.user_id
       INNER JOIN oauth_client
         ON oauth_client.client_id = ?
+      INNER JOIN oauth_consent active_consent
+        ON active_consent.id = (
+          SELECT latest_consent.id
+          FROM oauth_consent latest_consent
+          WHERE latest_consent.client_id = oauth_client.client_id
+            AND latest_consent.user_id = local_user.id
+          ORDER BY
+            latest_consent.updated_at DESC,
+            latest_consent.created_at DESC,
+            latest_consent.id DESC
+          LIMIT 1
+        )
       LEFT JOIN mcp_revoked_access_token revoked_access_token
         ON revoked_access_token.token_hash = ?
        AND revoked_access_token.client_id = oauth_client.client_id
@@ -293,6 +307,7 @@ function assertGrantStateActive(
   claims: DirectMcpJwtClaims,
 ): void {
   const sessionExpiresAt = timestampToMilliseconds(state?.session_expires_at);
+  const consentUpdatedAt = timestampToMilliseconds(state?.consent_updated_at);
   const grantRevokedAt = timestampToMilliseconds(state?.grant_revoked_at);
   const tokenIssuedAt = claims.issuedAt * 1000;
   if (
@@ -304,6 +319,8 @@ function assertGrantStateActive(
     || isDatabaseBoolean(state.client_disabled)
     || sessionExpiresAt === null
     || sessionExpiresAt <= Date.now()
+    || consentUpdatedAt === null
+    || tokenIssuedAt < consentUpdatedAt
     || state.revoked_token_hash !== null
     || (grantRevokedAt !== null && tokenIssuedAt <= grantRevokedAt)
   ) {
@@ -316,6 +333,14 @@ export async function verifyDirectMcpAccessToken(
   requiredScopes: readonly DirectMcpResourceScope[] = [],
 ): Promise<DirectMcpAccessPrincipal> {
   const claims = await verifyDirectMcpJwtClaims(token);
+  let state: DirectMcpGrantStateRow | null;
+  try {
+    state = await loadDirectMcpGrantState(claims, token);
+  } catch {
+    throw authorizationUnavailable();
+  }
+  assertGrantStateActive(state, claims);
+
   const grantedScopes = new Set(claims.scopes);
   const missingScope = requiredScopes.find((scope) => !grantedScopes.has(scope));
   if (missingScope) {
@@ -329,14 +354,6 @@ export async function verifyDirectMcpAccessToken(
       },
     );
   }
-
-  let state: DirectMcpGrantStateRow | null;
-  try {
-    state = await loadDirectMcpGrantState(claims, token);
-  } catch {
-    throw authorizationUnavailable();
-  }
-  assertGrantStateActive(state, claims);
 
   try {
     await assertUserSeatAccess({ userId: claims.subject });
