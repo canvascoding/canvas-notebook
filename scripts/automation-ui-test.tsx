@@ -47,11 +47,23 @@ dom.window.HTMLElement.prototype.scrollIntoView = () => {};
 const workspace = {
   id: 'ws-1',
   type: 'personal',
-  name: 'My workspace',
+  name: 'Canvas Notebook',
+  color: '#2563EB',
   status: 'active',
   permissions: { canRead: true, canWrite: true, canRunAgent: true },
 };
-const workspaceState = { workspaces: [workspace], initialized: true, hydrateWorkspaces: async () => {} };
+const studioWorkspace = {
+  ...workspace,
+  id: 'ws-2',
+  type: 'organization',
+  name: 'Canvas Studios',
+  color: '#BE123C',
+};
+const workspaceState = {
+  workspaces: [workspace, studioWorkspace],
+  initialized: true,
+  hydrateWorkspaces: async () => {},
+};
 const navigation: string[] = [];
 const errors: string[] = [];
 const internals = Module as typeof Module & {
@@ -117,6 +129,20 @@ const job = {
     workingHours: { enabled: true, days: ['mon'], start: '08:00', end: '18:00', timeZone: 'UTC' },
   },
 } as AutomationJobRecord;
+const studioJob = {
+  ...job,
+  id: 'job-2',
+  name: 'Studio review',
+  workspaceId: studioWorkspace.id,
+  workspaceType: studioWorkspace.type,
+} as AutomationJobRecord;
+const pausedJob = {
+  ...job,
+  id: 'job-3',
+  name: 'Paused report',
+  status: 'paused',
+  nextRunAt: null,
+} as AutomationJobRecord;
 const run: AutomationRunRecord = {
   id: 'run-1',
   jobId: job.id,
@@ -162,7 +188,9 @@ globalThis.fetch = async (input, init) => {
     body: init?.body ? JSON.parse(String(init.body)) : undefined,
   });
   let payload: unknown = { success: true, data: [] };
-  if (url.pathname === '/api/automations/jobs') payload = { success: true, data: [job] };
+  if (url.pathname === '/api/automations/jobs') {
+    payload = { success: true, data: [pausedJob, studioJob, job] };
+  }
   else if (url.pathname === '/api/automations/jobs/job-1' && init?.method === 'PATCH')
     payload = { success: true, data: { ...job, ...JSON.parse(String(init.body)) } };
   else if (url.pathname === '/api/automations/jobs/job-1/runs') payload = { success: true, data: [run] };
@@ -238,6 +266,23 @@ async function main() {
   };
   await mount(<AutomationsClient initialTimeZone="UTC" />);
   assert.equal(document.querySelectorAll('[data-testid="automation-job-job-1"]').length, 1);
+  const overviewJobs = [...document.querySelectorAll('[data-testid^="automation-job-job-"]')];
+  assert.deepEqual(
+    overviewJobs.map((element) => element.getAttribute('data-testid')),
+    ['automation-job-job-1', 'automation-job-job-2', 'automation-job-job-3'],
+    'Default order is active first, then workspace, then automation name',
+  );
+  assert.ok(
+    overviewJobs.every((element) => element.classList.contains('block')),
+    'Automation cards use block layout so borders and padding surround the whole row',
+  );
+  assert.deepEqual(
+    [...document.querySelectorAll('[data-testid="workspace-badge"]')].map((element) =>
+      element.querySelector('[data-workspace-color]')?.getAttribute('data-workspace-color'),
+    ),
+    ['#2563EB', '#BE123C', '#2563EB'],
+    'Workspace badges preserve the assigned workspace colors',
+  );
   assert.equal(
     document.querySelector('[data-testid="automation-job-job-1"]')?.getAttribute('href'),
     '/automations/job-1',

@@ -41,6 +41,7 @@ import { AutomationTaskFields } from './AutomationTaskFields';
 import { AutomationSummary } from './AutomationSummary';
 import { AutomationChatPicker } from './AutomationChatPicker';
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
+import { WorkspaceBadge } from '@/app/components/workspaces/WorkspaceBadge';
 import { MAIN_AGENT_DISPLAY_NAME, MAIN_AGENT_ID } from '@/app/lib/agents/main-agent';
 import { buildAutomationMutationPayload } from '@/app/lib/automations/client-payload';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
@@ -77,7 +78,7 @@ type ScheduleKind = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval';
 type ComposerMode = 'scheduled' | 'trigger';
 type TriggerSource = 'custom' | 'composio';
 type AutomationListFilter = 'all' | 'active' | 'paused' | 'running' | 'attention';
-type AutomationListSort = 'nextRun' | 'lastRun' | 'name';
+type AutomationListSort = 'statusWorkspace' | 'nextRun' | 'lastRun' | 'name';
 
 type JobDraft = {
   id: string | null;
@@ -1015,7 +1016,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [automationSearch, setAutomationSearch] = useState('');
   const [automationFilter, setAutomationFilter] = useState<AutomationListFilter>('all');
-  const [automationSort, setAutomationSort] = useState<AutomationListSort>('nextRun');
+  const [automationSort, setAutomationSort] = useState<AutomationListSort>('statusWorkspace');
   const [draft, setDraft] = useState<JobDraft>(() =>
     defaultDraft(defaultTimeZone, defaultAutomationWorkspaceId),
   );
@@ -1197,6 +1198,17 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     };
     const sortJobs = (items: AutomationJobView[]) =>
       [...items].sort((a, b) => {
+        if (automationSort === 'statusWorkspace') {
+          const statusDifference = Number(a.status === 'paused') - Number(b.status === 'paused');
+          if (statusDifference !== 0) return statusDifference;
+
+          const aWorkspace = workspaceById.get(a.workspaceId || '')?.name || a.workspaceType;
+          const bWorkspace = workspaceById.get(b.workspaceId || '')?.name || b.workspaceType;
+          const workspaceDifference = aWorkspace.localeCompare(bWorkspace, locale);
+          if (workspaceDifference !== 0) return workspaceDifference;
+
+          return a.name.localeCompare(b.name, locale);
+        }
         if (automationSort === 'name') return a.name.localeCompare(b.name, locale);
         const aValue = automationSort === 'nextRun' ? a.nextRunAt : a.lastRunAt;
         const bValue = automationSort === 'nextRun' ? b.nextRunAt : b.lastRunAt;
@@ -1207,11 +1219,12 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         return automationSort === 'lastRun' ? bTime - aTime : aTime - bTime;
       });
     const visible = jobs.filter((job) => {
-      const searchable = `${job.name} ${job.prompt} ${job.agentId}`.toLowerCase();
+      const workspaceName = workspaceById.get(job.workspaceId || '')?.name || '';
+      const searchable = `${job.name} ${job.prompt} ${job.agentId} ${workspaceName}`.toLowerCase();
       return (!query || searchable.includes(query)) && matchesFilter(job);
     });
     return { jobs: sortJobs(visible), total: visible.length };
-  }, [automationFilter, automationSearch, automationSort, jobs, locale]);
+  }, [automationFilter, automationSearch, automationSort, jobs, locale, workspaceById]);
 
   const selectedJobWebhookSecret = selectedJob?.id ? webhookSecretsByJobId[selectedJob.id] : '';
   const selectedJobWebhookUrl = selectedJob?.customWebhookId
@@ -2821,6 +2834,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                       className="h-10 w-full min-w-0 appearance-none rounded-md border border-input bg-background pl-9 pr-3 text-sm"
                       aria-label={t('overview.sortLabel')}
                     >
+                      <option value="statusWorkspace">{t('overview.sort.statusWorkspace')}</option>
                       <option value="nextRun">{t('overview.sort.nextRun')}</option>
                       <option value="lastRun">{t('overview.sort.lastRun')}</option>
                       <option value="name">{t('overview.sort.name')}</option>
@@ -2844,7 +2858,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                   filteredAutomationGroups.jobs.map((job) => (
                     <Link
                       key={job.id}
-                      className="group min-w-0 cursor-pointer rounded-lg border bg-background p-3 transition-colors hover:border-primary/45 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="group block min-w-0 cursor-pointer rounded-lg border bg-background p-3 transition-colors hover:border-primary/45 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       data-testid={`automation-job-${job.id}`}
                       href={`/automations/${job.id}`}
                     >
@@ -2853,22 +2867,26 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                           <div className="flex min-w-0 flex-wrap items-center gap-2">
                             <p className="min-w-0 truncate text-sm font-medium">{job.name}</p>
                             <Badge
-                              variant={job.status === 'active' ? 'default' : 'secondary'}
-                              className="shrink-0"
+                              variant="outline"
+                              className={cn(
+                                'shrink-0',
+                                job.status === 'active'
+                                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                  : 'border-border bg-muted/60 text-muted-foreground',
+                              )}
                             >
                               {t(`jobStatus.${job.status}`)}
                             </Badge>
-                            <Badge
-                              variant={
-                                job.workspaceType === 'organization' || job.workspaceType === 'team'
-                                  ? 'default'
-                                  : 'outline'
-                              }
-                              className="shrink-0"
-                            >
-                              {workspaceById.get(job.workspaceId || '')?.name ||
-                                workspaceScopeLabel({ type: job.workspaceType }, t)}
-                            </Badge>
+                            {workspaceById.get(job.workspaceId || '') ? (
+                              <WorkspaceBadge
+                                workspace={workspaceById.get(job.workspaceId || '')}
+                                className="h-6 max-w-[16rem] shrink-0"
+                              />
+                            ) : (
+                              <Badge variant="outline" className="shrink-0">
+                                {workspaceScopeLabel({ type: job.workspaceType }, t)}
+                              </Badge>
+                            )}
                           </div>
                           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
                             <span className="inline-flex items-center gap-2">

@@ -6421,6 +6421,7 @@
         "all": "Alle Status"
       },
       "sort": {
+        "statusWorkspace": "Status & Workspace",
         "nextRun": "Nächster Lauf",
         "lastRun": "Letzte Aktivität",
         "name": "Name (A–Z)"
