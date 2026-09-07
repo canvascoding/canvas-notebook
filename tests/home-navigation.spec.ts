@@ -27,7 +27,7 @@ test('two desktop views snap, navigate with keyboard, and allow long content', a
   const second = page.locator('#home-workspace');
   const main = page.locator('[data-home-scroll]');
   await expect(nav.getByRole('button', { name: 'Weiterarbeiten' })).toHaveAttribute('aria-current', 'step');
-  await expect(second.getByRole('heading')).not.toBeInViewport();
+  await expect(second.getByRole('heading', { name: 'Workspace', exact: true })).not.toBeInViewport();
   await expect(page.locator('[data-prompt-hero-textarea]')).toBeInViewport();
   await expect.poll(() => main.evaluate(el => getComputedStyle(el).scrollSnapType)).toBe('y mandatory');
   await page.screenshot({ path: info.outputPath('desktop-work.png') });
@@ -83,7 +83,6 @@ test('tools stay in the launcher and its existing pages retain their entries', a
   await menu.getByRole('menuitem', { name: 'Weitere Apps', exact: true }).click();
   await expect(menu.getByRole('menuitem', { name: 'Terminal', exact: true })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Browser Lab', exact: true })).toHaveAttribute('href', '/de/browser/lab');
-  await menu.getByRole('menuitem', { name: 'Zurück zum Schnellzugriff' }).click();
   await menu.getByRole('menuitem', { name: 'Dateien', exact: true }).click();
   await expect(page).toHaveURL(/\/de\/files/, { timeout: 15000 });
   await page.getByRole('button', { name: 'Apps öffnen' }).click();
@@ -116,7 +115,7 @@ for (const width of [390, 1440]) {
     const notebook = menu.getByRole('menuitem', { name: 'Notebook', exact: true });
     await expect(notebook).toBeFocused();
     await page.keyboard.press('ArrowDown');
-    await expect(menu.getByRole('menuitem', { name: 'Dateien', exact: true })).toBeFocused();
+    await expect(menu.getByRole('menuitem', { name: 'Automationen', exact: true })).toBeFocused();
     await expect(menu.locator('a[href]')).toHaveCount(5);
     await expect(menu.getByRole('menuitem', { name: 'Dokument-Graph', exact: true })).toHaveCount(0);
     await page.screenshot({ path: info.outputPath(`launcher-${width}-quick.png`), animations: 'disabled' });
@@ -136,7 +135,7 @@ for (const width of [390, 1440]) {
     await trigger.click();
     await menu.getByRole('menuitem', { name: 'Weitere Apps', exact: true }).click();
     await expect(menu.getByRole('menuitem', { name: 'Dokument-Graph', exact: true })).toHaveAttribute('href', '/de/knowledge-graph');
-    await expect(menu.getByRole('menuitem', { name: 'Automationen', exact: true })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Dateien', exact: true })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: 'Notebook', exact: true })).toHaveCount(0);
     await page.screenshot({ path: info.outputPath(`launcher-${width}-more.png`), animations: 'disabled' });
     await menu.getByRole('menuitem', { name: 'Einstellungen-Aktionen öffnen' }).click();
@@ -150,6 +149,7 @@ for (const width of [390, 1440]) {
     await expect(trigger).toBeFocused();
     await trigger.click();
     await expect(notebook).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Automationen', exact: true })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: 'Dokument-Graph', exact: true })).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(trigger).toBeFocused();
