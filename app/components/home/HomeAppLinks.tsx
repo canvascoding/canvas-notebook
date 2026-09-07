@@ -1,6 +1,6 @@
 'use client';
 
-import { Inbox, ListTodo, Network, Sparkles, Workflow } from 'lucide-react';
+import { Inbox, ListTodo, Sparkles, Workflow } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { Link } from '@/i18n/navigation';
@@ -9,7 +9,6 @@ const HOME_APPS = [
   { id: 'emails', href: '/emails', icon: Inbox },
   { id: 'todos', href: '/todos', icon: ListTodo },
   { id: 'studio', href: '/studio', icon: Sparkles },
-  { id: 'knowledgeGraph', href: '/knowledge-graph', icon: Network },
   { id: 'automations', href: '/automations', icon: Workflow },
 ] as const;
 
@@ -22,7 +21,7 @@ export function HomeAppLinks() {
         {t('sections.workspace')}
       </h2>
       <p className="mt-2 mb-8 max-w-xl text-sm text-muted-foreground">{t('pages.workspaceDescription')}</p>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         {HOME_APPS.map(({ id, href, icon: Icon }) => (
           <Link
             key={id}

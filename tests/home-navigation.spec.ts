@@ -78,13 +78,18 @@ test('tools stay in the launcher and its existing pages retain their entries', a
   await expect(page.getByRole('button', { name: 'Weitere Tools', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Apps öffnen' }).click();
   const menu = page.getByRole('menu');
-  await expect(menu.getByRole('link', { name: 'Terminal', exact: true })).toBeVisible();
-  await expect(menu.getByRole('link', { name: 'Browser Lab', exact: true })).toHaveAttribute('href', '/de/browser/lab');
-  await menu.getByRole('link', { name: 'Dateien', exact: true }).click();
+  await expect(menu.getByRole('menuitem', { name: 'Terminal', exact: true })).toHaveCount(0);
+  await menu.getByRole('menuitem', { name: 'Weitere Apps', exact: true }).click();
+  await expect(menu.getByRole('menuitem', { name: 'Terminal', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Browser Lab', exact: true })).toHaveAttribute('href', '/de/browser/lab');
+  await menu.getByRole('menuitem', { name: 'Zurück zum Schnellzugriff' }).click();
+  await menu.getByRole('menuitem', { name: 'Dateien', exact: true }).click();
   await expect(page).toHaveURL(/\/de\/files/, { timeout: 15000 });
   await page.getByRole('button', { name: 'Apps öffnen' }).click();
-  await expect(menu.getByRole('link', { name: 'Terminal', exact: true })).toBeVisible();
-  await expect(menu.getByRole('link', { name: 'Browser Lab', exact: true })).toHaveCount(0);
+  await expect(menu.getByRole('menuitem', { name: 'Terminal', exact: true })).toHaveCount(0);
+  await menu.getByRole('menuitem', { name: 'Weitere Apps', exact: true }).click();
+  await expect(menu.getByRole('menuitem', { name: 'Terminal', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Browser Lab', exact: true })).toHaveCount(0);
 });
 
 test('dark mode keeps both views legible and reduced motion skips scrolling animation', async ({ page }, info) => {
@@ -98,3 +103,55 @@ test('dark mode keeps both views legible and reduced motion skips scrolling anim
   await expect.poll(async () => Math.abs((await page.locator('#home-workspace').boundingBox())!.y - (await page.locator('[data-home-scroll]').boundingBox())!.y)).toBeLessThan(2);
   await page.screenshot({ path: info.outputPath('dark-workspace.png'), animations: 'disabled' });
 });
+
+for (const width of [390, 1440]) {
+  test(`launcher prioritizes apps and preserves actions at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 900 });
+    await openHome(page);
+    await expect(page.locator('#home-workspace a[href="/de/knowledge-graph"]')).toHaveCount(0);
+    const trigger = page.getByRole('button', { name: 'Apps öffnen' });
+    await trigger.focus();
+    await page.keyboard.press('ArrowDown');
+    const menu = page.getByRole('menu', { name: 'Apps öffnen' });
+    const notebook = menu.getByRole('menuitem', { name: 'Notebook', exact: true });
+    await expect(notebook).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByRole('menuitem', { name: 'Dateien', exact: true })).toBeFocused();
+    await expect(menu.locator('a[href]')).toHaveCount(5);
+    await expect(menu.getByRole('menuitem', { name: 'Dokument-Graph', exact: true })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath(`launcher-${width}-quick.png`), animations: 'disabled' });
+    const bounds = (await menu.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    await menu.getByRole('menuitem', { name: 'Studio-Aktionen öffnen' }).click();
+    const actions = width < 768 ? page.getByRole('dialog') : menu;
+    await expect(actions.getByRole(width < 768 ? 'link' : 'menuitem', { name: 'In neuem Tab öffnen' })).toHaveAttribute('href', '/de/studio');
+    if (width < 768) {
+      await expect(page.locator('[role=menu]')).toHaveCount(0);
+      await expect.poll(() => actions.evaluate(el => el.contains(document.activeElement))).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(actions).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await trigger.click();
+    await menu.getByRole('menuitem', { name: 'Weitere Apps', exact: true }).click();
+    await expect(menu.getByRole('menuitem', { name: 'Dokument-Graph', exact: true })).toHaveAttribute('href', '/de/knowledge-graph');
+    await expect(menu.getByRole('menuitem', { name: 'Automationen', exact: true })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Notebook', exact: true })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath(`launcher-${width}-more.png`), animations: 'disabled' });
+    await menu.getByRole('menuitem', { name: 'Einstellungen-Aktionen öffnen' }).click();
+    await expect(actions.locator('a[href="/de/settings?tab=integrations"]')).toBeVisible();
+    if (width < 768) {
+      await expect(page.locator('[role=menu]')).toHaveCount(0);
+      await expect.poll(() => actions.evaluate(el => el.contains(document.activeElement))).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(actions).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await trigger.click();
+    await expect(notebook).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Dokument-Graph', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(trigger).toBeFocused();
+  });
+}
