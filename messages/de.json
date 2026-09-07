@@ -370,12 +370,6 @@
         }
       },
       "notebook": {
-    "openDocuments": "Geöffnete Dokumente",
-    "noOpenDocuments": "Keine Dokumente geöffnet",
-    "reopenClosedDocument": "Geschlossenen Tab wieder öffnen",
-    "contextAvailable": "Neue Agent-Aktivität verfügbar",
-    "retryOperation": "Erneut versuchen",
-    "closeUnavailableDocument": "Tab schließen",
         "fileBrowser": {
           "title": "Dateibrowser",
           "description": "Hier siehst du alle Dateien im Workspace. Neu erstellen, hochladen oder per Drag & Drop einfügen."
@@ -552,6 +546,12 @@
       "connected": "Verbunden"
     },
     "badge": "Notebook",
+    "openDocuments": "Geöffnete Dokumente",
+    "noOpenDocuments": "Keine Dokumente geöffnet",
+    "reopenClosedDocument": "Geschlossenen Tab wieder öffnen",
+    "contextAvailable": "Neue Agent-Aktivität verfügbar",
+    "retryOperation": "Erneut versuchen",
+    "closeUnavailableDocument": "Tab schließen",
     "logoAlt": "Canvas Notebook Logo",
     "workbenchTitle": "Notebook-Arbeitsbereich",
     "workbenchSubtitle": "Chat, Dokumente und Live-Tools an einem Ort",

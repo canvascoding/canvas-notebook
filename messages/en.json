@@ -370,12 +370,6 @@
         }
       },
       "notebook": {
-    "openDocuments": "Open documents",
-    "noOpenDocuments": "No documents open",
-    "reopenClosedDocument": "Reopen closed tab",
-    "contextAvailable": "New agent activity available",
-    "retryOperation": "Try again",
-    "closeUnavailableDocument": "Close tab",
         "fileBrowser": {
           "title": "File browser",
           "description": "View all files in your workspace. Create new ones, upload, or drag & drop."
@@ -553,6 +547,12 @@
       "connected": "Connected"
     },
     "badge": "Notebook",
+    "openDocuments": "Open documents",
+    "noOpenDocuments": "No documents open",
+    "reopenClosedDocument": "Reopen closed tab",
+    "contextAvailable": "New agent activity available",
+    "retryOperation": "Try again",
+    "closeUnavailableDocument": "Close tab",
     "logoAlt": "Canvas Notebook logo",
     "workbenchTitle": "Notebook workspace",
     "workbenchSubtitle": "Chat, documents and live tools in one place",
