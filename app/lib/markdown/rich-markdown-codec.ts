@@ -3,7 +3,7 @@ import Link from '@tiptap/extension-link';
 import Mathematics from '@tiptap/extension-mathematics';
 import { CanvasTableKit as TableKit } from '@/app/lib/markdown/core/lists-and-tables';
 import TaskItem from '@tiptap/extension-task-item';
-import TaskList from '@tiptap/extension-task-list';
+import { CanvasTaskList as TaskList } from './core/lists-and-tables';
 import UniqueID from '@tiptap/extension-unique-id';
 import { MarkdownManager } from '@tiptap/markdown';
 import StarterKit from '@tiptap/starter-kit';
@@ -58,7 +58,7 @@ export type MarkdownRichModeAnalysis =
 
 export function richMarkdownCodecExtensions() {
   return [
-    StarterKit.configure({ document: false, link: false, paragraph: false, blockquote: false, heading: false, orderedList: false, listItem: false }),
+    StarterKit.configure({ document: false, link: false, paragraph: false, blockquote: false, heading: false, orderedList: false, bulletList: false, listItem: false }),
     ...canvasRichMarkdownExtensions(),
     Link.configure({ openOnClick: false, autolink: false }),
     Image,

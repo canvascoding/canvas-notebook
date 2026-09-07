@@ -23,7 +23,7 @@ import { MarkdownImageControls } from './MarkdownImageControls';
 import { MarkdownUrlPaste } from './MarkdownUrlPaste';
 import { MarkdownDomSelection } from './MarkdownDomSelection';
 import { Placeholder } from '@tiptap/extension-placeholder';
-import { TaskList } from '@tiptap/extension-task-list';
+import { CanvasTaskList as TaskList } from '@/app/lib/markdown/core/lists-and-tables';
 import { TaskItem } from '@tiptap/extension-task-item';
 import { CanvasTableKit as TableKit } from '@/app/lib/markdown/core/lists-and-tables';
 import { CanvasUniqueID as UniqueID } from '@/app/lib/editor/canvas-unique-id';
@@ -2101,7 +2101,7 @@ function createEditorExtensions(
     MarkdownDomSelection,
     StarterKit.configure({
       document: false,
-      blockquote: false, heading: false, orderedList: false, listItem: false,
+      blockquote: false, heading: false, orderedList: false, bulletList: false, listItem: false,
       codeBlock: false,
       link: false,
       paragraph: false,

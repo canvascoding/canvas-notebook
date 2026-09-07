@@ -11,7 +11,7 @@ import {
   type MarkdownToken,
   type Range,
 } from '@tiptap/core';
-import { CanvasOrderedList, CanvasListItem } from './core/lists-and-tables';
+import { CanvasOrderedList, CanvasListItem, CanvasBulletList } from './core/lists-and-tables';
 import { CanvasParagraph, CanvasBlockquote, CanvasHeading } from './core/base-blocks';
 import { CanvasDocument } from './core/document';
 export { CanvasParagraph, CanvasBlockquote, CanvasHeading } from './core/base-blocks';
@@ -676,6 +676,7 @@ export function canvasRichMarkdownExtensions(options?: { obsidianWikiLink?: AnyE
     CanvasBlockquote,
     CanvasHeading,
     CanvasOrderedList,
+    CanvasBulletList,
     CanvasListItem,
     CanvasHighlight,
     options?.obsidianWikiLink ?? ObsidianWikiLink,

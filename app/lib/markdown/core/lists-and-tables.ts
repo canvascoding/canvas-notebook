@@ -1,9 +1,25 @@
 import { portableTableCommands } from './table-commands';
-import { OrderedList, ListItem } from '@tiptap/extension-list';
+import { OrderedList, BulletList, TaskList, ListItem } from '@tiptap/extension-list';
 import { Table, TableKit } from '@tiptap/extension-table';
 import type { JSONContent, MarkdownParseHelpers, MarkdownToken } from '@tiptap/core';
+import { preserveAdjacentListBoundary } from './list-boundary';
+
+export const CanvasBulletList = BulletList.extend({
+  renderMarkdown(node, helpers, context) {
+    return preserveAdjacentListBoundary(node, context, BulletList.config.renderMarkdown?.call(this, node, helpers, context) ?? '');
+  },
+});
+
+export const CanvasTaskList = TaskList.extend({
+  renderMarkdown(node, helpers, context) {
+    return preserveAdjacentListBoundary(node, context, TaskList.config.renderMarkdown?.call(this, node, helpers, context) ?? '');
+  },
+});
 
 export const CanvasOrderedList = OrderedList.extend({
+  renderMarkdown(node, helpers, context) {
+    return preserveAdjacentListBoundary(node, context, OrderedList.config.renderMarkdown?.call(this, node, helpers, context) ?? '');
+  },
   parseMarkdown(token, helpers) {
     if (token.type !== 'list' || !token.ordered) return [];
     return helpers.createNode('orderedList', {

@@ -1,6 +1,7 @@
 import { Markdown, type MarkdownExtensionOptions } from '@tiptap/markdown';
 import { Marked } from 'canvas-markdown-parser';
 import { proseEntities } from './prose-entities';
+import { LIST_BOUNDARY_PATTERN, LIST_BOUNDARY_START_PATTERN } from './list-boundary';
 
 export const CANVAS_MARKED_OPTIONS = {
   breaks: false,
@@ -29,6 +30,16 @@ export function createCanvasMarkedInstance(): TiptapMarkedInstance {
   const instance = new Marked(CANVAS_MARKED_OPTIONS);
   instance.use({
     extensions: [{
+      name: 'canvasListBoundary',
+      level: 'block',
+      start(source) { return source.search(LIST_BOUNDARY_START_PATTERN); },
+      tokenizer(source) {
+        const raw = source.match(LIST_BOUNDARY_PATTERN)?.[0];
+        if (!raw) return undefined;
+        return { type: 'canvasListBoundary', raw };
+      },
+      renderer() { return ''; },
+    }, {
       name: 'canvasProseEntity',
       level: 'inline',
       start(source) { return source.search(/&#(?:x[0-9a-f]+|\d+);/iu); },
