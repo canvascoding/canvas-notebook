@@ -89,6 +89,10 @@ type TodoListScope = 'personal' | 'workspace' | 'global';
 type StatusFilter = TodoStatus | 'all';
 type ReadStateFilter = 'all' | 'read' | 'unread';
 
+function todoMatchesStatusFilter(todoStatus: TodoStatus, statusFilter: StatusFilter): boolean {
+  return statusFilter === 'all' || todoStatus === statusFilter;
+}
+
 type TodoCategory = {
   id: string;
   name: string;
@@ -802,19 +806,18 @@ export function TodosClient({ title }: { title: string }) {
         return data;
       }
 
-      // A direct link may target a completed or archived item while the list is
-      // filtered to open items. Keep that fetched item mounted so the detail
-      // panel cannot disappear when this concurrent list request finishes.
       setTodos((current) => {
         const deepLinkedTodo = todoIdParam
           ? current.find((todo) => todo.id === todoIdParam)
           : undefined;
-        return deepLinkedTodo && !data.some((todo) => todo.id === deepLinkedTodo.id)
+        return deepLinkedTodo
+          && todoMatchesStatusFilter(deepLinkedTodo.status, statusFilter)
+          && !data.some((todo) => todo.id === deepLinkedTodo.id)
           ? [deepLinkedTodo, ...data]
           : data;
       });
       setSelectedTodoId((current) => (
-        current && (data.some((todo) => todo.id === current) || current === todoIdParam)
+        current && data.some((todo) => todo.id === current)
           ? current
           : null
       ));
@@ -920,13 +923,7 @@ export function TodosClient({ title }: { title: string }) {
       const updated = await readApiData<TodoItem>(response);
       setTodos((current) => {
         const next = current.map((todo) => (todo.id === updated.id ? updated : todo));
-        if (statusFilter === 'archived' && updated.status !== 'archived') {
-          return next.filter((todo) => todo.id !== updated.id);
-        }
-        if (statusFilter === 'open' && updated.status !== 'open') {
-          return next.filter((todo) => todo.id !== updated.id);
-        }
-        if (statusFilter === 'done' && updated.status !== 'done') {
+        if (!todoMatchesStatusFilter(updated.status, statusFilter)) {
           return next.filter((todo) => todo.id !== updated.id);
         }
         return next;
