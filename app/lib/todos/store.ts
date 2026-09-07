@@ -67,7 +67,8 @@ export class TodoStoreError extends Error {
       | 'TODO_NOT_FOUND'
       | 'ORGANIZATION_ACCESS_DENIED'
       | 'ASSIGNEE_NOT_FOUND'
-      | 'TODO_READ_STATE_CONFLICT',
+      | 'TODO_READ_STATE_CONFLICT'
+      | 'TODO_UPDATE_CONFLICT',
   ) {
     super(message);
     this.name = 'TodoStoreError';
@@ -115,6 +116,7 @@ export type CreateTodoInput = {
 };
 
 export type UpdateTodoInput = {
+  expectedUpdatedAt?: Date;
   title?: string;
   description?: string | null;
   categoryId?: string | null;
@@ -1100,11 +1102,11 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     }
   }
   if (options.query?.trim()) {
-    const escaped = options.query.trim().toLocaleLowerCase().replace(/[\\%_]/gu, '\\$&');
+    const escaped = options.query.trim().toLocaleLowerCase().replace(/[!%_]/gu, '!$&');
     const pattern = `%${escaped}%`;
     conditions.push(sql`(
-      lower(${todoItems.title}) LIKE ${pattern} ESCAPE '\'
-      OR lower(COALESCE(${todoItems.description}, '')) LIKE ${pattern} ESCAPE '\'
+      lower(${todoItems.title}) LIKE ${pattern} ESCAPE '!'
+      OR lower(COALESCE(${todoItems.description}, '')) LIKE ${pattern} ESCAPE '!'
     )`);
   }
   if (options.beforeCursor) {
@@ -1181,6 +1183,13 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
   await assertCanReadTodo(userId, current);
   await assertCanWriteTodo(userId, current);
 
+  const expectedUpdatedAt = input.expectedUpdatedAt === undefined
+    ? undefined
+    : normalizeDate(input.expectedUpdatedAt);
+  if (expectedUpdatedAt === null || (expectedUpdatedAt && current.updatedAt.getTime() !== expectedUpdatedAt.getTime())) {
+    throw new TodoStoreError('Todo changed since it was inspected. Inspect it again before updating.', 'TODO_UPDATE_CONFLICT');
+  }
+
   const now = new Date();
   const updates: Partial<typeof todoItems.$inferInsert> = {
     updatedAt: now,
@@ -1250,10 +1259,18 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
     }
   }
 
-  await db
+  const updatedRows = await db
     .update(todoItems)
     .set(updates)
-    .where(eq(todoItems.id, todoId));
+    .where(and(
+      eq(todoItems.id, todoId),
+      ...(expectedUpdatedAt ? [eq(todoItems.updatedAt, expectedUpdatedAt)] : []),
+    ))
+    .returning({ id: todoItems.id });
+
+  if (expectedUpdatedAt && updatedRows.length === 0) {
+    throw new TodoStoreError('Todo changed since it was inspected. Inspect it again before updating.', 'TODO_UPDATE_CONFLICT');
+  }
 
   if (input.fileLinks !== undefined) {
     await replaceFileLinks(todoId, current.userId, {

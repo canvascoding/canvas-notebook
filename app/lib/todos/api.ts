@@ -33,7 +33,7 @@ export function todoErrorResponse(error: unknown, fallback: string) {
       ? 404
       : error.code === 'ORGANIZATION_ACCESS_DENIED'
         ? 403
-        : error.code === 'TODO_READ_STATE_CONFLICT'
+        : error.code === 'TODO_READ_STATE_CONFLICT' || error.code === 'TODO_UPDATE_CONFLICT'
           ? 409
         : 400;
     return NextResponse.json({ success: false, error: error.message, code: error.code }, { status });

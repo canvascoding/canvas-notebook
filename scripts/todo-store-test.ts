@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { eq } from 'drizzle-orm';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-todo-store-'));
 process.env.DATA = dataDir;
@@ -19,6 +20,7 @@ async function main() {
     canvasProjects,
     canvasWorkspaces,
     organizationUserPermissions,
+    todoItems,
     todoReadStates,
     user,
   } = await import('../app/lib/db/schema');
@@ -322,6 +324,8 @@ async function main() {
   const todos = await listTodos('todo-user');
   assert.equal(todos.length, 1);
   assert.equal(todos[0].id, created.id);
+  assert.equal((await listTodos('todo-user', { query: 'review the brief' }))[0]?.id, created.id);
+  assert.equal((await listTodos('todo-user', { query: '%' })).length, 0);
 
   const unreadCompletion = await createTodo('todo-user', { title: 'Complete without reading first' });
   assert.equal(unreadCompletion.readState, 'unread');
@@ -625,6 +629,24 @@ async function main() {
   const restored = await restoreTodo('todo-user', created.id);
   assert.equal(restored?.status, 'open');
   assert.equal(restored?.archivedAt, null);
+
+  assert.ok(restored);
+  const concurrentUpdatedAt = new Date(restored.updatedAt.getTime() + 1_000);
+  await db.update(todoItems).set({
+    title: 'Concurrent title',
+    updatedAt: concurrentUpdatedAt,
+  }).where(eq(todoItems.id, created.id));
+  await assert.rejects(
+    () => updateTodo('todo-user', created.id, {
+      expectedUpdatedAt: restored.updatedAt,
+      title: 'Stale title',
+      fileLinks: [],
+    }),
+    (error) => error instanceof TodoStoreError && error.code === 'TODO_UPDATE_CONFLICT',
+  );
+  const afterConflict = await getTodo('todo-user', created.id);
+  assert.equal(afterConflict?.title, 'Concurrent title');
+  assert.equal(afterConflict?.fileLinks.length, 1);
 
   await updateTodo('todo-user', created.id, { dueAt: new Date('2000-01-01T12:00:00.000Z') });
   assert.ok((await listTodos('todo-user', { due: 'overdue' })).some((todo) => todo.id === created.id));
