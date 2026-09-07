@@ -26,7 +26,7 @@ import { Placeholder } from '@tiptap/extension-placeholder';
 import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
 import { CanvasTableKit as TableKit } from '@/app/lib/markdown/core/lists-and-tables';
-import UniqueID from '@tiptap/extension-unique-id';
+import { CanvasUniqueID as UniqueID } from '@/app/lib/editor/canvas-unique-id';
 import { CodeBlock } from '@tiptap/extension-code-block';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
 import { Plugin, PluginKey, type SelectionBookmark } from '@tiptap/pm/state';
@@ -2100,6 +2100,7 @@ function createEditorExtensions(
   const extensions = [
     MarkdownDomSelection,
     StarterKit.configure({
+      document: false,
       blockquote: false, heading: false, orderedList: false, listItem: false,
       codeBlock: false,
       link: false,

@@ -13,6 +13,7 @@ import {
 } from '@tiptap/core';
 import { CanvasOrderedList, CanvasListItem } from './core/lists-and-tables';
 import { CanvasParagraph, CanvasBlockquote, CanvasHeading } from './core/base-blocks';
+import { CanvasDocument } from './core/document';
 export { CanvasParagraph, CanvasBlockquote, CanvasHeading } from './core/base-blocks';
 import { TextSelection } from '@tiptap/pm/state';
 
@@ -670,6 +671,7 @@ export const MarkdownFootnoteDefinition = Node.create({
 
 export function canvasRichMarkdownExtensions(options?: { obsidianWikiLink?: AnyExtension }) {
   return [
+    CanvasDocument,
     CanvasParagraph,
     CanvasBlockquote,
     CanvasHeading,

@@ -58,7 +58,7 @@ export type MarkdownRichModeAnalysis =
 
 export function richMarkdownCodecExtensions() {
   return [
-    StarterKit.configure({ link: false, paragraph: false, blockquote: false, heading: false, orderedList: false, listItem: false }),
+    StarterKit.configure({ document: false, link: false, paragraph: false, blockquote: false, heading: false, orderedList: false, listItem: false }),
     ...canvasRichMarkdownExtensions(),
     Link.configure({ openOnClick: false, autolink: false }),
     Image,
