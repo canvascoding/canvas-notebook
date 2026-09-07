@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { NextIntlClientProvider } from 'next-intl';
+
+import { ChatMessageList } from '../app/components/canvas-agent-chat/ChatMessageList';
+import type { ChatMessage } from '../app/lib/chat/types';
 
 const root = process.cwd();
 const read = (filePath: string) => readFileSync(path.join(root, filePath), 'utf8');
@@ -30,5 +36,61 @@ assert.equal(germanMessages.chat.forkChatFromHere, 'Chat ab hier forken');
 assert.equal(germanMessages.chat.forkFailed, 'Der Chat konnte nicht geforkt werden.');
 assert.equal(englishMessages.chat.forkChatFromHere, 'Fork chat from here');
 assert.equal(englishMessages.chat.forkFailed, 'The chat could not be forked.');
+
+function renderMessages(messages: ChatMessage[]): string {
+  return renderToStaticMarkup(
+    <NextIntlClientProvider locale="en" timeZone="UTC" messages={englishMessages}>
+      <ChatMessageList
+        messages={messages}
+        assistantName="Bradley"
+        assistantAgentId="canvas-agent"
+        userProfile={null}
+        runtimePhase="idle"
+        expandedRunKeys={new Set()}
+        toolVerbosity="subtle"
+        onToggleRunDisclosure={() => undefined}
+        onAttachmentOpen={() => undefined}
+        onForkAssistantMessage={async () => undefined}
+      />
+    </NextIntlClientProvider>,
+  );
+}
+
+const completedAssistant: ChatMessage = {
+  id: '2',
+  role: 'assistant',
+  content: 'Start with the launch brief.',
+  status: 'sent',
+  piMessage: {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Start with the launch brief.' }],
+    provider: 'test-provider',
+    model: 'test-model',
+    stopReason: 'stop',
+    timestamp: Date.now(),
+    sequence: 2,
+  } as unknown as ChatMessage['piMessage'],
+};
+const completedHtml = renderMessages([completedAssistant]);
+assert.match(completedHtml, /data-testid="chat-message-fork-2"/u);
+assert.match(completedHtml, /aria-label="Fork chat from here"/u);
+
+const toolCallHtml = renderMessages([{
+  ...completedAssistant,
+  id: '4',
+  piMessage: {
+    ...(completedAssistant.piMessage as object),
+    content: [
+      { type: 'text', text: 'I will check.' },
+      { type: 'toolCall', id: 'tool-1', name: 'read', arguments: {} },
+    ],
+    stopReason: 'toolUse',
+    sequence: 4,
+  } as unknown as ChatMessage['piMessage'],
+}]);
+assert.doesNotMatch(toolCallHtml, /chat-message-fork-/u);
+
+const streamingHtml = renderMessages([{ ...completedAssistant, status: 'sending' }]);
+assert.doesNotMatch(streamingHtml, /chat-message-fork-/u);
 
 console.log('[Chat Session Fork UI Test] passed');
