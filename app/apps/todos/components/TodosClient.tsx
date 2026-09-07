@@ -58,6 +58,8 @@ import {
   getTodoFileMetadataTitle,
 } from '@/app/lib/todos/file-link-display';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { useSetTodoChatContext } from '@/app/apps/todos/context/todo-chat-context';
+import { buildTodoPageChatContext } from '@/app/apps/todos/context/todo-route-chat-context';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -676,11 +678,17 @@ export function TodosClient({ title }: { title: string }) {
   const [isFileSearching, setIsFileSearching] = useState(false);
   const [followUpDraft, setFollowUpDraft] = useState<{ todoId: string | null; value: string }>({ todoId: null, value: '' });
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
+  const setTodoChatContext = useSetTodoChatContext();
 
   const selectedTodo = useMemo(
     () => todos.find((todo) => todo.id === selectedTodoId) ?? null,
     [selectedTodoId, todos],
   );
+
+  useEffect(() => {
+    setTodoChatContext(buildTodoPageChatContext(selectedTodoId));
+    return () => setTodoChatContext(null);
+  }, [selectedTodoId, setTodoChatContext]);
   const editingTodo = useMemo(
     () => todos.find((todo) => todo.id === editingTodoId) ?? null,
     [editingTodoId, todos],
