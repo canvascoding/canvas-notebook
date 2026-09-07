@@ -203,7 +203,9 @@ async function main(): Promise<void> {
     publishStatus(this: Record<string, unknown>) {
       events.push({ type: 'runtime_status', status: { compactionStatus: this.compactionStatus } });
     },
-    getStatus: () => ({ sessionId }),
+    getStatus(this: Record<string, unknown>) {
+      return { sessionId, compactionStatus: this.compactionStatus };
+    },
     touch: () => undefined,
   });
 
@@ -331,7 +333,16 @@ async function main(): Promise<void> {
   }).transformContext(calibrationCandidate), calibrationCandidate);
 
   const focusTopic = 'database migration safety';
-  const compactPromise = runtime.compactNow(focusTopic);
+  const startedStatus = await runtime.startCompaction(focusTopic);
+  const backgroundCompaction = (runtime as unknown as {
+    manualCompactionPromise: Promise<unknown> | null;
+  }).manualCompactionPromise;
+  assert.ok(backgroundCompaction);
+  assert.equal(
+    startedStatus.compactionStatus?.state,
+    'running',
+    'manual compaction must acknowledge its running state without waiting for the summary provider',
+  );
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(summaryCalls, 1);
   assert.equal(events.filter((event) => event.type === 'context_compacted').length, 0, 'success must not be emitted before the private candidate completes and commits');
@@ -357,7 +368,8 @@ async function main(): Promise<void> {
   assert.equal(automaticRace.state, 'already_running');
   assert.equal(summaryCalls, 1, 'manual/automatic races must share one summary provider call');
   summaryResult.resolve(createSummaryMessage(`Committed live runtime summary for ${focusTopic}`));
-  await compactPromise;
+  await backgroundCompaction;
+  assert.equal(runtime.getStatus().compactionStatus?.state, 'succeeded');
   assert.match(lastSummaryContext, /database migration safety/);
 
   const reloaded = await loadPiSessionWithSummary(sessionId, userId, session?.agentId);

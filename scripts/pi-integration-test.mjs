@@ -359,13 +359,24 @@ async function testRuntimeStatusAndCompact(ws, sessionId) {
     action: 'compact',
   });
 
+  if (compactResult.status?.compactionStatus?.state !== 'running') {
+    throw new Error('Compact response did not acknowledge the running compaction');
+  }
+
+  let completedStatus = compactResult.status;
+  const deadline = Date.now() + 120_000;
+  while (completedStatus?.compactionStatus?.state === 'running' && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    completedStatus = (await wsRequest(ws, 'get_status', { sessionId })).status;
+  }
   if (
-    typeof compactResult.status?.contextUsagePercent !== 'number' ||
-    typeof compactResult.status?.lastCompactionAt !== 'string' ||
-    compactResult.status?.lastCompactionKind !== 'manual' ||
-    typeof compactResult.status?.lastCompactionOmittedCount !== 'number'
+    typeof completedStatus?.contextUsagePercent !== 'number' ||
+    completedStatus?.compactionStatus?.state !== 'succeeded' ||
+    typeof completedStatus?.lastCompactionAt !== 'string' ||
+    completedStatus?.lastCompactionKind !== 'manual' ||
+    typeof completedStatus?.lastCompactionOmittedCount !== 'number'
   ) {
-    throw new Error('Compact response missing updated runtime compaction status');
+    throw new Error('Compaction did not reach a successful terminal runtime status');
   }
 
   console.log('[PI Test] WS runtime status and compact check passed.');

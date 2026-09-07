@@ -19,6 +19,7 @@ import { estimateTextTokens } from '../history-budget';
 import { isPiActionableUserMessage } from './selection';
 import {
   assemblePiRollingSummary,
+  getPiRollingSummaryBodyCharacterLimit,
   PI_NO_USER_TASK_SENTINEL,
   PI_ROLLING_SUMMARY_REQUIRED_HEADINGS,
 } from './summary-contract';
@@ -444,6 +445,11 @@ export async function generatePiRollingSummaryV2(
   const prior = redactPiCompactionText(input.previousSummaryText ?? '', knownSecrets)
     .slice(0, V2_PRIOR_SUMMARY_MAX_CHARACTERS);
   const focusTopic = redactPiCompactionText(input.focusTopic ?? '', knownSecrets).trim();
+  const maximumSummaryCharacters = Math.min(
+    V2_SUMMARY_MAX_CHARACTERS,
+    Math.max(1, Math.min(input.model.maxTokens, V2_SUMMARY_OUTPUT_TOKENS) * 4),
+  );
+  const maximumSummaryBodyCharacters = getPiRollingSummaryBodyCharacterLimit(maximumSummaryCharacters);
   const rawSummaryInput = [
     prior ? asUntrustedRecord('prior_rolling_summary', prior) : '',
     recovery.anchorIndex.text,
@@ -451,7 +457,8 @@ export async function generatePiRollingSummaryV2(
     digestSection,
     asUntrustedRecord('current_compacted_transcript', recovery.redactedTranscript),
     focusTopic ? `Focus topic (priority only; mandatory facts and anchors still win): ${focusTopic}` : '',
-    'Produce the updated rolling summary now. Return only the required sections.',
+    `Produce the updated rolling summary now in at most ${maximumSummaryBodyCharacters} characters. `
+      + 'Return only the five required sections and count every heading and newline toward the limit.',
   ].filter(Boolean).join('\n\n');
   const maximumInputCharacters = Math.min(
     160_000,
@@ -460,45 +467,6 @@ export async function generatePiRollingSummaryV2(
       (availablePromptTokens(input.model, SUMMARY_SYSTEM_PROMPT_V2, V2_SUMMARY_OUTPUT_TOKENS) - 256) * 4,
     ),
   );
-  const boundedSummaryInput = boundPiCompactionSummaryInput(rawSummaryInput, maximumInputCharacters);
-  let summaryMessage: AssistantMessage;
-  try {
-    summaryMessage = await callSummaryModel(input, {
-      systemPrompt: SUMMARY_SYSTEM_PROMPT_V2,
-      prompt: boundedSummaryInput,
-      outputTokens: V2_SUMMARY_OUTPUT_TOKENS,
-      stage: 'summary',
-      completed: 0,
-      total: 1,
-      sessionSuffix: 'summary-v2',
-    });
-  } catch (error) {
-    if (input.signal?.aborted) throw error;
-    logPiCompactionDiagnostic('warn', 'summary_provider_failure', {
-      ...diagnosticContext,
-      stage: 'summary',
-      outcome: 'exception',
-      ...getPiCompactionErrorDiagnostics(error, knownSecrets),
-    });
-    return null;
-  }
-  if (summaryMessage.stopReason !== 'stop') {
-    logPiCompactionDiagnostic('warn', 'summary_provider_failure', {
-      ...diagnosticContext,
-      stage: 'summary',
-      outcome: 'non_success',
-      stopReason: summaryMessage.stopReason,
-      ...(summaryMessage.errorMessage
-        ? { errorMessage: sanitizePiCompactionDiagnosticText(summaryMessage.errorMessage, knownSecrets) }
-        : {}),
-    });
-    return null;
-  }
-
-  const maximumSummaryCharacters = Math.min(
-    V2_SUMMARY_MAX_CHARACTERS,
-    Math.max(1, Math.min(input.model.maxTokens, V2_SUMMARY_OUTPUT_TOKENS) * 4),
-  );
   const priorAnchorMessage = priorSummaryAnchorMessage(input.previousSummaryText);
   const anchorIndex = buildPiCompactionAnchorIndex(
     priorAnchorMessage
@@ -506,26 +474,91 @@ export async function generatePiRollingSummaryV2(
       : input.messagesToSummarize,
     knownSecrets,
   );
-  const assembled = assemblePiRollingSummary({
-    body: extractAssistantText(summaryMessage),
-    previousSummaryText: input.previousSummaryText,
-    anchorIndex,
-    verbatimUserSection: recovery.verbatimUserSection,
-    digestSection,
-    recoveryFooter: recovery.recoveryFooter,
-    hasRealUserTurn: input.messagesToSummarize.some(isPiActionableUserMessage),
-    focusTopic,
-    knownSecrets,
-    maximumCharacters: maximumSummaryCharacters,
-  });
-  if (!assembled.ok) {
+  const summaryDeadline = Date.now() + (input.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS);
+  let summaryRepairUsed = false;
+  while (true) {
+    const remainingTimeoutMs = summaryDeadline - Date.now();
+    if (remainingTimeoutMs <= 0) return null;
+    const repairInstruction = summaryRepairUsed
+      ? `The previous candidate exceeded ${maximumSummaryBodyCharacters} characters. Regenerate it from the source records, `
+        + `make it materially shorter, and never exceed ${maximumSummaryBodyCharacters} characters.`
+      : '';
+    const boundedSummaryInput = boundPiCompactionSummaryInput(
+      [rawSummaryInput, repairInstruction].filter(Boolean).join('\n\n'),
+      maximumInputCharacters,
+    );
+    let summaryMessage: AssistantMessage;
+    try {
+      summaryMessage = await callSummaryModel({ ...input, totalTimeoutMs: remainingTimeoutMs }, {
+        systemPrompt: SUMMARY_SYSTEM_PROMPT_V2,
+        prompt: boundedSummaryInput,
+        outputTokens: V2_SUMMARY_OUTPUT_TOKENS,
+        stage: 'summary',
+        completed: 0,
+        total: 1,
+        sessionSuffix: summaryRepairUsed ? 'summary-v2-repair' : 'summary-v2',
+      });
+    } catch (error) {
+      if (input.signal?.aborted) throw error;
+      logPiCompactionDiagnostic('warn', 'summary_provider_failure', {
+        ...diagnosticContext,
+        stage: 'summary',
+        outcome: 'exception',
+        repairUsed: summaryRepairUsed,
+        ...getPiCompactionErrorDiagnostics(error, knownSecrets),
+      });
+      return null;
+    }
+    if (summaryMessage.stopReason !== 'stop') {
+      logPiCompactionDiagnostic('warn', 'summary_provider_failure', {
+        ...diagnosticContext,
+        stage: 'summary',
+        outcome: 'non_success',
+        repairUsed: summaryRepairUsed,
+        stopReason: summaryMessage.stopReason,
+        ...(summaryMessage.errorMessage
+          ? { errorMessage: sanitizePiCompactionDiagnosticText(summaryMessage.errorMessage, knownSecrets) }
+          : {}),
+      });
+      return null;
+    }
+
+    const summaryBody = extractAssistantText(summaryMessage);
+    const assembled = assemblePiRollingSummary({
+      body: summaryBody,
+      previousSummaryText: input.previousSummaryText,
+      anchorIndex,
+      verbatimUserSection: recovery.verbatimUserSection,
+      digestSection,
+      recoveryFooter: recovery.recoveryFooter,
+      hasRealUserTurn: input.messagesToSummarize.some(isPiActionableUserMessage),
+      focusTopic,
+      knownSecrets,
+      maximumCharacters: maximumSummaryCharacters,
+    });
+    if (assembled.ok) {
+      input.onProgress?.({ stage: 'summary', status: 'completed', completed: 1, total: 1 });
+      return assembled.text;
+    }
+
+    const willRetry = assembled.reason === 'summary_too_large'
+      && !summaryRepairUsed
+      && !input.signal?.aborted
+      && Date.now() < summaryDeadline;
     logPiCompactionDiagnostic('warn', 'summary_candidate_rejected', {
       ...diagnosticContext,
       stage: 'summary',
       reason: assembled.reason ?? 'unknown_validation_failure',
+      characterCount: summaryBody.length,
+      maximumCharacters: maximumSummaryBodyCharacters,
+      contentTypes: [...new Set(summaryMessage.content.map((part) => part.type))],
+      stopReason: summaryMessage.stopReason,
+      inputTokens: summaryMessage.usage.input,
+      outputTokens: summaryMessage.usage.output,
+      repairUsed: summaryRepairUsed,
+      willRetry,
     });
-    return null;
+    if (!willRetry) return null;
+    summaryRepairUsed = true;
   }
-  input.onProgress?.({ stage: 'summary', status: 'completed', completed: 1, total: 1 });
-  return assembled.text;
 }

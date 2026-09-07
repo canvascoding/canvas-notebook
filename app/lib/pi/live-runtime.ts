@@ -520,6 +520,7 @@ export class LivePiRuntime {
   private lastCompactionKind: 'manual' | 'automatic' | null;
   private lastCompactionOmittedCount: number;
   private compactionStatus: RuntimeCompactionStatus = IDLE_RUNTIME_COMPACTION_STATUS;
+  private manualCompactionPromise: Promise<PiRuntimeStatus> | null = null;
   private channelId: string | null = null;
   private timeZoneContext: { timeZone: string; currentTime: string } | null = null;
   private activeFileContext: string | null = null;
@@ -656,6 +657,7 @@ export class LivePiRuntime {
     signal?: AbortSignal;
     selectionMode?: 'automatic' | 'force';
     focusTopic?: string | null;
+    onStarted?: () => void;
   }): Promise<PiCompactionCoordinatorResult> {
     await this.persistMessages('turn_end');
     const summarySnapshot = { ...this.summary };
@@ -709,6 +711,7 @@ export class LivePiRuntime {
       };
       this.publishStatus();
     }
+    input.onStarted?.();
     let result: PiCompactionCoordinatorResult;
     try {
       result = await runPiSessionCompaction({
@@ -1089,7 +1092,7 @@ export class LivePiRuntime {
     return this.getStatus();
   }
 
-  async compactNow(focusTopic?: string | null) {
+  private normalizeManualCompactionFocus(focusTopic?: string | null): string | null {
     if (this.isRunning || this.agent.state.isStreaming) {
       throw new Error('Cannot compact while the agent is processing.');
     }
@@ -1097,7 +1100,34 @@ export class LivePiRuntime {
     if (normalizedFocusTopic && normalizedFocusTopic.length > 500) {
       throw new Error('Compaction focus must not exceed 500 characters.');
     }
+    return normalizedFocusTopic;
+  }
 
+  async startCompaction(focusTopic?: string | null) {
+    const normalizedFocusTopic = this.normalizeManualCompactionFocus(focusTopic);
+    let acknowledgeStarted!: () => void;
+    const started = new Promise<void>((resolve) => { acknowledgeStarted = resolve; });
+    const compactionPromise = this.runManualCompaction(normalizedFocusTopic, acknowledgeStarted);
+    this.manualCompactionPromise = compactionPromise;
+    void compactionPromise
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.manualCompactionPromise === compactionPromise) {
+          this.manualCompactionPromise = null;
+        }
+      });
+    await Promise.race([
+      started,
+      compactionPromise.then(() => undefined),
+    ]);
+    return this.getStatus();
+  }
+
+  async compactNow(focusTopic?: string | null) {
+    return this.runManualCompaction(this.normalizeManualCompactionFocus(focusTopic));
+  }
+
+  private async runManualCompaction(normalizedFocusTopic: string | null, onStarted?: () => void) {
     const additionalContextTokens = this.getBrowserRuntimeContextTokenEstimate();
     const result = await this.coordinateCompaction({
       kind: 'manual',
@@ -1107,6 +1137,7 @@ export class LivePiRuntime {
       runtimeContext: null,
       selectionMode: 'force',
       focusTopic: normalizedFocusTopic,
+      onStarted,
     });
 
     if (result.state === 'succeeded' && result.summary && result.composition) {

@@ -14,6 +14,20 @@ import { parseClientMessage } from '../app/lib/websocket/protocol';
 import type { PiContextBudgetSnapshot } from '../app/lib/pi/context-budget';
 import type { PiHistoryComposition } from '../app/lib/pi/history-budget';
 
+const runtimeServiceSource = fs.readFileSync('app/lib/pi/runtime-service.ts', 'utf8');
+const chatControlSource = fs.readFileSync('app/components/canvas-agent-chat/useChatControlActions.ts', 'utf8');
+assert.match(
+  runtimeServiceSource,
+  /case 'compact':\s+return runtimeInstance\.startCompaction\(focusTopic\);/u,
+  'WebSocket control must acknowledge compaction start instead of awaiting the complete provider operation',
+);
+assert.match(chatControlSource, /error\.code === 'REQUEST_TIMEOUT'/u);
+assert.match(
+  chatControlSource,
+  /wsRequest<\{ success: boolean; status\?: RuntimeStatus \}>\('get_status'/u,
+  'a lost compaction acknowledgement must reconcile authoritative runtime status before showing an error',
+);
+
 const baseStatus: Omit<RuntimeCompactionStatus, 'state' | 'reasonCode'> = {
   attemptId: 'compact-contract-test',
   trigger: 'manual',

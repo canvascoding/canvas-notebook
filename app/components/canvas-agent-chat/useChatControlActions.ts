@@ -545,16 +545,9 @@ export function useChatControlActions({
   }, [appendSystemMessage, messages, postControl, sessionIdRef, setAttachments, setInput, setOpenQueueItemPopoverId, t, textareaRef]);
 
   const handleCompact = useCallback(async (focusTopic?: string) => {
-    if (!sessionIdRef.current) return;
-    try {
-      const status = await postControl(
-        sessionIdRef.current,
-        'compact',
-        undefined,
-        undefined,
-        undefined,
-        focusTopic,
-      );
+    const targetSessionId = sessionIdRef.current;
+    if (!targetSessionId) return;
+    const applyCompactionStatus = (status: RuntimeStatus | null) => {
       if (status?.compactionStatus?.state === 'no_op') {
         appendSystemMessage(t('compactAlreadyOptimized'));
       } else if (
@@ -569,10 +562,40 @@ export function useChatControlActions({
           status.compactionStatus.attemptId || undefined,
         );
       }
+    };
+    try {
+      const status = await postControl(
+        targetSessionId,
+        'compact',
+        undefined,
+        undefined,
+        undefined,
+        focusTopic,
+      );
+      applyCompactionStatus(status);
     } catch (error) {
+      if (
+        error
+        && typeof error === 'object'
+        && 'code' in error
+        && error.code === 'REQUEST_TIMEOUT'
+      ) {
+        try {
+          const recovered = await wsRequest<{ success: boolean; status?: RuntimeStatus }>('get_status', {
+            sessionId: targetSessionId,
+          });
+          if (recovered.status) {
+            setRuntimeStatusWithReconciliation(recovered.status);
+            applyCompactionStatus(recovered.status);
+            return;
+          }
+        } catch {
+          // Fall through to the original transport error when status recovery also fails.
+        }
+      }
       appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
     }
-  }, [appendCompactionBreak, appendSystemMessage, postControl, sessionIdRef, t]);
+  }, [appendCompactionBreak, appendSystemMessage, postControl, sessionIdRef, setRuntimeStatusWithReconciliation, t, wsRequest]);
 
   const startNewChat = useCallback((agentIdOverride?: string, options?: StartNewChatOptions) => {
     const nextAgentId = agentIdOverride || selectedAgentId;

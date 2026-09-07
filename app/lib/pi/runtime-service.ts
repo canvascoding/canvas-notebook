@@ -512,7 +512,7 @@ export async function control(
       case 'abort':
         return runtimeInstance.abort();
       case 'compact':
-        return runtimeInstance.compactNow(focusTopic);
+        return runtimeInstance.startCompaction(focusTopic);
       default:
         throw new RuntimeServiceError(`Unsupported action: ${String(action)}`, 400);
     }

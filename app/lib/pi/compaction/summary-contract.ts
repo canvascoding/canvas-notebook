@@ -25,6 +25,7 @@ export const PI_ROLLING_SUMMARY_REQUIRED_HEADINGS = Object.freeze([
 ]);
 
 const USER_SECTION_BUDGET_CHARACTERS = 24_000;
+const SUMMARY_BODY_BUDGET_SHARE = 0.45;
 const PROMPT_INJECTION_OUTPUT = /(?:ignore|disregard|override)\s+(?:all\s+)?(?:previous|prior|system|developer)\s+instructions|<\/?(?:conversation_record|internal_session_summary)>|\[CONTEXT COMPACTION/iu;
 const SKILL_MARKER = /\[SKILL_PRUNED:[^\]]{1,300}\]/gu;
 
@@ -39,6 +40,10 @@ export type PiRollingSummaryAssembly = Readonly<{
   text: string | null;
   reason: string | null;
 }>;
+
+export function getPiRollingSummaryBodyCharacterLimit(maximumCharacters: number): number {
+  return Math.max(1, Math.floor(maximumCharacters * SUMMARY_BODY_BUDGET_SHARE));
+}
 
 function extractSection(text: string, heading: string): string {
   const start = text.indexOf(heading);
@@ -173,7 +178,7 @@ export function assemblePiRollingSummary(input: {
     hasRealUserTurn: input.hasRealUserTurn,
     focusTopic: input.focusTopic,
     knownSecrets: input.knownSecrets,
-    maximumCharacters: Math.max(1, Math.floor(input.maximumCharacters * 0.45)),
+    maximumCharacters: getPiRollingSummaryBodyCharacterLimit(input.maximumCharacters),
   });
   if (!validated.ok || !validated.body) {
     return Object.freeze({ ok: false, text: null, reason: validated.reason });

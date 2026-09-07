@@ -202,6 +202,49 @@ async function main() {
   assert.ok(secondSummary.includes('> Implement PR #1111 in app/lib/pi/first-cycle.ts and preserve this exact request.'));
   assert.ok(secondSummary.includes('> Now continue with PR #2222 in app/lib/pi/second-cycle.ts.'));
 
+  let oversizedSummaryCalls = 0;
+  const oversizedWarnings: string[] = [];
+  const originalOversizedWarn = console.warn;
+  console.warn = (...args: unknown[]) => oversizedWarnings.push(args.map(String).join(' '));
+  let repairedSummary: string | null = null;
+  try {
+    const oversizedStreamFn: StreamFn = async (requestedModel, context, options) => {
+      if (options?.sessionId?.includes('summary-digest')) {
+        return resultStream(assistantMessage(requestedModel as typeof model, '- Valid digest for repair test.'));
+      }
+      oversizedSummaryCalls += 1;
+      const prompt = String(context.messages[0]?.content ?? '');
+      assert.match(prompt, /at most 4320 characters/u);
+      if (oversizedSummaryCalls === 2) {
+        assert.match(prompt, /previous candidate exceeded 4320 characters/iu);
+      }
+      return resultStream(assistantMessage(
+        requestedModel as typeof model,
+        oversizedSummaryCalls === 1
+          ? validSummaryBody('Continue PR #2222.', 'x'.repeat(5_000))
+          : validSummaryBody('Continue PR #2222 after a bounded repair.'),
+      ));
+    };
+    repairedSummary = await summarizePiSessionHistory({
+      previousSummaryText: firstSummary,
+      messagesToSummarize: secondMessages,
+      model,
+      sessionId: 'oversized-summary-repair',
+      summaryMode: 'hermes_v2',
+      streamFn: oversizedStreamFn,
+    });
+  } finally {
+    console.warn = originalOversizedWarn;
+  }
+  assert.ok(repairedSummary);
+  assert.equal(oversizedSummaryCalls, 2, 'one oversized summary must receive exactly one bounded repair attempt');
+  assert.ok(oversizedWarnings.some((line) => (
+    line.includes('summary_candidate_rejected')
+    && line.includes('summary_too_large')
+    && line.includes('"maximumCharacters":4320')
+    && line.includes('"willRetry":true')
+  )), 'oversized summary diagnostics must record the measured limit and retry decision');
+
   const zeroUserMessages = [{
     role: 'assistant',
     content: [{ type: 'text', text: 'Background assistant state only.' }],
