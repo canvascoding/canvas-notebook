@@ -6,6 +6,8 @@ import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
   Archive,
+  ArrowDown,
+  ArrowUp,
   BellOff,
   Building2,
   CalendarDays,
@@ -22,9 +24,12 @@ import {
   Globe2,
   MailCheck,
   MailWarning,
+  MailOpen,
   Menu,
   MessageSquare,
   Lightbulb,
+  ListTodo,
+  Minus,
   MoreHorizontal,
   Plus,
   RefreshCcw,
@@ -53,6 +58,8 @@ import {
   getTodoFileMetadataTitle,
 } from '@/app/lib/todos/file-link-display';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { useSetTodoChatContext } from '@/app/apps/todos/context/todo-chat-context';
+import { buildTodoPageChatContext } from '@/app/apps/todos/context/todo-route-chat-context';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -80,6 +87,7 @@ import {
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 
 type TodoStatus = 'open' | 'done' | 'archived';
 type TodoPriority = 'low' | 'normal' | 'high';
@@ -88,6 +96,10 @@ type TodoScopeKind = 'user' | 'workspace';
 type TodoListScope = 'personal' | 'workspace' | 'global';
 type StatusFilter = TodoStatus | 'all';
 type ReadStateFilter = 'all' | 'read' | 'unread';
+
+function todoMatchesStatusFilter(todoStatus: TodoStatus, statusFilter: StatusFilter): boolean {
+  return statusFilter === 'all' || todoStatus === statusFilter;
+}
 
 type TodoCategory = {
   id: string;
@@ -218,6 +230,25 @@ const statusFilters: StatusFilter[] = ['open', 'done', 'archived', 'all'];
 const readStateFilters: ReadStateFilter[] = ['all', 'unread', 'read'];
 const priorities: TodoPriority[] = ['low', 'normal', 'high'];
 const emptyTodoFileLinks: TodoFileLink[] = [];
+
+const statusFilterIcons: Record<StatusFilter, typeof Circle> = {
+  all: ListTodo,
+  open: Circle,
+  done: CheckCircle2,
+  archived: Archive,
+};
+
+const readStateFilterIcons: Record<ReadStateFilter, typeof Circle> = {
+  all: MailOpen,
+  unread: MailWarning,
+  read: MailCheck,
+};
+
+const priorityFilterIcons: Record<TodoPriority, typeof Circle> = {
+  low: ArrowDown,
+  normal: Minus,
+  high: ArrowUp,
+};
 
 const emptyForm: TodoFormState = {
   title: '',
@@ -408,7 +439,11 @@ function TodoDetailPanel({
       </div>
 
       {todo.description ? (
-        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{todo.description}</p>
+        <MarkdownRenderer
+          content={todo.description}
+          variant="muted"
+          className="text-sm leading-relaxed text-muted-foreground [&_img]:max-h-48 [&_img]:max-w-full [&_img]:object-contain [&_pre]:max-h-64 [&_table]:text-xs"
+        />
       ) : (
         <p className="text-sm text-muted-foreground">{t('states.noDescription')}</p>
       )}
@@ -643,11 +678,21 @@ export function TodosClient({ title }: { title: string }) {
   const [isFileSearching, setIsFileSearching] = useState(false);
   const [followUpDraft, setFollowUpDraft] = useState<{ todoId: string | null; value: string }>({ todoId: null, value: '' });
   const [isSendingFollowUp, setIsSendingFollowUp] = useState(false);
+  const setTodoChatContext = useSetTodoChatContext();
 
   const selectedTodo = useMemo(
     () => todos.find((todo) => todo.id === selectedTodoId) ?? null,
     [selectedTodoId, todos],
   );
+  const visibleTodos = useMemo(
+    () => todos.filter((todo) => todoMatchesStatusFilter(todo.status, statusFilter)),
+    [statusFilter, todos],
+  );
+
+  useEffect(() => {
+    setTodoChatContext(buildTodoPageChatContext(selectedTodoId));
+    return () => setTodoChatContext(null);
+  }, [selectedTodoId, setTodoChatContext]);
   const editingTodo = useMemo(
     () => todos.find((todo) => todo.id === editingTodoId) ?? null,
     [editingTodoId, todos],
@@ -802,9 +847,6 @@ export function TodosClient({ title }: { title: string }) {
         return data;
       }
 
-      // A direct link may target a completed or archived item while the list is
-      // filtered to open items. Keep that fetched item mounted so the detail
-      // panel cannot disappear when this concurrent list request finishes.
       setTodos((current) => {
         const deepLinkedTodo = todoIdParam
           ? current.find((todo) => todo.id === todoIdParam)
@@ -920,13 +962,8 @@ export function TodosClient({ title }: { title: string }) {
       const updated = await readApiData<TodoItem>(response);
       setTodos((current) => {
         const next = current.map((todo) => (todo.id === updated.id ? updated : todo));
-        if (statusFilter === 'archived' && updated.status !== 'archived') {
-          return next.filter((todo) => todo.id !== updated.id);
-        }
-        if (statusFilter === 'open' && updated.status !== 'open') {
-          return next.filter((todo) => todo.id !== updated.id);
-        }
-        if (statusFilter === 'done' && updated.status !== 'done') {
+        const isDeepLinkedDetail = updated.id === todoIdParam;
+        if (!todoMatchesStatusFilter(updated.status, statusFilter) && !isDeepLinkedDetail) {
           return next.filter((todo) => todo.id !== updated.id);
         }
         return next;
@@ -936,7 +973,7 @@ export function TodosClient({ title }: { title: string }) {
     } finally {
       setIsMutating(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, todoIdParam]);
 
   const handleSelectTodo = useCallback(async (todo: TodoItem) => {
     setSelectedTodoId(todo.id);
@@ -1254,6 +1291,10 @@ export function TodosClient({ title }: { title: string }) {
             if (closeOnSelect) setFilterSheetOpen(false);
           }}
         >
+          {(() => {
+            const Icon = statusFilterIcons[filter];
+            return <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />;
+          })()}
           <span className="min-w-0 truncate">{t(`filters.status.${filter}`)}</span>
         </button>
       ))}
@@ -1277,6 +1318,10 @@ export function TodosClient({ title }: { title: string }) {
             if (closeOnSelect) setFilterSheetOpen(false);
           }}
         >
+          {(() => {
+            const Icon = readStateFilterIcons[filter];
+            return <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />;
+          })()}
           <span className="min-w-0 truncate">{t(`filters.readState.${filter}`)}</span>
         </button>
       ))}
@@ -1293,6 +1338,7 @@ export function TodosClient({ title }: { title: string }) {
         )}
         onClick={() => { setPriorityFilter(''); if (closeOnSelect) setFilterSheetOpen(false); }}
       >
+        <ListTodo className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         <span className="min-w-0 truncate">{t('filters.allPriorities')}</span>
       </button>
       {priorities.map((priority) => (
@@ -1305,6 +1351,10 @@ export function TodosClient({ title }: { title: string }) {
           )}
           onClick={() => { setPriorityFilter(priority); if (closeOnSelect) setFilterSheetOpen(false); }}
         >
+          {(() => {
+            const Icon = priorityFilterIcons[priority];
+            return <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />;
+          })()}
           <span className="min-w-0 truncate">{t(`priority.${priority}`)}</span>
         </button>
       ))}
@@ -1451,8 +1501,8 @@ export function TodosClient({ title }: { title: string }) {
   );
 
   return (
-    <div data-testid="todos-page" className="flex min-h-full w-full min-w-0 flex-col overflow-x-hidden bg-background">
-      <div className="border-b border-border bg-background/95 px-4 py-4 md:px-6">
+    <div data-testid="todos-page" className="flex min-h-full w-full min-w-0 flex-col overflow-x-hidden bg-background md:h-full md:min-h-0 md:overflow-hidden">
+      <div className="flex-shrink-0 border-b border-border bg-background/95 px-4 py-4 md:px-6">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -1484,7 +1534,7 @@ export function TodosClient({ title }: { title: string }) {
         </div>
       </div>
 
-      <div className="mx-auto grid w-full min-w-0 max-w-7xl flex-1 gap-4 p-4 md:grid-cols-[240px_minmax(0,1fr)] md:p-6 xl:grid-cols-[260px_minmax(0,1fr)_360px]">
+      <div className="mx-auto grid w-full min-w-0 max-w-7xl flex-1 gap-4 p-4 md:min-h-0 md:grid-cols-[240px_minmax(0,1fr)] md:overflow-hidden md:p-6 xl:grid-cols-[260px_minmax(0,1fr)_360px]">
         <div className="md:hidden">
           <Button
             variant="outline"
@@ -1500,7 +1550,7 @@ export function TodosClient({ title }: { title: string }) {
           </Button>
         </div>
 
-        <aside className="hidden min-w-0 space-y-4 md:block">
+        <aside className="hidden min-h-0 min-w-0 space-y-4 md:block md:overflow-y-auto md:overscroll-contain">
           <section className="space-y-3">
             <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               {t('sections.workspace')}
@@ -1545,7 +1595,7 @@ export function TodosClient({ title }: { title: string }) {
           </section>
         </aside>
 
-        <section className="min-w-0 space-y-3">
+        <section className="min-h-0 min-w-0 space-y-3 md:overflow-y-auto md:overscroll-contain">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
               <h3 className="truncate text-sm font-semibold">{selectedCategoryName}</h3>
@@ -1560,7 +1610,7 @@ export function TodosClient({ title }: { title: string }) {
               <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                 {t('states.loading')}
               </div>
-            ) : todos.length === 0 ? (
+            ) : visibleTodos.length === 0 ? (
               <div className="rounded-md border border-dashed border-border p-8 text-center">
                 <p className="text-sm font-medium">{t('states.emptyTitle')}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{t('states.emptyDescription')}</p>
@@ -1570,7 +1620,7 @@ export function TodosClient({ title }: { title: string }) {
                 </Button>
               </div>
             ) : (
-              todos.map((todo) => (
+              visibleTodos.map((todo) => (
                 <article
                   key={todo.id}
                   data-testid="todo-list-item"
@@ -1594,16 +1644,29 @@ export function TodosClient({ title }: { title: string }) {
                       {todo.status === 'done' ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <Circle className="h-5 w-5" />}
                     </button>
 
-                    <button type="button" className="min-w-0 flex-1 text-left" onClick={() => void handleSelectTodo(todo)}>
-                      <div className="flex min-w-0 items-center gap-2">
+                    <div
+                      className="min-w-0 flex-1 cursor-pointer text-left"
+                      onClick={(event) => {
+                        const target = event.target;
+                        if (target instanceof Element && target.closest('a, button, input, select, textarea, [role="button"]')) return;
+                        void handleSelectTodo(todo);
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="flex w-full min-w-0 items-center gap-2 text-left"
+                        onClick={() => void handleSelectTodo(todo)}
+                      >
                         {todo.readState === 'unread' && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label={t('labels.unread')} />}
                         <TodoIcon iconKey={resolvedTodoIconKey(todo)} className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <h4 className={cn('truncate text-sm font-semibold', todo.status === 'done' && 'text-muted-foreground line-through')}>
                           {todo.title}
                         </h4>
-                      </div>
+                      </button>
                       {todo.description ? (
-                        <p className="mt-1 line-clamp-2 break-words text-sm text-muted-foreground">{todo.description}</p>
+                        <div className="mt-1 max-h-10 overflow-hidden text-sm text-muted-foreground [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-sm [&_pre]:max-h-10 [&_table]:text-[0.65rem] [&_img]:max-h-8 [&_img]:max-w-full [&_img]:object-contain">
+                          <MarkdownRenderer content={todo.description} variant="muted" />
+                        </div>
                       ) : null}
                       <div className="mt-3 flex flex-wrap items-center gap-1.5">
                         {todo.category && (
@@ -1627,7 +1690,7 @@ export function TodosClient({ title }: { title: string }) {
                           </Badge>
                         )}
                       </div>
-                    </button>
+                    </div>
 
                     <DropdownMenu modal={false}>
                       <DropdownMenuTrigger asChild>
@@ -1672,8 +1735,8 @@ export function TodosClient({ title }: { title: string }) {
           </div>
         </section>
 
-        <aside className="hidden min-w-0 md:block xl:sticky xl:top-4 xl:self-start">
-          <div data-testid="todo-detail" className="min-w-0 overflow-hidden rounded-md border border-border bg-background p-4">
+        <aside className="hidden min-h-0 min-w-0 md:block md:overflow-y-auto md:overscroll-contain">
+          <div data-testid="todo-detail" className="min-w-0 overflow-hidden rounded-md border border-border bg-background p-4 xl:sticky xl:top-0">
             <TodoDetailPanel
               todo={selectedTodo}
               locale={locale}

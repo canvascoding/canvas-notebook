@@ -22,6 +22,37 @@ export type NotebookRequestContext = {
 };
 
 /**
+ * A selected to-do supplied by the client. The client may supply only `todoId`;
+ * the runtime service replaces all remaining fields from the authorized current
+ * database record before the value reaches an agent prompt.
+ */
+export type TodoChatContext = {
+  todoId: string;
+  title?: string;
+  description?: string | null;
+  status?: 'open' | 'done' | 'archived';
+  priority?: 'low' | 'normal' | 'high';
+  categoryName?: string | null;
+  scopeKind?: 'user' | 'workspace';
+  workspace?: {
+    id: string;
+    name: string;
+    type: ChatWorkspaceType;
+  } | null;
+  assignee?: {
+    id: string;
+    name: string | null;
+    email: string | null;
+  } | null;
+  dueAt?: string | null;
+  sourceSessionId?: string | null;
+  fileLinks?: Array<{
+    workspacePath: string;
+    label: string | null;
+  }>;
+};
+
+/**
  * Context fields attached to every chat message sent to the PI runtime.
  * Used by both the temporary HTTP compatibility routes and the WebSocket runtime protocol.
  */
@@ -44,6 +75,7 @@ export interface ChatRequestContext {
   };
   planningMode?: boolean;
   currentPage?: string;
+  todoContext?: TodoChatContext;
   notebookContext?: NotebookRequestContext;
   studioContext?: {
     generationId?: string;

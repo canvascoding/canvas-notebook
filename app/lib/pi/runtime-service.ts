@@ -9,6 +9,7 @@ import type {
   ChatRequestContext,
   NotebookRequestActiveSurface,
   NotebookRequestContext,
+  TodoChatContext,
 } from '@/app/lib/chat/types';
 import {
   getExistingPiRuntimeStatuses,
@@ -37,6 +38,12 @@ import {
 } from '@/app/lib/pi/session-workspace-context';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 import { createOperationTiming } from '@/app/lib/observability/operation-timing';
+import {
+  getTodo,
+  TODO_PRIORITIES,
+  TODO_STATUSES,
+  TODO_WORKSPACE_TYPES,
+} from '@/app/lib/todos/store';
 
 export type UserAgentMessage = Extract<AgentMessage, { role: 'user' }>;
 
@@ -174,6 +181,86 @@ function normalizeNotebookRequestContext(value: unknown): NotebookRequestContext
   return { activeSurface, chatPlacement, openDocuments };
 }
 
+function normalizeTodoContextId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 160 || /[\u0000-\u001f\u007f]/u.test(normalized)) return null;
+  return normalized;
+}
+
+function normalizeTodoStatus(value: unknown): TodoChatContext['status'] {
+  return typeof value === 'string'
+    ? TODO_STATUSES.find((status) => status === value)
+    : undefined;
+}
+
+function normalizeTodoPriority(value: unknown): TodoChatContext['priority'] {
+  return typeof value === 'string'
+    ? TODO_PRIORITIES.find((priority) => priority === value)
+    : undefined;
+}
+
+function normalizeTodoScopeKind(value: unknown): TodoChatContext['scopeKind'] {
+  return value === 'user' || value === 'workspace' ? value : undefined;
+}
+
+function normalizeTodoWorkspaceType(value: unknown): NonNullable<TodoChatContext['workspace']>['type'] | undefined {
+  return typeof value === 'string'
+    ? TODO_WORKSPACE_TYPES.find((type) => type === value)
+    : undefined;
+}
+
+async function normalizeTodoContext(
+  value: unknown,
+  userId: string,
+): Promise<ChatRequestContext['todoContext'] | undefined> {
+  if (!value || typeof value !== 'object') return undefined;
+  const todoId = normalizeTodoContextId((value as Record<string, unknown>).todoId);
+  if (!todoId) return undefined;
+
+  try {
+    // Never use client-supplied to-do metadata. getTodo performs the ownership
+    // and workspace-access checks before returning the current record.
+    const todo = await getTodo(userId, todoId);
+    if (!todo) return undefined;
+
+    return {
+      todoId: todo.id,
+      title: todo.title,
+      description: todo.description,
+      status: normalizeTodoStatus(todo.status),
+      priority: normalizeTodoPriority(todo.priority),
+      categoryName: todo.category?.name ?? null,
+      scopeKind: normalizeTodoScopeKind(todo.scopeKind),
+      workspace: todo.workspace ? {
+        id: todo.workspace.id,
+        name: todo.workspace.name,
+        type: normalizeTodoWorkspaceType(todo.workspace.type) ?? 'personal',
+      } : null,
+      assignee: todo.assignee ? {
+        id: todo.assignee.id,
+        name: todo.assignee.name,
+        email: todo.assignee.email,
+      } : null,
+      dueAt: todo.dueAt?.toISOString() ?? null,
+      sourceSessionId: todo.sourceSessionId,
+      fileLinks: todo.fileLinks.map((fileLink) => ({
+        workspacePath: fileLink.workspacePath,
+        label: fileLink.label,
+      })),
+    };
+  } catch (error) {
+    // A stale, inaccessible, or malformed selection must not block a chat
+    // message. The selected-to-do context is optional and is simply omitted.
+    console.warn('[RuntimeService] Skipping unavailable selected todo context:', {
+      userId,
+      todoId,
+      error: getErrorMessage(error),
+    });
+    return undefined;
+  }
+}
+
 async function normalizeContext(
   context: ChatRequestContext | undefined,
   userId: string,
@@ -203,6 +290,8 @@ async function normalizeContext(
     });
   }
 
+  const todoContext = await normalizeTodoContext(context?.todoContext, userId);
+
   return {
     channelId: typeof context?.channelId === 'string' ? context.channelId : undefined,
     userTimeZone,
@@ -212,6 +301,7 @@ async function normalizeContext(
     workspace,
     planningMode: context?.planningMode === true,
     currentPage: typeof context?.currentPage === 'string' ? context.currentPage : undefined,
+    todoContext,
     notebookContext: normalizeNotebookRequestContext(context?.notebookContext),
     studioContext: context?.studioContext,
     emailContext: context?.emailContext,
@@ -340,6 +430,7 @@ export async function prepareRuntimePrompt(
     contextWindow: status.contextWindow,
     hasStudioContext: !!context.studioContext,
     hasEmailContext: !!context.emailContext,
+    hasTodoContext: !!context.todoContext,
     runtimeCreated,
     workspaceId: context.workspace?.workspaceId,
     workspaceType: context.workspace?.workspaceType,

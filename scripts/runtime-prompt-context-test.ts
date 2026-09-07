@@ -19,6 +19,7 @@ function createTarget() {
     setActiveFileContext: (value) => { calls.activeFilePath = value; },
     setPlanningMode: (value) => { calls.planningMode = value; },
     setPageContext: (value) => { calls.currentPage = value; },
+    setTodoContext: (value) => { calls.todoContext = value; },
     setNotebookContext: (value) => { calls.notebookContext = value; },
     setStudioContext: (value) => { calls.studioContext = value; },
     setEmailContext: (value) => { calls.emailContext = value; },
@@ -51,6 +52,7 @@ applyPiRuntimePromptContext(target, {
   activeFilePath: '/data/workspaces/demo/file.md',
   planningMode: true,
   currentPage: '/emails',
+  todoContext: { todoId: 'todo-1' },
   notebookContext: {
     activeSurface: { kind: 'document', path: 'notes/active.md' },
     chatPlacement: 'side',
@@ -81,6 +83,7 @@ assert.equal(calls.currentTime, '2026-06-26T12:00:00.000Z');
 assert.equal(calls.activeFilePath, '/data/workspaces/demo/file.md');
 assert.equal(calls.planningMode, true);
 assert.equal(calls.currentPage, '/emails');
+assert.deepEqual(calls.todoContext, { todoId: 'todo-1' });
 assert.deepEqual(calls.notebookContext, {
   activeSurface: { kind: 'document', path: 'notes/active.md' },
   chatPlacement: 'side',
@@ -111,6 +114,7 @@ assert.equal(emptyCalls.channelId, undefined);
 assert.equal(emptyCalls.activeFilePath, null);
 assert.equal(emptyCalls.planningMode, false);
 assert.equal(emptyCalls.currentPage, undefined);
+assert.equal(emptyCalls.todoContext, undefined);
 assert.equal(emptyCalls.notebookContext, undefined);
 assert.equal(emptyCalls.emailContext, undefined);
 assert.equal(emptyCalls.studioContext, undefined);
