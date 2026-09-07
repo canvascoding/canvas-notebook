@@ -1,7 +1,7 @@
 'use client';
 
 import { createRef, Fragment, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Copy, ExternalLink, Lock } from 'lucide-react';
+import { Check, ChevronDown, Copy, ExternalLink, GitFork, Loader2, Lock } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
@@ -23,6 +23,7 @@ import { buildToolBatchProjection } from '@/app/lib/chat/run-collapse';
 import { rewriteRelativeStudioImageMarkdown } from '@/app/lib/chat/studio-image-markdown';
 import type { AttachmentOpenHandler, ChatMessage } from '@/app/lib/chat/types';
 import { contentToString, isAbortedAssistantPiMessage } from '@/app/lib/chat/message-content';
+import { getChatMessageSequence } from '@/app/lib/chat/message-metadata';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import type { ToolVerbosity } from '@/app/store/tool-verbosity-store';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
@@ -198,21 +199,53 @@ async function writeRichMessageToClipboard(text: string, contentElement: HTMLEle
   await writeMessageTextToClipboard(text);
 }
 
+function isForkableAssistantChatMessage(message: ChatMessage): boolean {
+  if (
+    message.role !== 'assistant'
+    || message.status === 'sending'
+    || message.status === 'error'
+    || getChatMessageSequence(message) === null
+    || isAbortedAssistantPiMessage(message.piMessage)
+  ) {
+    return false;
+  }
+
+  const piMessage = message.piMessage as { content?: unknown; stopReason?: unknown } | undefined;
+  if (piMessage?.stopReason === 'aborted' || piMessage?.stopReason === 'error') return false;
+  if (!Array.isArray(piMessage?.content)) return true;
+
+  return !piMessage.content.some((part) => (
+    part !== null
+    && typeof part === 'object'
+    && 'type' in part
+    && ((part as { type?: unknown }).type === 'toolCall' || (part as { type?: unknown }).type === 'tool_use')
+  ));
+}
+
 function MessageActionBar({
   align,
   text,
   markdownText,
   isRichCopy,
   richContentRef,
+  onFork,
+  forkDisabled,
+  forkDisabledLabel,
+  forkSequence,
 }: {
   align: 'start' | 'end';
   text: string;
   markdownText?: string;
   isRichCopy: boolean;
   richContentRef?: RefObject<HTMLDivElement | null>;
+  onFork?: () => Promise<void>;
+  forkDisabled?: boolean;
+  forkDisabledLabel?: string;
+  forkSequence?: number | null;
 }) {
   const t = useTranslations('chat');
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [isForking, setIsForking] = useState(false);
   const resetTimerRef = useRef<number | null>(null);
   const canCopy = text.trim().length > 0;
 
@@ -265,6 +298,23 @@ function MessageActionBar({
       ? t('copyFormatted')
       : t('copy');
   const CopyIcon = copyState === 'copied' ? Check : Copy;
+  const forkLabel = isForking
+    ? t('forkingChat')
+    : forkDisabled && forkDisabledLabel
+      ? forkDisabledLabel
+      : t('forkChatFromHere');
+
+  const handleFork = useCallback(async () => {
+    if (!onFork || forkDisabled || isForking) return;
+    setIsForking(true);
+    try {
+      await onFork();
+    } catch {
+      // The owning chat surface reports a contextual error.
+    } finally {
+      setIsForking(false);
+    }
+  }, [forkDisabled, isForking, onFork]);
 
   return (
     <div
@@ -272,7 +322,7 @@ function MessageActionBar({
       className={cn(
         'mt-1 flex min-h-7 items-center gap-1 px-1 opacity-100 transition-opacity duration-150 sm:opacity-0 sm:group-hover/message:opacity-100 sm:focus-within:opacity-100',
         align === 'end' ? 'justify-end' : 'justify-start',
-        copyState !== 'idle' && 'sm:opacity-100',
+        (copyState !== 'idle' || isForking) && 'sm:opacity-100',
       )}
     >
       <Tooltip>
@@ -320,6 +370,28 @@ function MessageActionBar({
           </DropdownMenuContent>
         </DropdownMenu>
       ) : null}
+      {onFork ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="border border-transparent bg-background/70 text-muted-foreground shadow-none hover:border-border/70 hover:bg-accent hover:text-foreground"
+              onClick={() => void handleFork()}
+              disabled={forkDisabled || isForking}
+              aria-label={forkLabel}
+              title={forkLabel}
+              data-testid={forkSequence ? `chat-message-fork-${forkSequence}` : 'chat-message-fork'}
+            >
+              {isForking ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <GitFork data-icon="inline-start" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={4}>
+            {forkLabel}
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
     </div>
   );
 }
@@ -336,6 +408,9 @@ export function ChatMessageList({
   onToggleRunDisclosure,
   onMediaClick,
   onAttachmentOpen,
+  onForkAssistantMessage,
+  forkDisabled,
+  forkDisabledLabel,
 }: {
   messages: ChatMessage[];
   assistantName: string;
@@ -348,6 +423,9 @@ export function ChatMessageList({
   onToggleRunDisclosure: (runKey: string) => void;
   onMediaClick?: (mediaUrl: string) => void;
   onAttachmentOpen: AttachmentOpenHandler;
+  onForkAssistantMessage?: (message: ChatMessage) => Promise<void>;
+  forkDisabled?: boolean;
+  forkDisabledLabel?: string;
 }) {
   const t = useTranslations('chat');
   const skillReferenceCatalog = useSkillReferenceCatalog();
@@ -481,6 +559,11 @@ export function ChatMessageList({
           : bodyContent;
         const copyContent = isAssistant ? displayBodyContent : bodyContent;
         const showMessageActions = (isUser || isAssistant) && !isStreamingAssistant && copyContent.trim().length > 0;
+        const forkSequence = getChatMessageSequence(message);
+        const canForkAssistant = Boolean(
+          onForkAssistantMessage
+          && isForkableAssistantChatMessage(message),
+        );
         const richContentRef = isAssistant ? createRef<HTMLDivElement>() : undefined;
         const renderedMessage = (
           <div
@@ -580,6 +663,10 @@ export function ChatMessageList({
                 markdownText={isAssistant ? bodyContent : undefined}
                 isRichCopy={isAssistant}
                 richContentRef={richContentRef}
+                onFork={canForkAssistant ? () => onForkAssistantMessage!(message) : undefined}
+                forkDisabled={forkDisabled}
+                forkDisabledLabel={forkDisabledLabel}
+                forkSequence={forkSequence}
               />
             ) : null}
           </div>

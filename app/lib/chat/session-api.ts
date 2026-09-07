@@ -67,6 +67,28 @@ export type PatchChatSessionsResponse = {
   resolution?: AiEffectiveRuntimeResolution;
 };
 
+export type ForkChatSessionPayload = {
+  agentId: string;
+  workspaceId: string;
+  throughSequence: number;
+  clientRequestId: string;
+};
+
+export type ForkChatSessionResponse = {
+  success: boolean;
+  created?: boolean;
+  copiedMessageCount?: number;
+  throughSequence?: number;
+  error?: string;
+  code?: string;
+  session?: Partial<AISession> & {
+    id?: number;
+    sessionId?: string;
+    title?: string | null;
+    model?: string;
+  };
+};
+
 export async function fetchChatSessions(agentId = 'all', options: { workspaceId?: string | null } = {}): Promise<AISession[]> {
   const params = new URLSearchParams({ agentId });
   if (options.workspaceId) {
@@ -114,6 +136,26 @@ export async function createChatSession(payload: CreateChatSessionPayload): Prom
       ...(data ?? {}),
       success: false,
       error: data?.error || `Failed to create session (HTTP ${res.status})`,
+    };
+  }
+  return data;
+}
+
+export async function forkChatSession(
+  sourceSessionId: string,
+  payload: ForkChatSessionPayload,
+): Promise<ForkChatSessionResponse> {
+  const response = await fetch(`/api/sessions/${encodeURIComponent(sourceSessionId)}/fork`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await safeFetchJson<ForkChatSessionResponse>(response);
+  if (!response.ok || !data?.success || !data.session?.sessionId) {
+    return {
+      ...(data ?? {}),
+      success: false,
+      error: data?.error || `Failed to fork session (HTTP ${response.status})`,
     };
   }
   return data;

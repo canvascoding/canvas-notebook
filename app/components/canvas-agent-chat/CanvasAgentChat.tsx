@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
 import {
   Loader2,
   ArrowDown,
@@ -29,6 +30,7 @@ import {
 } from '@/app/lib/chat/session-cache';
 import {
   deleteChatSession as deleteChatSessionRequest,
+  forkChatSession,
   patchChatSessions,
 } from '@/app/lib/chat/session-api';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
@@ -50,6 +52,7 @@ import {
   writeCanvasChatActiveSessionStorage,
 } from '@/app/lib/chat/constants';
 import { removeComposerDraft } from '@/app/lib/chat/draft-storage';
+import { getChatMessageSequence } from '@/app/lib/chat/message-metadata';
 import { getAgentProfileDisplayName } from '@/app/lib/chat/agent-display';
 import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
 import { useChatAgentConfig } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
@@ -1164,6 +1167,71 @@ export default function CanvasAgentChat({
   }, [activeSessionAgentId, onSessionContextChange, sessionId]);
   useEffect(() => () => onSessionContextChange?.(null), [onSessionContextChange]);
   const isSessionTitleGenerating = activeSession?.titleGenerationState === 'pending' || activeSession?.titleGenerationState === 'generating';
+  const forkDisabledLabel = isSessionTitleGenerating
+    ? t('forkUnavailableTitleGenerating')
+    : isRuntimeBusy
+      ? t('forkUnavailableWhileRunning')
+      : undefined;
+
+  const forkSessionFromMessage = useCallback(async (message: ChatMessage) => {
+    const sourceSession = activeSession;
+    const sourceSessionId = sessionIdRef.current;
+    const throughSequence = getChatMessageSequence(message);
+    const workspaceId = sourceSession?.workspace?.workspaceId
+      ?? sessionWorkspaceIdRef.current
+      ?? activeWorkspaceId;
+    if (!sourceSession || sourceSession.engine !== 'pi' || !sourceSessionId || !workspaceId || throughSequence === null) {
+      toast.error(t('forkFailed'));
+      return;
+    }
+
+    try {
+      const result = await forkChatSession(sourceSessionId, {
+        agentId: sourceSession.agentId || selectedAgentId,
+        workspaceId,
+        throughSequence,
+        clientRequestId: crypto.randomUUID(),
+      });
+      const forked = result.session;
+      if (!result.success || !forked?.sessionId) {
+        throw new Error(result.error || 'Fork request failed.');
+      }
+
+      const forkedSession: AISession = {
+        id: typeof forked.id === 'number' ? forked.id : Date.now(),
+        sessionId: forked.sessionId,
+        title: forked.title ?? sourceSession.title,
+        titleGenerationState: forked.titleGenerationState ?? 'manual',
+        agentId: forked.agentId || sourceSession.agentId || selectedAgentId,
+        model: forked.model || sourceSession.model,
+        provider: forked.provider ?? sourceSession.provider ?? null,
+        thinkingLevel: forked.thinkingLevel ?? sourceSession.thinkingLevel ?? null,
+        createdAt: forked.createdAt || new Date().toISOString(),
+        engine: 'pi',
+        lastMessageAt: forked.lastMessageAt ?? null,
+        lastViewedAt: forked.lastViewedAt ?? null,
+        runtimePhase: null,
+        runtimeActiveToolName: null,
+        hasUnread: false,
+        workspace: forked.workspace ?? sourceSession.workspace ?? null,
+        creator: forked.creator ?? sourceSession.creator,
+      };
+
+      removeComposerDraft(forkedSession.sessionId);
+      setHistory((current) => [
+        forkedSession,
+        ...current.filter((candidate) => candidate.sessionId !== forkedSession.sessionId),
+      ]);
+      await loadSession(forkedSession);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+      toast.success(t('forkCreated', {
+        title: getSessionDisplayTitle(forkedSession.title, t('newChatTitle')),
+      }));
+    } catch (error) {
+      console.error('[CanvasAgentChat] Failed to fork session', error);
+      toast.error(t('forkFailed'));
+    }
+  }, [activeSession, activeWorkspaceId, loadSession, selectedAgentId, setHistory, t, textareaRef]);
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
   const activeAgentDisplayName = getAgentProfileDisplayName(activeSessionAgentId, activeAgentProfile?.name);
   const chatAgentOptions = useMemo<AgentProfile[]>(() => (
@@ -1404,6 +1472,11 @@ export default function CanvasAgentChat({
               onToggleRunDisclosure={toggleRunDisclosure}
               onMediaClick={handleMediaPreviewClick}
               onAttachmentOpen={handleAttachmentPreviewOpen}
+              onForkAssistantMessage={activeSession?.engine === 'pi' && activeWorkspaceId
+                ? forkSessionFromMessage
+                : undefined}
+              forkDisabled={Boolean(forkDisabledLabel)}
+              forkDisabledLabel={forkDisabledLabel}
             />
             <ChatRuntimeNotice status={runtimeStatus} />
             <div ref={messagesEndRef} />
