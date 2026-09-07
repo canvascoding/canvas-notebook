@@ -2967,6 +2967,21 @@
         "workspace": "Workspace",
         "organization": "Organization"
       },
+      "workspaceSelector": {
+        "title": "Workspace memory owner",
+        "description": "Every collection below belongs to the selected workspace. Switching here does not change the workspace you are using elsewhere in Canvas.",
+        "loading": "Loading workspaces…",
+        "empty": "No readable workspace is available.",
+        "label": "Selected workspace",
+        "choose": "Choose a workspace",
+        "selectedHint": "Only memories assigned to this workspace are shown below.",
+        "types": {
+          "personal": "Personal",
+          "organization": "Organization",
+          "team": "Team",
+          "project": "Project"
+        }
+      },
       "categories": {
         "title": "Memory categories",
         "description": "These cards are categories, not projects. Each category groups individual memory entries that remain available over time.",

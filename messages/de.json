@@ -2966,6 +2966,21 @@
         "workspace": "Workspace",
         "organization": "Organisation"
       },
+      "workspaceSelector": {
+        "title": "Workspace für Memories",
+        "description": "Alle Bereiche darunter gehören zum ausgewählten Workspace. Der Wechsel hier ändert nicht den Workspace, den du an anderer Stelle in Canvas verwendest.",
+        "loading": "Workspaces werden geladen …",
+        "empty": "Es ist kein lesbarer Workspace verfügbar.",
+        "label": "Ausgewählter Workspace",
+        "choose": "Workspace auswählen",
+        "selectedHint": "Darunter werden nur Memories dieses Workspaces angezeigt.",
+        "types": {
+          "personal": "Persönlich",
+          "organization": "Organisation",
+          "team": "Team",
+          "project": "Projekt"
+        }
+      },
       "categories": {
         "title": "Memory-Bereiche",
         "description": "Diese Karten sind Kategorien, keine Projekte. Jede Kategorie bündelt einzelne, dauerhaft gespeicherte Memory-Einträge.",

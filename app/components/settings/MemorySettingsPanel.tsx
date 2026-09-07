@@ -53,7 +53,10 @@ type Collection = {
   status: 'active' | 'archived';
   updatedAt: number;
   entryCount: number;
+  publishedCount: number;
   pendingCount: number;
+  archivedCount: number;
+  totalCount: number;
 };
 
 type MemorySettings = {
@@ -134,8 +137,11 @@ export function MemorySettingsPanel() {
   const searchParams = useSearchParams();
   const t = useTranslations('settings.memoryPanel');
   const locale: MemoryDisplayLocale = useLocale() === 'en' ? 'en' : 'de';
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const workspacesLoading = useWorkspaceStore((state) => state.isLoading);
+  const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
-  const workspaceId = searchParams.get('workspaceId') || activeWorkspace?.id || null;
+  const [workspaceId, setWorkspaceId] = useState<string | null>(() => searchParams.get('workspaceId') || activeWorkspace?.id || null);
   const [agentId, setAgentId] = useState<string | null>(() => searchParams.get('agentId'));
   const [scope, setScope] = useState<MemoryScope>(() => scopeFromParam(searchParams.get('scope')));
   const [agentOwners, setAgentOwners] = useState<AgentMemoryOwner[]>([]);
@@ -174,13 +180,23 @@ export function MemorySettingsPanel() {
     [settings],
   );
   const selectedAgentOwner = useMemo(() => agentOwners.find((owner) => owner.agentId === agentId) ?? null, [agentId, agentOwners]);
+  const accessibleWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => workspace.status === 'active' && workspace.permissions.canRead),
+    [workspaces],
+  );
+  const selectedWorkspace = useMemo(
+    () => accessibleWorkspaces.find((workspace) => workspace.id === workspaceId) ?? null,
+    [accessibleWorkspaces, workspaceId],
+  );
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
     [collections, selectedCollectionId],
   );
   const activeTransferTargets = useMemo(() => agentOwners.filter((owner) => owner.status === 'active' && owner.agentId !== agentId), [agentId, agentOwners]);
   const agentMemoryReadOnly = scope === 'agent' && selectedAgentOwner?.status === 'deleted';
-  const canUseScope = scope === 'agent' ? Boolean(agentId && selectedAgentOwner) : scope !== 'workspace' || Boolean(workspaceId);
+  const canUseScope = scope === 'agent'
+    ? Boolean(agentId && selectedAgentOwner)
+    : scope !== 'workspace' || Boolean(workspaceId && selectedWorkspace);
   const reviewerActive = Boolean(settings?.automaticMemoryEnabled && settings.memoryReviewWorkerAvailable);
   const query = useMemo(() => queryForScope(scope, agentId, workspaceId), [agentId, scope, workspaceId]);
   const visibleEntries = useMemo(() => {
@@ -211,6 +227,36 @@ export function MemorySettingsPanel() {
     url.searchParams.set('agentId', nextAgentId);
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   }, []);
+
+  const selectWorkspace = useCallback((nextWorkspaceId: string) => {
+    setWorkspaceId(nextWorkspaceId);
+    setSelectedCollectionId(null);
+    setEntries([]);
+    setShowArchived(false);
+    setEntryQuery('');
+    setHistoryForEntryId(null);
+    setEntryHistory([]);
+    setEditingId(null);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', 'memory');
+    url.searchParams.set('scope', 'workspace');
+    url.searchParams.set('workspaceId', nextWorkspaceId);
+    url.searchParams.delete('collectionId');
+    url.searchParams.delete('entryId');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  useEffect(() => {
+    void hydrateWorkspaces();
+  }, [hydrateWorkspaces]);
+
+  useEffect(() => {
+    if (scope !== 'workspace' || workspacesLoading || selectedWorkspace) return;
+    const fallback = accessibleWorkspaces.find((workspace) => workspace.id === activeWorkspace?.id) ?? accessibleWorkspaces[0];
+    if (!fallback) return;
+    const timer = window.setTimeout(() => selectWorkspace(fallback.id), 0);
+    return () => window.clearTimeout(timer);
+  }, [accessibleWorkspaces, activeWorkspace?.id, scope, selectWorkspace, selectedWorkspace, workspacesLoading]);
 
   const loadAgentOwners = useCallback(async () => {
     try {
@@ -568,7 +614,7 @@ export function MemorySettingsPanel() {
         <div className="space-y-5">
           <div className="flex flex-wrap gap-2" role="tablist" aria-label={t('scopeAriaLabel')}>
             {MEMORY_SCOPES.map((item) => (
-              <Button key={item} variant={scope === item ? 'default' : 'outline'} size="sm" onClick={() => setScopeWithUrl(item)} disabled={item === 'workspace' && !workspaceId}>{t(`scopes.${item}`)}</Button>
+              <Button key={item} variant={scope === item ? 'default' : 'outline'} size="sm" onClick={() => setScopeWithUrl(item)} disabled={item === 'workspace' && !workspacesLoading && accessibleWorkspaces.length === 0}>{t(`scopes.${item}`)}</Button>
             ))}
           </div>
 
@@ -611,6 +657,52 @@ export function MemorySettingsPanel() {
                         {selectedAgentOwner.collectionCount > 0 && activeTransferTargets.length > 0 ? <div className="mt-4 flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-end"><div className="min-w-0 flex-1 space-y-2"><Label htmlFor="agent-memory-transfer-target">Transfer all memory to</Label><select id="agent-memory-transfer-target" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={transferTargetAgentId} onChange={(event) => setTransferTargetAgentId(event.target.value)}><option value="">Choose a target agent</option>{activeTransferTargets.map((owner) => <option key={owner.agentId} value={owner.agentId}>{owner.name} · {owner.agentId}</option>)}</select></div><Button variant="outline" onClick={() => void transferSelectedAgentMemory()} disabled={!transferTargetAgentId || ownerOperation !== null}>{ownerOperation === 'transfer' ? <Loader2 className="mr-2 size-4 animate-spin" /> : <ArrowRightLeft className="mr-2 size-4" />}Transfer</Button></div> : null}
                       </div>
                     ) : <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">Choose a valid agent before loading agent memory.</p>}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {scope === 'workspace' ? (
+            <Card className="border-primary/25" data-testid="workspace-memory-owner-card">
+              <CardHeader className="space-y-1">
+                <CardTitle className="text-base">{t('workspaceSelector.title')}</CardTitle>
+                <CardDescription>{t('workspaceSelector.description')}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {workspacesLoading && accessibleWorkspaces.length === 0 ? (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t('workspaceSelector.loading')}</p>
+                ) : accessibleWorkspaces.length === 0 ? (
+                  <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{t('workspaceSelector.empty')}</p>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="workspace-memory-owner">{t('workspaceSelector.label')}</Label>
+                      <select
+                        id="workspace-memory-owner"
+                        data-testid="workspace-memory-owner-select"
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        value={workspaceId ?? ''}
+                        onChange={(event) => selectWorkspace(event.target.value)}
+                      >
+                        <option value="" disabled>{t('workspaceSelector.choose')}</option>
+                        {accessibleWorkspaces.map((workspace) => (
+                          <option key={workspace.id} value={workspace.id}>
+                            {workspace.name} · {t(`workspaceSelector.types.${workspace.type}`)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {selectedWorkspace ? (
+                      <div className="rounded-lg border bg-muted/20 p-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium">{selectedWorkspace.name}</p>
+                          <Badge variant="secondary">{t(`workspaceSelector.types.${selectedWorkspace.type}`)}</Badge>
+                        </div>
+                        {selectedWorkspace.description ? <p className="mt-1 text-sm text-muted-foreground">{selectedWorkspace.description}</p> : null}
+                        <p className="mt-2 text-xs text-muted-foreground">{t('workspaceSelector.selectedHint')}</p>
+                      </div>
+                    ) : null}
                   </>
                 )}
               </CardContent>
