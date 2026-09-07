@@ -3014,6 +3014,15 @@
           "archived": "Archived"
         },
         "priority": "Priority {priority}",
+        "priorityLabel": "Priority (0–100)",
+        "priorityWithBand": "Priority {priority} · {band}",
+        "priorityBands": {
+          "low": "Low",
+          "background": "Background",
+          "normal": "Normal",
+          "important": "Important",
+          "essential": "Essential"
+        },
         "publish": "Publish",
         "restore": "Restore",
         "save": "Save",
@@ -3033,6 +3042,7 @@
         "description": "Keep it atomic and useful across future conversations. Secrets, session logs, and temporary tasks are rejected.",
         "sharedManagerDescription": "You can save this shared memory directly. It becomes visible to readers immediately.",
         "sharedContributorDescription": "Your suggestion stays pending until a workspace or organization manager approves it.",
+        "priorityHint": "{band}. Higher values are selected earlier when the memory prompt budget is limited; 50 is the neutral midpoint and 100 is reserved for essential constraints.",
         "placeholder": "e.g. Prefers short, decisive weekly updates.",
         "deletedAgentReadOnly": "Deleted-agent memory is read-only until transferred.",
         "suggest": "Suggest memory",

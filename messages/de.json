@@ -3013,6 +3013,15 @@
           "archived": "Archiviert"
         },
         "priority": "Priorität {priority}",
+        "priorityLabel": "Priorität (0–100)",
+        "priorityWithBand": "Priorität {priority} · {band}",
+        "priorityBands": {
+          "low": "Niedrig",
+          "background": "Hintergrund",
+          "normal": "Normal",
+          "important": "Wichtig",
+          "essential": "Essenziell"
+        },
         "publish": "Veröffentlichen",
         "restore": "Wiederherstellen",
         "save": "Speichern",
@@ -3032,6 +3041,7 @@
         "description": "Halte ihn einzeln und für zukünftige Gespräche nützlich. Secrets, Sitzungsprotokolle und vorübergehende Aufgaben werden abgelehnt.",
         "sharedManagerDescription": "Du kannst dieses geteilte Memory direkt speichern. Es wird sofort für Leser sichtbar.",
         "sharedContributorDescription": "Dein Vorschlag bleibt ausstehend, bis ihn eine Workspace- oder Organisationsverwaltung freigibt.",
+        "priorityHint": "{band}. Höhere Werte werden bei knappem Memory-Prompt-Budget früher ausgewählt; 50 ist die neutrale Mitte und 100 bleibt essenziellen Vorgaben vorbehalten.",
         "placeholder": "z. B. Bevorzugt kurze, eindeutige Wochen-Updates.",
         "deletedAgentReadOnly": "Memories gelöschter Agents bleiben schreibgeschützt, bis sie übertragen werden.",
         "suggest": "Memory vorschlagen",

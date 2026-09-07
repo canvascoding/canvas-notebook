@@ -115,6 +115,9 @@ async function main(): Promise<void> {
     assert.equal(duplicate.changed, false);
     const updated = await updateMemory({ ...scope, id: added.entry!.id, content: 'Prefers concise answers with file links.' });
     assert.equal(updated.entry?.content, 'Prefers concise answers with file links.');
+    const reprioritized = await updateMemory({ ...scope, id: added.entry!.id, content: 'Prefers concise answers with file links.', priority: 82 });
+    assert.equal(reprioritized.entry?.priority, 82);
+    await assert.rejects(() => updateMemory({ ...scope, id: added.entry!.id, content: 'Invalid priority.', priority: 101 }), /0 to 100/);
     const archived = await deleteMemory({ ...scope, id: added.entry!.id });
     assert.equal(archived.archivedEntry?.id, added.entry!.id);
     assert.deepEqual((await readMemory(scope)).entries, []);
@@ -174,13 +177,14 @@ async function main(): Promise<void> {
       target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', content: 'Managers may publish manual entries directly.', publishIfAuthorized: true,
     });
     assert.equal(managerCreatedWorkspace.entry?.status, 'published');
+    assert.equal(managerCreatedWorkspace.entry?.priority, 70);
     const publishedWorkspace = await publishMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     assert.equal(publishedWorkspace.entry?.status, 'published');
     assert.equal((await listMemoryApprovalAttention({ userId: 'user-1', workspaces: [managedWorkspace] })).some((item) => item.target.entryId === workspace.entry!.id), false);
     await deleteMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     const restoredWorkspace = await restoreMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     assert.equal(restoredWorkspace.entry?.status, 'published');
-    assert.match((await readMemory({ target: 'workspace', userId: 'user-reader', workspaceId: 'workspace-1' })).entries[0]?.content ?? '', /approved brand voice/);
+    assert.equal((await readMemory({ target: 'workspace', userId: 'user-reader', workspaceId: 'workspace-1' })).entries.some((entry) => /approved brand voice/.test(entry.content)), true);
     await assert.rejects(
       () => addMemory({ target: 'workspace', userId: 'user-reader', workspaceId: 'workspace-1', content: 'Readers cannot suggest memory.' }),
       /permission to suggest workspace memory/,

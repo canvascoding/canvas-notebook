@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_MEMORY_PROMPT_MAX_TOKENS,
+  DEFAULT_MANUAL_MEMORY_PRIORITY,
+  DEFAULT_MEMORY_PRIORITY,
   MEMORY_MAX_ENTRY_CHARS,
   MEMORY_PENDING_ARCHIVE_AFTER_MS,
   MEMORY_RECOMMENDED_ENTRY_CHARS,
@@ -14,6 +16,8 @@ import {
   canPublishMemorySensitivity,
   canTransitionMemoryReviewJob,
   initialMemoryEntryStatus,
+  isMemoryPriority,
+  memoryPriorityBand,
   resolveMemoryPromptTokenBudget,
   resolveMemoryScopePermissions,
 } from '../app/lib/memory/contract';
@@ -33,6 +37,16 @@ function main() {
   assert.equal(MEMORY_RECOMMENDED_ENTRY_CHARS, 400);
   assert.equal(MEMORY_MAX_ENTRY_CHARS, 800);
   assert.equal(DEFAULT_MEMORY_PROMPT_MAX_TOKENS, 2_000);
+  assert.equal(DEFAULT_MEMORY_PRIORITY, 50);
+  assert.equal(DEFAULT_MANUAL_MEMORY_PRIORITY, 70);
+  assert.equal(memoryPriorityBand(0), 'low');
+  assert.equal(memoryPriorityBand(25), 'background');
+  assert.equal(memoryPriorityBand(50), 'normal');
+  assert.equal(memoryPriorityBand(70), 'important');
+  assert.equal(memoryPriorityBand(100), 'essential');
+  assert.equal(isMemoryPriority(100), true);
+  assert.equal(isMemoryPriority(101), false);
+  assert.equal(isMemoryPriority(50.5), false);
 
   assert.equal(canonicalMemoryCategory('organization', 'service-provider'), 'profile');
   assert.equal(canonicalMemoryCategory('organization', 'brand-structure'), 'brand');

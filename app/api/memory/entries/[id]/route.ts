@@ -5,6 +5,7 @@ import { deleteMemory, publishMemory, readMemoryEntryHistory, restoreMemory, upd
 import { resolveAgentMemoryOwnerForUser } from '@/app/lib/memory/service';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
+import { isMemoryPriority } from '@/app/lib/memory/contract';
 
 function normalizedString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -66,11 +67,13 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   try {
     const { id } = await context.params;
     const scope = await scopeFromPayload(request, session.user.id, payload, { allowDeletedAgent: false });
+    const priority = payload.priority === undefined ? undefined : Number(payload.priority);
+    if (priority !== undefined && !isMemoryPriority(priority)) throw new Error('priority must be an integer from 0 to 100.');
     const result = payload.action === 'publish'
       ? await publishMemory({ ...scope, id })
       : payload.action === 'restore'
         ? await restoreMemory({ ...scope, id })
-        : await updateMemory({ ...scope, id, content: String(payload.content ?? '') });
+        : await updateMemory({ ...scope, id, content: String(payload.content ?? ''), priority });
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to update memory.';

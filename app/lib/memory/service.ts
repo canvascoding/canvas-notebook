@@ -7,6 +7,9 @@ import {
   MEMORY_MAX_ENTRY_CHARS,
   MEMORY_PENDING_ARCHIVE_AFTER_MS,
   MEMORY_REVIEW_MAX_ATTEMPTS,
+  DEFAULT_MANUAL_MEMORY_PRIORITY,
+  DEFAULT_MEMORY_PRIORITY,
+  isMemoryPriority,
   type MemoryEntryStatus,
   type MemoryScopePermissions,
   type MemoryScopeType,
@@ -834,7 +837,7 @@ export async function saveOnboardingUserMemories(params: {
 }
 
 export async function addMemory(
-  scope: MemoryServiceScope & { content: string; publishIfAuthorized?: boolean },
+  scope: MemoryServiceScope & { content: string; priority?: number; publishIfAuthorized?: boolean },
 ): Promise<MemoryMutationResult> {
   const permissions = await assertMemoryScopeAccess(scope, 'suggest');
   const content = assertMemoryContent(scope.content);
@@ -856,8 +859,10 @@ export async function addMemory(
     const now = Date.now();
     const sharedScope = scope.target === 'workspace' || scope.target === 'organization';
     const publishDirectly = sharedScope && scope.publishIfAuthorized === true && permissions.canPublish;
+    const priority = scope.priority ?? (scope.publishIfAuthorized ? DEFAULT_MANUAL_MEMORY_PRIORITY : DEFAULT_MEMORY_PRIORITY);
+    if (!isMemoryPriority(priority)) throw new Error('Memory priority must be an integer from 0 to 100.');
     const entry: MemoryEntry = {
-      id: randomUUID(), content, status: publishDirectly ? 'published' : initialMemoryEntryStatus(scope.target), priority: 50,
+      id: randomUUID(), content, status: publishDirectly ? 'published' : initialMemoryEntryStatus(scope.target), priority,
       pinned: false, collectionId, updatedAt: now, lastUsedAt: null,
     };
     await connection.run(`
@@ -876,6 +881,7 @@ export async function addMemory(
       entryId: entry.id,
       collectionId,
       status: entry.status,
+      priority: entry.priority,
       ...memoryContentLogFields(content),
     });
     const result = await readMemory(scope);
@@ -957,17 +963,20 @@ export async function deletePersonalMemory(userId: string): Promise<{ collection
   } finally { await connection.close(); }
 }
 
-export async function updateMemory(scope: MemoryServiceScope & { id: string; content: string }): Promise<MemoryMutationResult> {
+export async function updateMemory(scope: MemoryServiceScope & { id: string; content: string; priority?: number }): Promise<MemoryMutationResult> {
   await assertMemoryScopeAccess(scope, 'update');
   const id = scope.id.trim();
   const content = assertMemoryContent(scope.content);
+  const priority = scope.priority;
+  if (priority !== undefined && !isMemoryPriority(priority)) throw new Error('Memory priority must be an integer from 0 to 100.');
   const connection = await openDb();
   try {
     const existing = await findEntryInScope(connection, scope, id);
     if (!existing?.id) throw new Error(`Memory entry "${id}" was not found.`);
     if (existing.pinned === true || existing.pinned === 1) throw new Error('Pinned memory entries cannot be changed automatically.');
     const now = Date.now();
-    await connection.run(`UPDATE memory_entries SET content = ?, normalized_content_hash = ?, estimated_tokens = ?, revision = revision + 1, updated_at = ? WHERE id = ?`, [content, contentHash(content), Math.max(1, Math.ceil(content.length / 4)), now, id]);
+    const nextPriority = priority ?? Number(existing.priority);
+    await connection.run(`UPDATE memory_entries SET content = ?, normalized_content_hash = ?, priority = ?, estimated_tokens = ?, revision = revision + 1, updated_at = ? WHERE id = ?`, [content, contentHash(content), nextPriority, Math.max(1, Math.ceil(content.length / 4)), now, id]);
     await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'update', 'assistant', ?, 'explicit_memory_tool', ?)`, [randomUUID(), id, scope.userId, now]);
     console.info('[Memory] Entry stored.', {
       operation: 'update',
@@ -975,6 +984,7 @@ export async function updateMemory(scope: MemoryServiceScope & { id: string; con
       entryId: id,
       collectionId: String(existing.collection_id),
       status: String(existing.status),
+      priority: nextPriority,
       ...memoryContentLogFields(content),
     });
     const result = await readMemory(scope);
@@ -1838,7 +1848,7 @@ function scopeForReviewCandidate(claim: MemoryReviewJobClaim, target: MemoryTarg
 }
 
 function reviewedPriority(value: number | undefined): number {
-  if (!Number.isFinite(value)) return 50;
+  if (!Number.isFinite(value)) return DEFAULT_MEMORY_PRIORITY;
   return Math.max(0, Math.min(100, Math.round(value as number)));
 }
 

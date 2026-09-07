@@ -23,6 +23,7 @@ import {
   type MemoryServiceScope,
 } from '@/app/lib/memory/service';
 import type { MemoryScopeType } from '@/app/lib/memory/contract';
+import { DEFAULT_MANUAL_MEMORY_PRIORITY, isMemoryPriority } from '@/app/lib/memory/contract';
 import { ensureMemoryManagerAgent, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { listManagedAgents } from '@/app/lib/agents/management-actions';
 
@@ -314,11 +315,13 @@ export async function POST(request: NextRequest) {
     }
     const content = normalizedString(payload.content);
     if (!content) throw new Error('content is required.');
+    const priority = payload.priority === undefined ? DEFAULT_MANUAL_MEMORY_PRIORITY : Number(payload.priority);
+    if (!isMemoryPriority(priority)) throw new Error('priority must be an integer from 0 to 100.');
     const scope = await scopeFromRequest(request, session.user.id, payload);
     if (scope.target === 'agent') {
       await resolveAgentMemoryOwnerForUser({ userId: session.user.id, agentId: scope.agentId!, allowDeleted: false });
     }
-    const result = await addMemory({ ...scope, content, publishIfAuthorized: true });
+    const result = await addMemory({ ...scope, content, priority, publishIfAuthorized: true });
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to add memory.';

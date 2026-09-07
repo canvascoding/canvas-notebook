@@ -10,6 +10,7 @@ import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { MemoryMarkdownContent } from '@/app/components/settings/MemoryMarkdownContent';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { memoryCategoryDescription, memoryCategoryLabel, type MemoryDisplayLocale } from '@/app/lib/memory/categories';
+import { DEFAULT_MANUAL_MEMORY_PRIORITY, memoryPriorityBand } from '@/app/lib/memory/contract';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -180,8 +181,10 @@ export function MemorySettingsPanel() {
   const [runtimeSaving, setRuntimeSaving] = useState(false);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
+  const [draftPriority, setDraftPriority] = useState(DEFAULT_MANUAL_MEMORY_PRIORITY);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
+  const [editingPriority, setEditingPriority] = useState(DEFAULT_MANUAL_MEMORY_PRIORITY);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [importEntries, setImportEntries] = useState<string[] | null>(null);
@@ -481,7 +484,7 @@ export function MemorySettingsPanel() {
     try {
       const result = await readJson<MemoryMutationResponse>('/api/memory', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope, agentId, workspaceId, content: draft }),
+        body: JSON.stringify({ scope, agentId, workspaceId, content: draft, priority: draftPriority }),
       });
       const nextView: MemoryEntryView = result.entry?.status === 'pending' ? 'pending' : 'published';
       setDraft('');
@@ -505,7 +508,7 @@ export function MemorySettingsPanel() {
       } else {
         await readJson(`/api/memory/entries/${encodeURIComponent(entry.id)}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scope, agentId, workspaceId, action, content: action === 'update' ? editingContent : undefined }),
+          body: JSON.stringify({ scope, agentId, workspaceId, action, content: action === 'update' ? editingContent : undefined, priority: action === 'update' ? editingPriority : undefined }),
         });
       }
       setEditingId(null); setNotice(action === 'publish' ? t('notices.published') : action === 'restore' ? t('notices.restored') : action === 'archive' ? t('notices.archived') : t('notices.updated'));
@@ -883,14 +886,75 @@ export function MemorySettingsPanel() {
               </div>
             ) : null}
             <div className="flex flex-wrap items-center justify-between gap-2">{entries.length > 0 ? <Input aria-label={t('entries.searchLabel')} value={entryQuery} onChange={(event) => setEntryQuery(event.target.value)} placeholder={t('entries.searchPlaceholder')} className="max-w-sm" /> : null}{entries.length > 0 ? <select aria-label={t('entries.sortLabel')} className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={entrySort} onChange={(event) => setEntrySort(event.target.value as 'priority' | 'updated' | 'lastUsed')}><option value="priority">{t('entries.sortPriority')}</option><option value="updated">{t('entries.sortUpdated')}</option><option value="lastUsed">{t('entries.sortLastUsed')}</option></select> : null}</div>
-            {visibleEntries.map((entry) => <Card id={`memory-entry-${entry.id}`} key={entry.id} className={cn(entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : '', highlightedEntryId === entry.id && 'ring-2 ring-primary ring-offset-2')}><CardContent className="pt-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1">{editingId === entry.id ? <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} /> : <MemoryMarkdownContent content={entry.content} />}<div className="mt-2 flex gap-2"><Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{t(`entries.status.${entry.status}`)}</Badge><span className="text-xs text-muted-foreground">{t('entries.priority', { priority: entry.priority })}</span></div></div><div className="flex shrink-0 flex-wrap justify-end gap-1">{!agentMemoryReadOnly && entry.status === 'pending' && permissions?.canPublish ? <Button size="icon" variant="outline" title={t('entries.publish')} onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status === 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title={t('entries.restore')} onClick={() => void mutateEntry(entry, 'restore')}><RotateCcw className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canUpdatePublished ? editingId === entry.id ? <Button size="icon" title={t('entries.save')} onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button> : <Button size="icon" variant="ghost" title={t('entries.edit')} onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); }}><Pencil className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title={t('entries.archive')} onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button> : null}</div></div><Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? t('entries.hideHistory') : t('entries.history')}</Button>{historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt, locale)}</p>)}</div> : null}</CardContent></Card>)}
+            {visibleEntries.map((entry) => (
+              <Card
+                id={`memory-entry-${entry.id}`}
+                key={entry.id}
+                className={cn(
+                  entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : '',
+                  highlightedEntryId === entry.id && 'ring-2 ring-primary ring-offset-2',
+                )}
+              >
+                <CardContent className="pt-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      {editingId === entry.id ? (
+                        <div className="space-y-3">
+                          <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} />
+                          <div className="max-w-48 space-y-1">
+                            <Label htmlFor={`memory-priority-${entry.id}`}>{t('entries.priorityLabel')}</Label>
+                            <Input
+                              id={`memory-priority-${entry.id}`}
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={editingPriority}
+                              onChange={(event) => setEditingPriority(Number(event.target.value))}
+                            />
+                            <p className="text-xs text-muted-foreground">{t(`entries.priorityBands.${memoryPriorityBand(editingPriority)}`)}</p>
+                          </div>
+                        </div>
+                      ) : <MemoryMarkdownContent content={entry.content} />}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{t(`entries.status.${entry.status}`)}</Badge>
+                        <span className="text-xs text-muted-foreground">{t('entries.priorityWithBand', { priority: entry.priority, band: t(`entries.priorityBands.${memoryPriorityBand(entry.priority)}`) })}</span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                      {!agentMemoryReadOnly && entry.status === 'pending' && permissions?.canPublish ? <Button size="icon" variant="outline" title={t('entries.publish')} onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}
+                      {!agentMemoryReadOnly && entry.status === 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title={t('entries.restore')} onClick={() => void mutateEntry(entry, 'restore')}><RotateCcw className="size-4" /></Button> : null}
+                      {!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canUpdatePublished ? editingId === entry.id
+                        ? <Button size="icon" title={t('entries.save')} disabled={editingPriority < 0 || editingPriority > 100 || !Number.isInteger(editingPriority)} onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button>
+                        : <Button size="icon" variant="ghost" title={t('entries.edit')} onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); setEditingPriority(entry.priority); }}><Pencil className="size-4" /></Button>
+                        : null}
+                      {!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title={t('entries.archive')} onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button> : null}
+                    </div>
+                  </div>
+                  <Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? t('entries.hideHistory') : t('entries.history')}</Button>
+                  {historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt, locale)}</p>)}</div> : null}
+                </CardContent>
+              </Card>
+            ))}
             {!loading && selectedCollectionId && entries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">{t(`entries.emptyViews.${entryView}`)}</p> : null}
             {!loading && entries.length > 0 && visibleEntries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">{t('entries.noSearchResults')}</p> : null}
           </div>
 
           <Card>
             <CardHeader><CardTitle className="text-base">{t('editor.title')}</CardTitle><CardDescription>{scope === 'workspace' || scope === 'organization' ? permissions?.canPublish ? t('editor.sharedManagerDescription') : t('editor.sharedContributorDescription') : t('editor.description')}</CardDescription></CardHeader>
-            <CardContent className="space-y-3"><Textarea value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={800} placeholder={t('editor.placeholder')} disabled={agentMemoryReadOnly} /><div className="flex items-center justify-between gap-3"><span className="text-xs text-muted-foreground">{agentMemoryReadOnly ? t('editor.deletedAgentReadOnly') : `${draft.length}/800`}</span><Button onClick={() => void addEntry()} disabled={!draft.trim() || adding || !canUseScope || agentMemoryReadOnly}>{adding ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Plus className="mr-2 size-4" />}{scope === 'workspace' || scope === 'organization' ? permissions?.canPublish ? t('editor.publish') : t('editor.suggest') : t('editor.save')}</Button></div></CardContent>
+            <CardContent className="space-y-3">
+              <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={800} placeholder={t('editor.placeholder')} disabled={agentMemoryReadOnly} />
+              <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-end">
+                <div className="space-y-1">
+                  <Label htmlFor="new-memory-priority">{t('entries.priorityLabel')}</Label>
+                  <Input id="new-memory-priority" type="number" min={0} max={100} step={1} value={draftPriority} onChange={(event) => setDraftPriority(Number(event.target.value))} disabled={agentMemoryReadOnly} />
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {t('editor.priorityHint', { band: t(`entries.priorityBands.${memoryPriorityBand(draftPriority)}`) })}
+                </p>
+              </div>
+              <div className="flex items-center justify-between gap-3"><span className="text-xs text-muted-foreground">{agentMemoryReadOnly ? t('editor.deletedAgentReadOnly') : `${draft.length}/800`}</span><Button onClick={() => void addEntry()} disabled={!draft.trim() || adding || !canUseScope || agentMemoryReadOnly || draftPriority < 0 || draftPriority > 100 || !Number.isInteger(draftPriority)}>{adding ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Plus className="mr-2 size-4" />}{scope === 'workspace' || scope === 'organization' ? permissions?.canPublish ? t('editor.publish') : t('editor.suggest') : t('editor.save')}</Button></div>
+            </CardContent>
           </Card>
 
           {scope === 'user' ? <Card className="border-dashed">
