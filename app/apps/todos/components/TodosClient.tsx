@@ -684,6 +684,10 @@ export function TodosClient({ title }: { title: string }) {
     () => todos.find((todo) => todo.id === selectedTodoId) ?? null,
     [selectedTodoId, todos],
   );
+  const visibleTodos = useMemo(
+    () => todos.filter((todo) => todoMatchesStatusFilter(todo.status, statusFilter)),
+    [statusFilter, todos],
+  );
 
   useEffect(() => {
     setTodoChatContext(buildTodoPageChatContext(selectedTodoId));
@@ -847,14 +851,12 @@ export function TodosClient({ title }: { title: string }) {
         const deepLinkedTodo = todoIdParam
           ? current.find((todo) => todo.id === todoIdParam)
           : undefined;
-        return deepLinkedTodo
-          && todoMatchesStatusFilter(deepLinkedTodo.status, statusFilter)
-          && !data.some((todo) => todo.id === deepLinkedTodo.id)
+        return deepLinkedTodo && !data.some((todo) => todo.id === deepLinkedTodo.id)
           ? [deepLinkedTodo, ...data]
           : data;
       });
       setSelectedTodoId((current) => (
-        current && data.some((todo) => todo.id === current)
+        current && (data.some((todo) => todo.id === current) || current === todoIdParam)
           ? current
           : null
       ));
@@ -1607,7 +1609,7 @@ export function TodosClient({ title }: { title: string }) {
               <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                 {t('states.loading')}
               </div>
-            ) : todos.length === 0 ? (
+            ) : visibleTodos.length === 0 ? (
               <div className="rounded-md border border-dashed border-border p-8 text-center">
                 <p className="text-sm font-medium">{t('states.emptyTitle')}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{t('states.emptyDescription')}</p>
@@ -1617,7 +1619,7 @@ export function TodosClient({ title }: { title: string }) {
                 </Button>
               </div>
             ) : (
-              todos.map((todo) => (
+              visibleTodos.map((todo) => (
                 <article
                   key={todo.id}
                   data-testid="todo-list-item"
@@ -1641,14 +1643,18 @@ export function TodosClient({ title }: { title: string }) {
                       {todo.status === 'done' ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <Circle className="h-5 w-5" />}
                     </button>
 
-                    <button type="button" className="min-w-0 flex-1 text-left" onClick={() => void handleSelectTodo(todo)}>
-                      <div className="flex min-w-0 items-center gap-2">
+                    <div className="min-w-0 flex-1 text-left">
+                      <button
+                        type="button"
+                        className="flex w-full min-w-0 items-center gap-2 text-left"
+                        onClick={() => void handleSelectTodo(todo)}
+                      >
                         {todo.readState === 'unread' && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label={t('labels.unread')} />}
                         <TodoIcon iconKey={resolvedTodoIconKey(todo)} className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <h4 className={cn('truncate text-sm font-semibold', todo.status === 'done' && 'text-muted-foreground line-through')}>
                           {todo.title}
                         </h4>
-                      </div>
+                      </button>
                       {todo.description ? (
                         <div className="mt-1 max-h-10 overflow-hidden text-sm text-muted-foreground [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-sm [&_pre]:max-h-10 [&_table]:text-[0.65rem] [&_img]:max-h-8 [&_img]:max-w-full [&_img]:object-contain">
                           <MarkdownRenderer content={todo.description} variant="muted" />
@@ -1676,7 +1682,7 @@ export function TodosClient({ title }: { title: string }) {
                           </Badge>
                         )}
                       </div>
-                    </button>
+                    </div>
 
                     <DropdownMenu modal={false}>
                       <DropdownMenuTrigger asChild>
