@@ -52,6 +52,7 @@ export type RuntimePromptContextTarget = {
   setActiveFileContext: (path: string | null) => void;
   setPlanningMode: (enabled: boolean) => void;
   setPageContext: (page: string | undefined) => void;
+  setTodoContext: (context: PiRuntimePromptContext['todoContext']) => void;
   setNotebookContext: (context: PiRuntimePromptContext['notebookContext']) => void;
   setStudioContext: (context: PiRuntimePromptContext['studioContext']) => void;
   setEmailContext: (context: PiRuntimePromptContext['emailContext']) => void;
@@ -71,6 +72,7 @@ export function applyPiRuntimePromptContext(
   runtime.setActiveFileContext(context?.activeFilePath ?? null);
   runtime.setPlanningMode(context?.planningMode ?? false);
   runtime.setPageContext(context?.currentPage);
+  runtime.setTodoContext(context?.todoContext);
   runtime.setNotebookContext(context?.notebookContext);
   runtime.setStudioContext(context?.studioContext);
   runtime.setEmailContext(context?.emailContext);
