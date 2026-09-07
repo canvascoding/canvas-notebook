@@ -1490,8 +1490,8 @@ export function TodosClient({ title }: { title: string }) {
   );
 
   return (
-    <div data-testid="todos-page" className="flex min-h-full w-full min-w-0 flex-col overflow-x-hidden bg-background">
-      <div className="border-b border-border bg-background/95 px-4 py-4 md:px-6">
+    <div data-testid="todos-page" className="flex min-h-full w-full min-w-0 flex-col overflow-x-hidden bg-background md:h-full md:min-h-0 md:overflow-hidden">
+      <div className="flex-shrink-0 border-b border-border bg-background/95 px-4 py-4 md:px-6">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -1523,7 +1523,7 @@ export function TodosClient({ title }: { title: string }) {
         </div>
       </div>
 
-      <div className="mx-auto grid w-full min-w-0 max-w-7xl flex-1 gap-4 p-4 md:grid-cols-[240px_minmax(0,1fr)] md:p-6 xl:grid-cols-[260px_minmax(0,1fr)_360px]">
+      <div className="mx-auto grid w-full min-w-0 max-w-7xl flex-1 gap-4 p-4 md:min-h-0 md:grid-cols-[240px_minmax(0,1fr)] md:overflow-hidden md:p-6 xl:grid-cols-[260px_minmax(0,1fr)_360px]">
         <div className="md:hidden">
           <Button
             variant="outline"
@@ -1539,7 +1539,7 @@ export function TodosClient({ title }: { title: string }) {
           </Button>
         </div>
 
-        <aside className="hidden min-w-0 space-y-4 md:block">
+        <aside className="hidden min-h-0 min-w-0 space-y-4 md:block md:overflow-y-auto md:overscroll-contain">
           <section className="space-y-3">
             <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               {t('sections.workspace')}
@@ -1584,7 +1584,7 @@ export function TodosClient({ title }: { title: string }) {
           </section>
         </aside>
 
-        <section className="min-w-0 space-y-3">
+        <section className="min-h-0 min-w-0 space-y-3 md:overflow-y-auto md:overscroll-contain">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
               <h3 className="truncate text-sm font-semibold">{selectedCategoryName}</h3>
@@ -1713,8 +1713,8 @@ export function TodosClient({ title }: { title: string }) {
           </div>
         </section>
 
-        <aside className="hidden min-w-0 md:block xl:sticky xl:top-4 xl:self-start">
-          <div data-testid="todo-detail" className="min-w-0 overflow-hidden rounded-md border border-border bg-background p-4">
+        <aside className="hidden min-h-0 min-w-0 md:block md:overflow-y-auto md:overscroll-contain">
+          <div data-testid="todo-detail" className="min-w-0 overflow-hidden rounded-md border border-border bg-background p-4 xl:sticky xl:top-0">
             <TodoDetailPanel
               todo={selectedTodo}
               locale={locale}
