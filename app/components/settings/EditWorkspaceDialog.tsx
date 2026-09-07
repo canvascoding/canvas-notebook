@@ -123,61 +123,65 @@ function EditWorkspaceDialogContent({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className={supportsMembers ? "!flex max-h-[calc(100dvh-2rem)] !w-[min(100%_-_2rem,_48rem)] !max-w-none !flex-col !gap-0 !overflow-hidden !p-0 sm:!max-w-none" : undefined}>
-        <form onSubmit={submit} className={supportsMembers ? "flex min-h-0 flex-1 flex-col" : "flex flex-col gap-5"}>
-          <DialogHeader className={supportsMembers ? "border-b border-border px-5 py-5 pr-12 sm:px-6 sm:pr-14" : undefined}>
+      <DialogContent className="!flex max-h-[calc(100dvh-2rem)] !w-[min(100%_-_2rem,_60rem)] !max-w-none !flex-col !gap-0 !overflow-hidden !p-0 sm:!max-w-none">
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader className="border-b border-border px-5 py-5 pr-12 sm:px-6 sm:pr-14">
             <DialogTitle>{t('editDialog.title')}</DialogTitle>
             <DialogDescription>
               {workspace ? t('editDialog.description', { name: workspace.name }) : t('editDialog.descriptionFallback')}
             </DialogDescription>
           </DialogHeader>
 
-          <div className={supportsMembers ? "min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6" : "flex flex-col gap-4"}>
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor={nameId}>{t('fields.name')}</Label>
-                <Input
-                  id={nameId}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  maxLength={80}
-                  required
-                  disabled={isSubmitting}
-                  aria-invalid={Boolean(error)}
-                />
-              </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+            <div className="grid gap-5 lg:grid-cols-2 lg:items-start lg:gap-6">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor={nameId}>{t('fields.name')}</Label>
+                  <Input
+                    id={nameId}
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    maxLength={80}
+                    required
+                    disabled={isSubmitting}
+                    aria-invalid={Boolean(error)}
+                  />
+                </div>
 
-              <div className="flex flex-col gap-2">
-                <Label htmlFor={descriptionId}>{t('fields.description')}</Label>
-                <Textarea
-                  id={descriptionId}
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  maxLength={WORKSPACE_DESCRIPTION_MAX_LENGTH}
-                  rows={3}
-                  disabled={isSubmitting}
-                  aria-describedby={`${descriptionId}-hint ${descriptionId}-count`}
-                  placeholder={t('fields.descriptionPlaceholder')}
-                />
-                <div className="flex items-start justify-between gap-4 text-xs text-muted-foreground">
-                  <p id={`${descriptionId}-hint`}>
-                    {t('fields.descriptionHint')}
-                  </p>
-                  <span id={`${descriptionId}-count`} className="shrink-0 tabular-nums" aria-live="polite">
-                    {t('fields.descriptionCount', {
-                      count: description.length,
-                      max: WORKSPACE_DESCRIPTION_MAX_LENGTH,
-                    })}
-                  </span>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor={descriptionId}>{t('fields.description')}</Label>
+                  <Textarea
+                    id={descriptionId}
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    maxLength={WORKSPACE_DESCRIPTION_MAX_LENGTH}
+                    rows={3}
+                    disabled={isSubmitting}
+                    aria-describedby={`${descriptionId}-hint ${descriptionId}-count`}
+                    placeholder={t('fields.descriptionPlaceholder')}
+                  />
+                  <div className="flex items-start justify-between gap-4 text-xs text-muted-foreground">
+                    <p id={`${descriptionId}-hint`}>
+                      {t('fields.descriptionHint')}
+                    </p>
+                    <span id={`${descriptionId}-count`} className="shrink-0 tabular-nums" aria-live="polite">
+                      {t('fields.descriptionCount', {
+                        count: description.length,
+                        max: WORKSPACE_DESCRIPTION_MAX_LENGTH,
+                      })}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <WorkspaceIconPicker value={icon} onChange={setIcon} disabled={isSubmitting} />
+              <div className="flex flex-col gap-4">
+                <WorkspaceIconPicker value={icon} onChange={setIcon} disabled={isSubmitting} />
 
-              <WorkspaceColorPicker value={color} onChange={setColor} disabled={isSubmitting} />
+                <WorkspaceColorPicker value={color} onChange={setColor} disabled={isSubmitting} />
+              </div>
 
               {workspace?.permissions.canManageWorkspace ? (
-                <section className="rounded-xl border border-primary/20 bg-primary/[0.045] p-4" aria-labelledby="workspace-brand-design-title">
+                <section className="h-full rounded-xl border border-primary/20 bg-primary/[0.045] p-4" aria-labelledby="workspace-brand-design-title">
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex min-w-0 items-start gap-3">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
@@ -204,7 +208,7 @@ function EditWorkspaceDialogContent({
               ) : null}
 
               {workspace ? (
-                <section className="rounded-lg border bg-muted/20 p-4" aria-labelledby="workspace-mcp-access-title">
+                <section className="h-full rounded-lg border bg-muted/20 p-4" aria-labelledby="workspace-mcp-access-title">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
                       <h3 id="workspace-mcp-access-title" className="text-sm font-semibold">
@@ -225,20 +229,19 @@ function EditWorkspaceDialogContent({
               ) : null}
 
               {error ? (
-                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive lg:col-span-2">
                   {error}
                 </p>
               ) : null}
+              {supportsMembers && workspace ? (
+                <div className="border-t border-border pt-6 lg:col-span-2">
+                  <WorkspaceMembersEditor active={open} workspace={workspace} onChanged={onChanged} />
+                </div>
+              ) : null}
             </div>
-
-            {supportsMembers && workspace ? (
-              <div className="mt-6 border-t border-border pt-6">
-                <WorkspaceMembersEditor active={open} workspace={workspace} onChanged={onChanged} />
-              </div>
-            ) : null}
           </div>
 
-          <DialogFooter className={supportsMembers ? "border-t border-border px-5 py-4 sm:px-6" : undefined}>
+          <DialogFooter className="border-t border-border px-5 py-4 sm:px-6">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               {t('editDialog.cancel')}
             </Button>

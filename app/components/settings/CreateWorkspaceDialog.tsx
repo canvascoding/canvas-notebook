@@ -217,7 +217,7 @@ export function CreateWorkspaceDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className={createdWorkspaceSupportsMembers ? "!flex max-h-[calc(100dvh-2rem)] !w-[min(100%_-_2rem,_48rem)] !max-w-none !flex-col !gap-0 !overflow-hidden !p-0 sm:!max-w-none" : undefined}>
+      <DialogContent className="!flex max-h-[calc(100dvh-2rem)] !w-[min(100%_-_2rem,_60rem)] !max-w-none !flex-col !gap-0 !overflow-hidden !p-0 sm:!max-w-none">
         {createdWorkspace ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <DialogHeader className="border-b border-border px-5 py-5 pr-12 sm:px-6 sm:pr-14">
@@ -266,138 +266,144 @@ export function CreateWorkspaceDialog({
             </DialogFooter>
           </div>
         ) : (
-        <form onSubmit={submit} className="flex flex-col gap-5">
-          <DialogHeader>
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader className="border-b border-border px-5 py-5 pr-12 sm:px-6 sm:pr-14">
             <DialogTitle>{t('createDialog.title')}</DialogTitle>
             <DialogDescription>{t('createDialog.description')}</DialogDescription>
           </DialogHeader>
 
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={nameId}>{t('fields.name')}</Label>
-              <Input
-                id={nameId}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                maxLength={80}
-                required
-                aria-invalid={Boolean(error)}
-                placeholder={t('fields.namePlaceholder')}
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={descriptionId}>{t('fields.description')}</Label>
-              <Textarea
-                id={descriptionId}
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                maxLength={WORKSPACE_DESCRIPTION_MAX_LENGTH}
-                rows={3}
-                disabled={isSubmitting}
-                aria-describedby={`${descriptionId}-hint ${descriptionId}-count`}
-                placeholder={t('fields.descriptionPlaceholder')}
-              />
-              <div className="flex items-start justify-between gap-4 text-xs text-muted-foreground">
-                <p id={`${descriptionId}-hint`}>
-                  {t('fields.descriptionHint')}
-                </p>
-                <span id={`${descriptionId}-count`} className="shrink-0 tabular-nums" aria-live="polite">
-                  {t('fields.descriptionCount', {
-                    count: description.length,
-                    max: WORKSPACE_DESCRIPTION_MAX_LENGTH,
-                  })}
-                </span>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+            <div className="grid gap-5 lg:grid-cols-2 lg:items-start lg:gap-6">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
+                <Label htmlFor={nameId}>{t('fields.name')}</Label>
+                <Input
+                  id={nameId}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  maxLength={80}
+                  required
+                  aria-invalid={Boolean(error)}
+                  placeholder={t('fields.namePlaceholder')}
+                />
               </div>
-            </div>
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={typeId}>{t('fields.type')}</Label>
-              <select
-                id={typeId}
-                value={type}
-                onChange={(event) => {
-                  const nextType = event.target.value as CreateWorkspaceType;
-                  setType(nextType);
-                  if (!iconCustomized) setIcon(getDefaultWorkspaceIcon(nextType));
-                }}
-                className="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {availableTypes.map((option) => (
-                  <option key={option.value} value={option.value} disabled={option.disabled}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-muted-foreground">
-                {type === 'organization'
-                  ? hasOrganizationWorkspace
-                    ? t('hints.organizationAlreadyExists')
-                    : t('hints.organizationAccess')
-                  : type === 'team' || type === 'project'
-                    ? t('hints.teamProjectAccess')
-                    : t('hints.personalOnly')}
-              </p>
-            </div>
+                <div className="flex flex-col gap-2">
+                <Label htmlFor={descriptionId}>{t('fields.description')}</Label>
+                <Textarea
+                  id={descriptionId}
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  maxLength={WORKSPACE_DESCRIPTION_MAX_LENGTH}
+                  rows={3}
+                  disabled={isSubmitting}
+                  aria-describedby={`${descriptionId}-hint ${descriptionId}-count`}
+                  placeholder={t('fields.descriptionPlaceholder')}
+                />
+                <div className="flex items-start justify-between gap-4 text-xs text-muted-foreground">
+                  <p id={`${descriptionId}-hint`}>
+                    {t('fields.descriptionHint')}
+                  </p>
+                  <span id={`${descriptionId}-count`} className="shrink-0 tabular-nums" aria-live="polite">
+                    {t('fields.descriptionCount', {
+                      count: description.length,
+                      max: WORKSPACE_DESCRIPTION_MAX_LENGTH,
+                    })}
+                  </span>
+                </div>
+              </div>
 
-            <WorkspaceIconPicker
-              value={icon}
-              onChange={(nextIcon) => {
-                setIcon(nextIcon);
-                setIconCustomized(true);
-              }}
-              disabled={isSubmitting}
-            />
-
-            <WorkspaceColorPicker value={color} onChange={setColor} disabled={isSubmitting} />
-
-            {type === 'project' ? (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor={`${typeId}-project`}>{t('fields.project')}</Label>
+                <div className="flex flex-col gap-2">
+                <Label htmlFor={typeId}>{t('fields.type')}</Label>
                 <select
-                  id={`${typeId}-project`}
-                  value={projectId}
-                  onChange={(event) => setProjectId(event.target.value)}
-                  disabled={isSubmitting || projectsLoading || availableProjects.length === 0}
+                  id={typeId}
+                  value={type}
+                  onChange={(event) => {
+                    const nextType = event.target.value as CreateWorkspaceType;
+                    setType(nextType);
+                    if (!iconCustomized) setIcon(getDefaultWorkspaceIcon(nextType));
+                  }}
                   className="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <option value="">{projectsLoading ? t('loadingProjects') : t('fields.projectPlaceholder')}</option>
-                  {availableProjects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
+                  {availableTypes.map((option) => (
+                    <option key={option.value} value={option.value} disabled={option.disabled}>
+                      {option.label}
                     </option>
                   ))}
                 </select>
-                {availableProjects.length === 0 && !projectsLoading ? (
-                  <p className="text-xs text-muted-foreground">{t('noProjectsAvailable')}</p>
-                ) : null}
+                <p className="text-xs text-muted-foreground">
+                  {type === 'organization'
+                    ? hasOrganizationWorkspace
+                      ? t('hints.organizationAlreadyExists')
+                      : t('hints.organizationAccess')
+                    : type === 'team' || type === 'project'
+                      ? t('hints.teamProjectAccess')
+                      : t('hints.personalOnly')}
+                </p>
               </div>
-            ) : null}
+              </div>
 
-            {canCreateSharedWorkspace && !teamFeaturesEnabled ? (
-              <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                {t('teamFeatureNotEnabled')}
-              </p>
-            ) : null}
-            {canCreateSharedWorkspace && teamFeaturesEnabled && hasOrganizationWorkspace ? (
-              <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                {t('hints.organizationAlreadyExists')}
-              </p>
-            ) : null}
-            {canCreateSharedWorkspace && !projectFeaturesEnabled ? (
-              <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                {t('projectFeatureNotEnabled')}
-              </p>
-            ) : null}
+              <div className="flex flex-col gap-4">
+                <WorkspaceIconPicker
+                value={icon}
+                onChange={(nextIcon) => {
+                  setIcon(nextIcon);
+                  setIconCustomized(true);
+                }}
+                disabled={isSubmitting}
+              />
 
-            {error ? (
-              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
-              </p>
-            ) : null}
+                <WorkspaceColorPicker value={color} onChange={setColor} disabled={isSubmitting} />
+
+                {type === 'project' ? (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor={`${typeId}-project`}>{t('fields.project')}</Label>
+                  <select
+                    id={`${typeId}-project`}
+                    value={projectId}
+                    onChange={(event) => setProjectId(event.target.value)}
+                    disabled={isSubmitting || projectsLoading || availableProjects.length === 0}
+                    className="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="">{projectsLoading ? t('loadingProjects') : t('fields.projectPlaceholder')}</option>
+                    {availableProjects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                  {availableProjects.length === 0 && !projectsLoading ? (
+                    <p className="text-xs text-muted-foreground">{t('noProjectsAvailable')}</p>
+                  ) : null}
+                </div>
+              ) : null}
+
+                {canCreateSharedWorkspace && !teamFeaturesEnabled ? (
+                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  {t('teamFeatureNotEnabled')}
+                </p>
+              ) : null}
+                {canCreateSharedWorkspace && teamFeaturesEnabled && hasOrganizationWorkspace ? (
+                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  {t('hints.organizationAlreadyExists')}
+                </p>
+              ) : null}
+                {canCreateSharedWorkspace && !projectFeaturesEnabled ? (
+                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  {t('projectFeatureNotEnabled')}
+                </p>
+              ) : null}
+
+                {error ? (
+                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </p>
+              ) : null}
+              </div>
+            </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="border-t border-border px-5 py-4 sm:px-6">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               {t('createDialog.cancel')}
             </Button>
