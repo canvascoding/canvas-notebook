@@ -23,7 +23,7 @@ async function fixtures(page: Page) {
   });
   await page.route('**/api/home/chats?*', route => {
     const query = new URL(route.request().url()).searchParams.get('q') || '';
-    const chats = [{ sessionId: 'continue-chat', title: 'Kampagnenplanung', activityAt: now - 100_000, hasUnread: true }].filter(chat => chat.title.includes(query));
+    const chats = [{ sessionId: 'continue-chat', title: 'Kampagnenplanung', activityAt: now - 100_000, hasUnread: true, agentIconId: 'palette' }].filter(chat => chat.title.includes(query));
     return route.fulfill({ json: { success: true, data: { chats, hasMore: false } } });
   });
 }
@@ -39,6 +39,7 @@ for (const width of [390, 1440]) {
     await expect(rows).toHaveCount(3);
     await expect(rows.nth(2)).toContainText('Kampagnenplanung');
     await expect(rows.nth(2)).toContainText('Neue Antwort');
+    await expect(rows.nth(2).locator('[data-agent-icon-id="palette"]')).toBeVisible();
     await expect(rows.nth(2).getByRole('link')).toHaveAttribute('href', `/de/notebook?session=continue-chat&workspaceId=${personal.id}&chat=open`);
     await page.screenshot({ path: info.outputPath(`continue-${width}.png`), animations: 'disabled' });
     await panel.getByRole('button', { name: 'Weitere anzeigen', exact: true }).click();
@@ -100,7 +101,7 @@ test('workspace switches discard earlier results and reset the overview', async 
   await page.route('**/api/home/chats?*', async route => {
     const params = new URL(route.request().url()).searchParams;
     if (params.get('q') === 'delayed') { started(); await held; }
-    await route.fulfill({ json: { success: true, data: { chats: [{ sessionId: 'scoped', title: params.get('workspaceId') === personal.id ? 'Personal conversation' : 'Other conversation', activityAt: Date.now(), hasUnread: false }], hasMore: false } } });
+    await route.fulfill({ json: { success: true, data: { chats: [{ sessionId: 'scoped', title: params.get('workspaceId') === personal.id ? 'Personal conversation' : 'Other conversation', activityAt: Date.now(), hasUnread: false, agentIconId: 'bot' }], hasMore: false } } });
   });
   await page.goto('/de');
   const panel = page.getByTestId('home-files');

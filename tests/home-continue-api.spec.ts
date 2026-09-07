@@ -15,7 +15,8 @@ test('recent chat API enforces ownership, workspace, agent access, search and no
   const shared = workspaces.find((workspace: { type: string; permissions: { canRunAgent: boolean } }) => workspace.type !== 'personal' && workspace.permissions.canRunAgent);
   expect(shared).toBeTruthy();
   const agents = await (await page.request.get(`/api/agents?workspaceId=${shared.id}`)).json();
-  const agentId = agents.data.agents[0].agentId;
+  const agent = agents.data.agents[0];
+  const agentId = agent.agentId;
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
   const ids: number[] = [];
   const prefix = `home-continue-${randomUUID()}`;
@@ -43,7 +44,7 @@ test('recent chat API enforces ownership, workspace, agent access, search and no
     const response = await page.request.get(`/api/home/chats?${new URLSearchParams({ workspaceId: shared.id, q: prefix })}`);
     expect(response.status()).toBe(200);
     expect(response.headers()['cache-control']).toContain('no-store');
-    expect((await response.json()).data.chats.map((chat: { sessionId: string }) => chat.sessionId)).toEqual([visible]);
+    expect((await response.json()).data.chats).toEqual([expect.objectContaining({ sessionId: visible, agentIconId: agent.iconId })]);
     const literal = await page.request.get(`/api/home/chats?${new URLSearchParams({ workspaceId: shared.id, q: '%' })}`);
     expect((await literal.json()).data.chats.some((chat: { sessionId: string }) => chat.sessionId === visible)).toBe(true);
     const personalResponse = await page.request.get(`/api/home/chats?${new URLSearchParams({ workspaceId: personal.id, q: prefix, limit: '1' })}`);

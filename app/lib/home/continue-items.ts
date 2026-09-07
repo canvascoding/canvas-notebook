@@ -5,6 +5,7 @@ export type HomeChat = {
   title: string | null;
   activityAt: number;
   hasUnread: boolean;
+  agentIconId?: string | null;
 };
 export type HomeChatPage = { chats: HomeChat[]; hasMore: boolean };
 export type ContinueFilter = 'all' | 'files' | 'chats';

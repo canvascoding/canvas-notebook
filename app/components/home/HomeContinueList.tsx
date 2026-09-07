@@ -13,6 +13,7 @@ import { buildNotebookChatSessionHref } from '@/app/lib/chat/chat-navigation-int
 import { selectContinueItems, type ContinueFilter } from '@/app/lib/home/continue-items';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { HomeFileRowsSkeleton } from './HomeSkeletons';
 import { useHomeContinue } from './useHomeContinue';
 
@@ -61,7 +62,7 @@ export function HomeContinueList({ workspace, workspaceError, revision }: { work
             const href = file ? notebookFileHref(file.path, workspace!.id) : buildNotebookChatSessionHref(chat!.sessionId, workspace!.id);
             return <li key={item.key} data-kind={item.kind}>
               <Link href={href} className="group flex min-h-16 items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">{file ? getFileIconComponent({ ...file, type: 'file' }) : <MessageSquare className="h-4 w-4" />}</span>
+                {file ? <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">{getFileIconComponent({ ...file, type: 'file' })}</span> : <AgentAvatar iconId={chat?.agentIconId} className="h-9 w-9 rounded-lg" iconClassName="h-5 w-5" />}
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2 text-sm font-medium"><span className="truncate">{title}</span>{file?.pinnedAt != null ? <Pin className="h-3 w-3 shrink-0 text-muted-foreground" aria-label={tf('pinned')} /> : file?.isFavorite ? <Star className="h-3 w-3 shrink-0 text-muted-foreground" aria-label={tf('favorites')} /> : null}</span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
