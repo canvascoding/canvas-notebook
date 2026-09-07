@@ -11,6 +11,25 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.7.3] - 2026-09-07
+
+### Added
+
+- Added recoverable local edits when leaving failed collaboration documents and preserved list identities during collaborative editing.
+- Added migration coverage for formatted Markdown editing and clearer continuation-filter icons on Home.
+
+### Changed
+
+- Refined profile appearance settings and agent context-compaction status reporting.
+
+### Fixed
+
+- Corrected provider connection fields after selection changes and applied-compaction context status.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.7.2] - 2026-09-07
 
 ### Added
