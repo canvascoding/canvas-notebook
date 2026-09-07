@@ -83,6 +83,12 @@ export const ProviderInstallationCredentialEditor = forwardRef<
   const providerAuthMethod = getAuthMethodForProvider(installation.providerId);
   const wantsOAuth = installation.authMethod === 'oauth'
     || (!installation.authMethod && providerAuthMethod === 'oauth');
+  const credentialEditorKey = JSON.stringify([
+    installation.installationId,
+    installation.providerId,
+    installation.credentialScope,
+    wantsOAuth,
+  ]);
   const credentialEnvVars = help?.envVars?.filter((entry) => (
     installation.providerId !== 'openai-compatible' || entry.name !== 'OPENAI_COMPATIBLE_BASE_URL'
   ));
@@ -116,7 +122,7 @@ export const ProviderInstallationCredentialEditor = forwardRef<
         </div>
       ) : wantsOAuth ? (
         installation.credentialScope === 'user' ? (
-          <PiOAuthButton activeProviderId={installation.providerId} onStatusChange={onCredentialsSaved} />
+          <PiOAuthButton key={credentialEditorKey} activeProviderId={installation.providerId} onStatusChange={onCredentialsSaved} />
         ) : (
           <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
             <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
@@ -125,6 +131,7 @@ export const ProviderInstallationCredentialEditor = forwardRef<
         )
       ) : credentialEnvVars?.length ? (
         <ProviderEnvEditor
+          key={credentialEditorKey}
           ref={envEditorRef}
           providerId={installation.providerId}
           envVars={credentialEnvVars}

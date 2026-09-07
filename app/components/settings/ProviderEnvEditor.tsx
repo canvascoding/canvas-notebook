@@ -1,6 +1,6 @@
 'use client';
 
-import { forwardRef, startTransition, useCallback, useEffect, useImperativeHandle, useState } from 'react';
+import { forwardRef, startTransition, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Eye, EyeOff, Loader2, Save, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 
@@ -62,22 +62,32 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
+  // Callers may create an equivalent field array on every render. Only reload
+  // when its contents change, otherwise unsaved input would be overwritten.
+  const fieldSchema = JSON.stringify(envVars ?? []);
+  const fields = useMemo(() => JSON.parse(fieldSchema) as NonNullable<ProviderHelpInfo['envVars']>, [fieldSchema]);
+  const formIdentity = JSON.stringify([providerId, credentialScope, fieldSchema]);
+  const [loadedIdentity, setLoadedIdentity] = useState<string | null>(null);
+  const loadController = useRef<AbortController | null>(null);
+  const isLoading = loading || loadedIdentity !== formIdentity;
 
   // Load current values for all env vars
   const loadEnvValues = useCallback(async () => {
-    if (!envVars || envVars.length === 0) {
-      setLoading(false);
-      return;
-    }
-
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     setLoading(true);
+    setLoadedIdentity(null);
+    setEnvStates([]);
+    setHasChanges(false);
+    setMessage(null);
     try {
       const states: EnvVarState[] = await Promise.all(
-        envVars.map(async (envVar) => {
+        fields.map(async (envVar) => {
           try {
             const response = await fetch(
               `/api/integrations/env?scope=${envVar.scope}&secretScope=${credentialScope}&key=${encodeURIComponent(envVar.name)}`,
-              { credentials: 'include' }
+              { credentials: 'include', signal: controller.signal }
             );
             const data = await response.json();
             const existingEntry = data.success
@@ -109,18 +119,22 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
         })
       );
 
+      if (controller.signal.aborted) return;
       setEnvStates(states);
+      setLoadedIdentity(formIdentity);
       setHasChanges(false);
     } catch (error) {
+      if (controller.signal.aborted) return;
       console.error('Failed to load env values:', error);
       setMessage({ type: 'error', text: t('providerEnv.errors.load') });
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
-  }, [credentialScope, envVars, t]);
+  }, [credentialScope, fields, formIdentity, t]);
 
   useEffect(() => {
     startTransition(() => { loadEnvValues(); });
+    return () => loadController.current?.abort();
   }, [loadEnvValues]);
 
   const toggleVisibility = (index: number) => {
@@ -215,7 +229,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
   };
 
   const saveAll = async (): Promise<boolean> => {
-    if (loading) {
+    if (isLoading) {
       setMessage({ type: 'error', text: t('providerEnv.errors.load') });
       return false;
     }
@@ -357,7 +371,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
   return (
     <div className="space-y-4">
       {/* Message display */}
-      {message && (
+      {!isLoading && message && (
         <div
           className={`flex items-center gap-2 rounded border p-3 text-sm ${
             message.type === 'success'
@@ -375,7 +389,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
       )}
 
       {/* Dirty warning */}
-      {hasChanges && (
+      {!isLoading && hasChanges && (
         <div className="flex items-center gap-2 rounded border border-yellow-500/30 bg-yellow-50 p-3 text-sm text-yellow-700 dark:border-yellow-500/30 dark:bg-yellow-950/30 dark:text-yellow-400">
           <AlertCircle className="h-4 w-4" />
           {t('providerEnv.unsavedChanges')}
@@ -383,7 +397,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
       )}
 
       {/* Loading state */}
-      {loading ? (
+      {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           {t('providerEnv.loading')}
