@@ -20,7 +20,7 @@ const ThemeContext = createContext<ThemeContextValue>({
 });
 
 const STORAGE_KEY = 'theme';
-const DEFAULT_THEME: Theme = 'light';
+const DEFAULT_THEME: Theme = 'system';
 const ALL_THEMES: Theme[] = ['light', 'dark', 'system'];
 
 export function isTheme(value: unknown): value is Theme {
@@ -84,4 +84,4 @@ export function useTheme() {
   return useContext(ThemeContext);
 }
 
-export const themeScript = `(function(){try{var t=localStorage.getItem('theme')||'light';var r=t==='system'?(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'):t;document.documentElement.classList.add(r)}catch(e){}})()`;
+export const themeScript = `(function(){try{var t=localStorage.getItem('theme')||'system';var r=t==='system'?(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'):t;document.documentElement.classList.add(r)}catch(e){}})()`;

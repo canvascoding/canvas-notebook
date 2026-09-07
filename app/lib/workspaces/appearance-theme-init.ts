@@ -12,7 +12,7 @@ export const workspaceAppearanceInitScript = `(function(){try{
   if(!workspaceId)return;
   var value=JSON.parse(localStorage.getItem('canvas.workspaceAppearance.'+workspaceId)||'null');
   if(!value||value.enabled!==true||typeof value.radiusPx!=='number'||!/^#[0-9a-f]{6}$/iu.test(value.backgroundColor)||!/^#[0-9a-f]{6}$/iu.test(value.textColor)||!/^#[0-9a-f]{6}$/iu.test(value.accentColor))return;
-  var theme=localStorage.getItem('theme')||'light';
+  var theme=localStorage.getItem('theme')||'system';
   var mode=theme==='system'?(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'):theme;
   function rgb(hex){return {r:parseInt(hex.slice(1,3),16),g:parseInt(hex.slice(3,5),16),b:parseInt(hex.slice(5,7),16)};}
   function hex(color){function channel(value){return Math.round(Math.min(255,Math.max(0,value))).toString(16).padStart(2,'0');}return '#'+channel(color.r)+channel(color.g)+channel(color.b);}
