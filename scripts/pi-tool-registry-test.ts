@@ -1071,6 +1071,14 @@ async function main() {
   assert.equal(sessionSearchMetadata.group, 'Session');
   assert.deepEqual(sessionSearchMetadata.toolsets, ['session_search']);
   assert.equal(sessionSearchMetadata.planningModeAllowed, true);
+  for (const toolName of ['create_human_todo', 'list_human_todos', 'inspect_human_todo', 'update_human_todo']) {
+    const todoMetadata = metadata.find((tool) => tool.name === toolName);
+    assert.ok(todoMetadata);
+    assert.equal(todoMetadata.group, 'Todo');
+    assert.deepEqual(todoMetadata.toolsets, ['todo']);
+    assert.equal(todoMetadata.defaultEnabled, true);
+    assert.equal(todoMetadata.planningModeAllowed, toolName === 'list_human_todos' || toolName === 'inspect_human_todo');
+  }
   const inspectAutomationMetadata = metadata.find((tool) => tool.name === 'inspect_automation_job');
   assert.ok(inspectAutomationMetadata);
   assert.equal(inspectAutomationMetadata.group, 'Automation');
@@ -1155,6 +1163,7 @@ async function main() {
   assert.ok(restrictedRuntimeTools.some((tool) => tool.name === 'email_search_messages'));
   assert.equal(restrictedRuntimeTools.some((tool) => tool.name === 'email'), false);
   assert.equal(restrictedRuntimeTools.some((tool) => tool.name === 'email_send_draft'), false);
+  assert.equal(restrictedRuntimeTools.some((tool) => tool.name === 'update_human_todo'), false);
 
   const eventAutomationToolNames = filterEmailEventAutomationTools([
     ...restrictedRuntimeTools,

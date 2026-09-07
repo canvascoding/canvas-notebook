@@ -20,6 +20,8 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'inspect_automation_job',
   'list_agents',
   'inspect_agent',
+  'list_human_todos',
+  'inspect_human_todo',
 ]);
 
 export function filterToolsForPlanningMode(tools: AgentTool[]): AgentTool[] {

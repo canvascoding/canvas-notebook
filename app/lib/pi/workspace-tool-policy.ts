@@ -15,6 +15,8 @@ const WRITE_WORKSPACE_TOOL_NAMES = new Set([
   'pdf_to_markdown',
   'split_pdf',
   'edit_pdf_pages',
+  'create_human_todo',
+  'update_human_todo',
 ]);
 const DELETE_WORKSPACE_TOOL_NAMES = new Set(['delete_path', 'move_path']);
 const SHARE_WORKSPACE_TOOL_NAMES = new Set(['public_share_file']);

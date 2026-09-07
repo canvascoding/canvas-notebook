@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { createHumanTodoTool } from '@/app/lib/pi/human-todo-tool';
+import { createHumanTodoTool, createHumanTodoTools } from '@/app/lib/pi/human-todo-tool';
 import { db } from '@/app/lib/db';
 import { todoCategories, todoFileLinks, todoItems, user } from '@/app/lib/db/schema';
 import { DEFAULT_TODO_CATEGORY_NAME, getDefaultTodoCategoryKey } from '@/app/lib/todos/store';
@@ -20,6 +20,13 @@ async function main() {
   });
 
   const tool = createHumanTodoTool({ userId, agentId: 'canvas-agent', sessionId: 'session-from-runtime' });
+  const tools = createHumanTodoTools({ userId, agentId: 'canvas-agent', sessionId: 'session-from-runtime' });
+  assert.deepEqual(tools.map((entry) => entry.name), [
+    'create_human_todo',
+    'list_human_todos',
+    'inspect_human_todo',
+    'update_human_todo',
+  ]);
   const parameterSchema = tool.parameters as unknown as {
     properties?: Record<string, unknown>;
     required?: string[];
@@ -52,6 +59,68 @@ async function main() {
   assert.equal(rows[0].iconKey, 'eye');
   assert.equal(rows[0].remindAt?.toISOString(), '2026-12-01T09:00:00.000Z');
   assert.equal(rows[0].assigneeUserId, userId);
+
+  const listTool = tools.find((entry) => entry.name === 'list_human_todos');
+  const inspectTool = tools.find((entry) => entry.name === 'inspect_human_todo');
+  const updateTool = tools.find((entry) => entry.name === 'update_human_todo');
+  assert.ok(listTool);
+  assert.ok(inspectTool);
+  assert.ok(updateTool);
+
+  const listResult = await listTool.execute('tool-test-list', { query: 'generated summary', status: 'open' });
+  assert.match(listResult.content?.[0]?.type === 'text' ? listResult.content[0].text : '', /Review generated summary/);
+
+  const inspectResult = await inspectTool.execute('tool-test-inspect', { todoId: rows[0].id });
+  const inspectText = inspectResult.content?.[0]?.type === 'text' ? inspectResult.content[0].text : '';
+  assert.match(inspectText, new RegExp(`ID: ${rows[0].id}`));
+  assert.match(inspectText, new RegExp(`Updated at: ${rows[0].updatedAt.toISOString()}`));
+
+  const updateResult = await updateTool.execute('tool-test-update', {
+    todoId: rows[0].id,
+    expectedUpdatedAt: rows[0].updatedAt.toISOString(),
+    title: 'Approve generated summary',
+    description: null,
+    categoryName: 'Freigabe',
+    priority: 'low',
+    iconKey: null,
+    dueAt: '2026-12-02T10:00:00.000Z',
+    remindAt: null,
+    assigneeUserId: null,
+    fileLinks: [{ workspacePath: 'reviews/summary.md', label: 'Summary' }],
+    status: 'done',
+  });
+  assert.match(updateResult.content?.[0]?.type === 'text' ? updateResult.content[0].text : '', /Human to-do updated/);
+  const updated = await db.query.todoItems.findFirst({ where: eq(todoItems.id, rows[0].id) });
+  assert.ok(updated);
+  assert.equal(updated.title, 'Approve generated summary');
+  assert.equal(updated.description, null);
+  assert.equal(updated.priority, 'low');
+  assert.equal(updated.iconKey, null);
+  assert.equal(updated.dueAt?.toISOString(), '2026-12-02T10:00:00.000Z');
+  assert.equal(updated.remindAt, null);
+  assert.equal(updated.assigneeUserId, null);
+  assert.equal(updated.status, 'done');
+  const updatedCategory = updated.categoryId
+    ? await db.query.todoCategories.findFirst({ where: eq(todoCategories.id, updated.categoryId) })
+    : null;
+  assert.equal(updatedCategory?.name, 'Approval');
+  const updatedLinks = await db.select().from(todoFileLinks).where(eq(todoFileLinks.todoId, rows[0].id));
+  assert.deepEqual(updatedLinks.map((link) => ({ path: link.workspacePath, label: link.label })), [
+    { path: 'reviews/summary.md', label: 'Summary' },
+  ]);
+
+  const concurrentUpdatedAt = new Date(updated.updatedAt.getTime() + 1_000);
+  await db.update(todoItems).set({ title: 'Changed by another actor', updatedAt: concurrentUpdatedAt }).where(eq(todoItems.id, rows[0].id));
+  const staleUpdateResult = await updateTool.execute('tool-test-stale-update', {
+    todoId: rows[0].id,
+    expectedUpdatedAt: updated.updatedAt.toISOString(),
+    title: 'Overwrite concurrent change',
+    fileLinks: [],
+  });
+  assert.match(staleUpdateResult.content?.[0]?.type === 'text' ? staleUpdateResult.content[0].text : '', /changed since it was inspected/);
+  const afterStaleUpdate = await db.query.todoItems.findFirst({ where: eq(todoItems.id, rows[0].id) });
+  assert.equal(afterStaleUpdate?.title, 'Changed by another actor');
+  assert.equal((await db.select().from(todoFileLinks).where(eq(todoFileLinks.todoId, rows[0].id))).length, 1);
 
   const category = await db.query.todoCategories.findFirst({
     where: and(eq(todoCategories.id, rows[0].categoryId!), eq(todoCategories.userId, userId)),

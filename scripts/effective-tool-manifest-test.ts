@@ -38,6 +38,14 @@ assert.match(directPrompt, /Email safety/);
 assert.doesNotMatch(directPrompt, /`write`/);
 assert.doesNotMatch(directPrompt, /MCP gateway/);
 
+const todoManifest = buildEffectiveToolManifest([
+  tool('create_human_todo'),
+  tool('list_human_todos'),
+  tool('inspect_human_todo'),
+  tool('update_human_todo'),
+]);
+assert.deepEqual(todoManifest.tools.map((entry) => entry.group), ['Todo', 'Todo', 'Todo', 'Todo']);
+
 const gateway = {
   ...tool('studio', 'Studio gateway'),
   label: 'Studio',

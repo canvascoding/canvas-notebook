@@ -102,7 +102,7 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
   todo: {
     name: 'todo',
     label: 'To-do',
-    description: 'Create human-visible to-dos for review, approval, follow-up, or offline work.',
+    description: 'List, inspect, create, and update human-visible to-dos for review, approval, follow-up, or offline work.',
   },
   web: {
     name: 'web',
@@ -188,7 +188,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
     'studio_list_styles',
   ]),
   terminal: new Set(['bash']),
-  todo: new Set(['create_human_todo']),
+  todo: new Set(['create_human_todo', 'list_human_todos', 'inspect_human_todo', 'update_human_todo']),
   web: new Set(['web_search', 'web_fetch']),
 };
 

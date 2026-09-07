@@ -36,7 +36,7 @@ import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { createSessionSearchTool } from '@/app/lib/pi/session-search-tool';
 import { createDelegateTaskTool } from '@/app/lib/pi/delegate-task-tool';
-import { createHumanTodoTool } from '@/app/lib/pi/human-todo-tool';
+import { createHumanTodoTools } from '@/app/lib/pi/human-todo-tool';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import {
@@ -1279,7 +1279,7 @@ export function createUserScopedTools(
     createMcpProxyTool(userId),
     createMemoryTool(userId, agentId, options.accountLocale),
     createSessionSearchTool({ userId, agentId, sessionId }),
-    createHumanTodoTool({ userId, agentId, sessionId }),
+    ...createHumanTodoTools({ userId, agentId, sessionId }),
     createPublicShareTool(userId, agentId, sessionId),
     createBrowserGatewayTool({ userId, agentId: sourceAgentId, sessionId }),
     ...createAgentSkillTools(userId),

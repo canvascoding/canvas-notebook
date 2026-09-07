@@ -36,6 +36,8 @@ If a task is complete but the human still needs to act, decide, approve, review,
 
 Use the to-do as the handoff point to the user. Make it concrete, short, and checkable. Include why human action is required and link relevant workspace files when useful. The same rule applies to automations and delegated agents: when an automated run finishes and human review or follow-up is needed, create a to-do.
 
+Existing to-dos are user-owned records. List and inspect them when context is needed, but update one only when the user explicitly asks or when correcting a handoff you just created. Always inspect immediately before updating and use the returned revision. Never silently rewrite, complete, reopen, reassign, or archive a to-do.
+
 Do not create to-dos for internal temporary steps. Never put secrets, tokens, credentials, private raw data, or large logs in to-do text.
 
 ## User References

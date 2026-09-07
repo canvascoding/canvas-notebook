@@ -8,10 +8,22 @@ function tool(name: string): AgentTool {
 }
 
 const readOnly = filterToolsForWorkspacePermissions(
-  ['read', 'write', 'edit_file', 'delete_path', 'move_path', 'public_share_file', 'create_pdf'].map(tool),
+  [
+    'read',
+    'write',
+    'edit_file',
+    'delete_path',
+    'move_path',
+    'public_share_file',
+    'create_pdf',
+    'create_human_todo',
+    'list_human_todos',
+    'inspect_human_todo',
+    'update_human_todo',
+  ].map(tool),
   { canWrite: false, canDelete: false, canShare: false },
 ).map((entry) => entry.name);
-assert.deepEqual(readOnly, ['read']);
+assert.deepEqual(readOnly, ['read', 'list_human_todos', 'inspect_human_todo']);
 
 const writableNoDelete = filterToolsForWorkspacePermissions(
   ['read', 'write', 'delete_path', 'move_path', 'public_share_file'].map(tool),

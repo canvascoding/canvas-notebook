@@ -48,7 +48,7 @@ function toolGroup(name: string): string {
   if (name.startsWith('studio_') || name === 'studio') return 'Studio';
   if (name === 'pdf' || ['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages'].includes(name)) return 'Documents';
   if (name.startsWith('web_')) return 'Web';
-  if (name === 'create_human_todo') return 'Todo';
+  if (name.includes('human_todo')) return 'Todo';
   if (name === 'canvas_extensions' || name.includes('canvas_skill') || name.includes('canvas_plugin')) return 'Skills';
   return 'Core';
 }
