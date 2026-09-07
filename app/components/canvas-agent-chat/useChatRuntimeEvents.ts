@@ -865,6 +865,9 @@ export function useChatRuntimeEvents({
         piMessage: toolResultPiMessage,
         attachments: resultAttachments.length > 0 ? resultAttachments : undefined,
       });
+      if (!isError && (event.toolName === 'create_human_todo' || event.toolName === 'update_human_todo')) {
+        window.dispatchEvent(new CustomEvent('todo_updated', { detail: resultDetails }));
+      }
       return;
     }
 

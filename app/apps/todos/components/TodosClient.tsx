@@ -918,6 +918,16 @@ export function TodosClient({ title }: { title: string }) {
   }, [loadAssignees, loadTodos, t]);
 
   useEffect(() => {
+    const refreshTodos = () => {
+      void loadTodos().catch((error) => {
+        toast.error(error instanceof Error ? error.message : t('errors.loadFailed'));
+      });
+    };
+    window.addEventListener('todo_updated', refreshTodos);
+    return () => window.removeEventListener('todo_updated', refreshTodos);
+  }, [loadTodos, t]);
+
+  useEffect(() => {
     if (!editorOpen) return;
 
     const controller = new AbortController();
