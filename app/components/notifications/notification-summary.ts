@@ -2,7 +2,7 @@
 
 export type NotificationItem = {
   id: string;
-  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed';
+  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'memory.approval_required';
   title: string;
   detail: string | null;
   occurredAt: string;
@@ -17,7 +17,8 @@ export type NotificationItem = {
     | { kind: 'email'; scope: 'personal' | 'workspace'; caseId?: string; draftId?: string }
     | { kind: 'todo'; todoId: string }
     | { kind: 'studio'; generationId: string }
-    | { kind: 'automation'; runId: string };
+    | { kind: 'automation'; runId: string }
+    | { kind: 'memory'; scope: 'workspace' | 'organization'; entryId: string; collectionId: string; workspaceId?: string; organizationId?: string };
 };
 
 export type NotificationSummary = {
@@ -31,6 +32,7 @@ export type NotificationSummary = {
     emailAttention: number;
     studio: number;
     automation: number;
+    memoryApprovals: number;
   };
   items: NotificationItem[];
   sections: {

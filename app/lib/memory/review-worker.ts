@@ -165,6 +165,7 @@ function buildReviewPrompt(input: {
       `The available scopes are ${input.allowedTargets.map((target) => `"${target}"`).join(', ')}. Never emit IDs for users, agents, workspaces, organizations, sessions, or collections.`,
       'Workspace and organization candidates must use action "add" only; they become pending suggestions for a manager. For a private correction, use action "update" and an existing entryId or semanticKey. Never update or archive a pinned entry. Prefer no candidate when uncertain.',
       'Each content value must be self-contained, factual, and at most 800 characters. Sensitive content needs sensitivity "sensitive"; it may be discarded by policy.',
+      'Assign priority on the full 0-100 scale: 0-24 low/rare context, 25-49 background context, 50-69 normal recurring context, 70-89 important operating preference or decision, 90-100 essential identity, safety, or hard constraint. Do not default every candidate to 50. Higher priority is selected earlier when the prompt budget is limited.',
       memoryReviewLanguageInstruction(input.locale),
       MEMORY_MARKDOWN_CONTENT_GUIDANCE,
       'Use only these stable categories: user = profile, preferences, communication, interests, tech-stack, recent-work, area; agent = agent-context; workspace or organization = profile, context, decisions, conventions, brand.',

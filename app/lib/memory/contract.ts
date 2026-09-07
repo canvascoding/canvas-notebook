@@ -47,6 +47,26 @@ export const MEMORY_REVIEW_IDLE_FLUSH_MS = 15 * 60 * 1000;
 export const MEMORY_REVIEW_MAX_ATTEMPTS = 3;
 export const MEMORY_REVIEW_OUTPUT_TOKENS = 1_200;
 export const MEMORY_PENDING_ARCHIVE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
+export const DEFAULT_MEMORY_PRIORITY = 50;
+export const DEFAULT_MANUAL_MEMORY_PRIORITY = 70;
+
+export const MEMORY_PRIORITY_BANDS = [
+  { id: 'low', min: 0, max: 24 },
+  { id: 'background', min: 25, max: 49 },
+  { id: 'normal', min: 50, max: 69 },
+  { id: 'important', min: 70, max: 89 },
+  { id: 'essential', min: 90, max: 100 },
+] as const;
+export type MemoryPriorityBand = (typeof MEMORY_PRIORITY_BANDS)[number]['id'];
+
+export function memoryPriorityBand(priority: number): MemoryPriorityBand {
+  const normalized = Math.max(0, Math.min(100, Math.round(priority)));
+  return MEMORY_PRIORITY_BANDS.find((band) => normalized >= band.min && normalized <= band.max)?.id ?? 'normal';
+}
+
+export function isMemoryPriority(priority: unknown): priority is number {
+  return Number.isInteger(priority) && Number(priority) >= 0 && Number(priority) <= 100;
+}
 
 export const MEMORY_RECOMMENDED_ENTRY_CHARS = 400;
 export const MEMORY_MAX_ENTRY_CHARS = 800;

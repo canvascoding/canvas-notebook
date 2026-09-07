@@ -10,6 +10,7 @@ import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { MemoryMarkdownContent } from '@/app/components/settings/MemoryMarkdownContent';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { memoryCategoryDescription, memoryCategoryLabel, type MemoryDisplayLocale } from '@/app/lib/memory/categories';
+import { DEFAULT_MANUAL_MEMORY_PRIORITY, memoryPriorityBand } from '@/app/lib/memory/contract';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,6 +32,7 @@ import {
 import { cn } from '@/lib/utils';
 
 type MemoryScope = 'user' | 'agent' | 'workspace' | 'organization';
+type MemoryEntryView = 'published' | 'pending' | 'archived';
 
 type Entry = {
   id: string;
@@ -53,7 +55,10 @@ type Collection = {
   status: 'active' | 'archived';
   updatedAt: number;
   entryCount: number;
+  publishedCount: number;
   pendingCount: number;
+  archivedCount: number;
+  totalCount: number;
 };
 
 type MemorySettings = {
@@ -101,11 +106,16 @@ type MemoryPermissions = {
 };
 
 type MemoryResponse<T> = { success?: boolean; data?: T; error?: string };
+type MemoryMutationResponse = { entry?: Entry; changed: boolean };
 
 const MEMORY_SCOPES: MemoryScope[] = ['user', 'agent', 'workspace', 'organization'];
 
 function scopeFromParam(value: string | null): MemoryScope {
   return value === 'agent' || value === 'workspace' || value === 'organization' ? value : 'user';
+}
+
+function entryViewFromParam(value: string | null): MemoryEntryView {
+  return value === 'pending' || value === 'archived' ? value : 'published';
 }
 
 function formatDate(value: number, locale: MemoryDisplayLocale): string {
@@ -121,21 +131,31 @@ async function readJson<T>(input: RequestInfo | URL, init?: RequestInit): Promis
   return payload.data;
 }
 
-function queryForScope(scope: MemoryScope, agentId: string | null, workspaceId: string | null, collectionId?: string | null, includeArchived = false) {
+function queryForScope(
+  scope: MemoryScope,
+  agentId: string | null,
+  workspaceId: string | null,
+  collectionId?: string | null,
+  status?: MemoryEntryView,
+) {
   const query = new URLSearchParams({ scope });
   if (scope === 'agent' && agentId) query.set('agentId', agentId);
   if (scope === 'workspace' && workspaceId) query.set('workspaceId', workspaceId);
   if (collectionId) query.set('collectionId', collectionId);
-  if (includeArchived) query.set('includeArchived', '1');
+  if (status) query.set('status', status);
   return query;
 }
 
 export function MemorySettingsPanel() {
   const searchParams = useSearchParams();
+  const locationQuery = searchParams.toString();
   const t = useTranslations('settings.memoryPanel');
   const locale: MemoryDisplayLocale = useLocale() === 'en' ? 'en' : 'de';
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const workspacesLoading = useWorkspaceStore((state) => state.isLoading);
+  const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
-  const workspaceId = searchParams.get('workspaceId') || activeWorkspace?.id || null;
+  const [workspaceId, setWorkspaceId] = useState<string | null>(() => searchParams.get('workspaceId') || activeWorkspace?.id || null);
   const [agentId, setAgentId] = useState<string | null>(() => searchParams.get('agentId'));
   const [scope, setScope] = useState<MemoryScope>(() => scopeFromParam(searchParams.get('scope')));
   const [agentOwners, setAgentOwners] = useState<AgentMemoryOwner[]>([]);
@@ -143,15 +163,17 @@ export function MemorySettingsPanel() {
   const [transferTargetAgentId, setTransferTargetAgentId] = useState('');
   const [ownerOperation, setOwnerOperation] = useState<string | null>(null);
   const [agentDeletionDialogOpen, setAgentDeletionDialogOpen] = useState(false);
+  const initialCollectionIdRef = useRef(searchParams.get('collectionId'));
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [permissions, setPermissions] = useState<MemoryPermissions | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
+  const [entryView, setEntryView] = useState<MemoryEntryView>(() => entryViewFromParam(searchParams.get('status')));
   const [entryQuery, setEntryQuery] = useState('');
   const [entrySort, setEntrySort] = useState<'priority' | 'updated' | 'lastUsed'>('priority');
   const [historyForEntryId, setHistoryForEntryId] = useState<string | null>(null);
   const [entryHistory, setEntryHistory] = useState<MemoryEvent[]>([]);
+  const [highlightedEntryId, setHighlightedEntryId] = useState<string | null>(() => searchParams.get('entryId'));
   const [settings, setSettings] = useState<MemorySettings | null>(null);
   const [runtimeDraftChanged, setRuntimeDraftChanged] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -160,27 +182,49 @@ export function MemorySettingsPanel() {
   const [runtimeSaving, setRuntimeSaving] = useState(false);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
+  const [draftPriority, setDraftPriority] = useState(DEFAULT_MANUAL_MEMORY_PRIORITY);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState('');
+  const [editingPriority, setEditingPriority] = useState(DEFAULT_MANUAL_MEMORY_PRIORITY);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [importEntries, setImportEntries] = useState<string[] | null>(null);
   const [deletionDialogOpen, setDeletionDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const lastLocationQueryRef = useRef(locationQuery);
+  const collectionLoadVersionRef = useRef(0);
+  const entryLoadVersionRef = useRef(0);
 
   const selectedProvider = useMemo(
     () => settings?.providers.find((provider) => provider.installationId === settings.providerInstallationId) ?? null,
     [settings],
   );
   const selectedAgentOwner = useMemo(() => agentOwners.find((owner) => owner.agentId === agentId) ?? null, [agentId, agentOwners]);
+  const accessibleWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => workspace.status === 'active' && workspace.permissions.canRead),
+    [workspaces],
+  );
+  const selectedWorkspace = useMemo(
+    () => accessibleWorkspaces.find((workspace) => workspace.id === workspaceId) ?? null,
+    [accessibleWorkspaces, workspaceId],
+  );
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
     [collections, selectedCollectionId],
   );
+  const selectedViewCount = selectedCollection
+    ? entryView === 'published'
+      ? selectedCollection.publishedCount
+      : entryView === 'pending'
+        ? selectedCollection.pendingCount
+        : selectedCollection.archivedCount
+    : 0;
   const activeTransferTargets = useMemo(() => agentOwners.filter((owner) => owner.status === 'active' && owner.agentId !== agentId), [agentId, agentOwners]);
   const agentMemoryReadOnly = scope === 'agent' && selectedAgentOwner?.status === 'deleted';
-  const canUseScope = scope === 'agent' ? Boolean(agentId && selectedAgentOwner) : scope !== 'workspace' || Boolean(workspaceId);
+  const canUseScope = scope === 'agent'
+    ? Boolean(agentId && selectedAgentOwner)
+    : scope !== 'workspace' || Boolean(workspaceId && selectedWorkspace);
   const reviewerActive = Boolean(settings?.automaticMemoryEnabled && settings.memoryReviewWorkerAvailable);
   const query = useMemo(() => queryForScope(scope, agentId, workspaceId), [agentId, scope, workspaceId]);
   const visibleEntries = useMemo(() => {
@@ -201,16 +245,111 @@ export function MemorySettingsPanel() {
   }, []);
 
   const selectAgentOwner = useCallback((nextAgentId: string) => {
+    collectionLoadVersionRef.current += 1;
+    entryLoadVersionRef.current += 1;
     setAgentId(nextAgentId);
     setSelectedCollectionId(null);
     setEntries([]);
+    setHighlightedEntryId(null);
+    setEntryView('published');
     setTransferTargetAgentId('');
     const url = new URL(window.location.href);
     url.searchParams.set('tab', 'memory');
     url.searchParams.set('scope', 'agent');
     url.searchParams.set('agentId', nextAgentId);
+    url.searchParams.set('status', 'published');
+    url.searchParams.delete('collectionId');
+    url.searchParams.delete('entryId');
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   }, []);
+
+  const selectWorkspace = useCallback((nextWorkspaceId: string) => {
+    collectionLoadVersionRef.current += 1;
+    entryLoadVersionRef.current += 1;
+    setWorkspaceId(nextWorkspaceId);
+    setSelectedCollectionId(null);
+    setEntries([]);
+    setEntryView('published');
+    setEntryQuery('');
+    setHistoryForEntryId(null);
+    setEntryHistory([]);
+    setEditingId(null);
+    setHighlightedEntryId(null);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', 'memory');
+    url.searchParams.set('scope', 'workspace');
+    url.searchParams.set('workspaceId', nextWorkspaceId);
+    url.searchParams.delete('collectionId');
+    url.searchParams.delete('entryId');
+    url.searchParams.set('status', 'published');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  useEffect(() => {
+    void hydrateWorkspaces();
+  }, [hydrateWorkspaces]);
+
+  useEffect(() => {
+    const previousQuery = lastLocationQueryRef.current;
+    if (previousQuery === locationQuery) return;
+    lastLocationQueryRef.current = locationQuery;
+    const previousParams = new URLSearchParams(previousQuery);
+    const params = new URLSearchParams(locationQuery);
+    const nextScope = scopeFromParam(params.get('scope'));
+    const nextWorkspaceId = params.get('workspaceId');
+    const nextAgentId = params.get('agentId');
+    const nextCollectionId = params.get('collectionId');
+    const nextEntryView = entryViewFromParam(params.get('status'));
+    const nextHighlightedEntryId = params.get('entryId');
+    const scopeChanged = nextScope !== scopeFromParam(previousParams.get('scope'));
+    const workspaceChanged = nextScope === 'workspace' && nextWorkspaceId !== previousParams.get('workspaceId');
+    const agentChanged = nextScope === 'agent' && nextAgentId !== previousParams.get('agentId');
+    const collectionChanged = nextCollectionId !== previousParams.get('collectionId');
+    const viewChanged = nextEntryView !== entryViewFromParam(previousParams.get('status'));
+
+    if (scopeChanged || workspaceChanged || agentChanged || collectionChanged) {
+      collectionLoadVersionRef.current += 1;
+      entryLoadVersionRef.current += 1;
+    } else if (viewChanged) {
+      entryLoadVersionRef.current += 1;
+    }
+
+    initialCollectionIdRef.current = nextCollectionId;
+    const timer = window.setTimeout(() => {
+      if (scopeChanged || workspaceChanged || agentChanged) {
+        setCollections([]);
+        setSelectedCollectionId(nextCollectionId);
+        setEntries([]);
+        setEntryQuery('');
+        setHistoryForEntryId(null);
+        setEntryHistory([]);
+        setEditingId(null);
+        setLoading(true);
+      } else if (collectionChanged || viewChanged) {
+        setEntries([]);
+        setEntryQuery('');
+        setHistoryForEntryId(null);
+        setEntryHistory([]);
+        setEditingId(null);
+      }
+
+      setScope(nextScope);
+      if (nextScope === 'workspace') setWorkspaceId(nextWorkspaceId);
+      if (nextScope === 'agent') setAgentId(nextAgentId);
+      if (collectionChanged) setSelectedCollectionId(nextCollectionId);
+      setEntryView(nextEntryView);
+      setHighlightedEntryId(nextHighlightedEntryId);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [locationQuery]);
+
+  useEffect(() => {
+    if (scope !== 'workspace' || workspacesLoading || selectedWorkspace) return;
+    const fallback = accessibleWorkspaces.find((workspace) => workspace.id === activeWorkspace?.id) ?? accessibleWorkspaces[0];
+    if (!fallback) return;
+    const timer = window.setTimeout(() => selectWorkspace(fallback.id), 0);
+    return () => window.clearTimeout(timer);
+  }, [accessibleWorkspaces, activeWorkspace?.id, scope, selectWorkspace, selectedWorkspace, workspacesLoading]);
 
   const loadAgentOwners = useCallback(async () => {
     try {
@@ -228,29 +367,37 @@ export function MemorySettingsPanel() {
   }, [agentId, scope, selectAgentOwner]);
 
   const loadCollections = useCallback(async (preferredCollectionId?: string | null) => {
+    const loadVersion = ++collectionLoadVersionRef.current;
     if (!canUseScope) {
-      setCollections([]);
-      setEntries([]);
-      setSelectedCollectionId(null);
+      if (loadVersion === collectionLoadVersionRef.current) {
+        setCollections([]);
+        setEntries([]);
+        setSelectedCollectionId(null);
+      }
       return;
     }
     const data = await readJson<{ collections: Collection[]; entries: Entry[]; permissions: MemoryPermissions }>(`/api/memory?${query.toString()}`);
+    if (loadVersion !== collectionLoadVersionRef.current) return;
     setCollections(data.collections);
     setPermissions(data.permissions);
-    const selected = preferredCollectionId && data.collections.some((collection) => collection.id === preferredCollectionId)
-      ? preferredCollectionId
+    const requestedCollectionId = preferredCollectionId ?? initialCollectionIdRef.current;
+    initialCollectionIdRef.current = null;
+    const selected = requestedCollectionId && data.collections.some((collection) => collection.id === requestedCollectionId)
+      ? requestedCollectionId
       : data.collections[0]?.id ?? null;
     setSelectedCollectionId(selected);
   }, [canUseScope, query]);
 
-  const loadEntries = useCallback(async (collectionId: string | null) => {
+  const loadEntries = useCallback(async (collectionId: string | null, requestedView = entryView) => {
+    const loadVersion = ++entryLoadVersionRef.current;
     if (!collectionId || !canUseScope) {
-      setEntries([]);
+      if (loadVersion === entryLoadVersionRef.current) setEntries([]);
       return;
     }
-    const data = await readJson<{ entries: Entry[] }>(`/api/memory?${queryForScope(scope, agentId, workspaceId, collectionId, showArchived).toString()}`);
+    const data = await readJson<{ entries: Entry[] }>(`/api/memory?${queryForScope(scope, agentId, workspaceId, collectionId, requestedView).toString()}`);
+    if (loadVersion !== entryLoadVersionRef.current) return;
     setEntries(data.entries);
-  }, [agentId, canUseScope, scope, showArchived, workspaceId]);
+  }, [agentId, canUseScope, entryView, scope, workspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,8 +418,18 @@ export function MemorySettingsPanel() {
     return () => window.clearTimeout(timer);
   }, [loadEntries, selectedCollectionId, t]);
 
+  useEffect(() => {
+    if (!highlightedEntryId || !entries.some((entry) => entry.id === highlightedEntryId)) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(`memory-entry-${highlightedEntryId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [entries, highlightedEntryId]);
+
   const setScopeWithUrl = (nextScope: MemoryScope) => {
     if (nextScope === scope) return;
+    collectionLoadVersionRef.current += 1;
+    entryLoadVersionRef.current += 1;
     setLoading(true);
     setCollections([]);
     setEntries([]);
@@ -280,12 +437,17 @@ export function MemorySettingsPanel() {
     setHistoryForEntryId(null);
     setEntryHistory([]);
     setEditingId(null);
+    setHighlightedEntryId(null);
+    setEntryView('published');
     setScope(nextScope);
     const url = new URL(window.location.href);
     url.searchParams.set('tab', 'memory');
     url.searchParams.set('scope', nextScope);
     if (nextScope === 'workspace' && workspaceId) url.searchParams.set('workspaceId', workspaceId);
     if (nextScope === 'agent' && agentId) url.searchParams.set('agentId', agentId);
+    url.searchParams.set('status', 'published');
+    url.searchParams.delete('collectionId');
+    url.searchParams.delete('entryId');
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   };
 
@@ -356,21 +518,63 @@ export function MemorySettingsPanel() {
     }
   };
 
-  const refreshScope = async () => {
+  const refreshScope = async (requestedView = entryView) => {
     await loadCollections(selectedCollectionId);
-    await loadEntries(selectedCollectionId);
+    await loadEntries(selectedCollectionId, requestedView);
+  };
+
+  const selectEntryView = (nextView: MemoryEntryView) => {
+    entryLoadVersionRef.current += 1;
+    setEntryView(nextView);
+    setEntryQuery('');
+    setHistoryForEntryId(null);
+    setEntryHistory([]);
+    setEditingId(null);
+    setHighlightedEntryId(null);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', 'memory');
+    url.searchParams.set('scope', scope);
+    url.searchParams.set('status', nextView);
+    if (selectedCollectionId) url.searchParams.set('collectionId', selectedCollectionId);
+    url.searchParams.delete('entryId');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  };
+
+  const selectCollection = (collectionId: string) => {
+    collectionLoadVersionRef.current += 1;
+    entryLoadVersionRef.current += 1;
+    setSelectedCollectionId(collectionId);
+    setEntryQuery('');
+    setHistoryForEntryId(null);
+    setEntryHistory([]);
+    setEditingId(null);
+    setHighlightedEntryId(null);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', 'memory');
+    url.searchParams.set('scope', scope);
+    url.searchParams.set('collectionId', collectionId);
+    url.searchParams.set('status', entryView);
+    url.searchParams.delete('entryId');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   };
 
   const addEntry = async () => {
     if (!draft.trim()) return;
     setAdding(true); setError(null); setNotice(null);
     try {
-      await readJson('/api/memory', {
+      const result = await readJson<MemoryMutationResponse>('/api/memory', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope, agentId, workspaceId, content: draft }),
+        body: JSON.stringify({ scope, agentId, workspaceId, content: draft, priority: draftPriority }),
       });
-      setDraft(''); setNotice(scope === 'workspace' || scope === 'organization' ? t('notices.suggestionCreated') : t('notices.memorySaved'));
-      await refreshScope();
+      const nextView: MemoryEntryView = result.entry?.status === 'pending' ? 'pending' : 'published';
+      setDraft('');
+      setNotice(result.entry?.status === 'pending' ? t('notices.suggestionCreated') : t('notices.memorySaved'));
+      setHighlightedEntryId(result.entry?.id ?? null);
+      if (result.entry?.collectionId) setSelectedCollectionId(result.entry.collectionId);
+      selectEntryView(nextView);
+      await loadCollections(result.entry?.collectionId ?? selectedCollectionId);
+      await loadEntries(result.entry?.collectionId ?? selectedCollectionId, nextView);
+      window.dispatchEvent(new CustomEvent('notification_summary_updated'));
     } catch (addError) { setError(addError instanceof Error ? addError.message : t('errors.addMemory')); }
     finally { setAdding(false); }
   };
@@ -384,11 +588,12 @@ export function MemorySettingsPanel() {
       } else {
         await readJson(`/api/memory/entries/${encodeURIComponent(entry.id)}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scope, agentId, workspaceId, action, content: action === 'update' ? editingContent : undefined }),
+          body: JSON.stringify({ scope, agentId, workspaceId, action, content: action === 'update' ? editingContent : undefined, priority: action === 'update' ? editingPriority : undefined }),
         });
       }
       setEditingId(null); setNotice(action === 'publish' ? t('notices.published') : action === 'restore' ? t('notices.restored') : action === 'archive' ? t('notices.archived') : t('notices.updated'));
       await refreshScope();
+      window.dispatchEvent(new CustomEvent('notification_summary_updated'));
     } catch (mutationError) { setError(mutationError instanceof Error ? mutationError.message : t('errors.updateMemory')); }
   };
 
@@ -568,7 +773,7 @@ export function MemorySettingsPanel() {
         <div className="space-y-5">
           <div className="flex flex-wrap gap-2" role="tablist" aria-label={t('scopeAriaLabel')}>
             {MEMORY_SCOPES.map((item) => (
-              <Button key={item} variant={scope === item ? 'default' : 'outline'} size="sm" onClick={() => setScopeWithUrl(item)} disabled={item === 'workspace' && !workspaceId}>{t(`scopes.${item}`)}</Button>
+              <Button key={item} variant={scope === item ? 'default' : 'outline'} size="sm" onClick={() => setScopeWithUrl(item)} disabled={item === 'workspace' && !workspacesLoading && accessibleWorkspaces.length === 0}>{t(`scopes.${item}`)}</Button>
             ))}
           </div>
 
@@ -617,6 +822,52 @@ export function MemorySettingsPanel() {
             </Card>
           ) : null}
 
+          {scope === 'workspace' ? (
+            <Card className="border-primary/25" data-testid="workspace-memory-owner-card">
+              <CardHeader className="space-y-1">
+                <CardTitle className="text-base">{t('workspaceSelector.title')}</CardTitle>
+                <CardDescription>{t('workspaceSelector.description')}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {workspacesLoading && accessibleWorkspaces.length === 0 ? (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t('workspaceSelector.loading')}</p>
+                ) : accessibleWorkspaces.length === 0 ? (
+                  <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{t('workspaceSelector.empty')}</p>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="workspace-memory-owner">{t('workspaceSelector.label')}</Label>
+                      <select
+                        id="workspace-memory-owner"
+                        data-testid="workspace-memory-owner-select"
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        value={workspaceId ?? ''}
+                        onChange={(event) => selectWorkspace(event.target.value)}
+                      >
+                        <option value="" disabled>{t('workspaceSelector.choose')}</option>
+                        {accessibleWorkspaces.map((workspace) => (
+                          <option key={workspace.id} value={workspace.id}>
+                            {workspace.name} · {t(`workspaceSelector.types.${workspace.type}`)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {selectedWorkspace ? (
+                      <div className="rounded-lg border bg-muted/20 p-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium">{selectedWorkspace.name}</p>
+                          <Badge variant="secondary">{t(`workspaceSelector.types.${selectedWorkspace.type}`)}</Badge>
+                        </div>
+                        {selectedWorkspace.description ? <p className="mt-1 text-sm text-muted-foreground">{selectedWorkspace.description}</p> : null}
+                        <p className="mt-2 text-xs text-muted-foreground">{t('workspaceSelector.selectedHint')}</p>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader className="space-y-1">
               <CardTitle className="text-base">{t('categories.title')}</CardTitle>
@@ -639,8 +890,10 @@ export function MemorySettingsPanel() {
                       <button
                         type="button"
                         key={collection.id}
+                        data-testid="memory-category-card"
+                        data-collection-id={collection.id}
                         aria-pressed={selected}
-                        onClick={() => setSelectedCollectionId(collection.id)}
+                        onClick={() => selectCollection(collection.id)}
                         className={cn(
                           'group flex min-h-36 flex-col rounded-xl border bg-card p-4 text-left transition-[border-color,box-shadow,background-color] hover:border-primary/40 hover:bg-muted/20',
                           selected && 'border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/15',
@@ -652,13 +905,14 @@ export function MemorySettingsPanel() {
                           </span>
                           <div className="flex items-center gap-2">
                             {collection.pendingCount > 0 ? <Badge variant="outline">{t('categories.pending', { count: collection.pendingCount })}</Badge> : null}
+                            {collection.archivedCount > 0 ? <Badge variant="outline">{t('categories.archived', { count: collection.archivedCount })}</Badge> : null}
                             <ChevronRight className={cn('size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5', selected && 'text-primary')} />
                           </div>
                         </div>
                         <p className="mt-3 font-semibold tracking-tight">{categoryLabel}</p>
                         <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{categoryDescription}</p>
                         <p className="mt-auto pt-3 text-xs text-muted-foreground">
-                          {t('categories.entries', { count: collection.entryCount })} · {formatDate(collection.updatedAt, locale)}
+                          {t('categories.entries', { count: collection.totalCount })} · {formatDate(collection.updatedAt, locale)}
                         </p>
                       </button>
                     );
@@ -680,12 +934,13 @@ export function MemorySettingsPanel() {
                     <CardTitle className="text-lg">{memoryCategoryLabel(selectedCollection.category, locale)}</CardTitle>
                     <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{memoryCategoryDescription(selectedCollection.category, locale)}</p>
                     <div className="flex flex-wrap gap-2 pt-1">
-                      <Badge variant="secondary">{t('categories.entries', { count: selectedCollection.entryCount })}</Badge>
+                      <Badge variant="secondary">{t('categories.published', { count: selectedCollection.publishedCount })}</Badge>
                       {selectedCollection.pendingCount > 0 ? <Badge variant="outline">{t('categories.pending', { count: selectedCollection.pendingCount })}</Badge> : null}
+                      {selectedCollection.archivedCount > 0 ? <Badge variant="outline">{t('categories.archived', { count: selectedCollection.archivedCount })}</Badge> : null}
                     </div>
                   </div>
                 </div>
-                {selectedCollection.entryCount > 0 ? (
+                {selectedViewCount > 0 ? (
                   <Button variant="outline" size="sm" onClick={exportCurrentCollection}>
                     <Download className="mr-2 size-4" />{t('categories.export')}
                   </Button>
@@ -695,15 +950,96 @@ export function MemorySettingsPanel() {
           ) : null}
 
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">{entries.length > 0 ? <Input aria-label={t('entries.searchLabel')} value={entryQuery} onChange={(event) => setEntryQuery(event.target.value)} placeholder={t('entries.searchPlaceholder')} className="max-w-sm" /> : null}<select aria-label={t('entries.sortLabel')} className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={entrySort} onChange={(event) => setEntrySort(event.target.value as 'priority' | 'updated' | 'lastUsed')}><option value="priority">{t('entries.sortPriority')}</option><option value="updated">{t('entries.sortUpdated')}</option><option value="lastUsed">{t('entries.sortLastUsed')}</option></select>{permissions?.canArchive ? <Button size="sm" variant="outline" onClick={() => setShowArchived((value) => !value)}>{showArchived ? t('entries.hideArchived') : t('entries.showArchived')}</Button> : null}</div>
-            {visibleEntries.map((entry) => <Card key={entry.id} className={entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : ''}><CardContent className="pt-5"><div className="flex items-start justify-between gap-3"><div className="min-w-0 flex-1">{editingId === entry.id ? <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} /> : <MemoryMarkdownContent content={entry.content} />}<div className="mt-2 flex gap-2"><Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{t(`entries.status.${entry.status}`)}</Badge><span className="text-xs text-muted-foreground">{t('entries.priority', { priority: entry.priority })}</span></div></div><div className="flex shrink-0 flex-wrap justify-end gap-1">{!agentMemoryReadOnly && entry.status === 'pending' && permissions?.canPublish ? <Button size="icon" variant="outline" title={t('entries.publish')} onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status === 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title={t('entries.restore')} onClick={() => void mutateEntry(entry, 'restore')}><RotateCcw className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canUpdatePublished ? editingId === entry.id ? <Button size="icon" title={t('entries.save')} onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button> : <Button size="icon" variant="ghost" title={t('entries.edit')} onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); }}><Pencil className="size-4" /></Button> : null}{!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title={t('entries.archive')} onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button> : null}</div></div><Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? t('entries.hideHistory') : t('entries.history')}</Button>{historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt, locale)}</p>)}</div> : null}</CardContent></Card>)}
-            {!loading && selectedCollectionId && entries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">{t('entries.empty')}</p> : null}
+            {selectedCollection ? (
+              <div className="flex flex-wrap gap-2 rounded-lg border bg-muted/20 p-2" role="tablist" aria-label={t('entries.statusAriaLabel')}>
+                <Button data-testid="memory-status-published" size="sm" variant={entryView === 'published' ? 'default' : 'ghost'} onClick={() => selectEntryView('published')}>
+                  {t('entries.views.published', { count: selectedCollection.publishedCount })}
+                </Button>
+                {(selectedCollection.pendingCount > 0 || entryView === 'pending') ? (
+                  <Button data-testid="memory-status-pending" size="sm" variant={entryView === 'pending' ? 'default' : 'ghost'} onClick={() => selectEntryView('pending')}>
+                    {t('entries.views.pending', { count: selectedCollection.pendingCount })}
+                  </Button>
+                ) : null}
+                {(selectedCollection.archivedCount > 0 || entryView === 'archived') && permissions?.canArchive ? (
+                  <Button data-testid="memory-status-archived" size="sm" variant={entryView === 'archived' ? 'default' : 'ghost'} onClick={() => selectEntryView('archived')}>
+                    {t('entries.views.archived', { count: selectedCollection.archivedCount })}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="flex flex-wrap items-center justify-between gap-2">{entries.length > 0 ? <Input aria-label={t('entries.searchLabel')} value={entryQuery} onChange={(event) => setEntryQuery(event.target.value)} placeholder={t('entries.searchPlaceholder')} className="max-w-sm" /> : null}{entries.length > 0 ? <select aria-label={t('entries.sortLabel')} className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={entrySort} onChange={(event) => setEntrySort(event.target.value as 'priority' | 'updated' | 'lastUsed')}><option value="priority">{t('entries.sortPriority')}</option><option value="updated">{t('entries.sortUpdated')}</option><option value="lastUsed">{t('entries.sortLastUsed')}</option></select> : null}</div>
+            {visibleEntries.map((entry) => (
+              <Card
+                id={`memory-entry-${entry.id}`}
+                key={entry.id}
+                data-testid="memory-entry-card"
+                data-entry-id={entry.id}
+                data-entry-status={entry.status}
+                className={cn(
+                  entry.status === 'pending' ? 'border-amber-500/40 bg-amber-500/5' : entry.status === 'archived' ? 'border-dashed opacity-75' : '',
+                  highlightedEntryId === entry.id && 'ring-2 ring-primary ring-offset-2',
+                )}
+              >
+                <CardContent className="pt-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      {editingId === entry.id ? (
+                        <div className="space-y-3">
+                          <Textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} maxLength={800} />
+                          <div className="max-w-48 space-y-1">
+                            <Label htmlFor={`memory-priority-${entry.id}`}>{t('entries.priorityLabel')}</Label>
+                            <Input
+                              id={`memory-priority-${entry.id}`}
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={editingPriority}
+                              onChange={(event) => setEditingPriority(Number(event.target.value))}
+                            />
+                            <p className="text-xs text-muted-foreground">{t(`entries.priorityBands.${memoryPriorityBand(editingPriority)}`)}</p>
+                          </div>
+                        </div>
+                      ) : <MemoryMarkdownContent content={entry.content} />}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{t(`entries.status.${entry.status}`)}</Badge>
+                        <span className="text-xs text-muted-foreground">{t('entries.priorityWithBand', { priority: entry.priority, band: t(`entries.priorityBands.${memoryPriorityBand(entry.priority)}`) })}</span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                      {!agentMemoryReadOnly && entry.status === 'pending' && permissions?.canPublish ? <Button size="icon" variant="outline" title={t('entries.publish')} onClick={() => void mutateEntry(entry, 'publish')}><Send className="size-4" /></Button> : null}
+                      {!agentMemoryReadOnly && entry.status === 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title={t('entries.restore')} onClick={() => void mutateEntry(entry, 'restore')}><RotateCcw className="size-4" /></Button> : null}
+                      {!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canUpdatePublished ? editingId === entry.id
+                        ? <Button size="icon" title={t('entries.save')} disabled={editingPriority < 0 || editingPriority > 100 || !Number.isInteger(editingPriority)} onClick={() => void mutateEntry(entry, 'update')}><Check className="size-4" /></Button>
+                        : <Button size="icon" variant="ghost" title={t('entries.edit')} onClick={() => { setEditingId(entry.id); setEditingContent(entry.content); setEditingPriority(entry.priority); }}><Pencil className="size-4" /></Button>
+                        : null}
+                      {!agentMemoryReadOnly && entry.status !== 'archived' && permissions?.canArchive ? <Button size="icon" variant="ghost" title={t('entries.archive')} onClick={() => void mutateEntry(entry, 'archive')}><Archive className="size-4" /></Button> : null}
+                    </div>
+                  </div>
+                  <Button className="mt-3 px-0" size="sm" variant="link" onClick={() => void toggleEntryHistory(entry)}>{historyForEntryId === entry.id ? t('entries.hideHistory') : t('entries.history')}</Button>
+                  {historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt, locale)}</p>)}</div> : null}
+                </CardContent>
+              </Card>
+            ))}
+            {!loading && selectedCollectionId && entries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">{t(`entries.emptyViews.${entryView}`)}</p> : null}
             {!loading && entries.length > 0 && visibleEntries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">{t('entries.noSearchResults')}</p> : null}
           </div>
 
           <Card>
-            <CardHeader><CardTitle className="text-base">{t('editor.title')}</CardTitle><CardDescription>{t('editor.description')}</CardDescription></CardHeader>
-            <CardContent className="space-y-3"><Textarea value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={800} placeholder={t('editor.placeholder')} disabled={agentMemoryReadOnly} /><div className="flex items-center justify-between gap-3"><span className="text-xs text-muted-foreground">{agentMemoryReadOnly ? t('editor.deletedAgentReadOnly') : `${draft.length}/800`}</span><Button onClick={() => void addEntry()} disabled={!draft.trim() || adding || !canUseScope || agentMemoryReadOnly}>{adding ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Plus className="mr-2 size-4" />}{scope === 'workspace' || scope === 'organization' ? t('editor.suggest') : t('editor.save')}</Button></div></CardContent>
+            <CardHeader><CardTitle className="text-base">{t('editor.title')}</CardTitle><CardDescription>{scope === 'workspace' || scope === 'organization' ? permissions?.canPublish ? t('editor.sharedManagerDescription') : t('editor.sharedContributorDescription') : t('editor.description')}</CardDescription></CardHeader>
+            <CardContent className="space-y-3">
+              <Textarea value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={800} placeholder={t('editor.placeholder')} disabled={agentMemoryReadOnly} />
+              <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-end">
+                <div className="space-y-1">
+                  <Label htmlFor="new-memory-priority">{t('entries.priorityLabel')}</Label>
+                  <Input id="new-memory-priority" type="number" min={0} max={100} step={1} value={draftPriority} onChange={(event) => setDraftPriority(Number(event.target.value))} disabled={agentMemoryReadOnly} />
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {t('editor.priorityHint', { band: t(`entries.priorityBands.${memoryPriorityBand(draftPriority)}`) })}
+                </p>
+              </div>
+              <div className="flex items-center justify-between gap-3"><span className="text-xs text-muted-foreground">{agentMemoryReadOnly ? t('editor.deletedAgentReadOnly') : `${draft.length}/800`}</span><Button onClick={() => void addEntry()} disabled={!draft.trim() || adding || !canUseScope || agentMemoryReadOnly || draftPriority < 0 || draftPriority > 100 || !Number.isInteger(draftPriority)}>{adding ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Plus className="mr-2 size-4" />}{scope === 'workspace' || scope === 'organization' ? permissions?.canPublish ? t('editor.publish') : t('editor.suggest') : t('editor.save')}</Button></div>
+            </CardContent>
           </Card>
 
           {scope === 'user' ? <Card className="border-dashed">

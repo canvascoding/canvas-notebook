@@ -63,7 +63,16 @@ test.describe('Memory Manager settings', () => {
     }
     await expect(page.getByRole('button', { name: 'Import JSON' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Delete all private memory' })).toBeVisible();
+    await expect(page.locator('#new-memory-priority')).toHaveValue('70');
+    await expect(page.getByText(/Important\. Higher values are selected earlier/i)).toBeVisible();
     await expect(page.getByText('Loading memory…')).not.toBeVisible();
+
+    const workspaceTab = scopeTabs.getByRole('button', { name: 'Workspace' });
+    await expect(workspaceTab).toBeEnabled();
+    await workspaceTab.click();
+    await expect(page.getByTestId('workspace-memory-owner-card')).toBeVisible();
+    await expect(page.getByTestId('workspace-memory-owner-select')).not.toHaveValue('');
+    await expect(page).toHaveURL(/scope=workspace/u);
 
     await scopeTabs.getByRole('button', { name: 'Agent memory' }).click();
     await expect(page.getByText('Agent memory owner', { exact: true })).toBeVisible();
@@ -183,6 +192,7 @@ test.describe('Memory Manager settings', () => {
     await expect(renderedMemory.locator('li')).toHaveCount(2);
     await expect(renderedMemory.getByText(restartMemoryDetail, { exact: true })).toBeVisible();
     await expect(renderedMemory.getByText('Markdown bleibt formatiert.', { exact: true })).toBeVisible();
+    await expect(renderedMemory.locator('xpath=ancestor::*[@data-testid="memory-entry-card"]')).toContainText('Priorität 70 · Wichtig');
 
     const selectedBox = await selectedCategory.boundingBox();
     const memoryBox = await renderedMemory.boundingBox();

@@ -19,9 +19,11 @@ import {
   setAgentMemoryArchived,
   transferAgentMemory,
   updateMemoryReviewSettings,
+  type MemoryEntryView,
   type MemoryServiceScope,
 } from '@/app/lib/memory/service';
 import type { MemoryScopeType } from '@/app/lib/memory/contract';
+import { DEFAULT_MANUAL_MEMORY_PRIORITY, isMemoryPriority } from '@/app/lib/memory/contract';
 import { ensureMemoryManagerAgent, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { listManagedAgents } from '@/app/lib/agents/management-actions';
 
@@ -29,6 +31,12 @@ const MAX_MEMORY_PROMPT_TOKENS = 4_000;
 
 function normalizedString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function memoryEntryViewFromParam(value: string | null): MemoryEntryView {
+  return value === 'published' || value === 'pending' || value === 'archived' || value === 'all'
+    ? value
+    : 'active';
 }
 
 async function requireSession(request: NextRequest) {
@@ -208,7 +216,9 @@ export async function GET(request: NextRequest) {
       ? await readMemoryCollection({
         ...scope,
         collectionId: selectedCollectionId,
-        includeArchived: request.nextUrl.searchParams.get('includeArchived') === '1',
+        view: request.nextUrl.searchParams.get('includeArchived') === '1'
+          ? 'all'
+          : memoryEntryViewFromParam(request.nextUrl.searchParams.get('status')),
       })
       : { target: scope.target, entries: [] };
     return NextResponse.json({ success: true, data: { scope: scope.target, collections, entries: entries.entries, permissions } });
@@ -305,11 +315,13 @@ export async function POST(request: NextRequest) {
     }
     const content = normalizedString(payload.content);
     if (!content) throw new Error('content is required.');
+    const priority = payload.priority === undefined ? DEFAULT_MANUAL_MEMORY_PRIORITY : Number(payload.priority);
+    if (!isMemoryPriority(priority)) throw new Error('priority must be an integer from 0 to 100.');
     const scope = await scopeFromRequest(request, session.user.id, payload);
     if (scope.target === 'agent') {
       await resolveAgentMemoryOwnerForUser({ userId: session.user.id, agentId: scope.agentId!, allowDeleted: false });
     }
-    const result = await addMemory({ ...scope, content });
+    const result = await addMemory({ ...scope, content, priority, publishIfAuthorized: true });
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to add memory.';

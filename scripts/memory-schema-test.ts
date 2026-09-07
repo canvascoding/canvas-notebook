@@ -17,6 +17,7 @@ try {
     'memory_review_runtime_settings',
     'memory_collections',
     'memory_entries',
+    'memory_approval_read_states',
     'memory_events',
     'memory_review_jobs',
   ];
@@ -42,6 +43,8 @@ try {
     'automatic_memory_disabled_at',
     'settings_revision',
   ].every((column) => memorySettingsColumns.has(column)), true);
+  const memoryEntryColumns = new Set((sqlite.prepare(`PRAGMA table_info(memory_entries)`).all() as Array<{ name: string }>).map((row) => row.name));
+  assert.equal(memoryEntryColumns.has('archived_from_status'), true);
 
   sqlite.exec(`
     INSERT INTO user (id, name, email, email_verified, created_at, updated_at)
