@@ -8,7 +8,10 @@ import { yXmlFragmentToProsemirrorJSON } from 'y-prosemirror';
 import * as Y from 'yjs';
 import { Button } from '@/components/ui/button';
 import type { CollaborationDocument } from '@/app/lib/collaboration/client';
-import { workspaceHeaders } from '@/app/lib/files/client';
+import { workspaceHeaders, writeWorkspaceFile } from '@/app/lib/files/client';
+import { recordExportedCollaborationRecovery } from '@/app/lib/collaboration/local-recovery';
+import { useFileStore } from '@/app/store/file-store';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { createRichMarkdownManager, restoreRichMarkdownFinalLineEnding } from '@/app/lib/markdown/rich-markdown-codec';
 
 export type MarkdownDocumentMode = 'read' | 'rich' | 'source';
@@ -123,6 +126,8 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
   const t = useTranslations('notebook');
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [recovering, setRecovering] = useState(false);
+  const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   if (!collaboration) return null;
   const { connection, durability, clientState, session } = collaboration;
   const error = collaboration.error || retryError;
@@ -143,10 +148,28 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
     {(error || blocked || !available) && <div className="mt-2 space-y-2">
       <p role="alert">{t('editorModes.recovery')}</p>
       <div className="flex flex-wrap gap-2">
+        {blocked && available && filePath && session?.permission === 'write' && workspaceId
+          && collaboration.registryKey.startsWith(`${workspaceId}\0`) && <Button
+          variant="outline" size="sm" disabled={recovering} onClick={async () => {
+            const copyPath = filePath.replace(/(\.[^/.]+)?$/u, `.recovered-${crypto.randomUUID()}$1`);
+            setRecovering(true); setRetryError(null);
+            try {
+              await writeWorkspaceFile(copyPath, content, { workspaceId, expectedSha256: null, baseRevisionId: null });
+              if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
+                const opened = await useFileStore.getState().revealAndLoadFile(copyPath, { workspaceId });
+                if (opened.status === 'failed') throw new Error(opened.error);
+              }
+            } catch (failure) { setRetryError(failure instanceof Error ? failure.message : String(failure)); }
+            finally { setRecovering(false); }
+          }}>{t(recovering ? 'editorModes.recoveringCopy' : 'editorModes.recoverCopy')}</Button>}
         {available && <Button variant="outline" size="sm" onClick={() => download(content, filePath?.split('/').pop() || 'document.md', 'text/markdown;charset=utf-8')}>
           <Download className="size-3.5" />{t('editorModes.backup')}
         </Button>}
-        <Button variant="outline" size="sm" onClick={() => download(new Uint8Array(Y.encodeStateAsUpdate(collaboration.doc)), 'canvas-recovery.yjs', 'application/octet-stream')}>
+        <Button variant="outline" size="sm" onClick={() => {
+          const snapshot = new Uint8Array(Y.encodeStateAsUpdate(collaboration.doc));
+          download(snapshot, 'canvas-recovery.yjs', 'application/octet-stream');
+          recordExportedCollaborationRecovery(collaboration.doc, snapshot);
+        }}>
           {t('editorModes.snapshot')}
         </Button>
         {!blocked && connection === 'live' && session?.permission === 'write' && <Button variant="outline" size="sm" disabled={retrying} onClick={async () => {
@@ -155,6 +178,7 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
           finally { setRetrying(false); }
         }}>{t('editorModes.retry')}</Button>}
       </div>
+      {retryError && <p role="alert">{retryError}</p>}
       <details><summary className="cursor-pointer">{t('editorModes.diagnostics')}</summary>
         <pre className="mt-2 select-text overflow-auto whitespace-pre-wrap rounded border p-2">{diagnostic}</pre>
       </details>

@@ -16,7 +16,7 @@ import {
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { useEditorStore } from '@/app/store/editor-store';
 import { getDocumentTransitionGuard, registerDocumentTransitionGuard } from '@/app/lib/files/document-transition';
-import type { CollaborationDocument } from '@/app/lib/collaboration/client';
+import { prepareCollaborationDocumentTransition, type CollaborationDocument } from '@/app/lib/collaboration/client';
 import {
   CollaborationCheckpointRequestError,
   isCollaborationCheckpointValidationErrorCode,
@@ -927,14 +927,8 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         }
         if (!isCrdtCollaboration) return;
         if (!activeCollaborationDocument) throw new Error(t('collaboration.connecting'));
-        if (activeCollaborationDocument.connection === 'offline'
-          || activeCollaborationDocument.connection === 'denied'
-          || activeCollaborationDocument.durability === 'degraded') {
-          throw new Error(t('collaboration.closeBlocked'));
-        }
-        if (activeCollaborationDocument.durability !== 'checkpointed_file') {
-          await activeCollaborationDocument.requestCheckpoint();
-        }
+        try { await prepareCollaborationDocumentTransition(activeCollaborationDocument); }
+        catch { throw new Error(t('collaboration.closeRecoveryBlocked')); }
       },
     });
   }, [activeCollaborationDocument, activeExternalTextChangePath, currentFilePath,

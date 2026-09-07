@@ -8,6 +8,7 @@ import type * as Y from 'yjs';
 
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { CollaborationCheckpointRequestError, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
+import { prepareRecoverableCollaborationTransition, preserveLocalCollaborationRecovery } from './local-recovery';
 import {
   createInitialTextCollaborationClientState,
   reduceTextCollaborationClientState,
@@ -72,6 +73,22 @@ export type CollaborationDocument = {
 };
 
 const registry = new Map<string, RegistryEntry>();
+
+export async function prepareCollaborationDocumentTransition(document: CollaborationDocument): Promise<void> {
+  const entry = registry.get(document.registryKey);
+  if (!entry || entry.doc !== document.doc) throw new Error('Collaboration is still connecting.');
+  await prepareRecoverableCollaborationTransition({
+    doc: document.doc,
+    connection: entry.clientState.connection,
+    durability: entry.clientState.durability,
+    requestCheckpoint: entry.requestCheckpoint,
+    isCheckpointCurrent: () => entry.clientState.durability === 'checkpointed_file',
+    preserveLocalSnapshot: async () => {
+      if (!entry.persistence) throw new Error('Local collaboration storage is unavailable.');
+      await preserveLocalCollaborationRecovery(entry.persistence, document.doc);
+    },
+  });
+}
 
 function emit(entry: RegistryEntry): void {
   for (const listener of entry.listeners) listener();
