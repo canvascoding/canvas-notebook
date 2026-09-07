@@ -353,6 +353,8 @@ try {
   assert.ok(piSessionColumns.has('channel_session_key'));
   assert.ok(piSessionColumns.has('summary_through_sequence'));
   assert.ok(piSessionColumns.has('summary_revision'));
+  assert.ok(piSessionColumns.has('forked_from_session_id'));
+  assert.ok(piSessionColumns.has('forked_from_sequence'));
   const migratedSummaryRevision = sqlite.prepare(
     "SELECT summary_revision AS summaryRevision FROM pi_sessions WHERE id = 1",
   ).get() as { summaryRevision: number };

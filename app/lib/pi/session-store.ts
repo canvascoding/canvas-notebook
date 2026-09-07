@@ -5,7 +5,6 @@ import { piSessions, piMessages, aiSessions, aiMessages, sessionChannelLinks } f
 import { eq, and, asc, desc } from 'drizzle-orm';
 import { type AgentMessage } from '@earendil-works/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
-import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
 import { piSessionReadCursorSql } from '@/app/lib/chat/read-cursor';
 import {
   createSessionTitleFallback,
@@ -39,6 +38,15 @@ import {
   PiSessionRuntimeAccessError,
 } from '@/app/lib/pi/session-runtime-access';
 import { deletePiSessionsByDbIds } from './session-deletion';
+import {
+  lockPiSessionCreationForUser,
+  withPiSessionUserStateLock,
+} from './session-user-state-lock';
+
+export {
+  lockPiSessionCreationForUser,
+  withPiSessionUserStateLock,
+} from './session-user-state-lock';
 
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
@@ -144,27 +152,6 @@ function storedRuntimeSnapshotMatches(
     && session.runtimeCatalogRevision === input.runtimeSnapshot.catalogRevision
     && session.runtimePolicyRevision === input.runtimeSnapshot.policyRevision
     && session.runtimeSelectionSource === input.runtimeSnapshot.selectionSource;
-}
-
-export async function lockPiSessionCreationForUser(
-  connection: SqlConnection,
-  userId: string,
-): Promise<void> {
-  const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
-  const actor = await connection.get(
-    `SELECT id FROM "user" WHERE id = ? LIMIT 1${forUpdate}`,
-    [userId],
-  ) as { id?: string } | undefined;
-  if (!actor?.id) {
-    throw new Error('Session owner not found.');
-  }
-}
-
-export async function withPiSessionUserStateLock<T>(
-  userId: string,
-  operation: () => Promise<T>,
-): Promise<T> {
-  return withKeyedOperationLock('pi-session-user-state', JSON.stringify([userId]), operation);
 }
 
 /**

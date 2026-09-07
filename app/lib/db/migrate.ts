@@ -1104,6 +1104,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       channel_session_key TEXT,
       session_kind TEXT NOT NULL DEFAULT 'conversation' CHECK (session_kind IN ('conversation', 'delegation_worker')),
       parent_session_id TEXT,
+      forked_from_session_id TEXT,
+      forked_from_sequence INTEGER,
       delegation_id TEXT,
       delegation_depth INTEGER NOT NULL DEFAULT 0 CHECK (delegation_depth IN (0, 1)),
       organization_id TEXT,
@@ -2714,6 +2716,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     runtime_policy_revision: 'INTEGER',
     runtime_selection_source: 'TEXT',
     client_request_id: 'TEXT',
+    forked_from_session_id: 'TEXT',
+    forked_from_sequence: 'INTEGER',
   });
 
   addColumns(sqlite, 'ai_provider_installations', {

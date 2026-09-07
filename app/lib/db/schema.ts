@@ -1248,6 +1248,8 @@ export const piSessions = sqliteTable("pi_sessions", {
   channelSessionKey: text("channel_session_key"),
   sessionKind: text("session_kind").notNull().default('conversation'),
   parentSessionId: text("parent_session_id"),
+  forkedFromSessionId: text("forked_from_session_id"),
+  forkedFromSequence: integer("forked_from_sequence"),
   delegationId: text("delegation_id"),
   delegationDepth: integer("delegation_depth").notNull().default(0),
   organizationId: text("organization_id"),
