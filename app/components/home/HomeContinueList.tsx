@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowRight, ChevronDown, FileText, MessageSquare, Pin, Search, Star, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, FileText, LayoutGrid, MessageSquare, Pin, Search, Star, X } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
@@ -39,7 +39,10 @@ export function HomeContinueList({ workspace, workspaceError, revision }: { work
     </div>
     <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
       <div className="flex gap-1" role="group" aria-label={t('filters')}>
-        {(['all', 'files', 'chats'] as const).map(option => <button key={option} type="button" disabled={!workspace} aria-pressed={filter === option} onClick={() => { setFilter(option); setExpanded(false); }} className={`rounded-md px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${filter === option ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-accent'}`}>{t(option)}</button>)}
+        {(['all', 'files', 'chats'] as const).map(option => {
+          const FilterIcon = option === 'all' ? LayoutGrid : option === 'files' ? FileText : MessageSquare;
+          return <button key={option} type="button" disabled={!workspace} aria-pressed={filter === option} onClick={() => { setFilter(option); setExpanded(false); }} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${filter === option ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-accent'}`}><FilterIcon className="h-3.5 w-3.5" aria-hidden="true" />{t(option)}</button>;
+        })}
       </div>
       {filter === 'files' && <label className="flex items-center gap-2 text-xs text-muted-foreground">
         <span className="sr-only">{tf('fileViews')}</span>
