@@ -3783,6 +3783,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       content TEXT NOT NULL,
       normalized_content_hash TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
+      archived_from_status TEXT,
       priority INTEGER NOT NULL DEFAULT 50,
       pinned INTEGER NOT NULL DEFAULT 0,
       sensitivity TEXT NOT NULL DEFAULT 'standard',
@@ -3799,6 +3800,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       CHECK (status IN ('pending', 'published', 'archived')),
+      CHECK (archived_from_status IS NULL OR archived_from_status IN ('pending', 'published')),
       CHECK (priority >= 0 AND priority <= 100),
       CHECK (sensitivity IN ('standard', 'sensitive')),
       CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
@@ -3892,6 +3894,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     response_recorded_at: 'INTEGER',
     result_json: 'TEXT',
     failed_at: 'INTEGER',
+  });
+
+  addColumns(sqlite, 'memory_entries', {
+    archived_from_status: 'TEXT',
   });
 
   addColumns(sqlite, 'memory_user_settings', {

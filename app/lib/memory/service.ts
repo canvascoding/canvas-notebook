@@ -53,8 +53,13 @@ export type MemoryCollectionSummary = {
   status: 'active' | 'archived';
   updatedAt: number;
   entryCount: number;
+  publishedCount: number;
   pendingCount: number;
+  archivedCount: number;
+  totalCount: number;
 };
+
+export type MemoryEntryView = 'active' | 'published' | 'pending' | 'archived' | 'all';
 
 export type MemoryMutationResult = MemoryReadResult & {
   changed: boolean;
@@ -415,6 +420,27 @@ function collectionScopeWhere(scope: MemoryServiceScope): { sql: string; params:
   return { sql: where.sql.replaceAll('scope_', 'collection.scope_').replaceAll('user_id', 'collection.user_id').replaceAll('agent_id', 'collection.agent_id').replaceAll('workspace_id', 'collection.workspace_id').replaceAll('organization_id', 'collection.organization_id'), params: where.params };
 }
 
+function visibleMemoryEntriesWhere(
+  scope: MemoryServiceScope,
+  permissions: MemoryScopePermissions,
+  alias = 'entry',
+): { sql: string; params: unknown[] } {
+  if (permissions.canPublish) return { sql: '1 = 1', params: [] };
+  if ((scope.target === 'workspace' || scope.target === 'organization') && permissions.canSuggest) {
+    return {
+      sql: `(${alias}.status = 'published' OR (${alias}.status = 'pending' AND ${alias}.created_by_user_id = ?))`,
+      params: [scope.userId],
+    };
+  }
+  return { sql: `${alias}.status = 'published'`, params: [] };
+}
+
+function memoryEntryViewWhere(view: MemoryEntryView, alias = 'entry'): string {
+  if (view === 'all') return '1 = 1';
+  if (view === 'active') return `${alias}.status != 'archived'`;
+  return `${alias}.status = '${view}'`;
+}
+
 function toEntry(row: Record<string, unknown>): MemoryEntry {
   return {
     id: String(row.id),
@@ -528,19 +554,22 @@ export async function listMemoryCollections(scope: MemoryServiceScope): Promise<
   const connection = await openDb();
   try {
     const where = scopeWhere(scope);
+    const visibleEntries = visibleMemoryEntriesWhere(scope, permissions);
     const rows = await connection.all(`
       SELECT collection.id, collection.category, collection.title, collection.summary, collection.status, collection.updated_at,
-        COUNT(entry.id) AS entry_count,
-        COALESCE(SUM(CASE WHEN entry.status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_count
+        COALESCE(SUM(CASE WHEN entry.status != 'archived' THEN 1 ELSE 0 END), 0) AS entry_count,
+        COALESCE(SUM(CASE WHEN entry.status = 'published' THEN 1 ELSE 0 END), 0) AS published_count,
+        COALESCE(SUM(CASE WHEN entry.status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_count,
+        COALESCE(SUM(CASE WHEN entry.status = 'archived' THEN 1 ELSE 0 END), 0) AS archived_count,
+        COUNT(entry.id) AS total_count
       FROM memory_collections collection
       LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
-        AND entry.status != 'archived'
-        AND (? = 1 OR entry.status = 'published')
+        AND ${visibleEntries.sql}
       WHERE ${where.sql}
       GROUP BY collection.id
       HAVING COUNT(entry.id) > 0
       ORDER BY collection.updated_at DESC, collection.id ASC
-    `, [permissions.canPublish ? 1 : 0, ...where.params]) as Array<Record<string, unknown>>;
+    `, [...visibleEntries.params, ...where.params]) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       id: String(row.id),
       category: String(row.category),
@@ -549,29 +578,33 @@ export async function listMemoryCollections(scope: MemoryServiceScope): Promise<
       status: row.status === 'archived' ? 'archived' : 'active',
       updatedAt: Number(row.updated_at),
       entryCount: Number(row.entry_count),
+      publishedCount: Number(row.published_count),
       pendingCount: Number(row.pending_count),
+      archivedCount: Number(row.archived_count),
+      totalCount: Number(row.total_count),
     }));
   } finally { await connection.close(); }
 }
 
 /** Reads one collection after proving that it belongs to the requested scope. */
 export async function readMemoryCollection(
-  scope: MemoryServiceScope & { collectionId: string; includeArchived?: boolean },
+  scope: MemoryServiceScope & { collectionId: string; includeArchived?: boolean; view?: MemoryEntryView },
 ): Promise<MemoryReadResult> {
   const permissions = await assertMemoryScopeAccess(scope, 'read');
-  const includeArchived = scope.includeArchived === true && permissions.canArchive;
+  const view = scope.view ?? (scope.includeArchived === true ? 'all' : 'active');
   const connection = await openDb();
   try {
     const where = collectionScopeWhere(scope);
+    const visibleEntries = visibleMemoryEntriesWhere(scope, permissions);
     const rows = await connection.all(`
       SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
       WHERE entry.collection_id = ? AND ${where.sql}
-        AND (? = 1 OR entry.status != 'archived')
-        AND (? = 1 OR entry.status = 'published')
+        AND ${visibleEntries.sql}
+        AND ${memoryEntryViewWhere(view)}
       ORDER BY entry.pinned DESC, entry.priority DESC, entry.updated_at DESC, entry.id ASC
-    `, [scope.collectionId, ...where.params, includeArchived ? 1 : 0, permissions.canPublish ? 1 : 0]) as Record<string, unknown>[];
+    `, [scope.collectionId, ...where.params, ...visibleEntries.params]) as Record<string, unknown>[];
     return { target: scope.target, entries: rows.map(toEntry) };
   } finally { await connection.close(); }
 }
@@ -951,8 +984,21 @@ export async function deleteMemory(scope: MemoryServiceScope & { id: string }): 
     if (!existing) throw new Error(`Memory entry "${id}" was not found.`);
     const entry = toEntry(existing);
     const now = Date.now();
-    await connection.run(`UPDATE memory_entries SET status = 'archived', revision = revision + 1, updated_at = ? WHERE id = ?`, [now, id]);
+    await connection.run(`
+      UPDATE memory_entries
+      SET archived_from_status = CASE WHEN status IN ('pending', 'published') THEN status ELSE archived_from_status END,
+        status = 'archived', revision = revision + 1, updated_at = ?
+      WHERE id = ?
+    `, [now, id]);
     await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'archive', 'assistant', ?, 'explicit_memory_tool', ?)`, [randomUUID(), id, scope.userId, now]);
+    console.info('[Memory] Entry lifecycle changed.', {
+      operation: 'archive',
+      target: scope.target,
+      entryId: id,
+      collectionId: entry.collectionId,
+      fromStatus: entry.status,
+      toStatus: 'archived',
+    });
     const result = await readMemory(scope);
     return { ...result, changed: true, archivedEntry: entry };
   } finally { await connection.close(); }
@@ -966,7 +1012,7 @@ export async function restoreMemory(scope: MemoryServiceScope & { id: string }):
   try {
     const where = collectionScopeWhere(scope);
     const existing = await connection.get(`
-      SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
+      SELECT entry.id, entry.content, entry.status, entry.archived_from_status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
       WHERE entry.id = ? AND ${where.sql} AND entry.status = 'archived'
@@ -974,10 +1020,32 @@ export async function restoreMemory(scope: MemoryServiceScope & { id: string }):
     `, [id, ...where.params]) as Record<string, unknown> | undefined;
     if (!existing) throw new Error(`Archived memory entry "${id}" was not found.`);
     const now = Date.now();
-    await connection.run(`UPDATE memory_entries SET status = 'published', revision = revision + 1, updated_at = ? WHERE id = ? AND status = 'archived'`, [now, id]);
+    const archivedFromStatus = existing.archived_from_status;
+    const restoreStatus: MemoryEntryStatus = archivedFromStatus === 'pending' || archivedFromStatus === 'published'
+      ? archivedFromStatus
+      : scope.target === 'user' || scope.target === 'agent'
+        ? 'published'
+        : 'pending';
+    await connection.run(`
+      UPDATE memory_entries
+      SET status = ?, archived_from_status = NULL, revision = revision + 1, updated_at = ?
+      WHERE id = ? AND status = 'archived'
+    `, [restoreStatus, now, id]);
     await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'restore', 'user', ?, 'explicit_memory_restore', ?)`, [randomUUID(), id, scope.userId, now]);
+    console.info('[Memory] Entry lifecycle changed.', {
+      operation: 'restore',
+      target: scope.target,
+      entryId: id,
+      collectionId: String(existing.collection_id),
+      fromStatus: 'archived',
+      toStatus: restoreStatus,
+    });
     const result = await readMemory(scope);
-    return { ...result, changed: true, entry: result.entries.find((entry) => entry.id === id) };
+    return {
+      ...result,
+      changed: true,
+      entry: { ...toEntry(existing), status: restoreStatus, updatedAt: now },
+    };
   } finally { await connection.close(); }
 }
 

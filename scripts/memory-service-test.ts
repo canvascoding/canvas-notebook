@@ -101,11 +101,28 @@ async function main(): Promise<void> {
     assert.equal(restored.entry?.status, 'published');
     const archivedAgain = await deleteMemory({ ...scope, id: added.entry!.id });
     const privateCollectionId = archivedAgain.archivedEntry!.collectionId;
+    const archivedOnlyCollection = (await listMemoryCollections(scope)).find((collection) => collection.id === privateCollectionId);
+    assert.deepEqual(archivedOnlyCollection && {
+      entryCount: archivedOnlyCollection.entryCount,
+      publishedCount: archivedOnlyCollection.publishedCount,
+      pendingCount: archivedOnlyCollection.pendingCount,
+      archivedCount: archivedOnlyCollection.archivedCount,
+      totalCount: archivedOnlyCollection.totalCount,
+    }, { entryCount: 0, publishedCount: 0, pendingCount: 0, archivedCount: 1, totalCount: 1 });
     assert.equal((await readMemoryCollection({ ...scope, collectionId: privateCollectionId })).entries.length, 0);
     assert.equal((await readMemoryCollection({ ...scope, collectionId: privateCollectionId, includeArchived: true })).entries[0]?.status, 'archived');
+    assert.equal((await readMemoryCollection({ ...scope, collectionId: privateCollectionId, view: 'archived' })).entries[0]?.status, 'archived');
+    await restoreMemory({ ...scope, id: added.entry!.id });
+    await deleteMemory({ ...scope, id: added.entry!.id });
 
     const workspace = await addMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', content: 'Use the approved brand voice.' });
     assert.equal(workspace.entry?.status, 'pending');
+    assert.equal((await readMemoryCollection({
+      target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', collectionId: workspace.entry!.collectionId, view: 'pending',
+    })).entries[0]?.id, workspace.entry?.id);
+    assert.deepEqual((await readMemoryCollection({
+      target: 'workspace', userId: 'user-reader', workspaceId: 'workspace-1', collectionId: workspace.entry!.collectionId, view: 'pending',
+    })).entries, []);
     await assert.rejects(
       () => updateMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id, content: 'Unapproved edit.' }),
       /permission to update workspace memory/,
@@ -119,8 +136,14 @@ async function main(): Promise<void> {
     try {
       await governanceDb.run(`UPDATE canvas_workspace_members SET can_manage = 1 WHERE workspace_id = 'workspace-1' AND user_id = 'user-1'`);
     } finally { await governanceDb.close(); }
+    await deleteMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
+    const restoredPendingWorkspace = await restoreMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
+    assert.equal(restoredPendingWorkspace.entry?.status, 'pending');
     const publishedWorkspace = await publishMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     assert.equal(publishedWorkspace.entry?.status, 'published');
+    await deleteMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
+    const restoredWorkspace = await restoreMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
+    assert.equal(restoredWorkspace.entry?.status, 'published');
     assert.match((await readMemory({ target: 'workspace', userId: 'user-reader', workspaceId: 'workspace-1' })).entries[0]?.content ?? '', /approved brand voice/);
     await assert.rejects(
       () => addMemory({ target: 'workspace', userId: 'user-reader', workspaceId: 'workspace-1', content: 'Readers cannot suggest memory.' }),
