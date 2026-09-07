@@ -95,9 +95,8 @@ test('tools stay in the launcher and its existing pages retain their entries', a
 
 test('dark mode keeps both views legible and reduced motion skips scrolling animation', async ({ page }, info) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
   await openHome(page);
-  await page.getByRole('button', { name: 'Switch to dark mode' }).click();
   await expect(page.locator('html')).toHaveClass(/dark/);
   await page.screenshot({ path: info.outputPath('dark-work.png'), animations: 'disabled' });
   await page.getByRole('navigation', { name: 'Startseitenansichten' }).getByRole('button', { name: 'Workspace', exact: true }).click();
