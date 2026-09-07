@@ -8,6 +8,7 @@ import {
   type DirectMcpOAuthScope,
   resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
+import { directMcpClientDisplayName } from '@/app/lib/mcp/server/client-name';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 
 const MAX_CONNECTIONS = 50;
@@ -41,15 +42,6 @@ export type DirectMcpConnection = {
 export type DisconnectDirectMcpConnectionResult =
   | { status: 'disconnected' }
   | { status: 'not_found' };
-
-function safeClientName(value: string | null): string {
-  const normalized = value
-    ?.replace(/[\u0000-\u001f\u007f]/gu, ' ')
-    .replace(/\s+/gu, ' ')
-    .trim()
-    .slice(0, 120);
-  return normalized || 'MCP client';
-}
 
 function timestampToIso(value: unknown): string | null {
   if (value instanceof Date) return value.toISOString();
@@ -240,7 +232,7 @@ export async function listDirectMcpConnections(
       if (connections.has(row.client_id)) continue;
       connections.set(row.client_id, {
         connectionId: encodeConnectionReference(userId, row.consent_id),
-        clientName: safeClientName(row.client_name),
+        clientName: directMcpClientDisplayName(row.client_name),
         scopes: parseScopes(row.scopes),
         connectedAt: timestampToIso(row.connected_at),
         updatedAt: timestampToIso(row.updated_at),

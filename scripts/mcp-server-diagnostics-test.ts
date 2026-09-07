@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const STATE = 'state-value-must-never-appear-in-diagnostics';
 const CLIENT_ID = 'client-id-must-never-appear-in-diagnostics';
+const CLIENT_NAME = 'ChatGPT Diagnostics Test';
 
 function serialize(args: unknown[]): string {
   return args.map((value) => {
@@ -23,6 +24,7 @@ async function main(): Promise<void> {
     completeDirectMcpDiagnostic,
     failDirectMcpDiagnostic,
     recordDirectMcpOAuthProviderError,
+    recordDirectMcpRequestClientName,
     runWithDirectMcpDiagnostic,
     withDirectMcpRequestId,
   } = await import('../app/lib/mcp/server/diagnostics');
@@ -40,6 +42,9 @@ async function main(): Promise<void> {
     const diagnostics = beginDirectMcpDiagnostic(request, 'oauth.authorization');
     assert.match(diagnostics.requestId, /^[0-9a-f-]{36}$/iu);
     assert.match(diagnostics.flowRef || '', /^[a-f0-9]{24}$/u);
+    await runWithDirectMcpDiagnostic(diagnostics, async () => {
+      recordDirectMcpRequestClientName(CLIENT_NAME);
+    });
 
     await completeDirectMcpDiagnostic(diagnostics, {
       statusCode: 302,
@@ -99,6 +104,7 @@ async function main(): Promise<void> {
     const output = captured.join('\n');
     assert.equal(output.includes(STATE), false);
     assert.equal(output.includes(CLIENT_ID), false);
+    assert.equal(output.includes(CLIENT_NAME), false);
     assert.equal(output.includes(diagnostics.flowRef || ''), true);
     assert.equal(output.includes('MCP_INTERNAL_ERROR'), true);
     assert.equal(output.includes('OAUTH_PERSISTENCE_SCHEMA_ERROR'), true);
@@ -111,6 +117,13 @@ async function main(): Promise<void> {
     assert.equal(history.some((entry) => entry.code === 'OAUTH_PERSISTENCE_SCHEMA_ERROR'), true);
     assert.equal(history.some((entry) => entry.code === 'MCP_INTERNAL_ERROR'), true);
     assert.equal(history.some((entry) => entry.requestId === diagnostics.requestId), true);
+    assert.equal(
+      history.some((entry) => (
+        entry.requestId === diagnostics.requestId
+        && entry.clientName === CLIENT_NAME
+      )),
+      true,
+    );
     assert.equal(history.some((entry) => entry.phase === 'oauth.consent'), true);
     assert.equal(history.some((entry) => entry.phase === 'oauth.token'), true);
     assert.equal(JSON.stringify(history).includes(STATE), false);

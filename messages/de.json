@@ -4217,6 +4217,8 @@
         "refresh": "Aktualisieren",
         "loading": "Lade letzte Anfragen …",
         "empty": "Keine Anfragen in den letzten {hours} Stunden.",
+        "client": "Client",
+        "unknownClient": "Nicht ermittelbar",
         "requestId": "Request-ID",
         "serverVersion": "Serverversion",
         "duration": "{duration} ms",

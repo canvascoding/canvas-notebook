@@ -4218,6 +4218,8 @@
         "refresh": "Refresh",
         "loading": "Loading recent requests…",
         "empty": "No requests in the last {hours} hours.",
+        "client": "Client",
+        "unknownClient": "Not identifiable",
         "requestId": "Request ID",
         "serverVersion": "Server version",
         "duration": "{duration} ms",

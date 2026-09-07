@@ -1624,6 +1624,11 @@ async function main(): Promise<void> {
       'Direct MCP tool-list requests should be traceable.',
     );
     assert.equal(
+      requestHistory.some((entry) => entry.clientName === 'MCP Auth Probe Test Client'),
+      true,
+      'Authenticated Direct MCP requests should retain the registered client name.',
+    );
+    assert.equal(
       requestHistory.some((entry) => (
         entry.operation === 'tools/call'
         && entry.toolName === DIRECT_MCP_AUTH_PROBE_TOOL

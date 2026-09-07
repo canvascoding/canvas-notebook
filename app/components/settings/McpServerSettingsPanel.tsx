@@ -69,6 +69,7 @@ type DirectMcpRequestHistoryEntry = {
   serverVersion: string | null;
   phase: string;
   httpMethod: string;
+  clientName: string | null;
   operation: string | null;
   toolName: string | null;
   outcome: 'succeeded' | 'failed' | 'rejected';
@@ -921,6 +922,11 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                               {entry.statusCode ? <Badge variant="outline">HTTP {entry.statusCode}</Badge> : null}
                             </div>
                             <p className="mt-1 break-words font-mono text-xs text-muted-foreground">{entry.code}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {t('requestHistory.client')}: <span className="font-medium text-foreground/80">
+                                {entry.clientName || t('requestHistory.unknownClient')}
+                              </span>
+                            </p>
                             <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
                               {t('requestHistory.requestId')}: {entry.requestId}
                             </p>

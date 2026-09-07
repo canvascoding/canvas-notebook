@@ -48,6 +48,7 @@ async function main(): Promise<void> {
       flowRef: 'a'.repeat(24),
       phase: 'oauth.registration',
       httpMethod: 'POST',
+      clientName: '  ChatGPT\nDesktop  ',
       operation: 'tools/call',
       toolName: 'upload_knowledge_asset',
       outcome: 'succeeded',
@@ -74,6 +75,7 @@ async function main(): Promise<void> {
     assert.equal(entries[0].flowRef, 'a'.repeat(24));
     assert.equal(entries[0].phase, 'oauth.registration');
     assert.equal(entries[0].httpMethod, 'POST');
+    assert.equal(entries[0].clientName, 'ChatGPT Desktop');
     assert.equal(entries[0].operation, 'tools/call');
     assert.equal(entries[0].toolName, 'upload_knowledge_asset');
     assert.equal(entries[0].outcome, 'succeeded');
@@ -101,6 +103,7 @@ async function main(): Promise<void> {
     assert.equal(entries.length, DIRECT_MCP_REQUEST_HISTORY_MAX_ENTRIES);
     assert.equal(entries[0].requestId, `request-${DIRECT_MCP_REQUEST_HISTORY_MAX_ENTRIES + 4}`);
     assert.equal(entries.every((entry) => entry.operation === null), true);
+    assert.equal(entries.every((entry) => entry.clientName === null), true);
     assert.equal(entries.every((entry) => entry.toolName === null), true);
     assert.equal(entries.every((entry) => entry.outcome === 'failed'), true);
     assert.equal(entries.every((entry) => entry.code === 'MCP_UNCLASSIFIED'), true);

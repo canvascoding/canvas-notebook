@@ -6,6 +6,7 @@ import { desc, inArray, lte } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { directMcpRequestHistory } from '@/app/lib/db/schema';
+import { normalizeDirectMcpClientName } from '@/app/lib/mcp/server/client-name';
 import { DIRECT_MCP_SERVER_VERSION } from '@/app/lib/mcp/server/version';
 
 export const DIRECT_MCP_REQUEST_HISTORY_RETENTION_HOURS = 24;
@@ -43,6 +44,7 @@ export type DirectMcpRequestHistoryInput = {
   flowRef?: string | null;
   phase: string;
   httpMethod: string;
+  clientName?: string | null;
   operation?: string | null;
   toolName?: string | null;
   outcome: string;
@@ -58,6 +60,7 @@ export type DirectMcpRequestHistoryEntry = {
   flowRef: string | null;
   phase: string;
   httpMethod: string;
+  clientName: string | null;
   operation: string | null;
   toolName: string | null;
   outcome: 'succeeded' | 'failed' | 'rejected';
@@ -121,6 +124,7 @@ export async function recordDirectMcpRequestHistory(input: DirectMcpRequestHisto
       flowRef: toSafeFlowRef(input.flowRef),
       phase,
       httpMethod: toSafeHttpMethod(input.httpMethod),
+      clientName: normalizeDirectMcpClientName(input.clientName),
       operation,
       toolName,
       outcome,
@@ -153,6 +157,7 @@ export async function listRecentDirectMcpRequestHistory(): Promise<DirectMcpRequ
         flowRef: directMcpRequestHistory.flowRef,
         phase: directMcpRequestHistory.phase,
         httpMethod: directMcpRequestHistory.httpMethod,
+        clientName: directMcpRequestHistory.clientName,
         operation: directMcpRequestHistory.operation,
         toolName: directMcpRequestHistory.toolName,
         outcome: directMcpRequestHistory.outcome,

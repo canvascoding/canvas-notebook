@@ -9,6 +9,7 @@ import {
   type DirectMcpOAuthScope,
   resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
+import { directMcpClientDisplayName } from '@/app/lib/mcp/server/client-name';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 import { eq } from 'drizzle-orm';
 
@@ -200,15 +201,6 @@ export async function refreshOAuthConsentQuery(
   return params.toString();
 }
 
-function safeClientName(value: string | null): string {
-  const normalized = value
-    ?.replace(/[\u0000-\u001f\u007f]/gu, ' ')
-    .replace(/\s+/gu, ' ')
-    .trim()
-    .slice(0, 120);
-  return normalized || 'MCP client';
-}
-
 function parseStoredStringArray(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is string => typeof item === 'string');
@@ -257,7 +249,7 @@ export async function resolveDirectMcpConsentPresentation(
 
   return {
     ...verified,
-    clientName: safeClientName(client.name),
+    clientName: directMcpClientDisplayName(client.name),
     instanceHost: new URL(resolveDirectMcpOAuthConfig().origin).host,
   };
 }

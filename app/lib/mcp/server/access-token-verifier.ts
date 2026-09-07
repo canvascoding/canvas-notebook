@@ -15,6 +15,7 @@ import {
   type DirectMcpResourceScope,
   resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
+import { directMcpClientDisplayName } from '@/app/lib/mcp/server/client-name';
 
 const MAX_BEARER_TOKEN_LENGTH = 16 * 1024;
 const localJwksCacheKey = {};
@@ -25,6 +26,7 @@ type DirectMcpGrantStateRow = {
   user_id: string;
   user_banned: unknown;
   client_id: string;
+  client_name: string | null;
   client_disabled: unknown;
   revoked_token_hash: string | null;
   grant_revoked_at: unknown;
@@ -44,6 +46,7 @@ export type DirectMcpJwtClaims = {
 
 export type DirectMcpAccessPrincipal = DirectMcpJwtClaims & {
   userId: string;
+  clientName: string;
 };
 
 export type DirectMcpAuthorizationErrorCode =
@@ -252,6 +255,7 @@ export async function loadDirectMcpGrantState(
         local_user.id AS user_id,
         local_user.banned AS user_banned,
         oauth_client.client_id AS client_id,
+        oauth_client.name AS client_name,
         oauth_client.disabled AS client_disabled,
         revoked_access_token.token_hash AS revoked_token_hash,
         grant_revocation.revoked_at AS grant_revoked_at
@@ -344,6 +348,7 @@ export async function verifyDirectMcpAccessToken(
   return {
     ...claims,
     userId: claims.subject,
+    clientName: directMcpClientDisplayName(state?.client_name),
   };
 }
 

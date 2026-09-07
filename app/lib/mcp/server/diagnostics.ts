@@ -7,6 +7,7 @@ import {
   recordDirectMcpRequestHistory,
   type DirectMcpRequestHistoryEntry,
 } from '@/app/lib/mcp/server/request-history';
+import { normalizeDirectMcpClientName } from '@/app/lib/mcp/server/client-name';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 
 export type DirectMcpDiagnosticPhase =
@@ -27,6 +28,7 @@ export type DirectMcpDiagnosticContext = {
   flowRef: string | null;
   phase: DirectMcpDiagnosticPhase;
   method: string;
+  clientName?: string;
   operation?: 'tools/list' | 'tools/call';
   toolName?: string;
   historyCode?: string;
@@ -122,6 +124,7 @@ async function recordRequestHistory(
     flowRef: context.flowRef,
     phase: context.phase,
     httpMethod: context.method,
+    clientName: context.clientName,
     operation: context.operation,
     toolName: context.toolName,
     outcome: input.outcome,
@@ -194,6 +197,13 @@ export function recordDirectMcpRequestOperation(
   if (!context) return;
   context.operation = operation;
   if (toolName) context.toolName = toolName;
+}
+
+export function recordDirectMcpRequestClientName(clientName: string): void {
+  const context = directMcpDiagnosticStorage.getStore();
+  const normalizedClientName = normalizeDirectMcpClientName(clientName);
+  if (!context || !normalizedClientName) return;
+  context.clientName = normalizedClientName;
 }
 
 export function recordDirectMcpToolFailure(): void {

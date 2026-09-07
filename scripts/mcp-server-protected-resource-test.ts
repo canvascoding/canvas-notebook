@@ -312,6 +312,7 @@ async function main(): Promise<void> {
     );
     assert.equal(principal.userId, principal.subject);
     assert.equal(principal.clientId, tokenSet.clientId);
+    assert.equal(principal.clientName, 'ChatGPT Protected Resource Test');
     assert.equal(principal.audience, resource);
     assert.ok(principal.scopes.includes('knowledge:read'));
 

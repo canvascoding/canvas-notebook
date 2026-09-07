@@ -19,6 +19,7 @@ import {
   beginDirectMcpDiagnostic,
   completeDirectMcpDiagnostic,
   failDirectMcpDiagnostic,
+  recordDirectMcpRequestClientName,
   runWithDirectMcpDiagnostic,
   type DirectMcpDiagnosticContext,
 } from '@/app/lib/mcp/server/diagnostics';
@@ -164,6 +165,7 @@ async function resolveAuthInfo(request: Request): Promise<AuthInfo | undefined> 
   if (!request.headers.has('authorization')) return undefined;
 
   const principal = await verifyDirectMcpRequest(request);
+  recordDirectMcpRequestClientName(principal.clientName);
   const { resource } = resolveDirectMcpOAuthConfig();
   const authorization = request.headers.get('authorization') || '';
   const token = authorization.replace(/^Bearer\s+/iu, '');

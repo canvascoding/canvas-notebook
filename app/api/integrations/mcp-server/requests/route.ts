@@ -33,6 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           serverVersion: entry.serverVersion,
           phase: entry.phase,
           httpMethod: entry.httpMethod,
+          clientName: entry.clientName,
           operation: entry.operation,
           toolName: entry.toolName,
           outcome: entry.outcome,

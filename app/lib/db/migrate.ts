@@ -1596,6 +1596,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       flow_ref TEXT,
       phase TEXT NOT NULL,
       http_method TEXT NOT NULL,
+      client_name TEXT,
       operation TEXT,
       tool_name TEXT,
       outcome TEXT NOT NULL,
@@ -2635,6 +2636,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'direct_mcp_request_history', {
     server_version: 'TEXT',
+    client_name: 'TEXT',
   });
 
   addColumns(sqlite, 'agents', {
