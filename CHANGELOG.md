@@ -11,6 +11,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.7.1] - 2026-09-07
+
+### Fixed
+
+- Restored reliable recovery of agent context-compaction summaries.
+- Reduced duplicate mobile email attention signals and clarified editor saved-status feedback.
+- Corrected notebook document-menu translations and refined the mobile file-information dialog.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.6.1] - 2026-09-06
 
 ### Added
