@@ -167,13 +167,13 @@ import {
 import {
   composeCanvasMarkdownDocument,
   parseCanvasMarkdownDocument,
-  splitCanvasMarkdownForRichEditor,
 } from '@/app/lib/markdown/obsidian-metadata';
 import {
   analyzeMarkdownRichMode,
   restoreRichMarkdownFinalLineEnding,
   type MarkdownRichModeReason,
 } from '@/app/lib/markdown/rich-markdown-codec';
+import { splitMarkdownEditorDocument, type MarkdownFrontmatterMode } from '@/app/lib/markdown/editor-document';
 import { getMarkdownSourceModeNotice } from '@/app/lib/markdown/source-mode-notice';
 import { openWorkspaceMarkdownTarget } from '@/app/lib/markdown/workspace-markdown-navigation-client';
 import {
@@ -232,6 +232,12 @@ export interface MarkdownEditorProps {
   onCollaborationChange?: (document: CollaborationDocument | null) => void;
   agentTargets?: CollaborationAgentTargetAnchor[];
   showNotebookMetadata?: boolean;
+  frontmatter?: MarkdownFrontmatterMode;
+  layout?: 'document' | 'field';
+  expanded?: boolean;
+  mode?: EditorMode;
+  onModeChange?: (mode: EditorMode) => void;
+  modeBarActions?: React.ReactNode;
 }
 
 type EditorMode = MarkdownDocumentMode;
@@ -4732,6 +4738,8 @@ function RichMarkdownEditor({
   collaborationDocument,
   agentTargets = [],
   showNotebookMetadata = false,
+  frontmatter = 'metadata',
+  layout = 'document',
 }: MarkdownEditorProps & {
   isMobileKeyboardActive: boolean;
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
@@ -4739,7 +4747,7 @@ function RichMarkdownEditor({
   collaborationDocument?: CollaborationDocument | null;
 }) {
   const t = useTranslations('notebook');
-  const documentParts = useMemo(() => splitCanvasMarkdownForRichEditor(value), [value]);
+  const documentParts = useMemo(() => splitMarkdownEditorDocument(value, frontmatter), [value, frontmatter]);
   const latestValueRef = useRef(value);
   const acceptedExternalValueRef = useRef(documentParts.body);
   const applyingExternalValueRef = useRef(false);
@@ -4960,7 +4968,7 @@ function RichMarkdownEditor({
 
       const markdownEditor = asMarkdownEditor(updateEditor);
       const markdown = markdownEditor?.getMarkdown() ?? '';
-      const currentParts = splitCanvasMarkdownForRichEditor(latestValueRef.current);
+      const currentParts = splitMarkdownEditorDocument(latestValueRef.current, frontmatter);
       const nextValue = composeCanvasMarkdownDocument(
         currentParts.prefix,
         restoreRichMarkdownFinalLineEnding(currentParts.body, markdown),
@@ -4987,7 +4995,7 @@ function RichMarkdownEditor({
 
   const handlePropertiesChange = useCallback((nextValue: string) => {
     if (collaborationEnabled && collaboration) {
-      const prefix = splitCanvasMarkdownForRichEditor(nextValue).prefix;
+      const prefix = splitMarkdownEditorDocument(nextValue, 'metadata').prefix;
       const frontmatter = collaboration.doc.getText('frontmatter');
       collaboration.doc.transact(() => {
         if (frontmatter.length) frontmatter.delete(0, frontmatter.length);
@@ -5002,7 +5010,7 @@ function RichMarkdownEditor({
     if (!collaboration) return;
     const frontmatter = collaboration.doc.getText('frontmatter');
     const updateValue = () => {
-      const currentParts = splitCanvasMarkdownForRichEditor(latestValueRef.current);
+      const currentParts = splitMarkdownEditorDocument(latestValueRef.current, 'metadata');
       const body = restoreRichMarkdownFinalLineEnding(
         currentParts.body,
         asMarkdownEditor(editor)?.getMarkdown() ?? '',
@@ -5406,7 +5414,7 @@ function RichMarkdownEditor({
   }, [closeBlockCommandMenu, effectiveReadOnly]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+    <div className="markdown-editor-pane flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {!effectiveReadOnly ? (
         <MarkdownToolbar
           editor={markdownEditor}
@@ -5417,7 +5425,7 @@ function RichMarkdownEditor({
           onOpenEmojiDialog={openEmojiDialogFromToolbar}
           onOpenRichBlockDialog={openRichBlockDialogFromToolbar}
           onSourceMode={onSourceMode}
-          showSourceModeSwitch={!collaborationEnabled}
+          showSourceModeSwitch={!collaborationEnabled && layout === 'document'}
           onImageDialogOpenChange={openImageDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
         />
@@ -5456,7 +5464,7 @@ function RichMarkdownEditor({
           onOpenEmojiDialog={openEmojiDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
           onSourceMode={onSourceMode}
-          showSourceModeSwitch={!collaborationEnabled}
+          showSourceModeSwitch={!collaborationEnabled && layout === 'document'}
           visible={isMobileToolbarVisible}
         />
       ) : null}
@@ -5466,16 +5474,16 @@ function RichMarkdownEditor({
       } /> : null}
       <MarkdownFindBar editor={markdownEditor} onOpenChange={setFindOpen} open={findOpen} />
       <div ref={scrollContainerRef} data-testid="markdown-scroll-container" className="relative min-h-0 flex-1 overflow-auto">
-        <div className="pointer-events-none sticky top-2 z-30 ml-auto flex h-0 w-fit items-start gap-2 pr-3">
+        {layout === 'document' && <div className="pointer-events-none sticky top-2 z-30 ml-auto flex h-0 w-fit items-start gap-2 pr-3">
           <MarkdownOutlinePanel
             editor={editor}
             onPinnedChange={setOutlinePinned}
             pinned={outlinePinned}
             scrollContainerRef={scrollContainerRef}
           />
-        </div>
+        </div>}
         <div className={cn('min-w-0 transition-[padding] duration-200', outlinePinned && 'md:pr-[17.5rem]')}>
-          {!effectiveReadOnly ? (
+          {!effectiveReadOnly && layout === 'document' ? (
             <div className="hidden md:block">
               <TooltipProvider>
                 <MarkdownBlockControls
@@ -5497,7 +5505,7 @@ function RichMarkdownEditor({
             />
           ) : null}
           <EditorContent editor={editor} className="tiptap-editor-shell" />
-          <MarkdownBacklinksPanel filePath={filePath} />
+          {layout === 'document' && <MarkdownBacklinksPanel filePath={filePath} />}
           {!effectiveReadOnly && editor && blockCommandMenu ? (
             <MarkdownBlockCommandMenu
               key={blockCommandMenu.id}
@@ -5537,6 +5545,7 @@ function SourceMarkdownEditor({
   normalizationAvailable,
   onNormalizeToRichMode,
   isPresentationDocument,
+  layout = 'document',
 }: MarkdownEditorProps & {
   initiallyShowMobileToolbar?: boolean;
   richModeAvailable: boolean;
@@ -5596,11 +5605,11 @@ function SourceMarkdownEditor({
   return (
     <div
       ref={containerRef}
-      className="flex h-full min-h-0 flex-col overflow-hidden bg-background"
+      className="markdown-editor-pane flex h-full min-h-0 flex-col overflow-hidden bg-background"
       onBlurCapture={handleBlurCapture}
       onFocusCapture={() => setIsSourceFocused(true)}
     >
-      {!readOnly ? (
+      {!readOnly && layout === 'document' ? (
         <MarkdownSourceToolbar
           richModeAvailable={richModeAvailable}
           showRichModeSwitch={!collaborationEnabled}
@@ -5646,7 +5655,7 @@ function SourceMarkdownEditor({
           </Button>
         </div>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="markdown-source-viewport min-h-0 flex-1 overflow-hidden">
         <CodeEditor
           value={value}
           onChange={(nextValue) => {
@@ -5675,9 +5684,18 @@ export function MarkdownEditor({
   collaborationEnabled = false,
   onCollaborationChange,
   agentTargets = [],
-  showNotebookMetadata = false,
+  showNotebookMetadata: requestedNotebookMetadata = false,
+  frontmatter: requestedFrontmatter = 'metadata',
+  layout = 'document',
+  expanded = false,
+  mode: controlledMode,
+  onModeChange,
+  modeBarActions,
 }: MarkdownEditorProps) {
   useVisualViewportBottomOffset();
+  // Collaborative files always use the server's document representation.
+  const frontmatter = collaborationEnabled ? 'metadata' : requestedFrontmatter;
+  const showNotebookMetadata = requestedNotebookMetadata && frontmatter === 'metadata';
 
   const t = useTranslations('notebook');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
@@ -5699,16 +5717,23 @@ export function MarkdownEditor({
   const isMobileKeyboardActive = useMobileKeyboardActive();
   const liveMarkdown = useLiveMarkdown(collaborationDocument, value);
   const displayedValue = liveMarkdown.content;
-  const parsedDocument = useMemo(() => parseCanvasMarkdownDocument(displayedValue), [displayedValue]);
-  const richModeAnalysis = useMemo(() => analyzeMarkdownRichMode(displayedValue), [displayedValue]);
+  const parsedDocument = useMemo(() => frontmatter === 'metadata'
+    ? parseCanvasMarkdownDocument(displayedValue)
+    : { body: displayedValue, error: null }, [displayedValue, frontmatter]);
+  const richModeAnalysis = useMemo(() => analyzeMarkdownRichMode(displayedValue, frontmatter), [displayedValue, frontmatter]);
   const sourceModeRequired = richModeAnalysis.mode !== 'rich';
   const isPresentationDocument = useMemo(
     () => Boolean(filePath && isMarpMarkdown(filePath, value)),
     [filePath, value],
   );
-  const [mode, setMode] = useState<EditorMode>(() => (
+  const [internalMode, setInternalMode] = useState<EditorMode>(() => (
     readOnly || sourceModeRequired ? 'read' : shouldDefaultToSource(readOnly, filePath) ? 'source' : 'rich'
   ));
+  const mode = controlledMode ?? internalMode;
+  const setMode = useCallback((next: EditorMode) => {
+    setInternalMode(next);
+    onModeChange?.(next);
+  }, [onModeChange]);
   const [sourceModeRequested, setSourceModeRequested] = useState(false);
   const [wide, setWide] = useState(false);
   const [markdownNavigationTarget, setMarkdownNavigationTarget] = useState<WorkspaceMarkdownLocation | null>(() => (
@@ -5747,13 +5772,13 @@ export function MarkdownEditor({
   const switchToSourceMode = useCallback(() => {
     setSourceModeRequested(true);
     setMode('source');
-  }, []);
+  }, [setMode]);
 
   const switchToRichMode = useCallback(() => {
     if (readOnly) return;
     setSourceModeRequested(false);
     setMode('rich');
-  }, [readOnly]);
+  }, [readOnly, setMode]);
 
   const normalizeToRichMode = useCallback(() => {
     if (readOnly || collaborationEnabled || richModeAnalysis.mode !== 'normalizable') return;
@@ -5764,7 +5789,7 @@ export function MarkdownEditor({
     setSourceModeRequested(false);
     setMode('rich');
     toast.success(t('markdownEditorNormalizedForRichText'));
-  }, [collaborationEnabled, onChange, readOnly, richModeAnalysis, t]);
+  }, [collaborationEnabled, onChange, readOnly, richModeAnalysis, setMode, t]);
 
   if (collaborationEnabled && (!collaborationSession.session || !collaborationDocument?.ready)) {
     return (
@@ -5781,12 +5806,12 @@ export function MarkdownEditor({
     );
   }
 
-  const modeBar = <MarkdownModeBar mode={effectiveMode} readOnly={readOnly} wide={wide} onWideChange={setWide} onChange={(next) => {
+  const modeBar = <MarkdownModeBar documentControls={layout === 'document'} actions={modeBarActions} mode={effectiveMode} readOnly={readOnly} wide={wide} onWideChange={setWide} onChange={(next) => {
     if (next === 'rich') switchToRichMode();
     else if (next === 'source') switchToSourceMode();
     else setMode('read');
   }} />;
-  const wrap = (children: React.ReactNode) => <div className="flex h-full min-h-0 flex-col bg-background" data-document-width={wide ? 'wide' : 'page'}>
+  const wrap = (children: React.ReactNode) => <div className="flex h-full min-h-0 flex-col bg-background" data-document-width={layout === 'field' || wide ? 'wide' : 'page'} data-editor-layout={layout} data-field-inline={layout === 'field' && !expanded} data-editor-mode={effectiveMode}>
     {modeBar}
     {mode !== 'read' && collaborationDocument && authoritativeRepresentation === 'plain_text'
       && richModeAnalysis.mode !== 'source' && collaborationDocument.session?.permission === 'write' && filePath
@@ -5794,14 +5819,14 @@ export function MarkdownEditor({
         setMode('rich'); collaborationSession.retry();
       }} /> : null}
     <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue} available={liveMarkdown.available} filePath={filePath} />
-    <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+    <div className="markdown-editor-content min-h-0 flex-1 overflow-hidden">{children}</div>
   </div>;
 
   if (!liveMarkdown.available) return wrap(<p className="p-5 text-sm">{t('editorModes.unavailable')}</p>);
 
   if (effectiveMode === 'read') {
     return wrap(
-      <div className="h-full min-h-0 overflow-auto bg-background">
+      <div className="markdown-read-viewport h-full min-h-0 overflow-auto bg-background">
         {showNotebookMetadata && !parsedDocument.error ? (
           <MarkdownPropertiesPanel
             filePath={filePath}
@@ -5810,26 +5835,28 @@ export function MarkdownEditor({
           />
         ) : null}
         <MarkdownRenderer
-          content={parsedDocument.error ? displayedValue : parsedDocument.body}
+          content={frontmatter === 'content' || parsedDocument.error ? displayedValue : parsedDocument.body}
+          frontmatter={frontmatter}
           sourcePath={filePath}
           className="canvas-document-reading min-h-full p-5 text-base leading-relaxed md:pl-[4.75rem] [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:font-semibold"
         />
-        <MarkdownBacklinksPanel filePath={filePath} />
+        {layout === 'document' && <MarkdownBacklinksPanel filePath={filePath} />}
       </div>
     );
   }
 
   if (effectiveMode === 'source') {
-    return wrap(<div className="flex h-full min-h-0 flex-col">
+    return wrap(<div className="markdown-source-shell flex h-full min-h-0 flex-col">
       {richSourceReadOnly && <p className="border-b px-3 py-2 text-xs text-muted-foreground">{t('editorModes.liveSource')}</p>}
-      <div className="min-h-0 flex-1"><SourceMarkdownEditor
+      <div className="markdown-source-host min-h-0 flex-1"><SourceMarkdownEditor
+        layout={layout}
         initiallyShowMobileToolbar={sourceModeRequested}
         richModeAvailable={!sourceModeRequired && !collaborationEnabled}
         value={displayedValue}
         onChange={onChange}
         readOnly={readOnly || richSourceReadOnly}
         filePath={filePath}
-        isMobileKeyboardActive={isMobileKeyboardActive}
+        isMobileKeyboardActive={layout === 'document' && isMobileKeyboardActive}
         onRichMode={switchToRichMode}
         markdownNavigationTarget={markdownNavigationTarget}
         collaborationEnabled={collaborationEnabled && !richSourceReadOnly}
@@ -5851,13 +5878,15 @@ export function MarkdownEditor({
       readOnly={readOnly}
       filePath={filePath}
       externalValueSync={externalValueSync}
-      isMobileKeyboardActive={isMobileKeyboardActive}
+      isMobileKeyboardActive={layout === 'document' && isMobileKeyboardActive}
       onSourceMode={switchToSourceMode}
       markdownNavigationTarget={markdownNavigationTarget}
       collaborationEnabled={collaborationEnabled}
       collaborationDocument={collaborationDocument}
       agentTargets={agentTargets}
       showNotebookMetadata={showNotebookMetadata}
+      frontmatter={frontmatter}
+      layout={layout}
     />
   );
 }

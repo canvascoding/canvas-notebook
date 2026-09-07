@@ -529,6 +529,8 @@
       "link": "Link"
     },
     "editorModes": {
+      "collapseField": "Back to form",
+      "expandField": "Expand editor",
       "wide": "Full width",
       "focus": "Focus document",
       "exitFocus": "Exit focus",

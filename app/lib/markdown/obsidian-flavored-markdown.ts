@@ -245,9 +245,12 @@ export function parseObsidianBlockIds(markdown: string): ObsidianBlockId[] {
   return blockIds;
 }
 
-export function hasObsidianRichEditorUnsupportedSyntax(markdown: string): boolean {
+export function hasObsidianRichEditorUnsupportedSyntax(
+  markdown: string,
+  { allowLeadingThematicBreak = false }: { allowLeadingThematicBreak?: boolean } = {},
+): boolean {
   const trimmed = markdown.trimStart();
-  if (/^---[ \t]*\r?\n/.test(trimmed)) return true;
+  if (!allowLeadingThematicBreak && /^---[ \t]*\r?\n/.test(trimmed)) return true;
   if (parseObsidianBlockIds(markdown).length > 0) return true;
 
   const { hasComment } = scanObsidianSyntax(markdown);

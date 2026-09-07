@@ -6,7 +6,9 @@ import { isColorCode, ColorSwatch } from '@/app/lib/markdown/color-swatch';
 import {
   CANVAS_MARKDOWN_REHYPE_PLUGINS,
   CANVAS_MARKDOWN_REMARK_PLUGINS,
+  CANVAS_MARKDOWN_CONTENT_REMARK_PLUGINS,
 } from '@/app/lib/markdown/canvas-markdown';
+import type { MarkdownFrontmatterMode } from '@/app/lib/markdown/editor-document';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { ObsidianWikiLink } from '@/app/components/shared/ObsidianWikiLink';
 import { WorkspaceMarkdownEmbed } from '@/app/components/shared/WorkspaceMarkdownEmbed';
@@ -30,6 +32,7 @@ interface MarkdownRendererProps {
   className?: string;
   embedAncestorPaths?: string[];
   sourcePath?: string;
+  frontmatter?: MarkdownFrontmatterMode;
 }
 
 const SHARED_CLASSES =
@@ -58,6 +61,7 @@ export function MarkdownRenderer({
   className,
   embedAncestorPaths,
   sourcePath,
+  frontmatter = 'metadata',
 }: MarkdownRendererProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
@@ -290,7 +294,7 @@ export function MarkdownRenderer({
       )}
     >
       <ReactMarkdown
-        remarkPlugins={CANVAS_MARKDOWN_REMARK_PLUGINS}
+        remarkPlugins={frontmatter === 'content' ? CANVAS_MARKDOWN_CONTENT_REMARK_PLUGINS : CANVAS_MARKDOWN_REMARK_PLUGINS}
         rehypePlugins={CANVAS_MARKDOWN_REHYPE_PLUGINS}
         components={components}
       >

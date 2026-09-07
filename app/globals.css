@@ -1488,3 +1488,52 @@ li.task-list-item > p {
 [data-document-width="wide"] .canvas-document-reading {
   max-width: none;
 }
+
+/* Embedded Markdown fields size the text viewport independently of chrome. */
+[data-editor-layout='field'][data-field-inline='true'],
+[data-editor-layout='field'][data-field-inline='true'] .markdown-editor-content,
+[data-editor-layout='field'][data-field-inline='true'] .markdown-editor-pane,
+[data-editor-layout='field'][data-field-inline='true'] .markdown-source-shell,
+[data-editor-layout='field'][data-field-inline='true'] .markdown-source-host {
+  height: auto;
+  flex: none;
+}
+
+[data-editor-layout='field'][data-field-inline='true'] [data-testid='markdown-scroll-container'],
+[data-editor-layout='field'][data-field-inline='true'] .markdown-source-viewport {
+  height: clamp(20rem, 45dvh, 32rem);
+  flex: none;
+}
+
+[data-editor-layout='field'][data-field-inline='true'] .markdown-read-viewport {
+  height: 14rem;
+}
+
+[data-editor-layout='field'] .tiptap-editor-shell,
+[data-editor-layout='field'] .tiptap-editor-shell .ProseMirror {
+  min-height: 20rem;
+  background: var(--background);
+}
+
+[data-editor-layout='field'] .tiptap-editor-shell .ProseMirror,
+[data-editor-layout='field'] .canvas-document-reading {
+  max-width: none;
+  padding: 1rem;
+}
+
+[data-editor-layout='field'] .tiptap-desktop-editor-toolbar.tiptap-markdown-format-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  height: auto;
+  overflow: visible;
+  padding-block: 0.25rem;
+  row-gap: 0.25rem;
+}
+
+[data-editor-layout='field'] .tiptap-toolbar-secondary-inline {
+  display: none;
+}
+
+[data-editor-layout='field'] .markdown-mode-bar {
+  flex-wrap: wrap;
+}

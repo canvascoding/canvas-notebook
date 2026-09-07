@@ -21,6 +21,11 @@ export const CANVAS_MARKDOWN_REMARK_PLUGINS: NonNullable<ReactMarkdownOptions['r
   remarkPortableImages,
 ];
 
+/** Prompt fields render YAML as ordinary Markdown, without hiding its contents. */
+export const CANVAS_MARKDOWN_CONTENT_REMARK_PLUGINS = CANVAS_MARKDOWN_REMARK_PLUGINS.filter(
+  (plugin) => !Array.isArray(plugin) || plugin[0] !== remarkFrontmatter,
+);
+
 export const CANVAS_MARKDOWN_REHYPE_PLUGINS: NonNullable<ReactMarkdownOptions['rehypePlugins']> = [
   rehypeHeadingAnchors,
   rehypeInlineColorSwatch,

@@ -528,6 +528,8 @@
       "link": "Link"
     },
     "editorModes": {
+      "collapseField": "Zurück zum Formular",
+      "expandField": "Größer bearbeiten",
       "wide": "Volle Breite",
       "focus": "Dokument fokussieren",
       "exitFocus": "Fokus beenden",

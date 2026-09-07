@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { MarkdownEditor } from '@/app/components/editor/MarkdownEditorClient';
+import { MarkdownField } from '@/app/components/editor/MarkdownField';
 import { AutomationAgentPicker, type AutomationAgentOption } from './AutomationAgentPicker';
 
 export type AutomationTaskValues = { name: string; prompt: string; agentId: string };
@@ -43,13 +43,13 @@ export function AutomationTaskFields({
       <div className="space-y-2">
         <p className="text-sm font-medium">{t('ux.task')}</p>
         <div
-          className="h-56 min-h-48 min-w-0 overflow-hidden rounded-md border border-input bg-background"
+          className="min-w-0"
           data-testid={scheduled ? 'automation-prompt' : undefined}
         >
-          <MarkdownEditor
+          <MarkdownField
+            label={t('ux.task')}
             value={value.prompt}
             onChange={(prompt) => onChange({ prompt })}
-            externalValueSync="when-blurred"
           />
         </div>
         <p className="text-xs leading-relaxed text-muted-foreground">{t('ux.pathHint')}</p>

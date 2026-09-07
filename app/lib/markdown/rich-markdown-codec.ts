@@ -17,10 +17,8 @@ import {
 } from '@/app/lib/markdown/canvas-marked';
 import { canvasRichMarkdownExtensions } from '@/app/lib/markdown/canvas-rich-markdown-extensions';
 import { hasObsidianRichEditorUnsupportedSyntax } from '@/app/lib/markdown/obsidian-flavored-markdown';
-import {
-  parseCanvasMarkdownDocument,
-  splitCanvasMarkdownForRichEditor,
-} from '@/app/lib/markdown/obsidian-metadata';
+import { parseCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadata';
+import { splitMarkdownEditorDocument, type MarkdownFrontmatterMode } from './editor-document';
 
 import { restoreRichMarkdownFinalLineEnding } from './core/line-endings';
 export { restoreRichMarkdownFinalLineEnding } from './core/line-endings';
@@ -112,18 +110,22 @@ function safeRichMarkdownNormalization(markdown: string, serialized: string): Ma
  * uncertain inputs stay in Source mode rather than receiving a best-effort
  * whole-document serialization.
  */
-export function analyzeMarkdownRichMode(markdown: string): MarkdownRichModeAnalysis {
-  const parsed = parseCanvasMarkdownDocument(markdown);
-  if (parsed.error) return { mode: 'source', reason: 'invalid_frontmatter' };
+export function analyzeMarkdownRichMode(
+  markdown: string,
+  frontmatter: MarkdownFrontmatterMode = 'metadata',
+): MarkdownRichModeAnalysis {
+  if (frontmatter === 'metadata' && parseCanvasMarkdownDocument(markdown).error) {
+    return { mode: 'source', reason: 'invalid_frontmatter' };
+  }
 
   const guardReason = modeReasonFromTextGuard(markdown);
   if (guardReason) return { mode: 'source', reason: guardReason };
 
-  const parts = splitCanvasMarkdownForRichEditor(markdown);
+  const parts = splitMarkdownEditorDocument(markdown, frontmatter);
   if (hasMarpBodyDirective(parts.body)) {
     return { mode: 'source', reason: 'unsupported_marp_directive' };
   }
-  if (hasObsidianRichEditorUnsupportedSyntax(parts.body)) {
+  if (hasObsidianRichEditorUnsupportedSyntax(parts.body, { allowLeadingThematicBreak: frontmatter === 'content' })) {
     return { mode: 'source', reason: 'unsupported_obsidian_syntax' };
   }
 
