@@ -10,6 +10,11 @@ import {
   getNotebookNavigationIntent,
 } from '../app/lib/chat/chat-navigation-intent';
 import { handleOpenChatSessionEvent } from '../app/lib/chat/open-chat-session-event';
+import {
+  clearWorkspaceScopedNavigationParams,
+  getWorkspaceNavigationSyncAction,
+  workspaceScopedNavigationMatches,
+} from '../app/lib/workspaces/navigation-sync';
 
 function params(value: string): URLSearchParams {
   return new URLSearchParams(value);
@@ -80,6 +85,32 @@ function main() {
     buildChatSessionHref('/todos?todo=todo-a#details', 'session-a', 'workspace-a'),
     '/todos?todo=todo-a&session=session-a&workspaceId=workspace-a&chat=open#details',
   );
+
+  assert.equal(getWorkspaceNavigationSyncAction({
+    requestedWorkspaceId: 'workspace-a',
+    activeWorkspaceId: 'workspace-a',
+    requestKey: '/notebook?workspaceId=workspace-a&path=a.md',
+    handledRequestKey: null,
+  }), 'accept');
+  assert.equal(getWorkspaceNavigationSyncAction({
+    requestedWorkspaceId: 'workspace-a',
+    activeWorkspaceId: 'workspace-b',
+    requestKey: '/notebook?workspaceId=workspace-a&path=a.md',
+    handledRequestKey: '/notebook?workspaceId=workspace-a&path=a.md',
+  }), 'clear', 'a manual workspace change must supersede an already handled URL target');
+  assert.equal(getWorkspaceNavigationSyncAction({
+    requestedWorkspaceId: 'workspace-a',
+    activeWorkspaceId: 'workspace-b',
+    requestKey: '/notebook?workspaceId=workspace-a&path=a.md',
+    handledRequestKey: null,
+  }), 'switch', 'a new URL target must still select its workspace');
+  assert.equal(
+    clearWorkspaceScopedNavigationParams('?workspaceId=workspace-a&path=a.md&session=s1&chat=open&filter=recent'),
+    'chat=open&filter=recent',
+  );
+  assert.equal(workspaceScopedNavigationMatches('workspace-a', 'workspace-b'), false);
+  assert.equal(workspaceScopedNavigationMatches('workspace-b', 'workspace-b'), true);
+  assert.equal(workspaceScopedNavigationMatches(null, 'workspace-b'), true);
 
   const event = new CustomEvent('canvas:open-chat-session', {
     detail: { sessionId: 'session-a', workspaceId: 'workspace-a', handled: false },

@@ -92,6 +92,7 @@ import {
   type WorkspacePathsDeletedDetail,
 } from '@/app/lib/files/workspace-file-events';
 import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
+import { workspaceScopedNavigationMatches } from '@/app/lib/workspaces/navigation-sync';
 import {
   NOTEBOOK_CHAT_MAX_WIDTH,
   NOTEBOOK_CHAT_MIN_WIDTH,
@@ -490,6 +491,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   const navigationIntent = getNotebookNavigationIntent(searchParams);
   const routeFilePath = navigationIntent.path;
+  const routeWorkspaceId = navigationIntent.workspaceId;
   const routeSessionId = navigationIntent.sessionId;
   const shouldOpenRouteChat = navigationIntent.shouldOpenChat;
   const {
@@ -675,7 +677,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const pendingBridgeRequest = window.name === NOTEBOOK_WINDOW_NAME
       ? readPendingNotebookFileReference()
       : null;
-    if (!pendingBridgeRequest && routeFilePath && openedPathRef.current !== routeFilePath) {
+    if (
+      !pendingBridgeRequest
+      && routeFilePath
+      && workspaceScopedNavigationMatches(routeWorkspaceId, activeWorkspaceId)
+      && openedPathRef.current !== routeFilePath
+    ) {
       openedPathRef.current = routeFilePath;
       void openNotebookFile(routeFilePath);
     }
@@ -688,6 +695,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     documentTabsHydratedFor,
     openNotebookFile,
     routeFilePath,
+    routeWorkspaceId,
     shouldOpenRouteChat,
   ]);
 
