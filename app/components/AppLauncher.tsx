@@ -48,14 +48,14 @@ interface AppItem {
 
 const APPS: AppItem[] = [
   { id: 'notebook', href: '/notebook', icon: NotebookPen, hasQuickActions: false },
-  { id: 'files', href: '/files', icon: FolderOpen, hasQuickActions: false },
+  { id: 'automations', href: '/automations', icon: Workflow, hasQuickActions: false },
   { id: 'todos', href: '/todos', icon: ListTodo, hasQuickActions: false },
   { id: 'emails', href: '/emails', icon: Inbox, hasQuickActions: false },
   { id: 'studio', href: '/studio', icon: Sparkles, hasQuickActions: true },
 ];
 
 const MORE_APPS: AppItem[] = [
-  { id: 'automations', href: '/automations', icon: Workflow, hasQuickActions: false },
+  { id: 'files', href: '/files', icon: FolderOpen, hasQuickActions: false },
   {
     id: 'chat',
     href: NOTEBOOK_CHAT_HREF,
