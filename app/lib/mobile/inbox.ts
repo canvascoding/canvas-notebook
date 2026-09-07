@@ -595,15 +595,51 @@ async function collectAggregateInboxItems(input: {
     }));
     items.push(...batchItems.flat());
   }
-  const seenTodoIds = new Set<string>();
-  return items.filter((item) => {
-    if (item.target.kind !== 'todo') return true;
-    if (seenTodoIds.has(item.target.todoId)) return false;
-    seenTodoIds.add(item.target.todoId);
-    return true;
-  }).sort((left, right) => (
+  return deduplicateMobileAggregateInboxItems(items, input.workspaces).sort((left, right) => (
     compareAggregateInboxItems(left, right)
   ));
+}
+
+export function deduplicateMobileAggregateInboxItems(
+  items: CollectedAggregateInboxItem[],
+  workspaces: WorkspaceContext[],
+): CollectedAggregateInboxItem[] {
+  const canonicalPersonalWorkspaceId = workspaces.find((workspace) => (
+    workspace.workspaceType === 'personal' && workspace.isDefault
+  ))?.workspaceId || workspaces.find((workspace) => workspace.workspaceType === 'personal')?.workspaceId;
+  const seenTodoIds = new Set<string>();
+  const seenEmailIds = new Set<string>();
+  const deduplicated: CollectedAggregateInboxItem[] = [];
+
+  for (const item of items) {
+    if (item.target.kind === 'todo') {
+      if (seenTodoIds.has(item.target.todoId)) continue;
+      seenTodoIds.add(item.target.todoId);
+      deduplicated.push(item);
+      continue;
+    }
+    if (item.target.kind !== 'email') {
+      deduplicated.push(item);
+      continue;
+    }
+
+    const targetId = item.target.caseId
+      ? `case:${item.target.caseId}`
+      : item.target.draftId
+        ? `draft:${item.target.draftId}`
+        : `item:${item.id}`;
+    const identity = item.target.scope === 'personal'
+      ? `personal:${targetId}`
+      : `workspace:${item.workspaceId}:${targetId}`;
+    if (seenEmailIds.has(identity)) continue;
+    seenEmailIds.add(identity);
+    deduplicated.push(
+      item.target.scope === 'personal' && canonicalPersonalWorkspaceId
+        ? { ...item, workspaceId: canonicalPersonalWorkspaceId }
+        : item,
+    );
+  }
+  return deduplicated;
 }
 
 function compareAggregateInboxItems(

@@ -136,6 +136,7 @@ async function main() {
     const {
       countMobileUnreadMessages,
       countMobileUnreadNotifications,
+      deduplicateMobileAggregateInboxItems,
       groupMobileAggregateInboxItemsForPresentation,
       listMobileAggregateInbox,
       listMobileInbox,
@@ -341,6 +342,55 @@ async function main() {
     assert.equal(groupedTodo?.todoGroup?.workspaceCount, 3);
     assert.equal(groupedTodo?.todoGroup?.items.length, 3);
     assert.equal(groupedTodoEntries.some((item) => item.id === 'todo:independent'), true);
+    const personalWorkspaceContexts = [
+      { ...workspace, workspaceId: 'personal-secondary' },
+      { ...workspace, workspaceId: 'personal-default', isDefault: true },
+      { ...workspace, workspaceId: 'personal-tertiary' },
+    ];
+    const repeatedPersonalEmail = {
+      id: 'email-case:shared-personal-case',
+      occurredAt: new Date(now).toISOString(),
+      previewUrl: null,
+      priority: 'normal' as const,
+      title: 'One personal review',
+      detail: 'Email review required',
+      target: {
+        kind: 'email' as const,
+        scope: 'personal' as const,
+        caseId: 'shared-personal-case',
+        draftId: 'shared-personal-draft',
+      },
+      type: 'email.attention' as const,
+      unread: false,
+      attentionRequired: true as const,
+    };
+    const deduplicatedAggregateEmails = deduplicateMobileAggregateInboxItems([
+      ...personalWorkspaceContexts.map((context) => ({
+        ...repeatedPersonalEmail,
+        workspaceId: context.workspaceId,
+      })),
+      {
+        ...repeatedPersonalEmail,
+        workspaceId: 'team-workspace',
+        target: {
+          ...repeatedPersonalEmail.target,
+          scope: 'workspace' as const,
+        },
+      },
+    ], personalWorkspaceContexts);
+    assert.equal(deduplicatedAggregateEmails.length, 2);
+    assert.equal(
+      deduplicatedAggregateEmails.find((item) => (
+        item.target.kind === 'email' && item.target.scope === 'personal'
+      ))?.workspaceId,
+      'personal-default',
+    );
+    assert.equal(
+      deduplicatedAggregateEmails.find((item) => (
+        item.target.kind === 'email' && item.target.scope === 'workspace'
+      ))?.workspaceId,
+      'team-workspace',
+    );
     await assert.rejects(
       () => listMobileAggregateInbox({
         userId: 'mobile-attention-user',
