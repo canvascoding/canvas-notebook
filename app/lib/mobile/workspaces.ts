@@ -11,16 +11,25 @@ import { serializeMobileWorkspace, type MobileWorkspaceSummary } from '@/app/lib
 import {
   createPostgresWorkspaceForActor,
   getPostgresWorkspaceState,
+  listPostgresWorkspaceMemberCandidatesForActor,
   listPostgresWorkspaceMembersForActor,
+  removePostgresWorkspaceMemberForActor,
   updatePostgresWorkspaceForActor,
+  upsertPostgresWorkspaceMemberForActor,
 } from '@/app/lib/workspaces/postgres-runtime';
 import {
   createWorkspaceRecord,
+  listWorkspaceMemberCandidates,
   listProjectWorkspaceMembers,
   listTeamWorkspaceMembers,
+  removeProjectWorkspaceMember,
+  removeTeamWorkspaceMember,
   resolveWorkspaceContextById,
   updateWorkspaceRecord,
+  upsertProjectWorkspaceMember,
+  upsertTeamWorkspaceMember,
   WorkspaceOperationError,
+  type WorkspaceMemberCandidate,
   type WorkspaceMemberRecord,
 } from '@/app/lib/workspaces/service';
 import type { WorkspaceActor, WorkspaceType } from '@/app/lib/workspaces/types';
@@ -34,17 +43,66 @@ export type MobileWorkspaceMember = {
   access: 'manage' | 'edit' | 'read';
 };
 
+export type MobileWorkspaceMemberCandidate = {
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: 'owner' | 'admin' | 'member' | 'external';
+  status: 'active' | 'archived' | 'disabled' | 'recovery_locked';
+};
+
+type MobileWorkspaceAccess = 'read' | 'edit' | 'manage';
+
+type MobileInitialMember = {
+  userId: string;
+  access: MobileWorkspaceAccess;
+};
+
 type MobileWorkspaceMutationContext = {
   actor: WorkspaceActor;
 };
 
 function normalizeCreateType(value: unknown): WorkspaceType {
-  if (value === 'team' || value === 'project') return value;
+  if (value === 'personal' || value === 'team' || value === 'project') return value;
   throw new WorkspaceOperationError(
     'WORKSPACE_TYPE_INVALID',
-    'Mobile can create team or project workspaces.',
+    'Mobile can create personal, team, or project workspaces.',
     400,
   );
+}
+
+function normalizeInitialMembers(value: unknown, type: WorkspaceType): MobileInitialMember[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 100) {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBERS_INVALID', 'Workspace members are invalid.', 400);
+  }
+  if (type !== 'team' && value.length > 0) {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Only team workspaces accept initial members.', 400);
+  }
+  const ids = new Set<string>();
+  return value.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new WorkspaceOperationError('WORKSPACE_MEMBERS_INVALID', 'Workspace members are invalid.', 400);
+    }
+    const record = item as Record<string, unknown>;
+    const userId = typeof record.userId === 'string' ? record.userId.trim() : '';
+    const access = record.access;
+    if (!userId || userId.length > 160 || ids.has(userId) || (access !== 'read' && access !== 'edit' && access !== 'manage')) {
+      throw new WorkspaceOperationError('WORKSPACE_MEMBERS_INVALID', 'Workspace members are invalid.', 400);
+    }
+    ids.add(userId);
+    return { userId, access };
+  });
+}
+
+function accessInput(input: { userId: string; access: MobileWorkspaceAccess }) {
+  return {
+    userId: input.userId,
+    role: input.access === 'manage' ? 'admin' : 'member',
+    canRead: true,
+    canWrite: input.access === 'edit' || input.access === 'manage',
+    canManage: input.access === 'manage',
+  };
 }
 
 async function requireLicenseWhenEnabled(status: { teamFeaturesEnabled: boolean }): Promise<void> {
@@ -62,6 +120,18 @@ export function serializeMobileWorkspaceMember(member: WorkspaceMemberRecord): M
   };
 }
 
+export function serializeMobileWorkspaceMemberCandidate(
+  candidate: WorkspaceMemberCandidate,
+): MobileWorkspaceMemberCandidate {
+  return {
+    userId: candidate.userId,
+    name: candidate.name,
+    email: candidate.email,
+    role: candidate.role,
+    status: candidate.status,
+  };
+}
+
 export async function createMobileWorkspace(
   input: MobileWorkspaceMutationContext & {
     type: unknown;
@@ -70,9 +140,11 @@ export async function createMobileWorkspace(
     icon?: unknown;
     color?: unknown;
     projectId?: unknown;
+    initialMembers?: unknown;
   },
 ): Promise<MobileWorkspaceSummary> {
   const type = normalizeCreateType(input.type);
+  const initialMembers = normalizeInitialMembers(input.initialMembers, type);
   const projectId = typeof input.projectId === 'string' ? input.projectId.trim() || null : null;
   if (getDatabaseProvider() === 'postgres') {
     const state = await getPostgresWorkspaceState(input.actor);
@@ -85,6 +157,7 @@ export async function createMobileWorkspace(
       color: input.color,
       projectFeaturesEnabled: areProjectFeaturesEnabled(),
       projectId,
+      initialMembers: initialMembers.map(accessInput),
     });
     return serializeMobileWorkspace(workspace);
   }
@@ -109,6 +182,17 @@ export async function createMobileWorkspace(
       projectFeaturesEnabled: areProjectFeaturesEnabled(),
       projectId,
     });
+    if (workspace.workspaceType === 'team' && workspace.organizationId) {
+      for (const member of initialMembers) {
+        if (member.userId === input.actor.userId) continue;
+        upsertTeamWorkspaceMember(sqlite, {
+          actor: input.actor,
+          organizationId: workspace.organizationId,
+          workspaceId: workspace.workspaceId,
+          ...accessInput(member),
+        });
+      }
+    }
     sqlite.exec('COMMIT');
     return serializeMobileWorkspace(workspace);
   } catch (error) {
@@ -162,17 +246,20 @@ export async function updateMobileWorkspace(
 
 export async function listMobileWorkspaceMembers(input: MobileWorkspaceMutationContext & {
   workspaceId: string;
-}): Promise<{ workspace: MobileWorkspaceSummary; members: MobileWorkspaceMember[] }> {
+}): Promise<{ workspace: MobileWorkspaceSummary; members: MobileWorkspaceMember[]; candidates: MobileWorkspaceMemberCandidate[] }> {
   if (getDatabaseProvider() === 'postgres') {
     const state = await getPostgresWorkspaceState(input.actor);
     await requireLicenseWhenEnabled(state.status);
     const result = await listPostgresWorkspaceMembersForActor(input.actor, input.workspaceId, {
       requireManage: false,
-      includeCandidates: false,
+      includeCandidates: true,
     });
     return {
       workspace: serializeMobileWorkspace(result.workspace),
       members: result.members.map(serializeMobileWorkspaceMember),
+      candidates: result.workspace.permissions.canManageWorkspace
+        ? result.candidates.map(serializeMobileWorkspaceMemberCandidate)
+        : [],
     };
   }
 
@@ -209,7 +296,141 @@ export async function listMobileWorkspaceMembers(input: MobileWorkspaceMutationC
     return {
       workspace: serializeMobileWorkspace(workspace),
       members: members.map(serializeMobileWorkspaceMember),
+      candidates: workspace.permissions.canManageWorkspace
+        ? listWorkspaceMemberCandidates(sqlite, workspace.organizationId).map(serializeMobileWorkspaceMemberCandidate)
+        : [],
     };
+  } catch (error) {
+    if (sqlite.inTransaction) sqlite.exec('ROLLBACK');
+    throw error;
+  } finally {
+    sqlite.close();
+  }
+}
+
+export async function listMobileWorkspaceMemberCandidates(
+  input: MobileWorkspaceMutationContext,
+): Promise<MobileWorkspaceMemberCandidate[]> {
+  if (input.actor.role !== 'owner' && input.actor.role !== 'admin') {
+    throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Only admins can create team workspaces.', 403);
+  }
+  if (getDatabaseProvider() === 'postgres') {
+    const candidates = await listPostgresWorkspaceMemberCandidatesForActor(input.actor);
+    return candidates.map(serializeMobileWorkspaceMemberCandidate);
+  }
+  const sqlite = openOrganizationBootstrapDatabase();
+  try {
+    sqlite.exec('BEGIN');
+    const status = ensureOrganizationBootstrapForUser(sqlite, input.actor.userId);
+    await requireLicenseWhenEnabled(status);
+    if (!status.organizationId) {
+      throw new WorkspaceOperationError('WORKSPACE_ORGANIZATION_REQUIRED', 'Organization is not configured.', 409);
+    }
+    const candidates = listWorkspaceMemberCandidates(sqlite, status.organizationId)
+      .map(serializeMobileWorkspaceMemberCandidate);
+    sqlite.exec('COMMIT');
+    return candidates;
+  } catch (error) {
+    if (sqlite.inTransaction) sqlite.exec('ROLLBACK');
+    throw error;
+  } finally {
+    sqlite.close();
+  }
+}
+
+export async function updateMobileWorkspaceMember(input: MobileWorkspaceMutationContext & {
+  workspaceId: string;
+  userId: unknown;
+  access: unknown;
+}): Promise<MobileWorkspaceMember> {
+  const members = normalizeInitialMembers([{ userId: input.userId, access: input.access }], 'team');
+  const memberInput = accessInput(members[0]!);
+  if (getDatabaseProvider() === 'postgres') {
+    const state = await getPostgresWorkspaceState(input.actor);
+    await requireLicenseWhenEnabled(state.status);
+    return serializeMobileWorkspaceMember(
+      await upsertPostgresWorkspaceMemberForActor(input.actor, input.workspaceId, memberInput),
+    );
+  }
+  const sqlite = openOrganizationBootstrapDatabase();
+  try {
+    sqlite.exec('BEGIN IMMEDIATE');
+    const status = ensureOrganizationBootstrapForUser(sqlite, input.actor.userId);
+    await requireLicenseWhenEnabled(status);
+    const workspace = resolveWorkspaceContextById(sqlite, { actor: input.actor, workspaceId: input.workspaceId });
+    if (!workspace || !workspace.permissions.canManageWorkspace || !workspace.organizationId) {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
+    }
+    if (workspace.workspaceType !== 'team' && workspace.workspaceType !== 'project') {
+      throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team and project workspaces.', 403);
+    }
+    if (workspace.workspaceType === 'project' && !workspace.projectId) {
+      throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project workspace project id is required.', 409);
+    }
+    const member = workspace.workspaceType === 'project' && workspace.projectId
+      ? upsertProjectWorkspaceMember(sqlite, {
+          actor: input.actor,
+          organizationId: workspace.organizationId,
+          workspaceId: workspace.workspaceId,
+          projectId: workspace.projectId,
+          ...memberInput,
+        })
+      : upsertTeamWorkspaceMember(sqlite, {
+          actor: input.actor,
+          organizationId: workspace.organizationId,
+          workspaceId: workspace.workspaceId,
+          ...memberInput,
+        });
+    sqlite.exec('COMMIT');
+    return serializeMobileWorkspaceMember(member);
+  } catch (error) {
+    if (sqlite.inTransaction) sqlite.exec('ROLLBACK');
+    throw error;
+  } finally {
+    sqlite.close();
+  }
+}
+
+export async function removeMobileWorkspaceMember(input: MobileWorkspaceMutationContext & {
+  workspaceId: string;
+  userId: string;
+}): Promise<void> {
+  if (getDatabaseProvider() === 'postgres') {
+    const state = await getPostgresWorkspaceState(input.actor);
+    await requireLicenseWhenEnabled(state.status);
+    await removePostgresWorkspaceMemberForActor(input.actor, input.workspaceId, input.userId);
+    return;
+  }
+  const sqlite = openOrganizationBootstrapDatabase();
+  try {
+    sqlite.exec('BEGIN IMMEDIATE');
+    const status = ensureOrganizationBootstrapForUser(sqlite, input.actor.userId);
+    await requireLicenseWhenEnabled(status);
+    const workspace = resolveWorkspaceContextById(sqlite, { actor: input.actor, workspaceId: input.workspaceId });
+    if (!workspace || !workspace.permissions.canManageWorkspace || !workspace.organizationId) {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
+    }
+    if (workspace.workspaceType !== 'team' && workspace.workspaceType !== 'project') {
+      throw new WorkspaceOperationError('WORKSPACE_MEMBERS_UNSUPPORTED', 'Workspace members are only supported for team and project workspaces.', 403);
+    }
+    if (workspace.workspaceType === 'project' && !workspace.projectId) {
+      throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project workspace project id is required.', 409);
+    }
+    if (workspace.workspaceType === 'project' && workspace.projectId) {
+      removeProjectWorkspaceMember(sqlite, {
+        organizationId: workspace.organizationId,
+        workspaceId: workspace.workspaceId,
+        projectId: workspace.projectId,
+        userId: input.userId,
+      });
+    } else {
+      removeTeamWorkspaceMember(sqlite, {
+        organizationId: workspace.organizationId,
+        workspaceId: workspace.workspaceId,
+        userId: input.userId,
+      });
+    }
+    sqlite.exec('COMMIT');
   } catch (error) {
     if (sqlite.inTransaction) sqlite.exec('ROLLBACK');
     throw error;

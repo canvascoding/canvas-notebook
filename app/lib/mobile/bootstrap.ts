@@ -100,6 +100,7 @@ export function createMobileBootstrap(input: {
     'workspace.switch',
     'workspace.update',
     'workspace.members.read',
+    'workspace.members.manage',
     'workspace.brand.read',
     'workspace.brand.update',
     'license.status',
@@ -175,7 +176,10 @@ export function createMobileBootstrap(input: {
     'integrations.composio_catalog',
     'integrations.composio_mobile_auth',
   ];
-  if (input.listing.canCreateSharedWorkspaces) capabilities.push('workspace.create');
+  if (normalizeRole(input.user.role) !== 'external') capabilities.push('workspace.create.personal');
+  if (input.listing.canCreateSharedWorkspaces) {
+    capabilities.push('workspace.create', 'workspace.create.team');
+  }
 
   return {
     product: 'canvas-notebook',

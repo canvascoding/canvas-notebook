@@ -5,7 +5,7 @@ import {
   LicenseEntitlementError,
   licenseEntitlementErrorPayload,
 } from '@/app/lib/license/entitlements';
-import { listMobileWorkspaceMembers } from '@/app/lib/mobile/workspaces';
+import { listMobileWorkspaceMembers, updateMobileWorkspaceMember } from '@/app/lib/mobile/workspaces';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { WorkspaceOperationError } from '@/app/lib/workspaces/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -69,6 +69,41 @@ export async function GET(
       workspaceId: workspaceId.trim(),
     });
     return NextResponse.json({ success: true, ...data }, { headers: responseHeaders });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function POST(
+  request: NextRequest,
+  context: { params: Promise<{ workspaceId: string }> },
+) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    return NextResponse.json(
+      { success: false, code: 'UNAUTHORIZED', error: 'Unauthorized' },
+      { status: 401, headers: responseHeaders },
+    );
+  }
+  const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'mobile-workspace-member-update' });
+  if (!limited.ok) return limited.response;
+  try {
+    const { workspaceId } = await context.params;
+    const selectedWorkspaceId = request.headers.get('x-canvas-workspace-id')?.trim() || '';
+    if (!workspaceId.trim() || selectedWorkspaceId !== workspaceId.trim()) {
+      return NextResponse.json(
+        { success: false, code: 'WORKSPACE_CONTEXT_MISMATCH', error: 'Select this workspace to manage its members.' },
+        { status: 409, headers: responseHeaders },
+      );
+    }
+    const payload = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const member = await updateMobileWorkspaceMember({
+      actor: resolveWorkspaceActor({ id: session.user.id, email: session.user.email, role: session.user.role }),
+      workspaceId: workspaceId.trim(),
+      userId: payload.userId,
+      access: payload.access,
+    });
+    return NextResponse.json({ success: true, member }, { headers: responseHeaders });
   } catch (error) {
     return errorResponse(error);
   }

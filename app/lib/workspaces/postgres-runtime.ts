@@ -1380,6 +1380,13 @@ export async function createPostgresWorkspaceForActor(
     color?: unknown;
     projectFeaturesEnabled?: boolean;
     projectId?: string | null;
+    initialMembers?: Array<{
+      userId: string;
+      role?: unknown;
+      canRead?: unknown;
+      canWrite?: unknown;
+      canManage?: unknown;
+    }>;
   },
 ): Promise<WorkspaceContext> {
   const database = await openDb();
@@ -1551,6 +1558,12 @@ export async function createPostgresWorkspaceForActor(
     const workspace = await resolveWorkspaceContextById(database, actor, record.id);
     if (!workspace) {
       throw new WorkspaceOperationError('WORKSPACE_CREATE_FAILED', 'Workspace was created but could not be resolved.', 500);
+    }
+    if (workspace.workspaceType === 'team') {
+      for (const member of input.initialMembers ?? []) {
+        if (member.userId === actor.userId) continue;
+        await upsertPostgresWorkspaceMember(database, actor, workspace, member);
+      }
     }
     await database.run('COMMIT');
     return workspace;
@@ -1874,6 +1887,58 @@ export async function changePostgresWorkspaceTypeForActor(
   }
 }
 
+async function listPostgresWorkspaceMemberCandidates(
+  database: RuntimeDb,
+  organizationId: string,
+): Promise<WorkspaceMemberCandidate[]> {
+  const rows = await database.all(
+    `
+      SELECT
+        u.id AS user_id,
+        u.name,
+        u.email,
+        COALESCE(p.role, 'member') AS role,
+        COALESCE(p.status, 'active') AS status,
+        u.banned
+      FROM "user" u
+      LEFT JOIN organization_user_permissions p
+        ON p.user_id = u.id AND p.organization_id = ?
+      WHERE COALESCE(p.status, 'active') = 'active'
+        AND COALESCE(p.role, 'member') != 'external'
+      ORDER BY lower(COALESCE(u.email, u.name, u.id)) ASC
+    `,
+    [organizationId],
+  ) as WorkspaceMemberCandidateRow[];
+  return rows
+    .filter((row) => !isBannedWorkspaceUser(row.banned))
+    .map(rowToWorkspaceMemberCandidate);
+}
+
+export async function listPostgresWorkspaceMemberCandidatesForActor(
+  actor: WorkspaceActor,
+): Promise<WorkspaceMemberCandidate[]> {
+  const database = await openDb();
+  try {
+    await database.run('BEGIN');
+    const status = await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
+    if (!status.organizationId || (actor.role !== 'owner' && actor.role !== 'admin')) {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Only admins can create team workspaces.', 403);
+    }
+    const candidates = await listPostgresWorkspaceMemberCandidates(database, status.organizationId);
+    await database.run('COMMIT');
+    return candidates;
+  } catch (error) {
+    try {
+      await database.run('ROLLBACK');
+    } catch {
+      // Preserve the original failure.
+    }
+    throw error;
+  } finally {
+    await database.close();
+  }
+}
+
 export async function listPostgresWorkspaceMembersForActor(
   actor: WorkspaceActor,
   workspaceId: string,
@@ -1951,31 +2016,14 @@ export async function listPostgresWorkspaceMembersForActor(
           `,
           [workspaceId],
         ) as WorkspaceMemberRow[];
-    const candidateRows = options.includeCandidates === false ? [] : await database.all(
-      `
-        SELECT
-          u.id AS user_id,
-          u.name,
-          u.email,
-          COALESCE(p.role, 'member') AS role,
-          COALESCE(p.status, 'active') AS status,
-          u.banned
-        FROM "user" u
-        LEFT JOIN organization_user_permissions p
-          ON p.user_id = u.id AND p.organization_id = ?
-        WHERE COALESCE(p.status, 'active') = 'active'
-          AND COALESCE(p.role, 'member') != 'external'
-        ORDER BY lower(COALESCE(u.email, u.name, u.id)) ASC
-      `,
-      [workspace.organizationId],
-    ) as WorkspaceMemberCandidateRow[];
+    const candidates = options.includeCandidates === false || !workspace.organizationId
+      ? []
+      : await listPostgresWorkspaceMemberCandidates(database, workspace.organizationId);
     await database.run('COMMIT');
     return {
       workspace,
       members: rows.map(rowToWorkspaceMemberRecord),
-      candidates: candidateRows
-        .filter((row) => !isBannedWorkspaceUser(row.banned))
-        .map(rowToWorkspaceMemberCandidate),
+      candidates,
     };
   } catch (error) {
     try {
@@ -2036,16 +2084,110 @@ async function assertPostgresWorkspaceRetainsManager(
   }
 }
 
+type PostgresWorkspaceMemberInput = {
+  userId: unknown;
+  role?: unknown;
+  canRead?: unknown;
+  canWrite?: unknown;
+  canManage?: unknown;
+};
+
+async function upsertPostgresWorkspaceMember(
+  database: RuntimeDb,
+  actor: WorkspaceActor,
+  workspace: WorkspaceContext,
+  input: PostgresWorkspaceMemberInput,
+): Promise<WorkspaceMemberRecord> {
+  const organizationId = workspace.organizationId;
+  if (!organizationId) {
+    throw new WorkspaceOperationError('WORKSPACE_ORGANIZATION_REQUIRED', 'Workspace organization id is required.', 409);
+  }
+  const userId = typeof input.userId === 'string' ? input.userId.trim() : '';
+  if (!userId) {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBER_USER_REQUIRED', 'User is required.', 400);
+  }
+  await ensurePostgresWorkspaceMemberCandidate(database, { organizationId, userId });
+
+  const role = typeof input.role === 'string' ? normalizeWorkspaceMemberRole(input.role) : 'member';
+  const canManage = Boolean(input.canManage);
+  const canWrite = canManage || Boolean(input.canWrite);
+  const canRead = canManage || canWrite || input.canRead !== false;
+  await assertPostgresWorkspaceRetainsManager(database, workspace, userId, canManage);
+  const now = Date.now();
+  if (workspace.workspaceType === 'project') {
+    await database.run(
+      `
+        INSERT INTO canvas_project_members (
+          organization_id, project_id, user_id, role, status,
+          can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id, user_id) DO UPDATE SET
+          organization_id = excluded.organization_id,
+          role = excluded.role,
+          status = excluded.status,
+          can_read = excluded.can_read,
+          can_write = excluded.can_write,
+          can_manage = excluded.can_manage,
+          invited_by_user_id = excluded.invited_by_user_id,
+          updated_at = excluded.updated_at
+      `,
+      [organizationId, workspace.projectId, userId, role, canRead ? 1 : 0, canWrite ? 1 : 0, canManage ? 1 : 0, actor.userId, now, now],
+    );
+  } else {
+    await database.run(
+      `
+        INSERT INTO canvas_workspace_members (
+          organization_id, workspace_id, user_id, role, status,
+          can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(workspace_id, user_id) DO UPDATE SET
+          role = excluded.role,
+          status = excluded.status,
+          can_read = excluded.can_read,
+          can_write = excluded.can_write,
+          can_manage = excluded.can_manage,
+          invited_by_user_id = excluded.invited_by_user_id,
+          updated_at = excluded.updated_at
+      `,
+      [organizationId, workspace.workspaceId, userId, role, canRead ? 1 : 0, canWrite ? 1 : 0, canManage ? 1 : 0, actor.userId, now, now],
+    );
+  }
+
+  const row = workspace.workspaceType === 'project'
+    ? await database.get(
+        `
+          SELECT ? AS workspace_id, m.user_id, u.name, u.email, m.role,
+            COALESCE(m.status, 'active') AS status, m.can_read, m.can_write, m.can_manage,
+            m.created_at, m.updated_at
+          FROM canvas_project_members m
+          LEFT JOIN "user" u ON u.id = m.user_id
+          WHERE m.organization_id = ? AND m.project_id = ? AND m.user_id = ?
+          LIMIT 1
+        `,
+        [workspace.workspaceId, organizationId, workspace.projectId, userId],
+      ) as WorkspaceMemberRow | undefined
+    : await database.get(
+        `
+          SELECT m.workspace_id, m.user_id, u.name, u.email, m.role,
+            COALESCE(m.status, 'active') AS status, m.can_read, m.can_write, m.can_manage,
+            m.created_at, m.updated_at
+          FROM canvas_workspace_members m
+          LEFT JOIN "user" u ON u.id = m.user_id
+          WHERE m.workspace_id = ? AND m.user_id = ?
+          LIMIT 1
+        `,
+        [workspace.workspaceId, userId],
+      ) as WorkspaceMemberRow | undefined;
+  if (!row) {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBER_UPDATE_FAILED', 'Workspace member update failed.', 500);
+  }
+  return rowToWorkspaceMemberRecord(row);
+}
+
 export async function upsertPostgresWorkspaceMemberForActor(
   actor: WorkspaceActor,
   workspaceId: string,
-  input: {
-    userId: unknown;
-    role?: unknown;
-    canRead?: unknown;
-    canWrite?: unknown;
-    canManage?: unknown;
-  },
+  input: PostgresWorkspaceMemberInput,
 ): Promise<WorkspaceMemberRecord> {
   const database = await openDb();
   try {
@@ -2065,9 +2207,7 @@ export async function upsertPostgresWorkspaceMemberForActor(
       throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project workspace project id is required.', 409);
     }
     const organizationId = workspace.organizationId;
-    if (!organizationId) {
-      throw new WorkspaceOperationError('WORKSPACE_ORGANIZATION_REQUIRED', 'Workspace organization id is required.', 409);
-    }
+    if (!organizationId) throw new WorkspaceOperationError('WORKSPACE_ORGANIZATION_REQUIRED', 'Workspace organization id is required.', 409);
     if (workspace.workspaceType === 'project') {
       const project = await database.get(
         `
@@ -2083,130 +2223,9 @@ export async function upsertPostgresWorkspaceMemberForActor(
       }
     }
 
-    const userId = typeof input.userId === 'string' ? input.userId.trim() : '';
-    if (!userId) {
-      throw new WorkspaceOperationError('WORKSPACE_MEMBER_USER_REQUIRED', 'User is required.', 400);
-    }
-    await ensurePostgresWorkspaceMemberCandidate(database, {
-      organizationId,
-      userId,
-    });
-
-    const role = typeof input.role === 'string' ? normalizeWorkspaceMemberRole(input.role) : 'member';
-    const canManage = Boolean(input.canManage);
-    const canWrite = canManage || Boolean(input.canWrite);
-    const canRead = canManage || canWrite || input.canRead !== false;
-    await assertPostgresWorkspaceRetainsManager(database, workspace, userId, canManage);
-    const now = Date.now();
-    if (workspace.workspaceType === 'project') {
-      await database.run(
-        `
-          INSERT INTO canvas_project_members (
-            organization_id, project_id, user_id, role, status,
-            can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(project_id, user_id) DO UPDATE SET
-            organization_id = excluded.organization_id,
-            role = excluded.role,
-            status = excluded.status,
-            can_read = excluded.can_read,
-            can_write = excluded.can_write,
-            can_manage = excluded.can_manage,
-            invited_by_user_id = excluded.invited_by_user_id,
-            updated_at = excluded.updated_at
-        `,
-        [
-          workspace.organizationId,
-          workspace.projectId,
-          userId,
-          role,
-          canRead ? 1 : 0,
-          canWrite ? 1 : 0,
-          canManage ? 1 : 0,
-          actor.userId,
-          now,
-          now,
-        ],
-      );
-    } else {
-      await database.run(
-        `
-          INSERT INTO canvas_workspace_members (
-            organization_id, workspace_id, user_id, role, status,
-            can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(workspace_id, user_id) DO UPDATE SET
-            role = excluded.role,
-            status = excluded.status,
-            can_read = excluded.can_read,
-            can_write = excluded.can_write,
-            can_manage = excluded.can_manage,
-            invited_by_user_id = excluded.invited_by_user_id,
-            updated_at = excluded.updated_at
-        `,
-        [
-          workspace.organizationId,
-          workspace.workspaceId,
-          userId,
-          role,
-          canRead ? 1 : 0,
-          canWrite ? 1 : 0,
-          canManage ? 1 : 0,
-          actor.userId,
-          now,
-          now,
-        ],
-      );
-    }
-
-    const row = workspace.workspaceType === 'project'
-      ? await database.get(
-          `
-            SELECT
-              ? AS workspace_id,
-              m.user_id,
-              u.name,
-              u.email,
-              m.role,
-              COALESCE(m.status, 'active') AS status,
-              m.can_read,
-              m.can_write,
-              m.can_manage,
-              m.created_at,
-              m.updated_at
-            FROM canvas_project_members m
-            LEFT JOIN "user" u ON u.id = m.user_id
-            WHERE m.organization_id = ? AND m.project_id = ? AND m.user_id = ?
-            LIMIT 1
-          `,
-          [workspace.workspaceId, workspace.organizationId, workspace.projectId, userId],
-        ) as WorkspaceMemberRow | undefined
-      : await database.get(
-          `
-            SELECT
-              m.workspace_id,
-              m.user_id,
-              u.name,
-              u.email,
-              m.role,
-              COALESCE(m.status, 'active') AS status,
-              m.can_read,
-              m.can_write,
-              m.can_manage,
-              m.created_at,
-              m.updated_at
-            FROM canvas_workspace_members m
-            LEFT JOIN "user" u ON u.id = m.user_id
-            WHERE m.workspace_id = ? AND m.user_id = ?
-            LIMIT 1
-          `,
-          [workspace.workspaceId, userId],
-        ) as WorkspaceMemberRow | undefined;
-    if (!row) {
-      throw new WorkspaceOperationError('WORKSPACE_MEMBER_UPDATE_FAILED', 'Workspace member update failed.', 500);
-    }
+    const member = await upsertPostgresWorkspaceMember(database, actor, workspace, input);
     await database.run('COMMIT');
-    return rowToWorkspaceMemberRecord(row);
+    return member;
   } catch (error) {
     try {
       await database.run('ROLLBACK');

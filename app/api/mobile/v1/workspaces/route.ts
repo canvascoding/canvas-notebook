@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
       icon: payload.icon,
       color: payload.color,
       projectId: payload.projectId,
+      initialMembers: payload.initialMembers,
     });
     return NextResponse.json({ success: true, workspace }, { status: 201, headers: responseHeaders });
   } catch (error) {
