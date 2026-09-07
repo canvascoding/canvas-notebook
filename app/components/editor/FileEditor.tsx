@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, GitBranch, Info, Loader2, Lock, MoreVertical, Presentation, RefreshCw, Save, Share2, X } from 'lucide-react';
+import { AlertCircle, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, GitBranch, Info, Loader2, Lock, MoreVertical, Presentation, RefreshCw, Share2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -756,56 +756,6 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const displaySaveError = isCrdtCollaboration
     ? activeCollaborationDocument?.error ?? null
     : saveError ?? null;
-  const collaborativeSavePending = isCrdtCollaboration && (
-    !activeCollaborationDocument
-    || activeCollaborationDocument.durability !== 'checkpointed_file'
-  );
-  const collaborationSaveStatus = isCrdtCollaboration
-    ? !activeCollaborationDocument
-      ? t('collaboration.connecting')
-      : activeCollaborationDocument.connection === 'offline'
-        ? activeCollaborationDocument.durability === 'local_pending'
-          ? t('collaboration.offlineLocal')
-          : t('collaboration.offline')
-        : activeCollaborationDocument.connection === 'reconnecting'
-          ? t('collaboration.reconnecting')
-          : activeCollaborationDocument.connection === 'denied'
-            ? t('collaboration.denied')
-            : activeCollaborationDocument.durability === 'local_pending'
-              ? t('collaboration.localPending')
-              : activeCollaborationDocument.durability === 'server_received'
-                ? t('collaboration.serverReceived')
-                : activeCollaborationDocument.durability === 'persisted_yjs'
-                  ? t('collaboration.persistedYjs')
-                  : activeCollaborationDocument.durability === 'checkpoint_pending'
-                    ? t('collaboration.checkpointPending')
-                    : activeCollaborationDocument.durability === 'checkpointed_file'
-                      ? t('collaboration.checkpointedFile')
-                      : t('collaboration.degraded')
-    : null;
-  const saveStatusLabel = collaborationSaveStatus || (displaySaveError
-    ? displaySaveError
-    : isSaving
-      ? t('saving')
-      : isDirty
-        ? t('unsavedChanges')
-        : savedTime
-          ? t('savedAt', { time: savedTime })
-          : t('saved'));
-  const saveStatusInlineText = collaborationSaveStatus || (displaySaveError
-    ? displaySaveError
-    : isSaving
-      ? t('saving')
-      : isDirty
-        ? t('unsavedChanges')
-        : savedTime ?? t('saved'));
-  const saveStatusTone = displaySaveError
-    ? 'text-destructive'
-    : isCrdtCollaboration && activeCollaborationDocument?.connection === 'offline'
-      ? 'text-amber-600 dark:text-amber-400'
-      : isCrdtCollaboration
-        ? collaborativeSavePending ? 'text-muted-foreground' : 'text-primary'
-        : !isSaving && !isDirty ? 'text-primary' : 'text-muted-foreground';
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const currentFileNode = useMemo<FileNode | null>(() => {
     if (!currentFile) return null;
@@ -1398,22 +1348,18 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                 onOperationsChange={handleAgentOperationsChange}
               />
             ) : null}
-            <FileHeaderTooltip label={saveStatusLabel}>
-              <span
-                className={`flex h-6 max-w-36 shrink-0 items-center justify-center gap-1 rounded-sm px-1.5 text-xs ${saveStatusTone}`}
-                aria-label={saveStatusLabel}
-                role="status"
-              >
-                {displaySaveError ? (
+            {displaySaveError ? (
+              <FileHeaderTooltip label={displaySaveError}>
+                <span
+                  className="flex h-6 max-w-36 shrink-0 items-center justify-center gap-1 rounded-sm px-1.5 text-xs text-destructive"
+                  aria-label={displaySaveError}
+                  role="status"
+                >
                   <AlertCircle className="h-3.5 w-3.5" />
-                ) : isSaving || isDirty || collaborativeSavePending ? (
-                  <Save className="h-3.5 w-3.5" />
-                ) : (
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                )}
-                <span className="truncate">{saveStatusInlineText}</span>
-              </span>
-            </FileHeaderTooltip>
+                  <span className="truncate">{displaySaveError}</span>
+                </span>
+              </FileHeaderTooltip>
+            ) : null}
             <FileActionsDropdown
               node={currentFileNode}
               showCreateActions={false}
