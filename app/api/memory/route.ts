@@ -19,6 +19,7 @@ import {
   setAgentMemoryArchived,
   transferAgentMemory,
   updateMemoryReviewSettings,
+  type MemoryEntryView,
   type MemoryServiceScope,
 } from '@/app/lib/memory/service';
 import type { MemoryScopeType } from '@/app/lib/memory/contract';
@@ -29,6 +30,12 @@ const MAX_MEMORY_PROMPT_TOKENS = 4_000;
 
 function normalizedString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function memoryEntryViewFromParam(value: string | null): MemoryEntryView {
+  return value === 'published' || value === 'pending' || value === 'archived' || value === 'all'
+    ? value
+    : 'active';
 }
 
 async function requireSession(request: NextRequest) {
@@ -208,7 +215,9 @@ export async function GET(request: NextRequest) {
       ? await readMemoryCollection({
         ...scope,
         collectionId: selectedCollectionId,
-        includeArchived: request.nextUrl.searchParams.get('includeArchived') === '1',
+        view: request.nextUrl.searchParams.get('includeArchived') === '1'
+          ? 'all'
+          : memoryEntryViewFromParam(request.nextUrl.searchParams.get('status')),
       })
       : { target: scope.target, entries: [] };
     return NextResponse.json({ success: true, data: { scope: scope.target, collections, entries: entries.entries, permissions } });
@@ -309,7 +318,7 @@ export async function POST(request: NextRequest) {
     if (scope.target === 'agent') {
       await resolveAgentMemoryOwnerForUser({ userId: session.user.id, agentId: scope.agentId!, allowDeleted: false });
     }
-    const result = await addMemory({ ...scope, content });
+    const result = await addMemory({ ...scope, content, publishIfAuthorized: true });
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to add memory.';

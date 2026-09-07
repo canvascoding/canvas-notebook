@@ -633,13 +633,16 @@ export async function readMemoryEntryHistory(
   try {
     const where = collectionScopeWhere(scope);
     const entry = await connection.get(`
-      SELECT entry.id, entry.status
+      SELECT entry.id, entry.status, entry.created_by_user_id
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
       WHERE entry.id = ? AND ${where.sql}
       LIMIT 1
-    `, [scope.id.trim(), ...where.params]) as { id?: string; status?: MemoryEntryStatus } | undefined;
-    if (!entry?.id || (!permissions.canPublish && entry.status !== 'published')) {
+    `, [scope.id.trim(), ...where.params]) as { id?: string; status?: MemoryEntryStatus; created_by_user_id?: string | null } | undefined;
+    const canReadOwnPending = entry?.status === 'pending'
+      && permissions.canSuggest
+      && entry.created_by_user_id === scope.userId;
+    if (!entry?.id || (!permissions.canPublish && entry.status !== 'published' && !canReadOwnPending)) {
       throw new Error(`Memory entry "${scope.id}" was not found.`);
     }
     const rows = await connection.all(`
@@ -830,8 +833,10 @@ export async function saveOnboardingUserMemories(params: {
   };
 }
 
-export async function addMemory(scope: MemoryServiceScope & { content: string }): Promise<MemoryMutationResult> {
-  await assertMemoryScopeAccess(scope, 'suggest');
+export async function addMemory(
+  scope: MemoryServiceScope & { content: string; publishIfAuthorized?: boolean },
+): Promise<MemoryMutationResult> {
+  const permissions = await assertMemoryScopeAccess(scope, 'suggest');
   const content = assertMemoryContent(scope.content);
   const collectionId = await findCollectionId(scope, true);
   if (!collectionId) throw new Error('Could not resolve a memory collection.');
@@ -849,20 +854,22 @@ export async function addMemory(scope: MemoryServiceScope & { content: string })
       return { ...result, changed: false, entry: toEntry(existing) };
     }
     const now = Date.now();
+    const sharedScope = scope.target === 'workspace' || scope.target === 'organization';
+    const publishDirectly = sharedScope && scope.publishIfAuthorized === true && permissions.canPublish;
     const entry: MemoryEntry = {
-      id: randomUUID(), content, status: initialMemoryEntryStatus(scope.target), priority: 50,
+      id: randomUUID(), content, status: publishDirectly ? 'published' : initialMemoryEntryStatus(scope.target), priority: 50,
       pinned: false, collectionId, updatedAt: now, lastUsedAt: null,
     };
     await connection.run(`
       INSERT INTO memory_entries (
         id, collection_id, content, normalized_content_hash, status, priority, pinned, sensitivity,
         estimated_tokens, created_by_actor_type, created_by_user_id, revision, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 0, 'standard', ?, 'assistant', ?, 1, ?, ?)
-    `, [entry.id, collectionId, content, hash, entry.status, entry.priority, Math.max(1, Math.ceil(content.length / 4)), scope.userId, now, now]);
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 'standard', ?, ?, ?, 1, ?, ?)
+    `, [entry.id, collectionId, content, hash, entry.status, entry.priority, Math.max(1, Math.ceil(content.length / 4)), scope.publishIfAuthorized ? 'user' : 'assistant', scope.userId, now, now]);
     await connection.run(`
       INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at)
-      VALUES (?, ?, 'add', 'assistant', ?, 'explicit_memory_tool', ?)
-    `, [randomUUID(), entry.id, scope.userId, now]);
+      VALUES (?, ?, 'add', ?, ?, ?, ?)
+    `, [randomUUID(), entry.id, scope.publishIfAuthorized ? 'user' : 'assistant', scope.userId, scope.publishIfAuthorized ? 'manual_memory_entry' : 'explicit_memory_tool', now]);
     console.info('[Memory] Entry stored.', {
       operation: 'add',
       target: scope.target,
@@ -1065,6 +1072,14 @@ export async function publishMemory(scope: MemoryServiceScope & { id: string }):
     const now = Date.now();
     await connection.run(`UPDATE memory_entries SET status = 'published', revision = revision + 1, updated_at = ? WHERE id = ?`, [now, id]);
     await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'publish', 'user', ?, 'shared_memory_manager', ?)`, [randomUUID(), id, scope.userId, now]);
+    console.info('[Memory] Entry lifecycle changed.', {
+      operation: 'publish',
+      target: scope.target,
+      entryId: id,
+      collectionId: entry.collectionId,
+      fromStatus: entry.status,
+      toStatus: 'published',
+    });
     const result = await readMemory(scope);
     return { ...result, changed: true, entry: result.entries.find((candidate) => candidate.id === id) };
   } finally { await connection.close(); }

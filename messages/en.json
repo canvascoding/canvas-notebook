@@ -2988,19 +2988,25 @@
         "loading": "Loading memories…",
         "empty": "No memory entries yet. Add a durable fact below to begin.",
         "pending": "{count, plural, one {# pending} other {# pending}}",
+        "published": "{count, plural, one {# published} other {# published}}",
+        "archived": "{count, plural, one {# archived} other {# archived}}",
         "entries": "{count, plural, one {# entry} other {# entries}}",
         "selected": "Selected memory category",
         "export": "Export category"
       },
       "entries": {
+        "statusAriaLabel": "Memory status",
+        "views": {
+          "published": "Published ({count})",
+          "pending": "Pending ({count})",
+          "archived": "Archived ({count})"
+        },
         "searchLabel": "Search memory",
         "searchPlaceholder": "Search this category",
         "sortLabel": "Sort memory",
         "sortPriority": "Priority",
         "sortUpdated": "Last updated",
         "sortLastUsed": "Last used",
-        "showArchived": "Show archived",
-        "hideArchived": "Hide archived",
         "status": {
           "pending": "Pending",
           "published": "Published",
@@ -3014,15 +3020,22 @@
         "archive": "Archive",
         "history": "History",
         "hideHistory": "Hide history",
-        "empty": "This category has no published entries you can view.",
+        "emptyViews": {
+          "published": "This category has no published entries you can view.",
+          "pending": "There are no suggestions awaiting approval in this category.",
+          "archived": "There are no archived entries in this category."
+        },
         "noSearchResults": "No memory entries match this search."
       },
       "editor": {
         "title": "Add a durable fact",
         "description": "Keep it atomic and useful across future conversations. Secrets, session logs, and temporary tasks are rejected.",
+        "sharedManagerDescription": "You can save this shared memory directly. It becomes visible to readers immediately.",
+        "sharedContributorDescription": "Your suggestion stays pending until a workspace or organization manager approves it.",
         "placeholder": "e.g. Prefers short, decisive weekly updates.",
         "deletedAgentReadOnly": "Deleted-agent memory is read-only until transferred.",
         "suggest": "Suggest memory",
+        "publish": "Save and publish",
         "save": "Save memory"
       },
       "privateData": {

@@ -139,6 +139,10 @@ async function main(): Promise<void> {
     await deleteMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     const restoredPendingWorkspace = await restoreMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     assert.equal(restoredPendingWorkspace.entry?.status, 'pending');
+    const managerCreatedWorkspace = await addMemory({
+      target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', content: 'Managers may publish manual entries directly.', publishIfAuthorized: true,
+    });
+    assert.equal(managerCreatedWorkspace.entry?.status, 'published');
     const publishedWorkspace = await publishMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });
     assert.equal(publishedWorkspace.entry?.status, 'published');
     await deleteMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id });

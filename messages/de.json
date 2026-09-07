@@ -2987,19 +2987,25 @@
         "loading": "Memories werden geladen …",
         "empty": "Noch keine Memory-Einträge vorhanden. Füge unten einen dauerhaften Fakt hinzu.",
         "pending": "{count, plural, one {# ausstehend} other {# ausstehend}}",
+        "published": "{count, plural, one {# veröffentlicht} other {# veröffentlicht}}",
+        "archived": "{count, plural, one {# archiviert} other {# archiviert}}",
         "entries": "{count, plural, one {# Eintrag} other {# Einträge}}",
         "selected": "Ausgewählter Memory-Bereich",
         "export": "Bereich exportieren"
       },
       "entries": {
+        "statusAriaLabel": "Memory-Status",
+        "views": {
+          "published": "Veröffentlicht ({count})",
+          "pending": "Ausstehend ({count})",
+          "archived": "Archiviert ({count})"
+        },
         "searchLabel": "Memories durchsuchen",
         "searchPlaceholder": "Diesen Bereich durchsuchen",
         "sortLabel": "Memories sortieren",
         "sortPriority": "Priorität",
         "sortUpdated": "Zuletzt aktualisiert",
         "sortLastUsed": "Zuletzt verwendet",
-        "showArchived": "Archivierte anzeigen",
-        "hideArchived": "Archivierte ausblenden",
         "status": {
           "pending": "Ausstehend",
           "published": "Veröffentlicht",
@@ -3013,15 +3019,22 @@
         "archive": "Archivieren",
         "history": "Verlauf",
         "hideHistory": "Verlauf ausblenden",
-        "empty": "Dieser Bereich enthält keine veröffentlichten Einträge, die du sehen kannst.",
+        "emptyViews": {
+          "published": "Dieser Bereich enthält keine veröffentlichten Einträge, die du sehen kannst.",
+          "pending": "In diesem Bereich warten keine Vorschläge auf Freigabe.",
+          "archived": "In diesem Bereich gibt es keine archivierten Einträge."
+        },
         "noSearchResults": "Keine Memory-Einträge entsprechen dieser Suche."
       },
       "editor": {
         "title": "Dauerhaften Fakt hinzufügen",
         "description": "Halte ihn einzeln und für zukünftige Gespräche nützlich. Secrets, Sitzungsprotokolle und vorübergehende Aufgaben werden abgelehnt.",
+        "sharedManagerDescription": "Du kannst dieses geteilte Memory direkt speichern. Es wird sofort für Leser sichtbar.",
+        "sharedContributorDescription": "Dein Vorschlag bleibt ausstehend, bis ihn eine Workspace- oder Organisationsverwaltung freigibt.",
         "placeholder": "z. B. Bevorzugt kurze, eindeutige Wochen-Updates.",
         "deletedAgentReadOnly": "Memories gelöschter Agents bleiben schreibgeschützt, bis sie übertragen werden.",
         "suggest": "Memory vorschlagen",
+        "publish": "Speichern und veröffentlichen",
         "save": "Memory speichern"
       },
       "privateData": {
