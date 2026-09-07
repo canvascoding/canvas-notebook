@@ -5736,13 +5736,18 @@ export function MarkdownEditor({
     onModeChange?.(next);
   }, [onModeChange]);
   const [sourceModeRequested, setSourceModeRequested] = useState(false);
+  const [migrationInProgress, setMigrationInProgress] = useState(false);
   const [wide, setWide] = useState(false);
   const [markdownNavigationTarget, setMarkdownNavigationTarget] = useState<WorkspaceMarkdownLocation | null>(() => (
     filePath ? consumeWorkspaceMarkdownLocation(filePath) : null
   ));
   const authoritativeRepresentation = collaborationSession.session?.representation;
+  const preparingRichMode = mode === 'rich' && collaborationEnabled && !readOnly
+    && authoritativeRepresentation === 'plain_text' && richModeAnalysis.mode !== 'source'
+    && collaborationDocument?.session?.permission === 'write';
   const effectiveMode: EditorMode = mode === 'read' ? 'read'
-    : mode === 'source' || (collaborationEnabled ? authoritativeRepresentation === 'plain_text' : sourceModeRequired) ? 'source' : 'rich';
+    : preparingRichMode ? 'rich'
+      : mode === 'source' || (collaborationEnabled ? authoritativeRepresentation === 'plain_text' : sourceModeRequired) ? 'source' : 'rich';
   const richSourceReadOnly = collaborationEnabled && authoritativeRepresentation === 'tiptap_xml';
 
   useEffect(() => {
@@ -5775,12 +5780,6 @@ export function MarkdownEditor({
     setMode('source');
   }, [setMode]);
 
-  const switchToRichMode = useCallback(() => {
-    if (readOnly) return;
-    setSourceModeRequested(false);
-    setMode('rich');
-  }, [readOnly, setMode]);
-
   const normalizeToRichMode = useCallback(() => {
     if (readOnly || collaborationEnabled || richModeAnalysis.mode !== 'normalizable') return;
     onChange?.(composeCanvasMarkdownDocument(
@@ -5791,6 +5790,16 @@ export function MarkdownEditor({
     setMode('rich');
     toast.success(t('markdownEditorNormalizedForRichText'));
   }, [collaborationEnabled, onChange, readOnly, richModeAnalysis, setMode, t]);
+
+  const switchToRichMode = useCallback(() => {
+    if (readOnly) return;
+    if (!collaborationEnabled && richModeAnalysis.mode === 'normalizable') {
+      normalizeToRichMode();
+      return;
+    }
+    setSourceModeRequested(false);
+    setMode('rich');
+  }, [collaborationEnabled, normalizeToRichMode, readOnly, richModeAnalysis.mode, setMode]);
 
   if (collaborationEnabled && (!collaborationSession.session || !collaborationDocument?.ready)) {
     return (
@@ -5814,18 +5823,18 @@ export function MarkdownEditor({
   }} />;
   const wrap = (children: React.ReactNode) => <div className="flex h-full min-h-0 flex-col bg-background" data-document-width={layout === 'field' || wide ? 'wide' : 'page'} data-editor-layout={layout} data-field-inline={layout === 'field' && !expanded} data-editor-mode={effectiveMode}>
     {modeBar}
-    {mode !== 'read' && collaborationDocument && authoritativeRepresentation === 'plain_text'
+    {!readOnly && collaborationDocument && authoritativeRepresentation === 'plain_text'
       && richModeAnalysis.mode !== 'source' && collaborationDocument.session?.permission === 'write' && filePath
-      ? <MarkdownRichMigration collaboration={collaborationDocument} filePath={filePath} onReady={() => {
-        setMode('rich'); collaborationSession.retry();
-      }} /> : null}
+      ? <div hidden={mode === 'read'}><MarkdownRichMigration key={`${filePath}:${collaborationDocument.session.lifecycleGeneration}`}
+        collaboration={collaborationDocument} filePath={filePath} autoStart={mode === 'rich'}
+        onStart={() => setMode('rich')} onBusyChange={setMigrationInProgress} onReady={collaborationSession.retry} /></div> : null}
     <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue} available={liveMarkdown.available} filePath={filePath} />
     <div className="markdown-editor-content min-h-0 flex-1 overflow-hidden">{children}</div>
   </div>;
 
   if (!liveMarkdown.available) return wrap(<p className="p-5 text-sm">{t('editorModes.unavailable')}</p>);
 
-  if (effectiveMode === 'read') {
+  if (effectiveMode === 'read' || preparingRichMode) {
     return wrap(
       <div className="markdown-read-viewport h-full min-h-0 overflow-auto bg-background">
         {showNotebookMetadata && !parsedDocument.error ? (
@@ -5855,7 +5864,7 @@ export function MarkdownEditor({
         richModeAvailable={!sourceModeRequired && !collaborationEnabled}
         value={displayedValue}
         onChange={onChange}
-        readOnly={readOnly || richSourceReadOnly}
+        readOnly={readOnly || richSourceReadOnly || migrationInProgress}
         filePath={filePath}
         isMobileKeyboardActive={layout === 'document' && isMobileKeyboardActive}
         onRichMode={switchToRichMode}

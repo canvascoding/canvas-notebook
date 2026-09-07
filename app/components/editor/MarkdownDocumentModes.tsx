@@ -1,6 +1,6 @@
 'use client';
 
-import { useContext, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import { Download, Code2, Eye, Pencil, Maximize2, Minimize2, MoveHorizontal } from 'lucide-react';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
@@ -79,35 +79,58 @@ export function MarkdownModeBar({ mode, onChange, readOnly, wide, onWideChange, 
   </div>;
 }
 
-export function MarkdownRichMigration({ collaboration, filePath, onReady }: {
+export function MarkdownRichMigration({ collaboration, filePath, onReady, onStart, onBusyChange, autoStart = false }: {
   collaboration: CollaborationDocument; filePath: string; onReady: () => void;
+  onStart?: () => void; onBusyChange?: (busy: boolean) => void; autoStart?: boolean;
 }) {
   const t = useTranslations('notebook.editorModes');
   const [busy, setBusy] = useState(false);
   const [blocked, setBlocked] = useState(false);
-  return <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2 text-xs">
-    <Button variant="outline" size="sm" disabled={busy || collaboration.connection !== 'live' || collaboration.durability === 'degraded'} onClick={async () => {
-      setBusy(true); setBlocked(false);
-      let migrated = false;
-      try {
-        await collaboration.requestCheckpoint();
-        collaboration.provider?.disconnect();
-        for (let attempt = 0; attempt < 3 && !migrated; attempt += 1) {
-          if (attempt) await new Promise((resolve) => setTimeout(resolve, 350));
-          const response = await fetch('/api/files/collaboration/session', {
-            method: 'POST', headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
-            body: JSON.stringify({ path: filePath, representation: 'auto', allowRichMigration: true,
-              expectedLifecycleGeneration: collaboration.session?.lifecycleGeneration }),
-          });
-          const result = await response.json();
-          migrated = response.ok && result.success === true && result.representation === 'tiptap_xml';
-        }
-        if (migrated) onReady(); else setBlocked(true);
-      } catch { setBlocked(true); }
-      finally {
-        if (!migrated) collaboration.provider?.connect();
-        setBusy(false);
+  const running = useRef(false);
+  const autoAttempted = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const canStart = collaboration.connection === 'live' && collaboration.durability !== 'degraded';
+  const migrate = useCallback(async () => {
+    if (running.current || !canStart) return;
+    running.current = true;
+    setBusy(true); setBlocked(false);
+    onBusyChange?.(true);
+    let migrated = false;
+    try {
+      await collaboration.requestCheckpoint();
+      collaboration.provider?.disconnect();
+      for (let attempt = 0; attempt < 3 && !migrated; attempt += 1) {
+        if (attempt) await new Promise((resolve) => setTimeout(resolve, 350));
+        const response = await fetch('/api/files/collaboration/session', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...workspaceHeaders(collaboration.registryKey.split('\0')[0]) },
+          body: JSON.stringify({ path: filePath, representation: 'auto', allowRichMigration: true,
+            expectedLifecycleGeneration: collaboration.session?.lifecycleGeneration }),
+        });
+        const result = await response.json();
+        migrated = response.ok && result.success === true && result.representation === 'tiptap_xml';
       }
+      // Refresh the authoritative session even if the user switched back to Read.
+      // The chosen mode belongs to the parent and must not be reset by this request.
+      if (migrated) onReady(); else if (mounted.current) setBlocked(true);
+    } catch { if (mounted.current) setBlocked(true); }
+    finally {
+      if (!migrated) collaboration.provider?.connect();
+      running.current = false;
+      onBusyChange?.(false);
+      if (mounted.current) setBusy(false);
+    }
+  }, [canStart, collaboration, filePath, onReady, onBusyChange]);
+  useEffect(() => {
+    if (!autoStart || !canStart || autoAttempted.current) return;
+    autoAttempted.current = true;
+    void migrate();
+  }, [autoStart, canStart, migrate]);
+  return <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2 text-xs">
+    <Button variant="outline" size="sm" disabled={busy || !canStart} onClick={() => {
+      autoAttempted.current = true;
+      onStart?.();
+      void migrate();
     }}>{t(busy ? 'migrationBusy' : 'migration')}</Button>
     {blocked && <span role="status">{t('migrationBlocked')}</span>}
   </div>;
