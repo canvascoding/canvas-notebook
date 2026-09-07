@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronDown, Sparkles } from 'lucide-react';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
-import { Button } from '@/components/ui/button';
 
 import { readNotificationSummary, type NotificationSummary } from '@/app/components/notifications/notification-summary';
 import { PromptHero, type HomePromptMode } from './PromptHero';
@@ -34,7 +33,7 @@ export function HomeWorkspaceView({
     try {
       setSummary(await readNotificationSummary());
     } catch {
-      setSummary(null);
+      // Keep the last successful summary during a failed background refresh.
     } finally {
       setIsLoadingSummary(false);
     }
@@ -81,9 +80,7 @@ export function HomeWorkspaceView({
   return (
     <div className="grid gap-6 pb-4 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-x-8">
       <div className="min-w-0 lg:col-start-1 lg:row-start-1">
-        {workspace ? <HomeFilesPanel key={workspace.id} workspace={workspace} /> : <div className="py-8 text-sm text-muted-foreground" role="status">
-          {workspaceError ? <><p>{t('start.workspaceFailed')}</p><Button variant="outline" size="sm" className="mt-3" onClick={() => void useWorkspaceStore.getState().hydrateWorkspaces({ force: true })}>{t('start.retry')}</Button></> : t('start.loading')}
-        </div>}
+        <HomeFilesPanel key={workspace?.id ?? 'loading'} workspace={workspace} workspaceError={workspaceError} />
       </div>
       <HomeAttentionPanel summary={summary} isLoading={isLoadingSummary} />
       <section className="min-w-0 space-y-3 border-t border-border pt-5 lg:col-start-1 lg:row-start-2" aria-labelledby="home-workspace-prompt">

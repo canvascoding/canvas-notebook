@@ -1,5 +1,6 @@
 'use client';
 
+import { HomeNotificationRowsSkeleton } from './HomeSkeletons';
 import { useState } from 'react';
 import { Bell, Check, ChevronDown, CircleAlert, ImageIcon, ListTodo, Mail, MessageSquare, Workflow, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -43,9 +44,9 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
           <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </button>
       </div>
-      <div id="home-attention-items" className={`${expanded ? 'block' : 'hidden lg:block'} border-t border-border`}>
+      <div id="home-attention-items" className={`${expanded ? 'block' : 'hidden lg:block'} min-h-[23rem] border-t border-border`}>
         {!isLoading && !summary ? <div className="px-4 py-4"><Button variant="outline" size="sm" onClick={() => window.dispatchEvent(new CustomEvent('notification_summary_updated'))}>{t('retry')}</Button></div>
-          : isLoading ? <p className="px-4 py-5 text-sm text-muted-foreground" role="status">{tn('loading')}</p>
+          : isLoading ? <HomeNotificationRowsSkeleton />
           : items.length === 0 ? <div className="flex items-start gap-2 px-4 py-5"><Check className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><p className="text-sm text-muted-foreground">{t('noAttention')}</p></div>
           : <ul className="divide-y divide-border/60 px-2">
             {visible.map((item) => {

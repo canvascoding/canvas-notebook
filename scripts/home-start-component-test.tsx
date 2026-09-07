@@ -47,7 +47,21 @@ async function main() {
   useWorkspaceStore.setState({ activeWorkspaceId: 'one', workspaces: [workspace] });
   const settle = async (delay = 30) => act(async () => { await new Promise((resolve) => setTimeout(resolve, delay)); });
 
-  let screen = render(wrap(<HomeFilesPanel workspace={workspace} />));
+  let screen = render(wrap(<HomeFilesPanel />));
+  assert.ok(screen.getByRole('heading', { name: 'Weiterarbeiten' }));
+  assert.ok(screen.getByRole('status', { name: 'Dateien werden geladen …' }));
+  assert.equal(screen.getByRole('textbox').hasAttribute('disabled'), true);
+  assert.equal(screen.queryAllByRole('link').length, 0, 'workspace loading must not expose links to an unselected workspace');
+  cleanup();
+  screen = render(wrap(<HomeFilesPanel workspaceError="offline" />));
+  assert.ok(screen.getByRole('alert'));
+  assert.equal(document.querySelector('[aria-busy]')?.getAttribute('aria-busy'), 'false');
+  cleanup();
+  screen = render(wrap(<HomeAttentionPanel summary={null} isLoading />));
+  assert.ok(screen.getByRole('status'));
+  cleanup();
+
+  screen = render(wrap(<HomeFilesPanel workspace={workspace} />));
   await settle();
   assert.equal(screen.getAllByRole('link').filter((link) => link.getAttribute('href')?.includes('path=')).length, 5);
   assert.equal(screen.getByRole('link', { name: /Notiz 0/ }).getAttribute('href'), '/de/notebook?path=Notes%2Ffile-0.md&workspaceId=one');
