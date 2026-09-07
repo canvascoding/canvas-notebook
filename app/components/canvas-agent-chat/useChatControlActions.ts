@@ -128,6 +128,7 @@ type UseChatControlActionsParams = {
   setSessionId: Dispatch<SetStateAction<string | null>>;
   setSessionTitle: Dispatch<SetStateAction<string | null>>;
   setShowHistory: Dispatch<SetStateAction<boolean>>;
+  touchSessionActivity: (sessionId: string, activityAt?: string) => void;
   setShowMobileDetails: Dispatch<SetStateAction<boolean>>;
   shouldShowHistoryAsOverlay: boolean;
   showHistory: boolean;
@@ -256,6 +257,7 @@ export function useChatControlActions({
   setSessionId,
   setSessionTitle,
   setShowHistory,
+  touchSessionActivity,
   setShowMobileDetails,
   shouldShowHistoryAsOverlay,
   showHistory,
@@ -447,6 +449,7 @@ export function useChatControlActions({
           undefined,
           requestContextSnapshot,
         ) };
+      touchSessionActivity(targetSessionId, new Date(userMessage.timestamp).toISOString());
 
       if (optimisticMessageId) {
         setMessages((prev) => prev.map((message) => (
@@ -469,7 +472,7 @@ export function useChatControlActions({
       }
       throw error;
     }
-  }, [appendOptimisticUserMessage, attachments, buildRequestContext, chatRequestTimeoutMs, clearCurrentAssistant, createAssistantBubble, currentFilePath, ensureSession, ensureSessionSubscribed, input, isMobile, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, runtimeSelection, scanForImageReferences, selectedAgentId, sessionAgentIdRef, sessionIdRef, setAttachments, setInput, setIsResolvingInitialChatState, setMessages, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, setShowHistory, shouldShowHistoryAsOverlay, showHistory, t, wsRequest]);
+  }, [appendOptimisticUserMessage, attachments, buildRequestContext, chatRequestTimeoutMs, clearCurrentAssistant, createAssistantBubble, currentFilePath, ensureSession, ensureSessionSubscribed, input, isMobile, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, runtimeSelection, scanForImageReferences, selectedAgentId, sessionAgentIdRef, sessionIdRef, setAttachments, setInput, setIsResolvingInitialChatState, setMessages, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, setShowHistory, shouldShowHistoryAsOverlay, showHistory, t, touchSessionActivity, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {

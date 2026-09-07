@@ -383,6 +383,7 @@ export default function CanvasAgentChat({
     setHistorySidebarWidth,
     setHistoryUnreadOnly,
     setTotalUnreadCount,
+    touchSessionActivity,
     totalUnreadCount,
   } = useChatSessionHistory({
     activeWorkspaceId,
@@ -706,6 +707,7 @@ export default function CanvasAgentChat({
     setSessionId,
     setSessionTitle,
     setShowHistory,
+    touchSessionActivity,
     setShowMobileDetails,
     shouldShowHistoryAsOverlay,
     showHistory,

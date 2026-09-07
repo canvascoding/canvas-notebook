@@ -65,6 +65,10 @@ function sortSessionsByRecentActivity(sessions: AISession[]): AISession[] {
   });
 }
 
+function getSessionActivityAt(session: AISession): string {
+  return session.lastMessageAt || session.createdAt;
+}
+
 function getSessionTimeGroup(dateString: string): ChatHistoryGroup {
   const date = new Date(dateString);
   const now = new Date();
@@ -184,6 +188,19 @@ export function useChatSessionHistory({
     setLatestSession(session);
   }, []);
 
+  const touchSessionActivity = useCallback((sessionId: string, activityAt = new Date().toISOString()) => {
+    setHistory((previous) => {
+      const updated = sortSessionsByRecentActivity(previous.map((session) => (
+        session.sessionId === sessionId
+          ? { ...session, lastMessageAt: activityAt }
+          : session
+      )));
+      historyRef.current = updated;
+      setLatestSession(updated[0] || null);
+      return updated;
+    });
+  }, []);
+
   const resetHistoryState = useCallback(() => {
     sessionListRequestRef.current = null;
     hasLoadedSessionListRef.current = false;
@@ -291,7 +308,7 @@ export function useChatSessionHistory({
       const resolvedTitle = resolveSessionTitle(updatedSessionId, title);
 
       setHistory((prev) => {
-        const updated = prev.map((session) => {
+        const updated = sortSessionsByRecentActivity(prev.map((session) => {
           if (session.sessionId !== updatedSessionId) return session;
           const updatedSession = applySessionUnreadUpdate(session, event.detail, {
             isCurrentVisibleSession,
@@ -299,7 +316,7 @@ export function useChatSessionHistory({
           });
           console.log(`[CanvasAgentChat] Unread calc for ${updatedSessionId}: isCurrentVisible=${isCurrentVisibleSession}, lastMessageAt=${lastMessageAt}, lastViewedAt=${session.lastViewedAt}, newLastViewedAt=${updatedSession.lastViewedAt}, hasUnread=${updatedSession.hasUnread}`);
           return updatedSession;
-        });
+        }));
 
         setTotalUnreadCount(updated.filter((candidate) => candidate.hasUnread).length);
         historyRef.current = updated;
@@ -530,7 +547,7 @@ export function useChatSessionHistory({
       });
     } else {
       sortSessionsByRecentActivity(filtered).forEach((session) => {
-        const group = getSessionTimeGroup(session.createdAt);
+        const group = getSessionTimeGroup(getSessionActivityAt(session));
         grouped[group].push(session);
       });
     }
@@ -609,6 +626,7 @@ export function useChatSessionHistory({
     setHistoryUnreadOnly,
     setLatestSession,
     setTotalUnreadCount,
+    touchSessionActivity,
     totalUnreadCount,
   };
 }
