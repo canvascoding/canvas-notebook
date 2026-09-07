@@ -39,6 +39,14 @@ export function AppBackButton({ fallbackHref, preferFallback = false, className 
     router.push('/');
   };
 
+  const handleMenuBack = () => {
+    window.setTimeout(handleBack, 0);
+  };
+
+  const handleMenuHome = () => {
+    window.setTimeout(handleHome, 0);
+  };
+
   return (
     <div className="inline-flex shrink-0 items-center">
       <Button
@@ -70,11 +78,11 @@ export function AppBackButton({ fallbackHref, preferFallback = false, className 
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" side="bottom" sideOffset={6} className="w-44">
-          <DropdownMenuItem onSelect={handleBack}>
+          <DropdownMenuItem onSelect={handleMenuBack}>
             <ArrowLeft />
             {t('back')}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={handleHome}>
+          <DropdownMenuItem onSelect={handleMenuHome}>
             <House />
             {t('home')}
           </DropdownMenuItem>

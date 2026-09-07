@@ -181,7 +181,7 @@ export function AppLauncher({ showBrowserLab = false }: { showBrowserLab?: boole
     return (
       <div className="space-y-1">
         <ActionRow asChild className="min-h-10 w-full justify-start bg-transparent px-3 text-foreground shadow-none hover:bg-accent">
-          <Link href={app.href} onClick={close}>
+          <Link href={app.href} onClick={inMenu ? undefined : close}>
             <ArrowRight className="h-4 w-4" />
             {tNav('openApp', { app: label })}
           </Link>
@@ -196,7 +196,7 @@ export function AppLauncher({ showBrowserLab = false }: { showBrowserLab?: boole
           <div className="pt-1">
             {actions.map((action) => (
               <ActionRow key={action.href} asChild className="min-h-10 w-full justify-start bg-transparent px-3 text-foreground shadow-none hover:bg-accent">
-                <Link href={action.href} onClick={close}>
+                <Link href={action.href} onClick={inMenu ? undefined : close}>
                   {action.label}
                 </Link>
               </ActionRow>
@@ -254,7 +254,6 @@ export function AppLauncher({ showBrowserLab = false }: { showBrowserLab?: boole
                           ? 'bg-primary/10 text-primary'
                           : 'text-foreground hover:bg-accent'
                       )}
-                      onClick={closeLauncher}
                       onContextMenu={(e) => handleOpenActions(e, app)}
                     >
                       <div className={cn(
