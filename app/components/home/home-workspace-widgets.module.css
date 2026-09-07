@@ -1,0 +1,61 @@
+.widgetBody {
+  min-height: 0;
+}
+
+.summary,
+.details {
+  transition: opacity 180ms ease, transform 180ms ease, visibility 180ms ease;
+}
+
+@media (min-width: 768px) and (hover: hover) and (pointer: fine) {
+  .widgetBody {
+    position: relative;
+  }
+
+  .summary,
+  .details {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+  }
+
+  .details {
+    visibility: hidden;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+
+  .card:hover .summary,
+  .card:focus-within .summary {
+    opacity: 0.08;
+    transform: scale(0.985);
+  }
+
+  .card:hover .details,
+  .card:focus-within .details {
+    visibility: visible;
+    pointer-events: auto;
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 767px), (hover: none), (pointer: coarse) {
+  .summary {
+    min-height: 11rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .details,
+  .details > div {
+    height: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .summary,
+  .details {
+    transition: none;
+  }
+}

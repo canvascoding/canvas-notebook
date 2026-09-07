@@ -1930,6 +1930,60 @@
       "toContinue": "Zurück zum Weiterarbeiten",
       "workspaceDescription": "Organisiere Aufgaben, Kommunikation und kreative Arbeit in deinem Workspace."
     },
+    "workspaceWidgets": {
+      "eyebrow": "Aktiver Workspace",
+      "quickSelection": "Schnellauswahl",
+      "openApp": "{app} öffnen",
+      "unavailable": "Gerade nicht verfügbar",
+      "retry": "Erneut versuchen",
+      "email": {
+        "title": "E-Mail",
+        "description": "Neue Nachrichten aus allen Konten",
+        "count": "{count, plural, =0 {Keine ungelesenen Nachrichten} one {Eine ungelesene Nachricht} other {# ungelesene Nachrichten}}",
+        "empty": "Alles gelesen – neue Nachrichten erscheinen hier.",
+        "unknownSender": "Unbekannter Absender",
+        "noSubject": "Ohne Betreff",
+        "openAll": "Posteingang öffnen"
+      },
+      "todos": {
+        "title": "To-dos",
+        "description": "Prioritäten in diesem Workspace",
+        "count": "{count, plural, =0 {Keine offenen To-dos} one {Ein offenes To-do} other {# offene To-dos}}",
+        "empty": "In diesem Workspace ist gerade nichts offen.",
+        "highPriority": "Hohe Priorität",
+        "due": "Fällig {time}",
+        "open": "Offen",
+        "openAll": "Workspace-To-dos öffnen"
+      },
+      "automation": {
+        "title": "Automationen",
+        "description": "Letzte Ausführung im Workspace",
+        "empty": "Für diesen Workspace gibt es noch keine Automation.",
+        "notRun": "Noch nicht ausgeführt",
+        "lastRun": "Zuletzt {time}",
+        "nextRun": "Nächster Lauf {time}",
+        "noNextRun": "Keine nächste Ausführung geplant",
+        "noResult": "Für die letzte Ausführung liegt noch keine Zusammenfassung vor.",
+        "openAll": "Automationen öffnen",
+        "status": {
+          "pending": "Wartet",
+          "running": "Läuft",
+          "success": "Erfolgreich",
+          "failed": "Fehlgeschlagen",
+          "retry_scheduled": "Wiederholung geplant"
+        }
+      },
+      "studio": {
+        "title": "Studio",
+        "description": "Letztes Ergebnis dieses Workspace",
+        "empty": "Das erste Studio-Ergebnis erscheint hier.",
+        "untitled": "Studio-Generierung",
+        "created": "Erstellt {time}",
+        "useAgain": "Im Studio weiterarbeiten",
+        "openGeneration": "Ergebnis öffnen",
+        "openStudio": "Studio öffnen"
+      }
+    },
     "start": {
       "allNotifications": "Alle Benachrichtigungen",
       "title": "Weiterarbeiten",

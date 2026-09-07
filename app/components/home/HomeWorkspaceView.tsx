@@ -13,7 +13,6 @@ import { HomeAttentionPanel } from './HomeAttentionPanel';
 import { HomeFilesPanel } from './HomeFilesPanel';
 import { HomeAppLinks } from './HomeAppLinks';
 import { HomePages } from './HomePages';
-import { HomeMobileAppPromo } from '@/app/components/mobile/HomeMobileAppPromo';
 
 export function HomeWorkspaceView({
   introduction,
@@ -97,13 +96,6 @@ export function HomeWorkspaceView({
           </div> : null}
         </section>
       </div>
-    </>} workspace={active =>
-      <div className="space-y-8">
-        <HomeAppLinks />
-        {active ? <HomeMobileAppPromo
-          hasPriorityAttention={Boolean(summary?.items.some((item) => item.unread && item.priority === 'high'))}
-        /> : null}
-      </div>
-    } />
+    </>} workspace={active => <HomeAppLinks active={active} workspaceId={workspace?.id} />} />
   );
 }

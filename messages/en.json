@@ -1931,6 +1931,60 @@
       "toContinue": "Back to your work",
       "workspaceDescription": "Organize tasks, communication, and creative work in your workspace."
     },
+    "workspaceWidgets": {
+      "eyebrow": "Active workspace",
+      "quickSelection": "Quick selection",
+      "openApp": "Open {app}",
+      "unavailable": "Currently unavailable",
+      "retry": "Try again",
+      "email": {
+        "title": "Email",
+        "description": "New messages across all accounts",
+        "count": "{count, plural, =0 {No unread messages} one {One unread message} other {# unread messages}}",
+        "empty": "You're all caught up. New messages appear here.",
+        "unknownSender": "Unknown sender",
+        "noSubject": "No subject",
+        "openAll": "Open inbox"
+      },
+      "todos": {
+        "title": "To-dos",
+        "description": "Priorities in this workspace",
+        "count": "{count, plural, =0 {No open to-dos} one {One open to-do} other {# open to-dos}}",
+        "empty": "Nothing is open in this workspace.",
+        "highPriority": "High priority",
+        "due": "Due {time}",
+        "open": "Open",
+        "openAll": "Open workspace to-dos"
+      },
+      "automation": {
+        "title": "Automations",
+        "description": "Latest run in this workspace",
+        "empty": "This workspace has no automations yet.",
+        "notRun": "Not run yet",
+        "lastRun": "Last run {time}",
+        "nextRun": "Next run {time}",
+        "noNextRun": "No next run scheduled",
+        "noResult": "There is no summary for the latest run yet.",
+        "openAll": "Open automations",
+        "status": {
+          "pending": "Pending",
+          "running": "Running",
+          "success": "Successful",
+          "failed": "Failed",
+          "retry_scheduled": "Retry scheduled"
+        }
+      },
+      "studio": {
+        "title": "Studio",
+        "description": "Latest result in this workspace",
+        "empty": "Your first Studio result will appear here.",
+        "untitled": "Studio generation",
+        "created": "Created {time}",
+        "useAgain": "Continue in Studio",
+        "openGeneration": "Open result",
+        "openStudio": "Open Studio"
+      }
+    },
     "start": {
       "allNotifications": "All notifications",
       "title": "Continue working",
