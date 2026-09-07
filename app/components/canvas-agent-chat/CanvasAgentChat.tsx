@@ -842,13 +842,13 @@ export default function CanvasAgentChat({
         removeComposerDraft(id);
         setHistory((prev) => prev.filter((session) => session.sessionId !== id));
         if (sessionIdRef.current === id) {
-          startNewChat();
+          startNewChat(undefined, { keepHistoryOpen: showHistory });
         }
       }
     } catch (err) {
       console.error('Failed to delete session', err);
     }
-  }, [history, selectedAgentId, setHistory, startNewChat, t]);
+  }, [history, selectedAgentId, setHistory, showHistory, startNewChat, t]);
 
   const renameSession = useCallback(async (session: AISession) => {
     const nextTitle = prompt(t('renameSessionPrompt'), getSessionDisplayTitle(session.title, t('newChatTitle')));
@@ -1273,6 +1273,9 @@ export default function CanvasAgentChat({
         isMobile={isMobile}
         isSessionTitleGenerating={isSessionTitleGenerating}
         onCompact={(focusTopic) => void handleCompact(focusTopic)}
+        onDeleteSession={() => {
+          if (sessionId) void deleteSession(sessionId);
+        }}
         onSelectAgent={(agentId) => {
           closeReferencePicker();
           selectChatAgent(agentId);

@@ -13,6 +13,7 @@ import {
   Settings,
   Sparkles,
   Target,
+  Trash2,
   WandSparkles,
 } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
@@ -62,6 +63,7 @@ type ChatHeaderProps = {
   isMobile: boolean;
   isSessionTitleGenerating: boolean;
   onCompact: (focusTopic?: string) => void;
+  onDeleteSession: () => void;
   onSelectAgent: (agentId: string) => void;
   onReloadAgents: () => Promise<void>;
   onOpenLiveBrowser?: () => void;
@@ -90,6 +92,7 @@ export function ChatHeader({
   isMobile,
   isSessionTitleGenerating,
   onCompact,
+  onDeleteSession,
   onSelectAgent,
   onReloadAgents,
   onOpenLiveBrowser,
@@ -391,6 +394,16 @@ export function ChatHeader({
                   </Link>
                 </DropdownMenuItem>
               ) : null}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                data-testid="chat-delete-session"
+                className="text-destructive focus:text-destructive"
+                onSelect={onDeleteSession}
+                disabled={!sessionId}
+              >
+                <Trash2 />
+                <span>{t('deleteSession')}</span>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           {showWorkspaceSwitcher ? (

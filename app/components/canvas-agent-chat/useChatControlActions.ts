@@ -59,6 +59,7 @@ type ChatRuntimeControlAction =
 
 type StartNewChatOptions = {
   clearActiveSessionStorage?: boolean;
+  keepHistoryOpen?: boolean;
 };
 
 type UseChatControlActionsParams = {
@@ -633,7 +634,7 @@ export function useChatControlActions({
     setOldestSequence(null);
     setIsLoadingOlder(false);
     setExpandedRunKeys(new Set());
-    if (isMobile || shouldShowHistoryAsOverlay) {
+    if (!options?.keepHistoryOpen && (isMobile || shouldShowHistoryAsOverlay)) {
       setShowHistory(false);
     }
     setShowMobileDetails(false);
