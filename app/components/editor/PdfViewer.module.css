@@ -1,0 +1,119 @@
+.page {
+  --total-scale-factor: var(--scale-factor);
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+  direction: ltr;
+}
+
+.canvas {
+  position: relative;
+  z-index: 0;
+}
+
+.layers {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.page :global(.textLayer) {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: clip;
+  color-scheme: only light;
+  text-align: initial;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  forced-color-adjust: none;
+  text-size-adjust: none;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.page :global(.textLayer span),
+.page :global(.textLayer br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+  user-select: text;
+}
+
+.page :global(.textLayer > :not(.markedContent)),
+.page :global(.textLayer .markedContent span:not(.markedContent)) {
+  z-index: 1;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+}
+
+.page :global(.textLayer .markedContent) {
+  display: contents;
+}
+
+.page :global(.textLayer ::selection) {
+  color: transparent;
+  background: color-mix(in srgb, Highlight, transparent 50%);
+}
+
+.page :global(.textLayer br::selection) {
+  background: transparent;
+}
+
+.page :global(.textLayer .endOfContent) {
+  position: absolute;
+  display: block;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.page :global(.textLayer.selecting .endOfContent) {
+  top: 0;
+}
+
+.page :global(.annotationLayer) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  color-scheme: only light;
+  pointer-events: none;
+  transform-origin: 0 0;
+}
+
+.page :global(.annotationLayer section) {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: auto;
+  transform-origin: 0 0;
+  user-select: none;
+}
+
+.page :global(.annotationLayer section:not(.linkAnnotation)) {
+  display: none;
+}
+
+.page :global(.annotationLayer .linkAnnotation > a) {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+}
+
+.page :global(.annotationLayer .linkAnnotation > a:hover) {
+  background: color-mix(in srgb, Highlight, transparent 80%);
+}
+
+.page :global(.annotationLayer .linkAnnotation > a:focus-visible) {
+  outline: 2px solid Highlight;
+  outline-offset: 1px;
+}

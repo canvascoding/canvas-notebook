@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { OnProgressParameters, PDFDocumentLoadingTask, PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import { AlertCircle, ChevronLeft, ChevronRight, ExternalLink, Loader2, RotateCw, ZoomIn, ZoomOut } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import styles from './PdfViewer.module.css';
 
 interface PdfViewerProps {
   path: string;
@@ -18,6 +19,7 @@ interface PdfPageCanvasProps {
   containerWidth: number;
   pageNumber: number;
   pdf: PDFDocumentProxy;
+  linkService: PdfLinkService;
   rotation: number;
   scrollRoot: HTMLDivElement | null;
   setPageRef: (pageNumber: number, element: HTMLDivElement | null) => void;
@@ -25,6 +27,75 @@ interface PdfPageCanvasProps {
 }
 
 type PdfJsModule = typeof import('pdfjs-dist/legacy/build/pdf.mjs');
+type PdfJsViewerModule = typeof import('pdfjs-dist/legacy/web/pdf_viewer.mjs');
+type PdfLinkService = InstanceType<PdfJsViewerModule['PDFLinkService']>;
+type PdfTextLayerImages = Parameters<InstanceType<PdfJsViewerModule['TextLayerBuilder']>['render']>[0]['images'];
+
+interface PdfJsRuntime {
+  pdfjs: PdfJsModule;
+  viewer: PdfJsViewerModule;
+}
+
+interface PdfViewerNavigationOptions {
+  pdf: PDFDocumentProxy;
+  scrollToPage: (pageNumber: number) => void;
+}
+
+class PdfViewerNavigationAdapter {
+  readonly isInPresentationMode = false;
+  readonly optionalContentConfigPromise: ReturnType<PDFDocumentProxy['getOptionalContentConfig']>;
+  private currentPage = 1;
+  private rotation = 0;
+
+  constructor(private readonly options: PdfViewerNavigationOptions) {
+    this.optionalContentConfigPromise = options.pdf.getOptionalContentConfig();
+  }
+
+  get currentPageNumber() {
+    return this.currentPage;
+  }
+
+  set currentPageNumber(value: number) {
+    this.currentPage = value;
+    this.options.scrollToPage(value);
+  }
+
+  get pagesRotation() {
+    return this.rotation;
+  }
+
+  set pagesRotation(value: number) {
+    this.rotation = value;
+  }
+
+  updateState(currentPage: number, rotation: number) {
+    this.currentPage = currentPage;
+    this.rotation = rotation;
+  }
+
+  scrollPageIntoView({ pageNumber }: { pageNumber: number }) {
+    this.options.scrollToPage(pageNumber);
+  }
+
+  pageLabelToPageNumber(label: string) {
+    const pageNumber = Number(label);
+    return Number.isInteger(pageNumber) && pageNumber >= 1 && pageNumber <= this.options.pdf.numPages
+      ? pageNumber
+      : null;
+  }
+
+  nextPage() {
+    if (this.currentPageNumber >= this.options.pdf.numPages) return false;
+    this.options.scrollToPage(this.currentPageNumber + 1);
+    return true;
+  }
+
+  previousPage() {
+    if (this.currentPageNumber <= 1) return false;
+    this.options.scrollToPage(this.currentPageNumber - 1);
+    return true;
+  }
+}
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.5;
@@ -33,16 +104,18 @@ const MAX_DEVICE_PIXEL_RATIO = 2;
 const MAX_PAGE_WIDTH = 1120;
 const PAGE_GUTTER = 32;
 
-let pdfJsPromise: Promise<PdfJsModule> | null = null;
+let pdfJsPromise: Promise<PdfJsRuntime> | null = null;
 
 function loadPdfJs() {
   if (!pdfJsPromise) {
-    pdfJsPromise = import('pdfjs-dist/legacy/build/pdf.mjs').then((pdfjs) => {
+    pdfJsPromise = import('pdfjs-dist/legacy/build/pdf.mjs').then(async (pdfjs) => {
+      (globalThis as typeof globalThis & { pdfjsLib?: PdfJsModule }).pdfjsLib = pdfjs;
+      const viewer = await import('pdfjs-dist/legacy/web/pdf_viewer.mjs');
       pdfjs.GlobalWorkerOptions.workerSrc = new URL(
         'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
         import.meta.url
       ).toString();
-      return pdfjs;
+      return { pdfjs, viewer };
     });
   }
 
@@ -61,6 +134,7 @@ function PdfPageCanvas({
   containerWidth,
   pageNumber,
   pdf,
+  linkService,
   rotation,
   scrollRoot,
   setPageRef,
@@ -68,12 +142,13 @@ function PdfPageCanvas({
 }: PdfPageCanvasProps) {
   const t = useTranslations('notebook');
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const layersRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [isNearViewport, setIsNearViewport] = useState(pageNumber <= 2);
   const [isRendering, setIsRendering] = useState(false);
   const [isRendered, setIsRendered] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(null);
+  const [pageSize, setPageSize] = useState<{ width: number; height: number; scale: number } | null>(null);
 
   const setWrapperRef = useCallback((element: HTMLDivElement | null) => {
     wrapperRef.current = element;
@@ -107,15 +182,23 @@ function PdfPageCanvas({
 
     let cancelled = false;
     let renderTask: RenderTask | null = null;
+    let textLayer: InstanceType<PdfJsViewerModule['TextLayerBuilder']> | null = null;
+    let annotationLayer: InstanceType<PdfJsViewerModule['AnnotationLayerBuilder']> | null = null;
+    const abortController = new AbortController();
 
     async function renderPage() {
       const canvas = canvasRef.current;
-      if (!canvas) return;
+      const layers = layersRef.current;
+      if (!canvas || !layers) return;
 
       setIsRendering(true);
       setError(null);
+      layers.replaceChildren();
 
       try {
+        const { viewer } = await loadPdfJs();
+        if (cancelled) return;
+
         const page = await pdf.getPage(pageNumber);
         if (cancelled) return;
 
@@ -135,8 +218,39 @@ function PdfPageCanvas({
         setPageSize({
           width: Math.floor(cssViewport.width),
           height: Math.floor(cssViewport.height),
+          scale: cssViewport.scale,
         });
         setIsRendered(false);
+
+        textLayer = new viewer.TextLayerBuilder({
+          pdfPage: page,
+          abortSignal: abortController.signal,
+        });
+        layers.append(textLayer.div);
+
+        annotationLayer = new viewer.AnnotationLayerBuilder({
+          pdfPage: page,
+          linkService,
+          renderForms: false,
+          enableScripting: false,
+          onAppend: (element: HTMLDivElement) => layers.append(element),
+        });
+
+        const textLayerPromise = textLayer.render({
+          viewport: cssViewport,
+          images: null as unknown as PdfTextLayerImages,
+        }).catch((layerError: unknown) => {
+          if (!cancelled) {
+            console.error('[PdfViewer] Failed to render text layer:', layerError);
+          }
+        });
+        const annotationLayerPromise = annotationLayer.render({
+          viewport: cssViewport,
+        }).catch((layerError: unknown) => {
+          if (!cancelled) {
+            console.error('[PdfViewer] Failed to render annotation layer:', layerError);
+          }
+        });
 
         renderTask = page.render({
           canvas,
@@ -148,6 +262,7 @@ function PdfPageCanvas({
         if (!cancelled) {
           setIsRendered(true);
         }
+        await Promise.all([textLayerPromise, annotationLayerPromise]);
       } catch (renderError) {
         if (!cancelled && !isRenderingCancelled(renderError)) {
           console.error('[PdfViewer] Failed to render page:', renderError);
@@ -164,9 +279,12 @@ function PdfPageCanvas({
 
     return () => {
       cancelled = true;
+      abortController.abort();
       renderTask?.cancel();
+      textLayer?.cancel();
+      annotationLayer?.cancel();
     };
-  }, [containerWidth, isNearViewport, pageNumber, pdf, rotation, t, zoom]);
+  }, [containerWidth, isNearViewport, linkService, pageNumber, pdf, rotation, t, zoom]);
 
   const fallbackHeight = pageSize?.height ?? 480;
   const fallbackWidth = pageSize?.width ?? Math.min(Math.max(containerWidth - PAGE_GUTTER, 280), MAX_PAGE_WIDTH);
@@ -174,11 +292,13 @@ function PdfPageCanvas({
   return (
     <div ref={setWrapperRef} className="mb-4 flex min-w-full justify-center px-2 sm:px-4">
       <div
-        className="relative overflow-hidden rounded-sm bg-white shadow-sm ring-1 ring-border/70"
+        className={`${styles.page} relative overflow-hidden rounded-sm bg-white shadow-sm ring-1 ring-border/70`}
         style={{
           width: fallbackWidth,
           minHeight: fallbackHeight,
-        }}
+          '--scale-factor': pageSize?.scale ?? 1,
+        } as CSSProperties}
+        data-pdf-page={pageNumber}
       >
         {!isRendered && !error ? (
           <Skeleton className="absolute inset-0 z-0 rounded-none bg-muted" />
@@ -199,9 +319,10 @@ function PdfPageCanvas({
           <canvas
             ref={canvasRef}
             aria-label={t('pdfPageLabel', { page: pageNumber })}
-            className={`block bg-white transition-opacity duration-150 ${isRendered ? 'opacity-100' : 'opacity-0'}`}
+            className={`${styles.canvas} block bg-white transition-opacity duration-150 ${isRendered ? 'opacity-100' : 'opacity-0'}`}
           />
         )}
+        <div ref={layersRef} className={styles.layers} aria-hidden={!isRendered} />
       </div>
     </div>
   );
@@ -214,9 +335,11 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const rafRef = useRef<number | null>(null);
+  const pageCountRef = useRef(0);
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
+  const [linkService, setLinkService] = useState<PdfLinkService | null>(null);
   const [pageCount, setPageCount] = useState(0);
   const [activePage, setActivePage] = useState(1);
   const [zoom, setZoom] = useState(1);
@@ -274,16 +397,26 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
     }
   }, []);
 
+  const scrollToPage = useCallback((pageNumber: number) => {
+    const nextPage = Math.min(Math.max(pageNumber, 1), pageCountRef.current || 1);
+    const pageElement = pageRefs.current.get(nextPage);
+    if (!pageElement) return;
+
+    pageElement.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    setActivePage(nextPage);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     let loadingTask: PDFDocumentLoadingTask | null = null;
     let loadedPdf: PDFDocumentProxy | null = null;
+    let loadedLinkService: PdfLinkService | null = null;
 
     pageRefs.current.clear();
 
     async function loadDocument() {
       try {
-        const pdfjs = await loadPdfJs();
+        const { pdfjs, viewer } = await loadPdfJs();
         if (cancelled) return;
 
         loadingTask = pdfjs.getDocument({
@@ -299,8 +432,23 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
         loadedPdf = await loadingTask.promise;
         if (cancelled) return;
 
+        const eventBus = new viewer.EventBus();
+        loadedLinkService = new viewer.PDFLinkService({
+          eventBus,
+          externalLinkTarget: viewer.LinkTarget.BLANK,
+          externalLinkRel: 'noopener noreferrer',
+          ignoreDestinationZoom: true,
+        });
+        loadedLinkService.setDocument(loadedPdf);
+        loadedLinkService.setViewer(new PdfViewerNavigationAdapter({
+          pdf: loadedPdf,
+          scrollToPage,
+        }));
+
+        pageCountRef.current = loadedPdf.numPages;
         setPdf(loadedPdf);
         setPageCount(loadedPdf.numPages);
+        setLinkService(loadedLinkService);
         setIsLoading(false);
       } catch (loadError) {
         if (!cancelled) {
@@ -315,10 +463,11 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
 
     return () => {
       cancelled = true;
+      loadedLinkService?.setDocument(null);
       void loadingTask?.destroy();
       void loadedPdf?.cleanup();
     };
-  }, [src, t]);
+  }, [scrollToPage, src, t]);
 
   useEffect(() => {
     const root = scrollContainerRef.current;
@@ -348,14 +497,12 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
     };
   }, []);
 
-  const scrollToPage = useCallback((pageNumber: number) => {
-    const nextPage = Math.min(Math.max(pageNumber, 1), pageCount || 1);
-    const pageElement = pageRefs.current.get(nextPage);
-    if (!pageElement) return;
-
-    pageElement.scrollIntoView({ block: 'start', behavior: 'smooth' });
-    setActivePage(nextPage);
-  }, [pageCount]);
+  useEffect(() => {
+    const viewerAdapter = linkService?.pdfViewer;
+    if (viewerAdapter instanceof PdfViewerNavigationAdapter) {
+      viewerAdapter.updateState(activePage, rotation);
+    }
+  }, [activePage, linkService, rotation]);
 
   const handlePreviousPage = useCallback(() => {
     scrollToPage(activePage - 1);
@@ -488,7 +635,7 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
               <span>{error}</span>
             </div>
           </div>
-        ) : pdf ? (
+        ) : pdf && linkService ? (
           <div className="mx-auto flex w-fit min-w-full flex-col items-center">
             {pages.map((pageNumber) => (
               <PdfPageCanvas
@@ -496,6 +643,7 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
                 containerWidth={containerWidth}
                 pageNumber={pageNumber}
                 pdf={pdf}
+                linkService={linkService}
                 rotation={rotation}
                 scrollRoot={scrollRoot}
                 setPageRef={setPageRef}
