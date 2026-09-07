@@ -9,6 +9,7 @@ import type {
   ChatRequestContext,
   NotebookRequestActiveSurface,
   NotebookRequestContext,
+  TodoChatContext,
 } from '@/app/lib/chat/types';
 import {
   getExistingPiRuntimeStatuses,
@@ -37,7 +38,12 @@ import {
 } from '@/app/lib/pi/session-workspace-context';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 import { createOperationTiming } from '@/app/lib/observability/operation-timing';
-import { getTodo } from '@/app/lib/todos/store';
+import {
+  getTodo,
+  TODO_PRIORITIES,
+  TODO_STATUSES,
+  TODO_WORKSPACE_TYPES,
+} from '@/app/lib/todos/store';
 
 export type UserAgentMessage = Extract<AgentMessage, { role: 'user' }>;
 
@@ -182,6 +188,28 @@ function normalizeTodoContextId(value: unknown): string | null {
   return normalized;
 }
 
+function normalizeTodoStatus(value: unknown): TodoChatContext['status'] {
+  return typeof value === 'string'
+    ? TODO_STATUSES.find((status) => status === value)
+    : undefined;
+}
+
+function normalizeTodoPriority(value: unknown): TodoChatContext['priority'] {
+  return typeof value === 'string'
+    ? TODO_PRIORITIES.find((priority) => priority === value)
+    : undefined;
+}
+
+function normalizeTodoScopeKind(value: unknown): TodoChatContext['scopeKind'] {
+  return value === 'user' || value === 'workspace' ? value : undefined;
+}
+
+function normalizeTodoWorkspaceType(value: unknown): NonNullable<TodoChatContext['workspace']>['type'] | undefined {
+  return typeof value === 'string'
+    ? TODO_WORKSPACE_TYPES.find((type) => type === value)
+    : undefined;
+}
+
 async function normalizeTodoContext(
   value: unknown,
   userId: string,
@@ -200,14 +228,14 @@ async function normalizeTodoContext(
       todoId: todo.id,
       title: todo.title,
       description: todo.description,
-      status: todo.status,
-      priority: todo.priority,
+      status: normalizeTodoStatus(todo.status),
+      priority: normalizeTodoPriority(todo.priority),
       categoryName: todo.category?.name ?? null,
-      scopeKind: todo.scopeKind,
+      scopeKind: normalizeTodoScopeKind(todo.scopeKind),
       workspace: todo.workspace ? {
         id: todo.workspace.id,
         name: todo.workspace.name,
-        type: todo.workspace.type,
+        type: normalizeTodoWorkspaceType(todo.workspace.type) ?? 'personal',
       } : null,
       assignee: todo.assignee ? {
         id: todo.assignee.id,
