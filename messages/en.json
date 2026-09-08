@@ -373,10 +373,6 @@
         }
       },
       "notebook": {
-    "unavailableLocalChanges": "This file was moved, deleted, or replaced. Your local view is preserved. Download local changes before discarding them.",
-    "downloadLocalChanges": "Download local changes",
-    "discardUnavailableDocument": "Discard and close",
-
         "fileBrowser": {
           "title": "File browser",
           "description": "View all files in your workspace. Create new ones, upload, or drag & drop."
@@ -1192,6 +1188,9 @@
     "externalChangeCopySaved": "Draft saved as a copy.",
     "externalChangeLoadFailed": "Could not load the latest version.",
     "selectFileToPreview": "Select a file to preview.",
+    "unavailableLocalChanges": "This file was moved, deleted, or replaced. Your local view is preserved. Download local changes before discarding them.",
+    "downloadLocalChanges": "Download local changes",
+    "discardUnavailableDocument": "Discard and close",
     "fileUnavailableTitle": "File no longer available",
     "fileUnavailableDescription": "The previously opened file is not available in this workspace. Select another file to continue.",
     "fileLabel": "File",
