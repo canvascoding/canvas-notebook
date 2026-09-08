@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
               AND w.project_id = p.id
               AND w.type = 'project'
               AND w.status = 'active'
-            WHERE p.organization_id = ? AND p.status = 'active'
+            WHERE p.organization_id = $1 AND p.status = 'active'
             ORDER BY lower(p.name) ASC, p.created_at ASC
           `,
           [state.status.organizationId],
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
       try {
         if (customerId) {
           const customer = await database.get(
-            'SELECT id FROM canvas_customers WHERE organization_id = ? AND id = ? AND status = ? LIMIT 1',
+            'SELECT id FROM canvas_customers WHERE organization_id = $1 AND id = $2 AND status = $3 LIMIT 1',
             [state.status.organizationId, customerId, 'active'],
           ) as { id: string } | undefined;
           if (!customer) {
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
         const id = `prj_${randomUUID()}`;
         const baseSlug = normalizeSlug(typeof payload.slug === 'string' ? payload.slug : name);
         const rows = await database.all(
-          'SELECT slug FROM canvas_projects WHERE organization_id = ? AND (slug = ? OR slug LIKE ?)',
+          'SELECT slug FROM canvas_projects WHERE organization_id = $1 AND (slug = $2 OR slug LIKE $3)',
           [state.status.organizationId, baseSlug, `${baseSlug}-%`],
         ) as Array<{ slug: string }>;
         const used = new Set(rows.map((row) => row.slug));
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
           `
             INSERT INTO canvas_projects (
               id, organization_id, customer_id, name, slug, status, description, metadata_json, created_by_user_id, archived_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8, NULL, $9, $10)
           `,
           [
             id,
