@@ -4,23 +4,14 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { LEGACY_PERSONAL_WORKSPACE_ID, resolveWorkspaceActor } from './context';
 import { resolveLegacyWorkspaceRecovery } from './legacy-recovery';
 import { WORKSPACE_ID_HEADER } from './constants';
-import {
-  ensureOrganizationBootstrapForUser,
-  openOrganizationBootstrapDatabase,
-} from '@/app/lib/organization/bootstrap';
 import { assertWorkspacePermission } from './permissions';
 import {
   getPostgresWorkspaceState,
   resolvePostgresWorkspaceForActor,
 } from './postgres-runtime';
-import {
-  resolveDefaultWorkspaceContext,
-  resolveWorkspaceContextById,
-} from './service';
 import type { WorkspaceContext, WorkspacePermissions } from './types';
 
 export type RequestWorkspaceSession = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
@@ -90,7 +81,7 @@ export async function requireSessionWorkspace(
 
   if (requestedWorkspaceId === LEGACY_PERSONAL_WORKSPACE_ID) {
     workspace = await resolveLegacyWorkspaceRecovery(session.user.id);
-  } else if (getDatabaseProvider() === 'postgres') {
+  } else {
     try {
       workspace = requestedWorkspaceId
         ? await resolvePostgresWorkspaceForActor(actor, requestedWorkspaceId)
@@ -102,37 +93,6 @@ export async function requireSessionWorkspace(
         workspace: null,
         response: NextResponse.json({ success: false, error: message }, { status: 500 }),
       };
-    }
-  } else {
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      sqlite.exec('BEGIN IMMEDIATE');
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      if (!status.organizationId) {
-        sqlite.exec('ROLLBACK');
-        return {
-          session,
-          workspace: null,
-          response: NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 }),
-        };
-      }
-
-      workspace = requestedWorkspaceId
-        ? resolveWorkspaceContextById(sqlite, { actor, workspaceId: requestedWorkspaceId })
-        : resolveDefaultWorkspaceContext(sqlite, { actor, organizationId: status.organizationId });
-      sqlite.exec('COMMIT');
-    } catch (error) {
-      if (sqlite.inTransaction) {
-        sqlite.exec('ROLLBACK');
-      }
-      const message = error instanceof Error ? error.message : 'Could not resolve workspace';
-      return {
-        session,
-        workspace: null,
-        response: NextResponse.json({ success: false, error: message }, { status: 500 }),
-      };
-    } finally {
-      sqlite.close();
     }
   }
 
@@ -209,48 +169,15 @@ export async function requireRequestPersonalWorkspace(
   });
   let workspace: WorkspaceContext | null = null;
 
-  if (getDatabaseProvider() === 'postgres') {
-    try {
-      workspace = (await getPostgresWorkspaceState(actor)).defaultWorkspace;
-    } catch (error) {
+  try {
+    workspace = (await getPostgresWorkspaceState(actor)).defaultWorkspace;
+  } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not resolve personal workspace';
       return {
         session: null,
         workspace: null,
         response: NextResponse.json({ success: false, error: message }, { status: 500 }),
       };
-    }
-  } else {
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      sqlite.exec('BEGIN IMMEDIATE');
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      if (!status.organizationId) {
-        sqlite.exec('ROLLBACK');
-        return {
-          session: null,
-          workspace: null,
-          response: NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 }),
-        };
-      }
-      workspace = resolveDefaultWorkspaceContext(sqlite, {
-        actor,
-        organizationId: status.organizationId,
-      });
-      sqlite.exec('COMMIT');
-    } catch (error) {
-      if (sqlite.inTransaction) {
-        sqlite.exec('ROLLBACK');
-      }
-      const message = error instanceof Error ? error.message : 'Could not resolve personal workspace';
-      return {
-        session: null,
-        workspace: null,
-        response: NextResponse.json({ success: false, error: message }, { status: 500 }),
-      };
-    } finally {
-      sqlite.close();
-    }
   }
 
   if (!workspace || workspace.workspaceType !== 'personal' || workspace.ownerUserId !== session.user.id) {
