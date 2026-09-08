@@ -8,7 +8,7 @@ import { useFileStore } from '../app/store/file-store';
 import { useWorkspaceStore } from '../app/store/workspace-store';
 
 const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true });
-for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'Element'] as const) Object.defineProperty(globalThis, key, { value: key === 'window' ? dom.window : dom.window[key], configurable: true });
+for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'Element'] as const) Object.defineProperty(globalThis, key, { value: key === 'window' ? dom.window : dom.window[key], configurable: true });
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
 let scrollCalls = 0;
 dom.window.HTMLElement.prototype.scrollIntoView = () => { scrollCalls++; };
@@ -17,7 +17,9 @@ const file = (path: string) => ({ path, name: path, type: 'file' as const });
 function Explorer() {
   const ref = useRef<HTMLDivElement>(null);
   const view = useFileExplorerViewModel({ containerRef: ref, variant: 'default' });
-  return <div ref={ref} data-file-scroll-container>{view.searchResultNodes.map((node) => <div data-file-path={node.path} key={node.path}>{node.name}</div>)}</div>;
+  return <div ref={ref} tabIndex={-1} data-file-scroll-container>
+    {view.searchResultNodes.map((node) => <div data-file-path={node.path} key={node.path}>{node.name}</div>)}
+  </div>;
 }
 
 async function main() {
@@ -54,6 +56,20 @@ async function main() {
   assert.ok(document.querySelector('[data-file-path="remote.txt"]'), 'previous server search results remain during refresh');
   await act(async () => completeSearch!(Response.json({ success: true, files: [file('remote-new.txt')], total: 1 })));
   assert.ok(document.querySelector('[data-file-path="remote-new.txt"]'));
+  const explorer = document.querySelector<HTMLElement>('[data-file-scroll-container]')!;
+  await act(async () => {
+    explorer.focus();
+    explorer.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }));
+  });
+  assert.deepEqual([...useFileStore.getState().multiSelectPaths], ['remote-new.txt'], 'Ctrl+A selects visible search results only');
+  await act(async () => {
+    useFileStore.getState().clearMultiSelect();
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }));
+    input.remove();
+  });
+  assert.equal(useFileStore.getState().multiSelectPaths.size, 0, 'Ctrl+A in an input preserves text selection');
 
   const surface = document.createElement('div');
   const row = document.createElement('div'); row.dataset.filePath = 'anchor'; surface.appendChild(row);

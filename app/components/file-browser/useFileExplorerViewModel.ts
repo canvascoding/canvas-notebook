@@ -87,6 +87,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     browserReveal,
     workspaceFileVersion,
     selectAllInDirectory,
+    setMultiSelectPaths,
     clearMultiSelect,
     searchQuery,
     browserMode,
@@ -107,6 +108,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     browserReveal: state.browserReveal,
     workspaceFileVersion: state.workspaceFileVersion,
     selectAllInDirectory: state.selectAllInDirectory,
+    setMultiSelectPaths: state.setMultiSelectPaths,
     clearMultiSelect: state.clearMultiSelect,
     searchQuery: state.searchQuery,
     browserMode: state.browserMode,
@@ -236,21 +238,6 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
   }, [activeWorkspaceId, hydrateClientPreferences, loadFileTree, loadSubdirectory, refreshRootTree, resetWorkspaceView, variant]);
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!containerRef.current?.contains(document.activeElement)) return;
-      if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
-        event.preventDefault();
-        selectAllInDirectory(currentDirectory);
-      }
-      if (event.key === 'Escape') {
-        clearMultiSelect();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [clearMultiSelect, containerRef, currentDirectory, selectAllInDirectory]);
-
-  useEffect(() => {
     if (browserMode !== 'grid') return;
     if (currentDirectory === '.') return;
     if (activeDirectoryChildren !== null) return;
@@ -368,6 +355,36 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     () => searchResultNodes.map((node) => node.path),
     [searchResultNodes]
   );
+
+  const visibleSelectionPaths = useMemo(() => {
+    if (normalizedSearchQuery) return searchResults?.map((node) => node.path) ?? [];
+    if (browserMode === 'grid') return gridItems.map((node) => node.path);
+    if (browserMode === 'list') return filteredListChildren?.map((node) => node.path) ?? [];
+    return null;
+  }, [browserMode, filteredListChildren, gridItems, normalizedSearchQuery, searchResults]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!containerRef.current?.contains(document.activeElement)) return;
+      const target = event.target;
+      const isTextInput = (typeof HTMLInputElement !== 'undefined' && target instanceof HTMLInputElement)
+        || (typeof HTMLTextAreaElement !== 'undefined' && target instanceof HTMLTextAreaElement)
+        || (target instanceof HTMLElement && target.isContentEditable);
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a' && !isTextInput) {
+        event.preventDefault();
+        if (visibleSelectionPaths !== null) {
+          setMultiSelectPaths(visibleSelectionPaths, true);
+        } else {
+          selectAllInDirectory(currentDirectory);
+        }
+      }
+      if (event.key === 'Escape') {
+        clearMultiSelect();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [clearMultiSelect, containerRef, currentDirectory, selectAllInDirectory, setMultiSelectPaths, visibleSelectionPaths]);
 
   useExplorerScrollAnchor(containerRef, `${activeWorkspaceId}\0${browserMode}\0${currentDirectory}\0${normalizedSearchQuery}`, searchResultNodes);
 
