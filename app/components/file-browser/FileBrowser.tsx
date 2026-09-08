@@ -33,7 +33,8 @@ import { useEditorStore } from '@/app/store/editor-store';
 import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-file-paths';
 import { useShallow } from 'zustand/react/shallow';
 import { useTrashUndo } from './useTrashUndo';
-import { UploadProgress } from './UploadProgress';
+import { WorkspaceUploadProgress } from './WorkspaceUploadProgress';
+import { beginUploadJob, finishUploadJob, setUploadJobFiles, updateUploadJob } from '@/app/store/upload-store';
 import { useWorkspaceMove } from './useWorkspaceMove';
 import { useFileMoveDrag } from './useFileMoveDrag';
 
@@ -78,7 +79,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     refreshVisibleTree,
     selectedNode,
     uploadFile,
-    uploadProgress,
     currentDirectory,
     searchQuery,
     setSearchQuery,
@@ -98,7 +98,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     refreshVisibleTree: state.refreshVisibleTree,
     selectedNode: state.selectedNode,
     uploadFile: state.uploadFile,
-    uploadProgress: state.uploadProgress,
     currentDirectory: state.currentDirectory,
     searchQuery: state.searchQuery,
     setSearchQuery: state.setSearchQuery,
@@ -178,10 +177,10 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       const dir = targetDir || resolveTargetDir();
       await uploadFile(files, dir, pathMap, convertParams, options);
     },
-    onBatchComplete: async (targetDir) => {
-      const dir = targetDir || resolveTargetDir();
-      await refreshDirectory(dir, true);
-      invalidateFileReferenceValidationCache();
+    onBatchComplete: async (targetDir, job) => {
+      if (!job || useWorkspaceStore.getState().activeWorkspaceId !== job.workspaceId) return;
+      await refreshDirectory(targetDir || job.targetDir, true, job.workspaceId);
+      invalidateFileReferenceValidationCache({ workspaceId: job.workspaceId });
     },
   });
 
@@ -242,15 +241,18 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     event.preventDefault();
     dragCounter.current = 0;
     setIsDragging(false);
+    const targetDir = resolveTargetDir();
+    const job = beginUploadJob([], targetDir, useWorkspaceStore.getState().activeWorkspaceId, undefined, 'collecting');
     try {
       const dropped = await getDroppedFiles(event.dataTransfer);
-      if (dropped.length === 0) return;
+      if (dropped.length === 0) { updateUploadJob(job, { phase: 'cancelled' }); return; }
       const files = dropped.map((d) => d.file);
       const pathMap = new Map<File, string>();
       for (const d of dropped) { pathMap.set(d.file, d.relativePath); }
-      const targetDir = resolveTargetDir();
-      await imagePreprocess.handleFiles(files, targetDir, pathMap);
+      setUploadJobFiles(job, files, pathMap);
+      await imagePreprocess.handleFiles(files, targetDir, pathMap, job);
     } catch (uploadError) {
+      finishUploadJob(job, uploadError);
       toast.error(uploadError instanceof Error ? uploadError.message : t('uploadFailed'));
     }
   };
@@ -515,9 +517,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
               </Button>
             )}
           </div>
-          {uploadProgress !== null && (
-            <UploadProgress value={uploadProgress} className="mt-2" />
-          )}
+          <WorkspaceUploadProgress className="mt-2" />
         </div>
       </div>
 

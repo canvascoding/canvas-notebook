@@ -103,6 +103,7 @@ export interface WriteWorkspaceFileResult {
 interface UploadWorkspaceFilesParams {
   files: File[];
   targetDir: string;
+  workspaceId?: string | null;
   pathMap?: Map<File, string>;
   convertParams?: (ConvertParams | null)[];
   onProgress?: (progress: number) => void;
@@ -531,9 +532,9 @@ export async function uploadWorkspaceFiles({
   convertParams,
   onProgress,
   onFileProgress,
+  workspaceId = getActiveWorkspaceId(),
 }: UploadWorkspaceFilesParams): Promise<WorkspaceBatchUploadResult> {
   if (!convertParams?.some(Boolean)) {
-    const workspaceId = getActiveWorkspaceId();
     return uploadWorkspaceFilesInChunks({
       files: files.map((file) => ({
         file,
@@ -578,7 +579,6 @@ export async function uploadWorkspaceFiles({
     };
     xhr.open('POST', '/api/files/upload', true);
     xhr.withCredentials = true;
-    const workspaceId = getActiveWorkspaceId();
     if (workspaceId) {
       xhr.setRequestHeader(WORKSPACE_ID_HEADER, workspaceId);
     }
