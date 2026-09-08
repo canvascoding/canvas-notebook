@@ -20,10 +20,10 @@ import {
 } from '@/app/lib/organization/bootstrap';
 import {
   LEGACY_PERSONAL_WORKSPACE_ID,
-  createLegacyPersonalWorkspaceContext,
   resolveWorkspaceActor,
   resolveWorkspaceDataRoot,
 } from '@/app/lib/workspaces/context';
+import { resolveLegacyWorkspaceRecovery } from '@/app/lib/workspaces/legacy-recovery';
 import { assertWorkspacePermission } from '@/app/lib/workspaces/permissions';
 import {
   getPostgresWorkspaceState,
@@ -305,12 +305,15 @@ export async function resolveAgentSessionWorkspaceForUser(input: {
   workspaceId?: string | null;
   permissions?: WorkspacePermissionRequirement[];
 }): Promise<WorkspaceContext> {
-  const requestedWorkspaceId = normalizeRequestedWorkspaceId(input.workspaceId);
+  let requestedWorkspaceId = normalizeRequestedWorkspaceId(input.workspaceId);
 
   if (requestedWorkspaceId === LEGACY_PERSONAL_WORKSPACE_ID) {
-    const legacyWorkspace = createLegacyPersonalWorkspaceContext(resolveWorkspaceActor({ id: input.userId }));
-    assertPermissions(legacyWorkspace, input.permissions);
-    return legacyWorkspace;
+    if (!await resolveLegacyWorkspaceRecovery(input.userId)) {
+      throw new Error('Workspace not found or inaccessible.');
+    }
+    // Old owner sessions continue in the persisted personal workspace after
+    // the non-destructive legacy import, never with ambient DATA/workspace access.
+    requestedWorkspaceId = null;
   }
 
   if (getDatabaseProvider() === 'postgres') {

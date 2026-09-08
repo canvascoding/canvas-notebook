@@ -4,13 +4,16 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { createInitialOwner, InitialOwnerSetupError } from '@/app/lib/auth-setup';
 import { jsonDatabaseUnavailable } from '@/app/lib/api/route-helpers';
 import { writeOnboardingLog } from '@/app/lib/onboarding/logging';
-import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { publicRateLimit } from '@/app/lib/security/public-rate-limit';
+import { readBoundedJson } from '@/app/lib/api/bounded-json';
 
 export async function POST(request: NextRequest) {
-  const limited = rateLimit(request, { limit: 5, windowMs: 60_000, keyPrefix: 'setup-owner-post' });
+  const limited = await publicRateLimit({ limit: 5, globalLimit: 100, windowMs: 60_000, keyPrefix: 'setup-owner-post' });
   if (!limited.ok) return limited.response;
 
-  const body = await request.json().catch(() => null);
+  const parsed = await readBoundedJson(request);
+  if (parsed.response) return parsed.response;
+  const body = parsed.body;
 
   try {
     const owner = await createInitialOwner(body);

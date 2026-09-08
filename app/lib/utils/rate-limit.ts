@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionCookie } from 'better-auth/cookies';
+import { getRequestRateLimitIdentity } from '@/app/lib/security/request-identity';
 
 interface RateLimitOptions {
   limit: number;
   windowMs: number;
   keyPrefix: string;
+  /** Only pass an ID obtained from an already verified server-side session. */
+  verifiedUserId?: string;
 }
 
 type RateLimitBucket = {
@@ -13,6 +15,7 @@ type RateLimitBucket = {
   resetAt: number;
 };
 
+const MAX_BUCKETS = 20_000;
 const buckets = new Map<string, RateLimitBucket>();
 
 const globalRateLimitStore = globalThis as typeof globalThis & { __canvasRateLimitCleanupStarted?: boolean };
@@ -27,27 +30,33 @@ if (!globalRateLimitStore.__canvasRateLimitCleanupStarted) {
   }, 60_000).unref?.();
 }
 
-function getClientId(request: NextRequest) {
-  const sessionCookie = getSessionCookie(request);
-  if (sessionCookie) {
-    // This opaque value is only used as an in-memory bucket key. Route handlers
-    // still validate the session separately before serving protected resources.
-    return `session:${createHash('sha256').update(sessionCookie).digest('base64url')}`;
-  }
-
-  // Forwarded IP headers are client-controlled unless an ingress proxy strips
-  // and overwrites them. Keep anonymous routes in a shared bucket; deployments
-  // that need IP-based anonymous limits should enforce them at the ingress.
-  return 'anonymous';
+function getClientId(_request: NextRequest, verifiedUserId?: string) {
+  const identity = getRequestRateLimitIdentity();
+  const userId = verifiedUserId || identity?.verifiedUserId;
+  const key = userId ? `user:${userId}` : `client:${identity?.clientAddress ?? 'unknown'}`;
+  return createHash('sha256').update(key).digest('base64url');
 }
 
 export function rateLimit(request: NextRequest, options: RateLimitOptions) {
-  const clientId = getClientId(request);
+  const clientId = getClientId(request, options.verifiedUserId);
   const key = `${options.keyPrefix}:${clientId}`;
   const now = Date.now();
   const existing = buckets.get(key);
 
   if (!existing || now > existing.resetAt) {
+    if (!existing && buckets.size >= MAX_BUCKETS) {
+      for (const [bucketKey, bucket] of buckets) {
+        if (now > bucket.resetAt) buckets.delete(bucketKey);
+      }
+      if (buckets.size >= MAX_BUCKETS) {
+        return {
+          ok: false,
+          response: NextResponse.json({ success: false, error: 'Too many requests' }, {
+            status: 429, headers: { 'Retry-After': '60' },
+          }),
+        } as const;
+      }
+    }
     buckets.set(key, { count: 1, resetAt: now + options.windowMs });
     return { ok: true } as const;
   }

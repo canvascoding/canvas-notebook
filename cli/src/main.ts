@@ -25,7 +25,7 @@ import {
   type CliRuntimeMode,
 } from './core/config';
 import { AutoUpdateManager, isAutoUpdateCommand, validateAutoUpdateSchedule, type AutoUpdateStatus } from './core/autoUpdate';
-import { CaddyManager, isCaddyCommand, type CaddyStatus } from './core/caddy';
+import { CaddyManager, isCaddyCommand, syncManagedCaddyIdentity, type CaddyStatus } from './core/caddy';
 import { writeComposeFile } from './core/compose';
 import { monotonicDeadlineMs, remainingMonotonicSeconds } from './core/deadline';
 import { collectHostResources } from './core/diagnostics';
@@ -91,6 +91,7 @@ interface EnvOptions {
 }
 
 export interface UpdateOptions {
+  syncProxy?: (config: CanvasCliConfig) => Promise<void>;
   backupRequired?: boolean;
   eventStream?: boolean;
   image?: string;
@@ -672,7 +673,7 @@ async function install(
   context: RuntimeContext,
   docker: DockerManager,
   config: CanvasCliConfig,
-  options: { pgvectorPolicy?: PgvectorPolicy } = {},
+  options: { pgvectorPolicy?: PgvectorPolicy; syncProxy?: (config: CanvasCliConfig) => Promise<void> } = {},
 ): Promise<void> {
   await appendLog(context, 'install started');
   if (managedByControlPlane(config)) {
@@ -690,6 +691,7 @@ async function install(
   await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
   await docker.composeOrThrow(next, ['up', '-d', '--force-recreate'], 'inherit');
   await docker.waitUntilHealthy(next);
+  await options.syncProxy?.(next);
   await appendLog(context, 'install completed');
   console.log(`Canvas Notebook is healthy: ${docker.healthUrl(next)}`);
 }
@@ -825,6 +827,8 @@ export async function update(
       throw new Error('Running Canvas Notebook image does not match the requested update image.');
     }
     reporter.succeeded('version_verification', 'Running Canvas Notebook image verified.');
+    phase = 'proxy';
+    await options.syncProxy?.(runConfig);
     await docker.pruneUnusedImages(remainingUpdateTime(deadline, true));
     await appendLog(context, 'update completed');
     reporter.succeeded('completed', 'Canvas Notebook update completed successfully.');
@@ -1943,6 +1947,7 @@ async function main(): Promise<void> {
       });
     }
     const config = await readConfig(context);
+    const syncProxy = (next: CanvasCliConfig) => syncManagedCaddyIdentity(new CaddyManager(runner, context), next, context.platform);
     if (await hasPostgresRecoveryJournal(config) && commandRequiresOperationLock(parsed.command, parsed.args) &&
       !commandCanRunWithPendingPostgresRecovery(parsed.command, parsed.args)) {
       throw new Error('An interrupted Postgres auth reconciliation is pending. Run database reconcile-postgres-auth first.');
@@ -1970,11 +1975,11 @@ async function main(): Promise<void> {
       } else if (options.pgvectorPolicy && options.pgvectorPolicy !== 'required') {
         throw new Error('--pgvector optional|disabled is only supported with --postgres-mode external.');
       }
-      await install(context, docker, configured, { pgvectorPolicy: options.pgvectorPolicy });
+      await install(context, docker, configured, { pgvectorPolicy: options.pgvectorPolicy, syncProxy });
       break;
     }
     case 'update':
-      await update(context, docker, config, parsed.json, parseUpdateOptions(parsed.args));
+      await update(context, docker, config, parsed.json, { ...parseUpdateOptions(parsed.args), syncProxy });
       break;
     case 'start': {
       const hasExistingEnv = await Promise.all([

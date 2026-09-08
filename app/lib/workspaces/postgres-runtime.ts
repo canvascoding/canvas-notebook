@@ -33,6 +33,7 @@ import {
 } from './member-manager-policy';
 import { resolveWorkspacePermissions } from './permissions';
 import { seedWorkspaceStarterDocument } from './starter-document';
+import { importLegacyWorkspaceForOwner } from './legacy-recovery';
 import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType } from './types';
 import {
   normalizeWorkspaceSlug,
@@ -1308,7 +1309,10 @@ export async function ensurePostgresOrganizationBootstrapForUser(
     };
   }
 
-  const ownerUser = await findPostgresUserById(database, organization.owner_user_id) || targetUser;
+  const ownerUser = await findPostgresUserById(database, organization.owner_user_id);
+  if (!ownerUser) {
+    throw new OrganizationBootstrapError('NO_USERS', 'The persisted organization owner is unavailable.');
+  }
   await database.run('UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?', ['admin', now, ownerUser.id]);
   const ownerPermission = await ensurePermissionRow(database, organization.organization_id, ownerUser.id, 'owner');
 
@@ -1347,6 +1351,7 @@ export async function ensurePostgresOrganizationBootstrapForUser(
 
 export async function getPostgresWorkspaceState(actor: WorkspaceActor): Promise<PostgresWorkspaceState> {
   const database = await openDb();
+  let state: PostgresWorkspaceState;
   try {
     await database.run('BEGIN');
     const status = await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
@@ -1357,7 +1362,7 @@ export async function getPostgresWorkspaceState(actor: WorkspaceActor): Promise<
     const defaultWorkspace = await resolveDefaultWorkspaceContext(database, actor, status.organizationId);
     const workspaces = await listWorkspaceContextsForUser(database, actor, status.organizationId);
     await database.run('COMMIT');
-    return { status, defaultWorkspace, workspaces };
+    state = { status, defaultWorkspace, workspaces };
   } catch (error) {
     try {
       await database.run('ROLLBACK');
@@ -1368,6 +1373,14 @@ export async function getPostgresWorkspaceState(actor: WorkspaceActor): Promise<
   } finally {
     await database.close();
   }
+  // Recovery verifies ownership using its own read connection. Release this
+  // transaction's connection first so concurrent owner requests cannot starve the pool.
+  if (state.defaultWorkspace && state.status.ownerUserId === actor.userId) {
+    await importLegacyWorkspaceForOwner(actor.userId, state.defaultWorkspace).catch((error) => {
+      console.warn('[organization-bootstrap] Legacy workspace migration failed:', error);
+    });
+  }
+  return state;
 }
 
 export async function createPostgresWorkspaceForActor(
@@ -2312,6 +2325,16 @@ export async function resolvePostgresWorkspaceForActor(
   } finally {
     await database.close();
   }
+}
+
+/** Read-only authorization for a previously issued capability; never bootstrap. */
+export async function resolveExistingPostgresWorkspaceForActor(
+  actor: WorkspaceActor,
+  workspaceId: string,
+): Promise<WorkspaceContext | null> {
+  const database = await openDb();
+  try { return await resolveWorkspaceContextById(database, actor, workspaceId); }
+  finally { await database.close(); }
 }
 
 export async function getPostgresOrganizationPermissionForUser(

@@ -54,17 +54,15 @@ function isPrivateIpv6(ip: string): boolean {
   const mappedIpv4 = normalized.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/u)?.[1];
   if (mappedIpv4) return isPrivateIpv4(mappedIpv4);
 
-  return normalized === '::1'
-    || normalized === '::'
-    || normalized.startsWith('::ffff:')
-    || normalized.startsWith('fc')
-    || normalized.startsWith('fd')
-    || normalized.startsWith('fe8')
-    || normalized.startsWith('fe9')
-    || normalized.startsWith('fea')
-    || normalized.startsWith('feb')
-    || normalized.startsWith('ff')
-    || normalized.startsWith('2001:db8:');
+  // Only ordinary global unicast is eligible. Translation/tunnelling ranges
+  // (NAT64, Teredo, 6to4) could otherwise encode an internal IPv4 destination.
+  const canonical = new URL(`http://[${normalized}]/`).hostname.slice(1, -1);
+  const [first, second] = canonical.split(':').map(part => Number.parseInt(part || '0', 16));
+  return first < 0x2000 || first > 0x3fff
+    || (first === 0x2001 && second <= 0x1ff)
+    || (first === 0x2001 && second === 0xdb8)
+    || first === 0x2002
+    || (first === 0x3fff && second <= 0x0fff);
 }
 
 function assertPublicIp(address: string): PublicNetworkAddress {
@@ -100,7 +98,7 @@ function assertSafeUrlShape(url: URL): string {
   return hostname;
 }
 
-async function resolvePublicNetworkAddress(url: URL): Promise<PublicNetworkAddress> {
+export async function resolvePublicNetworkAddress(url: URL): Promise<PublicNetworkAddress> {
   const hostname = assertSafeUrlShape(url);
   if (net.isIP(hostname)) {
     return assertPublicIp(hostname);

@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.9.8.1",
-  "lockfileSha256": "ee2350084a2d2f89bc89af3abebb2b20309b3fbff75e96207d789c55b528692e",
+  "lockfileSha256": "64430109a903b3c410f1d637f906cfe783f2923ad6cace4880e176773d00cad2",
   "summary": {
-    "totalComponents": 2036,
-    "npmComponents": 2012,
+    "totalComponents": 2017,
+    "npmComponents": 1993,
     "nonNpmComponents": 24,
-    "runtimeComponents": 1511,
-    "developmentOnlyComponents": 525,
-    "allowed": 1986,
+    "runtimeComponents": 1478,
+    "developmentOnlyComponents": 539,
+    "allowed": 1967,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -2173,7 +2173,7 @@
     {
       "name": "@sentry/cli-darwin",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
       "packagePathOrArtifact": "node_modules/@sentry/cli-darwin",
       "usage": "development-only",
       "distributedIn": [
@@ -2181,17 +2181,19 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-darwin@2.58.6",
+      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
+      "copyrightNotices": [
+        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
+      ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
     },
     {
       "name": "@sentry/cli-linux-arm",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
       "packagePathOrArtifact": "node_modules/@sentry/cli-linux-arm",
       "usage": "development-only",
       "distributedIn": [
@@ -2199,17 +2201,19 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-linux-arm@2.58.6",
+      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
+      "copyrightNotices": [
+        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
+      ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
     },
     {
       "name": "@sentry/cli-linux-arm64",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
       "packagePathOrArtifact": "node_modules/@sentry/cli-linux-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -2217,17 +2221,19 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-linux-arm64@2.58.6",
+      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
+      "copyrightNotices": [
+        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
+      ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
     },
     {
       "name": "@sentry/cli-linux-i686",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
       "packagePathOrArtifact": "node_modules/@sentry/cli-linux-i686",
       "usage": "development-only",
       "distributedIn": [
@@ -2235,17 +2241,19 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-linux-i686@2.58.6",
+      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
+      "copyrightNotices": [
+        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
+      ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
     },
     {
       "name": "@sentry/cli-linux-x64",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
       "packagePathOrArtifact": "node_modules/@sentry/cli-linux-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -2253,17 +2261,19 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-linux-x64@2.58.6",
+      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
+      "copyrightNotices": [
+        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
+      ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
     },
     {
       "name": "@sentry/cli-win32-arm64",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
       "packagePathOrArtifact": "node_modules/@sentry/cli-win32-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -2271,17 +2281,19 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-win32-arm64@2.58.6",
+      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
+      "copyrightNotices": [
+        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
+      ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
     },
     {
       "name": "@sentry/cli-win32-i686",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
       "packagePathOrArtifact": "node_modules/@sentry/cli-win32-i686",
       "usage": "development-only",
       "distributedIn": [
@@ -2289,17 +2301,19 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-win32-i686@2.58.6",
+      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
+      "copyrightNotices": [
+        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
+      ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
     },
     {
       "name": "@sentry/cli-win32-x64",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
       "packagePathOrArtifact": "node_modules/@sentry/cli-win32-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -2307,12 +2321,14 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-win32-x64@2.58.6",
+      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
+      "copyrightNotices": [
+        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
+      ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
     },
     {
       "name": "@sentry/cli",
@@ -2574,7 +2590,7 @@
     {
       "name": "@tailwindcss/oxide-wasm32-wasi",
       "versionOrCommit": "4.3.2",
-      "sourceUrl": "https://github.com/tailwindlabs/tailwindcss",
+      "sourceUrl": "https://github.com/tailwindlabs/tailwindcss/tree/056a1550721d4bf79ff732d5ab9414fa83f7064f",
       "packagePathOrArtifact": "node_modules/@tailwindcss/oxide-wasm32-wasi",
       "usage": "development-only",
       "distributedIn": [
@@ -2582,12 +2598,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@tailwindcss/oxide-wasm32-wasi@4.3.2",
+      "licenseTextSha256": "60e0b68c0f35c078eef3a5d29419d0b03ff84ec1df9c3f9d6e39a519a5ae7985",
+      "copyrightNotices": [
+        "Copyright (c) Tailwind Labs, Inc."
+      ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/tailwindlabs/tailwindcss/056a1550721d4bf79ff732d5ab9414fa83f7064f/LICENSE Published source revision: 056a1550721d4bf79ff732d5ab9414fa83f7064f"
     },
     {
       "name": "@tailwindcss/oxide-win32-arm64-msvc",
@@ -3743,6 +3761,25 @@
       "reviewNotes": "Inherited development-only classification from eslint."
     },
     {
+      "name": "ansi-styles",
+      "versionOrCommit": "4.3.0",
+      "sourceUrl": "chalk/ansi-styles",
+      "packagePathOrArtifact": "node_modules/ansi-styles",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/ansi-styles/license",
+      "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
+      "copyrightNotices": [
+        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "app-builder-lib",
       "versionOrCommit": "26.15.3",
       "sourceUrl": "https://github.com/electron-userland/electron-builder",
@@ -4377,6 +4414,25 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "cliui",
+      "versionOrCommit": "8.0.1",
+      "sourceUrl": "yargs/cliui",
+      "packagePathOrArtifact": "node_modules/cliui",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "ISC",
+      "verifiedLicense": "ISC",
+      "licenseTextRef": "node_modules/cliui/LICENSE.txt",
+      "licenseTextSha256": "2dc0465729366c3a7890dfa9e972a1ba7048a26c02116fb8b419a6a1ac110149",
+      "copyrightNotices": [
+        "Copyright (c) 2015, Contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "clone-response",
       "versionOrCommit": "1.0.3",
       "sourceUrl": "https://github.com/sindresorhus/clone-response",
@@ -4391,6 +4447,44 @@
       "licenseTextSha256": "861908ec818ff6142fdd6c4b66d6264c206d3d5a46003b1342e1853a9a85abac",
       "copyrightNotices": [
         "Copyright (c) 2017 Luke Childs"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "color-convert",
+      "versionOrCommit": "2.0.1",
+      "sourceUrl": "Qix-/color-convert",
+      "packagePathOrArtifact": "node_modules/color-convert",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/color-convert/LICENSE",
+      "licenseTextSha256": "119fee4adef95a6af980129b12bbc02ef32a0a75737cbdd31b6922c0db0050bc",
+      "copyrightNotices": [
+        "Copyright (c) 2011-2016 Heather Arthur <fayearthur@gmail.com>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "color-name",
+      "versionOrCommit": "1.1.4",
+      "sourceUrl": "git@github.com:colorjs/color-name",
+      "packagePathOrArtifact": "node_modules/color-name",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/color-name/LICENSE",
+      "licenseTextSha256": "9060d3e477a57e94563100d089ee07a1bf3342f149fd7366913abf2b4b54f04b",
+      "copyrightNotices": [
+        "Copyright (c) 2015 Dmitry Ivanov"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -4997,6 +5091,26 @@
     },
     {
       "name": "emoji-regex",
+      "versionOrCommit": "8.0.0",
+      "sourceUrl": "https://github.com/mathiasbynens/emoji-regex",
+      "packagePathOrArtifact": "node_modules/string-width/node_modules/emoji-regex",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/string-width/node_modules/emoji-regex/LICENSE-MIT.txt",
+      "licenseTextSha256": "483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a",
+      "copyrightNotices": [
+        "Copyright Mathias Bynens <https://mathiasbynens.be/>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "Inherited development-only classification from string-width."
+    },
+    {
+      "name": "emoji-regex",
       "versionOrCommit": "9.2.2",
       "sourceUrl": "https://github.com/mathiasbynens/emoji-regex",
       "packagePathOrArtifact": "node_modules/emoji-regex",
@@ -5521,6 +5635,23 @@
       "reviewNotes": "License text source: https://registry.npmjs.org/esrecurse/-/esrecurse-4.3.0.tgz#README.md#License Published source revision: 8ceb63797813d9ac69572a671b95cf58ffdf35b6 The complete license text is embedded in the exact npm tarball README license section."
     },
     {
+      "name": "esutils",
+      "versionOrCommit": "2.0.3",
+      "sourceUrl": "http://github.com/estools/esutils",
+      "packagePathOrArtifact": "node_modules/esutils",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "BSD-2-Clause",
+      "verifiedLicense": "BSD-2-Clause",
+      "licenseTextRef": "node_modules/esutils/LICENSE.BSD",
+      "licenseTextSha256": "0e74697a68cebdcd61502c30fe80ab7f9e341d995dcd452023654d57133534b1",
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "exponential-backoff",
       "versionOrCommit": "3.1.3",
       "sourceUrl": "https://github.com/coveooss/exponential-backoff",
@@ -5640,7 +5771,7 @@
     {
       "name": "filelist",
       "versionOrCommit": "1.0.6",
-      "sourceUrl": "https://github.com/mde/filelist",
+      "sourceUrl": "https://github.com/mde/filelist/tree/7032f94d04ad905b4f32b92d2278785859e1d55f",
       "packagePathOrArtifact": "node_modules/filelist",
       "usage": "development-only",
       "distributedIn": [
@@ -5648,12 +5779,15 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/filelist@1.0.6",
+      "licenseTextSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/mde/filelist/7032f94d04ad905b4f32b92d2278785859e1d55f/LICENSE Published source revision: 7032f94d04ad905b4f32b92d2278785859e1d55f"
     },
     {
       "name": "find-yarn-workspace-root",
@@ -5986,6 +6120,25 @@
       "licenseTextSha256": "1ac0263302bfb8eedc54a10a44175b0df51419306d5bc1539bfd7a7da121bd08",
       "copyrightNotices": [
         "Copyright (c) 2015 Tiancheng “Timothy” Gu"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "get-stream",
+      "versionOrCommit": "5.2.0",
+      "sourceUrl": "sindresorhus/get-stream",
+      "packagePathOrArtifact": "node_modules/get-stream",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/get-stream/license",
+      "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
+      "copyrightNotices": [
+        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -6439,7 +6592,7 @@
     {
       "name": "imurmurhash",
       "versionOrCommit": "0.1.4",
-      "sourceUrl": "https://github.com/jensyt/imurmurhash-js",
+      "sourceUrl": "https://github.com/jensyt/imurmurhash-js/tree/9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2",
       "packagePathOrArtifact": "node_modules/imurmurhash",
       "usage": "development-only",
       "distributedIn": [
@@ -6447,14 +6600,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/imurmurhash@0.1.4",
+      "licenseTextSha256": "fa0943ddcaa857d901a9eb92254d89876297ecdfbc884d294a927df08ebcbbe8",
       "copyrightNotices": [
         "Copyright (c) 2013 Gary Court, Jens Taylor"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/jensyt/imurmurhash-js/9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2/LICENSE Published source revision: 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2"
     },
     {
       "name": "inflight",
@@ -6718,6 +6871,25 @@
       "licenseTextSha256": "6d0917530cf3b3dca12c1ab7798e4d38ad0a6798ecc1bd27849a3048ba91d265",
       "copyrightNotices": [
         "Copyright (c) 2020 Inspect JS"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "is-fullwidth-code-point",
+      "versionOrCommit": "3.0.0",
+      "sourceUrl": "sindresorhus/is-fullwidth-code-point",
+      "packagePathOrArtifact": "node_modules/is-fullwidth-code-point",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/is-fullwidth-code-point/license",
+      "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
+      "copyrightNotices": [
+        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -7131,7 +7303,7 @@
     {
       "name": "jake",
       "versionOrCommit": "10.9.4",
-      "sourceUrl": "https://github.com/jakejs/jake",
+      "sourceUrl": "https://github.com/jakejs/jake/tree/28a9960b506d3259dd2f708ea9bc82f615be91b5",
       "packagePathOrArtifact": "node_modules/jake",
       "usage": "development-only",
       "distributedIn": [
@@ -7139,12 +7311,15 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/jake@10.9.4",
+      "licenseTextSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/jakejs/jake/28a9960b506d3259dd2f708ea9bc82f615be91b5/LICENSE Published source revision: 28a9960b506d3259dd2f708ea9bc82f615be91b5"
     },
     {
       "name": "jiti",
@@ -8779,6 +8954,25 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "require-directory",
+      "versionOrCommit": "2.1.1",
+      "sourceUrl": "https://github.com/troygoode/node-require-directory",
+      "packagePathOrArtifact": "node_modules/require-directory",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/require-directory/LICENSE",
+      "licenseTextSha256": "a92e52eb1fa7cd746e3827bf01d3a3589bbc8e1e51348b1da042aad165525ad1",
+      "copyrightNotices": [
+        "Copyright (c) 2011 Troy Goode <troygoode@gmail.com>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "resedit",
       "versionOrCommit": "1.7.2",
       "sourceUrl": "https://github.com/jet2jet/resedit-js",
@@ -9456,6 +9650,25 @@
       "reviewNotes": "Inherited development-only classification from duplexer2."
     },
     {
+      "name": "string-width",
+      "versionOrCommit": "4.2.3",
+      "sourceUrl": "sindresorhus/string-width",
+      "packagePathOrArtifact": "node_modules/string-width",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/string-width/license",
+      "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
+      "copyrightNotices": [
+        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "string.prototype.includes",
       "versionOrCommit": "2.0.1",
       "sourceUrl": "https://github.com/mathiasbynens/String.prototype.includes",
@@ -9565,6 +9778,25 @@
       "licenseTextSha256": "a5e49293b629194f16e08c965807b34a4a8f45aa2735658a3b0e3c1478a34b30",
       "copyrightNotices": [
         "Copyright (c) 2017 Khaled Al-Ansari"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "strip-ansi",
+      "versionOrCommit": "6.0.1",
+      "sourceUrl": "chalk/strip-ansi",
+      "packagePathOrArtifact": "node_modules/strip-ansi",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/strip-ansi/license",
+      "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
+      "copyrightNotices": [
+        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -10376,6 +10608,25 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "wrap-ansi",
+      "versionOrCommit": "7.0.0",
+      "sourceUrl": "chalk/wrap-ansi",
+      "packagePathOrArtifact": "node_modules/wrap-ansi",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/wrap-ansi/license",
+      "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
+      "copyrightNotices": [
+        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "xmlbuilder",
       "versionOrCommit": "15.1.1",
       "sourceUrl": "https://github.com/oozcitak/xmlbuilder-js",
@@ -10435,6 +10686,44 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "Inherited development-only classification from tar."
+    },
+    {
+      "name": "yargs-parser",
+      "versionOrCommit": "21.1.1",
+      "sourceUrl": "https://github.com/yargs/yargs-parser",
+      "packagePathOrArtifact": "node_modules/yargs-parser",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "ISC",
+      "verifiedLicense": "ISC",
+      "licenseTextRef": "node_modules/yargs-parser/LICENSE.txt",
+      "licenseTextSha256": "365496ca1f56da40b23c9815fc40fa9005847b2f8f8fd1c1a4929ef25ec8cd1d",
+      "copyrightNotices": [
+        "Copyright (c) 2016, Contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "yargs",
+      "versionOrCommit": "17.7.3",
+      "sourceUrl": "https://github.com/yargs/yargs",
+      "packagePathOrArtifact": "node_modules/yargs",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/yargs/LICENSE",
+      "licenseTextSha256": "2f1a503bfab84b3ba7393627308b3274501e459e3b5185bbb56bbf16cb1602d4",
+      "copyrightNotices": [
+        "Copyright 2010 James Halliday (mail@substack.net); Modified work Copyright 2014 Contributors (ben@npmjs.com)"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
     },
     {
       "name": "zod-validation-error",
@@ -15138,7 +15427,7 @@
     },
     {
       "name": "@marp-team/marp-cli",
-      "versionOrCommit": "4.5.0",
+      "versionOrCommit": "4.5.1",
       "sourceUrl": "https://github.com/marp-team/marp-cli",
       "packagePathOrArtifact": "node_modules/@marp-team/marp-cli",
       "usage": "runtime",
@@ -17042,31 +17331,6 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
-    },
-    {
-      "name": "@puppeteer/browsers",
-      "versionOrCommit": "2.13.2",
-      "sourceUrl": "https://github.com/puppeteer/puppeteer/tree/970bda63c03d96b7a42d96fe44e35da1b4dc4a8b",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/@puppeteer/browsers",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@marp-team/marp-cli/node_modules/@puppeteer/browsers@2.13.2",
-      "licenseTextSha256": "a27ca07269b3518550b2e83aed13eadd7d14d924b5864e14889b40cf227530ca",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2017 Google Inc.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/puppeteer/puppeteer/970bda63c03d96b7a42d96fe44e35da1b4dc4a8b/LICENSE Published source revision: 970bda63c03d96b7a42d96fe44e35da1b4dc4a8b"
     },
     {
       "name": "@puppeteer/browsers",
@@ -22709,28 +22973,6 @@
       "reviewNotes": "License text source: https://registry.npmjs.org/@tokenizer/token/-/token-0.3.0.tgz#README.md#License Published source revision: e068a455370090f44c757946b8571bb3fb1f117e The complete license text is embedded in the exact npm tarball README license section."
     },
     {
-      "name": "@tootallnate/quickjs-emscripten",
-      "versionOrCommit": "0.23.0",
-      "sourceUrl": "https://github.com/justjake/quickjs-emscripten",
-      "packagePathOrArtifact": "node_modules/@tootallnate/quickjs-emscripten",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@tootallnate/quickjs-emscripten/LICENSE",
-      "licenseTextSha256": "cc8e9104738f96dadb50ee4ac9754fe46a7123af52609fbf60470ce7d2868c38",
-      "copyrightNotices": [
-        "quickjs-emscripten copyright (c) 2019 Jake Teton-Landis"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "@types/archiver",
       "versionOrCommit": "8.0.0",
       "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
@@ -24008,29 +24250,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "@types/yauzl",
-      "versionOrCommit": "2.10.3",
-      "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
-      "packagePathOrArtifact": "node_modules/@types/yauzl",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@types/yauzl@2.10.3",
-      "licenseTextSha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
-      "copyrightNotices": [
-        "Copyright (c) Microsoft Corporation."
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@types/yauzl/-/yauzl-2.10.3.tgz#LICENSE"
-    },
-    {
       "name": "@uiw/codemirror-extensions-basic-setup",
       "versionOrCommit": "4.25.11",
       "sourceUrl": "https://github.com/uiwjs/react-codemirror/tree/990500ad9ae72400272c873df3ae061860ff00c2",
@@ -24478,7 +24697,7 @@
     },
     {
       "name": "@xmldom/xmldom",
-      "versionOrCommit": "0.9.10",
+      "versionOrCommit": "0.9.12",
       "sourceUrl": "https://github.com/xmldom/xmldom",
       "packagePathOrArtifact": "node_modules/speech-rule-engine/node_modules/@xmldom/xmldom",
       "usage": "runtime",
@@ -24656,6 +24875,29 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "The exact npm release declares (MIT OR EUPL-1.1+), publishes gitHead ce3e52530b56627c78c78f44fc42e61d71c4c6d0, and the matching lightweight v5.4.14 tag resolves to that commit. Canvas elects MIT, retains the complete MIT text and upstream copyright notice, and does not modify the package. The exact npm tarball contains no separate NOTICE file. Verification source: https://github.com/zone-eu/mailsplit/blob/v5.4.14/LICENSE.MIT"
+    },
+    {
+      "name": "@zone-eu/mailsplit",
+      "versionOrCommit": "5.4.16",
+      "sourceUrl": "https://github.com/zone-eu/mailsplit/tree/df5b42b046bbab53b9b238c39208658b8732bf75",
+      "packagePathOrArtifact": "node_modules/mailparser/node_modules/@zone-eu/mailsplit",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "(MIT OR EUPL-1.1+)",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/mailparser/node_modules/@zone-eu/mailsplit/LICENSE.MIT",
+      "licenseTextSha256": "d1cc09bdab0628b32bd6459357fc81aad6894c535baec7973d1dd8c85596fa08",
+      "copyrightNotices": [
+        "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "Technical package review by Codex on 2026-09-08: npm gitHead and v5.4.16 both identify df5b42b046bbab53b9b238c39208658b8732bf75. The complete LICENSE.MIT is byte-identical to the already elected MIT alternative in 5.4.14 (raw SHA-256 412ad6764b495ece74454c3b1d1816a4bf9b533f94158d23bfe4342559d8ca46). Canvas continues to use MIT and retains the complete text and copyright notice. No package modification or separate NOTICE file. This records source/license evidence, not a new legal or product release approval. Verification source: https://github.com/zone-eu/mailsplit/blob/df5b42b046bbab53b9b238c39208658b8732bf75/LICENSE.MIT"
     },
     {
       "name": "abort-controller",
@@ -24881,7 +25123,7 @@
     },
     {
       "name": "ansi-regex",
-      "versionOrCommit": "6.2.2",
+      "versionOrCommit": "6.3.0",
       "sourceUrl": "chalk/ansi-regex",
       "packagePathOrArtifact": "node_modules/@puppeteer/browsers/node_modules/ansi-regex",
       "usage": "runtime",
@@ -24897,28 +25139,6 @@
       "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
       "copyrightNotices": [
         "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "ansi-styles",
-      "versionOrCommit": "4.3.0",
-      "sourceUrl": "chalk/ansi-styles",
-      "packagePathOrArtifact": "node_modules/ansi-styles",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/ansi-styles/license",
-      "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
-      "copyrightNotices": [
-        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -25100,28 +25320,6 @@
         "(c) You must retain, in the Source form of any Derivative Works",
         "Copyright 2020 A11yance",
         "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "ast-types",
-      "versionOrCommit": "0.13.4",
-      "sourceUrl": "https://github.com/benjamn/ast-types",
-      "packagePathOrArtifact": "node_modules/ast-types",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/ast-types/LICENSE",
-      "licenseTextSha256": "a374b737c41b30b1ec04c5fcc17d1b853f008f217cc43a9dbea441abd9afde70",
-      "copyrightNotices": [
-        "Copyright (c) 2013 Ben Newman <bn@cs.stanford.edu>"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -25440,28 +25638,6 @@
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
         "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "basic-ftp",
-      "versionOrCommit": "5.3.1",
-      "sourceUrl": "https://github.com/patrickjuchli/basic-ftp",
-      "packagePathOrArtifact": "node_modules/basic-ftp",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/basic-ftp/LICENSE.txt",
-      "licenseTextSha256": "5abeca78b582cb73907891ec8dbd9b239855a95d1f6b0d281165a1a6cea4618d",
-      "copyrightNotices": [
-        "Copyright (c) 2019 Patrick Juchli"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -25842,28 +26018,6 @@
       "licenseTextSha256": "21c2679a63d7699c0e644409e2f17d0adbc7a965003feb06b3ff4b833d21f722",
       "copyrightNotices": [
         "Copyright 2014 Andrey Sitnik <andrey@sitnik.es> and other contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "buffer-crc32",
-      "versionOrCommit": "0.2.13",
-      "sourceUrl": "https://github.com/brianloveswords/buffer-crc32",
-      "packagePathOrArtifact": "node_modules/yauzl/node_modules/buffer-crc32",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/yauzl/node_modules/buffer-crc32/LICENSE",
-      "licenseTextSha256": "16618f12b491898e2a40c5e860200cc2dd00389c06c56d5e24e720a0fad47bba",
-      "copyrightNotices": [
-        "Copyright (c) 2013 Brian J. Brennan"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -26412,29 +26566,6 @@
     },
     {
       "name": "chromium-bidi",
-      "versionOrCommit": "14.0.0",
-      "sourceUrl": "https://github.com/GoogleChromeLabs/chromium-bidi",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/chromium-bidi",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/chromium-bidi/LICENSE",
-      "licenseTextSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "chromium-bidi",
       "versionOrCommit": "16.0.1",
       "sourceUrl": "https://github.com/GoogleChromeLabs/chromium-bidi",
       "packagePathOrArtifact": "node_modules/chromium-bidi",
@@ -26526,28 +26657,6 @@
       "reviewNotes": "The only release declares MIT, links to React and was published by npm maintainer sebmarkbage, but provides no repository, provenance, LICENSE or explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies canonical MIT terms and uses the publisher identity Sebastian Markbåge with a contributors qualifier as the best available attribution without claiming React, Meta, Vercel or Next.js ownership. Any version change requires a new review. Verification source: https://registry.npmjs.org/client-only/0.0.1",
       "reviewedBy": "Frank Alexander Weber",
       "reviewedAt": "2026-07-17"
-    },
-    {
-      "name": "cliui",
-      "versionOrCommit": "8.0.1",
-      "sourceUrl": "yargs/cliui",
-      "packagePathOrArtifact": "node_modules/cliui",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "ISC",
-      "verifiedLicense": "ISC",
-      "licenseTextRef": "node_modules/cliui/LICENSE.txt",
-      "licenseTextSha256": "2dc0465729366c3a7890dfa9e972a1ba7048a26c02116fb8b419a6a1ac110149",
-      "copyrightNotices": [
-        "Copyright (c) 2015, Contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
     },
     {
       "name": "cliui",
@@ -26655,50 +26764,6 @@
       "licenseTextSha256": "05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07",
       "copyrightNotices": [
         "Copyright (C) 2018-2021 by Marijn Haverbeke <marijn@haverbeke.berlin> and others"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "color-convert",
-      "versionOrCommit": "2.0.1",
-      "sourceUrl": "Qix-/color-convert",
-      "packagePathOrArtifact": "node_modules/color-convert",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/color-convert/LICENSE",
-      "licenseTextSha256": "119fee4adef95a6af980129b12bbc02ef32a0a75737cbdd31b6922c0db0050bc",
-      "copyrightNotices": [
-        "Copyright (c) 2011-2016 Heather Arthur <fayearthur@gmail.com>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "color-name",
-      "versionOrCommit": "1.1.4",
-      "sourceUrl": "git@github.com:colorjs/color-name",
-      "packagePathOrArtifact": "node_modules/color-name",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/color-name/LICENSE",
-      "licenseTextSha256": "9060d3e477a57e94563100d089ee07a1bf3342f149fd7366913abf2b4b54f04b",
-      "copyrightNotices": [
-        "Copyright (c) 2015 Dmitry Ivanov"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -28371,28 +28436,6 @@
       "reviewNotes": "License text source: https://registry.npmjs.org/data-uri-to-buffer/-/data-uri-to-buffer-4.0.1.tgz#README.md#License Published source revision: 85cd8c854aefbf1bb636789d80364cfac8ea1583 The complete license text is embedded in the exact npm tarball README license section."
     },
     {
-      "name": "data-uri-to-buffer",
-      "versionOrCommit": "6.0.2",
-      "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/data-uri-to-buffer",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/data-uri-to-buffer/LICENSE",
-      "licenseTextSha256": "819021ebdb731965692b2f38206ed1c96a956469827173dc668a1c6ba3e97097",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "data-urls",
       "versionOrCommit": "7.0.0",
       "sourceUrl": "https://github.com/jsdom/data-urls",
@@ -28593,7 +28636,7 @@
     },
     {
       "name": "deepmerge-ts",
-      "versionOrCommit": "7.1.6",
+      "versionOrCommit": "8.0.2",
       "sourceUrl": "https://github.com/RebeccaStevens/deepmerge-ts",
       "packagePathOrArtifact": "node_modules/deepmerge-ts",
       "usage": "runtime",
@@ -28634,30 +28677,6 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
-    },
-    {
-      "name": "degenerator",
-      "versionOrCommit": "5.0.1",
-      "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/degenerator",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@marp-team/marp-cli/node_modules/degenerator@5.0.1",
-      "licenseTextSha256": "856b7c5bc8da91a46ffe0b6c2431da418b39bf25063b1919974289ca7b9ef155",
-      "copyrightNotices": [
-        "Copyright (c) 2013 Nathan Rajlich &lt;nathan@tootallnate.net&gt;",
-        "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/degenerator/-/degenerator-5.0.1.tgz#README.md#License The complete license text is embedded in the exact npm tarball README license section."
     },
     {
       "name": "delaunator",
@@ -28810,29 +28829,6 @@
       "licenseTextSha256": "6f296a5eccc1dc96714bb94ebaa9cac25b0a1467d74cc5263ac4d0646ab01f62",
       "copyrightNotices": [
         "Copyright (c) 2023 Titus Wormer <tituswormer@gmail.com>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "devtools-protocol",
-      "versionOrCommit": "0.0.1608973",
-      "sourceUrl": "https://github.com/ChromeDevTools/devtools-protocol",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/devtools-protocol",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "BSD-3-Clause",
-      "verifiedLicense": "BSD-3-Clause",
-      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/devtools-protocol/LICENSE",
-      "licenseTextSha256": "7a209dd1b94cabdb5ea9c6f9164b9546ffa5daaa671e7767d49510db055f5c51",
-      "copyrightNotices": [
-        "A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT",
-        "Copyright 2014 The Chromium Authors. All rights reserved."
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -29265,28 +29261,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "emoji-regex",
-      "versionOrCommit": "8.0.0",
-      "sourceUrl": "https://github.com/mathiasbynens/emoji-regex",
-      "packagePathOrArtifact": "node_modules/string-width/node_modules/emoji-regex",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/string-width/node_modules/emoji-regex/LICENSE-MIT.txt",
-      "licenseTextSha256": "483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a",
-      "copyrightNotices": [
-        "Copyright Mathias Bynens <https://mathiasbynens.be/>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "encodeurl",
       "versionOrCommit": "2.0.0",
       "sourceUrl": "pillarjs/encodeurl",
@@ -29323,6 +29297,28 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/encoding-japanese/LICENSE",
+      "licenseTextSha256": "9817440890faace3016b8552aeb245cecebbbc50ef1ae30f56dc6fbc36e08bda",
+      "copyrightNotices": [
+        "Copyright (c) 2012 polygonplanet"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "encoding-japanese",
+      "versionOrCommit": "2.3.0",
+      "sourceUrl": "https://github.com/polygonplanet/encoding.js",
+      "packagePathOrArtifact": "node_modules/mailparser/node_modules/encoding-japanese",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/mailparser/node_modules/encoding-japanese/LICENSE",
       "licenseTextSha256": "9817440890faace3016b8552aeb245cecebbbc50ef1ae30f56dc6fbc36e08bda",
       "copyrightNotices": [
         "Copyright (c) 2012 polygonplanet"
@@ -29751,28 +29747,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "escodegen",
-      "versionOrCommit": "2.1.0",
-      "sourceUrl": "http://github.com/estools/escodegen",
-      "packagePathOrArtifact": "node_modules/escodegen",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "BSD-2-Clause",
-      "verifiedLicense": "BSD-2-Clause",
-      "licenseTextRef": "node_modules/escodegen/LICENSE.BSD",
-      "licenseTextSha256": "d5d62471a28a9920416c7d37d387a3bf55f32cb768590f605f84990b76aee5de",
-      "copyrightNotices": [
-        "Copyright (C) 2012 Yusuke Suzuki (twitter: @Constellation) and other contributors."
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "esm",
       "versionOrCommit": "3.2.25",
       "sourceUrl": "standard-things/esm",
@@ -29791,28 +29765,6 @@
       "copyrightNotices": [
         "Based on reify, copyright Ben Newman <https://github.com/benjamn/reify>",
         "Copyright esm contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "esprima",
-      "versionOrCommit": "4.0.1",
-      "sourceUrl": "https://github.com/jquery/esprima",
-      "packagePathOrArtifact": "node_modules/esprima",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "BSD-2-Clause",
-      "verifiedLicense": "BSD-2-Clause",
-      "licenseTextRef": "node_modules/esprima/LICENSE.BSD",
-      "licenseTextSha256": "94bcb9959136723aa4fb36e1a6c4d5c662a2369978cfae344dabfb83ae619e79",
-      "copyrightNotices": [
-        "Copyright JS Foundation and other contributors, https://js.foundation/"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -29900,26 +29852,6 @@
       "copyrightNotices": [
         "Copyright (c) 2015-20 [these people](https://github.com/Rich-Harris/estree-walker/graphs/contributors)"
       ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "esutils",
-      "versionOrCommit": "2.0.3",
-      "sourceUrl": "http://github.com/estools/esutils",
-      "packagePathOrArtifact": "node_modules/esutils",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "BSD-2-Clause",
-      "verifiedLicense": "BSD-2-Clause",
-      "licenseTextRef": "node_modules/esutils/LICENSE.BSD",
-      "licenseTextSha256": "0e74697a68cebdcd61502c30fe80ab7f9e341d995dcd452023654d57133534b1",
-      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed"
     },
@@ -30169,28 +30101,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "extract-zip",
-      "versionOrCommit": "2.0.1",
-      "sourceUrl": "maxogden/extract-zip",
-      "packagePathOrArtifact": "node_modules/extract-zip",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "BSD-2-Clause",
-      "verifiedLicense": "BSD-2-Clause",
-      "licenseTextRef": "node_modules/extract-zip/LICENSE",
-      "licenseTextSha256": "77b2de947c65f3062fb347118ca198ca50898ead84a8509d8153fa65741f029b",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Max Ogden and other contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "fast-deep-equal",
       "versionOrCommit": "3.1.3",
       "sourceUrl": "https://github.com/epoberezkin/fast-deep-equal",
@@ -30319,28 +30229,6 @@
       "licenseTextSha256": "63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf",
       "copyrightNotices": [
         "Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "fd-slicer",
-      "versionOrCommit": "1.1.0",
-      "sourceUrl": "https://github.com/andrewrk/node-fd-slicer",
-      "packagePathOrArtifact": "node_modules/fd-slicer",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/fd-slicer/LICENSE",
-      "licenseTextSha256": "176d95320d565cb034d8323797b6cd6160238f625453687f98aad2085c46c3b3",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Andrew Kelley"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -30924,50 +30812,6 @@
       "licenseTextSha256": "be46ce1e3b0479af9ce82d22b465a6d7d2ff084fca0aaf3d54172da2b5eb5781",
       "copyrightNotices": [
         "Copyright (c) 2025 Jordan Harband"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "get-stream",
-      "versionOrCommit": "5.2.0",
-      "sourceUrl": "sindresorhus/get-stream",
-      "packagePathOrArtifact": "node_modules/get-stream",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/get-stream/license",
-      "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
-      "copyrightNotices": [
-        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "get-uri",
-      "versionOrCommit": "6.0.5",
-      "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/get-uri",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/get-uri/LICENSE",
-      "licenseTextSha256": "819021ebdb731965692b2f38206ed1c96a956469827173dc668a1c6ba3e97097",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -31727,7 +31571,7 @@
     },
     {
       "name": "html-to-text",
-      "versionOrCommit": "10.0.0",
+      "versionOrCommit": "10.0.1",
       "sourceUrl": "https://github.com/html-to-text/node-html-to-text",
       "packagePathOrArtifact": "node_modules/html-to-text",
       "usage": "runtime",
@@ -32657,28 +32501,6 @@
       "licenseTextSha256": "73b5283588baa142c5baaef5f56d3e8fdea7a30b214e8c5737e87640f882453a",
       "copyrightNotices": [
         "Copyright (c) 2014-2016, Jon Schlinkert"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "is-fullwidth-code-point",
-      "versionOrCommit": "3.0.0",
-      "sourceUrl": "sindresorhus/is-fullwidth-code-point",
-      "packagePathOrArtifact": "node_modules/is-fullwidth-code-point",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/is-fullwidth-code-point/license",
-      "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
-      "copyrightNotices": [
-        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -33824,6 +33646,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "libmime",
+      "versionOrCommit": "5.4.3",
+      "sourceUrl": "https://github.com/nodemailer/libmime",
+      "packagePathOrArtifact": "node_modules/mailparser/node_modules/libmime",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/mailparser/node_modules/libmime/LICENSE",
+      "licenseTextSha256": "0f2482bc852021c3226c1df9d75b610a9b795a5a88032cda51098dce3dae6740",
+      "copyrightNotices": [
+        "Copyright (c) 2014-2016 Andris Reinman"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "libqp",
       "versionOrCommit": "2.1.1",
       "sourceUrl": "https://github.com/nodemailer/libqp",
@@ -34273,28 +34117,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "lru-cache",
-      "versionOrCommit": "7.18.3",
-      "sourceUrl": "https://github.com/isaacs/node-lru-cache",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/lru-cache",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "ISC",
-      "verifiedLicense": "ISC",
-      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/lru-cache/LICENSE",
-      "licenseTextSha256": "451ec07eeb9c4e1b86de9abdaa426462a8be48f887ec7421cf0bbb9c769555ab",
-      "copyrightNotices": [
-        "Copyright (c) 2010-2023 Isaac Z. Schlueter and Contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "lucide-react",
       "versionOrCommit": "1.24.0",
       "sourceUrl": "https://github.com/lucide-icons/lucide",
@@ -34363,7 +34185,7 @@
     },
     {
       "name": "mailparser",
-      "versionOrCommit": "3.9.14",
+      "versionOrCommit": "3.9.23",
       "sourceUrl": "https://github.com/nodemailer/mailparser",
       "packagePathOrArtifact": "node_modules/mailparser",
       "usage": "runtime",
@@ -36126,7 +35948,7 @@
     },
     {
       "name": "modern-tar",
-      "versionOrCommit": "0.7.6",
+      "versionOrCommit": "0.7.7",
       "sourceUrl": "https://github.com/ayuhito/modern-tar",
       "packagePathOrArtifact": "node_modules/modern-tar",
       "usage": "runtime",
@@ -36394,28 +36216,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "netmask",
-      "versionOrCommit": "2.1.1",
-      "sourceUrl": "https://github.com/rs/node-netmask",
-      "packagePathOrArtifact": "node_modules/netmask",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/netmask/LICENSE.md",
-      "licenseTextSha256": "c47e09b7a38f5f4ceec262e87037ce38911a9fb3f70af1a8199aa6d6bd3be8d0",
-      "copyrightNotices": [
-        "Copyright (c) 2011 Olivier Poitrey rs@rhapsodyk.net"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "next-intl-swc-plugin-extractor",
       "versionOrCommit": "4.13.2",
       "sourceUrl": "https://github.com/amannn/next-intl",
@@ -36655,6 +36455,28 @@
       "licenseTextSha256": "3706296ed611888111ceccc1dff4712844dea4bde0b185c82d718c3b69895abe",
       "copyrightNotices": [
         "Copyright (c) 2017 Sergey Rubanov (https://github.com/chicoxyzzy)"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "nodemailer",
+      "versionOrCommit": "10.0.1",
+      "sourceUrl": "https://github.com/nodemailer/nodemailer",
+      "packagePathOrArtifact": "node_modules/mailparser/node_modules/nodemailer",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT-0",
+      "verifiedLicense": "MIT-0",
+      "licenseTextRef": "node_modules/mailparser/node_modules/nodemailer/LICENSE",
+      "licenseTextSha256": "4f814dcacd2da618d62829ea1f6238701cf421f18a6b36c91c5d8212245e2c78",
+      "copyrightNotices": [
+        "Copyright (c) 2011-2023 Andris Reinman"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -37039,50 +36861,6 @@
       "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
       "copyrightNotices": [
         "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "pac-proxy-agent",
-      "versionOrCommit": "7.2.0",
-      "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/pac-proxy-agent",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/pac-proxy-agent/LICENSE",
-      "licenseTextSha256": "819021ebdb731965692b2f38206ed1c96a956469827173dc668a1c6ba3e97097",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "pac-resolver",
-      "versionOrCommit": "7.0.1",
-      "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/pac-resolver",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/pac-resolver/LICENSE",
-      "licenseTextSha256": "71368fd0f5b4129191e9afcd1e1ef2dc89a9090d3e4d80bbab92dafd032b3bef",
-      "copyrightNotices": [
-        "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -37550,28 +37328,6 @@
       "licenseTextSha256": "886b9d612923a8c2b5186f4d562e1f1a84ef319af574c5f8be5d3dc21ca4b385",
       "copyrightNotices": [
         "Copyright (c) 2021-2025 KillyMXI <killy@mxii.eu.org>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "pend",
-      "versionOrCommit": "1.2.0",
-      "sourceUrl": "https://github.com/andrewrk/node-pend",
-      "packagePathOrArtifact": "node_modules/pend",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/pend/LICENSE",
-      "licenseTextSha256": "7e64acffcb0d20d33f5a86949ffd4a99ae045b10c7332a9c3a58635876c16880",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Andrew Kelley"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -38932,28 +38688,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "proxy-agent",
-      "versionOrCommit": "6.5.0",
-      "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/proxy-agent",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/proxy-agent/LICENSE",
-      "licenseTextSha256": "71368fd0f5b4129191e9afcd1e1ef2dc89a9090d3e4d80bbab92dafd032b3bef",
-      "copyrightNotices": [
-        "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "proxy-from-env",
       "versionOrCommit": "1.1.0",
       "sourceUrl": "https://github.com/Rob--W/proxy-from-env",
@@ -39040,31 +38774,6 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
-    },
-    {
-      "name": "puppeteer-core",
-      "versionOrCommit": "24.43.1",
-      "sourceUrl": "https://github.com/puppeteer/puppeteer/tree/970bda63c03d96b7a42d96fe44e35da1b4dc4a8b",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/puppeteer-core",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@marp-team/marp-cli/node_modules/puppeteer-core@24.43.1",
-      "licenseTextSha256": "a27ca07269b3518550b2e83aed13eadd7d14d924b5864e14889b40cf227530ca",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2017 Google Inc.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/puppeteer/puppeteer/970bda63c03d96b7a42d96fe44e35da1b4dc4a8b/LICENSE Published source revision: 970bda63c03d96b7a42d96fe44e35da1b4dc4a8b"
     },
     {
       "name": "puppeteer-core",
@@ -40027,28 +39736,6 @@
       "licenseTextSha256": "413654b0a78b98661dce96d2aff2e4d075603d220b8483e28b1aa010ccc138b4",
       "copyrightNotices": [
         "Copyright (c) 2014 Titus Wormer <tituswormer@gmail.com>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "require-directory",
-      "versionOrCommit": "2.1.1",
-      "sourceUrl": "https://github.com/troygoode/node-require-directory",
-      "packagePathOrArtifact": "node_modules/require-directory",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/require-directory/LICENSE",
-      "licenseTextSha256": "a92e52eb1fa7cd746e3827bf01d3a3589bbc8e1e51348b1da042aad165525ad1",
-      "copyrightNotices": [
-        "Copyright (c) 2011 Troy Goode <troygoode@gmail.com>"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -41198,28 +40885,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "socks-proxy-agent",
-      "versionOrCommit": "8.0.5",
-      "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/socks-proxy-agent",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/socks-proxy-agent/LICENSE",
-      "licenseTextSha256": "71368fd0f5b4129191e9afcd1e1ef2dc89a9090d3e4d80bbab92dafd032b3bef",
-      "copyrightNotices": [
-        "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "socks",
       "versionOrCommit": "2.8.9",
       "sourceUrl": "https://github.com/JoshGlazebrook/socks",
@@ -41601,9 +41266,9 @@
     },
     {
       "name": "string-width",
-      "versionOrCommit": "4.2.3",
+      "versionOrCommit": "7.2.0",
       "sourceUrl": "sindresorhus/string-width",
-      "packagePathOrArtifact": "node_modules/string-width",
+      "packagePathOrArtifact": "node_modules/@puppeteer/browsers/node_modules/cliui/node_modules/string-width",
       "usage": "runtime",
       "distributedIn": [
         "source-release",
@@ -41613,10 +41278,10 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/string-width/license",
-      "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
+      "licenseTextRef": "node_modules/@puppeteer/browsers/node_modules/cliui/node_modules/string-width/license",
+      "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
       "copyrightNotices": [
-        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
+        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -41624,6 +41289,28 @@
     {
       "name": "string-width",
       "versionOrCommit": "7.2.0",
+      "sourceUrl": "sindresorhus/string-width",
+      "packagePathOrArtifact": "node_modules/@puppeteer/browsers/node_modules/wrap-ansi/node_modules/string-width",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@puppeteer/browsers/node_modules/wrap-ansi/node_modules/string-width/license",
+      "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
+      "copyrightNotices": [
+        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "string-width",
+      "versionOrCommit": "8.2.2",
       "sourceUrl": "sindresorhus/string-width",
       "packagePathOrArtifact": "node_modules/@puppeteer/browsers/node_modules/string-width",
       "usage": "runtime",
@@ -41661,28 +41348,6 @@
       "licenseTextSha256": "9f084fac69d8cf1e6ce983ba5a3499c7695ed74a26ec625c38f0fd19fddd5e10",
       "copyrightNotices": [
         "Copyright (c) 2015 Titus Wormer <mailto:tituswormer@gmail.com>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "strip-ansi",
-      "versionOrCommit": "6.0.1",
-      "sourceUrl": "chalk/strip-ansi",
-      "packagePathOrArtifact": "node_modules/strip-ansi",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/strip-ansi/license",
-      "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
-      "copyrightNotices": [
-        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -41966,28 +41631,6 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/tar-fs/LICENSE",
-      "licenseTextSha256": "c0993ca46cd47c09710a977d3a3d51602cff96f19e8d2eb8d5887aa20a7beead",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Mathias Buus"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "tar-fs",
-      "versionOrCommit": "3.1.3",
-      "sourceUrl": "https://github.com/mafintosh/tar-fs",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/tar-fs",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/tar-fs/LICENSE",
       "licenseTextSha256": "c0993ca46cd47c09710a977d3a3d51602cff96f19e8d2eb8d5887aa20a7beead",
       "copyrightNotices": [
         "Copyright (c) 2014 Mathias Buus"
@@ -43650,30 +43293,6 @@
     },
     {
       "name": "webdriver-bidi-protocol",
-      "versionOrCommit": "0.4.1",
-      "sourceUrl": "https://github.com/GoogleChromeLabs/webdriver-bidi-protocol",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/webdriver-bidi-protocol",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/webdriver-bidi-protocol/LICENSE",
-      "licenseTextSha256": "b08840544230421823a071f4dace39a58be90a54537f36c4b283c93d93d70cc6",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2024 Google Inc.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "webdriver-bidi-protocol",
       "versionOrCommit": "0.4.2",
       "sourceUrl": "https://github.com/GoogleChromeLabs/webdriver-bidi-protocol",
       "packagePathOrArtifact": "node_modules/webdriver-bidi-protocol",
@@ -43922,28 +43541,6 @@
     },
     {
       "name": "wrap-ansi",
-      "versionOrCommit": "7.0.0",
-      "sourceUrl": "chalk/wrap-ansi",
-      "packagePathOrArtifact": "node_modules/wrap-ansi",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/wrap-ansi/license",
-      "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
-      "copyrightNotices": [
-        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "wrap-ansi",
       "versionOrCommit": "9.0.2",
       "sourceUrl": "chalk/wrap-ansi",
       "packagePathOrArtifact": "node_modules/@puppeteer/browsers/node_modules/wrap-ansi",
@@ -44001,6 +43598,54 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/ws/LICENSE",
+      "licenseTextSha256": "2b29dcfe0d6471f7e8c92c5fb38c9f93edee10330937055440192f1832b1ecef",
+      "copyrightNotices": [
+        "Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>",
+        "Copyright (c) 2013 Arnout Kazemier and contributors",
+        "Copyright (c) 2016 Luigi Pinca and contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "ws",
+      "versionOrCommit": "8.21.3",
+      "sourceUrl": "https://github.com/websockets/ws",
+      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/ws",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/ws/LICENSE",
+      "licenseTextSha256": "2b29dcfe0d6471f7e8c92c5fb38c9f93edee10330937055440192f1832b1ecef",
+      "copyrightNotices": [
+        "Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>",
+        "Copyright (c) 2013 Arnout Kazemier and contributors",
+        "Copyright (c) 2016 Luigi Pinca and contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "ws",
+      "versionOrCommit": "8.21.3",
+      "sourceUrl": "https://github.com/websockets/ws",
+      "packagePathOrArtifact": "node_modules/puppeteer-core/node_modules/ws",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/puppeteer-core/node_modules/ws/LICENSE",
       "licenseTextSha256": "2b29dcfe0d6471f7e8c92c5fb38c9f93edee10330937055440192f1832b1ecef",
       "copyrightNotices": [
         "Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>",
@@ -44301,28 +43946,6 @@
     },
     {
       "name": "yargs-parser",
-      "versionOrCommit": "21.1.1",
-      "sourceUrl": "https://github.com/yargs/yargs-parser",
-      "packagePathOrArtifact": "node_modules/yargs-parser",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "ISC",
-      "verifiedLicense": "ISC",
-      "licenseTextRef": "node_modules/yargs-parser/LICENSE.txt",
-      "licenseTextSha256": "365496ca1f56da40b23c9815fc40fa9005847b2f8f8fd1c1a4929ef25ec8cd1d",
-      "copyrightNotices": [
-        "Copyright (c) 2016, Contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "yargs-parser",
       "versionOrCommit": "22.0.0",
       "sourceUrl": "https://github.com/yargs/yargs-parser",
       "packagePathOrArtifact": "node_modules/@puppeteer/browsers/node_modules/yargs-parser",
@@ -44345,29 +43968,7 @@
     },
     {
       "name": "yargs",
-      "versionOrCommit": "17.7.3",
-      "sourceUrl": "https://github.com/yargs/yargs",
-      "packagePathOrArtifact": "node_modules/yargs",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/yargs/LICENSE",
-      "licenseTextSha256": "2f1a503bfab84b3ba7393627308b3274501e459e3b5185bbb56bbf16cb1602d4",
-      "copyrightNotices": [
-        "Copyright 2010 James Halliday (mail@substack.net); Modified work Copyright 2014 Contributors (ben@npmjs.com)"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "yargs",
-      "versionOrCommit": "18.0.0",
+      "versionOrCommit": "18.1.0",
       "sourceUrl": "https://github.com/yargs/yargs",
       "packagePathOrArtifact": "node_modules/@puppeteer/browsers/node_modules/yargs",
       "usage": "runtime",
@@ -44383,28 +43984,6 @@
       "licenseTextSha256": "2f1a503bfab84b3ba7393627308b3274501e459e3b5185bbb56bbf16cb1602d4",
       "copyrightNotices": [
         "Copyright 2010 James Halliday (mail@substack.net); Modified work Copyright 2014 Contributors (ben@npmjs.com)"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "yauzl",
-      "versionOrCommit": "2.10.0",
-      "sourceUrl": "https://github.com/thejoshwolfe/yauzl",
-      "packagePathOrArtifact": "node_modules/yauzl",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/yauzl/LICENSE",
-      "licenseTextSha256": "b303783d5eb7ca50b853ffa5f145e4e7998fab339831d848f507ca6cd970577a",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Josh Wolfe"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -44493,28 +44072,6 @@
       "licenseTextSha256": "7beaa85b57d7211f6684af6c1d97e6d9ef7ec1851f779152043a47a8700306a9",
       "copyrightNotices": [
         "Copyright (c) 2020, Stefan Terdell"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "zod",
-      "versionOrCommit": "3.25.76",
-      "sourceUrl": "https://github.com/colinhacks/zod",
-      "packagePathOrArtifact": "node_modules/@marp-team/marp-cli/node_modules/zod",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@marp-team/marp-cli/node_modules/zod/LICENSE",
-      "licenseTextSha256": "3f1189b28e3866e0d979968d466b78f813f76827cfdca1fbb124cc0a5c8841f8",
-      "copyrightNotices": [
-        "Copyright (c) 2025 Colin McDonnell"
       ],
       "modified": false,
       "policyDecision": "allowed"

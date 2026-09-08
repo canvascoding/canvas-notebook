@@ -72,6 +72,10 @@ Module._load = function loadWithServerOnlyMarker(request, parent, isMain) {
 const http = require('http');
 const fs = require('fs');
 const next = require('next');
+const { runWithRequestIdentity } = require('./app/lib/security/request-identity');
+const { handleHtmlPreviewBoundary } = require('./server/html-preview-boundary');
+const { isHtmlPreviewHost } = require('./app/lib/html-preview-origin');
+const { handleHttpRequestSafely } = require('./server/http-request-boundary');
 // Terminal service now runs as separate process via Unix Socket
 // See server/terminal-service.ts
 const {
@@ -547,7 +551,8 @@ function recoverStaleAutomationRuns() {
   }
 }
 
-const server = http.createServer((req, res) => {
+async function routeHttpRequest(req, res) {
+  if (handleHtmlPreviewBoundary(req, res)) return;
   const url = new URL(req.url, 'http://localhost');
 
   if (url.pathname.startsWith('/media/')) {
@@ -574,7 +579,18 @@ const server = http.createServer((req, res) => {
   // Terminal kill endpoint is now handled by Next.js API routes
   // See app/api/terminal/kill/route.ts
 
-  handle(req, res);
+  await handle(req, res);
+}
+
+const server = http.createServer((req, res) => {
+  handleHttpRequestSafely(req, res, () => runWithRequestIdentity(req, () => routeHttpRequest(req, res)));
+});
+server.prependListener('upgrade', (request, socket) => {
+  if (isHtmlPreviewHost(request.headers.host)) {
+    delete request.headers.cookie;
+    delete request.headers.authorization;
+    socket.destroy();
+  }
 });
 
 let shutdownInProgress = false;

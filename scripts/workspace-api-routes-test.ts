@@ -396,6 +396,8 @@ async function main() {
   );
   assert.equal(selectedTeamStatsResponse.status, 200);
   const selectedTeamStats = expectObject(await responseJson(selectedTeamStatsResponse), 'selected team workspace stats');
+  // Shared workspace creation also seeds the existing onboarding document.
+  await fs.access(path.join(dataRoot, teamWorkspacePath, 'Erste Schritte.md'));
   assert.equal(expectObject(selectedTeamStats.data, 'selected team workspace stats data').fileCount, 6);
 
   const adminTeamDownloadResponse = await downloadRoute.GET(

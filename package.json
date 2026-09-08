@@ -225,6 +225,8 @@
     "test:pdf:runtime": "CANVAS_PYTHON_PATH=${CANVAS_PYTHON_PATH:-python3} tsx scripts/pdf-tool-runtime-test.ts",
     "test:pdf:tools": "CANVAS_PYTHON_PATH=${CANVAS_PYTHON_PATH:-python3} tsx scripts/pdf-tools-test.ts",
     "test:rate-limit": "tsx scripts/rate-limit-test.ts",
+    "test:security:public": "tsx scripts/rate-limit-test.ts && tsx scripts/request-identity-test.ts && tsx scripts/public-rate-limit-store-test.ts && tsx scripts/public-request-boundaries-test.ts && tsx --conditions react-server scripts/auth-rate-limit-identity-test.ts && tsx scripts/http-request-boundary-test.ts && tsx scripts/public-security-routing-test.ts",
+    "test:security:public:postgres": "TEST_RATE_LIMIT_PROVIDER=postgres tsx scripts/public-rate-limit-store-test.ts",
     "test:media:references": "tsx --conditions react-server scripts/media-reference-resolver-test.ts",
     "test:upload:storage": "tsx --conditions react-server scripts/workspace-upload-service-test.ts && tsx --conditions react-server scripts/workspace-upload-storage-test.ts && tsx --conditions react-server scripts/upload-directories-test.ts",
     "test:upload:conversion": "tsx --conditions react-server scripts/upload-conversion-test.ts",
@@ -443,7 +445,13 @@
     "cli:portable:dist": "node dist-cli/main.js",
     "server:setup": "bash scripts/server-setup.sh",
     "container:rebuild": "node scripts/setup.mjs",
-    "test:editor:core": "tsx --conditions react-server scripts/markdown-core-test.ts && tsx --conditions react-server scripts/markdown-list-identities-test.ts && tsx --conditions react-server scripts/markdown-adjacent-lists-test.ts && tsx scripts/markdown-table-commands-test.ts && tsx scripts/markdown-images-test.ts"
+    "test:editor:core": "tsx --conditions react-server scripts/markdown-core-test.ts && tsx --conditions react-server scripts/markdown-list-identities-test.ts && tsx --conditions react-server scripts/markdown-adjacent-lists-test.ts && tsx scripts/markdown-table-commands-test.ts && tsx scripts/markdown-images-test.ts",
+    "test:security:public:http": "node scripts/security-public-http-test.mjs",
+    "test:security:pdf": "tsx --conditions react-server scripts/pdf-security-test.ts",
+    "test:security:pdf-network": "tsx --conditions react-server scripts/pdf-network-security-test.ts",
+    "test:security:html-preview": "tsx scripts/html-preview-assets-test.ts && tsx scripts/html-preview-origin-test.ts && tsx scripts/html-preview-boundary-test.ts && tsx --conditions react-server scripts/html-preview-ticket-test.ts",
+    "test:security:workspaces": "tsx --conditions react-server scripts/security-workspace-scope-test.ts",
+    "test:security:dependencies": "tsx scripts/security-dependencies-test.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",
@@ -471,7 +479,7 @@
     "@hocuspocus/provider": "^4.4.0",
     "@hocuspocus/server": "^4.4.0",
     "@hocuspocus/transformer": "^4.4.0",
-    "@marp-team/marp-cli": "^4.4.0",
+    "@marp-team/marp-cli": "^4.5.1",
     "@marp-team/marp-core": "^4.3.0",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -544,7 +552,7 @@
     "jszip": "^3.10.1",
     "katex": "^0.17.0",
     "lucide-react": "^1.21.0",
-    "mailparser": "3.9.14",
+    "mailparser": "3.9.23",
     "mammoth": "^1.11.0",
     "marked": "^18.0.3",
     "marked-katex-extension": "^5.1.10",
@@ -570,7 +578,7 @@
     "prosemirror-tables": "^1.8.5",
     "prosemirror-transform": "^1.12.0",
     "prosemirror-view": "^1.41.8",
-    "puppeteer-core": "^25.2.1",
+    "puppeteer-core": "^25.3.0",
     "qrcode.react": "^4.2.0",
     "radix-ui": "^1.5.0",
     "react": "^19.2.4",
@@ -643,7 +651,13 @@
       "sharp": "0.35.2"
     },
     "postcss": "8.5.23",
-    "speech-rule-engine": "4.1.4",
-    "tar": "7.5.22"
+    "speech-rule-engine": {
+      ".": "4.1.4",
+      "@xmldom/xmldom": "0.9.12"
+    },
+    "tar": "7.5.22",
+    "@marp-team/marp-cli": {
+      "puppeteer-core": "25.3.0"
+    }
   }
 }
