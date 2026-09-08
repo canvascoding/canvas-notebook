@@ -168,7 +168,7 @@ async function loadCollaborationStateRow(
   try {
     const row = await database.get(
       `SELECT * FROM collaboration_yjs_states
-       WHERE document_id = ?${includeArchived ? '' : " AND status = 'active'"}
+       WHERE document_id = $1${includeArchived ? '' : " AND status = 'active'"}
        LIMIT 1`,
       [documentId],
     ) as StateRow | undefined;
@@ -230,7 +230,7 @@ export async function ensureCollaborationState(input: {
           lifecycle_generation, schema_version, yjs_state, state_vector,
           document_sequence, persisted_at, checkpointed_at, checkpoint_sequence,
           canonical_hash, serialized_hash, newline_style, has_bom, degraded
-        ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, 0, ?, ?, 0, ?, ?, ?, ?, 0)
+        ) VALUES ($1, $2, $3, $4, $5, 1, 1, $6, $7, 0, $8, $9, 0, $10, $11, $12, $13, 0)
         ON CONFLICT(document_id) DO NOTHING
         RETURNING *
       `,
@@ -282,16 +282,16 @@ export async function persistCollaborationYDoc(
     const row = await database.get(
       `
         UPDATE collaboration_yjs_states
-        SET yjs_state = ?, state_vector = ?, document_sequence = document_sequence + 1,
-            persisted_at = ?, degraded = 0
-        WHERE document_id = ? AND status = 'active' AND lifecycle_generation = ?
+        SET yjs_state = $1, state_vector = $2, document_sequence = document_sequence + 1,
+            persisted_at = $3, degraded = 0
+        WHERE document_id = $4 AND status = 'active' AND lifecycle_generation = $5
         RETURNING *
       `,
       [Buffer.from(update), Buffer.from(vector), now, documentId, expectedLifecycleGeneration],
     ) as StateRow | undefined;
     if (!row) {
       const existing = await database.get(
-        'SELECT status, lifecycle_generation FROM collaboration_yjs_states WHERE document_id = ? LIMIT 1',
+        'SELECT status, lifecycle_generation FROM collaboration_yjs_states WHERE document_id = $1 LIMIT 1',
         [documentId],
       ) as { status?: string; lifecycle_generation?: number | string } | undefined;
       if (existing?.status === 'archived') throw new CollaborationStateInactiveError(documentId);
@@ -325,15 +325,15 @@ export async function markCollaborationCheckpoint(input: {
     const row = await database.get(
       `
         UPDATE collaboration_yjs_states
-        SET checkpointed_at = ?, checkpoint_sequence = ?, canonical_hash = ?, serialized_hash = ?, degraded = ?
-        WHERE document_id = ?
-          AND workspace_id = ?
-          AND path = ?
+        SET checkpointed_at = $1, checkpoint_sequence = $2, canonical_hash = $3, serialized_hash = $4, degraded = $5
+        WHERE document_id = $6
+          AND workspace_id = $7
+          AND path = $8
           AND status = 'active'
-          AND lifecycle_generation = ?
-          AND schema_version = ?
-          AND document_sequence = ?
-          AND checkpoint_sequence <= ?
+          AND lifecycle_generation = $9
+          AND schema_version = $10
+          AND document_sequence = $11
+          AND checkpoint_sequence <= $12
         RETURNING *
       `,
       [
@@ -425,7 +425,7 @@ async function recoverIndeterminateCheckpointCommit<T>(input: {
     await recoveryDatabase.run('BEGIN');
     recoveryTransactionOpen = true;
     const row = await recoveryDatabase.get(
-      'SELECT * FROM collaboration_yjs_states WHERE document_id = ? FOR UPDATE',
+      'SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
       [input.documentId],
     ) as StateRow | undefined;
     if (!row) {
@@ -447,7 +447,7 @@ async function recoverIndeterminateCheckpointCommit<T>(input: {
       await input.materialized.rollback();
     } else if (decision === 'degraded') {
       await recoveryDatabase.run(
-        'UPDATE collaboration_yjs_states SET degraded = 1 WHERE document_id = ?',
+        'UPDATE collaboration_yjs_states SET degraded = 1 WHERE document_id = $1',
         [input.documentId],
       );
     }
@@ -492,15 +492,15 @@ export async function withCollaborationCheckpointFence<T>(input: {
     const lockedRow = await database.get(
       `
         SELECT * FROM collaboration_yjs_states
-        WHERE document_id = ?
-          AND workspace_id = ?
-          AND path = ?
-          AND representation = ?
+        WHERE document_id = $1
+          AND workspace_id = $2
+          AND path = $3
+          AND representation = $4
           AND status = 'active'
-          AND lifecycle_generation = ?
-          AND schema_version = ?
-          AND document_sequence = ?
-          AND checkpoint_sequence <= ?
+          AND lifecycle_generation = $5
+          AND schema_version = $6
+          AND document_sequence = $7
+          AND checkpoint_sequence <= $8
         FOR UPDATE
       `,
       [
@@ -535,10 +535,10 @@ export async function withCollaborationCheckpointFence<T>(input: {
         const row = await database.get(
           `
             UPDATE collaboration_yjs_states
-            SET checkpointed_at = ?, checkpoint_sequence = ?, canonical_hash = ?, serialized_hash = ?, degraded = 0
-            WHERE document_id = ?
-              AND document_sequence = ?
-              AND checkpoint_sequence <= ?
+            SET checkpointed_at = $1, checkpoint_sequence = $2, canonical_hash = $3, serialized_hash = $4, degraded = 0
+            WHERE document_id = $5
+              AND document_sequence = $6
+              AND checkpoint_sequence <= $7
             RETURNING *
           `,
           [
@@ -611,7 +611,7 @@ export async function markCollaborationDegraded(
   try {
     await database.run(
       `UPDATE collaboration_yjs_states SET degraded = 1
-       WHERE document_id = ? AND lifecycle_generation = ?`,
+       WHERE document_id = $1 AND lifecycle_generation = $2`,
       [documentId, expectedLifecycleGeneration],
     );
   } finally {
@@ -673,10 +673,10 @@ export class CollaborationRepresentationMigrationError extends Error {
 }
 
 async function pendingAgentOperationCount(database: Awaited<ReturnType<typeof openDb>>, documentId: string): Promise<number> {
-  const placeholders = TERMINAL_AGENT_OPERATION_STATUSES.map(() => '?').join(', ');
+  const placeholders = TERMINAL_AGENT_OPERATION_STATUSES.map((_, index) => `$${index + 2}`).join(', ');
   const row = await database.get(
     `SELECT COUNT(*) AS count FROM collaboration_agent_operations
-     WHERE document_id = ? AND status NOT IN (${placeholders})`,
+     WHERE document_id = $1 AND status NOT IN (${placeholders})`,
     [documentId, ...TERMINAL_AGENT_OPERATION_STATUSES],
   ) as { count?: number | string } | undefined;
   return Number(row?.count || 0);
@@ -692,7 +692,7 @@ async function writeStateBackup(input: {
     `INSERT INTO collaboration_yjs_state_backups (
       backup_id, document_id, lifecycle_generation, schema_version, representation,
       yjs_state, state_vector, document_sequence, reason, created_at, expires_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
       crypto.randomUUID(),
       input.state.documentId,
@@ -743,10 +743,10 @@ async function compactCollaborationStateWhileLocked(input: {
     await writeStateBackup({ database, state, reason: 'compaction', now });
     const row = await database.get(
       `UPDATE collaboration_yjs_states
-       SET yjs_state = ?, state_vector = ?, lifecycle_generation = lifecycle_generation + 1,
-           document_sequence = ?, checkpoint_sequence = ?, persisted_at = ?, checkpointed_at = ?,
-           canonical_hash = ?, compacted_at = ?, compaction_count = compaction_count + 1
-       WHERE document_id = ? AND status = 'active' AND lifecycle_generation = ?
+       SET yjs_state = $1, state_vector = $2, lifecycle_generation = lifecycle_generation + 1,
+           document_sequence = $3, checkpoint_sequence = $4, persisted_at = $5, checkpointed_at = $6,
+           canonical_hash = $7, compacted_at = $8, compaction_count = compaction_count + 1
+       WHERE document_id = $9 AND status = 'active' AND lifecycle_generation = $10
          AND degraded = 0 AND checkpoint_sequence >= document_sequence
        RETURNING *`,
       [
@@ -861,7 +861,7 @@ async function changeCollaborationRepresentationWhileLocked(input: {
     await database.run('BEGIN');
     const applying = await database.get(
       `SELECT COUNT(*) AS count FROM collaboration_agent_operations
-       WHERE document_id = ? AND status IN ('applying', 'applied_to_ydoc', 'persisted_yjs')`,
+       WHERE document_id = $1 AND status IN ('applying', 'applied_to_ydoc', 'persisted_yjs')`,
       [state.documentId],
     ) as { count?: number | string } | undefined;
     if (Number(applying?.count || 0) > 0) {
@@ -873,18 +873,18 @@ async function changeCollaborationRepresentationWhileLocked(input: {
     await database.run(
       `UPDATE collaboration_agent_operations
        SET status = 'expired', error_code = 'lifecycle_representation_changed',
-           updated_at = ?, cas_version = cas_version + 1
-       WHERE document_id = ? AND status NOT IN (${TERMINAL_AGENT_OPERATION_STATUSES.map(() => '?').join(', ')})`,
+           updated_at = $1, cas_version = cas_version + 1
+       WHERE document_id = $2 AND status NOT IN (${TERMINAL_AGENT_OPERATION_STATUSES.map((_, index) => `$${index + 3}`).join(', ')})`,
       [now, state.documentId, ...TERMINAL_AGENT_OPERATION_STATUSES],
     );
     await writeStateBackup({ database, state, reason: 'representation_change', now });
     const row = await database.get(
       `UPDATE collaboration_yjs_states
-       SET representation = ?, schema_version = ?, yjs_state = ?, state_vector = ?,
-           lifecycle_generation = lifecycle_generation + 1, document_sequence = ?,
-           checkpoint_sequence = ?, persisted_at = ?, checkpointed_at = ?,
-           canonical_hash = ?, compacted_at = ?
-       WHERE document_id = ? AND status = 'active' AND lifecycle_generation = ?
+       SET representation = $1, schema_version = $2, yjs_state = $3, state_vector = $4,
+           lifecycle_generation = lifecycle_generation + 1, document_sequence = $5,
+           checkpoint_sequence = $6, persisted_at = $7, checkpointed_at = $8,
+           canonical_hash = $9, compacted_at = $10
+       WHERE document_id = $11 AND status = 'active' AND lifecycle_generation = $12
        RETURNING *`,
       [
         input.representation,
@@ -916,10 +916,10 @@ async function changeCollaborationRepresentationWhileLocked(input: {
       });
       const checkpointedRow = await database.get(
         `UPDATE collaboration_yjs_states
-         SET checkpointed_at = ?, checkpoint_sequence = ?, canonical_hash = ?,
-             serialized_hash = ?, degraded = 0
-         WHERE document_id = ? AND status = 'active' AND lifecycle_generation = ?
-           AND schema_version = ? AND document_sequence = ?
+         SET checkpointed_at = $1, checkpoint_sequence = $2, canonical_hash = $3,
+             serialized_hash = $4, degraded = 0
+         WHERE document_id = $5 AND status = 'active' AND lifecycle_generation = $6
+           AND schema_version = $7 AND document_sequence = $8
          RETURNING *`,
         [
           now,

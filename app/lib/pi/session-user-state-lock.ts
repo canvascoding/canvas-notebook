@@ -6,7 +6,7 @@ export async function lockPiSessionCreationForUser(
   userId: string,
 ): Promise<void> {
   const actor = await connection.get(
-    'SELECT id FROM "user" WHERE id = ? LIMIT 1 FOR UPDATE',
+    'SELECT id FROM "user" WHERE id = $1 LIMIT 1 FOR UPDATE',
     [userId],
   ) as { id?: string } | undefined;
   if (!actor?.id) {

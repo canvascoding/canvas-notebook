@@ -181,7 +181,7 @@ async function loadOperation(operationId: string): Promise<ExcalidrawAgentOperat
   const database = await openDb();
   try {
     const row = await database.get(
-      'SELECT * FROM collaboration_excalidraw_agent_operations WHERE operation_id = ? LIMIT 1',
+      'SELECT * FROM collaboration_excalidraw_agent_operations WHERE operation_id = $1 LIMIT 1',
       [operationId],
     ) as OperationRow | undefined;
     return row ? mapOperation(row) : null;
@@ -210,12 +210,12 @@ async function updateOperation(input: {
 }): Promise<ExcalidrawAgentOperation> {
   const database = await openDb();
   try {
-    const placeholders = input.expectedStatuses.map(() => '?').join(', ');
+    const placeholders = input.expectedStatuses.map((_, index) => `$${index + 6}`).join(', ');
     const row = await database.get(
       `UPDATE collaboration_excalidraw_agent_operations
-       SET status = ?, result_json = CAST(? AS jsonb), review_reason = ?,
-           cas_version = cas_version + 1, updated_at = ?
-       WHERE operation_id = ? AND status IN (${placeholders})
+       SET status = $1, result_json = CAST($2 AS jsonb), review_reason = $3,
+           cas_version = cas_version + 1, updated_at = $4
+       WHERE operation_id = $5 AND status IN (${placeholders})
        RETURNING *`,
       [
         input.status,
@@ -228,7 +228,7 @@ async function updateOperation(input: {
     ) as OperationRow | undefined;
     if (!row) {
       const existingRow = await database.get(
-        'SELECT * FROM collaboration_excalidraw_agent_operations WHERE operation_id = ? LIMIT 1',
+        'SELECT * FROM collaboration_excalidraw_agent_operations WHERE operation_id = $1 LIMIT 1',
         [input.operationId],
       ) as OperationRow | undefined;
       const existing = existingRow ? mapOperation(existingRow) : null;
@@ -312,7 +312,7 @@ export async function createExcalidrawAgentOperation(input: {
   let operation: ExcalidrawAgentOperation;
   try {
     const existing = await existingDatabase.get(
-      'SELECT * FROM collaboration_excalidraw_agent_operations WHERE document_id = ? AND initiated_by_user_id = ? AND idempotency_key = ? LIMIT 1',
+      'SELECT * FROM collaboration_excalidraw_agent_operations WHERE document_id = $1 AND initiated_by_user_id = $2 AND idempotency_key = $3 LIMIT 1',
       [input.documentId, input.initiatedByUserId, input.idempotencyKey],
     ) as OperationRow | undefined;
     if (existing) return mapOperation(existing);
@@ -323,7 +323,7 @@ export async function createExcalidrawAgentOperation(input: {
          operation_id, document_id, workspace_id, lifecycle_generation,
          observed_scene_sequence, initiated_by_user_id, actor_id, idempotency_key,
          status, patch_json, result_json, cas_version, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'preparing', CAST(? AS jsonb), NULL, 0, ?, ?)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'preparing', CAST($9 AS jsonb), NULL, 0, $10, $11)
        ON CONFLICT (document_id, initiated_by_user_id, idempotency_key) DO NOTHING
        RETURNING *`,
       [
@@ -342,7 +342,7 @@ export async function createExcalidrawAgentOperation(input: {
     ) as OperationRow | undefined;
     if (!row) {
       const concurrent = await existingDatabase.get(
-        'SELECT * FROM collaboration_excalidraw_agent_operations WHERE document_id = ? AND initiated_by_user_id = ? AND idempotency_key = ? LIMIT 1',
+        'SELECT * FROM collaboration_excalidraw_agent_operations WHERE document_id = $1 AND initiated_by_user_id = $2 AND idempotency_key = $3 LIMIT 1',
         [input.documentId, input.initiatedByUserId, input.idempotencyKey],
       ) as OperationRow | undefined;
       if (!concurrent) throw new Error('Could not create Excalidraw agent operation.');
@@ -458,9 +458,9 @@ export async function listExcalidrawAgentOperations(input: {
   try {
     const rows = await database.all(
       `SELECT * FROM collaboration_excalidraw_agent_operations
-       WHERE document_id = ? AND workspace_id = ?
-         AND (? = TRUE OR initiated_by_user_id = ?)
-         AND (? = FALSE OR status = 'needs_review')
+       WHERE document_id = $1 AND workspace_id = $2
+         AND ($3 = TRUE OR initiated_by_user_id = $4)
+         AND ($5 = FALSE OR status = 'needs_review')
        ORDER BY updated_at DESC LIMIT 50`,
       [
         input.documentId,

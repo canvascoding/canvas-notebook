@@ -62,7 +62,7 @@ async function findOwnedSessionOnConnection(
   const row = await connection.get(
     `SELECT session_id
      FROM pi_sessions
-     WHERE session_id = ? AND user_id = ? AND agent_id = ?
+     WHERE session_id = $1 AND user_id = $2 AND agent_id = $3
      ORDER BY id ASC
      LIMIT 1`,
     [input.sessionId, input.userId, input.agentId],
@@ -82,11 +82,11 @@ async function findActiveOwnedSessionOnConnection(
        ON session.session_id = active.session_id
       AND session.user_id = active.user_id
       AND session.agent_id = active.agent_id
-     WHERE active.user_id = ?
-       AND active.agent_id = ?
-       AND active.channel_id = ?
-       AND active.channel_session_key = ?
-       AND active.channel_thread_key = ?
+     WHERE active.user_id = $1
+       AND active.agent_id = $2
+       AND active.channel_id = $3
+       AND active.channel_session_key = $4
+       AND active.channel_thread_key = $5
      ORDER BY active.id ASC
      LIMIT 1`,
     [
@@ -111,11 +111,11 @@ async function findLatestLinkedOwnedSessionOnConnection(
      INNER JOIN pi_sessions session
        ON session.session_id = link.session_id
       AND session.user_id = link.user_id
-      AND session.agent_id = ?
-     WHERE link.user_id = ?
-       AND link.channel_id = ?
-       AND link.channel_session_key = ?
-       AND link.channel_thread_key = ?
+      AND session.agent_id = $1
+     WHERE link.user_id = $2
+       AND link.channel_id = $3
+       AND link.channel_session_key = $4
+       AND link.channel_thread_key = $5
      ORDER BY
        CASE WHEN link.last_inbound_at IS NULL THEN 1 ELSE 0 END ASC,
        link.last_inbound_at DESC,
@@ -144,7 +144,7 @@ async function ensureChannelLinkOnConnection(
        session_id, user_id, channel_id, channel_session_key, channel_thread_key,
        display_name, is_primary, delivery_policy, last_inbound_at,
        last_outbound_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, 0, 'last_active', ?, NULL, ?, ?)
+     ) VALUES ($1, $2, $3, $4, $5, $6, 0, 'last_active', $7, NULL, $8, $9)
      ON CONFLICT (user_id, session_id, channel_id, channel_session_key, channel_thread_key)
      DO UPDATE SET
        display_name = COALESCE(excluded.display_name, session_channel_links.display_name),
@@ -173,7 +173,7 @@ async function upsertActiveSessionOnConnection(
     `INSERT INTO channel_active_sessions (
        user_id, agent_id, channel_id, channel_session_key,
        channel_thread_key, session_id, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?)
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (user_id, agent_id, channel_id, channel_session_key, channel_thread_key)
      DO UPDATE SET session_id = excluded.session_id, updated_at = excluded.updated_at`,
     [
@@ -198,17 +198,17 @@ async function synchronizePrimaryLinkOnConnection(
      SET is_primary = CASE WHEN session_id = (
        SELECT active.session_id
        FROM channel_active_sessions active
-       WHERE active.user_id = ?
-         AND active.agent_id = ?
-         AND active.channel_id = ?
-         AND active.channel_session_key = ?
-         AND active.channel_thread_key = ?
+       WHERE active.user_id = $1
+         AND active.agent_id = $2
+         AND active.channel_id = $3
+         AND active.channel_session_key = $4
+         AND active.channel_thread_key = $5
        LIMIT 1
      ) THEN 1 ELSE 0 END
-     WHERE user_id = ?
-       AND channel_id = ?
-       AND channel_session_key = ?
-       AND channel_thread_key = ?`,
+     WHERE user_id = $6
+       AND channel_id = $7
+       AND channel_session_key = $8
+       AND channel_thread_key = $9`,
     [
       context.userId,
       context.agentId,

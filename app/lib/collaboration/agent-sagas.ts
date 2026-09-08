@@ -116,12 +116,12 @@ function changes(value: unknown): number {
 
 async function readSaga(database: SqlConnection, sagaId: string): Promise<AgentTextSagaView | null> {
   const row = await database.get(
-    'SELECT * FROM collaboration_agent_sagas WHERE saga_id = ?',
+    'SELECT * FROM collaboration_agent_sagas WHERE saga_id = $1',
     [sagaId],
   ) as SagaRow | undefined;
   if (!row) return null;
   const documents = await database.all(
-    'SELECT * FROM collaboration_agent_saga_documents WHERE saga_id = ? ORDER BY ordinal ASC',
+    'SELECT * FROM collaboration_agent_saga_documents WHERE saga_id = $1 ORDER BY ordinal ASC',
     [sagaId],
   ) as SagaDocumentRow[];
   return view(row, documents);
@@ -131,7 +131,7 @@ async function updateSaga(sagaId: string, status: AgentSagaStatus, errorCode: st
   const database = await openDb();
   try {
     await database.run(
-      'UPDATE collaboration_agent_sagas SET status = ?, error_code = ?, updated_at = ? WHERE saga_id = ?',
+      'UPDATE collaboration_agent_sagas SET status = $1, error_code = $2, updated_at = $3 WHERE saga_id = $4',
       [status, errorCode, Date.now(), sagaId],
     );
   } finally {
@@ -151,10 +151,10 @@ async function updateSagaDocument(input: {
   try {
     await database.run(
       `UPDATE collaboration_agent_saga_documents
-       SET status = ?, operation_id = COALESCE(?, operation_id),
-           compensation_operation_id = COALESCE(?, compensation_operation_id),
-           error_code = ?, updated_at = ?
-       WHERE saga_id = ? AND document_id = ?`,
+       SET status = $1, operation_id = COALESCE($2, operation_id),
+           compensation_operation_id = COALESCE($3, compensation_operation_id),
+           error_code = $4, updated_at = $5
+       WHERE saga_id = $6 AND document_id = $7`,
       [
         input.status,
         input.operationId ?? null,
@@ -175,8 +175,8 @@ async function markAppliedDocumentsForCompensation(sagaId: string): Promise<void
   try {
     await database.run(
       `UPDATE collaboration_agent_saga_documents
-       SET status = 'compensation_required', updated_at = ?
-       WHERE saga_id = ? AND status = 'applied'`,
+       SET status = 'compensation_required', updated_at = $1
+       WHERE saga_id = $2 AND status = 'applied'`,
       [Date.now(), sagaId],
     );
   } finally {
@@ -232,7 +232,7 @@ export async function applyPersistedAgentTextSaga(input: {
   try {
     const existing = await database.get(
       `SELECT saga_id FROM collaboration_agent_sagas
-       WHERE workspace_id = ? AND initiated_by_user_id = ? AND idempotency_key = ?`,
+       WHERE workspace_id = $1 AND initiated_by_user_id = $2 AND idempotency_key = $3`,
       [input.workspace.workspaceId, input.initiatedByUserId, input.idempotencyKey],
     ) as { saga_id: string } | undefined;
     if (existing) {
@@ -249,7 +249,7 @@ export async function applyPersistedAgentTextSaga(input: {
          saga_id, workspace_id, organization_id, initiated_by_user_id, actor_id,
          idempotency_key, requested_atomicity, status, correlation_id,
          causation_id, error_code, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (workspace_id, initiated_by_user_id, idempotency_key) DO NOTHING`,
       [
         sagaId,
@@ -270,7 +270,7 @@ export async function applyPersistedAgentTextSaga(input: {
     if (changes(inserted) === 0) {
       const raced = await database.get(
         `SELECT saga_id FROM collaboration_agent_sagas
-         WHERE workspace_id = ? AND initiated_by_user_id = ? AND idempotency_key = ?`,
+         WHERE workspace_id = $1 AND initiated_by_user_id = $2 AND idempotency_key = $3`,
         [input.workspace.workspaceId, input.initiatedByUserId, input.idempotencyKey],
       ) as { saga_id: string } | undefined;
       const racedSaga = raced ? await readSaga(database, raced.saga_id) : null;
@@ -281,7 +281,7 @@ export async function applyPersistedAgentTextSaga(input: {
       await database.run(
         `INSERT INTO collaboration_agent_saga_documents (
            saga_id, document_id, ordinal, status, error_code, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?)`,
+         ) VALUES ($1, $2, $3, $4, $5, $6)`,
         [
           sagaId,
           input.documents[ordinal].documentId,
