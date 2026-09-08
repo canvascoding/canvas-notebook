@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -79,32 +79,32 @@ async function main() {
     assert.equal(capabilityDrivenProfile.vectorProvider, 'pgvector');
     assert.equal(capabilityDrivenProfile.compatible, true);
 
-    assert.equal(getDatabaseProvider(), 'sqlite');
+    assert.equal(getDatabaseProvider(), 'postgres');
     assert.equal(resolveSqlitePath(), path.join(dataDir, 'sqlite.db'));
     let config = resolveDatabaseProviderConfig();
-    assert.equal(config.provider, 'sqlite');
-    assert.equal(config.runtimeAdapter, 'sqlite');
-    assert.deepEqual(config.problems, []);
+    assert.equal(config.provider, 'postgres');
+    assert.equal(config.runtimeAdapter, 'postgres');
+    assert.ok(config.problems.some((problem) => problem.code === 'postgres_missing_database_url'));
 
     process.env.DATA = './data';
     assert.equal(resolveSqlitePath(), path.join(process.cwd(), 'data', 'sqlite.db'));
     resetProviderEnv(dataDir);
 
     let gate = resolveDatabaseProviderGate({ teamFeaturesEnabled: false });
-    assert.equal(gate.ok, true);
-    assert.deepEqual(gate.blockers, []);
-    assert.doesNotThrow(() => assertRuntimeDatabaseProviderSupported());
+    assert.equal(gate.ok, false);
+    assert.ok(gate.blockers.some((problem) => problem.code === 'postgres_missing_database_url'));
+    assert.throws(() => assertRuntimeDatabaseProviderSupported(), /requires DATABASE_URL/u);
 
     mutableProcessEnv.NODE_ENV = 'production';
     mutableProcessEnv.NEXT_PHASE = 'phase-production-build';
-    assert.equal(getDatabaseProvider(), 'sqlite');
+    assert.equal(getDatabaseProvider(), 'postgres');
     process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
-    assert.equal(getDatabaseProvider(), 'sqlite');
+    assert.equal(getDatabaseProvider(), 'postgres');
     config = resolveDatabaseProviderConfig();
-    assert.equal(config.provider, 'sqlite');
+    assert.equal(config.provider, 'postgres');
     assert.equal(config.requestedProvider, 'postgres');
-    assert.deepEqual(config.problems, []);
-    assert.doesNotThrow(() => assertRuntimeDatabaseProviderSupported());
+    assert.ok(config.problems.some((problem) => problem.code === 'postgres_missing_database_url'));
+    assert.throws(() => assertRuntimeDatabaseProviderSupported(), /requires DATABASE_URL/u);
     delete mutableProcessEnv.NEXT_PHASE;
     assert.equal(getDatabaseProvider(), 'postgres');
     config = resolveDatabaseProviderConfig();
@@ -114,22 +114,21 @@ async function main() {
       /requires DATABASE_URL/u,
     );
     delete process.env.CANVAS_DATABASE_PROVIDER;
-    await writeFile(resolveSqlitePath(), 'legacy-sqlite-marker');
-    assert.equal(getDatabaseProvider(), 'sqlite');
-    await rm(resolveSqlitePath(), { force: true });
+    assert.equal(getDatabaseProvider(), 'postgres');
     process.env.DATABASE_URL = 'postgresql://canvas:secret@postgres:5432/canvas_notebook';
     assert.equal(getDatabaseProvider(), 'postgres');
     resetProviderEnv(dataDir);
 
     gate = resolveDatabaseProviderGate({ teamFeaturesEnabled: true });
     assert.equal(gate.ok, false);
-    assert.ok(gate.blockers.some((problem) => problem.code === 'team_requires_postgres'));
+    assert.ok(gate.blockers.some((problem) => problem.code === 'postgres_missing_database_url'));
 
     process.env.CANVAS_DATABASE_PROVIDER = 'mysql';
     config = resolveDatabaseProviderConfig();
     assert.equal(config.provider, 'sqlite');
     assert.equal(config.requestedProvider, 'mysql');
     assert.ok(config.problems.some((problem) => problem.code === 'invalid_provider'));
+    assert.throws(() => assertRuntimeDatabaseProviderSupported(), /Unsupported CANVAS_DATABASE_PROVIDER/u);
 
     process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
     delete process.env.DATABASE_URL;
