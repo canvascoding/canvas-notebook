@@ -17,9 +17,9 @@ import {
 import { sanitizeWorkspaceUploadPath } from '@/app/lib/files/upload-paths';
 import { createAtomicTempPath, resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 import { requirePathInside } from '@/app/lib/security/safe-paths';
+import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
 import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
-import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import type { OfficeUploadAttempt } from './workspace-upload-flow';
 
 const SESSION_FILE_NAME = 'session.json';
@@ -76,6 +76,7 @@ export class WorkspaceUploadServiceError extends Error {
 
 const fileLocks = new Map<string, Promise<void>>();
 const cancellingSessions = new Set<string>();
+const uploadCompletionSemaphore = new AsyncSemaphore(16);
 
 async function withFileLock<T>(key: string, task: () => Promise<T>): Promise<T> {
   const previous = fileLocks.get(key) ?? Promise.resolve();
@@ -481,8 +482,7 @@ export async function completeWorkspaceUploadFile(params: {
 }): Promise<{ session: WorkspaceUploadSession; file: WorkspaceUploadFileRecord; alreadyCompleted: boolean }> {
   return withFileLock(`${params.sessionId}:${params.fileId}`, async () => {
     if (cancellingSessions.has(params.sessionId)) throw new WorkspaceUploadServiceError('UPLOAD_CANCELLED', 409, 'Upload was cancelled.');
-    return withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
-      const session = await readSession(params.sessionId, params.includeFullSession === false ? params.fileId : undefined);
+    const session = await readSession(params.sessionId, params.includeFullSession === false ? params.fileId : undefined);
     assertSessionAccess(session, params.userId, params.workspace);
     const file = findSessionFile(session, params.fileId);
     if (file.status === 'completed') {
@@ -524,12 +524,17 @@ export async function completeWorkspaceUploadFile(params: {
 
     let persistActive = true;
     try {
-      await params.commit({ session, file, sourcePath, persistOfficeAttempt: async (attempt) => {
-        if (!persistActive) throw new Error('The upload commit has already finished.');
-        if (file.officeAttempt && JSON.stringify(file.officeAttempt) !== JSON.stringify(attempt)) throw new WorkspaceUploadServiceError('UPLOAD_REVISION_CONFLICT', 409, 'The upload starting revision is immutable.');
-        file.officeAttempt = Object.freeze({ ...attempt });
-        await writeSession(session);
-      } });
+      await uploadCompletionSemaphore.run(async () => {
+        if (cancellingSessions.has(params.sessionId)) {
+          throw new WorkspaceUploadServiceError('UPLOAD_CANCELLED', 409, 'Upload was cancelled.');
+        }
+        await params.commit({ session, file, sourcePath, persistOfficeAttempt: async (attempt) => {
+          if (!persistActive) throw new Error('The upload commit has already finished.');
+          if (file.officeAttempt && JSON.stringify(file.officeAttempt) !== JSON.stringify(attempt)) throw new WorkspaceUploadServiceError('UPLOAD_REVISION_CONFLICT', 409, 'The upload starting revision is immutable.');
+          file.officeAttempt = Object.freeze({ ...attempt });
+          await writeSession(session);
+        } });
+      });
     } finally { persistActive = false; }
     file.status = 'completed';
     file.uploadedBytes = file.size;
@@ -538,8 +543,7 @@ export async function completeWorkspaceUploadFile(params: {
     }
     await writeFileProgress(session, file);
     await fs.rm(sourcePath, { force: true }).catch(() => undefined);
-      return { session: params.includeFullSession === false ? session : (await readSession(session.id))!, file, alreadyCompleted: false };
-    });
+    return { session: params.includeFullSession === false ? session : (await readSession(session.id))!, file, alreadyCompleted: false };
   });
 }
 

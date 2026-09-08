@@ -2447,9 +2447,9 @@ export async function moveAgentPaths(params: {
       const removedFromWorkspace: string[] = [];
       for (const entry of entries) {
         if (!entry.destinationResolvedPath) continue;
+        const oldPath = moveWorkspace ? workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.sourceResolvedPath) : null;
+        const newPath = moveWorkspace ? workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.destinationResolvedPath) : null;
         if (moveWorkspace) {
-          const oldPath = workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.sourceResolvedPath);
-          const newPath = workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.destinationResolvedPath);
           if (oldPath && newPath && getDatabaseProvider() === 'postgres') {
             await moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
             await syncPublicSharesAfterMove(oldPath, newPath, moveWorkspace);
@@ -2461,11 +2461,13 @@ export async function moveAgentPaths(params: {
             copiedIntoWorkspace.push(newPath);
           }
         }
-        publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
-        publishAgentWorkspaceMutation(
-          entry.destinationResolvedPath,
-          entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
-        );
+        if (!(oldPath && newPath)) {
+          publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
+          publishAgentWorkspaceMutation(
+            entry.destinationResolvedPath,
+            entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
+          );
+        }
       }
       if (moveWorkspace && copiedIntoWorkspace.length > 0) {
         if (getDatabaseProvider() === 'postgres') {
