@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { and, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
-import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/bootstrap';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -29,14 +29,14 @@ export interface KnowledgeRetrievalScope {
 }
 
 type RetrievalColumns = {
-  organizationId: AnySQLiteColumn;
-  workspaceId: AnySQLiteColumn;
-  userId: AnySQLiteColumn;
-  knowledgeStore: AnySQLiteColumn;
-  scanStatus: AnySQLiteColumn;
-  policyDecision: AnySQLiteColumn;
-  embeddingIndexStatus: AnySQLiteColumn;
-  revokedAt: AnySQLiteColumn;
+  organizationId: AnyPgColumn;
+  workspaceId: AnyPgColumn;
+  userId: AnyPgColumn;
+  knowledgeStore: AnyPgColumn;
+  scanStatus: AnyPgColumn;
+  policyDecision: AnyPgColumn;
+  embeddingIndexStatus: AnyPgColumn;
+  revokedAt: AnyPgColumn;
 };
 
 function unique(values: Array<string | null | undefined>): string[] {

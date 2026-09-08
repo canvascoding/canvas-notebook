@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { promises as fs } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { PGlite } from '@electric-sql/pglite';
+import { drizzle } from 'drizzle-orm/pglite';
+import { pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
 import type { OrganizationPermissionSnapshot } from '../app/lib/organization/bootstrap';
 import type { WorkspaceContext, WorkspacePermissions } from '../app/lib/workspaces/types';
@@ -69,47 +69,38 @@ function organizationPermission(
 }
 
 async function main() {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-knowledge-retrieval-scope-'));
-  process.env.DATA = path.join(tempRoot, 'data');
-
+  const postgres = new PGlite();
   try {
-    const { db } = await import('../app/lib/db');
-    const { knowledgeChunks, knowledgeSources, user, canvasOrganizationSettings, canvasProjects, canvasWorkspaces } = await import('../app/lib/db/schema');
+    const db = drizzle(postgres);
+    const knowledgeChunks = pgTable('knowledge_chunks', {
+      id: text('id').primaryKey(),
+      organizationId: text('organization_id'),
+      workspaceId: text('workspace_id'),
+      userId: text('user_id'),
+      knowledgeStore: text('knowledge_store').notNull(),
+      scanStatus: text('scan_status').notNull(),
+      policyDecision: text('policy_decision').notNull(),
+      embeddingIndexStatus: text('embedding_index_status').notNull(),
+      revokedAt: timestamp('revoked_at'),
+    });
+    await postgres.exec(`
+      CREATE TABLE knowledge_chunks (
+        id text PRIMARY KEY,
+        organization_id text,
+        workspace_id text,
+        user_id text,
+        knowledge_store text NOT NULL,
+        scan_status text NOT NULL,
+        policy_decision text NOT NULL,
+        embedding_index_status text NOT NULL,
+        revoked_at timestamptz
+      )
+    `);
     const {
       knowledgeRetrievalCondition,
       knowledgeSourceScopeForWorkspace,
       resolveKnowledgeRetrievalScope,
     } = await import('../app/lib/knowledge/retrieval-scope');
-
-    const now = new Date();
-    await db.insert(user).values([
-      { id: 'user-a', name: 'User A', email: 'a@example.test', emailVerified: true, role: 'admin', createdAt: now, updatedAt: now },
-      { id: 'user-b', name: 'User B', email: 'b@example.test', emailVerified: true, role: 'member', createdAt: now, updatedAt: now },
-    ]);
-    await db.insert(canvasOrganizationSettings).values({
-      organizationId: 'org-a',
-      ownerUserId: 'user-a',
-      deploymentMode: 'managed_team',
-      teamFeaturesEnabled: true,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await db.insert(canvasProjects).values({
-      id: 'project-hidden',
-      organizationId: 'org-a',
-      name: 'Hidden Project',
-      slug: 'hidden-project',
-      status: 'active',
-      createdByUserId: 'user-a',
-      createdAt: now,
-      updatedAt: now,
-    });
-    await db.insert(canvasWorkspaces).values([
-      { id: 'ws-personal-a', organizationId: 'org-a', type: 'personal', ownerUserId: 'user-a', rootRelativePath: 'workspaces/personal/user-a/files', displayName: 'A', status: 'active', createdAt: now, updatedAt: now },
-      { id: 'ws-personal-b', organizationId: 'org-a', type: 'personal', ownerUserId: 'user-b', rootRelativePath: 'workspaces/personal/user-b/files', displayName: 'B', status: 'active', createdAt: now, updatedAt: now },
-      { id: 'ws-team-a', organizationId: 'org-a', type: 'team', ownerUserId: null, rootRelativePath: 'workspaces/team/org-a/files', displayName: 'Team', status: 'active', createdAt: now, updatedAt: now },
-      { id: 'ws-team-hidden', organizationId: 'org-a', type: 'project', ownerUserId: null, projectId: 'project-hidden', rootRelativePath: 'workspaces/project/hidden/files', displayName: 'Hidden', status: 'active', createdAt: now, updatedAt: now },
-    ]);
 
     const personalWorkspace = workspace({
       id: 'ws-personal-a',
@@ -159,43 +150,17 @@ async function main() {
       ['src-revoked', 'team_workspace', 'team', 'ws-team-a', null, 'allow', 'clean', Date.now()],
     ] as const;
 
-    for (const [id, knowledgeStore, visibility, workspaceId, userId, policyDecision, scanStatus, revokedAt] of sources) {
-      await db.insert(knowledgeSources).values({
-        id,
-        organizationId: 'org-a',
-        workspaceId,
-        userId,
-        createdByUserId: 'user-a',
-        knowledgeStore,
-        visibility,
-        sourceType: 'file',
-        sourcePath: `${id}.md`,
-        parserProvider: 'native',
-        scanStatus,
-        policyDecision,
-        embeddingIndexStatus: 'disabled',
-        databaseProvider: 'sqlite',
-        status: 'indexed',
-        revokedAt: revokedAt ? new Date(revokedAt) : null,
-        createdAt: now,
-        updatedAt: now,
-      });
+    for (const [id, knowledgeStore, _visibility, workspaceId, userId, policyDecision, scanStatus, revokedAt] of sources) {
       await db.insert(knowledgeChunks).values({
         id: `chunk-${id}`,
-        sourceId: id,
         organizationId: 'org-a',
         workspaceId,
         userId,
         knowledgeStore,
-        visibility,
-        chunkIndex: 0,
-        text: id,
         scanStatus,
         policyDecision,
         embeddingIndexStatus: 'disabled',
         revokedAt: revokedAt ? new Date(revokedAt) : null,
-        createdAt: now,
-        updatedAt: now,
       });
     }
 
@@ -287,9 +252,7 @@ async function main() {
       .orderBy(knowledgeChunks.id);
 
     assert.deepEqual(adminWithoutKnowledgeRows.map((row) => row.id), ['chunk-src-personal-a', 'chunk-src-team-a']);
-  } finally {
-    await fs.rm(tempRoot, { recursive: true, force: true });
-  }
+  } finally { await postgres.close(); }
 
   console.log('knowledge-retrieval-scope-test: ok');
 }
