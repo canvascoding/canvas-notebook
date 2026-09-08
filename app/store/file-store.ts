@@ -22,6 +22,7 @@ import {
   normalizeWorkspacePathParam,
 } from '@/app/lib/files/path-utils';
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
+import { beginUploadJob, createUploadProgressReporter, finishUploadJob, updateUploadJob, type UploadOptions } from './upload-store';
 import {
   findNodeInTree,
   getDirectoryDirectChildPaths,
@@ -48,7 +49,6 @@ import {
   triggerWorkspaceDownload,
   uploadWorkspaceFiles,
   WorkspaceBatchUploadError,
-  type WorkspaceUploadFileProgress,
   writeWorkspaceFile,
 } from '@/app/lib/files/client';
 import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
@@ -277,8 +277,6 @@ interface FileStoreState {
   expandedDirs: Set<string>;
   currentDirectory: string;
   setExpandedDirs: (dirs: Set<string>) => void;
-  uploadProgress: number | null;
-  uploadItems: WorkspaceUploadFileProgress[];
   searchQuery: string;
   loadingDirs: Set<string>;
 
@@ -351,7 +349,7 @@ interface FileStoreState {
     targetDir: string,
     pathMap?: Map<File, string>,
     convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[],
-    options?: { refreshTree?: boolean },
+    options?: UploadOptions,
   ) => Promise<void>;
   downloadFile: (path: string) => Promise<void>;
   toggleDirectory: (path: string) => void;
@@ -452,8 +450,6 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       return { expandedDirs: next };
     });
   },
-  uploadProgress: null,
-  uploadItems: [],
   searchQuery: '',
   loadingDirs: new Set<string>(),
 
@@ -1397,26 +1393,18 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     options = {},
   ) => {
     const files = Array.isArray(file) ? file : [file];
-    set({
-      uploadProgress: 0,
-      uploadItems: files.map((uploadFile, index) => ({
-        index,
-        path: pathMap?.get(uploadFile)
-          || (uploadFile as { webkitRelativePath?: string }).webkitRelativePath
-          || uploadFile.name,
-        size: uploadFile.size,
-        uploadedBytes: 0,
-        status: 'pending',
-        attempt: 0,
-      })),
-    });
-    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
-
+    const workspaceId = options.job ? options.job.workspaceId : (options.workspaceId === undefined
+      ? useWorkspaceStore.getState().activeWorkspaceId : options.workspaceId);
+    const job = options.job ?? beginUploadJob(files, targetDir, workspaceId, pathMap);
+    const reporter = createUploadProgressReporter(job, options.fileIndices);
+    let failure: unknown;
+    updateUploadJob(job, { phase: 'uploading' });
     const refreshUploadedDirectory = async () => {
       if (
         options.refreshTree !== false
         && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
       ) {
+        updateUploadJob(job, { phase: 'reconciling' });
         await get().refreshDirectory(targetDir, true, workspaceId);
       }
     };
@@ -1424,24 +1412,22 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     try {
       const result = await uploadWorkspaceFiles({
         files,
-        targetDir,
+        targetDir: job.targetDir,
+        workspaceId,
         pathMap,
         convertParams,
-        onProgress: (progress) => set({ uploadProgress: progress }),
-        onFileProgress: (progress) => set((state) => ({
-          uploadItems: state.uploadItems.map((item) => (
-            item.index === progress.index ? progress : item
-          )),
-        })),
+        onFileProgress: reporter.report,
       });
       if (result.completed.length > 0) await refreshUploadedDirectory();
     } catch (error) {
+      failure = error;
       if (error instanceof WorkspaceBatchUploadError && error.result.completed.length > 0) {
         await refreshUploadedDirectory();
       }
       throw error;
     } finally {
-      set({ uploadProgress: null });
+      reporter.flush();
+      if (!options.job) finishUploadJob(job, failure);
     }
   },
 
@@ -1527,8 +1513,6 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       missingFilePath: null,
       expandedDirs: nextExpandedDirs,
       currentDirectory: '.',
-      uploadProgress: null,
-      uploadItems: [],
       searchQuery: '',
       loadingDirs: new Set<string>(),
       isMultiSelectMode: false,

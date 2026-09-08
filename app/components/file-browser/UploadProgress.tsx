@@ -1,20 +1,21 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import type { WorkspaceUploadFileProgress } from '@/app/lib/files/client';
+import type { UploadItem, UploadPhase } from '@/app/store/upload-store';
 
 interface UploadProgressProps {
   value: number;
   className?: string;
-  items?: WorkspaceUploadFileProgress[];
+  items?: UploadItem[];
+  phase?: UploadPhase;
 }
 
-export function UploadProgress({ value, className, items = [] }: UploadProgressProps) {
+export function UploadProgress({ value, className, items = [], phase }: UploadProgressProps) {
   const t = useTranslations('notebook');
   const progress = Math.min(100, Math.max(0, Math.round(value)));
   const completedCount = items.filter((item) => item.status === 'completed').length;
   const failedCount = items.filter((item) => item.status === 'failed').length;
-  const activeItem = items.find((item) => item.status === 'uploading' || item.status === 'retrying')
+  const activeItem = items.find((item) => item.status === 'uploading' || item.status === 'retrying' || item.status === 'processing')
     ?? items.find((item) => item.status === 'pending');
 
   return (
@@ -28,7 +29,8 @@ export function UploadProgress({ value, className, items = [] }: UploadProgressP
     >
       <div className="mb-1 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
         <span>
-          {items.length > 0
+          {phase === 'collecting' ? t('uploadCollecting') : phase === 'preparing' ? t('uploadPreparing')
+            : phase === 'reconciling' ? t('uploadReconciling') : items.length > 0
             ? t('uploadBatchProgress', { completed: completedCount, total: items.length })
             : t('uploading')}
         </span>
@@ -40,13 +42,11 @@ export function UploadProgress({ value, className, items = [] }: UploadProgressP
           style={{ width: `${progress}%` }}
         />
       </div>
-      {activeItem && (
-        <p className="mt-1 truncate text-[11px] text-muted-foreground" title={activeItem.path}>
-          {activeItem.status === 'retrying'
+        <p className="mt-1 h-4 truncate text-[11px] text-muted-foreground" title={activeItem?.path}>
+          {activeItem ? activeItem.status === 'retrying'
             ? t('uploadRetryingFile', { name: activeItem.path, attempt: activeItem.attempt })
-            : t('uploadCurrentFile', { name: activeItem.path })}
+            : t('uploadCurrentFile', { name: activeItem.path }) : null}
         </p>
-      )}
       {failedCount > 0 && (
         <p className="mt-1 text-[11px] text-destructive">
           {t('uploadFailedCount', { count: failedCount })}

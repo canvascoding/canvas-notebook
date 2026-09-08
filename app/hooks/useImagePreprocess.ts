@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { beginUploadJob, finishUploadJob, updateUploadItem, updateUploadJob, useUploadStore, type UploadJobHandle, type UploadOptions } from '@/app/store/upload-store';
 import type {
   ConvertParams,
   ImagePreprocessProgressItem,
@@ -15,9 +17,9 @@ export interface UseImagePreprocessOptions {
     convertParams?: (ConvertParams | null)[],
     targetDir?: string,
     pathMap?: Map<File, string>,
-    options?: { refreshTree?: boolean },
+    options?: UploadOptions,
   ) => Promise<void>;
-  onBatchComplete?: (targetDir?: string) => Promise<void>;
+  onBatchComplete?: (targetDir?: string, job?: UploadJobHandle) => Promise<void>;
 }
 
 export interface ImagePreprocessDialogState {
@@ -26,7 +28,7 @@ export interface ImagePreprocessDialogState {
 }
 
 export interface UseImagePreprocessReturn {
-  handleFiles: (files: File[], targetDir?: string, pathMap?: Map<File, string>) => Promise<void>;
+  handleFiles: (files: File[], targetDir?: string, pathMap?: Map<File, string>, job?: UploadJobHandle) => Promise<void>;
   dialogState: ImagePreprocessDialogState | null;
   isProcessing: boolean;
   setDialogState: (state: ImagePreprocessDialogState | null) => void;
@@ -62,12 +64,13 @@ function getErrorMessage(error: unknown): string {
 }
 
 export function useImagePreprocess({ onUpload, onBatchComplete }: UseImagePreprocessOptions): UseImagePreprocessReturn {
+  const pendingJob = useRef<UploadJobHandle | null>(null);
+  const running = useRef(false);
   const [dialogState, setDialogState] = useState<ImagePreprocessDialogState | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressItems, setProgressItems] = useState<ImagePreprocessProgressItem[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [pendingPreprocessFiles, setPendingPreprocessFiles] = useState<File[]>([]);
-  const [pendingTargetDir, setPendingTargetDir] = useState<string | undefined>(undefined);
   const [pendingPathMap, setPendingPathMap] = useState<Map<File, string> | undefined>(undefined);
 
   const updateProgressItem = useCallback((
@@ -81,15 +84,20 @@ export function useImagePreprocess({ onUpload, onBatchComplete }: UseImagePrepro
   }, []);
 
   const clearPreprocessState = useCallback(() => {
+    if (running.current) return;
+    if (pendingJob.current) updateUploadJob(pendingJob.current, { phase: 'cancelled' });
+    pendingJob.current = null;
     setDialogState(null);
     setProgressItems([]);
     setPendingFiles([]);
     setPendingPreprocessFiles([]);
-    setPendingTargetDir(undefined);
     setPendingPathMap(undefined);
   }, []);
 
-  const handleFiles = useCallback(async (files: File[], targetDir?: string, pathMap?: Map<File, string>) => {
+  const handleFiles = useCallback(async (files: File[], targetDir?: string, pathMap?: Map<File, string>, providedJob?: UploadJobHandle) => {
+    if (running.current || pendingJob.current) throw new Error('Finish the current image upload before starting another.');
+    const job = providedJob ?? beginUploadJob(files, targetDir || '.', useWorkspaceStore.getState().activeWorkspaceId, pathMap);
+    pendingJob.current = job;
     setProgressItems([]);
     const preprocessFiles: PreprocessFileInfo[] = [];
     const normalFiles: File[] = [];
@@ -107,49 +115,90 @@ export function useImagePreprocess({ onUpload, onBatchComplete }: UseImagePrepro
     if (preprocessFiles.length > 0) {
       setPendingFiles(files);
       setPendingPreprocessFiles(preprocessFiles.map((f) => f.file));
-      setPendingTargetDir(targetDir);
       setPendingPathMap(filterPathMap(files, pathMap));
       setDialogState({ files: preprocessFiles, targetDir });
     } else if (normalFiles.length > 0) {
-      await onUpload(normalFiles, undefined, targetDir, filterPathMap(normalFiles, pathMap));
+      running.current = true;
+      let failure: unknown;
+      try {
+        await onUpload(normalFiles, undefined, job.targetDir, filterPathMap(normalFiles, pathMap), { job, refreshTree: false });
+      } catch (error) {
+        failure = error;
+        throw error;
+      } finally {
+        try {
+          updateUploadJob(job, { phase: 'reconciling' });
+          await onBatchComplete?.(job.targetDir, job);
+        } catch (error) {
+          failure ??= error;
+          throw error;
+        } finally {
+          finishUploadJob(job, failure);
+          pendingJob.current = null;
+          running.current = false;
+        }
+      }
+    } else {
+      finishUploadJob(job);
+      pendingJob.current = null;
     }
-  }, [onUpload]);
+  }, [onBatchComplete, onUpload]);
 
   const runPendingUploads = useCallback(async (
     resolveConvertParam: (file: File, index: number) => ConvertParams | null,
     skipHeic: boolean,
   ) => {
+    const job = pendingJob.current;
+    if (!job || running.current) return;
+    running.current = true;
     let successfulUploads = 0;
+    let failure: unknown;
+    try {
+      for (let index = 0; index < pendingFiles.length; index += 1) {
+        const file = pendingFiles[index];
+        if (skipHeic && isHeicUploadFile(file)) {
+          updateProgressItem(index, 'skipped');
+          const item = useUploadStore.getState().jobs[job.id]?.items[index];
+          if (item) updateUploadItem(job, { ...item, status: 'skipped' });
+          continue;
+        }
 
-    for (let index = 0; index < pendingFiles.length; index += 1) {
-      const file = pendingFiles[index];
-      if (skipHeic && isHeicUploadFile(file)) {
-        updateProgressItem(index, 'skipped');
-        continue;
+        const convertParam = resolveConvertParam(file, index);
+        updateProgressItem(index, convertParam ? 'processing' : 'uploading');
+
+        try {
+          await onUpload(
+            [file],
+            convertParam ? [convertParam] : undefined,
+            job.targetDir,
+            filterPathMap([file], pendingPathMap),
+            { refreshTree: false, job, fileIndices: [index] },
+          );
+          successfulUploads += 1;
+          const item = useUploadStore.getState().jobs[job.id]?.items[index];
+          if (item) updateUploadItem(job, { ...item, status: 'completed', uploadedBytes: file.size });
+          updateProgressItem(index, 'success');
+        } catch (error) {
+          failure = error;
+          const item = useUploadStore.getState().jobs[job.id]?.items[index];
+          if (item) updateUploadItem(job, { ...item, status: 'failed', error: getErrorMessage(error) });
+          updateProgressItem(index, 'error', getErrorMessage(error));
+        }
       }
 
-      const convertParam = resolveConvertParam(file, index);
-      updateProgressItem(index, convertParam ? 'processing' : 'uploading');
-
-      try {
-        await onUpload(
-          [file],
-          convertParam ? [convertParam] : undefined,
-          pendingTargetDir,
-          filterPathMap([file], pendingPathMap),
-          { refreshTree: false },
-        );
-        successfulUploads += 1;
-        updateProgressItem(index, 'success');
-      } catch (error) {
-        updateProgressItem(index, 'error', getErrorMessage(error));
+      if (successfulUploads > 0) {
+        updateUploadJob(job, { phase: 'reconciling' });
+        await onBatchComplete?.(job.targetDir, job);
       }
+    } catch (error) {
+      failure = error;
+      throw error;
+    } finally {
+      finishUploadJob(job, failure);
+      pendingJob.current = null;
+      running.current = false;
     }
-
-    if (successfulUploads > 0) {
-      await onBatchComplete?.(pendingTargetDir);
-    }
-  }, [onBatchComplete, onUpload, pendingFiles, pendingPathMap, pendingTargetDir, updateProgressItem]);
+  }, [onBatchComplete, onUpload, pendingFiles, pendingPathMap, updateProgressItem]);
 
   const handleConfirm = useCallback(async (convertParams: (ConvertParams | null)[]) => {
     setIsProcessing(true);
