@@ -21,7 +21,7 @@ const localSourceAttributes = Extension.create({
   } }],
 });
 
-export type LocalSourceSelection = { anchor: number; head: number };
+export type LocalSourceSelection = { anchor: number; head: number; ranges?: { anchor: number; head: number }[]; mainIndex?: number };
 export type LocalMarkdownSnapshot = {
   revision: number;
   markdown: string;
@@ -103,7 +103,7 @@ export class LocalMarkdownDocument {
   getRichSelection = (): RichSelection => this.state.selection.toJSON();
   getSourceSelection = (): LocalSourceSelection | null => {
     const selection = this.state.doc.attrs[SOURCE_SELECTION] as LocalSourceSelection | null;
-    return selection ? { ...selection } : null;
+    return selection ? structuredClone(selection) : null;
   };
   subscribe = (listener: (change: LocalMarkdownChange) => void): (() => void) => {
     this.listeners.add(listener);
@@ -127,8 +127,14 @@ export class LocalMarkdownDocument {
   }
 
   private sourceSelectionValid(selection: LocalSourceSelection, length: number): boolean {
-    return Number.isSafeInteger(selection.anchor) && Number.isSafeInteger(selection.head)
-      && selection.anchor >= 0 && selection.head >= 0 && selection.anchor <= length && selection.head <= length;
+    const valid = (range: { anchor: number; head: number }) => Number.isSafeInteger(range.anchor) && Number.isSafeInteger(range.head)
+      && range.anchor >= 0 && range.head >= 0 && range.anchor <= length && range.head <= length;
+    if (!valid(selection)) return false;
+    if (!selection.ranges) return selection.mainIndex === undefined;
+    const index = selection.mainIndex ?? 0;
+    return selection.ranges.length > 0 && selection.ranges.every(valid)
+      && Number.isSafeInteger(index) && index >= 0 && index < selection.ranges.length
+      && selection.ranges[index].anchor === selection.anchor && selection.ranges[index].head === selection.head;
   }
 
   private setRichSelection(selection: RichSelection): boolean {
@@ -145,7 +151,7 @@ export class LocalMarkdownDocument {
   private setSourceSelection(selection: LocalSourceSelection): boolean {
     if (!this.sourceSelectionValid(selection, this.snapshot.markdown.length)) return false;
     if (JSON.stringify(selection) !== JSON.stringify(this.getSourceSelection())) {
-      this.state = this.state.apply(closeHistory(this.state.tr.setDocAttribute(SOURCE_SELECTION, selection)).setMeta('addToHistory', false));
+      this.state = this.state.apply(closeHistory(this.state.tr.setDocAttribute(SOURCE_SELECTION, structuredClone(selection))).setMeta('addToHistory', false));
       this.lastGroup = null;
     }
     return true;
@@ -198,7 +204,7 @@ export class LocalMarkdownDocument {
         if (!this.setSourceSelection(input.beforeSelection)) return false;
         const transaction = this.state.tr.replaceWith(0, this.state.doc.content.size, next.content)
           .setDocAttribute(SOURCE, input.markdown).setDocAttribute(RICH, next.attrs[RICH])
-          .setDocAttribute(SOURCE_SELECTION, input.afterSelection);
+          .setDocAttribute(SOURCE_SELECTION, structuredClone(input.afterSelection));
         this.commit(transaction, 'source', input);
         return true;
       },

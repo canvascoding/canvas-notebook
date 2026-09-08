@@ -198,7 +198,7 @@
     "test:files:drag": "tsx scripts/file-drag-move-test.ts && tsx scripts/desktop-file-drag-client-test.ts && npm run test:electron",
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",
     "test:editor:blocks": "tsx --conditions react-server scripts/editor-block-structure-test.ts",
-    "test:editor:local-document": "tsx --test scripts/local-markdown-document-test.ts scripts/local-markdown-rich-binding-test.ts",
+    "test:editor:local-document": "tsx --test scripts/local-markdown-document-test.ts scripts/local-markdown-rich-binding-test.ts scripts/local-markdown-source-binding-test.ts",
     "test:collaboration:blocks": "tsx --conditions react-server scripts/collaboration-block-structure-test.ts",
     "test:collaboration:block-tree": "tsx --conditions react-server scripts/collaboration-block-tree-test.ts",
     "test:collaboration:block-binding": "tsx --conditions react-server scripts/collaboration-block-anchors-test.ts && tsx --conditions react-server scripts/collaboration-block-editor-test.ts",
