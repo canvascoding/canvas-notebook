@@ -31,6 +31,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `22-excalidraw-live-collaboration-policy.md`: eigene Excalidraw-Scene-Collaboration ausserhalb von Aufgabe 48, inklusive Variantenvergleich, Canvas-native Empfehlung, Auth/Persistenz/Assets/Presence und Entscheidungstor.
 - `23-composio-user-workspace-profiles.md`: persoenliche Composio-Standard-/Zusatzprofile, per-user Workspace-Overrides, Effective-Profile-Resolver, UI-, OAuth-, Cache- und Automation-Regeln.
 - `24-multi-participant-conversations-and-agent-collaboration.md`: Zielmodell fuer Einzel-/Gruppenchats mit mehreren Menschen und Agents, Agent-Mentions, Agent-zu-Agent-Tools, Conversation ACL, Runtime-Trennung, KI-Mitarbeiterverwaltung und Legacy-Session-Migration.
+- `25-office-document-runtime-and-autosave.md`: DOCX-Autosave, sessiongebundene Bearbeitungsrechte, gemeinsame sichere Dateiveroeffentlichung, isolierte Agent-Arbeitskopien und Wiederherstellung.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
