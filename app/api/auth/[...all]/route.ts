@@ -18,6 +18,7 @@ import {
   completeDirectMcpDiagnostic,
   failDirectMcpDiagnostic,
   runWithDirectMcpDiagnostic,
+  recordDirectMcpOAuthResponseFailure,
   withDirectMcpRequestId,
   type DirectMcpDiagnosticPhase,
 } from '@/app/lib/mcp/server/diagnostics';
@@ -425,6 +426,9 @@ export async function POST(request: NextRequest) {
         : 'OAUTH_REQUEST_PROVIDER_THROWN',
       () => auth.handler(authRequest),
     );
+    if (pathname === '/api/auth/oauth2/token') {
+      await recordDirectMcpOAuthResponseFailure(response);
+    }
     try {
       await initializeCreatedUserOnboarding(pathname, response);
     } catch (error) {

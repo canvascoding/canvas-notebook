@@ -218,6 +218,17 @@ export function recordDirectMcpOAuthFailure(code: DirectMcpOAuthFailureCode): vo
   if (context && !context.historyCode) context.historyCode = code;
 }
 
+export async function recordDirectMcpOAuthResponseFailure(response: Response): Promise<void> {
+  if (response.status < 400 || response.status >= 500) return;
+  try {
+    // Some provider errors are returned directly instead of invoking onAPIError.
+    // Inspect only our local provider response and retain only allowlisted codes.
+    recordDirectMcpOAuthProviderError({ status: response.status, body: await response.clone().json() });
+  } catch {
+    // Diagnostic parsing must not consume or change the protocol response.
+  }
+}
+
 export function withDirectMcpRequestId(
   response: Response,
   requestId: string,

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { NextRequest } from 'next/server';
+import type { DirectMcpConnection } from '../app/lib/mcp/server/connection-management';
 
 import {
   DIRECT_MCP_OAUTH_SCOPES,
@@ -587,17 +588,17 @@ async function main(): Promise<void> {
     try {
       for (const storedScopes of [JSON.stringify(['knowledge:read']), JSON.stringify(JSON.stringify(['knowledge:read']))]) {
         await policyDatabase.run('UPDATE oauth_resource SET allowed_scopes = ? WHERE identifier = ?', [storedScopes, resource]);
-        const connection = (await listDirectMcpConnections(stalePrincipal.userId))
+        const connection: DirectMcpConnection = (await listDirectMcpConnections(stalePrincipal.userId))
           .find((entry) => entry.connectionId === reconnectedConnection.connectionId)!;
         assert.deepEqual(connection.scopes, [...DIRECT_MCP_OAUTH_SCOPES]);
         assert.deepEqual(connection.effectiveScopes, ['knowledge:read']);
       }
       await policyDatabase.run('UPDATE oauth_resource SET allowed_scopes = NULL WHERE identifier = ?', [resource]);
-      const unrestricted = (await listDirectMcpConnections(stalePrincipal.userId))
+      const unrestricted: DirectMcpConnection = (await listDirectMcpConnections(stalePrincipal.userId))
         .find((entry) => entry.connectionId === reconnectedConnection.connectionId)!;
       assert.deepEqual(unrestricted.effectiveScopes, [...DIRECT_MCP_OAUTH_SCOPES]);
       await policyDatabase.run('UPDATE oauth_resource SET disabled = 1 WHERE identifier = ?', [resource]);
-      const disabled = (await listDirectMcpConnections(stalePrincipal.userId))
+      const disabled: DirectMcpConnection = (await listDirectMcpConnections(stalePrincipal.userId))
         .find((entry) => entry.connectionId === reconnectedConnection.connectionId)!;
       assert.equal(disabled.resourcePolicyStatus, 'disabled');
       assert.deepEqual(disabled.effectiveScopes, []);
@@ -615,8 +616,8 @@ async function main(): Promise<void> {
 
     // Exercise real request-policy rejection paths without weakening session checks.
     const { listRecentDirectMcpRequestHistory } = await import('../app/lib/mcp/server/request-history');
-    async function assertRefreshRejection(code: string, target: string | null = resource): Promise<void> {
-      const body = new URLSearchParams({ grant_type: 'refresh_token', client_id: staleTokenSet.clientId, refresh_token: reconnectedTokenSet.refreshToken });
+    async function assertRefreshRejection(code: string, target: string | null = resource, refreshToken = reconnectedTokenSet.refreshToken): Promise<void> {
+      const body = new URLSearchParams({ grant_type: 'refresh_token', client_id: staleTokenSet.clientId, refresh_token: refreshToken });
       if (target !== null) body.set('resource', target);
       const response = await authRoute.POST(new NextRequest(`${issuer}/oauth2/token`, {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body,
@@ -625,9 +626,11 @@ async function main(): Promise<void> {
       const history = await listRecentDirectMcpRequestHistory();
       assert.ok(history.some((entry) => entry.requestId === response.headers.get('x-request-id') && entry.code === code && entry.outcome === 'rejected'), code);
       assert.equal(JSON.stringify(history).includes(reconnectedTokenSet.refreshToken), false);
+      assert.equal(JSON.stringify(history).includes(refreshToken), false);
     }
     await assertRefreshRejection('OAUTH_RESOURCE_MISSING', null);
     await assertRefreshRejection('OAUTH_RESOURCE_INVALID', 'https://wrong.example.test/mcp');
+    await assertRefreshRejection('OAUTH_TOKEN_INVALID_GRANT', resource, 'unknown-refresh-token-must-not-be-logged');
     const refreshDatabase = await openDb();
     try {
       const refresh = await refreshDatabase.get('SELECT id, session_id, expires_at FROM oauth_refresh_token WHERE token = ?', [createHash('sha256').update(reconnectedTokenSet.refreshToken).digest('base64url')]) as { id: string; session_id: string; expires_at: number };
