@@ -851,7 +851,7 @@ export async function addMemory(
     const existing = await connection.get(`
       SELECT id, content, status, priority, pinned, collection_id, semantic_key, updated_at, last_used_at
       FROM memory_entries
-      WHERE collection_id = ? AND normalized_content_hash = ? AND status != 'archived'
+      WHERE collection_id = $1 AND normalized_content_hash = $2 AND status != 'archived'
       LIMIT 1
     `, [collectionId, hash]) as Record<string, unknown> | undefined;
     if (existing) {
@@ -871,11 +871,11 @@ export async function addMemory(
       INSERT INTO memory_entries (
         id, collection_id, content, normalized_content_hash, status, priority, pinned, sensitivity,
         estimated_tokens, created_by_actor_type, created_by_user_id, revision, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 0, 'standard', ?, ?, ?, 1, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, 0, 'standard', $7, $8, $9, 1, $10, $11)
     `, [entry.id, collectionId, content, hash, entry.status, entry.priority, Math.max(1, Math.ceil(content.length / 4)), scope.publishIfAuthorized ? 'user' : 'assistant', scope.userId, now, now]);
     await connection.run(`
       INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at)
-      VALUES (?, ?, 'add', ?, ?, ?, ?)
+      VALUES ($1, $2, 'add', $3, $4, $5, $6)
     `, [randomUUID(), entry.id, scope.publishIfAuthorized ? 'user' : 'assistant', scope.userId, scope.publishIfAuthorized ? 'manual_memory_entry' : 'explicit_memory_tool', now]);
     console.info('[Memory] Entry stored.', {
       operation: 'add',
@@ -921,7 +921,7 @@ export async function importPersonalMemory(params: {
       const hash = contentHash(content);
       const existing = await connection.get(`
         SELECT id FROM memory_entries
-        WHERE collection_id = ? AND normalized_content_hash = ? AND status != 'archived'
+        WHERE collection_id = $1 AND normalized_content_hash = $2 AND status != 'archived'
         LIMIT 1
       `, [collectionId, hash]) as { id?: string } | undefined;
       if (existing?.id) {
@@ -933,11 +933,11 @@ export async function importPersonalMemory(params: {
         INSERT INTO memory_entries (
           id, collection_id, content, normalized_content_hash, status, priority, pinned, sensitivity,
           estimated_tokens, created_by_actor_type, created_by_user_id, revision, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'published', 50, 0, 'standard', ?, 'user', ?, 1, ?, ?)
+        ) VALUES ($1, $2, $3, $4, 'published', 50, 0, 'standard', $5, 'user', $6, 1, $7, $8)
       `, [id, collectionId, content, hash, Math.max(1, Math.ceil(content.length / 4)), params.userId, now, now]);
       await connection.run(`
         INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at)
-        VALUES (?, ?, 'import', 'user', ?, 'manual_memory_import', ?)
+        VALUES ($1, $2, 'import', 'user', $3, 'manual_memory_import', $4)
       `, [randomUUID(), id, params.userId, now]);
       added += 1;
     }
@@ -955,11 +955,11 @@ export async function deletePersonalMemory(userId: string): Promise<{ collection
       SELECT COUNT(DISTINCT collection.id) AS collections, COUNT(entry.id) AS entries
       FROM memory_collections collection
       LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
-      WHERE collection.user_id = ? AND collection.scope_type IN ('user', 'agent')
+      WHERE collection.user_id = $1 AND collection.scope_type IN ('user', 'agent')
     `, [userId]) as { collections?: number; entries?: number } | undefined;
     await connection.run(`
       DELETE FROM memory_collections
-      WHERE user_id = ? AND scope_type IN ('user', 'agent')
+      WHERE user_id = $1 AND scope_type IN ('user', 'agent')
     `, [userId]);
     return { collections: Number(totals?.collections ?? 0), entries: Number(totals?.entries ?? 0) };
   } finally { await connection.close(); }
@@ -978,8 +978,8 @@ export async function updateMemory(scope: MemoryServiceScope & { id: string; con
     if (existing.pinned === true || existing.pinned === 1) throw new Error('Pinned memory entries cannot be changed automatically.');
     const now = Date.now();
     const nextPriority = priority ?? Number(existing.priority);
-    await connection.run(`UPDATE memory_entries SET content = ?, normalized_content_hash = ?, priority = ?, estimated_tokens = ?, revision = revision + 1, updated_at = ? WHERE id = ?`, [content, contentHash(content), nextPriority, Math.max(1, Math.ceil(content.length / 4)), now, id]);
-    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'update', 'assistant', ?, 'explicit_memory_tool', ?)`, [randomUUID(), id, scope.userId, now]);
+    await connection.run(`UPDATE memory_entries SET content = $1, normalized_content_hash = $2, priority = $3, estimated_tokens = $4, revision = revision + 1, updated_at = $5 WHERE id = $6`, [content, contentHash(content), nextPriority, Math.max(1, Math.ceil(content.length / 4)), now, id]);
+    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES ($1, $2, 'update', 'assistant', $3, 'explicit_memory_tool', $4)`, [randomUUID(), id, scope.userId, now]);
     console.info('[Memory] Entry stored.', {
       operation: 'update',
       target: scope.target,
@@ -1006,10 +1006,10 @@ export async function deleteMemory(scope: MemoryServiceScope & { id: string }): 
     await connection.run(`
       UPDATE memory_entries
       SET archived_from_status = CASE WHEN status IN ('pending', 'published') THEN status ELSE archived_from_status END,
-        status = 'archived', revision = revision + 1, updated_at = ?
-      WHERE id = ?
+        status = 'archived', revision = revision + 1, updated_at = $1
+      WHERE id = $2
     `, [now, id]);
-    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'archive', 'assistant', ?, 'explicit_memory_tool', ?)`, [randomUUID(), id, scope.userId, now]);
+    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES ($1, $2, 'archive', 'assistant', $3, 'explicit_memory_tool', $4)`, [randomUUID(), id, scope.userId, now]);
     console.info('[Memory] Entry lifecycle changed.', {
       operation: 'archive',
       target: scope.target,
@@ -1029,12 +1029,12 @@ export async function restoreMemory(scope: MemoryServiceScope & { id: string }):
   const id = scope.id.trim();
   const connection = await openDb();
   try {
-    const where = collectionScopeWhere(scope);
+    const where = collectionScopeWhere(scope, 2);
     const existing = await connection.get(`
       SELECT entry.id, entry.content, entry.status, entry.archived_from_status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
-      WHERE entry.id = ? AND ${where.sql} AND entry.status = 'archived'
+      WHERE entry.id = $1 AND ${where.sql} AND entry.status = 'archived'
       LIMIT 1
     `, [id, ...where.params]) as Record<string, unknown> | undefined;
     if (!existing) throw new Error(`Archived memory entry "${id}" was not found.`);
@@ -1047,10 +1047,10 @@ export async function restoreMemory(scope: MemoryServiceScope & { id: string }):
         : 'pending';
     await connection.run(`
       UPDATE memory_entries
-      SET status = ?, archived_from_status = NULL, revision = revision + 1, updated_at = ?
-      WHERE id = ? AND status = 'archived'
+      SET status = $1, archived_from_status = NULL, revision = revision + 1, updated_at = $2
+      WHERE id = $3 AND status = 'archived'
     `, [restoreStatus, now, id]);
-    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'restore', 'user', ?, 'explicit_memory_restore', ?)`, [randomUUID(), id, scope.userId, now]);
+    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES ($1, $2, 'restore', 'user', $3, 'explicit_memory_restore', $4)`, [randomUUID(), id, scope.userId, now]);
     console.info('[Memory] Entry lifecycle changed.', {
       operation: 'restore',
       target: scope.target,
@@ -1082,8 +1082,8 @@ export async function publishMemory(scope: MemoryServiceScope & { id: string }):
       return { ...result, changed: false, entry };
     }
     const now = Date.now();
-    await connection.run(`UPDATE memory_entries SET status = 'published', revision = revision + 1, updated_at = ? WHERE id = ?`, [now, id]);
-    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'publish', 'user', ?, 'shared_memory_manager', ?)`, [randomUUID(), id, scope.userId, now]);
+    await connection.run(`UPDATE memory_entries SET status = 'published', revision = revision + 1, updated_at = $1 WHERE id = $2`, [now, id]);
+    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES ($1, $2, 'publish', 'user', $3, 'shared_memory_manager', $4)`, [randomUUID(), id, scope.userId, now]);
     console.info('[Memory] Entry lifecycle changed.', {
       operation: 'publish',
       target: scope.target,
@@ -1136,7 +1136,7 @@ export async function readMemoryReviewRuntimeSettings(
       SELECT organization_id, provider_installation_id, model_id,
         verified_catalog_revision, verified_at, configured_by_user_id, updated_at
       FROM memory_review_runtime_settings
-      WHERE organization_id = ?
+      WHERE organization_id = $1
       LIMIT 1
     `, [organizationId]) as Record<string, unknown> | undefined;
     if (!row) return null;
@@ -1172,7 +1172,7 @@ export async function updateMemoryReviewRuntimeSettings(params: {
           organization_id, provider_installation_id, model_id,
           verified_catalog_revision, verified_at, configured_by_user_id,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT(organization_id) DO UPDATE SET
           provider_installation_id = excluded.provider_installation_id,
           model_id = excluded.model_id,
@@ -1192,11 +1192,11 @@ export async function updateMemoryReviewRuntimeSettings(params: {
       ]);
       const result = await connection.run(`
         UPDATE memory_review_jobs AS job
-        SET status = 'scheduled', scheduled_for = ?, lease_until = NULL, error_code = NULL
-        WHERE organization_id = ?
+        SET status = 'scheduled', scheduled_for = $1, lease_until = NULL, error_code = NULL
+        WHERE organization_id = $2
           AND status = 'awaiting_model_configuration'
           AND error_code = 'model_not_configured'
-          AND attempts < ?
+          AND attempts < $3
           AND EXISTS (
             SELECT 1 FROM memory_user_settings user_settings
             WHERE user_settings.user_id = job.user_id
@@ -1244,7 +1244,7 @@ export async function updateMemoryReviewSettings(
           automatic_memory_disabled_at, settings_revision,
           memory_prompt_max_tokens, sensitive_memory_enabled, created_at
         FROM memory_user_settings
-        WHERE user_id = ?
+        WHERE user_id = $1
         LIMIT 1 FOR UPDATE
       `, [userId]) as Record<string, unknown> | undefined;
       const previousAutomaticMemoryEnabled = existing?.automatic_memory_enabled === true
@@ -1276,7 +1276,7 @@ export async function updateMemoryReviewSettings(
           user_id, automatic_memory_enabled, automatic_memory_enabled_at,
           automatic_memory_disabled_at, settings_revision,
           memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT(user_id) DO UPDATE SET
           automatic_memory_enabled = excluded.automatic_memory_enabled,
           automatic_memory_enabled_at = excluded.automatic_memory_enabled_at,
@@ -1302,10 +1302,10 @@ export async function updateMemoryReviewSettings(
       if (automaticMemoryEnabled) {
         const result = await connection.run(`
           UPDATE memory_review_jobs AS job
-          SET status = 'scheduled', scheduled_for = ?, lease_until = NULL, error_code = NULL
-          WHERE user_id = ? AND status = 'awaiting_model_configuration'
+          SET status = 'scheduled', scheduled_for = $1, lease_until = NULL, error_code = NULL
+          WHERE user_id = $2 AND status = 'awaiting_model_configuration'
             AND error_code = 'model_not_configured'
-            AND attempts < ?
+            AND attempts < $3
             AND EXISTS (
               SELECT 1 FROM memory_review_runtime_settings runtime
               WHERE runtime.organization_id = job.organization_id
@@ -1316,7 +1316,7 @@ export async function updateMemoryReviewSettings(
         await connection.run(`
           UPDATE memory_review_jobs AS job
           SET scheduled_for = NULL, lease_until = NULL, error_code = 'model_not_configured'
-          WHERE user_id = ? AND status = 'awaiting_model_configuration'
+          WHERE user_id = $1 AND status = 'awaiting_model_configuration'
             AND NOT EXISTS (
               SELECT 1 FROM memory_review_runtime_settings runtime
               WHERE runtime.organization_id = job.organization_id
@@ -1332,8 +1332,8 @@ export async function updateMemoryReviewSettings(
         const result = await connection.run(`
           UPDATE memory_review_jobs
           SET status = 'completed', scheduled_for = NULL, lease_until = NULL,
-            error_code = NULL, completed_at = ?, result_json = ?
-          WHERE user_id = ?
+            error_code = NULL, completed_at = $1, result_json = $2
+          WHERE user_id = $3
             AND status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration', 'running')
         `, [now, cancellationResult, userId]) as { changes?: number };
         cancelledJobs = Number(result.changes ?? 0);
