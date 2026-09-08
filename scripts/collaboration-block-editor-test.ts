@@ -18,14 +18,65 @@ import { CanvasUniqueID } from '../app/lib/editor/canvas-unique-id';
 import { createEditorNodeTarget, createEditorRangeTarget, createEditorSelectionTarget, invalidateEditorTarget, resolveEditorNodeTarget, resolveEditorRangeTarget, resolveEditorSelectionTarget } from '../app/lib/editor/interaction-target';
 import { moveMarkdownTablePart } from '../app/lib/markdown/core/table-commands';
 import { insertMathAtRange, insertRichFootnoteAtRange, replaceRichBlockTitle, richBlockContentMarkdown, updateFootnoteDefinition } from '../app/lib/editor/rich-block-commands';
+import { attachMarkdownDetailsInteractions } from '../app/lib/editor/details-interactions';
+import { mergeMarkdownEditorMetadata } from '../app/lib/markdown/editor-document';
 import tableEdits from '../app/lib/markdown/core/table-command-fixtures.json';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
-for (const key of ['window', 'document', 'DOMParser', 'navigator', 'Node', 'HTMLElement', 'Element', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'] as const) {
+for (const key of ['window', 'document', 'DOMParser', 'navigator', 'Node', 'HTMLElement', 'HTMLDetailsElement', 'Element', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'] as const) {
   Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
 }
 
 const schema = getSchema(richMarkdownCodecExtensions());
+
+test('native details events follow moved nodes, respect read-only and stop on cleanup', async () => {
+  const doc = createDocument('AAA\n\n<details>\n<summary>Title</summary>\n\nBody\n\n</details>\n\nCCC');
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  document.body.append(editor.view.dom);
+  const detach = attachMarkdownDetailsInteractions(editor);
+  try {
+    await Promise.resolve();
+    const tree = new CollaborationBlockTree(doc, schema);
+    const id = editor.state.doc.child(1).attrs.id;
+    const previousDom = editor.view.dom.querySelector('details')!;
+    tree.move({ blockId: id, parentId: null, beforeId: null, operationId: 'native-details-move' }, 'peer');
+    let details = editor.view.dom.querySelector('details')!;
+    details.querySelector('summary')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    assert.equal(editor.state.doc.child(2).attrs.open, true);
+    assert.equal(editor.state.doc.child(2).attrs.id, id);
+    assert.equal(editor.state.doc.child(0).textContent, 'AAA');
+    editor.commands.undo();
+    assert.equal(editor.state.doc.child(2).attrs.open, false);
+    editor.setEditable(false);
+    const before = Y.encodeStateAsUpdate(doc);
+    details = editor.view.dom.querySelector('details')!;
+    details.open = true;
+    details.dispatchEvent(new dom.window.Event('toggle'));
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), before);
+    editor.setEditable(true);
+    details.dispatchEvent(new dom.window.Event('toggle'));
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), before, 'a late toggle from read-only browsing never becomes a write');
+    details.querySelector('summary')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+    assert.equal(details.open, false, 'the first activation collapses the actually visible details');
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), before);
+    detach();
+    details.open = true;
+    details.dispatchEvent(new dom.window.Event('toggle'));
+    previousDom.dispatchEvent(new dom.window.Event('toggle'));
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), before);
+    details.open = false;
+    assert.deepEqual(errors, []);
+  } finally { detach(); editor.destroy(); doc.destroy(); }
+});
+
+test('a metadata draft cannot reintroduce stale body text or lose current final line endings', () => {
+  assert.equal(
+    mergeMarkdownEditorMetadata('---\ntitle: Edited\n---\n\nOld body', '---\ntitle: Previous\n---\n\nCurrent body\r\n\r\n', 'Current body with peer changes\n'),
+    '---\ntitle: Edited\n---\n\nCurrent body with peer changes\r\n\r\n',
+  );
+  assert.equal(mergeMarkdownEditorMetadata('Stale body without metadata', 'Current body\n', 'Fresh body'), 'Fresh body\n');
+});
 
 test('toolbar targets retain backward text, node and exact table cell selections through moves', async () => {
   const doc = createDocument('AAA\n\nBBB\n\n| A | B |\n| --- | --- |\n| one | two |');

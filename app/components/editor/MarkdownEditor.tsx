@@ -215,6 +215,8 @@ import { BlockTreePlacementNotice } from '@/app/lib/collaboration/block-tree-edi
 import { useEditorRangeTarget } from '@/app/hooks/use-editor-range-target';
 import { useEditorToolbarTarget } from '@/app/hooks/use-editor-toolbar-target';
 import { useEditorAsyncAction } from '@/app/hooks/use-editor-async-action';
+import { attachMarkdownDetailsInteractions } from '@/app/lib/editor/details-interactions';
+import { mergeMarkdownEditorMetadata } from '@/app/lib/markdown/editor-document';
 import { insertMathAtRange, insertRichFootnoteAtRange, replaceRichBlockTitle, richBlockContentMarkdown, updateFootnoteDefinition } from '@/app/lib/editor/rich-block-commands';
 import { createEditorNodeTarget, createEditorRangeTarget, invalidateEditorTarget, resolveEditorNodeTarget, resolveEditorRangeTarget, type EditorNodeTarget, type EditorRangeTarget } from '@/app/lib/editor/interaction-target';
 import {
@@ -4998,6 +5000,7 @@ function RichMarkdownEditor({
   }, [editor, openRichBlockDialog]);
 
   const handlePropertiesChange = useCallback((nextValue: string) => {
+    if (!editor || dialogEditorRef.current !== editor || editor.isDestroyed || !editor.isEditable || effectiveReadOnly) return;
     if (collaborationEnabled && collaboration) {
       const prefix = splitMarkdownEditorDocument(nextValue, 'metadata').prefix;
       const frontmatter = collaboration.doc.getText('frontmatter');
@@ -5005,10 +5008,15 @@ function RichMarkdownEditor({
         if (frontmatter.length) frontmatter.delete(0, frontmatter.length);
         if (prefix) frontmatter.insert(0, prefix);
       }, 'canvas-properties');
+      // The shared observer publishes the current body with this metadata.
+      return;
     }
-    latestValueRef.current = nextValue;
-    onChange?.(nextValue);
-  }, [collaboration, collaborationEnabled, onChange]);
+    const currentBody = asMarkdownEditor(editor)?.getMarkdown();
+    if (currentBody === undefined) return;
+    const merged = mergeMarkdownEditorMetadata(nextValue, latestValueRef.current, currentBody);
+    latestValueRef.current = merged;
+    onChange?.(merged);
+  }, [collaboration, collaborationEnabled, editor, effectiveReadOnly, onChange]);
 
   useEffect(() => {
     if (!collaboration) return;
@@ -5273,80 +5281,7 @@ function RichMarkdownEditor({
     return () => editorElement.removeEventListener('click', handleWorkspaceLinkClick, true);
   }, [activeWorkspaceId, editor, filePath, t]);
 
-  useEffect(() => {
-    if (!editor) return undefined;
-    const editorElement = editor.options.element;
-    if (!(editorElement instanceof HTMLElement)) return undefined;
-
-    const getDetailsPosition = (details: HTMLDetailsElement) => {
-      const detailsId = details.dataset.id;
-      if (detailsId) {
-        let matchingPosition: number | null = null;
-        editor.state.doc.descendants((node, position) => {
-          if (node.type.name === 'canvasDetails' && String(node.attrs.id ?? '') === detailsId) {
-            matchingPosition = position;
-            return false;
-          }
-          return true;
-        });
-        if (matchingPosition !== null) return matchingPosition;
-      }
-
-      try {
-        const resolved = editor.state.doc.resolve(editor.view.posAtDOM(details, 0));
-        for (let depth = resolved.depth; depth > 0; depth -= 1) {
-          if (resolved.node(depth).type.name === 'canvasDetails') {
-            return resolved.before(depth);
-          }
-        }
-      } catch {
-        // Ignore clicks while ProseMirror is reconciling a DOM update.
-      }
-      return null;
-    };
-
-    const setDetailsOpen = (details: HTMLDetailsElement, open: boolean) => {
-      const position = getDetailsPosition(details);
-      if (position === null) return;
-
-      const node = editor.state.doc.nodeAt(position);
-      if (!node || node.type.name !== 'canvasDetails' || Boolean(node.attrs.open) === open) return;
-      editor.view.dispatch(editor.state.tr.setNodeMarkup(position, node.type, {
-        ...node.attrs,
-        open,
-      }));
-    };
-
-    const handleDetailsToggle = (event: Event) => {
-      const details = event.target;
-      if (!(details instanceof HTMLDetailsElement) || !editorElement.contains(details)) return;
-      if (details.dataset.type !== 'canvas-details') return;
-      setDetailsOpen(details, details.open);
-    };
-
-    const handleDetailsSummaryClick = (event: MouseEvent) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const summary = target.closest('summary[data-type="canvas-details-summary"]');
-      if (!summary || !editorElement.contains(summary)) return;
-      const details = summary.closest('details[data-type="canvas-details"]');
-      if (!(details instanceof HTMLDetailsElement)) return;
-
-      event.preventDefault();
-      const position = getDetailsPosition(details);
-      if (position === null) return;
-      const node = editor.state.doc.nodeAt(position);
-      if (!node || node.type.name !== 'canvasDetails') return;
-      setDetailsOpen(details, !Boolean(node.attrs.open));
-    };
-
-    editorElement.addEventListener('toggle', handleDetailsToggle, true);
-    editorElement.addEventListener('click', handleDetailsSummaryClick, true);
-    return () => {
-      editorElement.removeEventListener('toggle', handleDetailsToggle, true);
-      editorElement.removeEventListener('click', handleDetailsSummaryClick, true);
-    };
-  }, [editor]);
+  useEffect(() => editor ? attachMarkdownDetailsInteractions(editor) : undefined, [editor]);
 
   useEffect(() => {
     if (!editor) return undefined;
