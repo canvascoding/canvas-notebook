@@ -581,6 +581,30 @@ async function main(): Promise<void> {
       .find((connection) => connection.clientName === 'ChatGPT Reconnect Regression');
     assert.ok(reconnectedConnection);
     assert.deepEqual(reconnectedConnection.scopes, [...DIRECT_MCP_OAUTH_SCOPES]);
+    assert.deepEqual(reconnectedConnection.effectiveScopes, [...DIRECT_MCP_OAUTH_SCOPES]);
+    assert.equal(reconnectedConnection.resourcePolicyStatus, 'active');
+    const policyDatabase = await openDb();
+    try {
+      for (const storedScopes of [JSON.stringify(['knowledge:read']), JSON.stringify(JSON.stringify(['knowledge:read']))]) {
+        await policyDatabase.run('UPDATE oauth_resource SET allowed_scopes = ? WHERE identifier = ?', [storedScopes, resource]);
+        const connection = (await listDirectMcpConnections(stalePrincipal.userId))
+          .find((entry) => entry.connectionId === reconnectedConnection.connectionId)!;
+        assert.deepEqual(connection.scopes, [...DIRECT_MCP_OAUTH_SCOPES]);
+        assert.deepEqual(connection.effectiveScopes, ['knowledge:read']);
+      }
+      await policyDatabase.run('UPDATE oauth_resource SET allowed_scopes = NULL WHERE identifier = ?', [resource]);
+      const unrestricted = (await listDirectMcpConnections(stalePrincipal.userId))
+        .find((entry) => entry.connectionId === reconnectedConnection.connectionId)!;
+      assert.deepEqual(unrestricted.effectiveScopes, [...DIRECT_MCP_OAUTH_SCOPES]);
+      await policyDatabase.run('UPDATE oauth_resource SET disabled = 1 WHERE identifier = ?', [resource]);
+      const disabled = (await listDirectMcpConnections(stalePrincipal.userId))
+        .find((entry) => entry.connectionId === reconnectedConnection.connectionId)!;
+      assert.equal(disabled.resourcePolicyStatus, 'disabled');
+      assert.deepEqual(disabled.effectiveScopes, []);
+    } finally {
+      await policyDatabase.run('UPDATE oauth_resource SET disabled = 0, allowed_scopes = ? WHERE identifier = ?', [JSON.stringify(DIRECT_MCP_OAUTH_SCOPES), resource]);
+      await policyDatabase.close();
+    }
     await verifyDirectMcpAccessToken(reconnectedTokenSet.accessToken, ['knowledge:search']);
     await verifyDirectMcpAccessToken(reconnectedTokenSet.accessToken, ['knowledge:write']);
     await verifyDirectMcpAccessToken(reconnectedTokenSet.accessToken, ['knowledge:assets']);

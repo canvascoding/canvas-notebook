@@ -19,6 +19,9 @@ type DirectMcpConnectionRow = {
   client_id: string;
   client_name: string | null;
   scopes: unknown;
+  resource_id: string | null;
+  resource_disabled: unknown;
+  resource_scopes: unknown;
   connected_at: unknown;
   updated_at: unknown;
   allowed_workspace_count: unknown;
@@ -34,6 +37,8 @@ export type DirectMcpConnection = {
   connectionId: string;
   clientName: string;
   scopes: DirectMcpOAuthScope[];
+  effectiveScopes: DirectMcpOAuthScope[];
+  resourcePolicyStatus: 'active' | 'disabled' | 'missing';
   connectedAt: string | null;
   updatedAt: string | null;
   allowedWorkspaceCount: number;
@@ -207,6 +212,9 @@ export async function listDirectMcpConnections(
         oauth_consent.client_id AS client_id,
         oauth_client.name AS client_name,
         oauth_consent.scopes AS scopes,
+        resource_policy.id AS resource_id,
+        resource_policy.disabled AS resource_disabled,
+        resource_policy.allowed_scopes AS resource_scopes,
         oauth_consent.created_at AS connected_at,
         oauth_consent.updated_at AS updated_at,
         (
@@ -220,6 +228,8 @@ export async function listDirectMcpConnections(
         ON oauth_client.client_id = oauth_consent.client_id
       INNER JOIN oauth_client_resource
         ON oauth_client_resource.client_id = oauth_client.client_id
+      LEFT JOIN oauth_resource resource_policy
+        ON resource_policy.identifier = oauth_client_resource.resource_id
       WHERE oauth_consent.user_id = ?
         AND oauth_client_resource.resource_id = ?
         AND oauth_client.token_endpoint_auth_method = 'none'
@@ -233,10 +243,19 @@ export async function listDirectMcpConnections(
     const connections = new Map<string, DirectMcpConnection>();
     for (const row of rows) {
       if (connections.has(row.client_id)) continue;
+      const scopes = parseScopes(row.scopes);
+      const resourcePolicyStatus = !row.resource_id ? 'missing'
+        : [true, 1, '1'].includes(row.resource_disabled as boolean | number | string)
+          ? 'disabled' : 'active';
+      const resourceScopes = row.resource_scopes == null
+        ? DIRECT_MCP_OAUTH_SCOPES : parseScopes(row.resource_scopes);
       connections.set(row.client_id, {
         connectionId: encodeConnectionReference(userId, row.consent_id),
         clientName: directMcpClientDisplayName(row.client_name),
-        scopes: parseScopes(row.scopes),
+        scopes,
+        effectiveScopes: resourcePolicyStatus === 'active'
+          ? scopes.filter((scope) => resourceScopes.includes(scope)) : [],
+        resourcePolicyStatus,
         connectedAt: timestampToIso(row.connected_at),
         updatedAt: timestampToIso(row.updated_at),
         allowedWorkspaceCount: toSafeCount(row.allowed_workspace_count),

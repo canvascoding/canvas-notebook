@@ -4173,10 +4173,13 @@
         "disconnect": "Trennen",
         "disconnectConfirm": "{client} trennen? Der Zugriff auf deine Canvas-Daten wird sofort entfernt.",
         "disconnected": "MCP-Client getrennt.",
-        "permissionsComplete": "OAuth deckt alle derzeit auf dem Server aktivierten Werkzeuge ab.",
+        "approvedPermissions": "Genehmigte Berechtigungen",
+        "resourceUnavailable": "Die OAuth-Ressource des Servers fehlt oder ist deaktiviert. Bitte den Administrator, die Server-Konfiguration zu prüfen.",
+        "tokenNotVerified": "Diese Anzeige prüft gespeicherte Zustimmung und Server-Richtlinie, nicht das aktuell vom Client verwendete Token. Verbinde den Client nach einem Berechtigungsupdate neu, damit er ein neues Token erhält.",
+        "permissionsComplete": "Zustimmung und Server-Richtlinie decken alle aktuell aktivierten Werkzeuge ab.",
         "permissionsMissing": {
           "title": "Zusätzliche OAuth-Berechtigung erforderlich",
-          "description": "Für aktivierte Werkzeuge fehlen diesem Client: {scopes}. Lade den MCP-Server im Client neu und bestätige diese Berechtigung einmalig. Eine neue Client-Registrierung ist nicht nötig."
+          "description": "In Zustimmung oder Server-Richtlinie fehlen Berechtigungen für aktivierte Werkzeuge: {scopes}. Der Administrator sollte zuerst die OAuth-Richtlinie des Servers prüfen. Verbinde danach den Client neu und bestätige diese Berechtigungen."
         },
         "errors": {
           "load": "Deine MCP-Verbindungen konnten nicht geladen werden.",

@@ -40,6 +40,8 @@ type McpCapabilityStatus = {
   available: boolean;
   enabled: boolean;
   scopes: string[];
+  effectiveScopes: string[];
+  resourcePolicyStatus: 'active' | 'disabled' | 'missing';
 };
 
 type McpServerStatus = {
@@ -699,7 +701,7 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                 const authorizedAt = connection.updatedAt || connection.connectedAt;
                 const missingScopes = status
                   ? missingScopesForEnabledCapabilities({
-                    grantedScopes: connection.scopes,
+                    grantedScopes: connection.effectiveScopes ?? [],
                     capabilities: status.capabilities,
                   })
                   : [];
@@ -713,12 +715,15 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                     <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
                         <p className="font-medium">{connection.clientName}</p>
+                        <p className="mt-2 text-xs text-muted-foreground">{t('connections.approvedPermissions')}</p>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {connection.scopes.map((scope) => (
                             <Badge key={scope} variant="outline" className="font-mono font-normal">{scope}</Badge>
                           ))}
                         </div>
-                        {missingScopes.length > 0 ? (
+                        {connection.resourcePolicyStatus !== 'active' ? (
+                          <p role="alert" className="mt-3 text-xs text-amber-700 dark:text-amber-300">{t('connections.resourceUnavailable')}</p>
+                        ) : missingScopes.length > 0 ? (
                           <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-100">
                             <p className="flex items-center gap-2 font-medium">
                               <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />
@@ -730,15 +735,19 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                               })}
                             </p>
                           </div>
-                        ) : (
+                        ) : status ? (
                           <p className="mt-3 flex items-center gap-2 text-xs text-primary">
                             <Check className="h-3.5 w-3.5" aria-hidden="true" />
                             {t('connections.permissionsComplete')}
                           </p>
-                        )}
+                        ) : null}
+                        <p className="mt-2 text-xs text-muted-foreground">{t('connections.tokenNotVerified')}</p>
                         <p className="mt-2 text-xs text-muted-foreground">
                           {t('connections.workspaceAccess.selectedCount', { count: connection.allowedWorkspaceCount })}
                         </p>
+                        {connection.allowedWorkspaceCount === 0 ? (
+                          <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">{t('connections.workspaceAccess.noneSelected')}</p>
+                        ) : null}
                         {authorizedAt ? (
                           <p className="mt-1 text-xs text-muted-foreground">
                             {t('connections.authorizedAt', { time: formatRequestTime(authorizedAt) })}

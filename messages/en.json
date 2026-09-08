@@ -4174,10 +4174,13 @@
         "disconnect": "Disconnect",
         "disconnectConfirm": "Disconnect {client}? This immediately removes its access to your Canvas data.",
         "disconnected": "MCP client disconnected.",
-        "permissionsComplete": "OAuth covers every tool currently enabled on the server.",
+        "approvedPermissions": "Approved permissions",
+        "resourceUnavailable": "The server's OAuth resource is missing or disabled. Ask the administrator to check the server configuration.",
+        "tokenNotVerified": "This shows stored approval and server policy, not the token currently used by the client. After a permissions update, reconnect the client to obtain a new token.",
+        "permissionsComplete": "Approval and server policy cover all currently enabled tools.",
         "permissionsMissing": {
           "title": "Additional OAuth permission required",
-          "description": "This client is missing the following permissions for enabled tools: {scopes}. Reload the MCP server in the client and approve these permissions once. You do not need to register a new client."
+          "description": "Approval or server policy is missing permissions for enabled tools: {scopes}. The administrator should first check the server's OAuth policy; then reconnect the client and approve these permissions."
         },
         "errors": {
           "load": "Could not load your MCP connections.",
