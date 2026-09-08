@@ -3,6 +3,7 @@ import { Plugin, PluginKey, Selection, type EditorState, type Transaction } from
 import * as Y from 'yjs';
 
 import { BLOCK_MOVE_TRANSACTION_META } from '../editor/block-reference';
+import { documentProjectionTransaction, isUnexpectedDocumentAppender } from '../editor/document-projection';
 import { BlockTreeConflict, CollaborationBlockTree, type BlockMoveIntent } from './block-tree';
 import { captureBlockTreeSelection, restoreBlockTreeSelection, type BlockTreeSelection } from './block-tree-anchors';
 import { getBlockTreeHistory, type BlockTreeHistory } from './block-tree-history';
@@ -138,16 +139,8 @@ class BlockTreeEditorBinding {
         .filter((key) => !this.seenPlacementConflicts.has(key));
       for (const key of unseen) this.seenPlacementConflicts.add(key);
       if (unseen.length) this.options.onError?.(new BlockTreePlacementNotice(unseen.length));
-      const from = state.doc.content.findDiffStart(next.content);
-      if (from === null) return;
-      const end = state.doc.content.findDiffEnd(next.content)!;
-      const overlap = Math.max(0, from - Math.min(end.a, end.b));
-      let tr = state.tr.replace(from, end.a + overlap, next.slice(from, end.b + overlap));
-      // ProseMirror's slice fitter can retain a paragraph at a table/container
-      // boundary. Prefer the small replacement, but always render the exact
-      // validated projection. Relative selections survive either replacement.
-      if (!tr.doc.eq(next)) tr = state.tr.replaceWith(0, state.doc.content.size, next.content);
-      if (!tr.doc.eq(next)) throw new BlockTreeConflict('structure_invalid');
+      if (state.doc.eq(next)) return;
+      const tr = documentProjectionTransaction(state, next);
       const selection = this.selection ? restoreBlockTreeSelection(this.tree, tr.doc, this.selection) : null;
       if (selection) tr.setSelection(selection);
       else tr.setSelection(Selection.near(tr.doc.resolve(Math.min(state.selection.head, tr.doc.content.size))));
@@ -246,9 +239,8 @@ export function createBlockTreeCollaborationExtension(options: BlockTreeEditorOp
           // ProseMirror sets appendedTransaction metadata only after filtering.
           // The dispatch scope identifies appenders before they can diverge the
           // view from a received projection or turn selection/focus into a write.
-          const root = storage.transaction;
-          if (root && root !== transaction && (!root.docChanged
-            || root.getMeta(REMOTE_BLOCK_TREE_TRANSACTION) === storage.binding)) return false;
+          if (isUnexpectedDocumentAppender(transaction, storage.transaction,
+            REMOTE_BLOCK_TREE_TRANSACTION, storage.binding)) return false;
           return Boolean(storage.binding?.ready && editor.isEditable
             && !(storage.binding.composing && transaction.getMeta(BLOCK_MOVE_TRANSACTION_META)));
         },

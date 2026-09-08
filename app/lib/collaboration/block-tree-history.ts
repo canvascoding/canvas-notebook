@@ -1,43 +1,15 @@
+import type { EditorState, Selection, Transaction } from '@tiptap/pm/state';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { TextSelection, type EditorState, type Selection, type Transaction } from '@tiptap/pm/state';
-import { ReplaceStep } from '@tiptap/pm/transform';
 import type * as Y from 'yjs';
 
-import { BLOCK_MOVE_TRANSACTION_META } from '../editor/block-reference';
+import { typingTransaction, type Typing } from '../editor/typing-transaction';
 import type { CollaborationBlockTree } from './block-tree';
 import { captureBlockTreeSelection, restoreBlockTreeSelection, type BlockTreeSelection } from './block-tree-anchors';
 
 const histories = new WeakMap<Y.Doc, BlockTreeHistory>();
 const beforeSelectionKey = Symbol('block-history-selection-before');
 const afterSelectionKey = Symbol('block-history-selection-after');
-type Typing = { blockId: string; kind: 'insert' | 'backspace' | 'delete'; marks: string };
 type Capture = { origin: object; kind: Typing | 'composition'; after: BlockTreeSelection | null };
-
-function typingTransaction(transaction: Transaction, state: EditorState): Typing | null {
-  const selection = state.selection;
-  if (!(selection instanceof TextSelection) || !selection.empty || transaction.steps.length !== 1
-    || transaction.getMeta('uiEvent') || transaction.getMeta(BLOCK_MOVE_TRANSACTION_META)) return null;
-  const step = transaction.steps[0];
-  if (!(step instanceof ReplaceStep) || step.slice.openStart || step.slice.openEnd
-    || step.from < selection.$from.start() || step.to > selection.$from.end()) return null;
-  const parent = selection.$from.parent;
-  const blockId = parent.attrs.id;
-  if (!parent.inlineContent || typeof blockId !== 'string' || !blockId) return null;
-  const onlyText = (doc: ProseMirrorNode) => {
-    let result = true;
-    doc.descendants((node) => { if (!node.isText) result = false; });
-    return result;
-  };
-  if (!onlyText(parent.copy(step.slice.content)) || !onlyText(parent.copy(state.doc.slice(step.from, step.to).content))) return null;
-  const inserted = step.slice.content.size;
-  const deleted = step.to - step.from;
-  let kind: Typing['kind'];
-  if (!deleted && inserted && selection.from === step.from) kind = 'insert';
-  else if (!inserted && deleted && selection.from === step.to) kind = 'backspace';
-  else if (!inserted && deleted && selection.from === step.from) kind = 'delete';
-  else return null;
-  return { blockId, kind, marks: JSON.stringify(step.slice.content.firstChild?.marks.map((mark) => mark.toJSON()) ?? []) };
-}
 
 /** History lasts as long as the shared document, independently of its mounted views. */
 export class BlockTreeHistory {

@@ -35,6 +35,8 @@ type EditOptions = { group?: string | null; time?: number };
 
 /** A view capability is revoked when the view is replaced or released. */
 export type LocalMarkdownView = {
+  isCurrent: () => boolean;
+  boundary: () => void;
   changeRich: (input: { revision: number; before: JSONContent; after: JSONContent;
     beforeSelection: RichSelection; afterSelection: RichSelection } & EditOptions) => boolean;
   changeSource: (input: { revision: number; markdown: string;
@@ -164,6 +166,12 @@ export class LocalMarkdownDocument {
     this.lastGroup = null;
     const active = () => this.activeView === token && writable();
     return {
+      isCurrent: () => this.activeView === token,
+      boundary: () => {
+        if (this.activeView !== token) return;
+        this.state = this.state.apply(closeHistory(this.state.tr).setMeta('addToHistory', false));
+        this.lastGroup = null;
+      },
       changeRich: (input) => {
         if (!active() || kind !== 'rich' || input.revision !== this.revision || !this.snapshot.richDocument) return false;
         const before = this.schema.nodeFromJSON(input.before);
