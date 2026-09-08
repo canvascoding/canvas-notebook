@@ -3,7 +3,6 @@ import { createAuthMiddleware } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { eq } from "drizzle-orm";
 import { db } from "@/app/lib/db";
-import { getDatabaseProvider } from "@/app/lib/db/provider";
 import { session as authSession, user } from "@/app/lib/db/schema";
 import { canvasAuthCookieOptions, usesSecureAuthCookies } from '@/app/lib/auth-cookie';
 import { nextCookies } from "better-auth/next-js";
@@ -105,7 +104,7 @@ export const auth = betterAuth({
   baseURL: authBaseURL,
   trustedOrigins,
   database: drizzleAdapter(db, {
-    provider: getDatabaseProvider() === "postgres" ? "pg" : "sqlite",
+    provider: "pg",
   }),
   emailAndPassword: emailAndPasswordConfig,
   hooks: {

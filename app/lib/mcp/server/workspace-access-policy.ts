@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getDatabaseProvider, openDb, type SqlConnection } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import type { DirectMcpAccessPrincipal } from '@/app/lib/mcp/server/access-token-verifier';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import {
@@ -37,7 +37,7 @@ async function lockDirectMcpWorkspaceIds(
   database: SqlConnection,
   workspaceIds: readonly string[],
 ): Promise<void> {
-  if (!workspaceIds.length || getDatabaseProvider() !== 'postgres') return;
+  if (!workspaceIds.length) return;
 
   // Postgres row locks cannot protect a setting that has just been deleted,
   // so use one transaction-scoped advisory lock per workspace. Every write
