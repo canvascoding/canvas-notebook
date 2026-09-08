@@ -1,10 +1,28 @@
+.card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
 .widgetBody {
   min-height: 0;
+  overflow: hidden;
 }
 
 .summary,
 .details {
   transition: opacity 180ms ease, transform 180ms ease, visibility 180ms ease;
+}
+
+.details {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.detailContent {
+  min-height: 0;
+  overflow: hidden;
 }
 
 @media (min-width: 768px) and (hover: hover) and (pointer: fine) {
@@ -48,8 +66,14 @@
   }
 
   .details,
-  .details > div {
+  .detailContent {
     height: auto;
+    overflow: visible;
+  }
+
+  .widgetBody,
+  .details {
+    overflow: visible;
   }
 }
 

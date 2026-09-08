@@ -15,7 +15,11 @@ async function prepare(page: Page) {
   return workspace as { id: string };
 }
 
-async function mockWidgets(page: Page, workspaceId: string, options: { failEmail?: boolean } = {}) {
+async function mockWidgets(page: Page, workspaceId: string, options: {
+  brokenStudioImage?: boolean;
+  failEmail?: boolean;
+  longAutomationResult?: boolean;
+} = {}) {
   const widgetRequests: string[] = [];
   const track = (route: import('@playwright/test').Route) => widgetRequests.push(route.request().url());
   await page.route('**/api/email/accounts', route => {
@@ -40,7 +44,12 @@ async function mockWidgets(page: Page, workspaceId: string, options: { failEmail
   });
   await page.route('**/api/automations/jobs/job-latest/runs', route => {
     track(route);
-    return route.fulfill({ json: { success: true, data: [{ createdAt: '2026-09-07T12:00:00Z', resultText: 'Kampagnendaten wurden aktualisiert.' }] } });
+    return route.fulfill({ json: { success: true, data: [{
+      createdAt: '2026-09-07T12:00:00Z',
+      resultText: options.longAutomationResult
+        ? '**Aktuelle Woche:** KW 36\n- **Wöchentliche Follower-Zahlen** fehlen vollständig für Instagram, LinkedIn, X und mehrere weitere Kanäle mit einem absichtlich sehrlangenwortohnetrennzeichen'.repeat(4)
+        : 'Kampagnendaten wurden aktualisiert.',
+    }] } });
   });
   await page.route('**/api/automations/jobs', route => {
     track(route);
@@ -49,7 +58,7 @@ async function mockWidgets(page: Page, workspaceId: string, options: { failEmail
   await page.route('**/api/studio/generations?*', route => {
     track(route);
     expect(new URL(route.request().url()).searchParams.get('workspaceId')).toBe(workspaceId);
-    return route.fulfill({ json: { success: true, generations: [{ id: 'generation-latest', prompt: 'Editoriales Produktbild für den Launch', createdAt: '2026-09-07T12:00:00Z', status: 'completed', outputs: [{ id: 'output', mediaUrl: '/images/examples/aura_serum_produktfoto.png', mimeType: 'image/png' }] }] } });
+    return route.fulfill({ json: { success: true, generations: [{ id: 'generation-latest', prompt: 'Editoriales Produktbild für den Launch', createdAt: '2026-09-07T12:00:00Z', status: 'completed', outputs: [{ id: 'output', mediaUrl: options.brokenStudioImage ? '/images/missing-widget-preview.png' : '/images/examples/aura_serum_produktfoto.png', mimeType: 'image/png' }] }] } });
   });
   return widgetRequests;
 }
@@ -135,4 +144,41 @@ test('workspace widgets keep their hierarchy in dark mode', async ({ page }, inf
   await expect(page.getByTestId('workspace-widget-studio-quick-selection').getByText('Editoriales Produktbild für den Launch')).toBeVisible();
   await expect(page.locator('html')).toHaveClass(/dark/);
   await page.screenshot({ path: info.outputPath('workspace-widgets-dark.png'), animations: 'disabled' });
+});
+
+test('long automation output stays inside its card and renders as plain preview text', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const workspace = await prepare(page);
+  await mockWidgets(page, workspace.id, { longAutomationResult: true });
+  await page.goto('/de');
+  await page.getByRole('button', { name: 'Zum Workspace', exact: true }).click();
+  const card = page.getByTestId('workspace-widget-automation');
+  await card.hover();
+  const preview = card.getByText(/Aktuelle Woche:/);
+  await expect(preview).toBeVisible();
+  await expect(preview).not.toContainText('**');
+  const readGeometry = () => card.evaluate(element => {
+    const cardBox = element.getBoundingClientRect();
+    const footerBox = element.querySelector(':scope > a:last-child')?.getBoundingClientRect();
+    const detailsBox = element.querySelector('[data-testid$="-quick-selection"]')?.getBoundingClientRect();
+    return { cardBottom: cardBox.bottom, detailsBottom: detailsBox?.bottom, footerBottom: footerBox?.bottom, footerTop: footerBox?.top };
+  });
+  await expect.poll(async () => {
+    const geometry = await readGeometry();
+    return (geometry.detailsBottom ?? 0) <= (geometry.footerTop ?? 0) + 1;
+  }).toBe(true);
+  const geometry = await readGeometry();
+  expect(geometry.footerBottom).toBeLessThanOrEqual(geometry.cardBottom + 1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('broken studio previews fall back without breaking the card', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const workspace = await prepare(page);
+  await mockWidgets(page, workspace.id, { brokenStudioImage: true });
+  await page.goto('/de');
+  await page.getByRole('button', { name: 'Zum Workspace', exact: true }).click();
+  const summary = page.getByTestId('workspace-widget-studio-summary');
+  await expect(summary.locator('img')).toHaveCount(0);
+  await expect(summary.getByText('Editoriales Produktbild für den Launch')).toBeVisible();
 });

@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { AlertTriangle, ArrowRight, Clock3, Inbox, ListTodo, MailOpen, Sparkles, Workflow } from 'lucide-react';
 import { useFormatter, useTranslations } from 'next-intl';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { Link } from '@/i18n/navigation';
 import type { HomeWidgetAutomation, HomeWidgetEmail, HomeWidgetStudio, HomeWidgetTodo } from '@/app/lib/home/workspace-widget-data';
@@ -25,7 +25,7 @@ type WidgetCardProps = {
 function WidgetCard({ id, title, description, href, icon: Icon, summary, details, footer }: WidgetCardProps) {
   const t = useTranslations('home.workspaceWidgets');
   return (
-    <article data-testid={`workspace-widget-${id}`} className={`${styles.card} group flex min-h-64 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-[border-color,box-shadow] hover:border-foreground/25 hover:shadow-md focus-within:border-foreground/25 md:min-h-0`}>
+    <article data-testid={`workspace-widget-${id}`} className={`${styles.card} group min-h-64 overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-[border-color,box-shadow] hover:border-foreground/25 hover:shadow-md focus-within:border-foreground/25 md:min-h-0`}>
       <header className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4">
         <div className="flex min-w-0 items-start gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground"><Icon className="h-4 w-4" aria-hidden="true" /></span>
@@ -40,7 +40,7 @@ function WidgetCard({ id, title, description, href, icon: Icon, summary, details
         <div data-testid={`workspace-widget-${id}-summary`} className={styles.summary}>{summary}</div>
         <div data-testid={`workspace-widget-${id}-quick-selection`} className={`${styles.details} bg-card`}>
           <p className="px-5 pt-4 text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{t('quickSelection')}</p>
-          {details}
+          <div className={styles.detailContent}>{details}</div>
         </div>
       </div>
       <Link href={href} className="flex min-h-11 items-center justify-between border-t border-border/70 px-5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"><span>{footer}</span><ArrowRight className="h-3.5 w-3.5" /></Link>
@@ -61,6 +61,28 @@ function relativeTime(format: ReturnType<typeof useFormatter>, value: string | n
   if (!value) return '';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '' : format.relativeTime(date, new Date());
+}
+
+function plainPreviewText(value: string | null): string {
+  return (value || '')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/gu, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/gu, '$1')
+    .replace(/[*_~`>#|]+/gu, ' ')
+    .replace(/^\s*[-+]\s+/gmu, '')
+    .replace(/\s+/gu, ' ')
+    .trim();
+}
+
+function isSafeApplicationMediaUrl(value: string): boolean {
+  return value.startsWith('/') && !value.startsWith('//') && !value.includes('\\');
+}
+
+function SafeStudioImage({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed || !isSafeApplicationMediaUrl(src)) {
+    return <div className="flex h-full items-center justify-center"><Sparkles className="h-8 w-8 text-muted-foreground" /></div>;
+  }
+  return <Image src={src} alt="" fill unoptimized sizes="(min-width: 768px) 50vw, 100vw" className="object-cover transition-transform duration-300 group-hover:scale-[1.02]" onError={() => setFailed(true)} />;
 }
 
 function stateSummary<T>({ state, ready, onRetry }: { state: HomeWidgetState<T>; ready: (data: T) => ReactNode; onRetry: () => void }) {
@@ -95,9 +117,10 @@ function AutomationWidget({ state, onRetry }: { state: HomeWidgetState<HomeWidge
   const format = useFormatter();
   const automation = state.data;
   const runLabel = automation?.lastRunStatus ? t(`status.${automation.lastRunStatus}`) : t('notRun');
+  const resultPreview = plainPreviewText(automation?.resultText || null);
   return <WidgetCard id="automation" title={t('title')} description={t('description')} href="/automations" icon={Workflow} footer={t('openAll')}
     summary={stateSummary({ state, onRetry, ready: data => data ? <div className="flex h-full flex-col justify-between p-5"><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${data.lastRunStatus === 'failed' ? 'bg-destructive' : data.lastRunStatus === 'running' || data.lastRunStatus === 'pending' ? 'bg-primary animate-pulse' : 'bg-muted-foreground/60'}`} /><span className="text-xs font-medium text-muted-foreground">{runLabel}</span></div><div><p className="truncate text-lg font-semibold">{data.name}</p><p className="mt-1 text-xs text-muted-foreground">{data.lastRunAt ? t('lastRun', { time: relativeTime(format, data.lastRunAt) }) : t('notRun')}</p></div></div> : <div className="flex h-full items-end p-5"><p className="text-sm text-muted-foreground">{t('empty')}</p></div> })}
-    details={<div className="flex h-[calc(100%-2rem)] flex-col justify-between px-5 py-4">{automation ? <><div><p className="text-sm font-semibold">{automation.name}</p><p className="mt-2 line-clamp-3 text-sm leading-relaxed text-muted-foreground">{automation.resultText || t('noResult')}</p></div><div className="flex items-center gap-2 text-xs text-muted-foreground"><Clock3 className="h-3.5 w-3.5" />{automation.nextRunAt ? t('nextRun', { time: relativeTime(format, automation.nextRunAt) }) : t('noNextRun')}</div></> : <p className="text-sm text-muted-foreground">{t('empty')}</p>}</div>}
+    details={<div className="flex h-full min-h-0 flex-col justify-between gap-3 px-5 py-4">{automation ? <><div className="min-h-0"><p className="truncate text-sm font-semibold">{automation.name}</p><p className="mt-2 line-clamp-3 break-words text-sm leading-relaxed text-muted-foreground">{resultPreview || t('noResult')}</p></div><div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"><Clock3 className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{automation.nextRunAt ? t('nextRun', { time: relativeTime(format, automation.nextRunAt) }) : t('noNextRun')}</span></div></> : <p className="text-sm text-muted-foreground">{t('empty')}</p>}</div>}
   />;
 }
 
@@ -107,8 +130,8 @@ function StudioWidget({ state, workspaceId, onRetry }: { state: HomeWidgetState<
   const generation = state.data;
   const href = generation ? `/studio?${new URLSearchParams({ workspaceId, generation: generation.id })}` : `/studio?workspaceId=${encodeURIComponent(workspaceId)}`;
   return <WidgetCard id="studio" title={t('title')} description={t('description')} href={href} icon={Sparkles} footer={generation ? t('openGeneration') : t('openStudio')}
-    summary={stateSummary({ state, onRetry, ready: data => data ? <div className="relative h-full min-h-40 overflow-hidden bg-muted">{data.output ? <Image src={data.output.mediaUrl} alt="" fill unoptimized sizes="(min-width: 768px) 50vw, 100vw" className="object-cover transition-transform duration-300 group-hover:scale-[1.02]" /> : <div className="flex h-full items-center justify-center"><Sparkles className="h-8 w-8 text-muted-foreground" /></div>}<div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background/95 to-transparent px-5 pb-4 pt-12"><p className="line-clamp-2 text-sm font-medium">{data.prompt || t('untitled')}</p></div></div> : <div className="flex h-full items-end p-5"><p className="text-sm text-muted-foreground">{t('empty')}</p></div> })}
-    details={<div className="flex h-[calc(100%-2rem)] flex-col justify-between px-5 py-4">{generation ? <><div><p className="line-clamp-4 text-sm font-medium leading-relaxed">{generation.prompt || t('untitled')}</p><p className="mt-2 text-xs text-muted-foreground">{t('created', { time: relativeTime(format, generation.createdAt) })}</p></div><Link href={href} className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"><Sparkles className="h-4 w-4" />{t('useAgain')}</Link></> : <p className="text-sm text-muted-foreground">{t('empty')}</p>}</div>}
+    summary={stateSummary({ state, onRetry, ready: data => data ? <div className="relative h-full min-h-40 overflow-hidden bg-muted">{data.output ? <SafeStudioImage key={data.output.mediaUrl} src={data.output.mediaUrl} /> : <div className="flex h-full items-center justify-center"><Sparkles className="h-8 w-8 text-muted-foreground" /></div>}<div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background/95 to-transparent px-5 pb-4 pt-12"><p className="line-clamp-2 break-words text-sm font-medium">{data.prompt || t('untitled')}</p></div></div> : <div className="flex h-full items-end p-5"><p className="text-sm text-muted-foreground">{t('empty')}</p></div> })}
+    details={<div className="flex h-full min-h-0 flex-col justify-between gap-3 px-5 py-4">{generation ? <><div className="min-h-0"><p className="line-clamp-4 break-words text-sm font-medium leading-relaxed">{generation.prompt || t('untitled')}</p><p className="mt-2 truncate text-xs text-muted-foreground">{t('created', { time: relativeTime(format, generation.createdAt) })}</p></div><Link href={href} className="inline-flex shrink-0 items-center gap-2 text-sm font-medium text-primary hover:underline"><Sparkles className="h-4 w-4" />{t('useAgain')}</Link></> : <p className="text-sm text-muted-foreground">{t('empty')}</p>}</div>}
   />;
 }
 
