@@ -189,6 +189,7 @@ export async function fetchChatSessionMessages(params: {
   signal?: AbortSignal;
   cache?: RequestCache;
   credentials?: RequestCredentials;
+  exportProjection?: boolean;
 }): Promise<ChatSessionMessagesPayload | null> {
   const searchParams = new URLSearchParams({
     agentId: params.agentId,
@@ -207,6 +208,9 @@ export async function fetchChatSessionMessages(params: {
   if (params.workspaceId) {
     searchParams.set('workspaceId', params.workspaceId);
   }
+  if (params.exportProjection) {
+    searchParams.set('export', 'true');
+  }
 
   const response = await fetch(`/api/sessions/messages?${searchParams.toString()}`, {
     ...(params.signal ? { signal: params.signal } : {}),
@@ -214,4 +218,52 @@ export async function fetchChatSessionMessages(params: {
     ...(params.credentials ? { credentials: params.credentials } : {}),
   });
   return safeFetchJson<ChatSessionMessagesPayload>(response);
+}
+
+export async function fetchCompleteChatSessionExport(params: {
+  agentId: string;
+  sessionId: string;
+  workspaceId?: string | null;
+  signal?: AbortSignal;
+}): Promise<PersistedChatMessage[]> {
+  const messages: PersistedChatMessage[] = [];
+  let before: number | null = null;
+  let beforeId: number | null = null;
+  let beforeSequence: number | null = null;
+  let hasMoreBefore = true;
+  let previousCursor = '';
+
+  while (hasMoreBefore) {
+    const payload = await fetchChatSessionMessages({
+      ...params,
+      before,
+      beforeId,
+      beforeSequence,
+      cache: 'no-store',
+      credentials: 'include',
+      exportProjection: true,
+      limit: 200,
+    });
+
+    if (!payload?.success || !Array.isArray(payload.messages)) {
+      throw new Error('Failed to load complete chat export.');
+    }
+
+    messages.unshift(...payload.messages);
+    hasMoreBefore = payload.hasMoreBefore === true;
+    if (!hasMoreBefore) {
+      break;
+    }
+
+    beforeSequence = payload.oldestSequence ?? null;
+    before = beforeSequence === null ? payload.oldestTimestamp ?? null : null;
+    beforeId = payload.oldestMessageId ?? null;
+    const cursor = `${beforeSequence ?? ''}:${before ?? ''}:${beforeId ?? ''}`;
+    if ((beforeSequence === null && before === null) || cursor === previousCursor) {
+      throw new Error('Chat export pagination did not advance.');
+    }
+    previousCursor = cursor;
+  }
+
+  return messages;
 }

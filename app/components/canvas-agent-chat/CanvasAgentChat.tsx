@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { ChatComposer } from '@/app/components/canvas-agent-chat/ChatComposer';
 import { ChatDelegationPanel } from '@/app/components/canvas-agent-chat/ChatDelegationPanel';
+import { ChatExportDialog } from '@/app/components/canvas-agent-chat/ChatExportDialog';
 import { ChatHeader } from '@/app/components/canvas-agent-chat/ChatHeader';
 import { ChatHistoryPanel, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { ChatMessageList } from '@/app/components/canvas-agent-chat/ChatMessageList';
@@ -224,6 +225,7 @@ export default function CanvasAgentChat({
   const [input, setInput] = useState<string>('');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
+  const [chatExportDialogOpen, setChatExportDialogOpen] = useState(false);
   const requestedHistory = searchParams.get('history') === 'open';
   const [showHistory, setShowHistory] = useState(requestedHistory);
   useEffect(() => {
@@ -1341,6 +1343,7 @@ export default function CanvasAgentChat({
         isMobile={isMobile}
         isSessionTitleGenerating={isSessionTitleGenerating}
         onCompact={(focusTopic) => void handleCompact(focusTopic)}
+        onCopyChat={() => setChatExportDialogOpen(true)}
         onDeleteSession={() => {
           if (sessionId) void deleteSession(sessionId);
         }}
@@ -1571,6 +1574,21 @@ export default function CanvasAgentChat({
       />
         </div>
       </div>
+      <ChatExportDialog
+        activeAgentId={activeSessionAgentId}
+        activeAgentName={activeAgentDisplayName}
+        liveMessages={messages}
+        model={activeSession?.model || activeModel}
+        onOpenChange={setChatExportDialogOpen}
+        open={chatExportDialogOpen}
+        provider={activeSession?.provider || activeProvider || null}
+        runtimePhase={runtimeStatus?.phase || null}
+        sessionId={sessionId}
+        sessionTitle={sessionDisplayLabel}
+        thinkingLevel={activeSession?.thinkingLevel || activeThinkingLevel || null}
+        workspaceId={activeSession?.workspace?.workspaceId || activeWorkspaceId}
+        workspaceName={activeSession?.workspace?.workspaceName || activeWorkspace?.name || null}
+      />
       <AttachmentPreviewDialog
         attachment={previewAttachment}
         attachments={previewAttachmentGroup}

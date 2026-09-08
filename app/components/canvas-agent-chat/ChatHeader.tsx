@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   ChevronLeft,
+  Copy,
   Gauge,
   History,
   Lightbulb,
@@ -63,6 +64,7 @@ type ChatHeaderProps = {
   isMobile: boolean;
   isSessionTitleGenerating: boolean;
   onCompact: (focusTopic?: string) => void;
+  onCopyChat: () => void;
   onDeleteSession: () => void;
   onSelectAgent: (agentId: string) => void;
   onReloadAgents: () => Promise<void>;
@@ -92,6 +94,7 @@ export function ChatHeader({
   isMobile,
   isSessionTitleGenerating,
   onCompact,
+  onCopyChat,
   onDeleteSession,
   onSelectAgent,
   onReloadAgents,
@@ -403,6 +406,19 @@ export function ChatHeader({
               >
                 <Trash2 />
                 <span>{t('deleteSession')}</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                data-testid="chat-copy-session"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setActionsMenuOpen(false);
+                  window.setTimeout(onCopyChat, 0);
+                }}
+                disabled={!sessionId}
+              >
+                <Copy />
+                <span>{t('copyChat')}</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

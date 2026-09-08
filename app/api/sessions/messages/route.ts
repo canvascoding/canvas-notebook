@@ -8,6 +8,7 @@ import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { requireAgentAccess } from '@/app/lib/agents/access';
 import { parsePersistedPiMessage, type PiMessageProjectionMode } from '@/app/lib/pi/message-projection';
+import { parsePersistedChatMessageForExport } from '@/app/lib/chat/chat-export';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 
 const DEFAULT_LIMIT = 50;
@@ -70,6 +71,7 @@ export async function GET(request: NextRequest) {
   const beforeSequenceParam = searchParams.get('beforeSequence');
   const afterSequenceParam = searchParams.get('afterSequence');
   const projectionMode: PiMessageProjectionMode = searchParams.get('raw') === 'true' ? 'raw' : 'display';
+  const exportProjection = searchParams.get('export') === 'true';
   const before = parseCursorParam(beforeParam);
   const after = parseCursorParam(afterParam);
   const beforeId = parseCursorParam(beforeIdParam);
@@ -191,7 +193,9 @@ export async function GET(request: NextRequest) {
       }
 
       const mapped = resultRows.map(m => ({
-        ...parsePersistedPiMessage(m.content, projectionMode),
+        ...(exportProjection
+          ? parsePersistedChatMessageForExport(m.content)
+          : parsePersistedPiMessage(m.content, projectionMode)),
         id: m.id,
         sequence: m.sequence,
         createdAt: new Date(m.timestamp),
