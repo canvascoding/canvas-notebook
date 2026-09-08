@@ -83,6 +83,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     currentDirectory,
     selectedNode,
     browserReveal,
+    workspaceFileVersion,
     selectAllInDirectory,
     clearMultiSelect,
     searchQuery,
@@ -102,6 +103,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     currentDirectory: state.currentDirectory,
     selectedNode: state.selectedNode,
     browserReveal: state.browserReveal,
+    workspaceFileVersion: state.workspaceFileVersion,
     selectAllInDirectory: state.selectAllInDirectory,
     clearMultiSelect: state.clearMultiSelect,
     searchQuery: state.searchQuery,
@@ -287,7 +289,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
         if (controller.signal.aborted) return;
         setSearchState({ query, results: nextResults, total: result.total, isSearching: false, error: null });
       } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        if (!controller.signal.aborted && !(error instanceof DOMException && error.name === 'AbortError')) {
           setSearchState({
             query,
             results: null,
@@ -303,7 +305,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [activeWorkspaceId, normalizedSearchQuery]);
+  }, [activeWorkspaceId, normalizedSearchQuery, workspaceFileVersion]);
 
   const filteredTree = useMemo(
     () => sortFileTree(

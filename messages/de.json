@@ -650,6 +650,8 @@
     "documentUpdating": "Dokument wird aktualisiert …",
     "documentUpdated": "Dokument nach externer Änderung aktualisiert.",
     "documentUpdateFailed": "Dokument konnte nicht aktualisiert werden. Neu verbinden oder erneut laden.",
+    "liveUpdatesUnavailable": "Live-Verbindung unterbrochen. Angezeigte Inhalte können veraltet sein.",
+    "reconnectLiveUpdates": "Neu verbinden",
     "refreshingFolder": "Ordner wird aktualisiert …",
     "movePartialFailure": "{count} Einträge wurden verschoben. Die weitere Verschiebung wurde gestoppt: {error}",
     "close": "Schließen",

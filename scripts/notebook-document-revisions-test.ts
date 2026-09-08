@@ -75,6 +75,28 @@ async function main() {
     assert.equal(useFileStore.getState().currentFile?.stats?.sha256, 'new');
     unregister();
   }
+  setup('book.docx');
+  const officeWrite = deferred<Response>();
+  const stopOfficeGuard = registerDocumentTransitionGuard('revisions', 'book.docx', { hasPendingChanges: () => true, prepare: async () => {} });
+  globalThis.fetch = (async (input) => String(input).includes('/write') ? officeWrite.promise : payload('')) as typeof fetch;
+  const savingOffice = useFileStore.getState().saveFile('book.docx', 'base64:AA==');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await useFileStore.getState().refreshCurrentFileContent('book.docx');
+  assert.ok(useFileStore.getState().pendingExternalFile);
+  officeWrite.resolve(payload('')); await savingOffice;
+  assert.equal(useFileStore.getState().pendingExternalFile, null, 'a matching confirmed Office save resolves its own metadata echo');
+  stopOfficeGuard();
+  let nativeVersion = 1;
+  const stopVersionGuard = registerDocumentTransitionGuard('revisions', 'book.docx', { hasPendingChanges: () => true, prepare: async () => {}, localChangeVersion: () => nativeVersion });
+  const nativeRead = deferred<Response>();
+  globalThis.fetch = (async () => nativeRead.promise) as typeof fetch;
+  const reloadOffice = useFileStore.getState().refreshCurrentFileContent('book.docx', { allowDirty: true });
+  nativeVersion += 1;
+  nativeRead.resolve(payload('', 'newer')); await reloadOffice;
+  assert.equal(useFileStore.getState().currentFile?.stats?.sha256, 'new');
+  assert.equal(useFileStore.getState().pendingExternalFile?.stats?.sha256, 'newer', 'native edits made after reload was requested remain protected');
+  stopVersionGuard();
+
   setup('active.ts');
   useEditorStore.getState().updateDraft('recover');
   globalThis.fetch = (async () => new Response('', { status: 404 })) as typeof fetch;

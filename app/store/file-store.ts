@@ -1,3 +1,4 @@
+import { useFilePresenceStore } from '@/app/store/file-presence-store';
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { documentCapabilities } from '@/app/lib/files/document-capabilities';
 import { create } from 'zustand';
@@ -260,6 +261,8 @@ interface FileStoreState {
   fileRevisions: Record<string, string>;
   pendingExternalFile: CurrentFile | null;
   documentSyncStatus: 'idle' | 'updating' | 'updated' | 'conflict' | 'error';
+  workspaceFileVersion: number;
+  previewDependencyVersion: number;
 
   // Browser mode
   browserMode: BrowserMode;
@@ -433,6 +436,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   fileLoadRequestId: 0,
   openFileRequestId: 0,
   pendingExternalFile: null, documentSyncStatus: 'idle',
+  workspaceFileVersion: 0, previewDependencyVersion: 0,
   browserReveal: null,
   fileError: null,
   fileErrorPath: null,
@@ -773,6 +777,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     if (get().currentFile?.unavailable) return null;
 
     const originalEditor = useEditorStore.getState();
+    const originalLocalVersion = getDocumentTransitionGuard(workspaceId, path)?.localChangeVersion?.();
     const collaborative = Boolean(get().currentFile?.collaboration?.crdtCapable || get().currentFile?.collaboration?.sceneCapable);
     const metaOnly = !documentCapabilities(path).text || collaborative;
     const requestId = ++fileRefreshRequestId;
@@ -824,7 +829,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         return null;
       }
       // An explicit reload still cannot discard edits made after the click.
-      if (options.allowDirty && latestEditor.draft !== originalEditor.draft) {
+      if (options.allowDirty && (latestEditor.draft !== originalEditor.draft
+        || getDocumentTransitionGuard(workspaceId, path)?.localChangeVersion?.() !== originalLocalVersion)) {
         set({ pendingExternalFile: refreshedFile, documentSyncStatus: 'conflict' });
         return null;
       }
@@ -936,7 +942,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
               }
               if (directoryNode?.type !== 'directory') throw new Error('The parent folder could not be found.');
               if (!Array.isArray(directoryNode.children) || get().staleDirs.has(dirPath)) {
-                await get().loadSubdirectory(dirPath, false, true, workspaceId);
+                await get().loadSubdirectory(dirPath, true, false, workspaceId);
                 if (get().directoryErrors[dirPath]) throw new Error(get().directoryErrors[dirPath]);
               }
             }
@@ -1103,6 +1109,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
             revision: result.revision ?? result.collaboration?.latestRevision ?? currentFile.revision ?? null,
             collaboration: result.collaboration ?? currentFile.collaboration ?? null,
           },
+          ...(result.stats?.sha256 && state.pendingExternalFile?.path === path
+            && state.pendingExternalFile.stats?.sha256 === result.stats.sha256
+            ? { pendingExternalFile: null, documentSyncStatus: 'idle' as const } : {}),
           fileRevisions: updateFileRevision(state.fileRevisions, path, result.stats),
         }));
       } else if (result.stats?.sha256) {
@@ -1266,6 +1275,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       fileRevisions: removeFileRevisions(state.fileRevisions, paths),
     });
     persistExplorerState({ currentDirectory, expandedDirs }, workspaceId);
+    useFilePresenceStore.getState().removePaths(paths);
     notifyWorkspacePathsDeleted(paths, workspaceId);
   },
 
@@ -1330,6 +1340,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       fileRevisions: remapFileRevisions(state.fileRevisions, oldPath, newPath),
     });
     persistExplorerState({ currentDirectory, expandedDirs }, workspaceId);
+    useFilePresenceStore.getState().renamePath(oldPath, newPath);
     notifyWorkspacePathRenamed(oldPath, newPath, workspaceId);
     return true;
   },
@@ -1490,6 +1501,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
   resetWorkspaceView: (requestedWorkspaceId?: string | null) => {
     useEditorStore.getState().clear();
+    useFilePresenceStore.getState().clear();
     const workspaceId = requestedWorkspaceId === undefined
       ? useWorkspaceStore.getState().activeWorkspaceId
       : requestedWorkspaceId;
@@ -1500,6 +1512,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       fileTreeWorkspaceId: workspaceId,
       treeGeneration: state.treeGeneration + 1,
       pendingExternalFile: null, documentSyncStatus: 'idle',
+      workspaceFileVersion: 0, previewDependencyVersion: 0,
       browserReveal: null,
       rootTreeRequestId: state.rootTreeRequestId + 1,
       isLoadingTree: false,

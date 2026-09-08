@@ -173,7 +173,7 @@ async function main() {
     });
     await delay(25);
 
-    assert.equal(refreshVisibleCalls, 0);
+    assert.equal(refreshVisibleCalls, 2, 'each established connection revalidates visible directories');
     assert.deepEqual(refreshedDirectories, [{ dirPath: 'docs/current', noCache: true }]);
 
     workspaceSource.emit('filechange', {
@@ -184,10 +184,10 @@ async function main() {
       dir: 'docs/current',
       timestamp: Date.now(),
     });
-    await delay(FileWatcherClient.SYNC_DEBOUNCE_MS + 25);
+    await delay(300);
 
-    assert.equal(refreshVisibleCalls, 0);
-    assert.deepEqual(refreshedDirectories, [{ dirPath: 'docs/current', noCache: true }]);
+    assert.equal(refreshVisibleCalls, 2, 'each established connection revalidates visible directories');
+    assert.deepEqual(refreshedDirectories, [{ dirPath: 'docs/current', noCache: true }, { dirPath: 'docs/current', noCache: true }], 'content changes also refresh metadata');
 
     client.disconnect();
     assert.equal(source.closed, true);

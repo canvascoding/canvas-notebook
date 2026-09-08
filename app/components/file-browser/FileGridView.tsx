@@ -358,7 +358,7 @@ export function FileGridView({
     );
   }
 
-  if (treeError) {
+  if (treeError && fileTree.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
         <AlertCircle className="h-8 w-8 text-destructive" />

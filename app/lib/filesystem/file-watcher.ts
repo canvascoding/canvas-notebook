@@ -1,3 +1,4 @@
+import { remapWorkspacePresencePaths } from '@/app/lib/collaboration/presence';
 import { promises as fs, watch as fsWatch, type FSWatcher } from 'fs';
 import path from 'path';
 import { clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
@@ -70,7 +71,9 @@ export class FileWatcherService {
   private subscriptions = new Map<string, Subscription>();
   private debounceTimer: NodeJS.Timeout | null = null;
   private pendingEvents: FileEvent[] = [];
-  private readonly debounceDelay = 500;
+  private readonly debounceDelay = 200;
+  private readonly maxDebounceDelay = 800;
+  private firstPendingAt: number | null = null;
   private clientLastActive = new Map<string, number>();
   private staleCheckInterval: NodeJS.Timeout | null = null;
   private readonly STALE_TIMEOUT_MS = 90_000;
@@ -209,6 +212,7 @@ export class FileWatcherService {
     try {
       const result = await operation();
       pending.committed = true;
+      remapWorkspacePresencePaths(workspace.workspaceId, mutation.oldPath, mutation.newPath);
       this.pendingEvents = this.pendingEvents.filter((event) => this.findManagedRename(event.workspaceId, event.relativePath) !== pending);
       clearSubtreeCache(getParentDirectory(mutation.oldPath), workspace.workspaceId);
       this.invalidateAndBroadcast({
@@ -340,11 +344,14 @@ export class FileWatcherService {
       return;
     }
     this.pendingEvents.push(event);
+    this.firstPendingAt ??= Date.now();
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => this.flushEvents(), this.debounceDelay);
+    const delay = Math.min(this.debounceDelay, Math.max(0, this.maxDebounceDelay - (Date.now() - this.firstPendingAt)));
+    this.debounceTimer = setTimeout(() => this.flushEvents(), delay);
   }
 
   private flushEvents(): void {
+    this.debounceTimer = null; this.firstPendingAt = null;
     if (this.pendingEvents.length === 0) return;
 
     const uniqueEvents = new Map<string, FileEvent>();
@@ -446,6 +453,8 @@ export class FileWatcherService {
     this.staleCheckInterval = null;
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = null;
+    this.firstPendingAt = null;
+    this.pendingEvents = [];
   }
 }
 
