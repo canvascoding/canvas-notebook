@@ -76,16 +76,16 @@ async function assertOrganizationPolicyTarget(input: {
     const row = input.targetType === 'user'
       ? await connection.get(
         `SELECT 1 FROM organization_user_permissions
-         WHERE organization_id = ? AND user_id = ? AND status = 'active'`,
+         WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
         [input.organizationId, input.targetId],
       )
       : input.targetType === 'workspace'
         ? await connection.get(
-          `SELECT 1 FROM canvas_workspaces WHERE organization_id = ? AND id = ? AND status = 'active'`,
+          `SELECT 1 FROM canvas_workspaces WHERE organization_id = $1 AND id = $2 AND status = 'active'`,
           [input.organizationId, input.targetId],
         )
         : await connection.get(
-          `SELECT 1 FROM canvas_projects WHERE organization_id = ? AND id = ? AND status = 'active'`,
+          `SELECT 1 FROM canvas_projects WHERE organization_id = $1 AND id = $2 AND status = 'active'`,
           [input.organizationId, input.targetId],
         );
     if (!row) throw new Error(`Capability policy ${input.targetType} target is not active in this organization.`);

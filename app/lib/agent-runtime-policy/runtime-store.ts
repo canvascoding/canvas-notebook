@@ -177,7 +177,7 @@ async function lockWorkspaceRuntimeContext(
   const workspace = await connection.get(
     `SELECT id
      FROM canvas_workspaces
-     WHERE organization_id = ? AND id = ?
+     WHERE organization_id = $1 AND id = $2
      LIMIT 1 FOR UPDATE`,
     [input.organizationId, input.workspaceId],
   ) as { id?: string } | undefined;
@@ -198,14 +198,14 @@ async function lockAndReadRuntimeContext(
   const catalogRow = await connection.get(
     `SELECT catalog_revision AS revision
      FROM ai_runtime_defaults
-     WHERE organization_id = ?
+     WHERE organization_id = $1
      LIMIT 1 FOR UPDATE`,
     [input.organizationId],
   ) as { revision?: number | string | null } | undefined;
   const policyRow = await connection.get(
     `SELECT revision
      FROM ai_workspace_model_policies
-     WHERE organization_id = ? AND workspace_id = ?
+     WHERE organization_id = $1 AND workspace_id = $2
      LIMIT 1 FOR UPDATE`,
     [input.organizationId, input.workspaceId],
   ) as { revision?: number | string | null } | undefined;
@@ -415,7 +415,7 @@ export async function readWorkspaceModelPolicy(
               default_thinking_level, allow_user_credentials, revision,
               updated_by_user_id, updated_at
        FROM ai_workspace_model_policies
-       WHERE organization_id = ? AND workspace_id = ?
+       WHERE organization_id = $1 AND workspace_id = $2
        LIMIT 1`,
       [organizationId, workspaceId],
     ) as WorkspacePolicyRow | undefined;
@@ -449,7 +449,7 @@ export async function writeWorkspaceModelPolicyStore(input: {
     const current = await connection.get(
       `SELECT revision
        FROM ai_workspace_model_policies
-       WHERE organization_id = ? AND workspace_id = ?
+       WHERE organization_id = $1 AND workspace_id = $2
        LIMIT 1`,
       [input.organizationId, input.workspaceId],
     ) as { revision?: number | string | null } | undefined;
@@ -474,10 +474,10 @@ export async function writeWorkspaceModelPolicyStore(input: {
     if (current) {
       const result = await connection.run(
         `UPDATE ai_workspace_model_policies
-         SET allowed_models_json = ?, default_provider_installation_id = ?,
-             default_provider_id = ?, default_model_id = ?, default_thinking_level = ?,
-             allow_user_credentials = ?, revision = ?, updated_by_user_id = ?, updated_at = ?
-         WHERE organization_id = ? AND workspace_id = ? AND revision = ?`,
+         SET allowed_models_json = $1, default_provider_installation_id = $2,
+             default_provider_id = $3, default_model_id = $4, default_thinking_level = $5,
+             allow_user_credentials = $6, revision = $7, updated_by_user_id = $8, updated_at = $9
+         WHERE organization_id = $10 AND workspace_id = $11 AND revision = $12`,
         [...values, input.organizationId, input.workspaceId, currentRevision],
       );
       if (changedRows(result) !== 1) {
@@ -491,7 +491,7 @@ export async function writeWorkspaceModelPolicyStore(input: {
           default_provider_installation_id, default_provider_id, default_model_id,
           default_thinking_level, allow_user_credentials, revision,
           updated_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [input.organizationId, input.workspaceId, ...values.slice(0, 8), now, now],
       );
     }
@@ -508,7 +508,7 @@ export async function writeWorkspaceModelPolicyStore(input: {
     if (insertAttempted && !(error instanceof RuntimeRevisionConflictError)) {
       const concurrent = await connection.get(
         `SELECT revision FROM ai_workspace_model_policies
-         WHERE organization_id = ? AND workspace_id = ? LIMIT 1`,
+         WHERE organization_id = $1 AND workspace_id = $2 LIMIT 1`,
         [input.organizationId, input.workspaceId],
       ) as { revision?: number | string | null } | undefined;
       if (concurrent) {
@@ -539,7 +539,7 @@ export async function deleteWorkspaceModelPolicyStore(input: {
     const current = await connection.get(
       `SELECT revision
        FROM ai_workspace_model_policies
-       WHERE organization_id = ? AND workspace_id = ?
+       WHERE organization_id = $1 AND workspace_id = $2
        LIMIT 1`,
       [input.organizationId, input.workspaceId],
     ) as { revision?: number | string | null } | undefined;
@@ -554,7 +554,7 @@ export async function deleteWorkspaceModelPolicyStore(input: {
     }
     const result = await connection.run(
       `DELETE FROM ai_workspace_model_policies
-       WHERE organization_id = ? AND workspace_id = ? AND revision = ?`,
+       WHERE organization_id = $1 AND workspace_id = $2 AND revision = $3`,
       [input.organizationId, input.workspaceId, currentRevision],
     );
     if (changedRows(result) !== 1) {
@@ -590,7 +590,7 @@ export async function readUserModelPreference(input: {
               provider_installation_id, provider_id, model_id, thinking_level,
               revision, updated_at
        FROM ai_user_model_preferences
-       WHERE organization_id = ? AND user_id = ? AND workspace_id = ? AND agent_id = ?
+       WHERE organization_id = $1 AND user_id = $2 AND workspace_id = $3 AND agent_id = $4
        LIMIT 1`,
       [input.organizationId, input.userId, input.workspaceId, input.agentId],
     ) as UserPreferenceRow | undefined;
@@ -614,8 +614,8 @@ export async function readUserWorkspaceProviderGrant(input: {
               provider_installation_id, allowed_execution_modes_json, status,
               revision, granted_at, revoked_at, updated_at
        FROM ai_user_workspace_provider_grants
-       WHERE organization_id = ? AND user_id = ? AND workspace_id = ?
-         AND agent_id = ? AND provider_installation_id = ?
+       WHERE organization_id = $1 AND user_id = $2 AND workspace_id = $3
+         AND agent_id = $4 AND provider_installation_id = $5
        LIMIT 1`,
       [
         input.organizationId,
@@ -655,8 +655,8 @@ export async function writeUserWorkspaceProviderGrant(input: {
               provider_installation_id, allowed_execution_modes_json, status,
               revision, granted_at, revoked_at, updated_at
        FROM ai_user_workspace_provider_grants
-       WHERE organization_id = ? AND user_id = ? AND workspace_id = ?
-         AND agent_id = ? AND provider_installation_id = ?
+       WHERE organization_id = $1 AND user_id = $2 AND workspace_id = $3
+         AND agent_id = $4 AND provider_installation_id = $5
        LIMIT 1`,
       [
         input.organizationId,
@@ -676,9 +676,9 @@ export async function writeUserWorkspaceProviderGrant(input: {
     if (current) {
       const result = await connection.run(
         `UPDATE ai_user_workspace_provider_grants
-         SET allowed_execution_modes_json = ?, status = 'active', revision = ?,
-             granted_at = ?, revoked_at = NULL, updated_at = ?
-         WHERE id = ? AND revision = ?`,
+         SET allowed_execution_modes_json = $1, status = 'active', revision = $2,
+             granted_at = $3, revoked_at = NULL, updated_at = $4
+         WHERE id = $5 AND revision = $6`,
         [modesJson, nextRevision, now, now, current.id, currentRevision],
       );
       if (changedRows(result) !== 1) {
@@ -690,7 +690,7 @@ export async function writeUserWorkspaceProviderGrant(input: {
           id, organization_id, user_id, workspace_id, agent_id,
           provider_installation_id, allowed_execution_modes_json, status,
           revision, granted_at, revoked_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL, ?, ?)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, NULL, $10, $11)`,
         [
           randomUUID(),
           input.organizationId,
@@ -745,8 +745,8 @@ export async function revokeUserWorkspaceProviderGrant(input: {
               provider_installation_id, allowed_execution_modes_json, status,
               revision, granted_at, revoked_at, updated_at
        FROM ai_user_workspace_provider_grants
-       WHERE organization_id = ? AND user_id = ? AND workspace_id = ?
-         AND agent_id = ? AND provider_installation_id = ?
+       WHERE organization_id = $1 AND user_id = $2 AND workspace_id = $3
+         AND agent_id = $4 AND provider_installation_id = $5
        LIMIT 1`,
       [
         input.organizationId,
@@ -769,8 +769,8 @@ export async function revokeUserWorkspaceProviderGrant(input: {
       const now = Date.now();
       const result = await connection.run(
         `UPDATE ai_user_workspace_provider_grants
-         SET status = 'revoked', revision = ?, revoked_at = ?, updated_at = ?
-         WHERE id = ? AND revision = ?`,
+         SET status = 'revoked', revision = $1, revoked_at = $2, updated_at = $3
+         WHERE id = $4 AND revision = $5`,
         [currentRevision + 1, now, now, current.id, currentRevision],
       );
       if (changedRows(result) !== 1) {
@@ -817,7 +817,7 @@ export async function writeUserModelPreferenceStore(input: {
               provider_installation_id, provider_id, model_id, thinking_level,
               revision, updated_at
        FROM ai_user_model_preferences
-       WHERE organization_id = ? AND user_id = ? AND workspace_id = ? AND agent_id = ?
+       WHERE organization_id = $1 AND user_id = $2 AND workspace_id = $3 AND agent_id = $4
        LIMIT 1`,
       [input.organizationId, input.userId, input.workspaceId, input.agentId],
     ) as UserPreferenceRow | undefined;
@@ -836,10 +836,10 @@ export async function writeUserModelPreferenceStore(input: {
       if (current) {
         const result = await connection.run(
           `UPDATE ai_user_model_preferences
-           SET provider_installation_id = ?, provider_id = ?, model_id = ?,
-               thinking_level = ?, revision = ?, updated_at = ?
-           WHERE organization_id = ? AND user_id = ? AND workspace_id = ?
-             AND agent_id = ? AND revision = ?`,
+           SET provider_installation_id = $1, provider_id = $2, model_id = $3,
+               thinking_level = $4, revision = $5, updated_at = $6
+           WHERE organization_id = $7 AND user_id = $8 AND workspace_id = $9
+             AND agent_id = $10 AND revision = $11`,
           [
             input.selection.providerInstallationId,
             input.selection.providerId,
@@ -864,7 +864,7 @@ export async function writeUserModelPreferenceStore(input: {
             organization_id, user_id, workspace_id, agent_id,
             provider_installation_id, provider_id, model_id, thinking_level,
             revision, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
           [
             input.organizationId,
             input.userId,
@@ -894,7 +894,7 @@ export async function writeUserModelPreferenceStore(input: {
     if (insertAttempted && !(error instanceof RuntimeRevisionConflictError)) {
       const concurrent = await connection.get(
         `SELECT revision FROM ai_user_model_preferences
-         WHERE organization_id = ? AND user_id = ? AND workspace_id = ? AND agent_id = ? LIMIT 1`,
+         WHERE organization_id = $1 AND user_id = $2 AND workspace_id = $3 AND agent_id = $4 LIMIT 1`,
         [input.organizationId, input.userId, input.workspaceId, input.agentId],
       ) as { revision?: number | string | null } | undefined;
       if (concurrent) {
@@ -926,7 +926,7 @@ export async function deleteUserModelPreferenceStore(input: {
     const current = await connection.get(
       `SELECT revision
        FROM ai_user_model_preferences
-       WHERE organization_id = ? AND user_id = ? AND workspace_id = ? AND agent_id = ?
+       WHERE organization_id = $1 AND user_id = $2 AND workspace_id = $3 AND agent_id = $4
        LIMIT 1`,
       [input.organizationId, input.userId, input.workspaceId, input.agentId],
     ) as { revision?: number | string | null } | undefined;
@@ -941,7 +941,7 @@ export async function deleteUserModelPreferenceStore(input: {
     }
     const result = await connection.run(
       `DELETE FROM ai_user_model_preferences
-       WHERE organization_id = ? AND user_id = ? AND workspace_id = ? AND agent_id = ? AND revision = ?`,
+       WHERE organization_id = $1 AND user_id = $2 AND workspace_id = $3 AND agent_id = $4 AND revision = $5`,
       [input.organizationId, input.userId, input.workspaceId, input.agentId, currentRevision],
     );
     if (changedRows(result) !== 1) {
@@ -976,7 +976,7 @@ export async function readPiSessionRuntimeSnapshot(input: {
               runtime_provider_installation_id, runtime_catalog_revision,
               runtime_policy_revision, runtime_selection_source
        FROM pi_sessions
-       WHERE session_id = ? AND user_id = ? AND agent_id = ?
+       WHERE session_id = $1 AND user_id = $2 AND agent_id = $3
        LIMIT 1`,
       [input.sessionId, input.userId, input.agentId],
     ) as SessionRuntimeRow | undefined;
@@ -1054,14 +1054,14 @@ export async function writePiSessionRuntimeSnapshot(input: {
       const catalogRow = await connection.get(
         `SELECT catalog_revision AS revision
          FROM ai_runtime_defaults
-         WHERE organization_id = ?
+         WHERE organization_id = $1
          LIMIT 1 FOR UPDATE`,
         [input.contextRevision.organizationId],
       ) as { revision?: number | string | null } | undefined;
       const policyRow = await connection.get(
         `SELECT revision
          FROM ai_workspace_model_policies
-         WHERE organization_id = ? AND workspace_id = ?
+         WHERE organization_id = $1 AND workspace_id = $2
          LIMIT 1 FOR UPDATE`,
         [input.contextRevision.organizationId, input.contextRevision.workspaceId],
       ) as { revision?: number | string | null } | undefined;
@@ -1083,7 +1083,7 @@ export async function writePiSessionRuntimeSnapshot(input: {
               runtime_provider_installation_id, runtime_catalog_revision,
               runtime_policy_revision, runtime_selection_source
        FROM pi_sessions
-       WHERE session_id = ? AND user_id = ? AND agent_id = ?
+       WHERE session_id = $1 AND user_id = $2 AND agent_id = $3
        LIMIT 1`,
       [input.sessionId, input.userId, input.agentId],
     ) as SessionRuntimeRow | undefined;
@@ -1127,15 +1127,15 @@ export async function writePiSessionRuntimeSnapshot(input: {
       ? `AND COALESCE((
            SELECT catalog_revision
            FROM ai_runtime_defaults
-           WHERE organization_id = ?
+           WHERE organization_id = $1
            LIMIT 1
-         ), 0) = ?
+         ), 0) = $2
          AND COALESCE((
            SELECT revision
            FROM ai_workspace_model_policies
-           WHERE organization_id = ? AND workspace_id = ?
+           WHERE organization_id = $3 AND workspace_id = $4
            LIMIT 1
-         ), 0) = ?`
+         ), 0) = $5`
       : '';
     const contextCasParams = input.contextRevision
       ? [
@@ -1148,10 +1148,10 @@ export async function writePiSessionRuntimeSnapshot(input: {
       : [];
     const result = await connection.run(
       `UPDATE pi_sessions
-       SET provider = ?, model = ?, thinking_level = ?,
-           runtime_provider_installation_id = ?, runtime_catalog_revision = ?,
-           runtime_policy_revision = ?, runtime_selection_source = ?, updated_at = ?
-       WHERE session_id = ? AND user_id = ? AND agent_id = ?
+       SET provider = $1, model = $2, thinking_level = $3,
+           runtime_provider_installation_id = $4, runtime_catalog_revision = $5,
+           runtime_policy_revision = $6, runtime_selection_source = $7, updated_at = $8
+       WHERE session_id = $9 AND user_id = $10 AND agent_id = $11
        ${snapshotCasSql}
        ${contextCasSql}`,
       [
@@ -1176,14 +1176,14 @@ export async function writePiSessionRuntimeSnapshot(input: {
         const catalogRow = await connection.get(
           `SELECT catalog_revision AS revision
            FROM ai_runtime_defaults
-           WHERE organization_id = ?
+           WHERE organization_id = $1
            LIMIT 1`,
           [input.contextRevision.organizationId],
         ) as { revision?: number | string | null } | undefined;
         const policyRow = await connection.get(
           `SELECT revision
            FROM ai_workspace_model_policies
-           WHERE organization_id = ? AND workspace_id = ?
+           WHERE organization_id = $1 AND workspace_id = $2
            LIMIT 1`,
           [input.contextRevision.organizationId, input.contextRevision.workspaceId],
         ) as { revision?: number | string | null } | undefined;

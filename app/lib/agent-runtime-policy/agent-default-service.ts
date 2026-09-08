@@ -109,7 +109,7 @@ export async function writeAgentDefaultWithCatalogValidation(input: {
       const defaults = await connection.get(
         `SELECT catalog_revision
          FROM ai_runtime_defaults
-         WHERE organization_id = ?
+         WHERE organization_id = $1
          LIMIT 1 FOR UPDATE`,
         [input.organizationId],
       ) as { catalog_revision?: unknown } | undefined;
@@ -126,7 +126,7 @@ export async function writeAgentDefaultWithCatalogValidation(input: {
       const provider = await connection.get(
         `SELECT provider_id, enabled, status
          FROM ai_provider_installations
-         WHERE organization_id = ? AND id = ?
+         WHERE organization_id = $1 AND id = $2
          LIMIT 1`,
         [input.organizationId, input.selection.providerInstallationId],
       ) as { provider_id?: string; enabled?: unknown; status?: string } | undefined;
@@ -149,7 +149,7 @@ export async function writeAgentDefaultWithCatalogValidation(input: {
       const model = await connection.get(
         `SELECT enabled, thinking_levels_json
          FROM ai_provider_models
-         WHERE organization_id = ? AND provider_installation_id = ? AND model_id = ?
+         WHERE organization_id = $1 AND provider_installation_id = $2 AND model_id = $3
          LIMIT 1`,
         [input.organizationId, input.selection.providerInstallationId, input.selection.modelId],
       ) as { enabled?: unknown; thinking_levels_json?: unknown } | undefined;
@@ -169,9 +169,9 @@ export async function writeAgentDefaultWithCatalogValidation(input: {
 
     const update = await connection.run(
       `UPDATE agents
-       SET default_provider_installation_id = ?, default_provider = ?, default_model = ?,
-           default_thinking = ?, updated_at = ?
-       WHERE agent_id = ? AND type <> 'main'`,
+       SET default_provider_installation_id = $1, default_provider = $2, default_model = $3,
+           default_thinking = $4, updated_at = $5
+       WHERE agent_id = $6 AND type <> 'main'`,
       [
         input.selection?.providerInstallationId ?? null,
         input.selection?.providerId ?? null,

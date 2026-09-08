@@ -833,15 +833,15 @@ export async function previewManagedAgentDeletion(actor: AgentManagementActor, a
   const database = await openDb();
   try {
     const [sessions, members, grants, bindings, memoryCollections, memoryEntries] = await Promise.all([
-      database.get(`SELECT COUNT(*) AS count FROM pi_sessions WHERE agent_id = ?`, [profile.agentId]),
-      database.get(`SELECT COUNT(*) AS count FROM agent_members WHERE agent_id = ?`, [profile.agentId]),
-      database.get(`SELECT COUNT(*) AS count FROM agent_grants WHERE agent_id = ?`, [profile.agentId]),
-      database.get(`SELECT COUNT(*) AS count FROM agent_capability_bindings WHERE agent_id = ?`, [profile.agentId]),
-      database.get(`SELECT COUNT(*) AS count FROM memory_collections WHERE scope_type = 'agent' AND agent_id = ?`, [profile.agentId]),
+      database.get(`SELECT COUNT(*) AS count FROM pi_sessions WHERE agent_id = $1`, [profile.agentId]),
+      database.get(`SELECT COUNT(*) AS count FROM agent_members WHERE agent_id = $1`, [profile.agentId]),
+      database.get(`SELECT COUNT(*) AS count FROM agent_grants WHERE agent_id = $1`, [profile.agentId]),
+      database.get(`SELECT COUNT(*) AS count FROM agent_capability_bindings WHERE agent_id = $1`, [profile.agentId]),
+      database.get(`SELECT COUNT(*) AS count FROM memory_collections WHERE scope_type = 'agent' AND agent_id = $1`, [profile.agentId]),
       database.get(`
         SELECT COUNT(entry.id) AS count FROM memory_entries entry
         INNER JOIN memory_collections collection ON collection.id = entry.collection_id
-        WHERE collection.scope_type = 'agent' AND collection.agent_id = ?
+        WHERE collection.scope_type = 'agent' AND collection.agent_id = $1
       `, [profile.agentId]),
     ]) as Array<{ count?: number | string }>;
     const impacts = {

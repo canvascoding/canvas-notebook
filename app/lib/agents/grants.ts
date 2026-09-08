@@ -113,17 +113,17 @@ async function assertTargetBelongsToOrganization(
     if (targetType === 'user') {
       row = await database.get(
         `SELECT user_id FROM organization_user_permissions
-         WHERE organization_id = ? AND user_id = ? AND status = 'active' LIMIT 1`,
+         WHERE organization_id = $1 AND user_id = $2 AND status = 'active' LIMIT 1`,
         [organizationId, targetId],
       );
     } else if (targetType === 'workspace') {
       row = await database.get(
-        `SELECT id FROM canvas_workspaces WHERE organization_id = ? AND id = ? LIMIT 1`,
+        `SELECT id FROM canvas_workspaces WHERE organization_id = $1 AND id = $2 LIMIT 1`,
         [organizationId, targetId],
       );
     } else {
       row = await database.get(
-        `SELECT id FROM canvas_projects WHERE organization_id = ? AND id = ? LIMIT 1`,
+        `SELECT id FROM canvas_projects WHERE organization_id = $1 AND id = $2 LIMIT 1`,
         [organizationId, targetId],
       );
     }
@@ -139,7 +139,7 @@ export async function listAgentGrants(agentId: string): Promise<AgentGrantRecord
   const database = await openDb();
   try {
     const rows = await database.all(
-      `SELECT * FROM agent_grants WHERE agent_id = ? ORDER BY target_type ASC, target_id ASC`,
+      `SELECT * FROM agent_grants WHERE agent_id = $1 ORDER BY target_type ASC, target_id ASC`,
       [agentId],
     ) as GrantRow[];
     return rows.map(mapGrant);
@@ -173,7 +173,7 @@ export async function upsertAgentGrant(input: {
         id, agent_id, organization_id, target_type, target_id,
         can_use, can_edit, can_manage, revision,
         created_by_user_id, updated_by_user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10, $11, $12)
       ON CONFLICT(agent_id, target_type, target_id) DO UPDATE SET
         can_use = excluded.can_use,
         can_edit = excluded.can_edit,
@@ -197,7 +197,7 @@ export async function upsertAgentGrant(input: {
       ],
     );
     const row = await database.get(
-      `SELECT * FROM agent_grants WHERE agent_id = ? AND target_type = ? AND target_id = ? LIMIT 1`,
+      `SELECT * FROM agent_grants WHERE agent_id = $1 AND target_type = $2 AND target_id = $3 LIMIT 1`,
       [input.agentId, targetType, targetId],
     ) as GrantRow | undefined;
     if (!row) throw new AgentGrantError('AGENT_GRANT_WRITE_FAILED', 'Agent grant could not be stored.', 500);
@@ -218,7 +218,7 @@ export async function removeAgentGrant(input: {
   const database = await openDb();
   try {
     await database.run(
-      `DELETE FROM agent_grants WHERE agent_id = ? AND target_type = ? AND target_id = ?`,
+      `DELETE FROM agent_grants WHERE agent_id = $1 AND target_type = $2 AND target_id = $3`,
       [input.agentId, targetType, targetId],
     );
   } finally {

@@ -188,7 +188,7 @@ export async function readAppRuntimeCatalog(organizationId: string): Promise<AiA
       `SELECT provider_installation_id, provider_id, model_id, thinking_level, catalog_revision, migration_state,
               legacy_source_hash, updated_by_user_id, updated_at
        FROM ai_runtime_defaults
-       WHERE organization_id = ?
+       WHERE organization_id = $1
        LIMIT 1`,
       [organizationId],
     ) as CatalogDefaultsRow | undefined;
@@ -196,7 +196,7 @@ export async function readAppRuntimeCatalog(organizationId: string): Promise<AiA
       `SELECT id, provider_id, display_name, source, credential_scope, enabled, status,
               config_json, source_revision, last_synced_at, revision, verified_at, verified_by_user_id
        FROM ai_provider_installations
-       WHERE organization_id = ?
+       WHERE organization_id = $1
        ORDER BY provider_id ASC`,
       [organizationId],
     ) as ProviderRow[];
@@ -204,7 +204,7 @@ export async function readAppRuntimeCatalog(organizationId: string): Promise<AiA
       `SELECT provider_installation_id, model_id, display_name, enabled, is_provider_default,
               reasoning, supports_vision, thinking_levels_json, metadata_json, revision
        FROM ai_provider_models
-       WHERE organization_id = ?
+       WHERE organization_id = $1
        ORDER BY provider_installation_id ASC, display_name ASC, model_id ASC`,
       [organizationId],
     ) as ModelRow[];
@@ -289,7 +289,7 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
     const current = await connection.get(
       `SELECT catalog_revision, legacy_source_hash
        FROM ai_runtime_defaults
-       WHERE organization_id = ?
+       WHERE organization_id = $1
        LIMIT 1 FOR UPDATE`,
       [input.organizationId],
     ) as { catalog_revision?: number | string | null; legacy_source_hash?: string | null } | undefined;
@@ -300,8 +300,8 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
 
     const nextRevision = currentRevision + 1;
     const now = Date.now();
-    await connection.run('DELETE FROM ai_provider_models WHERE organization_id = ?', [input.organizationId]);
-    await connection.run('DELETE FROM ai_provider_installations WHERE organization_id = ?', [input.organizationId]);
+    await connection.run('DELETE FROM ai_provider_models WHERE organization_id = $1', [input.organizationId]);
+    await connection.run('DELETE FROM ai_provider_installations WHERE organization_id = $1', [input.organizationId]);
 
     for (const provider of input.providers) {
       await connection.run(
@@ -309,7 +309,7 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
           id, organization_id, provider_id, display_name, source, credential_scope,
           enabled, status, config_json, source_revision, last_synced_at, revision,
           verified_at, verified_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
         [
           provider.installationId,
           input.organizationId,
@@ -335,7 +335,7 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
             organization_id, provider_installation_id, model_id, display_name, enabled,
             is_provider_default, reasoning, supports_vision, thinking_levels_json,
             metadata_json, revision, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
           [
             input.organizationId,
             provider.installationId,
@@ -359,7 +359,7 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
       `INSERT INTO ai_runtime_defaults (
         organization_id, provider_installation_id, provider_id, model_id, thinking_level, catalog_revision,
         migration_state, legacy_source_hash, updated_by_user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       ON CONFLICT (organization_id) DO UPDATE SET
         provider_installation_id = excluded.provider_installation_id,
         provider_id = excluded.provider_id,
@@ -412,7 +412,7 @@ export async function updateProviderVerificationStore(
     const defaults = await connection.get(
       `SELECT catalog_revision
        FROM ai_runtime_defaults
-       WHERE organization_id = ?
+       WHERE organization_id = $1
        LIMIT 1 FOR UPDATE`,
       [input.organizationId],
     ) as { catalog_revision?: number | string | null } | undefined;
@@ -424,7 +424,7 @@ export async function updateProviderVerificationStore(
     const provider = await connection.get(
       `SELECT revision, enabled
        FROM ai_provider_installations
-       WHERE organization_id = ? AND id = ?
+       WHERE organization_id = $1 AND id = $2
        LIMIT 1 FOR UPDATE`,
       [input.organizationId, input.providerInstallationId],
     ) as { revision?: number | string | null; enabled?: number | string | boolean } | undefined;
@@ -440,8 +440,8 @@ export async function updateProviderVerificationStore(
     const nextProviderRevision = input.expectedProviderRevision + 1;
     const defaultsResult = await connection.run(
       `UPDATE ai_runtime_defaults
-       SET catalog_revision = ?, updated_by_user_id = ?, updated_at = ?
-       WHERE organization_id = ? AND catalog_revision = ?`,
+       SET catalog_revision = $1, updated_by_user_id = $2, updated_at = $3
+       WHERE organization_id = $4 AND catalog_revision = $5`,
       [
         nextCatalogRevision,
         input.actorUserId,
@@ -456,8 +456,8 @@ export async function updateProviderVerificationStore(
 
     const providerResult = await connection.run(
       `UPDATE ai_provider_installations
-       SET status = ?, verified_at = ?, verified_by_user_id = ?, revision = ?, updated_at = ?
-       WHERE organization_id = ? AND id = ? AND revision = ? AND enabled = 1`,
+       SET status = $1, verified_at = $2, verified_by_user_id = $3, revision = $4, updated_at = $5
+       WHERE organization_id = $6 AND id = $7 AND revision = $8 AND enabled = 1`,
       [
         input.status,
         input.verifiedAt,

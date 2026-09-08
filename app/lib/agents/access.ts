@@ -133,7 +133,7 @@ async function requireOrganizationId(userId: string): Promise<string> {
 
 async function assertSpecialAgent(database: SqlConnection, agentId: string): Promise<void> {
   const agent = await database.get(
-    `SELECT agent_id, type FROM agents WHERE agent_id = ? LIMIT 1`,
+    `SELECT agent_id, type FROM agents WHERE agent_id = $1 LIMIT 1`,
     [agentId],
   ) as { agent_id: string; type: string } | undefined;
   if (!agent) {
@@ -161,8 +161,8 @@ export async function getAgentAccess(
           m.can_use, m.can_edit, m.can_manage
         FROM agents a
         LEFT JOIN agent_members m
-          ON m.agent_id = a.agent_id AND m.user_id = ? AND m.status = 'active'
-        WHERE a.agent_id = ?
+          ON m.agent_id = a.agent_id AND m.user_id = $1 AND m.status = 'active'
+        WHERE a.agent_id = $2
         LIMIT 1
       `,
       [userId, agentId],
@@ -191,7 +191,7 @@ export async function getAgentAccess(
 
     const permission = await database.get(
       `SELECT role, status FROM organization_user_permissions
-       WHERE organization_id = ? AND user_id = ? LIMIT 1`,
+       WHERE organization_id = $1 AND user_id = $2 LIMIT 1`,
       [row.organization_id, userId],
     ) as { role?: string | null; status?: string | null } | undefined;
     if (!permission || permission.status !== 'active') return NO_AGENT_ACCESS;
@@ -200,7 +200,7 @@ export async function getAgentAccess(
     const grantRows = await database.all(
       `SELECT target_type, target_id, can_use, can_edit, can_manage
        FROM agent_grants
-       WHERE agent_id = ? AND organization_id = ?`,
+       WHERE agent_id = $1 AND organization_id = $2`,
       [agentId, row.organization_id],
     ) as Array<{
       target_type: string;
@@ -215,20 +215,20 @@ export async function getAgentAccess(
         `SELECT DISTINCT w.id
          FROM canvas_workspaces w
          LEFT JOIN canvas_workspace_members wm
-           ON wm.workspace_id = w.id AND wm.user_id = ? AND wm.status = 'active'
+           ON wm.workspace_id = w.id AND wm.user_id = $1 AND wm.status = 'active'
          LEFT JOIN canvas_project_members pm
-           ON pm.project_id = w.project_id AND pm.user_id = ? AND pm.status = 'active'
-         WHERE w.organization_id = ? AND w.status = 'active'
-           AND (w.type = 'organization' OR w.owner_user_id = ? OR wm.user_id IS NOT NULL OR pm.user_id IS NOT NULL)`,
+           ON pm.project_id = w.project_id AND pm.user_id = $2 AND pm.status = 'active'
+         WHERE w.organization_id = $3 AND w.status = 'active'
+           AND (w.type = 'organization' OR w.owner_user_id = $4 OR wm.user_id IS NOT NULL OR pm.user_id IS NOT NULL)`,
         [userId, userId, row.organization_id, userId],
       ),
       isWorkspaceScoped ? Promise.resolve([]) : database.all(
         `SELECT DISTINCT p.id
          FROM canvas_projects p
          LEFT JOIN canvas_project_members pm
-           ON pm.project_id = p.id AND pm.user_id = ? AND pm.status = 'active'
-         WHERE p.organization_id = ? AND p.status = 'active'
-           AND (p.created_by_user_id = ? OR pm.user_id IS NOT NULL OR ? IN ('owner', 'admin'))`,
+           ON pm.project_id = p.id AND pm.user_id = $1 AND pm.status = 'active'
+         WHERE p.organization_id = $2 AND p.status = 'active'
+           AND (p.created_by_user_id = $3 OR pm.user_id IS NOT NULL OR $4 IN ('owner', 'admin'))`,
         [userId, row.organization_id, userId, permission.role || 'member'],
       ),
     ]) as [Array<{ id: string }>, Array<{ id: string }>];
@@ -311,7 +311,7 @@ export async function createAgentManagerMembership(agentIdInput: string, userId:
     await database.run('BEGIN');
     await assertSpecialAgent(database, agentId);
     const user = await database.get(
-      `SELECT id FROM "user" WHERE id = ? AND COALESCE(banned, 0) = 0 LIMIT 1`,
+      `SELECT id FROM "user" WHERE id = $1 AND COALESCE(banned, 0) = 0 LIMIT 1`,
       [userId],
     );
     if (!user) {
@@ -323,7 +323,7 @@ export async function createAgentManagerMembership(agentIdInput: string, userId:
         INSERT INTO agent_members (
           agent_id, organization_id, user_id, role, status,
           can_use, can_edit, can_manage, invited_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, 'manager', 'active', 1, 1, 1, ?, ?, ?)
+        ) VALUES ($1, $2, $3, 'manager', 'active', 1, 1, 1, $4, $5, $6)
         ON CONFLICT(agent_id, user_id) DO UPDATE SET
           organization_id = excluded.organization_id,
           role = 'manager',
@@ -335,7 +335,7 @@ export async function createAgentManagerMembership(agentIdInput: string, userId:
       `,
       [agentId, organizationId, userId, userId, now, now],
     );
-    await database.run(`UPDATE agents SET access_policy = 'restricted', updated_at = ? WHERE agent_id = ?`, [now, agentId]);
+    await database.run(`UPDATE agents SET access_policy = 'restricted', updated_at = $1 WHERE agent_id = $2`, [now, agentId]);
     const row = await readAgentMember(database, agentId, userId);
     if (!row) throw new AgentAccessError('AGENT_MEMBER_UPDATE_FAILED', 'Agent member update failed.', 500);
     await database.run('COMMIT');
@@ -360,7 +360,7 @@ async function readAgentMember(database: SqlConnection, agentId: string, userId:
         m.can_use, m.can_edit, m.can_manage
       FROM agent_members m
       LEFT JOIN "user" u ON u.id = m.user_id
-      WHERE m.agent_id = ? AND m.user_id = ?
+      WHERE m.agent_id = $1 AND m.user_id = $2
       LIMIT 1
     `,
     [agentId, userId],
@@ -377,8 +377,8 @@ async function ensureEligibleCandidate(
       SELECT u.id
       FROM "user" u
       JOIN organization_user_permissions p
-        ON p.user_id = u.id AND p.organization_id = ?
-      WHERE u.id = ?
+        ON p.user_id = u.id AND p.organization_id = $1
+      WHERE u.id = $2
         AND p.status = 'active'
         AND p.role != 'external'
         AND COALESCE(u.banned, 0) = 0
@@ -408,7 +408,7 @@ export async function listAgentMembersForManager(
           m.can_use, m.can_edit, m.can_manage
         FROM agent_members m
         LEFT JOIN "user" u ON u.id = m.user_id
-        WHERE m.agent_id = ? AND m.organization_id = ? AND m.status = 'active'
+        WHERE m.agent_id = $1 AND m.organization_id = $2 AND m.status = 'active'
         ORDER BY m.can_manage DESC, m.can_edit DESC, lower(COALESCE(u.email, u.name, m.user_id)) ASC
       `,
       [agentId, organizationId],
@@ -418,7 +418,7 @@ export async function listAgentMembersForManager(
         SELECT u.id AS user_id, u.name, u.email, p.role, p.status
         FROM "user" u
         JOIN organization_user_permissions p
-          ON p.user_id = u.id AND p.organization_id = ?
+          ON p.user_id = u.id AND p.organization_id = $1
         WHERE p.status = 'active'
           AND p.role != 'external'
           AND COALESCE(u.banned, 0) = 0
@@ -468,7 +468,7 @@ export async function upsertAgentMemberForManager(input: {
     const current = await readAgentMember(database, agentId, userId);
     if (current && booleanFromDb(current.can_manage) && !canManage) {
       const countRow = await database.get(
-        `SELECT COUNT(*) AS count FROM agent_members WHERE agent_id = ? AND status = 'active' AND can_manage = 1`,
+        `SELECT COUNT(*) AS count FROM agent_members WHERE agent_id = $1 AND status = 'active' AND can_manage = 1`,
         [agentId],
       ) as { count?: number | string } | undefined;
       if (Number(countRow?.count || 0) <= 1) {
@@ -482,7 +482,7 @@ export async function upsertAgentMemberForManager(input: {
         INSERT INTO agent_members (
           agent_id, organization_id, user_id, role, status,
           can_use, can_edit, can_manage, invited_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $10)
         ON CONFLICT(agent_id, user_id) DO UPDATE SET
           organization_id = excluded.organization_id,
           role = excluded.role,
@@ -536,14 +536,14 @@ export async function removeAgentMemberForManager(input: {
     const current = await readAgentMember(database, agentId, input.userId);
     if (current && booleanFromDb(current.can_manage)) {
       const countRow = await database.get(
-        `SELECT COUNT(*) AS count FROM agent_members WHERE agent_id = ? AND status = 'active' AND can_manage = 1`,
+        `SELECT COUNT(*) AS count FROM agent_members WHERE agent_id = $1 AND status = 'active' AND can_manage = 1`,
         [agentId],
       ) as { count?: number | string } | undefined;
       if (Number(countRow?.count || 0) <= 1) {
         throw new AgentAccessError('AGENT_LAST_MANAGER', 'The last agent manager cannot be removed.', 409);
       }
     }
-    await database.run(`DELETE FROM agent_members WHERE agent_id = ? AND user_id = ?`, [agentId, input.userId]);
+    await database.run(`DELETE FROM agent_members WHERE agent_id = $1 AND user_id = $2`, [agentId, input.userId]);
     await database.run('COMMIT');
   } catch (error) {
     try {
