@@ -266,6 +266,13 @@ async function ensurePrivateSessionDirectory(tempDir: string): Promise<void> {
   }
 }
 
+export async function clearAgentRuntimeTempDir(tempDir: string): Promise<void> {
+  const resolvedTempDir = path.resolve(tempDir);
+  await ensurePrivateSessionDirectory(resolvedTempDir);
+  await fs.rm(resolvedTempDir, { recursive: true, force: true });
+  await ensurePrivateSessionDirectory(resolvedTempDir);
+}
+
 export async function ensureAgentRuntimeTempDir(identity: AgentRuntimeTempIdentity): Promise<string> {
   const tempDir = resolveAgentRuntimeTempDir(identity);
   const nowMs = Date.now();

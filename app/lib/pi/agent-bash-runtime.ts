@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import {
   acquireAgentRuntimeTempLease,
   assertAgentRuntimeTempQuota,
+  clearAgentRuntimeTempDir,
   getAgentRuntimeTempEnv,
 } from '@/app/lib/pi/agent-runtime-temp';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
@@ -16,6 +17,7 @@ export type AgentBashSandboxMode = 'landlock' | 'local-development';
 const execFileAsync = promisify(execFile);
 const DEFAULT_LANDLOCK_LAUNCHER = '/usr/local/libexec/canvas-agent-landlock';
 const AGENT_BASH_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
+const AGENT_RUNTIME_TEMP_QUOTA_ERROR_PREFIX = 'Agent runtime temp quota exceeded:';
 
 const AGENT_BASH_WORKING_DIRECTORIES = new Set<AgentBashWorkingDirectory>(['temp', 'workspace']);
 
@@ -108,6 +110,28 @@ async function canonicalExistingPath(candidatePath: string): Promise<string | nu
 async function canonicalExistingPaths(candidatePaths: readonly string[]): Promise<string[]> {
   const resolved = await Promise.all(candidatePaths.map((candidatePath) => canonicalExistingPath(candidatePath)));
   return [...new Set(resolved.filter((candidatePath): candidatePath is string => Boolean(candidatePath)))];
+}
+
+async function enforceAgentRuntimeTempQuotaAfterCommand(tempDir: string): Promise<void> {
+  try {
+    await assertAgentRuntimeTempQuota(tempDir);
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.startsWith(AGENT_RUNTIME_TEMP_QUOTA_ERROR_PREFIX)) {
+      throw error;
+    }
+    try {
+      await clearAgentRuntimeTempDir(tempDir);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        `${error.message} Automatic cleanup of the session scratch directory failed.`,
+      );
+    }
+    throw new Error(
+      `${error.message} The session scratch directory was cleared automatically to prevent retained over-quota data.`,
+      { cause: error },
+    );
+  }
 }
 
 export async function buildAgentLandlockArguments(params: {
@@ -204,7 +228,7 @@ export async function executeAgentBashCommand(params: {
   } finally {
     try {
       if (params.tempDir) {
-        await assertAgentRuntimeTempQuota(params.tempDir);
+        await enforceAgentRuntimeTempQuotaAfterCommand(params.tempDir);
       }
     } finally {
       releaseTempLease();

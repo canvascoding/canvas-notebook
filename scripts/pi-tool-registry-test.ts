@@ -705,6 +705,24 @@ async function main() {
   assert.equal(bashStrictEnv.home, path.join(expectedRuntimeTempDir, 'home'));
   assert.equal(bashStrictEnv.cache, path.join(expectedRuntimeTempDir, 'cache'));
 
+  const bashQuotaContext = {
+    ...bashExecutionContext,
+    sessionId: 'bash-quota-session',
+  };
+  const bashQuotaDir = resolveAgentRuntimeTempDir(bashQuotaContext);
+  const previousBashMaxBytes = process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES;
+  process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = '4';
+  try {
+    const bashQuotaResult = await runWithAgentExecutionContext(bashQuotaContext, () => bashTool.execute('bash-runtime-quota-cleanup', {
+      command: 'printf 12345 > oversized.bin',
+    }));
+    assert.match(getText(bashQuotaResult), /quota exceeded.*cleared automatically/i);
+  } finally {
+    if (previousBashMaxBytes === undefined) delete process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES;
+    else process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = previousBashMaxBytes;
+  }
+  assert.deepEqual(await fs.readdir(bashQuotaDir), []);
+
   const loopGuard = createToolLoopGuard({ warningThreshold: 2, terminationThreshold: 3 });
   const emptyUsage = {
     input: 0,

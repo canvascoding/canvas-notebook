@@ -93,11 +93,35 @@ async function main() {
       assert.equal(binary.snapshot, null);
       assert.deepEqual(await fs.readFile(binaryPath), Buffer.from([0, 1, 2, 255]));
 
+      const quotaReplacementPath = path.join(runtimeTempDir, 'calc', 'quota-replacement.bin');
+      const quotaReplacementBefore = await writeAgentBinaryFile({
+        path: quotaReplacementPath,
+        content: Buffer.from([1, 1, 1, 1]),
+      });
+      const previousMaxBytes = process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES;
+      const previousMaxFiles = process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES;
+      process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = String((await inspectAgentRuntimeTempUsage(runtimeTempDir)).bytes);
+      process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES = String((await inspectAgentRuntimeTempUsage(runtimeTempDir)).files);
+      try {
+        await writeAgentBinaryFile({
+          path: quotaReplacementPath,
+          content: Buffer.from([2, 2, 2, 2]),
+          overwrite: true,
+          expectedSha256: quotaReplacementBefore.afterSha256,
+        });
+      } finally {
+        if (previousMaxBytes === undefined) delete process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES;
+        else process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = previousMaxBytes;
+        if (previousMaxFiles === undefined) delete process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES;
+        else process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES = previousMaxFiles;
+      }
+      assert.deepEqual(await fs.readFile(quotaReplacementPath), Buffer.from([2, 2, 2, 2]));
+
       const tempCopyPath = path.join(runtimeTempDir, 'copy', 'scratch-copy.py');
       await copyAgentPaths({ sourcePaths: [tempFile], destinationPath: tempCopyPath });
       assert.equal(await fs.readFile(tempCopyPath, 'utf8'), 'print("temporary v2")\n');
 
-      await deleteAgentPaths({ paths: [tempFile, binaryPath, tempCopyPath] });
+      await deleteAgentPaths({ paths: [tempFile, binaryPath, quotaReplacementPath, tempCopyPath] });
     });
     await assert.rejects(fs.stat(tempFile));
     assert.equal((await fs.stat(runtimeTempDir)).mode & 0o777, 0o700);

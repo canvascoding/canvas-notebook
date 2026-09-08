@@ -1506,6 +1506,8 @@ export async function writeAgentBinaryFile(params: {
         fullPath,
         additionalBytes: params.content.length,
         additionalFiles: 1,
+        releasedBytes: before.buffer?.length ?? 0,
+        releasedFiles: before.existed ? 1 : 0,
       });
       await fs.writeFile(stagingPath, params.content, { flag: 'wx', mode: 0o600 });
       await fs.rename(stagingPath, fullPath);
