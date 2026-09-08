@@ -1,6 +1,7 @@
 import Paragraph from '@tiptap/extension-paragraph';
 import Blockquote from '@tiptap/extension-blockquote';
 import Heading from '@tiptap/extension-heading';
+import { renderInlineWithMarkedWhitespace } from './inline-mark-whitespace';
 
 const EMPTY_PARAGRAPH_MARKDOWN = '&nbsp;';
 
@@ -36,7 +37,7 @@ export const CanvasParagraph = Paragraph.extend({
       return previousNodeIsEmptyParagraph ? EMPTY_PARAGRAPH_MARKDOWN : '';
     }
 
-    const rendered = helpers.renderChildren(content);
+    const rendered = renderInlineWithMarkedWhitespace(content, helpers);
     return THEMATIC_BREAK_PARAGRAPH_PATTERN.test(rendered)
       ? `\\${rendered}`
       : rendered;
@@ -47,6 +48,6 @@ export const CanvasParagraph = Paragraph.extend({
 // Empty Yjs nodes omit content; preserve the authored heading marker.
 export const CanvasHeading = Heading.extend({
   renderMarkdown(node, helpers) {
-    return '#'.repeat(Number(node.attrs?.level) || 1) + ' ' + helpers.renderChildren(node.content ?? []);
+    return '#'.repeat(Number(node.attrs?.level) || 1) + ' ' + renderInlineWithMarkedWhitespace(node.content ?? [], helpers);
   },
 });

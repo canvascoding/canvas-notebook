@@ -14,6 +14,7 @@ import {
 import { CanvasOrderedList, CanvasListItem, CanvasBulletList } from './core/lists-and-tables';
 import { CanvasParagraph, CanvasBlockquote, CanvasHeading } from './core/base-blocks';
 import { CanvasDocument } from './core/document';
+import { CanvasPortableInlineMark, renderInlineWithMarkedWhitespace } from './core/inline-mark-whitespace';
 export { CanvasParagraph, CanvasBlockquote, CanvasHeading } from './core/base-blocks';
 import { TextSelection } from '@tiptap/pm/state';
 
@@ -308,7 +309,7 @@ export const CanvasCallout = Node.create({
   renderMarkdown(node, helpers) {
     const titleNode = node.content?.find((child) => child.type === 'canvasCalloutTitle');
     const bodyNodes = node.content?.filter((child) => child.type !== 'canvasCalloutTitle') ?? [];
-    const title = titleNode ? helpers.renderChildren(titleNode.content ?? []) : 'Note';
+    const title = titleNode ? renderInlineWithMarkedWhitespace(titleNode.content ?? [], helpers) : 'Note';
     const type = safeText(node.attrs?.calloutType, 'note').toLowerCase();
     const fold = node.attrs?.fold === '+' || node.attrs?.fold === '-' ? node.attrs.fold : '';
     const header = `> [!${type}]${fold}${title ? ` ${title}` : ''}`;
@@ -449,7 +450,7 @@ export const CanvasDetails = Node.create({
   renderMarkdown(node, helpers) {
     const summaryNode = node.content?.find((child) => child.type === 'canvasDetailsSummary');
     const contentNode = node.content?.find((child) => child.type === 'canvasDetailsContent');
-    const summary = summaryNode ? helpers.renderChildren(summaryNode.content ?? []) : 'Details';
+    const summary = summaryNode ? renderInlineWithMarkedWhitespace(summaryNode.content ?? [], helpers) : 'Details';
     const body = contentNode ? helpers.renderChildren(contentNode.content ?? [], '\n\n') : '';
     const open = node.attrs?.open ? ' open' : '';
     return `<details${open}>\n<summary>${summary}</summary>\n\n${body}\n\n</details>`;
@@ -672,6 +673,7 @@ export const MarkdownFootnoteDefinition = Node.create({
 export function canvasRichMarkdownExtensions(options?: { obsidianWikiLink?: AnyExtension }) {
   return [
     CanvasDocument,
+    CanvasPortableInlineMark,
     CanvasParagraph,
     CanvasBlockquote,
     CanvasHeading,

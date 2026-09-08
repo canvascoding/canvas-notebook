@@ -251,6 +251,10 @@ Abschluss: Read/Edit-Wechsel, Navigation, Rename, Reconnect, Rechtewechsel und N
 
 Die bereits reproduzierten Format-/Tabellenumbrüche reparieren, strukturierte Ursachen für fehlgeschlagene Checkpoints bereitstellen und die volle Yjs-Sicherung vor einer potenziell verlustbehafteten Markdown-Kopie bestätigen. Revalidierung nach einer Korrektur ermöglichen; Freigabe erst nach nachgewiesenem aktuellem Checkpoint.
 
+Teilstand 6.1: Der reproduzierte Checkpoint-Fehler für markierte Rand-Leerzeichen ist behoben. Die gemeinsame Inline-Serialisierung schützt solche Texte während des Upstream-Renderns und gibt sichere HTML-Markierungen mit Zeichenreferenzen aus. Bereits gültige Markup-Sequenzen behalten ihren bisherigen Ausgabeweg. Eine portable Tokenisierung liest genau die ausgegebenen einfachen, balancierten Inline-Markierungen ohne Browser-DOM; sie ergänzt keine neue Schema-Markierung und keinen allgemeinen HTML-Importer. Absatz, Überschrift, Callout-Titel und Details-Zusammenfassung verwenden denselben Helfer. Code-Spans bleiben auf ihrem bisherigen Pfad. Die Validator-/Äquivalenzregeln wurden nicht gelockert, und die Prüfung verändert keine Yjs-Inhalte.
+
+224 Kombinationen aus Fett, Kursiv, Durchstreichen, Unterstreichen, Highlight und Links einschließlich Leerzeichen, Tabs, NBSP, überlappenden Markierungen, Nachbartext und literalen Entities/Markup bestehen in XML- und Block-Dokumenten. Absatzfälle wurden zusätzlich mit Standard-GFM ohne Canvas-/Tiptap-Tokenisierung gerendert und pro Zeichen auf Text und Markierungen verglichen. Die Core-, Tiptap-Roundtrip- und Preservation-Suiten bestehen. Die mehrdeutige Tabellenkodierung für harte Umbrüche gegenüber Absatzgrenzen sowie Recovery/Revalidierung bleiben als nächste Teile offen.
+
 Abschluss: Strukturtreue und Dateispeicherung werden getrennt bewiesen. Wiederhergestellte Zustände behalten IDs, Löschungen und aktuelle Inhalte. Die Diagnose enthält keine privaten Dokumenttexte in allgemeinen Logs.
 
 ### Schritt 7 — UI-Abnahme und integrierte Regression
