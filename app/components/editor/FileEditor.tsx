@@ -1,6 +1,6 @@
 'use client';
 
-import { documentCapabilities, TEXT_FILE_EXTENSIONS as TEXT_EXTENSIONS, withDocumentRevision } from '@/app/lib/files/document-capabilities';
+import { documentCapabilities, documentContentRevision, TEXT_FILE_EXTENSIONS as TEXT_EXTENSIONS, withDocumentRevision } from '@/app/lib/files/document-capabilities';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { workspaceDownloadUrl } from '@/app/lib/files/client';
 import { useLiveMarkdown } from './MarkdownDocumentModes';
@@ -744,7 +744,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       permissions: currentFile.stats?.permissions,
     };
   }, [currentFile]);
-  const documentRevision = currentFile?.stats?.sha256 ?? currentFile?.revision?.id ?? String(currentFile?.stats?.modified ?? '');
+  const documentRevision = documentContentRevision(currentFile);
   const mediaSource = withDocumentRevision(toMediaUrl(currentFilePath ?? '', { workspaceId: currentFileWorkspaceId }), documentRevision);
   const mediaMimeType = MEDIA_MIME_TYPES[extension];
   const imagePaths = useMemo(

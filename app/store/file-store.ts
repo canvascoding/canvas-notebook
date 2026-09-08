@@ -235,6 +235,7 @@ function areFileStatsEqual(left?: FileStats, right?: FileStats) {
     left?.size === right?.size &&
     left?.modified === right?.modified &&
     left?.permissions === right?.permissions &&
+    left?.fileVersion === right?.fileVersion &&
     left?.sha256 === right?.sha256
   );
 }
@@ -244,10 +245,11 @@ function updateFileRevision(
   filePath: string,
   stats?: FileStats,
 ): Record<string, string> {
-  if (!stats?.sha256 || revisions[filePath] === stats.sha256) return revisions;
+  const revision = stats?.sha256 ?? stats?.fileVersion;
+  if (!revision || revisions[filePath] === revision) return revisions;
   return {
     ...revisions,
-    [filePath]: stats.sha256,
+    [filePath]: revision,
   };
 }
 
@@ -883,7 +885,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         set({ pendingExternalFile: refreshedFile, documentSyncStatus: 'conflict' });
         return null;
       }
-      set({ pendingExternalFile: null, documentSyncStatus: changed ? 'updated' : 'idle' });
+      // A filesystem checkpoint is not the authoritative live document.
+      set({ pendingExternalFile: null, documentSyncStatus: changed && !collaborative ? 'updated' : 'idle' });
       const nextFileRevisions = updateFileRevision(get().fileRevisions, path, data.stats);
 
       if (

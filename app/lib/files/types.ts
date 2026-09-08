@@ -37,6 +37,8 @@ export interface FileStats {
   created?: number;
   permissions: string;
   sha256?: string;
+  /** Precise filesystem identity for metadata-only reads, independent of persisted revisions. */
+  fileVersion?: string;
 }
 
 export type FileCollaborationStrategy = 'crdt_text' | 'excalidraw_scene' | 'revision_check' | 'exclusive_lock';
