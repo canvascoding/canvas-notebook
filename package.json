@@ -142,6 +142,7 @@
     "test:mcp:server-diagnostics": "tsx --conditions react-server scripts/mcp-server-diagnostics-test.ts",
     "test:mcp:server-request-history": "tsx --conditions react-server scripts/mcp-server-request-history-test.ts",
     "test:mcp:server-settings": "node scripts/mcp-server-runtime-bootstrap-test.mjs && tsx --conditions react-server scripts/mcp-server-settings-test.ts",
+    "test:mcp:server-settings-ui": "tsx scripts/mcp-server-settings-ui-test.tsx",
     "test:mcp:server-http-smoke": "tsx scripts/mcp-server-http-smoke-test.ts",
     "test:studio:seedance": "tsx scripts/seedance-generation-test.ts",
     "test:studio:veo": "tsx scripts/veo-generation-test.ts",
