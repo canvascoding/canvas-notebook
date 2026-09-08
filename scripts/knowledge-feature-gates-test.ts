@@ -80,23 +80,23 @@ function resourceStatus(overrides: Partial<KnowledgeResourceStatus>): KnowledgeR
 }
 
 function main() {
-  const sqliteStatus = resourceStatus({
+  const postgresStatus = resourceStatus({
     availability: 'disabled',
-    databaseProvider: 'sqlite',
+    databaseProvider: 'postgres',
     postgresReady: false,
     pgvectorReady: false,
     canEnableKnowledge: false,
     blockers: ['requires_postgres'],
   });
-  const sqliteGates = resolveKnowledgeFeatureGates({
+  const postgresGates = resolveKnowledgeFeatureGates({
     settings: BASE_SETTINGS,
-    resourceStatus: sqliteStatus,
+    resourceStatus: postgresStatus,
     state: TEAM_STATE,
   });
-  assert.equal(getKnowledgeFeatureGate(sqliteGates, 'knowledge_auto_ingestion')?.status, 'blocked');
-  assert.equal(getKnowledgeFeatureGate(sqliteGates, 'rag_retrieval')?.blockers.includes('requires_postgres'), true);
+  assert.equal(getKnowledgeFeatureGate(postgresGates, 'knowledge_auto_ingestion')?.status, 'blocked');
+  assert.equal(getKnowledgeFeatureGate(postgresGates, 'rag_retrieval')?.blockers.includes('requires_postgres'), true);
 
-  const allRequestedOnSqlite = resolveKnowledgeFeatureGates({
+  const allRequestedOnPostgres = resolveKnowledgeFeatureGates({
     settings: {
       ...BASE_SETTINGS,
       knowledgeAutoIngestionEnabled: true,
@@ -105,12 +105,12 @@ function main() {
       knowledgeGraphEnabled: true,
       liveCollaborationEnabled: true,
     },
-    resourceStatus: sqliteStatus,
+    resourceStatus: postgresStatus,
     state: TEAM_STATE,
   });
-  const sqliteBlockers = collectEnabledKnowledgeFeatureGateBlockers(allRequestedOnSqlite);
-  assert.ok(sqliteBlockers.includes('requires_postgres'));
-  assert.ok(sqliteBlockers.includes('requires_pgvector'));
+  const postgresBlockers = collectEnabledKnowledgeFeatureGateBlockers(allRequestedOnPostgres);
+  assert.ok(postgresBlockers.includes('requires_postgres'));
+  assert.ok(postgresBlockers.includes('requires_pgvector'));
 
   const postgresWithoutPgvector = resourceStatus({
     pgvectorReady: false,

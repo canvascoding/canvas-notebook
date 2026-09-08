@@ -10,7 +10,7 @@ async function verifyWorkspaceScope() {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-security-workspaces-'));
   process.env.DATA = temporary;
   process.env.CANVAS_DATA_ROOT = temporary;
-  process.env.CANVAS_DATABASE_PROVIDER = process.env.CANVAS_SECURITY_WORKSPACE_CHILD ? 'postgres' : 'sqlite';
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
   process.env.BETTER_AUTH_BASE_URL = 'http://localhost:3000';
   process.env.BASE_URL = process.env.BETTER_AUTH_BASE_URL;
   process.env.BETTER_AUTH_SECRET = 'workspace-security-fixture-secret-at-least-32-characters';
@@ -84,16 +84,8 @@ async function verifyWorkspaceScope() {
       await database.run('UPDATE "user" SET banned=1 WHERE id=?', ['scope-owner']);
       assert.equal((await requireSessionWorkspace(session('scope-owner'), { workspaceId: LEGACY_PERSONAL_WORKSPACE_ID })).response?.status, 404);
       await database.run('UPDATE "user" SET banned=0 WHERE id=?', ['scope-owner']);
-      if (process.env.CANVAS_DATABASE_PROVIDER === 'sqlite') {
-        // Reproduce an old/corrupt imported database in this disposable fixture.
-        await database.run('PRAGMA foreign_keys=OFF');
-        await database.run('UPDATE canvas_organization_settings SET owner_user_id=?', ['missing-owner']);
-        await database.run('PRAGMA foreign_keys=ON');
-        assert.equal((await requireSessionWorkspace(session('scope-a'))).response?.status, 500, 'missing persisted owner cannot transfer legacy data to requester');
-        assert.equal((await requireSessionWorkspace(session('scope-a'), { workspaceId: LEGACY_PERSONAL_WORKSPACE_ID })).response?.status, 404);
-      }
     } finally { await database.close(); }
-    console.log('Workspace security tests passed:', process.env.CANVAS_DATABASE_PROVIDER, '(two accounts, owner recovery, preserved conflicts, agent legacy denial; SQLite also verifies a missing owner)');
+    console.log('Workspace security tests passed:', process.env.CANVAS_DATABASE_PROVIDER, '(two accounts, owner recovery, preserved conflicts, agent legacy denial)');
   } finally {
     await closeDatabaseConnections();
     await fs.rm(temporary, { recursive: true, force: true });

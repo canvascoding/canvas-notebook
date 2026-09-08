@@ -50,7 +50,7 @@ async function main() {
         NODE_ENV: 'test',
         DATA: dataRoot,
         CANVAS_DATA_ROOT: dataRoot,
-        CANVAS_DATABASE_PROVIDER: 'sqlite',
+        CANVAS_DATABASE_PROVIDER: 'postgres',
         DATABASE_URL: '',
         CANVAS_BOOTSTRAP_SEED_PLUGINS: 'document-suite',
         CANVAS_BOOTSTRAP_SEED_SKILLS: '__none__',

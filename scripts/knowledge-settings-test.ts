@@ -65,11 +65,11 @@ async function main() {
     assert.equal(defaults.liveCollaborationEnabled, false);
     assert.equal(defaults.remoteParsingEnabled, false);
 
-    const sqliteStatus = await resolveKnowledgeResourceStatus(defaults, postgresState);
-    assert.equal(sqliteStatus.postgresReady, false);
-    assert.equal(sqliteStatus.canEnableKnowledge, false);
-    assert.ok(sqliteStatus.blockers.includes('requires_postgres'));
-    assert.equal(sqliteStatus.featureGates.some((gate) => gate.key === 'rag_retrieval' && gate.status === 'blocked'), true);
+    const postgresStatus = await resolveKnowledgeResourceStatus(defaults, postgresState);
+    assert.equal(postgresStatus.postgresReady, false);
+    assert.equal(postgresStatus.canEnableKnowledge, false);
+    assert.ok(postgresStatus.blockers.includes('requires_postgres'));
+    assert.equal(postgresStatus.featureGates.some((gate) => gate.key === 'rag_retrieval' && gate.status === 'blocked'), true);
 
     const doclingStatus = await resolveKnowledgeResourceStatus({ ...defaults, doclingEnabled: true, ocrEnabled: true }, postgresState);
     assert.equal(doclingStatus.parser.docling, 'not_checked');

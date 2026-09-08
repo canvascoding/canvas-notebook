@@ -68,7 +68,7 @@ function main(): void {
       + '0b8fda3f43e36ad165e559b8f0d155755cc1296f version v2.3.4. '
       + 'Reference https://example.com/docs?view=ok.',
     ),
-    assistant('TypeError cannot serialize app/lib/pi/history-budget.ts; keep SQLITE_BUSY exact.'),
+    assistant('TypeError cannot serialize app/lib/pi/history-budget.ts; keep the database busy error exact.'),
     {
       role: 'assistant',
       content: [{

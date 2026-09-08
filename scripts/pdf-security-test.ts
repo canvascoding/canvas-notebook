@@ -44,7 +44,7 @@ async function main() {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-pdf-security-'));
   process.env.DATA = temporary;
   process.env.CANVAS_DATA_ROOT = temporary;
-  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
   process.env.BETTER_AUTH_SECRET ||= 'pdf-security-test-secret-000000000000000';
   process.env.CANVAS_BROWSER_EXPORT_MIN_FREE_MEMORY_MB = '0';
   process.env.CANVAS_BROWSER_EXPORT_MAX_LOAD_PER_CPU = '0';

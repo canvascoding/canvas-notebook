@@ -17,7 +17,7 @@ const previousEnvironment = {
 
 process.env.DATA = dataRoot;
 process.env.CANVAS_INSTANCE_ID = 'self_community_recovery_test';
-process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 process.env.CANVAS_LICENSE_CERT = 'certificate.'.padEnd(96, 'r');
 process.env.CANVAS_LICENSE_CONTROL_PLANE_URL = 'https://control.example.test';
 process.env.CANVAS_TEAM_SEAT_CLIENT_ENABLED = 'true';

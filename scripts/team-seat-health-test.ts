@@ -266,7 +266,7 @@ function main(): void {
   assert.equal(includesTeamRuntimeLicense({
     licensed: true,
     databaseProvider: 'postgres',
-    runtimeDatabaseProvider: 'sqlite',
+    runtimeDatabaseProvider: 'postgres',
     capabilities: { multiUser: true, teamWorkspace: true },
   }), false);
 

@@ -19,7 +19,7 @@ const previousEnvironment = {
 
 process.env.DATA = dataRoot;
 process.env.CANVAS_INSTANCE_ID = instanceId;
-process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 process.env.CANVAS_LICENSE_CONTROL_PLANE_URL = 'https://control.example.test';
 
 function base64Url(input: Buffer | string) {

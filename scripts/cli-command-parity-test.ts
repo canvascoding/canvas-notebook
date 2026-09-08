@@ -195,7 +195,7 @@ function initialConfig(installDir: string, dataDir: string, hostPort: number, se
       ONBOARDING: true,
       ALLOW_SIGNUP: false,
       CANVAS_DEPLOYMENT_MODE: 'single_user',
-      CANVAS_DATABASE_PROVIDER: 'sqlite',
+      CANVAS_DATABASE_PROVIDER: 'postgres',
       DATABASE_URL: '',
     },
   };

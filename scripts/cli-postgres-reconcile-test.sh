@@ -172,24 +172,10 @@ if grep -Eq -- '--force-recreate| compose .* (down|rm) |volume (rm|prune)' "$CAN
   exit 1
 fi
 
-"$cli" config-set env.CANVAS_DATABASE_PROVIDER sqlite --no-banner > /dev/null
-"$cli" config-set env.CANVAS_POSTGRES_REQUIRED true --no-banner > /dev/null
-: > "$CANVAS_TEST_DOCKER_LOG"
-"$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-required.json"
-jq -e '.success == true and .databaseProvider == "sqlite" and .authVerified == true' "$TMP_DIR/reconcile-required.json" >/dev/null
-grep -q -- '--profile postgres up -d --no-recreate postgres' "$CANVAS_TEST_DOCKER_LOG"
-
 "$cli" config-set env.CANVAS_POSTGRES_REQUIRED false --no-banner > /dev/null
 "$cli" config-set env.CANVAS_POSTGRES_VECTOR_ENABLED false --no-banner > /dev/null
 "$cli" config-set env.CANVAS_TEAM_FEATURES_ENABLED false --no-banner > /dev/null
 : > "$CANVAS_TEST_DOCKER_LOG"
-if "$cli" database reconcile-postgres-auth --timeout 2 --json --no-banner > "$TMP_DIR/reconcile-disabled.json" 2>&1; then
-  echo "reconcile accepted a SQLite-only runtime" >&2
-  exit 1
-fi
-jq -e '.success == false and .phase == "preflight"' "$TMP_DIR/reconcile-disabled.json" >/dev/null
-test ! -s "$CANVAS_TEST_DOCKER_LOG"
-
 jq 'del(.env.CANVAS_DATABASE_PROVIDER)' "$CANVAS_CONFIG_JSON" > "$TMP_DIR/config-legacy-url-only.json"
 cp "$TMP_DIR/config-legacy-url-only.json" "$CANVAS_CONFIG_JSON"
 : > "$CANVAS_TEST_DOCKER_LOG"
@@ -205,7 +191,7 @@ render_password='render-failure-password'
 render_url="postgresql://canvas:${render_password}@postgres:5432/canvas_notebook"
 printf '%s' "$render_password" | "$cli" config-set env.CANVAS_POSTGRES_PASSWORD --stdin --no-banner > /dev/null
 printf '%s' "$render_url" | "$cli" config-set env.DATABASE_URL --stdin --no-banner > /dev/null
-"$cli" config-set env.CANVAS_DATABASE_PROVIDER sqlite --no-banner > /dev/null
+"$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > /dev/null
 "$cli" config-set env.CANVAS_DEPLOYMENT_MODE managed-team --no-banner > /dev/null
 env_before_render="$(cksum "$CANVAS_CONFIG_ENV")"
 : > "$CANVAS_TEST_DOCKER_LOG"

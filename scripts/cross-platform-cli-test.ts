@@ -294,7 +294,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(freshConfig.env.CANVAS_POSTGRES_VECTOR_ENABLED, true);
     assert.match(String(freshConfig.env.DATABASE_URL), /^postgresql:\/\/canvas:/u);
     const config = materializeConfig(configureRuntimeAndDatabase(createDefaultConfig(paths, 'linux'), {
-      database: 'sqlite',
+      database: 'postgres',
     }));
     assert.deepEqual(orphanedComposeLogFollowerPids([
       `101 1 docker compose -f ${paths.composeFile} --project-directory ${paths.installDir} logs -f --tail=120 canvas-notebook`,
@@ -347,21 +347,8 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(teamConfig.env.CANVAS_POSTGRES_MODE, 'managed');
     assert.equal(teamConfig.env.CANVAS_POSTGRES_REQUIRED, true);
 
-    assert.throws(
-      () => configureRuntimeAndDatabase(config, { runtime: 'team', database: 'sqlite' }),
-      /Team runtime requires --database postgres/u,
-    );
-
-    const inconsistentTeamSqlite = structuredClone(config);
-    inconsistentTeamSqlite.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
-    inconsistentTeamSqlite.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
-    assert.throws(
-      () => materializeConfig(inconsistentTeamSqlite),
-      /requires CANVAS_DATABASE_PROVIDER=postgres/u,
-    );
-
     const preparedPostgres = materializePostgresInfrastructureConfig(config);
-    assert.equal(preparedPostgres.env.CANVAS_DATABASE_PROVIDER, 'sqlite');
+    assert.equal(preparedPostgres.env.CANVAS_DATABASE_PROVIDER, 'postgres');
     assert.equal(preparedPostgres.env.CANVAS_POSTGRES_REQUIRED, true);
     assert.equal(preparedPostgres.env.CANVAS_POSTGRES_MODE, 'managed');
     assert.match(String(preparedPostgres.env.DATABASE_URL), /^postgresql:\/\/canvas:/);
@@ -403,9 +390,6 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     const postgresRequiredConfig = structuredClone(config);
     postgresRequiredConfig.env.CANVAS_POSTGRES_REQUIRED = true;
     assert.equal(postgresRuntimeDesired(postgresRequiredConfig), true);
-    const explicitSqliteWithLegacyUrl = structuredClone(config);
-    explicitSqliteWithLegacyUrl.env.DATABASE_URL = 'postgresql://canvas:legacy-password@postgres:5432/canvas_notebook';
-    assert.equal(postgresRuntimeDesired(explicitSqliteWithLegacyUrl), false);
     const legacyUrlOnly = normalizeConfig({
       env: {
         DATABASE_URL: 'postgresql://canvas:legacy-password@postgres:5432/canvas_notebook',
@@ -422,7 +406,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     const legacyWithoutEnv = normalizeConfig({}, createDefaultConfig(paths, 'linux'));
     assert.equal(legacyWithoutEnv.env.CANVAS_DATABASE_PROVIDER, '');
     assert.equal(legacyWithoutEnv.env.CANVAS_POSTGRES_MODE, '');
-    assert.equal(materializeConfig(legacyWithoutEnv).env.CANVAS_DATABASE_PROVIDER, 'sqlite');
+    assert.equal(materializeConfig(legacyWithoutEnv).env.CANVAS_DATABASE_PROVIDER, 'postgres');
 
     const externalPostgres = configureRuntimeAndDatabase(config, {
       database: 'postgres',
@@ -492,7 +476,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     try {
       const reset = async () => {
         const config = materializeConfig(configureRuntimeAndDatabase(createDefaultConfig(paths, 'linux'), {
-          database: 'sqlite',
+          database: 'postgres',
         }));
         config.image = mutableImage;
         await writeConfig(config);

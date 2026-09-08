@@ -12,7 +12,7 @@ async function main() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-agent-rename-'));
   // Keep unrelated audit/share tables isolated too. Collaboration uses PostgreSQL below.
   process.env.DATA = root;
-  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
   const postgres = new PGlite();
   const connection: SqlConnection = {
     get: async (sql, params = []) => (await postgres.query(sql, params)).rows[0],

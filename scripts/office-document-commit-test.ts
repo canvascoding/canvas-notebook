@@ -20,7 +20,7 @@ async function documentBytes(text: string) {
 async function main() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-office-commit-'));
   process.env.DATA = root;
-  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
   process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
   process.env.BETTER_AUTH_BASE_URL = 'http://localhost:3000';
   const database = new PGlite();

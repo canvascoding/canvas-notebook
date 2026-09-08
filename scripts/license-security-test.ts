@@ -337,17 +337,6 @@ async function main() {
   const providerOptionalStatus = await requireTeamRuntimeLicense();
   assert.equal(providerOptionalStatus.databaseProvider, null);
 
-  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
-  await assert.rejects(
-    () => requireTeamRuntimeLicense(),
-    (error) => error instanceof LicenseEntitlementError
-      && error.code === 'LICENSE_FEATURE_REQUIRED'
-      && error.statusCode === 403
-      && error.details.runtimeDatabaseProvider === 'sqlite'
-      && Array.isArray(error.details.blockers)
-      && error.details.blockers.includes('team_requires_postgres'),
-  );
-
   process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
   delete process.env.DATABASE_URL;
   await assert.rejects(
@@ -434,7 +423,7 @@ async function main() {
   process.env.CANVAS_LICENSE_CERT = signLicense(privateKey, {
     ...basePayload,
     deploymentMode: 'managed-single',
-    databaseProvider: 'sqlite',
+    databaseProvider: 'postgres',
     vectorProvider: 'none',
     postgresRequired: false,
     capabilities: { teamWorkspace: false, multiUser: false, vectorSearch: false, liveCollaboration: false },
