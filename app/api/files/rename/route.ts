@@ -114,8 +114,6 @@ export async function POST(request: NextRequest) {
       fileOptions,
       fullTree: true,
       mutations: [
-        { path: oldPath, type: 'unlink' },
-        { path: newPath, type: 'add' },
         ...linkUpdates.updatedFiles.map((path) => ({ path, type: 'change' as const })),
       ],
     });
@@ -139,7 +137,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return jsonSuccess({ linkUpdates });
+    return jsonSuccess({ linkUpdates, mutation: renameResult.mutation });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to rename path';
     

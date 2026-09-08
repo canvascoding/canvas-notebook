@@ -37,6 +37,7 @@ import { ImageViewer } from './ImageViewer';
 import { PdfViewer } from './PdfViewer';
 import { MediaViewer } from './MediaViewer';
 import { EditorErrorBoundary } from './EditorErrorBoundary';
+import type { OfficeEditorRef } from './OfficeEditor';
 import dynamic from 'next/dynamic';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -471,6 +472,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   } = useEditorStore();
 
   const saveTimeoutRef = useRef<number | null>(null);
+  const officeEditorRef = useRef<OfficeEditorRef>(null);
   const externalReloadTimeoutRef = useRef<number | null>(null);
   const localWriteTrackerRef = useRef(new LocalFileWriteTracker());
   const imagePreviewRef = useRef<HTMLDivElement>(null);
@@ -628,7 +630,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
       return;
     }
-    if (!activePath || !isDirty) return;
+    if (!activePath || !isDirty || currentFile?.unavailable) return;
     if (activeExternalTextChangePath) return;
 
     if (saveTimeoutRef.current) {
@@ -667,7 +669,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         window.clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [activeExternalTextChangePath, activePath, currentFile?.path, currentFile?.collaboration?.crdtCapable, currentFile?.collaboration?.sceneCapable, draft, handleSaveError, isDirty, markSaved, markSaving, saveTrackedFile, setSaveError]);
+  }, [activeExternalTextChangePath, activePath, currentFile?.path, currentFile?.unavailable, currentFile?.collaboration?.crdtCapable, currentFile?.collaboration?.sceneCapable, draft, handleSaveError, isDirty, markSaved, markSaving, saveTrackedFile, setSaveError]);
 
   const extension = useMemo(() => {
     if (!currentFile) return '';
@@ -954,6 +956,31 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     onClosePreview?.();
   }, [onClosePreview]);
 
+  const downloadLocalRecovery = async () => {
+    if (!currentFile) return;
+    try {
+      const content = isOffice ? await officeEditorRef.current?.save() : useEditorStore.getState().draft;
+      if (content == null) throw new Error(t('failedToSaveFile'));
+      const blob = content.startsWith('base64:')
+        ? new Blob([Uint8Array.from(atob(content.slice(7)), (char) => char.charCodeAt(0))])
+        : new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = currentFile.path.split('/').pop() || 'recovered-file';
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('failedToSaveFile'));
+    }
+  };
+
+  const discardUnavailableDocument = () => {
+    useFileStore.getState().clearCurrentFile();
+    useEditorStore.getState().clear();
+    onClosePreview?.();
+  };
+
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
@@ -961,6 +988,10 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         const { activePath: pathToSave, draft: contentToSave } =
           useEditorStore.getState();
         if (!pathToSave) return;
+        if (useFileStore.getState().currentFile?.unavailable) {
+          toast.error(t('unavailableLocalChanges'));
+          return;
+        }
         if (getExtension(pathToSave) === 'docx') {
           const guard = getDocumentTransitionGuard(currentFileWorkspaceId, pathToSave);
           if (guard) void guard.prepare().catch((error) => toast.error(getSaveErrorMessage(error)));
@@ -1398,6 +1429,16 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           </div>
         </div>
       </TooltipProvider>
+      {currentFile.unavailable ? (
+        <div role="status" data-testid="unavailable-document-recovery" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted px-3 py-2 text-xs">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span className="min-w-0 flex-1">{t('unavailableLocalChanges')}</span>
+          {(isText || isExcalidraw || (isOffice && extension !== 'pptx')) ? (
+            <Button variant="outline" size="sm" onClick={() => void downloadLocalRecovery()}>{t('downloadLocalChanges')}</Button>
+          ) : null}
+          <Button variant="ghost" size="sm" onClick={discardUnavailableDocument}>{t('discardUnavailableDocument')}</Button>
+        </div>
+      ) : null}
       {activeExternalTextChange ? (
         <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-muted/60 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:px-4">
           <div className="flex min-w-0 items-start gap-2">
@@ -1490,6 +1531,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             <DocxWorkspaceEditor key={`${currentFileWorkspaceId}:${currentFile.path}`} path={currentFile.path} workspaceId={currentFileWorkspaceId} />
           ) : isOffice ? (
             <OfficeEditor 
+              ref={officeEditorRef}
               key={currentFile.path} 
               path={currentFile.path} 
               extension={extension} 

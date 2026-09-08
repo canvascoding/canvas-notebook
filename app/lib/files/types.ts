@@ -86,6 +86,8 @@ export interface CurrentFile {
   stats?: FileStats;
   revision?: FileRevisionRecord | null;
   collaboration?: FileCollaborationState | null;
+  /** Keep the local editor mounted when the file disappears or is replaced. */
+  unavailable?: 'deleted' | 'replaced';
 }
 
 export type FileLoadResult =

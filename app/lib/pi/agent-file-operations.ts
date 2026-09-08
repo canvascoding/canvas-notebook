@@ -45,7 +45,7 @@ import {
   withWorkspaceFileMutationLocks,
   writeFile as writeWorkspaceFile,
 } from '@/app/lib/filesystem/workspace-files';
-import { publishWorkspaceFileMutation, type FileEventType } from '@/app/lib/filesystem/file-watcher';
+import { publishWorkspaceFileMutation, withWorkspacePathRenameEvent, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import {
@@ -2422,47 +2422,50 @@ export async function moveAgentPaths(params: {
       }
 
       for (const entry of entries) {
-        if (!entry.destinationResolvedPath) continue;
-        await fs.mkdir(path.dirname(entry.destinationResolvedPath), { recursive: true });
-        if (entry.overwritten && params.overwrite) {
-          await fs.rm(entry.destinationResolvedPath, { recursive: true, force: true });
-        }
-
-        try {
-          await fs.rename(entry.sourceResolvedPath, entry.destinationResolvedPath);
-        } catch (error) {
-          if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV')) {
-            throw error;
+        const destination = entry.destinationResolvedPath;
+        if (!destination) continue;
+        const oldPath = moveWorkspace ? workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.sourceResolvedPath) : null;
+        const newPath = moveWorkspace ? workspaceRelativeAgentPathIfWithin(moveWorkspace, destination) : null;
+        const moveEntry = async () => {
+          await fs.mkdir(path.dirname(destination), { recursive: true });
+          if (entry.overwritten && params.overwrite) {
+            await fs.rm(destination, { recursive: true, force: true });
           }
-          await fs.cp(entry.sourceResolvedPath, entry.destinationResolvedPath, { recursive: entry.type === 'directory', force: true });
+          await fs.cp(entry.sourceResolvedPath, destination, { recursive: entry.type === 'directory', force: true });
           await fs.rm(entry.sourceResolvedPath, { recursive: entry.type === 'directory', force: true });
+        };
+        if (moveWorkspace && oldPath && newPath) {
+          await withWorkspacePathRenameEvent(moveWorkspace, {
+            type: 'rename', operationId: randomUUID(), workspaceId: moveWorkspace.workspaceId, oldPath, newPath,
+          }, moveEntry);
+        } else {
+          await moveEntry();
         }
       }
       await verifyPathOperationEntries({ entries, sourceMustBeRemoved: true });
       const copiedIntoWorkspace: string[] = [];
       const removedFromWorkspace: string[] = [];
       for (const entry of entries) {
-        if (entry.destinationResolvedPath) {
-          if (moveWorkspace) {
-            const oldPath = workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.sourceResolvedPath);
-            const newPath = workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.destinationResolvedPath);
-            if (oldPath && newPath && getDatabaseProvider() === 'postgres') {
-              await moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
-              await syncPublicSharesAfterMove(oldPath, newPath, moveWorkspace);
-            } else if (oldPath && newPath) {
-              await syncPublicSharesAfterMove(oldPath, newPath, moveWorkspace);
-            } else if (oldPath) {
-              removedFromWorkspace.push(oldPath);
-            } else if (newPath) {
-              copiedIntoWorkspace.push(newPath);
-            }
+        if (!entry.destinationResolvedPath) continue;
+        if (moveWorkspace) {
+          const oldPath = workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.sourceResolvedPath);
+          const newPath = workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.destinationResolvedPath);
+          if (oldPath && newPath && getDatabaseProvider() === 'postgres') {
+            await moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
+            await syncPublicSharesAfterMove(oldPath, newPath, moveWorkspace);
+          } else if (oldPath && newPath) {
+            await syncPublicSharesAfterMove(oldPath, newPath, moveWorkspace);
+          } else if (oldPath) {
+            removedFromWorkspace.push(oldPath);
+          } else if (newPath) {
+            copiedIntoWorkspace.push(newPath);
           }
-          publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
-          publishAgentWorkspaceMutation(
-            entry.destinationResolvedPath,
-            entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
-          );
         }
+        publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
+        publishAgentWorkspaceMutation(
+          entry.destinationResolvedPath,
+          entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
+        );
       }
       if (moveWorkspace && copiedIntoWorkspace.length > 0) {
         if (getDatabaseProvider() === 'postgres') {

@@ -1,4 +1,5 @@
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
+import type { WorkspacePathRenameMutation } from './file-events';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { CurrentFile, FileCollaborationState, FileNode, FileRevisionRecord, FileStats } from './types';
@@ -419,6 +420,7 @@ export async function restoreWorkspaceTrashEntry(
 }
 
 export interface WorkspaceRenameResult {
+  mutation?: WorkspacePathRenameMutation;
   linkUpdates?: {
     updatedFiles: string[];
     updatedLinks: number;
@@ -430,10 +432,11 @@ export async function renameWorkspacePath(
   oldPath: string,
   newPath: string,
   overwrite = false,
+  workspaceId?: string | null,
 ): Promise<WorkspaceRenameResult> {
   const response = await fetch('/api/files/rename', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
     credentials: 'include',
     body: JSON.stringify({ oldPath, newPath, overwrite }),
   });
