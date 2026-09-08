@@ -167,6 +167,7 @@ export function MemorySettingsPanel() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [exportingCollectionId, setExportingCollectionId] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<MemoryPermissions | null>(null);
   const [entryView, setEntryView] = useState<MemoryEntryView>(() => entryViewFromParam(searchParams.get('status')));
   const [entryQuery, setEntryQuery] = useState('');
@@ -213,13 +214,6 @@ export function MemorySettingsPanel() {
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
     [collections, selectedCollectionId],
   );
-  const selectedViewCount = selectedCollection
-    ? entryView === 'published'
-      ? selectedCollection.publishedCount
-      : entryView === 'pending'
-        ? selectedCollection.pendingCount
-        : selectedCollection.archivedCount
-    : 0;
   const activeTransferTargets = useMemo(() => agentOwners.filter((owner) => owner.status === 'active' && owner.agentId !== agentId), [agentId, agentOwners]);
   const agentMemoryReadOnly = scope === 'agent' && selectedAgentOwner?.status === 'deleted';
   const canUseScope = scope === 'agent'
@@ -610,12 +604,31 @@ export function MemorySettingsPanel() {
     } catch (historyError) { setError(historyError instanceof Error ? historyError.message : t('errors.loadHistory')); }
   };
 
-  const exportCurrentCollection = () => {
-    const content = JSON.stringify({ exportedAt: new Date().toISOString(), scope, collection: selectedCollection, entries }, null, 2);
-    const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
-    const anchor = document.createElement('a');
-    anchor.href = url; anchor.download = `canvas-memory-${scope}-${selectedCollection?.category || 'export'}.json`; anchor.click();
-    URL.revokeObjectURL(url);
+  const exportCurrentCollection = async () => {
+    if (!selectedCollection) return;
+    setExportingCollectionId(selectedCollection.id);
+    setError(null);
+    try {
+      const exportQuery = queryForScope(scope, agentId, workspaceId, selectedCollection.id);
+      exportQuery.set('includeArchived', '1');
+      const data = await readJson<{ entries: Entry[] }>(`/api/memory?${exportQuery.toString()}`);
+      const content = JSON.stringify({
+        exportedAt: new Date().toISOString(),
+        scope,
+        collection: selectedCollection,
+        entries: data.entries,
+      }, null, 2);
+      const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `canvas-memory-${scope}-${selectedCollection.category}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : t('errors.loadEntries'));
+    } finally {
+      setExportingCollectionId(null);
+    }
   };
 
   const exportSelectedAgentMemory = async () => {
@@ -887,67 +900,58 @@ export function MemorySettingsPanel() {
                     const categoryDescription = memoryCategoryDescription(collection.category, locale);
                     const selected = selectedCollectionId === collection.id;
                     return (
-                      <button
-                        type="button"
+                      <div
                         key={collection.id}
                         data-testid="memory-category-card"
                         data-collection-id={collection.id}
-                        aria-pressed={selected}
-                        onClick={() => selectCollection(collection.id)}
                         className={cn(
-                          'group flex min-h-36 flex-col rounded-xl border bg-card p-4 text-left transition-[border-color,box-shadow,background-color] hover:border-primary/40 hover:bg-muted/20',
+                          'group flex min-h-36 flex-col overflow-hidden rounded-xl border bg-card transition-[border-color,box-shadow,background-color] hover:border-primary/40 hover:bg-muted/20',
                           selected && 'border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/15',
                         )}
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <span className={cn('grid size-9 place-items-center rounded-lg border bg-muted/40 text-muted-foreground', selected && 'border-primary/25 bg-primary/10 text-primary')}>
-                            <BookOpenText className="size-4" />
-                          </span>
-                          <div className="flex items-center gap-2">
-                            {collection.pendingCount > 0 ? <Badge variant="outline">{t('categories.pending', { count: collection.pendingCount })}</Badge> : null}
-                            {collection.archivedCount > 0 ? <Badge variant="outline">{t('categories.archived', { count: collection.archivedCount })}</Badge> : null}
-                            <ChevronRight className={cn('size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5', selected && 'text-primary')} />
+                        <button
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => selectCollection(collection.id)}
+                          className="flex flex-1 flex-col p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <span className={cn('grid size-9 place-items-center rounded-lg border bg-muted/40 text-muted-foreground', selected && 'border-primary/25 bg-primary/10 text-primary')}>
+                              <BookOpenText className="size-4" />
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {collection.pendingCount > 0 ? <Badge variant="outline">{t('categories.pending', { count: collection.pendingCount })}</Badge> : null}
+                              {collection.archivedCount > 0 ? <Badge variant="outline">{t('categories.archived', { count: collection.archivedCount })}</Badge> : null}
+                              <ChevronRight className={cn('size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5', selected && 'text-primary')} />
+                            </div>
                           </div>
-                        </div>
-                        <p className="mt-3 font-semibold tracking-tight">{categoryLabel}</p>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{categoryDescription}</p>
-                        <p className="mt-auto pt-3 text-xs text-muted-foreground">
-                          {t('categories.entries', { count: collection.totalCount })} · {formatDate(collection.updatedAt, locale)}
-                        </p>
-                      </button>
+                          <p className="mt-3 font-semibold tracking-tight">{categoryLabel}</p>
+                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{categoryDescription}</p>
+                          <p className="mt-auto pt-3 text-xs text-muted-foreground">
+                            {t('categories.entries', { count: collection.totalCount })} · {formatDate(collection.updatedAt, locale)}
+                          </p>
+                        </button>
+                        {selected ? (
+                          <div className="border-t border-primary/15 p-3">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full bg-background/80"
+                              onClick={() => void exportCurrentCollection()}
+                              disabled={exportingCollectionId !== null || collection.totalCount === 0}
+                            >
+                              {exportingCollectionId === collection.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Download className="mr-2 size-4" />}
+                              {t('categories.export')}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
                     );
                   })}
                 </div>
               ) : null}
             </CardContent>
           </Card>
-
-          {selectedCollection ? (
-            <Card className="border-primary/20" data-testid="selected-memory-category">
-              <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex min-w-0 gap-3">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
-                    <BookOpenText className="size-5" />
-                  </span>
-                  <div className="min-w-0 space-y-1">
-                    <CardDescription>{t('categories.selected')}</CardDescription>
-                    <CardTitle className="text-lg">{memoryCategoryLabel(selectedCollection.category, locale)}</CardTitle>
-                    <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{memoryCategoryDescription(selectedCollection.category, locale)}</p>
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <Badge variant="secondary">{t('categories.published', { count: selectedCollection.publishedCount })}</Badge>
-                      {selectedCollection.pendingCount > 0 ? <Badge variant="outline">{t('categories.pending', { count: selectedCollection.pendingCount })}</Badge> : null}
-                      {selectedCollection.archivedCount > 0 ? <Badge variant="outline">{t('categories.archived', { count: selectedCollection.archivedCount })}</Badge> : null}
-                    </div>
-                  </div>
-                </div>
-                {selectedViewCount > 0 ? (
-                  <Button variant="outline" size="sm" onClick={exportCurrentCollection}>
-                    <Download className="mr-2 size-4" />{t('categories.export')}
-                  </Button>
-                ) : null}
-              </CardHeader>
-            </Card>
-          ) : null}
 
           <div className="space-y-2">
             {selectedCollection ? (

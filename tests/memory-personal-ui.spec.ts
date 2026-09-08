@@ -181,11 +181,13 @@ test.describe('Memory Manager settings', () => {
 
     await contextCategory.click();
 
-    const selectedCategory = page.getByTestId('selected-memory-category');
+    const selectedCategory = contextCategory.locator('..');
     await expect(selectedCategory).toBeVisible();
-    await expect(selectedCategory.getByText('Ausgewählter Memory-Bereich', { exact: true })).toBeVisible();
+    await expect(contextCategory).toHaveAttribute('aria-pressed', 'true');
     await expect(selectedCategory.getByText('Kontext', { exact: true })).toBeVisible();
     await expect(selectedCategory.getByText('Gemeinsamer, dauerhaft relevanter Kontext.', { exact: true })).toBeVisible();
+    await expect(selectedCategory.getByRole('button', { name: 'Kategorie exportieren' })).toBeVisible();
+    await expect(page.getByTestId('selected-memory-category')).toHaveCount(0);
     const renderedMemory = page.getByTestId('memory-markdown-content').filter({ hasText: 'UI-Neustartprüfung' }).first();
     await expect(renderedMemory).toBeVisible();
     await expect(renderedMemory.locator('strong')).toHaveText('UI-Neustartprüfung');
