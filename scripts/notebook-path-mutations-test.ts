@@ -84,7 +84,8 @@ async function main() {
   const delayed = new FileWatcherClient();
   delayed.acquire();
   const missing = deferred<Response>();
-  globalThis.fetch = (async () => missing.promise) as typeof fetch;
+  let missingReads = 0;
+  globalThis.fetch = (async () => ++missingReads === 1 ? missing.promise : Response.json({ success: true, data: { content: 'recreated', stats: { size: 9, modified: 2, permissions: '100644' } } })) as typeof fetch;
   Source.latest.emit({ type: 'unlink', workspaceId: 'ws-a', path: 'docs/a.txt', relativePath: 'docs/a.txt', dir: 'docs', timestamp: Date.now() });
   Source.latest.emit({ type: 'add', workspaceId: 'ws-a', path: 'docs/a.txt', relativePath: 'docs/a.txt', dir: 'docs', timestamp: Date.now() });
   missing.resolve(new Response('', { status: 404 }));

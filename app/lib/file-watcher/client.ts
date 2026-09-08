@@ -311,6 +311,10 @@ export class FileWatcherClient extends EventTarget {
         });
     }
 
+    if ((event.type === 'change' || event.type === 'add')
+      && useFileStore.getState().currentFile?.path === event.relativePath) {
+      void useFileStore.getState().refreshCurrentFileContent(event.relativePath);
+    }
     if (event.type !== 'change') {
       useFileStore.getState().markDirectoryStale(event.dir || '.');
     }

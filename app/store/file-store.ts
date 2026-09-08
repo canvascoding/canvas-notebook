@@ -1,3 +1,5 @@
+import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
+import { documentCapabilities } from '@/app/lib/files/document-capabilities';
 import { create } from 'zustand';
 import { recordOpenedWorkspaceFile } from '@/app/lib/files/quick-access-client';
 import type {
@@ -13,7 +15,6 @@ import type {
   WorkspaceFileOpenCompletion,
 } from '@/app/lib/files/types';
 import {
-  getExtension,
   getParentDirectories,
   getParentDirectory,
   isSameOrDescendantPath,
@@ -81,42 +82,11 @@ export interface ContextMenuPosition {
   y: number;
 }
 
-const TEXT_EXTENSIONS = new Set([
-  'txt',
-  'log',
-  'js',
-  'jsx',
-  'ts',
-  'tsx',
-  'json',
-  'css',
-  'scss',
-  'html',
-  'yml',
-  'yaml',
-  'md',
-  'mdx',
-  'markdown',
-  'env',
-  'gitignore',
-  'sh',
-  'bash',
-  'zsh',
-  'py',
-  'rb',
-  'go',
-  'rs',
-  'java',
-  'kt',
-  'php',
-  'sql',
-  'toml',
-  'excalidraw',
-]);
 
 const EXPLORER_STATE_STORAGE_KEY = 'canvas.fileExplorerState';
 const fileSaveBaselines = new Map<string, { expectedSha256: string | null; baseRevisionId: string | null }>();
 const saveFileQueues = new Map<string, Promise<void>>();
+const localFileWrites = new LocalFileWriteTracker();
 let fileRefreshRequestId = 0;
 const subdirectoryLoadPromises = new Map<string, { noCache: boolean; promise: Promise<void> }>();
 const DEFAULT_TREE_DEPTH = 0;
@@ -288,6 +258,8 @@ interface FileStoreState {
   fileErrorPath: string | null;
   missingFilePath: string | null;
   fileRevisions: Record<string, string>;
+  pendingExternalFile: CurrentFile | null;
+  documentSyncStatus: 'idle' | 'updating' | 'updated' | 'conflict' | 'error';
 
   // Browser mode
   browserMode: BrowserMode;
@@ -457,6 +429,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   loadingFilePath: null,
   fileLoadRequestId: 0,
   openFileRequestId: 0,
+  pendingExternalFile: null, documentSyncStatus: 'idle',
   browserReveal: null,
   fileError: null,
   fileErrorPath: null,
@@ -700,8 +673,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     });
 
     try {
-      const extension = getExtension(path);
-      const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
+      const isText = documentCapabilities(path).text;
       const useMetaOnly = !isText;
 
       const data = await readWorkspaceFile(path, { metaOnly: useMetaOnly, noCache, workspaceId });
@@ -718,6 +690,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
       const fileName = path.split('/').pop() || path;
       const loadedFile: CurrentFile = {
+        viewId: crypto.randomUUID(),
         path,
         content: data.content,
         stats: data.stats,
@@ -727,6 +700,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       set((state) => ({
         selectedNode: { path, type: 'file', name: fileName },
         currentFile: loadedFile,
+        pendingExternalFile: null, documentSyncStatus: 'idle',
         currentFileWorkspaceId: workspaceId,
         isLoadingFile: false,
         loadingFilePath: null,
@@ -795,19 +769,15 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
     if (get().currentFile?.unavailable) return null;
 
-    const extension = getExtension(path);
-    const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
-    if (!isText) {
-      return null;
-    }
-
+    const originalEditor = useEditorStore.getState();
+    const collaborative = Boolean(get().currentFile?.collaboration?.crdtCapable || get().currentFile?.collaboration?.sceneCapable);
+    const metaOnly = !documentCapabilities(path).text || collaborative;
     const requestId = ++fileRefreshRequestId;
     const originalFile = get().currentFile;
     const loadRequestId = get().fileLoadRequestId;
     const openRequestId = get().openFileRequestId;
     const isCurrent = () => (
       fileRefreshRequestId === requestId
-      && (options.allowDirty || !useEditorStore.getState().isDirty)
       && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
       && get().currentFileWorkspaceId === workspaceId
       && get().currentFile === originalFile
@@ -816,7 +786,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     );
 
     try {
+      set({ documentSyncStatus: 'updating' });
       const data = await readWorkspaceFile(path, {
+        metaOnly,
         noCache: true,
         fallbackMessage: 'Failed to refresh file',
         workspaceId,
@@ -831,11 +803,29 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
       const refreshedFile: CurrentFile = {
         ...currentFile,
-        content: data.content,
+        content: metaOnly ? currentFile.content : data.content,
         stats: data.stats,
         revision: data.revision ?? data.collaboration?.latestRevision ?? currentFile.revision ?? null,
         collaboration: data.collaboration ?? currentFile.collaboration ?? null,
       };
+      const latestEditor = useEditorStore.getState();
+      const dirty = latestEditor.isDirty || Boolean(getDocumentTransitionGuard(workspaceId, path)?.hasPendingChanges());
+      const ownWrite = !metaOnly && localFileWrites.consumeMatchingWrite(`${workspaceId ?? 'legacy'}\0${path}`, data.content);
+      const changed = !ownWrite && (metaOnly
+        ? (data.stats?.sha256 ? data.stats.sha256 !== currentFile.stats?.sha256 : !areFileStatsEqual(currentFile.stats, data.stats))
+        : data.content !== currentFile.content && data.content !== latestEditor.draft);
+      if (!collaborative && dirty && !options.allowDirty) {
+        set(changed ? { pendingExternalFile: refreshedFile, documentSyncStatus: 'conflict' } : {
+          documentSyncStatus: get().pendingExternalFile ? 'conflict' : 'idle',
+        });
+        return null;
+      }
+      // An explicit reload still cannot discard edits made after the click.
+      if (options.allowDirty && latestEditor.draft !== originalEditor.draft) {
+        set({ pendingExternalFile: refreshedFile, documentSyncStatus: 'conflict' });
+        return null;
+      }
+      set({ pendingExternalFile: null, documentSyncStatus: changed ? 'updated' : 'idle' });
       const nextFileRevisions = updateFileRevision(get().fileRevisions, path, data.stats);
 
       if (
@@ -856,18 +846,16 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     } catch (error) {
       if (!isCurrent()) return null;
       if (error instanceof Response && error.status === 404 && get().currentFile?.path === path) {
-        set((state) => ({
-          selectedNode: state.selectedNode?.path === path ? null : state.selectedNode,
-          currentFile: null,
-          currentFileWorkspaceId: null,
-          fileError: null,
-          fileErrorPath: null,
-          missingFilePath: path,
-        }));
+        get().applyPathsDeleted([path], workspaceId);
+        set({ documentSyncStatus: 'idle' });
         return null;
       }
+      set({ documentSyncStatus: 'error' });
       console.warn('[FileStore] Failed to refresh current file content:', error);
       return null;
+    } finally {
+      if (fileRefreshRequestId === requestId && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+        && get().documentSyncStatus === 'updating') set({ documentSyncStatus: get().pendingExternalFile ? 'conflict' : 'idle' });
     }
   },
 
@@ -1056,6 +1044,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       ? useWorkspaceStore.getState().activeWorkspaceId
       : requestedWorkspaceId;
     const snapshot = get();
+    if (snapshot.pendingExternalFile?.path === path && snapshot.currentFileWorkspaceId === workspaceId) throw new Error('This file changed externally. Resolve the conflict before saving.');
     const mutationVersion = pathMutationVersion(workspaceId, path);
     const queueKey = `${workspaceId ?? 'legacy'}\0${path}`;
     const isCurrentScope = () => (
@@ -1071,6 +1060,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
     }
     return enqueueFileSave(workspaceId, path, async () => {
+    if (isCurrentScope() && get().pendingExternalFile?.path === path) throw new Error('Resolve the external change before saving.');
     if (pathMutationVersion(workspaceId, path) !== mutationVersion
       || (get().currentFileWorkspaceId === workspaceId && get().currentFile?.path === path && get().currentFile?.unavailable)) {
       throw new Error('The file was moved or deleted. Keep your local changes and reload its current location.');
@@ -1078,6 +1068,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     if (isCurrentScope() && get().fileLoadRequestId === snapshot.fileLoadRequestId) set({ fileError: null, fileErrorPath: null, missingFilePath: null });
 
     try {
+      localFileWrites.record(queueKey, content);
       const result = await writeWorkspaceFile(path, content, {
         ...fileSaveBaselines.get(queueKey), workspaceId,
       });
@@ -1113,6 +1104,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         }));
       }
     } catch (error) {
+      localFileWrites.discard(queueKey, content);
       const message =
         error instanceof Error ? error.message : 'Failed to save file';
       if (isCurrentScope() && get().fileLoadRequestId === snapshot.fileLoadRequestId) {
@@ -1236,6 +1228,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     while (backgroundContextMenuDirectory !== '.' && affected(backgroundContextMenuDirectory)) backgroundContextMenuDirectory = getParentDirectory(backgroundContextMenuDirectory);
     set({
       fileTree: removeTreePaths(state.fileTree, paths),
+      pendingExternalFile: state.pendingExternalFile && affected(state.pendingExternalFile.path) ? null : state.pendingExternalFile,
       browserReveal: state.browserReveal && affected(state.browserReveal.path) ? null : state.browserReveal,
       selectedNode: state.selectedNode && affected(state.selectedNode.path) ? null : state.selectedNode,
       currentDirectory, expandedDirs,
@@ -1298,6 +1291,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
     set({
       fileTree: renameTreePath(state.fileTree, oldPath, newPath),
+      documentSyncStatus: state.pendingExternalFile ? 'conflict' : 'idle',
+      pendingExternalFile: state.pendingExternalFile ? { ...state.pendingExternalFile, path: mapPath(state.pendingExternalFile.path) } : null,
       browserReveal: state.browserReveal ? { ...state.browserReveal, path: mapPath(state.browserReveal.path) } : null,
       expandedDirs, currentDirectory,
       selectedNode: state.selectedNode ? remapNode(state.selectedNode, oldPath, newPath) : null,
@@ -1497,6 +1492,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       fileTree: [],
       fileTreeWorkspaceId: workspaceId,
       treeGeneration: state.treeGeneration + 1,
+      pendingExternalFile: null, documentSyncStatus: 'idle',
       browserReveal: null,
       rootTreeRequestId: state.rootTreeRequestId + 1,
       isLoadingTree: false,
