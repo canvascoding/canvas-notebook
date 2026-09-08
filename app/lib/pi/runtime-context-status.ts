@@ -3,6 +3,7 @@ import type { PiContextBudgetSnapshot } from '@/app/lib/pi/context-budget';
 import type { PiHistoryComposition } from '@/app/lib/pi/history-budget';
 
 export type PiRuntimeContextStatusProjection = Readonly<{
+  components?: Readonly<Record<string, number>>;
   contextPressure: RuntimeContextPressure;
   nextRequestEstimatedTokens: number;
   nextRequestBudgetExceeded: boolean;
@@ -50,7 +51,9 @@ export function createPiRuntimeContextStatusProjection(input: {
     });
   }
 
-  const pressureTokens = input.composition.estimatedHistoryTokens;
+  const pressureTokens = input.composition.payloadBudgetExceeded
+    ? Math.max(input.composition.estimatedHistoryTokens, input.composition.minimumRequiredTokens)
+    : input.composition.estimatedHistoryTokens;
   const triggerTokens = input.composition.triggerHistoryTokens;
   const fixedAndReservedTokens = Math.max(
     0,

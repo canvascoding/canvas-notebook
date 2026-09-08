@@ -24,6 +24,8 @@ export async function buildMemoryPromptProjection(input: {
   workspaceId?: string | null;
   organizationId?: string | null;
   usableContextTokens?: number | null;
+  /** Status-only projections must not mark memories as used by an agent. */
+  recordUsage?: boolean;
 }): Promise<string> {
   const connection = await openDb();
   try {
@@ -90,10 +92,12 @@ export async function buildMemoryPromptProjection(input: {
       remaining -= tokens;
     }
     if (entries.length === 0) return '';
-    await connection.run(
-      `UPDATE memory_entries SET last_used_at = ? WHERE id IN (${entries.map(() => '?').join(', ')})`,
-      [Date.now(), ...entries.map((entry) => entry.id)],
-    );
+    if (input.recordUsage !== false) {
+      await connection.run(
+        `UPDATE memory_entries SET last_used_at = ? WHERE id IN (${entries.map(() => '?').join(', ')})`,
+        [Date.now(), ...entries.map((entry) => entry.id)],
+      );
+    }
     const userEntries = entries.filter((entry) => entry.scopeType === 'user');
     const agentEntries = entries.filter((entry) => entry.scopeType === 'agent');
     const workspaceEntries = entries.filter((entry) => entry.scopeType === 'workspace');

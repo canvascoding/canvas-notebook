@@ -39,7 +39,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
 import { ChatLiveBrowserLink } from '@/app/components/canvas-agent-chat/ChatLiveBrowserLink';
-import { formatContextTokens } from '@/app/components/canvas-agent-chat/contextStatusDisplay';
+import { formatContextTokens, getContextStatusPresentation } from '@/app/components/canvas-agent-chat/contextStatusDisplay';
+import { ContextMeasurementDetails } from './ContextMeasurementDetails';
 import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import {
   getRuntimeCompactionCauseTranslationKey,
@@ -55,8 +56,6 @@ type ChatHeaderProps = {
   activeSessionAgentId: string;
   chatAgentOptions: AgentProfile[];
   contextDetailedLabel: string;
-  contextProgressPercent: number;
-  contextTargetPercent: number | null;
   contextTooltip: string;
   hideNavHeader: boolean;
   isHistoryOverlayOpen: boolean;
@@ -84,8 +83,6 @@ export function ChatHeader({
   activeSessionAgentId,
   chatAgentOptions,
   contextDetailedLabel,
-  contextProgressPercent,
-  contextTargetPercent,
   contextTooltip,
   hideNavHeader,
   isHistoryOverlayOpen,
@@ -133,11 +130,8 @@ export function ChatHeader({
     && runtimeStatus?.phase === 'idle'
     && compactionStatus?.state !== 'running',
   );
-  const contextWarningLevel = contextProgressPercent >= 95
-    ? 'critical'
-    : contextProgressPercent >= 80
-      ? 'warning'
-      : null;
+  const contextPresentation = getContextStatusPresentation(runtimeStatus);
+  const contextWarningLevel = contextPresentation.severity;
   const contextProgressClass = contextWarningLevel === 'critical'
     ? 'bg-rose-500'
     : contextWarningLevel === 'warning'
@@ -300,8 +294,8 @@ export function ChatHeader({
                   {runtimeStatus ? (
                     <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
                       {runtimeStatus.contextPressure
-                        ? t('contextTriggerUsagePercent', { percent: contextProgressPercent })
-                        : t('contextUsagePercent', { percent: contextProgressPercent })}
+                        ? t('contextTriggerUsagePercent', { percent: contextPresentation.percent })
+                        : t('contextUsagePercent', { percent: contextPresentation.percent })}
                     </span>
                   ) : null}
                 </div>
@@ -313,14 +307,16 @@ export function ChatHeader({
                     <div className="relative h-1 overflow-hidden rounded-full bg-muted">
                       <div
                         data-testid="chat-context-progress"
+                        data-context-percent={contextPresentation.percent}
+                        data-context-basis={contextPresentation.basis}
                         className={cn('h-full rounded-full transition-all', contextProgressClass)}
-                        style={{ width: `${contextProgressPercent}%` }}
+                        style={{ width: `${contextPresentation.progressPercent}%` }}
                       />
-                      {contextTargetPercent !== null ? (
+                      {contextPresentation.targetPercent !== null ? (
                         <span
                           data-testid="chat-context-target"
                           className="absolute inset-y-0 w-px bg-foreground/70"
-                          style={{ left: `${contextTargetPercent}%` }}
+                          style={{ left: `${contextPresentation.targetPercent}%` }}
                           title={t('contextTargetMarker')}
                         />
                       ) : null}
@@ -334,6 +330,7 @@ export function ChatHeader({
                     ) : null}
                   </>
                 ) : null}
+                <ContextMeasurementDetails status={runtimeStatus} />
                 {runtimeStatus?.includedSummary ? (
                   <p className="text-[10px] text-muted-foreground">{t('summaryIncluded')}</p>
                 ) : null}

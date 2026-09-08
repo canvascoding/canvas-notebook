@@ -559,6 +559,14 @@ async function main(): Promise<void> {
     try {
       const used = await lastUsedDb.get(`SELECT last_used_at FROM memory_entries WHERE content = 'Prefers concise responses with direct links.' LIMIT 1`) as { last_used_at?: number | null } | undefined;
       assert.ok(Number(used?.last_used_at ?? 0) > 0);
+      await lastUsedDb.run(`UPDATE memory_entries SET last_used_at = 123 WHERE content = 'Prefers concise responses with direct links.'`);
+      const readOnlyProjection = await buildMemoryPromptProjection({
+        userId: 'user-1', agentId: 'canvas-agent', workspaceId: 'workspace-1',
+        organizationId: 'org-1', usableContextTokens: 10_000, recordUsage: false,
+      });
+      assert.equal(readOnlyProjection, projected, 'status-only memory projection keeps the same context');
+      const afterStatus = await lastUsedDb.get(`SELECT last_used_at FROM memory_entries WHERE content = 'Prefers concise responses with direct links.' LIMIT 1`) as { last_used_at: number };
+      assert.equal(Number(afterStatus.last_used_at), 123, 'status-only reads must not modify memory usage');
     } finally { await lastUsedDb.close(); }
     await completeMemoryReviewJob(claim!.id, reviewResult, 1_003);
     const cancellationSetupDb = await openDb();

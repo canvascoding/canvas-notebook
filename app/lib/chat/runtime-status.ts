@@ -1,5 +1,13 @@
 import type { BrowserSessionSnapshot } from '@/app/lib/pi/browser/types';
 
+export type RuntimeContextMeasurement = {
+  scope?: 'live' | 'stored';
+  revision: number;
+  measuredRevision: number | null;
+  measuredAt: string | null;
+  state: 'current' | 'updating' | 'unavailable';
+};
+
 export type RuntimeQueueItem = {
   id: string;
   text: string;
@@ -179,6 +187,7 @@ export type RuntimeStatus = {
   nextRequestBudgetExceeded?: boolean;
   nextRequestEstimateSource?: 'rough_estimate' | 'serialized_request' | null;
   contextPressure?: RuntimeContextPressure;
+  contextMeasurement?: RuntimeContextMeasurement;
   includedSummary: boolean;
   omittedMessageCount: number;
   summaryUpdatedAt: string | null;
