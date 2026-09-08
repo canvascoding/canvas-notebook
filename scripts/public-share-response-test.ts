@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, rename, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
@@ -16,7 +16,7 @@ async function main() {
   process.env.DATA = tempRoot;
   process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
   try {
-    const { publicShareFileStreamResponse } = await import('../app/lib/public-sharing/public-file-response');
+    const { publicShareFileStreamResponse, openPublicShareResponseFile } = await import('../app/lib/public-sharing/public-file-response');
     const file = {
       workspacePath: 'Notizen 📎.md', fileName: 'Notizen 📎.md',
       fullPath: '/not-opened-for-head', mimeType: 'text/markdown', sizeBytes: 10, asSiteAsset: false,
@@ -29,6 +29,7 @@ async function main() {
     const normal = head();
     assert.equal(normal.status, 200);
     assert.equal(normal.headers.get('content-length'), '10');
+    assert.equal(normal.headers.get('cache-control'), 'no-store');
     assert.match(normal.headers.get('content-disposition') || '', /filename\*=UTF-8''Notizen%20%F0%9F%93%8E\.md/);
     for (const [range, contentRange] of [
       ['bytes=0-999', 'bytes 0-9/10'], ['bytes=5-', 'bytes 5-9/10'],
@@ -43,6 +44,16 @@ async function main() {
     }
     assert.equal(head(undefined, 0).status, 200);
     assert.equal(head('bytes=0-', 0).status, 416);
+    const fullPath = path.join(tempRoot, 'asset.bin');
+    await writeFile(fullPath, 'original');
+    const stats = await stat(fullPath);
+    const asset = { ...file, fullPath, fileIdentity: `${stats.dev}:${stats.ino}:${stats.birthtimeMs}` };
+    const opened = await openPublicShareResponseFile(asset);
+    await rename(fullPath, `${fullPath}.old`);
+    await writeFile(fullPath, 'replacement');
+    const response = publicShareFileStreamResponse(new NextRequest('http://localhost/asset'), opened, 'GET', 'strict');
+    assert.equal(await response.text(), 'original', 'A rename between checking and streaming cannot swap the served file');
+    await assert.rejects(openPublicShareResponseFile(asset), /replaced/);
     console.log('public-share-response-test: ok');
   } finally {
     await rm(tempRoot, { recursive: true, force: true });

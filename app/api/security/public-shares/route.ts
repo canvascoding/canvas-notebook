@@ -15,7 +15,7 @@ import {
   type PublicShareStatus,
   type PublicShareTypeFilter,
 } from '@/app/lib/public-sharing/public-file-shares';
-import { normalizePublicShareSecurityMode } from '@/app/lib/public-sharing/public-share-security';
+import { parsePublicSharePolicy, requirePublicShareBody } from '@/app/lib/public-sharing/share-policy-input';
 
 function parseStatus(value: string | null): PublicShareStatus | 'all' {
   if (value === 'active' || value === 'revoked' || value === 'missing' || value === 'stale' || value === 'expired') {
@@ -47,25 +47,6 @@ function requestWorkspaceId(request: NextRequest): string | null {
   return request.headers.get(WORKSPACE_ID_HEADER)?.trim() || null;
 }
 
-function parseExpiry(body: Record<string, unknown>): Date | null {
-  if (body.expiresAt === null || body.expiresAt === 'never') return null;
-  if (body.expiresInDays === null || body.expiresInDays === 0 || body.expiresInDays === '0') return null;
-  if (typeof body.expiresAt === 'string' && body.expiresAt.trim()) {
-    const parsed = new Date(body.expiresAt);
-    if (!Number.isNaN(parsed.getTime()) && parsed.getTime() > Date.now()) return parsed;
-  }
-
-  const rawDays = body.expiresInDays;
-  const days = typeof rawDays === 'number'
-    ? rawDays
-    : typeof rawDays === 'string'
-      ? Number.parseInt(rawDays, 10)
-      : 30;
-  if (!Number.isFinite(days) || days <= 0) return null;
-  const normalizedDays = Math.min(Math.trunc(days), 365);
-  return new Date(Date.now() + normalizedDays * 24 * 60 * 60 * 1000);
-}
-
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
@@ -80,7 +61,10 @@ export async function GET(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   const { searchParams } = new URL(request.url);
-  const limit = Math.max(1, Math.min(Number.parseInt(searchParams.get('limit') || '500', 10), 1000));
+  const limit = Number(searchParams.get('limit') ?? '500');
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+    return NextResponse.json({ success: false, error: 'Limit must be between 1 and 1000.' }, { status: 400 });
+  }
   const isAdmin = isAdminUser(session.user);
   const requestedWorkspaceId = requestWorkspaceId(request);
   const workspaceResult = requestedWorkspaceId
@@ -117,7 +101,7 @@ export async function POST(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   try {
-    const body = await request.json() as Record<string, unknown>;
+    const body = requirePublicShareBody(await request.json());
     const pathsValue = body.paths ?? body.path;
     const paths = Array.isArray(pathsValue)
       ? pathsValue.filter((value): value is string => typeof value === 'string')
@@ -134,9 +118,8 @@ export async function POST(request: NextRequest) {
       createdByUserId: session.user.id,
       workspace,
       source: 'ui',
-      expiresAt: parseExpiry(body),
-      reason: typeof body.reason === 'string' ? body.reason : null,
-      securityMode: normalizePublicShareSecurityMode(body.securityMode),
+      defaultExpiresAt: new Date(Date.now() + 30 * 86_400_000),
+      ...parsePublicSharePolicy(body),
       confirmPublicExposure: true,
       baseUrl: getPublicRequestOrigin(request),
     });

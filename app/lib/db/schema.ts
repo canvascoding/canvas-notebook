@@ -1859,6 +1859,7 @@ export const publicFileShares = sqliteTable("public_file_shares", {
   passwordHash: text("password_hash"),
   lastAccessedAt: integer("last_accessed_at", { mode: "timestamp" }),
   accessCount: integer("access_count").notNull().default(0),
+  policyRevision: integer("policy_revision").notNull().default(1),
 }, (table) => ({
   tokenHashIdx: uniqueIndex("idx_public_file_shares_token_hash").on(table.tokenHash),
   tokenIdx: uniqueIndex("idx_public_file_shares_token").on(table.token),

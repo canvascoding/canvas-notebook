@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 
 import { migrateSqliteMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
+import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 
 export const TEAM_SEAT_LEGACY_MIGRATION_KEY = 'team-seat-memberships-v1';
 export const TEAM_SEAT_LEGACY_MIGRATION_REASON = 'Legacy organization access backfill (non-billable).';
@@ -2826,6 +2827,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   }
 
   addColumns(sqlite, 'public_file_shares', {
+    policy_revision: 'INTEGER NOT NULL DEFAULT 1',
     short_code: 'TEXT',
     security_mode: "TEXT NOT NULL DEFAULT 'strict'",
     organization_id: 'TEXT',
@@ -2840,6 +2842,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     password_enabled: 'INTEGER NOT NULL DEFAULT 0',
     password_hash: 'TEXT',
   });
+
+  sqlite.transaction(() => {
+    for (const statement of PUBLIC_SHARE_UNIQUENESS_STATEMENTS) sqlite.exec(statement);
+  })();
 
   addColumns(sqlite, 'knowledge_sources', {
     customer_id: 'TEXT',

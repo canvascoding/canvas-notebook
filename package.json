@@ -388,6 +388,7 @@
     "test:public-share:security": "tsx scripts/public-share-security-test.ts && tsx scripts/public-markdown-images-test.ts && tsx --conditions react-server scripts/public-share-response-test.ts",
     "test:public-share:workspace": "tsx --conditions react-server scripts/public-share-workspace-scope-test.ts",
     "test:public-share:route-access": "tsx scripts/public-share-route-access-test.ts",
+    "test:public-share:lifecycle": "tsx --conditions react-server scripts/public-share-lifecycle-test.ts && tsx --conditions react-server scripts/public-share-snapshot-test.ts",
     "test:files:collaboration": "tsx --conditions react-server scripts/file-collaboration-policy-test.ts",
     "test:files:collaboration-schema": "tsx --conditions react-server scripts/file-collaboration-postgres-schema-test.ts",
     "test:files:collaboration-repository": "tsx --conditions react-server scripts/file-collaboration-repository-test.ts",

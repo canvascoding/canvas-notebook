@@ -1,6 +1,5 @@
 import 'server-only';
 
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
@@ -9,6 +8,7 @@ import { getCachedMarkdownHtmlDocument } from '@/app/lib/pdf/markdown-export-cac
 import { resolveMarkdownExportBrandState } from '@/app/lib/pdf/markdown-export-cache';
 import type { WorkspaceBrandProfile } from '@/app/lib/workspaces/brand-profile';
 import { readWorkspaceBrandLogoDataUri } from '@/app/lib/workspaces/brand-logo-service';
+import { assertPublicShareStillActive, readPublicShareText } from './public-share-text';
 import {
   resolvePublicShareToken,
   type PublicShareResolution,
@@ -23,6 +23,7 @@ export type PublicMarkdownExportResult = {
   html: string;
   brandProfile: WorkspaceBrandProfile;
   brandLogoDataUri: string | null;
+  verifyAccess: () => Promise<void>;
 } | {
   ok: false;
   status: number;
@@ -97,8 +98,10 @@ export async function getPublicMarkdownExport(token: string): Promise<PublicMark
 
   const fileOptions = { workspace: resolved.workspace };
   const brandState = await resolveMarkdownExportBrandState(fileOptions);
-  const html = await getCachedMarkdownHtmlDocument(resolved.workspacePath, fileOptions, brandState);
+  const markdown = await readPublicShareText(resolved);
+  const html = await getCachedMarkdownHtmlDocument(resolved.workspacePath, fileOptions, brandState, markdown);
   const brandLogoDataUri = await readWorkspaceBrandLogoDataUri(brandState.profile, fileOptions);
+  await assertPublicShareStillActive(resolved);
   return {
     ok: true,
     fileName: resolved.share.fileName,
@@ -106,6 +109,7 @@ export async function getPublicMarkdownExport(token: string): Promise<PublicMark
     html,
     brandProfile: brandState.profile,
     brandLogoDataUri,
+    verifyAccess: () => assertPublicShareStillActive(resolved),
   };
 }
 
@@ -115,7 +119,7 @@ export async function getPublicMarpPreview(token: string): Promise<PublicMarkdow
 
   const { resolved } = publicMarkdown;
   const fileOptions = { workspace: resolved.workspace };
-  const markdown = await fs.readFile(resolved.fullPath, 'utf8');
+  const markdown = await readPublicShareText(resolved);
   if (!isMarpMarkdown(resolved.workspacePath, markdown)) {
     return {
       ok: false,
@@ -132,12 +136,15 @@ export async function getPublicMarpPreview(token: string): Promise<PublicMarkdow
 
   const brandState = await resolveMarkdownExportBrandState(fileOptions);
 
+  const brandLogoDataUri = await readWorkspaceBrandLogoDataUri(brandState.profile, fileOptions);
+  await assertPublicShareStillActive(resolved);
   return {
     ok: true,
     fileName: resolved.share.fileName,
     workspacePath: resolved.workspacePath,
     html,
     brandProfile: brandState.profile,
-    brandLogoDataUri: await readWorkspaceBrandLogoDataUri(brandState.profile, fileOptions),
+    brandLogoDataUri,
+    verifyAccess: () => assertPublicShareStillActive(resolved),
   };
 }

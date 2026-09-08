@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { limitPublicExport } from '@/app/lib/public-sharing/public-export-limit';
+import { PublicShareReadError } from '@/app/lib/public-sharing/public-share-text';
 
 import { getBrowserExportErrorResponse } from '@/app/lib/exports/browser-export-service';
 import { getPublicMarkdownExport } from '@/app/lib/public-sharing/public-markdown-export';
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ token: string }> },
 ) {
+  const limited = limitPublicExport(request, 'markdown-export');
+  if (!limited.ok) return limited.response;
   try {
     const { token } = await context.params;
     const result = await getPublicMarkdownExport(decodeURIComponent(token));
@@ -18,7 +22,7 @@ export async function GET(
       status: 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'public, max-age=60, must-revalidate',
+        'Cache-Control': 'no-store',
         'Content-Security-Policy': "default-src 'none'; img-src data: blob: https: http:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
         'Referrer-Policy': 'no-referrer',
         'X-Content-Type-Options': 'nosniff',
@@ -26,6 +30,9 @@ export async function GET(
       },
     });
   } catch (error) {
+    if (error instanceof PublicShareReadError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.statusCode, headers: { 'Cache-Control': 'no-store' } });
+    }
     console.error('[Public Markdown] Export error:', error);
 
     if (error && typeof error === 'object' && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {

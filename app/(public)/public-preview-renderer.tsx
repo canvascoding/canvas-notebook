@@ -1,6 +1,5 @@
 import 'server-only';
 
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { notFound } from 'next/navigation';
@@ -17,6 +16,7 @@ import {
 import { rewritePublicMarkdownImageSources } from '@/app/lib/public-sharing/public-markdown-images';
 import type { PublicShareResolution } from '@/app/lib/public-sharing/public-file-shares';
 import type { PublicPreviewKind } from '@/app/lib/public-sharing/public-preview-types';
+import { readPublicShareText } from '@/app/lib/public-sharing/public-share-text';
 
 type ResolvedPublicShare = Extract<PublicShareResolution, { ok: true }>;
 
@@ -122,7 +122,7 @@ export async function PublicResolvedFilePreview({ resolved }: { resolved: Resolv
 
     let content: string;
     try {
-      content = await fs.readFile(resolved.fullPath, 'utf8');
+      content = await readPublicShareText(resolved, EXCALIDRAW_PREVIEW_SIZE_LIMIT);
     } catch {
       notFound();
     }
@@ -140,7 +140,7 @@ export async function PublicResolvedFilePreview({ resolved }: { resolved: Resolv
   let content: string | null = null;
   if (shouldReadTextContent(previewKind) && resolved.sizeBytes <= TEXT_PREVIEW_SIZE_LIMIT) {
     try {
-      content = await fs.readFile(resolved.fullPath, 'utf8');
+      content = await readPublicShareText(resolved, TEXT_PREVIEW_SIZE_LIMIT);
     } catch {
       notFound();
     }

@@ -11,6 +11,7 @@ import {
 } from './migrate';
 import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
+import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 
 const TABLE_NAME_SYMBOL = Symbol.for('drizzle:Name');
 
@@ -1344,6 +1345,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   }
 
   await pool.query('ALTER TABLE memory_user_settings ALTER COLUMN automatic_memory_enabled SET DEFAULT 0');
+  for (const statement of PUBLIC_SHARE_UNIQUENESS_STATEMENTS) await pool.query(statement);
   await runPostgresMemoryReviewerOptInBackfill(pool);
 
   await pool.query(`

@@ -662,6 +662,43 @@ async function main() {
     assert.equal(routeRevokeBody.success, true);
     assert.equal(routeRevokeBody.share?.status, 'revoked');
 
+    Reflect.set(auth.api, 'getSession', async () => ({
+      user: { id: 'user-owner', email: 'owner@example.test', name: 'Owner', role: 'admin' },
+      session: { id: 'public-share-policy-route-test' },
+    }));
+    const shareRoutes = await import('../app/api/security/public-shares/route');
+    const mobileRoutes = await import('../app/api/mobile/v1/files/shares/[id]/route');
+    assert.equal(mobileRoutes.PATCH, revokeRoute.PATCH, 'Mobile uses the same authorization and policy rules');
+    const policyUrl = `http://localhost/api/security/public-shares/${personalCreate.shares[0].id}?workspaceId=${ownerPersonal.workspaceId}`;
+    const policyContext = { params: Promise.resolve({ id: personalCreate.shares[0].id }) };
+    const policyRequest = (body: Record<string, unknown>, url = policyUrl) => routeRequest(url, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const extendedResponse = await revokeRoute.PATCH(policyRequest({ policyRevision: personalCreate.shares[0].policyRevision, expiresInDays: 7 }), policyContext);
+    assert.equal(extendedResponse.status, 200);
+    const extendedBody = await extendedResponse.json() as { share: { policyRevision: number; expiresAt: string | null } };
+    assert.ok(extendedBody.share.expiresAt);
+    const clearExpiryResponse = await mobileRoutes.PATCH(policyRequest({ policyRevision: extendedBody.share.policyRevision, expiresAt: null }), policyContext);
+    assert.equal(clearExpiryResponse.status, 200);
+    assert.equal((await clearExpiryResponse.json()).share.expiresAt, null);
+    assert.equal((await revokeRoute.PATCH(policyRequest({ policyRevision: 1, expiresAt: null }), policyContext)).status, 409);
+    assert.equal((await revokeRoute.PATCH(policyRequest({ policyRevision: 3, securityMode: 'invalid' }), policyContext)).status, 400);
+    assert.equal((await revokeRoute.PATCH(policyRequest({ policyRevision: 3, expiresAt: null }, policyUrl.replace(ownerPersonal.workspaceId, ownerTeam.workspaceId)), policyContext)).status, 404);
+    const invalidExpiryResponse = await shareRoutes.POST(routeRequest(`http://localhost/api/security/public-shares?workspaceId=${ownerPersonal.workspaceId}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths: ['docs/report.txt'], expiresInDays: '7garbage' }),
+    }));
+    assert.equal(invalidExpiryResponse.status, 400);
+    await writeFile(path.join(ownerPersonal.rootPath, 'docs', 'route-default.txt'), 'Default expiry\n');
+    const defaultExpiryResponse = await shareRoutes.POST(routeRequest(`http://localhost/api/security/public-shares?workspaceId=${ownerPersonal.workspaceId}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths: ['docs/route-default.txt'] }),
+    }));
+    assert.equal(defaultExpiryResponse.status, 200);
+    const defaultExpiryBody = await defaultExpiryResponse.json();
+    assert.ok(Math.abs(new Date(defaultExpiryBody.shares[0].expiresAt).getTime() - Date.now() - 30 * 86_400_000) < 5000,
+      'New API links retain the 30-day default when expiry is omitted');
+    Reflect.set(auth.api, 'getSession', async () => null);
+    assert.equal((await revokeRoute.PATCH(policyRequest({ policyRevision: 3, expiresAt: null }), policyContext)).status, 401);
+
     const readerProjectVisibleShares = await listPublicFileShares({
       userId: 'user-reader',
       workspace: readerProject,

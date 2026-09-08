@@ -19,7 +19,7 @@ konkrete Markdown-Datei, ohne dadurch Mitglieder des gesamten Workspace zu werde
   - Eigene HTML-Vorschau bei erhaltener Sandbox zulassen.
   - Unicode-Dateinamen und gültige Byte-Ranges zuverlässig ausliefern.
   - Nachweis: negative Asset-Routentests, Rechte-Matrix, Header-/Range-Tests.
-- [ ] 2. Freigabe-Lebenszyklus und konkurrierende Anfragen absichern.
+- [x] 2. Freigabe-Lebenszyklus und konkurrierende Anfragen absichern.
   - Explizites Aktualisieren von Ablaufdatum und Sicherheitsmodus, inklusive
     Entfernen des Ablaufdatums; ungültige Eingaben ablehnen.
   - Erstellen, Kurzcode-Vergabe, Zugriffszähler und Widerruf atomar absichern.
@@ -93,3 +93,39 @@ nur in Code/Kommentaren erwähnte Bilder. Rechte-Tests erlauben den Manager und
 verweigern dem Projektleser die Änderung eines fremden Links.
 Die tatsächliche Browser-Einbettung und der PDF-Renderer bleiben Bestandteil
 der abschließenden UI-/Ende-zu-Ende-Abnahme.
+
+### Schritt 2
+
+Web und Mobile unterstützen `PATCH /api/security/public-shares/:id` mit
+`policyRevision`; veraltete Änderungen erhalten 409. Nicht mitgesendete Werte
+bleiben erhalten, `expiresAt: null` entfernt den Ablauf. Wiederholtes Erstellen
+aktualisiert ausdrücklich angegebene Werte. Eingaben werden validiert.
+
+Ein gemeinsamer Migrationsschritt erzwingt einen aktiven Link je Workspace/Pfad
+auf SQLite und PostgreSQL; bei bestehenden Duplikaten bleibt der älteste Link
+erhalten, weitere werden widerrufen. Kurzcode-Vergabe und Zugriffszähler verwenden
+atomare Datenbankoperationen. HEAD zählt nicht als Zugriff.
+Temporär fehlende Dateien können mit ihrer ursprünglichen Identität zurückkehren.
+Ersetzen bindet einen Link nur über autorisierte Schreib-Hooks neu; neues
+Veröffentlichen nach Ablauf/Widerruf erzeugt einen neuen Token. Neue Dateiidentitäten
+berücksichtigen Geräte-, Inode- und Erstellungszeit; ältere Identitäten bleiben
+kompatibel. Inaktive Workspaces liefern keine Freigaben aus.
+
+Textvorschau, Markdown-/Textdownload, Bildfreigabe und Export lesen den aktuellen
+Yjs-Stand, auch vor dem nächsten Checkpoint. Der HTML-Exportcache verwendet dafür
+einen Inhalts-Hash. Downloads prüfen geöffnete Dateideskriptoren gegen die
+erwartete Identität. HTTP-Antworten werden nicht gespeichert; nach langen
+Exportarbeiten wird die Freigabe erneut geprüft. Öffentliche Render-Routen
+haben gemeinsame Budgets pro Prozess (10 PDF- bzw. 30 HTML-/Marp-Anfragen pro
+Minute), die sich nicht durch erfundene Sitzungscookies umgehen lassen.
+
+Erfolgreich: `test:public-share:lifecycle` (SQLite und PGlite über den tatsächlichen
+Drizzle-Adapter), `test:public-share:workspace`, `test:public-share:security`,
+`test:public-share:route-access`, TypeScript und ESLint. Die Tests decken 24
+parallele Erstellungen, 32 parallele Zählererhöhungen, konkurrierende
+Einstellungsänderungen/Widerrufe, Migration von Duplikaten, Dateiwechsel,
+temporäres Fehlen, Ablauf, Web-/Mobile-Policy-Routen und aktuelle Yjs-Inhalte ab.
+Zusätzlich erfolgreich: Frontmatter-, LaTeX- und Rich-Block-Exportregressionen.
+Der vorhandene Rich-Block-Test hat dabei unbeabsichtigt intern Chromium gestartet;
+der Lauf ist beendet und der Nutzer wurde informiert. Dies ersetzt keine
+freigegebene UI-/Ende-zu-Ende-Prüfung mit mehreren Nutzern.
