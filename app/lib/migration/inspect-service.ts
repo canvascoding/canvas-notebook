@@ -1,10 +1,6 @@
 import 'server-only';
 
-import { execFile, spawn } from 'child_process';
-import crypto from 'crypto';
-import { createReadStream, createWriteStream, promises as fs } from 'fs';
-import path from 'path';
-import { pipeline } from 'stream/promises';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
@@ -53,54 +49,6 @@ function hasUnsafeZipEntry(entryName: string): boolean {
 async function listArchiveEntries(archivePath: string): Promise<string[]> {
   const output = await unzipText(['-Z1', archivePath]);
   return output.split('\n').map((line) => line.trim()).filter(Boolean);
-}
-
-async function extractArchiveEntryToFile(params: {
-  archivePath: string;
-  entryName: string;
-  outputPath: string;
-}): Promise<void> {
-  const child = spawn('unzip', ['-p', params.archivePath, params.entryName], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  if (!child.stdout || !child.stderr) {
-    child.kill();
-    throw new Error('Could not open unzip streams.');
-  }
-  let stderr = '';
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (chunk) => {
-    stderr += chunk;
-  });
-
-  const output = createWriteStream(params.outputPath, { mode: 0o600 });
-  const extracted = pipeline(child.stdout, output);
-  const exited = new Promise<void>((resolve, reject) => {
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(`unzip failed for ${params.entryName}: ${stderr.trim() || `exit ${code}`}`));
-    });
-  });
-
-  try {
-    await Promise.all([extracted, exited]);
-  } catch (error) {
-    child.kill();
-    throw error;
-  }
-}
-
-async function sha256File(filePath: string): Promise<string> {
-  const hash = crypto.createHash('sha256');
-  const stream = createReadStream(filePath, { highWaterMark: 1024 * 1024 });
-  for await (const chunk of stream) {
-    hash.update(chunk);
-  }
-  return hash.digest('hex');
 }
 
 async function validatePostgresDatabaseArtifact(params: {
