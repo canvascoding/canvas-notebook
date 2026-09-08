@@ -45,7 +45,7 @@ import type { WorkspaceDocumentReference } from '@/app/lib/markdown/workspace-do
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { WorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
 import { useTranslations } from 'next-intl';
-import { yCollab } from 'y-codemirror.next';
+import { createTextEditorCollaboration } from '@/app/lib/collaboration/text-editor-history';
 import {
   useCollaborationDocument,
   type CollaborationDocument,
@@ -154,6 +154,9 @@ const LIGHTWEIGHT_CODE_MIRROR_BASIC_SETUP = {
   completionKeymap: false,
   lintKeymap: false,
 };
+
+const COLLABORATIVE_CODE_MIRROR_BASIC_SETUP = { ...CODE_MIRROR_BASIC_SETUP, history: false, historyKeymap: false };
+const LIGHTWEIGHT_COLLABORATIVE_CODE_MIRROR_BASIC_SETUP = { ...LIGHTWEIGHT_CODE_MIRROR_BASIC_SETUP, history: false, historyKeymap: false };
 
 const CODE_MIRROR_STYLE: CSSProperties = {
   fontSize: '14px',
@@ -425,7 +428,7 @@ export function CodeEditor({
   const collaborationExtensions = useMemo<CodeMirrorExtension[]>(() => {
     if (!collaborationText || !collaborationAwareness || !setCollaborationComposition) return [];
     return [
-      yCollab(collaborationText, collaborationAwareness),
+      createTextEditorCollaboration(collaborationText, collaborationAwareness),
       EditorView.domEventHandlers({
         compositionstart(_event, view) {
           const selection = view.state.selection.main;
@@ -551,7 +554,9 @@ export function CodeEditor({
         onChange={handleChange}
         onCreateEditor={(view) => setEditorView(view)}
         editable={!effectiveReadOnly}
-        basicSetup={performanceProfile.disableLanguageExtension ? LIGHTWEIGHT_CODE_MIRROR_BASIC_SETUP : CODE_MIRROR_BASIC_SETUP}
+        basicSetup={collaborationBindingReady
+          ? performanceProfile.disableLanguageExtension ? LIGHTWEIGHT_COLLABORATIVE_CODE_MIRROR_BASIC_SETUP : COLLABORATIVE_CODE_MIRROR_BASIC_SETUP
+          : performanceProfile.disableLanguageExtension ? LIGHTWEIGHT_CODE_MIRROR_BASIC_SETUP : CODE_MIRROR_BASIC_SETUP}
         style={CODE_MIRROR_STYLE}
         className="codemirror-wrapper"
       />}

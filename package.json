@@ -203,6 +203,7 @@
     "test:collaboration:blocks": "tsx --conditions react-server scripts/collaboration-block-structure-test.ts",
     "test:collaboration:block-tree": "tsx --conditions react-server scripts/collaboration-block-tree-test.ts",
     "test:collaboration:block-binding": "tsx --conditions react-server scripts/collaboration-block-anchors-test.ts && tsx --conditions react-server scripts/collaboration-block-editor-test.ts",
+    "test:collaboration:text-history": "tsx --test scripts/collaboration-text-history-test.ts && tsx scripts/collaborative-source-lifecycle-test.tsx",
     "test:collaboration:rich-document": "tsx --conditions react-server scripts/collaboration-rich-document-test.ts",
     "test:collaboration:block-format": "tsx --conditions react-server scripts/collaboration-block-format-integration-test.ts",
     "test:collaboration:block-agent": "tsx --conditions react-server scripts/collaboration-block-agent-test.ts",
