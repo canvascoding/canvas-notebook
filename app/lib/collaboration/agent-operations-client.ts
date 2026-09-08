@@ -38,6 +38,7 @@ export type CollaborationAgentOperation = {
     groupId: string;
     startAnchor: string;
     endAnchor: string;
+    blockId?: string | null;
   }>;
 };
 

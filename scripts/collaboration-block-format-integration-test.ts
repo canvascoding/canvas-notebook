@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import * as Y from 'yjs';
+import { getSchema } from '@tiptap/core';
 
 import { openDb } from '../app/lib/db';
 import { createCollaborationSessionGrant, CollaborationSessionError, parseCollaborationSessionRequest } from '../app/lib/collaboration/session-service';
@@ -11,8 +12,11 @@ import { changeCollaborationRepresentation, CollaborationRepresentationMigration
   persistCollaborationYDoc, CollaborationStateStaleError } from '../app/lib/collaboration/persistence';
 import { materializeCollaborationCheckpoint } from '../app/lib/collaboration/checkpoint';
 import { readRichDocumentJson } from '../app/lib/collaboration/rich-document';
-import { richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
+import { richMarkdownFromYDoc, richMarkdownSchemaExtensions } from '../app/lib/collaboration/markdown-state';
 import { installCollaborationRoomInspector } from '../app/lib/collaboration/runtime-state';
+import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
+import { createRichAgentTextTargets, applyPersistedAgentTextOperation, revertAgentOperation, getAgentOperation } from '../app/lib/collaboration/agent-operations';
+import { installCollaborationDirectConnection } from '../app/lib/collaboration/direct-connection';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
 async function main() {
@@ -95,12 +99,51 @@ async function main() {
     await assert.rejects(() => persistCollaborationYDoc(legacy.documentId, 1, original), CollaborationStateStaleError);
     await assert.rejects(migrate, (error: unknown) => error instanceof CollaborationRepresentationMigrationError && error.code === 'lifecycle_stale');
 
+    const moved = new Y.Doc();
+    Y.applyUpdate(moved, state.yjsState);
+    const targets = createRichAgentTextTargets({ doc: moved, search: 'BBB', replacement: 'NEW' });
+    const tree = new CollaborationBlockTree(moved, getSchema(richMarkdownSchemaExtensions()));
+    tree.move({ blockId: tree.read().lastChild!.attrs.id, parentId: null,
+      beforeId: tree.read().firstChild!.attrs.id, operationId: 'move-before-agent-apply' }, 'user');
+    const movedState = await persistCollaborationYDoc(legacy.documentId, 2, moved);
+    await materializeCollaborationCheckpoint({ state: movedState, workspace, actorType: 'system' });
+    moved.destroy();
+    const uninstallDirect = installCollaborationDirectConnection(async (input, apply, onApplied) => {
+      const current = await loadCollaborationState(input.documentId);
+      assert(current);
+      assert.equal(input.documentRepresentation, current.representation);
+      assert.equal(input.documentLifecycleGeneration, current.lifecycleGeneration);
+      const live = new Y.Doc();
+      try {
+        Y.applyUpdate(live, current.yjsState);
+        const result = apply(live);
+        await onApplied?.(result);
+        const persisted = await persistCollaborationYDoc(input.documentId, current.lifecycleGeneration, live);
+        await materializeCollaborationCheckpoint({ state: persisted, workspace, actorType: 'agent' });
+        return result;
+      } finally { live.destroy(); }
+    });
+    try {
+      const userId = 'block-test-user';
+      const applied = await applyPersistedAgentTextOperation({ documentId: legacy.documentId, workspace,
+        initiatedByUserId: userId, actorId: 'block-agent', actorDisplayName: 'Block Agent', targets,
+        runGeneration: 1, idempotencyKey: randomUUID(), explicitUserRequest: true });
+      assert.equal(applied.operationStatus, 'checkpointed_file', JSON.stringify(applied));
+      assert.match(await fs.readFile(path.join(rootPath, filePath), 'utf8'), /NEW\n\n# Shared\n\nAAA\n$/u);
+      const operation = await getAgentOperation({ operationId: applied.operationId, workspace, userId });
+      assert.equal(operation?.targetAnchors[0].blockId, targets[0].blockId);
+      const reverted = await revertAgentOperation({ operationId: applied.operationId, workspace, userId, idempotencyKey: randomUUID() });
+      assert.equal(reverted.operationStatus, 'reverted', JSON.stringify(reverted));
+      assert.equal(reverted.durability, 'checkpointed_file');
+      assert.match(await fs.readFile(path.join(rootPath, filePath), 'utf8'), /BBB\n\n# Shared\n\nAAA\n$/u);
+    } finally { uninstallDirect(); }
+
     const newPath = 'new.md';
     await fs.writeFile(path.join(rootPath, newPath), markdown);
     const initialized = await grant({ path: newPath, ...COLLABORATION_CLIENT_CAPABILITIES });
     assert.equal(initialized.representation, 'tiptap_blocks');
     assert.equal(initialized.lifecycleGeneration, 1);
-    console.log('Block format integration: new sessions, compatibility, busy room, pending checkpoint, backup, stable IDs and stale generation passed.');
+    console.log('Block format integration: sessions, migration, backup, stale generations, moved agent targets, checkpoints and revert passed.');
   } finally {
     uninstall(); original.destroy();
     await fs.rm(rootPath, { recursive: true, force: true });

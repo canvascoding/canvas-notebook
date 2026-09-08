@@ -26,6 +26,8 @@ import {
 } from './markdown-state';
 import { Y } from './server-runtime';
 import { isRichTextCollaborationRepresentation, type TextCollaborationRepresentation } from './types';
+import { BLOCK_TREE_KEY } from './block-tree';
+import { blockTreeTextScopes, richDocumentFormat } from './rich-document';
 import {
   getWorkspacePresenceSnapshot,
   removeDocumentPresenceEntry,
@@ -69,6 +71,7 @@ export interface AgentTextTarget {
   groupId: string;
   startAnchor: string;
   endAnchor: string;
+  blockId?: string | null;
   baseTargetHash: string;
   replacement: string;
   replacementAttributes?: Record<string, unknown>;
@@ -148,6 +151,7 @@ export interface AgentOperationView extends PersistedAgentApplyResult {
     groupId: string;
     startAnchor: string;
     endAnchor: string;
+    blockId?: string | null;
   }>;
 }
 
@@ -233,6 +237,7 @@ function textValue(text: YTypes.Text): string {
  * concrete Text/XmlFragment constructors.
  */
 function materializeCollaborationTypes(doc: YTypes.Doc): void {
+  if (doc.share.has(BLOCK_TREE_KEY)) doc.getMap(BLOCK_TREE_KEY);
   if (doc.share.has('content')) doc.getText('content');
   if (doc.share.has('frontmatter')) doc.getText('frontmatter');
   if (doc.share.has('body')) doc.getXmlFragment('body');
@@ -337,6 +342,11 @@ export function createAgentTextTarget(input: {
   }
   if (hasUnpairedSurrogate(input.replacement)) throw new Error('Agent replacement contains an invalid Unicode surrogate.');
   const empty = input.from === input.to;
+  let blockId: string | null | undefined;
+  if (input.text.doc && richDocumentFormat(input.text.doc) === 'tiptap_blocks') {
+    blockId = blockTreeTextScopes(input.text.doc).get(input.text);
+    if (blockId === undefined) throw new Error('Agent target no longer belongs to a visible block.');
+  }
   return {
     kind: 'text_replace',
     targetId: input.targetId || randomUUID(),
@@ -349,6 +359,7 @@ export function createAgentTextTarget(input: {
     replacement: input.replacement,
     replacementAttributes: uniformTextAttributes(input.text, input.from, input.to),
     boundaryPolicy: input.boundaryPolicy || 'exclude_external',
+    ...(blockId !== undefined ? { blockId } : {}),
   };
 }
 
@@ -364,7 +375,7 @@ function collectRichTextTypes(node: YTypes.AbstractType<unknown>, result: YTypes
 }
 
 /**
- * Creates stable RelativePosition targets inside a Tiptap Y.XmlFragment.
+ * Creates stable RelativePosition targets inside visible rich document text.
  * Text spanning structural node boundaries is intentionally refused so an
  * agent can never turn a whole Markdown snapshot into an implicit tree merge.
  */
@@ -382,16 +393,20 @@ export function createRichAgentTextTargets(input: {
     throw new Error(`Rich collaboration agent targets require 1-${MAX_AGENT_TARGETS} expected occurrences.`);
   }
   const textTypes: YTypes.Text[] = [];
-  const frontmatter = input.doc.share.get('frontmatter');
-  if (frontmatter instanceof Y.Text) textTypes.push(frontmatter as YTypes.Text);
-  const body = input.doc.share.get('body');
-  if (body instanceof Y.AbstractType) collectRichTextTypes(body as YTypes.AbstractType<unknown>, textTypes);
+  if (richDocumentFormat(input.doc) === 'tiptap_blocks') {
+    textTypes.push(...blockTreeTextScopes(input.doc).keys());
+  } else {
+    const frontmatter = input.doc.share.get('frontmatter');
+    if (frontmatter instanceof Y.Text) textTypes.push(frontmatter as YTypes.Text);
+    const body = input.doc.share.get('body');
+    if (body instanceof Y.AbstractType) collectRichTextTypes(body as YTypes.AbstractType<unknown>, textTypes);
+  }
 
   const targets: AgentTextTarget[] = [];
   for (const text of textTypes) {
     const value = textValue(text);
     let offset = 0;
-    while (targets.length < expected) {
+    while (targets.length <= expected) {
       const from = value.indexOf(input.search, offset);
       if (from < 0) break;
       targets.push(createAgentTextTarget({
@@ -403,7 +418,7 @@ export function createRichAgentTextTargets(input: {
       }));
       offset = from + input.search.length;
     }
-    if (targets.length === expected) break;
+    if (targets.length > expected) break;
   }
   if (targets.length !== expected) {
     throw new Error('Rich collaboration edit requires review because the exact text does not resolve inside stable Tiptap nodes.');
@@ -580,6 +595,14 @@ function preflight(
   materializeCollaborationTypes(doc);
   const conflicts: AgentApplyConflict[] = [];
   const resolved: ResolvedTarget[] = [];
+  let scopes: ReturnType<typeof blockTreeTextScopes> | undefined;
+  try {
+    if (richDocumentFormat(doc) === 'tiptap_blocks') scopes = blockTreeTextScopes(doc);
+  } catch {
+    return { resolved, conflicts: targets.map((target): AgentApplyConflict => ({
+      targetId: target.targetId, groupId: target.groupId, code: 'schema_invalid',
+    })) };
+  }
   for (const target of targets) {
     if (
       target.boundaryPolicy !== 'exclude_external'
@@ -604,6 +627,10 @@ function preflight(
       continue;
     }
     const text = absoluteStart.type as YTypes.Text;
+    if (scopes && (target.blockId === undefined || !scopes.has(text) || scopes.get(text) !== target.blockId)) {
+      conflicts.push({ targetId: target.targetId, groupId: target.groupId, code: 'target_changed' });
+      continue;
+    }
     const source = textValue(text);
     const boundaries = graphemeBoundaries(source);
     if (!boundaries.has(absoluteStart.index) || !boundaries.has(absoluteEnd.index)) {
@@ -1619,6 +1646,7 @@ function operationTargetAnchors(row: AgentOperationRow): AgentOperationView['tar
           groupId: target.groupId,
           startAnchor: target.startAnchor,
           endAnchor: target.endAnchor,
+          ...(target.blockId !== undefined ? { blockId: target.blockId } : {}),
         }]
       : []
   ));
@@ -1649,6 +1677,7 @@ async function reviewTargets(row: AgentOperationRow): Promise<AgentOperationView
   try {
     Y.applyUpdate(doc, state.yjsState);
     materializeCollaborationTypes(doc);
+    const scopes = richDocumentFormat(doc) === 'tiptap_blocks' ? blockTreeTextScopes(doc) : undefined;
     const currentMarkdown = isRichTextCollaborationRepresentation(state.representation)
       ? richMarkdownFromYDoc(doc)
       : null;
@@ -1694,6 +1723,8 @@ async function reviewTargets(row: AgentOperationRow): Promise<AgentOperationView
         && absoluteEnd
         && absoluteStart.type === absoluteEnd.type
         && absoluteStart.type instanceof Y.Text
+        && (!scopes || (target.blockId !== undefined && scopes.has(absoluteStart.type as YTypes.Text)
+          && scopes.get(absoluteStart.type as YTypes.Text) === target.blockId))
         && absoluteEnd.index >= absoluteStart.index
         ? textValue(absoluteStart.type as YTypes.Text).slice(absoluteStart.index, absoluteEnd.index)
         : null;

@@ -5,6 +5,9 @@ import { relativePositionToAbsolutePosition, ySyncPluginKey } from '@tiptap/y-ti
 import * as Y from 'yjs';
 
 import type { CollaborationAgentOperation } from './agent-operations-client';
+import { CollaborationBlockTree } from './block-tree';
+import { resolveBlockTreeAnchor } from './block-tree-anchors';
+import { richDocumentFormat } from './rich-document';
 
 const VISIBLE_OPERATION_STATUSES = new Set<CollaborationAgentOperation['operationStatus']>([
   'preparing',
@@ -24,6 +27,7 @@ export interface CollaborationAgentTargetAnchor {
   groupId: string;
   startAnchor: string;
   endAnchor: string;
+  blockId?: string | null;
 }
 
 export interface CollaborationAgentTargetRange extends CollaborationAgentTargetAnchor {
@@ -92,15 +96,28 @@ function createRichTargetDecorations(
     binding?: { mapping?: Parameters<typeof relativePositionToAbsolutePosition>[3] };
   } | undefined;
   const mapping = syncState?.binding?.mapping;
-  if (!mapping) return DecorationSet.empty;
+  let blocks: CollaborationBlockTree | null = null;
+  if (richDocumentFormat(doc) === 'tiptap_blocks') {
+    try { blocks = new CollaborationBlockTree(doc, editorState.schema); }
+    catch { return DecorationSet.empty; }
+  }
+  if (!blocks && !mapping) return DecorationSet.empty;
 
-  const fragment = doc.getXmlFragment('body');
+  const fragment = blocks ? null : doc.getXmlFragment('body');
   const maxPosition = editorState.doc.content.size;
   const decorations = targets.flatMap((target) => {
     const start = decodeRelativePosition(target.startAnchor);
     const end = decodeRelativePosition(target.endAnchor);
-    const from = start ? relativePositionToAbsolutePosition(doc, fragment, start, mapping) : null;
-    const to = end ? relativePositionToAbsolutePosition(doc, fragment, end, mapping) : null;
+    const resolve = (relative: Y.RelativePosition | null) => {
+      try {
+        return !relative ? null : blocks
+          ? typeof target.blockId === 'string'
+            ? resolveBlockTreeAnchor(blocks, editorState.doc, { blockId: target.blockId, relative }) : null
+          : relativePositionToAbsolutePosition(doc, fragment!, relative, mapping!);
+      } catch { return null; }
+    };
+    const from = resolve(start);
+    const to = resolve(end);
     if (from === null || to === null || from > to || from < 0 || to > maxPosition) return [];
 
     const attributes = {
