@@ -11,7 +11,10 @@ import { db } from '@/app/lib/db';
 import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
 import { assertSqliteRuntimeAllowed, getDatabaseProvider } from '@/app/lib/db/provider';
 import { piSessions } from '@/app/lib/db/schema';
-import { resolveEffectiveSkillReadRoots } from '@/app/lib/skills/effective-skill-read-roots';
+import {
+  resolveEffectiveSkillReadRoots,
+  resolvePersonalSkillReadRoots,
+} from '@/app/lib/skills/effective-skill-read-roots';
 import {
   ensureOrganizationBootstrapForUser,
 } from '@/app/lib/organization/bootstrap';
@@ -245,7 +248,16 @@ export async function addEffectiveSkillReadRoots(
   executionContext: AgentExecutionContext,
 ): Promise<AgentExecutionContext> {
   if (!executionContext.organizationId) {
-    return { ...executionContext, skillReadRoots: [] };
+    try {
+      const skillReadRoots = await resolvePersonalSkillReadRoots({
+        userId: executionContext.userId,
+        agentId: executionContext.agentId,
+      });
+      return { ...executionContext, skillReadRoots };
+    } catch (error) {
+      console.warn('[AgentExecutionContext] Failed to resolve personal skill read roots:', error);
+      return { ...executionContext, skillReadRoots: [] };
+    }
   }
 
   try {

@@ -77,8 +77,8 @@ export function DeleteConfirmDialog({ open, onOpenChange, paths, skippedCount, o
           <AlertDialogMedia>
             <Trash2 className="text-destructive" />
           </AlertDialogMedia>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
+          <AlertDialogTitle className="min-w-0 [overflow-wrap:anywhere]">{title}</AlertDialogTitle>
+          <AlertDialogDescription className="min-w-0 [overflow-wrap:anywhere]">{description}</AlertDialogDescription>
         </AlertDialogHeader>
         {isMultiple && paths.length <= 10 && (
           <div className="max-h-32 overflow-auto rounded border border-border bg-muted/40 p-2">

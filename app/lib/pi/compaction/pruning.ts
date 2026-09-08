@@ -48,7 +48,7 @@ export type PiPruningResult = Readonly<{
 
 export function createPiSkillPrunedMarker(skillName: string): string {
   const safeName = skillName.replace(/[^\p{L}\p{N}._/ -]/gu, '').trim().slice(0, 128) || 'unknown';
-  return `${PI_SKILL_PRUNED_MARKER_PREFIX} content lost in compression; reload with skill_view(name='${safeName}')]`;
+  return `${PI_SKILL_PRUNED_MARKER_PREFIX} content lost in compression; reload '${safeName}' by reading its SKILL.md path listed under Enabled Skills]`;
 }
 
 function asRecord(message: AgentMessage): MessageRecord {
@@ -165,14 +165,25 @@ function skillNameFromArguments(value: unknown): string | null {
   return typeof name === 'string' && name.trim() ? name.trim() : null;
 }
 
+function skillNameFromReadArguments(value: unknown): string | null {
+  const filePath = parseArguments(value).path;
+  if (typeof filePath !== 'string' || !/(?:^|\/)SKILL\.md$/u.test(filePath.trim())) return null;
+  const parts = filePath.trim().split('/').filter(Boolean);
+  return parts.length >= 2 ? parts.at(-2) ?? null : null;
+}
+
 function resultStub(input: {
   callId: string | null;
   toolName: string;
   toolArguments: unknown;
   content: string;
 }): string {
-  if (input.toolName === 'skill_view' && input.content.length > 5_000) {
-    const skillName = skillNameFromArguments(input.toolArguments);
+  if (input.content.length > 5_000) {
+    const skillName = input.toolName === 'skill_view'
+      ? skillNameFromArguments(input.toolArguments)
+      : input.toolName === 'read'
+        ? skillNameFromReadArguments(input.toolArguments)
+        : null;
     if (skillName) return createPiSkillPrunedMarker(skillName);
   }
   const digest = createHash('sha256').update(input.content).digest('hex').slice(0, 16);

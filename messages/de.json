@@ -1543,6 +1543,8 @@
     "copy": "Kopieren",
     "copied": "Kopiert",
     "copyFormatted": "Formatiert kopieren",
+    "copyPlainText": "Als Text kopieren",
+    "copyFailed": "Kopieren in die Zwischenablage fehlgeschlagen",
     "copyMarkdown": "Markdown kopieren",
     "copyOptions": "Kopieroptionen",
     "forkChatFromHere": "Chat ab hier forken",

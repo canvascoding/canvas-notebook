@@ -19,6 +19,9 @@ proprietary helper code into this folder.
 - For a new document, use `checkout_docx` with `createOnly: true` and the
   desired `.docx` path. Create the returned working file with Python, then
   commit its checkout ID. An existing output is never silently overwritten.
+- Use `CANVAS_AGENT_TEMP_DIR` for scripts, working copies, unpacked OOXML,
+  conversions, and render previews. Publish DOCX working copies through
+  `commit_docx`; use `copy_path` or `move_path` for requested non-DOCX exports.
 - Preserve existing document style for targeted edits. For new documents, set
   explicit page size, margins, paragraph spacing, font choices, headings,
   tables, headers, and footers instead of relying on Word defaults.
@@ -27,8 +30,8 @@ proprietary helper code into this folder.
   screenshots unless the user asks for an image-only deliverable.
 - Keep intermediate render images, PDFs, unpacked XML, and scratch files out of
   the final response unless the user asks for them.
-- Store final user-facing files in the requested path or under the workspace,
-  using a stable descriptive filename.
+- Store final user-facing files in the requested workspace path using a stable
+  descriptive filename.
 
 ## Recommended Tools
 
@@ -36,7 +39,10 @@ proprietary helper code into this folder.
 - Standard library `zipfile` plus `lxml` for OOXML edits that `python-docx`
   cannot express, such as true comments, content controls, fields, or targeted
   XML repair.
-- LibreOffice `soffice` when available for DOCX to PDF conversion.
+- Pandoc for simple, text-oriented Markdown-to-DOCX or DOCX-to-Markdown
+  conversion. Do not use it for format-faithful edits to an existing DOCX.
+- LibreOffice `soffice` for DOCX-to-PDF conversion. Before invoking it, read
+  [references/headless-libreoffice.md](references/headless-libreoffice.md).
 - Poppler `pdftoppm` or `pdftocairo` when available for PDF to PNG rendering.
 
 Use the installed runtime dependencies. Agent shell subprocesses can write only

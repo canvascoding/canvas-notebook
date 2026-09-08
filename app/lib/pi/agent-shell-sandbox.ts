@@ -24,6 +24,15 @@ export class AgentShellSandboxError extends Error {
   }
 }
 
+export type AgentSandboxedProcess = { executable: string; args: readonly string[] };
+type AgentSandboxedProcessOptions = {
+  context: AgentExecutionContext | null;
+  env: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
+  cwd?: string;
+  maxBuffer?: number;
+};
+
 function isWithin(candidate: string, root: string): boolean {
   const relative = path.relative(root, candidate);
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
@@ -68,9 +77,12 @@ export async function prepareScratchDirectory(context: AgentExecutionContext): P
 export function buildAgentShellSandboxLaunch(input: {
   platform: NodeJS.Platform;
   scratchDirectory: string;
-  command: string;
+  command: string | AgentSandboxedProcess;
   appRoot: string;
 }): { executable: string; args: string[] } {
+  const command = typeof input.command === 'string'
+    ? { executable: '/bin/sh', args: ['-c', input.command] }
+    : input.command;
   if (input.platform === 'darwin') {
     return {
       executable: '/usr/bin/sandbox-exec',
@@ -87,7 +99,7 @@ export function buildAgentShellSandboxLaunch(input: {
           '(deny file-issue-extension)',
         ].join('\n'),
         '-D', `SCRATCH=${input.scratchDirectory}`,
-        '/bin/sh', '-c', input.command,
+        command.executable, ...command.args,
       ],
     };
   }
@@ -100,7 +112,7 @@ export function buildAgentShellSandboxLaunch(input: {
         '-I', '-B',
         path.join(input.appRoot, 'scripts', 'runtime', 'agent-shell-sandbox.py'),
         input.scratchDirectory,
-        '/bin/sh', '-c', input.command,
+        command.executable, ...command.args,
       ],
     };
   }
@@ -122,6 +134,38 @@ export async function executeAgentSandboxedCommand(command: string, options: {
   }
   options.signal?.throwIfAborted();
   const scratchDirectory = await prepareScratchDirectory(options.context);
+  return executePreparedAgentProcess({ executable: '/bin/sh', args: ['-c', command] }, {
+    ...options,
+    env: {
+      ...options.env,
+      ...getAgentRuntimeTempEnv(scratchDirectory),
+      HOME: scratchDirectory,
+      XDG_CACHE_HOME: path.join(scratchDirectory, '.cache'),
+      XDG_CONFIG_HOME: path.join(scratchDirectory, '.config'),
+      XDG_DATA_HOME: path.join(scratchDirectory, '.local', 'share'),
+      XDG_STATE_HOME: path.join(scratchDirectory, '.local', 'state'),
+    },
+  }, scratchDirectory);
+}
+
+/** Preserve the calling runtime's validated environment, cwd and argv. */
+export async function executeAgentSandboxedProcess(
+  command: AgentSandboxedProcess,
+  options: AgentSandboxedProcessOptions,
+): Promise<{ stdout: string; stderr: string }> {
+  if (!options.context) {
+    throw new AgentShellSandboxError('Agent shell execution requires a workspace-bound session.');
+  }
+  options.signal?.throwIfAborted();
+  const scratchDirectory = await prepareScratchDirectory(options.context);
+  return executePreparedAgentProcess(command, options, scratchDirectory);
+}
+
+async function executePreparedAgentProcess(
+  command: AgentSandboxedProcess,
+  options: AgentSandboxedProcessOptions,
+  scratchDirectory: string,
+): Promise<{ stdout: string; stderr: string }> {
   const launch = buildAgentShellSandboxLaunch({
     platform: process.platform,
     scratchDirectory,
@@ -130,17 +174,10 @@ export async function executeAgentSandboxedCommand(command: string, options: {
   });
   try {
     return await execFileAsync(launch.executable, launch.args, {
-      cwd: await fs.realpath(options.context.workspaceRoot),
-      env: {
-        ...options.env,
-        ...getAgentRuntimeTempEnv(scratchDirectory),
-        HOME: scratchDirectory,
-        XDG_CACHE_HOME: path.join(scratchDirectory, '.cache'),
-        XDG_CONFIG_HOME: path.join(scratchDirectory, '.config'),
-        XDG_DATA_HOME: path.join(scratchDirectory, '.local', 'share'),
-        XDG_STATE_HOME: path.join(scratchDirectory, '.local', 'state'),
-      },
+      cwd: await fs.realpath(options.cwd ?? options.context!.workspaceRoot),
+      env: options.env,
       signal: options.signal,
+      maxBuffer: options.maxBuffer,
       encoding: 'utf8',
     });
   } catch (error) {

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Subagent orchestration origami companions</title>
+  <desc id="desc">A central indigo folded-paper companion coordinating two smaller connected companions.</desc>
+  <path d="M14 18 5 21l-2 11 8 7 9-5 1-11Z" fill="#8290EA"/>
+  <path d="m14 18-3 11-8 3 2-11Z" fill="#B1BAF5"/>
+  <path d="m50 17 9 3 2 11-8 7-9-5-1-11Z" fill="#8290EA"/>
+  <path d="m50 17 3 11 8 3-2-11Z" fill="#A1ADF2"/>
+  <path d="m18 11 27-4 8 16-7 25-27 2L10 29Z" fill="#5968D9"/>
+  <path d="m18 11 9 14-8 25-9-21Z" fill="#98A4F2"/>
+  <path d="M45 7 38 26l15-3Z" fill="#7785E7"/>
+  <path d="m20 48 13 2-9 10H8Z" fill="#3F4CAA"/>
+  <path d="m33 50 13-2 10 12H38Z" fill="#4856BC"/>
+  <circle cx="27" cy="27" r="2.5" fill="#172033"/>
+  <circle cx="39" cy="25" r="2.5" fill="#172033"/>
+  <path d="m26 21 12-13 1 18Z" fill="#CED4FB" opacity=".45"/>
+  <path d="M14 31 32 41l18-11M32 35v6" fill="none" stroke="#172033" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"/>
+  <circle cx="14" cy="31" r="3" fill="#172033"/>
+  <circle cx="50" cy="30" r="3" fill="#172033"/>
+  <circle cx="32" cy="41" r="3" fill="#fff" stroke="#172033" stroke-width="2"/>
+</svg>

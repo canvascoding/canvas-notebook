@@ -3,8 +3,15 @@ import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
-import { filterSafeEnv } from '@/app/lib/security/env-allowlist';
-import { AgentShellSandboxError, executeAgentSandboxedCommand } from '@/app/lib/pi/agent-shell-sandbox';
+import { AgentShellSandboxError } from '@/app/lib/pi/agent-shell-sandbox';
+import { ensureAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
+import {
+  buildAgentBashEnvironment,
+  executeAgentBashCommand,
+  resolveAgentBashWorkingDirectory,
+  resolveAgentBashSandboxMode,
+  type AgentBashWorkingDirectory,
+} from '@/app/lib/pi/agent-bash-runtime';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
@@ -31,6 +38,7 @@ import {
   editAgentExcalidrawScene,
   extractPdfTextForRead,
   formatImageReadText,
+  getAgentWorkspaceRoot,
   getErrorMessage,
   getReadImagePreviewDetails,
   imageContentForBuffer,
@@ -609,23 +617,60 @@ export const piTools: AgentTool[] = [
   {
     name: 'bash',
     label: 'Executing command',
-    description: 'Executes a shell command from the workspace bound to this chat. The canonical workspace is read-only to the shell and all Python/Node/other subprocesses. Only this session CANVAS_AGENT_TEMP_DIR is writable for scripts, document working copies and intermediate output. Use checkout_docx/commit_docx to publish Word documents; use write, edit_file, apply_patch, copy_path, move_path or delete_path for other workspace changes so permissions, revisions and audit logs are enforced.',
+    description: 'Executes a command for inspection or code execution. Commands default to the private session temp directory; select workspace only for workspace-relative inspection. The workspace is read-only to the shell and all Python/Node subprocesses. Keep scripts, document working copies and intermediate output in CANVAS_AGENT_TEMP_DIR. Publish Word documents with checkout_docx/commit_docx; use write, edit_file, apply_patch, copy_path, move_path or delete_path for other workspace changes so permissions, revisions and audit logs are enforced.',
     parameters: Type.Object({
       command: Type.String({ description: 'The command to execute.' }),
+      workingDirectory: Type.Optional(Type.Union([
+        Type.Literal('temp'),
+        Type.Literal('workspace'),
+      ], { description: 'Execution directory. Defaults to the private session temp directory. Use workspace only for workspace-relative inspection.' })),
     }),
     execute: async (toolCallId, params, signal) => {
-      const { command } = params as { command: string };
+      const { command, workingDirectory: requestedWorkingDirectory } = params as {
+        command: string;
+        workingDirectory?: AgentBashWorkingDirectory;
+      };
       const startedAt = Date.now();
+      let workingDirectory: AgentBashWorkingDirectory | null = null;
+      let cwd: string | null = null;
+      let sandboxMode: 'landlock' | 'local-development' | null = null;
       try {
         throwIfAborted(signal);
-        assertBashCommandAllowed(command);
         const executionContext = getAgentExecutionContext();
-        const safeEnv = filterSafeEnv(process.env) as NodeJS.ProcessEnv;
-        const { stdout, stderr } = await executeAgentSandboxedCommand(command, {
-          context: executionContext,
+        workingDirectory = resolveAgentBashWorkingDirectory(
+          requestedWorkingDirectory,
+          Boolean(executionContext),
+        );
+        const workspaceDir = getAgentWorkspaceRoot();
+        let tempDir: string | null = null;
+        if (executionContext) {
+          tempDir = await ensureAgentRuntimeTempDir(executionContext);
+        }
+        cwd = workingDirectory === 'temp' ? tempDir : workspaceDir;
+        if (!cwd) {
+          throw new Error('The private session temp directory is unavailable without an execution context.');
+        }
+        sandboxMode = resolveAgentBashSandboxMode(process.env);
+        assertBashCommandAllowed(command, {
+          workingDirectory,
+          sandboxed: sandboxMode === 'landlock',
+        });
+        const safeEnv = buildAgentBashEnvironment({
+          sourceEnv: process.env,
+          workspaceDir,
+          tempDir,
+        });
+        const execution = await executeAgentBashCommand({
+          command,
+          cwd,
+          workspaceDir,
+          tempDir,
           env: safeEnv,
+          executionContext,
           signal,
         });
+        const { stdout, stderr } = execution;
+        sandboxMode = execution.sandboxMode;
         await recordBashToolAudit({
           command,
           status: 'success',
@@ -633,11 +678,14 @@ export const piTools: AgentTool[] = [
           stdout,
           stderr,
           exitCode: 0,
+          workingDirectory,
+          cwd,
+          sandboxMode,
         });
         const output = [stdout, stderr].filter(Boolean).join('\n');
         return {
           content: [{ type: 'text', text: output || '(no output)' }],
-          details: { stdout, stderr },
+          details: { stdout, stderr, workingDirectory, cwd, sandboxMode },
         };
       } catch (error: unknown) {
         if (isAbortError(error, signal)) {
@@ -646,10 +694,13 @@ export const piTools: AgentTool[] = [
             status: 'error',
             durationMs: Date.now() - startedAt,
             error: 'Tool execution aborted.',
+            workingDirectory,
+            cwd,
+            sandboxMode,
           });
           return {
             content: [{ type: 'text', text: 'Error: Tool execution aborted.' }],
-            details: { error: 'Tool execution aborted.' },
+            details: { error: 'Tool execution aborted.', workingDirectory, cwd, sandboxMode },
           };
         }
         const execError = asCommandExecutionError(error);
@@ -662,10 +713,13 @@ export const piTools: AgentTool[] = [
           stderr: execError.stderr,
           error: execError.message,
           exitCode: execError.code ?? null,
+          workingDirectory,
+          cwd,
+          sandboxMode,
         });
         return {
           content: [{ type: 'text', text: output }],
-          details: { error: execError.message, stdout: execError.stdout, stderr: execError.stderr },
+          details: { error: execError.message, stdout: execError.stdout, stderr: execError.stderr, workingDirectory, cwd, sandboxMode },
         };
       }
     },

@@ -57,6 +57,7 @@ import {
   getTodoFileFallbackTitle,
   getTodoFileMetadataTitle,
 } from '@/app/lib/todos/file-link-display';
+import { resolveTodoById } from './todo-selection';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { useSetTodoChatContext } from '@/app/apps/todos/context/todo-chat-context';
 import { buildTodoPageChatContext } from '@/app/apps/todos/context/todo-route-chat-context';
@@ -658,6 +659,7 @@ export function TodosClient({ title }: { title: string }) {
   const [priorityFilter, setPriorityFilter] = useState<TodoPriority | ''>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
+  const [selectedTodoSnapshot, setSelectedTodoSnapshot] = useState<TodoItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -681,8 +683,8 @@ export function TodosClient({ title }: { title: string }) {
   const setTodoChatContext = useSetTodoChatContext();
 
   const selectedTodo = useMemo(
-    () => todos.find((todo) => todo.id === selectedTodoId) ?? null,
-    [selectedTodoId, todos],
+    () => resolveTodoById(todos, selectedTodoId, selectedTodoSnapshot),
+    [selectedTodoId, selectedTodoSnapshot, todos],
   );
   const visibleTodos = useMemo(
     () => todos.filter((todo) => todoMatchesStatusFilter(todo.status, statusFilter)),
@@ -694,8 +696,8 @@ export function TodosClient({ title }: { title: string }) {
     return () => setTodoChatContext(null);
   }, [selectedTodoId, setTodoChatContext]);
   const editingTodo = useMemo(
-    () => todos.find((todo) => todo.id === editingTodoId) ?? null,
-    [editingTodoId, todos],
+    () => resolveTodoById(todos, editingTodoId, selectedTodoSnapshot),
+    [editingTodoId, selectedTodoSnapshot, todos],
   );
 
   const followUpComment = selectedTodo && followUpDraft.todoId === selectedTodo.id
@@ -847,14 +849,7 @@ export function TodosClient({ title }: { title: string }) {
         return data;
       }
 
-      setTodos((current) => {
-        const deepLinkedTodo = todoIdParam
-          ? current.find((todo) => todo.id === todoIdParam)
-          : undefined;
-        return deepLinkedTodo && !data.some((todo) => todo.id === deepLinkedTodo.id)
-          ? [deepLinkedTodo, ...data]
-          : data;
-      });
+      setTodos(data);
       setSelectedTodoId((current) => (
         current && (data.some((todo) => todo.id === current) || current === todoIdParam)
           ? current
@@ -970,20 +965,14 @@ export function TodosClient({ title }: { title: string }) {
         body: JSON.stringify(payload),
       });
       const updated = await readApiData<TodoItem>(response);
-      setTodos((current) => {
-        const next = current.map((todo) => (todo.id === updated.id ? updated : todo));
-        const isDeepLinkedDetail = updated.id === todoIdParam;
-        if (!todoMatchesStatusFilter(updated.status, statusFilter) && !isDeepLinkedDetail) {
-          return next.filter((todo) => todo.id !== updated.id);
-        }
-        return next;
-      });
+      setSelectedTodoSnapshot((current) => (current?.id === updated.id ? updated : current));
+      await loadTodos();
       window.dispatchEvent(new CustomEvent('todo_updated'));
       return updated;
     } finally {
       setIsMutating(false);
     }
-  }, [statusFilter, todoIdParam]);
+  }, [loadTodos]);
 
   const handleSelectTodo = useCallback(async (todo: TodoItem) => {
     setSelectedTodoId(todo.id);
@@ -1022,12 +1011,7 @@ export function TodosClient({ title }: { title: string }) {
           const fetchedTodo = await readApiData<TodoItem>(response);
           todo = fetchedTodo;
           if (cancelled) return;
-          setTodos((current) => {
-            const exists = current.some((item) => item.id === fetchedTodo.id);
-            return exists
-              ? current.map((item) => (item.id === fetchedTodo.id ? fetchedTodo : item))
-              : [fetchedTodo, ...current];
-          });
+          setSelectedTodoSnapshot(fetchedTodo);
         }
 
         if (cancelled) return;
@@ -1104,6 +1088,7 @@ export function TodosClient({ title }: { title: string }) {
         body: JSON.stringify(payload),
       });
       const saved = await readApiData<TodoItem>(response);
+      setSelectedTodoSnapshot(saved);
       await loadTodos();
       setSelectedTodoId(saved.id);
       setEditorOpen(false);
@@ -1125,7 +1110,8 @@ export function TodosClient({ title }: { title: string }) {
         credentials: 'include',
       });
       await readApiData<TodoItem>(response);
-      setTodos((current) => current.filter((item) => item.id !== todo.id));
+      setSelectedTodoSnapshot((current) => (current?.id === todo.id ? null : current));
+      await loadTodos();
       setSelectedTodoId((current) => (current === todo.id ? null : current));
       window.dispatchEvent(new CustomEvent('todo_updated'));
       toast.success(t('toasts.archived'));
@@ -1162,6 +1148,7 @@ export function TodosClient({ title }: { title: string }) {
       });
       const data = await readApiData<TodoFollowUpResponse>(response);
       setTodos((current) => current.map((item) => (item.id === data.todo.id ? data.todo : item)));
+      setSelectedTodoSnapshot((current) => (current?.id === data.todo.id ? data.todo : current));
       setSelectedTodoId(data.todo.id);
       window.dispatchEvent(new CustomEvent('todo_updated'));
       toast.success(t('toasts.followUpSent'));

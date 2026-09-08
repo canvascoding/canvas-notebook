@@ -9,6 +9,7 @@ import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lo
 import type { WriteWorkspaceFileContentInput } from '@/app/lib/files/write-service';
 import { prepareScratchDirectory } from '@/app/lib/pi/agent-shell-sandbox';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { assertAgentRuntimeTempQuota, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
@@ -36,6 +37,7 @@ type CheckoutManifest = {
   status: CheckoutStatus;
   createdAt: number;
   candidateHash?: string;
+  recoveryDraftHash?: string;
   idempotencyKey?: string;
   error?: { code: string; message: string };
   result?: Published;
@@ -50,6 +52,7 @@ export type OfficeCheckoutResult = {
   baseSha256: string | null;
   lockExpiresAt: number;
   recoveryId: string;
+  recoveryDraftSha256?: string;
   error?: { code: string; message: string };
   result?: Published;
 };
@@ -220,6 +223,7 @@ function result(manifest: CheckoutManifest): OfficeCheckoutResult {
     workingPath: manifest.workingPath, documentId: manifest.documentId,
     baseSha256: manifest.baseSha256, lockExpiresAt: manifest.lockExpiresAt,
     recoveryId: manifest.id, error: manifest.error, result: manifest.result,
+    ...(manifest.recoveryDraftHash ? { recoveryDraftSha256: manifest.recoveryDraftHash } : {}),
   };
 }
 
@@ -259,8 +263,105 @@ async function capture(manifest: CheckoutManifest, context: AgentExecutionContex
   await writeDurable(path.join(await checkoutDirectory(manifest.id), `${hash}.docx`), bytes);
   if (manifest.candidateHash !== hash) manifest.idempotencyKey = `office-commit-${randomUUID()}`;
   manifest.candidateHash = hash;
+  delete manifest.recoveryDraftHash;
   await persist(manifest);
   return bytes;
+}
+
+async function assertWorkingCopyQuota(context: AgentExecutionContext, bytes: Buffer): Promise<void> {
+  // Atomic restoration keeps the existing file until its new staging file is
+  // durable. Its bytes/files therefore cannot be credited in this projection.
+  await assertAgentRuntimeTempQuota(resolveAgentRuntimeTempDir(context), {
+    additionalBytes: bytes.length,
+    additionalFiles: 1,
+  });
+}
+
+async function canonicalScratchForRecovery(context: AgentExecutionContext, tempDir: string): Promise<string> {
+  const dataRoot = path.resolve(resolveCanvasDataRoot());
+  const expected = path.resolve(resolveAgentRuntimeTempDir(context));
+  const relative = path.relative(dataRoot, expected);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('Office recovery requires the managed scratch directory of this session.');
+  }
+  let current = dataRoot;
+  for (const segment of relative.split(path.sep)) {
+    current = path.join(current, segment);
+    const stats = await fs.lstat(current);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      throw new Error('Office scratch recovery must not traverse symbolic links.');
+    }
+  }
+  const canonical = path.join(await fs.realpath(dataRoot), relative);
+  if (await fs.realpath(expected) !== canonical || await fs.realpath(tempDir) !== canonical) {
+    throw new Error('Office recovery cannot clean another session scratch directory.');
+  }
+  return canonical;
+}
+
+/**
+ * Preserve the current context's tracked Office drafts before quota cleanup.
+ * The caller must await success before deleting scratch; any bounded-read,
+ * identity, alias or durability failure deliberately prevents that deletion.
+ * These are recovery snapshots, not publications: prepared requests and lease
+ * ownership stay immutable, including when current write permission is gone.
+ */
+export async function preserveOfficeDocumentDraftsBeforeScratchCleanup(
+  context: AgentExecutionContext,
+  tempDir: string,
+): Promise<{ checkoutIds: string[]; bytes: number }> {
+  return withWorkspaceMutationLock(context.workspaceId, async () => {
+    // prepareScratchDirectory enforces the quota, so it cannot be used while
+    // rescuing a command which has already exceeded that quota.
+    const scratch = await canonicalScratchForRecovery(context, tempDir);
+    const officeRoot = path.join(scratch, 'office');
+    const officeStats = await fs.lstat(officeRoot).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (!officeStats) return { checkoutIds: [], bytes: 0 };
+    if (!officeStats.isDirectory() || officeStats.isSymbolicLink()) {
+      throw new Error('Office scratch recovery requires its original directory.');
+    }
+    const protectedRoot = await privateDirectory(['office', 'checkouts']);
+    const recovery = { checkoutIds: [] as string[], bytes: 0 };
+    let entries = 0;
+    const directory = await fs.opendir(officeRoot);
+    for await (const entry of directory) {
+      if (++entries > 1024 || recovery.checkoutIds.length >= 256) {
+        throw new Error('Office scratch cleanup needs manual recovery: the bounded checkout scan limit was exceeded.');
+      }
+      if (!/^office-checkout-[0-9a-f-]{36}$/u.test(entry.name)) continue;
+      const privateStats = await fs.lstat(path.join(protectedRoot, entry.name)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      });
+      // An ordinary generated scratch directory is not a server-owned checkout.
+      if (!privateStats) continue;
+      const manifest = await load(entry.name, context);
+      const expectedDirectory = path.join(officeRoot, entry.name);
+      const workingPath = path.join(expectedDirectory, 'working.docx');
+      if (!entry.isDirectory() || entry.isSymbolicLink() || manifest.workingPath !== workingPath
+        || await fs.realpath(expectedDirectory) !== expectedDirectory) {
+        throw new Error('The tracked DOCX working copy moved outside its original checkout directory.');
+      }
+      const bytes = await readRegular(workingPath, DOCX_PACKAGE_LIMITS.compressedBytes).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (!bytes) continue;
+      if (recovery.bytes + bytes.length > 256 * 1024 * 1024) {
+        throw new Error('Office scratch cleanup needs manual recovery: the bounded draft size limit was exceeded.');
+      }
+      const hash = digest(bytes);
+      await writeDurable(path.join(await checkoutDirectory(manifest.id), `${hash}.docx`), bytes);
+      manifest.recoveryDraftHash = hash;
+      await persist(manifest);
+      recovery.checkoutIds.push(manifest.id);
+      recovery.bytes += bytes.length;
+    }
+    return recovery;
+  });
 }
 
 async function assertAuthority(dependencies: OfficeDocumentDependencies, context: AgentExecutionContext, manifest?: CheckoutManifest): Promise<Authority> {
@@ -304,6 +405,7 @@ export function createOfficeDocumentWorkflow(dependencies: OfficeDocumentDepende
             lockId: lease.id, lockExpiresAt: lease.expiresAt, workingPath, status: 'checked_out', createdAt: Date.now(),
           };
           if (bytes) {
+            await assertWorkingCopyQuota(context, bytes);
             await fs.writeFile(workingPath, bytes, { flag: 'wx', mode: 0o600 });
             await writeDurable(path.join(await checkoutDirectory(id), 'original.docx'), bytes);
           }
@@ -378,9 +480,11 @@ export function createOfficeDocumentWorkflow(dependencies: OfficeDocumentDepende
         const manifest = await load(input.checkoutId, context);
         signal?.throwIfAborted();
         if (input.restoreWorkingCopy) {
-          const filename = manifest.candidateHash ? `${manifest.candidateHash}.docx` : 'original.docx';
+          const recoveryHash = manifest.recoveryDraftHash ?? manifest.candidateHash;
+          const filename = recoveryHash ? `${recoveryHash}.docx` : 'original.docx';
           const bytes = await readRegular(path.join(await checkoutDirectory(manifest.id), filename), DOCX_PACKAGE_LIMITS.compressedBytes);
           const directory = await workingDirectory(context, manifest.id);
+          await assertWorkingCopyQuota(context, bytes);
           await writeDurable(path.join(directory, 'working.docx'), bytes);
         }
         if (input.renewLease) {

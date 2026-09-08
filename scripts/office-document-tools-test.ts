@@ -7,10 +7,12 @@ import JSZip from 'jszip';
 
 import type { AgentExecutionContext } from '../app/lib/pi/agent-execution-context';
 import { runWithAgentExecutionContext } from '../app/lib/pi/agent-execution-context';
-import { createOfficeDocumentWorkflow, type OfficeDocumentDependencies } from '../app/lib/pi/office-document-workflow';
+import { createOfficeDocumentWorkflow, preserveOfficeDocumentDraftsBeforeScratchCleanup, type OfficeDocumentDependencies } from '../app/lib/pi/office-document-workflow';
 import { createOfficeDocumentTools, OFFICE_DOCUMENT_TOOL_NAMES } from '../app/lib/pi/office-document-tools';
 import { executeAgentSandboxedCommand } from '../app/lib/pi/agent-shell-sandbox';
-import { resolveAgentRuntimeTempDir } from '../app/lib/pi/agent-runtime-temp';
+import { buildAgentBashEnvironment, executeAgentBashCommand } from '../app/lib/pi/agent-bash-runtime';
+import { clearAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '../app/lib/pi/agent-runtime-temp';
+import { DOCX_PACKAGE_LIMITS } from '../app/lib/office/docx-package';
 import { getPiToolsetsForTool, resolveDelegatedWorkerToolNames } from '../app/lib/pi/toolsets';
 import { filterToolsForWorkspacePermissions } from '../app/lib/pi/workspace-tool-policy';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
@@ -31,6 +33,8 @@ async function main() {
   const fixture = await fs.mkdtemp(path.join(process.cwd(), '.office-document-tools-test-'));
   const beforeData = process.env.DATA;
   const beforeCanvas = process.env.CANVAS_DATA_ROOT;
+  const beforeMaxBytes = process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES;
+  const beforeMaxFiles = process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES;
   const data = path.join(fixture, 'data');
   const root = path.join(fixture, 'workspace');
   process.env.DATA = data;
@@ -118,6 +122,152 @@ async function main() {
     const modified = await docx('Agent proposal');
     const newer = await docx('Another editor');
     const seed = async (name: string) => fs.writeFile(path.join(root, name), original);
+
+    const quotaContext = { ...context, sessionId: 'office-quota-session' };
+    const quotaScratch = resolveAgentRuntimeTempDir(quotaContext);
+    await seed('quota.docx');
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = String(original.length - 1);
+    await assert.rejects(workflow.checkout({ path: 'quota.docx' }, quotaContext), /temp quota exceeded/);
+    assert.equal(leases.has('quota.docx'), false, 'a rejected checkout releases its exact lease');
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = '1048576';
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES = '1';
+    await fs.writeFile(path.join(quotaScratch, 'existing.txt'), 'occupied');
+    await assert.rejects(workflow.checkout({ path: 'quota.docx' }, quotaContext), /files would exceed/);
+    await clearAgentRuntimeTempDir(quotaScratch);
+    const quotaCheckout = await workflow.checkout({ path: 'quota.docx' }, quotaContext);
+    await fs.writeFile(quotaCheckout.workingPath, modified);
+    await workflow.release(quotaCheckout.checkoutId, quotaContext);
+    await assert.rejects(workflow.inspect({ checkoutId: quotaCheckout.checkoutId, restoreWorkingCopy: true }, quotaContext), /files would exceed/);
+    assert.deepEqual(await fs.readFile(quotaCheckout.workingPath), modified, 'staging quota failure leaves the old working file untouched');
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES = '2';
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = String(modified.length * 2 - 1);
+    await assert.rejects(workflow.inspect({ checkoutId: quotaCheckout.checkoutId, restoreWorkingCopy: true }, quotaContext), /bytes would exceed/);
+    assert.deepEqual(await fs.readFile(quotaCheckout.workingPath), modified);
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = String(modified.length * 2);
+    await workflow.inspect({ checkoutId: quotaCheckout.checkoutId, restoreWorkingCopy: true }, quotaContext);
+    assert.deepEqual(await fs.readFile(quotaCheckout.workingPath), modified, 'exact atomic staging headroom is accepted');
+
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES = '10000';
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = '1048576';
+    const recoveryContext = { ...context, sessionId: 'office-quota-recovery-session' };
+    const recoveryScratch = resolveAgentRuntimeTempDir(recoveryContext);
+    await seed('quota-recovery.docx');
+    const quotaRecovery = await workflow.checkout({ path: 'quota-recovery.docx' }, recoveryContext);
+    await fs.writeFile(quotaRecovery.workingPath, modified);
+    failure = 'before';
+    assert.equal((await workflow.commit(quotaRecovery.checkoutId, recoveryContext)).status, 'prepared');
+    const recoveryManifestPath = path.join(data, 'office', 'checkouts', quotaRecovery.checkoutId, 'manifest.json');
+    const beforeRecoveryManifest = JSON.parse(await fs.readFile(recoveryManifestPath, 'utf8'));
+    await fs.writeFile(quotaRecovery.workingPath, newer);
+    await fs.writeFile(path.join(recoveryScratch, 'oversized-intermediate.bin'), Buffer.alloc(8192));
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = '4096';
+    authorized = false;
+    const preserved = await preserveOfficeDocumentDraftsBeforeScratchCleanup({ ...recoveryContext, canWrite: false }, recoveryScratch);
+    authorized = true;
+    assert.deepEqual(preserved, { checkoutIds: [quotaRecovery.checkoutId], bytes: newer.length });
+    const afterRecoveryManifest = JSON.parse(await fs.readFile(recoveryManifestPath, 'utf8'));
+    assert.equal(afterRecoveryManifest.recoveryDraftHash, sha(newer));
+    delete afterRecoveryManifest.recoveryDraftHash;
+    assert.deepEqual(afterRecoveryManifest, beforeRecoveryManifest, 'quota rescue must preserve prepared bytes, key, baseline, lease, status and error');
+    await clearAgentRuntimeTempDir(recoveryScratch);
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = '1048576';
+    const restoredRecovery = await workflow.inspect({ checkoutId: quotaRecovery.checkoutId, restoreWorkingCopy: true }, recoveryContext);
+    assert.equal(restoredRecovery.recoveryDraftSha256, sha(newer));
+    assert.deepEqual(await fs.readFile(quotaRecovery.workingPath), newer, 'the latest edited working draft survives quota cleanup');
+    assert.equal((await workflow.commit(quotaRecovery.checkoutId, recoveryContext)).status, 'committed');
+    assert.equal(calls.at(-1)!.idempotencyKey, beforeRecoveryManifest.idempotencyKey);
+    assert.deepEqual(calls.at(-1)!.content, modified, 'retry publishes the original prepared request, never the independently rescued draft');
+    assert.deepEqual(await fs.readFile(quotaRecovery.workingPath), newer);
+    await assert.rejects(preserveOfficeDocumentDraftsBeforeScratchCleanup({ ...recoveryContext, workspaceId: 'another-workspace' }, recoveryScratch), /belongs to another/);
+    await assert.rejects(preserveOfficeDocumentDraftsBeforeScratchCleanup(recoveryContext, quotaScratch), /another session/);
+
+    const originalRename = fs.rename;
+    fs.rename = async (from, to) => {
+      if (to === recoveryManifestPath) throw Object.assign(new Error('Recovery manifest fsync fixture failure'), { code: 'EIO' });
+      return originalRename(from, to);
+    };
+    try {
+      await assert.rejects(async () => {
+        await preserveOfficeDocumentDraftsBeforeScratchCleanup(recoveryContext, recoveryScratch);
+        await clearAgentRuntimeTempDir(recoveryScratch);
+      }, /Recovery manifest/);
+      assert.deepEqual(await fs.readFile(quotaRecovery.workingPath), newer, 'a failed durable rescue prevents destructive cleanup');
+    } finally { fs.rename = originalRename; }
+
+    await fs.unlink(quotaRecovery.workingPath);
+    await fs.symlink(path.join(root, 'quota-recovery.docx'), quotaRecovery.workingPath);
+    await assert.rejects(preserveOfficeDocumentDraftsBeforeScratchCleanup(recoveryContext, recoveryScratch), /ELOOP/);
+    assert.deepEqual(await read('quota-recovery.docx'), modified);
+    await fs.unlink(quotaRecovery.workingPath);
+    await fs.writeFile(quotaRecovery.workingPath, newer);
+    await fs.truncate(quotaRecovery.workingPath, DOCX_PACKAGE_LIMITS.compressedBytes + 1);
+    await assert.rejects(preserveOfficeDocumentDraftsBeforeScratchCleanup(recoveryContext, recoveryScratch), /size limit/);
+    assert.equal((await fs.stat(quotaRecovery.workingPath)).size, DOCX_PACKAGE_LIMITS.compressedBytes + 1);
+    await fs.writeFile(quotaRecovery.workingPath, newer);
+    const officeDir = path.join(recoveryScratch, 'office');
+    await Promise.all(Array.from({ length: 1025 }, (_, index) => fs.writeFile(path.join(officeDir, `generated-${index}.tmp`), '')));
+    await assert.rejects(preserveOfficeDocumentDraftsBeforeScratchCleanup(recoveryContext, recoveryScratch), /bounded checkout scan limit/);
+    await clearAgentRuntimeTempDir(recoveryScratch);
+    assert.deepEqual(await preserveOfficeDocumentDraftsBeforeScratchCleanup(recoveryContext, recoveryScratch), { checkoutIds: [], bytes: 0 });
+
+    const runtimeContext = { ...context, sessionId: 'office-runtime-quota-session' };
+    const runtimeScratch = resolveAgentRuntimeTempDir(runtimeContext);
+    await seed('runtime-quota.docx');
+    const runtimeCheckout = await workflow.checkout({ path: 'runtime-quota.docx' }, runtimeContext);
+    const runtimeManifestPath = path.join(data, 'office', 'checkouts', runtimeCheckout.checkoutId, 'manifest.json');
+    const overflowingCommand = (bytes: Buffer) => executeAgentBashCommand({
+      command: `/usr/bin/python3 -I -B -c ${quote([
+        'import base64, os',
+        'from pathlib import Path',
+        `Path(${JSON.stringify(runtimeCheckout.workingPath)}).write_bytes(base64.b64decode(${JSON.stringify(bytes.toString('base64'))}))`,
+        'Path(os.environ["CANVAS_AGENT_TEMP_DIR"], "oversized-intermediate.bin").write_bytes(b"x" * 8192)',
+      ].join('\n'))}`,
+      cwd: runtimeScratch,
+      workspaceDir: root,
+      tempDir: runtimeScratch,
+      env: buildAgentBashEnvironment({ sourceEnv: { ...process.env, NODE_ENV: 'test' }, workspaceDir: root, tempDir: runtimeScratch }),
+      executionContext: runtimeContext,
+    });
+    const originalRm = fs.rm;
+    let verifiedRecoveryBeforeCleanup = false;
+    fs.rm = async (target, options) => {
+      if (target === runtimeScratch && options?.recursive) {
+        const rescued = JSON.parse(await fs.readFile(runtimeManifestPath, 'utf8'));
+        assert.equal(rescued.recoveryDraftHash, sha(newer));
+        assert.equal(rescued.status, 'checked_out');
+        assert.deepEqual(await fs.readFile(path.join(path.dirname(runtimeManifestPath), `${rescued.recoveryDraftHash}.docx`)), newer);
+        verifiedRecoveryBeforeCleanup = true;
+      }
+      return originalRm(target, options);
+    };
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = '4096';
+    try {
+      await assert.rejects(overflowingCommand(newer), /cleared automatically/);
+      assert.equal(verifiedRecoveryBeforeCleanup, true, 'the actual Bash runtime must persist the edited DOCX before deleting scratch');
+      assert.deepEqual(await fs.readdir(runtimeScratch), []);
+      assert.deepEqual(await read('runtime-quota.docx'), original);
+    } finally { fs.rm = originalRm; }
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = '1048576';
+    await workflow.inspect({ checkoutId: runtimeCheckout.checkoutId, restoreWorkingCopy: true }, runtimeContext);
+    assert.deepEqual(await fs.readFile(runtimeCheckout.workingPath), newer, 'actual Bash quota cleanup leaves a restorable latest draft');
+
+    fs.rename = async (from, to) => {
+      if (to === runtimeManifestPath) throw Object.assign(new Error('Bash runtime recovery write fixture failure'), { code: 'EIO' });
+      return originalRename(from, to);
+    };
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = '4096';
+    try {
+      await assert.rejects(overflowingCommand(modified), (error: unknown) => {
+        assert(error instanceof AggregateError);
+        assert.match(error.message, /Automatic cleanup .* failed/);
+        assert(error.errors.some((cause: unknown) => cause instanceof Error && cause.message.includes('recovery write fixture failure')));
+        return true;
+      });
+      assert.deepEqual(await fs.readFile(runtimeCheckout.workingPath), modified, 'actual runtime cleanup must stop when recovery publication fails');
+      assert.equal((await fs.stat(path.join(runtimeScratch, 'oversized-intermediate.bin'))).size, 8192);
+      assert.deepEqual(await read('runtime-quota.docx'), original);
+    } finally { fs.rename = originalRename; }
+    process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = '1048576';
 
     await seed('report.docx');
     const checkout = await workflow.checkout({ path: 'report.docx' }, context);
@@ -269,6 +419,10 @@ async function main() {
     else process.env.DATA = beforeData;
     if (beforeCanvas === undefined) delete process.env.CANVAS_DATA_ROOT;
     else process.env.CANVAS_DATA_ROOT = beforeCanvas;
+    if (beforeMaxBytes === undefined) delete process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES;
+    else process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = beforeMaxBytes;
+    if (beforeMaxFiles === undefined) delete process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES;
+    else process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES = beforeMaxFiles;
     await fs.rm(fixture, { recursive: true, force: true });
   }
 }

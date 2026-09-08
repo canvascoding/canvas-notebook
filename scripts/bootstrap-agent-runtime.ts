@@ -578,7 +578,7 @@ async function listFilesForChecksum(rootDir: string, currentDir = rootDir): Prom
     const fullPath = path.join(currentDir, entry.name);
     if (entry.isDirectory()) {
       files.push(...await listFilesForChecksum(rootDir, fullPath));
-    } else if (entry.isFile()) {
+    } else if (entry.isFile() || entry.isSymbolicLink()) {
       files.push(path.relative(rootDir, fullPath));
     }
   }
@@ -590,9 +590,16 @@ async function computeSeedPluginChecksum(rootDir: string): Promise<string> {
   const hash = createHash('sha256');
   const files = await listFilesForChecksum(rootDir);
   for (const relativeFile of files) {
+    const fullPath = path.join(rootDir, relativeFile);
+    const stats = await fs.lstat(fullPath);
     hash.update(relativeFile);
     hash.update('\0');
-    hash.update(await fs.readFile(path.join(rootDir, relativeFile)));
+    if (stats.isSymbolicLink()) {
+      hash.update('symlink:');
+      hash.update(await fs.readlink(fullPath));
+    } else {
+      hash.update(await fs.readFile(fullPath));
+    }
     hash.update('\0');
   }
   return hash.digest('hex');
@@ -743,37 +750,71 @@ async function materializeSeedPluginSkills(
   for (const skill of skills) {
     const standaloneDir = path.join(SKILLS_STORAGE_DIR, skill.name);
     const standaloneSkillPath = path.join(standaloneDir, 'SKILL.md');
-    if (await fileExists(standaloneSkillPath)) {
-      updatedSkills.push({
-        ...skill,
-        materialized: false,
-        preexistingStandalone: true,
-        standaloneDir,
-      });
-      continue;
-    }
-
-    if (await fileExists(standaloneDir)) {
-      console.warn(`[bootstrap-agent-runtime] Skill target exists but is not a valid skill, skipping materialization: ${standaloneDir}`);
-      updatedSkills.push({
-        ...skill,
-        materialized: false,
-        preexistingStandalone: true,
-        standaloneDir,
-      });
-      continue;
-    }
-
-    await fs.cp(skill.directory, standaloneDir, {
-      recursive: true,
-      preserveTimestamps: true,
-      filter: (source) => !['.git', 'node_modules', '.DS_Store'].includes(path.basename(source)),
-    });
-    const skillFrontmatter = parseSimpleSkillFrontmatter(await fs.readFile(standaloneSkillPath, 'utf8'));
-    const timestamp = new Date().toISOString();
     const existing = isRecord(registry.skills[skill.name])
       ? registry.skills[skill.name] as Record<string, unknown>
       : undefined;
+    const standaloneExists = await fileExists(standaloneDir);
+    if (standaloneExists) {
+      const expectedChecksum = stringValue(existing?.checksum);
+      const managedByPlugin = existing?.sourceType === 'plugin'
+        && existing?.sourcePluginName === manifest.name
+        && Boolean(expectedChecksum);
+      const currentChecksum = managedByPlugin
+        ? await computeSeedPluginChecksum(standaloneDir).catch(() => null)
+        : null;
+      if (!managedByPlugin || currentChecksum !== expectedChecksum) {
+        updatedSkills.push({
+          ...skill,
+          materialized: false,
+          preexistingStandalone: true,
+          standaloneDir,
+        });
+        console.log(`[bootstrap-agent-runtime] Preserved standalone or locally modified skill ${skill.name}.`);
+        continue;
+      }
+
+      const stagingDir = `${standaloneDir}.seed-upgrade-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const backupDir = `${standaloneDir}.seed-backup-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      try {
+        await fs.cp(skill.directory, stagingDir, {
+          recursive: true,
+          preserveTimestamps: true,
+          filter: (source) => !['.git', 'node_modules', '.DS_Store'].includes(path.basename(source)),
+        });
+      } catch (error) {
+        await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+        throw error;
+      }
+      await fs.rename(standaloneDir, backupDir);
+      try {
+        await fs.rename(stagingDir, standaloneDir);
+        await fs.rm(backupDir, { recursive: true, force: true });
+      } catch (error) {
+        await fs.rm(standaloneDir, { recursive: true, force: true }).catch(() => undefined);
+        await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+        try {
+          await fs.rename(backupDir, standaloneDir);
+        } catch (restoreError) {
+          throw new AggregateError(
+            [error, restoreError],
+            `Failed to upgrade and restore managed seed skill ${skill.name}; backup remains at ${backupDir}.`,
+          );
+        }
+        throw error;
+      }
+    } else {
+      await fs.cp(skill.directory, standaloneDir, {
+        recursive: true,
+        preserveTimestamps: true,
+        filter: (source) => !['.git', 'node_modules', '.DS_Store'].includes(path.basename(source)),
+      });
+    }
+
+    if (!(await fileExists(standaloneSkillPath))) {
+      throw new Error(`Seed plugin skill materialization did not produce SKILL.md: ${standaloneSkillPath}`);
+    }
+    const skillFrontmatter = parseSimpleSkillFrontmatter(await fs.readFile(standaloneSkillPath, 'utf8'));
+    const timestamp = new Date().toISOString();
     registry.skills[skill.name] = {
       name: skill.name,
       version: skillFrontmatter.version || skill.version || manifest.version,
@@ -808,6 +849,18 @@ async function materializeSeedPluginSkills(
   }
 
   return updatedSkills;
+}
+
+function isNewerSeedPluginVersion(candidate: string, installed: string): boolean {
+  const numericParts = (value: string) => value.split(/[+-]/u, 1)[0].split('.').map((part) => Number(part));
+  const candidateParts = numericParts(candidate);
+  const installedParts = numericParts(installed);
+  const length = Math.max(candidateParts.length, installedParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (candidateParts[index] ?? 0) - (installedParts[index] ?? 0);
+    if (difference !== 0) return difference > 0;
+  }
+  return false;
 }
 
 function getSeedPluginInstallEnabledSkillNames(skills: SeedPluginSkillRecord[]): string[] {
@@ -851,6 +904,7 @@ async function ensureSeedPluginsBootstrap(): Promise<void> {
   const entries = await fs.readdir(SEED_PLUGINS_DIR, { withFileTypes: true });
   const registry = await readSeedPluginRegistry();
   let installedCount = 0;
+  let upgradedCount = 0;
   let skippedNonDefaultCount = 0;
 
   for (const entry of entries) {
@@ -866,8 +920,15 @@ async function ensureSeedPluginsBootstrap(): Promise<void> {
       console.warn(`[bootstrap-agent-runtime] Invalid seed plugin skipped: ${entry.name}.`);
       continue;
     }
-    if (registry.plugins[manifest.name]) {
-      continue;
+    const existingPlugin = isRecord(registry.plugins[manifest.name])
+      ? registry.plugins[manifest.name] as Record<string, unknown>
+      : undefined;
+    if (existingPlugin) {
+      const existingVersion = stringValue(existingPlugin.version);
+      const existingSource = stringValue(existingPlugin.source);
+      if (existingSource !== 'seed' || !existingVersion || !isNewerSeedPluginVersion(manifest.version, existingVersion)) {
+        continue;
+      }
     }
 
     const skills = await discoverSeedPluginSkills(sourcePath, manifest);
@@ -897,7 +958,7 @@ async function ensureSeedPluginsBootstrap(): Promise<void> {
       author: manifest.author,
       source: manifest.source || 'seed',
       sourcePath,
-      installedAt: timestamp,
+      installedAt: stringValue(existingPlugin?.installedAt) || timestamp,
       updatedAt: timestamp,
       enabled: true,
       checksum,
@@ -909,18 +970,23 @@ async function ensureSeedPluginsBootstrap(): Promise<void> {
       connectors: manifest.connectors,
     };
     await enableSeedPluginSkillsInPiConfig(getSeedPluginInstallEnabledSkillNames(materializedSkills));
-    installedCount += 1;
-    console.log(`[bootstrap-agent-runtime] Installed seed plugin ${manifest.name}.`);
+    if (existingPlugin) {
+      upgradedCount += 1;
+      console.log(`[bootstrap-agent-runtime] Upgraded seed plugin ${manifest.name} to ${manifest.version}.`);
+    } else {
+      installedCount += 1;
+      console.log(`[bootstrap-agent-runtime] Installed seed plugin ${manifest.name}.`);
+    }
   }
 
-  if (installedCount > 0) {
+  if (installedCount > 0 || upgradedCount > 0) {
     await fs.mkdir(PLUGINS_STORAGE_DIR, { recursive: true });
     await writeJsonAtomic(PLUGIN_REGISTRY_PATH, {
       ...registry,
       version: 1,
       updatedAt: new Date().toISOString(),
     });
-    console.log(`[bootstrap-agent-runtime] Installed ${installedCount} seed plugins.`);
+    console.log(`[bootstrap-agent-runtime] Installed ${installedCount} and upgraded ${upgradedCount} seed plugins.`);
   } else {
     console.log('[bootstrap-agent-runtime] Seed plugins already present or no valid seed plugins found.');
   }

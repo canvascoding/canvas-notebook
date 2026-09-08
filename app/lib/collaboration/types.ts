@@ -1,3 +1,5 @@
+import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
+
 export const COLLABORATION_SCHEMA_VERSION = 1;
 export const RICH_MARKDOWN_SCHEMA_VERSION = 3;
 export const COLLABORATION_TICKET_TTL_MS = 90_000;
@@ -91,6 +93,7 @@ export interface FilePresenceEntry {
   actorType: CollaborationActorType;
   initiatedByUserId: string | null;
   displayName: string;
+  profile?: ResolvedUserProfile | null;
   color: string;
   colorLight: string;
   activity: CollaborationActivity;

@@ -3,6 +3,7 @@
 import { Bot } from 'lucide-react';
 
 import { useFilePresenceStore } from '@/app/store/file-presence-store';
+import { UserAvatar } from '@/app/components/user-profile/UserAvatar';
 
 export function FilePresenceMarkers({ path }: { path: string }) {
   const entries = useFilePresenceStore((state) => state.byPath[path]);
@@ -19,7 +20,15 @@ export function FilePresenceMarkers({ path }: { path: string }) {
           style={{ backgroundColor: entry.colorLight, color: entry.color }}
           aria-hidden="true"
         >
-          {entry.actorType === 'agent' ? <Bot className="h-3 w-3" /> : entry.displayName.slice(0, 1).toUpperCase()}
+          {entry.actorType === 'agent' ? (
+            <Bot className="h-3 w-3" />
+          ) : entry.profile ? (
+            <UserAvatar
+              profile={entry.profile}
+              className="size-full rounded-full border-0 bg-transparent shadow-none"
+              iconClassName="h-3 w-3"
+            />
+          ) : entry.displayName.slice(0, 1).toUpperCase()}
         </span>
       ))}
       {entries.length > shown.length && (

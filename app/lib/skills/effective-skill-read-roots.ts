@@ -9,6 +9,8 @@ import type {
   EffectiveCapabilitySnapshot,
 } from '@/app/lib/capabilities/types';
 import { selectPromptSkillsForAgent } from '@/app/lib/skills/agent-skill-selection';
+import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
+import { readEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 
 type EffectiveRuntimeSkill = {
   name: string;
@@ -75,4 +77,27 @@ export async function resolveEffectiveSkillReadRoots(input: CapabilityResolution
     agentId: normalizedAgentId,
     relevantSkills: agentProfile?.relevantSkills,
   });
+}
+
+export async function resolvePersonalSkillReadRoots(input: {
+  userId: string;
+  agentId?: string | null;
+}): Promise<string[]> {
+  const normalizedAgentId = normalizeManagedAgentId(input.agentId);
+  const scope = { scopeType: 'user' as const, userId: input.userId };
+  const enabledSkills = await readEnabledSkillsForScope(scope);
+  const [skills, agentProfile] = await Promise.all([
+    loadSkillsFromDisk(enabledSkills, scope),
+    getAgentProfile(normalizedAgentId),
+  ]);
+  const selectedSkills = selectPromptSkillsForAgent(
+    normalizedAgentId,
+    skills,
+    agentProfile?.relevantSkills,
+  );
+  return Array.from(new Set(
+    selectedSkills
+      .filter((skill) => skill.enabled)
+      .map((skill) => path.dirname(path.resolve(skill.path))),
+  ));
 }

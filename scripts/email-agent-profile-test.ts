@@ -83,9 +83,10 @@ async function main() {
     assert.ok((createDraftTool.parameters as { properties?: Record<string, unknown> }).properties?.attachments);
     assert.ok((updateDraftTool.parameters as { properties?: Record<string, unknown> }).properties?.attachments);
 
-    const emailAgent = await ensureEmailAgent();
+    let emailAgent = await ensureEmailAgent();
     assert.equal(emailAgent.agentId, EMAIL_MANAGED_AGENT_ID);
     assert.equal(emailAgent.name, 'Email Agent');
+    assert.equal(emailAgent.iconId, 'email');
     assert.equal(emailAgent.removable, false);
     assert.equal(emailAgent.scopeType, 'system');
     assert.deepEqual(emailAgent.enabledTools, [
@@ -108,6 +109,26 @@ async function main() {
     assert.ok((await listAgentProfiles()).some((agent) => agent.agentId === EMAIL_MANAGED_AGENT_ID));
     assert.deepEqual(await getAgentAccess('owner-user', EMAIL_MANAGED_AGENT_ID), {
       canUse: true, canEdit: true, canManage: true,
+    });
+
+    sqlite.prepare('UPDATE agents SET icon_id = ? WHERE agent_id = ?').run('messages', EMAIL_MANAGED_AGENT_ID);
+    emailAgent = await ensureEmailAgent();
+    assert.equal(emailAgent.iconId, 'email');
+
+    emailAgent = await updateAgentProfile({
+      agentId: EMAIL_MANAGED_AGENT_ID,
+      name: 'Workspace Mail Agent',
+      iconId: 'messages',
+      expectedRevision: emailAgent.revision,
+    });
+    const customizedEmailAgent = await ensureEmailAgent();
+    assert.equal(customizedEmailAgent.name, 'Workspace Mail Agent');
+    assert.equal(customizedEmailAgent.iconId, 'messages');
+    emailAgent = await updateAgentProfile({
+      agentId: EMAIL_MANAGED_AGENT_ID,
+      name: 'Email Agent',
+      iconId: 'email',
+      expectedRevision: customizedEmailAgent.revision,
     });
 
     const runtimeUpdated = await updateManagedAgentRuntime({

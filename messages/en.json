@@ -1544,6 +1544,8 @@
     "copy": "Copy",
     "copied": "Copied",
     "copyFormatted": "Copy formatted",
+    "copyPlainText": "Copy as plain text",
+    "copyFailed": "Could not copy to the clipboard",
     "copyMarkdown": "Copy Markdown",
     "copyOptions": "Copy options",
     "forkChatFromHere": "Fork chat from here",

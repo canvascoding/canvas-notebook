@@ -1034,6 +1034,15 @@ li.task-list-item > p {
   padding: 0.875rem 1rem;
 }
 
+.tiptap-code-block > pre {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  overflow: visible;
+  padding: 0;
+}
+
 .tiptap-code-block code,
 .tiptap-editor-shell pre code {
   background: transparent;
