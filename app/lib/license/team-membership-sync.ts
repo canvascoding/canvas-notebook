@@ -321,10 +321,10 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
               reconciliation_action = 'contact_support',
               reconciliation_reason = 'local_reconciliation_failed',
               reconciliation_support_required = 1,
-              reconciled_at = ?,
-              updated_at = ?
-            WHERE organization_id = ?
-              AND acknowledged_revision = ?
+              reconciled_at = $1,
+              updated_at = $2
+            WHERE organization_id = $3
+              AND acknowledged_revision = $4
           `, [
             now,
             now,

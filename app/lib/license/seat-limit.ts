@@ -94,7 +94,7 @@ export async function getTeamSeatReconciliationSeatLimit(
       ? `
           SELECT reconciliation_seat_limit
           FROM team_membership_sync_state
-          WHERE organization_id = ?
+          WHERE organization_id = $1
           LIMIT 1
         `
       : `
@@ -141,7 +141,7 @@ async function activeMembershipQuantity(
   const row = await database.get(`
     SELECT COUNT(*) AS count
     FROM team_memberships
-    WHERE organization_id = ?
+    WHERE organization_id = $1
       AND status = 'active'
       AND user_id IS NOT NULL
       AND accepted_at IS NOT NULL
@@ -156,7 +156,7 @@ async function requireUserAccount(
   const row = await database.get(`
     SELECT id, banned
     FROM "user"
-    WHERE id = ?
+    WHERE id = $1
     LIMIT 1
   `, [userId]) as { id: string; banned: number | boolean | string | null } | undefined;
   if (!row || booleanFromDatabase(row.banned)) {
@@ -246,14 +246,14 @@ async function assertTeamUserAccess(
     INNER JOIN organization_user_permissions permission
       ON permission.organization_id = membership.organization_id
       AND permission.user_id = membership.user_id
-    WHERE membership.organization_id = ?
+    WHERE membership.organization_id = $1
       AND membership.status = 'active'
       AND membership.user_id IS NOT NULL
       AND membership.accepted_at IS NOT NULL
       AND COALESCE(user_account.banned, 0) = 0
       AND permission.status = 'active'
     ORDER BY
-      CASE WHEN membership.user_id = ? THEN 0 ELSE 1 END,
+      CASE WHEN membership.user_id = $2 THEN 0 ELSE 1 END,
       CASE membership.role
         WHEN 'owner' THEN 0
         WHEN 'admin' THEN 1

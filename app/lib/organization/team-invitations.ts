@@ -141,7 +141,7 @@ async function readInvitationById(
   invitationId: string,
 ): Promise<(TeamMembershipInvitation & { acceptedRequestId: string | null }) | null> {
   const row = await database.get(
-    `${INVITATION_SELECT} WHERE organization_id = ? AND id = ? LIMIT 1`,
+    `${INVITATION_SELECT} WHERE organization_id = $1 AND id = $2 LIMIT 1`,
     [organizationId, invitationId],
   ) as InvitationRow | undefined;
   return row
@@ -157,7 +157,7 @@ async function readInvitationByToken(
     throw new TeamInvitationError('INVITATION_INVALID', 'Invitation token is invalid.', 400);
   }
   const row = await database.get(
-    `${INVITATION_SELECT} WHERE token_hash = ? LIMIT 1`,
+    `${INVITATION_SELECT} WHERE token_hash = $1 LIMIT 1`,
     [invitationTokenHash(token)],
   ) as InvitationRow | undefined;
   return row
@@ -324,18 +324,18 @@ export async function createTeamMembershipInvitation(input: {
       const updated = await database.run(`
         UPDATE team_membership_invitations
         SET
-          token_hash = ?,
-          email_snapshot = ?,
-          role_snapshot = ?,
+          token_hash = $1,
+          email_snapshot = $2,
+          role_snapshot = $3,
           status = 'pending',
-          invited_by_user_id = ?,
-          expires_at = ?,
+          invited_by_user_id = $4,
+          expires_at = $5,
           accepted_request_id = NULL,
           accepted_at = NULL,
           revoked_at = NULL,
-          updated_at = ?
-        WHERE organization_id = ?
-          AND id = ?
+          updated_at = $6
+        WHERE organization_id = $7
+          AND id = $8
           AND status IN ('accepted', 'revoked', 'expired')
       `, [
         tokenHash,
@@ -367,7 +367,7 @@ export async function createTeamMembershipInvitation(input: {
           expires_at,
           created_at,
           updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $10)
       `, [
         invitationId,
         input.organizationId,
@@ -407,7 +407,7 @@ export async function listTeamMembershipInvitations(input: {
   try {
     const rows = await database.all(`
       ${INVITATION_SELECT}
-      WHERE organization_id = ?
+      WHERE organization_id = $1
       ORDER BY created_at DESC, id DESC
     `, [input.organizationId]) as InvitationRow[];
     return rows.map(mapInvitation);
@@ -476,8 +476,8 @@ export async function revokeTeamMembershipInvitation(input: {
       const executeOperation = await database.get(`
         SELECT operation_id
         FROM team_seat_outbox
-        WHERE organization_id = ?
-          AND membership_id = ?
+        WHERE organization_id = $1
+          AND membership_id = $2
           AND operation_kind = 'seat_execute'
         LIMIT 1
       `, [input.organizationId, current.membershipId]) as { operation_id: string } | undefined;
@@ -510,8 +510,8 @@ export async function revokeTeamMembershipInvitation(input: {
       });
       await database.run(`
         UPDATE team_membership_invitations
-        SET status = 'revoked', revoked_at = ?, updated_at = ?
-        WHERE organization_id = ? AND id = ? AND status = 'accepted'
+        SET status = 'revoked', revoked_at = $1, updated_at = $2
+        WHERE organization_id = $3 AND id = $4 AND status = 'accepted'
       `, [now, now, input.organizationId, input.invitationId]);
       return (await readInvitationById(
         database,
@@ -522,8 +522,8 @@ export async function revokeTeamMembershipInvitation(input: {
     if (current.status === 'pending') {
       await database.run(`
         UPDATE team_membership_invitations
-        SET status = 'revoked', revoked_at = ?, updated_at = ?
-        WHERE organization_id = ? AND id = ? AND status = 'pending'
+        SET status = 'revoked', revoked_at = $1, updated_at = $2
+        WHERE organization_id = $3 AND id = $4 AND status = 'pending'
       `, [now, now, input.organizationId, input.invitationId]);
     }
     const revoked = await readInvitationById(database, input.organizationId, input.invitationId);
@@ -579,8 +579,8 @@ export async function acceptTeamMembershipInvitation(input: {
       if (invitation.status === 'pending') {
         await database.run(`
           UPDATE team_membership_invitations
-          SET status = 'expired', updated_at = ?
-          WHERE id = ? AND status = 'pending'
+          SET status = 'expired', updated_at = $1
+          WHERE id = $2 AND status = 'pending'
         `, [now, invitation.id]);
         invitation = (await readInvitationByToken(database, input.token))!;
       }
@@ -631,10 +631,10 @@ export async function acceptTeamMembershipInvitation(input: {
         UPDATE team_membership_invitations
         SET
           status = 'accepted',
-          accepted_request_id = ?,
-          accepted_at = ?,
-          updated_at = ?
-        WHERE id = ? AND status = 'pending' AND expires_at > ?
+          accepted_request_id = $1,
+          accepted_at = $2,
+          updated_at = $3
+        WHERE id = $4 AND status = 'pending' AND expires_at > $5
       `, [input.requestId, now, now, invitation.id, now]);
       if (changesFromRunResult(accepted) !== 1) {
         const concurrent = await readInvitationByToken(database, input.token);
@@ -691,16 +691,16 @@ export async function expireTeamMembershipInvitations(input?: {
   try {
     const rows = await database.all(`
       ${INVITATION_SELECT}
-      WHERE status = 'pending' AND expires_at <= ?
+      WHERE status = 'pending' AND expires_at <= $1
       ORDER BY expires_at ASC, id ASC
-      LIMIT ?
+      LIMIT $2
     `, [now, limit]) as InvitationRow[];
     let expired = 0;
     for (const row of rows) {
       const result = await database.run(`
         UPDATE team_membership_invitations
-        SET status = 'expired', updated_at = ?
-        WHERE id = ? AND status = 'pending' AND expires_at <= ?
+        SET status = 'expired', updated_at = $1
+        WHERE id = $2 AND status = 'pending' AND expires_at <= $3
       `, [now, row.id, now]);
       if (changesFromRunResult(result) !== 1) continue;
       expired += 1;

@@ -431,7 +431,7 @@ export async function getTeamSeatOutboxOperation(
   operationId: string,
 ): Promise<TeamSeatOutboxOperation | null> {
   const row = await database.get(
-    `${OUTBOX_SELECT} WHERE operation_id = ? LIMIT 1`,
+    `${OUTBOX_SELECT} WHERE operation_id = $1 LIMIT 1`,
     [operationId],
   ) as OutboxRow | undefined;
   return row ? mapOutbox(row) : null;
@@ -491,7 +491,7 @@ export async function enqueueTeamSeatOutboxOperation(
       next_attempt_at,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, 0, ?, ?, ?, ?)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, 0, $11, $12, $13, $14)
     ON CONFLICT(dedupe_key) DO NOTHING
   `, [
     `team-seat-outbox-${randomUUID()}`,
@@ -512,7 +512,7 @@ export async function enqueueTeamSeatOutboxOperation(
 
   const replayed = changesFromRunResult(result) === 0;
   const row = await database.get(
-    `${OUTBOX_SELECT} WHERE dedupe_key = ? LIMIT 1`,
+    `${OUTBOX_SELECT} WHERE dedupe_key = $1 LIMIT 1`,
     [dedupeKey],
   ) as OutboxRow | undefined;
   if (!row) {
@@ -556,7 +556,7 @@ export async function recordTeamMembershipProjectionChange(
       last_local_change_at,
       created_at,
       updated_at
-    ) VALUES (?, 1, ?, ?, ?, ?)
+    ) VALUES ($1, 1, $2, $3, $4, $5)
     ON CONFLICT(organization_id) DO UPDATE SET
       current_revision = team_membership_sync_state.current_revision + 1,
       current_observed_quantity = excluded.current_observed_quantity,
@@ -573,7 +573,7 @@ export async function recordTeamMembershipProjectionChange(
   const state = await database.get(`
     SELECT current_revision
     FROM team_membership_sync_state
-    WHERE organization_id = ?
+    WHERE organization_id = $1
     LIMIT 1
   `, [input.organizationId]) as { current_revision: number } | undefined;
   if (!state || !Number.isSafeInteger(state.current_revision) || state.current_revision < 1) {
@@ -605,11 +605,11 @@ export async function recordTeamMembershipProjectionChange(
   await database.run(`
     UPDATE team_membership_sync_state
     SET
-      latest_snapshot_hash = ?,
-      latest_snapshot_generated_at = ?,
-      updated_at = ?
-    WHERE organization_id = ?
-      AND current_revision = ?
+      latest_snapshot_hash = $1,
+      latest_snapshot_generated_at = $2,
+      updated_at = $3
+    WHERE organization_id = $4
+      AND current_revision = $5
   `, [
     snapshot.snapshotHash,
     now,
@@ -650,7 +650,7 @@ export async function getLatestTeamMembershipSnapshotOperation(
 ): Promise<TeamSeatOutboxOperation | null> {
   const row = await database.get(`
     ${OUTBOX_SELECT}
-    WHERE organization_id = ?
+    WHERE organization_id = $1
       AND operation_kind = 'membership_snapshot'
     ORDER BY membership_revision DESC, created_at DESC, id DESC
     LIMIT 1
@@ -672,13 +672,13 @@ export async function requeueTeamMembershipSnapshotOperation(
       status = 'pending',
       response_json = NULL,
       attempt_count = 0,
-      next_attempt_at = ?,
+      next_attempt_at = $1,
       last_attempt_at = NULL,
       last_error_code = NULL,
       last_error = NULL,
       completed_at = NULL,
-      updated_at = ?
-    WHERE operation_id = ?
+      updated_at = $2
+    WHERE operation_id = $3
       AND operation_kind = 'membership_snapshot'
       AND status IN ('succeeded', 'failed')
   `, [now, now, input.operationId]);
@@ -727,15 +727,15 @@ export async function claimDueTeamMembershipSnapshotOperations(
       AND (
         (
           status IN ('pending', 'retry_wait')
-          AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+          AND (next_attempt_at IS NULL OR next_attempt_at <= $1)
         )
         OR (
           status = 'processing'
-          AND (last_attempt_at IS NULL OR last_attempt_at <= ?)
+          AND (last_attempt_at IS NULL OR last_attempt_at <= $2)
         )
       )
     ORDER BY membership_revision ASC, created_at ASC, id ASC
-    LIMIT ?
+    LIMIT $3
   `, [now, now - leaseMs, limit]) as OutboxRow[];
   const claimed: TeamSeatOutboxOperation[] = [];
   for (const candidate of candidates) {
@@ -743,18 +743,18 @@ export async function claimDueTeamMembershipSnapshotOperations(
       UPDATE team_seat_outbox
       SET
         status = 'processing',
-        last_attempt_at = ?,
-        updated_at = ?
-      WHERE operation_id = ?
+        last_attempt_at = $1,
+        updated_at = $2
+      WHERE operation_id = $3
         AND operation_kind = 'membership_snapshot'
         AND (
           (
             status IN ('pending', 'retry_wait')
-            AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+            AND (next_attempt_at IS NULL OR next_attempt_at <= $4)
           )
           OR (
             status = 'processing'
-            AND (last_attempt_at IS NULL OR last_attempt_at <= ?)
+            AND (last_attempt_at IS NULL OR last_attempt_at <= $5)
           )
         )
     `, [
@@ -790,22 +790,22 @@ export async function claimTeamSeatOutboxOperation(
       response_json = CASE WHEN status = 'failed' THEN NULL ELSE response_json END,
       attempt_count = CASE WHEN status = 'failed' THEN 0 ELSE attempt_count END,
       next_attempt_at = NULL,
-      last_attempt_at = ?,
+      last_attempt_at = $1,
       last_error_code = CASE WHEN status = 'failed' THEN NULL ELSE last_error_code END,
       last_error = CASE WHEN status = 'failed' THEN NULL ELSE last_error END,
       completed_at = NULL,
-      updated_at = ?
-    WHERE operation_id = ?
+      updated_at = $2
+    WHERE operation_id = $3
       AND (
-        (status = 'pending' AND ? = 1)
-        OR (status = 'failed' AND ? = 1)
+        (status = 'pending' AND $4 = 1)
+        OR (status = 'failed' AND $5 = 1)
         OR (
           status = 'retry_wait'
-          AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+          AND (next_attempt_at IS NULL OR next_attempt_at <= $6)
         )
         OR (
           status = 'processing'
-          AND (last_attempt_at IS NULL OR last_attempt_at <= ?)
+          AND (last_attempt_at IS NULL OR last_attempt_at <= $7)
         )
       )
   `, [
@@ -851,19 +851,19 @@ export async function claimDueTeamSeatWorkOperations(
         (
           status = 'pending'
           AND operation_kind IN ('seat_prepare', 'license_refresh')
-          AND created_at <= ?
+          AND created_at <= $1
         )
         OR (
           status = 'retry_wait'
-          AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+          AND (next_attempt_at IS NULL OR next_attempt_at <= $2)
         )
         OR (
           status = 'processing'
-          AND (last_attempt_at IS NULL OR last_attempt_at <= ?)
+          AND (last_attempt_at IS NULL OR last_attempt_at <= $3)
         )
       )
     ORDER BY created_at ASC, id ASC
-    LIMIT ?
+    LIMIT $4
   `, [now - pendingDelayMs, now, now - leaseMs, limit]) as OutboxRow[];
   const claimed: TeamSeatOutboxOperation[] = [];
   for (const candidate of candidates) {
@@ -871,23 +871,23 @@ export async function claimDueTeamSeatWorkOperations(
       UPDATE team_seat_outbox
       SET
         status = 'processing',
-        last_attempt_at = ?,
-        updated_at = ?
-      WHERE operation_id = ?
+        last_attempt_at = $1,
+        updated_at = $2
+      WHERE operation_id = $3
         AND operation_kind IN ('seat_prepare', 'seat_execute', 'license_refresh')
         AND (
           (
             status = 'pending'
             AND operation_kind IN ('seat_prepare', 'license_refresh')
-            AND created_at <= ?
+            AND created_at <= $4
           )
           OR (
             status = 'retry_wait'
-            AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+            AND (next_attempt_at IS NULL OR next_attempt_at <= $5)
           )
           OR (
             status = 'processing'
-            AND (last_attempt_at IS NULL OR last_attempt_at <= ?)
+            AND (last_attempt_at IS NULL OR last_attempt_at <= $6)
           )
         )
     `, [
@@ -926,17 +926,17 @@ export async function scheduleTeamSeatOutboxRetry(
       END,
       next_attempt_at = CASE
         WHEN attempt_count + 1 >= max_attempts THEN NULL
-        ELSE CAST(? AS BIGINT)
+        ELSE CAST($1 AS BIGINT)
       END,
-      last_attempt_at = ?,
-      last_error_code = ?,
-      last_error = ?,
+      last_attempt_at = $2,
+      last_error_code = $3,
+      last_error = $4,
       completed_at = CASE
-        WHEN attempt_count + 1 >= max_attempts THEN CAST(? AS BIGINT)
+        WHEN attempt_count + 1 >= max_attempts THEN CAST($5 AS BIGINT)
         ELSE NULL
       END,
-      updated_at = ?
-    WHERE operation_id = ?
+      updated_at = $6
+    WHERE operation_id = $7
       AND status NOT IN ('succeeded', 'failed', 'canceled')
       AND attempt_count < max_attempts
   `, [
@@ -984,19 +984,19 @@ export async function recordTeamSeatOutboxOperationFailure(
     UPDATE team_seat_outbox
     SET
       status = 'failed',
-      response_json = COALESCE(?, response_json),
-      control_plane_operation_id = COALESCE(?, control_plane_operation_id),
+      response_json = COALESCE($1, response_json),
+      control_plane_operation_id = COALESCE($2, control_plane_operation_id),
       attempt_count = CASE
         WHEN attempt_count < max_attempts THEN attempt_count + 1
         ELSE attempt_count
       END,
       next_attempt_at = NULL,
-      last_attempt_at = ?,
-      last_error_code = ?,
-      last_error = ?,
-      completed_at = ?,
-      updated_at = ?
-    WHERE operation_id = ?
+      last_attempt_at = $3,
+      last_error_code = $4,
+      last_error = $5,
+      completed_at = $6,
+      updated_at = $7
+    WHERE operation_id = $8
       AND status NOT IN ('succeeded', 'failed', 'canceled')
   `, [
     responseJson,
@@ -1059,22 +1059,22 @@ export async function recordTeamSeatOutboxOperationPending(
         WHEN attempt_count + 1 >= max_attempts THEN 'failed'
         ELSE 'retry_wait'
       END,
-      response_json = ?,
-      control_plane_operation_id = ?,
+      response_json = $1,
+      control_plane_operation_id = $2,
       attempt_count = attempt_count + 1,
       next_attempt_at = CASE
         WHEN attempt_count + 1 >= max_attempts THEN NULL
-        ELSE CAST(? AS BIGINT)
+        ELSE CAST($3 AS BIGINT)
       END,
-      last_attempt_at = ?,
-      last_error_code = ?,
-      last_error = ?,
+      last_attempt_at = $4,
+      last_error_code = $5,
+      last_error = $6,
       completed_at = CASE
-        WHEN attempt_count + 1 >= max_attempts THEN CAST(? AS BIGINT)
+        WHEN attempt_count + 1 >= max_attempts THEN CAST($7 AS BIGINT)
         ELSE NULL
       END,
-      updated_at = ?
-    WHERE operation_id = ?
+      updated_at = $8
+    WHERE operation_id = $9
       AND status NOT IN ('succeeded', 'failed', 'canceled')
       AND attempt_count < max_attempts
   `, [
@@ -1149,16 +1149,16 @@ export async function recordTeamSeatOutboxOperationSuccess(
     UPDATE team_seat_outbox
     SET
       status = 'succeeded',
-      response_json = ?,
-      control_plane_operation_id = ?,
+      response_json = $1,
+      control_plane_operation_id = $2,
       attempt_count = CASE WHEN attempt_count = 0 THEN 1 ELSE attempt_count END,
       next_attempt_at = NULL,
-      last_attempt_at = ?,
+      last_attempt_at = $3,
       last_error_code = NULL,
       last_error = NULL,
-      completed_at = ?,
-      updated_at = ?
-    WHERE operation_id = ?
+      completed_at = $4,
+      updated_at = $5
+    WHERE operation_id = $6
       AND status NOT IN ('succeeded', 'failed', 'canceled')
   `, [
     responseJson,
@@ -1190,7 +1190,7 @@ export async function getTeamMembershipSyncState(
   organizationId: string,
 ): Promise<TeamMembershipSyncState | null> {
   const row = await database.get(
-    `${SYNC_STATE_SELECT} WHERE organization_id = ? LIMIT 1`,
+    `${SYNC_STATE_SELECT} WHERE organization_id = $1 LIMIT 1`,
     [organizationId],
   ) as SyncStateRow | undefined;
   return row ? mapSyncState(row) : null;
@@ -1245,15 +1245,15 @@ export async function recordTeamSeatSnapshotAcknowledgement(
       UPDATE team_seat_outbox
       SET
         status = 'succeeded',
-        response_json = ?,
+        response_json = $1,
         attempt_count = CASE WHEN attempt_count = 0 THEN 1 ELSE attempt_count END,
         next_attempt_at = NULL,
-        last_attempt_at = ?,
+        last_attempt_at = $2,
         last_error_code = NULL,
         last_error = NULL,
-        completed_at = ?,
-        updated_at = ?
-      WHERE operation_id = ?
+        completed_at = $3,
+        updated_at = $4
+      WHERE operation_id = $5
         AND status NOT IN ('failed', 'canceled')
     `, [
       serializeResponse(response),
@@ -1272,27 +1272,27 @@ export async function recordTeamSeatSnapshotAcknowledgement(
     await database.run(`
       UPDATE team_membership_sync_state
       SET
-        acknowledged_revision = ?,
-        acknowledged_snapshot_id = ?,
-        acknowledged_snapshot_hash = ?,
-        acknowledged_at = ?,
-        control_plane_protocol_version = ?,
-        control_plane_observed_quantity = ?,
-        approved_quantity = ?,
-        billed_quantity = ?,
-        licensed_quantity = ?,
-        expected_licensed_quantity = ?,
-        entitlements_version = COALESCE(?, entitlements_version),
-        billing_status = ?,
-        drift_status = ?,
-        next_report_at = ?,
+        acknowledged_revision = $1,
+        acknowledged_snapshot_id = $2,
+        acknowledged_snapshot_hash = $3,
+        acknowledged_at = $4,
+        control_plane_protocol_version = $5,
+        control_plane_observed_quantity = $6,
+        approved_quantity = $7,
+        billed_quantity = $8,
+        licensed_quantity = $9,
+        expected_licensed_quantity = $10,
+        entitlements_version = COALESCE($11, entitlements_version),
+        billing_status = $12,
+        drift_status = $13,
+        next_report_at = $14,
         last_sync_error_code = NULL,
         last_sync_error = NULL,
-        last_sync_at = ?,
-        updated_at = ?
-      WHERE organization_id = ?
-        AND acknowledged_revision <= ?
-        AND current_revision >= ?
+        last_sync_at = $15,
+        updated_at = $16
+      WHERE organization_id = $17
+        AND acknowledged_revision <= $18
+        AND current_revision >= $19
     `, [
       response.snapshot.revision,
       response.snapshot.snapshotId,
@@ -1340,7 +1340,7 @@ export async function readTeamSeatSyncDiagnostics(
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
         MIN(CASE WHEN status IN ('pending', 'processing', 'retry_wait') THEN created_at END) AS oldest_pending_at
       FROM team_seat_outbox
-      WHERE organization_id = ?
+      WHERE organization_id = $1
     `, [organizationId]) as Promise<{
       pending: number | null;
       processing: number | null;

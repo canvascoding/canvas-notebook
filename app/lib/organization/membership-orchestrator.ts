@@ -216,8 +216,8 @@ async function latestMembershipPrepareOperation(
   const row = await database.get(`
     SELECT operation_id
     FROM team_seat_outbox
-    WHERE organization_id = ?
-      AND membership_id = ?
+    WHERE organization_id = $1
+      AND membership_id = $2
       AND operation_kind = 'seat_prepare'
     ORDER BY created_at DESC, id DESC
     LIMIT 1
@@ -894,8 +894,8 @@ export async function beginDirectMembershipSeatRequote(input: {
     const count = await database.get(`
       SELECT COUNT(*) AS count
       FROM team_seat_outbox
-      WHERE organization_id = ?
-        AND membership_id = ?
+      WHERE organization_id = $1
+        AND membership_id = $2
         AND operation_kind = 'seat_prepare'
     `, [input.organizationId, input.membershipId]) as { count: number } | undefined;
     const request = createTeamSeatPrepareRequest({
@@ -905,7 +905,7 @@ export async function beginDirectMembershipSeatRequote(input: {
     });
     const enqueued = await enqueueTeamSeatOutboxOperation(database, {
       organizationId: input.organizationId,
-      dedupeKey: `${operationType}:${input.membershipId}:seat-prepare:${Number(count?.count || 0) + 1}`,
+      dedupeKey: `${operationType}:${input.membershipId}:seat-prepare:${Number(count$1.count || 0) + 1}`,
       operationKind: 'seat_prepare',
       operationType,
       membershipId: input.membershipId,

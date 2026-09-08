@@ -392,7 +392,7 @@ async function getPermissionUser(database: PermissionDatabase, userId: string): 
   const user = await database.get(`
     SELECT id, name, email, role, banned
     FROM "user"
-    WHERE id = ?
+    WHERE id = $1
     LIMIT 1
   `, [userId]) as PermissionUserRow | undefined;
 
@@ -431,7 +431,7 @@ async function getPermissionDetails(
       p.updated_at
     FROM organization_user_permissions p
     INNER JOIN "user" u ON u.id = p.user_id
-    WHERE p.organization_id = ? AND p.user_id = ?
+    WHERE p.organization_id = $1 AND p.user_id = $2
     LIMIT 1
   `, [organizationId, userId]) as PermissionDetailsRow | undefined;
 
@@ -529,8 +529,8 @@ async function assertAnotherAdminLikeExists(
   const row = await database.get(`
     SELECT COUNT(*) AS count
     FROM organization_user_permissions
-    WHERE organization_id = ?
-      AND user_id <> ?
+    WHERE organization_id = $1
+      AND user_id <> $2
       AND status = 'active'
       AND role IN ('owner', 'admin')
   `, [organizationId, targetUserId]) as { count: number | string } | undefined;
@@ -562,7 +562,7 @@ function changesFromRunResult(result: unknown): number {
 
 export async function revokeOrganizationPermissionSessions(targetUserId: string): Promise<number> {
   return withPermissionDatabase(async (database) => {
-    const result = await database.run('DELETE FROM session WHERE user_id = ?', [targetUserId]);
+    const result = await database.run('DELETE FROM session WHERE user_id = $1', [targetUserId]);
     return changesFromRunResult(result);
   });
 }
@@ -620,8 +620,8 @@ export async function updateOrganizationPermissions(params: {
         const assignments = changedKeys.map((key) => `${PERMISSION_COLUMNS[key]} = ?`).join(', ');
         await database.run(`
           UPDATE organization_user_permissions
-          SET ${assignments}, updated_at = ?
-          WHERE organization_id = ? AND user_id = ?
+          SET ${assignments}, updated_at = $1
+          WHERE organization_id = $2 AND user_id = $3
         `, [
           ...changedKeys.map((key) => params.permissions[key] === true ? 1 : 0),
           Date.now(),
@@ -691,21 +691,21 @@ export async function updateOrganizationRole(params: {
       const now = Date.now();
       await database.run(`
         UPDATE organization_user_permissions
-        SET role = ?,
-          can_write_team_workspace = ?,
-          can_create_public_links = ?,
-          can_create_team_automations = ?,
-          can_share_plugins_and_skills = ?,
-          can_export = ?,
-          can_delete_team_files = ?,
-          can_delete_studio_assets = ?,
-          can_manage_backups = ?,
-          can_manage_organization_memory = ?,
-          can_migrate_database = ?,
-          can_enable_knowledge = ?,
-          can_recover_workspaces = ?,
-          updated_at = ?
-        WHERE organization_id = ? AND user_id = ?
+        SET role = $1,
+          can_write_team_workspace = $2,
+          can_create_public_links = $3,
+          can_create_team_automations = $4,
+          can_share_plugins_and_skills = $5,
+          can_export = $6,
+          can_delete_team_files = $7,
+          can_delete_studio_assets = $8,
+          can_manage_backups = $9,
+          can_manage_organization_memory = $10,
+          can_migrate_database = $11,
+          can_enable_knowledge = $12,
+          can_recover_workspaces = $13,
+          updated_at = $14
+        WHERE organization_id = $15 AND user_id = $16
       `, [
         role,
         defaults.canWriteTeamWorkspace ? 1 : 0,
@@ -725,7 +725,7 @@ export async function updateOrganizationRole(params: {
         params.targetUserId,
       ]);
       await database.run(
-        'UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?',
+        'UPDATE "user" SET role = $1, updated_at = $2 WHERE id = $3',
         [role === 'admin' ? 'admin' : 'user', now, params.targetUserId],
       );
       await updateTeamMembershipRole(database, {

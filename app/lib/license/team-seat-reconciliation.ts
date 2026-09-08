@@ -311,16 +311,16 @@ export async function reconcileAcknowledgedTeamSeatSnapshot(
       const updated = await database.run(`
         UPDATE team_membership_sync_state
         SET
-          reconciliation_status = ?,
-          reconciliation_action = ?,
-          reconciliation_reason = ?,
-          reconciliation_seat_limit = ?,
-          reconciliation_support_required = ?,
-          reconciled_at = ?,
-          updated_at = ?
-        WHERE organization_id = ?
-          AND acknowledged_revision = ?
-          AND acknowledged_snapshot_hash = ?
+          reconciliation_status = $1,
+          reconciliation_action = $2,
+          reconciliation_reason = $3,
+          reconciliation_seat_limit = $4,
+          reconciliation_support_required = $5,
+          reconciled_at = $6,
+          updated_at = $7
+        WHERE organization_id = $8
+          AND acknowledged_revision = $9
+          AND acknowledged_snapshot_hash = $10
       `, [
         decision.status,
         decision.action,
@@ -350,7 +350,7 @@ export async function reconcileAcknowledgedTeamSeatSnapshot(
           summary,
           metadata_json,
           created_at
-        ) VALUES (?, ?, 'license', 'team_seat_reconciliation', 'organization', ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, 'license', 'team_seat_reconciliation', 'organization', $3, $4, $5, $6, $7, $8)
         ON CONFLICT(id) DO NOTHING
       `, [
         reconciliationAuditId({

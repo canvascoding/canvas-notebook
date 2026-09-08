@@ -75,7 +75,7 @@ export async function ensureOrganizationPermissionRow(
   const existing = await database.get(`
     SELECT role, status
     FROM organization_user_permissions
-    WHERE organization_id = ? AND user_id = ?
+    WHERE organization_id = $1 AND user_id = $2
     LIMIT 1
   `, [
     input.organizationId,
@@ -105,7 +105,7 @@ export async function ensureOrganizationPermissionRow(
       can_export, can_delete_team_files, can_delete_studio_assets,
       can_manage_backups, can_manage_organization_memory, can_migrate_database, can_enable_knowledge,
       can_recover_workspaces, created_at, updated_at
-    ) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
     ON CONFLICT(organization_id, user_id) DO NOTHING
   `, [
     input.organizationId,
@@ -130,9 +130,9 @@ export async function ensureOrganizationPermissionRow(
   if (!input.activateExisting) return;
   await database.run(`
     UPDATE organization_user_permissions
-    SET role = ?, status = 'active', updated_at = ?
-    WHERE organization_id = ?
-      AND user_id = ?
+    SET role = $1, status = 'active', updated_at = $2
+    WHERE organization_id = $3
+      AND user_id = $4
       AND status IN ('active', 'disabled')
   `, [
     defaults.role,

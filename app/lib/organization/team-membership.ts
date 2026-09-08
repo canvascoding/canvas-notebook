@@ -259,7 +259,7 @@ async function readMembership(
   membershipId: string,
 ): Promise<TeamMembership | null> {
   const row = await database.get(
-    `${MEMBERSHIP_SELECT} WHERE organization_id = ? AND id = ? LIMIT 1`,
+    `${MEMBERSHIP_SELECT} WHERE organization_id = $1 AND id = $2 LIMIT 1`,
     [organizationId, membershipId],
   ) as MembershipRow | undefined;
   return row ? mapMembership(row) : null;
@@ -295,7 +295,7 @@ async function appendTransition(
       membership_revision,
       metadata_json,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
   `, [
     `team-membership-transition-${randomUUID()}`,
     input.membershipId,
@@ -359,7 +359,7 @@ export async function createTeamMembershipCandidate(
         invited_at,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8, $9, $10, $11, $12)
     `, [
       id,
       input.organizationId,
@@ -413,7 +413,7 @@ export async function adoptActiveTeamMembership(
 ): Promise<TeamMembership> {
   const now = input.now ?? Date.now();
   const user = await database.get(
-    'SELECT id, email FROM "user" WHERE id = ? LIMIT 1',
+    'SELECT id, email FROM "user" WHERE id = $1 LIMIT 1',
     [input.userId],
   ) as MembershipUserRow | undefined;
   if (!user) {
@@ -441,7 +441,7 @@ export async function adoptActiveTeamMembership(
         activated_at,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8, $9, $10, $11)
     `, [
       id,
       input.organizationId,
@@ -570,7 +570,7 @@ export async function transitionTeamMembership(
         );
       }
       const user = await database.get(
-        'SELECT id, email FROM "user" WHERE id = ? LIMIT 1',
+        'SELECT id, email FROM "user" WHERE id = $1 LIMIT 1',
         [nextUserId],
       ) as MembershipUserRow | undefined;
       if (!user) {
@@ -599,21 +599,21 @@ export async function transitionTeamMembership(
     const updateResult = await database.run(`
       UPDATE team_memberships
       SET
-        display_name = ?,
-        user_id = ?,
-        role = ?,
-        status = ?,
-        external_invitation_id = ?,
-        control_plane_operation_id = ?,
-        invited_at = ?,
-        accepted_at = ?,
-        activated_at = ?,
-        suspended_at = ?,
-        removed_at = ?,
-        updated_at = ?
-      WHERE organization_id = ?
-        AND id = ?
-        AND status = ?
+        display_name = $1,
+        user_id = $2,
+        role = $3,
+        status = $4,
+        external_invitation_id = $5,
+        control_plane_operation_id = $6,
+        invited_at = $7,
+        accepted_at = $8,
+        activated_at = $9,
+        suspended_at = $10,
+        removed_at = $11,
+        updated_at = $12
+      WHERE organization_id = $13
+        AND id = $14
+        AND status = $15
     `, [
       input.displayName === undefined
         ? membership.displayName
@@ -725,7 +725,7 @@ export async function getActiveTeamMembershipProjection(
   const rows = await database.all(`
     SELECT id, user_id, candidate_email, role
     FROM team_memberships
-    WHERE organization_id = ?
+    WHERE organization_id = $1
       AND ${ACTIVE_TEAM_MEMBERSHIP_WHERE_SQL}
     ORDER BY candidate_email ASC, id ASC
   `, [organizationId]) as Array<{
@@ -780,7 +780,7 @@ export async function getTeamMembershipByUserId(
 ): Promise<TeamMembership | null> {
   const row = await database.get(
     `${MEMBERSHIP_SELECT}
-      WHERE organization_id = ? AND user_id = ?
+      WHERE organization_id = $1 AND user_id = $2
       ORDER BY updated_at DESC, id DESC
       LIMIT 1`,
     [organizationId, userId],
@@ -816,10 +816,10 @@ export async function updateTeamMembershipRole(
     if (membership.role === input.role) return membership;
     const changed = await database.run(`
       UPDATE team_memberships
-      SET role = ?, updated_at = ?
-      WHERE organization_id = ?
-        AND id = ?
-        AND role = ?
+      SET role = $1, updated_at = $2
+      WHERE organization_id = $3
+        AND id = $4
+        AND role = $5
     `, [
       input.role,
       now,
@@ -886,7 +886,7 @@ export async function getTeamMembershipByCandidateEmail(
 ): Promise<TeamMembership | null> {
   const candidateEmail = normalizeTeamMembershipCandidateEmail(email);
   const row = await database.get(
-    `${MEMBERSHIP_SELECT} WHERE organization_id = ? AND candidate_email = ? LIMIT 1`,
+    `${MEMBERSHIP_SELECT} WHERE organization_id = $1 AND candidate_email = $2 LIMIT 1`,
     [organizationId, candidateEmail],
   ) as MembershipRow | undefined;
   return row ? mapMembership(row) : null;
@@ -912,8 +912,8 @@ export async function linkTeamMembershipControlPlaneOperation(
   const now = input.now ?? Date.now();
   const result = await database.run(`
     UPDATE team_memberships
-    SET control_plane_operation_id = ?, updated_at = ?
-    WHERE organization_id = ? AND id = ?
+    SET control_plane_operation_id = $1, updated_at = $2
+    WHERE organization_id = $3 AND id = $4
   `, [
     operationId,
     now,
