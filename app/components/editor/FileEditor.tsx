@@ -1526,7 +1526,8 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               <MarpPreview path={currentFile.path} content={draft} refreshKey={marpRefreshKey} />
             ) : (
               <MarkdownEditor
-                key={currentFile.path}
+                key={JSON.stringify([currentFileWorkspaceId, currentFile.editorIdentity ?? currentFile.path])}
+                documentKey={currentFile.editorIdentity}
                 value={draft}
                 onChange={updateCollaborativeDraft}
                 filePath={currentFile.path}

@@ -238,6 +238,8 @@ export interface MarkdownEditorProps {
   onChange?: (value: string) => void;
   readOnly?: boolean;
   filePath?: string;
+  /** Stable within an open document, including rename; defaults to filePath. */
+  documentKey?: string;
   externalValueSync?: 'always' | 'when-blurred';
   collaborationEnabled?: boolean;
   collaborationSession?: CollaborationSessionResponse | null;
@@ -5649,6 +5651,7 @@ export function MarkdownEditor({
   onChange,
   readOnly = false,
   filePath,
+  documentKey,
   externalValueSync = 'always',
   collaborationEnabled = false,
   onCollaborationChange,
@@ -5669,7 +5672,7 @@ export function MarkdownEditor({
   const t = useTranslations('notebook');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const local = useLocalMarkdownDocument({
-    scope: JSON.stringify([activeWorkspaceId, filePath, frontmatter, collaborationEnabled]),
+    scope: JSON.stringify([activeWorkspaceId, documentKey ?? filePath, frontmatter, collaborationEnabled]),
     value, enabled: !collaborationEnabled, frontmatter, readOnly, externalValueSync, onChange,
   });
   const localDocument = local.document;
@@ -5724,7 +5727,7 @@ export function MarkdownEditor({
       : mode === 'source' || (collaborationEnabled ? authoritativeRepresentation === 'plain_text' : sourceModeRequired) ? 'source' : 'rich';
   const richSourceReadOnly = collaborationEnabled && isRichTextCollaborationRepresentation(authoritativeRepresentation);
   const setLocalFocused = local.setFocused;
-  useLayoutEffect(() => { setLocalFocused(false); }, [effectiveMode, setLocalFocused]);
+  useLayoutEffect(() => { setLocalFocused(false); }, [effectiveMode, filePath, setLocalFocused]);
 
   useEffect(() => {
     onCollaborationChange?.(collaborationDocument);
@@ -5837,6 +5840,7 @@ export function MarkdownEditor({
     return wrap(<div className="markdown-source-shell flex h-full min-h-0 flex-col">
       {richSourceReadOnly && <p className="border-b px-3 py-2 text-xs text-muted-foreground">{t('editorModes.liveSource')}</p>}
       <div className="markdown-source-host min-h-0 flex-1"><SourceMarkdownEditor
+        key={JSON.stringify([activeWorkspaceId, filePath, documentKey])}
         localDocument={localDocument}
         layout={layout}
         initiallyShowMobileToolbar={sourceModeRequested}

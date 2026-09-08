@@ -82,6 +82,8 @@ export interface FileCollaborationState {
 
 export interface CurrentFile {
   path: string;
+  /** Local open lifetime; survives refresh and rename, changes on a new load. */
+  editorIdentity?: string;
   content: string;
   stats?: FileStats;
   revision?: FileRevisionRecord | null;

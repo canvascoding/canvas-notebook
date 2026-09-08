@@ -858,6 +858,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       const fileName = path.split('/').pop() || path;
       const loadedFile: CurrentFile = {
         path,
+        editorIdentity: String(requestId),
         content: data.content,
         stats: data.stats,
         revision: data.revision ?? data.collaboration?.latestRevision ?? null,
