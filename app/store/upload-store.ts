@@ -7,11 +7,13 @@ export type UploadPhase = 'collecting' | 'preparing' | 'uploading' | 'reconcilin
 export interface UploadJobHandle { id: string; workspaceId: string | null; targetDir: string }
 export interface UploadItem extends Omit<WorkspaceUploadFileProgress, 'status'> {
   status: WorkspaceUploadFileProgress['status'] | 'processing' | 'skipped';
+  kind?: 'directory';
 }
 export interface UploadJob extends UploadJobHandle {
   phase: UploadPhase;
   items: UploadItem[];
   error?: string;
+  collection?: { files: number; directories: number; bytes: number };
 }
 export interface UploadOptions {
   refreshTree?: boolean;
@@ -39,7 +41,7 @@ export function beginUploadJob(
   return { id: job.id, workspaceId, targetDir };
 }
 
-export function updateUploadJob(handle: UploadJobHandle, update: Partial<Pick<UploadJob, 'phase' | 'items' | 'error'>>) {
+export function updateUploadJob(handle: UploadJobHandle, update: Partial<Pick<UploadJob, 'phase' | 'items' | 'error' | 'collection'>>) {
   useUploadStore.setState(({ jobs }) => {
     const job = jobs[handle.id];
     if (!job || job.workspaceId !== handle.workspaceId || !isUploadActive(job)) return { jobs };
@@ -55,11 +57,25 @@ export function updateUploadItem(handle: UploadJobHandle, item: UploadItem) {
   updateUploadJob(handle, { items: job.items.map((entry) => entry.index === item.index ? item : entry) });
 }
 
-export function setUploadJobFiles(handle: UploadJobHandle, files: File[], pathMap?: Map<File, string>) {
-  updateUploadJob(handle, { phase: 'preparing', items: files.map((file, index) => ({
+export function setUploadJobFiles(handle: UploadJobHandle, files: File[], pathMap?: Map<File, string>, emptyDirectories: string[] = []) {
+  updateUploadJob(handle, { phase: 'preparing', items: [...files.map((file, index): UploadItem => ({
     index, path: pathMap?.get(file) || file.webkitRelativePath || file.name,
     size: file.size, uploadedBytes: 0, status: 'pending', attempt: 0,
-  })) });
+  })), ...emptyDirectories.map((path, index): UploadItem => ({ index: files.length + index, path, kind: 'directory',
+    size: 0, uploadedBytes: 0, status: 'pending', attempt: 0 }))] });
+}
+
+const uploadCollections = new Map<string, AbortController>();
+export function beginUploadCollection(job: UploadJobHandle): AbortController {
+  const controller = new AbortController();
+  uploadCollections.set(job.id, controller);
+  return controller;
+}
+export function endUploadCollection(job: UploadJobHandle): void { uploadCollections.delete(job.id); }
+export function cancelUploadCollection(job: UploadJobHandle): void {
+  uploadCollections.get(job.id)?.abort();
+  uploadCollections.delete(job.id);
+  updateUploadJob(job, { phase: 'cancelled' });
 }
 
 export function finishUploadJob(handle: UploadJobHandle, error?: unknown) {
@@ -95,8 +111,9 @@ export function createUploadProgressReporter(handle: UploadJobHandle, indices?: 
 }
 
 export function uploadJobPercent(job: UploadJob) {
+  if (job.phase === 'completed') return 100;
   const bytes = job.items.reduce((total, item) => total + item.size, 0);
   const uploaded = job.items.reduce((total, item) => total + (item.status === 'skipped' ? item.size : item.uploadedBytes), 0);
   const finished = job.items.filter((item) => ['completed', 'skipped'].includes(item.status)).length;
-  return Math.min(job.phase === 'completed' ? 100 : 99, Math.round(bytes > 0 ? uploaded / bytes * 100 : finished / Math.max(1, job.items.length) * 100));
+  return Math.min(99, Math.round(bytes > 0 ? uploaded / bytes * 100 : finished / Math.max(1, job.items.length) * 100));
 }

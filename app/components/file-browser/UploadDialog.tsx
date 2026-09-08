@@ -98,6 +98,7 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
           <DialogDescription>{t('uploadDescription')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">{t('uploadEmptyFoldersHint')}</p>
           <div>
             <label htmlFor="uploadTargetDir" className="text-xs text-muted-foreground">{t('uploadTo')}</label>
             <Input

@@ -10,6 +10,7 @@ import type {
   PreprocessFileInfo,
 } from '@/app/components/shared/ImagePreprocessDialog';
 import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
+import { assertUploadSelectionWithinLimits } from '@/app/lib/files/upload-limits';
 
 export interface UseImagePreprocessOptions {
   onUpload: (
@@ -96,6 +97,7 @@ export function useImagePreprocess({ onUpload, onBatchComplete }: UseImagePrepro
 
   const handleFiles = useCallback(async (files: File[], targetDir?: string, pathMap?: Map<File, string>, providedJob?: UploadJobHandle) => {
     if (running.current || pendingJob.current) throw new Error('Finish the current image upload before starting another.');
+    assertUploadSelectionWithinLimits(files);
     const job = providedJob ?? beginUploadJob(files, targetDir || '.', useWorkspaceStore.getState().activeWorkspaceId, pathMap);
     pendingJob.current = job;
     setProgressItems([]);
@@ -151,7 +153,6 @@ export function useImagePreprocess({ onUpload, onBatchComplete }: UseImagePrepro
     const job = pendingJob.current;
     if (!job || running.current) return;
     running.current = true;
-    let successfulUploads = 0;
     let failure: unknown;
     try {
       for (let index = 0; index < pendingFiles.length; index += 1) {
@@ -174,7 +175,6 @@ export function useImagePreprocess({ onUpload, onBatchComplete }: UseImagePrepro
             filterPathMap([file], pendingPathMap),
             { refreshTree: false, job, fileIndices: [index] },
           );
-          successfulUploads += 1;
           const item = useUploadStore.getState().jobs[job.id]?.items[index];
           if (item) updateUploadItem(job, { ...item, status: 'completed', uploadedBytes: file.size });
           updateProgressItem(index, 'success');
@@ -186,17 +186,21 @@ export function useImagePreprocess({ onUpload, onBatchComplete }: UseImagePrepro
         }
       }
 
-      if (successfulUploads > 0) {
-        updateUploadJob(job, { phase: 'reconciling' });
-        await onBatchComplete?.(job.targetDir, job);
-      }
     } catch (error) {
       failure = error;
       throw error;
     } finally {
-      finishUploadJob(job, failure);
-      pendingJob.current = null;
-      running.current = false;
+      try {
+        updateUploadJob(job, { phase: 'reconciling' });
+        await onBatchComplete?.(job.targetDir, job);
+      } catch (error) {
+        failure ??= error;
+        throw error;
+      } finally {
+        finishUploadJob(job, failure);
+        pendingJob.current = null;
+        running.current = false;
+      }
     }
   }, [onBatchComplete, onUpload, pendingFiles, pendingPathMap, updateProgressItem]);
 

@@ -785,6 +785,8 @@
     "uploading": "Uploading...",
     "uploadProgress": "Upload progress",
     "uploadBatchProgress": "{completed} of {total} files uploaded",
+    "uploadEmptyFoldersHint": "The folder picker uploads files. Drag the folder into the file browser to include empty subfolders as well.",
+    "uploadCollectedEntries": "{files} files · {folders} folders collected",
     "uploadCollecting": "Collecting files",
     "uploadPreparing": "Preparing upload",
     "uploadReconciling": "Reconciling files",
