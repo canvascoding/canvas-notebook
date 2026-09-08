@@ -29,7 +29,7 @@ konkrete Markdown-Datei, ohne dadurch Mitglieder des gesamten Workspace zu werde
     Speicherstand der kollaborativen Datei berücksichtigen.
   - Nachweis: Parallelität, Wiederholung, Ablauf, Wiederherstellung, Ersetzen,
     Verschieben und Widerruf auf SQLite und dem Postgres-Testadapter.
-- [ ] 3. Laufende Markdown-Kollaboration bei Rechteentzug absichern.
+- [x] 3. Laufende Markdown-Kollaboration bei Rechteentzug absichern.
   - Aktuelle Sitzung, Dateiidentität und Rechte auch nach Verbindungsaufbau
     berücksichtigen; widerrufene Teilnehmer zeitnah trennen.
   - Bestehende Schutzmechanismen für Lebenszyklus, Reconnect, Checkpoints und
@@ -129,3 +129,30 @@ Zusätzlich erfolgreich: Frontmatter-, LaTeX- und Rich-Block-Exportregressionen.
 Der vorhandene Rich-Block-Test hat dabei unbeabsichtigt intern Chromium gestartet;
 der Lauf ist beendet und der Nutzer wurde informiert. Dies ersetzt keine
 freigegebene UI-/Ende-zu-Ende-Prüfung mit mehreren Nutzern.
+
+### Schritt 3
+
+Die Sitzung wird gegen die aktuelle Auth-Datenbank geprüft, einschließlich
+Benutzerbindung, Logout, Ablauf und Kontosperre. Die Workspace-Rechte werden
+über denselben Berechtigungsresolver erneut gelesen, ohne bei jeder Nachricht
+das Konto-Bootstrap auszuführen. Dokumentpfad, Generation, Repräsentation und
+Schema müssen weiterhin zum Ticket passen. Die kurze Ticketlaufzeit begrenzt
+den Beitritt; eine aktive Verbindung richtet sich nach der echten Sitzung.
+
+Vor jeder eingehenden Hocuspocus-Nachricht erfolgt diese Prüfung. Ein Monitor
+prüft außerdem einmal pro Sekunde offene Verbindungen und trennt dadurch auch
+inaktive Leser. Parallele Prüfungen derselben Verbindung teilen nur ihre aktuell
+laufende Arbeit; nach Trennung darf keine wartende Prüfung Schreibzugriff
+freigeben. Bereits zuvor angenommene Änderungen werden weiterhin gespeichert.
+
+Bei Ablehnung trennt sich der Client, setzt die Sitzung auf Lesen und behält
+seinen lokalen Wiederherstellungsstand. Verspätete Status-/Synchronisations-
+Ereignisse können den Zustand `denied` nicht wieder aufheben.
+
+Erfolgreich: `test:collaboration:access`,
+`scripts/code-editor-collaboration-lifecycle-test.ts`,
+`scripts/file-live-collaboration-test.ts`, TypeScript und ESLint.
+Die PGlite-Prüfung verwendet die tatsächlichen Session-, Workspace- und
+Dokumentresolver. Sie prüft Rechteentzug, Sessionlöschung/-ablauf, Kontosperre,
+falsche Dokumentgeneration sowie wartende Nachrichten und lokale Änderungen.
+Die UI-/WebSocket-Abnahme mit zwei Browsern bleibt Teil von Schritt 6.

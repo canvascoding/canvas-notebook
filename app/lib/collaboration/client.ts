@@ -270,6 +270,12 @@ function createEntry(
           }));
         }
       };
+      const denyAccess = (message: string) => {
+        session = { ...session, permission: 'read' };
+        entry.session = session;
+        entry.provider?.disconnect();
+        transition(entry, { type: 'authentication_failed', message });
+      };
       const provider = new HocuspocusProvider({
         url: websocketUrl(session.websocketUrl),
         preserveTrailingSlash: true,
@@ -310,10 +316,7 @@ function createEntry(
           }
         },
         onAuthenticationFailed: ({ reason }) => {
-          transition(entry, {
-            type: 'authentication_failed',
-            message: reason || 'Collaboration authentication failed.',
-          });
+          denyAccess(reason || 'Collaboration authentication failed.');
         },
         onStateless: ({ payload }) => {
           try {
@@ -327,6 +330,10 @@ function createEntry(
               documentSequence?: number;
               checkpointSequence?: number;
             };
+            if (message.type === 'access_revoked') {
+              denyAccess(message.message || 'File access was revoked. Local changes are preserved.');
+              return;
+            }
             if (message.type === 'degraded') {
               transition(entry, { type: 'degraded', message: message.message || 'Checkpoint failed.' });
               return;

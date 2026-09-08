@@ -1,10 +1,12 @@
 import type http from 'node:http';
 import type net from 'node:net';
 
-import { Hocuspocus, type onAwarenessUpdatePayload } from '@hocuspocus/server';
+import { Hocuspocus, type Connection, type onAwarenessUpdatePayload } from '@hocuspocus/server';
 import { WebSocketServer } from 'ws';
 
 import { auth } from '@/app/lib/auth';
+import { createCollaborationAccessMonitor } from '@/app/lib/collaboration/access-monitor';
+import { assertCollaborationDocumentAccess, resolveCollaborationSessionAccess, revalidateCollaborationAccess } from '@/app/lib/collaboration/connection-access';
 import {
   CollaborationCheckpointSupersededError,
   materializeCollaborationCheckpoint,
@@ -51,8 +53,6 @@ import {
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { resolveUserProfile } from '@/app/lib/user-profile/service';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
-import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
-import { resolvePostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const COLLABORATION_PATH = '/ws/collaboration';
@@ -109,6 +109,7 @@ type CollaborationContext = {
   operationId: string | null;
   observedDocumentSequence: number | null;
   releaseRoomAdmission: (() => void) | null;
+  stopAccessWatch?: () => void;
 };
 
 function normalizedPath(requestUrl?: string): string | null {
@@ -167,6 +168,22 @@ function presenceFromAwareness(
 let collaborationInstance: Hocuspocus<CollaborationContext> | null = null;
 
 export function createCollaborationServer(server: http.Server): WebSocketServer {
+  const accessMonitor = createCollaborationAccessMonitor<Connection<CollaborationContext>>({
+    validate: async (connection) => {
+      const access = await revalidateCollaborationAccess(connection.context.claims);
+      if (!connection.document.hasConnection(connection)) throw new Error('Collaboration connection is closed.');
+      connection.context.workspace = access.workspace;
+    },
+    deny: (connection) => {
+      connection.readOnly = true;
+      connection.sendStateless(JSON.stringify({
+        type: 'access_revoked',
+        message: 'Your session or file access is no longer valid. Reload to sign in or request access. Local changes are preserved.',
+      }));
+      connection.close({ code: 4403, reason: 'Collaboration access revoked' });
+    },
+  });
+  server.once('close', () => accessMonitor.dispose());
   const hocuspocus = new Hocuspocus<CollaborationContext>({
     debounce: 350,
     maxDebounce: 2_000,
@@ -205,24 +222,13 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       if (authenticatedUser.id !== claims.userId) {
         throw new Error('Collaboration ticket user scope mismatch.');
       }
-      const actor = resolveWorkspaceActor(authenticatedUser);
-      const workspace = await resolvePostgresWorkspaceForActor(actor, claims.workspaceId);
-      if (!workspace || !workspace.permissions.canRead) throw new Error('Workspace access was revoked.');
-      if (claims.permission === 'write' && !workspace.permissions.canWrite) throw new Error('Workspace write access was revoked.');
+      const access = await resolveCollaborationSessionAccess(claims);
+      const workspace = access.workspace;
+      authenticatedUser = { ...access.user, name: access.user.name || access.user.email || 'User' };
       const releaseRoomAdmission = await withCollaborationRoomLifecycleLock(
         claims.documentId,
         async () => {
-          const metadata = await getFileCollaborationState({ workspace, path: claims.path, ensureDocument: false });
-          const state = await loadCollaborationState(claims.documentId);
-          if (
-            !metadata.document
-            || metadata.document.id !== claims.documentId
-            || !state
-            || state.workspaceId !== claims.workspaceId
-            || state.path !== claims.path
-            || state.representation !== claims.representation
-            || state.lifecycleGeneration !== claims.lifecycleGeneration
-          ) throw new Error('Collaboration document generation is stale.');
+          await assertCollaborationDocumentAccess(claims, workspace);
           return reserveCollaborationRoomAdmission(claims.documentId);
         },
       );
@@ -252,6 +258,8 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     async connected({ context, connection }) {
       context.releaseRoomAdmission?.();
       context.releaseRoomAdmission = null;
+      context.stopAccessWatch = accessMonitor.add(connection);
+      await accessMonitor.check(connection);
       const state = await loadCollaborationState(context.claims.documentId);
       if (
         !state
@@ -274,8 +282,9 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       if (!state) throw new Error('Collaboration document was not initialized.');
       return state.yjsState;
     },
-    async beforeHandleMessage({ update }) {
+    async beforeHandleMessage({ update, connection }) {
       if (update.byteLength > MAX_UPDATE_BYTES) throw new Error('Collaboration update exceeds the 1 MiB message limit.');
+      await accessMonitor.check(connection);
     },
     async beforeHandleAwareness({ context, states }) {
       if (!context) return;
@@ -359,6 +368,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     },
     async onDisconnect({ context, document }) {
       context?.releaseRoomAdmission?.();
+      context?.stopAccessWatch?.();
       if (context) context.releaseRoomAdmission = null;
       if (!context || document.getConnectionsCount() > 0) return;
       replaceDocumentPresence(context.claims.workspaceId, context.claims.documentId, []);
@@ -558,6 +568,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     return result as never;
   });
   const wss = new WebSocketServer({ noServer: true });
+  wss.once('close', () => accessMonitor.dispose());
   server.on('upgrade', (request, socket, head) => {
     const nextUrl = normalizedPath(request.url);
     if (!nextUrl) return;

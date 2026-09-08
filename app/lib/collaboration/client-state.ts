@@ -82,6 +82,7 @@ export function reduceTextCollaborationClientState(
     case 'indexeddb_hydrated':
       return withReadiness({ ...state, indexedDbHydrated: true });
     case 'provider_status':
+      if (state.connection === 'denied') return state;
       return withReadiness({
         ...state,
         connection: event.permission === 'read'
@@ -92,6 +93,7 @@ export function reduceTextCollaborationClientState(
         error: state.durability === 'degraded' ? state.error : null,
       });
     case 'remote_synced':
+      if (state.connection === 'denied') return state;
       return withReadiness({
         ...state,
         remoteSynced: true,
