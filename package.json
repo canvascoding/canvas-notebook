@@ -197,6 +197,8 @@
     "test:files:metadata-schema": "tsx scripts/file-metadata-schema-test.ts",
     "test:files:drag": "tsx scripts/file-drag-move-test.ts && tsx scripts/desktop-file-drag-client-test.ts && npm run test:electron",
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",
+    "test:editor:blocks": "tsx --conditions react-server scripts/editor-block-structure-test.ts",
+    "test:collaboration:blocks": "tsx --conditions react-server scripts/collaboration-block-structure-test.ts",
     "test:editor:field": "tsx scripts/markdown-field-content-test.tsx && tsx scripts/markdown-field-ui-test.tsx",
     "test:editor:preservation": "tsx scripts/markdown-roundtrip-preservation-test.ts",
     "test:editor:collaboration-lifecycle": "tsx scripts/code-editor-collaboration-lifecycle-test.ts",
