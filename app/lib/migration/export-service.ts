@@ -332,7 +332,7 @@ function buildRuntimeManifest(params: {
 
   return {
     runtimeMode: profile.runtimeMode,
-    databaseProvider: profile.databaseProvider,
+    databaseProvider: 'postgres',
     vectorProvider: profile.vectorProvider,
     postgresRequired: profile.postgresRequired,
     capabilities,
@@ -540,9 +540,6 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     });
 
     const filePathByArchivePath = new Map<string, string>();
-    if (postgresDump) {
-      filePathByArchivePath.set(postgresDump.entry.archivePath, postgresDump.filePath);
-    }
 
     for (const entry of files) {
       const matchingRoot = componentRoots
