@@ -3074,6 +3074,9 @@
         "empty": "Es ist kein lesbarer Workspace verfügbar.",
         "label": "Ausgewählter Workspace",
         "choose": "Workspace auswählen",
+        "search": "Workspaces durchsuchen …",
+        "noResults": "Kein Workspace entspricht dieser Suche.",
+        "memories": "{count, plural, one {# Memory} other {# Memories}}",
         "selectedHint": "Darunter werden nur Memories dieses Workspaces angezeigt.",
         "types": {
           "personal": "Persönlich",
@@ -3081,6 +3084,31 @@
           "team": "Team",
           "project": "Projekt"
         }
+      },
+      "agentSelector": {
+        "title": "Agent für Memories",
+        "description": "Alle Bereiche darunter gehören nur zum ausgewählten Agenten. Beim Wechsel werden Memories verschiedener Agenten nie vermischt.",
+        "loading": "Agenten werden geladen …",
+        "empty": "Es gibt noch keine zugänglichen Agenten.",
+        "create": "Erstelle einen Agenten, bevor du agentenspezifische Memories speicherst.",
+        "label": "Ausgewählter Agent",
+        "choose": "Agent auswählen",
+        "search": "Agenten durchsuchen …",
+        "noResults": "Kein Agent entspricht dieser Suche.",
+        "memories": "{count, plural, one {# Memory} other {# Memories}}",
+        "collections": "{count, plural, one {# Kategorie} other {# Kategorien}}",
+        "deleted": "Gelöscht",
+        "deletedNotice": "Dieser Agent wurde gelöscht. Seine Memories bleiben für dich erhalten und werden nur nach einer ausdrücklichen Übertragung von einem anderen Agenten verwendet.",
+        "actions": "Aktionen für Agent-Memories",
+        "exportAll": "Alle Memories exportieren",
+        "archiveAll": "Alle Memories archivieren",
+        "restoreAll": "Alle Memories wiederherstellen",
+        "transfer": "Alle Memories übertragen",
+        "transferTitle": "Agent-Memories übertragen",
+        "transferDescription": "Verschiebe alle erhaltenen Memories von {name} zu einem anderen aktiven Agenten.",
+        "transferTarget": "Ziel-Agent",
+        "transferSubmit": "Memories übertragen",
+        "deleteData": "Agent-Memories löschen"
       },
       "categories": {
         "title": "Memory-Bereiche",
@@ -3151,6 +3179,7 @@
       "privateData": {
         "title": "Private Memories importieren oder entfernen",
         "description": "Importiere nur einen dir bekannten Canvas-Memory-Export. Geteilte Workspace- und Organisations-Memories werden hier nie importiert.",
+        "actions": "Aktionen für private Memories",
         "import": "JSON importieren",
         "delete": "Alle privaten Memories löschen"
       },
