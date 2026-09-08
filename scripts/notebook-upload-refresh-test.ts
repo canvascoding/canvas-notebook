@@ -4,6 +4,13 @@ import { useFileStore } from '../app/store/file-store';
 import { useWorkspaceStore } from '../app/store/workspace-store';
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+async function waitUntil(check: () => boolean) {
+  const deadline = Date.now() + 1500;
+  while (!check()) {
+    assert.ok(Date.now() < deadline, 'expected request did not start');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
 async function main() {
   const queue = new DirectoryRefreshQueue(15);
   let reads = 0;
@@ -17,7 +24,8 @@ async function main() {
   useFileStore.setState({ fileTree: [{ path: 'docs', name: 'docs', type: 'directory', children: [] }] });
   const originalFetch = globalThis.fetch;
   const responses: Array<(response: Response) => void> = [];
-  globalThis.fetch = (async () => new Promise<Response>((resolve) => responses.push(resolve))) as typeof fetch;
+  const starts: number[] = [];
+  globalThis.fetch = (async () => { starts.push(performance.now()); return new Promise<Response>((resolve) => responses.push(resolve)); }) as typeof fetch;
   try {
     const first = useFileStore.getState().revalidateDirectory('docs', 'a', true);
     await tick();
@@ -30,7 +38,8 @@ async function main() {
 
     useFileStore.getState().markDirectoryStale('docs');
     const changed = useFileStore.getState().revalidateDirectory('docs', 'a', true);
-    await tick();
+    await waitUntil(() => responses.length === 2);
+    assert.ok(starts[1] - starts[0] >= 490, 'a new refresh respects the preceding actual read');
     useFileStore.getState().markDirectoryStale('docs');
     responses[1](Response.json({ success: true, data: [{ path: 'docs/obsolete', name: 'obsolete', type: 'file' }] }));
     await new Promise((resolve) => setTimeout(resolve, 530));
@@ -41,11 +50,18 @@ async function main() {
     assert.equal(useFileStore.getState().fileTree[0].children?.[0].name, 'final');
 
     useFileStore.getState().markDirectoryStale('docs');
+    const nextBatch = useFileStore.getState().revalidateDirectory('docs', 'a', true);
+    await waitUntil(() => responses.length === 4);
+    assert.ok(starts[3] - starts[2] >= 490, 'a completed retry does not reset the read cadence');
+    responses[3](Response.json({ success: true, data: [{ path: 'docs/final', name: 'final', type: 'file' }] }));
+    await nextBatch;
+
+    useFileStore.getState().markDirectoryStale('docs');
     const oldWorkspace = useFileStore.getState().revalidateDirectory('docs', 'a');
     useWorkspaceStore.setState({ activeWorkspaceId: 'b' });
     useFileStore.getState().resetWorkspaceView('b');
     await oldWorkspace;
-    assert.equal(responses.length, 3, 'queued old-workspace work never sends a request');
+    assert.equal(responses.length, 4, 'queued old-workspace work never sends a request');
   } finally { globalThis.fetch = originalFetch; }
   console.log('notebook-upload-refresh-test: ok');
 }

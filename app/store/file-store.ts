@@ -1767,7 +1767,10 @@ async function loadDirectorySnapshot(
   let force = noCache || get().staleDirs.has(dirPath);
   const promise = (async () => {
     while (isCurrent()) {
-      const startedAt = Date.now();
+      if (joinFreshRead) {
+        await directoryRefreshQueue.waitForRead(`${workspaceId}\0${treeGeneration}\0${dirPath}`);
+        if (!isCurrent()) return;
+      }
       const version = get().directoryChangeVersions[dirPath] ?? 0;
       try {
         const includeStats = (flattenDirectoryChildren(get().fileTree, dirPath) ?? []).some((node) => node.size !== undefined);
@@ -1775,7 +1778,6 @@ async function loadDirectorySnapshot(
         if (!isCurrent()) return;
         if ((get().directoryChangeVersions[dirPath] ?? 0) !== version) {
           force = true;
-          if (joinFreshRead) await new Promise((resolve) => setTimeout(resolve, Math.max(0, 500 - (Date.now() - startedAt))));
           continue;
         }
         finish(undefined, data);
@@ -1783,7 +1785,6 @@ async function loadDirectorySnapshot(
         if (!isCurrent()) return;
         if ((get().directoryChangeVersions[dirPath] ?? 0) !== version) {
           force = true;
-          if (joinFreshRead) await new Promise((resolve) => setTimeout(resolve, Math.max(0, 500 - (Date.now() - startedAt))));
           continue;
         }
         finish(error);
