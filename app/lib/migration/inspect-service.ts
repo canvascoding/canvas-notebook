@@ -32,8 +32,8 @@ import {
 import { formatVersionCompatibilityMessage } from '@/app/lib/migration/version';
 import {
   getDeploymentMode,
-  openOrganizationBootstrapDatabase,
-} from '@/app/lib/organization/bootstrap';
+} from '@/app/lib/organization/config';
+import { openOrganizationBootstrapDatabase } from '@/app/lib/organization/bootstrap';
 import { assertSqliteDatabaseReadable } from '@/app/lib/db/sqlite-health';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { openDb } from '@/app/lib/db';

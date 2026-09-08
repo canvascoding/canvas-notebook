@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireInstanceAdmin } from '@/app/lib/admin-auth';
-import { OrganizationBootstrapError } from '@/app/lib/organization/bootstrap';
+import { OrganizationBootstrapError } from '@/app/lib/organization/contracts';
 import { getPostgresOrganizationBootstrapStatus } from '@/app/lib/workspaces/postgres-runtime';
 
 export async function GET(request: NextRequest) {

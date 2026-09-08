@@ -8,7 +8,8 @@ import { promisify } from 'util';
 import ZipStream from 'zip-stream';
 
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
-import { getDatabaseProvider, getDeploymentMode } from '@/app/lib/organization/bootstrap';
+import { getDeploymentMode } from '@/app/lib/organization/config';
+import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { resolveCanvasDataRoot, resolveSystemBackupsDir } from '@/app/lib/runtime-data-paths';
 import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
 import {

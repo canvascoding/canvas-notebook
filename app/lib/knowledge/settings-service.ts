@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 
-import type { OrganizationPermissionState } from '@/app/lib/organization/bootstrap';
+import type { OrganizationPermissionState } from '@/app/lib/organization/contracts';
 import {
   resolveCanvasDataRoot,
   resolveOrganizationSettingsDir,

@@ -3,7 +3,7 @@ import 'server-only';
 import { and, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
-import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/bootstrap';
+import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/contracts';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 export type KnowledgeStore = 'personal_user' | 'team_workspace' | 'organization';

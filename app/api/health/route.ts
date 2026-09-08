@@ -7,7 +7,7 @@ import {
 import {
   areTeamFeaturesEnabled,
   getDeploymentMode,
-} from '@/app/lib/organization/bootstrap';
+} from '@/app/lib/organization/config';
 import { getCollaborationRuntimeHealth, setCollaborationRuntimeHealth } from '@/app/lib/collaboration/health';
 import { requireRuntimeCapability, requireTeamRuntimeLicense } from '@/app/lib/license/entitlements';
 import { getDirectMcpReadiness } from '@/app/lib/mcp/server/readiness';

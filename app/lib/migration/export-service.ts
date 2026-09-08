@@ -37,7 +37,8 @@ import {
   getSelectedMigrationExportComponentPaths,
   resolveMigrationDataPath,
 } from '@/app/lib/migration/component-paths';
-import { getDatabaseProvider, getDeploymentMode } from '@/app/lib/organization/bootstrap';
+import { getDeploymentMode } from '@/app/lib/organization/config';
+import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
 
 const EXPORT_STATUS_FILE = 'status.json';

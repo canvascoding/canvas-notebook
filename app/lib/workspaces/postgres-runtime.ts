@@ -9,12 +9,14 @@ import {
   areTeamFeaturesEnabled,
   getConfiguredOrganizationId,
   getDeploymentMode,
+} from '@/app/lib/organization/config';
+import {
   LOCAL_ORGANIZATION_ID_PREFIX,
   type OrganizationBootstrapStatus,
   type OrganizationPermissionSnapshot,
   OrganizationBootstrapError,
   type OrganizationPermissionState,
-} from '@/app/lib/organization/bootstrap';
+} from '@/app/lib/organization/contracts';
 import {
   getDatabaseProvider,
   getDatabaseProviderProblemMessages,

@@ -46,56 +46,19 @@ import {
 } from '@/app/lib/workspaces/service';
 import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
 
-export const LOCAL_ORGANIZATION_ID_PREFIX = 'org_';
+import {
+  areTeamFeaturesEnabled,
+  canEnableTeamFeaturesForDeployment,
+  getConfiguredOrganizationId,
+  getDeploymentMode,
+} from './config';
+import { LOCAL_ORGANIZATION_ID_PREFIX, OrganizationBootstrapError } from './contracts';
+import type { OrganizationPermissionSnapshot, OrganizationRole, OrganizationBootstrapStatus, OrganizationPermissionState, OrganizationUserStatus } from './contracts';
 
-export type OrganizationRole = 'owner' | 'admin' | 'member' | 'external';
-export type OrganizationUserStatus = 'active' | 'disabled' | 'archived' | 'recovery_locked';
-
-export type OrganizationPermissionSnapshot = {
-  role: OrganizationRole;
-  status: OrganizationUserStatus;
-  canWriteTeamWorkspace: boolean;
-  canCreatePublicLinks: boolean;
-  canCreateTeamAutomations: boolean;
-  canSharePluginsAndSkills: boolean;
-  canExport: boolean;
-  canDeleteTeamFiles: boolean;
-  canDeleteStudioAssets: boolean;
-  canManageBackups: boolean;
-  canManageOrganizationMemory: boolean;
-  canMigrateDatabase: boolean;
-  canEnableKnowledge: boolean;
-  canRecoverWorkspaces: boolean;
-};
-
-export type OrganizationBootstrapStatus = {
-  configured: boolean;
-  organizationId: string | null;
-  ownerUserId: string | null;
-  ownerEmail: string | null;
-  deploymentMode: string;
-  teamFeaturesEnabled: boolean;
-  databaseProvider: DatabaseProvider;
-  permission: OrganizationPermissionSnapshot | null;
-  paths: {
-    personalWorkspace: string | null;
-    userSettings: string | null;
-    userSecrets: string | null;
-    organizationRoot: string | null;
-    teamWorkspace: string | null;
-    systemBackups: string;
-  };
-  warnings: string[];
-};
-
-export type OrganizationPermissionState = {
-  configured: boolean;
-  organizationId: string | null;
-  ownerUserId: string | null;
-  teamFeaturesEnabled: boolean;
-  databaseProvider: DatabaseProvider;
-  permission: OrganizationPermissionSnapshot | null;
-};
+export { LOCAL_ORGANIZATION_ID_PREFIX } from './contracts';
+export type { OrganizationBootstrapStatus, OrganizationPermissionSnapshot, OrganizationPermissionState, OrganizationRole, OrganizationUserStatus } from './contracts';
+export { OrganizationBootstrapError } from './contracts';
+export { areTeamFeaturesEnabled, canEnableTeamFeaturesForDeployment, getConfiguredOrganizationId, getDeploymentMode, isSingleUserDeploymentMode, isTeamDeploymentMode } from './config';
 
 type UserRow = {
   id: string;
@@ -130,16 +93,6 @@ type PermissionRow = {
   can_recover_workspaces: number;
 };
 
-export class OrganizationBootstrapError extends Error {
-  constructor(
-    public readonly code: 'NO_USERS' | 'ORGANIZATION_ID_CONFLICT' | 'DATABASE_ERROR',
-    message: string,
-  ) {
-    super(message);
-    this.name = 'OrganizationBootstrapError';
-  }
-}
-
 function normalizeRole(role: string | null | undefined): OrganizationRole {
   if (role === 'owner' || role === 'admin' || role === 'external') return role;
   return 'member';
@@ -150,58 +103,8 @@ function normalizeUserStatus(status: string | null | undefined): OrganizationUse
   return 'active';
 }
 
-function isTruthyEnv(value: string | undefined): boolean {
-  return value === 'true' || value === '1' || value === 'yes';
-}
-
-function normalizeDeploymentMode(value: string): string {
-  return value.trim().toLowerCase().replace(/_/g, '-');
-}
-
-export function isSingleUserDeploymentMode(deploymentMode = getDeploymentMode()): boolean {
-  const normalized = normalizeDeploymentMode(deploymentMode);
-  return normalized === 'community' ||
-    normalized === 'single-user' ||
-    normalized === 'singleuser' ||
-    normalized === 'managed-single' ||
-    normalized === 'local' ||
-    normalized === 'development' ||
-    normalized === 'dev';
-}
-
-export function isTeamDeploymentMode(deploymentMode = getDeploymentMode()): boolean {
-  const normalized = normalizeDeploymentMode(deploymentMode);
-  if (isSingleUserDeploymentMode(normalized)) return false;
-  return normalized.includes('team') ||
-    normalized.includes('enterprise') ||
-    normalized.includes('advanced');
-}
-
-export function canEnableTeamFeaturesForDeployment(deploymentMode = getDeploymentMode()): boolean {
-  return !isSingleUserDeploymentMode(deploymentMode);
-}
-
-export function getConfiguredOrganizationId(): string | null {
-  const value = process.env.CANVAS_ORGANIZATION_ID?.trim();
-  return value || null;
-}
-
 export function getDatabaseProvider(): DatabaseProvider {
   return resolveConfiguredDatabaseProvider();
-}
-
-export function getDeploymentMode(): string {
-  const explicit = process.env.CANVAS_DEPLOYMENT_MODE?.trim();
-  if (explicit) return explicit;
-  if (process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' || process.env.CANVAS_INSTANCE_TOKEN?.trim()) {
-    return 'managed-single';
-  }
-  return 'single_user';
-}
-
-export function areTeamFeaturesEnabled(deploymentMode = getDeploymentMode()): boolean {
-  if (!canEnableTeamFeaturesForDeployment(deploymentMode)) return false;
-  return isTruthyEnv(process.env.CANVAS_TEAM_FEATURES_ENABLED) || isTeamDeploymentMode(deploymentMode);
 }
 
 function booleanFromDb(value: number | null | undefined): boolean {
@@ -671,4 +574,7 @@ export function ensureOrganizationBootstrapStatus(): OrganizationBootstrapStatus
   } finally {
     sqlite.close();
   }
+}
+function isTruthyEnv(value: string | undefined): boolean {
+  return value === 'true' || value === '1' || value === 'yes';
 }

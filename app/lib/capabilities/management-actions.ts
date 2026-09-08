@@ -4,7 +4,7 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { refreshOrganizationCapabilityRuntime } from '@/app/lib/capabilities/activation-actions';
 import { loadCapabilityCandidates } from '@/app/lib/capabilities/catalog';
 import { openDb } from '@/app/lib/db';
-import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/bootstrap';
+import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/contracts';
 import { assertOrganizationPermission } from '@/app/lib/organization/permissions';
 import {
   CapabilityPolicyStore,
