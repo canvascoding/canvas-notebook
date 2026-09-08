@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 
 import type { HocuspocusProvider } from '@hocuspocus/provider';
 import type { IndexeddbPersistence } from 'y-indexeddb';
-import type * as Y from 'yjs';
+import * as Y from 'yjs';
 
 import { collaborationStateProof, isCollaborationStateProof } from './state-proof';
 import { createDocumentAwarenessLease } from './document-awareness';
@@ -52,7 +52,7 @@ type RegistryEntry = {
   refs: number;
   lifecycle: AbortController;
   requests: AbortController;
-  doc: Y.Doc | null;
+  doc: Y.Doc;
   provider: HocuspocusProvider | null;
   persistence: IndexeddbPersistence | null;
   session: CollaborationSessionResponse | null;
@@ -307,7 +307,9 @@ function createEntry(
     lifecycle: new AbortController(),
     requests: new AbortController(),
     refs: 0,
-    doc: null,
+    // Keep startup failures observable even if a transport/storage module fails
+    // to load. Readiness and local hydration still gate editing and recovery.
+    doc: new Y.Doc({ gc: true }),
     provider: null,
     persistence: null,
     session: initialSession ?? null,
@@ -329,13 +331,11 @@ function createEntry(
   };
   entry.startPromise = (async () => {
     try {
-      const [{ HocuspocusProvider }, { IndexeddbPersistence }, Y] = await Promise.all([
+      const [{ HocuspocusProvider }, { IndexeddbPersistence }] = await Promise.all([
         import('@hocuspocus/provider'),
         import('y-indexeddb'),
-        import('yjs'),
       ]);
       if (entry.lifecycle.signal.aborted || registry.get(key) !== entry) return;
-      entry.doc = new Y.Doc({ gc: true });
       const session = requireTextSession(
         entry.session || await requestSession(entry.path, representation, workspaceId, entry.requests.signal),
         representation,

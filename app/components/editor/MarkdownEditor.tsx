@@ -5788,15 +5788,19 @@ export function MarkdownEditor({
 
   if (collaborationEnabled && (!collaborationSession.session || !collaborationDocument?.ready)) {
     return (
-      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 bg-background p-6 text-center">
-        <p className="text-sm text-muted-foreground" role="status">
-          {collaborationSession.error || t('collaboration.connecting')}
-        </p>
-        {collaborationSession.error ? (
-          <Button size="sm" variant="outline" onClick={collaborationSession.retry}>
-            {t('externalChangeReload')}
-          </Button>
-        ) : null}
+      <div className="flex h-full min-h-0 flex-col bg-background">
+        <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue}
+          available={liveMarkdown.available} filePath={filePath} />
+        {!collaborationDocument && <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <p className="text-sm text-muted-foreground" role="status">
+            {collaborationSession.error || t('collaboration.connecting')}
+          </p>
+          {collaborationSession.error ? (
+            <Button size="sm" variant="outline" onClick={collaborationSession.retry}>
+              {t('externalChangeReload')}
+            </Button>
+          ) : null}
+        </div>}
       </div>
     );
   }

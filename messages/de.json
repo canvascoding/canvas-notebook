@@ -547,6 +547,10 @@
         "unknown": "Die Speicherung wurde unterbrochen. Die technischen Details unten zeigen den gemeldeten Fehler."
       },
       "recovery": "Das Speichern der Datei ist pausiert. Vor dem Erstellen einer Wiederherstellungskopie wird der vollständige Bearbeitungsstand auf diesem Gerät gesichert. Die Markdown-Kopie kann Details auslassen; die vollständige Sicherung erhält sie. Falls der lokale Speicher ausfällt, kannst du den Wiederherstellungsstand herunterladen.",
+      "loadingLocal": "Lokaler Bearbeitungsstand wird geladen…",
+      "waitingForSync": "Warten auf den ersten Serverabgleich…",
+      "recoveryNotLoaded": "Der lokale Bearbeitungsstand ist noch nicht vollständig geladen. Ein vollständiger Wiederherstellungsstand steht deshalb noch nicht zum Download bereit. Lade die Anwendung neu, um das Laden noch einmal zu versuchen.",
+      "recoveryLocalOnly": "Der lokale Bearbeitungsstand ist verfügbar, der erste Serverabgleich ist aber noch nicht abgeschlossen. Ein Download oder eine Wiederherstellungskopie enthält nur diesen lokalen Stand und möglicherweise noch keine Änderungen anderer Bearbeiter.",
       "recoveryChanged": "Das Dokument wurde während der Sicherung geändert. Bitte erstelle die Wiederherstellungskopie erneut.",
       "recoveryCopyChanged": "Die Wiederherstellungskopie wurde als {path} gespeichert. Dieses Dokument enthält neuere Änderungen und bleibt geöffnet.",
       "backup": "Markdown herunterladen",

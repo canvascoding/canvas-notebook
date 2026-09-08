@@ -548,6 +548,10 @@
         "unknown": "Saving was interrupted. The technical details below show the reported error."
       },
       "recovery": "File saving is paused. Before creating a recovery copy, the full editing state is saved on this device. The Markdown copy may omit details; the full backup keeps them. If local storage fails, you can download the recovery state.",
+      "loadingLocal": "Loading the local editing state…",
+      "waitingForSync": "Waiting for the first server sync…",
+      "recoveryNotLoaded": "The local editing state has not finished loading. No complete recovery state is available to download yet. Reload the application to try loading it again.",
+      "recoveryLocalOnly": "The local editing state is available, but the first server sync has not completed. A download or recovery copy contains only this local state and may not include changes from other editors.",
       "recoveryChanged": "The document changed while its backup was being saved. Please create the recovery copy again.",
       "recoveryCopyChanged": "The recovery copy was saved as {path}. This document has newer changes and remains open.",
       "backup": "Download Markdown",

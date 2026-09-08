@@ -44,7 +44,9 @@ function createLiveMarkdownStore(doc: Y.Doc | undefined, representation: string 
 }
 
 export function useLiveMarkdown(collaboration: CollaborationDocument | null, fallback: string) {
-  const doc = collaboration?.doc;
+  // An empty startup instance has no authoritative root yet. Project only the
+  // hydrated document, and create a fresh store when that state becomes known.
+  const doc = collaboration?.clientState.indexedDbHydrated ? collaboration.doc : undefined;
   const representation = collaboration?.session?.representation;
   const store = useMemo(() => createLiveMarkdownStore(doc, representation, fallback), [doc, representation, fallback]);
   return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
@@ -181,6 +183,8 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
   }, [correctionScope]);
   if (!collaboration) return null;
   const { connection, durability, clientState, session } = collaboration;
+  const hydrated = clientState.indexedDbHydrated;
+  const canExportMarkdown = hydrated && available;
   const error = collaboration.error || retryError || recovery.error;
   const blocked = durability === 'degraded' || connection === 'denied';
   const connectionKey = connection === 'live' ? 'connected' : connection === 'read_only' ? 'readOnly'
@@ -191,34 +195,37 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
   const diagnostic = JSON.stringify({ documentId: session?.documentId, generation: session?.lifecycleGeneration,
     connection, durability, documentSequence: clientState.documentSequence,
     checkpointSequence: clientState.checkpointSequence, unsyncedChanges: clientState.unsyncedChanges,
+    indexedDbHydrated: hydrated, remoteSynced: clientState.remoteSynced,
     failure: clientState.failure, error }, null, 2);
   return <div className="shrink-0 border-b px-3 py-2 text-xs" data-testid="markdown-save-state">
     <div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
       <span>{connectionKey === 'connected' ? t('editorModes.connected') : t(`collaboration.${connectionKey}`)}</span><span aria-hidden="true">·</span>
-      <span>{blocked ? t('editorModes.saveBlocked') : t(`collaboration.${durabilityKey}`)}</span>
+      <span>{blocked ? t('editorModes.saveBlocked') : !collaboration.ready
+        ? t(hydrated ? 'editorModes.waitingForSync' : 'editorModes.loadingLocal') : t(`collaboration.${durabilityKey}`)}</span>
     </div>
-    {(error || blocked || !available) && <div className="mt-2 space-y-2">
+    {(error || blocked || (collaboration.ready && !available) || (hydrated && connection === 'offline')) && <div className="mt-2 space-y-2">
       {clientState.failure && <p role="alert">{t(`editorModes.failure.${clientState.failure.kind}`)}</p>}
-      <p role="alert">{t('editorModes.recovery')}</p>
+      <p role="alert">{t(!hydrated ? 'editorModes.recoveryNotLoaded'
+        : !collaboration.ready ? 'editorModes.recoveryLocalOnly' : 'editorModes.recovery')}</p>
       <div className="flex flex-wrap gap-2">
         {canCorrectStructure && <Button variant="outline" size="sm" disabled={retrying || recovery.busy} onClick={() => {
           if (!recovery.isCurrent() || activeCorrection.current !== correctionScope
             || activeRetry.current?.scope !== retryScope || activeRetry.current.running || recovery.busy) return;
           blockHistory?.undoLastLocalChange();
         }}>{t('editorModes.undoRecovery')}</Button>}
-        {blocked && available && recovery.canCreate && <Button
+        {blocked && canExportMarkdown && recovery.canCreate && <Button
           variant="outline" size="sm" disabled={recovery.busy || retrying} onClick={() => void recovery.createCopy()}>
           {t(recovery.busy ? 'editorModes.recoveringCopy' : 'editorModes.recoverCopy')}</Button>}
-        {available && <Button variant="outline" size="sm" onClick={() => download(content, filePath?.split('/').pop() || 'document.md', 'text/markdown;charset=utf-8')}>
+        {canExportMarkdown && <Button variant="outline" size="sm" onClick={() => download(content, filePath?.split('/').pop() || 'document.md', 'text/markdown;charset=utf-8')}>
           <Download className="size-3.5" />{t('editorModes.backup')}
         </Button>}
-        <Button variant="outline" size="sm" onClick={() => {
+        {hydrated && <Button variant="outline" size="sm" onClick={() => {
           const snapshot = new Uint8Array(Y.encodeStateAsUpdate(collaboration.doc));
           download(snapshot, 'canvas-recovery.yjs', 'application/octet-stream');
           recordExportedCollaborationRecovery(collaboration.doc, snapshot);
         }}>
           {t('editorModes.snapshot')}
-        </Button>
+        </Button>}
         {canRetry && <Button variant="outline" size="sm" disabled={retrying || recovery.busy} onClick={async () => {
           if (activeRetry.current?.scope !== retryScope || activeRetry.current.running) return;
           activeRetry.current.running = true;

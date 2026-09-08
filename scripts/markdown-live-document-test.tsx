@@ -9,6 +9,7 @@ import * as Y from 'yjs';
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { createRichMarkdownManager, richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
 import type { CollaborationDocument } from '../app/lib/collaboration/client';
+import { createInitialTextCollaborationClientState } from '../app/lib/collaboration/client-state';
 
 async function main() {
   const dom = new JSDOM('<!doctype html><html><body><div id="view"></div></body></html>', { url: 'http://localhost' });
@@ -24,16 +25,26 @@ async function main() {
     createRichMarkdownManager().parse('AAA\n\nBBB\n\nCCC'), extensions,
   )));
   const source = new Y.Doc();
+  const pending = new Y.Doc();
   source.getText('content').insert(0, 'Source only');
   const container = document.getElementById('view')!;
   const root = createRoot(container);
-  const session = (document: Y.Doc, representation: string) => ({ doc: document, session: { representation } }) as CollaborationDocument;
+  const session = (document: Y.Doc, representation: string, hydrated = true) => ({ doc: document, session: { representation },
+    clientState: { ...createInitialTextCollaborationClientState(), indexedDbHydrated: hydrated } }) as CollaborationDocument;
   function View({ collaboration }: { collaboration: CollaborationDocument }) {
     const snapshot = useLiveMarkdown(collaboration, 'stale file checkpoint');
     return <output data-available={snapshot.available}>{snapshot.content}</output>;
   }
   const baseline = doc._observers.get('update')?.size ?? 0;
   try {
+    await act(async () => root.render(<View collaboration={session(pending, 'tiptap_blocks', false)} />));
+    assert.equal(container.textContent, 'stale file checkpoint', 'startup retains the file preview until local state is known');
+    assert.equal(pending.share.size, 0, 'an unhydrated block document must not acquire guessed XML roots');
+    await act(async () => {
+      Y.applyUpdate(pending, Y.encodeStateAsUpdate(doc));
+      root.render(<View collaboration={session(pending, 'tiptap_blocks')} />);
+    });
+    assert.equal(container.textContent, 'AAA\n\nBBB\n\nCCC');
     await act(async () => root.render(<View collaboration={session(doc, 'tiptap_blocks')} />));
     assert.equal(container.textContent, 'AAA\n\nBBB\n\nCCC');
     const id = tree.read().child(1).attrs.id as string;
@@ -49,7 +60,7 @@ async function main() {
     await act(async () => root.unmount());
     assert.equal(source._observers.get('update')?.size ?? 0, 0);
     console.log('Live Read/Source subscription follows block moves and text edits and releases the previous document.');
-  } finally { doc.destroy(); source.destroy(); dom.window.close(); }
+  } finally { doc.destroy(); source.destroy(); pending.destroy(); dom.window.close(); }
 }
 
 void main().catch((error) => { console.error(error); process.exitCode = 1; });
