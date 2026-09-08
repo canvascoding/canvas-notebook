@@ -5,7 +5,6 @@ import path from 'node:path';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { logger } from '@/app/lib/logging';
 import {
   normalizeExpectedSha256 as normalizeAgentExpectedSha256,
@@ -627,7 +626,6 @@ export async function readAgentCollaborativeTextFile(
   fullPath: string,
   initialBuffer?: Buffer,
 ): Promise<CollaborationTextSnapshot | null> {
-  if (getDatabaseProvider() !== 'postgres') return null;
   const sourceBuffer = initialBuffer ?? await fs.readFile(fullPath);
   const collaboration = await collaborativeAgentFileContext(fullPath, sourceBuffer);
   if (!collaboration) return null;
@@ -644,7 +642,6 @@ export async function readAgentCollaborativeExcalidrawFile(fullPath: string): Pr
   sceneSequence: number;
   lifecycleGeneration: number;
 } | null> {
-  if (getDatabaseProvider() !== 'postgres') return null;
   const collaboration = await collaborativeAgentExcalidrawContext(fullPath);
   if (!collaboration) return null;
   const state = await loadExcalidrawScene(collaboration.documentId);
@@ -2272,7 +2269,7 @@ export async function copyAgentPaths(params: {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'copy_path');
       await assertRuntimeTempPathOperationQuota(entries, 'copy');
       const copyWorkspace = getAgentWorkspaceContext();
-      if (copyWorkspace && getDatabaseProvider() === 'postgres') {
+      if (copyWorkspace) {
         const overwrittenPaths: string[] = [];
         for (const entry of entries) {
           if (!entry.overwritten || !entry.destinationResolvedPath) continue;
@@ -2311,12 +2308,10 @@ export async function copyAgentPaths(params: {
             ? workspaceRelativeAgentPathIfWithin(copyWorkspace, entry.destinationResolvedPath)
             : null)
           .filter((value): value is string => Boolean(value));
-        if (getDatabaseProvider() === 'postgres') {
-          await initializeCopiedFileCollaborationPaths({
-            workspace: copyWorkspace,
-            paths: workspaceDestinations,
-          });
-        }
+        await initializeCopiedFileCollaborationPaths({
+          workspace: copyWorkspace,
+          paths: workspaceDestinations,
+        });
         await syncPublicSharesAfterWrite(workspaceDestinations, copyWorkspace);
       }
       for (const entry of entries) {
@@ -2411,7 +2406,7 @@ export async function moveAgentPaths(params: {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'move_path');
       await assertRuntimeTempPathOperationQuota(entries, 'move');
       const moveWorkspace = getAgentWorkspaceContext();
-      if (moveWorkspace && getDatabaseProvider() === 'postgres') {
+      if (moveWorkspace) {
         const overwrittenPaths = entries
           .filter((entry) => entry.overwritten && entry.destinationResolvedPath)
           .map((entry) => workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.destinationResolvedPath!))
@@ -2450,10 +2445,8 @@ export async function moveAgentPaths(params: {
         const oldPath = moveWorkspace ? workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.sourceResolvedPath) : null;
         const newPath = moveWorkspace ? workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.destinationResolvedPath) : null;
         if (moveWorkspace) {
-          if (oldPath && newPath && getDatabaseProvider() === 'postgres') {
+          if (oldPath && newPath) {
             await moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
-            await syncPublicSharesAfterMove(oldPath, newPath, moveWorkspace);
-          } else if (oldPath && newPath) {
             await syncPublicSharesAfterMove(oldPath, newPath, moveWorkspace);
           } else if (oldPath) {
             removedFromWorkspace.push(oldPath);
@@ -2470,18 +2463,14 @@ export async function moveAgentPaths(params: {
         }
       }
       if (moveWorkspace && copiedIntoWorkspace.length > 0) {
-        if (getDatabaseProvider() === 'postgres') {
-          await initializeCopiedFileCollaborationPaths({ workspace: moveWorkspace, paths: copiedIntoWorkspace });
-        }
+        await initializeCopiedFileCollaborationPaths({ workspace: moveWorkspace, paths: copiedIntoWorkspace });
         await syncPublicSharesAfterWrite(copiedIntoWorkspace, moveWorkspace);
       }
       if (moveWorkspace && removedFromWorkspace.length > 0) {
-        if (getDatabaseProvider() === 'postgres') {
-          await archiveFileCollaborationPaths({
-            workspace: moveWorkspace,
-            paths: removedFromWorkspace.map((path) => ({ path })),
-          });
-        }
+        await archiveFileCollaborationPaths({
+          workspace: moveWorkspace,
+          paths: removedFromWorkspace.map((path) => ({ path })),
+        });
         await syncPublicSharesAfterDelete(removedFromWorkspace, moveWorkspace);
       }
 
