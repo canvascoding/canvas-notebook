@@ -12,6 +12,8 @@ const PROVIDER_NEUTRAL_USER_QUERY_FILES = [
   'app/lib/memory/legacy-migration.ts',
 ] as const;
 const SQL_STATEMENT_PATTERN = /\b(?:DELETE|INSERT|SELECT|UPDATE|WITH)\b/iu;
+const SQL_RUNTIME_METHODS = new Set(['all', 'get', 'run', 'query']);
+const SQL_QUESTION_MARK_PATTERN = /\?/u;
 const BARE_PARAMETER_PATTERN = String.raw`(?:\?|\$\d+)`;
 const UNSAFE_CASE_PATTERNS = [
   new RegExp(
@@ -78,6 +80,20 @@ function sourceFindings(file: string, source: string): SqlFinding[] {
         });
       }
     }
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const method = node.expression.name.text;
+      const firstArgument = node.arguments[0];
+      const runtimeSql = firstArgument ? literalSql(firstArgument, sourceFile) : null;
+      if (SQL_RUNTIME_METHODS.has(method) && runtimeSql && SQL_STATEMENT_PATTERN.test(runtimeSql)
+        && SQL_QUESTION_MARK_PATTERN.test(runtimeSql)) {
+        const location = sourceFile.getLineAndCharacterOfPosition(firstArgument!.getStart(sourceFile));
+        findings.push({
+          file,
+          line: location.line + 1,
+          reason: 'Runtime SQL must use native PostgreSQL $n parameters; found ? placeholder',
+        });
+      }
+    }
     ts.forEachChild(node, visit);
   }
 
@@ -86,6 +102,12 @@ function sourceFindings(file: string, source: string): SqlFinding[] {
 }
 
 function assertDetectorCatchesRegressions(): void {
+  assert.equal(
+    sourceFindings('runtime-question.ts', 'database.all("SELECT * FROM jobs WHERE id = ?", [jobId])')[0]?.reason,
+    'Runtime SQL must use native PostgreSQL $n parameters; found ? placeholder',
+  );
+  assert.deepEqual(sourceFindings('typescript-question.ts', 'const value = record?.value ?? "?";'), []);
+  assert.deepEqual(sourceFindings('ordinary-string.ts', 'const value = "A question?";'), []);
   const unsafeCase = sourceFindings(
     'unsafe-case.ts',
     '`UPDATE jobs SET next_attempt_at = CASE WHEN failed = 1 THEN NULL ELSE ? END`',

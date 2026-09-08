@@ -126,11 +126,6 @@ export async function ensureDatabaseReady(): Promise<void> {
   assertDatabaseAvailable();
 }
 
-function translateSqlitePlaceholders(sql: string): string {
-  let index = 0;
-  return sql.replace(/\?/g, () => `$${++index}`);
-}
-
 async function openPostgresDb(): Promise<SqlConnection> {
   await ensureDatabaseReady();
   const pool = getPostgresRuntimeQueryable();
@@ -150,7 +145,7 @@ async function openPostgresDb(): Promise<SqlConnection> {
   };
   const client = await runPostgresOperation(() => pool.connect());
   const query = (sql: string, params?: unknown[]) => runPostgresOperation(
-    () => client.query(translateSqlitePlaceholders(sql), params),
+    () => client.query(sql, params),
   );
 
   return {
