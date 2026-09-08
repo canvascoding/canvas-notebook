@@ -215,7 +215,8 @@ import { BlockTreePlacementNotice } from '@/app/lib/collaboration/block-tree-edi
 import { useEditorRangeTarget } from '@/app/hooks/use-editor-range-target';
 import { useEditorToolbarTarget } from '@/app/hooks/use-editor-toolbar-target';
 import { useEditorAsyncAction } from '@/app/hooks/use-editor-async-action';
-import { createEditorRangeTarget, resolveEditorRangeTarget, type EditorRangeTarget } from '@/app/lib/editor/interaction-target';
+import { insertMathAtRange, replaceRichBlockTitle, updateFootnoteDefinition } from '@/app/lib/editor/rich-block-commands';
+import { createEditorNodeTarget, createEditorRangeTarget, invalidateEditorTarget, resolveEditorNodeTarget, resolveEditorRangeTarget, type EditorNodeTarget, type EditorRangeTarget } from '@/app/lib/editor/interaction-target';
 import {
   useCollaborationDocument,
   useTextCollaborationSession,
@@ -357,7 +358,7 @@ type SlashCommandListProps = {
 
 type BlockCommandMenuState = {
   id: number;
-  range: Range;
+  target: EditorRangeTarget;
   position: {
     left: number;
     top: number;
@@ -380,9 +381,9 @@ type RichBlockKind = 'callout' | 'details' | 'footnote' | 'inlineMath' | 'blockM
 type RichBlockDialogSeed = {
   id: number;
   kind: RichBlockKind;
-  range?: Range;
+  target?: EditorRangeTarget | null;
+  nodeTarget?: EditorNodeTarget | null;
   footnoteId?: string;
-  nodePosition?: number;
   initialCalloutType?: string;
   initialContent?: string;
   initialTitle?: string;
@@ -1708,13 +1709,14 @@ function createSlashCommandLabels(t: (key: string) => string): SlashCommandLabel
 }
 
 function createBlockCommandMenuState(editor: Editor, range: Range): BlockCommandMenuState | null {
-  if (!isEditorRangeInsideDoc(editor, range)) return null;
+  const target = createEditorRangeTarget(editor, range);
+  if (!target) return null;
 
   try {
     const coords = editor.view.coordsAtPos(range.from);
     return {
       id: Date.now(),
-      range,
+      target,
       position: getSlashCommandMenuPosition(coords),
     };
   } catch {
@@ -2071,19 +2073,26 @@ function MarkdownBlockCommandMenu({
   menu: BlockCommandMenuState;
   onClose: () => void;
 }) {
+  const t = useTranslations('notebook');
+  const resolveTarget = useEditorRangeTarget(editor, true, undefined, menu.target);
   const menuRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<SlashCommandListHandle>(null);
   const items = useMemo(() => getSlashCommandItems('', labels), [labels]);
 
   const runCommand = useCallback((item: SlashCommandItem) => {
+    const range = resolveTarget();
+    if (!range) {
+      toast.error(t('markdownEditorInteractionTargetChanged'));
+      return;
+    }
     onClose();
     item.command({
       actions,
       editor,
       labels,
-      range: menu.range,
+      range,
     });
-  }, [actions, editor, labels, menu.range, onClose]);
+  }, [actions, editor, labels, onClose, resolveTarget, t]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -2438,85 +2447,6 @@ function getSelectedFootnoteId(editor: Editor): string | null {
   return reference ? String(reference.attrs.footnoteId ?? '') : null;
 }
 
-function replaceRichBlockTitle(
-  editor: Editor,
-  position: number,
-  blockType: string,
-  titleType: string,
-  title: string,
-  attrs: Record<string, unknown>,
-) {
-  const node = editor.state.doc.nodeAt(position);
-  if (!node || node.type.name !== blockType) return false;
-
-  const transaction = editor.state.tr.setNodeMarkup(position, node.type, {
-    ...node.attrs,
-    ...attrs,
-  });
-  const currentTitle = node.firstChild?.type.name === titleType ? node.firstChild : null;
-  const titleNodeType = editor.schema.nodes[titleType];
-  const content = title ? editor.schema.text(title) : undefined;
-
-  if (currentTitle) {
-    transaction.replaceWith(
-      position + 1,
-      position + 1 + currentTitle.nodeSize,
-      currentTitle.type.create(currentTitle.attrs, content),
-    );
-  } else if (titleNodeType) {
-    transaction.insert(position + 1, titleNodeType.create(null, content));
-  }
-
-  editor.view.dispatch(transaction.scrollIntoView());
-  return true;
-}
-
-function updateFootnoteDefinition(editor: Editor, footnoteId: string, content: string) {
-  const position = findFootnoteDefinitionPosition(editor, footnoteId);
-  if (position === null) return false;
-
-  const definition = editor.state.doc.nodeAt(position);
-  if (!definition) return false;
-
-  const firstBlock = definition.firstChild;
-  const paragraphType = editor.schema.nodes.paragraph;
-  if (!paragraphType) return false;
-
-  const paragraph = paragraphType.create(
-    firstBlock?.type.name === 'paragraph' ? firstBlock.attrs : null,
-    content ? editor.schema.text(content) : undefined,
-  );
-  const transaction = editor.state.tr;
-  if (firstBlock) {
-    transaction.replaceWith(position + 1, position + 1 + firstBlock.nodeSize, paragraph);
-  } else {
-    transaction.insert(position + 1, paragraph);
-  }
-  editor.view.dispatch(transaction.scrollIntoView());
-  return true;
-}
-
-function insertMathAtRange(
-  editor: Editor,
-  kind: Extract<RichBlockKind, 'inlineMath' | 'blockMath'>,
-  latex: string,
-  range?: Range,
-) {
-  const safeRange = range ? clampEditorRangeToDoc(editor, range) : null;
-  if (safeRange) {
-    const chain = editor.chain().focus();
-    if (safeRange.from < safeRange.to) {
-      chain.deleteRange(safeRange).run();
-    } else {
-      chain.setTextSelection(safeRange.from).run();
-    }
-  }
-
-  const position = editor.state.selection.from;
-  return kind === 'inlineMath'
-    ? editor.chain().focus().insertInlineMath({ latex, pos: position }).run()
-    : editor.chain().focus().insertBlockMath({ latex, pos: position }).run();
-}
 
 function isEditorRangeInsideCurrentDoc(editor: Editor, range: Range) {
   return (
@@ -3543,7 +3473,7 @@ function MarkdownRichBlockDialog({
   onSubmit: (submission: RichBlockDialogSubmission) => void;
 }) {
   const t = useTranslations('notebook');
-  const isEditing = seed.nodePosition !== undefined || seed.footnoteId !== undefined;
+  const isEditing = seed.nodeTarget !== undefined || seed.footnoteId !== undefined;
   const [title, setTitle] = useState(seed.initialTitle ?? '');
   const [content, setContent] = useState(seed.initialContent ?? '');
   const [calloutType, setCalloutType] = useState(seed.initialCalloutType ?? 'note');
@@ -3727,11 +3657,11 @@ function MarkdownRichBlockDialog({
               <div className="grid gap-2">
                 <Label>{t('markdownEditorFormulaType')}</Label>
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="inlineMath" disabled={seed.nodePosition !== undefined && seed.kind !== 'inlineMath'}>
+                  <TabsTrigger value="inlineMath" disabled={seed.nodeTarget !== undefined && seed.kind !== 'inlineMath'}>
                     <Sigma />
                     {t('markdownEditorInlineMathDialogTitle')}
                   </TabsTrigger>
-                  <TabsTrigger value="blockMath" disabled={seed.nodePosition !== undefined && seed.kind !== 'blockMath'}>
+                  <TabsTrigger value="blockMath" disabled={seed.nodeTarget !== undefined && seed.kind !== 'blockMath'}>
                     <SquareSigma />
                     {t('markdownEditorBlockMathDialogTitle')}
                   </TabsTrigger>
@@ -4801,7 +4731,7 @@ function RichMarkdownEditor({
   const appliedNavigationRequestRef = useRef<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
-  const [tableDialogRange, setTableDialogRange] = useState<Range | null>(null);
+  const [tableDialogTarget, setTableDialogTarget] = useState<EditorRangeTarget | null>(null);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [imageDialogSeed, setImageDialogSeed] = useState<ImageDialogSeed>({ id: 0 });
   const [emojiDialogOpen, setEmojiDialogOpen] = useState(false);
@@ -4840,19 +4770,21 @@ function RichMarkdownEditor({
     setEmojiDialogOpen(true);
   }, []);
   const openTableDialogAtRange = useCallback((range?: Range | null) => {
-    setTableDialogRange(range ?? null);
+    const target = dialogEditorRef.current ? createEditorRangeTarget(dialogEditorRef.current, range ?? undefined) : null;
+    setTableDialogTarget(target);
     setTableDialogOpen(true);
   }, []);
   const handleTableDialogOpenChange = useCallback((open: boolean) => {
     setTableDialogOpen(open);
-    if (!open) setTableDialogRange(null);
+    if (!open) setTableDialogTarget(null);
   }, []);
   const openRichBlockDialog = useCallback((
     kind: RichBlockKind,
     targetEditor: Editor,
     range?: Range,
   ) => {
-    const safeRange = range ? clampEditorRangeToDoc(targetEditor, range) ?? undefined : undefined;
+    const target = createEditorRangeTarget(targetEditor, range);
+    const safeRange = resolveEditorRangeTarget(targetEditor, target) ?? undefined;
     const selectedText = safeRange ? targetEditor.state.doc.textBetween(safeRange.from, safeRange.to, ' ') : '';
     const selectedNodePosition = kind === 'callout'
       ? findSelectedRichBlockPosition(targetEditor, 'canvasCallout')
@@ -4862,10 +4794,11 @@ function RichMarkdownEditor({
 
     if (kind === 'callout' && selectedNodePosition !== null) {
       const node = targetEditor.state.doc.nodeAt(selectedNodePosition);
+      const nodeTarget = createEditorNodeTarget(targetEditor, selectedNodePosition);
       setRichBlockDialog((current) => ({
         id: (current?.id ?? 0) + 1,
         kind,
-        nodePosition: selectedNodePosition,
+        nodeTarget,
         initialCalloutType: String(node?.attrs.calloutType ?? 'note'),
         initialTitle: getRichBlockTitle(targetEditor, selectedNodePosition, 'canvasCalloutTitle'),
       }));
@@ -4874,10 +4807,11 @@ function RichMarkdownEditor({
 
     if (kind === 'details' && selectedNodePosition !== null) {
       const node = targetEditor.state.doc.nodeAt(selectedNodePosition);
+      const nodeTarget = createEditorNodeTarget(targetEditor, selectedNodePosition);
       setRichBlockDialog((current) => ({
         id: (current?.id ?? 0) + 1,
         kind,
-        nodePosition: selectedNodePosition,
+        nodeTarget,
         initialOpen: Boolean(node?.attrs.open),
         initialTitle: getRichBlockTitle(targetEditor, selectedNodePosition, 'canvasDetailsSummary'),
       }));
@@ -4889,10 +4823,12 @@ function RichMarkdownEditor({
       if (footnoteId) {
         const definitionPosition = findFootnoteDefinitionPosition(targetEditor, footnoteId);
         const definition = definitionPosition === null ? null : targetEditor.state.doc.nodeAt(definitionPosition);
+        const nodeTarget = definitionPosition === null ? null : createEditorNodeTarget(targetEditor, definitionPosition);
         setRichBlockDialog((current) => ({
           id: (current?.id ?? 0) + 1,
           kind,
           footnoteId,
+          nodeTarget,
           initialContent: definition?.textContent ?? '',
         }));
         return;
@@ -4902,7 +4838,7 @@ function RichMarkdownEditor({
     setRichBlockDialog((current) => ({
       id: (current?.id ?? 0) + 1,
       kind,
-      range: safeRange,
+      target,
       initialContent: kind === 'callout' || kind === 'details' || kind === 'footnote' ? selectedText : undefined,
       initialLatex: kind === 'inlineMath' || kind === 'blockMath' ? selectedText : undefined,
     }));
@@ -4935,15 +4871,16 @@ function RichMarkdownEditor({
   }, []);
   const openTableDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
     const insertionRange = prepareCommandDialogInsertionRange(slashEditor, range);
-    const insertPosition = insertionRange?.from ?? slashEditor.state.selection.from;
+    if (!insertionRange) return;
 
-    openTableDialogAtRange({ from: insertPosition, to: insertPosition });
+    openTableDialogAtRange(insertionRange);
   }, [openTableDialogAtRange]);
   const editMath = useCallback((kind: 'inline' | 'block', latex: string, pos: number) => {
+    const nodeTarget = dialogEditorRef.current ? createEditorNodeTarget(dialogEditorRef.current, pos) : null;
     setRichBlockDialog((current) => ({
       id: (current?.id ?? 0) + 1,
       kind: kind === 'inline' ? 'inlineMath' : 'blockMath',
-      nodePosition: pos,
+      nodeTarget,
       initialLatex: latex,
     }));
   }, []);
@@ -4972,6 +4909,8 @@ function RichMarkdownEditor({
     () => createEditorExtensions(
       filePath,
       labels,
+      // These callbacks read the editor ref only on user events; the factory only installs them.
+      // eslint-disable-next-line react-hooks/refs
       slashCommandActions,
       activeWorkspaceId,
       wikiLabels,
@@ -5089,66 +5028,83 @@ function RichMarkdownEditor({
 
   const markdownEditor = asMarkdownEditor(editor);
   const submitRichBlockDialog = useCallback((submission: RichBlockDialogSubmission) => {
-    if (!editor || !richBlockDialog || editor.isDestroyed || !editor.isEditable) return;
+    if (!editor || !richBlockDialog || dialogEditorRef.current !== editor) return;
 
     const seed = richBlockDialog;
+    const editingNode = seed.nodeTarget !== undefined || seed.footnoteId !== undefined;
+    const position = editingNode ? resolveEditorNodeTarget(editor, seed.nodeTarget) : null;
+    const range = editingNode ? null : resolveEditorRangeTarget(editor, seed.target);
+    if (editingNode ? position === null : range === null) {
+      toast.error(t('markdownEditorInteractionTargetChanged'));
+      return;
+    }
+    let applied = false;
     if (submission.kind === 'callout') {
-      if (seed.nodePosition !== undefined) {
-        replaceRichBlockTitle(
+      if (seed.nodeTarget !== undefined) {
+        applied = replaceRichBlockTitle(
           editor,
-          seed.nodePosition,
+          position!,
           'canvasCallout',
           'canvasCalloutTitle',
           submission.title,
           { calloutType: submission.calloutType },
         );
       } else {
-        editor.chain().focus().insertCanvasCallout({
+        applied = editor.chain().focus().insertCanvasCallout({
           title: submission.title,
           type: submission.calloutType,
           content: submission.content,
-          range: seed.range,
+          range: range!,
         }).run();
       }
     } else if (submission.kind === 'details') {
-      if (seed.nodePosition !== undefined) {
-        replaceRichBlockTitle(
+      if (seed.nodeTarget !== undefined) {
+        applied = replaceRichBlockTitle(
           editor,
-          seed.nodePosition,
+          position!,
           'canvasDetails',
           'canvasDetailsSummary',
           submission.title,
           { open: submission.open },
         );
       } else {
-        editor.chain().focus().insertCanvasDetails({
+        applied = editor.chain().focus().insertCanvasDetails({
           summary: submission.title,
           content: submission.content,
           open: submission.open,
-          range: seed.range,
+          range: range!,
         }).run();
       }
     } else if (submission.kind === 'footnote') {
       if (seed.footnoteId) {
-        updateFootnoteDefinition(editor, seed.footnoteId, submission.content);
+        applied = updateFootnoteDefinition(editor, position!, submission.content);
       } else {
-        editor.chain().focus().insertMarkdownFootnote({
+        applied = editor.chain().focus().insertMarkdownFootnote({
           content: submission.content,
-          range: seed.range,
+          range: range!,
         }).run();
       }
-    } else if (seed.nodePosition !== undefined) {
+    } else if (seed.nodeTarget !== undefined) {
       if (submission.kind === 'inlineMath') {
-        editor.chain().focus().updateInlineMath({ latex: submission.latex, pos: seed.nodePosition }).run();
+        applied = editor.chain().focus().updateInlineMath({ latex: submission.latex, pos: position! }).run();
       } else {
-        editor.chain().focus().updateBlockMath({ latex: submission.latex, pos: seed.nodePosition }).run();
+        applied = editor.chain().focus().updateBlockMath({ latex: submission.latex, pos: position! }).run();
       }
     } else {
-      insertMathAtRange(editor, submission.kind, submission.latex, seed.range);
+      applied = insertMathAtRange(editor, submission.kind, submission.latex, range!);
     }
 
-    setRichBlockDialog(null);
-  }, [editor, richBlockDialog]);
+    if (applied) setRichBlockDialog(null);
+    else toast.error(t('markdownEditorInteractionTargetChanged'));
+  }, [editor, richBlockDialog, t]);
+
+  useEffect(() => () => {
+    invalidateEditorTarget(richBlockDialog?.target);
+    invalidateEditorTarget(richBlockDialog?.nodeTarget);
+  }, [richBlockDialog]);
+
+  useEffect(() => () => { invalidateEditorTarget(tableDialogTarget); }, [tableDialogTarget]);
+
   useEffect(() => {
     if (
       !editor
@@ -5186,15 +5142,14 @@ function RichMarkdownEditor({
   const isMobileToolbarVisible = Boolean(isRichEditorFocused && isMobileKeyboardActive);
 
   const insertTable = useCallback((options: TableInsertOptions) => {
-    if (!editor) return;
-    const safeRange = tableDialogRange ? clampEditorRangeToDoc(editor, tableDialogRange) : null;
-    const chain = editor.chain().focus();
-    if (safeRange) {
-      chain.setTextSelection(safeRange);
+    if (!editor || dialogEditorRef.current !== editor) return;
+    const range = resolveEditorRangeTarget(editor, tableDialogTarget);
+    if (!range || !editor.chain().focus().setTextSelection(range).insertTable(options).run()) {
+      toast.error(t('markdownEditorInteractionTargetChanged'));
+      return;
     }
-    chain.insertTable(options).run();
     handleTableDialogOpenChange(false);
-  }, [editor, handleTableDialogOpenChange, tableDialogRange]);
+  }, [editor, handleTableDialogOpenChange, tableDialogTarget, t]);
 
   const cancelPendingBlockCommandMenu = useCallback(() => {
     if (pendingBlockCommandMenuFrameRef.current === null) return;
@@ -5211,13 +5166,16 @@ function RichMarkdownEditor({
     cancelPendingBlockCommandMenu();
     setBlockCommandMenu(null);
 
-    if (!isEditorRangeInsideDoc(blockEditor, range)) return;
+    const target = createEditorRangeTarget(blockEditor, range);
+    if (!target) return;
 
     pendingBlockCommandMenuFrameRef.current = window.requestAnimationFrame(() => {
       pendingBlockCommandMenuFrameRef.current = null;
-      if (!blockEditor.isEditable || !isEditorRangeInsideDoc(blockEditor, range)) return;
+      if (dialogEditorRef.current !== blockEditor) return;
+      const currentRange = resolveEditorRangeTarget(blockEditor, target);
+      if (!currentRange) return;
 
-      const menuState = createBlockCommandMenuState(blockEditor, range);
+      const menuState = createBlockCommandMenuState(blockEditor, currentRange);
       if (menuState) {
         setBlockCommandMenu(menuState);
       }

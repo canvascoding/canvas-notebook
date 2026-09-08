@@ -17,6 +17,7 @@ import { getReorderableBlockRangeAt, moveReorderableBlock } from '../app/lib/edi
 import { CanvasUniqueID } from '../app/lib/editor/canvas-unique-id';
 import { createEditorNodeTarget, createEditorRangeTarget, createEditorSelectionTarget, invalidateEditorTarget, resolveEditorNodeTarget, resolveEditorRangeTarget, resolveEditorSelectionTarget } from '../app/lib/editor/interaction-target';
 import { moveMarkdownTablePart } from '../app/lib/markdown/core/table-commands';
+import { insertMathAtRange, replaceRichBlockTitle, updateFootnoteDefinition } from '../app/lib/editor/rich-block-commands';
 import tableEdits from '../app/lib/markdown/core/table-command-fixtures.json';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
@@ -93,6 +94,106 @@ test('prepared image and emoji replacements follow a moved block and preserve ne
     assert.equal(editor.chain().insertContentAt(resolveEditorRangeTarget(editor, emoji)!, '👩🏽‍💻').run(), true);
     assert.deepEqual(texts(editor), ['👩🏽‍💻', 'AAA', 'CCC']);
     assert.equal(validateRichMarkdownYDoc(doc).valid, true);
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
+
+for (const fixture of [
+  { markdown: '> [!note] Title\n> Body', type: 'canvasCallout', title: 'canvasCalloutTitle', attrs: { calloutType: 'warning' } },
+  { markdown: '<details>\n<summary>Title</summary>\n\nBody\n\n</details>', type: 'canvasDetails', title: 'canvasDetailsSummary', attrs: { open: true } },
+]) test(`a ${fixture.type} dialog follows its moved node and rejects a concurrently changed draft`, async () => {
+  const doc = createDocument(`AAA\n\n${fixture.markdown}\n\nCCC`);
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    assert.equal(editor.state.doc.child(1).type.name, fixture.type);
+    const original = editor.state.doc.child(1);
+    const target = createEditorNodeTarget(editor, 5);
+    const tree = new CollaborationBlockTree(doc, schema);
+    tree.move({ blockId: original.attrs.id, parentId: null, beforeId: null, operationId: 'dialog-container-move' }, 'peer');
+    const position = resolveEditorNodeTarget(editor, target)!;
+    assert.equal(replaceRichBlockTitle(editor, position, fixture.type, fixture.title, 'Edited', fixture.attrs), true);
+    const edited = editor.state.doc.nodeAt(position)!;
+    assert.equal(edited.attrs.id, original.attrs.id);
+    assert.equal(edited.firstChild!.attrs.id, original.firstChild!.attrs.id);
+    assert.ok(edited.child(1).eq(original.child(1)));
+    editor.commands.undo();
+    assert.ok(editor.state.doc.nodeAt(position)!.eq(original));
+    const another = createEditorNodeTarget(editor, position);
+    let bodyId: string | undefined;
+    original.descendants((node) => { if (node.inlineContent && node.textContent === 'Body') bodyId = node.attrs.id; });
+    assert.ok(bodyId);
+    (tree.content(bodyId).get(0) as Y.XmlText).insert(0, 'Remote ');
+    assert.equal(resolveEditorNodeTarget(editor, another), null);
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
+
+for (const kind of ['inlineMath', 'blockMath'] as const) test(`${kind} replacement is a single undo action at a moved dialog target`, async () => {
+  const doc = createDocument();
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    const target = createEditorRangeTarget(editor, { from: 6, to: 9 });
+    const tree = new CollaborationBlockTree(doc, schema);
+    tree.move({ blockId: editor.state.doc.child(1).attrs.id, parentId: null, beforeId: null, operationId: 'math-target-move' }, 'peer');
+    (tree.content(editor.state.doc.child(0).attrs.id).get(0) as Y.XmlText).insert(0, 'Remote ');
+    const range = resolveEditorRangeTarget(editor, target)!;
+    assert.equal(insertMathAtRange(editor, kind, 'x^2', range), true);
+    let formulas = 0;
+    editor.state.doc.descendants((node) => { if (node.type.name === kind) { formulas++; assert.equal(node.attrs.latex, 'x^2'); } });
+    assert.equal(formulas, 1);
+    assert.equal(editor.commands.undo(), true);
+    assert.deepEqual(texts(editor), ['Remote AAA', 'CCC', 'BBB']);
+    editor.setEditable(false);
+    assert.equal(insertMathAtRange(editor, kind, 'forbidden', { from: 1, to: 2 }), false);
+    assert.deepEqual(texts(editor), ['Remote AAA', 'CCC', 'BBB']);
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
+
+test('footnote editing uses the resolved definition position after a move', async () => {
+  const doc = createDocument('AAA[^1]\n\nCCC\n\n[^1]: Original note');
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    let position = -1;
+    editor.state.doc.descendants((node, from) => { if (node.type.name === 'markdownFootnoteDefinition') position = from; });
+    const target = createEditorNodeTarget(editor, position);
+    const original = editor.state.doc.nodeAt(position)!;
+    const tree = new CollaborationBlockTree(doc, schema);
+    tree.move({ blockId: original.attrs.id, parentId: null, beforeId: editor.state.doc.child(0).attrs.id, operationId: 'definition-move' }, 'peer');
+    const current = resolveEditorNodeTarget(editor, target)!;
+    assert.equal(updateFootnoteDefinition(editor, current, 'Edited note'), true);
+    assert.equal(editor.state.doc.nodeAt(current)!.firstChild!.attrs.id, original.firstChild!.attrs.id);
+    assert.equal(editor.state.doc.nodeAt(current)!.textContent, 'Edited note');
+    editor.commands.undo();
+    assert.ok(editor.state.doc.nodeAt(current)!.eq(original));
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
+
+test('table insertion resolves its prepared range after movement and is independently undoable', async () => {
+  const doc = createDocument();
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    const target = createEditorRangeTarget(editor, { from: 6, to: 9 });
+    const tree = new CollaborationBlockTree(doc, schema);
+    tree.move({ blockId: editor.state.doc.child(1).attrs.id, parentId: null, beforeId: null, operationId: 'table-dialog-move' }, 'peer');
+    const range = resolveEditorRangeTarget(editor, target)!;
+    assert.equal(editor.chain().setTextSelection(range).insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run(), true);
+    assert.equal(editor.state.doc.child(0).textContent, 'AAA');
+    assert.equal(editor.state.doc.child(1).textContent, 'CCC');
+    assert.equal(editor.state.doc.child(2).type.name, 'table');
+    assert.equal(editor.state.doc.textContent, 'AAACCC');
+    assert.equal(validateRichMarkdownYDoc(doc).valid, true);
+    editor.commands.undo();
+    assert.deepEqual(texts(editor), ['AAA', 'CCC', 'BBB']);
     assert.deepEqual(errors, []);
   } finally { editor.destroy(); doc.destroy(); }
 });
