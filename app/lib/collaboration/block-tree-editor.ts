@@ -16,6 +16,7 @@ type BlockTreeEditorOptions = {
 
 type BlockTreeEditorStorage = {
   binding: BlockTreeEditorBinding | null;
+  transaction: Transaction | null;
 };
 
 export function isBlockTreeEditorReady(editor: Editor): boolean {
@@ -105,13 +106,20 @@ class BlockTreeEditorBinding {
       if (from === null) return;
       const end = state.doc.content.findDiffEnd(next.content)!;
       const overlap = Math.max(0, from - Math.min(end.a, end.b));
-      const tr = state.tr.replace(from, end.a + overlap, next.slice(from, end.b + overlap));
+      let tr = state.tr.replace(from, end.a + overlap, next.slice(from, end.b + overlap));
+      // ProseMirror's slice fitter can retain a paragraph at a table/container
+      // boundary. Prefer the small replacement, but always render the exact
+      // validated projection. Relative selections survive either replacement.
+      if (!tr.doc.eq(next)) tr = state.tr.replaceWith(0, state.doc.content.size, next.content);
       if (!tr.doc.eq(next)) throw new BlockTreeConflict('structure_invalid');
       const selection = this.selection ? restoreBlockTreeSelection(this.tree, tr.doc, this.selection) : null;
       if (selection) tr.setSelection(selection);
       else tr.setSelection(Selection.near(tr.doc.resolve(Math.min(state.selection.head, tr.doc.content.size))));
       tr.setMeta(REMOTE_BLOCK_TREE_TRANSACTION, this);
       tr.setMeta('addToHistory', false);
+      // A received projection is already authoritative. StarterKit must not
+      // append a view-only paragraph during hydration or a remote update.
+      tr.setMeta('skipTrailingNode', true);
       this.editor.view.dispatch(tr);
       this.lastError = null;
     } catch (error) {
@@ -187,7 +195,7 @@ export function createBlockTreeCollaborationExtension(options: BlockTreeEditorOp
   return Extension.create<Record<string, never>, BlockTreeEditorStorage>({
     name: 'canvasBlockTreeCollaboration',
     priority: 1000,
-    addStorage: () => ({ binding: null }),
+    addStorage: () => ({ binding: null, transaction: null }),
     addProseMirrorPlugins() {
       const editor = this.editor;
       const storage = this.storage;
@@ -195,6 +203,12 @@ export function createBlockTreeCollaborationExtension(options: BlockTreeEditorOp
         key: blockTreeEditorKey,
         filterTransaction(transaction) {
           if (!transaction.docChanged || transaction.getMeta(REMOTE_BLOCK_TREE_TRANSACTION) === storage.binding) return true;
+          // ProseMirror sets appendedTransaction metadata only after filtering.
+          // The dispatch scope identifies appenders before they can diverge the
+          // view from a received projection or turn selection/focus into a write.
+          const root = storage.transaction;
+          if (root && root !== transaction && (!root.docChanged
+            || root.getMeta(REMOTE_BLOCK_TREE_TRANSACTION) === storage.binding)) return false;
           return Boolean(storage.binding?.ready && editor.isEditable
             && !(storage.binding.composing && transaction.getMeta(BLOCK_MOVE_TRANSACTION_META)));
         },
@@ -222,10 +236,12 @@ export function createBlockTreeCollaborationExtension(options: BlockTreeEditorOp
       })];
     },
     dispatchTransaction({ transaction, next }) {
+      const previous = this.storage.transaction;
+      this.storage.transaction = transaction;
       try { next(transaction); } catch (error) {
         if (!(error instanceof BlockTreeConflict)) throw error;
         this.storage.binding?.report(error);
-      }
+      } finally { this.storage.transaction = previous; }
     },
     addCommands() {
       return {

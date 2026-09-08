@@ -6,11 +6,14 @@ import { initProseMirrorDoc } from '@tiptap/y-tiptap';
 import * as Y from 'yjs';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
 
-import { createRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
+import { createRichMarkdownYDoc, validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
 import { richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '../app/lib/collaboration/rich-editor-extensions';
 import { getReorderableBlockRangeAt, moveReorderableBlock } from '../app/lib/editor/reorderable-blocks';
+import { CanvasUniqueID } from '../app/lib/editor/canvas-unique-id';
+import { moveMarkdownTablePart } from '../app/lib/markdown/core/table-commands';
+import tableEdits from '../app/lib/markdown/core/table-command-fixtures.json';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
 for (const key of ['window', 'document', 'DOMParser', 'navigator', 'Node', 'HTMLElement', 'Element', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'] as const) {
@@ -19,8 +22,8 @@ for (const key of ['window', 'document', 'DOMParser', 'navigator', 'Node', 'HTML
 
 const schema = getSchema(richMarkdownCodecExtensions());
 
-function createDocument() {
-  const source = createRichMarkdownYDoc('AAA\n\nBBB\n\nCCC');
+function createDocument(markdown = 'AAA\n\nBBB\n\nCCC') {
+  const source = createRichMarkdownYDoc(markdown);
   const initial = initProseMirrorDoc(source.getXmlFragment('body'), schema).doc;
   source.destroy();
   const doc = new Y.Doc();
@@ -32,7 +35,7 @@ function createEditor(doc: Y.Doc, errors: Error[], awareness?: Awareness) {
   return new Editor({
     extensions: [
       ...richMarkdownCodecExtensions().map((extension) => extension.name === 'starterKit' ? extension.configure({ undoRedo: false })
-        : extension.name === 'uniqueID' ? extension.configure({ filterTransaction: (transaction: import('@tiptap/pm/state').Transaction) => !isRemoteRichEditorTransaction(transaction) }) : extension),
+        : extension.name === 'uniqueID' ? CanvasUniqueID.configure({ types: 'all', filterTransaction: (transaction: import('@tiptap/pm/state').Transaction) => !isRemoteRichEditorTransaction(transaction) }) : extension),
       ...createRichEditorCollaborationExtensions({ document: doc, representation: 'tiptap_blocks', awareness: awareness ?? null,
         user: { name: 'Peer', color: '#123456' }, onError: (error) => errors.push(error) }),
     ],
@@ -80,6 +83,118 @@ test('two real editors preserve concurrent edits, the move intention and selecti
     assert.deepEqual(texts(a), ['NEW', 'AAA', 'CCC']);
     assert.deepEqual(errors, []);
   } finally { a.destroy(); b.destroy(); left.destroy(); right.destroy(); }
+});
+
+for (const fixture of tableEdits) test(`table command through the block binding: ${fixture.name}`, async () => {
+  const doc = createDocument('| A | B |\n| --- | --- |\n| one | two |\n| three | four |');
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  const reopened = new Y.Doc();
+  try {
+    await Promise.resolve();
+    editor.commands.setTextSelection(position(editor, fixture.cell));
+    if (fixture.initialAlign) editor.commands.setCellAttribute('align', fixture.initialAlign);
+    const before = editor.getJSON();
+    let changed: boolean;
+    if (fixture.axis) changed = editor.commands.command((props) => moveMarkdownTablePart(props, fixture.axis as 'row' | 'column', fixture.direction as -1 | 1));
+    else if (fixture.align) changed = editor.commands.setCellAttribute('align', fixture.align);
+    else changed = editor.commands[fixture.command as 'addRowBefore' | 'addRowAfter' | 'deleteRow']();
+    assert.equal(changed, true);
+    const rows: string[][] = [];
+    editor.state.doc.firstChild!.forEach((row, _offset, index) => {
+      const cells: string[] = [];
+      row.forEach((cell) => {
+        assert.equal(cell.type.name, index === 0 ? 'tableHeader' : 'tableCell');
+        cells.push(cell.textContent);
+      });
+      rows.push(cells);
+    });
+    assert.deepEqual(rows, fixture.rows);
+    const after = editor.getJSON();
+    assert.equal(validateRichMarkdownYDoc(doc).valid, true);
+    Y.applyUpdate(reopened, Y.encodeStateAsUpdate(doc));
+    assert.deepEqual(new CollaborationBlockTree(reopened, schema).read().toJSON(), after);
+    assert.equal(editor.commands.undo(), true);
+    assert.deepEqual(errors, [], 'undo projects without an error');
+    assert.deepEqual(new CollaborationBlockTree(doc, schema).read().toJSON(), editor.getJSON(), 'undo view matches storage');
+    assert.deepEqual(editor.getJSON(), before, 'undo keeps the original identities');
+    assert.equal(editor.commands.redo(), true);
+    assert.deepEqual(editor.getJSON(), after, 'redo restores the same identities');
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); reopened.destroy(); }
+});
+
+test('lifting a middle list item and joining it back retains unaffected blocks and remote text', async () => {
+  const left = createDocument('1. First item\n2. Middle item\n3. Last item');
+  const right = new Y.Doc();
+  Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
+  const errors: Error[] = [];
+  const a = createEditor(left, errors);
+  const b = createEditor(right, errors);
+  try {
+    await Promise.resolve();
+    const initial = a.getJSON();
+    a.commands.setTextSelection(position(a, 'Middle item'));
+    assert.equal(a.commands.liftListItem('listItem'), true);
+    assert.deepEqual(errors, [], 'lifting is accepted by the structural adapter');
+    assert.deepEqual(texts(a).filter(Boolean), ['First item', 'Middle item', 'Last item']);
+    const last = position(b, 'Last item');
+    b.view.dispatch(b.state.tr.insertText('updated Last item', last, last + 'Last item'.length));
+    const aUpdate = Y.encodeStateAsUpdate(left);
+    const bUpdate = Y.encodeStateAsUpdate(right);
+    Y.applyUpdate(left, bUpdate);
+    Y.applyUpdate(right, aUpdate);
+    assert.deepEqual(texts(a).filter(Boolean), ['First item', 'Middle item', 'updated Last item']);
+    assert.deepEqual(a.getJSON(), b.getJSON());
+    assert.equal(validateRichMarkdownYDoc(left).valid, true);
+    assert.equal(a.commands.undo(), true);
+    assert.equal(a.state.doc.firstChild!.childCount, 3);
+    assert.equal(a.state.doc.firstChild!.child(2).textContent, 'updated Last item');
+    assert.equal(a.state.doc.firstChild!.attrs.id, initial.content![0].attrs!.id);
+    assert.equal(a.commands.redo(), true);
+    assert.deepEqual(texts(a).filter(Boolean), ['First item', 'Middle item', 'updated Last item']);
+    assert.deepEqual(errors, []);
+  } finally { a.destroy(); b.destroy(); left.destroy(); right.destroy(); }
+});
+
+test('splitting and joining text creates only the required identities through the live binding', async () => {
+  const doc = createDocument('AlphaBeta\n\nNeighbor');
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    const before = editor.getJSON();
+    editor.commands.setTextSelection(position(editor, 'AlphaBeta') + 5);
+    assert.equal(editor.commands.splitBlock(), true);
+    const split = editor.getJSON();
+    assert.deepEqual(texts(editor), ['Alpha', 'Beta', 'Neighbor']);
+    assert.equal(split.content![0].attrs!.id, before.content![0].attrs!.id);
+    assert.notEqual(split.content![1].attrs!.id, before.content![0].attrs!.id);
+    assert.equal(split.content![2].attrs!.id, before.content![1].attrs!.id);
+    assert.equal(validateRichMarkdownYDoc(doc).valid, true);
+    assert.equal(editor.commands.joinBackward(), true);
+    assert.deepEqual(editor.getJSON(), before);
+    assert.equal(editor.commands.undo(), true);
+    assert.deepEqual(editor.getJSON(), split);
+    assert.equal(editor.commands.undo(), true);
+    assert.deepEqual(editor.getJSON(), before);
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
+
+test('loading and selecting a table never generates a local paragraph from deferred creation callbacks', async () => {
+  const doc = createDocument('| A | B |\n| --- | --- |\n| one | two |');
+  const before = Y.encodeStateAsUpdate(doc);
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(editor.state.doc.childCount, 1);
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), before);
+    editor.commands.setTextSelection(position(editor, 'one'));
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), before, 'selection is not a content edit');
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
 });
 
 test('hydration never replaces server data with an empty editor and permission gates every mutation', async () => {
