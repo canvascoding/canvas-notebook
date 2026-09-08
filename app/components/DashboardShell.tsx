@@ -57,7 +57,6 @@ import {
   useShouldShowWorkspaceSwitcher,
 } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
-import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import {
   getNotebookNavigationIntent,
@@ -869,8 +868,15 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   useEffect(() => {
     const closeDocumentTabsAtPaths = (paths: Iterable<string>) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
+      const file = useFileStore.getState().currentFile;
       const closedPaths = Array.from(paths);
+      const preservedPath = file?.unavailable ? file.path : null;
       const nextTabs = closeNotebookDocumentTabsAtPaths(documentTabsRef.current, closedPaths);
+      if (preservedPath) {
+        const preserved = openNotebookDocumentTab(nextTabs, preservedPath);
+        if (preserved.status !== 'limit-reached') replaceDocumentTabs(activeWorkspaceId, preserved.state);
+        return;
+      }
       if (nextTabs === documentTabsRef.current) return;
 
       const currentFilePath = useFileStore.getState().currentFile?.path ?? null;
@@ -901,25 +907,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         renameNotebookDocumentTabs(documentTabsRef.current, oldPath, newPath),
       );
     };
-    const handleWatcherFileChange = (event: Event) => {
-      const detail = (event as CustomEvent<FileEvent>).detail;
-      if (
-        !detail
-        || (detail.type !== 'unlink' && detail.type !== 'unlinkDir')
-        || (detail.workspaceId && detail.workspaceId !== activeWorkspaceId)
-      ) {
-        return;
-      }
-      closeDocumentTabsAtPaths([detail.relativePath]);
-    };
-    const fileWatcher = getFileWatcherClient();
     window.addEventListener(WORKSPACE_PATHS_DELETED_EVENT, handlePathsDeleted);
     window.addEventListener(WORKSPACE_PATH_RENAMED_EVENT, handlePathRenamed);
-    fileWatcher.addEventListener('filechange', handleWatcherFileChange);
     return () => {
       window.removeEventListener(WORKSPACE_PATHS_DELETED_EVENT, handlePathsDeleted);
       window.removeEventListener(WORKSPACE_PATH_RENAMED_EVENT, handlePathRenamed);
-      fileWatcher.removeEventListener('filechange', handleWatcherFileChange);
     };
   }, [activeWorkspaceId, dispatch, openNotebookFile, replaceDocumentTabs]);
 

@@ -19,6 +19,8 @@ import {
   type WorkspaceFileOperationOptions,
 } from '@/app/lib/filesystem/workspace-files';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import type { WorkspacePathRenameMutation } from './file-events';
+import { withWorkspacePathRenameEvent } from '@/app/lib/filesystem/file-watcher';
 
 type RenameParams = {
   workspace: WorkspaceContext;
@@ -26,10 +28,12 @@ type RenameParams = {
   newPath: string;
   overwrite: boolean;
   fileOptions: WorkspaceFileOperationOptions;
+  mutation?: WorkspacePathRenameMutation;
 };
 
 export type WorkspacePathRenameResult = {
   warnings: string[];
+  mutation: WorkspacePathRenameMutation;
 };
 
 export type WorkspacePathRenameOperations = {
@@ -83,13 +87,13 @@ async function withCompensations<T>(
 }
 
 const runtimeOperations: WorkspacePathRenameOperations = {
-  withFileRename: (params, operation) => withRollbackableFileRename(
+  withFileRename: (params, operation) => withWorkspacePathRenameEvent(params.workspace, params.mutation!, () => withRollbackableFileRename(
     params.oldPath,
     params.newPath,
     params.overwrite,
     params.fileOptions,
     operation,
-  ),
+  )),
   moveCollaborationPath: moveFileCollaborationPath,
   archiveCollaborationPath: async ({ workspace, path }) => {
     await archiveFileCollaborationPaths({ workspace, paths: [{ path }] });
@@ -119,6 +123,11 @@ export async function renameWorkspacePath(
   params: RenameParams,
   operations: WorkspacePathRenameOperations = runtimeOperations,
 ): Promise<WorkspacePathRenameResult> {
+  const mutation: WorkspacePathRenameMutation = {
+    type: 'rename', operationId: randomUUID(), workspaceId: params.workspace.workspaceId,
+    oldPath: params.oldPath, newPath: params.newPath,
+  };
+  params = { ...params, mutation };
   const backupPath = params.overwrite ? operations.createBackupPath() : null;
 
   await withCompensations(async (registerDestinationRollback) => {
@@ -186,5 +195,5 @@ export async function renameWorkspacePath(
     operations.queuePublicShareSync(params);
   }
 
-  return { warnings };
+  return { warnings, mutation };
 }

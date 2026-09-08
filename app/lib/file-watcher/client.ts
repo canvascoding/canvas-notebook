@@ -11,15 +11,11 @@
 import { useFileStore } from '@/app/store/file-store';
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import type { WorkspaceFileEvent } from '@/app/lib/files/file-events';
+import { getParentDirectory, isSameOrDescendantPath } from '@/app/lib/files/path-utils';
+import { readWorkspaceFile } from '@/app/lib/files/client';
 
-interface FileEvent {
-  type: 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
-  workspaceId?: string;
-  path: string;
-  relativePath: string;
-  dir: string;
-  timestamp: number;
-}
+type FileEvent = WorkspaceFileEvent;
 
 const WATCHER_REFRESH_CONCURRENCY = 4;
 
@@ -70,6 +66,7 @@ export class FileWatcherClient extends EventTarget {
   private storeUnsubscribe: (() => void) | null = null;
   private workspaceUnsubscribe: (() => void) | null = null;
   private connectionWorkspaceId: string | null = null;
+  private pendingDeletions = new Map<string, object>();
 
   static readonly DISCONNECT_GRACE_MS = 3000;
   static readonly SYNC_DEBOUNCE_MS = 200;
@@ -274,6 +271,45 @@ export class FileWatcherClient extends EventTarget {
   private handleFileChange(event: FileEvent): void {
     const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
     if (activeWorkspaceId && event.workspaceId && event.workspaceId !== activeWorkspaceId) return;
+
+    const affectedPaths = event.mutation
+      ? [event.mutation.oldPath, event.mutation.newPath]
+      : [event.relativePath];
+    for (const pendingPath of this.pendingDeletions.keys()) {
+      if (affectedPaths.some((path) => isSameOrDescendantPath(path, pendingPath) || isSameOrDescendantPath(pendingPath, path))) {
+        this.pendingDeletions.delete(pendingPath);
+      }
+    }
+    if (event.type === 'rename' && event.mutation) {
+      useFileStore.getState().applyPathRename(event.mutation);
+      this.scheduleDirectoryRefresh(getParentDirectory(event.mutation.oldPath));
+      this.scheduleDirectoryRefresh(getParentDirectory(event.mutation.newPath));
+      this.dispatchEvent(new CustomEvent<FileEvent>('filechange', { detail: event }));
+      return;
+    }
+    if (event.type === 'unlink' || event.type === 'unlinkDir') {
+      // Atomic replacement and delayed native events can report an unlink for
+      // a path that already exists again. Confirm absence before detaching it.
+      const workspaceId = activeWorkspaceId;
+      const generation = useFileStore.getState().treeGeneration;
+      const fileLoadRequestId = useFileStore.getState().fileLoadRequestId;
+      const source = this.eventSource;
+      const confirmation = {};
+      this.pendingDeletions.set(event.relativePath, confirmation);
+      void readWorkspaceFile(event.relativePath, { metaOnly: true, noCache: true, workspaceId })
+        .catch((error) => {
+          if (error instanceof Response && error.status === 404
+            && this.pendingDeletions.get(event.relativePath) === confirmation
+            && this.eventSource === source
+            && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+            && useFileStore.getState().treeGeneration === generation
+            && useFileStore.getState().fileLoadRequestId === fileLoadRequestId) {
+            useFileStore.getState().applyPathsDeleted([event.relativePath], workspaceId);
+          }
+        }).finally(() => {
+          if (this.pendingDeletions.get(event.relativePath) === confirmation) this.pendingDeletions.delete(event.relativePath);
+        });
+    }
 
     if (event.type !== 'change') {
       useFileStore.getState().markDirectoryStale(event.dir || '.');

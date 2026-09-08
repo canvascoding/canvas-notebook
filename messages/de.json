@@ -373,6 +373,10 @@
         }
       },
       "notebook": {
+    "unavailableLocalChanges": "Diese Datei wurde verschoben, gelöscht oder ersetzt. Deine lokale Ansicht bleibt erhalten. Lade lokale Änderungen herunter, bevor du sie verwirfst.",
+    "downloadLocalChanges": "Lokale Änderungen herunterladen",
+    "discardUnavailableDocument": "Verwerfen und schließen",
+
         "fileBrowser": {
           "title": "Dateibrowser",
           "description": "Hier siehst du alle Dateien im Workspace. Neu erstellen, hochladen oder per Drag & Drop einfügen."

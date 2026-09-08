@@ -45,7 +45,7 @@ import {
   withWorkspaceFileMutationLocks,
   writeFile as writeWorkspaceFile,
 } from '@/app/lib/filesystem/workspace-files';
-import { publishWorkspaceFileMutation, type FileEventType } from '@/app/lib/filesystem/file-watcher';
+import { publishWorkspaceFileMutation, withWorkspacePathRenameEvent, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import { ensureAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
@@ -2306,37 +2306,37 @@ export async function moveAgentPaths(params: {
       }
 
       for (const entry of entries) {
-        if (!entry.destinationResolvedPath) continue;
-        await fs.mkdir(path.dirname(entry.destinationResolvedPath), { recursive: true });
-        if (entry.overwritten && params.overwrite) {
-          await fs.rm(entry.destinationResolvedPath, { recursive: true, force: true });
-        }
-
-        try {
-          await fs.rename(entry.sourceResolvedPath, entry.destinationResolvedPath);
-        } catch (error) {
-          if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV')) {
-            throw error;
+        const destination = entry.destinationResolvedPath;
+        if (!destination) continue;
+        const oldPath = moveWorkspace ? workspaceRelativeAgentPath(moveWorkspace, entry.sourceResolvedPath) : null;
+        const newPath = moveWorkspace ? workspaceRelativeAgentPath(moveWorkspace, destination) : null;
+        const moveEntry = async () => {
+          await fs.mkdir(path.dirname(destination), { recursive: true });
+          if (entry.overwritten && params.overwrite) {
+            await fs.rm(destination, { recursive: true, force: true });
           }
-          await fs.cp(entry.sourceResolvedPath, entry.destinationResolvedPath, { recursive: entry.type === 'directory', force: true });
-          await fs.rm(entry.sourceResolvedPath, { recursive: entry.type === 'directory', force: true });
-        }
-      }
-      await verifyPathOperationEntries({ entries, sourceMustBeRemoved: true });
-      for (const entry of entries) {
-        if (entry.destinationResolvedPath) {
-          if (moveWorkspace) {
-            const oldPath = workspaceRelativeAgentPath(moveWorkspace, entry.sourceResolvedPath);
-            const newPath = workspaceRelativeAgentPath(moveWorkspace, entry.destinationResolvedPath);
+          try {
+            await fs.rename(entry.sourceResolvedPath, destination);
+          } catch (error) {
+            if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV')) throw error;
+            await fs.cp(entry.sourceResolvedPath, destination, { recursive: entry.type === 'directory', force: true });
+            await fs.rm(entry.sourceResolvedPath, { recursive: entry.type === 'directory', force: true });
+          }
+          await verifyPathOperationEntries({ entries: [entry], sourceMustBeRemoved: true });
+          if (moveWorkspace && oldPath && newPath) {
             await moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
           }
-          await syncPublicSharesAfterMove(entry.sourceResolvedPath, entry.destinationResolvedPath);
+        };
+        if (moveWorkspace && oldPath && newPath && !oldPath.startsWith('../') && !newPath.startsWith('../')) {
+          await withWorkspacePathRenameEvent(moveWorkspace, {
+            type: 'rename', operationId: randomUUID(), workspaceId: moveWorkspace.workspaceId, oldPath, newPath,
+          }, moveEntry);
+        } else {
+          await moveEntry();
           publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
-          publishAgentWorkspaceMutation(
-            entry.destinationResolvedPath,
-            entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
-          );
+          publishAgentWorkspaceMutation(destination, entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add');
         }
+        await syncPublicSharesAfterMove(entry.sourceResolvedPath, destination);
       }
 
       const result = pathOperationSummary('move_path', entries, params.destinationPath, destinationFullPath);

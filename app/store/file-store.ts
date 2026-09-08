@@ -60,6 +60,8 @@ import {
 } from '@/app/lib/files/workspace-file-events';
 import { getDocumentTransitionGuard } from '@/app/lib/files/document-transition';
 import { checkNotebookDocumentOpen } from '@/app/lib/notebook/document-tab-open-guard';
+import type { WorkspacePathRenameMutation } from '@/app/lib/files/file-events';
+import { remapNode, remapPath, renameTreePath, removeTreePaths } from '@/app/lib/files/path-mutation-state';
 
 export type {
   BrowserMode,
@@ -118,6 +120,19 @@ let fileRefreshRequestId = 0;
 const subdirectoryLoadPromises = new Map<string, { noCache: boolean; promise: Promise<void> }>();
 const DEFAULT_TREE_DEPTH = 0;
 const SUBDIRECTORY_TREE_DEPTH = 0;
+const appliedPathMutations = new Set<string>();
+const pathMutationVersions = new Map<string, number>();
+
+function pathMutationVersion(workspaceId: string | null, path: string): number {
+  return getParentDirectories(`${path}/_`).reduce((version, parent) => (
+    version + (pathMutationVersions.get(`${workspaceId}\0${parent}`) ?? 0)
+  ), 0);
+}
+
+function invalidatePathOperations(workspaceId: string | null, path: string) {
+  const key = `${workspaceId}\0${path}`;
+  pathMutationVersions.set(key, (pathMutationVersions.get(key) ?? 0) + 1);
+}
 
 interface StoredExplorerState {
   currentDirectory?: string;
@@ -356,6 +371,8 @@ interface FileStoreState {
   createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
   deletePath: (path: string | string[]) => Promise<DeleteWorkspacePathsResult>;
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean) => Promise<void>;
+  applyPathRename: (mutation: WorkspacePathRenameMutation) => boolean;
+  applyPathsDeleted: (paths: string[], workspaceId: string | null, local?: boolean) => void;
   uploadFile: (
     file: File | File[],
     targetDir: string,
@@ -929,6 +946,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     if (get().currentFile?.path !== path || get().currentFileWorkspaceId !== workspaceId) {
       return null;
     }
+    if (get().currentFile?.unavailable) return null;
 
     const extension = getExtension(path);
     const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
@@ -1135,6 +1153,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   prepareCurrentFileForTransition: async () => {
     const { currentFile, currentFileWorkspaceId, fileLoadRequestId } = get();
     if (!currentFile) return;
+    if (currentFile.unavailable) throw new Error('This file is no longer available. Download your local changes or explicitly discard them before leaving.');
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
     if (currentFileWorkspaceId !== workspaceId) throw new Error('The workspace changed. Please retry.');
     const editor = useEditorStore.getState();
@@ -1173,6 +1192,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       ? useWorkspaceStore.getState().activeWorkspaceId
       : requestedWorkspaceId;
     const snapshot = get();
+    const mutationVersion = pathMutationVersion(workspaceId, path);
     const queueKey = `${workspaceId ?? 'legacy'}\0${path}`;
     const isCurrentScope = () => (
       useWorkspaceStore.getState().activeWorkspaceId === workspaceId
@@ -1187,6 +1207,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       });
     }
     return enqueueFileSave(workspaceId, path, async () => {
+    if (pathMutationVersion(workspaceId, path) !== mutationVersion
+      || (get().currentFileWorkspaceId === workspaceId && get().currentFile?.path === path && get().currentFile?.unavailable)) {
+      throw new Error('The file was moved or deleted. Keep your local changes and reload its current location.');
+    }
     if (isCurrentScope() && get().fileLoadRequestId === snapshot.fileLoadRequestId) set({ fileError: null, fileErrorPath: null, missingFilePath: null });
 
     try {
@@ -1203,7 +1227,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         invalidateWorkspaceLinkIndexCache(workspaceId);
       }
 
-      if (!isCurrentScope()) return;
+      if (!isCurrentScope() || pathMutationVersion(workspaceId, path) !== mutationVersion) return;
 
       // Update current file if it's the same path
       const { currentFile } = get();
@@ -1326,142 +1350,125 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
+  applyPathsDeleted: (paths, workspaceId, local = false) => {
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
+    const state = get();
+    const affected = (path: string) => paths.some((root) => isSameOrDescendantPath(path, root));
+    for (const path of paths) invalidatePathOperations(workspaceId, path);
+    const currentFile = state.currentFile;
+    const currentAffected = Boolean(currentFile && affected(currentFile.path));
+    const guard = currentFile ? getDocumentTransitionGuard(workspaceId, currentFile.path) : null;
+    const pending = useEditorStore.getState().isDirty || Boolean(guard?.hasPendingChanges());
+    const preserveCurrent = currentAffected && (!local || pending);
+    let currentDirectory = state.currentDirectory;
+    while (currentDirectory !== '.' && affected(currentDirectory)) currentDirectory = getParentDirectory(currentDirectory);
+    const expandedDirs = new Set([...state.expandedDirs].filter((path) => !affected(path)));
+    set({
+      fileTree: removeTreePaths(state.fileTree, paths),
+      selectedNode: state.selectedNode && affected(state.selectedNode.path) ? null : state.selectedNode,
+      currentDirectory, expandedDirs,
+      ...(currentAffected ? {
+        currentFile: preserveCurrent ? { ...currentFile!, unavailable: 'deleted' as const } : null,
+        currentFileWorkspaceId: preserveCurrent ? workspaceId : null,
+        fileError: null, fileErrorPath: null, missingFilePath: preserveCurrent ? currentFile!.path : null,
+      } : {}),
+      ...(currentAffected || (state.loadingFilePath && affected(state.loadingFilePath)) ? {
+        fileLoadRequestId: state.fileLoadRequestId + 1, openFileRequestId: state.openFileRequestId + 1,
+        isLoadingFile: false, loadingFilePath: null,
+      } : {}),
+      fileRevisions: removeFileRevisions(state.fileRevisions, paths),
+    });
+    persistExplorerState({ currentDirectory, expandedDirs }, workspaceId);
+    notifyWorkspacePathsDeleted(paths, workspaceId);
+  },
+
+  applyPathRename: (mutation) => {
+    const { oldPath, newPath, workspaceId, operationId } = mutation;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return false;
+    const mutationKey = `${workspaceId}\0${operationId}`;
+    if (appliedPathMutations.has(mutationKey)) return false;
+    appliedPathMutations.add(mutationKey);
+    if (appliedPathMutations.size > 2048) appliedPathMutations.delete(appliedPathMutations.values().next().value!);
+    invalidatePathOperations(workspaceId, oldPath);
+    invalidatePathOperations(workspaceId, newPath);
+    const state = get();
+    const mapPath = (path: string) => remapPath(path, oldPath, newPath);
+    const currentFile = state.currentFile;
+    const sourceIsCurrent = Boolean(currentFile && isSameOrDescendantPath(currentFile.path, oldPath));
+    const destinationIsCurrent = Boolean(currentFile && !sourceIsCurrent && isSameOrDescendantPath(currentFile.path, newPath));
+    const editor = useEditorStore.getState();
+    if (editor.activePath && isSameOrDescendantPath(editor.activePath, oldPath)) {
+      useEditorStore.setState({ activePath: mapPath(editor.activePath), sessionId: editor.sessionId + 1, isSaving: false });
+    }
+    const expandedDirs = remapExpandedDirectories(state.expandedDirs, oldPath, newPath);
+    const currentDirectory = mapPath(state.currentDirectory);
+    const loadingAffected = state.loadingFilePath && isSameOrDescendantPath(state.loadingFilePath, oldPath);
+    set({
+      fileTree: renameTreePath(state.fileTree, oldPath, newPath),
+      expandedDirs, currentDirectory,
+      selectedNode: state.selectedNode ? remapNode(state.selectedNode, oldPath, newPath) : null,
+      ...(sourceIsCurrent ? {
+        currentFile: { ...currentFile!, path: mapPath(currentFile!.path), unavailable: undefined,
+          collaboration: currentFile!.collaboration ? { ...currentFile!.collaboration, path: mapPath(currentFile!.path) } : null },
+        fileError: null, fileErrorPath: null, missingFilePath: null,
+      } : destinationIsCurrent ? {
+        currentFile: { ...currentFile!, unavailable: 'replaced' as const },
+      } : {}),
+      ...(sourceIsCurrent || loadingAffected ? {
+        fileLoadRequestId: state.fileLoadRequestId + 1, openFileRequestId: state.openFileRequestId + 1,
+        isLoadingFile: false, loadingFilePath: null,
+      } : {}),
+      fileRevisions: remapFileRevisions(state.fileRevisions, oldPath, newPath),
+    });
+    persistExplorerState({ currentDirectory, expandedDirs }, workspaceId);
+    notifyWorkspacePathRenamed(oldPath, newPath, workspaceId);
+    return true;
+  },
+
   deletePath: async (paths: string | string[]) => {
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
-
     const pathsToDelete = Array.isArray(paths) ? paths : [paths];
-
-    try {
-      const currentPath = get().currentFile?.path;
-      if (currentPath && pathsToDelete.some((path) => isSameOrDescendantPath(currentPath, path))) {
-        await get().prepareCurrentFileForTransition();
-      }
-      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return {};
-      const result = await deleteWorkspacePaths(pathsToDelete);
-      if (result.failed && result.failed.length > 0) {
-        const failedPaths = result.failed.map((f: { path: string; error: string }) => f.path).join(', ');
-        throw new Error(`Failed to delete: ${failedPaths}`);
-      }
-      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return result;
-
-      for (const deletedPath of pathsToDelete) {
-        const { selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
-
-        if (currentDirectory === deletedPath || currentDirectory.startsWith(deletedPath + '/')) {
-          const newDir = deletedPath.includes('/') ? deletedPath.substring(0, deletedPath.lastIndexOf('/')) : '.';
-          setCurrentDirectory(newDir);
-        }
-
-        if (selectedNode?.path === deletedPath) {
-          set({ selectedNode: null });
-        }
-        if (currentFile && isSameOrDescendantPath(currentFile.path, deletedPath)) {
-          set((state) => ({
-            currentFile: null,
-            currentFileWorkspaceId: null,
-            isLoadingFile: false,
-            loadingFilePath: null,
-            fileLoadRequestId: state.fileLoadRequestId + 1,
-            fileError: null,
-            fileErrorPath: null,
-            missingFilePath: null,
-          }));
-        }
-      }
-
-      if (get().loadingFilePath && pathsToDelete.some((path) => isSameOrDescendantPath(get().loadingFilePath!, path))) {
-        set((state) => ({ fileLoadRequestId: state.fileLoadRequestId + 1,
-          openFileRequestId: state.openFileRequestId + 1, isLoadingFile: false, loadingFilePath: null }));
-      }
-      set((state) => ({
-        multiSelectPaths: new Set(),
-        isMultiSelectMode: false,
-        fileRevisions: removeFileRevisions(state.fileRevisions, pathsToDelete),
-      }));
-
-      const parentDirs = new Set(pathsToDelete.map((deletedPath) => getParentDirectory(deletedPath)));
-      for (const parentDir of parentDirs) {
-        await get().refreshDirectory(parentDir, true, workspaceId);
-      }
-      notifyWorkspacePathsDeleted(pathsToDelete, workspaceId);
-      return result;
-    } catch (error) {
-      throw error;
+    const currentPath = get().currentFile?.path;
+    if (currentPath && pathsToDelete.some((path) => isSameOrDescendantPath(currentPath, path))) {
+      await get().prepareCurrentFileForTransition();
     }
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return {};
+    const result = await deleteWorkspacePaths(pathsToDelete);
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return result;
+    const deleted = result.deleted ?? (result.failed?.length ? [] : pathsToDelete);
+    get().applyPathsDeleted(deleted, workspaceId, true);
+    for (const parent of new Set(deleted.map(getParentDirectory))) {
+      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) break;
+      await get().refreshDirectory(parent, true, workspaceId);
+    }
+    if (result.failed?.length) {
+      throw new Error(`Failed to delete: ${result.failed.map((failure) => failure.path).join(', ')}`);
+    }
+    get().clearMultiSelect();
+    return result;
   },
 
   renamePath: async (oldPath: string, newPath: string, overwrite = false, refreshTree = true) => {
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
-
     const treeGeneration = get().treeGeneration;
-    try {
-      if (get().currentFile && isSameOrDescendantPath(get().currentFile!.path, oldPath)) {
-        await get().prepareCurrentFileForTransition();
+    if (get().currentFile && isSameOrDescendantPath(get().currentFile!.path, oldPath)) {
+      await get().prepareCurrentFileForTransition();
+    }
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
+    const result = await renameWorkspacePath(oldPath, newPath, overwrite, workspaceId);
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
+    get().applyPathRename(result.mutation ?? {
+      type: 'rename', workspaceId: workspaceId!, oldPath, newPath, operationId: crypto.randomUUID(),
+    });
+    if (refreshTree) {
+      for (const parent of new Set([getParentDirectory(oldPath), getParentDirectory(newPath)])) {
+        if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
+        await get().refreshDirectory(parent, true, workspaceId);
       }
-      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
-      await renameWorkspacePath(oldPath, newPath, overwrite);
-      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
-
-      const { expandedDirs, selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
-
-      let updatedExpandedDirs = expandedDirs;
-      const remappedExpandedDirs = remapExpandedDirectories(expandedDirs, oldPath, newPath);
-      if (remappedExpandedDirs !== expandedDirs) {
-        updatedExpandedDirs = remappedExpandedDirs;
-        get().setExpandedDirs(updatedExpandedDirs);
+      for (const dir of getExpandedDescendantDirectories(get().expandedDirs, newPath)) {
+        if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
+        await get().loadSubdirectory(dir, true, false, workspaceId);
       }
-
-      if (currentDirectory === oldPath || currentDirectory.startsWith(oldPath + '/')) {
-        setCurrentDirectory(remapDescendantPath(currentDirectory, oldPath, newPath));
-      }
-
-      const updatedSelectedNode = selectedNode
-        ? (isSameOrDescendantPath(selectedNode.path, oldPath) ? { ...selectedNode, path: remapDescendantPath(selectedNode.path, oldPath, newPath) } : selectedNode)
-        : null;
-      const updatedCurrentFile = currentFile && isSameOrDescendantPath(currentFile.path, oldPath)
-        ? { ...currentFile, path: remapDescendantPath(currentFile.path, oldPath, newPath) }
-        : currentFile;
-      if (get().loadingFilePath && isSameOrDescendantPath(get().loadingFilePath!, oldPath)) {
-        set((state) => ({ fileLoadRequestId: state.fileLoadRequestId + 1,
-          openFileRequestId: state.openFileRequestId + 1, isLoadingFile: false, loadingFilePath: null }));
-      }
-      const editor = useEditorStore.getState();
-      if (editor.activePath && isSameOrDescendantPath(editor.activePath, oldPath)) {
-        useEditorStore.setState({
-          activePath: remapDescendantPath(editor.activePath, oldPath, newPath),
-          sessionId: editor.sessionId + 1,
-          isSaving: false,
-        });
-      }
-      set((state) => ({
-        selectedNode: updatedSelectedNode,
-        ...(updatedCurrentFile !== currentFile ? {
-          currentFile: updatedCurrentFile,
-          fileError: null,
-          fileErrorPath: null,
-          missingFilePath: null,
-        } : {}),
-        fileRevisions: remapFileRevisions(state.fileRevisions, oldPath, newPath),
-      }));
-
-      if (refreshTree) {
-        const parentDirs = new Set([
-          getParentDirectory(oldPath),
-          getParentDirectory(newPath),
-        ]);
-        for (const parentDir of parentDirs) {
-          await get().refreshDirectory(parentDir, true, workspaceId);
-        }
-
-        for (const dir of getExpandedDescendantDirectories(updatedExpandedDirs, newPath)) {
-          if (dir !== newPath) {
-            await get().loadSubdirectory(dir, true, false, workspaceId);
-          }
-        }
-      }
-      notifyWorkspacePathRenamed(oldPath, newPath, workspaceId);
-    } catch (error) {
-      throw error;
     }
   },
 
