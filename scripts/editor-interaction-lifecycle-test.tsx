@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom';
 import { act, StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Editor, getSchema, type Range } from '@tiptap/core';
+import { useEditorState } from '@tiptap/react';
 import { generateUniqueIds } from '@tiptap/extension-unique-id';
 import * as Y from 'yjs';
 
@@ -42,8 +43,9 @@ async function main() {
   let resolve: () => Range | null = () => null;
   function Probe({ editor, open }: { editor: Editor; open: boolean }) {
     const target = useEditorRangeTarget(editor, open);
+    const status = useEditorState({ editor, selector: ({ editor: current }) => `${current.can().undo()}:${current.can().redo()}` });
     useEffect(() => { resolve = target; }, [target]);
-    return null;
+    return <output>{status}</output>;
   }
   const render = (editor: Editor, open: boolean) => root.render(<StrictMode><Probe editor={editor} open={open} /></StrictMode>);
   let unmounted = false;
@@ -51,6 +53,12 @@ async function main() {
     await Promise.resolve();
     a.commands.setTextSelection(6);
     await act(async () => { render(a, true); });
+    assert.equal(container.textContent, 'false:false');
+    await act(async () => { b.view.dispatch(b.state.tr.insertText('X', 1)); });
+    assert.equal(container.textContent, 'true:false', 'another mounted view refreshes its undo toolbar after the shared capture');
+    await act(async () => { a.commands.undo(); });
+    assert.equal(container.textContent, 'false:true');
+    a.commands.setTextSelection(6);
     const retained = resolve;
     assert.ok(retained(), 'StrictMode cleanup does not invalidate the live dialog');
     await act(async () => { render(a, false); });

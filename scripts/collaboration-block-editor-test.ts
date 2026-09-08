@@ -12,6 +12,7 @@ import { createRichMarkdownYDoc, validateRichMarkdownYDoc } from '../app/lib/col
 import { richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { BlockTreePlacementNotice } from '../app/lib/collaboration/block-tree-editor';
+import { getBlockTreeHistory } from '../app/lib/collaboration/block-tree-history';
 import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '../app/lib/collaboration/rich-editor-extensions';
 import { getReorderableBlockRangeAt, moveReorderableBlock } from '../app/lib/editor/reorderable-blocks';
 import { CanvasUniqueID } from '../app/lib/editor/canvas-unique-id';
@@ -28,6 +29,120 @@ for (const key of ['window', 'document', 'DOMParser', 'navigator', 'Node', 'HTML
 }
 
 const schema = getSchema(richMarkdownCodecExtensions());
+
+test('continuous typing stays one undo action across a remote move and edit, with a restored caret', async () => {
+  const doc = createDocument();
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    editor.commands.setTextSelection(9);
+    editor.view.dispatch(editor.state.tr.insertText('x'));
+    await Promise.resolve(); // History toolbar notifications must not split typing.
+    editor.view.dispatch(editor.state.tr.insertText('y'));
+    const tree = new CollaborationBlockTree(doc, schema);
+    const id = editor.state.doc.child(1).attrs.id;
+    (tree.content(id).get(0) as Y.XmlText).insert(0, 'Remote ');
+    tree.move({ blockId: id, parentId: null, beforeId: null, operationId: 'move-during-typing' }, 'peer');
+    editor.view.dispatch(editor.state.tr.insertText('z'));
+    assert.deepEqual(texts(editor), ['AAA', 'CCC', 'Remote BBBxyz']);
+    assert.equal(editor.commands.undo(), true);
+    assert.deepEqual(texts(editor), ['AAA', 'CCC', 'Remote BBB']);
+    assert.equal(editor.state.selection.$from.parent.attrs.id, id);
+    assert.equal(editor.state.selection.$from.parentOffset, 'Remote BBB'.length);
+    assert.equal(editor.can().undo(), false);
+    assert.equal(editor.commands.redo(), true);
+    assert.deepEqual(texts(editor), ['AAA', 'CCC', 'Remote BBBxyz']);
+    assert.equal(editor.state.selection.$from.parentOffset, 'Remote BBBxyz'.length);
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
+
+test('typing groups end on selection changes, pauses and structure commands', async () => {
+  const doc = createDocument();
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    editor.commands.setTextSelection(9);
+    editor.view.dispatch(editor.state.tr.insertText('x'));
+    editor.commands.setTextSelection(1);
+    editor.commands.setTextSelection(10);
+    editor.view.dispatch(editor.state.tr.insertText('y'));
+    assert.equal(editor.commands.undo(), true);
+    assert.deepEqual(texts(editor), ['AAA', 'BBBx', 'CCC']);
+    editor.commands.redo();
+    editor.view.dispatch(editor.state.tr.insertText('z'));
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    editor.view.dispatch(editor.state.tr.insertText('w'));
+    assert.equal(editor.commands.undo(), true);
+    assert.deepEqual(texts(editor), ['AAA', 'BBBxyz', 'CCC']);
+    assert.equal(editor.commands.undo(), true);
+    assert.deepEqual(texts(editor), ['AAA', 'BBBxy', 'CCC']);
+    const source = getReorderableBlockRangeAt(editor, position(editor, 'BBBxy'))!;
+    assert.equal(moveReorderableBlock(editor, source, 0), true);
+    editor.commands.undo();
+    assert.deepEqual(texts(editor), ['AAA', 'BBBxy', 'CCC']);
+    editor.commands.undo();
+    assert.deepEqual(texts(editor), ['AAA', 'BBBx', 'CCC']);
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
+
+test('history survives replacing a view while another view sees the same local undo availability', async () => {
+  const doc = createDocument();
+  const errors: Error[] = [];
+  const first = createEditor(doc, errors);
+  const second = createEditor(doc, errors);
+  let reopened: Editor | null = null;
+  try {
+    await Promise.resolve();
+    first.commands.setTextSelection(9);
+    first.view.dispatch(first.state.tr.insertText('x'));
+    assert.equal(second.can().undo(), true);
+    first.destroy();
+    second.destroy();
+    reopened = createEditor(doc, errors);
+    await Promise.resolve();
+    assert.deepEqual(texts(reopened), ['AAA', 'BBBx', 'CCC']);
+    assert.equal(reopened.commands.undo(), true);
+    assert.deepEqual(texts(reopened), ['AAA', 'BBB', 'CCC']);
+    assert.equal(reopened.state.selection.from, 9);
+    assert.equal(reopened.commands.redo(), true);
+    assert.deepEqual(texts(reopened), ['AAA', 'BBBx', 'CCC']);
+    const newGeneration = new Y.Doc();
+    Y.applyUpdate(newGeneration, Y.encodeStateAsUpdate(doc));
+    const other = createEditor(newGeneration, errors);
+    try {
+      await Promise.resolve();
+      assert.equal(other.can().undo(), false, 'history never crosses a new document lifetime');
+    } finally { other.destroy(); newGeneration.destroy(); }
+    assert.deepEqual(errors, []);
+  } finally { if (!first.isDestroyed) first.destroy(); if (!second.isDestroyed) second.destroy(); reopened?.destroy(); doc.destroy(); }
+});
+
+test('non-history transactions stay outside undo while backspaces form their own group', async () => {
+  const doc = createDocument();
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    editor.commands.setTextSelection(9);
+    editor.view.dispatch(editor.state.tr.insertText('xy'));
+    editor.view.dispatch(editor.state.tr.insertText('Authoritative ', 1).setMeta('addToHistory', false));
+    editor.commands.undo();
+    assert.deepEqual(texts(editor), ['Authoritative AAA', 'BBB', 'CCC']);
+    assert.equal(editor.can().undo(), false);
+    editor.commands.redo();
+    const caret = editor.state.selection.from;
+    editor.view.dispatch(editor.state.tr.delete(caret - 1, caret));
+    editor.view.dispatch(editor.state.tr.delete(editor.state.selection.from - 1, editor.state.selection.from));
+    assert.deepEqual(texts(editor), ['Authoritative AAA', 'BBB', 'CCC']);
+    editor.commands.undo();
+    assert.deepEqual(texts(editor), ['Authoritative AAA', 'BBBxy', 'CCC']);
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
 
 test('native details events follow moved nodes, respect read-only and stop on cleanup', async () => {
   const doc = createDocument('AAA\n\n<details>\n<summary>Title</summary>\n\nBody\n\n</details>\n\nCCC');
@@ -676,8 +791,10 @@ test('hydration never replaces server data with an empty editor and permission g
   } finally { editor.destroy(); client.destroy(); server.destroy(); }
 });
 
-test('unmount releases observers and pending callbacks cannot write after editor destruction', async () => {
+test('unmount releases view observers while document history remains bounded until document disposal', async () => {
   const doc = createDocument();
+  const tree = new CollaborationBlockTree(doc, schema);
+  const history = getBlockTreeHistory(tree);
   const count = () => [...doc._observers.values()].reduce((sum, listeners) => sum + listeners.size, 0);
   const baseline = count();
   const before = Y.encodeStateAsUpdate(doc);
@@ -687,11 +804,13 @@ test('unmount releases observers and pending callbacks cannot write after editor
     if (run % 2 === 0) await Promise.resolve();
     editor.destroy();
     await Promise.resolve();
-    assert.equal(count(), baseline, 'view and UndoManager listeners are fully released');
+    assert.equal(count(), baseline, 'no view listeners accumulate on the document-owned history');
+    assert.equal(getBlockTreeHistory(tree), history);
     assert.deepEqual(errors, []);
   }
   assert.deepEqual(Y.encodeStateAsUpdate(doc), before);
   doc.destroy();
+  assert.equal(count(), 0);
 });
 
 test('invalid editor changes are rejected without changing the visible or durable state', async () => {
@@ -838,8 +957,9 @@ test('composition edits sync immediately and merge with remote text and placemen
   } finally { editor.destroy(); left.destroy(); right.destroy(); }
 });
 
-test('repeated composition reuses its actor and unmount retains the latest synchronized input', async () => {
+test('repeated composition reuses its actor and unmount retains synchronized input and history', async () => {
   const doc = createDocument();
+  getBlockTreeHistory(new CollaborationBlockTree(doc, schema));
   const errors: Error[] = [];
   const countListeners = () => [...doc._observers.values()].reduce((sum, listeners) => sum + listeners.size, 0);
   const baseline = countListeners();
@@ -860,6 +980,15 @@ test('repeated composition reuses its actor and unmount retains the latest synch
     editor.destroy();
     await Promise.resolve();
     assert.equal(new CollaborationBlockTree(doc, schema).read().firstChild!.textContent, 'A中文AA');
+    assert.equal(countListeners(), baseline);
+    const reopened = createEditor(doc, errors);
+    try {
+      await Promise.resolve();
+      assert.equal(reopened.commands.undo(), true);
+      assert.equal(reopened.state.doc.firstChild!.textContent, 'A中AA');
+      assert.equal(reopened.commands.undo(), true);
+      assert.equal(reopened.state.doc.firstChild!.textContent, 'AAA');
+    } finally { reopened.destroy(); }
     assert.equal(countListeners(), baseline);
     assert.deepEqual(errors, []);
   } finally { if (!editor.isDestroyed) editor.destroy(); doc.destroy(); }

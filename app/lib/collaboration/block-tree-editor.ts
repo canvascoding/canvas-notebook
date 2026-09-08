@@ -5,6 +5,7 @@ import * as Y from 'yjs';
 import { BLOCK_MOVE_TRANSACTION_META } from '../editor/block-reference';
 import { BlockTreeConflict, CollaborationBlockTree, type BlockMoveIntent } from './block-tree';
 import { captureBlockTreeSelection, restoreBlockTreeSelection, type BlockTreeSelection } from './block-tree-anchors';
+import { getBlockTreeHistory, type BlockTreeHistory } from './block-tree-history';
 
 export const REMOTE_BLOCK_TREE_TRANSACTION = 'canvas-block-tree-remote';
 const blockTreeEditorKey = new PluginKey('canvas-block-tree-editor');
@@ -46,15 +47,15 @@ export function resolveBlockTreeEditorSelection(editor: Editor, selection: Block
 class BlockTreeEditorBinding {
   readonly origin = {};
   private tree: CollaborationBlockTree | null = null;
-  private undoManager: Y.UndoManager | null = null;
-  private undoDestroyListeners: Array<() => void> = [];
+  private historyOwner: BlockTreeHistory | null = null;
+  private releaseHistory: (() => void) | null = null;
+  private historyNotificationQueued = false;
   private selection: BlockTreeSelection | null = null;
   private destroyed = false;
   private lastError: string | null = null;
   private seenPlacementConflicts = new Set<string>();
   private compositionTree: CollaborationBlockTree | null = null;
   private compositionClientId: number | null = null;
-  private historyCaptureTimeout = 0;
   ready = false;
 
   constructor(private editor: Editor, private options: BlockTreeEditorOptions) {
@@ -73,17 +74,37 @@ class BlockTreeEditorBinding {
     this.options.onError?.(failure);
   }
 
+  private onHistoryChanged = () => {
+    if (this.historyNotificationQueued) return;
+    this.historyNotificationQueued = true;
+    queueMicrotask(() => {
+      this.historyNotificationQueued = false;
+      if (this.destroyed || this.editor.isDestroyed) return;
+      // Other views share the same history. Refresh command availability after
+      // the current ProseMirror transaction has finished applying.
+      this.editor.view.dispatch(this.editor.state.tr.setMeta('addToHistory', false));
+    });
+  };
+
   private beforeEditorTransaction = ({ transaction, nextState }: { transaction: Transaction; nextState: EditorState }) => {
-    if (transaction.getMeta(REMOTE_BLOCK_TREE_TRANSACTION) === this || this.editor.state.doc.eq(nextState.doc)) return;
-    if (this.destroyed || !this.ready || !this.editor.isEditable || !this.tree) throw new BlockTreeConflict('target_changed');
-    const target = this.compositionTree ?? this.tree;
-    target.applyDocumentChange(this.editor.state.doc, nextState.doc, this.origin, transaction.getMeta(BLOCK_MOVE_TRANSACTION_META) as BlockMoveIntent | undefined);
-    if (this.compositionTree) {
-      // Local IME edits are immediately durable/synced, while this view keeps
-      // composing against its original replica until compositionend.
-      Y.applyUpdate(this.options.document,
-        Y.encodeStateAsUpdate(target.doc, Y.encodeStateVector(this.options.document)), this.origin);
+    if (transaction.getMeta(REMOTE_BLOCK_TREE_TRANSACTION) === this) return;
+    if (this.editor.state.doc.eq(nextState.doc)) {
+      if ((transaction.selectionSet && !this.editor.state.selection.eq(nextState.selection)) || transaction.storedMarksSet) {
+        this.historyOwner?.boundary(this.origin);
+      }
+      return;
     }
+    if (this.destroyed || !this.ready || !this.editor.isEditable || !this.tree || !this.historyOwner) throw new BlockTreeConflict('target_changed');
+    const target = this.compositionTree ?? this.tree;
+    this.historyOwner.capture(target, this.origin, this.editor.state, nextState, transaction, Boolean(this.compositionTree), () => {
+      target.applyDocumentChange(this.editor.state.doc, nextState.doc, this.origin, transaction.getMeta(BLOCK_MOVE_TRANSACTION_META) as BlockMoveIntent | undefined);
+      if (this.compositionTree) {
+        // Local IME edits are immediately durable/synced, while this view keeps
+        // composing against its original replica until compositionend.
+        Y.applyUpdate(this.options.document,
+          Y.encodeStateAsUpdate(target.doc, Y.encodeStateVector(this.options.document)), this.origin);
+      }
+    });
     this.lastError = null;
   };
 
@@ -106,12 +127,8 @@ class BlockTreeEditorBinding {
         // never initialize a second document from the editor's empty paragraph.
         if (!this.options.document.share.has('canvas-block-tree-v1')) return;
         this.tree = new CollaborationBlockTree(this.options.document, this.editor.schema);
-        const previousDestroyListeners = new Set(this.options.document._observers.get('destroy'));
-        this.undoManager = this.tree.createUndoManager(this.origin);
-        // Yjs 13's UndoManager.destroy does not remove its anonymous document
-        // destroy listener. Track only the listeners added by our own manager.
-        this.undoDestroyListeners = [...this.options.document._observers.get('destroy') ?? []]
-          .filter((listener) => !previousDestroyListeners.has(listener));
+        this.historyOwner = getBlockTreeHistory(this.tree);
+        this.releaseHistory = this.historyOwner.register(this.origin, this.onHistoryChanged);
       }
       const projection = this.tree.project();
       const next = this.tree.read(this.editor.schema, projection);
@@ -151,9 +168,12 @@ class BlockTreeEditorBinding {
     // A merge can invalidate the current projection. Selective history is still
     // a valid recovery path: undo the user's own row/container action while
     // retaining remote edits. Permission and view-lifecycle gates still apply.
-    if (this.destroyed || !this.editor.isEditable || !this.undoManager || this.compositionTree) return false;
-    if (direction === 'undo' ? !this.undoManager.canUndo() : !this.undoManager.canRedo()) return false;
-    if (dispatch) this.undoManager[direction]();
+    if (this.destroyed || !this.editor.isEditable || !this.historyOwner || !this.tree || this.compositionTree) return false;
+    if (!this.historyOwner.can(direction)) return false;
+    if (dispatch) {
+      const selection = this.historyOwner.run(direction, this.tree, () => this.editor.state.doc);
+      if (selection) this.editor.view.dispatch(this.editor.state.tr.setSelection(selection).setMeta('addToHistory', false));
+    }
     return true;
   }
 
@@ -178,11 +198,7 @@ class BlockTreeEditorBinding {
     if (this.compositionClientId === null) this.compositionClientId = replica.clientID;
     else replica.clientID = this.compositionClientId;
     this.compositionTree = new CollaborationBlockTree(replica, this.editor.schema);
-    if (this.undoManager) {
-      this.undoManager.stopCapturing();
-      this.historyCaptureTimeout = this.undoManager.captureTimeout;
-      this.undoManager.captureTimeout = Number.POSITIVE_INFINITY;
-    }
+    this.historyOwner?.boundary(this.origin);
   }
 
   endComposition() {
@@ -194,10 +210,7 @@ class BlockTreeEditorBinding {
     this.selection = this.captureSelection();
     this.compositionTree.doc.destroy();
     this.compositionTree = null;
-    if (this.undoManager) {
-      this.undoManager.stopCapturing();
-      this.undoManager.captureTimeout = this.historyCaptureTimeout;
-    }
+    this.historyOwner?.boundary(this.origin);
     this.projectToEditor();
   }
 
@@ -208,10 +221,9 @@ class BlockTreeEditorBinding {
     this.options.document.off('beforeTransaction', this.beforeYTransaction);
     this.options.document.off('afterTransaction', this.afterYTransaction);
     this.options.document.off('destroy', this.onDocumentDestroyed);
-    this.undoManager?.destroy();
-    for (const listener of this.undoDestroyListeners) this.options.document.off('destroy', listener);
-    this.undoDestroyListeners = [];
-    this.undoManager = null;
+    this.releaseHistory?.();
+    this.releaseHistory = null;
+    this.historyOwner = null;
     this.compositionTree?.doc.destroy();
     this.compositionTree = null;
     this.tree = null;
