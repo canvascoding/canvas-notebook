@@ -12,7 +12,8 @@ Priority is abuse without an account. External document content remains untruste
 | 2 | S2: PDF cookies sent to external resources; browser job isolation | Implemented and locally verified (`0db1aabe`) | Not deployed |
 | 3 | S2/S3: isolated HTML documents, restricted/revocable preview tickets, renderer network boundary | Implemented and locally verified (`dd3da799`, `357ffe18`) | Not deployed |
 | 4 | S4: personal default workspace and owner-only legacy migration | Implemented and locally verified (`2f063718`) | Not deployed |
-| 5 | Dependency advisories, targeted updates | Implemented and locally verified; two affected packages remain without an upstream fix | Not deployed |
+| 5 | Dependency advisories, targeted updates | Implemented and locally verified (`74cda00e`); two affected packages remain without an upstream fix | Not deployed |
+| 6 | Audit records and verification evidence | Updated in this tracker and the security index | Rollout evidence still required |
 
 ## Package 1: public limits and request boundaries
 
