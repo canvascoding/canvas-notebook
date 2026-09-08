@@ -31,6 +31,8 @@ function createWorkspaceContext(rootPath: string, workspaceId: string, type: Wor
 
 async function main() {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'canvas-workspace-cross-copy-'));
+  const previousData = process.env.CANVAS_DATA_ROOT;
+  process.env.CANVAS_DATA_ROOT = tempRoot;
   try {
     const sourceRoot = path.join(tempRoot, 'personal');
     const targetRoot = path.join(tempRoot, 'team');
@@ -127,6 +129,8 @@ async function main() {
 
     console.log('workspace-cross-copy-test passed');
   } finally {
+    if (previousData === undefined) delete process.env.CANVAS_DATA_ROOT;
+    else process.env.CANVAS_DATA_ROOT = previousData;
     await rm(tempRoot, { recursive: true, force: true });
   }
 }

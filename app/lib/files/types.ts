@@ -37,6 +37,8 @@ export interface FileStats {
   created?: number;
   permissions: string;
   sha256?: string;
+  /** Precise filesystem identity for metadata-only reads, independent of persisted revisions. */
+  fileVersion?: string;
 }
 
 export type FileCollaborationStrategy = 'crdt_text' | 'excalidraw_scene' | 'revision_check' | 'exclusive_lock';
@@ -81,11 +83,15 @@ export interface FileCollaborationState {
 }
 
 export interface CurrentFile {
+  /** Stable view identity survives managed path mutations. */
+  viewId?: string;
   path: string;
   content: string;
   stats?: FileStats;
   revision?: FileRevisionRecord | null;
   collaboration?: FileCollaborationState | null;
+  /** Keep the local editor mounted when the file disappears or is replaced. */
+  unavailable?: 'deleted' | 'replaced';
 }
 
 export type FileLoadResult =
@@ -106,8 +112,20 @@ export interface WorkspaceFileOpenCompletion {
   transitionId: string | null;
 }
 
+export type WorkspaceFileRevealResult =
+  | { status: 'ready' | 'skipped' }
+  | { status: 'failed'; error: string };
+
+export interface BrowserFileReveal {
+  path: string;
+  workspaceId: string | null;
+  requestId: number;
+  status: 'loading' | 'ready' | 'visible' | 'failed';
+  error?: string;
+}
+
 export type OpenWorkspaceFileResult =
-  | { status: 'opened'; path: string }
+  | { status: 'opened'; path: string; reveal?: WorkspaceFileRevealResult }
   | { status: 'missing'; path: string; error: string }
   | { status: 'failed'; path: string; error: string }
   | { status: 'superseded'; path: string };

@@ -16,9 +16,14 @@ import {
 } from '@/app/lib/public-sharing/public-file-shares';
 import {
   withRollbackableFileRename,
+  assertWorkspaceOfficePathMutationAllowed,
   type WorkspaceFileOperationOptions,
 } from '@/app/lib/filesystem/workspace-files';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
+import type { WorkspacePathRenameMutation } from './file-events';
+import { withWorkspacePathRenameEvent } from '@/app/lib/filesystem/file-watcher';
 
 type RenameParams = {
   workspace: WorkspaceContext;
@@ -26,10 +31,12 @@ type RenameParams = {
   newPath: string;
   overwrite: boolean;
   fileOptions: WorkspaceFileOperationOptions;
+  mutation?: WorkspacePathRenameMutation;
 };
 
 export type WorkspacePathRenameResult = {
   warnings: string[];
+  mutation: WorkspacePathRenameMutation;
 };
 
 export type WorkspacePathRenameOperations = {
@@ -83,13 +90,13 @@ async function withCompensations<T>(
 }
 
 const runtimeOperations: WorkspacePathRenameOperations = {
-  withFileRename: (params, operation) => withRollbackableFileRename(
+  withFileRename: (params, operation) => withWorkspacePathRenameEvent(params.workspace, params.mutation!, () => withRollbackableFileRename(
     params.oldPath,
     params.newPath,
     params.overwrite,
     params.fileOptions,
     operation,
-  ),
+  )),
   moveCollaborationPath: moveFileCollaborationPath,
   archiveCollaborationPath: async ({ workspace, path }) => {
     await archiveFileCollaborationPaths({ workspace, paths: [{ path }] });
@@ -119,72 +126,84 @@ export async function renameWorkspacePath(
   params: RenameParams,
   operations: WorkspacePathRenameOperations = runtimeOperations,
 ): Promise<WorkspacePathRenameResult> {
-  const backupPath = params.overwrite ? operations.createBackupPath() : null;
+  params = {
+    ...params, oldPath: normalizeWorkspaceRelativePath(params.oldPath), newPath: normalizeWorkspaceRelativePath(params.newPath),
+    fileOptions: { ...params.fileOptions, workspace: params.workspace },
+  };
+  return withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
+    await assertWorkspaceOfficePathMutationAllowed([params.oldPath, params.newPath], params.fileOptions);
+    const mutation: WorkspacePathRenameMutation = {
+      type: 'rename', operationId: randomUUID(), workspaceId: params.workspace.workspaceId,
+      oldPath: params.oldPath, newPath: params.newPath,
+    };
+    params = { ...params, mutation };
+    const backupPath = params.overwrite ? operations.createBackupPath() : null;
 
-  await withCompensations(async (registerDestinationRollback) => {
-    if (backupPath) {
-      await operations.moveCollaborationPath({
-        workspace: params.workspace,
-        oldPath: params.newPath,
-        newPath: backupPath,
-      });
-      registerDestinationRollback(() => operations.moveCollaborationPath({
-        workspace: params.workspace,
-        oldPath: backupPath,
-        newPath: params.newPath,
-      }));
-
-      await operations.moveMetadataPath({
-        workspace: params.workspace,
-        oldPath: params.newPath,
-        newPath: backupPath,
-      });
-      registerDestinationRollback(() => operations.moveMetadataPath({
-        workspace: params.workspace,
-        oldPath: backupPath,
-        newPath: params.newPath,
-      }));
-    }
-
-    await operations.withFileRename(params, async () => {
-      await withCompensations(async (registerSourceRollback) => {
-        await operations.moveCollaborationPath(params);
-        registerSourceRollback(() => operations.moveCollaborationPath({
+    await withCompensations(async (registerDestinationRollback) => {
+      if (backupPath) {
+        await operations.moveCollaborationPath({
           workspace: params.workspace,
           oldPath: params.newPath,
-          newPath: params.oldPath,
+          newPath: backupPath,
+        });
+        registerDestinationRollback(() => operations.moveCollaborationPath({
+          workspace: params.workspace,
+          oldPath: backupPath,
+          newPath: params.newPath,
         }));
 
-        await operations.moveMetadataPath(params);
-        registerSourceRollback(() => operations.moveMetadataPath({
+        await operations.moveMetadataPath({
           workspace: params.workspace,
           oldPath: params.newPath,
-          newPath: params.oldPath,
+          newPath: backupPath,
+        });
+        registerDestinationRollback(() => operations.moveMetadataPath({
+          workspace: params.workspace,
+          oldPath: backupPath,
+          newPath: params.newPath,
         }));
+      }
+
+      await operations.withFileRename(params, async () => {
+        await withCompensations(async (registerSourceRollback) => {
+          await operations.moveCollaborationPath(params);
+          registerSourceRollback(() => operations.moveCollaborationPath({
+            workspace: params.workspace,
+            oldPath: params.newPath,
+            newPath: params.oldPath,
+          }));
+
+          await operations.moveMetadataPath(params);
+          registerSourceRollback(() => operations.moveMetadataPath({
+            workspace: params.workspace,
+            oldPath: params.newPath,
+            newPath: params.oldPath,
+          }));
+        });
       });
-    });
   });
 
-  const warnings: string[] = [];
-  if (backupPath) {
-    try {
-      await operations.archiveCollaborationPath({ workspace: params.workspace, path: backupPath });
-    } catch (error) {
-      warnings.push(`Collaboration backup cleanup: ${error instanceof Error ? error.message : String(error)}`);
+    const warnings: string[] = [];
+    if (backupPath) {
+      try {
+        await operations.archiveCollaborationPath({ workspace: params.workspace, path: backupPath });
+      } catch (error) {
+        warnings.push(`Collaboration backup cleanup: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      try {
+        await operations.deleteMetadataPath({ workspace: params.workspace, path: backupPath });
+      } catch (error) {
+        warnings.push(`Metadata backup cleanup: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
+
     try {
-      await operations.deleteMetadataPath({ workspace: params.workspace, path: backupPath });
+      await operations.syncPublicShares(params);
     } catch (error) {
-      warnings.push(`Metadata backup cleanup: ${error instanceof Error ? error.message : String(error)}`);
+      warnings.push(`Public share sync: ${error instanceof Error ? error.message : String(error)}`);
+      operations.queuePublicShareSync(params);
     }
-  }
 
-  try {
-    await operations.syncPublicShares(params);
-  } catch (error) {
-    warnings.push(`Public share sync: ${error instanceof Error ? error.message : String(error)}`);
-    operations.queuePublicShareSync(params);
-  }
-
-  return { warnings };
+    return { warnings, mutation };
+  });
 }

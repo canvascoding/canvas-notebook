@@ -155,11 +155,20 @@ async function testFilesystemRollback(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  await testProjectionRollback();
-  await testOverwriteProjectionRollback();
-  await testShareRetryWarning();
-  await testFilesystemRollback();
-  console.log('file-rename-service-test: ok');
+  const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-rename-test-data-'));
+  const previousData = process.env.CANVAS_DATA_ROOT;
+  process.env.CANVAS_DATA_ROOT = dataRoot;
+  try {
+    await testProjectionRollback();
+    await testOverwriteProjectionRollback();
+    await testShareRetryWarning();
+    await testFilesystemRollback();
+    console.log('file-rename-service-test: ok');
+  } finally {
+    if (previousData === undefined) delete process.env.CANVAS_DATA_ROOT;
+    else process.env.CANVAS_DATA_ROOT = previousData;
+    await fs.rm(dataRoot, { recursive: true, force: true });
+  }
 }
 
 void main();

@@ -1,5 +1,6 @@
 'use client';
 
+import { joinWorkspacePath } from './path-utils';
 import {
   WORKSPACE_UPLOAD_CHUNK_SIZE,
   WORKSPACE_UPLOAD_MAX_RETRIES,
@@ -7,6 +8,7 @@ import {
   getWorkspaceUploadChunkRange,
 } from '@/app/lib/files/upload-limits';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+import type { WorkspaceUploadCommit } from './upload-result';
 
 export type WorkspaceUploadClientStatus = 'pending' | 'uploading' | 'retrying' | 'completed' | 'failed';
 
@@ -28,7 +30,7 @@ export interface WorkspaceUploadFileProgress {
 export interface WorkspaceBatchUploadResult {
   totalFiles: number;
   totalBytes: number;
-  completed: Array<{ path: string; size: number }>;
+  completed: Array<{ path: string; size: number; committed?: WorkspaceUploadCommit }>;
   failed: Array<{ path: string; size: number; error: string }>;
 }
 
@@ -247,6 +249,7 @@ export async function uploadWorkspaceFilesInChunks(params: {
   workspaceId: string | null;
   onProgress?: (progress: number) => void;
   onFileProgress?: (progress: WorkspaceUploadFileProgress) => void;
+  onFileCompleted?: (committed: WorkspaceUploadCommit) => void;
 }): Promise<WorkspaceBatchUploadResult> {
   const totalBytes = params.files.reduce((total, entry) => total + entry.file.size, 0);
   let highestProgress = 0;
@@ -360,7 +363,7 @@ export async function uploadWorkspaceFilesInChunks(params: {
       if (fileFailed) continue;
 
       try {
-        await retryRequest(
+        const completedResponse = await retryRequest(
           async () => {
             const response = await fetch(`/api/files/uploads/${encodeURIComponent(sessionId)}/complete`, {
               method: 'POST',
@@ -368,11 +371,12 @@ export async function uploadWorkspaceFilesInChunks(params: {
               credentials: 'include',
               body: JSON.stringify({ fileId: serverFile.id }),
             });
-            await readJsonResponse(response, `Could not finalize ${entry.path}`);
+            return readJsonResponse<{ committed?: WorkspaceUploadCommit }>(response, `Could not finalize ${entry.path}`);
           },
           (attempt, error) => reportFile(index, 'retrying', uploadedBytes, attempt, error.message),
         );
-        completed.push({ path: entry.path, size: entry.file.size });
+        completed.push({ path: entry.path, size: entry.file.size, committed: completedResponse.committed });
+        params.onFileCompleted?.(completedResponse.committed ?? { targetPath: joinWorkspacePath(params.targetDir, entry.path) });
         reportFile(index, 'completed', entry.file.size, 1);
         reportOverallProgress();
       } catch (error) {

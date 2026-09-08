@@ -26,7 +26,7 @@ async function main() {
   assert.ok(config.includes(`header_up X-Canvas-Proxy-Token ${token}`));
   assert.ok(config.includes('header_up X-Canvas-Proxy-Client-IP {remote_host}'));
   assert.ok(!config.includes(internalKey), 'proxy must not receive the internal API credential');
-  const shellConfig = execFileSync('bash', ['-c', 'source install/lib/shared/caddy.sh\nconfig_json_read() { printf "%s" "$TEST_INTERNAL_KEY"; }\ncaddy_site_block notebook.example.com'], {
+  const shellConfig = execFileSync('bash', ['-c', 'source install/lib/shared/caddy.sh\nconfig_json_read() { [[ "$1" == env.CANVAS_INTERNAL_API_KEY ]] && printf "%s" "$TEST_INTERNAL_KEY"; }\ncaddy_site_block notebook.example.com'], {
     encoding: 'utf8', env: { ...process.env, TEST_INTERNAL_KEY: internalKey },
   });
   assert.ok(shellConfig.includes(`header_up X-Canvas-Proxy-Token ${token}`), 'shell and portable CLI must agree on proxy attestation');

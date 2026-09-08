@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { FileWarning } from 'lucide-react';
 import {
@@ -13,6 +13,11 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useFileStore } from '@/app/store/file-store';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { getParentDirectory, isSameOrDescendantPath } from '@/app/lib/files/path-utils';
+import { remapPath } from '@/app/lib/files/path-mutation-state';
+import { prunePathSet, remapPathSet } from '@/app/lib/files/path-state-collections';
+import { WORKSPACE_PATH_RENAMED_EVENT, WORKSPACE_PATHS_DELETED_EVENT, type WorkspacePathRenamedDetail, type WorkspacePathsDeletedDetail } from '@/app/lib/files/workspace-file-events';
 import { compactWorkspaceSelection, getWorkspacePathName } from '@/app/lib/files/operation-flows';
 import { DirectoryBrowser } from './DirectoryBrowser';
 import { useShallow } from 'zustand/react/shallow';
@@ -38,6 +43,36 @@ export function BulkMoveDialog({ controller }: BulkMoveDialogProps) {
     setBulkMoveOpen: state.setBulkMoveOpen,
   })));
   const { conflict, isMoving, startMove, resolveConflict } = controller;
+
+  useEffect(() => {
+    const unsubscribe = useWorkspaceStore.subscribe((state, previous) => {
+      if (state.activeWorkspaceId === previous.activeWorkspaceId) return;
+      setMoveTarget('.');
+      setMoveExpandedDirs(new Set());
+    });
+    const renamed = (event: Event) => {
+      const detail = (event as CustomEvent<WorkspacePathRenamedDetail>).detail;
+      if (detail.workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
+      setMoveTarget((path) => remapPath(path, detail.oldPath, detail.newPath));
+      setMoveExpandedDirs((paths) => remapPathSet(paths, detail.oldPath, detail.newPath));
+    };
+    const deleted = (event: Event) => {
+      const detail = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
+      if (detail.workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
+      setMoveTarget((path) => {
+        while (path !== '.' && detail.paths.some((root) => isSameOrDescendantPath(path, root))) path = getParentDirectory(path);
+        return path;
+      });
+      setMoveExpandedDirs((paths) => prunePathSet(paths, detail.paths));
+    };
+    window.addEventListener(WORKSPACE_PATH_RENAMED_EVENT, renamed);
+    window.addEventListener(WORKSPACE_PATHS_DELETED_EVENT, deleted);
+    return () => {
+      unsubscribe();
+      window.removeEventListener(WORKSPACE_PATH_RENAMED_EVENT, renamed);
+      window.removeEventListener(WORKSPACE_PATHS_DELETED_EVENT, deleted);
+    };
+  }, []);
 
   const resetDialogState = () => {
     setMoveTarget('.');

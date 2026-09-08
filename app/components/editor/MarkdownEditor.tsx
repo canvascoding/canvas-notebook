@@ -111,6 +111,8 @@ import { MarkdownModeBar, MarkdownRichMigration, MarkdownSaveState, useLiveMarkd
 import { MarkdownTableMenu } from './MarkdownTableMenu';
 import { MarkdownSelectionMenu } from './MarkdownSelectionMenu';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
+import { ClipboardCopyButton } from '@/app/components/shared/ClipboardCopyButton';
+import { plainTextToClipboardHtml } from '@/app/lib/clipboard/browser';
 import {
   clampEditorRangeToDoc,
   getSlashCommandDeletionRange,
@@ -227,6 +229,7 @@ export interface MarkdownEditorProps {
   readOnly?: boolean;
   filePath?: string;
   externalValueSync?: 'always' | 'when-blurred';
+  externalCollaboration?: { resolution: import('@/app/lib/collaboration/client').TextCollaborationSessionResolution; document: CollaborationDocument | null };
   collaborationEnabled?: boolean;
   collaborationSession?: CollaborationSessionResponse | null;
   onCollaborationChange?: (document: CollaborationDocument | null) => void;
@@ -1631,8 +1634,18 @@ function MermaidCodeBlockNodeView({ node }: NodeViewProps) {
 
   if (!isMermaid || isEditing) {
     return (
-      <NodeViewWrapper as="pre" className="tiptap-code-block">
-        <NodeViewContent spellCheck={false} />
+      <NodeViewWrapper as="div" className="tiptap-code-block group relative">
+        <div className="absolute right-2 top-2 z-10" contentEditable={false}>
+          <ClipboardCopyButton
+            content={{ plainText: node.textContent, html: plainTextToClipboardHtml(node.textContent) }}
+            menuSide="bottom"
+            testId="markdown-editor-code-block-copy"
+            buttonClassName="sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+          />
+        </div>
+        <pre>
+          <NodeViewContent spellCheck={false} className="pr-12" />
+        </pre>
       </NodeViewWrapper>
     );
   }
@@ -5683,6 +5696,7 @@ export function MarkdownEditor({
   filePath,
   externalValueSync = 'always',
   collaborationEnabled = false,
+  externalCollaboration,
   onCollaborationChange,
   agentTargets = [],
   showNotebookMetadata: requestedNotebookMetadata = false,
@@ -5700,14 +5714,15 @@ export function MarkdownEditor({
 
   const t = useTranslations('notebook');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const collaborationSession = useTextCollaborationSession({
-    enabled: collaborationEnabled,
+  const internalCollaborationSession = useTextCollaborationSession({
+    enabled: collaborationEnabled && !externalCollaboration,
     workspaceId: activeWorkspaceId,
     path: filePath,
   });
+  const collaborationSession = externalCollaboration?.resolution ?? internalCollaborationSession;
   const resolvedCollaborationSession = collaborationSession.session;
-  const collaborationDocument = useCollaborationDocument({
-    enabled: collaborationEnabled && Boolean(resolvedCollaborationSession),
+  const internalCollaborationDocument = useCollaborationDocument({
+    enabled: collaborationEnabled && !externalCollaboration && Boolean(resolvedCollaborationSession),
     workspaceId: activeWorkspaceId,
     path: filePath,
     representation: resolvedCollaborationSession?.representation === 'plain_text'
@@ -5716,6 +5731,7 @@ export function MarkdownEditor({
     session: resolvedCollaborationSession,
   });
   const isMobileKeyboardActive = useMobileKeyboardActive();
+  const collaborationDocument = externalCollaboration?.document ?? internalCollaborationDocument;
   const liveMarkdown = useLiveMarkdown(collaborationDocument, value);
   const displayedValue = liveMarkdown.content;
   const parsedDocument = useMemo(() => frontmatter === 'metadata'

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import Module from 'node:module';
 import os from 'node:os';
@@ -178,6 +179,107 @@ async function main() {
     assert.equal(storedEvent?.provider_thread_id, 'thread-1');
     assert.equal(storedEvent?.status, 'pending');
     assert.ok(storedEvent?.id);
+
+    const mailboxRow = sqlite.prepare(`
+      SELECT id FROM workspace_email_mailboxes WHERE email_account_id = ? AND status = 'active'
+    `).get(created.id) as { id: string } | undefined;
+    assert.ok(mailboxRow?.id);
+    const { createImapMessageReference } = await import('../app/lib/email/imap-service');
+    const legacyInboxKey = (uid: string) => createHash('sha256')
+      .update(`${mailboxRow.id}:${uid}`)
+      .digest('hex');
+    const seedLegacyInboxEvent = (input: {
+      date: Date;
+      id: string;
+      threadId: string;
+      uid: string;
+    }) => {
+      const timestamp = Math.floor(input.date.getTime() / 1_000);
+      sqlite.prepare(`
+        INSERT INTO email_inbox_events (
+          id, mailbox_id, workspace_id, provider_message_id, provider_thread_id,
+          idempotency_key, event_type, received_at, status, attempt_count,
+          metadata_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'message_received', ?, 'processed', 0, ?, ?, ?)
+      `).run(
+        input.id,
+        mailboxRow.id,
+        ownerWorkspace.id,
+        input.uid,
+        input.threadId,
+        legacyInboxKey(input.uid),
+        timestamp,
+        JSON.stringify({ folder: 'INBOX', hasAttachments: false }),
+        timestamp,
+        timestamp,
+      );
+    };
+
+    const legacyMatchDate = new Date(Math.floor((pollNow.getTime() + 2_000) / 1_000) * 1_000);
+    const legacyMatchId = createImapMessageReference('INBOX', '7001', 51);
+    seedLegacyInboxEvent({
+      date: legacyMatchDate,
+      id: 'legacy-inbox-match',
+      threadId: 'imap-thread-51',
+      uid: '51',
+    });
+    const legacyMatchPoll = await pollWorkspaceMailboxInboxEvents({
+      now: new Date(legacyMatchDate.getTime() + 1_000),
+      fetchMessages: async () => [{
+        id: legacyMatchId,
+        uid: '51',
+        uidValidity: '7001',
+        threadId: 'imap-thread-51',
+        date: legacyMatchDate.toISOString(),
+        folder: 'INBOX',
+        hasAttachments: false,
+      }],
+    });
+    assert.deepEqual(legacyMatchPoll, { checked: 1, created: 0, duplicate: 1, historical: 0, failed: 0 });
+    const migratedLegacy = sqlite.prepare(`
+      SELECT provider_message_id, metadata_json FROM email_inbox_events WHERE id = 'legacy-inbox-match'
+    `).get() as { metadata_json: string; provider_message_id: string };
+    assert.equal(migratedLegacy.provider_message_id, legacyMatchId);
+    assert.deepEqual(JSON.parse(migratedLegacy.metadata_json), {
+      folder: 'INBOX',
+      hasAttachments: false,
+      identityVersion: 1,
+      uid: '51',
+      uidValidity: '7001',
+    });
+
+    const reusedLegacyDate = new Date(Math.floor((pollNow.getTime() + 4_000) / 1_000) * 1_000);
+    const reusedCurrentDate = new Date(Math.floor((pollNow.getTime() + 5_000) / 1_000) * 1_000);
+    const reusedCanonicalId = createImapMessageReference('INBOX', '8002', 52);
+    seedLegacyInboxEvent({
+      date: reusedLegacyDate,
+      id: 'legacy-inbox-reused-uid',
+      threadId: 'old-imap-thread-52',
+      uid: '52',
+    });
+    const reusedUidPoll = await pollWorkspaceMailboxInboxEvents({
+      now: new Date(reusedCurrentDate.getTime() + 1_000),
+      fetchMessages: async () => [{
+        id: reusedCanonicalId,
+        uid: '52',
+        uidValidity: '8002',
+        threadId: 'new-imap-thread-52',
+        date: reusedCurrentDate.toISOString(),
+        folder: 'INBOX',
+        hasAttachments: false,
+      }],
+    });
+    assert.deepEqual(reusedUidPoll, { checked: 1, created: 1, duplicate: 0, historical: 0, failed: 0 });
+    const reusedRows = sqlite.prepare(`
+      SELECT provider_message_id FROM email_inbox_events
+      WHERE id = 'legacy-inbox-reused-uid' OR provider_message_id = ?
+      ORDER BY provider_message_id
+    `).all(reusedCanonicalId) as Array<{ provider_message_id: string }>;
+    assert.deepEqual(reusedRows.map((row) => row.provider_message_id).sort(), ['52', reusedCanonicalId].sort());
+    sqlite.prepare(`
+      UPDATE email_inbox_events SET status = 'processed', processed_at = ? WHERE provider_message_id = ?
+    `).run(Math.floor(reusedCurrentDate.getTime() / 1_000), reusedCanonicalId);
+
     const activeMailbox = sqlite.prepare(`
       SELECT id, workspace_id, status, created_by_user_id, last_edited_by_user_id
       FROM workspace_email_mailboxes

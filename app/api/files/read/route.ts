@@ -4,7 +4,10 @@ import { sha256Buffer } from '@/app/lib/files/revision-guard';
 import {
   ensureFileRevisionForCurrentContent,
   getFileCollaborationState,
+  isDocxPath,
 } from '@/app/lib/files/collaboration-policy';
+import { readOfficeDocumentSnapshot } from '@/app/lib/office/document-service';
+import { assessDocxEditorCompatibility } from '@/app/lib/office/editor-compatibility';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
@@ -41,6 +44,16 @@ export async function GET(request: NextRequest) {
       );
     }
     
+    if (isDocxPath(path)) {
+      const snapshot = await readOfficeDocumentSnapshot(workspaceResult.workspace, path);
+      const metaOnly = searchParams.get('meta') === '1';
+      const editorCompatibility = metaOnly ? undefined : await assessDocxEditorCompatibility(snapshot.content);
+      return NextResponse.json({ success: true, data: {
+        ...snapshot, editorCompatibility, viewerUserId: workspaceResult.session.user.id,
+        workspaceId: workspaceResult.workspace.workspaceId,
+        content: metaOnly ? '' : `base64:${snapshot.content.toString('base64')}`,
+      } }, { headers: { 'Cache-Control': 'no-store' } });
+    }
     const stats = await getFileStats(path, fileOptions);
     const sizeLimit = isExcalidrawFilePath(path) ? EXCALIDRAW_READ_SIZE_LIMIT : READ_SIZE_LIMIT;
     const metaOnly = searchParams.get('meta') === '1';
@@ -59,6 +72,7 @@ export async function GET(request: NextRequest) {
             size: stats.size,
             modified: stats.modified,
             permissions: stats.permissions,
+            fileVersion: stats.fileVersion,
           },
           collaboration,
         },
@@ -99,6 +113,7 @@ export async function GET(request: NextRequest) {
           modified: stats.modified,
           permissions: stats.permissions,
           sha256,
+          fileVersion: stats.fileVersion,
         },
         revision,
         collaboration,
@@ -118,7 +133,7 @@ export async function GET(request: NextRequest) {
     const message = error instanceof Error ? error.message : 'Failed to read file';
     return NextResponse.json(
       { success: false, error: message },
-      { status: 500 }
+      { status: error && typeof error === 'object' && 'status' in error && typeof error.status === 'number' ? error.status : 500 }
     );
   }
 }

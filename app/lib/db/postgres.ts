@@ -11,6 +11,7 @@ import {
 } from './migrate';
 import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
+import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
 
 const TABLE_NAME_SYMBOL = Symbol.for('drizzle:Name');
 
@@ -910,6 +911,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query('ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS automation_enabled_at bigint');
   await pool.query("UPDATE email_accounts SET account_scope = 'personal' WHERE account_scope IS NULL OR account_scope = ''");
   await pool.query("UPDATE email_accounts SET connected_by_user_id = user_id WHERE connected_by_user_id IS NULL OR connected_by_user_id = ''");
+  await runEmailCachePostgresMigration(pool);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS workspace_email_mailboxes (
       id text PRIMARY KEY,

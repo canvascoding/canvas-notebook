@@ -16,7 +16,6 @@ import {
   Globe2,
   Mail,
   MessageSquare,
-  PanelRight,
   SquareTerminal,
   X,
 } from 'lucide-react';
@@ -50,6 +49,8 @@ import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { useTerminalAvailability } from '@/app/components/terminal/TerminalAvailabilityProvider';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { NotebookDocumentMenu } from '@/app/components/notebook/NotebookDocumentMenu';
+import { NotebookChatControls } from '@/app/components/notebook/NotebookChatControls';
+import { notebookPanelToggleClassName } from '@/app/components/notebook/toolbar-styles';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
 import { useNotebookLayoutController } from '@/app/components/notebook/useNotebookLayoutController';
 import { useNotebookToolContext } from '@/app/components/notebook/useNotebookToolContext';
@@ -58,7 +59,8 @@ import {
   useShouldShowWorkspaceSwitcher,
 } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
-import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
+import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
+import { remapPath } from '@/app/lib/files/path-mutation-state';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import {
   getNotebookNavigationIntent,
@@ -117,9 +119,11 @@ import {
   openNotebookDocumentTab,
   readNotebookDocumentTabs,
   renameNotebookDocumentTabs,
+  rememberNotebookClosedDocuments,
   writeNotebookDocumentTabs,
   type NotebookDocumentTabsState,
 } from '@/app/lib/notebook/document-tabs';
+import { closeAllNotebookDocuments, notebookLocationAfterClosing } from '@/app/lib/notebook/close-documents';
 import { registerNotebookDocumentOpenGuard } from '@/app/lib/notebook/document-tab-open-guard';
 import { resolveNotebookChatContext } from '@/app/lib/notebook/chat-context';
 import { getNotebookTabRevealDelta } from '@/app/lib/notebook/tab-strip';
@@ -134,6 +138,7 @@ import { useForcedChatSession } from '@/app/components/canvas-agent-chat/useForc
 
 type SurfaceTabProps = {
   active: boolean;
+  tabStop?: boolean;
   closeLabel?: string;
   controlsId: string;
   icon: ReactNode;
@@ -147,10 +152,13 @@ type SurfaceTabProps = {
 
 type OpenNotebookFileOptions = {
   dockChatIfFull?: boolean;
+  workspaceId?: string;
+  transitionId?: string;
 };
 
 function SurfaceTab({
   active,
+  tabStop = active,
   closeLabel,
   controlsId,
   icon,
@@ -165,7 +173,7 @@ function SurfaceTab({
     <div
       title={title || label}
       className={cn(
-        'group/tab flex h-10 shrink-0 items-center overflow-hidden rounded-md border transition-colors sm:h-8',
+        'group/tab flex h-10 shrink-0 items-center overflow-hidden rounded-md border transition-colors sm:h-8 pointer-coarse:h-11',
         active
           ? 'border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_-2px_0_hsl(var(--primary))]'
           : 'border-transparent text-muted-foreground hover:border-border hover:bg-muted/70 hover:text-foreground',
@@ -177,7 +185,7 @@ function SurfaceTab({
         role="tab"
         aria-controls={controlsId}
         aria-selected={active}
-        tabIndex={active ? 0 : -1}
+        tabIndex={tabStop ? 0 : -1}
         data-testid={testId}
         className="flex h-full min-w-0 items-center gap-1 px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:gap-2 sm:px-2.5"
         onClick={onSelect}
@@ -209,17 +217,19 @@ function SurfaceLayer({
   children,
   labelledBy,
   testId,
+  role = 'tabpanel',
 }: {
   active: boolean;
   children: ReactNode;
   labelledBy: string;
   testId: string;
+  role?: 'tabpanel' | 'region';
 }) {
   return (
     <section
       id={testId}
       data-testid={testId}
-      role="tabpanel"
+      role={role}
       aria-labelledby={labelledBy}
       aria-hidden={!active}
       inert={!active}
@@ -423,11 +433,15 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const searchParams = useSearchParams();
   const layout = useNotebookLayoutController();
   const { state, dispatch, setChatDocked } = layout;
-  const setChatDockedRef = useRef(setChatDocked);
   const [requestedDocumentFocus, setRequestedDocumentFocus] = useState(false);
   const documentFocus = requestedDocumentFocus && !layout.isMobile && state.mainSurface === 'document';
   const focusContext = useMemo(() => ({ focused: documentFocus, setFocused: setRequestedDocumentFocus }), [documentFocus]);
   const explorerVisible = state.explorerOpen && !documentFocus;
+  const toggleChatDock = useCallback(() => {
+    if (!layout.canDockChat) return;
+    setRequestedDocumentFocus(false);
+    setChatDocked(!(state.chatDocked && !documentFocus));
+  }, [documentFocus, layout.canDockChat, setChatDocked, state.chatDocked]);
 
   useEffect(() => {
     if (!documentFocus) return;
@@ -477,7 +491,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const [closedDocuments, setClosedDocuments] = useState<Record<string, string[]>>({});
   const rememberClosedDocument = useCallback((workspaceId: string, path: string) => {
     setClosedDocuments((current) => ({
-      ...current, [workspaceId]: [...(current[workspaceId] || []).filter((item) => item !== path), path].slice(-20),
+      ...current, [workspaceId]: rememberNotebookClosedDocuments(current[workspaceId] || [], [path]),
     }));
   }, []);
   const documentTabsWorkspaceIdRef = useRef<string | null>(null);
@@ -631,8 +645,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     if (!normalizedPath) return null;
 
     showOpenedDocument(options.dockChatIfFull);
-    const transitionId = createWorkspaceFileTransitionId();
-    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    const transitionId = options.transitionId ?? createWorkspaceFileTransitionId();
+    const workspaceId = options.workspaceId ?? useWorkspaceStore.getState().activeWorkspaceId;
     const result = await useFileStore.getState().revealAndLoadFile(normalizedPath, {
       transitionId,
       workspaceId,
@@ -655,22 +669,34 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     return result;
   }, [showOpenedDocument]);
 
+  const bridgedRequestRef = useRef<NotebookFileReferenceRequest | null>(null);
+  const completedBridgeRequests = useRef(new Set<string>());
   const openBridgedNotebookFile = useCallback(async (request: NotebookFileReferenceRequest) => {
-    openedPathRef.current = request.path;
-    const result = await openNotebookFile(request.path, { dockChatIfFull: true });
-    if (result?.status !== 'opened') {
-      if (openedPathRef.current === request.path) openedPathRef.current = null;
-      return;
-    }
-
-    clearPendingNotebookFileReference(request.requestId);
-    notifyWorkspaceFileOpened(request.path, 'chat-reference');
-    if (request.blockId || request.heading) {
-      requestWorkspaceMarkdownLocation({
-        path: request.path,
-        blockId: request.blockId,
-        heading: request.heading,
+    if (bridgedRequestRef.current?.requestId === request.requestId || completedBridgeRequests.current.has(request.requestId)) return;
+    bridgedRequestRef.current = request;
+    const isCurrent = () => bridgedRequestRef.current === request;
+    try {
+      // Calling even for the current workspace supersedes an older pending switch.
+      await useWorkspaceStore.getState().setActiveWorkspace(request.workspaceId, 'chat');
+      if (!isCurrent() || useWorkspaceStore.getState().activeWorkspaceId !== request.workspaceId) return;
+      openedPathRef.current = request.path;
+      const result = await openNotebookFile(request.path, {
+        dockChatIfFull: true, workspaceId: request.workspaceId, transitionId: request.requestId,
       });
+      if (!isCurrent() || useWorkspaceStore.getState().activeWorkspaceId !== request.workspaceId) return;
+      if (result?.status !== 'opened') {
+        if (openedPathRef.current === request.path) openedPathRef.current = null;
+        return;
+      }
+      notifyWorkspaceFileOpened(request.path, 'chat-reference', request.workspaceId);
+      if (request.blockId || request.heading) {
+        requestWorkspaceMarkdownLocation({ path: request.path, blockId: request.blockId, heading: request.heading });
+      }
+    } finally {
+      completedBridgeRequests.current.add(request.requestId);
+      if (completedBridgeRequests.current.size > 256) completedBridgeRequests.current.delete(completedBridgeRequests.current.values().next().value!);
+      clearPendingNotebookFileReference(request.requestId);
+      if (isCurrent()) bridgedRequestRef.current = null;
     }
   }, [openNotebookFile]);
 
@@ -688,9 +714,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       openedPathRef.current = routeFilePath;
       void openNotebookFile(routeFilePath);
     }
-    if (shouldOpenRouteChat) {
-      dispatch({ type: 'SHOW_CHAT' });
-    }
   }, [
     activeWorkspaceId,
     dispatch,
@@ -698,8 +721,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     openNotebookFile,
     routeFilePath,
     routeWorkspaceId,
-    shouldOpenRouteChat,
   ]);
+
+  useEffect(() => {
+    if (activeWorkspaceId && documentTabsHydratedFor === activeWorkspaceId && shouldOpenRouteChat) {
+      dispatch({ type: 'SHOW_CHAT' });
+    }
+  }, [activeWorkspaceId, dispatch, documentTabsHydratedFor, shouldOpenRouteChat]);
 
   useEffect(() => {
     if (
@@ -810,6 +838,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       dispatch({ type: 'CONTEXT_CLOSED', surface: 'email' });
       dispatch({ type: 'CONTEXT_CLOSED', surface: 'browser' });
 
+      if (bridgedRequestRef.current?.workspaceId === nextWorkspaceId) return;
       if (!restoredTabs.activePath) {
         dispatch({ type: 'SHOW_CHAT' });
         return;
@@ -826,7 +855,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [clearBrowser, clearEmail, dispatch, hydrateDocumentTabs, openNotebookFile, routeFilePath]);
 
   useEffect(() => {
-    const handleWorkspaceFileOpen = () => {
+    const handleWorkspaceFileOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ workspaceId?: string | null }>).detail;
+      if (detail?.workspaceId !== undefined && detail.workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
       showOpenedDocument(true);
       setMobileExplorerOpen(false);
     };
@@ -868,11 +899,47 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     }
   }, [dispatch, handleCloseDocumentTab]);
 
+  const handleCloseAllDocuments = useCallback(async () => {
+    if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return false;
+    try {
+      return await closeAllNotebookDocuments({
+        workspaceId: activeWorkspaceId,
+        getTabs: () => documentTabsRef.current,
+        onClosed: (closed) => {
+          setClosedDocuments((current) => ({
+            ...current,
+            [activeWorkspaceId]: rememberNotebookClosedDocuments(current[activeWorkspaceId] || [], closed.openPaths, closed.activePath),
+          }));
+          replaceDocumentTabs(activeWorkspaceId, emptyNotebookDocumentTabsState());
+          openedPathRef.current = null;
+          setRequestedDocumentFocus(false);
+          dispatch({ type: 'ALL_DOCUMENTS_CLOSED' });
+          const location = notebookLocationAfterClosing(window.location.href, activeWorkspaceId, closed.openPaths);
+          if (location !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+            // Next.js copies its internal history state and updates useSearchParams for external writes.
+            window.history.replaceState(null, '', location);
+          }
+          toast.success(tNotebook('documentsClosed', { count: closed.openPaths.length }));
+        },
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : tNotebook('failedToSaveFile'));
+      return false;
+    }
+  }, [activeWorkspaceId, dispatch, replaceDocumentTabs, tNotebook]);
+
   useEffect(() => {
     const closeDocumentTabsAtPaths = (paths: Iterable<string>) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
+      const file = useFileStore.getState().currentFile;
       const closedPaths = Array.from(paths);
+      const preservedPath = file?.unavailable ? file.path : null;
       const nextTabs = closeNotebookDocumentTabsAtPaths(documentTabsRef.current, closedPaths);
+      if (preservedPath) {
+        const preserved = openNotebookDocumentTab(nextTabs, preservedPath);
+        if (preserved.status !== 'limit-reached') replaceDocumentTabs(activeWorkspaceId, preserved.state);
+        return;
+      }
       if (nextTabs === documentTabsRef.current) return;
 
       const currentFilePath = useFileStore.getState().currentFile?.path ?? null;
@@ -892,36 +959,30 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const handlePathsDeleted = (event: Event) => {
       const { paths, workspaceId } = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
       if (workspaceId !== activeWorkspaceId || workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
+      if (workspaceId) setClosedDocuments((current) => ({
+        ...current,
+        [workspaceId]: (current[workspaceId] ?? []).filter((path) => !paths.some((root) => isSameOrDescendantPath(path, root))),
+      }));
       closeDocumentTabsAtPaths(paths);
     };
     const handlePathRenamed = (event: Event) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
       const { oldPath, newPath, workspaceId } = (event as CustomEvent<WorkspacePathRenamedDetail>).detail;
       if (workspaceId !== activeWorkspaceId || workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
+      setClosedDocuments((current) => ({
+        ...current,
+        [workspaceId]: [...new Set((current[workspaceId] ?? []).map((path) => remapPath(path, oldPath, newPath)))],
+      }));
       replaceDocumentTabs(
         activeWorkspaceId,
         renameNotebookDocumentTabs(documentTabsRef.current, oldPath, newPath),
       );
     };
-    const handleWatcherFileChange = (event: Event) => {
-      const detail = (event as CustomEvent<FileEvent>).detail;
-      if (
-        !detail
-        || (detail.type !== 'unlink' && detail.type !== 'unlinkDir')
-        || (detail.workspaceId && detail.workspaceId !== activeWorkspaceId)
-      ) {
-        return;
-      }
-      closeDocumentTabsAtPaths([detail.relativePath]);
-    };
-    const fileWatcher = getFileWatcherClient();
     window.addEventListener(WORKSPACE_PATHS_DELETED_EVENT, handlePathsDeleted);
     window.addEventListener(WORKSPACE_PATH_RENAMED_EVENT, handlePathRenamed);
-    fileWatcher.addEventListener('filechange', handleWatcherFileChange);
     return () => {
       window.removeEventListener(WORKSPACE_PATHS_DELETED_EVENT, handlePathsDeleted);
       window.removeEventListener(WORKSPACE_PATH_RENAMED_EVENT, handlePathRenamed);
-      fileWatcher.removeEventListener('filechange', handleWatcherFileChange);
     };
   }, [activeWorkspaceId, dispatch, openNotebookFile, replaceDocumentTabs]);
 
@@ -955,8 +1016,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       if (key === 'k') {
         event.preventDefault();
         if (event.shiftKey) {
-          setChatDockedRef.current(!state.chatDocked);
+          toggleChatDock();
         } else {
+          setRequestedDocumentFocus(false);
           dispatch({ type: 'SHOW_CHAT' });
         }
       } else if (key === 'j' && terminalEnabled) {
@@ -976,6 +1038,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     state.explorerOpen,
     state.terminalOpen,
     terminalEnabled,
+    toggleChatDock,
   ]);
 
   const applyExplorerWidth = useCallback((width: number) => {
@@ -1030,7 +1093,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     ),
   );
 
-  const showChat = useCallback(() => dispatch({ type: 'SHOW_CHAT' }), [dispatch]);
+  const showChat = useCallback(() => {
+    setRequestedDocumentFocus(false);
+    dispatch({ type: 'SHOW_CHAT' });
+  }, [dispatch]);
   const showSurface = useCallback((surface: Exclude<NotebookMainSurface, 'chat'>) => {
     dispatch({ type: 'SHOW_SURFACE', surface });
   }, [dispatch]);
@@ -1099,6 +1165,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const activeDocumentTabId = activeDocumentTabIndex >= 0
     ? `notebook-document-${activeDocumentTabIndex}-tab`
     : 'notebook-surface-document-tab';
+  const keyboardWorkSurface = state.mainSurface === 'chat'
+    ? state.lastWorkSurface ?? (documentTabs.activePath ? 'document' : state.emailAvailable ? 'email' : 'browser')
+    : state.mainSurface;
 
   useEffect(() => {
     const animationFrame = window.requestAnimationFrame(() => {
@@ -1146,15 +1215,15 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             </div>
           ) : null}
 
-          <div className="z-30 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-2">
+          <div className="z-30 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-2 pointer-coarse:h-14" data-testid="notebook-toolbar">
             <TooltipProvider delayDuration={250}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
-                    variant={(layout.isMobile ? mobileExplorerOpen : explorerVisible) ? 'secondary' : 'ghost'}
+                    variant="ghost"
                     size="icon-sm"
-                    className="shrink-0"
+                    className={cn(notebookPanelToggleClassName, 'pointer-coarse:min-h-11 pointer-coarse:min-w-11')}
                     aria-label={layout.isMobile
                       ? tNav('openFileExplorer')
                       : explorerVisible ? tNav('hideSidebar') : tNav('showSidebar')}
@@ -1193,20 +1262,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               }}
               className="flex min-w-0 flex-1 touch-pan-x items-center gap-1 overflow-x-auto overscroll-x-contain scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
-              <SurfaceTab
-                active={state.mainSurface === 'chat'}
-                controlsId={surfacePanelIds.chat}
-                icon={<MessageSquare className="h-3.5 w-3.5 shrink-0" />}
-                label={tCommon('aiChat')}
-                onSelect={showChat}
-                testId="notebook-surface-chat"
-              />
               {visibleNotebookDocumentPaths(documentTabs).map((path) => {
                 const index = documentTabs.openPaths.indexOf(path);
                 const label = notebookDocumentLabel(path, documentTabs.openPaths);
                 return (
                   <SurfaceTab
                     key={path}
+                    tabStop={keyboardWorkSurface === 'document' && documentTabs.activePath === path}
                     title={path}
                     active={
                       state.mainSurface === 'document'
@@ -1225,6 +1287,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               {state.emailAvailable ? (
                 <SurfaceTab
                   active={state.mainSurface === 'email'}
+                  tabStop={keyboardWorkSurface === 'email'}
                   closeLabel={tNotebook('closeEmailSurface')}
                   controlsId={surfacePanelIds.email}
                   icon={<Mail className="h-3.5 w-3.5 shrink-0" />}
@@ -1238,6 +1301,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               {state.browserAvailable ? (
                 <SurfaceTab
                   active={state.mainSurface === 'browser'}
+                  tabStop={keyboardWorkSurface === 'browser'}
                   closeLabel={tNotebook('closeBrowserSurface')}
                   controlsId={surfacePanelIds.browser}
                   icon={<Globe2 className="h-3.5 w-3.5 shrink-0" />}
@@ -1251,9 +1315,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             </div>
 
             <NotebookDocumentMenu
+              key={activeWorkspaceId}
               paths={documentTabs.openPaths}
               activePath={documentTabs.activePath}
               canReopen={Boolean(activeWorkspaceId && closedDocuments[activeWorkspaceId]?.length)}
+              onCloseAll={handleCloseAllDocuments}
               onSelect={(path) => void handleSelectDocumentTab(path)}
               onReopen={() => {
                 if (!activeWorkspaceId) return;
@@ -1270,44 +1336,33 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 });
               }}
             />
+            <div className="h-5 w-px shrink-0 bg-border" />
+            <NotebookChatControls
+              full={state.mainSurface === 'chat' && !documentFocus}
+              docked={state.chatDocked && !documentFocus}
+              canDock={layout.canDockChat}
+              mobile={layout.isMobile}
+              controlsId={surfacePanelIds.chat}
+              onShow={showChat}
+              onToggleDock={toggleChatDock}
+            />
             {layout.isDesktop ? (
               <>
-                <TooltipProvider delayDuration={250}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant={state.chatDocked ? 'secondary' : 'ghost'}
-                        size="icon-sm"
-                        className="shrink-0"
-                        disabled={!layout.canDockChat && !state.chatDocked}
-                        aria-label={state.chatDocked ? tNotebook('unpinChat') : tNotebook('pinChat')}
-                        aria-pressed={state.chatDocked}
-                        onClick={() => setChatDocked(!state.chatDocked)}
-                      >
-                        <PanelRight className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {state.chatDocked ? tNotebook('unpinChat') : tNotebook('pinChat')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}⇧K)
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
                 {terminalEnabled && (
                   <TooltipProvider delayDuration={250}>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
                           type="button"
-                          variant={state.terminalOpen ? 'secondary' : 'ghost'}
+                          variant="ghost"
                           size="icon-sm"
-                          className="shrink-0"
-                          aria-label={state.terminalOpen ? tNotebook('hideTerminal') : tNotebook('showTerminal')}
-                          aria-pressed={state.terminalOpen}
-                          onClick={() => dispatch({
-                            type: 'SET_TERMINAL',
-                            open: !state.terminalOpen,
-                          })}
+                          className={cn(notebookPanelToggleClassName, 'pointer-coarse:min-h-11 pointer-coarse:min-w-11')}
+                          aria-label={state.terminalOpen && !documentFocus ? tNotebook('hideTerminal') : tNotebook('showTerminal')}
+                          aria-pressed={state.terminalOpen && !documentFocus}
+                          onClick={() => {
+                            setRequestedDocumentFocus(false);
+                            dispatch({ type: 'SET_TERMINAL', open: !(state.terminalOpen && !documentFocus) });
+                          }}
                         >
                           <SquareTerminal className="h-4 w-4" />
                         </Button>
@@ -1377,8 +1432,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               </SurfaceLayer>
               <SurfaceLayer
                 active={state.mainSurface === 'chat' || browserActivityUsesSheet}
-                labelledBy="notebook-surface-chat-tab"
+                labelledBy="notebook-chat-button"
                 testId="notebook-mobile-chat"
+                role="region"
               >
                 <div
                   id="browser-agent-activity-panel"
@@ -1567,9 +1623,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   role={browserActivityUsesSheet
                     ? 'dialog'
                     : state.mainSurface === 'chat'
-                      ? 'tabpanel'
+                      ? 'region'
                       : 'complementary'}
-                  aria-labelledby={state.mainSurface === 'chat' ? 'notebook-surface-chat-tab' : undefined}
+                  aria-labelledby={state.mainSurface === 'chat' ? 'notebook-chat-button' : undefined}
                   aria-label={browserActivityUsesSheet
                     ? tNotebook('agentActivity')
                     : state.chatDocked

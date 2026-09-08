@@ -54,7 +54,7 @@ import {
 import { removeComposerDraft } from '@/app/lib/chat/draft-storage';
 import { getChatMessageSequence } from '@/app/lib/chat/message-metadata';
 import { getAgentProfileDisplayName } from '@/app/lib/chat/agent-display';
-import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
+import { isMainAgentId, MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
 import { useChatAgentConfig } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
 import { useChatControlActions } from '@/app/components/canvas-agent-chat/useChatControlActions';
@@ -1118,23 +1118,6 @@ export default function CanvasAgentChat({
           reserved: formatContextTokens(Math.max(0, contextStatusDisplay.contextWindow - contextStatusDisplay.availableTokens)),
         })
         : t('noSessionYet');
-  const contextProgressPercent = Math.min(100, Math.max(0,
-    contextStatusDisplay.source === 'pressure'
-      ? contextStatusDisplay.percentOfTrigger
-      : contextStatusDisplay.source === 'next_request' || contextStatusDisplay.source === 'actual'
-      ? Math.round((contextStatusDisplay.usedTokens / Math.max(1, contextStatusDisplay.contextWindow)) * 100)
-      : contextStatusDisplay.source === 'history'
-        ? contextStatusDisplay.percent
-        : 0,
-  ));
-  const contextTargetPercent = contextStatusDisplay.source === 'pressure'
-    ? Math.min(
-      100,
-      Math.max(0, Math.round(
-        (contextStatusDisplay.targetTokens / Math.max(1, contextStatusDisplay.triggerTokens)) * 100,
-      )),
-    )
-    : null;
   const sessionDisplayLabel = getSessionDisplayTitle(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const primaryActionIsStop = isRuntimeBusy && !hasComposerContent;
@@ -1333,8 +1316,6 @@ export default function CanvasAgentChat({
         activeSessionAgentId={activeSessionAgentId}
         chatAgentOptions={chatAgentOptions}
         contextDetailedLabel={contextDetailedLabel}
-        contextProgressPercent={contextProgressPercent}
-        contextTargetPercent={contextTargetPercent}
         contextTooltip={contextTooltip}
         hideNavHeader={hideNavHeader}
         isHistoryOverlayOpen={isHistoryOverlayOpen}
@@ -1502,7 +1483,7 @@ export default function CanvasAgentChat({
         onClearUploadError={() => setUploadError(null)}
         isWebSocketUnavailable={isWebSocketUnavailable}
         showModelRequiredNotice={showModelRequiredNotice}
-        delegationPanel={sessionId ? (
+        delegationPanel={sessionId && isMainAgentId(activeSessionAgentId) ? (
           <ChatDelegationPanel
             key={sessionId}
             sourceSessionId={sessionId}

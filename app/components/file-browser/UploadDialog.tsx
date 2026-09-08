@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { useFileStore } from '@/app/store/file-store';
 import { DirectoryBrowser } from './DirectoryBrowser';
-import { UploadProgress } from './UploadProgress';
+import { WorkspaceUploadProgress } from './WorkspaceUploadProgress';
 
 interface UploadDialogProps {
   open: boolean;
@@ -27,8 +27,6 @@ interface UploadDialogProps {
 export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: UploadDialogProps) {
   const t = useTranslations('notebook');
   const fileTree = useFileStore((state) => state.fileTree);
-  const uploadProgress = useFileStore((state) => state.uploadProgress);
-  const uploadItems = useFileStore((state) => state.uploadItems);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [targetDir, setTargetDir] = useState(defaultPath);
@@ -87,15 +85,6 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
     folderInputRef.current?.click();
   };
 
-  const visibleProgress = uploadProgress ?? (() => {
-    if (uploadItems.length === 0) return 0;
-    const totalBytes = uploadItems.reduce((total, item) => total + item.size, 0);
-    const uploadedBytes = uploadItems.reduce((total, item) => total + item.uploadedBytes, 0);
-    return totalBytes > 0
-      ? Math.round((uploadedBytes / totalBytes) * 100)
-      : Math.round((uploadItems.filter((item) => item.status === 'completed').length / uploadItems.length) * 100);
-  })();
-
   return (
     <Dialog
       open={open}
@@ -109,6 +98,7 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
           <DialogDescription>{t('uploadDescription')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">{t('uploadEmptyFoldersHint')}</p>
           <div>
             <label htmlFor="uploadTargetDir" className="text-xs text-muted-foreground">{t('uploadTo')}</label>
             <Input
@@ -128,8 +118,8 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
               onToggleDir={toggleDir}
             />
           </div>
-          {(isUploading || error) && uploadItems.length > 0 && (
-            <UploadProgress value={visibleProgress} items={uploadItems} />
+          {(isUploading || error) && (
+            <WorkspaceUploadProgress includeFinished />
           )}
           {error && (
             <p

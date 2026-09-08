@@ -13,6 +13,9 @@ folder.
 
 ## Core Contract
 
+- Use `CANVAS_AGENT_TEMP_DIR` for scripts, working copies, recalculation output,
+  exports, and render previews. Promote only the requested final workbook to the
+  workspace with `copy_path` or `move_path`.
 - Preserve existing workbook conventions for targeted edits.
 - For new workbooks, design the workbook structure first: summary/dashboard,
   inputs, assumptions, source data, calculations, checks, and outputs as needed.
@@ -27,8 +30,9 @@ folder.
 - `openpyxl` for XLSX creation, formatting, formulas, charts, validation, and
   structural inspection.
 - `pandas` for data cleaning, joins, grouping, and statistical preparation.
-- LibreOffice `soffice` when available for formula recalculation and export
-  checks.
+- LibreOffice `soffice` for formula recalculation and export checks. Before
+  invoking it, read
+  [references/headless-libreoffice.md](references/headless-libreoffice.md).
 - CSV/TSV readers from the Python standard library for malformed lightweight
   tabular files when pandas would hide parsing issues.
 
@@ -42,8 +46,10 @@ folder.
    validations, and conditional formatting when adding rows or columns.
 4. For new analytical workbooks, separate raw inputs from calculations and
    presentation sheets. Add checks when correctness depends on linked formulas.
-5. Reopen the workbook after saving and verify formulas, dimensions, styles,
-   frozen panes, filters, charts, and visible sheet order.
+5. If LibreOffice recalculation is needed, write its result to scratch with a
+   unique headless profile, then reopen that result with `openpyxl` and verify
+   formulas, cached values where available, dimensions, styles, frozen panes,
+   filters, charts, and visible sheet order.
 
 ## Spreadsheet Quality Rules
 

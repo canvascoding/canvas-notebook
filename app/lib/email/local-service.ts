@@ -19,6 +19,7 @@ import {
   upsertOAuthEmailAccount,
   type StoredEmailAccount,
 } from '@/app/lib/email/account-store';
+import { reactivateEmailMailboxCache } from '@/app/lib/email/cache/consistency';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { EmailMessageNotFoundError, EmailProviderRequestError, isEmailProviderNotFoundError } from '@/app/lib/email/errors';
 import { htmlToPlainText, plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
@@ -504,6 +505,7 @@ export async function completeLocalEmailOAuth(userId: string, code: string, stat
       expiresAt: token.expires_in ? new Date(Date.now() + token.expires_in * 1000).toISOString() : undefined,
     },
   });
+  await reactivateEmailMailboxCache({ userId, accountId: account.id, accountSource: 'local' });
   await fs.rm(userStatePath, { force: true }).catch(() => undefined);
   await fs.rm(legacyStatePath(state), { force: true }).catch(() => undefined);
   return { account: await publicLocalEmailAccount(account), returnUrl: stored.returnUrl };
@@ -517,6 +519,14 @@ export async function publicLocalEmailAccount(account: StoredEmailAccount) {
 export async function listLocalEmailAccounts(userId: string) {
   await migrateLegacyEmailAccountsIfSafe(userId);
   return listPublicEmailAccountsForUser(userId);
+}
+
+export async function resolveLocalEmailCacheAccount(userId: string, accountId?: string) {
+  const account = await findLocalEmailAccount(userId, accountId);
+  return {
+    account: await publicLocalEmailAccount(account),
+    provider: account.authType === 'smtp_imap' ? 'imap' : account.provider,
+  };
 }
 
 async function findLocalEmailAccount(userId: string, accountId?: string): Promise<StoredEmailAccount> {

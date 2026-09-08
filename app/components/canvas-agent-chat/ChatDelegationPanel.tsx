@@ -8,7 +8,6 @@ import {
   ChevronRight,
   CircleDashed,
   Loader2,
-  Network,
   Plus,
   RotateCw,
   XCircle,
@@ -16,6 +15,7 @@ import {
 import { useLocale, useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
+import { SubagentIcon } from '@/app/components/agents/SubagentIcon';
 import { DelegationAgentPicker } from '@/app/components/canvas-agent-chat/DelegationAgentPicker';
 import { DelegationToolsetIcon } from '@/app/components/canvas-agent-chat/DelegationToolsetIcon';
 import { DelegationToolsetPicker } from '@/app/components/canvas-agent-chat/DelegationToolsetPicker';
@@ -258,7 +258,7 @@ export function ChatDelegationPanel({
           onClick={toggleExpanded}
           className="flex min-w-0 flex-1 items-center gap-2 py-1 text-left text-xs transition-colors hover:text-primary"
         >
-          <Network className="h-4 w-4 text-primary" />
+          <SubagentIcon className="h-5 w-5" />
           <span className="font-medium text-foreground">{t('delegations')}</span>
           {activeCount > 0 ? (
             <Badge variant="secondary" className="h-5 border-blue-500/20 bg-blue-500/10 px-1.5 text-[10px] text-blue-700 dark:text-blue-300">
@@ -298,7 +298,10 @@ export function ChatDelegationPanel({
           ) : null}
 
           {!loading && tasks.length === 0 && !loadError ? (
-            <div className="px-2.5 py-3 text-[11px] text-muted-foreground">{t('delegationNoTasks')}</div>
+            <div className="flex items-center gap-2 px-2.5 py-3 text-[11px] text-muted-foreground">
+              <SubagentIcon className="h-7 w-7 shrink-0 opacity-80" />
+              <span>{t('delegationNoTasks')}</span>
+            </div>
           ) : null}
 
           {tasks.map((task) => {
@@ -419,8 +422,15 @@ export function ChatDelegationPanel({
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="flex h-[min(92dvh,780px)] max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
           <DialogHeader className="shrink-0 border-b border-border/70 px-4 py-4 pr-12 sm:px-6">
-            <DialogTitle>{t('delegationStart')}</DialogTitle>
-            <DialogDescription>{t('delegationStartDescription')}</DialogDescription>
+            <div className="flex items-start gap-3 text-left">
+              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/[0.06]">
+                <SubagentIcon className="h-8 w-8" />
+              </span>
+              <div className="min-w-0 space-y-1">
+                <DialogTitle>{t('delegationStart')}</DialogTitle>
+                <DialogDescription>{t('delegationStartDescription')}</DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain lg:flex lg:flex-col lg:overflow-hidden">

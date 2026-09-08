@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import Database from 'better-sqlite3';
+import JSZip from 'jszip';
 import { NextRequest } from 'next/server';
 import { Pool } from 'pg';
 
@@ -327,6 +328,12 @@ async function main() {
   await fs.mkdir(path.join(dataRoot, teamWorkspacePath), { recursive: true });
   await fs.writeFile(path.join(dataRoot, personalWorkspacePath, 'personal-only.txt'), 'personal export');
   await fs.writeFile(path.join(dataRoot, teamWorkspacePath, 'team-only.txt'), 'team workspace');
+  await fs.mkdir(path.join(dataRoot, teamWorkspacePath, 'download-selection', 'nested'), { recursive: true });
+  await fs.mkdir(path.join(dataRoot, teamWorkspacePath, 'download-selection', 'empty'), { recursive: true });
+  await fs.writeFile(path.join(dataRoot, teamWorkspacePath, 'download-selection', 'alpha.txt'), 'alpha');
+  await fs.writeFile(path.join(dataRoot, teamWorkspacePath, 'download-selection', 'nested', 'child.txt'), 'child');
+  await fs.writeFile(path.join(dataRoot, teamWorkspacePath, 'standalone.txt'), 'standalone');
+  await fs.writeFile(path.join(dataRoot, teamWorkspacePath, 'Résumé 😀.txt'), 'unicode');
 
   const personalStatsResponse = await workspaceStatsRoute.GET(
     request(`http://localhost/api/files/workspace-stats?scope=personal&workspaceId=${teamWorkspaceId}`, {
@@ -343,7 +350,36 @@ async function main() {
     }),
   );
   assert.equal(personalDownloadResponse.status, 200);
-  assert.equal(personalDownloadResponse.headers.get('content-disposition'), 'attachment; filename="workspace.zip"');
+  assert.match(personalDownloadResponse.headers.get('content-disposition') ?? '', /filename="workspace\.zip"/);
+  await personalDownloadResponse.arrayBuffer();
+
+  const selectedDownloadResponse = await downloadRoute.GET(
+    request('http://localhost/api/files/download?path=download-selection&path=download-selection%2Fnested%2Fchild.txt&path=standalone.txt', {
+      headers: { 'x-canvas-workspace-id': teamWorkspaceId },
+    }),
+  );
+  assert.equal(selectedDownloadResponse.status, 200);
+  assert.match(selectedDownloadResponse.headers.get('content-disposition') ?? '', /filename="notebook-selection\.zip"/);
+  const selectedArchive = await JSZip.loadAsync(await selectedDownloadResponse.arrayBuffer());
+  assert.deepEqual(Object.keys(selectedArchive.files).sort(), [
+    'download-selection/',
+    'download-selection/alpha.txt',
+    'download-selection/empty/',
+    'download-selection/nested/',
+    'download-selection/nested/child.txt',
+    'standalone.txt',
+  ]);
+  assert.equal(await selectedArchive.file('download-selection/nested/child.txt')?.async('string'), 'child');
+  assert.equal(await selectedArchive.file('standalone.txt')?.async('string'), 'standalone');
+
+  const unicodeDownloadResponse = await downloadRoute.GET(
+    request(`http://localhost/api/files/download?path=${encodeURIComponent('Résumé 😀.txt')}`, {
+      headers: { 'x-canvas-workspace-id': teamWorkspaceId },
+    }),
+  );
+  assert.equal(unicodeDownloadResponse.status, 200);
+  assert.match(unicodeDownloadResponse.headers.get('content-disposition') ?? '', /filename\*=UTF-8''R%C3%A9sum%C3%A9%20%F0%9F%98%80\.txt/);
+  assert.equal(await unicodeDownloadResponse.text(), 'unicode');
 
   const missingWorkspaceStatsResponse = await workspaceStatsRoute.GET(
     request('http://localhost/api/files/workspace-stats?scope=workspace'),
@@ -362,13 +398,14 @@ async function main() {
   const selectedTeamStats = expectObject(await responseJson(selectedTeamStatsResponse), 'selected team workspace stats');
   // Shared workspace creation also seeds the existing onboarding document.
   await fs.access(path.join(dataRoot, teamWorkspacePath, 'Erste Schritte.md'));
-  assert.equal(expectObject(selectedTeamStats.data, 'selected team workspace stats data').fileCount, 2);
+  assert.equal(expectObject(selectedTeamStats.data, 'selected team workspace stats data').fileCount, 6);
 
   const adminTeamDownloadResponse = await downloadRoute.GET(
     request(`http://localhost/api/files/download?scope=workspace&workspaceId=${teamWorkspaceId}`),
   );
   assert.equal(adminTeamDownloadResponse.status, 200);
-  assert.equal(adminTeamDownloadResponse.headers.get('content-disposition'), 'attachment; filename="workspace.zip"');
+  assert.match(adminTeamDownloadResponse.headers.get('content-disposition') ?? '', /filename="workspace\.zip"/);
+  await adminTeamDownloadResponse.arrayBuffer();
 
   const movedSourcePath = path.join(dataRoot, teamWorkspacePath, 'files', '00_dashboard');
   const movedDestinationPath = path.join(dataRoot, teamWorkspacePath, '00_dashboard');

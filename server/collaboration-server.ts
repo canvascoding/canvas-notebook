@@ -49,6 +49,8 @@ import {
   MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL,
 } from '@/app/lib/mobile/collaboration-ticket';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
+import { resolveUserProfile } from '@/app/lib/user-profile/service';
+import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { resolvePostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -67,10 +69,41 @@ function durabilitySnapshotPayload(state: PersistedCollaborationState) {
   };
 }
 
+type CollaborationPresenceProfile = ResolvedUserProfile;
+
+function presenceProfileImageUrl(workspaceId: string, userId: string, revision: number): string {
+  const params = new URLSearchParams({ workspaceId, userId, v: String(revision) });
+  return `/api/files/presence/avatar?${params.toString()}`;
+}
+
+async function resolveCollaborationPresenceProfile(input: {
+  workspaceId: string;
+  userId: string;
+  name: string;
+  email: string | null;
+}): Promise<CollaborationPresenceProfile | null> {
+  try {
+    const profile = await resolveUserProfile({
+      userId: input.userId,
+      name: input.name,
+      email: input.email,
+    });
+    return {
+      ...profile,
+      imageUrl: profile.imageUrl
+        ? presenceProfileImageUrl(input.workspaceId, input.userId, profile.revision)
+        : null,
+    };
+  } catch (error) {
+    console.warn('[Collaboration] Failed to resolve presence profile.', error);
+    return null;
+  }
+}
+
 type CollaborationContext = {
   claims: CollaborationTicketClaims;
   workspace: WorkspaceContext;
-  user: { id: string; name: string; email: string | null };
+  user: { id: string; name: string; email: string | null; profile?: CollaborationPresenceProfile | null };
   actorType: 'user' | 'agent';
   initiatedByUserId: string | null;
   operationId: string | null;
@@ -122,6 +155,7 @@ function presenceFromAwareness(
       actorType: canvas.actorType === 'agent' ? 'agent' : 'user',
       initiatedByUserId: canvas.initiatedByUserId || null,
       displayName: canvas.displayName,
+      profile: fallback.user.profile ?? null,
       color: canvas.color || '#2563eb',
       colorLight: canvas.colorLight || '#dbeafe',
       activity: canvas.activity === 'editing' || canvas.activity === 'agent_editing' ? canvas.activity : 'viewing',
@@ -193,6 +227,12 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         },
       );
       connectionConfig.readOnly = claims.permission !== 'write';
+      const presenceProfile = await resolveCollaborationPresenceProfile({
+        workspaceId: claims.workspaceId,
+        userId: authenticatedUser.id,
+        name: authenticatedUser.name,
+        email: authenticatedUser.email,
+      });
       return {
         claims,
         workspace,
@@ -200,6 +240,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
           id: authenticatedUser.id,
           name: authenticatedUser.name,
           email: authenticatedUser.email,
+          profile: presenceProfile,
         },
         actorType: 'user',
         initiatedByUserId: null,

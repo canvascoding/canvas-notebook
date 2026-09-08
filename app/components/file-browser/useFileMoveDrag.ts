@@ -13,7 +13,13 @@ import {
   validateWorkspaceFileDrop,
   type WorkspaceFileDragPayload,
 } from '@/app/lib/files/file-drag';
-import { getCanvasDesktopFileDragBridge } from '@/app/lib/desktop/file-drag';
+import {
+  getCanvasDesktopFileDragBridge,
+  getCanvasDesktopFileDragPreparationKey,
+  isCanvasDesktopFileDragPrepared,
+  startCanvasDesktopFileDrag,
+  type DesktopFileDragRequest,
+} from '@/app/lib/desktop/file-drag';
 import type { WorkspaceMoveController } from './useWorkspaceMove';
 
 const TREE_AUTO_EXPAND_DELAY_MS = 650;
@@ -46,6 +52,7 @@ export function useFileMoveDrag({ controller }: UseFileMoveDragOptions) {
   const dropTargetPathRef = useRef<string | null>(null);
   const autoExpandTimerRef = useRef<number | null>(null);
   const preparedDesktopPathsRef = useRef(new Map<string, number>());
+  const pendingDesktopPathsRef = useRef(new Set<string>());
 
   const stopAutoExpand = useCallback(() => {
     if (autoExpandTimerRef.current !== null) {
@@ -79,6 +86,39 @@ export function useFileMoveDrag({ controller }: UseFileMoveDragOptions) {
       void store.loadSubdirectory(path, false, false);
     }, TREE_AUTO_EXPAND_DELAY_MS);
   }, [stopAutoExpand]);
+
+  const prepareDesktopPaths = useCallback((paths: string[]) => {
+    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    const desktopBridge = getCanvasDesktopFileDragBridge();
+    if (!workspaceId || !desktopBridge) return;
+
+    const now = Date.now();
+    const pathsToPrepare = paths.filter((filePath) => {
+      const key = getCanvasDesktopFileDragPreparationKey(workspaceId, filePath);
+      if (pendingDesktopPathsRef.current.has(key)) return false;
+      const preparedAt = preparedDesktopPathsRef.current.get(key);
+      return preparedAt === undefined || now - preparedAt >= DESKTOP_FILE_DRAG_PREPARE_TTL_MS;
+    });
+    if (pathsToPrepare.length === 0) return;
+
+    const request: DesktopFileDragRequest = { workspaceId, paths: pathsToPrepare };
+    const keys = pathsToPrepare.map((filePath) => (
+      getCanvasDesktopFileDragPreparationKey(workspaceId, filePath)
+    ));
+    keys.forEach((key) => pendingDesktopPathsRef.current.add(key));
+
+    void desktopBridge.prepareFileDrag(request)
+      .then(() => {
+        const preparedAt = Date.now();
+        keys.forEach((key) => preparedDesktopPathsRef.current.set(key, preparedAt));
+      })
+      .catch(() => {
+        keys.forEach((key) => preparedDesktopPathsRef.current.delete(key));
+      })
+      .finally(() => {
+        keys.forEach((key) => pendingDesktopPathsRef.current.delete(key));
+      });
+  }, []);
 
   const handleDragStart = useCallback((event: DragEvent<HTMLElement>) => {
     if (controller.isMoving || !event.dataTransfer) {
@@ -118,44 +158,49 @@ export function useFileMoveDrag({ controller }: UseFileMoveDragOptions) {
       workspaceId: useWorkspaceStore.getState().activeWorkspaceId,
       paths,
     };
-    dragPayloadRef.current = payload;
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData(WORKSPACE_FILE_DRAG_TYPE, encodeWorkspaceFileDrag(payload));
-    event.dataTransfer.setData('text/plain', paths.join('\n'));
-
     if (payload.workspaceId) {
       const desktopBridge = getCanvasDesktopFileDragBridge();
       if (desktopBridge) {
         const desktopRequest = { workspaceId: payload.workspaceId, paths: payload.paths };
-        void desktopBridge.prepareFileDrag(desktopRequest).catch(() => undefined);
-        desktopBridge.startFileDrag(desktopRequest);
+        if (isCanvasDesktopFileDragPrepared(
+          preparedDesktopPathsRef.current,
+          desktopRequest,
+          DESKTOP_FILE_DRAG_PREPARE_TTL_MS,
+        )) {
+          clearDragState();
+          state.closeContextMenu();
+          state.closeBackgroundContextMenu();
+          startCanvasDesktopFileDrag(event, desktopBridge, desktopRequest);
+          return;
+        }
+        prepareDesktopPaths(payload.paths);
       }
     }
+
+    dragPayloadRef.current = payload;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(WORKSPACE_FILE_DRAG_TYPE, encodeWorkspaceFileDrag(payload));
+    event.dataTransfer.setData('text/plain', paths.join('\n'));
 
     const preview = createDragPreview(t('selectedCount', { count: paths.length }));
     event.dataTransfer.setDragImage(preview, 16, 16);
     window.setTimeout(() => preview.remove(), 0);
     state.closeContextMenu();
     state.closeBackgroundContextMenu();
-  }, [controller.isMoving, t]);
+  }, [clearDragState, controller.isMoving, prepareDesktopPaths, t]);
 
   const handlePointerMove = useCallback((event: PointerEvent<HTMLElement>) => {
     const item = event.target instanceof Element
       ? event.target.closest<HTMLElement>('[data-file-path]')
       : null;
     const sourcePath = item?.dataset.filePath;
-    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
-    if (!sourcePath || !workspaceId) return;
-    const preparedAt = preparedDesktopPathsRef.current.get(sourcePath);
-    if (preparedAt !== undefined && Date.now() - preparedAt < DESKTOP_FILE_DRAG_PREPARE_TTL_MS) return;
-
-    const desktopBridge = getCanvasDesktopFileDragBridge();
-    if (!desktopBridge) return;
-    preparedDesktopPathsRef.current.set(sourcePath, Date.now());
-    void desktopBridge.prepareFileDrag({ workspaceId, paths: [sourcePath] }).catch(() => {
-      preparedDesktopPathsRef.current.delete(sourcePath);
-    });
-  }, []);
+    if (!sourcePath) return;
+    const paths = getWorkspaceFileDragPaths(
+      sourcePath,
+      useFileStore.getState().multiSelectPaths,
+    );
+    prepareDesktopPaths(paths);
+  }, [prepareDesktopPaths]);
 
   const handleDragOver = useCallback((event: DragEvent<HTMLElement>) => {
     if (!hasWorkspaceFileDragType(event.dataTransfer.types)) return;

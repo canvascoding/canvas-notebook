@@ -27,6 +27,7 @@ export type NotebookLayoutAction =
   | { type: 'SHOW_SURFACE'; surface: NotebookWorkSurface }
   | { type: 'DOCUMENT_OPENED'; dockChatIfFull?: boolean }
   | { type: 'DOCUMENT_CLOSED' }
+  | { type: 'ALL_DOCUMENTS_CLOSED' }
   | { type: 'CONTEXT_OPENED'; surface: NotebookContextSurface; activate?: boolean }
   | { type: 'CONTEXT_CLOSED'; surface: NotebookContextSurface }
   | { type: 'SET_EXPLORER'; open: boolean }
@@ -182,7 +183,8 @@ export function notebookLayoutReducer(
         : nextState;
     }
 
-    case 'DOCUMENT_CLOSED': {
+    case 'DOCUMENT_CLOSED':
+    case 'ALL_DOCUMENTS_CLOSED': {
       const nextState = {
         ...state,
         documentAvailable: false,
@@ -190,7 +192,7 @@ export function notebookLayoutReducer(
       };
       if (state.mainSurface !== 'document') return nextState;
       const fallback = fallbackWorkSurface(nextState, 'document');
-      if (!fallback && state.chatDocked && state.viewport === 'desktop-wide') {
+      if (action.type === 'DOCUMENT_CLOSED' && !fallback && state.chatDocked && state.viewport === 'desktop-wide') {
         return withEmptyWorkbenchBesideChat(nextState);
       }
       return fallback ? withMainSurface(nextState, fallback) : withMainSurface(nextState, 'chat');

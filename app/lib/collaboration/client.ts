@@ -41,6 +41,7 @@ type CollaborationDurabilitySnapshot = {
 };
 
 type RegistryEntry = {
+  path: string;
   key: string;
   refs: number;
   doc: Y.Doc | null;
@@ -149,10 +150,11 @@ function waitForEntryState(
 async function requestSession(
   path: string,
   representation: RequestedTextCollaborationRepresentation,
+  workspaceId: string | null,
 ): Promise<CollaborationSessionResponse> {
   const response = await fetch('/api/files/collaboration/session', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
     body: JSON.stringify({ path, representation }),
   });
   const payload = await response.json().catch(() => ({})) as Partial<CollaborationSessionResponse> & { error?: string };
@@ -186,7 +188,9 @@ function createEntry(
   representation: TextCollaborationRepresentation,
   initialSession?: CollaborationSessionResponse | null,
 ): RegistryEntry {
+  const workspaceId = key.split('\0')[0];
   const entry: RegistryEntry = {
+    path,
     key,
     refs: 0,
     doc: null,
@@ -219,7 +223,7 @@ function createEntry(
       if (entry.refs === 0 && !registry.has(key)) return;
       entry.doc = new Y.Doc({ gc: true });
       let session = requireTextSession(
-        initialSession || await requestSession(path, representation),
+        initialSession || await requestSession(entry.path, representation, workspaceId),
         representation,
       );
       entry.session = session;
@@ -277,7 +281,7 @@ function createEntry(
         document: entry.doc,
         token: async () => {
           if (Date.parse(session.expiresAt) - Date.now() < 30_000) {
-            const refreshed = requireTextSession(await requestSession(path, 'auto'), representation);
+            const refreshed = requireTextSession(await requestSession(entry.path, 'auto', workspaceId), representation);
             if (
               refreshed.documentId !== session.documentId
               || refreshed.lifecycleGeneration !== session.lifecycleGeneration
@@ -382,7 +386,7 @@ function createEntry(
           }
 
           if (Date.parse(entry.session.expiresAt) - Date.now() < 30_000) {
-            const refreshed = requireTextSession(await requestSession(path, 'auto'), representation);
+            const refreshed = requireTextSession(await requestSession(entry.path, 'auto', workspaceId), representation);
             if (
               refreshed.documentId !== entry.session.documentId
               || refreshed.lifecycleGeneration !== entry.session.lifecycleGeneration
@@ -398,7 +402,7 @@ function createEntry(
           for (let attempt = 0; attempt < 20; attempt += 1) {
             const response = await fetch('/api/files/collaboration/checkpoint', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+              headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
               body: JSON.stringify({ token: entry.session.token, stateVector }),
             });
             const payload = await response.json().catch(() => ({})) as Record<string, unknown> & {
@@ -480,7 +484,7 @@ export function useCollaborationDocument(input: {
 }): CollaborationDocument | null {
   const key = input.enabled && input.workspaceId && input.path
     ? input.session
-      ? `${input.workspaceId}\0${input.path}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}`
+      ? `${input.workspaceId}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}`
       : `${input.workspaceId}\0${input.path}\0${input.representation}`
     : null;
   const [state, setState] = useState<CollaborationDocument | null>(null);
@@ -493,6 +497,7 @@ export function useCollaborationDocument(input: {
       entry = createEntry(key, input.path, input.representation, input.session);
       registry.set(key, entry);
     }
+    entry.path = input.path;
     if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
     entry.refs += 1;
     const update = () => setState(entry.doc ? snapshot(entry) : null);
@@ -531,9 +536,10 @@ export function useTextCollaborationSession(input: {
   enabled: boolean;
   workspaceId: string | null;
   path: string | undefined;
+  documentId?: string;
 }): TextCollaborationSessionResolution {
   const key = input.enabled && input.workspaceId && input.path
-    ? `${input.workspaceId}\0${input.path}`
+    ? `${input.workspaceId}\0${input.documentId ?? input.path}`
     : null;
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
@@ -548,7 +554,7 @@ export function useTextCollaborationSession(input: {
       return;
     }
     let cancelled = false;
-    void requestSession(input.path, 'auto')
+    void requestSession(input.path, 'auto', input.workspaceId)
       .then((session) => requireTextSession(session))
       .then((session) => {
         if (!cancelled) setState({ key, attempt, session, error: null });
@@ -566,7 +572,7 @@ export function useTextCollaborationSession(input: {
     return () => {
       cancelled = true;
     };
-  }, [input.path, key, attempt]);
+  }, [input.path, input.workspaceId, key, attempt]);
 
   const current = state.key === key && state.attempt === attempt ? state : { session: null, error: null };
   return {

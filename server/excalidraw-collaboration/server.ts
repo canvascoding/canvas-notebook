@@ -31,6 +31,8 @@ import { installExcalidrawCollaborationRuntime } from '@/app/lib/excalidraw-coll
 import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
+import { resolveUserProfile } from '@/app/lib/user-profile/service';
+import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { resolvePostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -47,7 +49,7 @@ type ConnectionContext = {
   connectionId: string;
   claims: CollaborationTicketClaims;
   workspace: WorkspaceContext;
-  user: { id: string; name: string; color: string; colorLight: string };
+  user: { id: string; name: string; color: string; colorLight: string; profile: ResolvedUserProfile | null };
   presence: ExcalidrawPresencePayload;
   acknowledgedSequence: number;
   sceneWindow: { startedAt: number; count: number };
@@ -131,6 +133,7 @@ function presenceEntry(context: ConnectionContext): FilePresenceEntry {
     actorType: 'user',
     initiatedByUserId: null,
     displayName: context.user.name,
+    profile: context.user.profile,
     color: context.user.color,
     colorLight: context.user.colorLight,
     activity: context.claims.permission === 'write' ? 'editing' : 'viewing',
@@ -269,6 +272,23 @@ async function authenticateConnection(
     || state.lifecycleGeneration !== claims.lifecycleGeneration
   ) throw new Error('Excalidraw collaboration document generation is stale.');
   const colors = collaborationUserColors(session.user.id);
+  const profile = await resolveUserProfile({
+    userId: session.user.id,
+    name: session.user.name,
+    email: session.user.email,
+  }).then((resolved) => ({
+    ...resolved,
+    imageUrl: resolved.imageUrl
+      ? `/api/files/presence/avatar?${new URLSearchParams({
+        workspaceId: claims.workspaceId,
+        userId: session.user.id,
+        v: String(resolved.revision),
+      }).toString()}`
+      : null,
+  })).catch((error) => {
+    console.warn('[Excalidraw collaboration] Failed to resolve presence profile.', error);
+    return null;
+  });
   const now = Date.now();
   const context: ConnectionContext = {
     socket,
@@ -280,6 +300,7 @@ async function authenticateConnection(
       id: session.user.id,
       name: (session.user.name || session.user.email || 'User').slice(0, 120),
       ...colors,
+      profile,
     },
     presence: {},
     acknowledgedSequence: state.sceneSequence,

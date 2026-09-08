@@ -15,6 +15,10 @@ const WRITE_WORKSPACE_TOOL_NAMES = new Set([
   'pdf_to_markdown',
   'split_pdf',
   'edit_pdf_pages',
+  'checkout_docx',
+  'commit_docx',
+  'inspect_docx_checkout',
+  'release_docx_checkout',
   'create_human_todo',
   'update_human_todo',
 ]);

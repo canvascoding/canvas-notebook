@@ -1,3 +1,5 @@
+import { useWorkspaceStore } from '@/app/store/workspace-store';
+
 export const WORKSPACE_FILE_OPENED_EVENT = 'canvas:workspace-file-opened';
 export const WORKSPACE_PATHS_DELETED_EVENT = 'canvas:workspace-paths-deleted';
 export const WORKSPACE_PATH_RENAMED_EVENT = 'canvas:workspace-path-renamed';
@@ -7,6 +9,7 @@ export type WorkspaceFileOpenedSource = 'file-browser' | 'chat-reference';
 export type WorkspaceFileOpenedDetail = {
   path: string;
   source: WorkspaceFileOpenedSource;
+  workspaceId: string | null;
 };
 
 export type WorkspacePathsDeletedDetail = {
@@ -20,12 +23,12 @@ export type WorkspacePathRenamedDetail = {
   oldPath: string;
 };
 
-export function notifyWorkspaceFileOpened(path: string, source: WorkspaceFileOpenedSource) {
+export function notifyWorkspaceFileOpened(path: string, source: WorkspaceFileOpenedSource, workspaceId = useWorkspaceStore.getState().activeWorkspaceId) {
   if (typeof window === 'undefined') return;
 
   window.dispatchEvent(
     new CustomEvent<WorkspaceFileOpenedDetail>(WORKSPACE_FILE_OPENED_EVENT, {
-      detail: { path, source },
+      detail: { path, source, workspaceId },
     })
   );
 }

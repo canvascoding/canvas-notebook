@@ -152,6 +152,7 @@ async function main() {
 
   assert.match(composerSource, /\{delegationPanel\}/u);
   assert.match(chatSource, /<ChatDelegationPanel/u);
+  assert.match(chatSource, /sessionId && isMainAgentId\(activeSessionAgentId\)/u);
   assert.match(chatSource, /sourceSessionId=\{sessionId\}/u);
   assert.match(chatSource, /agents=\{chatAgentOptions\}/u);
   assert.match(panelSource, /data-testid="chat-delegation-panel"/u);
@@ -161,6 +162,7 @@ async function main() {
   assert.match(panelSource, /<DelegationAgentPicker/u);
   assert.match(panelSource, /<DelegationToolsetPicker/u);
   assert.match(panelSource, /<AgentAvatar/u);
+  assert.match(panelSource, /<SubagentIcon/u);
   assert.match(panelSource, /workerAgent\?\.name/u);
   assert.match(panelSource, /visibleToolsets/u);
   assert.doesNotMatch(panelSource, /type="checkbox"/u);

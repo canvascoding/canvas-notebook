@@ -31,7 +31,10 @@ import type { EmailAccountSmtpSecret } from '@/app/lib/email/secret-store';
 
 type ImapLock = { release(): void };
 
-type ImapClientLike = {
+export type ImapClientLike = {
+  readonly mailbox: false | {
+    uidValidity: bigint | number | string;
+  };
   connect(): Promise<void>;
   logout(): Promise<void>;
   close(): void;
@@ -58,7 +61,32 @@ type ImapClientLike = {
   ): Promise<unknown | false>;
 };
 
-type ImapClientFactory = (secret: EmailAccountSmtpSecret) => ImapClientLike;
+export type ImapClientFactory = (secret: EmailAccountSmtpSecret) => ImapClientLike;
+
+export type ParsedImapMessageReference = {
+  version: 0 | 1;
+  folder: string;
+  uidValidity: string | null;
+  uid: number;
+};
+
+export class ImapMailboxChangedError extends Error {
+  readonly code = 'EMAIL_MAILBOX_CHANGED';
+  readonly status = 409;
+
+  constructor(
+    readonly folder: string,
+    readonly expectedUidValidity: string,
+    readonly actualUidValidity: string,
+  ) {
+    super('The IMAP mailbox changed. Reload the message list before trying again.');
+    this.name = 'ImapMailboxChangedError';
+  }
+}
+
+export function isImapMailboxChangedError(error: unknown): error is ImapMailboxChangedError {
+  return error instanceof ImapMailboxChangedError;
+}
 
 export type EmailFolderRole = 'inbox' | 'sent' | 'drafts' | 'trash' | 'junk' | 'archive' | 'custom';
 
@@ -91,6 +119,8 @@ type ImapReadPolicyOptions = {
 const SEARCH_QUERY_MAX_LENGTH = 250;
 const SEARCH_SOURCE_MAX_BYTES = 64 * 1024;
 const READ_SOURCE_MAX_BYTES = 1024 * 1024;
+const IMAP_MESSAGE_REFERENCE_PREFIX = 'imap:v1:';
+const IMAP_MESSAGE_REFERENCE_MAX_LENGTH = 1024;
 
 let imapClientFactory: ImapClientFactory = (secret) => new ImapFlow(imapClientOptions(secret));
 
@@ -233,6 +263,109 @@ function parseUid(messageId: string): number {
   const uid = Number.parseInt(messageId, 10);
   if (!Number.isSafeInteger(uid)) throw new Error('Invalid IMAP message ID.');
   return uid;
+}
+
+function normalizeUidValidity(value: unknown): string {
+  let normalized = '';
+  if (typeof value === 'bigint') {
+    normalized = value.toString();
+  } else if (typeof value === 'number' && Number.isSafeInteger(value)) {
+    normalized = String(value);
+  } else if (typeof value === 'string') {
+    normalized = value;
+  }
+  if (!/^[1-9]\d*$/u.test(normalized)) {
+    throw new Error('IMAP mailbox UIDVALIDITY is unavailable.');
+  }
+  return normalized;
+}
+
+export function getImapMailboxUidValidity(client: Pick<ImapClientLike, 'mailbox'>): string {
+  if (!client.mailbox) throw new Error('IMAP mailbox UIDVALIDITY is unavailable.');
+  return normalizeUidValidity(client.mailbox.uidValidity);
+}
+
+export function createImapMessageReference(folder: string, uidValidity: bigint | number | string, uid: number): string {
+  const payload = JSON.stringify({
+    f: normalizeFolderPath(folder),
+    uv: normalizeUidValidity(uidValidity),
+    u: parseUid(String(uid)),
+  });
+  return `${IMAP_MESSAGE_REFERENCE_PREFIX}${Buffer.from(payload, 'utf8').toString('base64url')}`;
+}
+
+export function parseImapMessageReference(messageId: string, legacyFolder?: string): ParsedImapMessageReference {
+  if (/^[1-9]\d*$/u.test(messageId)) {
+    return {
+      version: 0,
+      folder: normalizeFolderPath(legacyFolder),
+      uidValidity: null,
+      uid: parseUid(messageId),
+    };
+  }
+  if (!messageId.startsWith(IMAP_MESSAGE_REFERENCE_PREFIX) || messageId.length > IMAP_MESSAGE_REFERENCE_MAX_LENGTH) {
+    throw new Error('Invalid IMAP message ID.');
+  }
+
+  const encoded = messageId.slice(IMAP_MESSAGE_REFERENCE_PREFIX.length);
+  if (!encoded || !/^[A-Za-z0-9_-]+$/u.test(encoded)) throw new Error('Invalid IMAP message ID.');
+
+  try {
+    const decoded = Buffer.from(encoded, 'base64url');
+    if (decoded.toString('base64url') !== encoded) throw new Error('Invalid IMAP message ID.');
+    const payload = JSON.parse(decoded.toString('utf8')) as { f?: unknown; uv?: unknown; u?: unknown };
+    if (typeof payload.f !== 'string' || normalizeFolderPath(payload.f) !== payload.f) {
+      throw new Error('Invalid IMAP message ID.');
+    }
+    return {
+      version: 1,
+      folder: payload.f,
+      uidValidity: normalizeUidValidity(payload.uv),
+      uid: parseUid(String(payload.u ?? '')),
+    };
+  } catch {
+    throw new Error('Invalid IMAP message ID.');
+  }
+}
+
+type ResolvedImapMessageReference = ParsedImapMessageReference & {
+  id: string;
+  currentUidValidity: string;
+};
+
+function foldersMatch(left: string, right: string): boolean {
+  if (left === right) return true;
+  return left.toLowerCase() === 'inbox' && right.toLowerCase() === 'inbox';
+}
+
+function resolveImapMessageReference(messageId: string, folder?: string): ParsedImapMessageReference & { id: string } {
+  const parsed = parseImapMessageReference(messageId, folder);
+  const requestedFolder = folder?.trim() ? normalizeFolderPath(folder) : null;
+  if (parsed.version === 1 && requestedFolder && !foldersMatch(requestedFolder, parsed.folder)) {
+    throw new Error('Invalid IMAP message ID.');
+  }
+  return {
+    ...parsed,
+    id: parsed.version === 1
+      ? createImapMessageReference(parsed.folder, parsed.uidValidity!, parsed.uid)
+      : String(parsed.uid),
+  };
+}
+
+async function withImapMessage<T>(
+  secret: EmailAccountSmtpSecret,
+  messageId: string,
+  folder: string | undefined,
+  callback: (client: ImapClientLike, reference: ResolvedImapMessageReference, folder: string) => Promise<T>,
+): Promise<T> {
+  const reference = resolveImapMessageReference(messageId, folder);
+  return withImapMailbox(secret, reference.folder, async (client, folderPath) => {
+    const currentUidValidity = getImapMailboxUidValidity(client);
+    if (reference.uidValidity && reference.uidValidity !== currentUidValidity) {
+      throw new ImapMailboxChangedError(folderPath, reference.uidValidity, currentUidValidity);
+    }
+    return callback(client, { ...reference, currentUidValidity }, folderPath);
+  });
 }
 
 function formatAddress(address: MessageAddressObject | undefined): string {
@@ -400,7 +533,7 @@ function mutationResult(
   account: StoredEmailAccount,
   secret: EmailAccountSmtpSecret,
   action: string,
-  messageId: number,
+  reference: ResolvedImapMessageReference,
   folder: string,
   destination?: string,
 ) {
@@ -409,7 +542,9 @@ function mutationResult(
     action,
     destination,
     folder,
-    messageId: String(messageId),
+    messageId: reference.id,
+    uid: String(reference.uid),
+    uidValidity: reference.currentUidValidity,
   };
 }
 
@@ -424,17 +559,16 @@ async function updateImapMessageFlag(
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
-  const uid = parseUid(messageId);
-  const result = await withImapMailbox(secret, folder, async (client, folderPath) => {
+  const result = await withImapMessage(secret, messageId, folder, async (client, reference, folderPath) => {
     const updated = enabled
-      ? await client.messageFlagsAdd([uid], [flag], { uid: true })
-      : await client.messageFlagsRemove([uid], [flag], { uid: true });
+      ? await client.messageFlagsAdd([reference.uid], [flag], { uid: true })
+      : await client.messageFlagsRemove([reference.uid], [flag], { uid: true });
 
     if (!updated) {
       throw new Error('Email message could not be updated.');
     }
 
-    return mutationResult(account, secret, action, uid, folderPath);
+    return mutationResult(account, secret, action, reference, folderPath);
   });
 
   return result;
@@ -450,16 +584,15 @@ async function moveImapMessageToFolder(
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
-  const uid = parseUid(messageId);
   const destinationFolder = normalizeDestinationFolderPath(destination);
-  const result = await withImapMailbox(secret, folder, async (client, folderPath) => {
-    const moved = await client.messageMove([uid], destinationFolder, { uid: true });
+  const result = await withImapMessage(secret, messageId, folder, async (client, reference, folderPath) => {
+    const moved = await client.messageMove([reference.uid], destinationFolder, { uid: true });
 
     if (!moved) {
       throw new Error('Email message could not be moved.');
     }
 
-    return mutationResult(account, secret, action, uid, folderPath, destinationFolder);
+    return mutationResult(account, secret, action, reference, folderPath, destinationFolder);
   });
 
   return result;
@@ -529,6 +662,7 @@ export async function listImapEmailMessages(account: StoredEmailAccount, input: 
   const enforceReadPolicy = options?.enforceReadPolicy !== false;
 
   const result = await withImapMailbox(secret, input.folder, async (client, folder) => {
+    const uidValidity = getImapMailboxUidValidity(client);
     const found = await client.search(query ? searchObjectForInput({ ...input, query }) : searchObjectForInput(input), { uid: true });
     const ordered = (found || []).slice().reverse();
     const candidateLimit = filter === 'attachments' ? Math.max(limit * 8, 200) : limit;
@@ -536,6 +670,7 @@ export async function listImapEmailMessages(account: StoredEmailAccount, input: 
     if (uids.length === 0) {
       return {
         folder,
+        uidValidity,
         messages: [],
         total: ordered.length,
         offset,
@@ -568,7 +703,7 @@ export async function listImapEmailMessages(account: StoredEmailAccount, input: 
       if (filter === 'attachments' && !hasAttachments) continue;
       const flags = publicFlags(message.flags);
       normalized.push({
-        id: String(message.uid),
+        id: createImapMessageReference(folder, uidValidity, message.uid),
         uid: String(message.uid),
         folder,
         threadId: message.threadId || String(message.uid),
@@ -588,6 +723,7 @@ export async function listImapEmailMessages(account: StoredEmailAccount, input: 
     }
     return {
       folder,
+      uidValidity,
       messages: normalized.slice(0, limit),
       total: ordered.length,
       offset,
@@ -617,10 +753,9 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
-  const uid = parseUid(messageId);
 
-  const message = await withImapMailbox(secret, folder, async (client, folderPath) => {
-    const fetched = await client.fetchOne(uid, {
+  const message = await withImapMessage(secret, messageId, folder, async (client, reference, folderPath) => {
+    const fetched = await client.fetchOne(reference.uid, {
       uid: true,
       flags: true,
       envelope: true,
@@ -630,6 +765,7 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
       threadId: true,
     }, { uid: true });
     if (!fetched) throw new EmailMessageNotFoundError();
+    if (fetched.uid !== reference.uid) throw new EmailMessageNotFoundError();
 
     const from = firstAddress(fetched.envelope);
     if (options?.enforceReadPolicy !== false) {
@@ -647,8 +783,9 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
     const flags = publicFlags(fetched.flags);
 
     return {
-      id: String(fetched.uid),
+      id: reference.id,
       uid: String(fetched.uid),
+      uidValidity: reference.currentUidValidity,
       folder: folderPath,
       threadId: fetched.threadId || String(fetched.uid),
       from,
@@ -709,16 +846,15 @@ export async function archiveImapEmailMessage(account: StoredEmailAccount, messa
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
-  const uid = parseUid(messageId);
-  const result = await withImapMailbox(secret, folder, async (client, folderPath) => {
+  const result = await withImapMessage(secret, messageId, folder, async (client, reference, folderPath) => {
     const destination = await resolveFolderByRole(client, 'archive', ['Archive']);
-    const moved = await client.messageMove([uid], destination, { uid: true });
+    const moved = await client.messageMove([reference.uid], destination, { uid: true });
 
     if (!moved) {
       throw new Error('Email message could not be archived.');
     }
 
-    return mutationResult(account, secret, 'archive', uid, folderPath, destination);
+    return mutationResult(account, secret, 'archive', reference, folderPath, destination);
   });
 
   return result;
@@ -728,16 +864,15 @@ export async function trashImapEmailMessage(account: StoredEmailAccount, message
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
-  const uid = parseUid(messageId);
-  const result = await withImapMailbox(secret, folder, async (client, folderPath) => {
+  const result = await withImapMessage(secret, messageId, folder, async (client, reference, folderPath) => {
     const destination = await resolveFolderByRole(client, 'trash', ['Trash', 'Deleted Items']);
-    const moved = await client.messageMove([uid], destination, { uid: true });
+    const moved = await client.messageMove([reference.uid], destination, { uid: true });
 
     if (!moved) {
       throw new Error('Email message could not be moved to trash.');
     }
 
-    return mutationResult(account, secret, 'trash', uid, folderPath, destination);
+    return mutationResult(account, secret, 'trash', reference, folderPath, destination);
   });
 
   return result;
@@ -747,15 +882,14 @@ export async function deleteImapEmailMessagePermanently(account: StoredEmailAcco
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
-  const uid = parseUid(messageId);
-  const result = await withImapMailbox(secret, folder, async (client, folderPath) => {
-    const deleted = await client.messageDelete([uid], { uid: true });
+  const result = await withImapMessage(secret, messageId, folder, async (client, reference, folderPath) => {
+    const deleted = await client.messageDelete([reference.uid], { uid: true });
 
     if (!deleted) {
       throw new Error('Email message could not be deleted.');
     }
 
-    return mutationResult(account, secret, 'permanent-delete', uid, folderPath);
+    return mutationResult(account, secret, 'permanent-delete', reference, folderPath);
   });
 
   return result;

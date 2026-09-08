@@ -215,6 +215,7 @@ async function main(): Promise<void> {
     sessionId,
     userId,
     model: { contextWindow: 262_000 },
+    refreshContextMeasurement: () => undefined,
     summary: { summaryUpdatedAt: null },
     lastComposition: {
       estimatedHistoryTokens: 100_000,
@@ -268,16 +269,16 @@ async function main(): Promise<void> {
   statusRuntime.isRunning = true;
   const activeStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
   assert.equal(activeStatus.lastProviderInputTokens, 140_000);
-  assert.equal(activeStatus.nextRequestEstimatedTokens, 185_000, 'active status must expose the next serialized-request estimate separately');
-  assert.equal((activeStatus.contextPressure as { source: string }).source, 'serialized_request');
+  assert.equal(activeStatus.nextRequestEstimatedTokens, idleStatus.nextRequestEstimatedTokens, 'phase changes must not change the context measurement');
+  assert.deepEqual(activeStatus.contextPressure, idleStatus.contextPressure);
   statusRuntime.abortRequested = true;
   const abortingStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
-  assert.equal(abortingStatus.nextRequestEstimatedTokens, 162_000, 'an aborted request must fall back to the current rough projection');
+  assert.equal(abortingStatus.nextRequestEstimatedTokens, idleStatus.nextRequestEstimatedTokens, 'abort phase alone must not change the measurement');
   assert.equal(abortingStatus.finalRequestTokens, null, 'an aborted request payload must not remain exposed as the final request');
   statusRuntime.abortRequested = false;
   statusRuntime.pendingReplace = { id: 'replacement-request' };
   const replacingStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
-  assert.equal(replacingStatus.nextRequestEstimatedTokens, 162_000, 'a replacement must fall back to the current rough projection');
+  assert.equal(replacingStatus.nextRequestEstimatedTokens, idleStatus.nextRequestEstimatedTokens, 'replacement phase alone must not change the measurement');
   assert.equal(replacingStatus.finalRequestTokens, null, 'the replaced request payload must not remain exposed during replacement');
   statusRuntime.pendingReplace = null;
 
@@ -340,6 +341,8 @@ async function main(): Promise<void> {
     lastCompactionOmittedCount: 0,
     statusRevision: 1,
     getEffectiveSystemPrompt: () => 'status pruning prompt',
+    getRuntimeContextBlock: async () => null,
+    publishStatus: () => undefined,
     getEffectiveTools: () => [],
     getBrowserRuntimeContextTokenEstimate: () => 0,
     getCompactionScope: () => ({
@@ -371,6 +374,18 @@ async function main(): Promise<void> {
     firstPrunedStatus.estimatedHistoryTokens,
     'recomputing idle status must not jump back to the unpruned transcript size',
   );
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const measuredIdle = (pruningStatusRuntime as {
+    getStatus: () => { nextRequestEstimatedTokens: number; contextMeasurement: { state: string }; contextPressure: { source: string } };
+  }).getStatus();
+  assert.equal(measuredIdle.contextMeasurement.state, 'current');
+  assert.equal(measuredIdle.contextPressure.source, 'serialized_request');
+  pruningStatusRuntime.isRunning = true;
+  const measuredStreaming = (pruningStatusRuntime as {
+    getStatus: () => { nextRequestEstimatedTokens: number; contextMeasurement: { state: string } };
+  }).getStatus();
+  assert.equal(measuredStreaming.nextRequestEstimatedTokens, measuredIdle.nextRequestEstimatedTokens,
+    'a live normalized measurement must survive a phase change without switching estimators');
 
   const eventRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
   Object.assign(eventRuntime, {
@@ -396,6 +411,13 @@ async function main(): Promise<void> {
     1_420,
     'message_end must immediately expose provider-reported input usage to the runtime status',
   );
+  const eventMeasurement = eventRuntime.contextMeasurementCache as { metadata: { revision: number } };
+  assert.equal(eventMeasurement.metadata.revision, 1, 'completed assistant content invalidates the estimate');
+  await (eventRuntime as { onAgentEvent: (event: unknown) => Promise<void> }).onAgentEvent({
+    type: 'message_update', message: providerUsageMessage,
+    assistantMessageEvent: { type: 'thinking_delta', delta: 'partial reasoning' },
+  });
+  assert.equal(eventMeasurement.metadata.revision, 1, 'streaming deltas do not invalidate the estimate');
 
   const calibratedPreflight = {
     softThresholdExceeded: false,

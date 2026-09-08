@@ -47,6 +47,8 @@ interface ExcalidrawEditorProps {
   value: string;
   onChange: (content: string) => void;
   collaborationEnabled?: boolean;
+  documentIdentity?: string;
+  externalCollaboration?: ReturnType<typeof useExcalidrawCollaboration>;
 }
 
 interface SceneBounds {
@@ -175,16 +177,17 @@ function offsetElements(
   })) as OrderedExcalidrawElement[];
 }
 
-export function ExcalidrawEditor({ path, value, onChange, collaborationEnabled = false }: ExcalidrawEditorProps) {
+export function ExcalidrawEditor({ path, value, onChange, collaborationEnabled = false, documentIdentity, externalCollaboration }: ExcalidrawEditorProps) {
   const t = useTranslations('notebook');
   const locale = useLocale();
   const { resolvedTheme } = useTheme();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const collaboration = useExcalidrawCollaboration({
-    enabled: collaborationEnabled,
+  const internalCollaboration = useExcalidrawCollaboration({
+    enabled: collaborationEnabled && externalCollaboration === undefined,
     workspaceId: activeWorkspaceId,
     path,
   });
+  const collaboration = externalCollaboration ?? internalCollaboration;
   useEffect(() => {
     if (!collaborationEnabled) return;
     return registerDocumentTransitionGuard(activeWorkspaceId, path, {
@@ -313,13 +316,13 @@ export function ExcalidrawEditor({ path, value, onChange, collaborationEnabled =
     appState: AppState,
     files: BinaryFiles
   ) => {
+    const serialized = serializeCanvasNotebookScene(elements, appState, files);
     if (collaborationEnabled && collaboration) {
+      if (serialized !== lastSerializedRef.current) { lastSerializedRef.current = serialized; onChange(serialized); }
       collaboration.submitLocalScene(elements, appState, files);
       collaboration.sendSelection(appState.selectedElementIds as Record<string, true>);
       return;
     }
-    const serialized = serializeCanvasNotebookScene(elements, appState, files);
-
     if (serialized === lastSerializedRef.current) return;
     lastSerializedRef.current = serialized;
     onChange(serialized);
@@ -485,7 +488,7 @@ export function ExcalidrawEditor({ path, value, onChange, collaborationEnabled =
     <>
       <div className="relative h-full min-h-0 bg-background">
         <Excalidraw
-          key={`${path}:${resetNonce}`}
+          key={`${documentIdentity ?? path}:${resetNonce}`}
           excalidrawAPI={(api) => { apiRef.current = api; }}
           initialData={collaborationInitialData}
           onChange={handleExcalidrawChange}

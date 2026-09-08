@@ -19,7 +19,8 @@ export function getSkillsContext(skills: SkillContextEntry[]): string {
   }
 
   let context = '\n\n# Enabled Skills\n\n';
-  context += 'Only descriptions are listed here. Read the skill file before using a skill.\n\n';
+  context += 'Only descriptions are listed here. Load only skills relevant to the current task. ';
+  context += 'Before using one, read its listed SKILL.md with the read tool.\n\n';
   context += 'If the user explicitly mentions one or more skills with the syntax /skill-name, ';
   context += 'treat that as a strong preference to use those enabled skills when they are relevant and available.\n\n';
 

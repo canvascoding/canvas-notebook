@@ -336,7 +336,9 @@ export function FileActionsDropdown({
 
   const handleDownload = async () => {
     if (!node) return;
-    await downloadFile(node.path);
+    const selectedPaths = showMultiSelectOptions ? selectedCopyPaths : [node.path];
+    if (selectedPaths.length === 0) return;
+    await downloadFile(selectedPaths);
     closeMenu();
   };
 

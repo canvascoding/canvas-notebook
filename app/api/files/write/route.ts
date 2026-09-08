@@ -1,3 +1,4 @@
+import { WorkspacePathAliasError } from '@/app/lib/workspaces/path-guard';
 import { NextRequest } from 'next/server';
 import {
   WorkspaceFileRevisionError,
@@ -5,7 +6,10 @@ import {
 import {
   FileCollaborationPolicyError,
 } from '@/app/lib/files/collaboration-policy';
-import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
+import { writeWorkspaceFileContent, OfficeWriteError } from '@/app/lib/files/write-service';
+import { OfficeJournalError } from '@/app/lib/office/document-journal';
+import { DocxPackageValidationError } from '@/app/lib/office/docx-package';
+import { WorkspaceMutationLockError } from '@/app/lib/files/workspace-mutation-lock';
 import {
   applyRateLimit,
   jsonError,
@@ -22,7 +26,7 @@ export async function POST(request: NextRequest) {
     const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
     const rateLimitResponse = applyRateLimit(request, {
-      limit: 20,
+      limit: 90,
       windowMs: 60_000,
       keyPrefix: 'files-write',
     });
@@ -33,10 +37,14 @@ export async function POST(request: NextRequest) {
       content?: string;
       expectedSha256?: string | null;
       baseRevisionId?: string | null;
+      sessionId?: string;
+      lockId?: string;
+      idempotencyKey?: string;
+      createOnly?: boolean;
     }>(request);
     const { path, content, expectedSha256, baseRevisionId } = body;
 
-    if (!path || content === undefined) {
+    if (typeof path !== 'string' || !path || typeof content !== 'string') {
       return jsonError('Path and content are required', 400);
     }
 
@@ -50,6 +58,11 @@ export async function POST(request: NextRequest) {
       workspace: workspaceResult.workspace,
       fileOptions,
       actorUserId: workspaceResult.session.user.id,
+      actorSessionId: body.sessionId,
+      lockId: body.lockId,
+      idempotencyKey: body.idempotencyKey,
+      createOnly: body.createOnly === true,
+      signal: request.signal,
       path,
       content: finalContent,
       encoded: content.startsWith('base64:'),
@@ -58,6 +71,10 @@ export async function POST(request: NextRequest) {
     });
     return jsonSuccess({ data });
   } catch (error) {
+    if (error instanceof WorkspacePathAliasError) return jsonError(error.message, error.status, { code: error.code });
+    if (error instanceof DocxPackageValidationError || error instanceof OfficeWriteError || error instanceof WorkspaceMutationLockError || error instanceof OfficeJournalError) {
+      return jsonError(error.message, error.status, { code: error.code });
+    }
     if (error instanceof WorkspaceFileRevisionError) {
       return jsonError(error.message, error.status, {
         code: error.code,

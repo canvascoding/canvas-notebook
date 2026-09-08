@@ -13,6 +13,15 @@ export type NotebookDocumentTabsState = {
   openPaths: string[];
 };
 
+/** The previously active document is the first one reopened after closing a batch. */
+export function rememberNotebookClosedDocuments(history: string[], paths: string[], activePath?: string | null): string[] {
+  const closed = [...new Set(paths)];
+  const ordered = activePath && closed.includes(activePath)
+    ? [...closed.filter((path) => path !== activePath), activePath]
+    : closed;
+  return [...history.filter((path) => !closed.includes(path)), ...ordered].slice(-NOTEBOOK_MAX_OPEN_DOCUMENTS);
+}
+
 export type OpenNotebookDocumentTabResult = {
   state: NotebookDocumentTabsState;
   status: 'activated' | 'limit-reached' | 'opened';
