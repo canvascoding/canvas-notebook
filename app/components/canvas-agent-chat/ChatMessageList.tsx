@@ -19,6 +19,7 @@ import {
   ToolBatchDisclosure,
 } from '@/app/components/canvas-agent-chat/ChatToolRunMessages';
 import { extractFilePaths } from '@/app/lib/chat/extract-file-paths';
+import { writeTextToClipboard } from '@/app/lib/chat/clipboard';
 import { buildToolBatchProjection } from '@/app/lib/chat/run-collapse';
 import { rewriteRelativeStudioImageMarkdown } from '@/app/lib/chat/studio-image-markdown';
 import type { AttachmentOpenHandler, ChatMessage } from '@/app/lib/chat/types';
@@ -127,36 +128,6 @@ function StreamingMessageIndicator() {
   );
 }
 
-async function writeMessageTextToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textarea = document.createElement('textarea');
-  const selection = document.getSelection();
-  const selectedRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-
-  textarea.value = text;
-  textarea.setAttribute('readonly', '');
-  textarea.style.position = 'fixed';
-  textarea.style.top = '-9999px';
-  document.body.appendChild(textarea);
-  textarea.select();
-
-  try {
-    if (!document.execCommand('copy')) {
-      throw new Error('Clipboard copy failed.');
-    }
-  } finally {
-    document.body.removeChild(textarea);
-    if (selection && selectedRange) {
-      selection.removeAllRanges();
-      selection.addRange(selectedRange);
-    }
-  }
-}
-
 function getRichClipboardHtml(contentElement: HTMLElement): string {
   const copy = contentElement.cloneNode(true) as HTMLElement;
 
@@ -196,7 +167,7 @@ async function writeRichMessageToClipboard(text: string, contentElement: HTMLEle
     }
   }
 
-  await writeMessageTextToClipboard(text);
+  await writeTextToClipboard(text);
 }
 
 function isForkableAssistantChatMessage(message: ChatMessage): boolean {
@@ -270,7 +241,7 @@ function MessageActionBar({
     }
 
     try {
-      await writeMessageTextToClipboard(markdownText ?? text);
+      await writeTextToClipboard(markdownText ?? text);
       setCopyState('copied');
     } catch {
       setCopyState('failed');
