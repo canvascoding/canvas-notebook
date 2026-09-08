@@ -152,6 +152,22 @@ export type EmailCacheWriteResult = {
   reason: 'stored' | 'disabled' | 'generation_changed_or_lease_lost';
 };
 
+export type EmailCacheMessageWriteEntry = {
+  ref: EmailMessageRefInput;
+  metadata?: EmailCachedMessageMetadata;
+  detail?: EmailCachedMessageDetail;
+  leaseOwner?: string;
+};
+
+export type EmailCacheBatchWriteResult = {
+  enabled: boolean;
+  requestedCount: number;
+  storedCount: number;
+  storedMessageKeys: string[];
+  rejectedMessageKeys: string[];
+  reason: 'stored' | 'partial' | 'disabled' | 'generation_changed_or_tombstoned';
+};
+
 export type EmailCacheCleanupResult = {
   enabled: boolean;
   skipped: boolean;
@@ -221,6 +237,15 @@ export interface EmailCacheStore {
       now?: number;
     },
   ): Promise<EmailCacheWriteResult>;
+  putMessages(
+    input: MailboxInput & {
+      messages: EmailCacheMessageWriteEntry[];
+      expectedGeneration: number;
+      freshForMs?: number;
+      retainForMs?: number;
+      now?: number;
+    },
+  ): Promise<EmailCacheBatchWriteResult>;
   releaseMessageRefreshLease(
     input: MailboxInput & { ref: EmailMessageRefInput; owner: string; now?: number },
   ): Promise<boolean>;
@@ -507,6 +532,16 @@ const DISABLED_EMAIL_CACHE_STORE: EmailCacheStore = {
     return { enabled: false, acquired: false, generation: null, leaseUntil: null };
   },
   async putMessage() { return { enabled: false, stored: false, reason: 'disabled' }; },
+  async putMessages(input) {
+    return {
+      enabled: false,
+      requestedCount: input.messages.length,
+      storedCount: 0,
+      storedMessageKeys: [],
+      rejectedMessageKeys: input.messages.map((message) => normalizeEmailMessageRef(message.ref).messageKey),
+      reason: 'disabled',
+    };
+  },
   async releaseMessageRefreshLease() { return false; },
   async purgeAccount() {
     return {
@@ -959,106 +994,290 @@ export class PostgresEmailCacheStore implements EmailCacheStore {
       now?: number;
     },
   ): Promise<EmailCacheWriteResult> {
-    if (!input.metadata && !input.detail) {
-      throw new Error('putMessage requires metadata, detail, or both.');
+    const result = await this.putMessages({
+      userId: input.userId,
+      accountId: input.accountId,
+      accountSource: input.accountSource,
+      messages: [{
+        ref: input.ref,
+        metadata: input.metadata,
+        detail: input.detail,
+        leaseOwner: input.leaseOwner,
+      }],
+      expectedGeneration: input.expectedGeneration,
+      freshForMs: input.freshForMs,
+      retainForMs: input.retainForMs,
+      now: input.now,
+    });
+    return result.storedCount === 1
+      ? { enabled: true, stored: true, reason: 'stored' }
+      : { enabled: true, stored: false, reason: 'generation_changed_or_lease_lost' };
+  }
+
+  async putMessages(
+    input: MailboxInput & {
+      messages: EmailCacheMessageWriteEntry[];
+      expectedGeneration: number;
+      freshForMs?: number;
+      retainForMs?: number;
+      now?: number;
+    },
+  ): Promise<EmailCacheBatchWriteResult> {
+    if (input.messages.length > 50) {
+      throw new Error('putMessages accepts at most 50 messages.');
     }
     const mailbox = normalizeMailbox(input);
-    const ref = normalizeEmailMessageRef(input.ref);
     const expectedGeneration = positiveInteger(input.expectedGeneration, 'expectedGeneration');
-    const leaseOwner = input.leaseOwner ? requiredText(input.leaseOwner, 'leaseOwner') : null;
     const now = nonNegativeInteger(input.now ?? Date.now(), 'now');
     const freshForMs = input.freshForMs ?? DEFAULT_EMAIL_CACHE_FRESH_MS;
     const retainForMs = input.retainForMs ?? DEFAULT_EMAIL_MESSAGE_RETENTION_MS;
     validateCacheWindow(now, freshForMs, retainForMs);
+
+    const normalizedByKey = new Map<string, {
+      message_key: string;
+      provider: string;
+      provider_message_id: string | null;
+      folder: string | null;
+      uid_validity: string | null;
+      uid: number | null;
+      sender: string | null;
+      subject: string | null;
+      message_date: number | null;
+      preview: string | null;
+      is_read: boolean | null;
+      metadata_json: EmailCachedMessageMetadata | null;
+      detail_json: EmailCachedMessageDetail | null;
+      lease_owner: string | null;
+    }>();
+    for (const message of input.messages) {
+      if (!message.metadata && !message.detail) {
+        throw new Error('Every putMessages entry requires metadata, detail, or both.');
+      }
+      const ref = normalizeEmailMessageRef(message.ref);
+      const metadata = message.metadata ? normalizeCachedMessageMetadata(message.metadata) : null;
+      const detail = message.detail ? normalizeCachedMessageDetail(message.detail) : null;
+      normalizedByKey.set(ref.messageKey, {
+        message_key: ref.messageKey,
+        provider: ref.provider,
+        provider_message_id: ref.messageId,
+        folder: ref.folder,
+        uid_validity: ref.uidValidity,
+        uid: ref.uid,
+        sender: metadata?.from ?? null,
+        subject: metadata?.subject ?? null,
+        message_date: metadata?.dateTimestamp ?? null,
+        preview: metadata?.snippet ?? null,
+        is_read: metadata?.isRead ?? null,
+        metadata_json: metadata,
+        detail_json: detail,
+        lease_owner: message.leaseOwner ? requiredText(message.leaseOwner, 'leaseOwner') : null,
+      });
+    }
+    const normalizedMessages = [...normalizedByKey.values()];
+    const requestedKeys = normalizedMessages.map((message) => message.message_key);
+    if (normalizedMessages.length === 0) {
+      return {
+        enabled: true,
+        requestedCount: 0,
+        storedCount: 0,
+        storedMessageKeys: [],
+        rejectedMessageKeys: [],
+        reason: 'stored',
+      };
+    }
+
     const staleAt = now + freshForMs;
     const expiresAt = now + retainForMs;
-    const metadata = input.metadata ? normalizeCachedMessageMetadata(input.metadata) : null;
-    const detail = input.detail ? normalizeCachedMessageDetail(input.detail) : null;
-    const metadataJson = metadata ? JSON.stringify(metadata) : null;
-    const detailJson = detail ? JSON.stringify(detail) : null;
-    const result = await this.query<{ message_key: string }>(`
+    const result = await this.query<{
+      generation: number | string | null;
+      stored_message_keys: string[];
+    }>(`
       WITH mailbox AS MATERIALIZED (
         INSERT INTO email_cache_mailboxes (
           user_id, account_source, account_id, generation, last_accessed_at, created_at, updated_at
-        ) VALUES ($1, $2, $3, 1, $18, $18, $18)
+        ) VALUES ($1, $2, $3, 1, $6, $6, $6)
         ON CONFLICT (user_id, account_source, account_id) DO UPDATE
         SET last_accessed_at = EXCLUDED.last_accessed_at,
             updated_at = EXCLUDED.updated_at
         WHERE email_cache_mailboxes.active = true
         RETURNING generation
-      )
-      INSERT INTO email_cache_messages (
+      ), payload AS MATERIALIZED (
+        SELECT *
+        FROM jsonb_to_recordset($5::jsonb) AS item (
+          message_key text,
+          provider text,
+          provider_message_id text,
+          folder text,
+          uid_validity text,
+          uid bigint,
+          sender text,
+          subject text,
+          message_date bigint,
+          preview text,
+          is_read boolean,
+          metadata_json jsonb,
+          detail_json jsonb,
+          lease_owner text
+        )
+      ), updated AS (
+        UPDATE email_cache_messages AS target
+        SET provider = payload.provider,
+            provider_message_id = payload.provider_message_id,
+            folder = payload.folder,
+            uid_validity = payload.uid_validity,
+            uid = payload.uid,
+            sender = CASE
+              WHEN payload.metadata_json IS NOT NULL THEN payload.sender
+              WHEN target.generation = $4 THEN target.sender
+              ELSE NULL
+            END,
+            subject = CASE
+              WHEN payload.metadata_json IS NOT NULL THEN payload.subject
+              WHEN target.generation = $4 THEN target.subject
+              ELSE NULL
+            END,
+            message_date = CASE
+              WHEN payload.metadata_json IS NOT NULL THEN payload.message_date
+              WHEN target.generation = $4 THEN target.message_date
+              ELSE NULL
+            END,
+            preview = CASE
+              WHEN payload.metadata_json IS NOT NULL THEN payload.preview
+              WHEN target.generation = $4 THEN target.preview
+              ELSE NULL
+            END,
+            is_read = CASE
+              WHEN payload.metadata_json IS NOT NULL THEN payload.is_read
+              WHEN target.generation = $4 THEN target.is_read
+              ELSE NULL
+            END,
+            metadata_json = CASE
+              WHEN payload.metadata_json IS NOT NULL THEN payload.metadata_json
+              WHEN target.generation = $4 THEN target.metadata_json
+              ELSE NULL
+            END,
+            detail_json = CASE
+              WHEN payload.detail_json IS NOT NULL THEN payload.detail_json
+              WHEN target.generation = $4 THEN target.detail_json
+              ELSE NULL
+            END,
+            generation = $4,
+            metadata_fetched_at = CASE
+              WHEN payload.metadata_json IS NOT NULL THEN $6
+              WHEN target.generation = $4 THEN target.metadata_fetched_at
+              ELSE NULL
+            END,
+            metadata_stale_at = CASE
+              WHEN payload.metadata_json IS NOT NULL THEN $7
+              WHEN target.generation = $4 THEN target.metadata_stale_at
+              ELSE NULL
+            END,
+            detail_fetched_at = CASE
+              WHEN payload.detail_json IS NOT NULL THEN $6
+              WHEN target.generation = $4 THEN target.detail_fetched_at
+              ELSE NULL
+            END,
+            detail_stale_at = CASE
+              WHEN payload.detail_json IS NOT NULL THEN $7
+              WHEN target.generation = $4 THEN target.detail_stale_at
+              ELSE NULL
+            END,
+            expires_at = CASE
+              WHEN target.generation = $4 THEN GREATEST(target.expires_at, $8)
+              ELSE $8
+            END,
+            refresh_owner = CASE
+              WHEN payload.lease_owner IS NOT NULL THEN NULL
+              ELSE target.refresh_owner
+            END,
+            refresh_lease_until = CASE
+              WHEN payload.lease_owner IS NOT NULL THEN NULL
+              ELSE target.refresh_lease_until
+            END,
+            last_accessed_at = $6,
+            updated_at = $6
+        FROM payload, mailbox
+        WHERE target.user_id = $1
+          AND target.account_source = $2
+          AND target.account_id = $3
+          AND target.message_key = payload.message_key
+          AND mailbox.generation = $4
+          AND (
+            (payload.lease_owner IS NOT NULL AND target.refresh_owner = payload.lease_owner)
+            OR
+            (payload.lease_owner IS NULL AND (
+              payload.detail_json IS NULL
+              OR target.refresh_lease_until IS NULL
+              OR target.refresh_lease_until <= $6
+            ))
+          )
+        RETURNING target.message_key
+      ), inserted AS (
+        INSERT INTO email_cache_messages (
         user_id, account_source, account_id, message_key, provider, provider_message_id, folder,
         uid_validity, uid, sender, subject, message_date, preview, is_read,
         metadata_json, detail_json, generation, metadata_fetched_at,
         metadata_stale_at, detail_fetched_at, detail_stale_at, expires_at,
         refresh_owner, refresh_lease_until, last_accessed_at, created_at, updated_at
       )
-      SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9,
-        CASE WHEN $10::jsonb IS NULL THEN NULL ELSE $11::text END,
-        CASE WHEN $10::jsonb IS NULL THEN NULL ELSE $12::text END,
-        CASE WHEN $10::jsonb IS NULL THEN NULL ELSE $13::bigint END,
-        CASE WHEN $10::jsonb IS NULL THEN NULL ELSE $14::text END,
-        CASE WHEN $10::jsonb IS NULL THEN NULL ELSE $15::boolean END,
-        $10::jsonb, $16::jsonb, $17::bigint,
-        CASE WHEN $10::jsonb IS NULL THEN NULL ELSE $18::bigint END,
-        CASE WHEN $10::jsonb IS NULL THEN NULL ELSE $19::bigint END,
-        CASE WHEN $16::jsonb IS NULL THEN NULL ELSE $18::bigint END,
-        CASE WHEN $16::jsonb IS NULL THEN NULL ELSE $19::bigint END,
-        $20::bigint, NULL, NULL, $18::bigint, $18::bigint, $18::bigint
-      FROM mailbox
-      WHERE mailbox.generation = $17
-      ON CONFLICT (user_id, account_source, account_id, message_key) DO UPDATE
-      SET provider = EXCLUDED.provider,
-          provider_message_id = EXCLUDED.provider_message_id,
-          folder = EXCLUDED.folder,
-          uid_validity = EXCLUDED.uid_validity,
-          uid = EXCLUDED.uid,
-          sender = COALESCE(EXCLUDED.sender, email_cache_messages.sender),
-          subject = COALESCE(EXCLUDED.subject, email_cache_messages.subject),
-          message_date = COALESCE(EXCLUDED.message_date, email_cache_messages.message_date),
-          preview = COALESCE(EXCLUDED.preview, email_cache_messages.preview),
-          is_read = COALESCE(EXCLUDED.is_read, email_cache_messages.is_read),
-          metadata_json = COALESCE(EXCLUDED.metadata_json, email_cache_messages.metadata_json),
-          detail_json = COALESCE(EXCLUDED.detail_json, email_cache_messages.detail_json),
-          generation = EXCLUDED.generation,
-          metadata_fetched_at = COALESCE(EXCLUDED.metadata_fetched_at, email_cache_messages.metadata_fetched_at),
-          metadata_stale_at = COALESCE(EXCLUDED.metadata_stale_at, email_cache_messages.metadata_stale_at),
-          detail_fetched_at = COALESCE(EXCLUDED.detail_fetched_at, email_cache_messages.detail_fetched_at),
-          detail_stale_at = COALESCE(EXCLUDED.detail_stale_at, email_cache_messages.detail_stale_at),
-          expires_at = GREATEST(EXCLUDED.expires_at, email_cache_messages.expires_at),
-          refresh_owner = NULL,
-          refresh_lease_until = NULL,
-          last_accessed_at = EXCLUDED.last_accessed_at,
-          updated_at = EXCLUDED.updated_at
-      WHERE ($21::text IS NULL OR email_cache_messages.refresh_owner = $21)
-      RETURNING message_key
+        SELECT $1, $2, $3, payload.message_key, payload.provider,
+          payload.provider_message_id, payload.folder, payload.uid_validity, payload.uid,
+          payload.sender, payload.subject, payload.message_date, payload.preview, payload.is_read,
+          payload.metadata_json, payload.detail_json, $4,
+          CASE WHEN payload.metadata_json IS NULL THEN NULL ELSE $6 END,
+          CASE WHEN payload.metadata_json IS NULL THEN NULL ELSE $7 END,
+          CASE WHEN payload.detail_json IS NULL THEN NULL ELSE $6 END,
+          CASE WHEN payload.detail_json IS NULL THEN NULL ELSE $7 END,
+          $8, NULL, NULL, $6, $6, $6
+        FROM payload, mailbox
+        WHERE mailbox.generation = $4
+          AND NOT EXISTS (
+            SELECT 1
+            FROM email_cache_messages AS existing
+            WHERE existing.user_id = $1
+              AND existing.account_source = $2
+              AND existing.account_id = $3
+              AND existing.message_key = payload.message_key
+          )
+        ON CONFLICT (user_id, account_source, account_id, message_key) DO NOTHING
+        RETURNING message_key
+      ), stored AS (
+        SELECT message_key FROM updated
+        UNION ALL
+        SELECT message_key FROM inserted
+      )
+      SELECT mailbox.generation,
+        COALESCE((SELECT jsonb_agg(message_key ORDER BY message_key) FROM stored), '[]'::jsonb)
+          AS stored_message_keys
+      FROM (VALUES (1)) AS seed(value)
+      LEFT JOIN mailbox ON true
     `, [
       mailbox.userId,
       mailbox.accountSource,
       mailbox.accountId,
-      ref.messageKey,
-      ref.provider,
-      ref.messageId,
-      ref.folder,
-      ref.uidValidity,
-      ref.uid,
-      metadataJson,
-      metadata?.from ?? null,
-      metadata?.subject ?? null,
-      metadata?.dateTimestamp ?? null,
-      metadata?.snippet ?? null,
-      metadata?.isRead ?? null,
-      detailJson,
       expectedGeneration,
+      JSON.stringify(normalizedMessages),
       now,
       staleAt,
       expiresAt,
-      leaseOwner,
     ]);
-    return result.rows.length
-      ? { enabled: true, stored: true, reason: 'stored' }
-      : { enabled: true, stored: false, reason: 'generation_changed_or_lease_lost' };
+    const row = result.rows[0];
+    const storedMessageKeys = Array.isArray(row?.stored_message_keys)
+      ? row.stored_message_keys.map(String)
+      : [];
+    const storedKeySet = new Set(storedMessageKeys);
+    const rejectedMessageKeys = requestedKeys.filter((key) => !storedKeySet.has(key));
+    const generationMatches = numberOrNull(row?.generation) === expectedGeneration;
+    return {
+      enabled: true,
+      requestedCount: requestedKeys.length,
+      storedCount: storedMessageKeys.length,
+      storedMessageKeys,
+      rejectedMessageKeys,
+      reason: !generationMatches
+        ? 'generation_changed_or_tombstoned'
+        : rejectedMessageKeys.length > 0 ? 'partial' : 'stored',
+    };
   }
 
   async releaseMessageRefreshLease(

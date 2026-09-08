@@ -407,6 +407,144 @@ async function testPostgresStore(postgres: PGlite): Promise<void> {
     ]),
   );
 
+  const heldDetailLease = await store.acquireMessageRefreshLease({
+    userId: scope.userId,
+    accountId: scope.accountId,
+    ref,
+    owner: 'detail-worker',
+    leaseMs: 1_000,
+    now: 3_060,
+  });
+  assert.equal(heldDetailLease.acquired, true);
+  const thirdRef = { provider: 'gmail', messageId: 'message-3', folder: 'INBOX' } as const;
+  const fourthRef = { provider: 'gmail', messageId: 'message-4', folder: 'INBOX' } as const;
+  batchQueryCount = 0;
+  const batchWrite = await batchStore.putMessages({
+    userId: scope.userId,
+    accountId: scope.accountId,
+    expectedGeneration: 2,
+    freshForMs: 60,
+    retainForMs: 10_000,
+    now: 3_061,
+    messages: [{
+      // This unleased list-metadata update must not clear the detail lease.
+      ref,
+      metadata: {
+        from: 'sender@example.com',
+        subject: 'Updated cached subject',
+        date: '1970-01-01T00:00:03.061Z',
+        dateTimestamp: 3_061,
+        snippet: 'Updated cached preview',
+        isRead: true,
+        isAnswered: true,
+        isFlagged: true,
+        hasAttachments: true,
+        size: 1_024,
+      },
+    }, {
+      ref: thirdRef,
+      detail: {
+        body: 'Third body',
+        bodyHtml: '<p>Third body</p>',
+        to: ['user@example.com'],
+        cc: [],
+        attachments: [{
+          index: 0,
+          filename: 'third.pdf',
+          contentType: 'application/pdf',
+          size: 256,
+          ...({ contentBase64: 'batch-must-not-persist' } as Record<string, unknown>),
+        }],
+      },
+    }, {
+      ref: fourthRef,
+      metadata: {
+        from: 'fourth@example.com',
+        subject: 'Fourth subject',
+        date: '1970-01-01T00:00:03.061Z',
+        dateTimestamp: 3_061,
+        snippet: 'Fourth preview',
+        isRead: false,
+        isAnswered: false,
+        isFlagged: false,
+        hasAttachments: false,
+        size: null,
+      },
+    }],
+  });
+  assert.equal(batchQueryCount, 1);
+  assert.equal(batchWrite.reason, 'stored');
+  assert.equal(batchWrite.storedCount, 3);
+  assert.equal(batchWrite.rejectedMessageKeys.length, 0);
+  const persistedLease = await postgres.query<{
+    refresh_owner: string | null;
+    refresh_lease_until: string | number | null;
+  }>(`
+    SELECT refresh_owner, refresh_lease_until
+    FROM email_cache_messages
+    WHERE user_id = 'user-1' AND account_source = 'local' AND account_id = 'account-1'
+      AND message_key = $1
+  `, [normalizeEmailMessageRef(ref).messageKey]);
+  assert.equal(persistedLease.rows[0].refresh_owner, 'detail-worker');
+  assert.equal(Number(persistedLease.rows[0].refresh_lease_until), 4_060);
+  const batchDetail = await store.getMessage({
+    userId: scope.userId,
+    accountId: scope.accountId,
+    ref: thirdRef,
+    part: 'detail',
+    now: 3_062,
+  });
+  assert.equal(batchDetail.value?.detail?.body, 'Third body');
+  assert.equal('contentBase64' in (batchDetail.value?.detail?.attachments[0] || {}), false);
+
+  batchQueryCount = 0;
+  const wrongGenerationBatch = await batchStore.putMessages({
+    userId: scope.userId,
+    accountId: scope.accountId,
+    expectedGeneration: 1,
+    now: 3_063,
+    messages: [{
+      ref: fourthRef,
+      metadata: {
+        from: 'ignored@example.com',
+        subject: 'Must not publish',
+        date: '',
+        dateTimestamp: null,
+        snippet: '',
+        isRead: false,
+        isAnswered: false,
+        isFlagged: false,
+        hasAttachments: false,
+        size: null,
+      },
+    }],
+  });
+  assert.equal(batchQueryCount, 1);
+  assert.equal(wrongGenerationBatch.reason, 'generation_changed_or_tombstoned');
+  assert.equal(wrongGenerationBatch.storedCount, 0);
+  batchQueryCount = 0;
+  await assert.rejects(batchStore.putMessages({
+    userId: scope.userId,
+    accountId: scope.accountId,
+    expectedGeneration: 2,
+    messages: Array.from({ length: 51 }, (_, index) => ({
+      ref: { provider: 'gmail', messageId: `overflow-${index}`, folder: 'INBOX' },
+      metadata: {
+        from: 'overflow@example.com',
+        subject: '',
+        date: '',
+        dateTimestamp: null,
+        snippet: '',
+        isRead: false,
+        isAnswered: false,
+        isFlagged: false,
+        hasAttachments: false,
+        size: null,
+      },
+    })),
+  }));
+  assert.equal(batchQueryCount, 0);
+
   // Add two more exact list scopes, then prove per-account LRU cleanup is both
   // capacity-bound and delete-bound.
   for (let offset = 25; offset <= 50; offset += 25) {
@@ -449,7 +587,7 @@ async function testPostgresStore(postgres: PGlite): Promise<void> {
     tombstoned: true,
     generation: 3,
     deletedLists: 2,
-    deletedMessages: 1,
+    deletedMessages: 3,
   });
   const remaining = await postgres.query<{ list_count: string; message_count: string }>(`
     SELECT
@@ -468,6 +606,29 @@ async function testPostgresStore(postgres: PGlite): Promise<void> {
     retainForMs: 600,
     now: 5_001,
   })).stored, false);
+  const tombstonedBatch = await store.putMessages({
+    userId: scope.userId,
+    accountId: scope.accountId,
+    expectedGeneration: 2,
+    now: 5_001,
+    messages: [{
+      ref: fourthRef,
+      metadata: {
+        from: 'ignored@example.com',
+        subject: 'Must remain purged',
+        date: '',
+        dateTimestamp: null,
+        snippet: '',
+        isRead: false,
+        isAnswered: false,
+        isFlagged: false,
+        hasAttachments: false,
+        size: null,
+      },
+    }],
+  });
+  assert.equal(tombstonedBatch.reason, 'generation_changed_or_tombstoned');
+  assert.equal(tombstonedBatch.storedCount, 0);
   assert.deepEqual(await store.acquireListRefreshLease({
     ...scope,
     owner: 'late-worker',
