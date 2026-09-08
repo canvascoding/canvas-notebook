@@ -1,4 +1,5 @@
 import { useFilePresenceStore } from '@/app/store/file-presence-store';
+import { uploadVersionGuard } from '@/app/lib/files/upload-tree-batch';
 import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-file-paths';
 import { previewMayDependOn, previewDependencyDirectories } from '@/app/lib/files/preview-dependencies';
 /**
@@ -300,6 +301,9 @@ export class FileWatcherClient extends EventTarget {
   private handleFileChange(event: FileEvent): void {
     const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
     if (activeWorkspaceId && event.workspaceId && event.workspaceId !== activeWorkspaceId) return;
+    for (const path of event.mutation ? [event.mutation.oldPath, event.mutation.newPath] : [event.relativePath]) {
+      uploadVersionGuard.observe(activeWorkspaceId, path, event.fileVersion);
+    }
 
     if (event.type === 'rename' || event.type === 'unlink' || event.type === 'unlinkDir') this.fileVersions.clear();
     else if (event.fileVersion) {

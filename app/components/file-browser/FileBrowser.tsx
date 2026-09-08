@@ -178,9 +178,8 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       await uploadFile(files, dir, pathMap, convertParams, options);
     },
     onBatchComplete: async (targetDir, job) => {
-      if (!job || useWorkspaceStore.getState().activeWorkspaceId !== job.workspaceId) return;
-      useFileStore.getState().markDirectoryStale(targetDir || job.targetDir);
-      await useFileStore.getState().revalidateDirectory(targetDir || job.targetDir, job.workspaceId, true);
+      if (!job) return;
+      await useFileStore.getState().reconcileUpload(job);
       invalidateFileReferenceValidationCache({ workspaceId: job.workspaceId });
     },
   });

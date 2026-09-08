@@ -1,5 +1,7 @@
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import type { WorkspacePathRenameMutation } from './file-events';
+import type { WorkspaceUploadCommit } from './upload-result';
+import { joinWorkspacePath } from './path-utils';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { CurrentFile, FileCollaborationState, FileNode, FileRevisionRecord, FileStats } from './types';
@@ -108,6 +110,7 @@ interface UploadWorkspaceFilesParams {
   convertParams?: (ConvertParams | null)[];
   onProgress?: (progress: number) => void;
   onFileProgress?: (progress: WorkspaceUploadFileProgress) => void;
+  onFileCompleted?: (committed: WorkspaceUploadCommit) => void;
 }
 
 interface LoadWorkspaceTreeOptions {
@@ -532,6 +535,7 @@ export async function uploadWorkspaceFiles({
   convertParams,
   onProgress,
   onFileProgress,
+  onFileCompleted,
   workspaceId = getActiveWorkspaceId(),
 }: UploadWorkspaceFilesParams): Promise<WorkspaceBatchUploadResult> {
   if (!convertParams?.some(Boolean)) {
@@ -544,6 +548,7 @@ export async function uploadWorkspaceFiles({
       workspaceId,
       onProgress,
       onFileProgress,
+      onFileCompleted,
     });
   }
 
@@ -563,6 +568,8 @@ export async function uploadWorkspaceFiles({
     formData.append('convertParams', JSON.stringify(paramsForAll));
   }
 
+  let responseFiles: string[] | undefined;
+  let committed: WorkspaceUploadCommit[] = [];
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const failFiles = (message: string) => {
@@ -599,9 +606,18 @@ export async function uploadWorkspaceFiles({
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const payload = JSON.parse(xhr.responseText) as { success?: boolean; files?: string[]; committed?: WorkspaceUploadCommit[] };
+          if (!payload.success) { failFiles('Server did not confirm the uploaded files.'); return; }
+          responseFiles = payload.files;
+          committed = payload.committed ?? [];
+        } catch { failFiles('Server returned an invalid upload response.'); return; }
+        files.forEach((file, index) => onFileCompleted?.(committed[index] ?? {
+          targetPath: joinWorkspacePath(targetDir, responseFiles?.[index] || pathMap?.get(file) || file.name),
+        }));
         files.forEach((file, index) => onFileProgress?.({
           index,
-          path: pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
+          path: responseFiles?.[index] || pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
           size: file.size,
           uploadedBytes: file.size,
           status: 'completed',
@@ -638,9 +654,10 @@ export async function uploadWorkspaceFiles({
   return {
     totalFiles: files.length,
     totalBytes: totalUploadBytes,
-    completed: files.map((file) => ({
-      path: pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
+    completed: files.map((file, index) => ({
+      path: responseFiles?.[index] || pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
       size: file.size,
+      committed: committed[index],
     })),
     failed: [],
   };

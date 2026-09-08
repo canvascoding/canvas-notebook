@@ -54,9 +54,10 @@ export async function POST(
       },
     });
 
+    let committed;
     if (!result.alreadyCompleted) {
       await syncPublicSharesAfterWrite([result.file.targetPath], workspaceResult.workspace);
-      await publishWorkspaceUpload(workspaceResult.workspace, result.file.targetPath);
+      committed = await publishWorkspaceUpload(workspaceResult.workspace, result.file.targetPath);
       await recordAuditEvent({
         organizationId: workspaceResult.workspace.organizationId,
         workspaceId: workspaceResult.workspace.workspaceId,
@@ -83,6 +84,7 @@ export async function POST(
       success: true,
       upload: publicWorkspaceUploadSession(result.session),
       file: result.file,
+      committed,
       alreadyCompleted: result.alreadyCompleted,
     });
   } catch (error) {
