@@ -54,6 +54,9 @@ export function renderAppEmailTemplate(input: AppEmailTemplateInput): string {
         color: #171717;
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
+      body, table, td, div, p, a, span {
+        box-sizing: border-box;
+      }
       .preheader {
         display: none;
         max-height: 0;
@@ -66,6 +69,7 @@ export function renderAppEmailTemplate(input: AppEmailTemplateInput): string {
         padding: 28px 16px;
       }
       .card {
+        width: 100%;
         max-width: 620px;
         margin: 0 auto;
         border: 1px solid #e2e5ea;
@@ -121,10 +125,73 @@ export function renderAppEmailTemplate(input: AppEmailTemplateInput): string {
         color: #151922;
         font-size: 14px;
         line-height: 1.55;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      .markdown > :first-child {
+        margin-top: 0;
+      }
+      .markdown > :last-child {
+        margin-bottom: 0;
+      }
+      .markdown p,
+      .markdown ul,
+      .markdown ol,
+      .markdown blockquote,
+      .markdown pre,
+      .markdown table {
+        margin: 0 0 12px;
+      }
+      .markdown ul,
+      .markdown ol {
+        padding-left: 22px;
+      }
+      .markdown li {
+        margin: 3px 0;
+      }
+      .markdown h1,
+      .markdown h2,
+      .markdown h3,
+      .markdown h4 {
+        margin: 16px 0 7px;
+        color: #151922;
+        font-size: 14px;
+        line-height: 1.4;
+      }
+      .markdown code {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      .markdown pre {
+        max-width: 100%;
+        padding: 10px;
+        overflow: hidden;
+        background: #f1f3f6;
+        white-space: pre-wrap;
+      }
+      .markdown blockquote {
+        padding-left: 12px;
+        border-left: 3px solid #d8dde6;
+      }
+      .markdown table {
+        width: 100%;
+        max-width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+      .markdown th,
+      .markdown td {
+        padding: 6px;
+        border: 1px solid #dfe3e9;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .meta {
         width: 100%;
+        max-width: 100%;
         border-collapse: collapse;
+        table-layout: fixed;
         margin-top: 12px;
       }
       .meta td {
@@ -133,10 +200,35 @@ export function renderAppEmailTemplate(input: AppEmailTemplateInput): string {
         color: #303744;
         font-size: 13px;
         vertical-align: top;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .meta td:first-child {
         width: 36%;
         color: #697282;
+      }
+      .file-list {
+        width: 100%;
+        max-width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+      .file-list td {
+        padding: 2px 0;
+        border: 0;
+      }
+      .file-list .file-icon {
+        width: 22px;
+        padding-right: 6px;
+        color: #697282;
+        font-size: 14px;
+        line-height: 1.35;
+      }
+      .file-list .file-name {
+        width: auto;
+        color: #303744;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       .action-row {
         margin: 22px 0 4px;
@@ -158,6 +250,15 @@ export function renderAppEmailTemplate(input: AppEmailTemplateInput): string {
       }
       a {
         color: #111827;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+      @media only screen and (max-width: 480px) {
+        .wrap { padding: 12px 8px !important; }
+        .header { padding: 18px 16px 12px !important; }
+        .content { padding: 16px !important; }
+        .panel { padding: 13px !important; }
+        .meta td:first-child { width: 30% !important; padding-right: 10px !important; }
       }
     </style>
   </head>

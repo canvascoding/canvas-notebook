@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { Marked, Renderer, type Tokens } from 'canvas-markdown-parser';
+
 import type { TodoWithRelations } from '@/app/lib/todos/store';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 
@@ -91,6 +93,44 @@ const COPY: Record<TodoNotificationLocale, TodoNotificationCopy> = {
   },
 };
 
+function safeMarkdownHref(href: string): string | null {
+  if (href.startsWith('#')) return href;
+  try {
+    const url = new URL(href);
+    return ['http:', 'https:', 'mailto:'].includes(url.protocol) ? href : null;
+  } catch {
+    return null;
+  }
+}
+
+const emailMarkdownRenderer = new Renderer();
+const defaultMarkdownLink = emailMarkdownRenderer.link;
+emailMarkdownRenderer.html = ({ text }: Tokens.HTML | Tokens.Tag): string => escapeHtml(text);
+emailMarkdownRenderer.link = function renderSafeEmailLink(token: Tokens.Link): string {
+  const href = safeMarkdownHref(token.href);
+  if (!href) return this.parser.parseInline(token.tokens);
+  return defaultMarkdownLink.call(this, { ...token, href });
+};
+emailMarkdownRenderer.image = ({ text }: Tokens.Image): string => escapeHtml(text);
+
+const emailMarkdown = new Marked({
+  breaks: true,
+  gfm: true,
+  renderer: emailMarkdownRenderer,
+});
+
+function renderEmailMarkdown(markdown: string): string {
+  const withoutRawHtml = markdown
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return String(emailMarkdown.parse(withoutRawHtml));
+}
+
+function fileName(value: string): string {
+  const normalized = value.trim().replace(/\\/g, '/').replace(/\/+$/u, '');
+  return normalized.split('/').pop() || normalized;
+}
+
 function appBaseUrl(): string {
   return (process.env.BASE_URL || process.env.APP_BASE_URL || 'http://localhost:3000').replace(/\/+$/u, '');
 }
@@ -138,13 +178,22 @@ export function renderTodoNotificationEmail(
   const dueAt = formatDate(todo.dueAt, copy);
   const createdAt = formatDate(todo.createdAt, copy);
   const description = todo.description
-    ? `<p class="value">${escapeHtml(todo.description).replace(/\n/g, '<br>')}</p>`
+    ? `<div class="value markdown">${renderEmailMarkdown(todo.description)}</div>`
     : `<p class="value muted">${escapeHtml(copy.noDescription)}</p>`;
   const fileLinks = todo.fileLinks.length > 0
     ? `
       <tr>
         <td>${escapeHtml(copy.fields.files)}</td>
-        <td>${todo.fileLinks.map((link) => escapeHtml(link.label || link.workspacePath)).join('<br>')}</td>
+        <td>
+          <table class="file-list" role="presentation">
+            ${todo.fileLinks.map((link) => `
+              <tr>
+                <td class="file-icon" aria-hidden="true">&#128196;</td>
+                <td class="file-name">${escapeHtml(fileName(link.label || link.workspacePath))}</td>
+              </tr>
+            `).join('')}
+          </table>
+        </td>
       </tr>
     `
     : '';

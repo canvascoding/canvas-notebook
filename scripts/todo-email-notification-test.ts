@@ -160,10 +160,39 @@ async function main() {
   assert.match(sentMessages[0].body, /To-do öffnen/);
   assert.doesNotMatch(sentMessages[0].body, /fuer|Prioritaet|Faellig|oeffnen/);
   assert.match(sentMessages[0].body, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
-  assert.match(sentMessages[0].body, /Check &lt;b&gt;the draft&lt;\/b&gt;<br>Then approve\./);
+  assert.match(sentMessages[0].body, /<p>Check &lt;b&gt;the draft&lt;\/b&gt;<br>Then approve\.<\/p>/);
   assert.doesNotMatch(sentMessages[0].body, /<script\b/iu);
   assert.match(sentMessages[0].headers?.['X-Canvas-Reply-Token'] || '', /^CTD-[A-F0-9]{8}$/);
   assert.equal(sentMessages[0].headers?.['X-Canvas-Todo-Id'], agentTodo.id);
+
+  const { renderTodoNotificationEmail } = await import('../app/lib/email/templates/todo-notification');
+  const formattedEmail = renderTodoNotificationEmail({
+    ...agentTodo,
+    ...todoRelations,
+    description: '**Wöchentlich**\n\n- Instagram: fehlt\n- [X Analytics](https://analytics.x.com)\n- [Unsicher](javascript:alert(1))',
+    fileLinks: [{
+      id: 'todo-email-file-link',
+      todoId: agentTodo.id,
+      userId,
+      organizationId: null,
+      customerId: null,
+      projectId: null,
+      workspaceId: null,
+      workspaceType: 'personal',
+      workspacePath: '01_strategy/08_Masterarbeit/Masterarbeit_Arbeitsstand_Canvas_Notebook_Gruenhagen_Aktuell.md',
+      label: null,
+      createdAt: now,
+    }],
+  });
+  assert.match(formattedEmail.html, /<strong>Wöchentlich<\/strong>/);
+  assert.match(formattedEmail.html, /<ul>[\s\S]*<li>Instagram: fehlt<\/li>/);
+  assert.match(formattedEmail.html, /href="https:\/\/analytics\.x\.com"/);
+  assert.doesNotMatch(formattedEmail.html, /href="javascript:/);
+  assert.match(formattedEmail.html, /class="file-icon"[^>]*>&#128196;/);
+  assert.match(formattedEmail.html, />Masterarbeit_Arbeitsstand_Canvas_Notebook_Gruenhagen_Aktuell\.md<\/td>/);
+  assert.doesNotMatch(formattedEmail.html, /01_strategy\/08_Masterarbeit/);
+  assert.match(formattedEmail.html, /overflow-wrap: anywhere/);
+  assert.match(formattedEmail.html, /table-layout: fixed/);
 
   const watcher = await db.query.todoEmailReplyWatchers.findFirst({
     where: eq(todoEmailReplyWatchers.todoId, agentTodo.id),
