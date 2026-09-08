@@ -47,6 +47,7 @@ type CollaborationDurabilitySnapshot = {
 type RegistryEntry = {
   key: string;
   refs: number;
+  lifecycle: AbortController;
   doc: Y.Doc | null;
   provider: HocuspocusProvider | null;
   persistence: IndexeddbPersistence | null;
@@ -94,11 +95,27 @@ export async function prepareCollaborationDocumentTransition(document: Collabora
   });
 }
 
+function assertEntryActive(entry: RegistryEntry): void {
+  if (entry.lifecycle.signal.aborted || registry.get(entry.key) !== entry) {
+    throw new Error('Collaboration document was closed.');
+  }
+}
+
+function disposeEntry(entry: RegistryEntry): void {
+  if (entry.lifecycle.signal.aborted) return;
+  entry.lifecycle.abort();
+  entry.provider?.destroy();
+  void Promise.resolve(entry.persistence?.destroy()).catch(() => undefined);
+  entry.doc?.destroy();
+  if (registry.get(entry.key) === entry) registry.delete(entry.key);
+}
+
 function emit(entry: RegistryEntry): void {
   for (const listener of entry.listeners) listener();
 }
 
 function transition(entry: RegistryEntry, event: TextCollaborationClientEvent): void {
+  if (entry.lifecycle.signal.aborted) return;
   entry.clientState = reduceTextCollaborationClientState(entry.clientState, event);
   emit(entry);
 }
@@ -135,32 +152,44 @@ function waitForEntryState(
   predicate: (state: TextCollaborationClientState) => boolean,
   timeoutMs: number,
 ): Promise<void> {
+  if (entry.lifecycle.signal.aborted) return Promise.reject(new Error('Collaboration document was closed.'));
   if (predicate(entry.clientState)) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
+    const cleanup = () => {
+      window.clearTimeout(timeout);
       entry.listeners.delete(listener);
+      entry.lifecycle.signal.removeEventListener('abort', abort);
+    };
+    const abort = () => { cleanup(); reject(new Error('Collaboration document was closed.')); };
+    const timeout = window.setTimeout(() => {
+      cleanup();
       reject(new Error('Timed out while waiting for collaboration to synchronize.'));
     }, timeoutMs);
     const listener = () => {
       if (!predicate(entry.clientState)) return;
-      window.clearTimeout(timeout);
-      entry.listeners.delete(listener);
+      cleanup();
       resolve();
     };
     entry.listeners.add(listener);
+    entry.lifecycle.signal.addEventListener('abort', abort, { once: true });
   });
 }
 
 async function requestSession(
   path: string,
   representation: RequestedTextCollaborationRepresentation,
+  workspaceId: string,
+  signal?: AbortSignal,
 ): Promise<CollaborationSessionResponse> {
+  signal?.throwIfAborted();
   const response = await fetch('/api/files/collaboration/session', {
+    signal,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
     body: JSON.stringify({ path, representation, ...COLLABORATION_CLIENT_CAPABILITIES }),
   });
   const payload = await response.json().catch(() => ({})) as Partial<CollaborationSessionResponse> & { error?: string };
+  signal?.throwIfAborted();
   if (!response.ok || payload.success !== true) throw new Error(payload.error || 'Collaboration could not be started.');
   return payload as CollaborationSessionResponse;
 }
@@ -194,8 +223,10 @@ function createEntry(
   representation: TextCollaborationRepresentation,
   initialSession?: CollaborationSessionResponse | null,
 ): RegistryEntry {
+  const workspaceId = key.split('\0')[0];
   const entry: RegistryEntry = {
     key,
+    lifecycle: new AbortController(),
     refs: 0,
     doc: null,
     provider: null,
@@ -212,7 +243,7 @@ function createEntry(
     requestCheckpoint: () => Promise.reject(new Error('Collaboration is still connecting.')),
     setComposition: (range) => {
       const provider = entry.provider;
-      if (!provider) return;
+      if (!provider || entry.lifecycle.signal.aborted) return;
       const current = provider.awareness?.getLocalState()?.canvas as Record<string, unknown> | undefined;
       provider.setAwarenessField('canvas', { ...(current || {}), composition: range });
     },
@@ -224,12 +255,13 @@ function createEntry(
         import('y-indexeddb'),
         import('yjs'),
       ]);
-      if (entry.refs === 0 && !registry.has(key)) return;
+      if (entry.lifecycle.signal.aborted || registry.get(key) !== entry) return;
       entry.doc = new Y.Doc({ gc: true });
       let session = requireTextSession(
-        initialSession || await requestSession(path, representation),
+        initialSession || await requestSession(path, representation, workspaceId, entry.lifecycle.signal),
         representation,
       );
+      assertEntryActive(entry);
       entry.session = session;
       entry.clientState = createInitialTextCollaborationClientState({
         permission: session.permission,
@@ -251,11 +283,12 @@ function createEntry(
       );
       entry.persistence = persistence;
       await persistence.whenSynced;
+      assertEntryActive(entry);
       transition(entry, { type: 'indexeddb_hydrated' });
-      if (entry.refs === 0 && !registry.has(key)) return;
       const reconcileAuthoritativeSnapshot = (snapshot: CollaborationDurabilitySnapshot) => {
         if (
-          !entry.doc
+          entry.lifecycle.signal.aborted
+          || !entry.doc
           || !entry.session
           || snapshot.documentId !== entry.session.documentId
           || snapshot.lifecycleGeneration !== entry.session.lifecycleGeneration
@@ -295,8 +328,10 @@ function createEntry(
         name: session.documentName,
         document: entry.doc,
         token: async () => {
+          assertEntryActive(entry);
           if (Date.parse(session.expiresAt) - Date.now() < 30_000) {
-            const refreshed = requireTextSession(await requestSession(path, 'auto'), representation);
+            const refreshed = requireTextSession(await requestSession(path, 'auto', workspaceId, entry.lifecycle.signal), representation);
+            assertEntryActive(entry);
             if (
               refreshed.documentId !== session.documentId
               || refreshed.lifecycleGeneration !== session.lifecycleGeneration
@@ -386,6 +421,7 @@ function createEntry(
       });
       entry.provider = provider;
       entry.requestCheckpoint = () => {
+        if (entry.lifecycle.signal.aborted) return Promise.reject(new Error('Collaboration document was closed.'));
         if (entry.checkpointPromise) return entry.checkpointPromise;
         entry.checkpointPromise = (async () => {
           transition(entry, { type: 'checkpoint_requested' });
@@ -394,9 +430,11 @@ function createEntry(
             (state) => state.ready && state.unsyncedChanges === 0,
             10_000,
           );
+          assertEntryActive(entry);
           if (!entry.doc || !entry.session) throw new Error('Collaboration is not ready.');
           if (Date.parse(entry.session.expiresAt) - Date.now() < 30_000) {
-            const refreshed = requireTextSession(await requestSession(path, 'auto'), representation);
+            const refreshed = requireTextSession(await requestSession(path, 'auto', workspaceId, entry.lifecycle.signal), representation);
+            assertEntryActive(entry);
             if (
               refreshed.documentId !== entry.session.documentId
               || refreshed.lifecycleGeneration !== entry.session.lifecycleGeneration
@@ -413,15 +451,18 @@ function createEntry(
           let lastError = 'Checkpoint is waiting for the latest Yjs persistence.';
           let lastErrorCode: string | null = null;
           for (let attempt = 0; attempt < 20; attempt += 1) {
+            assertEntryActive(entry);
             const response = await fetch('/api/files/collaboration/checkpoint', {
+              signal: entry.lifecycle.signal,
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+              headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
               body: JSON.stringify({ token: entry.session.token, stateVector, stateProof }),
             });
             const payload = await response.json().catch(() => ({})) as Record<string, unknown> & {
               code?: string;
               error?: string;
             };
+            assertEntryActive(entry);
             const snapshot = durabilitySnapshot(payload);
             if (
               response.ok
@@ -521,10 +562,7 @@ export function useCollaborationDocument(input: {
       if (entry.refs === 0) {
         entry.cleanupTimer = setTimeout(() => {
           if (entry.refs !== 0) return;
-          entry.provider?.destroy();
-          entry.persistence?.destroy();
-          entry.doc?.destroy();
-          registry.delete(key);
+          disposeEntry(entry);
         }, 1_000);
       }
     };
@@ -561,11 +599,12 @@ export function useTextCollaborationSession(input: {
   }>({ key: null, attempt: -1, session: null, error: null });
 
   useEffect(() => {
-    if (!key || !input.path) {
+    if (!key || !input.path || !input.workspaceId) {
       return;
     }
     let cancelled = false;
-    void requestSession(input.path, 'auto')
+    const controller = new AbortController();
+    void requestSession(input.path, 'auto', input.workspaceId, controller.signal)
       .then((session) => requireTextSession(session))
       .then((session) => {
         if (!cancelled) setState({ key, attempt, session, error: null });
@@ -582,8 +621,9 @@ export function useTextCollaborationSession(input: {
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [input.path, key, attempt]);
+  }, [input.path, input.workspaceId, key, attempt]);
 
   const current = state.key === key && state.attempt === attempt ? state : { session: null, error: null };
   return {
