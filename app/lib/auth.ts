@@ -19,6 +19,7 @@ import {
   resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
 import { recordDirectMcpOAuthProviderError } from '@/app/lib/mcp/server/diagnostics';
+import { directMcpOAuthResourceOptions } from '@/app/lib/mcp/server/oauth-resource-config';
 import {
   assertUserSeatAccess,
   SeatLimitGuardError,
@@ -70,11 +71,7 @@ const directMcpOAuthPlugins = directMcpConfig
         scopes: [...DIRECT_MCP_OAUTH_SCOPES],
         clientRegistrationDefaultScopes: ["openid"],
         clientRegistrationAllowedScopes: [...DIRECT_MCP_OAUTH_SCOPES],
-        resources: [{
-          identifier: directMcpConfig.resource,
-          name: 'Canvas Notebook MCP',
-          allowedScopes: [...DIRECT_MCP_OAUTH_SCOPES],
-        }],
+        ...directMcpOAuthResourceOptions(directMcpConfig.resource),
         clientRegistrationDefaultResources: [directMcpConfig.resource],
         clientRegistrationAllowedResources: [directMcpConfig.resource],
         validAudiences: [directMcpConfig.resource],
