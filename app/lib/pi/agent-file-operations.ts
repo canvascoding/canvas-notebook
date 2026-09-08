@@ -1235,20 +1235,20 @@ async function commitTextChange(params: {
   const workspacePath = workspaceContext && isPathWithin(params.fullPath, workspaceContext.rootPath)
     ? workspaceRelativeAgentPath(workspaceContext, params.fullPath)
     : null;
-  const baseRevision = workspaceContext && params.beforeBuffer
+  const baseRevision = workspaceContext && workspacePath && params.beforeBuffer
     ? await ensureFileRevisionForCurrentContent({
         workspace: workspaceContext,
-        path: params.inputPath,
+        path: workspacePath,
         contentHash: sha256Buffer(params.beforeBuffer),
         sizeBytes: params.beforeBuffer.length,
         actorType: 'system',
       })
     : null;
 
-  if (workspaceContext) {
+  if (workspaceContext && workspacePath) {
     await assertFileCollaborationWriteAllowed({
       workspace: workspaceContext,
-      path: params.inputPath,
+      path: workspacePath,
       actorUserId: executionContext?.userId ?? null,
       actorSessionId: executionContext?.sessionId ?? null,
       actorType: 'agent',
@@ -1256,13 +1256,15 @@ async function commitTextChange(params: {
     });
   }
 
-  const snapshot = await createSnapshotFromBuffer({
-    inputPath: params.inputPath,
-    fullPath: params.fullPath,
-    existed: params.beforeExisted,
-    beforeBuffer: params.beforeBuffer,
-    operation: params.operation,
-  });
+  const snapshot = workspacePath
+    ? await createSnapshotFromBuffer({
+        inputPath: workspacePath,
+        fullPath: params.fullPath,
+        existed: params.beforeExisted,
+        beforeBuffer: params.beforeBuffer,
+        operation: params.operation,
+      })
+    : null;
 
   if (workspaceContext && workspacePath) {
     await writeWorkspaceFile(workspacePath, params.nextContent, { workspace: workspaceContext }, async () => {
@@ -1282,10 +1284,10 @@ async function commitTextChange(params: {
   if (readBackText !== params.nextContent) {
     throw new Error(`Read-after-write verification failed for ${params.inputPath}.`);
   }
-  if (workspaceContext) {
+  if (workspaceContext && workspacePath) {
     await ensureFileRevisionForCurrentContent({
       workspace: workspaceContext,
-      path: params.inputPath,
+      path: workspacePath,
       contentHash: sha256Buffer(readBack),
       sizeBytes: readBack.length,
       actorUserId: executionContext?.userId ?? null,
@@ -1293,8 +1295,8 @@ async function commitTextChange(params: {
       sourceSessionId: executionContext?.sessionId ?? null,
       baseRevisionId: baseRevision?.id ?? null,
     });
+    await syncPublicSharesAfterWrite([params.fullPath]);
   }
-  await syncPublicSharesAfterWrite([params.fullPath]);
 
   const result: AgentFileChangeResult = {
     path: params.inputPath,
@@ -1419,20 +1421,23 @@ export async function writeAgentBinaryFile(params: {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     const executionContext = getAgentExecutionContext();
     const workspaceContext = getAgentWorkspaceContext();
-    const baseRevision = workspaceContext && before.buffer
+    const workspacePath = workspaceContext && isPathWithin(fullPath, workspaceContext.rootPath)
+      ? workspaceRelativeAgentPath(workspaceContext, fullPath)
+      : null;
+    const baseRevision = workspaceContext && workspacePath && before.buffer
       ? await ensureFileRevisionForCurrentContent({
           workspace: workspaceContext,
-          path: params.path,
+          path: workspacePath,
           contentHash: beforeSha256!,
           sizeBytes: before.buffer.length,
           actorType: 'system',
         })
       : null;
 
-    if (workspaceContext) {
+    if (workspaceContext && workspacePath) {
       await assertFileCollaborationWriteAllowed({
         workspace: workspaceContext,
-        path: params.path,
+        path: workspacePath,
         actorUserId: executionContext?.userId ?? null,
         actorSessionId: executionContext?.sessionId ?? null,
         actorType: 'agent',
@@ -1440,13 +1445,15 @@ export async function writeAgentBinaryFile(params: {
       });
     }
 
-    const snapshot = await createSnapshotFromBuffer({
-      inputPath: params.path,
-      fullPath,
-      existed: before.existed,
-      beforeBuffer: before.buffer,
-      operation,
-    });
+    const snapshot = workspacePath
+      ? await createSnapshotFromBuffer({
+          inputPath: workspacePath,
+          fullPath,
+          existed: before.existed,
+          beforeBuffer: before.buffer,
+          operation,
+        })
+      : null;
     const stagingPath = path.join(
       path.dirname(fullPath),
       `.${path.basename(fullPath)}.canvas-agent-${randomUUID()}.tmp`,
@@ -1463,10 +1470,10 @@ export async function writeAgentBinaryFile(params: {
     if (readBack.length !== params.content.length || readBackSha256 !== afterSha256) {
       throw new Error(`Read-after-write verification failed for ${params.path}.`);
     }
-    if (workspaceContext) {
+    if (workspaceContext && workspacePath) {
       await ensureFileRevisionForCurrentContent({
         workspace: workspaceContext,
-        path: params.path,
+        path: workspacePath,
         contentHash: readBackSha256,
         sizeBytes: readBack.length,
         actorUserId: executionContext?.userId ?? null,
@@ -1474,8 +1481,8 @@ export async function writeAgentBinaryFile(params: {
         sourceSessionId: executionContext?.sessionId ?? null,
         baseRevisionId: baseRevision?.id ?? null,
       });
+      await syncPublicSharesAfterWrite([fullPath]);
     }
-    await syncPublicSharesAfterWrite([fullPath]);
 
     const result: AgentFileChangeResult = {
       path: params.path,
