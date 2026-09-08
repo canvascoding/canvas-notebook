@@ -1,6 +1,6 @@
 # Office document runtime, safe commits, and DOCX autosave
 
-Status: implementation in progress. Owner: Office Creator. Scope: Canvas Notebook DOCX editing, agent document work, and the shared file-write mechanisms on which Office safety depends.
+Status: implemented with automated checks passing; native browser acceptance awaits explicit permission. Native Linux isolation verification remains a pre-deployment requirement. Owner: Office Creator. Scope: Canvas Notebook DOCX editing, agent document work, and the shared file-write mechanisms on which Office safety depends.
 
 ## Problem and existing decision
 
@@ -27,37 +27,37 @@ Each completed stage is verified and committed. Independent changes within a sta
 
 ### 1. Shared commit and lease foundation
 
-- [ ] Establish cross-process, reentrant document mutation serialization and a consistent ordering with database transactions and path mutations.
-- [ ] Introduce session-bound, expiring leases with explicit renewal/release and stale-token rejection at final commit.
-- [ ] Supply a hash and revision bound to the actual DOCX bytes loaded by the editor.
-- [ ] Centralize DOCX validation, conditional replacement, durable versions, retry/idempotency handling, and recovery of interrupted publication.
-- [ ] Route canonical Office mutation paths through the common guard, including upload, copy/replace, restore, rename and delete.
-- [ ] Verify same-user/different-session ownership, stale revisions, lock takeover/expiry, two-process writes and failure boundaries.
+- [x] Establish cross-process, reentrant document mutation serialization and a consistent ordering with database transactions and path mutations.
+- [x] Introduce session-bound, expiring leases with explicit renewal/release and stale-token rejection at final commit.
+- [x] Supply a hash and revision bound to the actual DOCX bytes loaded by the editor.
+- [x] Centralize DOCX validation, conditional replacement, durable versions, retry/idempotency handling, and recovery of interrupted publication.
+- [x] Route canonical Office mutation paths through the common guard, including upload, copy/replace, restore, rename and delete.
+- [x] Verify same-user/different-session ownership, stale revisions, lock takeover/expiry, two-process writes and failure boundaries.
 
 ### 2. Agent working-copy runtime
 
-- [ ] Provide explicit DOCX checkout/read and commit operations with run-scoped working directories, original revision/hash and safe conflict results.
-- [ ] Technically isolate shell writes from canonical workspace documents while allowing document tools to operate in scratch space.
-- [ ] Validate and atomically commit generated packages through stage 1; preserve results when publication conflicts or is cancelled.
-- [ ] Update the shipped DOCX skill/tool manifest to use the supported workflow and describe lock/conflict outcomes.
-- [ ] Test Python generation/editing, foreign and same-owner browser locks, two agent runs, late/cancelled commits and unsupported isolation environments.
+- [x] Provide explicit DOCX checkout/read and commit operations with run-scoped working directories, original revision/hash and safe conflict results.
+- [x] Technically isolate shell writes from canonical workspace documents while allowing document tools to operate in scratch space.
+- [x] Validate and atomically commit generated packages through stage 1; preserve results when publication conflicts or is cancelled.
+- [x] Update the shipped DOCX skill/tool manifest to use the supported workflow and describe lock/conflict outcomes.
+- [x] Test Python generation/editing, foreign and same-owner browser locks, two agent runs, late/cancelled commits and unsupported isolation environments.
 
 ### 3. DOCX editor lifecycle and autosave
 
-- [ ] Implement document/session-scoped state and acquire/renew/release leases; show read-only/locked/error states accurately.
-- [ ] Mark edits dirty immediately, debounce serialization, serialize saves, and coalesce subsequent edits without applying stale results.
-- [ ] Bind loading to its byte revision and workspace; route shortcuts and transition guards through the serializer.
-- [ ] Preserve local recovery and expose retry, recover, save-a-copy, and external-change choices.
-- [ ] Use a bounded autosave policy and backend rate limits suitable for document editing.
-- [ ] Verify late export after switching, out-of-order completion, edits during a save, save errors, lock loss, and reload recovery.
+- [x] Implement document/session-scoped state and acquire/renew/release leases; show read-only/locked/error states accurately.
+- [x] Mark edits dirty immediately, debounce serialization, serialize saves, and coalesce subsequent edits without applying stale results.
+- [x] Bind loading to its byte revision and workspace; route shortcuts and transition guards through the serializer.
+- [x] Preserve local recovery and expose retry, recover, save-a-copy, and external-change choices.
+- [x] Use a bounded autosave policy and backend rate limits suitable for document editing.
+- [x] Verify late export after switching, out-of-order completion, edits during a save, save errors, lock loss, and reload recovery.
 
 ### 4. Integration and acceptance
 
-- [ ] Run focused tests and relevant regression suites, lint/type checks, and a production build.
+- [x] Run focused tests and relevant regression suites, lint/type checks, and a production build.
 - [ ] With explicit browser permission, validate a real DOCX in the local worktree: autosave, reopen, manual save, two tabs, two users, agent commit, offline/failure recovery, navigation and conflict copy.
-- [ ] Use only the managed local development stack; inspect existing processes before starting anything, and do not build a container without explicit permission.
-- [ ] Verify DOCX roundtrip structure and representative tables, images, relationships, comments, headers/footers and tracked changes remain intact.
-- [ ] Audit every invariant against current code and test evidence, record limitations accurately, update this plan and commit completed stages.
+- [x] Respect the managed local development stack; existing processes were inspected, none reused or stopped as a test application. No container was built or started.
+- [x] Verify DOCX roundtrip structure and representative tables, images, relationships, comments, headers/footers and tracked changes remain intact for the supported subset; reject reproduced unsupported loss cases for browser editing.
+- [x] Audit every invariant against current code and test evidence, record limitations accurately and update this plan. Completed implementation stages are committed separately from later browser acceptance.
 
 ## Acceptance scenarios
 
@@ -67,3 +67,65 @@ The verification matrix includes: user A vs user B; two tabs of user A; user A v
 
 - Initial audit: source review and isolated probes confirmed same-user lease reuse, missing metadata SHA, wrong-target and out-of-order export completion, empty shortcut payload, accepted Python direct-write command, and two-process check/replace race. These are reproductions of the old behavior, not acceptance tests for the fix.
 - Implementation evidence will be appended per completed stage.
+
+## Implemented design and verification evidence (2026-09-08)
+
+All source changes and dependency/runtime work are confined to the `2bc2` worktree on `codex/office-docx-autosave`. No container was built or started, no deployment was made, and no other checkout was changed.
+
+### Persistence and ownership
+
+- A workspace-wide OS file lock now encloses file mutation and collaboration transactions across Node processes. It is reentrant only for an active operation and has a bounded acquisition queue. Existing path locks already included the workspace root; this preserves that ordering. File locks require Python 3 and a filesystem with working `flock`; unsupported environments fail closed.
+- DOCX ownership is `(workspace, canonical path/lineage, authenticated user, session, lease token)`, including personal workspaces. Renewal keeps the existing token and cannot recreate an expired lease. Format detection, file access and lease paths use the same normalization. Office mutations reject symlink and case aliases beneath the configured workspace root.
+- Conditional saves use the SHA-256 of the exact bytes delivered to the editor plus their revision ID. A final recheck under the OS lock verifies cancellation, baseline, lease owner/token and deadline immediately before atomic publication.
+- Validation precedes publication. The durable journal stores the original and proposed bytes by content hash and records the original save identity. A read or retry can complete a filesystem/database crash boundary. Acknowledgement is delayed until revision and receipt persistence complete. Existing versions are retained; there is no automatic destructive retention policy. Storage failures pause saves and leave recoverable proposals. History scans are bounded.
+- Chunked upload attempts durably retain their first lineage/hash/revision, exact content hash and stable session identity before publication. Session metadata mutations hold the same cross-process session lock, ordered before the workspace lock. Retrying after a lost completion response cannot adopt a newer file baseline or overwrite a later edit.
+- Upload, rename, copy, trash/restore and ZIP import share the same Office guards. Copies acquire a new lineage while retaining the previous lineage's history; failed replacements restore original bytes/metadata or retain the complete private backup when compensation fails. Versions can be downloaded even if the canonical file is missing or damaged, with workspace/path/lineage authorization.
+- The supported SQLite personal runtime now adapts the collaboration repository's fixed SQL vocabulary and adds missing columns idempotently. PostgreSQL retains its existing transaction and row/advisory locks.
+
+Evidence: `workspace-mutation-lock-test.ts` (including real independent processes and killed helpers), `office-docx-package-test.ts`, `office-document-journal-test.ts` (including SIGKILL and fsync fault injection), `office-document-lease-test.ts`, `office-document-commit-test.ts`, `office-sqlite-compatibility-test.ts`, `office-publication-context-test.ts`, `office-path-mutations-test.ts`, `office-path-alias-test.ts`, `office-upload-retry-test.ts`, and the existing file revision/rename/cross-workspace-copy regression suites. Tests use real filesystem mutations with PGlite/PostgreSQL semantics or the actual SQLite runtime; the package and journal are not mocked.
+
+### Agent runtime
+
+`checkout_docx`, `commit_docx`, `inspect_docx_checkout` and `release_docx_checkout` use an isolated working file with an immutable starting hash/revision and a unique checkout lease session. The manifest and pending proposal live outside writable scratch storage. Commit rechecks the persisted actor/workspace permissions; conflict, cancellation and expired/replaced leases preserve the proposal. New default/file toolsets expose these tools, and the shipped DOCX skill describes the workflow.
+
+Agent bash and descendants can read the workspace and write only their session scratch directory. macOS uses the OS sandbox; Linux uses Landlock plus seccomp and requires a supported kernel/architecture. This is a filesystem write boundary, not a network sandbox or confinement of external MCP servers. There is no unrestricted shell fallback.
+
+Evidence: `office-document-tools-test.ts`, existing Pi tool registry/workspace-policy/effective-tool/gateway suites, and `agent-shell-sandbox-test.ts`. The native macOS sandbox rejected 24 Python/Node mutation attempts and allowed scratch ZIP generation; abort and policy tests passed. **The native Linux backend has not yet been executed on a Linux kernel in this task.**
+
+### Browser save lifecycle and library integration
+
+- Every editor instance owns its document identity, transport and save controller. Edits are cloned and marked dirty synchronously, with a bounded IndexedDB persistence queue. ZIP exports are single-flight, debounced for 2 seconds with a 10-second maximum wait; edits during export/upload remain dirty until their own acknowledgement.
+- Pending requests retain their exact bytes, starting revision and idempotency key for retries. Late completion is scoped to the originating instance. Recovered requests retain their original lease identity and preconditions rather than adopting a newly loaded baseline.
+- Cmd/Ctrl+S, the editor File menu and file/workspace transition guards use the DOCX controller. The general text autosave cannot submit an empty DOCX draft. Watcher events never replace dirty models. Retry, download draft, save a new copy, explicit draft-preserving reopen and historical downloads are available.
+- A pinned patch for `@eigenpal/docx-js-editor@0.5.3` supplies missing synchronous mutation events for headers, footers and comments, blocks local Open inside a workspace-bound editor, routes File Save to the shared controller, and updates existing ProseMirror views when read-only mode changes. The readable regeneration recipe accompanies the minified package patch. Installation fails if a package patch cannot be applied. The Docker dependency stage copies patches before `npm ci`; the Dockerfile was inspected/updated, but no container build was run.
+- A real roundtrip found loss of custom XML/body extension content and certain formatting/metadata in the installed serializer. A conservative compatibility gate keeps such documents read-only in the browser. The original file and checked agent workflow remain available. This is a tested subset, **not a guarantee of complete OOXML fidelity**. The serializer also avoids reinserting unchanged images on every reopen/save; new or changed image bytes remain supported.
+
+Evidence: `docx-save-session-test.ts` exercises delayed exports/uploads, edit generations, bounded recovery queues, lost-response retries, stale baseline/token recovery, quota errors, lease expiry and disposal. `docx-editor-events-test.tsx` uses the real React component and real ProseMirror views in JSDOM: initial clean state, body/comments/header/footer events, same-batch header/body updates, undo/redo, disabled local Open, Save dispatch and live read-only enforcement. This is not a native browser or visual layout test. `office-docx-roundtrip-test.ts` exercises seven package scenarios over three save/reopen phases; `office-editor-compatibility-test.ts` covers nine scenarios including twelve reproduced loss cases and stable image counts over four reopen/save cycles.
+
+### Acceptance still requiring an explicit environment or permission
+
+- Native browser/IndexedDB and visual checks are pending: real file browser -> editor -> autosave -> reopen, two browser users/tabs, offline/reconnect, navigation and conflict-copy recovery. Permission was requested; no browser automation has been run.
+- Native Linux Landlock/seccomp execution remains a required pre-deployment check in a supported Linux environment. The macOS execution result must not be used as proof for Linux.
+- Arbitrary host administrators, external programs or remote MCP services with direct filesystem access are outside the cooperative lock and agent-shell boundary. A deployment must not grant alternative canonical-write paths to an agent. Simultaneous DOCX coauthoring remains out of scope; the runtime intentionally allows one editing lease per document.
+- Upgrading the editor requires rebuilding the pinned patch and rerunning mutation-event, compatibility and roundtrip tests. Unsupported OOXML must not be enabled merely because a package parses successfully.
+
+### Final automated checks
+
+- `npm run test:office:runtime`: passed, including real cross-process locks, SQLite/PGlite commits and leases, mutation aliases, archive rollback/history, upload retry/crash boundaries, agent checkout/commit and the native macOS shell sandbox.
+- `npm run test:office:editor`: passed, including the actual editor event bridge in React/JSDOM and real DOCX roundtrips.
+- Existing relevant revision, collaboration-policy, rename, cross-workspace copy, chunked-upload and Pi tool registration/policy suites: passed.
+- Full TypeScript and `npm run lint`: passed; lint retains one pre-existing unused `savedTime` warning in `FileEditor.tsx`.
+- `npm ci --dry-run --ignore-scripts --no-audit --no-fund`: passed; existing peer-dependency warnings remain. Pinned patch pristine reapplication, `patch-package --error-on-fail`, ESM/CJS syntax and license-artifact checks passed.
+- `npm run build`: passed, including production compilation, TypeScript, route generation and CLI version injection. No container build or deploy was performed.
+- GitNexus impact analyses reported HIGH/CRITICAL for shared file/path/transaction and editor entry points before edits. The final change review covers their intended file, upload, agent and editor flows; new standalone modules are additionally covered by the focused tests above. A source-graph result alone is not proof against a race condition.
+
+### Commit and scope record
+
+- `276c2763`: implementation plan.
+- `ed3dd080`: cross-process mutex and bounded package validation.
+- `d28a80b2`: durable versions and idempotent publication journal.
+- `da8a3921`: canonical mutations, session leases, path aliases and immutable upload retries.
+- `f03879b7`: isolated agent working copies and conditional commits.
+- `df9b5e0e`: scoped editor autosave/recovery, compatibility gate and complete editor mutation events.
+
+The refreshed GitNexus index contains 35,983 nodes and 96,851 edges. Staged checks ran before every implementation commit. The required comparison with `main` reports 155 files/858 symbols/77 processes, including 73 file differences that already existed between `main` and the task's starting commit. A separate comparison against the audited task baseline `c9635796` isolates this implementation: 85 files/696 symbols/71 processes, CRITICAL because shared file and collaboration paths changed. Its intended scope is file persistence, upload/copy/trash, agent file tools, DOCX editor integration and their test/dependency/documentation support. It does not authorize merging or deployment; browser acceptance and native Linux execution remain pending as described above.
