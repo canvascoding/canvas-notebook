@@ -23,7 +23,7 @@ async function main() {
   const validation = await validateCanvasPluginPackage(pluginRoot);
   assert.equal(validation.valid, true, validation.errors.join('\n'));
   assert.equal(validation.manifest?.name, 'document-suite');
-  assert.equal(validation.manifest?.version, '1.2.0');
+  assert.equal(validation.manifest?.version, '1.3.0');
 
   const skillNames = validation.manifest?.skillRefs?.map((skill) => skill.name).sort() || [];
   assert.deepEqual(skillNames, [

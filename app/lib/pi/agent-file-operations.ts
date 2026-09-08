@@ -48,7 +48,11 @@ import {
 import { publishWorkspaceFileMutation, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
-import { ensureAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
+import {
+  assertAgentRuntimeTempQuota,
+  ensureAgentRuntimeTempDir,
+  resolveAgentRuntimeTempDir,
+} from '@/app/lib/pi/agent-runtime-temp';
 import { getStudioRoot, getStudioWorkspaceRoot } from '@/app/lib/integrations/studio-workspace';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
@@ -268,6 +272,24 @@ function isAllowedRuntimeReadPath(candidatePath: string, executionContext: Agent
 
 function isAgentRuntimeTempPath(candidatePath: string, executionContext: AgentExecutionContext): boolean {
   return isPathWithinRootVariants(candidatePath, resolveAgentRuntimeTempDir(executionContext));
+}
+
+async function assertAgentRuntimeTempWriteQuota(params: {
+  fullPath: string;
+  additionalBytes: number;
+  additionalFiles: number;
+  releasedBytes?: number;
+  releasedFiles?: number;
+}): Promise<void> {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext || !isAgentRuntimeTempPath(params.fullPath, executionContext)) return;
+  const tempDir = await ensureAgentRuntimeTempDir(executionContext);
+  await assertAgentRuntimeTempQuota(tempDir, {
+    additionalBytes: params.additionalBytes,
+    additionalFiles: params.additionalFiles,
+    releasedBytes: params.releasedBytes,
+    releasedFiles: params.releasedFiles,
+  });
 }
 
 function assertContextWorkspaceReadAllowed(candidatePath: string): void {
@@ -517,6 +539,12 @@ export function getAgentWorkspaceContext(): WorkspaceContext | null {
 
 function workspaceRelativeAgentPath(workspace: WorkspaceContext, fullPath: string): string {
   return path.relative(workspace.rootPath, fullPath).split(path.sep).join('/');
+}
+
+function workspaceRelativeAgentPathIfWithin(workspace: WorkspaceContext, fullPath: string): string | null {
+  return isPathWithin(fullPath, workspace.rootPath)
+    ? workspaceRelativeAgentPath(workspace, fullPath)
+    : null;
 }
 
 async function collaborativeAgentFileContext(fullPath: string, initialBuffer: Buffer): Promise<{
@@ -1235,20 +1263,23 @@ async function commitTextChange(params: {
   const workspacePath = workspaceContext && isPathWithin(params.fullPath, workspaceContext.rootPath)
     ? workspaceRelativeAgentPath(workspaceContext, params.fullPath)
     : null;
-  const baseRevision = workspaceContext && params.beforeBuffer
+  const runtimeTempPath = executionContext
+    ? isAgentRuntimeTempPath(params.fullPath, executionContext)
+    : false;
+  const baseRevision = workspaceContext && workspacePath && params.beforeBuffer
     ? await ensureFileRevisionForCurrentContent({
         workspace: workspaceContext,
-        path: params.inputPath,
+        path: workspacePath,
         contentHash: sha256Buffer(params.beforeBuffer),
         sizeBytes: params.beforeBuffer.length,
         actorType: 'system',
       })
     : null;
 
-  if (workspaceContext) {
+  if (workspaceContext && workspacePath) {
     await assertFileCollaborationWriteAllowed({
       workspace: workspaceContext,
-      path: params.inputPath,
+      path: workspacePath,
       actorUserId: executionContext?.userId ?? null,
       actorSessionId: executionContext?.sessionId ?? null,
       actorType: 'agent',
@@ -1256,13 +1287,15 @@ async function commitTextChange(params: {
     });
   }
 
-  const snapshot = await createSnapshotFromBuffer({
-    inputPath: params.inputPath,
-    fullPath: params.fullPath,
-    existed: params.beforeExisted,
-    beforeBuffer: params.beforeBuffer,
-    operation: params.operation,
-  });
+  const snapshot = runtimeTempPath
+    ? null
+    : await createSnapshotFromBuffer({
+        inputPath: workspacePath ?? params.inputPath,
+        fullPath: params.fullPath,
+        existed: params.beforeExisted,
+        beforeBuffer: params.beforeBuffer,
+        operation: params.operation,
+      });
 
   if (workspaceContext && workspacePath) {
     await writeWorkspaceFile(workspacePath, params.nextContent, { workspace: workspaceContext }, async () => {
@@ -1275,6 +1308,13 @@ async function commitTextChange(params: {
       });
     });
   } else {
+    await assertAgentRuntimeTempWriteQuota({
+      fullPath: params.fullPath,
+      additionalBytes: Buffer.byteLength(params.nextContent, 'utf8'),
+      additionalFiles: 1,
+      releasedBytes: params.beforeBuffer?.length ?? 0,
+      releasedFiles: params.beforeExisted ? 1 : 0,
+    });
     await fs.writeFile(params.fullPath, params.nextContent, 'utf8');
   }
   const readBack = await fs.readFile(params.fullPath);
@@ -1282,10 +1322,10 @@ async function commitTextChange(params: {
   if (readBackText !== params.nextContent) {
     throw new Error(`Read-after-write verification failed for ${params.inputPath}.`);
   }
-  if (workspaceContext) {
+  if (workspaceContext && workspacePath) {
     await ensureFileRevisionForCurrentContent({
       workspace: workspaceContext,
-      path: params.inputPath,
+      path: workspacePath,
       contentHash: sha256Buffer(readBack),
       sizeBytes: readBack.length,
       actorUserId: executionContext?.userId ?? null,
@@ -1294,7 +1334,9 @@ async function commitTextChange(params: {
       baseRevisionId: baseRevision?.id ?? null,
     });
   }
-  await syncPublicSharesAfterWrite([params.fullPath]);
+  if (!runtimeTempPath) {
+    await syncPublicSharesAfterWrite([params.fullPath]);
+  }
 
   const result: AgentFileChangeResult = {
     path: params.inputPath,
@@ -1419,20 +1461,26 @@ export async function writeAgentBinaryFile(params: {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     const executionContext = getAgentExecutionContext();
     const workspaceContext = getAgentWorkspaceContext();
-    const baseRevision = workspaceContext && before.buffer
+    const workspacePath = workspaceContext && isPathWithin(fullPath, workspaceContext.rootPath)
+      ? workspaceRelativeAgentPath(workspaceContext, fullPath)
+      : null;
+    const runtimeTempPath = executionContext
+      ? isAgentRuntimeTempPath(fullPath, executionContext)
+      : false;
+    const baseRevision = workspaceContext && workspacePath && before.buffer
       ? await ensureFileRevisionForCurrentContent({
           workspace: workspaceContext,
-          path: params.path,
+          path: workspacePath,
           contentHash: beforeSha256!,
           sizeBytes: before.buffer.length,
           actorType: 'system',
         })
       : null;
 
-    if (workspaceContext) {
+    if (workspaceContext && workspacePath) {
       await assertFileCollaborationWriteAllowed({
         workspace: workspaceContext,
-        path: params.path,
+        path: workspacePath,
         actorUserId: executionContext?.userId ?? null,
         actorSessionId: executionContext?.sessionId ?? null,
         actorType: 'agent',
@@ -1440,18 +1488,40 @@ export async function writeAgentBinaryFile(params: {
       });
     }
 
-    const snapshot = await createSnapshotFromBuffer({
-      inputPath: params.path,
-      fullPath,
-      existed: before.existed,
-      beforeBuffer: before.buffer,
-      operation,
-    });
+    const snapshot = runtimeTempPath
+      ? null
+      : await createSnapshotFromBuffer({
+          inputPath: workspacePath ?? params.path,
+          fullPath,
+          existed: before.existed,
+          beforeBuffer: before.buffer,
+          operation,
+        });
     const stagingPath = path.join(
       path.dirname(fullPath),
       `.${path.basename(fullPath)}.canvas-agent-${randomUUID()}.tmp`,
     );
     try {
+      try {
+        await assertAgentRuntimeTempWriteQuota({
+          fullPath,
+          additionalBytes: params.content.length,
+          additionalFiles: 1,
+        });
+      } catch (error) {
+        if (
+          runtimeTempPath &&
+          before.existed &&
+          error instanceof Error &&
+          error.message.startsWith('Agent runtime temp quota exceeded:')
+        ) {
+          throw new Error(
+            `${error.message} Atomic binary replacement requires temporary quota headroom for the staging file so the original remains recoverable if the process stops.`,
+            { cause: error },
+          );
+        }
+        throw error;
+      }
       await fs.writeFile(stagingPath, params.content, { flag: 'wx', mode: 0o600 });
       await fs.rename(stagingPath, fullPath);
     } finally {
@@ -1463,10 +1533,10 @@ export async function writeAgentBinaryFile(params: {
     if (readBack.length !== params.content.length || readBackSha256 !== afterSha256) {
       throw new Error(`Read-after-write verification failed for ${params.path}.`);
     }
-    if (workspaceContext) {
+    if (workspaceContext && workspacePath) {
       await ensureFileRevisionForCurrentContent({
         workspace: workspaceContext,
-        path: params.path,
+        path: workspacePath,
         contentHash: readBackSha256,
         sizeBytes: readBack.length,
         actorUserId: executionContext?.userId ?? null,
@@ -1475,7 +1545,9 @@ export async function writeAgentBinaryFile(params: {
         baseRevisionId: baseRevision?.id ?? null,
       });
     }
-    await syncPublicSharesAfterWrite([fullPath]);
+    if (!runtimeTempPath) {
+      await syncPublicSharesAfterWrite([fullPath]);
+    }
 
     const result: AgentFileChangeResult = {
       path: params.path,
@@ -2082,6 +2154,42 @@ function assertNoNestedCopyMoveSources(entries: AgentPathOperationEntry[]): void
   }
 }
 
+async function assertRuntimeTempPathOperationQuota(
+  entries: PreparedPathOperationEntry[],
+  operation: 'copy' | 'move',
+): Promise<void> {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) return;
+  let additionalBytes = 0;
+  let additionalFiles = 0;
+  let releasedBytes = 0;
+  let releasedFiles = 0;
+
+  for (const entry of entries) {
+    if (!entry.destinationResolvedPath || !isAgentRuntimeTempPath(entry.destinationResolvedPath, executionContext)) {
+      continue;
+    }
+    const sourceAlreadyInTemp = isAgentRuntimeTempPath(entry.sourceResolvedPath, executionContext);
+    if (operation === 'copy' || !sourceAlreadyInTemp) {
+      additionalBytes += entry.bytes;
+      additionalFiles += entry.files;
+    }
+    if (entry.overwritten) {
+      const destinationSummary = await summarizePath(entry.destinationResolvedPath);
+      releasedBytes += destinationSummary.bytes;
+      releasedFiles += destinationSummary.files;
+    }
+  }
+
+  if (additionalBytes === 0 && additionalFiles === 0) return;
+  await assertAgentRuntimeTempQuota(await ensureAgentRuntimeTempDir(executionContext), {
+    additionalBytes,
+    additionalFiles,
+    releasedBytes,
+    releasedFiles,
+  });
+}
+
 export async function copyAgentPath(params: {
   sourcePath: string;
   destinationPath: string;
@@ -2162,12 +2270,14 @@ export async function copyAgentPaths(params: {
     mutationStates.map((state) => state.fullPath),
     async () => {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'copy_path');
+      await assertRuntimeTempPathOperationQuota(entries, 'copy');
       const copyWorkspace = getAgentWorkspaceContext();
-      if (copyWorkspace) {
+      if (copyWorkspace && getDatabaseProvider() === 'postgres') {
         const overwrittenPaths: string[] = [];
         for (const entry of entries) {
           if (!entry.overwritten || !entry.destinationResolvedPath) continue;
-          const destinationPath = workspaceRelativeAgentPath(copyWorkspace, entry.destinationResolvedPath);
+          const destinationPath = workspaceRelativeAgentPathIfWithin(copyWorkspace, entry.destinationResolvedPath);
+          if (!destinationPath) continue;
           await assertFileCollaborationWriteAllowed({
             workspace: copyWorkspace,
             path: destinationPath,
@@ -2196,15 +2306,19 @@ export async function copyAgentPaths(params: {
       }
       await verifyPathOperationEntries({ entries, sourceMustBeRemoved: false });
       if (copyWorkspace) {
-        await initializeCopiedFileCollaborationPaths({
-          workspace: copyWorkspace,
-          paths: entries
-            .map((entry) => entry.destinationResolvedPath)
-            .filter((value): value is string => Boolean(value))
-            .map((destination) => workspaceRelativeAgentPath(copyWorkspace, destination)),
-        });
+        const workspaceDestinations = entries
+          .map((entry) => entry.destinationResolvedPath
+            ? workspaceRelativeAgentPathIfWithin(copyWorkspace, entry.destinationResolvedPath)
+            : null)
+          .filter((value): value is string => Boolean(value));
+        if (getDatabaseProvider() === 'postgres') {
+          await initializeCopiedFileCollaborationPaths({
+            workspace: copyWorkspace,
+            paths: workspaceDestinations,
+          });
+        }
+        await syncPublicSharesAfterWrite(workspaceDestinations, copyWorkspace);
       }
-      await syncPublicSharesAfterWrite(entries.map((entry) => entry.destinationResolvedPath).filter((value): value is string => Boolean(value)));
       for (const entry of entries) {
         if (entry.destinationResolvedPath) {
           publishAgentWorkspaceMutation(
@@ -2295,11 +2409,13 @@ export async function moveAgentPaths(params: {
     mutationStates.map((state) => state.fullPath),
     async () => {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'move_path');
+      await assertRuntimeTempPathOperationQuota(entries, 'move');
       const moveWorkspace = getAgentWorkspaceContext();
-      if (moveWorkspace) {
+      if (moveWorkspace && getDatabaseProvider() === 'postgres') {
         const overwrittenPaths = entries
           .filter((entry) => entry.overwritten && entry.destinationResolvedPath)
-          .map((entry) => workspaceRelativeAgentPath(moveWorkspace, entry.destinationResolvedPath!));
+          .map((entry) => workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.destinationResolvedPath!))
+          .filter((value): value is string => Boolean(value));
         if (overwrittenPaths.length > 0) {
           await archiveFileCollaborationPaths({ workspace: moveWorkspace, paths: overwrittenPaths.map((path) => ({ path })) });
         }
@@ -2323,20 +2439,45 @@ export async function moveAgentPaths(params: {
         }
       }
       await verifyPathOperationEntries({ entries, sourceMustBeRemoved: true });
+      const copiedIntoWorkspace: string[] = [];
+      const removedFromWorkspace: string[] = [];
       for (const entry of entries) {
         if (entry.destinationResolvedPath) {
           if (moveWorkspace) {
-            const oldPath = workspaceRelativeAgentPath(moveWorkspace, entry.sourceResolvedPath);
-            const newPath = workspaceRelativeAgentPath(moveWorkspace, entry.destinationResolvedPath);
-            await moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
+            const oldPath = workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.sourceResolvedPath);
+            const newPath = workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.destinationResolvedPath);
+            if (oldPath && newPath && getDatabaseProvider() === 'postgres') {
+              await moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
+              await syncPublicSharesAfterMove(oldPath, newPath, moveWorkspace);
+            } else if (oldPath && newPath) {
+              await syncPublicSharesAfterMove(oldPath, newPath, moveWorkspace);
+            } else if (oldPath) {
+              removedFromWorkspace.push(oldPath);
+            } else if (newPath) {
+              copiedIntoWorkspace.push(newPath);
+            }
           }
-          await syncPublicSharesAfterMove(entry.sourceResolvedPath, entry.destinationResolvedPath);
           publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
           publishAgentWorkspaceMutation(
             entry.destinationResolvedPath,
             entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
           );
         }
+      }
+      if (moveWorkspace && copiedIntoWorkspace.length > 0) {
+        if (getDatabaseProvider() === 'postgres') {
+          await initializeCopiedFileCollaborationPaths({ workspace: moveWorkspace, paths: copiedIntoWorkspace });
+        }
+        await syncPublicSharesAfterWrite(copiedIntoWorkspace, moveWorkspace);
+      }
+      if (moveWorkspace && removedFromWorkspace.length > 0) {
+        if (getDatabaseProvider() === 'postgres') {
+          await archiveFileCollaborationPaths({
+            workspace: moveWorkspace,
+            paths: removedFromWorkspace.map((path) => ({ path })),
+          });
+        }
+        await syncPublicSharesAfterDelete(removedFromWorkspace, moveWorkspace);
       }
 
       const result = pathOperationSummary('move_path', entries, params.destinationPath, destinationFullPath);
@@ -2536,14 +2677,18 @@ function findShellWriteRedirectTargets(command: string): string[] {
   return targets;
 }
 
-function shellRedirectWritesManagedPath(command: string, cdsIntoManagedPath: boolean): boolean {
+function shellRedirectWritesManagedPath(
+  command: string,
+  cdsIntoManagedPath: boolean,
+  workingDirectory?: 'temp' | 'workspace',
+): boolean {
   const targets = findShellWriteRedirectTargets(command);
   if (targets.length === 0) return false;
 
   return targets.some((target) => {
     if (isManagedDataPath(target)) return true;
     if (path.isAbsolute(target)) return false;
-    return cdsIntoManagedPath;
+    return cdsIntoManagedPath || workingDirectory === 'workspace';
   });
 }
 
@@ -2557,7 +2702,10 @@ function shellUsesMutatingGitCommand(command: string): boolean {
   return gitMutationPattern.test(command);
 }
 
-export function detectUnsafeBashCommand(command: string): string | null {
+export function detectUnsafeBashCommand(
+  command: string,
+  options: { workingDirectory?: 'temp' | 'workspace'; sandboxed?: boolean } = {},
+): string | null {
   const secretPatterns = [
     /\b(?:env|printenv)\b/i,
     /\bdeclare\s+-x\b/i,
@@ -2585,7 +2733,9 @@ export function detectUnsafeBashCommand(command: string): string | null {
     Boolean(executionContext?.workspaceRoot && normalized.includes(executionContext.workspaceRoot));
   const cdsIntoManagedPath = /\bcd\s+\/data\/(?:workspace|workspaces|agents)(?:\/|$|\s)/.test(normalized);
 
-  if (shellUsesDirectFileMutationCommand(normalized)) {
+  const isolatedTempExecution = options.sandboxed === true && options.workingDirectory === 'temp';
+
+  if (shellUsesDirectFileMutationCommand(normalized) && !isolatedTempExecution) {
     return 'Direct shell file mutations are blocked. Use write, edit_file, apply_patch, copy_path, move_path, or delete_path so workspace permissions, revisions, and audit logs are enforced.';
   }
 
@@ -2593,19 +2743,22 @@ export function detectUnsafeBashCommand(command: string): string | null {
     return 'Mutating git commands are blocked in bash. Use dedicated file tools or ask the user before changing repository state.';
   }
 
-  if (/\bsed\b(?=[^;&|]*\s-[A-Za-z]*i(?:\b|\.|['"]|$))/.test(normalized)) {
+  if (!isolatedTempExecution && /\bsed\b(?=[^;&|]*\s-[A-Za-z]*i(?:\b|\.|['"]|$))/.test(normalized)) {
     return 'Unsafe in-place file edits with sed are blocked. Use edit_file or apply_patch instead.';
   }
 
-  if (/\bperl\b(?=[^;&|]*\s-[A-Za-z0-9]*p?i(?:\b|\.|['"]|$))/.test(normalized)) {
+  if (!isolatedTempExecution && /\bperl\b(?=[^;&|]*\s-[A-Za-z0-9]*p?i(?:\b|\.|['"]|$))/.test(normalized)) {
     return 'Unsafe in-place file edits with perl are blocked. Use edit_file or apply_patch instead.';
   }
 
-  if ((mentionsManagedPath || cdsIntoManagedPath) && /\btee\b/.test(normalized)) {
+  if ((mentionsManagedPath || cdsIntoManagedPath || options.workingDirectory === 'workspace') && /\btee\b/.test(normalized)) {
     return 'Shell file writes with tee in workspace or agent paths are blocked. Use write, edit_file, or apply_patch instead.';
   }
 
-  if ((mentionsManagedPath || cdsIntoManagedPath) && shellRedirectWritesManagedPath(normalized, cdsIntoManagedPath)) {
+  if (
+    (mentionsManagedPath || cdsIntoManagedPath || options.workingDirectory === 'workspace')
+    && shellRedirectWritesManagedPath(normalized, cdsIntoManagedPath, options.workingDirectory)
+  ) {
     return 'Shell redirects that write workspace or agent files are blocked. Use write, edit_file, or apply_patch instead.';
   }
 

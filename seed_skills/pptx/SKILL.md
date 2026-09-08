@@ -12,6 +12,9 @@ hidden prompts, or proprietary helper code into this folder.
 
 ## Core Contract
 
+- Use `CANVAS_AGENT_TEMP_DIR` for scripts, working copies, exported PDFs,
+  thumbnails, and QA images. Promote only the requested final deck to the
+  workspace with `copy_path` or `move_path`.
 - Deliver editable slides: use PowerPoint-native text, shapes, tables, charts,
   images, speaker notes, and layouts. Full-slide bitmaps are acceptable only
   when the user explicitly asks for image-only slides.
@@ -29,8 +32,8 @@ hidden prompts, or proprietary helper code into this folder.
 - `python-pptx` for creating and editing many deck structures.
 - `zipfile` plus `lxml` for narrow OOXML repairs that `python-pptx` cannot
   express.
-- LibreOffice or another local renderer when available for deck to PDF/PNG
-  visual checks.
+- LibreOffice for deck-to-PDF visual checks. Before invoking it, read
+  [references/headless-libreoffice.md](references/headless-libreoffice.md).
 - Poppler tools for rendering exported PDFs to images.
 
 ## Workflow
@@ -41,9 +44,9 @@ hidden prompts, or proprietary helper code into this folder.
    masters, images, charts, notes, and repeated brand elements before editing.
 3. Build or edit with native objects. Avoid layout drift by using consistent
    coordinates, margins, and alignment rules.
-4. Render or thumbnail the result when possible. Inspect every slide for clipped
-   text, overlap, illegible contrast, broken charts, missing images, and bad
-   placeholder text.
+4. Convert the scratch copy to PDF with headless LibreOffice, render every PDF
+   page with Poppler, and inspect every slide for clipped text, overlap,
+   illegible contrast, broken charts, missing images, and bad placeholder text.
 5. Fix visible issues and render again. If rendering is unavailable, perform
    structural checks and disclose the limitation.
 

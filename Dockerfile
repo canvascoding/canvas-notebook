@@ -59,6 +59,11 @@ RUN set -eux; \
   DESTDIR=/opt/libvips-root meson install -C /tmp/vips-${LIBVIPS_VERSION}/build; \
   test -f /opt/libvips-root/usr/local/lib/pkgconfig/vips-cpp.pc
 
+COPY tools/agent-sandbox/landlock-run.c /tmp/canvas-agent-landlock.c
+RUN cc -O2 -Wall -Wextra -Werror -std=c11 \
+  -o /opt/canvas-agent-landlock /tmp/canvas-agent-landlock.c \
+  && /opt/canvas-agent-landlock --help >/dev/null
+
 FROM canvas-base AS app-base
 
 RUN set -eux; \
@@ -126,12 +131,15 @@ ARG POSTGRES_CLIENT_VERSION=18.4-1.pgdg12+1
 ARG POSTGRES_COMMON_VERSION=293.pgdg12+1
 ARG TARGETPLATFORM
 
+COPY --from=libvips-build /opt/canvas-agent-landlock /usr/local/libexec/canvas-agent-landlock
+
 RUN set -eux; \
   apt-get update; \
   apt-get install -y --no-install-recommends ffmpeg curl wget zstd ca-certificates unzip zip git make python3 python3-pip python3-venv ripgrep poppler-utils procps \
+     pandoc libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui libreoffice-draw-nogui \
      chromium fonts-liberation libnss3 libatk-bridge2.0-0 libcups2 libdrm2 \
      libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
-     fonts-noto-color-emoji; \
+     fonts-noto-core fonts-noto-color-emoji fonts-crosextra-carlito fonts-crosextra-caladea; \
   case "$(dpkg --print-architecture)" in \
     amd64) \
       pg_client_sha=21c9b6e141053fcecceddd5cb196a105eef9e0c5fd9d6d4f5b52a9b4693a871f; \
@@ -155,7 +163,10 @@ RUN set -eux; \
   rm -f /tmp/*.deb; \
   rm -rf /var/lib/apt/lists/*; \
   python3 --version; \
-  pg_dump --version
+  pg_dump --version; \
+  pandoc --version; \
+  libreoffice --headless --version
+RUN test -x /usr/local/libexec/canvas-agent-landlock
 
 # Install the exact cross-platform Python wheel set required by skills.
 COPY --from=builder /app/requirements/runtime-python.txt /app/requirements/runtime-python.txt
@@ -182,6 +193,7 @@ ENV NODE_ENV=production \
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/seed_skills ./seed_skills
+COPY --from=builder /app/seed_plugins ./seed_plugins
 COPY --from=builder /app/app ./app
 COPY --from=builder /app/components ./components
 COPY --from=builder /app/i18n ./i18n
