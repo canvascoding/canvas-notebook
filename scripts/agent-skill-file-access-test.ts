@@ -97,6 +97,60 @@ async function main() {
       );
     });
 
+    const personalSkillRoot = path.join(dataRoot, 'users', 'user-one', 'skills', 'personal-doc');
+    const foreignPersonalSkillRoot = path.join(dataRoot, 'users', 'user-two', 'skills', 'foreign-doc');
+    const personalSkillPath = path.join(personalSkillRoot, 'SKILL.md');
+    const foreignPersonalSkillPath = path.join(foreignPersonalSkillRoot, 'SKILL.md');
+    await fs.mkdir(path.join(dataRoot, 'users', 'user-one', 'settings'), { recursive: true });
+    await fs.mkdir(personalSkillRoot, { recursive: true });
+    await fs.mkdir(foreignPersonalSkillRoot, { recursive: true });
+    await fs.writeFile(personalSkillPath, [
+      '---',
+      'name: personal-doc',
+      'description: "Personal document workflow"',
+      '---',
+      '',
+      '# Personal Document',
+    ].join('\n'));
+    await fs.writeFile(foreignPersonalSkillPath, [
+      '---',
+      'name: foreign-doc',
+      'description: "Foreign document workflow"',
+      '---',
+      '',
+      '# Foreign Document',
+    ].join('\n'));
+    await fs.writeFile(
+      path.join(dataRoot, 'users', 'user-one', 'settings', 'skills.json'),
+      JSON.stringify({
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        enabledSkills: ['personal-doc'],
+      }),
+    );
+    const personalEscapePath = path.join(personalSkillRoot, 'foreign-link.md');
+    await fs.symlink(foreignPersonalSkillPath, personalEscapePath);
+
+    const { addEffectiveSkillReadRoots } = await import('../app/lib/pi/session-workspace-context');
+    const personalContext = await addEffectiveSkillReadRoots({
+      ...executionContext,
+      organizationId: null,
+      skillReadRoots: [],
+    });
+    assert.ok(personalContext.skillReadRoots?.includes(personalSkillRoot));
+    assert.equal(personalContext.skillReadRoots?.includes(foreignPersonalSkillRoot), false);
+    await runWithAgentExecutionContext(personalContext, async () => {
+      await assert.doesNotReject(() => assertAgentPathAllowed(personalSkillPath));
+      await assert.rejects(
+        () => assertAgentPathAllowed(foreignPersonalSkillPath),
+        /limited to the workspace bound to this chat session/,
+      );
+      await assert.rejects(
+        () => assertAgentPathAllowed(personalEscapePath),
+        /limited to the workspace bound to this chat session/,
+      );
+    });
+
     console.log('agent-skill-file-access-test: ok');
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
