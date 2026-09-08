@@ -49,6 +49,7 @@ def restrict_metadata(libc, machine):
     if machine == "x86_64":
         architecture = 0xC000003E
         ioctl_number = 16
+        open_calls = ((2, 24), (257, 32))  # open(flags=args[1]), openat(args[2])
         denied = {
             90, 91, 92, 93, 94,  # chmod/fchmod/chown/fchown/lchown
             132, 235, 261, 268, 280,  # utime/utimes/futimesat/fchmodat/utimensat
@@ -61,6 +62,7 @@ def restrict_metadata(libc, machine):
     elif machine == "aarch64":
         architecture = 0xC00000B7
         ioctl_number = 29
+        open_calls = ((56, 32),)  # openat(flags=args[2]); no legacy open syscall
         denied = {
             5, 6, 7, 14, 15, 16,  # set/remove xattr variants
             52, 53, 54, 55,  # fchmod/fchmodat/fchownat/fchown
@@ -83,6 +85,26 @@ def restrict_metadata(libc, machine):
         SockFilter(0x35, 0, 1, 473),
         SockFilter(0x06, 0, 0, 0x00050000 | errno.ENOSYS),
     ]
+    # On the native Linux/virtiofs regression fixture, O_RDONLY|O_TRUNC
+    # shortened the host file before Landlock returned EACCES. Reject this
+    # combination at syscall entry, including access mode 3 (neither normal
+    # reading nor writing). Normal writable truncation stays with Landlock.
+    # openat2 puts flags behind a userspace pointer which classic BPF cannot
+    # inspect; report ENOSYS so callers can fall back to checked openat.
+    filters.extend([
+        SockFilter(0x15, 0, 1, 437),  # openat2 on both supported architectures
+        SockFilter(0x06, 0, 0, 0x00050000 | errno.ENOSYS),
+    ])
+    for number, flags_offset in open_calls:
+        filters.extend([
+            SockFilter(0x15, 0, 6, number),
+            SockFilter(0x20, 0, 0, flags_offset),
+            SockFilter(0x54, 0, 0, 0x203),  # BPF_AND: O_TRUNC | O_ACCMODE
+            SockFilter(0x15, 1, 0, 0x200),  # O_RDONLY | O_TRUNC
+            SockFilter(0x15, 0, 1, 0x203),  # access mode 3 | O_TRUNC
+            SockFilter(0x06, 0, 0, 0x00050000 | errno.EPERM),
+            SockFilter(0x20, 0, 0, 0),  # Restore syscall number for later rules.
+        ])
     for number in sorted(denied):
         filters.extend([
             SockFilter(0x15, 0, 1, number),

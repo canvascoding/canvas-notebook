@@ -82,12 +82,16 @@ class Capture:
     program = ctypes.cast(pointer, ctypes.POINTER(module.SockFprog)).contents
     self.instructions = [(item.code, item.jt, item.jf, item.k) for item in program.filter[:program.len]]
     return 0
-def evaluate(instructions, architecture, number, request=0):
+def evaluate(instructions, architecture, number, arguments=()):
   index, accumulator = 0, 0
   while index < len(instructions):
     code, yes, no, constant = instructions[index]
     if code == 0x20:
-      accumulator = {0: number, 4: architecture, 24: request}[constant]
+      words = {0: number, 4: architecture}
+      words.update({16 + offset * 8: value & 0xFFFFFFFF for offset, value in enumerate(arguments)})
+      accumulator = words[constant]
+    elif code == 0x54:
+      accumulator &= constant
     elif code == 0x15:
       index += yes if accumulator == constant else no
     elif code == 0x35:
@@ -98,15 +102,24 @@ def evaluate(instructions, architecture, number, request=0):
       raise AssertionError('Unsupported BPF instruction')
     index += 1
   raise AssertionError('BPF fell through without a decision')
-for machine, architecture, write, chmod, ioctl in [('x86_64', 0xC000003E, 1, 90, 16), ('aarch64', 0xC00000B7, 64, 52, 29)]:
+for machine, architecture, write, chmod, ioctl, opens in [('x86_64', 0xC000003E, 1, 90, 16, [(2, 1), (257, 2)]), ('aarch64', 0xC00000B7, 64, 52, 29, [(56, 2)])]:
   capture = Capture()
   module.restrict_metadata(capture, machine)
-  check = lambda syscall, request=0: evaluate(capture.instructions, architecture, syscall, request)
+  check = lambda syscall, *arguments: evaluate(capture.instructions, architecture, syscall, arguments)
   assert check(write) == 0x7FFF0000
   for syscall in (chmod, 425, 452, 463, 466, 469):
     assert check(syscall) == 0x00050000 | errno.EPERM, (machine, syscall)
-  assert check(ioctl, 0x541B) == 0x7FFF0000  # FIONREAD
-  assert check(ioctl, 0x40086602) == 0x00050000 | errno.EPERM  # FS_IOC_SETFLAGS
+  assert check(ioctl, 0, 0x541B) == 0x7FFF0000  # FIONREAD
+  assert check(ioctl, 0, 0x40086602) == 0x00050000 | errno.EPERM  # FS_IOC_SETFLAGS
+  assert check(437) == 0x00050000 | errno.ENOSYS  # openat2 flags are indirect.
+  for syscall, flag_argument in opens:
+    for access in range(4):
+      for truncate in (0, 0x200):
+        for extra in (0, 0x80000, 0x40):  # CLOEXEC/CREAT cannot bypass the guard.
+          arguments = [0] * (flag_argument + 1)
+          arguments[flag_argument] = access | truncate | extra
+          expected = (0x00050000 | errno.EPERM) if truncate and access in (0, 3) else 0x7FFF0000
+          assert check(syscall, *arguments) == expected, (machine, syscall, arguments)
   assert check(473) == 0x00050000 | errno.ENOSYS
   assert check(0x40000000 + write) == 0x00050000 | errno.ENOSYS
   assert evaluate(capture.instructions, 0, write) == 0x80000000
@@ -139,7 +152,7 @@ print('Linux seccomp ABI and syscall decisions verified')
     assert.match(linuxPolicy.stdout, /Linux seccomp ABI and syscall decisions verified/);
 
     const pythonSource = `
-import errno, json, os, pathlib, zipfile
+import ctypes, errno, json, os, pathlib, platform, sys, zipfile
 workspace = pathlib.Path.cwd()
 scratch = pathlib.Path(os.environ['CANVAS_AGENT_TEMP_DIR'])
 source = workspace / 'original.docx'
@@ -175,6 +188,28 @@ for name, action in attempts.items():
     raise AssertionError('Sandbox permitted workspace mutation: ' + name)
   assert source.read_text() == ${JSON.stringify(marker)}, name
 
+linux_open_probes = 0
+if sys.platform == 'linux':
+  libc = ctypes.CDLL(None, use_errno=True)
+  libc.syscall.restype = ctypes.c_long
+  opens = [(257 if platform.machine() == 'x86_64' else 56, [-100, os.fsencode(source)])]
+  if platform.machine() == 'x86_64':
+    opens.append((2, [os.fsencode(source)]))
+  for number, arguments in opens:
+    for access in (os.O_RDONLY, 3):
+      result = libc.syscall(number, *arguments, access | os.O_TRUNC | os.O_CLOEXEC, 0)
+      assert result == -1 and ctypes.get_errno() == errno.EPERM, (number, access, result)
+      assert source.read_text() == ${JSON.stringify(marker)}, (number, access)
+      linux_open_probes += 1
+  class OpenHow(ctypes.Structure):
+    _fields_ = [('flags', ctypes.c_uint64), ('mode', ctypes.c_uint64), ('resolve', ctypes.c_uint64)]
+  for flags in (os.O_RDONLY, os.O_RDONLY | os.O_TRUNC):
+    how = OpenHow(flags, 0, 0)
+    result = libc.syscall(437, -100, os.fsencode(source), ctypes.byref(how), ctypes.sizeof(how))
+    assert result == -1 and ctypes.get_errno() == errno.ENOSYS, result
+    assert source.read_text() == ${JSON.stringify(marker)}, flags
+    linux_open_probes += 1
+
 # Real Python ZIP output reproduces the filesystem work of DOCX libraries.
 with zipfile.ZipFile(scratch / 'working.docx', 'w', zipfile.ZIP_DEFLATED) as archive:
   archive.writestr('[Content_Types].xml', '<Types/>')
@@ -187,11 +222,12 @@ with zipfile.ZipFile(scratch / 'working.docx') as archive:
 (scratch / 'created-directory' / 'one').rename(scratch / 'created-directory' / 'two')
 (scratch / 'created-directory' / 'two').unlink()
 (scratch / 'created-directory').rmdir()
-print(json.dumps({'blocked': list(attempts), 'docx': str(scratch / 'working.docx')}))
+print(json.dumps({'blocked': list(attempts), 'docx': str(scratch / 'working.docx'), 'linuxOpenProbes': linux_open_probes}))
 `;
     const python = await run(`/usr/bin/python3 -c ${shellQuote(pythonSource)}`);
     const pythonResult = JSON.parse(python.stdout);
     assert.equal(pythonResult.blocked.length, 16);
+    assert.equal(pythonResult.linuxOpenProbes, process.platform === 'linux' ? (process.arch === 'x64' ? 6 : 4) : 0);
     assert.equal(pythonResult.docx, path.join(canonicalScratch, 'working.docx'));
     assert.equal((await fs.stat(path.join(scratch, 'working.docx'))).size > 0, true);
 
@@ -252,6 +288,9 @@ process.stderr.write('stderr preserved');
     }), /must be separate from the workspace/);
     assert.equal(await fs.readFile(path.join(workspace, 'original.docx'), 'utf8'), marker);
     console.log(`agent-shell-sandbox-test: ${process.platform} native backend passed; 24 Python/Node workspace mutations denied, scratch ZIP output, abort and Linux seccomp policy verified`);
+    if (process.platform === 'linux') {
+      console.log(`Linux raw open/openat/openat2 probes passed: ${pythonResult.linuxOpenProbes}; protected file bytes remained intact.`);
+    }
     if (process.platform !== 'linux') {
       console.log('Linux Landlock/seccomp backend still requires this test on a real Linux kernel.');
     }
