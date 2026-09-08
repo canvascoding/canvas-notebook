@@ -21,44 +21,22 @@ async function mockWidgets(page: Page, workspaceId: string, options: {
   longAutomationResult?: boolean;
 } = {}) {
   const widgetRequests: string[] = [];
-  const track = (route: import('@playwright/test').Route) => widgetRequests.push(route.request().url());
-  await page.route('**/api/email/accounts', route => {
-    track(route);
-    return options.failEmail
-      ? route.fulfill({ status: 503, json: { success: false } })
-      : route.fulfill({ json: { success: true, data: { accounts: [{ id: 'primary', emailAddress: 'team@example.com' }, { id: 'sales', emailAddress: 'sales@example.com' }] } } });
-  });
-  await page.route('**/api/email/folders?*', route => {
-    track(route);
-    return route.fulfill({ json: { success: true, data: { folders: [{ path: 'INBOX', role: 'inbox' }] } } });
-  });
-  await page.route('**/api/email/messages/list', route => {
-    track(route);
-    const accountId = route.request().postDataJSON().accountId;
-    return route.fulfill({ json: { success: true, data: { messages: [{ id: `mail-${accountId}`, folder: 'INBOX', from: accountId === 'sales' ? 'Mara' : 'Jonas', subject: accountId === 'sales' ? 'Launch-Freigabe' : 'Wochenplanung', date: accountId === 'sales' ? '2026-09-07T12:00:00Z' : '2026-09-07T11:00:00Z', isRead: false }] } } });
-  });
-  await page.route('**/api/todos?*', route => {
-    track(route);
+  await page.route('**/api/home/workspace-widgets?*', route => {
+    widgetRequests.push(route.request().url());
     expect(new URL(route.request().url()).searchParams.get('workspaceId')).toBe(workspaceId);
-    return route.fulfill({ json: { success: true, data: [{ id: 'todo-critical', title: 'Launch prüfen', priority: 'high', dueAt: '2026-09-08T10:00:00Z', readState: 'unread' }] } });
-  });
-  await page.route('**/api/automations/jobs/job-latest/runs', route => {
-    track(route);
-    return route.fulfill({ json: { success: true, data: [{
-      createdAt: '2026-09-07T12:00:00Z',
-      resultText: options.longAutomationResult
+    const cachedAt = '2026-09-08T12:00:00.000Z';
+    const ready = <T,>(data: T) => ({ status: 'ready' as const, data, cachedAt, stale: false });
+    return route.fulfill({ json: { success: true, data: {
+      emails: options.failEmail ? { status: 'error', errorCode: 'source_unavailable' } : ready([
+        { id: 'mail-sales', accountId: 'sales', accountLabel: 'sales@example.com', folder: 'INBOX', from: 'Mara', subject: 'Launch-Freigabe', date: '2026-09-07T12:00:00Z' },
+        { id: 'mail-primary', accountId: 'primary', accountLabel: 'team@example.com', folder: 'INBOX', from: 'Jonas', subject: 'Wochenplanung', date: '2026-09-07T11:00:00Z' },
+      ]),
+      todos: ready([{ id: 'todo-critical', title: 'Launch prüfen', priority: 'high', dueAt: '2026-09-08T10:00:00Z', readState: 'unread' }]),
+      automation: ready({ id: 'job-latest', name: 'Kampagnen-Report', status: 'active', lastRunAt: '2026-09-07T12:00:00Z', lastRunStatus: 'success', nextRunAt: '2026-09-08T12:00:00Z', resultText: options.longAutomationResult
         ? '**Aktuelle Woche:** KW 36\n- **Wöchentliche Follower-Zahlen** fehlen vollständig für Instagram, LinkedIn, X und mehrere weitere Kanäle mit einem absichtlich sehrlangenwortohnetrennzeichen'.repeat(4)
-        : 'Kampagnendaten wurden aktualisiert.',
-    }] } });
-  });
-  await page.route('**/api/automations/jobs', route => {
-    track(route);
-    return route.fulfill({ json: { success: true, data: [{ id: 'job-other', name: 'Fremder Lauf', workspaceId: 'other', status: 'active', updatedAt: '2026-09-07T13:00:00Z' }, { id: 'job-latest', name: 'Kampagnen-Report', workspaceId, status: 'active', lastRunAt: '2026-09-07T12:00:00Z', lastRunStatus: 'success', nextRunAt: '2026-09-08T12:00:00Z' }] } });
-  });
-  await page.route('**/api/studio/generations?*', route => {
-    track(route);
-    expect(new URL(route.request().url()).searchParams.get('workspaceId')).toBe(workspaceId);
-    return route.fulfill({ json: { success: true, generations: [{ id: 'generation-latest', prompt: 'Editoriales Produktbild für den Launch', createdAt: '2026-09-07T12:00:00Z', status: 'completed', outputs: [{ id: 'output', mediaUrl: options.brokenStudioImage ? '/images/missing-widget-preview.png' : '/images/examples/aura_serum_produktfoto.png', mimeType: 'image/png' }] }] } });
+        : 'Kampagnendaten wurden aktualisiert.' }),
+      studio: ready({ id: 'generation-latest', prompt: 'Editoriales Produktbild für den Launch', createdAt: '2026-09-07T12:00:00Z', status: 'completed', output: { id: 'output', mediaUrl: options.brokenStudioImage ? '/images/missing-widget-preview.png' : '/images/examples/aura_serum_produktfoto.png', mimeType: 'image/png' } }),
+    } } });
   });
   return widgetRequests;
 }
@@ -79,7 +57,7 @@ test('workspace widgets fill page two and progressively reveal quick selections'
   await expect(page.getByTestId('workspace-widget-automation-summary').getByText('Kampagnen-Report')).toBeVisible();
   await expect(page.getByTestId('workspace-widget-studio-summary').getByText('Editoriales Produktbild für den Launch')).toBeVisible();
   await expect.poll(() => page.getByTestId('workspace-widget-studio-summary').locator('img').evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
-  expect(requests.length).toBeGreaterThanOrEqual(6);
+  expect(requests).toHaveLength(1);
 
   const emailCard = page.getByTestId('workspace-widget-email');
   const emailQuickSelection = page.getByTestId('workspace-widget-email-quick-selection');

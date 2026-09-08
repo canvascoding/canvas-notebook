@@ -3,10 +3,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import {
-  loadHomeWidgetAutomation,
-  loadHomeWidgetEmails,
-  loadHomeWidgetStudio,
-  loadHomeWidgetTodos,
   type HomeWidgetAutomation,
   type HomeWidgetEmail,
   type HomeWidgetStudio,
@@ -24,6 +20,26 @@ type HomeWorkspaceWidgetSnapshot = {
   todos: HomeWidgetState<HomeWidgetTodo[]>;
   automation: HomeWidgetState<HomeWidgetAutomation | null>;
   studio: HomeWidgetState<HomeWidgetStudio | null>;
+};
+
+type WidgetApiResult<T> = {
+  status: 'ready';
+  data: T;
+  cachedAt: string;
+  stale: boolean;
+} | {
+  status: 'error';
+  errorCode: 'source_unavailable';
+};
+
+type HomeWorkspaceWidgetResponse = {
+  success?: boolean;
+  data?: {
+    emails: WidgetApiResult<HomeWidgetEmail[]>;
+    todos: WidgetApiResult<HomeWidgetTodo[]>;
+    automation: WidgetApiResult<HomeWidgetAutomation | null>;
+    studio: WidgetApiResult<HomeWidgetStudio | null>;
+  };
 };
 
 function initialSnapshot(workspaceId: string | null): HomeWorkspaceWidgetSnapshot {
@@ -45,36 +61,54 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
   useEffect(() => {
     if (!active || !workspaceId) return;
     const controller = new AbortController();
-    const start = initialSnapshot(workspaceId);
-    start.emails.status = 'loading';
-    start.todos.status = 'loading';
-    start.automation.status = 'loading';
-    start.studio.status = 'loading';
-    const update = <K extends keyof Omit<HomeWorkspaceWidgetSnapshot, 'workspaceId'>>(
-      key: K,
-      value: HomeWorkspaceWidgetSnapshot[K],
-    ) => {
-      if (controller.signal.aborted) return;
-      setSnapshot((previous) => previous.workspaceId === workspaceId ? { ...previous, [key]: value } : previous);
-    };
-    const settle = <K extends keyof Omit<HomeWorkspaceWidgetSnapshot, 'workspaceId'>>(
-      key: K,
-      promise: Promise<HomeWorkspaceWidgetSnapshot[K]['data']>,
-      emptyValue: HomeWorkspaceWidgetSnapshot[K]['data'],
-    ) => {
-      void promise.then(
-        (data) => update(key, { status: 'ready', data } as HomeWorkspaceWidgetSnapshot[K]),
-        () => update(key, { status: 'error', data: emptyValue } as HomeWorkspaceWidgetSnapshot[K]),
-      );
-    };
+    const forceRefresh = revision > 0;
 
     const loadingTimer = window.setTimeout(() => {
       if (controller.signal.aborted) return;
-      setSnapshot(start);
-      settle('emails', loadHomeWidgetEmails(fetch, controller.signal), []);
-      settle('todos', loadHomeWidgetTodos(fetch, workspaceId, controller.signal), []);
-      settle('automation', loadHomeWidgetAutomation(fetch, workspaceId, controller.signal), null);
-      settle('studio', loadHomeWidgetStudio(fetch, workspaceId, controller.signal), null);
+      setSnapshot((previous) => {
+        const hasReadyData = previous.workspaceId === workspaceId
+          && [previous.emails, previous.todos, previous.automation, previous.studio].some((value) => value.status === 'ready');
+        if (hasReadyData) return previous;
+        const start = initialSnapshot(workspaceId);
+        start.emails.status = 'loading';
+        start.todos.status = 'loading';
+        start.automation.status = 'loading';
+        start.studio.status = 'loading';
+        return start;
+      });
+      const params = new URLSearchParams({ workspaceId, ...(forceRefresh ? { refresh: '1' } : {}) });
+      void fetch(`/api/home/workspace-widgets?${params}`, {
+        credentials: 'include',
+        cache: 'no-store',
+        signal: controller.signal,
+      }).then(async (response) => {
+        const payload = await response.json().catch(() => null) as HomeWorkspaceWidgetResponse | null;
+        if (!response.ok || !payload?.success || !payload.data) throw new Error('Workspace widgets could not be loaded.');
+        if (controller.signal.aborted) return;
+        const data = payload.data;
+        setSnapshot((currentSnapshot) => {
+          const previous = currentSnapshot.workspaceId === workspaceId ? currentSnapshot : initialSnapshot(workspaceId);
+          return {
+            workspaceId,
+            emails: data.emails.status === 'ready' ? { status: 'ready', data: data.emails.data } : { status: 'error', data: previous.emails.data },
+            todos: data.todos.status === 'ready' ? { status: 'ready', data: data.todos.data } : { status: 'error', data: previous.todos.data },
+            automation: data.automation.status === 'ready' ? { status: 'ready', data: data.automation.data } : { status: 'error', data: previous.automation.data },
+            studio: data.studio.status === 'ready' ? { status: 'ready', data: data.studio.data } : { status: 'error', data: previous.studio.data },
+          };
+        });
+      }).catch(() => {
+        if (controller.signal.aborted) return;
+        setSnapshot((previous) => {
+          if (previous.workspaceId !== workspaceId) return previous;
+          return {
+            ...previous,
+            emails: previous.emails.status === 'ready' ? previous.emails : { status: 'error', data: previous.emails.data },
+            todos: previous.todos.status === 'ready' ? previous.todos : { status: 'error', data: previous.todos.data },
+            automation: previous.automation.status === 'ready' ? previous.automation : { status: 'error', data: previous.automation.data },
+            studio: previous.studio.status === 'ready' ? previous.studio : { status: 'error', data: previous.studio.data },
+          };
+        });
+      });
     }, 0);
 
     return () => {
@@ -82,6 +116,22 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
       controller.abort();
     };
   }, [active, revision, workspaceId]);
+
+  useEffect(() => {
+    if (!active) return;
+    const refresh = () => setRevision((value) => value + 1);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('todo_updated', refresh);
+    window.addEventListener('workspace_widgets_updated', refresh);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.removeEventListener('todo_updated', refresh);
+      window.removeEventListener('workspace_widgets_updated', refresh);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [active, workspaceId]);
 
   return { ...current, retry };
 }
