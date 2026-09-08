@@ -1,32 +1,48 @@
-import { attrsEqual, Extension, type JSONContent, type MarkdownRendererHelpers } from '@tiptap/core';
+import { attrsEqual, Extension, type JSONContent, type MarkdownRendererHelpers, type MarkdownToken } from '@tiptap/core';
 
-const markTags: Record<string, string> = { bold: 'strong', italic: 'em', strike: 's', underline: 'u', canvasHighlight: 'mark' };
-const tagTokens: Record<string, string> = { strong: 'strong', em: 'em', s: 'del', u: 'underline', mark: 'canvasHighlight' };
+const markTags: Record<string, string> = { bold: 'strong', italic: 'em', strike: 's', underline: 'u', canvasHighlight: 'mark', code: 'code' };
+const tagMarks: Record<string, string> = { strong: 'bold', em: 'italic', s: 'strike', u: 'underline', mark: 'canvasHighlight', code: 'code' };
 
 /** Read the exact inline tags emitted by our serializer without requiring a browser DOM. */
 export const CanvasPortableInlineMark = Extension.create({
   name: 'canvasPortableInlineMark',
+  parseMarkdown(token: MarkdownToken & { canvasMark?: string }, helpers) {
+    if (!token.canvasMark || !markTags[token.canvasMark]) return [];
+    return helpers.applyMark(token.canvasMark, helpers.parseInline(token.tokens ?? []));
+  },
   markdownTokenizer: {
     name: 'canvasPortableInlineMark', level: 'inline',
-    start: (source) => source.search(/<(?:strong|em|s|u|mark)>/u),
+    start: (source) => source.search(/<(?:strong|em|s|u|mark|code)>/u),
     tokenize(source, _tokens, lexer) {
-      const opening = source.match(/^<(strong|em|s|u|mark)>/u);
+      const opening = source.match(/^<(strong|em|s|u|mark|code)>/u);
       if (!opening) return undefined;
       const stack: string[] = [];
-      const tags = /<(\/?)(strong|em|s|u|mark)>/gu;
+      const tags = /<(\/?)(strong|em|s|u|mark|code)>/gu;
       for (const match of source.matchAll(tags)) {
         if (!match[1]) stack.push(match[2]);
         else if (stack.pop() !== match[2]) return undefined;
         if (!stack.length) {
           const raw = source.slice(0, match.index! + match[0].length);
           const text = source.slice(opening[0].length, match.index);
-          return { type: tagTokens[opening[1]], raw, text, tokens: lexer.inlineTokens(text) };
+          return { type: 'canvasPortableInlineMark', canvasMark: tagMarks[opening[1]], raw, text, tokens: lexer.inlineTokens(text) };
         }
       }
       return undefined;
     },
   },
 });
+
+/** Preserve formatting on an inline HTML atom; links keep the regular Markdown renderer. */
+export function renderMarkedInlineHtml(markup: string, marks: NonNullable<JSONContent['marks']>, helpers: Pick<MarkdownRendererHelpers, 'renderChildren'>): string {
+  const wrapped = marks.filter((mark) => markTags[mark.type]).reduce((content, mark) =>
+    `<${markTags[mark.type]}>${content}</${markTags[mark.type]}>`, markup);
+  const remaining = marks.filter((mark) => !markTags[mark.type]);
+  if (!remaining.length) return wrapped;
+  let placeholder = '\uE000CanvasInlineHtml\uE001';
+  const source = JSON.stringify([markup, marks]);
+  while (source.includes(placeholder)) placeholder += 'X';
+  return helpers.renderChildren([{ type: 'text', text: placeholder, marks: remaining }]).replace(placeholder, wrapped);
+}
 
 function literalInlineHtml(text: string): string {
   // Decode as prose after delimiter parsing, not as authored Markdown or HTML.

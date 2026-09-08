@@ -1,6 +1,7 @@
 import { Markdown, type MarkdownExtensionOptions } from '@tiptap/markdown';
 import { Marked } from 'canvas-markdown-parser';
 import { proseEntities } from './prose-entities';
+import { EXPLICIT_TABLE_HARD_BREAK_PATTERN, EXPLICIT_TABLE_HARD_BREAK_START } from './table-breaks';
 import { LIST_BOUNDARY_PATTERN, LIST_BOUNDARY_START_PATTERN } from './list-boundary';
 
 export const CANVAS_MARKED_OPTIONS = {
@@ -39,6 +40,14 @@ export function createCanvasMarkedInstance(): TiptapMarkedInstance {
         return { type: 'canvasListBoundary', raw };
       },
       renderer() { return ''; },
+    }, {
+      name: 'canvasExplicitHardBreak',
+      level: 'inline',
+      start(source) { return source.search(EXPLICIT_TABLE_HARD_BREAK_START); },
+      tokenizer(source) {
+        const raw = source.match(EXPLICIT_TABLE_HARD_BREAK_PATTERN)?.[0];
+        return raw ? { type: 'br', raw } : undefined;
+      },
     }, {
       name: 'canvasProseEntity',
       level: 'inline',

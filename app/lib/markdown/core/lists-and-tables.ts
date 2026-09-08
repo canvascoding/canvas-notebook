@@ -1,4 +1,5 @@
 import { portableTableCommands } from './table-commands';
+import { renderTableCellBlocks } from './table-breaks';
 import { OrderedList, BulletList, TaskList, ListItem } from '@tiptap/extension-list';
 import { Table, TableKit } from '@tiptap/extension-table';
 import type { JSONContent, MarkdownParseHelpers, MarkdownToken } from '@tiptap/core';
@@ -130,9 +131,7 @@ export const CanvasTable = Table.extend({
       header: cell.type === 'tableHeader',
       align: cell.attrs?.align ?? null,
       // Preserve spaces inside code; separate paragraphs from hard breaks.
-      text: escapeTableCellPipes((cell.content ?? []).map((block) => helpers.renderChildren([block])
-        .replace(/ {2}\r?\n/gu, '<br>').replace(/\r?\n/gu, '<br>'))
-        .join('<br><br>')),
+      text: escapeTableCellPipes(renderTableCellBlocks(cell.content ?? [], helpers)),
     })));
     const columns = Math.max(0, ...rows.map((row) => row.length));
     if (!columns) return '';

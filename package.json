@@ -196,6 +196,7 @@
     "test:files:metadata": "tsx scripts/file-metadata-format-test.ts",
     "test:files:metadata-schema": "tsx scripts/file-metadata-schema-test.ts",
     "test:files:drag": "tsx scripts/file-drag-move-test.ts && tsx scripts/desktop-file-drag-client-test.ts && npm run test:electron",
+    "test:editor:table-breaks": "tsx --conditions react-server scripts/markdown-table-breaks-test.ts",
     "test:editor:mark-whitespace": "tsx --conditions react-server scripts/markdown-mark-whitespace-test.ts",
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",
     "test:editor:blocks": "tsx --conditions react-server scripts/editor-block-structure-test.ts",
