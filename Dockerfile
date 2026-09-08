@@ -129,6 +129,7 @@ ARG TARGETPLATFORM
 RUN set -eux; \
   apt-get update; \
   apt-get install -y --no-install-recommends ffmpeg curl wget zstd ca-certificates unzip zip git make python3 python3-pip python3-venv ripgrep poppler-utils procps \
+     pandoc libreoffice-writer \
      chromium fonts-liberation libnss3 libatk-bridge2.0-0 libcups2 libdrm2 \
      libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
      fonts-noto-color-emoji; \
@@ -155,7 +156,9 @@ RUN set -eux; \
   rm -f /tmp/*.deb; \
   rm -rf /var/lib/apt/lists/*; \
   python3 --version; \
-  pg_dump --version
+  pg_dump --version; \
+  pandoc --version; \
+  libreoffice --headless --version
 
 # Install the exact cross-platform Python wheel set required by skills.
 COPY --from=builder /app/requirements/runtime-python.txt /app/requirements/runtime-python.txt
