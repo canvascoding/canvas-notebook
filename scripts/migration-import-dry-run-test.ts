@@ -120,7 +120,6 @@ async function main() {
       secrets: true,
     };
     const sqliteBytes = await createSqliteSnapshotBytes(archiveRoot, 'source.sqlite.db');
-    const sqliteSha256 = sha256Buffer(sqliteBytes);
 
     const matchingManifest: CanvasMigrationManifest = {
       format: 'canvas-notebook-migration',
@@ -153,13 +152,13 @@ async function main() {
         unencryptedArchive: true,
       },
       database: {
-        provider: 'sqlite',
+        provider: 'postgres',
         logicalSchemaVersion: null,
         migrationVersion: MIGRATION_BUNDLE_SCHEMA_VERSION,
-        backupKind: 'sqlite_snapshot',
-        artifactPath: 'data/sqlite.db',
-        artifactSha256: sqliteSha256,
-        pgvectorEnabled: null,
+        backupKind: 'none',
+        artifactPath: null,
+        artifactSha256: null,
+        pgvectorEnabled: false,
         pgvectorVersion: null,
         postgresVersion: null,
       },
