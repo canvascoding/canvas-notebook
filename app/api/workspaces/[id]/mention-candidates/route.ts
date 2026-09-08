@@ -9,7 +9,7 @@ import { listMobileWorkspaceMembers } from '@/app/lib/mobile/workspaces';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
-import { WorkspaceOperationError } from '@/app/lib/workspaces/service';
+import { WorkspaceOperationError } from '@/app/lib/workspaces/contracts';
 
 export const dynamic = 'force-dynamic';
 

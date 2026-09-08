@@ -36,9 +36,9 @@ import { seedWorkspaceStarterDocument } from './starter-document';
 import { importLegacyWorkspaceForOwner } from './legacy-recovery';
 import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType } from './types';
 import {
-  normalizeWorkspaceSlug,
   normalizeWorkspaceDescription,
   normalizeWorkspaceColor,
+  normalizeWorkspaceSlug,
   organizationWorkspaceRootRelativePathForSlug,
   personalWorkspaceRootRelativePath,
   personalWorkspaceRootRelativePathForSlug,
@@ -48,7 +48,7 @@ import {
   workspaceAbsoluteRoot,
   type WorkspaceMemberCandidate,
   type WorkspaceMemberRecord,
-} from './service';
+} from './contracts';
 
 export interface PostgresRuntimeDb {
   get: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;

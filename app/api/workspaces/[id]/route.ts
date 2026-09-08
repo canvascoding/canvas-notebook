@@ -14,7 +14,7 @@ import {
   getPostgresWorkspaceState,
   updatePostgresWorkspaceForActor,
 } from '@/app/lib/workspaces/postgres-runtime';
-import { WorkspaceOperationError } from '@/app/lib/workspaces/service';
+import { WorkspaceOperationError } from '@/app/lib/workspaces/contracts';
 
 type RouteContext = {
   params: Promise<{ id: string }>;

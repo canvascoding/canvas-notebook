@@ -12,7 +12,7 @@ import {
   updatePostgresWorkspaceForActor,
   upsertPostgresWorkspaceMemberForActor,
 } from '@/app/lib/workspaces/postgres-runtime';
-import { WorkspaceOperationError, type WorkspaceMemberCandidate, type WorkspaceMemberRecord } from '@/app/lib/workspaces/service';
+import { WorkspaceOperationError, type WorkspaceMemberCandidate, type WorkspaceMemberRecord } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceActor, WorkspaceType } from '@/app/lib/workspaces/types';
 
 export type MobileWorkspaceMember = {

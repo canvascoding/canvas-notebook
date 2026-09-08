@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 
 import { ensureProjectWorkspaceRecord, type WorkspaceRecord } from '@/app/lib/workspaces/service';
 import type { WorkspaceUserRole } from '@/app/lib/workspaces/types';
+export { normalizeSlug } from './slug';
+import { normalizeSlug } from './slug';
 
 export type CanvasCustomerStatus = 'active' | 'archived' | 'disabled';
 export type CanvasProjectStatus = 'active' | 'archived' | 'disabled';
@@ -96,15 +98,6 @@ type ProjectMemberRow = {
 
 function createScopedId(prefix: string): string {
   return `${prefix}_${randomUUID()}`;
-}
-
-export function normalizeSlug(value: string): string {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug || 'untitled';
 }
 
 function reserveUniqueSlug(

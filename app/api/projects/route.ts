@@ -5,7 +5,7 @@ import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { auth } from '@/app/lib/auth';
 import { openDb } from '@/app/lib/db';
 import { areProjectFeaturesEnabled } from '@/app/lib/projects/features';
-import { normalizeSlug } from '@/app/lib/projects/service';
+import { normalizeSlug } from '@/app/lib/projects/slug';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { getPostgresWorkspaceState } from '@/app/lib/workspaces/postgres-runtime';
 

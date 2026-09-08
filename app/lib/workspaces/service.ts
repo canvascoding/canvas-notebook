@@ -21,6 +21,8 @@ import {
   wouldRemoveLastWorkspaceManager,
 } from './member-manager-policy';
 import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType, WorkspaceUserRole } from './types';
+export { WorkspaceOperationError } from './contracts';
+import { WorkspaceOperationError as ContractWorkspaceOperationError } from './contracts';
 
 export interface WorkspaceRecord {
   id: string;
@@ -141,17 +143,7 @@ type WorkspaceMemberCandidateEligibilityRow = {
 
 export type CreateWorkspaceRecordType = 'personal' | 'team' | 'project';
 
-export class WorkspaceOperationError extends Error {
-  code: string;
-  status: number;
-
-  constructor(code: string, message: string, status = 400) {
-    super(message);
-    this.name = 'WorkspaceOperationError';
-    this.code = code;
-    this.status = status;
-  }
-}
+const WorkspaceOperationError = ContractWorkspaceOperationError;
 
 function normalizeWorkspaceType(value: string): WorkspaceType {
   if (value === 'organization' || value === 'team' || value === 'project') return value;

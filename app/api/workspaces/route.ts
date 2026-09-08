@@ -18,7 +18,7 @@ import {
   createPostgresWorkspaceForActor,
   getPostgresWorkspaceState,
 } from '@/app/lib/workspaces/postgres-runtime';
-import { WorkspaceOperationError } from '@/app/lib/workspaces/service';
+import { WorkspaceOperationError } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceType } from '@/app/lib/workspaces/types';
 
 async function requireTeamRuntimeIfEnabled(status: { teamFeaturesEnabled: boolean }) {
