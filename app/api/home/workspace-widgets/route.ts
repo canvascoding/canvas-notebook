@@ -1,17 +1,17 @@
-import { NextRequest } from 'next/server';
+import { after, NextRequest } from 'next/server';
 
 import { applyRateLimit, jsonError, jsonSuccess } from '@/app/lib/api/route-helpers';
+import { listEmailAccounts, listEmailMessages } from '@/app/lib/email/service';
 import { loadCachedWorkspaceWidget } from '@/app/lib/home/workspace-widget-cache';
 import {
   loadHomeWidgetAutomation,
-  loadHomeWidgetEmails,
   loadHomeWidgetStudio,
   loadHomeWidgetTodos,
 } from '@/app/lib/home/workspace-widget-data';
+import { loadHomeWidgetEmails } from '@/app/lib/home/workspace-email-widget';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 
 const TTL = {
-  emails: 60_000,
   todos: 30_000,
   automation: 30_000,
   studio: 30_000,
@@ -47,7 +47,10 @@ export async function GET(request: NextRequest) {
   const fetcher = requestFetcher(request);
   const cacheInput = { userId: access.session.user.id, workspaceId, forceRefresh };
   const [emails, todos, automation, studio] = await Promise.all([
-    widgetResult(() => loadCachedWorkspaceWidget({ ...cacheInput, widget: 'emails', ttlMs: TTL.emails, load: () => loadHomeWidgetEmails(fetcher) })),
+    widgetResult(() => loadHomeWidgetEmails(access.session.user.id, {
+      scheduleBackgroundTask: after,
+      services: { listAccounts: listEmailAccounts, listMessages: listEmailMessages },
+    })),
     widgetResult(() => loadCachedWorkspaceWidget({ ...cacheInput, widget: 'todos', ttlMs: TTL.todos, load: () => loadHomeWidgetTodos(fetcher, workspaceId) })),
     widgetResult(() => loadCachedWorkspaceWidget({ ...cacheInput, widget: 'automation', ttlMs: TTL.automation, load: () => loadHomeWidgetAutomation(fetcher, workspaceId) })),
     widgetResult(() => loadCachedWorkspaceWidget({ ...cacheInput, widget: 'studio', ttlMs: TTL.studio, load: () => loadHomeWidgetStudio(fetcher, workspaceId) })),
