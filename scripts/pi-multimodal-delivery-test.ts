@@ -4,6 +4,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 
 import { extractMessageAttachments } from '../app/lib/chat/message-content';
+import { restorePersistedUploadImageReferences } from '../app/lib/pi/message-normalization';
 import { prepareMessagesForEffectiveModel } from '../app/lib/pi/multimodal-preparation';
 import {
   projectAgentEventForExternal,
@@ -90,6 +91,17 @@ async function main() {
   assert.equal(restoredAttachments?.[0]?.id, uploadId);
   assert.equal(restoredAttachments?.[0]?.filePath, uploadPath);
   assert.match(restoredAttachments?.[0]?.previewUrl || '', new RegExp(encodeURIComponent(uploadId)));
+
+  const legacyPersistedContent = [
+    ...((persistedUpload as unknown as { content: Array<{ type: 'text'; text: string }> }).content
+      .filter((part) => part.type === 'text')),
+    { type: 'text' as const, text: '[image/png image omitted from persisted chat history; reopen or read the authorized source to analyze it.]' },
+  ];
+  const restoredLegacyContent = restorePersistedUploadImageReferences(legacyPersistedContent);
+  const restoredLegacyImages = restoredLegacyContent.filter((part) => part.type === 'image');
+  assert.equal(restoredLegacyImages.length, 1);
+  assert.equal(restoredLegacyImages[0]?.data, uploadUrl);
+  assert.equal(restoredLegacyImages[0]?.mimeType, 'image/png');
 
   const externalUpload = projectAgentEventForExternal({
     type: 'message_end',
