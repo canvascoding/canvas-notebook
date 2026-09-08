@@ -48,7 +48,11 @@ import {
 import { publishWorkspaceFileMutation, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
-import { ensureAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
+import {
+  assertAgentRuntimeTempQuota,
+  ensureAgentRuntimeTempDir,
+  resolveAgentRuntimeTempDir,
+} from '@/app/lib/pi/agent-runtime-temp';
 import { getStudioRoot, getStudioWorkspaceRoot } from '@/app/lib/integrations/studio-workspace';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
@@ -268,6 +272,24 @@ function isAllowedRuntimeReadPath(candidatePath: string, executionContext: Agent
 
 function isAgentRuntimeTempPath(candidatePath: string, executionContext: AgentExecutionContext): boolean {
   return isPathWithinRootVariants(candidatePath, resolveAgentRuntimeTempDir(executionContext));
+}
+
+async function assertAgentRuntimeTempWriteQuota(params: {
+  fullPath: string;
+  additionalBytes: number;
+  additionalFiles: number;
+  releasedBytes?: number;
+  releasedFiles?: number;
+}): Promise<void> {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext || !isAgentRuntimeTempPath(params.fullPath, executionContext)) return;
+  const tempDir = await ensureAgentRuntimeTempDir(executionContext);
+  await assertAgentRuntimeTempQuota(tempDir, {
+    additionalBytes: params.additionalBytes,
+    additionalFiles: params.additionalFiles,
+    releasedBytes: params.releasedBytes,
+    releasedFiles: params.releasedFiles,
+  });
 }
 
 function assertContextWorkspaceReadAllowed(candidatePath: string): void {
@@ -1286,6 +1308,13 @@ async function commitTextChange(params: {
       });
     });
   } else {
+    await assertAgentRuntimeTempWriteQuota({
+      fullPath: params.fullPath,
+      additionalBytes: Buffer.byteLength(params.nextContent, 'utf8'),
+      additionalFiles: 1,
+      releasedBytes: params.beforeBuffer?.length ?? 0,
+      releasedFiles: params.beforeExisted ? 1 : 0,
+    });
     await fs.writeFile(params.fullPath, params.nextContent, 'utf8');
   }
   const readBack = await fs.readFile(params.fullPath);
@@ -1473,6 +1502,11 @@ export async function writeAgentBinaryFile(params: {
       `.${path.basename(fullPath)}.canvas-agent-${randomUUID()}.tmp`,
     );
     try {
+      await assertAgentRuntimeTempWriteQuota({
+        fullPath,
+        additionalBytes: params.content.length,
+        additionalFiles: 1,
+      });
       await fs.writeFile(stagingPath, params.content, { flag: 'wx', mode: 0o600 });
       await fs.rename(stagingPath, fullPath);
     } finally {
@@ -2105,6 +2139,42 @@ function assertNoNestedCopyMoveSources(entries: AgentPathOperationEntry[]): void
   }
 }
 
+async function assertRuntimeTempPathOperationQuota(
+  entries: PreparedPathOperationEntry[],
+  operation: 'copy' | 'move',
+): Promise<void> {
+  const executionContext = getAgentExecutionContext();
+  if (!executionContext) return;
+  let additionalBytes = 0;
+  let additionalFiles = 0;
+  let releasedBytes = 0;
+  let releasedFiles = 0;
+
+  for (const entry of entries) {
+    if (!entry.destinationResolvedPath || !isAgentRuntimeTempPath(entry.destinationResolvedPath, executionContext)) {
+      continue;
+    }
+    const sourceAlreadyInTemp = isAgentRuntimeTempPath(entry.sourceResolvedPath, executionContext);
+    if (operation === 'copy' || !sourceAlreadyInTemp) {
+      additionalBytes += entry.bytes;
+      additionalFiles += entry.files;
+    }
+    if (entry.overwritten) {
+      const destinationSummary = await summarizePath(entry.destinationResolvedPath);
+      releasedBytes += destinationSummary.bytes;
+      releasedFiles += destinationSummary.files;
+    }
+  }
+
+  if (additionalBytes === 0 && additionalFiles === 0) return;
+  await assertAgentRuntimeTempQuota(await ensureAgentRuntimeTempDir(executionContext), {
+    additionalBytes,
+    additionalFiles,
+    releasedBytes,
+    releasedFiles,
+  });
+}
+
 export async function copyAgentPath(params: {
   sourcePath: string;
   destinationPath: string;
@@ -2185,6 +2255,7 @@ export async function copyAgentPaths(params: {
     mutationStates.map((state) => state.fullPath),
     async () => {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'copy_path');
+      await assertRuntimeTempPathOperationQuota(entries, 'copy');
       const copyWorkspace = getAgentWorkspaceContext();
       if (copyWorkspace && getDatabaseProvider() === 'postgres') {
         const overwrittenPaths: string[] = [];
@@ -2323,6 +2394,7 @@ export async function moveAgentPaths(params: {
     mutationStates.map((state) => state.fullPath),
     async () => {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'move_path');
+      await assertRuntimeTempPathOperationQuota(entries, 'move');
       const moveWorkspace = getAgentWorkspaceContext();
       if (moveWorkspace && getDatabaseProvider() === 'postgres') {
         const overwrittenPaths = entries

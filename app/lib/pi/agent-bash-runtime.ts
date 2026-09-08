@@ -3,7 +3,11 @@ import { constants as fsConstants, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import { getAgentRuntimeTempEnv } from '@/app/lib/pi/agent-runtime-temp';
+import {
+  acquireAgentRuntimeTempLease,
+  assertAgentRuntimeTempQuota,
+  getAgentRuntimeTempEnv,
+} from '@/app/lib/pi/agent-runtime-temp';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 
 export type AgentBashWorkingDirectory = 'temp' | 'workspace';
@@ -157,37 +161,53 @@ export async function executeAgentBashCommand(params: {
   signal?: AbortSignal;
 }): Promise<{ stdout: string; stderr: string; sandboxMode: AgentBashSandboxMode }> {
   const sandboxMode = resolveAgentBashSandboxMode(process.env);
-  if (sandboxMode === 'local-development') {
-    const result = await execFileAsync('/bin/bash', ['-lc', params.command], {
+  if (params.tempDir) {
+    await assertAgentRuntimeTempQuota(params.tempDir);
+  }
+  const releaseTempLease = params.tempDir
+    ? acquireAgentRuntimeTempLease(params.tempDir)
+    : () => undefined;
+  try {
+    if (sandboxMode === 'local-development') {
+      const result = await execFileAsync('/bin/bash', ['-lc', params.command], {
+        cwd: params.cwd,
+        env: params.env,
+        signal: params.signal,
+        maxBuffer: AGENT_BASH_MAX_BUFFER_BYTES,
+        encoding: 'utf8',
+      });
+      return { stdout: result.stdout, stderr: result.stderr, sandboxMode };
+    }
+
+    if (!params.tempDir || !params.executionContext) {
+      throw new Error('The Landlock sandbox requires an active agent execution context and session temp directory.');
+    }
+    const launcherPath = process.env.CANVAS_AGENT_LANDLOCK_PATH?.trim() || DEFAULT_LANDLOCK_LAUNCHER;
+    await fs.access(launcherPath, fsConstants.X_OK).catch(() => {
+      throw new Error(`Agent Bash is unavailable because the required Landlock launcher is not executable: ${launcherPath}`);
+    });
+    const args = await buildAgentLandlockArguments({
+      command: params.command,
       cwd: params.cwd,
+      workspaceDir: params.workspaceDir,
+      tempDir: params.tempDir,
+      skillReadRoots: params.executionContext.skillReadRoots,
+    });
+    const result = await execFileAsync(launcherPath, args, {
+      cwd: params.tempDir,
       env: params.env,
       signal: params.signal,
       maxBuffer: AGENT_BASH_MAX_BUFFER_BYTES,
       encoding: 'utf8',
     });
     return { stdout: result.stdout, stderr: result.stderr, sandboxMode };
+  } finally {
+    try {
+      if (params.tempDir) {
+        await assertAgentRuntimeTempQuota(params.tempDir);
+      }
+    } finally {
+      releaseTempLease();
+    }
   }
-
-  if (!params.tempDir || !params.executionContext) {
-    throw new Error('The Landlock sandbox requires an active agent execution context and session temp directory.');
-  }
-  const launcherPath = process.env.CANVAS_AGENT_LANDLOCK_PATH?.trim() || DEFAULT_LANDLOCK_LAUNCHER;
-  await fs.access(launcherPath, fsConstants.X_OK).catch(() => {
-    throw new Error(`Agent Bash is unavailable because the required Landlock launcher is not executable: ${launcherPath}`);
-  });
-  const args = await buildAgentLandlockArguments({
-    command: params.command,
-    cwd: params.cwd,
-    workspaceDir: params.workspaceDir,
-    tempDir: params.tempDir,
-    skillReadRoots: params.executionContext.skillReadRoots,
-  });
-  const result = await execFileAsync(launcherPath, args, {
-    cwd: params.tempDir,
-    env: params.env,
-    signal: params.signal,
-    maxBuffer: AGENT_BASH_MAX_BUFFER_BYTES,
-    encoding: 'utf8',
-  });
-  return { stdout: result.stdout, stderr: result.stderr, sandboxMode };
 }

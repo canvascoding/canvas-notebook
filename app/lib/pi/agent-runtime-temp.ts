@@ -9,8 +9,11 @@ import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context
 const DEFAULT_AGENT_RUNTIME_TEMP_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MIN_AGENT_RUNTIME_TEMP_RETENTION_MS = 60 * 60 * 1000;
 const AGENT_RUNTIME_TEMP_CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+const DEFAULT_AGENT_RUNTIME_TEMP_MAX_BYTES = 512 * 1024 * 1024;
+const DEFAULT_AGENT_RUNTIME_TEMP_MAX_FILES = 10_000;
 
 let lastAgentRuntimeTempCleanupAt = 0;
+const activeAgentRuntimeTempLeases = new Map<string, number>();
 
 export type AgentRuntimeTempIdentity = Pick<
   AgentExecutionContext,
@@ -23,6 +26,30 @@ export type AgentRuntimeTempCleanupResult = {
   deleted: string[];
   scanned: number;
 };
+
+export type AgentRuntimeTempLimits = {
+  maxBytes: number;
+  maxFiles: number;
+};
+
+export type AgentRuntimeTempUsage = {
+  bytes: number;
+  files: number;
+  directories: number;
+};
+
+export function acquireAgentRuntimeTempLease(tempDir: string): () => void {
+  const resolvedDir = path.resolve(tempDir);
+  activeAgentRuntimeTempLeases.set(resolvedDir, (activeAgentRuntimeTempLeases.get(resolvedDir) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const remaining = (activeAgentRuntimeTempLeases.get(resolvedDir) ?? 1) - 1;
+    if (remaining > 0) activeAgentRuntimeTempLeases.set(resolvedDir, remaining);
+    else activeAgentRuntimeTempLeases.delete(resolvedDir);
+  };
+}
 
 function normalizeTempSegment(prefix: string, value: string | null | undefined, fallback: string): string {
   const raw = value?.trim() || fallback;
@@ -51,6 +78,84 @@ function readRetentionMs(): number {
     return DEFAULT_AGENT_RUNTIME_TEMP_RETENTION_MS;
   }
   return Math.max(MIN_AGENT_RUNTIME_TEMP_RETENTION_MS, Math.trunc(configuredHours * 60 * 60 * 1000));
+}
+
+function readPositiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value ?? '');
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+export function readAgentRuntimeTempLimits(
+  env: Partial<NodeJS.ProcessEnv> = process.env,
+): AgentRuntimeTempLimits {
+  return {
+    maxBytes: readPositiveInteger(env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES, DEFAULT_AGENT_RUNTIME_TEMP_MAX_BYTES),
+    maxFiles: readPositiveInteger(env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES, DEFAULT_AGENT_RUNTIME_TEMP_MAX_FILES),
+  };
+}
+
+export async function inspectAgentRuntimeTempUsage(tempDir: string): Promise<AgentRuntimeTempUsage> {
+  const usage: AgentRuntimeTempUsage = { bytes: 0, files: 0, directories: 0 };
+  const pending = [tempDir];
+  while (pending.length > 0) {
+    const directory = pending.pop()!;
+    let entries;
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') continue;
+      throw error;
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(directory, entry.name);
+      const stats = await fs.lstat(entryPath);
+      if (stats.isSymbolicLink()) {
+        usage.files += 1;
+        usage.bytes += stats.size;
+      } else if (stats.isDirectory()) {
+        usage.directories += 1;
+        pending.push(entryPath);
+      } else {
+        usage.files += 1;
+        usage.bytes += stats.size;
+      }
+    }
+  }
+  return usage;
+}
+
+export async function assertAgentRuntimeTempQuota(
+  tempDir: string,
+  projection: {
+    additionalBytes?: number;
+    additionalFiles?: number;
+    releasedBytes?: number;
+    releasedFiles?: number;
+    limits?: AgentRuntimeTempLimits;
+  } = {},
+): Promise<AgentRuntimeTempUsage> {
+  const usage = await inspectAgentRuntimeTempUsage(tempDir);
+  const limits = projection.limits ?? readAgentRuntimeTempLimits();
+  const projectedBytes = Math.max(
+    0,
+    usage.bytes + (projection.additionalBytes ?? 0) - (projection.releasedBytes ?? 0),
+  );
+  const projectedFiles = Math.max(
+    0,
+    usage.files + (projection.additionalFiles ?? 0) - (projection.releasedFiles ?? 0),
+  );
+  if (projectedBytes > limits.maxBytes) {
+    throw new Error(
+      `Agent runtime temp quota exceeded: ${projectedBytes} bytes would exceed the ${limits.maxBytes}-byte session limit. Remove intermediate files or promote the final artifact and retry.`,
+    );
+  }
+  if (projectedFiles > limits.maxFiles) {
+    throw new Error(
+      `Agent runtime temp quota exceeded: ${projectedFiles} files would exceed the ${limits.maxFiles}-file session limit. Remove intermediate files and retry.`,
+    );
+  }
+  return usage;
 }
 
 async function childDirectories(parentPath: string): Promise<string[]> {
@@ -105,6 +210,7 @@ export async function cleanupAgentRuntimeTempDirs(options: {
   const root = resolveAgentRuntimeTempRoot();
   const activeDirs = new Set(
     [
+      ...activeAgentRuntimeTempLeases.keys(),
       ...(options.activeDirs ?? []),
       ...(options.activeDir ? [options.activeDir] : []),
     ].map((activeDir) => path.resolve(activeDir)),
@@ -131,12 +237,42 @@ async function touchDirectory(directory: string, nowMs: number): Promise<void> {
   await fs.utimes(directory, now, now).catch(() => undefined);
 }
 
+async function ensurePrivateSessionDirectory(tempDir: string): Promise<void> {
+  const root = resolveAgentRuntimeTempRoot();
+  await fs.mkdir(root, { recursive: true, mode: 0o700 });
+  const rootStats = await fs.lstat(root);
+  if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) {
+    throw new Error('Agent runtime temp root must be a real directory.');
+  }
+  await fs.chmod(root, 0o700);
+
+  const relativeSegments = path.relative(root, tempDir).split(path.sep).filter(Boolean);
+  if (relativeSegments.length !== 4 || relativeSegments.some((segment) => segment === '..')) {
+    throw new Error('Agent runtime temp directory is outside the managed session hierarchy.');
+  }
+  let current = root;
+  for (const segment of relativeSegments) {
+    current = path.join(current, segment);
+    try {
+      await fs.mkdir(current, { mode: 0o700 });
+    } catch (error) {
+      if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST')) throw error;
+    }
+    const stats = await fs.lstat(current);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) {
+      throw new Error('Agent runtime temp hierarchy must not contain symbolic links.');
+    }
+    await fs.chmod(current, 0o700);
+  }
+}
+
 export async function ensureAgentRuntimeTempDir(identity: AgentRuntimeTempIdentity): Promise<string> {
   const tempDir = resolveAgentRuntimeTempDir(identity);
   const nowMs = Date.now();
-  await fs.mkdir(tempDir, { recursive: true });
+  await ensurePrivateSessionDirectory(tempDir);
   await touchDirectory(tempDir, nowMs);
   await cleanupAgentRuntimeTempDirs({ nowMs, activeDir: tempDir }).catch(() => undefined);
+  await assertAgentRuntimeTempQuota(tempDir);
   return tempDir;
 }
 
