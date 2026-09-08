@@ -52,7 +52,7 @@ function literalSql(node: ts.Node, sourceFile: ts.SourceFile): string | null {
 
   let value = node.head.text;
   for (const span of node.templateSpans) {
-    value += `\${${span.expression.getText(sourceFile)}}${span.literal.text}`;
+    value += span.literal.text;
   }
   return value;
 }
@@ -104,6 +104,20 @@ function sourceFindings(file: string, source: string): SqlFinding[] {
 function assertDetectorCatchesRegressions(): void {
   assert.equal(
     sourceFindings('runtime-question.ts', 'database.all("SELECT * FROM jobs WHERE id = ?", [jobId])')[0]?.reason,
+    'Runtime SQL must use native PostgreSQL $n parameters; found ? placeholder',
+  );
+  assert.deepEqual(
+    sourceFindings(
+      'runtime-template-expression.ts',
+      'db.get(`SELECT * FROM jobs WHERE id = $1${activeOnly ? " AND active" : ""}`, [jobId])',
+    ),
+    [],
+  );
+  assert.equal(
+    sourceFindings(
+      'runtime-template-question.ts',
+      'db.get(`SELECT * FROM jobs WHERE id = ?${activeOnly ? " AND active" : ""}`, [jobId])',
+    )[0]?.reason,
     'Runtime SQL must use native PostgreSQL $n parameters; found ? placeholder',
   );
   assert.deepEqual(sourceFindings('typescript-question.ts', 'const value = record?.value ?? "?";'), []);
