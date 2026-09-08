@@ -4,7 +4,7 @@ import path from 'path';
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 import { filterSafeEnv } from '@/app/lib/security/env-allowlist';
-import { ensureAgentRuntimeTempDir, getAgentRuntimeTempEnv } from '@/app/lib/pi/agent-runtime-temp';
+import { AgentShellSandboxError, executeAgentSandboxedCommand } from '@/app/lib/pi/agent-shell-sandbox';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
@@ -12,6 +12,7 @@ import { createTranscribeAudioTool, createStudioListPresetsTool } from '@/app/li
 import { createWebSearchTool, createWebFetchTool, createRipgrepTool } from '@/app/lib/pi/web-tools';
 import { createInspectDocumentRelationsTool } from '@/app/lib/pi/document-relations-tool';
 import { createPdfTools } from '@/app/lib/pi/pdf-tools';
+import { createOfficeDocumentTools } from '@/app/lib/pi/office-document-tools';
 import {
   applyAgentFilePatch,
   asCommandExecutionError,
@@ -28,10 +29,8 @@ import {
   deleteAgentPaths,
   editAgentFile,
   editAgentExcalidrawScene,
-  execAsync,
   extractPdfTextForRead,
   formatImageReadText,
-  getAgentWorkspaceRoot,
   getErrorMessage,
   getReadImagePreviewDetails,
   imageContentForBuffer,
@@ -77,6 +76,7 @@ export const piTools: AgentTool[] = [
   createTranscribeAudioTool(),
   createInspectDocumentRelationsTool(),
   ...createPdfTools(),
+  ...createOfficeDocumentTools(),
   {
     name: 'ls',
     label: 'Listing directory',
@@ -609,7 +609,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'bash',
     label: 'Executing command',
-    description: 'Executes an inspection-oriented bash command from the workspace bound to the current chat session. Do not use this for file mutations; use write, edit_file, apply_patch, copy_path, move_path, or delete_path so workspace permissions, revisions, and audit logs are enforced.',
+    description: 'Executes a shell command from the workspace bound to this chat. The canonical workspace is read-only to the shell and all Python/Node/other subprocesses. Only this session CANVAS_AGENT_TEMP_DIR is writable for scripts, document working copies and intermediate output. Use checkout_docx/commit_docx to publish Word documents; use write, edit_file, apply_patch, copy_path, move_path or delete_path for other workspace changes so permissions, revisions and audit logs are enforced.',
     parameters: Type.Object({
       command: Type.String({ description: 'The command to execute.' }),
     }),
@@ -621,12 +621,8 @@ export const piTools: AgentTool[] = [
         assertBashCommandAllowed(command);
         const executionContext = getAgentExecutionContext();
         const safeEnv = filterSafeEnv(process.env) as NodeJS.ProcessEnv;
-        if (executionContext) {
-          const tempDir = await ensureAgentRuntimeTempDir(executionContext);
-          Object.assign(safeEnv, getAgentRuntimeTempEnv(tempDir));
-        }
-        const { stdout, stderr } = await execAsync(command, {
-          cwd: getAgentWorkspaceRoot(),
+        const { stdout, stderr } = await executeAgentSandboxedCommand(command, {
+          context: executionContext,
           env: safeEnv,
           signal,
         });
@@ -660,7 +656,7 @@ export const piTools: AgentTool[] = [
         const output = [execError.stdout, execError.stderr, execError.message].filter(Boolean).join('\n');
         await recordBashToolAudit({
           command,
-          status: error instanceof BlockedBashCommandError ? 'blocked' : 'failure',
+          status: error instanceof BlockedBashCommandError || error instanceof AgentShellSandboxError ? 'blocked' : 'failure',
           durationMs: Date.now() - startedAt,
           stdout: execError.stdout,
           stderr: execError.stderr,

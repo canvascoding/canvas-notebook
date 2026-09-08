@@ -630,10 +630,10 @@ async function main() {
   });
   assert.match(getText(blockedRedirectResult), /redirects|write|edit_file|apply_patch/i);
 
-  const allowedNullRedirectResult = await bashTool.execute('bash-allow-null-redirect', {
+  const unboundShellResult = await bashTool.execute('bash-without-session', {
     command: `cd ${JSON.stringify(path.join(workspaceDir, 'hausarbeit'))} && printf ok > /dev/null 2>&1 && echo done`,
   });
-  assert.equal(getText(allowedNullRedirectResult).trim(), 'done');
+  assert.match(getText(unboundShellResult), /workspace-bound session/);
 
   const bashExecutionContext = {
     userId: 'bash-temp-user',
@@ -652,7 +652,11 @@ async function main() {
     canShare: false,
     legacy: false,
   };
-  const expectedRuntimeTempDir = resolveAgentRuntimeTempDir(bashExecutionContext);
+  const allowedNullRedirectResult = await runWithAgentExecutionContext(bashExecutionContext, () => bashTool.execute('bash-allow-null-redirect', {
+    command: `cd ${JSON.stringify(path.join(workspaceDir, 'hausarbeit'))} && printf ok > /dev/null 2>&1 && echo done`,
+  }));
+  assert.equal(getText(allowedNullRedirectResult).trim(), 'done');
+  const expectedRuntimeTempDir = path.join(await fs.realpath(dataDir), path.relative(dataDir, resolveAgentRuntimeTempDir(bashExecutionContext)));
   const bashTempResult = await runWithAgentExecutionContext(bashExecutionContext, () => bashTool.execute('bash-runtime-temp', {
     command: 'node -e "const fs=require(\'fs\'); const path=require(\'path\'); const e=process[\'e\'+\'nv\']; const dir=e.CANVAS_AGENT_TEMP_DIR; fs.writeFileSync(path.join(dir, \'runtime.txt\'), e.TMPDIR + \'\\n\' + e.PYTHONPYCACHEPREFIX); process.stdout.write(dir);"',
   }));

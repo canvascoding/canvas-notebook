@@ -170,7 +170,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
     'email_search_messages',
     'email_update_outbox_draft',
   ]),
-  file: new Set(['apply_patch', 'copy_path', 'delete_path', 'edit_excalidraw_scene', 'edit_file', 'glob', 'grep', 'inspect_document_relations', 'list_file_snapshots', 'ls', 'move_path', 'public_share_file', 'read', 'restore_file_snapshot', 'rg', 'write']),
+  file: new Set(['apply_patch', 'checkout_docx', 'commit_docx', 'inspect_docx_checkout', 'release_docx_checkout', 'copy_path', 'delete_path', 'edit_excalidraw_scene', 'edit_file', 'glob', 'grep', 'inspect_document_relations', 'list_file_snapshots', 'ls', 'move_path', 'public_share_file', 'read', 'restore_file_snapshot', 'rg', 'write']),
   memory: new Set(['memory']),
   mcp: new Set(['mcp']),
   pdf: new Set(['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages']),
