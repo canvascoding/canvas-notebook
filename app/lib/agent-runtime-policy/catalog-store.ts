@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { openDb } from '@/app/lib/db';
 import type {
   AiAppRuntimeCatalog,
   AiCatalogModel,
@@ -182,11 +182,7 @@ export async function readAppRuntimeCatalog(organizationId: string): Promise<AiA
   const connection = await openDb();
   let transactionStarted = false;
   try {
-    await connection.run(
-      getDatabaseProvider() === 'postgres'
-        ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'
-        : 'BEGIN',
-    );
+    await connection.run('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
     transactionStarted = true;
     const defaults = await connection.get(
       `SELECT provider_installation_id, provider_id, model_id, thinking_level, catalog_revision, migration_state,
@@ -294,7 +290,7 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
       `SELECT catalog_revision, legacy_source_hash
        FROM ai_runtime_defaults
        WHERE organization_id = ?
-       LIMIT 1`,
+       LIMIT 1 FOR UPDATE`,
       [input.organizationId],
     ) as { catalog_revision?: number | string | null; legacy_source_hash?: string | null } | undefined;
     const currentRevision = numberValue(current?.catalog_revision, 0);
@@ -417,7 +413,7 @@ export async function updateProviderVerificationStore(
       `SELECT catalog_revision
        FROM ai_runtime_defaults
        WHERE organization_id = ?
-       LIMIT 1`,
+       LIMIT 1 FOR UPDATE`,
       [input.organizationId],
     ) as { catalog_revision?: number | string | null } | undefined;
     const currentCatalogRevision = numberValue(defaults?.catalog_revision, 0);
@@ -429,7 +425,7 @@ export async function updateProviderVerificationStore(
       `SELECT revision, enabled
        FROM ai_provider_installations
        WHERE organization_id = ? AND id = ?
-       LIMIT 1`,
+       LIMIT 1 FOR UPDATE`,
       [input.organizationId, input.providerInstallationId],
     ) as { revision?: number | string | null; enabled?: number | string | boolean } | undefined;
     if (

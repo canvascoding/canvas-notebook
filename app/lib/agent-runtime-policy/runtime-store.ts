@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { openDb } from '@/app/lib/db';
 import type {
   AiModelReference,
   AiRuntimeSelection,
@@ -166,7 +166,6 @@ type RuntimeStoreConnection = Awaited<ReturnType<typeof openDb>>;
  * Locks the durable workspace context before reading catalog/policy revisions.
  * The workspace row prevents a missing policy row from becoming a Postgres
  * phantom insert; the catalog row serializes against catalog replacements.
- * SQLite obtains the equivalent database write lock with BEGIN IMMEDIATE.
  */
 async function lockWorkspaceRuntimeContext(
   connection: RuntimeStoreConnection,
@@ -175,12 +174,11 @@ async function lockWorkspaceRuntimeContext(
     workspaceId: string;
   },
 ): Promise<void> {
-  const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
   const workspace = await connection.get(
     `SELECT id
      FROM canvas_workspaces
      WHERE organization_id = ? AND id = ?
-     LIMIT 1${forUpdate}`,
+     LIMIT 1 FOR UPDATE`,
     [input.organizationId, input.workspaceId],
   ) as { id?: string } | undefined;
   if (!workspace?.id) {
@@ -195,21 +193,20 @@ async function lockAndReadRuntimeContext(
     workspaceId: string;
   },
 ): Promise<{ catalogRevision: number; policyRevision: number }> {
-  const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
   await lockWorkspaceRuntimeContext(connection, input);
 
   const catalogRow = await connection.get(
     `SELECT catalog_revision AS revision
      FROM ai_runtime_defaults
      WHERE organization_id = ?
-     LIMIT 1${forUpdate}`,
+     LIMIT 1 FOR UPDATE`,
     [input.organizationId],
   ) as { revision?: number | string | null } | undefined;
   const policyRow = await connection.get(
     `SELECT revision
      FROM ai_workspace_model_policies
      WHERE organization_id = ? AND workspace_id = ?
-     LIMIT 1${forUpdate}`,
+     LIMIT 1 FOR UPDATE`,
     [input.organizationId, input.workspaceId],
   ) as { revision?: number | string | null } | undefined;
   return {
@@ -442,7 +439,7 @@ export async function writeWorkspaceModelPolicyStore(input: {
   let transactionStarted = false;
   let insertAttempted = false;
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     transactionStarted = true;
     const context = await lockAndReadRuntimeContext(connection, input);
     assertRuntimeContextRevisions(context, {
@@ -536,7 +533,7 @@ export async function deleteWorkspaceModelPolicyStore(input: {
   const connection = await openDb();
   let transactionStarted = false;
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     transactionStarted = true;
     await lockWorkspaceRuntimeContext(connection, input);
     const current = await connection.get(
@@ -650,7 +647,7 @@ export async function writeUserWorkspaceProviderGrant(input: {
   const connection = await openDb();
   let transactionStarted = false;
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     transactionStarted = true;
     await lockWorkspaceRuntimeContext(connection, input);
     const current = await connection.get(
@@ -740,7 +737,7 @@ export async function revokeUserWorkspaceProviderGrant(input: {
   const connection = await openDb();
   let transactionStarted = false;
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     transactionStarted = true;
     await lockWorkspaceRuntimeContext(connection, input);
     const current = await connection.get(
@@ -811,7 +808,7 @@ export async function writeUserModelPreferenceStore(input: {
   let transactionStarted = false;
   let insertAttempted = false;
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     transactionStarted = true;
     const context = await lockAndReadRuntimeContext(connection, input);
     assertRuntimeContextRevisions(context, input);
@@ -1050,7 +1047,7 @@ export async function writePiSessionRuntimeSnapshot(input: {
   const connection = await openDb();
   let transactionStarted = false;
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     transactionStarted = true;
 
     if (input.contextRevision) {
@@ -1058,14 +1055,14 @@ export async function writePiSessionRuntimeSnapshot(input: {
         `SELECT catalog_revision AS revision
          FROM ai_runtime_defaults
          WHERE organization_id = ?
-         LIMIT 1`,
+         LIMIT 1 FOR UPDATE`,
         [input.contextRevision.organizationId],
       ) as { revision?: number | string | null } | undefined;
       const policyRow = await connection.get(
         `SELECT revision
          FROM ai_workspace_model_policies
          WHERE organization_id = ? AND workspace_id = ?
-         LIMIT 1`,
+         LIMIT 1 FOR UPDATE`,
         [input.contextRevision.organizationId, input.contextRevision.workspaceId],
       ) as { revision?: number | string | null } | undefined;
       const currentCatalogRevision = numberValue(catalogRow?.revision, 0);

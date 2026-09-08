@@ -2,7 +2,7 @@ import 'server-only';
 
 import { AiRuntimeInputError, parseRuntimeSelection } from '@/app/lib/agent-runtime-policy/runtime-service';
 import type { AiRuntimeSelection } from '@/app/lib/agent-runtime-policy/types';
-import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { openDb } from '@/app/lib/db';
 
 export class AgentDefaultPolicyError extends Error {
   constructor(
@@ -95,7 +95,7 @@ export async function writeAgentDefaultWithCatalogValidation(input: {
   const connection = await openDb();
   let transactionStarted = false;
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     transactionStarted = true;
 
     let catalogRevision: number | null = null;
@@ -110,7 +110,7 @@ export async function writeAgentDefaultWithCatalogValidation(input: {
         `SELECT catalog_revision
          FROM ai_runtime_defaults
          WHERE organization_id = ?
-         LIMIT 1${getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : ''}`,
+         LIMIT 1 FOR UPDATE`,
         [input.organizationId],
       ) as { catalog_revision?: unknown } | undefined;
       catalogRevision = numberValue(defaults?.catalog_revision);
