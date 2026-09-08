@@ -19,12 +19,31 @@ function isServerPathField(key: string): boolean {
   return key === 'path' || key.endsWith('Path');
 }
 
+const DURABLE_CANVAS_PATH = /^\/data\/(?:agents|studio|user-uploads|workspace|workspaces)(?:\/|$)/;
+const AUTHORIZED_UPLOAD_IMAGE_REFERENCE = /^\/api\/files\/[^/?#]+(?:\/preview)?(?:[?#].*)?$/;
+
+function isDurableCanvasPath(value: string): boolean {
+  return DURABLE_CANVAS_PATH.test(value.replace(/\\/g, '/'));
+}
+
+function isAuthorizedUploadImageReference(
+  value: UnknownRecord,
+): value is UnknownRecord & { type: 'image'; data: string } {
+  return value.type === 'image'
+    && typeof value.data === 'string'
+    && AUTHORIZED_UPLOAD_IMAGE_REFERENCE.test(value.data.trim());
+}
+
 const ABSOLUTE_PATH_TOKEN = /(?:^|(?<=[\s"'`(]))(?:\/(?:[^\s"'`<>()\[\]{}]+\/)+[^\s"'`<>()\[\]{}]+|[a-z]:[\\/](?:[^\s"'`<>()\[\]{}]+[\\/])+[^\s"'`<>()\[\]{}]+|\\\\(?:[^\s"'`<>()\[\]{}]+[\\/])+[^\s"'`<>()\[\]{}]+)/gi;
 
 function redactAbsoluteFilesystemPaths(value: string, purpose: 'persistence' | 'external-event'): string {
   return value.replace(
     ABSOLUTE_PATH_TOKEN,
-    `[absolute server path omitted from ${purpose === 'persistence' ? 'persisted chat history' : 'live event'}]`,
+    (matchedPath) => (
+      purpose === 'persistence' && isDurableCanvasPath(matchedPath)
+        ? matchedPath
+        : `[absolute server path omitted from ${purpose === 'persistence' ? 'persisted chat history' : 'live event'}]`
+    ),
   );
 }
 
@@ -41,6 +60,12 @@ function projectVisualValue(value: unknown, purpose: 'persistence' | 'external-e
     return value;
   }
 
+  // Upload URLs are stable, session-authorized references rather than binary
+  // payloads. Keeping them lets a later turn re-authorize and reload the image.
+  if (isAuthorizedUploadImageReference(value)) {
+    return { ...value, data: value.data.trim() };
+  }
+
   if (isImagePart(value)) {
     const mimeType = typeof value.mimeType === 'string' ? value.mimeType : 'image';
     return {
@@ -51,9 +76,15 @@ function projectVisualValue(value: unknown, purpose: 'persistence' | 'external-e
 
   const projected: UnknownRecord = {};
   for (const [key, entry] of Object.entries(value)) {
-    // Absolute real paths are only needed while the server executes a tool.
+    // Runtime-resolved host paths never need persistence. Canonical Canvas data
+    // paths remain useful in later turns and are safe within the session scope.
     if (key === 'resolvedPath') continue;
-    if (isServerPathField(key) && typeof entry === 'string' && isAbsoluteFilesystemPath(entry)) continue;
+    if (
+      isServerPathField(key)
+      && typeof entry === 'string'
+      && isAbsoluteFilesystemPath(entry)
+      && !(purpose === 'persistence' && isDurableCanvasPath(entry))
+    ) continue;
     projected[key] = projectVisualValue(entry, purpose);
   }
   return projected;

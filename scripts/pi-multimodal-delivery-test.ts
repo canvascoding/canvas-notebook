@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 
+import { extractMessageAttachments } from '../app/lib/chat/message-content';
 import { prepareMessagesForEffectiveModel } from '../app/lib/pi/multimodal-preparation';
 import {
   projectAgentEventForExternal,
@@ -60,6 +61,54 @@ async function main() {
   assert.doesNotMatch(persistedJson, new RegExp(imageData));
   assert.doesNotMatch(persistedJson, /private\/workspace/);
   assert.match(persistedJson, /omitted from persisted chat history/);
+
+  const uploadId = 'screenshot---12345678-1234-1234-1234-123456789abc.png';
+  const uploadPath = `/data/user-uploads/image/${uploadId}`;
+  const uploadUrl = `/api/files/${uploadId}`;
+  const uploadedUserMessage = {
+    role: 'user',
+    content: [
+      {
+        type: 'text',
+        text: `--- Attachment: screenshot.png ---\ncontainerFilePath: ${uploadPath}\nfileId: ${uploadId}\nmimeType: image/png\ncategory: image\ncontentKind: image\n--- Ende Attachment: screenshot.png ---`,
+      },
+      { type: 'image', data: uploadUrl, mimeType: 'image/png' },
+    ],
+    timestamp: Date.now(),
+  } as unknown as AgentMessage;
+
+  const persistedUpload = projectAgentMessageForPersistence(uploadedUserMessage);
+  const persistedUploadJson = JSON.stringify(persistedUpload);
+  assert.match(persistedUploadJson, new RegExp(uploadId));
+  assert.match(persistedUploadJson, new RegExp(uploadPath));
+  assert.match(persistedUploadJson, new RegExp(uploadUrl));
+  assert.doesNotMatch(persistedUploadJson, /image omitted from persisted chat history/);
+  const restoredAttachments = extractMessageAttachments(
+    (persistedUpload as unknown as { content: unknown }).content,
+  );
+  assert.equal(restoredAttachments?.length, 1);
+  assert.equal(restoredAttachments?.[0]?.id, uploadId);
+  assert.equal(restoredAttachments?.[0]?.filePath, uploadPath);
+  assert.match(restoredAttachments?.[0]?.previewUrl || '', new RegExp(encodeURIComponent(uploadId)));
+
+  const externalUpload = projectAgentEventForExternal({
+    type: 'message_end',
+    message: uploadedUserMessage,
+  });
+  const externalUploadJson = JSON.stringify(externalUpload);
+  assert.match(externalUploadJson, new RegExp(uploadUrl));
+  assert.doesNotMatch(externalUploadJson, new RegExp(uploadPath));
+  assert.match(externalUploadJson, /absolute server path omitted from live event/);
+
+  const durableWorkspacePath = '/data/workspaces/acme/reference/vehicle.png';
+  const persistedWorkspaceReference = projectAgentMessageForPersistence({
+    role: 'user',
+    content: `Compare ${durableWorkspacePath} with /private/runtime/secret.png`,
+    timestamp: Date.now(),
+  } as unknown as AgentMessage);
+  const persistedWorkspaceJson = JSON.stringify(persistedWorkspaceReference);
+  assert.match(persistedWorkspaceJson, new RegExp(durableWorkspacePath));
+  assert.doesNotMatch(persistedWorkspaceJson, /private\/runtime\/secret\.png/);
 
   const external = projectAgentEventForExternal({
     type: 'tool_execution_end',
