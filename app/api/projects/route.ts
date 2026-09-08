@@ -4,13 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { auth } from '@/app/lib/auth';
 import { openDb } from '@/app/lib/db';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
-import {
-  ensureOrganizationBootstrapForUser,
-  openOrganizationBootstrapDatabase,
-} from '@/app/lib/organization/bootstrap';
 import { areProjectFeaturesEnabled } from '@/app/lib/projects/features';
-import { createCanvasProject, listCanvasProjects, normalizeSlug } from '@/app/lib/projects/service';
+import { normalizeSlug } from '@/app/lib/projects/service';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { getPostgresWorkspaceState } from '@/app/lib/workspaces/postgres-runtime';
 
@@ -49,7 +44,7 @@ export async function GET(request: NextRequest) {
     const permissionResponse = assertAdminActor(actor);
     if (permissionResponse) return permissionResponse;
 
-    if (getDatabaseProvider() === 'postgres') {
+    {
       const state = await getPostgresWorkspaceState(actor);
       if (!state.status.organizationId) {
         return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
@@ -88,26 +83,6 @@ export async function GET(request: NextRequest) {
         await database.close();
       }
     }
-
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      if (!status.organizationId) {
-        return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
-      }
-      const projects = listCanvasProjects(sqlite, status.organizationId).map((project) => {
-        const workspace = sqlite.prepare(`
-          SELECT id
-          FROM canvas_workspaces
-          WHERE organization_id = ? AND project_id = ? AND type = 'project' AND status = 'active'
-          LIMIT 1
-        `).get(status.organizationId, project.id) as { id: string } | undefined;
-        return { ...project, workspaceId: workspace?.id ?? null };
-      });
-      return NextResponse.json({ success: true, projects });
-    } finally {
-      sqlite.close();
-    }
   } catch (error) {
     return jsonServerError('[API] Projects get error:', error, 'Could not load projects');
   }
@@ -129,7 +104,7 @@ export async function POST(request: NextRequest) {
       ? payload.customerId.trim()
       : null;
 
-    if (getDatabaseProvider() === 'postgres') {
+    {
       const state = await getPostgresWorkspaceState(actor);
       if (!state.status.organizationId) {
         return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
@@ -179,26 +154,6 @@ export async function POST(request: NextRequest) {
       } finally {
         await database.close();
       }
-    }
-
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      if (!status.organizationId) {
-        return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
-      }
-      const project = createCanvasProject(sqlite, {
-        organizationId: status.organizationId,
-        name,
-        slug: typeof payload.slug === 'string' ? payload.slug : undefined,
-        customerId,
-        description: typeof payload.description === 'string' ? payload.description : null,
-        metadataJson: typeof payload.metadataJson === 'string' ? payload.metadataJson : null,
-        createdByUserId: actor.userId,
-      });
-      return NextResponse.json({ success: true, project }, { status: 201 });
-    } finally {
-      sqlite.close();
     }
   } catch (error) {
     if (error instanceof Error && /Name/u.test(error.message)) {

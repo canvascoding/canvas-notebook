@@ -4,13 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { auth } from '@/app/lib/auth';
 import { openDb } from '@/app/lib/db';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
-import {
-  ensureOrganizationBootstrapForUser,
-  openOrganizationBootstrapDatabase,
-} from '@/app/lib/organization/bootstrap';
 import { areProjectFeaturesEnabled } from '@/app/lib/projects/features';
-import { createCanvasCustomer, listCanvasCustomers, normalizeSlug } from '@/app/lib/projects/service';
+import { normalizeSlug } from '@/app/lib/projects/service';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { getPostgresWorkspaceState } from '@/app/lib/workspaces/postgres-runtime';
 
@@ -49,7 +44,7 @@ export async function GET(request: NextRequest) {
     const permissionResponse = assertAdminActor(actor);
     if (permissionResponse) return permissionResponse;
 
-    if (getDatabaseProvider() === 'postgres') {
+    {
       const state = await getPostgresWorkspaceState(actor);
       if (!state.status.organizationId) {
         return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
@@ -71,17 +66,6 @@ export async function GET(request: NextRequest) {
         await database.close();
       }
     }
-
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      if (!status.organizationId) {
-        return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
-      }
-      return NextResponse.json({ success: true, customers: listCanvasCustomers(sqlite, status.organizationId) });
-    } finally {
-      sqlite.close();
-    }
   } catch (error) {
     return jsonServerError('[API] Customers get error:', error, 'Could not load customers');
   }
@@ -100,7 +84,7 @@ export async function POST(request: NextRequest) {
     const payload = await request.json().catch(() => ({})) as Record<string, unknown>;
     const name = normalizeName(payload.name);
 
-    if (getDatabaseProvider() === 'postgres') {
+    {
       const state = await getPostgresWorkspaceState(actor);
       if (!state.status.organizationId) {
         return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
@@ -139,25 +123,6 @@ export async function POST(request: NextRequest) {
       } finally {
         await database.close();
       }
-    }
-
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      if (!status.organizationId) {
-        return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
-      }
-      const customer = createCanvasCustomer(sqlite, {
-        organizationId: status.organizationId,
-        name,
-        slug: typeof payload.slug === 'string' ? payload.slug : undefined,
-        notes: typeof payload.notes === 'string' ? payload.notes : null,
-        metadataJson: typeof payload.metadataJson === 'string' ? payload.metadataJson : null,
-        createdByUserId: actor.userId,
-      });
-      return NextResponse.json({ success: true, customer }, { status: 201 });
-    } finally {
-      sqlite.close();
     }
   } catch (error) {
     if (error instanceof Error && /Name/u.test(error.message)) {

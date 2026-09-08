@@ -7,12 +7,7 @@ import { auth } from '@/app/lib/auth';
 import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { openDb } from '@/app/lib/db';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
-import {
-  getOrganizationPermissionForUser,
-  openOrganizationBootstrapDatabase,
-  type OrganizationPermissionSnapshot,
-  type OrganizationPermissionState,
-} from '@/app/lib/organization/bootstrap';
+import { type OrganizationPermissionSnapshot, type OrganizationPermissionState } from '@/app/lib/organization/bootstrap';
 import {
   ensureOrganizationPermissionRow,
   organizationPermissionDefaults,
@@ -202,33 +197,11 @@ export function assertOrganizationPermission(
 }
 
 export async function readOrganizationPermissionForUser(userId: string): Promise<OrganizationPermissionState> {
-  if (getDatabaseProvider() === 'postgres') {
-    return getPostgresOrganizationPermissionForUser(userId);
-  }
-  const sqlite = openOrganizationBootstrapDatabase();
-  try {
-    return getOrganizationPermissionForUser(sqlite, userId);
-  } finally {
-    sqlite.close();
-  }
+  return getPostgresOrganizationPermissionForUser(userId);
 }
 
 async function readPermissionUserCandidate(userId: string): Promise<PermissionUserCandidate | null> {
-  if (getDatabaseProvider() === 'postgres') {
-    return findPostgresPermissionUserCandidate(userId);
-  }
-  const sqlite = openOrganizationBootstrapDatabase();
-  try {
-    const candidate = sqlite.prepare(`
-      SELECT id, email, role
-      FROM user
-      WHERE id = ?
-      LIMIT 1
-    `).get(userId) as PermissionUserCandidate | undefined;
-    return candidate ?? null;
-  } finally {
-    sqlite.close();
-  }
+  return findPostgresPermissionUserCandidate(userId);
 }
 
 function warnLegacyAdminFallback(userId: string, key: OrganizationPermissionKey, databaseProvider: string): void {
@@ -264,7 +237,7 @@ function legacyFallbackState(): OrganizationPermissionState {
     organizationId: null,
     ownerUserId: null,
     teamFeaturesEnabled: false,
-    databaseProvider: getDatabaseProvider(),
+    databaseProvider: 'postgres',
     permission: LEGACY_ADMIN_PERMISSION,
   };
 }
