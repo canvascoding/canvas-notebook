@@ -1,3 +1,5 @@
+import type {BetterSQLite3Database} from 'drizzle-orm/better-sqlite3';
+import type * as schema from './schema';
 import {
   createPostgresDrizzle,
   createPostgresPool,
@@ -27,7 +29,9 @@ function createPostgresDatabase() {
   };
 }
 
-type AppDatabase = ReturnType<typeof createPostgresDatabase>['db'];
+// Keep the public table surface compatible while the schema is still defined
+// with sqliteTable. The runtime adapter below remains PostgreSQL-only.
+type AppDatabase = BetterSQLite3Database<typeof schema>;
 
 type RuntimeDatabase =
   | (ReturnType<typeof createPostgresDatabase> & { initializationError: null })
