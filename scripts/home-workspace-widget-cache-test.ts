@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { loadCachedWorkspaceWidget } from '../app/lib/home/workspace-widget-cache';
 
@@ -35,7 +37,7 @@ async function main() {
   const concurrentInput = {
     userId: `user-c-${suffix}`,
     workspaceId: 'workspace-a',
-    widget: 'email',
+    widget: 'automation',
     ttlMs: 60_000,
     load: async () => { concurrentLoads += 1; await gate; return 'ready'; },
   };
@@ -44,6 +46,19 @@ async function main() {
   release();
   assert.deepEqual((await Promise.all([pendingA, pendingB])).map((result) => result.data), ['ready', 'ready']);
   assert.equal(concurrentLoads, 1, 'concurrent loads for the same user and workspace should be deduplicated');
+
+  const routeSource = fs.readFileSync(
+    path.join(process.cwd(), 'app', 'api', 'home', 'workspace-widgets', 'route.ts'),
+    'utf8',
+  );
+  assert.doesNotMatch(routeSource, /widget:\s*'emails'/u, 'email must bypass the process-local Home cache');
+  assert.match(routeSource, /loadHomeWidgetEmails\(access\.session\.user\.id/u);
+  assert.match(routeSource, /services: \{ listAccounts: listEmailAccounts, listMessages: listEmailMessages \}/u);
+  assert.match(routeSource, /parseHomeWidgetSelection\(request\.nextUrl\.searchParams\.get\('widgets'\), HOME_WIDGET_NAMES\)/u);
+  assert.match(routeSource, /selected\.has\('emails'\)/u);
+  for (const widget of ['todos', 'automation', 'studio']) {
+    assert.match(routeSource, new RegExp(`selected\\.has\\('${widget}'\\)[\\s\\S]*widget: '${widget}'`, 'u'), `${widget} should remain independently selectable and cached`);
+  }
 
   console.log('home-workspace-widget-cache-test: ok');
 }

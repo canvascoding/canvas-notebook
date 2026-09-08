@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { listEmailMessages } from '@/app/lib/email/service';
@@ -18,7 +18,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json().catch(() => ({}));
-    const data = await listEmailMessages(session.user.id, body, { enforceReadPolicy: false });
+    const data = await listEmailMessages(session.user.id, body, {
+      enforceReadPolicy: false,
+      cacheMode: 'swr',
+      scheduleBackgroundTask: after,
+    });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to list email messages';

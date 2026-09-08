@@ -36,7 +36,15 @@ import {
   readEmailSummaryStream,
   type EmailAiStreamStage,
 } from '@/app/lib/email/client-ai-stream';
-import { emailMessageContentRevision, emailMessageListScopeKey } from '@/app/lib/email/reader-refresh';
+import {
+  claimEmailCacheFollowUp,
+  EMAIL_CACHE_FOLLOW_UP_DELAY_MS,
+  emailCacheFollowUpKey,
+  emailMessageContentRevision,
+  emailMessageDetailScopeKey,
+  emailMessageListScopeKey,
+  shouldApplyEmailRefresh,
+} from '@/app/lib/email/reader-refresh';
 import type { NotebookEmailContextIntent } from '@/app/lib/notebook/context-surface';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { Button } from '@/components/ui/button';
@@ -101,6 +109,18 @@ export function EmailClient({
   const listRequestScopeRef = useRef<string | null>(null);
   const detailRequestRef = useRef<AbortController | null>(null);
   const detailRefreshRequestRef = useRef<AbortController | null>(null);
+  const listFollowUpTimerRef = useRef<number | null>(null);
+  const detailFollowUpTimerRef = useRef<number | null>(null);
+  const listFollowUpKeysRef = useRef(new Set<string>());
+  const detailFollowUpKeysRef = useRef(new Set<string>());
+  const listRequestEpochRef = useRef(0);
+  const detailRequestEpochRef = useRef(0);
+  const messageMutationRevisionRef = useRef(0);
+  const activeMessageMutationsRef = useRef(0);
+  const pendingListFollowUpRef = useRef(false);
+  const pendingDetailFollowUpRef = useRef(false);
+  const listFollowUpRunnerRef = useRef<() => void>(() => undefined);
+  const detailFollowUpRunnerRef = useRef<() => void>(() => undefined);
   const selectedMessageRef = useRef<EmailMessageDetail | null>(null);
   const dismissedMessageRevisionRef = useRef<string | null>(null);
   const hasMessagesRef = useRef(false);
@@ -138,7 +158,72 @@ export function EmailClient({
     setMessageSummaryStatus(null);
   }, [stopMessageSummaryStream]);
 
+  const cancelListFollowUp = useCallback(() => {
+    if (listFollowUpTimerRef.current !== null) window.clearTimeout(listFollowUpTimerRef.current);
+    listFollowUpTimerRef.current = null;
+    pendingListFollowUpRef.current = false;
+  }, []);
+
+  const cancelDetailFollowUp = useCallback(() => {
+    if (detailFollowUpTimerRef.current !== null) window.clearTimeout(detailFollowUpTimerRef.current);
+    detailFollowUpTimerRef.current = null;
+    pendingDetailFollowUpRef.current = false;
+  }, []);
+
+  const beginMessageMutation = useCallback(() => {
+    activeMessageMutationsRef.current += 1;
+    messageMutationRevisionRef.current += 1;
+    let finished = false;
+    return () => {
+      if (finished) return;
+      finished = true;
+      activeMessageMutationsRef.current = Math.max(0, activeMessageMutationsRef.current - 1);
+      messageMutationRevisionRef.current += 1;
+      if (activeMessageMutationsRef.current > 0) return;
+      if (pendingListFollowUpRef.current) {
+        pendingListFollowUpRef.current = false;
+        listFollowUpRunnerRef.current();
+      }
+      if (pendingDetailFollowUpRef.current) {
+        pendingDetailFollowUpRef.current = false;
+        detailFollowUpRunnerRef.current();
+      }
+    };
+  }, []);
+
+  const scheduleListFollowUp = useCallback((scopeKey: string, cache: unknown, requestEpoch: number) => {
+    const followUpKey = emailCacheFollowUpKey(scopeKey, cache);
+    if (!claimEmailCacheFollowUp(listFollowUpKeysRef.current, followUpKey)) return;
+    cancelListFollowUp();
+    listFollowUpTimerRef.current = window.setTimeout(() => {
+      listFollowUpTimerRef.current = null;
+      if (listRequestEpochRef.current !== requestEpoch) return;
+      if (activeMessageMutationsRef.current > 0) {
+        pendingListFollowUpRef.current = true;
+        return;
+      }
+      listFollowUpRunnerRef.current();
+    }, EMAIL_CACHE_FOLLOW_UP_DELAY_MS);
+  }, [cancelListFollowUp]);
+
+  const scheduleDetailFollowUp = useCallback((scopeKey: string, cache: unknown, requestEpoch: number) => {
+    const followUpKey = emailCacheFollowUpKey(scopeKey, cache);
+    if (!claimEmailCacheFollowUp(detailFollowUpKeysRef.current, followUpKey)) return;
+    cancelDetailFollowUp();
+    detailFollowUpTimerRef.current = window.setTimeout(() => {
+      detailFollowUpTimerRef.current = null;
+      if (detailRequestEpochRef.current !== requestEpoch) return;
+      if (activeMessageMutationsRef.current > 0) {
+        pendingDetailFollowUpRef.current = true;
+        return;
+      }
+      detailFollowUpRunnerRef.current();
+    }, EMAIL_CACHE_FOLLOW_UP_DELAY_MS);
+  }, [cancelDetailFollowUp]);
+
   const clearReader = useCallback(() => {
+    cancelDetailFollowUp();
+    detailRequestEpochRef.current += 1;
     detailRequestRef.current?.abort();
     detailRefreshRequestRef.current?.abort();
     setSelectedMessage(null);
@@ -150,7 +235,7 @@ export function EmailClient({
     setMessageActionNotice(null);
     clearMessageSummary();
     setMessageDialogOpen(false);
-  }, [clearMessageSummary]);
+  }, [cancelDetailFollowUp, clearMessageSummary]);
 
   const summaryAiStageLabel = useCallback((stage: EmailAiStreamStage | undefined, fallback?: string) => {
     if (stage === 'reading_context') return t('summaryReadingContext');
@@ -296,6 +381,9 @@ export function EmailClient({
     if (!activeAccount || !current) return;
     const accountId = activeAccount.id;
     const folder = current.folder || activeFolder;
+    cancelDetailFollowUp();
+    const requestEpoch = ++detailRequestEpochRef.current;
+    const mutationRevision = messageMutationRevisionRef.current;
     detailRefreshRequestRef.current?.abort();
     const controller = new AbortController();
     detailRefreshRequestRef.current = controller;
@@ -311,6 +399,13 @@ export function EmailClient({
         || activeAccountRef.current !== accountId
         || activeFolderRef.current !== folder
         || selectedMessageRef.current?.id !== current.id
+        || !shouldApplyEmailRefresh({
+          requestEpoch,
+          currentEpoch: detailRequestEpochRef.current,
+          mutationRevision,
+          currentMutationRevision: messageMutationRevisionRef.current,
+          mutationInFlight: activeMessageMutationsRef.current > 0,
+        })
       ) return;
       if (response.status === 404 && payload.code === 'EMAIL_MESSAGE_NOT_FOUND') {
         setMessageUnavailable(current);
@@ -321,6 +416,7 @@ export function EmailClient({
       const nextMessage = payload.data?.message as EmailMessageDetail | undefined;
       if (!nextMessage) throw new Error(t('errors.loadMessage'));
       setMessageUnavailable(null);
+      scheduleDetailFollowUp(emailMessageDetailScopeKey({ accountId, folder, messageId: current.id }), payload.data?.cache, requestEpoch);
       const nextRevision = emailMessageContentRevision(nextMessage);
       if (nextRevision !== emailMessageContentRevision(current) && dismissedMessageRevisionRef.current !== nextRevision) {
         setPendingMessageUpdate(nextMessage);
@@ -329,9 +425,9 @@ export function EmailClient({
       if (controller.signal.aborted || detailRefreshRequestRef.current !== controller) return;
       setError(refreshError instanceof Error ? refreshError.message : t('errors.loadMessage'));
     }
-  }, [activeAccount, activeFolder, t]);
+  }, [activeAccount, activeFolder, cancelDetailFollowUp, scheduleDetailFollowUp, t]);
 
-  const loadMessages = useCallback(async (options?: { background?: boolean }) => {
+  const loadMessages = useCallback(async (options?: { background?: boolean; swrFollowUp?: boolean }) => {
     if (!activeAccount || !canReadActiveAccount || foldersAccountId !== activeAccount.id) return;
     const scopeKey = emailMessageListScopeKey({
       accountId: activeAccount.id,
@@ -341,6 +437,9 @@ export function EmailClient({
       query: submittedQuery,
     });
     if (listRequestRef.current && listRequestScopeRef.current === scopeKey) return;
+    cancelListFollowUp();
+    const requestEpoch = ++listRequestEpochRef.current;
+    const mutationRevision = messageMutationRevisionRef.current;
     listRequestRef.current?.abort();
     const controller = new AbortController();
     listRequestRef.current = controller;
@@ -370,11 +469,19 @@ export function EmailClient({
         listRequestRef.current !== controller
         || activeAccountRef.current !== activeAccount.id
         || activeFolderRef.current !== activeFolder
+        || !shouldApplyEmailRefresh({
+          requestEpoch,
+          currentEpoch: listRequestEpochRef.current,
+          mutationRevision,
+          currentMutationRevision: messageMutationRevisionRef.current,
+          mutationInFlight: activeMessageMutationsRef.current > 0,
+        })
       ) return;
       const nextMessages = (payload.data?.messages || []) as EmailMessageSummary[];
       setMessages(nextMessages);
       setMessageTotal(typeof payload.data?.total === 'number' ? payload.data.total : null);
-      void refreshSelectedMessage();
+      scheduleListFollowUp(scopeKey, payload.data?.cache, requestEpoch);
+      if (!options?.swrFollowUp) void refreshSelectedMessage();
     } catch (loadError) {
       if (controller.signal.aborted || listRequestRef.current !== controller) return;
       if (!preserveVisibleData) {
@@ -390,7 +497,7 @@ export function EmailClient({
         setIsRefreshingMessages(false);
       }
     }
-  }, [activeAccount, activeFolder, canReadActiveAccount, foldersAccountId, messageFilter, messagePage, refreshSelectedMessage, submittedQuery, t]);
+  }, [activeAccount, activeFolder, canReadActiveAccount, cancelListFollowUp, foldersAccountId, messageFilter, messagePage, refreshSelectedMessage, scheduleListFollowUp, submittedQuery, t]);
 
   const updateMessageReadState = useCallback((messageId: string, isRead: boolean) => {
     setMessages((current) => current.map((message) => message.id === messageId ? { ...message, isRead } : message));
@@ -400,6 +507,7 @@ export function EmailClient({
   const markMessageReadOnOpen = useCallback(async (message: EmailMessageSummary | EmailMessageDetail) => {
     if (!activeAccount || message.isRead) return;
     const folder = message.folder || activeFolder;
+    const finishMutation = beginMessageMutation();
     updateMessageReadState(message.id, true);
 
     try {
@@ -414,11 +522,16 @@ export function EmailClient({
       void loadFolders(activeAccount.id);
     } catch {
       updateMessageReadState(message.id, false);
+    } finally {
+      finishMutation();
     }
-  }, [activeAccount, activeFolder, loadFolders, t, updateMessageReadState]);
+  }, [activeAccount, activeFolder, beginMessageMutation, loadFolders, t, updateMessageReadState]);
 
   const loadMessage = useCallback(async (message: EmailMessageSummary, options?: { openDialog?: boolean }) => {
     if (!activeAccount) return;
+    cancelDetailFollowUp();
+    const requestEpoch = ++detailRequestEpochRef.current;
+    const mutationRevision = messageMutationRevisionRef.current;
     detailRequestRef.current?.abort();
     detailRefreshRequestRef.current?.abort();
     const controller = new AbortController();
@@ -446,6 +559,13 @@ export function EmailClient({
         detailRequestRef.current !== controller
         || activeAccountRef.current !== accountId
         || activeFolderRef.current !== folder
+        || !shouldApplyEmailRefresh({
+          requestEpoch,
+          currentEpoch: detailRequestEpochRef.current,
+          mutationRevision,
+          currentMutationRevision: messageMutationRevisionRef.current,
+          mutationInFlight: activeMessageMutationsRef.current > 0,
+        })
       ) return;
       if (response.status === 404 && payload.code === 'EMAIL_MESSAGE_NOT_FOUND') {
         setSelectedMessage(null);
@@ -456,6 +576,7 @@ export function EmailClient({
       const nextMessage = payload.data?.message as EmailMessageDetail | undefined;
       if (!nextMessage) throw new Error(t('errors.loadMessage'));
       setSelectedMessage({ ...nextMessage, folder: nextMessage.folder || folder });
+      scheduleDetailFollowUp(emailMessageDetailScopeKey({ accountId, folder, messageId: message.id }), payload.data?.cache, requestEpoch);
       void markMessageReadOnOpen(nextMessage);
     } catch (loadError) {
       if (controller.signal.aborted || detailRequestRef.current !== controller) return;
@@ -463,7 +584,35 @@ export function EmailClient({
     } finally {
       if (detailRequestRef.current === controller) setIsLoadingMessage(false);
     }
-  }, [activeAccount, activeFolder, clearMessageSummary, layoutMode, markMessageReadOnOpen, t]);
+  }, [activeAccount, activeFolder, cancelDetailFollowUp, clearMessageSummary, layoutMode, markMessageReadOnOpen, scheduleDetailFollowUp, t]);
+
+  useEffect(() => {
+    listFollowUpRunnerRef.current = () => {
+      void loadMessages({ background: true, swrFollowUp: true });
+    };
+  }, [loadMessages]);
+
+  useEffect(() => {
+    detailFollowUpRunnerRef.current = () => {
+      void refreshSelectedMessage();
+    };
+  }, [refreshSelectedMessage]);
+
+  useEffect(() => {
+    cancelListFollowUp();
+    listRequestEpochRef.current += 1;
+    listRequestRef.current?.abort();
+  }, [activeAccount?.id, activeFolder, cancelListFollowUp, foldersAccountId, messageFilter, messagePage, submittedQuery]);
+
+  useEffect(() => () => {
+    cancelListFollowUp();
+    cancelDetailFollowUp();
+    listRequestEpochRef.current += 1;
+    detailRequestEpochRef.current += 1;
+    listRequestRef.current?.abort();
+    detailRequestRef.current?.abort();
+    detailRefreshRequestRef.current?.abort();
+  }, [cancelDetailFollowUp, cancelListFollowUp]);
 
   useEffect(() => {
     if (!contextIntent) {
@@ -680,6 +829,7 @@ export function EmailClient({
     setActiveMessageAction(action);
     setMessageActionNotice(null);
     setError(null);
+    let finishMutation: (() => void) | null = null;
 
     try {
       if (action === 'summary') {
@@ -732,6 +882,7 @@ export function EmailClient({
         return;
       }
 
+      finishMutation = beginMessageMutation();
       const body: Record<string, unknown> = { action, destination, folder, messageId: selectedMessage.id, operation: 'action' };
 
       const endpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`;
@@ -771,9 +922,10 @@ export function EmailClient({
         ? t('errors.actionRequest')
         : actionError instanceof Error ? actionError.message : t('errors.updateMessage'));
     } finally {
+      finishMutation?.();
       setActiveMessageAction(null);
     }
-  }, [activeAccount, activeFolder, activeWorkspaceId, clearReader, generateAiReplyPreview, loadFolders, openComposeDraft, selectedMessage, summaryAiStageLabel, t]);
+  }, [activeAccount, activeFolder, activeWorkspaceId, beginMessageMutation, clearReader, generateAiReplyPreview, loadFolders, openComposeDraft, selectedMessage, summaryAiStageLabel, t]);
 
   const handleMessageListAction = useCallback(async (message: EmailMessageSummary, action: EmailMessageListActionName, destination?: string) => {
     if (!activeAccount) return;
@@ -785,6 +937,7 @@ export function EmailClient({
     setActiveMessageListAction({ action, messageId: message.id });
     setMessageActionNotice(null);
     setError(null);
+    const finishMutation = beginMessageMutation();
 
     try {
       const response = await fetch(endpoint, {
@@ -815,9 +968,10 @@ export function EmailClient({
         ? t('errors.actionRequest')
         : actionError instanceof Error ? actionError.message : t('errors.updateMessage'));
     } finally {
+      finishMutation();
       setActiveMessageListAction(null);
     }
-  }, [activeAccount, activeFolder, clearReader, loadFolders, selectedMessageId, t]);
+  }, [activeAccount, activeFolder, beginMessageMutation, clearReader, loadFolders, selectedMessageId, t]);
 
   const messageOffset = messagePage * MESSAGE_PAGE_SIZE;
   const messageStart = messages.length > 0 ? messageOffset + 1 : 0;
