@@ -108,8 +108,20 @@ export interface WorkspaceFileOpenCompletion {
   transitionId: string | null;
 }
 
+export type WorkspaceFileRevealResult =
+  | { status: 'ready' | 'skipped' }
+  | { status: 'failed'; error: string };
+
+export interface BrowserFileReveal {
+  path: string;
+  workspaceId: string | null;
+  requestId: number;
+  status: 'loading' | 'ready' | 'visible' | 'failed';
+  error?: string;
+}
+
 export type OpenWorkspaceFileResult =
-  | { status: 'opened'; path: string }
+  | { status: 'opened'; path: string; reveal?: WorkspaceFileRevealResult }
   | { status: 'missing'; path: string; error: string }
   | { status: 'failed'; path: string; error: string }
   | { status: 'superseded'; path: string };

@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { recordOpenedWorkspaceFile } from '@/app/lib/files/quick-access-client';
 import type {
+  BrowserFileReveal,
+  WorkspaceFileRevealResult,
   BrowserMode,
   CurrentFile,
   FileLoadResult,
@@ -273,6 +275,7 @@ interface FileStoreState {
 
   // Selection
   selectedNode: FileNode | null;
+  browserReveal: BrowserFileReveal | null;
 
   // Current file
   currentFile: CurrentFile | null;
@@ -457,6 +460,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   loadingFilePath: null,
   fileLoadRequestId: 0,
   openFileRequestId: 0,
+  browserReveal: null,
   fileError: null,
   fileErrorPath: null,
   missingFilePath: null,
@@ -879,6 +883,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const workspaceId = options.workspaceId === undefined
       ? useWorkspaceStore.getState().activeWorkspaceId
       : options.workspaceId;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return { status: 'superseded', path: normalizedPath };
     const documentOpenCheck = checkNotebookDocumentOpen({
       path: normalizedPath,
       workspaceId,
@@ -898,6 +903,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       isLoadingFile: false,
       loadingFilePath: null,
       searchQuery: '',
+      browserReveal: options.revealInTree === false ? null : { path: normalizedPath, workspaceId, requestId: openRequestId, status: 'loading' },
     }));
 
     const isLatestOpen = () => (
@@ -914,6 +920,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         await get().prepareCurrentFileForTransition();
       } catch (error) {
         if (!isLatestOpen()) return { status: 'superseded', path: normalizedPath };
+        set({ browserReveal: null });
         return { status: 'failed', path: normalizedPath,
           error: error instanceof Error ? error.message : 'Failed to save the current file' };
       }
@@ -923,35 +930,41 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const parentDir = getParentDirectory(normalizedPath);
     const parentDirs = getParentDirectories(normalizedPath);
 
-    const revealPromise = options.revealInTree === false
-      ? Promise.resolve()
-      : (async () => {
-          get().ensureTreeWorkspace(workspaceId);
-          if (get().fileTree.length === 0) {
-            await get().loadFileTree('.', 0, false, workspaceId);
-          }
-
-          for (const dirPath of parentDirs) {
-            if (!isLatestOpen()) return;
-
-            let directoryNode = findNodeInTree(dirPath, get().fileTree);
-            if (!directoryNode) {
-              await get().refreshDirectory(getParentDirectory(dirPath), true, workspaceId);
-              directoryNode = findNodeInTree(dirPath, get().fileTree);
+    const revealPromise: Promise<WorkspaceFileRevealResult> = options.revealInTree === false
+      ? Promise.resolve({ status: 'skipped' })
+      : (async (): Promise<WorkspaceFileRevealResult> => {
+          try {
+            get().ensureTreeWorkspace(workspaceId);
+            if (get().fileTree.length === 0 || get().staleDirs.has('.')) {
+              await get().refreshDirectory('.', true, workspaceId);
+              if (get().directoryErrors['.']) throw new Error(get().directoryErrors['.']);
             }
-            if (directoryNode?.type === 'directory' && !Array.isArray(directoryNode.children)) {
-              await get().loadSubdirectory(dirPath, false, false, workspaceId);
+            for (const dirPath of parentDirs) {
+              if (!isLatestOpen()) return { status: 'skipped' };
+              let directoryNode = findNodeInTree(dirPath, get().fileTree);
+              if (!directoryNode) {
+                await get().refreshDirectory(getParentDirectory(dirPath), true, workspaceId);
+                directoryNode = findNodeInTree(dirPath, get().fileTree);
+              }
+              if (directoryNode?.type !== 'directory') throw new Error('The parent folder could not be found.');
+              if (!Array.isArray(directoryNode.children) || get().staleDirs.has(dirPath)) {
+                await get().loadSubdirectory(dirPath, false, true, workspaceId);
+                if (get().directoryErrors[dirPath]) throw new Error(get().directoryErrors[dirPath]);
+              }
             }
+            if (isLatestOpen() && !findNodeInTree(normalizedPath, get().fileTree)) {
+              await get().refreshDirectory(parentDir, true, workspaceId);
+            }
+            if (!isLatestOpen()) return { status: 'skipped' };
+            if (get().directoryErrors[parentDir]) throw new Error(get().directoryErrors[parentDir]);
+            if (!findNodeInTree(normalizedPath, get().fileTree)) throw new Error('The file is missing from the folder listing.');
+            const nextExpandedDirs = new Set(get().expandedDirs);
+            for (const dirPath of parentDirs) nextExpandedDirs.add(dirPath);
+            get().setExpandedDirs(nextExpandedDirs);
+            return { status: 'ready' };
+          } catch (error) {
+            return { status: 'failed', error: error instanceof Error ? error.message : 'Could not show the file in the browser.' };
           }
-
-          if (isLatestOpen() && !findNodeInTree(normalizedPath, get().fileTree)) {
-            await get().refreshDirectory(parentDir, true, workspaceId);
-          }
-
-          if (!isLatestOpen()) return;
-          const nextExpandedDirs = new Set(get().expandedDirs);
-          for (const dirPath of parentDirs) nextExpandedDirs.add(dirPath);
-          get().setExpandedDirs(nextExpandedDirs);
         })();
 
     const alreadyOpen = (
@@ -962,11 +975,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       ? Promise.resolve({ status: 'loaded', path: normalizedPath, file: get().currentFile as CurrentFile })
       : get().loadFile(normalizedPath, true, workspaceId);
 
-    const [loadResult] = await Promise.all([loadPromise, revealPromise]);
+    const [loadResult, reveal] = await Promise.all([loadPromise, revealPromise]);
     if (!isLatestOpen() || loadResult.status === 'superseded') {
       return { status: 'superseded', path: normalizedPath };
     }
     if (loadResult.status === 'missing' || loadResult.status === 'failed') {
+      set({ browserReveal: null });
       return loadResult;
     }
 
@@ -975,10 +989,17 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       type: 'file' as const,
       name: normalizedPath.split('/').pop() || normalizedPath,
     };
-    get().selectNode(selectedNode);
+    set({ selectedNode, currentDirectory: parentDir, lastSelectedPath: normalizedPath,
+      isMultiSelectMode: false, multiSelectPaths: new Set<string>(),
+      browserReveal: reveal.status === 'skipped' ? null : {
+        path: normalizedPath, workspaceId, requestId: openRequestId,
+        status: reveal.status, ...(reveal.status === 'failed' ? { error: reveal.error } : {}),
+      },
+    });
+    persistExplorerState({ currentDirectory: parentDir, expandedDirs: get().expandedDirs }, workspaceId);
     get().mobileFileOpened(normalizedPath, options.transitionId);
     if (workspaceId) void recordOpenedWorkspaceFile(workspaceId, normalizedPath);
-    return { status: 'opened', path: normalizedPath };
+    return { status: 'opened', path: normalizedPath, reveal };
   },
 
   closeFile: async (path: string, options) => {
@@ -1222,6 +1243,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     while (backgroundContextMenuDirectory !== '.' && affected(backgroundContextMenuDirectory)) backgroundContextMenuDirectory = getParentDirectory(backgroundContextMenuDirectory);
     set({
       fileTree: removeTreePaths(state.fileTree, paths),
+      browserReveal: state.browserReveal && affected(state.browserReveal.path) ? null : state.browserReveal,
       selectedNode: state.selectedNode && affected(state.selectedNode.path) ? null : state.selectedNode,
       currentDirectory, expandedDirs,
       multiSelectPaths, isMultiSelectMode: state.isMultiSelectMode && multiSelectPaths.size > 0,
@@ -1283,6 +1305,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
     set({
       fileTree: renameTreePath(state.fileTree, oldPath, newPath),
+      browserReveal: state.browserReveal ? { ...state.browserReveal, path: mapPath(state.browserReveal.path) } : null,
       expandedDirs, currentDirectory,
       selectedNode: state.selectedNode ? remapNode(state.selectedNode, oldPath, newPath) : null,
       multiSelectPaths: remapPathSet(state.multiSelectPaths, oldPath, newPath),
@@ -1481,6 +1504,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       fileTree: [],
       fileTreeWorkspaceId: workspaceId,
       treeGeneration: state.treeGeneration + 1,
+      browserReveal: null,
       rootTreeRequestId: state.rootTreeRequestId + 1,
       isLoadingTree: false,
       treeError: null,

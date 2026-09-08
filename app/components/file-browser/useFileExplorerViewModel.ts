@@ -82,6 +82,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     hydrateClientPreferences,
     currentDirectory,
     selectedNode,
+    browserReveal,
     selectAllInDirectory,
     clearMultiSelect,
     searchQuery,
@@ -100,6 +101,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     hydrateClientPreferences: state.hydrateClientPreferences,
     currentDirectory: state.currentDirectory,
     selectedNode: state.selectedNode,
+    browserReveal: state.browserReveal,
     selectAllInDirectory: state.selectAllInDirectory,
     clearMultiSelect: state.clearMultiSelect,
     searchQuery: state.searchQuery,
@@ -369,10 +371,15 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
       const activeItem = Array.from(containerRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
         .find((element) => element.dataset.filePath === selectedNode.path);
       activeItem?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      const pending = useFileStore.getState().browserReveal;
+      if (activeItem && pending?.status === 'ready' && pending.path === selectedNode.path
+        && pending.workspaceId === useWorkspaceStore.getState().activeWorkspaceId) {
+        useFileStore.setState({ browserReveal: { ...pending, status: 'visible' } });
+      }
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [browserMode, containerRef, currentDirectory, fileTree, filteredListChildren, isLoadingTree, isRestoring, searchResultNodes, selectedNode]);
+  }, [browserMode, browserReveal, containerRef, currentDirectory, fileTree, filteredListChildren, isLoadingTree, isRestoring, searchResultNodes, selectedNode]);
 
   return {
     browserMode,

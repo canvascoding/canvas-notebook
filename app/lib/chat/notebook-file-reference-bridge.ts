@@ -11,6 +11,7 @@ export type NotebookFileReferenceRequest = {
   type: typeof NOTEBOOK_FILE_REFERENCE_MESSAGE_TYPE;
   heading: string | null;
   requestId: string;
+  workspaceId: string;
   path: string;
   createdAt: number;
 };
@@ -24,16 +25,18 @@ function createRequestId(): string {
 
 export function createNotebookFileReferenceRequest(
   path: string,
+  workspaceId: string,
   location: { blockId?: string | null; heading?: string | null } = {},
 ): NotebookFileReferenceRequest | null {
   const normalizedPath = normalizeChatFilePath(path);
-  if (!normalizedPath) return null;
+  if (!normalizedPath || !workspaceId?.trim()) return null;
 
   return {
     blockId: location.blockId?.trim() || null,
     type: NOTEBOOK_FILE_REFERENCE_MESSAGE_TYPE,
     heading: location.heading?.trim() || null,
     requestId: createRequestId(),
+    workspaceId,
     path: normalizedPath,
     createdAt: Date.now(),
   };
@@ -50,6 +53,8 @@ export function parseNotebookFileReferenceRequest(
     candidate.type !== NOTEBOOK_FILE_REFERENCE_MESSAGE_TYPE
     || typeof candidate.requestId !== 'string'
     || !candidate.requestId.trim()
+    || typeof candidate.workspaceId !== 'string'
+    || !candidate.workspaceId.trim()
     || typeof candidate.path !== 'string'
     || typeof candidate.createdAt !== 'number'
     || !Number.isFinite(candidate.createdAt)
@@ -72,6 +77,7 @@ export function parseNotebookFileReferenceRequest(
       ? candidate.heading.trim()
       : null,
     requestId: candidate.requestId,
+    workspaceId: candidate.workspaceId,
     path: normalizedPath,
     createdAt: candidate.createdAt,
   };

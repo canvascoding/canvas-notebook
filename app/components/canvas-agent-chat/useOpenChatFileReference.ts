@@ -20,10 +20,12 @@ export function useOpenChatFileReference() {
 
     const request = requestChatFileOpen(normalizedPath, activeWorkspaceId);
     const result = await request.promise;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId) return;
     if (result.status === 'opened') {
       if (request.started) {
-        notifyChatFileReferenceOpened(normalizedPath);
+        notifyChatFileReferenceOpened(normalizedPath, activeWorkspaceId);
       }
+      if (result.reveal?.status === 'failed') toast.warning(result.reveal.error);
       if (location.blockId || location.heading) {
         requestWorkspaceMarkdownLocation({
           path: normalizedPath,
