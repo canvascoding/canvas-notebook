@@ -56,6 +56,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
+        sources: attention.sources,
         unreadCount: attention.unreadCount,
         counts: attention.counts,
         // Keep `items` for existing dashboard consumers while the notification
