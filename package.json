@@ -190,6 +190,7 @@
     "test:files:sort": "tsx scripts/file-sort-test.ts",
     "test:files:metadata": "tsx scripts/file-metadata-format-test.ts",
     "test:files:metadata-schema": "tsx scripts/file-metadata-schema-test.ts",
+    "test:files:drag": "tsx scripts/file-drag-move-test.ts && tsx scripts/desktop-file-drag-client-test.ts && npm run test:electron",
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",
     "test:editor:field": "tsx scripts/markdown-field-content-test.tsx && tsx scripts/markdown-field-ui-test.tsx",
     "test:editor:preservation": "tsx scripts/markdown-roundtrip-preservation-test.ts",
