@@ -147,6 +147,8 @@ type SurfaceTabProps = {
 
 type OpenNotebookFileOptions = {
   dockChatIfFull?: boolean;
+  workspaceId?: string;
+  transitionId?: string;
 };
 
 function SurfaceTab({
@@ -630,8 +632,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     if (!normalizedPath) return null;
 
     showOpenedDocument(options.dockChatIfFull);
-    const transitionId = createWorkspaceFileTransitionId();
-    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    const transitionId = options.transitionId ?? createWorkspaceFileTransitionId();
+    const workspaceId = options.workspaceId ?? useWorkspaceStore.getState().activeWorkspaceId;
     const result = await useFileStore.getState().revealAndLoadFile(normalizedPath, {
       transitionId,
       workspaceId,
@@ -654,22 +656,34 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     return result;
   }, [showOpenedDocument]);
 
+  const bridgedRequestRef = useRef<NotebookFileReferenceRequest | null>(null);
+  const completedBridgeRequests = useRef(new Set<string>());
   const openBridgedNotebookFile = useCallback(async (request: NotebookFileReferenceRequest) => {
-    openedPathRef.current = request.path;
-    const result = await openNotebookFile(request.path, { dockChatIfFull: true });
-    if (result?.status !== 'opened') {
-      if (openedPathRef.current === request.path) openedPathRef.current = null;
-      return;
-    }
-
-    clearPendingNotebookFileReference(request.requestId);
-    notifyWorkspaceFileOpened(request.path, 'chat-reference');
-    if (request.blockId || request.heading) {
-      requestWorkspaceMarkdownLocation({
-        path: request.path,
-        blockId: request.blockId,
-        heading: request.heading,
+    if (bridgedRequestRef.current?.requestId === request.requestId || completedBridgeRequests.current.has(request.requestId)) return;
+    bridgedRequestRef.current = request;
+    const isCurrent = () => bridgedRequestRef.current === request;
+    try {
+      // Calling even for the current workspace supersedes an older pending switch.
+      await useWorkspaceStore.getState().setActiveWorkspace(request.workspaceId, 'chat');
+      if (!isCurrent() || useWorkspaceStore.getState().activeWorkspaceId !== request.workspaceId) return;
+      openedPathRef.current = request.path;
+      const result = await openNotebookFile(request.path, {
+        dockChatIfFull: true, workspaceId: request.workspaceId, transitionId: request.requestId,
       });
+      if (!isCurrent() || useWorkspaceStore.getState().activeWorkspaceId !== request.workspaceId) return;
+      if (result?.status !== 'opened') {
+        if (openedPathRef.current === request.path) openedPathRef.current = null;
+        return;
+      }
+      notifyWorkspaceFileOpened(request.path, 'chat-reference', request.workspaceId);
+      if (request.blockId || request.heading) {
+        requestWorkspaceMarkdownLocation({ path: request.path, blockId: request.blockId, heading: request.heading });
+      }
+    } finally {
+      completedBridgeRequests.current.add(request.requestId);
+      if (completedBridgeRequests.current.size > 256) completedBridgeRequests.current.delete(completedBridgeRequests.current.values().next().value!);
+      clearPendingNotebookFileReference(request.requestId);
+      if (isCurrent()) bridgedRequestRef.current = null;
     }
   }, [openNotebookFile]);
 
@@ -809,6 +823,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       dispatch({ type: 'CONTEXT_CLOSED', surface: 'email' });
       dispatch({ type: 'CONTEXT_CLOSED', surface: 'browser' });
 
+      if (bridgedRequestRef.current?.workspaceId === nextWorkspaceId) return;
       if (!restoredTabs.activePath) {
         dispatch({ type: 'SHOW_CHAT' });
         return;
@@ -825,7 +840,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [clearBrowser, clearEmail, dispatch, hydrateDocumentTabs, openNotebookFile, routeFilePath]);
 
   useEffect(() => {
-    const handleWorkspaceFileOpen = () => {
+    const handleWorkspaceFileOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ workspaceId?: string | null }>).detail;
+      if (detail?.workspaceId !== undefined && detail.workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
       showOpenedDocument(true);
       setMobileExplorerOpen(false);
     };

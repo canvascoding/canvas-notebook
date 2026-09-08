@@ -73,11 +73,13 @@ async function main() {
       [],
     );
 
-    const bridgeRequest = createNotebookFileReferenceRequest('/data/workspace/generated/page.html', {
+    const bridgeRequest = createNotebookFileReferenceRequest('/data/workspace/generated/page.html', 'workspace-a', {
       heading: 'Results',
       blockId: 'decision-1',
     });
     assert.ok(bridgeRequest);
+    assert.equal(parseNotebookFileReferenceRequest({ ...bridgeRequest, workspaceId: undefined }), null);
+    assert.equal(bridgeRequest.workspaceId, 'workspace-a');
     assert.equal(bridgeRequest.type, NOTEBOOK_FILE_REFERENCE_MESSAGE_TYPE);
     assert.equal(bridgeRequest.path, 'generated/page.html');
     assert.deepEqual(parseNotebookFileReferenceRequest(bridgeRequest, bridgeRequest.createdAt), bridgeRequest);
