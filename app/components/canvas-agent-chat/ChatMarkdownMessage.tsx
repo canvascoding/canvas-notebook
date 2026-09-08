@@ -1,9 +1,8 @@
 'use client';
 
 import React from 'react';
-import { Check, Copy, Folder } from 'lucide-react';
+import { Folder } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { useTranslations } from 'next-intl';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { ColorSwatch, isColorCode } from '@/app/lib/markdown/color-swatch';
 import {
@@ -18,8 +17,9 @@ import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { toMediaUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
+import { ClipboardCopyButton } from '@/app/components/shared/ClipboardCopyButton';
+import { plainTextToClipboardHtml } from '@/app/lib/clipboard/browser';
 import { resolvePreviewSrcFromMediaUrl } from '@/app/lib/chat/attachment-preview';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useOpenChatFileReference } from '@/app/components/canvas-agent-chat/useOpenChatFileReference';
 import { useChatFileReferenceValidation } from '@/app/components/canvas-agent-chat/useChatFileReferenceValidation';
@@ -136,36 +136,6 @@ function isMarkdownCodeElement(node: React.ReactNode): node is React.ReactElemen
   return React.isValidElement<MarkdownCodeElementProps>(node);
 }
 
-async function writeTextToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textarea = document.createElement('textarea');
-  const selection = document.getSelection();
-  const selectedRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-
-  textarea.value = text;
-  textarea.setAttribute('readonly', '');
-  textarea.style.position = 'fixed';
-  textarea.style.top = '-9999px';
-  document.body.appendChild(textarea);
-  textarea.select();
-
-  try {
-    if (!document.execCommand('copy')) {
-      throw new Error('Clipboard copy failed.');
-    }
-  } finally {
-    document.body.removeChild(textarea);
-    if (selection && selectedRange) {
-      selection.removeAllRanges();
-      selection.addRange(selectedRange);
-    }
-  }
-}
-
 function getCodeBlockDetails(children: React.ReactNode): { code: string; language: string | null } {
   const child = React.Children.toArray(children)[0];
   if (!isMarkdownCodeElement(child)) {
@@ -187,43 +157,7 @@ function MarkdownCodeBlock({
   children?: React.ReactNode;
   variant: 'user' | 'assistant' | 'tool';
 }) {
-  const t = useTranslations('chat');
-  const [copyState, setCopyState] = React.useState<'idle' | 'copied' | 'failed'>('idle');
-  const resetTimerRef = React.useRef<number | null>(null);
   const { code, language } = React.useMemo(() => getCodeBlockDetails(children), [children]);
-  const canCopy = code.length > 0;
-
-  React.useEffect(() => {
-    return () => {
-      if (resetTimerRef.current !== null) {
-        window.clearTimeout(resetTimerRef.current);
-      }
-    };
-  }, []);
-
-  const scheduleReset = React.useCallback(() => {
-    if (resetTimerRef.current !== null) {
-      window.clearTimeout(resetTimerRef.current);
-    }
-    resetTimerRef.current = window.setTimeout(() => setCopyState('idle'), 1400);
-  }, []);
-
-  const handleCopy = React.useCallback(async () => {
-    if (!canCopy) {
-      return;
-    }
-
-    try {
-      await writeTextToClipboard(code);
-      setCopyState('copied');
-    } catch {
-      setCopyState('failed');
-    }
-    scheduleReset();
-  }, [canCopy, code, scheduleReset]);
-
-  const copyLabel = copyState === 'copied' ? t('copied') : t('copy');
-  const CopyIcon = copyState === 'copied' ? Check : Copy;
 
   return (
     <div
@@ -248,21 +182,12 @@ function MarkdownCodeBlock({
         >
           {language || 'code'}
         </span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={cn(
-            'h-7 w-7 border border-border/80 bg-background/95 text-muted-foreground shadow-sm transition hover:text-foreground sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100',
-            copyState !== 'idle' && 'sm:opacity-100',
-          )}
-          onClick={() => void handleCopy()}
-          disabled={!canCopy}
-          aria-label={copyLabel}
-          title={copyLabel}
-        >
-          <CopyIcon className="h-3.5 w-3.5" />
-        </Button>
+        <ClipboardCopyButton
+          content={{ plainText: code, html: plainTextToClipboardHtml(code) }}
+          menuSide="top"
+          testId="chat-code-block-copy"
+          buttonClassName="sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+        />
       </div>
       <pre
         className={cn(

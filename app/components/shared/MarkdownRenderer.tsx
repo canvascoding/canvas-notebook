@@ -10,6 +10,8 @@ import {
 } from '@/app/lib/markdown/canvas-markdown';
 import type { MarkdownFrontmatterMode } from '@/app/lib/markdown/editor-document';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
+import { ClipboardCopyButton } from '@/app/components/shared/ClipboardCopyButton';
+import { plainTextToClipboardHtml } from '@/app/lib/clipboard/browser';
 import { ObsidianWikiLink } from '@/app/components/shared/ObsidianWikiLink';
 import { WorkspaceMarkdownEmbed } from '@/app/components/shared/WorkspaceMarkdownEmbed';
 import {
@@ -53,6 +55,19 @@ const DEFAULT_TEXT_CLASSES: Record<string, string> = {
 function extractColorCode(props: Record<string, unknown>): string | null {
   const colorCode = props['data-color-code'] ?? props.dataColorCode ?? props.datacolorcode;
   return typeof colorCode === 'string' ? colorCode : null;
+}
+
+function getReactNodeText(node: React.ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') {
+    return String(node);
+  }
+  if (Array.isArray(node)) {
+    return node.map(getReactNodeText).join('');
+  }
+  if (React.isValidElement<{ children?: React.ReactNode }>(node)) {
+    return getReactNodeText(node.props.children);
+  }
+  return '';
 }
 
 export function MarkdownRenderer({
@@ -279,6 +294,27 @@ export function MarkdownRenderer({
         <code className={codeClassName} {...props}>
           {children}
         </code>
+      );
+    },
+    pre: ({
+      children,
+      className: preClassName,
+      node: _node,
+      ...props
+    }: React.HTMLAttributes<HTMLPreElement> & { children?: React.ReactNode; node?: unknown }) => {
+      const code = getReactNodeText(children).replace(/\n$/, '');
+      return (
+        <div className="markdown-document-code-block group relative my-3 max-w-full">
+          <div className="absolute right-1 top-1 z-10">
+            <ClipboardCopyButton
+              content={{ plainText: code, html: plainTextToClipboardHtml(code) }}
+              menuSide="bottom"
+              testId="markdown-code-block-copy"
+              buttonClassName="sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+            />
+          </div>
+          <pre className={cn('pr-12', preClassName)} {...props}>{children}</pre>
+        </div>
       );
     },
   }), [activeWorkspaceId, ancestorPaths, sourcePath]);
