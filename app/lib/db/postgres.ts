@@ -1094,7 +1094,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
       workspace_id text NOT NULL,
       organization_id text,
       path text NOT NULL,
-      representation text NOT NULL CHECK (representation IN ('plain_text', 'tiptap_xml')),
+      representation text NOT NULL CHECK (representation IN ('plain_text', 'tiptap_xml', 'tiptap_blocks')),
       lifecycle_generation bigint NOT NULL DEFAULT 1,
       schema_version bigint NOT NULL DEFAULT 1,
       yjs_state bytea NOT NULL,
@@ -1114,6 +1114,21 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     )
   `);
   await pool.query("ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'");
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'collaboration_yjs_states'::regclass
+          AND conname = 'collaboration_yjs_states_representation_check'
+          AND pg_get_constraintdef(oid) LIKE '%tiptap_blocks%'
+      ) THEN
+        ALTER TABLE collaboration_yjs_states
+          DROP CONSTRAINT IF EXISTS collaboration_yjs_states_representation_check,
+          ADD CONSTRAINT collaboration_yjs_states_representation_check
+            CHECK (representation IN ('plain_text', 'tiptap_xml', 'tiptap_blocks'));
+      END IF;
+    END $$
+  `);
   await pool.query('ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS compacted_at bigint');
   await pool.query('ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS compaction_count bigint NOT NULL DEFAULT 0');
   await pool.query('ALTER TABLE team_membership_sync_state ADD COLUMN IF NOT EXISTS next_attempt_at bigint');

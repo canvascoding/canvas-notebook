@@ -5,8 +5,9 @@ import type * as Y from 'yjs';
 
 import { richMarkdownCodecExtensions } from '../markdown/rich-markdown-codec';
 import { BLOCK_TREE_KEY, CollaborationBlockTree } from './block-tree';
+import type { RichTextCollaborationRepresentation } from './types';
 
-export type RichDocumentFormat = 'tiptap_xml' | 'tiptap_blocks';
+export type RichDocumentFormat = RichTextCollaborationRepresentation;
 
 /** The durable root, never the mounted editor, determines how content is read. */
 export function richDocumentFormat(doc: Y.Doc): RichDocumentFormat {

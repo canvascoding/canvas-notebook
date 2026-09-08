@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import {
   COLLABORATION_SCHEMA_VERSION,
   COLLABORATION_TICKET_TTL_MS,
+  isRichTextCollaborationRepresentation,
   type CollaborationTicketClaims,
 } from './types';
 
@@ -37,7 +38,7 @@ function isClaims(value: unknown): value is CollaborationTicketClaims {
     && (claims.provider === 'yjs' || claims.provider === 'excalidraw')
     && (
       claims.representation === 'plain_text'
-      || claims.representation === 'tiptap_xml'
+      || isRichTextCollaborationRepresentation(claims.representation)
       || claims.representation === 'excalidraw_scene'
     )
     && (

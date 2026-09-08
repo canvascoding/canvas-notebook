@@ -25,7 +25,7 @@ import {
   changeCollaborationRepresentationWithSafeMarkdownNormalization,
   loadCollaborationStateIncludingArchived,
 } from './persistence';
-import { COLLABORATION_SCHEMA_VERSION } from './types';
+import { COLLABORATION_SCHEMA_VERSION, isRichTextCollaborationRepresentation, supportsBlockTreeCollaboration } from './types';
 import type {
   CollaborationPermission,
   CollaborationProvider,
@@ -59,6 +59,8 @@ export type CollaborationSessionRequest = {
   provider: 'yjs';
   allowRichMigration?: boolean;
   expectedLifecycleGeneration?: number;
+  richTextSchemaVersion?: number;
+  blockTreeFormatVersion?: number;
 };
 
 export type CollaborationSessionGrant = {
@@ -84,6 +86,8 @@ export function parseCollaborationSessionRequest(input: {
   provider?: unknown;
   allowRichMigration?: unknown;
   expectedLifecycleGeneration?: unknown;
+  richTextSchemaVersion?: unknown;
+  blockTreeFormatVersion?: unknown;
 }): CollaborationSessionRequest | null {
   const path = typeof input.path === 'string' ? input.path.trim() : '';
   if (!path) return null;
@@ -105,11 +109,15 @@ export function parseCollaborationSessionRequest(input: {
       input.representation === 'auto'
       || input.representation === 'plain_text'
       || input.representation === 'tiptap_xml'
+      || input.representation === 'tiptap_blocks'
     )
   ) {
+    if (input.representation === 'tiptap_blocks' && !supportsBlockTreeCollaboration(input)) return null;
     if (input.allowRichMigration === true && (!Number.isSafeInteger(input.expectedLifecycleGeneration)
       || Number(input.expectedLifecycleGeneration) < 1)) return null;
     return { path, representation: input.representation, provider: 'yjs',
+      ...(typeof input.richTextSchemaVersion === 'number' ? { richTextSchemaVersion: input.richTextSchemaVersion } : {}),
+      ...(typeof input.blockTreeFormatVersion === 'number' ? { blockTreeFormatVersion: input.blockTreeFormatVersion } : {}),
       ...(input.allowRichMigration === true ? { allowRichMigration: true,
         expectedLifecycleGeneration: Number(input.expectedLifecycleGeneration) } : {}),
     };
@@ -169,19 +177,22 @@ export async function createCollaborationSessionGrant(input: {
     lifecycleGeneration = state.lifecycleGeneration;
   } else {
     const initialContent = (await readFile(request.path, fileOptions)).toString('utf8');
-    const selectedInitialRepresentation = selectInitialTextCollaborationRepresentation(request.path, initialContent);
+    const clientSupportsBlocks = supportsBlockTreeCollaboration(request);
+    const richRepresentation = clientSupportsBlocks ? 'tiptap_blocks' : 'tiptap_xml';
+    const initialSelection = selectInitialTextCollaborationRepresentation(request.path, initialContent);
+    const selectedInitialRepresentation = initialSelection === 'tiptap_xml' ? richRepresentation : initialSelection;
     const richModeAnalysis = extension(request.path) === 'txt'
       ? null
       : analyzeMarkdownRichMode(initialContent);
     const selectedTargetRepresentation: TextCollaborationRepresentation = richModeAnalysis
       && richModeAnalysis.mode !== 'source'
-      ? 'tiptap_xml'
+      ? richRepresentation
       : selectedInitialRepresentation;
     const existingState = await loadCollaborationStateIncludingArchived(collaboration.document.id);
     if (
       !existingState
-      && request.representation === 'tiptap_xml'
-      && selectedTargetRepresentation !== 'tiptap_xml'
+      && isRichTextCollaborationRepresentation(request.representation)
+      && !isRichTextCollaborationRepresentation(selectedTargetRepresentation)
     ) {
       throw new CollaborationSessionError(
         'This Markdown document can only collaborate in source mode so its representation is preserved.',
@@ -206,15 +217,17 @@ export async function createCollaborationSessionGrant(input: {
         && request.allowRichMigration === true
         && workspace.permissions.canWrite
         && request.expectedLifecycleGeneration === resolved.state.lifecycleGeneration
-        && resolved.state.representation === 'plain_text'
-        && selectedTargetRepresentation === 'tiptap_xml'
+        && (resolved.state.representation === 'plain_text'
+          || (resolved.state.representation === 'tiptap_xml' && selectedTargetRepresentation === 'tiptap_blocks'))
+        && isRichTextCollaborationRepresentation(selectedTargetRepresentation)
       ) {
         try {
-          if (richModeAnalysis?.mode === 'normalizable') {
+          if (resolved.state.representation === 'plain_text' && richModeAnalysis?.mode === 'normalizable') {
             const migration = await changeCollaborationRepresentationWithSafeMarkdownNormalization({
               documentId: resolved.state.documentId,
               expectedLifecycleGeneration: resolved.state.lifecycleGeneration,
               schemaVersion: COLLABORATION_SCHEMA_VERSION,
+              representation: selectedTargetRepresentation,
               checkpoint: {
                 write: ({ state, canonicalContent }) => writeCollaborationCheckpointFile({
                   state,
@@ -247,7 +260,7 @@ export async function createCollaborationSessionGrant(input: {
               state: await changeCollaborationRepresentation({
                 documentId: resolved.state.documentId,
                 expectedLifecycleGeneration: resolved.state.lifecycleGeneration,
-                representation: 'tiptap_xml',
+                representation: selectedTargetRepresentation,
                 schemaVersion: COLLABORATION_SCHEMA_VERSION,
               }),
               initialized: false,
@@ -277,6 +290,13 @@ export async function createCollaborationSessionGrant(input: {
       throw error;
     }
     const { state } = resolved;
+    if (state.representation === 'tiptap_blocks' && !clientSupportsBlocks) {
+      throw new CollaborationSessionError(
+        'This document uses a newer collaboration format. Reload or update the editor before opening it.',
+        409,
+        'representation_mismatch',
+      );
+    }
     // Existing documents own their Yjs representation. A checkpoint can be
     // source-only according to the conservative UI codec after a live agent
     // edit while its validated Y.Doc remains rich text.

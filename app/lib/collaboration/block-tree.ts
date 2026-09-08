@@ -8,8 +8,9 @@ import {
   type BlockPlacementProjection,
   type InitialBlockPlacement,
 } from './block-tree-placement';
+import { RICH_BLOCK_TREE_FORMAT_VERSION } from './types';
 
-export const BLOCK_TREE_FORMAT_VERSION = 1;
+export const BLOCK_TREE_FORMAT_VERSION = RICH_BLOCK_TREE_FORMAT_VERSION;
 export const BLOCK_TREE_KEY = 'canvas-block-tree-v1';
 
 type BlockProperties = { type: string; attrs: Record<string, unknown>; inline: boolean };

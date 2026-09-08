@@ -37,6 +37,7 @@ import {
   selectInitialTextCollaborationRepresentation,
 } from '@/app/lib/collaboration/document-state-service';
 import { Y } from '@/app/lib/collaboration/server-runtime';
+import { isRichTextCollaborationRepresentation, type TextCollaborationRepresentation } from '@/app/lib/collaboration/types';
 import type { FileNode } from '@/app/lib/files/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
@@ -111,15 +112,15 @@ function isMobileTextDocumentPath(filePath: string): boolean {
 export function selectMobileCollaborationRepresentation(
   filePath: string,
   content: string,
-): 'plain_text' | 'tiptap_xml' {
+): TextCollaborationRepresentation {
   return selectInitialTextCollaborationRepresentation(filePath, content);
 }
 
 export function shouldReadMobileCollaborationSnapshot(
-  requestedRepresentation: 'plain_text' | 'tiptap_xml',
-  persistedRepresentation: 'plain_text' | 'tiptap_xml',
+  requestedRepresentation: TextCollaborationRepresentation,
+  persistedRepresentation: TextCollaborationRepresentation,
 ): boolean {
-  return requestedRepresentation === 'tiptap_xml' || persistedRepresentation === 'plain_text';
+  return isRichTextCollaborationRepresentation(requestedRepresentation) || persistedRepresentation === 'plain_text';
 }
 
 export function normalizeMobileNotebookPath(value: unknown): string {
@@ -415,7 +416,7 @@ async function saveMobileCollaborativeNotebookDocument(input: {
     );
   }
   let collaborationContent = input.content;
-  if (persistedState.representation === 'tiptap_xml') {
+  if (isRichTextCollaborationRepresentation(persistedState.representation)) {
     const candidate = createRichMarkdownYDoc(input.content);
     try {
       const normalized = richMarkdownFromYDoc(candidate);
@@ -449,14 +450,14 @@ async function saveMobileCollaborativeNotebookDocument(input: {
       actorType: 'user',
       actorSessionId: input.actorSessionId,
     }, (doc) => {
-      const currentContent = persistedState.representation === 'tiptap_xml'
+      const currentContent = isRichTextCollaborationRepresentation(persistedState.representation)
         ? richMarkdownFromYDoc(doc)
         : doc.getText('content').toString();
       const currentSha256 = sha256Text(currentContent);
       if (currentSha256 !== input.expectedSha256) {
         throw new MobileCollaborationRevisionConflict(currentSha256);
       }
-      if (persistedState.representation === 'tiptap_xml') {
+      if (isRichTextCollaborationRepresentation(persistedState.representation)) {
         const preflight = new Y.Doc({ gc: true });
         try {
           Y.applyUpdate(preflight, Y.encodeStateAsUpdate(doc));

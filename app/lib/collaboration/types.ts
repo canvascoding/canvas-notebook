@@ -2,10 +2,24 @@ import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 
 export const COLLABORATION_SCHEMA_VERSION = 1;
 export const RICH_MARKDOWN_SCHEMA_VERSION = 3;
+export const RICH_BLOCK_TREE_FORMAT_VERSION = 1;
+export const COLLABORATION_CLIENT_CAPABILITIES = {
+  richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION,
+  blockTreeFormatVersion: RICH_BLOCK_TREE_FORMAT_VERSION,
+} as const;
 export const COLLABORATION_TICKET_TTL_MS = 90_000;
 
 export type CollaborationProvider = 'yjs' | 'excalidraw';
-export type TextCollaborationRepresentation = 'plain_text' | 'tiptap_xml';
+export type RichTextCollaborationRepresentation = 'tiptap_xml' | 'tiptap_blocks';
+export type TextCollaborationRepresentation = 'plain_text' | RichTextCollaborationRepresentation;
+export function isRichTextCollaborationRepresentation(value: unknown): value is RichTextCollaborationRepresentation {
+  return value === 'tiptap_xml' || value === 'tiptap_blocks';
+}
+
+export function supportsBlockTreeCollaboration(value: { richTextSchemaVersion?: unknown; blockTreeFormatVersion?: unknown }): boolean {
+  return value.richTextSchemaVersion === RICH_MARKDOWN_SCHEMA_VERSION
+    && value.blockTreeFormatVersion === RICH_BLOCK_TREE_FORMAT_VERSION;
+}
 export type CollaborationRepresentation = TextCollaborationRepresentation | 'excalidraw_scene';
 /**
  * `auto` is accepted only while establishing a text-collaboration session.
@@ -69,6 +83,7 @@ export interface CollaborationSessionResponse {
   lifecycleGeneration: number;
   schemaVersion: number;
   richTextSchemaVersion: number;
+  blockTreeFormatVersion?: number;
   permission: CollaborationPermission;
   documentSequence?: number;
   checkpointSequence?: number;

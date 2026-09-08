@@ -2,6 +2,7 @@ import 'server-only';
 
 import type * as Y from 'yjs';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import type { TextCollaborationRepresentation } from './types';
 
 /** Raised when the server can no longer prove an agent operation's authority. */
 export class AgentDirectConnectionAuthorizationError extends Error {}
@@ -9,7 +10,7 @@ export class AgentDirectConnectionAuthorizationError extends Error {}
 export interface AgentDirectConnectionInput {
   documentId: string;
   documentPath: string;
-  documentRepresentation: 'plain_text' | 'tiptap_xml';
+  documentRepresentation: TextCollaborationRepresentation;
   documentLifecycleGeneration: number;
   documentSchemaVersion: number;
   requiresFileCheckpointIdentity: boolean;

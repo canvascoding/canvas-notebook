@@ -23,6 +23,7 @@ import { readCurrentCollaborationDocument } from './document-access';
 import { richMarkdownFromYDoc, validateRichMarkdownYDoc } from './markdown-state';
 import { loadCollaborationState } from './persistence';
 import { Y } from './server-runtime';
+import { isRichTextCollaborationRepresentation, type TextCollaborationRepresentation } from './types';
 
 export type CollaborationAgentIdentity = {
   initiatedByUserId: string;
@@ -34,7 +35,7 @@ export type CollaborationAgentIdentity = {
 export type CollaborationTextSnapshot = {
   documentId: string;
   path: string;
-  representation: 'plain_text' | 'tiptap_xml';
+  representation: TextCollaborationRepresentation;
   lifecycleGeneration: number;
   schemaVersion: number;
   documentSequence: number;
@@ -141,7 +142,7 @@ function directTargetsProduceProposedContent(input: {
     const preview = applyAgentTextTargets({
       doc: clone,
       targets: input.targets,
-      validateClone: input.representation === 'tiptap_xml'
+      validateClone: isRichTextCollaborationRepresentation(input.representation)
         ? (candidate) => validateRichMarkdownYDoc(candidate).code || null
         : undefined,
       origin: {
@@ -244,7 +245,7 @@ export async function prepareCollaborationTextEdit(input: {
           throw new Error('The exact edits require a structural collaboration review.');
         }
       } catch (error) {
-        if (state.representation !== 'tiptap_xml') throw error;
+        if (!isRichTextCollaborationRepresentation(state.representation)) throw error;
         targets = [createRichMarkdownReviewTarget({
           currentMarkdown: content,
           proposedMarkdown: proposedContent,

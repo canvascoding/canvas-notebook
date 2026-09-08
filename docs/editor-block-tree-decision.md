@@ -37,8 +37,8 @@ Der gemeinsame Codec-Leser in `rich-document.ts` normalisiert beide Repräsentat
 Vor Aktivierung fehlen weiterhin:
 
 1. Browserabnahme der vollständigen Eingabeintegration, insbesondere reale IME-Ereignisfolgen und Wechsel bei noch nicht an ProseMirror übergebener DOM-Eingabe. Auswahl, Carets, Schreibschutz, Unmount und die Repliken-Zusammenführung während Komposition sind in Komponententests geprüft.
-2. Eine eindeutige neue Representation und deren Client-Handshake. Alte Clients dürfen kein Schreib-Ticket dafür erhalten; ein altes `body`-Fragment darf nicht parallel schreibbar bleiben.
-3. Migration mit ruhendem Room, bestätigtem Checkpoint, vollständigem Backup und Generation-Wechsel. Der Umstieg darf nicht allein aus einem lokalen Ansichtsschalter entstehen.
+2. Browserseitige Anmeldung der neuen Fähigkeit und Anschluss der neuen Bindung. Das Backend verwendet bereits die getrennte Repräsentation `tiptap_blocks` und prüft beide Clientversionen vor dem Ausstellen eines Tickets. Alte Clients werden für umgestellte Dokumente abgewiesen.
+3. Anschluss des Browser-Migrationsablaufs. Der serverseitige Wechsel mit ruhendem Room, bestätigtem Checkpoint, vollständigem Backup und Generation-Wechsel ist implementiert und gegen eine eigene PostgreSQL-Testdatenbank geprüft. Bestehende Rich-IDs bleiben erhalten. Der laufende Notebook-Testcontainer wurde dafür nicht verwendet oder neu gebaut.
 4. Gemeinsame Codec-/Agenten-/Review-Auflösung sowie Anzeige verworfener Strukturabsichten. Relative Anker müssen nur auf lebende, weiterhin zugehörige Inhalte angewendet werden.
 5. Browserabnahme und Lastprüfung. Die Operationshistorie wird bewusst noch nicht abgeschnitten; eine spätere Verdichtung muss alte Clients und deren ausstehende Operationen über die Generation ausschließen und IDs/Belege erhalten.
 

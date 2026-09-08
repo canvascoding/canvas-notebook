@@ -25,6 +25,7 @@ import {
   validateRichMarkdownYDoc,
 } from './markdown-state';
 import { Y } from './server-runtime';
+import { isRichTextCollaborationRepresentation, type TextCollaborationRepresentation } from './types';
 import {
   getWorkspacePresenceSnapshot,
   removeDocumentPresenceEntry,
@@ -161,7 +162,7 @@ type AgentOperationRow = {
   operation_id: string;
   document_id: string;
   document_path: string | null;
-  document_representation: 'plain_text' | 'tiptap_xml' | null;
+  document_representation: TextCollaborationRepresentation | null;
   workspace_id: string;
   organization_id: string | null;
   document_lifecycle_generation: number;
@@ -879,7 +880,7 @@ function operationPayloadHash(input: {
   operationType: 'apply' | 'revert';
   expectedCanonicalHash?: string | null;
   documentPath?: string;
-  documentRepresentation?: 'plain_text' | 'tiptap_xml';
+  documentRepresentation?: TextCollaborationRepresentation;
   documentLifecycleGeneration?: number;
   documentSchemaVersion?: number;
   baseStateVector?: string;
@@ -930,7 +931,7 @@ async function createOrLoadOperation(input: {
   triggerDepth?: number;
   expectedCanonicalHash?: string | null;
   documentPath?: string;
-  documentRepresentation?: 'plain_text' | 'tiptap_xml';
+  documentRepresentation?: TextCollaborationRepresentation;
   documentLifecycleGeneration?: number;
   documentSchemaVersion?: number;
   baseStateVector?: string;
@@ -1100,7 +1101,7 @@ async function waitForDurableState(input: {
 }
 
 function validateOperationClone(
-  representation: 'plain_text' | 'tiptap_xml',
+  representation: TextCollaborationRepresentation,
   expectedCanonicalHash: string | null,
   doc: YTypes.Doc,
 ): AgentApplyConflict['code'] | null {
@@ -1278,7 +1279,7 @@ async function applyStoredOperation(input: {
       };
       const structuralPatch = targets.some(isRichMarkdownPatchTarget);
       const result = structuralPatch
-        ? state.representation === 'tiptap_xml' && targets.every(isRichMarkdownPatchTarget)
+        ? isRichTextCollaborationRepresentation(state.representation) && targets.every(isRichMarkdownPatchTarget)
           ? applyRichMarkdownPatchTargets({ doc, targets, origin })
           : {
               status: 'needs_review' as const,
@@ -1523,7 +1524,7 @@ export async function applyPersistedAgentTextOperation(input: {
   triggerDepth?: number;
   expectedCanonicalHash?: string | null;
   documentPath?: string;
-  documentRepresentation?: 'plain_text' | 'tiptap_xml';
+  documentRepresentation?: TextCollaborationRepresentation;
   documentLifecycleGeneration?: number;
   documentSchemaVersion?: number;
   baseStateVector?: string;
@@ -1648,7 +1649,7 @@ async function reviewTargets(row: AgentOperationRow): Promise<AgentOperationView
   try {
     Y.applyUpdate(doc, state.yjsState);
     materializeCollaborationTypes(doc);
-    const currentMarkdown = state.representation === 'tiptap_xml'
+    const currentMarkdown = isRichTextCollaborationRepresentation(state.representation)
       ? richMarkdownFromYDoc(doc)
       : null;
     return targets.flatMap((target) => {

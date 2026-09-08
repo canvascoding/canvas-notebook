@@ -13,6 +13,7 @@ import {
 import {
   COLLABORATION_SCHEMA_VERSION,
   RICH_MARKDOWN_SCHEMA_VERSION,
+  RICH_BLOCK_TREE_FORMAT_VERSION,
   type CollaborationProvider,
   type CollaborationSessionRepresentation,
   type CollaborationSessionResponse,
@@ -72,6 +73,7 @@ export async function POST(request: NextRequest) {
       lifecycleGeneration: grant.lifecycleGeneration,
       schemaVersion: COLLABORATION_SCHEMA_VERSION,
       richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION,
+      blockTreeFormatVersion: RICH_BLOCK_TREE_FORMAT_VERSION,
       permission: grant.permission,
       documentSequence: grant.documentSequence,
       checkpointSequence: grant.checkpointSequence,

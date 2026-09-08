@@ -202,6 +202,7 @@
     "test:collaboration:block-tree": "tsx --conditions react-server scripts/collaboration-block-tree-test.ts",
     "test:collaboration:block-binding": "tsx --conditions react-server scripts/collaboration-block-anchors-test.ts && tsx --conditions react-server scripts/collaboration-block-editor-test.ts",
     "test:collaboration:rich-document": "tsx --conditions react-server scripts/collaboration-rich-document-test.ts",
+    "test:collaboration:block-format": "tsx --conditions react-server scripts/collaboration-block-format-integration-test.ts",
     "test:editor:field": "tsx scripts/markdown-field-content-test.tsx && tsx scripts/markdown-field-ui-test.tsx",
     "test:editor:preservation": "tsx scripts/markdown-roundtrip-preservation-test.ts",
     "test:editor:collaboration-lifecycle": "tsx scripts/code-editor-collaboration-lifecycle-test.ts",

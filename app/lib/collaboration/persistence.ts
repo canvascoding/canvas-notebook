@@ -13,10 +13,11 @@ import {
 } from '@/app/lib/files/collaboration-repository';
 import { composeCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadata';
 import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
-import type { TextCollaborationRepresentation } from './types';
+import { isRichTextCollaborationRepresentation, type RichTextCollaborationRepresentation, type TextCollaborationRepresentation } from './types';
 import {
   createPlainTextYDoc,
   createRichMarkdownYDoc,
+  convertRichMarkdownYDoc,
   richMarkdownFromYDoc,
   validateRichMarkdownYDoc,
 } from './markdown-state';
@@ -223,8 +224,8 @@ export async function ensureCollaborationState(input: {
     return existing;
   }
   const profile = encodingProfile(input.initialContent);
-  const initialDoc = input.representation === 'tiptap_xml'
-    ? createRichMarkdownYDoc(profile.canonical)
+  const initialDoc = isRichTextCollaborationRepresentation(input.representation)
+    ? createRichMarkdownYDoc(profile.canonical, input.representation)
     : createPlainTextYDoc(profile.canonical);
   const update = Y.encodeStateAsUpdate(initialDoc);
   const vector = Y.encodeStateVector(initialDoc);
@@ -656,8 +657,8 @@ function canonicalContentFromState(state: PersistedCollaborationState): string {
 function createValidatedFreshDocument(representation: TextCollaborationRepresentation, canonicalContent: string): YTypes.Doc {
   const fresh = representation === 'plain_text'
     ? createPlainTextYDoc(canonicalContent)
-    : createRichMarkdownYDoc(canonicalContent);
-  if (representation === 'tiptap_xml') {
+    : createRichMarkdownYDoc(canonicalContent, representation);
+  if (isRichTextCollaborationRepresentation(representation)) {
     const validation = validateRichMarkdownYDoc(fresh);
     if (!validation.valid || validation.markdown !== canonicalContent) {
       fresh.destroy();
@@ -834,7 +835,7 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   const currentCanonicalContent = canonicalContentFromState(state);
   let canonicalContent = currentCanonicalContent;
   if (input.normalizeSafeMarkdown) {
-    if (input.representation !== 'tiptap_xml') {
+    if (!isRichTextCollaborationRepresentation(input.representation)) {
       throw new CollaborationRepresentationMigrationError(
         'Safe Markdown normalization is only available for rich-text migration.',
         'content_unsupported',
@@ -857,7 +858,23 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   const checkpointRequired = canonicalContent !== currentCanonicalContent;
   let fresh: YTypes.Doc;
   try {
-    fresh = createValidatedFreshDocument(input.representation, canonicalContent);
+    if (!checkpointRequired && isRichTextCollaborationRepresentation(state.representation)
+      && isRichTextCollaborationRepresentation(input.representation)) {
+      const source = new Y.Doc();
+      try {
+        Y.applyUpdate(source, state.yjsState);
+        const validation = validateRichMarkdownYDoc(source);
+        if (!validation.valid || validation.markdown !== canonicalContent) throw new Error('The existing rich checkpoint is invalid.');
+        fresh = convertRichMarkdownYDoc(source, input.representation);
+        const converted = validateRichMarkdownYDoc(fresh);
+        if (!converted.valid || converted.markdown !== canonicalContent) {
+          fresh.destroy();
+          throw new Error('The converted rich checkpoint is invalid.');
+        }
+      } finally { source.destroy(); }
+    } else {
+      fresh = createValidatedFreshDocument(input.representation, canonicalContent);
+    }
   } catch (error) {
     throw new CollaborationRepresentationMigrationError(
       error instanceof Error ? error.message : 'The collaboration content cannot use the requested representation.',
@@ -1021,6 +1038,7 @@ export async function changeCollaborationRepresentationWithSafeMarkdownNormaliza
   documentId: string;
   expectedLifecycleGeneration: number;
   schemaVersion: number;
+  representation?: RichTextCollaborationRepresentation;
   checkpoint: SafeMarkdownNormalizationCheckpoint;
 }): Promise<{
   canonicalContent: string;
@@ -1032,7 +1050,7 @@ export async function changeCollaborationRepresentationWithSafeMarkdownNormaliza
     input.documentId,
     () => changeCollaborationRepresentationWhileLocked({
       ...input,
-      representation: 'tiptap_xml',
+      representation: input.representation ?? 'tiptap_xml',
       normalizeSafeMarkdown: true,
       checkpoint: input.checkpoint,
     }),
