@@ -8,8 +8,8 @@ Priority is abuse without an account. External document content remains untruste
 
 | Package | Finding / work | Implementation status | Production status |
 | --- | --- | --- | --- |
-| 1 | S5: unverified cookie rate-limit identity; public abuse limits and negative access checks; HTTP disconnect crash | Implemented and locally verified | Not deployed or verified |
-| 2 | S2: PDF cookies sent to external resources; browser job isolation | Pending | Not deployed |
+| 1 | S5: unverified cookie rate-limit identity; public abuse limits and negative access checks; HTTP disconnect crash | Implemented and locally verified (`f90801dd`) | Not deployed or verified |
+| 2 | S2: PDF cookies sent to external resources; browser job isolation | Implemented and locally verified | Not deployed |
 | 3 | S2/S3: isolated HTML documents, restricted/revocable preview tickets, renderer network boundary | Pending | Not deployed |
 | 4 | S4: personal default workspace and owner-only legacy migration | Pending | Not deployed |
 | 5 | Dependency advisories, targeted updates | Pending | Not deployed |
@@ -57,3 +57,21 @@ This is an explicit inventory of the reviewed public boundaries, not a claim tha
 - PostgreSQL/HTTP tests used the existing managed local stack and private fixture environment. Credentials are not stored in this record or test source.
 
 No production ingress test or public-host penetration test was performed. Global limits bound expensive admitted public work; they do not promise immunity to volumetric network attacks.
+
+
+## Package 2: PDF credentials and browser contexts
+
+The URL renderer no longer uses global `setExtraHTTPHeaders`. An internal preview request is eligible only for GET/HEAD, the fixed loopback app port from `PORT`, the recognized workspace/Studio preview prefix, the verified workspace ID and normalized path segments. Conflicting workspace query parameters, other APIs, encoded traversal and external origins never receive the session. The incoming request Host/port no longer selects the internal render port.
+
+For eligible requests a server-side intermediary retrieves the preview with the session and workspace header, with redirects disabled. It supplies the response body to Chromium and removes `Set-Cookie` and transport headers. This also closes the session-refresh edge case: passing a Cookie only via per-request CDP headers was insufficient when a preview response set an HttpOnly session cookie in Chromium. Redirect destinations are reevaluated as new requests and never inherit the server fetch credentials. Pending internal fetches have a timeout and are cancelled when the export ends. The intermediary is transitional; package 3 replaces its session authority with a restricted preview ticket.
+
+Every URL and HTML PDF job creates its own browser context and closes it in `finally`. Timeout cleanup still disposes the stalled browser. Cookies/cache/storage are not shared with another job. Page size, margins, print CSS, emoji fallback and asset wait conditions are unchanged. Context isolation alone does not implement a network sandbox; renderer egress and full document isolation remain package 3.
+
+Verification:
+
+- `npm run test:security:pdf` starts controlled internal and external HTTP servers with dummy credentials, including a session-refresh `Set-Cookie`, redirect, external SVG/CSS/webfont/background, relative image, ES module and JSON data. The baseline reproduced both credential leakage and persistent localStorage. The fixed renderer denies credentials to external resources and unrelated app APIs and leaves no context/cookies behind after consecutive jobs and a failed navigation.
+- `TEST_PDF_TIMEOUT=1 npm run test:security:pdf` additionally exercises an unresponsive script and verifies context cleanup after timeout.
+- Because the two controlled servers are loopback endpoints, the credential test disables Chromium's separate Local Network Access prompt only in its own temporary test process. Production launch flags receive no relaxation. This is a credential regression test, not an SSRF test. Public Internet compatibility is also checked separately in the app UI with normal production browser flags.
+- The two-page reference PDF includes all images, external font, dynamic module/JSON text, emoji and a print page break. Both rendered pages remained pixel-identical to the baseline. This was checked using Poppler output, text extraction and visual inspection.
+- Existing browser-export queue tests and the rich Markdown PDF export (callout, details, table, formula and footnote) passed. Production build, TypeScript and changed-file lint passed.
+- The built app's actual HTML viewer/share dialog and PDF download passed an authorized Playwright check with normal production Chromium flags. A public HTTPS image (including its redirect), a relative SVG, an ES module and relative JSON all loaded. The downloaded PDF contains both expected print pages, the public image and dynamically populated text; its rasterized pages and the dialog screenshot were visually checked. Only the four newly created QA files were removed afterwards. An earlier attempt correctly received the existing high-load rejection; no resource limits were relaxed for the successful run.

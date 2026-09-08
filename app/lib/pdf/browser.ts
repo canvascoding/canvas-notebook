@@ -1,4 +1,4 @@
-import puppeteer, { Browser, Page } from 'puppeteer-core';
+import puppeteer, { Browser, BrowserContext, Page } from 'puppeteer-core';
 import nodeFs from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -16,6 +16,7 @@ import {
   type BrowserExportJobContext,
 } from '@/app/lib/exports/browser-export-service';
 import type { MarkdownPdfRenderOptions } from '@/app/lib/pdf/markdown-brand';
+import { handlePdfPreviewRequest, type PdfPreviewAuthorization } from './preview-request';
 
 let browser: Browser | null = null;
 let launchPromise: Promise<Browser> | null = null;
@@ -182,15 +183,19 @@ export async function generatePdfFromHtml(
   options?: Partial<MarkdownPdfRenderOptions>,
 ): Promise<Buffer> {
   let page: Page | null = null;
+  let browserContext: BrowserContext | null = null;
   return runBrowserExportJob({
     label: 'pdf-html',
     timeoutMs: DEFAULT_BROWSER_EXPORT_TIMEOUT_MS,
     timeoutErrorMessage: 'PDF_TIMEOUT',
     onTimeout: (error, context) => closePageForTimedOutJob(page, error, context),
-    run: async () => {
+    run: async (job) => {
       try {
         const b = await getBrowser();
-        page = await b.newPage();
+        if (job.signal.aborted) throw job.signal.reason;
+        browserContext = await b.createBrowserContext();
+        if (job.signal.aborted) throw job.signal.reason;
+        page = await browserContext.newPage();
         page.setDefaultTimeout(15_000);
         page.setDefaultNavigationTimeout(20_000);
         await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15_000 });
@@ -212,7 +217,7 @@ export async function generatePdfFromHtml(
         await discardPdfBrowserAfterError(error);
         throw error;
       } finally {
-        await page?.close().catch(() => undefined);
+        await browserContext?.close().catch(() => undefined);
       }
     },
   });
@@ -275,22 +280,28 @@ async function applyEmojiFontFallback(page: Page) {
   await page.evaluate('(async () => { await document.fonts?.ready; })()');
 }
 
-export async function generatePdfFromUrl(url: string, headers?: Record<string, string>): Promise<Buffer> {
+export async function generatePdfFromUrl(url: string, authorization?: PdfPreviewAuthorization): Promise<Buffer> {
   let page: Page | null = null;
+  let browserContext: BrowserContext | null = null;
+  const requests = new AbortController();
   return runBrowserExportJob({
     label: 'pdf-url',
     timeoutMs: DEFAULT_BROWSER_EXPORT_TIMEOUT_MS,
     timeoutErrorMessage: 'PDF_TIMEOUT',
     onTimeout: (error, context) => closePageForTimedOutJob(page, error, context),
-    run: async () => {
+    run: async (job) => {
       try {
         const b = await getBrowser();
-        page = await b.newPage();
+        if (job.signal.aborted) throw job.signal.reason;
+        browserContext = await b.createBrowserContext();
+        if (job.signal.aborted) throw job.signal.reason;
+        page = await browserContext.newPage();
         page.setDefaultTimeout(15_000);
         page.setDefaultNavigationTimeout(20_000);
-        if (headers && Object.keys(headers).length > 0) {
-          await page.setExtraHTTPHeaders(headers);
-        }
+        await page.setRequestInterception(true);
+        page.on('request', (request) => {
+          void handlePdfPreviewRequest(request, authorization, AbortSignal.any([job.signal, requests.signal]));
+        });
 
         await page.goto(url, { waitUntil: 'networkidle0', timeout: 20_000 });
         await applyEmojiFontFallback(page);
@@ -304,7 +315,8 @@ export async function generatePdfFromUrl(url: string, headers?: Record<string, s
         await discardPdfBrowserAfterError(error);
         throw error;
       } finally {
-        await page?.close().catch(() => undefined);
+        requests.abort();
+        await browserContext?.close().catch(() => undefined);
       }
     },
   });

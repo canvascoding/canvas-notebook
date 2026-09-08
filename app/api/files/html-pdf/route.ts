@@ -10,9 +10,8 @@ import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
 import path from 'path';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
-function getInternalRenderOrigin(requestUrl: string) {
-  const url = new URL(requestUrl);
-  const rawPort = url.port || process.env.PORT || '3000';
+function getInternalRenderOrigin() {
+  const rawPort = process.env.PORT || '3000';
   const port = /^\d{1,5}$/.test(rawPort) && Number(rawPort) > 0 && Number(rawPort) <= 65535
     ? rawPort
     : '3000';
@@ -47,14 +46,19 @@ export async function POST(request: NextRequest) {
     await getFileStats(filePath, fileOptions);
     await assertBrowserExportAvailable();
 
-    const origin = getInternalRenderOrigin(request.url);
+    const origin = getInternalRenderOrigin();
     const fileName = path.basename(filePath, ext);
     const cookie = request.headers.get('cookie');
-    const headers = cookie ? { cookie } : undefined;
+    const previewUrl = `${origin}${toHtmlPreviewUrl(filePath, { workspaceId: workspaceResult.workspace.workspaceId })}`;
 
     const pdfBuffer = await generatePdfFromUrl(
-      `${origin}${toHtmlPreviewUrl(filePath, { workspaceId: workspaceResult.workspace.workspaceId })}`,
-      headers,
+      previewUrl,
+      cookie ? {
+        cookie,
+        origin,
+        workspaceId: workspaceResult.workspace.workspaceId,
+        kind: new URL(previewUrl).pathname.startsWith('/api/studio/media/preview/') ? 'studio' : 'workspace',
+      } : undefined,
     );
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
