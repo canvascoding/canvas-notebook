@@ -135,7 +135,7 @@ function serializeFilters(filters: StudioUsageFilters, access: StudioUsageAccess
 }
 
 function dayExpression() {
-  return sql<string>`to_char(to_timestamp(${studioGenerationOutputs.createdAt}), 'YYYY-MM-DD')`;
+  return sql<string>`to_char(to_timestamp(${studioGenerationOutputs.createdAt} / 1000.0), 'YYYY-MM-DD')`;
 }
 
 async function loadGenerationTotals(whereClause: ReturnType<typeof buildGenerationWhere>) {

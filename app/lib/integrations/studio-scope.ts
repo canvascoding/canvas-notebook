@@ -1,6 +1,7 @@
 import 'server-only';
 
-import { and, eq, type AnyColumn, type SQL } from 'drizzle-orm';
+import { and, eq, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import type { StudioStorageScope } from '@/app/lib/integrations/studio-workspace';
@@ -15,8 +16,8 @@ export interface StudioScope {
 }
 
 type ScopedColumns = {
-  workspaceId: AnyColumn;
-  createdByUserId?: AnyColumn;
+  workspaceId: AnyPgColumn;
+  createdByUserId?: AnyPgColumn;
 };
 
 export function createStudioScope(userId: string, workspace: WorkspaceContext): StudioScope {
