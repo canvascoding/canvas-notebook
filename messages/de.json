@@ -795,6 +795,8 @@
     "uploading": "Wird hochgeladen...",
     "uploadProgress": "Upload-Fortschritt",
     "uploadBatchProgress": "{completed} von {total} Dateien hochgeladen",
+    "uploadEmptyFoldersHint": "Die Ordnerauswahl überträgt Dateien. Ziehe den Ordner in den Dateibrowser, um auch leere Unterordner zu übernehmen.",
+    "uploadCollectedEntries": "{files} Dateien · {folders} Ordner erfasst",
     "uploadCollecting": "Dateien erfassen",
     "uploadPreparing": "Upload vorbereiten",
     "uploadReconciling": "Dateien abgleichen",

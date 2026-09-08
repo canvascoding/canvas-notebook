@@ -5,3 +5,8 @@ export interface WorkspaceUploadCommit {
   node?: FileNode;
   fileVersion?: string;
 }
+
+export interface UploadDirectoryResult {
+  completed: Array<{ sourcePath: string; committed: WorkspaceUploadCommit }>;
+  failed: Array<{ sourcePath: string; error: string }>;
+}

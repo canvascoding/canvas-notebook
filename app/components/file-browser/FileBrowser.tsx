@@ -23,7 +23,7 @@ import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { isProtectedDirectoryNode, splitProtectedWorkspacePaths } from '@/app/lib/files/operation-flows';
 import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
-import { getDroppedFiles } from '@/app/lib/drop-traverse';
+import { getDroppedItems } from '@/app/lib/drop-traverse';
 import { FilePreviewDialog } from '@/app/components/files/FilePreviewDialog';
 import { notifyWorkspaceFileOpened, WORKSPACE_PATH_RENAMED_EVENT, WORKSPACE_PATHS_DELETED_EVENT, type WorkspacePathRenamedDetail, type WorkspacePathsDeletedDetail } from '@/app/lib/files/workspace-file-events';
 import { PublicShareDialog } from './PublicShareDialog';
@@ -34,7 +34,7 @@ import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-
 import { useShallow } from 'zustand/react/shallow';
 import { useTrashUndo } from './useTrashUndo';
 import { WorkspaceUploadProgress } from './WorkspaceUploadProgress';
-import { beginUploadJob, finishUploadJob, setUploadJobFiles, updateUploadJob } from '@/app/store/upload-store';
+import { beginUploadCollection, endUploadCollection, beginUploadJob, finishUploadJob, setUploadJobFiles, updateUploadJob } from '@/app/store/upload-store';
 import { useWorkspaceMove } from './useWorkspaceMove';
 import { useFileMoveDrag } from './useFileMoveDrag';
 
@@ -243,18 +243,32 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     setIsDragging(false);
     const targetDir = resolveTargetDir();
     const job = beginUploadJob([], targetDir, useWorkspaceStore.getState().activeWorkspaceId, undefined, 'collecting');
+    const collection = beginUploadCollection(job);
     try {
-      const dropped = await getDroppedFiles(event.dataTransfer);
-      if (dropped.length === 0) { updateUploadJob(job, { phase: 'cancelled' }); return; }
-      const files = dropped.map((d) => d.file);
+      const dropped = await getDroppedItems(event.dataTransfer, { signal: collection.signal,
+        onProgress: (progress) => updateUploadJob(job, { collection: progress }) });
+      endUploadCollection(job);
+      if (dropped.files.length === 0 && dropped.emptyDirectories.length === 0) { updateUploadJob(job, { phase: 'cancelled' }); return; }
+      const files = dropped.files.map((d) => d.file);
       const pathMap = new Map<File, string>();
-      for (const d of dropped) { pathMap.set(d.file, d.relativePath); }
-      setUploadJobFiles(job, files, pathMap);
-      await imagePreprocess.handleFiles(files, targetDir, pathMap, job);
+      for (const d of dropped.files) { pathMap.set(d.file, d.relativePath); }
+      setUploadJobFiles(job, files, pathMap, dropped.emptyDirectories);
+      if (dropped.emptyDirectories.length) {
+        const failed = await useFileStore.getState().uploadDirectories(dropped.emptyDirectories, job);
+        if (failed) toast.error(t('uploadFailedCount', { count: failed }));
+      }
+      if (files.length) await imagePreprocess.handleFiles(files, targetDir, pathMap, job);
+      else {
+        updateUploadJob(job, { phase: 'reconciling' });
+        await useFileStore.getState().reconcileUpload(job);
+        finishUploadJob(job);
+      }
     } catch (uploadError) {
-      finishUploadJob(job, uploadError);
+      if (collection.signal.aborted) return;
+      try { await useFileStore.getState().reconcileUpload(job); }
+      finally { finishUploadJob(job, uploadError); }
       toast.error(uploadError instanceof Error ? uploadError.message : t('uploadFailed'));
-    }
+    } finally { endUploadCollection(job); }
   };
 
   const handleDeleteClick = () => {

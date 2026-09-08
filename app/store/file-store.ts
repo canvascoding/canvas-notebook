@@ -23,8 +23,9 @@ import {
 } from '@/app/lib/files/path-utils';
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { DirectoryRefreshQueue } from '@/app/lib/files/directory-refresh-queue';
-import { beginUploadJob, createUploadProgressReporter, finishUploadJob, updateUploadJob, type UploadOptions, type UploadJobHandle } from './upload-store';
+import { beginUploadJob, createUploadProgressReporter, finishUploadJob, isUploadActive, updateUploadJob, updateUploadItem, useUploadStore, type UploadOptions, type UploadJobHandle } from './upload-store';
 import { UploadTreeBatch, uploadVersionGuard } from '@/app/lib/files/upload-tree-batch';
+import { uploadWorkspaceDirectories } from '@/app/lib/files/upload-directory-client';
 import {
   findNodeInTree,
   flattenDirectoryChildren,
@@ -111,6 +112,37 @@ function pathMutationVersion(workspaceId: string | null, path: string, versions 
 function invalidatePathOperations(workspaceId: string | null, path: string) {
   const key = `${workspaceId}\0${path}`;
   pathMutationVersions.set(key, (pathMutationVersions.get(key) ?? 0) + 1);
+}
+
+function getUploadTreeBatch(job: UploadJobHandle) {
+  for (const [id, pending] of uploadTreeBatches) {
+    const state = useUploadStore.getState().jobs[id];
+    if (!state || !isUploadActive(state)) { pending.batch.flush(); uploadTreeBatches.delete(id); }
+  }
+  const existing = uploadTreeBatches.get(job.id);
+  if (existing) return existing;
+  const { workspaceId } = job;
+  const get = useFileStore.getState;
+  const generation = get().treeGeneration;
+  const since = uploadVersionGuard.snapshot();
+  const mutations = new Map(pathMutationVersions);
+  const isCurrent = () => useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+    && get().fileTreeWorkspaceId === workspaceId && get().treeGeneration === generation;
+  const batch = new UploadTreeBatch(
+    (result) => isCurrent()
+      && pathMutationVersion(workspaceId, result.targetPath, mutations) === pathMutationVersion(workspaceId, result.targetPath)
+      && uploadVersionGuard.accepts(workspaceId, result, since),
+    (nodes, directories) => {
+      if (!isCurrent()) return;
+      useFileStore.setState((state) => ({ fileTree: mergeUploadedFileNodes(state.fileTree, nodes) }));
+      for (const dir of directories) {
+        if (dir === '.' || Array.isArray(findNodeInTree(dir, get().fileTree)?.children)) get().markDirectoryStale(dir);
+      }
+    },
+  );
+  const pending = { batch, isCurrent };
+  uploadTreeBatches.set(job.id, pending);
+  return pending;
 }
 
 interface StoredExplorerState {
@@ -362,6 +394,7 @@ interface FileStoreState {
     options?: UploadOptions,
   ) => Promise<void>;
   reconcileUpload: (job: UploadJobHandle) => Promise<void>;
+  uploadDirectories: (paths: string[], job: UploadJobHandle) => Promise<number>;
   downloadFile: (path: string) => Promise<void>;
   toggleDirectory: (path: string) => void;
   collapseAllDirectories: () => void;
@@ -1426,6 +1459,21 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       .map((dir) => get().revalidateDirectory(dir, job.workspaceId, true)));
   },
 
+  uploadDirectories: async (paths, job) => {
+    const pending = getUploadTreeBatch(job);
+    const result = await uploadWorkspaceDirectories(paths, job.targetDir, job.workspaceId);
+    for (const entry of result.completed) {
+      pending.batch.add(entry.committed);
+      const item = useUploadStore.getState().jobs[job.id]?.items.find((item) => item.kind === 'directory' && item.path === entry.sourcePath);
+      if (item) updateUploadItem(job, { ...item, path: entry.committed.targetPath, status: 'completed' });
+    }
+    for (const entry of result.failed) {
+      const item = useUploadStore.getState().jobs[job.id]?.items.find((item) => item.kind === 'directory' && item.path === entry.sourcePath);
+      if (item) updateUploadItem(job, { ...item, status: 'failed', error: entry.error });
+    }
+    return result.failed.length;
+  },
+
   uploadFile: async (
     file: File | File[],
     targetDir: string,
@@ -1437,28 +1485,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const workspaceId = options.job ? options.job.workspaceId : (options.workspaceId === undefined
       ? useWorkspaceStore.getState().activeWorkspaceId : options.workspaceId);
     const job = options.job ?? beginUploadJob(files, targetDir, workspaceId, pathMap);
-    let pending = uploadTreeBatches.get(job.id);
-    if (!pending) {
-      const generation = get().treeGeneration;
-      const since = uploadVersionGuard.snapshot();
-      const mutations = new Map(pathMutationVersions);
-      const isCurrent = () => useWorkspaceStore.getState().activeWorkspaceId === workspaceId
-        && get().fileTreeWorkspaceId === workspaceId && get().treeGeneration === generation;
-      const batch = new UploadTreeBatch(
-        (result) => isCurrent()
-          && pathMutationVersion(workspaceId, result.targetPath, mutations) === pathMutationVersion(workspaceId, result.targetPath)
-          && uploadVersionGuard.accepts(workspaceId, result, since),
-        (nodes, directories) => {
-          if (!isCurrent()) return;
-          set((state) => ({ fileTree: mergeUploadedFileNodes(state.fileTree, nodes) }));
-          for (const dir of directories) {
-            if (dir === '.' || Array.isArray(findNodeInTree(dir, get().fileTree)?.children)) get().markDirectoryStale(dir);
-          }
-        },
-      );
-      pending = { batch, isCurrent };
-      uploadTreeBatches.set(job.id, pending);
-    }
+    const pending = getUploadTreeBatch(job);
     const reporter = createUploadProgressReporter(job, options.fileIndices);
     let failure: unknown;
     updateUploadJob(job, { phase: 'uploading' });

@@ -4,6 +4,16 @@ export const WORKSPACE_UPLOAD_MAX_FILE_BYTES = 5 * 1024 * 1024 * 1024;
 export const WORKSPACE_UPLOAD_MAX_TOTAL_BYTES = 20 * 1024 * 1024 * 1024;
 export const WORKSPACE_UPLOAD_MAX_RETRIES = 3;
 
+export function assertUploadSelectionWithinLimits(files: Array<{ name: string; size: number }>): void {
+  if (files.length > WORKSPACE_UPLOAD_MAX_FILES) throw new Error(`Select at most ${WORKSPACE_UPLOAD_MAX_FILES} files per upload.`);
+  let totalBytes = 0;
+  for (const file of files) {
+    if (file.size > WORKSPACE_UPLOAD_MAX_FILE_BYTES) throw new Error(`File "${file.name}" exceeds the ${formatUploadBytes(WORKSPACE_UPLOAD_MAX_FILE_BYTES)} limit.`);
+    totalBytes += file.size;
+  }
+  if (totalBytes > WORKSPACE_UPLOAD_MAX_TOTAL_BYTES) throw new Error(`The selected files exceed the ${formatUploadBytes(WORKSPACE_UPLOAD_MAX_TOTAL_BYTES)} upload limit.`);
+}
+
 export function getWorkspaceUploadChunkRange(
   fileSize: number,
   offset: number,

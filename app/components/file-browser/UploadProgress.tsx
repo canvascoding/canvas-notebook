@@ -29,7 +29,7 @@ export function UploadProgress({ value, className, items = [], phase }: UploadPr
     >
       <div className="mb-1 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
         <span>
-          {phase === 'collecting' ? t('uploadCollecting') : phase === 'preparing' ? t('uploadPreparing')
+          {phase === 'failed' ? t('uploadFailed') : phase === 'collecting' ? t('uploadCollecting') : phase === 'preparing' ? t('uploadPreparing')
             : phase === 'reconciling' ? t('uploadReconciling') : items.length > 0
             ? t('uploadBatchProgress', { completed: completedCount, total: items.length })
             : t('uploading')}
