@@ -13,13 +13,13 @@ async function main(): Promise<void> {
     delete process.env.NEXT_PHASE;
     const provider = await import('../app/lib/db/provider');
     assert.equal(provider.getDatabaseProvider(), 'postgres');
-    assert.throws(() => provider.assertRuntimeDatabaseProviderSupported(), /requires DATABASE_URL/u);
+    assert.throws(() => provider.assertRuntimeDatabaseProviderSupported(), /Unsupported CANVAS_DATABASE_PROVIDER|requires DATABASE_URL/u);
 
     process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
     const postgresConfig = provider.resolveDatabaseProviderConfig();
     assert.equal(postgresConfig.provider, 'postgres');
     assert.ok(postgresConfig.problems.some((problem) => problem.code === 'postgres_missing_database_url'));
-    assert.throws(() => provider.assertRuntimeDatabaseProviderSupported(), /requires DATABASE_URL/u);
+    assert.throws(() => provider.assertRuntimeDatabaseProviderSupported(), /Unsupported CANVAS_DATABASE_PROVIDER|requires DATABASE_URL/u);
 
     process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
     process.env.DATABASE_URL = 'postgresql://canvas:test@127.0.0.1:1/canvas';

@@ -41,7 +41,7 @@ async function main() {
 
   process.env.DATA = dataRoot;
   process.env.CANVAS_DATA_ROOT = dataRoot;
-  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
   process.env.CANVAS_POSTGRES_VECTOR_ENABLED = 'false';
 
   try {
@@ -52,8 +52,8 @@ async function main() {
       updateKnowledgeParsingSettings,
     } = await import('../app/lib/knowledge/settings-service');
 
-    const sqliteState = testState('sqlite');
-    const { settings: defaults, storage } = await readKnowledgeParsingSettings(sqliteState);
+    const postgresState = testState('postgres');
+    const { settings: defaults, storage } = await readKnowledgeParsingSettings(postgresState);
     assert.equal(storage.scope, 'organization');
     assert.equal(defaults.knowledgeAutoIngestionEnabled, false);
     assert.equal(defaults.heavyDocumentParsingEnabled, false);
@@ -65,19 +65,19 @@ async function main() {
     assert.equal(defaults.liveCollaborationEnabled, false);
     assert.equal(defaults.remoteParsingEnabled, false);
 
-    const sqliteStatus = await resolveKnowledgeResourceStatus(defaults, sqliteState);
+    const sqliteStatus = await resolveKnowledgeResourceStatus(defaults, postgresState);
     assert.equal(sqliteStatus.postgresReady, false);
     assert.equal(sqliteStatus.canEnableKnowledge, false);
     assert.ok(sqliteStatus.blockers.includes('requires_postgres'));
     assert.equal(sqliteStatus.featureGates.some((gate) => gate.key === 'rag_retrieval' && gate.status === 'blocked'), true);
 
-    const doclingStatus = await resolveKnowledgeResourceStatus({ ...defaults, doclingEnabled: true, ocrEnabled: true }, sqliteState);
+    const doclingStatus = await resolveKnowledgeResourceStatus({ ...defaults, doclingEnabled: true, ocrEnabled: true }, postgresState);
     assert.equal(doclingStatus.parser.docling, 'not_checked');
     assert.equal(doclingStatus.parser.ocr, 'not_checked');
 
     await assert.rejects(
       () => updateKnowledgeParsingSettings({
-        state: sqliteState,
+        state: postgresState,
         actorUserId: 'owner-user',
         updates: {
           knowledgeAutoIngestionEnabled: true,
@@ -89,7 +89,7 @@ async function main() {
 
     await assert.rejects(
       () => updateKnowledgeParsingSettings({
-        state: sqliteState,
+        state: postgresState,
         actorUserId: 'owner-user',
         updates: {
           ragRetrievalEnabled: true,
@@ -100,12 +100,12 @@ async function main() {
       /requires_postgres/u,
     );
 
-    const afterBlocked = await readKnowledgeParsingSettings(sqliteState);
+    const afterBlocked = await readKnowledgeParsingSettings(postgresState);
     assert.equal(afterBlocked.settings.knowledgeAutoIngestionEnabled, false);
     assert.equal(afterBlocked.settings.ragRetrievalEnabled, false);
 
     const safeUpdate = await updateKnowledgeParsingSettings({
-      state: sqliteState,
+      state: postgresState,
       actorUserId: 'owner-user',
       updates: {
         maxDocumentSizeMb: 64,
@@ -140,7 +140,7 @@ async function main() {
     for (let index = 0; index < 505; index += 1) {
       await assert.rejects(
         () => updateKnowledgeParsingSettings({
-          state: sqliteState,
+          state: postgresState,
           actorUserId: 'owner-user',
           updates: {
             knowledgeAutoIngestionEnabled: true,

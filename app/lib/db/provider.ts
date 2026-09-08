@@ -57,6 +57,12 @@ export type PublicDatabaseProviderStatus = {
   warnings: DatabaseProviderProblemCode[];
 };
 
+/** Resolves the shared application data directory for filesystem-backed assets. */
+export function resolveDataDir(): string {
+  const configuredDataDir = process.env.DATA?.trim();
+  return configuredDataDir ? configuredDataDir : `${process.cwd()}/data`;
+}
+
 function normalizeEnvValue(value: string | null | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
   return normalized ? normalized : null;
@@ -82,7 +88,7 @@ function getDatabaseUrlProtocol(databaseUrl: string | null | undefined): string 
   }
 }
 
-export function normalizeDatabaseProvider(value?: string | null): DatabaseProvider {
+export function normalizeDatabaseProvider(_value?: string | null): DatabaseProvider {
   return 'postgres';
 }
 
@@ -217,7 +223,7 @@ export class DatabaseProviderRuntimeError extends Error {
   }
 }
 
-export function assertRuntimeDatabaseProviderSupported(provider = getDatabaseProvider()): void {
+export function assertRuntimeDatabaseProviderSupported(_provider = getDatabaseProvider()): void {
   const gate = resolveDatabaseProviderGate({ postgresRuntimeAdapterAvailable: true });
   if (!gate.ok) {
     const problem = gate.blockers[0];

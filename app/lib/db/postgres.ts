@@ -3,12 +3,10 @@ import { getTableConfig } from 'drizzle-orm/pg-core';
 import { Pool, types } from 'pg';
 
 import * as schema from './schema';
-import {
-  MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY,
-  TEAM_SEAT_LEGACY_MIGRATION_KEY,
-  TEAM_SEAT_LEGACY_MIGRATION_METADATA,
-  TEAM_SEAT_LEGACY_MIGRATION_REASON,
-} from './migrate';
+const MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY = 'memory-reviewer-opt-in-v1';
+const TEAM_SEAT_LEGACY_MIGRATION_KEY = 'team-seat-membership-v1';
+const TEAM_SEAT_LEGACY_MIGRATION_METADATA = '{"source":"organization_user_permissions","billableOperationsCreated":0}';
+const TEAM_SEAT_LEGACY_MIGRATION_REASON = 'legacy organization user permissions';
 import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
@@ -642,6 +640,12 @@ export async function runPostgresMemoryReviewerOptInBackfill(pool: PgQueryable):
       databaseProvider: 'postgres',
     });
   }
+}
+
+/** Runs the PostgreSQL-only upgrades retained from the legacy migration runner. */
+export async function runPostgresLegacySchemaUpgrades(pool: PgQueryable): Promise<void> {
+  await runPostgresMemoryReviewerOptInBackfill(pool);
+  await runPostgresTeamSeatLegacyBackfill(pool);
 }
 
 export function createPostgresPool(): Pool {
