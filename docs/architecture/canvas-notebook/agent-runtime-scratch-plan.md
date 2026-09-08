@@ -2,7 +2,27 @@
 
 ## Status
 
-Implementation plan for a session-scoped execution workspace that keeps generated code and intermediate artifacts out of the user-visible workspace while preserving audited delivery of final files.
+Implemented on branch `codex/agent-runtime-scratch`. Container-image construction remains intentionally deferred until separately requested.
+
+## Implementation outcome
+
+- Agent Bash defaults to the exact session scratch directory and exposes an explicit `workingDirectory: temp | workspace` choice plus audited cwd/sandbox metadata.
+- Managed Docker execution is fail-closed behind a native Landlock launcher (minimum ABI 3): workspace and selected skill roots are read-only, the exact session scratch root is writable, unrelated `/data` paths and inherited file descriptors are unavailable, and child processes inherit the policy.
+- A strict positive environment allowlist exposes runtime locations without forwarding integration secrets or broad data-root variables.
+- File tools support verified temp-to-workspace copy/move promotion without treating scratch paths as collaborative workspace paths. Read-only workspaces reject promotion.
+- Scratch directories use private permissions, symlink-free managed ancestry, active-operation leases, inactive cleanup, and configurable byte/file limits (`CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES`, `CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES`). Quota accounting does not follow symlinks.
+- The compact runtime prompt explains scratch-first execution and final promotion. The persistent base prompt remains Markdown-first and only lists skill metadata; detailed Office procedures live in the DOCX, XLSX, PPTX, and PDF skills.
+- Document Suite 1.3.0 documents Pandoc boundaries, unique headless LibreOffice profiles, recalculation/render verification, and scratch-only intermediate output. Existing unchanged managed skills upgrade atomically; personal or modified copies are preserved.
+- The interactive terminal service remains unchanged because it is a human-facing UI path. The agent toolset maps terminal capability to the sandboxed Bash tool, so adding a second agent terminal path would duplicate authority and weaken the contract.
+- Compaction now tells the agent to reread the listed `SKILL.md`; the obsolete nonexistent `skill_view` instruction was removed.
+
+## Verification outcome
+
+- Focused Bash, workspace-policy, runtime-temp, promotion, quota, prompt, compaction, skill-access, Document Suite, seed-plugin-upgrade, and seed-plugin-manifest tests pass.
+- Full ESLint completes with one pre-existing warning in `app/components/editor/FileEditor.tsx`.
+- The Next.js production compiler completes successfully. The repository-wide type phase remains blocked by pre-existing Testing Library import errors in UI test scripts.
+- The required `npm run build` attempt stops earlier in the prebuild license-inventory check. The same mismatch reproduces on the pre-change worktree with the identical lockfile, so the compliance inventory was not regenerated as part of this change.
+- The Landlock integration test is included and fail-closed in Docker, but is skipped on the macOS development host. No container image was built, in accordance with this plan.
 
 ## Problem
 
