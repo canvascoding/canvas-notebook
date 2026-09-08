@@ -16,6 +16,8 @@ Die Platzierung wird aus ursprünglichem Baum und Operationshistorie berechnet. 
 
 Eine Löschung markiert die zum Ausführungszeitpunkt betroffenen Identitäten einschließlich ihrer beobachteten Nachfahren. Sie gewinnt gegen deren konkurrierende Moves. Ein inzwischen gelöschtes Ziel wird nicht durch einen zufälligen Nachbarblock ersetzt. Ein konkurrierender Move, der einen Zyklus erzeugen würde, wird bei der deterministischen Auswertung verworfen und als Strukturkonflikt ausgewiesen. Neu eingefügter Inhalt unter einem gleichzeitig gelöschten Container bleibt im binären Zustand erhalten; eine verwaiste Struktur wird nicht stillschweigend als gültiges Dokument exportiert.
 
+Die Löschung wirkt erst an ihrer Stelle in der geordneten Historie. Bereits angenommene Moves zu einem später gelöschten Anker behalten dadurch ihre Platzierung. Ein zu diesem Zeitpunkt bereits gelöschtes Ziel führt zu einem abgewiesenen Move. Abgewiesene Absichten werden pro View einmal über eine übersetzte Warnung angezeigt; allein diese Warnung sperrt ein weiterhin gültiges Dokument nicht. Die aktuelle Matrix besteht aus 21 Kern-, 27 Auswahl-/Binding- und sechs Agententests. Agentenanker auf Text, der beim Split oder Join eine andere Blockidentität bekommen hat, erfordern Review.
+
 Undo erfasst nur die eigenen Änderungen an Inhalt und aktiven Operationen. Ein Undo des Moves entfernt dessen Platzierungswirkung und erhält fremde Textänderungen. Ausführungsbelege werden dabei nicht zurückgenommen: Ein wiederholter Zustellversuch derselben Operation darf kein versehentliches Redo bewirken. Explizites Redo bleibt möglich.
 
 ## ProseMirror-Adaptervertrag

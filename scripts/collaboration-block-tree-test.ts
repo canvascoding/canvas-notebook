@@ -169,6 +169,19 @@ test('operation retries are idempotent and a mismatched payload cannot reuse an 
   } finally { h.dispose(); }
 });
 
+test('deleting a drop anchor after an accepted move does not undo that earlier placement', () => {
+  const h = replicas('AAA\n\nBBB\n\nCCC\n\nDDD');
+  try {
+    const before = h.a.read();
+    h.a.move({ blockId: before.child(3).attrs.id, parentId: null, beforeId: before.child(1).attrs.id, operationId: 'move-first' }, localOrigin);
+    h.a.delete(before.child(1).attrs.id, 'delete-later', localOrigin);
+    assert.deepEqual(blocks(h.a).map((block) => block.text), ['AAA', 'DDD', 'CCC']);
+    assert.deepEqual(h.a.project().conflicts, [], 'a causally later deletion is not a failed move');
+    exchange(h.left, h.right, true);
+    assert.deepEqual(h.a.read().toJSON(), h.b.read().toJSON());
+  } finally { h.dispose(); }
+});
+
 test('a ProseMirror move uses current content and retains the actual moved identity', () => {
   const h = replicas();
   try {

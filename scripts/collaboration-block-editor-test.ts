@@ -10,6 +10,7 @@ import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protoc
 import { createRichMarkdownYDoc, validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
 import { richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
+import { BlockTreePlacementNotice } from '../app/lib/collaboration/block-tree-editor';
 import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '../app/lib/collaboration/rich-editor-extensions';
 import { getReorderableBlockRangeAt, moveReorderableBlock } from '../app/lib/editor/reorderable-blocks';
 import { CanvasUniqueID } from '../app/lib/editor/canvas-unique-id';
@@ -229,6 +230,33 @@ test('local and remote cell highlights follow a moved column through the live bi
     assert.deepEqual(highlighted(), ['A', 'one']);
     assert.deepEqual(errors, []);
   } finally { a.destroy(); b.destroy(); aPresence.destroy(); bPresence.destroy(); left.destroy(); right.destroy(); }
+});
+
+test('a rejected concurrent placement is reported once while the valid document remains editable', async () => {
+  const left = createDocument();
+  const right = new Y.Doc();
+  Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
+  left.clientID = 20;
+  right.clientID = 10;
+  const errors: Error[] = [];
+  const editor = createEditor(left, errors);
+  try {
+    await Promise.resolve();
+    const tree = new CollaborationBlockTree(left, schema);
+    const initial = tree.read();
+    tree.move({ blockId: initial.child(1).attrs.id, parentId: null, beforeId: initial.child(0).attrs.id, operationId: 'move-to-deleted-target' }, {});
+    new CollaborationBlockTree(right, schema).delete(initial.child(0).attrs.id, 'delete-target', {});
+    Y.applyUpdate(left, Y.encodeStateAsUpdate(right));
+    assert.deepEqual(texts(editor), ['BBB', 'CCC']);
+    assert.equal(errors.length, 1);
+    assert.ok(errors[0] instanceof BlockTreePlacementNotice);
+    assert.equal(errors[0].count, 1);
+    Y.applyUpdate(left, Y.encodeStateAsUpdate(right));
+    editor.view.dispatch(editor.state.tr.insertText('updated ', position(editor, 'BBB')));
+    assert.deepEqual(texts(editor), ['updated BBB', 'CCC']);
+    assert.equal(errors.length, 1, 'duplicate updates and subsequent typing do not repeat a notice');
+    assert.equal(validateRichMarkdownYDoc(left).valid, true);
+  } finally { editor.destroy(); left.destroy(); right.destroy(); }
 });
 
 test('hydration never replaces server data with an empty editor and permission gates every mutation', async () => {

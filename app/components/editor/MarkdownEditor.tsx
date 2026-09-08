@@ -211,6 +211,7 @@ import {
 } from './ObsidianWikiLinkExtension';
 import { ObsidianInlineFootnoteExtension } from './ObsidianInlineFootnoteExtension';
 import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '@/app/lib/collaboration/rich-editor-extensions';
+import { BlockTreePlacementNotice } from '@/app/lib/collaboration/block-tree-editor';
 import {
   useCollaborationDocument,
   useTextCollaborationSession,
@@ -4959,7 +4960,11 @@ function RichMarkdownEditor({
     (name: string) => t('collaboration.remoteCaretLabel', { name }),
     [t],
   );
-  const onCollaborationError = useCallback(() => {
+  const onCollaborationError = useCallback((error: Error) => {
+    if (error instanceof BlockTreePlacementNotice) {
+      toast.warning(t('markdownEditorConcurrentStructureConflict'));
+      return;
+    }
     toast.error(t('markdownEditorCollaborationEditBlocked'));
   }, [t]);
   const extensions = useMemo(

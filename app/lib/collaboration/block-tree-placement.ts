@@ -55,14 +55,14 @@ export function projectBlockPlacements(
   }
   const children = new Map<string | null, string[]>([[null, []]]);
   const parents = new Map<string, string | null>();
-  const deleted = new Set(operations.flatMap((op) => op.kind === 'delete' ? op.blockIds : []));
+  const deleted = new Set<string>();
   const conflicts: BlockPlacementConflict[] = [];
   for (const block of [...initial].sort((a, b) => a.order - b.order || compareIds(a.id, b.id))) {
     if (parents.has(block.id)) throw new Error('Duplicate block identity in placement projection.');
     parents.set(block.id, block.parentId);
     if (!children.has(block.id)) children.set(block.id, []);
     const siblings = children.get(block.parentId) ?? [];
-    if (!deleted.has(block.id)) siblings.push(block.id);
+    siblings.push(block.id);
     children.set(block.parentId, siblings);
   }
 
@@ -78,7 +78,18 @@ export function projectBlockPlacements(
   const ordered = [...operations].sort((a, b) => a.clock - b.clock || a.actor - b.actor
     || compareIds(a.transactionId, b.transactionId) || a.ordinal - b.ordinal || compareIds(a.id, b.id));
   for (const op of ordered) {
-    if (op.kind === 'delete') continue;
+    if (op.kind === 'delete') {
+      // Keep the effects of moves accepted before this deletion. Removing all
+      // tombstones before replay would retroactively erase moves to an anchor
+      // that was still alive when the move happened.
+      for (const id of op.blockIds) {
+        deleted.add(id);
+        const siblings = children.get(parents.get(id) ?? null);
+        const index = siblings?.indexOf(id) ?? -1;
+        if (index >= 0) siblings!.splice(index, 1);
+      }
+      continue;
+    }
     let reason: BlockPlacementConflict['reason'] | undefined;
     if (deleted.has(op.blockId) || !parents.has(op.blockId)) reason = 'source_deleted';
     else if ((op.parentId !== null && deleted.has(op.parentId)) || (op.beforeId !== null && deleted.has(op.beforeId))) reason = 'target_deleted';

@@ -61,6 +61,29 @@ test('duplicate visible text requires an explicit occurrence count and preserves
   } finally { doc.destroy(); }
 });
 
+test('prepared targets on transferred split and join text require review instead of borrowing a new identity', () => {
+  const doc = createRichMarkdownYDoc('AlphaBeta\n\nKeep', 'tiptap_blocks');
+  try {
+    const tree = new CollaborationBlockTree(doc, schema);
+    const before = tree.read();
+    const originalTarget = createRichAgentTextTargets({ doc, search: 'Beta', replacement: 'Changed' });
+    const alpha = before.firstChild!.type.create(before.firstChild!.attrs, schema.text('Alpha'));
+    const beta = schema.nodes.paragraph.create({ id: 'split-beta' }, schema.text('Beta'));
+    tree.applyDocumentChange(before, schema.topNodeType.create(null, [alpha, beta, before.child(1)]), 'user');
+    const splitState = Y.encodeStateAsUpdate(doc);
+    assert.equal(apply(doc, originalTarget).status, 'needs_review');
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), splitState);
+    const betaTarget = createRichAgentTextTargets({ doc, search: 'Beta', replacement: 'Changed' });
+    const split = tree.read();
+    const joined = alpha.type.create(alpha.attrs, schema.text('AlphaBeta'));
+    tree.applyDocumentChange(split, schema.topNodeType.create(null, [joined, split.child(2)]), 'user');
+    const joinedState = Y.encodeStateAsUpdate(doc);
+    assert.equal(apply(doc, betaTarget).status, 'needs_review');
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), joinedState);
+    assert.equal(richMarkdownFromYDoc(doc), 'AlphaBeta\n\nKeep');
+  } finally { doc.destroy(); }
+});
+
 test('frontmatter and marked Unicode text remain addressable in the block format', () => {
   const doc = createRichMarkdownYDoc('---\ntitle: Original\n---\n\n**Grüße 👋**\n\nKeep', 'tiptap_blocks');
   try {

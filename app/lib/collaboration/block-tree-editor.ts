@@ -9,6 +9,14 @@ import { captureBlockTreeSelection, restoreBlockTreeSelection, type BlockTreeSel
 export const REMOTE_BLOCK_TREE_TRANSACTION = 'canvas-block-tree-remote';
 const blockTreeEditorKey = new PluginKey('canvas-block-tree-editor');
 
+/** The document remains editable; some concurrent placement intentions lost. */
+export class BlockTreePlacementNotice extends Error {
+  constructor(readonly count: number) {
+    super(`${count} concurrent block placement intentions could not be applied.`);
+    this.name = 'BlockTreePlacementNotice';
+  }
+}
+
 type BlockTreeEditorOptions = {
   document: Y.Doc;
   onError?: (error: Error) => void;
@@ -38,6 +46,7 @@ class BlockTreeEditorBinding {
   private selection: BlockTreeSelection | null = null;
   private destroyed = false;
   private lastError: string | null = null;
+  private seenPlacementConflicts = new Set<string>();
   private compositionTree: CollaborationBlockTree | null = null;
   private compositionClientId: number | null = null;
   private historyCaptureTimeout = 0;
@@ -99,9 +108,14 @@ class BlockTreeEditorBinding {
         this.undoDestroyListeners = [...this.options.document._observers.get('destroy') ?? []]
           .filter((listener) => !previousDestroyListeners.has(listener));
       }
-      const next = this.tree.read();
+      const projection = this.tree.project();
+      const next = this.tree.read(this.editor.schema, projection);
       const state = this.editor.state;
       this.ready = true;
+      const unseen = projection.conflicts.map((conflict) => `${conflict.operationId}:${conflict.blockId}:${conflict.reason}`)
+        .filter((key) => !this.seenPlacementConflicts.has(key));
+      for (const key of unseen) this.seenPlacementConflicts.add(key);
+      if (unseen.length) this.options.onError?.(new BlockTreePlacementNotice(unseen.length));
       const from = state.doc.content.findDiffStart(next.content);
       if (from === null) return;
       const end = state.doc.content.findDiffEnd(next.content)!;
