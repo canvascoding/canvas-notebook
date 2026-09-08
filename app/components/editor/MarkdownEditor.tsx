@@ -1,6 +1,9 @@
 'use client';
 
-import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocalMarkdownDocument } from '@/app/hooks/use-local-markdown-document';
+import type { LocalMarkdownDocument } from '@/app/lib/editor/local-markdown-document';
+import { createLocalMarkdownRichExtension, LOCAL_MARKDOWN_PROJECTION, updateLocalMarkdownMetadata } from '@/app/lib/editor/local-markdown-rich-binding';
 import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { Extension, getMarkRange, type Editor, type JSONContent, type Range } from '@tiptap/core';
@@ -2157,6 +2160,7 @@ function createEditorExtensions(
   collaboration: CollaborationDocument | null = null,
   remoteCaretLabel?: (name: string) => string,
   onCollaborationError?: (error: Error) => void,
+  localDocument: LocalMarkdownDocument | null = null,
 ) {
   const extensions = [
     MarkdownDomSelection,
@@ -2166,7 +2170,7 @@ function createEditorExtensions(
       codeBlock: false,
       link: false,
       paragraph: false,
-      undoRedo: collaboration ? false : undefined,
+      undoRedo: collaboration || localDocument ? false : undefined,
     }),
     Placeholder.configure({
       placeholder: ({ node }) => node.type.name === 'paragraph' ? labels.placeholder : '',
@@ -2203,7 +2207,7 @@ function createEditorExtensions(
     }),
     UniqueID.configure({
       types: 'all',
-      filterTransaction: (transaction) => !isRemoteRichEditorTransaction(transaction),
+      filterTransaction: (transaction) => !isRemoteRichEditorTransaction(transaction) && !transaction.getMeta(LOCAL_MARKDOWN_PROJECTION),
     }),
     MarkdownHeadingAnchors,
     MarkdownSearchExtension,
@@ -2218,6 +2222,7 @@ function createEditorExtensions(
     ObsidianInlineFootnoteExtension,
     createCanvasMarkdownExtension(),
   ];
+  if (localDocument) extensions.push(createLocalMarkdownRichExtension({ document: localDocument, onError: onCollaborationError }));
   if (collaboration?.provider && collaboration.session
     && isRichTextCollaborationRepresentation(collaboration.session.representation)) {
     extensions.push(
@@ -4714,6 +4719,7 @@ function RichMarkdownEditor({
   markdownNavigationTarget,
   collaborationEnabled = false,
   collaborationDocument,
+  localDocument,
   agentTargets = [],
   showNotebookMetadata = false,
   frontmatter = 'metadata',
@@ -4723,6 +4729,7 @@ function RichMarkdownEditor({
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   onSourceMode: () => void;
   collaborationDocument?: CollaborationDocument | null;
+  localDocument?: LocalMarkdownDocument | null;
 }) {
   const t = useTranslations('notebook');
   const documentParts = useMemo(() => splitMarkdownEditorDocument(value, frontmatter), [value, frontmatter]);
@@ -4921,6 +4928,7 @@ function RichMarkdownEditor({
       collaboration,
       remoteCaretLabel,
       onCollaborationError,
+      localDocument,
     ),
     [
       activeWorkspaceId,
@@ -4930,6 +4938,7 @@ function RichMarkdownEditor({
       mentionLabels,
       remoteCaretLabel,
       onCollaborationError,
+      localDocument,
       slashCommandActions,
       wikiLabels,
     ],
@@ -4937,8 +4946,8 @@ function RichMarkdownEditor({
 
   const editor = useEditor({
     extensions,
-    content: collaborationEnabled ? undefined : documentParts.body,
-    contentType: 'markdown',
+    content: collaborationEnabled ? undefined : localDocument?.getSnapshot().richDocument ?? documentParts.body,
+    contentType: localDocument ? 'json' : 'markdown',
     editable: !effectiveReadOnly,
     immediatelyRender: false,
     // Tiptap's createView reads editorProps synchronously; passing an explicit
@@ -4965,6 +4974,7 @@ function RichMarkdownEditor({
       },
     } : {},
     onUpdate: ({ editor: updateEditor }) => {
+      if (localDocument) { latestValueRef.current = localDocument.getSnapshot().markdown; return; }
       if (effectiveReadOnly || applyingExternalValueRef.current) return;
 
       const markdownEditor = asMarkdownEditor(updateEditor);
@@ -4979,7 +4989,7 @@ function RichMarkdownEditor({
         onChange?.(nextValue);
       }
     },
-  }, [collaboration?.provider]);
+  }, [collaboration?.provider, localDocument]);
 
   useEffect(() => {
     dialogEditorRef.current = editor;
@@ -5001,6 +5011,7 @@ function RichMarkdownEditor({
 
   const handlePropertiesChange = useCallback((nextValue: string) => {
     if (!editor || dialogEditorRef.current !== editor || editor.isDestroyed || !editor.isEditable || effectiveReadOnly) return;
+    if (localDocument) { updateLocalMarkdownMetadata(editor, nextValue); return; }
     if (collaborationEnabled && collaboration) {
       const prefix = splitMarkdownEditorDocument(nextValue, 'metadata').prefix;
       const frontmatter = collaboration.doc.getText('frontmatter');
@@ -5016,7 +5027,7 @@ function RichMarkdownEditor({
     const merged = mergeMarkdownEditorMetadata(nextValue, latestValueRef.current, currentBody);
     latestValueRef.current = merged;
     onChange?.(merged);
-  }, [collaboration, collaborationEnabled, editor, effectiveReadOnly, onChange]);
+  }, [collaboration, collaborationEnabled, editor, effectiveReadOnly, localDocument, onChange]);
 
   useEffect(() => {
     if (!collaboration) return;
@@ -5211,7 +5222,7 @@ function RichMarkdownEditor({
   }, [cancelPendingBlockCommandMenu]);
 
   useEffect(() => {
-    if (collaborationEnabled) return;
+    if (collaborationEnabled || localDocument) return;
     if (!markdownEditor) return;
 
     const currentMarkdown = markdownEditor.getMarkdown();
@@ -5237,7 +5248,7 @@ function RichMarkdownEditor({
       emitUpdate: false,
     });
     applyingExternalValueRef.current = false;
-  }, [collaborationEnabled, documentParts.body, externalValueSync, markdownEditor, readOnly, value]);
+  }, [collaborationEnabled, documentParts.body, externalValueSync, localDocument, markdownEditor, readOnly, value]);
 
   useEffect(() => {
     editor?.setEditable(!effectiveReadOnly);
@@ -5495,6 +5506,7 @@ function SourceMarkdownEditor({
   collaborationEnabled = false,
   collaborationSession,
   collaborationDocument,
+  localDocument,
   agentTargets = [],
   sourceModeReason,
   normalizationAvailable,
@@ -5512,6 +5524,7 @@ function SourceMarkdownEditor({
   onNormalizeToRichMode: () => void;
   isPresentationDocument: boolean;
   collaborationDocument?: CollaborationDocument | null;
+  localDocument?: LocalMarkdownDocument | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const t = useTranslations('notebook');
@@ -5612,6 +5625,7 @@ function SourceMarkdownEditor({
       ) : null}
       <div className="markdown-source-viewport min-h-0 flex-1 overflow-hidden">
         <CodeEditor
+          localMarkdownDocument={localDocument}
           value={value}
           onChange={(nextValue) => {
             if (!readOnly) onChange?.(nextValue);
@@ -5654,6 +5668,11 @@ export function MarkdownEditor({
 
   const t = useTranslations('notebook');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const local = useLocalMarkdownDocument({
+    scope: JSON.stringify([activeWorkspaceId, filePath, frontmatter, collaborationEnabled]),
+    value, enabled: !collaborationEnabled, frontmatter, readOnly, externalValueSync, onChange,
+  });
+  const localDocument = local.document;
   const collaborationSession = useTextCollaborationSession({
     enabled: collaborationEnabled,
     workspaceId: activeWorkspaceId,
@@ -5670,7 +5689,7 @@ export function MarkdownEditor({
   });
   const isMobileKeyboardActive = useMobileKeyboardActive();
   const liveMarkdown = useLiveMarkdown(collaborationDocument, value);
-  const displayedValue = liveMarkdown.content;
+  const displayedValue = local.snapshot?.markdown ?? liveMarkdown.content;
   const parsedDocument = useMemo(() => frontmatter === 'metadata'
     ? parseCanvasMarkdownDocument(displayedValue)
     : { body: displayedValue, error: null }, [displayedValue, frontmatter]);
@@ -5704,6 +5723,8 @@ export function MarkdownEditor({
     : preparingRichMode ? 'rich'
       : mode === 'source' || (collaborationEnabled ? authoritativeRepresentation === 'plain_text' : sourceModeRequired) ? 'source' : 'rich';
   const richSourceReadOnly = collaborationEnabled && isRichTextCollaborationRepresentation(authoritativeRepresentation);
+  const setLocalFocused = local.setFocused;
+  useLayoutEffect(() => { setLocalFocused(false); }, [effectiveMode, setLocalFocused]);
 
   useEffect(() => {
     onCollaborationChange?.(collaborationDocument);
@@ -5737,14 +5758,15 @@ export function MarkdownEditor({
 
   const normalizeToRichMode = useCallback(() => {
     if (readOnly || collaborationEnabled || richModeAnalysis.mode !== 'normalizable') return;
-    onChange?.(composeCanvasMarkdownDocument(
+    const next = composeCanvasMarkdownDocument(
       richModeAnalysis.prefix,
       richModeAnalysis.normalizedBody,
-    ));
+    );
+    if (!localDocument?.changeSourceFromOwner(next)) return;
     setSourceModeRequested(false);
     setMode('rich');
     toast.success(t('markdownEditorNormalizedForRichText'));
-  }, [collaborationEnabled, onChange, readOnly, richModeAnalysis, setMode, t]);
+  }, [collaborationEnabled, localDocument, readOnly, richModeAnalysis, setMode, t]);
 
   const switchToRichMode = useCallback(() => {
     if (readOnly) return;
@@ -5776,7 +5798,9 @@ export function MarkdownEditor({
     else if (next === 'source') switchToSourceMode();
     else setMode('read');
   }} />;
-  const wrap = (children: React.ReactNode) => <div className="flex h-full min-h-0 flex-col bg-background" data-document-width={layout === 'field' || wide ? 'wide' : 'page'} data-editor-layout={layout} data-field-inline={layout === 'field' && !expanded} data-editor-mode={effectiveMode}>
+  const wrap = (children: React.ReactNode) => <div className="flex h-full min-h-0 flex-col bg-background" data-document-width={layout === 'field' || wide ? 'wide' : 'page'} data-editor-layout={layout} data-field-inline={layout === 'field' && !expanded} data-editor-mode={effectiveMode}
+    onFocusCapture={() => setLocalFocused(true)}
+    onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setLocalFocused(false); }}>
     {modeBar}
     {!readOnly && collaborationDocument && needsRichUpgrade && collaborationDocument.session && filePath
       ? <div hidden={mode === 'read'}><MarkdownRichMigration key={`${filePath}:${collaborationDocument.session.lifecycleGeneration}`}
@@ -5813,6 +5837,7 @@ export function MarkdownEditor({
     return wrap(<div className="markdown-source-shell flex h-full min-h-0 flex-col">
       {richSourceReadOnly && <p className="border-b px-3 py-2 text-xs text-muted-foreground">{t('editorModes.liveSource')}</p>}
       <div className="markdown-source-host min-h-0 flex-1"><SourceMarkdownEditor
+        localDocument={localDocument}
         layout={layout}
         initiallyShowMobileToolbar={sourceModeRequested}
         richModeAvailable={!sourceModeRequired && !collaborationEnabled}
@@ -5838,7 +5863,8 @@ export function MarkdownEditor({
   return wrap(
     <RichMarkdownEditor
       key={JSON.stringify([activeWorkspaceId, filePath, resolvedCollaborationSession?.documentId, resolvedCollaborationSession?.lifecycleGeneration, resolvedCollaborationSession?.representation])}
-      value={value}
+      value={localDocument ? displayedValue : value}
+      localDocument={localDocument}
       onChange={onChange}
       readOnly={readOnly}
       filePath={filePath}

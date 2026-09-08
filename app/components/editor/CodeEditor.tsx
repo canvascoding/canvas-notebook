@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
+import { LocalMarkdownCodeMirror } from './LocalMarkdownCodeMirror';
+import type { LocalMarkdownDocument } from '@/app/lib/editor/local-markdown-document';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
 import { html } from '@codemirror/lang-html';
@@ -67,6 +69,7 @@ export interface CodeEditorProps {
   collaborationDocument?: CollaborationDocument | null;
   onCollaborationChange?: (document: CollaborationDocument | null) => void;
   agentTargets?: CollaborationAgentTargetAnchor[];
+  localMarkdownDocument?: LocalMarkdownDocument | null;
 }
 
 class AgentTargetWidget extends WidgetType {
@@ -357,6 +360,7 @@ export function CodeEditor({
   collaborationDocument,
   onCollaborationChange,
   agentTargets = [],
+  localMarkdownDocument,
 }: CodeEditorProps) {
   const t = useTranslations('notebook');
   const { currentFile } = useFileStore();
@@ -529,7 +533,16 @@ export function CodeEditor({
 
   return (
     <div className="relative h-full w-full">
-      <CodeMirror
+      {localMarkdownDocument ? <LocalMarkdownCodeMirror
+        key={codeEditorLifecycleKey}
+        document={localMarkdownDocument}
+        extensions={extensions}
+        readOnly={effectiveReadOnly}
+        theme={resolvedTheme === 'light' ? 'light' : 'dark'}
+        basicSetup={performanceProfile.disableLanguageExtension ? LIGHTWEIGHT_CODE_MIRROR_BASIC_SETUP : CODE_MIRROR_BASIC_SETUP}
+        style={CODE_MIRROR_STYLE}
+        onCreateEditor={setEditorView}
+      /> : <CodeMirror
         key={codeEditorLifecycleKey}
         value={collaborationText?.toString() ?? value}
         height="100%"
@@ -541,7 +554,7 @@ export function CodeEditor({
         basicSetup={performanceProfile.disableLanguageExtension ? LIGHTWEIGHT_CODE_MIRROR_BASIC_SETUP : CODE_MIRROR_BASIC_SETUP}
         style={CODE_MIRROR_STYLE}
         className="codemirror-wrapper"
-      />
+      />}
       <WorkspaceDocumentPreviewDialog
         open={documentPreview !== null}
         reference={documentPreview}

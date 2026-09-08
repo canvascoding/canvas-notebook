@@ -32,6 +32,7 @@ export type LocalMarkdownSnapshot = {
 export type LocalMarkdownChange = { origin: 'rich' | 'source' | 'history' | 'external'; snapshot: LocalMarkdownSnapshot };
 type RichSelection = ReturnType<Selection['toJSON']>;
 type EditOptions = { group?: string | null; time?: number };
+type SourceChange = { revision: number; markdown: string; beforeSelection: LocalSourceSelection; afterSelection: LocalSourceSelection } & EditOptions;
 
 /** A view capability is revoked when the view is replaced or released. */
 export type LocalMarkdownView = {
@@ -63,7 +64,7 @@ export class LocalMarkdownDocument {
   private activeView: object | null = null;
   private lastGroup: string | null = null;
 
-  constructor(markdown: string, readonly frontmatter: MarkdownFrontmatterMode = 'metadata') {
+  constructor(markdown: string, readonly frontmatter: MarkdownFrontmatterMode = 'metadata', private readonly writable: () => boolean = () => true) {
     const empty = this.schema.topNodeType.createAndFill()!;
     this.state = this.createState(this.sourceDocument(markdown, empty));
     this.snapshot = this.createSnapshot();
@@ -166,11 +167,32 @@ export class LocalMarkdownDocument {
     this.publish(origin);
   }
 
+  private applySourceChange(input: SourceChange): boolean {
+    if (input.revision !== this.revision
+      || !this.sourceSelectionValid(input.afterSelection, input.markdown.length)) return false;
+    if (input.markdown === this.snapshot.markdown) return this.setSourceSelection(input.afterSelection);
+    const next = this.sourceDocument(input.markdown, this.state.doc);
+    if (!this.setSourceSelection(input.beforeSelection)) return false;
+    const transaction = this.state.tr.replaceWith(0, this.state.doc.content.size, next.content)
+      .setDocAttribute(SOURCE, input.markdown).setDocAttribute(RICH, next.attrs[RICH])
+      .setDocAttribute(SOURCE_SELECTION, structuredClone(input.afterSelection));
+    this.commit(transaction, 'source', input);
+    return true;
+  }
+
+  /** Parent actions such as explicit normalization join the same history while
+   * retaining the mounted view's capability and update subscriptions. */
+  changeSourceFromOwner(markdown: string): boolean {
+    if (!this.writable()) return false;
+    return this.applySourceChange({ revision: this.revision, markdown,
+      beforeSelection: { anchor: 0, head: 0 }, afterSelection: { anchor: 0, head: 0 } });
+  }
+
   openView(kind: 'rich' | 'source', writable: () => boolean): LocalMarkdownView {
     const token = {};
     this.activeView = token;
     this.lastGroup = null;
-    const active = () => this.activeView === token && writable();
+    const active = () => this.activeView === token && this.writable() && writable();
     return {
       isCurrent: () => this.activeView === token,
       boundary: () => {
@@ -196,18 +218,7 @@ export class LocalMarkdownDocument {
         this.commit(transaction, 'rich', input);
         return true;
       },
-      changeSource: (input) => {
-        if (!active() || kind !== 'source' || input.revision !== this.revision
-          || !this.sourceSelectionValid(input.afterSelection, input.markdown.length)) return false;
-        if (input.markdown === this.snapshot.markdown) return this.setSourceSelection(input.afterSelection);
-        const next = this.sourceDocument(input.markdown, this.state.doc);
-        if (!this.setSourceSelection(input.beforeSelection)) return false;
-        const transaction = this.state.tr.replaceWith(0, this.state.doc.content.size, next.content)
-          .setDocAttribute(SOURCE, input.markdown).setDocAttribute(RICH, next.attrs[RICH])
-          .setDocAttribute(SOURCE_SELECTION, structuredClone(input.afterSelection));
-        this.commit(transaction, 'source', input);
-        return true;
-      },
+      changeSource: (input) => active() && kind === 'source' && this.applySourceChange(input),
       changeMetadata: (input) => {
         if (!active() || kind !== 'rich' || input.revision !== this.revision || this.frontmatter !== 'metadata') return false;
         const prefix = splitMarkdownEditorDocument(input.markdown, this.frontmatter).prefix;
