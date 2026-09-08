@@ -17,6 +17,7 @@ export class BlockTreeHistory {
   private origins = new Set<object>();
   private listeners = new Set<() => void>();
   private previous: Capture | null = null;
+  private destroyed = false;
 
   constructor(tree: CollaborationBlockTree) {
     this.manager = tree.createUndoManager(Symbol('block-history'));
@@ -28,14 +29,21 @@ export class BlockTreeHistory {
 
   private notify = () => { for (const listener of this.listeners) listener(); };
 
+  subscribe = (onChange: () => void): (() => void) => {
+    if (this.destroyed) return () => {};
+    this.listeners.add(onChange);
+    return () => { this.listeners.delete(onChange); };
+  };
+
   register(origin: object, onChange: () => void): () => void {
+    if (this.destroyed) throw new Error('The history document has been released.');
     this.origins.add(origin);
     this.manager.addTrackedOrigin(origin);
-    this.listeners.add(onChange);
+    const unsubscribe = this.subscribe(onChange);
     return () => {
       this.origins.delete(origin);
       this.manager.removeTrackedOrigin(origin);
-      this.listeners.delete(onChange);
+      unsubscribe();
       this.boundary(origin);
     };
   }
@@ -82,10 +90,11 @@ export class BlockTreeHistory {
   }
 
   can(direction: 'undo' | 'redo'): boolean {
-    return direction === 'undo' ? this.manager.canUndo() : this.manager.canRedo();
+    return !this.destroyed && (direction === 'undo' ? this.manager.canUndo() : this.manager.canRedo());
   }
 
-  run(direction: 'undo' | 'redo', tree: CollaborationBlockTree, currentDoc: () => ProseMirrorNode): Selection | null {
+  private applyHistory(direction: 'undo' | 'redo') {
+    if (this.destroyed) return null;
     this.boundary();
     const item = this.manager[direction]();
     // Yjs creates the inverse stack item during undo/redo; keep both selection
@@ -96,12 +105,25 @@ export class BlockTreeHistory {
       inverse.meta.set(afterSelectionKey, item.meta.get(afterSelectionKey));
     }
     this.notify();
+    return item;
+  }
+
+  /** Recover the document even when no valid ProseMirror view can be mounted. */
+  undoLastLocalChange(): boolean {
+    return Boolean(this.applyHistory('undo'));
+  }
+
+  run(direction: 'undo' | 'redo', tree: CollaborationBlockTree, currentDoc: () => ProseMirrorNode): Selection | null {
+    const item = this.applyHistory(direction);
     const selection = item?.meta.get(direction === 'undo' ? beforeSelectionKey : afterSelectionKey) as BlockTreeSelection | null | undefined;
     return selection ? restoreBlockTreeSelection(tree, currentDoc(), selection) : null;
   }
 
   private destroy = () => {
+    if (this.destroyed) return;
+    this.destroyed = true;
     this.manager.destroy();
+    this.notify();
     this.origins.clear();
     this.listeners.clear();
     this.previous = null;
@@ -109,7 +131,13 @@ export class BlockTreeHistory {
 }
 
 export function getBlockTreeHistory(tree: CollaborationBlockTree): BlockTreeHistory {
+  if (tree.doc.isDestroyed) throw new Error('The history document has been released.');
   let history = histories.get(tree.doc);
   if (!history) { history = new BlockTreeHistory(tree); histories.set(tree.doc, history); }
   return history;
+}
+
+/** Looking up recovery availability never creates a new history or a new writer. */
+export function findBlockTreeHistory(doc: Y.Doc): BlockTreeHistory | null {
+  return doc.isDestroyed ? null : histories.get(doc) ?? null;
 }

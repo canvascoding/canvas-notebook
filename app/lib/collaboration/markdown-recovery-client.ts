@@ -99,6 +99,6 @@ export function useMarkdownRecoveryCopy(collaboration: CollaborationDocument | n
     }
   };
   const visible = state?.lifetime === lifetime ? state : null;
-  return { actionScope: lifetime, canCreate: eligible, createCopy, busy: visible?.busy ?? false,
+  return { actionScope: lifetime, isCurrent, canCreate: eligible, createCopy, busy: visible?.busy ?? false,
     error: visible?.error ?? null, copyPath: visible?.copyPath ?? null };
 }

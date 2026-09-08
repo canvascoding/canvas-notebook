@@ -10,6 +10,7 @@ import type { CollaborationDocument } from '@/app/lib/collaboration/client';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { recordExportedCollaborationRecovery } from '@/app/lib/collaboration/local-recovery';
 import { useMarkdownRecoveryCopy } from '@/app/lib/collaboration/markdown-recovery-client';
+import { findBlockTreeHistory } from '@/app/lib/collaboration/block-tree-history';
 import { createRichMarkdownManager, restoreRichMarkdownFinalLineEnding } from '@/app/lib/markdown/rich-markdown-codec';
 import { readRichDocumentJson } from '@/app/lib/collaboration/rich-document';
 import { COLLABORATION_CLIENT_CAPABILITIES, isRichTextCollaborationRepresentation, supportsBlockTreeCollaboration } from '@/app/lib/collaboration/types';
@@ -165,6 +166,19 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
   }, [retryScope]);
   const retrying = retryState?.scope === retryScope && retryState.busy;
   const retryError = !checkpointRecovered && retryState?.scope === retryScope ? retryState.error : null;
+  const blockHistory = collaboration?.session?.representation === 'tiptap_blocks' ? findBlockTreeHistory(collaboration.doc) : null;
+  const subscribeHistory = useCallback((listener: () => void) => blockHistory?.subscribe(listener) ?? (() => {}), [blockHistory]);
+  const historySnapshot = useCallback(() => blockHistory?.can('undo') ?? false, [blockHistory]);
+  const hasLocalUndo = useSyncExternalStore(subscribeHistory, historySnapshot, () => false);
+  const canCorrectStructure = collaboration?.ready && recovery.canCreate && hasLocalUndo
+    && (failureKind === 'validation' || (!available && !failureKind));
+  const correctionScope = useMemo(() => ({ document: recovery.actionScope, failureKind, canCorrectStructure }),
+    [recovery.actionScope, failureKind, canCorrectStructure]);
+  const activeCorrection = useRef<typeof correctionScope | null>(null);
+  useLayoutEffect(() => {
+    activeCorrection.current = correctionScope;
+    return () => { if (activeCorrection.current === correctionScope) activeCorrection.current = null; };
+  }, [correctionScope]);
   if (!collaboration) return null;
   const { connection, durability, clientState, session } = collaboration;
   const error = collaboration.error || retryError || recovery.error;
@@ -187,6 +201,11 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
       {clientState.failure && <p role="alert">{t(`editorModes.failure.${clientState.failure.kind}`)}</p>}
       <p role="alert">{t('editorModes.recovery')}</p>
       <div className="flex flex-wrap gap-2">
+        {canCorrectStructure && <Button variant="outline" size="sm" disabled={retrying || recovery.busy} onClick={() => {
+          if (!recovery.isCurrent() || activeCorrection.current !== correctionScope
+            || activeRetry.current?.scope !== retryScope || activeRetry.current.running || recovery.busy) return;
+          blockHistory?.undoLastLocalChange();
+        }}>{t('editorModes.undoRecovery')}</Button>}
         {blocked && available && recovery.canCreate && <Button
           variant="outline" size="sm" disabled={recovery.busy || retrying} onClick={() => void recovery.createCopy()}>
           {t(recovery.busy ? 'editorModes.recoveringCopy' : 'editorModes.recoverCopy')}</Button>}

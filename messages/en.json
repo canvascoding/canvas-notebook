@@ -553,6 +553,7 @@
       "backup": "Download Markdown",
       "snapshot": "Download recovery state",
       "recoverCopy": "Create editable recovery copy",
+      "undoRecovery": "Undo my last change",
       "recoveringCopy": "Creating recovery copy…",
       "retry": "Retry file saving",
       "diagnostics": "Technical details",

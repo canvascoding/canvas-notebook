@@ -552,6 +552,7 @@
       "backup": "Markdown herunterladen",
       "snapshot": "Wiederherstellungsstand herunterladen",
       "recoverCopy": "Bearbeitbare Wiederherstellungskopie erstellen",
+      "undoRecovery": "Letzte eigene Änderung zurücknehmen",
       "recoveringCopy": "Wiederherstellungskopie wird erstellt…",
       "retry": "Dateispeicherung erneut versuchen",
       "diagnostics": "Technische Details",

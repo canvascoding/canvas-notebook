@@ -1,10 +1,10 @@
 # Plan: verlässliche Blockbearbeitung und kollaborativer Dokument-Lifecycle
 
-Stand: 2026-09-08. Untersuchte Codebasis: `f2724821`.
+Stand: 2026-09-09. Ausgangsbefunde auf Codebasis `f2724821`; umgesetzte Teilstände und verbleibende Abnahme sind unten ausdrücklich getrennt.
 
 Für die Probes verwendete, zum Lockfile passende Pakete: Tiptap Core `3.31.0`, `@tiptap/y-tiptap` `3.0.7`, Yjs `13.6.31` und serverseitig `y-prosemirror` `1.3.7`.
 
-Status: Schritte 1 bis 4 sind im Code und in gezielten Kern-, Komponenten- und PostgreSQL-Tests umgesetzt. Der aktuelle Stand umfasst Blockidentitäten, Move-Semantik, Editorbindung, abgesicherte Formatmigration, Agentenanker und Strukturaktionen einschließlich Tabellenkonflikten. Als Nächstes folgen die verbleibenden Dokument-Lifecycle-, Codec-/Recovery- und Abnahmearbeiten aus Schritten 5 bis 7. Browserabnahme und vollständiger Build stehen noch aus. Dieser Plan erweitert `docs/editor-stability-implementation.md` und die bestehende Collaboration-Policy um Strukturänderungen unter gleichzeitiger Bearbeitung. Er ersetzt keine bereits implementierten Schutzmechanismen.
+Status: Schritte 1 bis 4 sind im Code und in gezielten Kern-, Komponenten- und PostgreSQL-Tests umgesetzt. Schritt 5 umfasst inzwischen den Erhalt von Dokument, History und Auswahl über Ansichts-/Dateiwechsel sowie abgesicherte Renames und verspätete Statusrückmeldungen. Schritt 6 umfasst die reproduzierten Codecfehler, bestätigte vollständige Sicherungen, ursachenbezogene Revalidierung und selektives Undo ohne gültige Editoransicht. Offen sind insbesondere die Fehleranzeige vor initialer Bereitschaft, die Abnahme der gesamten Lifecycle-Matrix, Messungen für große Dokumente, Browserabnahme und vollständiger Build. Dieser Plan erweitert `docs/editor-stability-implementation.md` und die bestehende Collaboration-Policy um Strukturänderungen unter gleichzeitiger Bearbeitung. Er ersetzt keine bereits implementierten Schutzmechanismen.
 
 ## 1. Ziel und Priorität
 
@@ -18,9 +18,9 @@ Der bisherige Screenshot belegt einen blockierten Dateistand, aber nicht den kon
 
 Vorhanden sind ein gemeinsamer Yjs-Zustand, getrennte Verbindungs-/Persistenzzustände, Checkpoint-Fencing, generationsgebundene Sessions, lokale Recovery, relative Agentenanker, Ziel-Hashes, idempotente Agentenoperationen, Review/Revert und Regeln zum Erhalt stabiler IDs. Darauf baut die Umsetzung auf.
 
-### Befunde aus gezielten Probes
+### Ausgangsbefunde aus gezielten Probes
 
-| Fall | Beobachtung im aktuellen Code | Bedeutung |
+| Fall | Beobachtung im damaligen Code | Bedeutung |
 | --- | --- | --- |
 | Drag-Start auf `BBB`, danach Änderung zu `NEW`, danach Drop | Ergebnis enthält wieder `BBB`; `NEW` geht verloren | Die beim Drag-Start gespeicherte Node-Kopie wird wieder eingefügt |
 | Drag-Start auf `BBB` in `AAA / BBB / CCC`, danach `XXX` davor einfügen | Ergebnis `XXX / BBB / CCC / BBB` | Alte Positionsgrenzen löschen `AAA`; `BBB` wird dupliziert |
@@ -272,6 +272,12 @@ Teilstand 6.5a: Server und Client unterscheiden Validierung, Speicherfehler, ver
 HTTP 401/403 sperrt Schreibaktionen unabhängig davon, ob die WebSocket-Verbindung noch offen ist. Eine Socket-Verbindung oder ein Checkpoint erteilt keine Autorisierung; erst ein erfolgreicher authentifizierter Sync lässt die erneute Prüfung wieder zu. Neue Daten während des verweigerten Zugriffs bleiben bis zur Prüfung pausiert. Generationsfehler können nicht durch alte Checkpoints oder Reconnects verschwinden. Eine validierte Pfadübernahme desselben Dokuments entfernt dagegen den Fehler der alten Adresse. Verweigerter Zugriff widerruft auch eine laufende Aktion zum Erstellen einer Wiederherstellungskopie.
 
 Die produktiven Server-Callbacks wurden mit kontrollierten Persistenz-/Checkpointfehlern ausgeführt, ebenso die echte Checkpoint-Route für die beiden unterschiedlichen 409-Fälle. React-/Client-Tests prüfen die Weitergabe der Fehlerklassen, Legacy-/ungültige Codes, Rechteentzug, Reauthentifizierung, verspätete Checkpoints, Pfadübernahme und gesperrte UI-Aktionen. Recovery-, Rename-, Durability-, CodeEditor-Lifecycle- und Fehlervertrag-Regressionen bestehen. Die abschließende GitNexus-Analyse bewertet den Umfang als HIGH und ordnet dem Endpunkt neun Authentifizierungs-/Workspace-Abläufe zu. Diese Tests ersetzen noch keinen vollständigen WebSocket-/PostgreSQL- oder Browserlauf. Dokumentbytes und Speicherformat werden durch die Diagnose nicht verändert. Der eigenständige Undo-Zugang bei entfernter/gesperrter Editoransicht und die Anzeige von Fehlern vor `ready` folgen als nächster Teil.
+
+Teilstand 6.5b: Die vorhandene dokumentgebundene Block-History lässt sich jetzt ohne schreibenden Editor beobachten und für ein selektives Undo verwenden. Bei einer als Validierungsfehler eingeordneten Sperre beziehungsweise lokal ungültiger Projektion ohne andere bekannte Fehlerursache bietet die Speicheranzeige „Letzte eigene Änderung zurücknehmen“ an. Diese Aktion erzeugt keine neue History und benötigt keine gültige ProseMirror-Ansicht. Fremde Operationen werden nicht rückgängig gemacht. Eine zerstörte Dokumentinstanz kann über diesen Zugang nicht erneut verwendet werden.
+
+Die Aktion ist an Dokument, Workspace, Öffnungskennung, Pfad, Generation, Format, Schreibrecht und die aktuelle Fehlerursache gebunden. Bereits gehaltene Callbacks verlieren bei Scope-Wechsel, Rechteentzug, anderer Fehlerklasse oder Unmount dauerhaft ihre Berechtigung; auch eine Rückkehr zum alten Zustand reaktiviert sie nicht. Workspace-Änderungen werden unmittelbar aus dem Store geprüft, bevor React die neue Ansicht fertig gerendert hat. Kopieren und laufende Checkpoint-Prüfung sperren das Undo. Eine wieder gültige Projektion bleibt bis zum exakten aktuellen Checkpoint schreibgeschützt.
+
+Der neue React-/JSDOM-Test verwendet den vollständigen MarkdownEditor unter StrictMode, einen zweiten realen Tiptap-Editor, die produktive Blockbindung, Yjs, die History und den Servervalidator. Eine eigene neue Tabellenzeile kollidiert mit einer fremden Spalte und Textänderung. Nach Entfernen der ungültigen Editoransicht stellt das Undo exakt den Peer-Zustand einschließlich aller IDs wieder her. Beide Repliken stimmen anschließend überein; fremde Änderungen sind nicht in der lokalen Undo-History. Die neu aufgebaute Ansicht lässt erst nach dem passenden Checkpoint weitere Eingaben zu. Der Test prüft zusätzlich alte Callbacks, Fehlerklassen, Workspace-/Rechtewechsel, Unmount und Dokumentzerstörung. Die Blockbinding-, Recovery- und Revalidierungsregressionen bestehen. Die Fehleranzeige vor initialer Bereitschaft und die integrierte Abnahme bleiben offen.
 
 Abschluss: Strukturtreue und Dateispeicherung werden getrennt bewiesen. Wiederhergestellte Zustände behalten IDs, Löschungen und aktuelle Inhalte. Die Diagnose enthält keine privaten Dokumenttexte in allgemeinen Logs.
 
