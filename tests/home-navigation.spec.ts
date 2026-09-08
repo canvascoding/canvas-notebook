@@ -79,16 +79,16 @@ test('tools stay in the launcher and its existing pages retain their entries', a
   await expect(page.getByRole('button', { name: 'Weitere Tools', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Apps öffnen' }).click();
   const menu = page.getByRole('menu');
-  await expect(menu.getByRole('menuitem', { name: 'Terminal', exact: true })).toHaveCount(0);
   await menu.getByRole('menuitem', { name: 'Weitere Apps', exact: true }).click();
-  await expect(menu.getByRole('menuitem', { name: 'Terminal', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Dateien', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Canvas Chat', exact: true })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Browser Lab', exact: true })).toHaveAttribute('href', '/de/browser/lab');
   await menu.getByRole('menuitem', { name: 'Dateien', exact: true }).click();
   await expect(page).toHaveURL(/\/de\/files/, { timeout: 15000 });
   await page.getByRole('button', { name: 'Apps öffnen' }).click();
-  await expect(menu.getByRole('menuitem', { name: 'Terminal', exact: true })).toHaveCount(0);
   await menu.getByRole('menuitem', { name: 'Weitere Apps', exact: true }).click();
-  await expect(menu.getByRole('menuitem', { name: 'Terminal', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Dateien', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Canvas Chat', exact: true })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Browser Lab', exact: true })).toHaveCount(0);
 });
 
