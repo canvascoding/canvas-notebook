@@ -13,6 +13,8 @@ import {
   SeatLimitGuardError,
 } from '@/app/lib/license/seat-limit';
 import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
+import { recordDirectMcpOAuthFailure } from '@/app/lib/mcp/server/diagnostics';
+import { type DirectMcpOAuthFailureCode } from '@/app/lib/mcp/server/oauth-diagnostic-codes';
 
 type DirectMcpRefreshGrantRow = {
   id: string;
@@ -119,16 +121,15 @@ async function loadRefreshGrant(
 function refreshGrantIsLocallyActive(grant: DirectMcpRefreshGrantRow): boolean {
   const refreshExpiresAt = timestampToMilliseconds(grant.expires_at);
   const sessionExpiresAt = timestampToMilliseconds(grant.session_expires_at);
-  return (
-    !grant.revoked
-    && Boolean(grant.session_id)
-    && refreshExpiresAt !== null
-    && refreshExpiresAt > Date.now()
-    && sessionExpiresAt !== null
-    && sessionExpiresAt > Date.now()
-    && !isDatabaseBoolean(grant.user_banned)
-    && !isDatabaseBoolean(grant.client_disabled)
-  );
+  const now = Date.now();
+  const reason: DirectMcpOAuthFailureCode | null = grant.revoked ? 'OAUTH_REFRESH_REVOKED'
+    : refreshExpiresAt === null || refreshExpiresAt <= now ? 'OAUTH_REFRESH_EXPIRED'
+      : !grant.session_id || sessionExpiresAt === null || sessionExpiresAt <= now ? 'OAUTH_REFRESH_SESSION_INACTIVE'
+        : isDatabaseBoolean(grant.user_banned) ? 'OAUTH_REFRESH_USER_BLOCKED'
+          : isDatabaseBoolean(grant.client_disabled) ? 'OAUTH_REFRESH_CLIENT_DISABLED'
+            : null;
+  if (reason) recordDirectMcpOAuthFailure(reason);
+  return reason === null;
 }
 
 export async function directMcpRefreshGrantIsActive(
@@ -146,7 +147,10 @@ export async function directMcpRefreshGrantIsActive(
   try {
     await assertUserSeatAccess({ userId: grant.user_id });
   } catch (error) {
-    if (error instanceof SeatLimitGuardError) return false;
+    if (error instanceof SeatLimitGuardError) {
+      recordDirectMcpOAuthFailure('OAUTH_REFRESH_SEAT_DENIED');
+      return false;
+    }
     throw error;
   }
   return true;

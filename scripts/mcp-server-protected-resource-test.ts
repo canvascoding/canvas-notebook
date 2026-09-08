@@ -613,6 +613,46 @@ async function main(): Promise<void> {
       { status: 401, code: 'invalid_token' },
     );
 
+    // Exercise real request-policy rejection paths without weakening session checks.
+    const { listRecentDirectMcpRequestHistory } = await import('../app/lib/mcp/server/request-history');
+    async function assertRefreshRejection(code: string, target: string | null = resource): Promise<void> {
+      const body = new URLSearchParams({ grant_type: 'refresh_token', client_id: staleTokenSet.clientId, refresh_token: reconnectedTokenSet.refreshToken });
+      if (target !== null) body.set('resource', target);
+      const response = await authRoute.POST(new NextRequest(`${issuer}/oauth2/token`, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body,
+      }));
+      assert.equal(response.status, 400);
+      const history = await listRecentDirectMcpRequestHistory();
+      assert.ok(history.some((entry) => entry.requestId === response.headers.get('x-request-id') && entry.code === code && entry.outcome === 'rejected'), code);
+      assert.equal(JSON.stringify(history).includes(reconnectedTokenSet.refreshToken), false);
+    }
+    await assertRefreshRejection('OAUTH_RESOURCE_MISSING', null);
+    await assertRefreshRejection('OAUTH_RESOURCE_INVALID', 'https://wrong.example.test/mcp');
+    const refreshDatabase = await openDb();
+    try {
+      const refresh = await refreshDatabase.get('SELECT id, session_id, expires_at FROM oauth_refresh_token WHERE token = ?', [createHash('sha256').update(reconnectedTokenSet.refreshToken).digest('base64url')]) as { id: string; session_id: string; expires_at: number };
+      assert.ok(refresh);
+      const session = await refreshDatabase.get('SELECT expires_at FROM "session" WHERE id = ?', [refresh.session_id]) as { expires_at: number };
+      await refreshDatabase.run('UPDATE oauth_refresh_token SET revoked = ? WHERE id = ?', [Date.now(), refresh.id]);
+      await assertRefreshRejection('OAUTH_REFRESH_REVOKED');
+      await refreshDatabase.run('UPDATE oauth_refresh_token SET revoked = NULL, expires_at = 1 WHERE id = ?', [refresh.id]);
+      await assertRefreshRejection('OAUTH_REFRESH_EXPIRED');
+      await refreshDatabase.run('UPDATE oauth_refresh_token SET expires_at = ?, session_id = NULL WHERE id = ?', [refresh.expires_at, refresh.id]);
+      await assertRefreshRejection('OAUTH_REFRESH_SESSION_INACTIVE');
+      await refreshDatabase.run('UPDATE oauth_refresh_token SET session_id = ? WHERE id = ?', [refresh.session_id, refresh.id]);
+      await refreshDatabase.run('UPDATE "session" SET expires_at = 1 WHERE id = ?', [refresh.session_id]);
+      await assertRefreshRejection('OAUTH_REFRESH_SESSION_INACTIVE');
+      await refreshDatabase.run('UPDATE "session" SET expires_at = ? WHERE id = ?', [session.expires_at, refresh.session_id]);
+      await refreshDatabase.run('UPDATE "user" SET banned = 1 WHERE id = ?', [stalePrincipal.userId]);
+      await assertRefreshRejection('OAUTH_REFRESH_USER_BLOCKED');
+      await refreshDatabase.run('UPDATE "user" SET banned = 0 WHERE id = ?', [stalePrincipal.userId]);
+      await refreshDatabase.run('UPDATE oauth_client SET disabled = 1 WHERE client_id = ?', [staleTokenSet.clientId]);
+      await assertRefreshRejection('OAUTH_REFRESH_CLIENT_DISABLED');
+      await refreshDatabase.run('UPDATE oauth_client SET disabled = 0 WHERE client_id = ?', [staleTokenSet.clientId]);
+    } finally {
+      await refreshDatabase.close();
+    }
+
     const errorResponse = new DirectMcpAuthorizationError(
       'invalid_token',
       401,

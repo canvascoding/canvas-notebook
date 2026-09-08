@@ -40,8 +40,6 @@ type McpCapabilityStatus = {
   available: boolean;
   enabled: boolean;
   scopes: string[];
-  effectiveScopes: string[];
-  resourcePolicyStatus: 'active' | 'disabled' | 'missing';
 };
 
 type McpServerStatus = {
@@ -90,6 +88,8 @@ type DirectMcpConnection = {
   connectionId: string;
   clientName: string;
   scopes: string[];
+  effectiveScopes: string[];
+  resourcePolicyStatus: 'active' | 'disabled' | 'missing';
   connectedAt: string | null;
   updatedAt: string | null;
   allowedWorkspaceCount: number;
@@ -931,6 +931,9 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                               {entry.statusCode ? <Badge variant="outline">HTTP {entry.statusCode}</Badge> : null}
                             </div>
                             <p className="mt-1 break-words font-mono text-xs text-muted-foreground">{entry.code}</p>
+                            {t.has(`requestHistory.reasons.${entry.code}`) ? (
+                              <p className="mt-1 text-xs text-muted-foreground">{t(`requestHistory.reasons.${entry.code}`)}</p>
+                            ) : null}
                             <p className="mt-1 text-xs text-muted-foreground">
                               {t('requestHistory.client')}: <span className="font-medium text-foreground/80">
                                 {entry.clientName || t('requestHistory.unknownClient')}

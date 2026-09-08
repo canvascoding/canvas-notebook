@@ -24,6 +24,7 @@ async function main(): Promise<void> {
     completeDirectMcpDiagnostic,
     failDirectMcpDiagnostic,
     recordDirectMcpOAuthProviderError,
+    recordDirectMcpOAuthFailure,
     recordDirectMcpRequestClientName,
     runWithDirectMcpDiagnostic,
     withDirectMcpRequestId,
@@ -101,6 +102,23 @@ async function main(): Promise<void> {
       startedAt: Date.now() - 1,
     });
 
+    const { DIRECT_MCP_OAUTH_FAILURE_CODES } = await import('../app/lib/mcp/server/oauth-diagnostic-codes');
+    for (const code of DIRECT_MCP_OAUTH_FAILURE_CODES) {
+      const rejected = beginDirectMcpDiagnostic(new Request('https://notebook.example.test/api/auth/oauth2/token', { method: 'POST' }), 'oauth.token');
+      await runWithDirectMcpDiagnostic(rejected, async () => {
+        recordDirectMcpOAuthFailure(code);
+        assert.equal(recordDirectMcpOAuthProviderError({ status: 400, body: { error: 'invalid_grant', error_description: providerSecret } }), true);
+      });
+      assert.equal(rejected.historyCode, code, 'Provider errors must not hide a more specific local rejection.');
+      await completeDirectMcpDiagnostic(rejected, { statusCode: 400, code: 'OAUTH_TOKEN_EXCHANGE_REJECTED', startedAt: Date.now() });
+    }
+    for (const suffix of ['grant', 'client', 'scope', 'target']) {
+      const rejected = beginDirectMcpDiagnostic(new Request('https://notebook.example.test/api/auth/oauth2/token', { method: 'POST' }), 'oauth.token');
+      await runWithDirectMcpDiagnostic(rejected, async () => {
+        assert.equal(recordDirectMcpOAuthProviderError({ status: 'BAD_REQUEST', body: { error: `invalid_${suffix}`, error_description: providerSecret } }), true);
+      });
+      assert.equal(rejected.historyCode, `OAUTH_TOKEN_INVALID_${suffix.toUpperCase()}`);
+    }
     const output = captured.join('\n');
     assert.equal(output.includes(STATE), false);
     assert.equal(output.includes(CLIENT_ID), false);
@@ -113,7 +131,11 @@ async function main(): Promise<void> {
     assert.equal(output.includes(providerSecret), false);
 
     const history = await listRecentDirectMcpRequestHistory();
-    assert.equal(history.length, 5);
+    assert.equal(history.length, 5 + DIRECT_MCP_OAUTH_FAILURE_CODES.length);
+    for (const code of DIRECT_MCP_OAUTH_FAILURE_CODES) {
+      assert.ok(history.some((entry) => entry.code === code && entry.outcome === 'rejected'));
+      assert.ok(captured.some((line) => line.includes(code) && line.includes('"outcome":"failed"')));
+    }
     assert.equal(history.some((entry) => entry.code === 'OAUTH_PERSISTENCE_SCHEMA_ERROR'), true);
     assert.equal(history.some((entry) => entry.code === 'MCP_INTERNAL_ERROR'), true);
     assert.equal(history.some((entry) => entry.requestId === diagnostics.requestId), true);

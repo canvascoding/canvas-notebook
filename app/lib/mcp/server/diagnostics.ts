@@ -8,6 +8,7 @@ import {
   type DirectMcpRequestHistoryEntry,
 } from '@/app/lib/mcp/server/request-history';
 import { normalizeDirectMcpClientName } from '@/app/lib/mcp/server/client-name';
+import { type DirectMcpOAuthFailureCode } from '@/app/lib/mcp/server/oauth-diagnostic-codes';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 
 export type DirectMcpDiagnosticPhase =
@@ -148,10 +149,10 @@ export async function completeDirectMcpDiagnostic(
     requestId: context.requestId,
     ...(context.flowRef ? { flowRef: context.flowRef } : {}),
     phase: context.phase,
-    outcome: input.statusCode >= 500 ? 'failed' : 'succeeded',
+    outcome: input.statusCode >= 400 ? 'failed' : 'succeeded',
     method: context.method,
     statusCode: input.statusCode,
-    code: input.code,
+    code: historyCode,
     durationMs: Math.max(0, Date.now() - input.startedAt),
   });
   await recordRequestHistory(context, {
@@ -212,6 +213,11 @@ export function recordDirectMcpToolFailure(): void {
   context.historyCode = 'MCP_TOOL_ERROR';
 }
 
+export function recordDirectMcpOAuthFailure(code: DirectMcpOAuthFailureCode): void {
+  const context = directMcpDiagnosticStorage.getStore();
+  if (context && !context.historyCode) context.historyCode = code;
+}
+
 export function withDirectMcpRequestId(
   response: Response,
   requestId: string,
@@ -259,9 +265,22 @@ function classifyProviderError(error: unknown): string {
 export function recordDirectMcpOAuthProviderError(
   error: unknown,
 ): boolean {
-  if (!isServerFailure(error)) return false;
   const context = directMcpDiagnosticStorage.getStore();
   if (!context) return false;
+  if (!isServerFailure(error)) {
+    const body = (error as { body?: { error?: unknown } }).body;
+    const codes: Record<string, DirectMcpOAuthFailureCode> = {
+      invalid_grant: 'OAUTH_TOKEN_INVALID_GRANT',
+      invalid_client: 'OAUTH_TOKEN_INVALID_CLIENT',
+      invalid_scope: 'OAUTH_TOKEN_INVALID_SCOPE',
+      invalid_target: 'OAUTH_TOKEN_INVALID_TARGET',
+    };
+    const code = typeof body?.error === 'string' && Object.hasOwn(codes, body.error)
+      ? codes[body.error] : undefined;
+    if (context.phase !== 'oauth.token' || !code) return false;
+    recordDirectMcpOAuthFailure(code);
+    return true;
+  }
 
   // Keep production diagnostics correlatable without recording client metadata,
   // credentials, authorization codes, tokens, or provider error text.

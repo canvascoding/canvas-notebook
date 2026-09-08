@@ -4,6 +4,7 @@ import {
 } from '@/app/lib/mcp/server/config';
 import { directMcpRefreshGrantIsActive } from '@/app/lib/mcp/server/oauth-grant-revocation';
 import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
+import { recordDirectMcpOAuthFailure } from '@/app/lib/mcp/server/diagnostics';
 
 const MAX_DYNAMIC_CLIENT_REGISTRATION_BYTES = 16 * 1024;
 const PUBLIC_DYNAMIC_CLIENT_AUTH_METHODS = new Set([
@@ -275,7 +276,10 @@ export async function prepareDirectMcpOAuthRequest(
       const resourceValues = form.getAll('resource')
         .filter((value): value is string => typeof value === 'string');
       const resourceError = validateResourceValues(resourceValues);
-      if (resourceError) return { request, response: resourceError };
+      if (resourceError) {
+        recordDirectMcpOAuthFailure(resourceValues.length === 0 ? 'OAUTH_RESOURCE_MISSING' : 'OAUTH_RESOURCE_INVALID');
+        return { request, response: resourceError };
+      }
       if (grantType === 'refresh_token') {
         const refreshGrantActive = await directMcpRefreshGrantIsActive(
           form,
