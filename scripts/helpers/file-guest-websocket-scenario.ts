@@ -30,7 +30,7 @@ export async function runFileGuestWebsocketScenario(input: {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
-  const peers: Array<{ doc: Y.Doc; provider: HocuspocusProvider; socket: HocuspocusProviderWebsocket; revoked: boolean }> = [];
+  const peers: Array<{ doc: Y.Doc; provider: HocuspocusProvider; socket: HocuspocusProviderWebsocket; revoked: boolean; rejected: string }> = [];
   const content = (doc: Y.Doc) => input.representation === 'plain_text' ? doc.getText('content')
     : (doc.getXmlFragment('body').get(0) as Y.XmlElement).get(0) as Y.XmlText;
   try {
@@ -43,12 +43,16 @@ export async function runFileGuestWebsocketScenario(input: {
         }
       }
       const socket = new HocuspocusProviderWebsocket({ url: `ws://127.0.0.1:${address.port}/ws/collaboration`, WebSocketPolyfill: AuthenticatedWebSocket });
-      const peer = { doc: new Y.Doc(), provider: null as unknown as HocuspocusProvider, socket, revoked: false };
+      const peer = { doc: new Y.Doc(), provider: null as unknown as HocuspocusProvider, socket, revoked: false, rejected: '' };
       peer.doc.getText('content');
       peer.doc.getXmlFragment('body');
       peer.provider = new HocuspocusProvider({ websocketProvider: socket,
         name: session.documentId, token: session.token, document: peer.doc,
-        onStateless: ({ payload }) => { if (JSON.parse(payload).type === 'access_revoked') peer.revoked = true; },
+        onStateless: ({ payload }) => {
+          const message = JSON.parse(payload);
+          if (message.type === 'access_revoked') peer.revoked = true;
+          if (message.type === 'update_rejected') { peer.rejected = message.message; peer.socket.disconnect(); }
+        },
       });
       peer.provider.attach();
       peers.push(peer);
@@ -109,7 +113,11 @@ export async function runFileGuestWebsocketScenario(input: {
       await new Promise((resolve) => setTimeout(resolve, 150));
       assert.equal(content(peers[1].doc).toString(), before);
     }
-    console.log(`file-guest-websocket (${input.representation}): concurrent edits converge, restore guards delete-only races, restoration broadcasts, idle revocation blocks writes`);
+    peers[1].doc.getMap('unexpected-private-root').set('invalid', true);
+    await until(() => Boolean(peers[1].rejected), 'invalid guest update receives actionable error');
+    assert.match(peers[1].rejected, /lokale Kopie/);
+    assert.equal(peers[2]?.doc.share.has('unexpected-private-root') ?? false, false);
+    console.log(`file-guest-websocket (${input.representation}): concurrent edits converge, restore guards delete-only races, restoration broadcasts, idle revocation and invalid-update rejection work`);
   } finally {
     for (const peer of peers) { peer.provider.destroy(); peer.socket.destroy(); peer.doc.destroy(); }
     await flushCollaborationDocuments();

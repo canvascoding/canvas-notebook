@@ -20,8 +20,8 @@ import { CanvasImage } from '@/app/lib/markdown/core/image';
 import { resolvePublicMarkdownImageWorkspacePath } from '@/app/lib/public-sharing/public-markdown-images';
 import { fileGuestApi } from '@/app/lib/file-guests/types';
 
-function imageUrl(source: string, path: string, invitationId: string, assets: string[]) {
-  const workspacePath = resolvePublicMarkdownImageWorkspacePath(path, source);
+function imageUrl(source: string, path: string, invitationId: string, assets: string[], workspaceId?: string) {
+  const workspacePath = resolvePublicMarkdownImageWorkspacePath(path, source, workspaceId);
   if (workspacePath && assets.includes(workspacePath)) return `${fileGuestApi(invitationId)}/assets/${workspacePath.split('/').map(encodeURIComponent).join('/')}`;
   return /^https:\/\//iu.test(source) ? source : null;
 }
@@ -29,6 +29,9 @@ function imageUrl(source: string, path: string, invitationId: string, assets: st
 function GuestRichEditor({ collaboration, editable, path, invitationId, assets }: {
   collaboration: CollaborationDocument; editable: boolean; path: string; invitationId: string; assets: string[];
 }) {
+  const userName = collaboration.session?.user.name;
+  const userColor = collaboration.session?.user.color;
+  const workspaceId = collaboration.session?.guestAccess?.workspaceId;
   const extensions = useMemo(() => [
     ...richMarkdownCodecExtensions().map((extension) => {
       if (extension.name === 'starterKit') return extension.configure({ undoRedo: false });
@@ -40,7 +43,7 @@ function GuestRichEditor({ collaboration, editable, path, invitationId, assets }
           const dom = document.createElement('figure');
           const render = (attrs: Record<string, unknown>) => {
             dom.replaceChildren();
-            const src = imageUrl(String(attrs.src || ''), path, invitationId, assets);
+            const src = imageUrl(String(attrs.src || ''), path, invitationId, assets, workspaceId);
             if (!src) { dom.textContent = `Bild nicht freigegeben: ${String(attrs.alt || 'Bild')}`; return; }
             const image = document.createElement('img');
             image.src = src; image.alt = String(attrs.alt || ''); image.referrerPolicy = 'no-referrer'; image.loading = 'lazy';
@@ -53,9 +56,9 @@ function GuestRichEditor({ collaboration, editable, path, invitationId, assets }
     }),
     Collaboration.configure({ document: collaboration.doc, field: 'body' }),
     ...(collaboration.provider ? [CollaborationCaret.configure({ provider: collaboration.provider, user: {
-      name: collaboration.session!.user.name, color: collaboration.session!.user.color,
+      name: userName, color: userColor,
     } })] : []),
-  ], [collaboration.doc, collaboration.provider, collaboration.session, path, invitationId, assets]);
+  ], [collaboration.doc, collaboration.provider, userName, userColor, workspaceId, path, invitationId, assets]);
   const editor = useEditor({ extensions, editable, immediatelyRender: false,
     editorProps: { attributes: { class: 'tiptap canvas-document-editor min-h-[55vh] p-5 outline-none md:p-10', 'aria-label': 'Geteilte Markdown-Datei bearbeiten' } },
   }, [extensions]);
@@ -120,7 +123,7 @@ export function GuestMarkdownEditor({ session, path, fileName, initialMarkdown, 
       {session.permission === 'write' && <Button size="sm" variant="outline" onClick={() => void save()} disabled={saving || !editable || collaboration?.connection !== 'live'}><Save className="mr-1.5 size-4" />Speichern</Button>}
     </div>
     {(denied || error || collaboration?.error) && <div className="border-b bg-muted p-4 text-sm" role="alert">
-      {denied ? 'Diese Sitzung hat keinen Zugriff mehr. Du kannst deinen lokalen Stand als Kopie herunterladen. Erneutes Öffnen prüft die aktuellen Rechte.' : error || collaboration?.error}
+      {collaboration?.error || (denied ? 'Diese Sitzung hat keinen Zugriff mehr. Du kannst deinen lokalen Stand als Kopie herunterladen. Erneutes Öffnen prüft die aktuellen Rechte.' : error)}
       <Button className="ml-2" variant="outline" size="sm" onClick={onReload}>Erneut öffnen</Button>
     </div>}
     {!collaboration?.ready || !live.available ? <p className="p-10 text-center text-muted-foreground">{live.available ? 'Dokument wird synchronisiert …' : 'Der Dokumentstand konnte nicht dargestellt werden.'}</p>
@@ -132,7 +135,7 @@ export function GuestMarkdownEditor({ session, path, fileName, initialMarkdown, 
             ? <GuestSourceEditor collaboration={collaboration} editable={editable} value={live.content} />
             : <div className="canvas-document-reading prose max-w-none break-words p-5 md:p-10"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{
               img: ({ src, alt }) => {
-                const url = imageUrl(typeof src === 'string' ? src : '', path, guest.invitationId, assets);
+                const url = imageUrl(typeof src === 'string' ? src : '', path, guest.invitationId, assets, guest.workspaceId);
                 // eslint-disable-next-line @next/next/no-img-element
                 return url ? <img src={url} alt={alt || ''} loading="lazy" referrerPolicy="no-referrer" /> : <span>Bild nicht freigegeben: {alt || 'Bild'}</span>;
               },

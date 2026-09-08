@@ -171,6 +171,13 @@ function presenceFromAwareness(
 
 let collaborationInstance: Hocuspocus<CollaborationContext> | null = null;
 
+function rejectCollaborationUpdate(connection: Connection<CollaborationContext>, message: string): never {
+  connection.readOnly = true;
+  connection.sendStateless(JSON.stringify({ type: 'update_rejected', message }));
+  connection.close({ code: 4403, reason: 'Collaboration update rejected' });
+  throw new Error(message);
+}
+
 export function createCollaborationServer(server: http.Server): WebSocketServer {
   const accessMonitor = createCollaborationAccessMonitor<Connection<CollaborationContext>>({
     validate: async (connection) => {
@@ -295,13 +302,14 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       return state.yjsState;
     },
     async beforeHandleMessage({ update, connection }) {
-      if (update.byteLength > MAX_UPDATE_BYTES) throw new Error('Collaboration update exceeds the 1 MiB message limit.');
+      if (update.byteLength > MAX_UPDATE_BYTES) rejectCollaborationUpdate(connection, 'Diese Änderung überschreitet die Nachrichtengröße von 1 MiB. Lade eine lokale Kopie herunter und öffne die Datei erneut.');
       await accessMonitor.check(connection);
     },
-    async beforeSync({ context, document, type, payload }) {
+    async beforeSync({ context, connection, document, type, payload }) {
       if (context.claims.guestInvitationId && context.claims.permission === 'write' && (type === 1 || type === 2)) {
         if (context.claims.representation === 'excalidraw_scene') throw new Error('Guest documents must be Markdown.');
-        assertFileGuestUpdateAllowed(document, payload, context.claims.representation);
+        try { assertFileGuestUpdateAllowed(document, payload, context.claims.representation); }
+        catch { rejectCollaborationUpdate(connection, 'Diese Änderung konnte nicht übernommen werden: Die Datei ist zu groß oder enthält nicht unterstützte Dokumentdaten. Lade eine lokale Kopie herunter und öffne die Datei erneut.'); }
       }
     },
     async beforeHandleAwareness({ context, states }) {

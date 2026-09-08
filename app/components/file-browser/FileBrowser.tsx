@@ -311,28 +311,33 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   }, [handleFileOpened]);
 
   const pathParam = normalizeWorkspacePathParam(searchParams.get('path'));
+  const requestedWorkspaceId = searchParams.get('workspaceId')?.trim() || null;
+  const pathRequestKey = pathParam ? JSON.stringify([activeWorkspaceId, pathParam]) : null;
 
   useEffect(() => {
     if (
       !isFullscreen
       || !pathParam
-      || openedPathParamRef.current === pathParam
-      || pendingPathParamRef.current === pathParam
+      || !activeWorkspaceId
+      || (requestedWorkspaceId && requestedWorkspaceId !== activeWorkspaceId)
+      || openedPathParamRef.current === pathRequestKey
+      || pendingPathParamRef.current === pathRequestKey
     ) {
       return;
     }
 
-    pendingPathParamRef.current = pathParam;
+    pendingPathParamRef.current = pathRequestKey;
     let cancelled = false;
     const handle = window.setTimeout(() => {
-      void revealAndLoadFile(pathParam)
+      if (useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId) return;
+      void revealAndLoadFile(pathParam, { workspaceId: activeWorkspaceId })
         .then((result) => {
           if (cancelled) return;
           if (result.status !== 'opened') {
             if (result.status !== 'superseded') toast.error(result.error);
             return;
           }
-          openedPathParamRef.current = pathParam;
+          openedPathParamRef.current = pathRequestKey;
           setActiveFilePath(pathParam);
           onFileSelect?.(pathParam);
         })
@@ -342,7 +347,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
           }
         })
         .finally(() => {
-          if (pendingPathParamRef.current === pathParam) {
+          if (pendingPathParamRef.current === pathRequestKey) {
             pendingPathParamRef.current = null;
           }
         });
@@ -350,12 +355,12 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
 
     return () => {
       cancelled = true;
-      if (pendingPathParamRef.current === pathParam) {
+      if (pendingPathParamRef.current === pathRequestKey) {
         pendingPathParamRef.current = null;
       }
       window.clearTimeout(handle);
     };
-  }, [isFullscreen, onFileSelect, pathParam, revealAndLoadFile, t]);
+  }, [activeWorkspaceId, isFullscreen, onFileSelect, pathParam, pathRequestKey, requestedWorkspaceId, revealAndLoadFile, t]);
 
   const handleRefresh = useCallback(async () => {
     if (isRefreshing) return;

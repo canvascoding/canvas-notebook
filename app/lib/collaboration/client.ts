@@ -335,7 +335,7 @@ function createEntry(
               documentSequence?: number;
               checkpointSequence?: number;
             };
-            if (message.type === 'access_revoked') {
+            if (message.type === 'access_revoked' || message.type === 'update_rejected') {
               denyAccess(message.message || 'File access was revoked. Local changes are preserved.');
               return;
             }

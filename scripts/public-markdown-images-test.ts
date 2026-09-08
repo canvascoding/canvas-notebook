@@ -88,3 +88,30 @@ const metadataImage = '---\ncover: "![private](images/private.png)"\n---\n\n![vi
 assert.deepEqual([...collectPublicMarkdownImageWorkspacePaths(metadataImage, 'docs/example.md')], ['docs/images/visible.png']);
 assert.match(rewritePublicMarkdownImageSources(metadataImage, 'docs/example.md', 'token'), /cover: "!\[private\]\(images\/private\.png\)"/);
 console.log('public-markdown-images-test: code exclusions and parsed image forms ok');
+
+// Images inserted by the editor often retain authenticated preview URLs.
+const internalImages = [
+  '![media](/api/media/assets/diagram.png?workspaceId=shared)',
+  '![preview](/api/files/preview?path=assets%2Fdiagram.png&w=320&workspaceId=shared)',
+  '<img src="/api/media/assets/diagram.png?workspaceId=shared" alt="diagram">',
+];
+for (const source of internalImages) {
+  assert.deepEqual([...collectPublicMarkdownImageWorkspacePaths(source, 'notes/example.md', 'shared')], ['assets/diagram.png']);
+  const output = rewritePublicMarkdownImageSources(source, 'notes/example.md', 'token', 'shared');
+  assert.match(output, /\/public\/markdown-assets\/token\/assets\/diagram\.png/);
+  assert.doesNotMatch(output, /workspaceId|\/api\//);
+  assert.deepEqual([...collectPublicMarkdownImageWorkspacePaths(source, 'notes/example.md', 'other')], []);
+  assert.deepEqual([...collectPublicMarkdownImageWorkspacePaths(source, 'notes/example.md')], []);
+}
+for (const source of [
+  '/api/files/preview?path=assets%2Fdiagram.png&path=secret.png',
+  '/api/media/assets/diagram.png?workspaceId=shared&workspaceId=other',
+  '/api/media/preview/assets/diagram.png', '/api/files/secret-upload.png',
+  '/api/media/assets%2fsecret.png', '/api/media/assets%5csecret.png',
+  '/api/files/preview?path=..%2F..%2Fsecret.png',
+  'https://other.example/api/media/secret.png', '//other.example/api/media/secret.png',
+]) {
+  assert.deepEqual([...collectPublicMarkdownImageWorkspacePaths(`![image](${source})`, 'notes/example.md', 'shared')], [], source);
+}
+assert.deepEqual([...collectPublicMarkdownImageWorkspacePaths('![media](/api/media/assets/diagram.png)', 'notes/example.md')], ['assets/diagram.png']);
+console.log('public-markdown-images-test: internal URLs stay scoped to their workspace');

@@ -9,6 +9,7 @@ export interface FileGuestInvitationView {
   expiresAt: string | null;
   policyRevision: number;
   createdAt: string;
+  createdByUserId: string;
   url: string;
   assetCount: number;
 }

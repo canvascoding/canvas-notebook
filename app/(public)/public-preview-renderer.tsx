@@ -151,7 +151,7 @@ export async function PublicResolvedFilePreview({ resolved }: { resolved: Resolv
   }
 
   const publicContent = previewKind === 'markdown' && content
-    ? rewritePublicMarkdownImageSources(content, resolved.workspacePath, resolved.row.token)
+    ? rewritePublicMarkdownImageSources(content, resolved.workspacePath, resolved.row.token, resolved.workspace.workspaceId)
     : content;
 
   return (

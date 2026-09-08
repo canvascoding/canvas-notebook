@@ -49,7 +49,8 @@ function invitationView(row: Invitation, unavailable = false): FileGuestInvitati
     id: row.id, path: row.path, email: row.email, permission: parseFileGuestPermission(row.permission),
     status: row.status !== 'active' ? 'revoked' : row.expiresAt && row.expiresAt.getTime() <= Date.now() ? 'expired' : unavailable ? 'unavailable' : 'active',
     expiresAt: row.expiresAt?.toISOString() ?? null, policyRevision: row.policyRevision,
-    createdAt: row.createdAt.toISOString(), url: fileGuestUrl(row.id), assetCount: (JSON.parse(row.assetsJson) as FileGuestAsset[]).length,
+    createdAt: row.createdAt.toISOString(), createdByUserId: row.createdByUserId,
+    url: fileGuestUrl(row.id), assetCount: (JSON.parse(row.assetsJson) as FileGuestAsset[]).length,
   };
 }
 
@@ -96,7 +97,7 @@ async function currentMarkdown(documentId: string, workspaceId: string, represen
 }
 
 async function approveAssets(workspace: WorkspaceContext, filePath: string, markdown: string): Promise<FileGuestAsset[]> {
-  const paths = [...collectPublicMarkdownImageWorkspacePaths(markdown, filePath)];
+  const paths = [...collectPublicMarkdownImageWorkspacePaths(markdown, filePath, workspace.workspaceId)];
   if (paths.length > 100) throw new FileGuestError('Eine Einladung unterstützt höchstens 100 eingebettete Bilder.', 400);
   const assets: FileGuestAsset[] = [];
   for (const assetPath of paths) {

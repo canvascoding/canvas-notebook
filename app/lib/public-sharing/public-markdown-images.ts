@@ -63,8 +63,26 @@ function publicMarkdownImageSources(markdown: string) {
   return collectMarkdownImageNodes(markdown);
 }
 
-export function resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath: string, source: string): string | null {
+function internalImageWorkspacePath(source: string, workspaceId?: string | null): string | null {
+  // Only known, relative file URLs have workspace semantics. Never infer them
+  // from an external origin, upload ID, arbitrary API or another workspace.
+  const url = new URL(source, 'https://canvas.invalid');
+  const scopes = url.searchParams.getAll('workspaceId');
+  if (scopes.length > 1 || (scopes.length === 1 && (!workspaceId || scopes[0] !== workspaceId))) return null;
+  let raw: string | null = null;
+  if (url.pathname.startsWith('/api/media/') && !url.pathname.startsWith('/api/media/preview/')) {
+    raw = url.pathname.slice('/api/media/'.length);
+  } else if (url.pathname === '/api/files/preview' && url.searchParams.getAll('path').length === 1) {
+    raw = url.searchParams.get('path');
+  }
+  if (!raw || /%2f|%5c|%00|\\|\u0000/i.test(raw)) return null;
+  const path = normalizeWorkspacePath(raw);
+  return path && isPubliclyServedImagePath(path) ? path : null;
+}
+
+export function resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath: string, source: string, workspaceId?: string | null): string | null {
   const trimmed = unwrapMarkdownDestination(source);
+  if (trimmed.startsWith('/api/')) return internalImageWorkspacePath(trimmed, workspaceId);
   if (!trimmed || EXTERNAL_URL_PATTERN.test(trimmed) || PRESERVED_URL_PREFIXES.some((prefix) => trimmed.startsWith(prefix))) {
     return null;
   }
@@ -81,10 +99,10 @@ export function resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath: s
   return workspacePath && isPubliclyServedImagePath(workspacePath) ? workspacePath : null;
 }
 
-export function collectPublicMarkdownImageWorkspacePaths(markdown: string, markdownWorkspacePath: string): Set<string> {
+export function collectPublicMarkdownImageWorkspacePaths(markdown: string, markdownWorkspacePath: string, workspaceId?: string | null): Set<string> {
   const paths = new Set<string>();
   for (const { source } of publicMarkdownImageSources(markdown)) {
-    const workspacePath = resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath, source);
+    const workspacePath = resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath, source, workspaceId);
     if (workspacePath) paths.add(workspacePath);
   }
   return paths;
@@ -95,19 +113,22 @@ export function publicMarkdownImagePath(token: string, workspacePath: string): s
   return `/public/markdown-assets/${encodeURIComponent(token)}/${encodedPath}`;
 }
 
-function rewriteImageSource(source: string, markdownWorkspacePath: string, token: string) {
-  const workspacePath = resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath, source);
+function rewriteImageSource(source: string, markdownWorkspacePath: string, token: string, workspaceId?: string | null) {
+  const workspacePath = resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath, source, workspaceId);
   if (!workspacePath) return source;
 
-  const { suffix } = splitUrlDecoration(unwrapMarkdownDestination(source));
+  const destination = unwrapMarkdownDestination(source);
+  // Internal preview parameters contain private workspace IDs and are not
+  // meaningful to the public image endpoint.
+  const { suffix } = destination.startsWith('/api/') ? { suffix: '' } : splitUrlDecoration(destination);
   const rewritten = `${publicMarkdownImagePath(token, workspacePath)}${suffix}`;
   return source.trim().startsWith('<') && source.trim().endsWith('>') ? `<${rewritten}>` : rewritten;
 }
 
-export function rewritePublicMarkdownImageSources(markdown: string, markdownWorkspacePath: string, token: string): string {
+export function rewritePublicMarkdownImageSources(markdown: string, markdownWorkspacePath: string, token: string, workspaceId?: string | null): string {
   let rewritten = markdown;
   for (const image of publicMarkdownImageSources(markdown).reverse()) {
-    const source = rewriteImageSource(image.source, markdownWorkspacePath, token);
+    const source = rewriteImageSource(image.source, markdownWorkspacePath, token, workspaceId);
     if (source === image.source) continue;
     rewritten = `${rewritten.slice(0, image.index)}${image.replace(source)}${rewritten.slice(image.end)}`;
   }

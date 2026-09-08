@@ -57,7 +57,7 @@ async function handlePublicMarkdownAssetRequest(
     return publicShareNotFoundResponse();
   }
 
-  const allowedAssetPaths = collectPublicMarkdownImageWorkspacePaths(markdown, resolved.workspacePath);
+  const allowedAssetPaths = collectPublicMarkdownImageWorkspacePaths(markdown, resolved.workspacePath, resolved.workspace.workspaceId);
   if (!allowedAssetPaths.has(requestedWorkspacePath)) {
     return publicShareNotFoundResponse();
   }

@@ -220,3 +220,65 @@ zwei Schreibende und ein Leser prüfen Quelltext und Rich Text, gleichzeitige
 geschützte Präsenz, Versionskonflikte und Wiederherstellung. Es läuft dabei weder
 ein Browser noch ein App- oder Container-Stack. Die Einbindung in den Teilen-Dialog
 folgt in Schritt 5; die Browser-Abnahme bleibt Schritt 6.
+
+### Schritt 5 – Implementierung vorbereitet, Browser-Abnahme offen
+
+Dateimenü und Editor öffnen einen gemeinsamen Dialog mit Leselink, Personen und
+Export. Die vorhandene Exportkomponente bleibt für die öffentliche Vorschau
+verwendbar; im internen Dialog wird sie ohne verschachtelte Modalfenster eingebettet.
+Bestehende Ablaufdaten und HTML-Sicherheitsmodi werden angezeigt und über PATCH
+mit `policyRevision` geändert. Ein leeres Ablaufdatum entfernt die Befristung.
+Fehlende Rechte, konkurrierende Änderungen und teilweise fehlgeschlagene
+Mehrfachfreigaben werden angezeigt. Änderungen fremder Freigaben werden anhand
+der aktuellen Workspace-Rechte und des Erstellers angeboten; der Server bleibt
+die verbindliche Berechtigungsprüfung.
+
+Gäste werden standardmäßig zum Lesen eingeladen; Bearbeiten ist ausdrücklich
+wählbar. Der Dialog zeigt E-Mail-Bestätigung, Kopieren des Einladungslinks,
+Ablauf, Anzahl freigegebener Bilder, Widerruf sowie Versionsvorschau und
+Wiederherstellung. Gäste erhalten dabei weiterhin keine Workspace-Mitgliedschaft.
+System-E-Mail-Konfiguration und Team-/PostgreSQL-Voraussetzung sind sichtbar.
+Neue interne Dialogtexte sind auf Deutsch und Englisch verfügbar.
+
+Alle Verwaltungsanfragen bleiben an ihren Workspace gebunden. Abgebrochene,
+geschlossene oder gewechselte Dialoge dürfen verspätete Antworten nicht übernehmen.
+Die zentrale Freigabenliste ignoriert überholte Suchantworten und öffnet Dateien
+mit explizitem Workspace. Der Dateibrowser wartet auf dessen Auswahl, bevor er
+den Pfad lädt. Exportvorschau und PDF-Download verwerfen überholte Ergebnisse.
+
+Im Markdown gespeicherte `/api/media/...`- und `/api/files/preview?path=...`-Bilder
+werden für denselben Workspace über die öffentliche bzw. gastbezogene Assetroute
+ausgeliefert. Andere Workspace-IDs, mehrdeutige Parameter, Upload-ID-Routen und
+beliebige APIs autorisieren keine Dateien. Externe HTTPS-Bilder bleiben externe
+Ressourcen; Bilder aus anderen Workspaces oder Upload-Speichern werden durch eine
+Dateifreigabe nicht automatisch öffentlich. Gastbilder behalten ihre bei der
+Einladung bestätigte Identität. Der Rich-Text-Editor wird bei reiner
+Ticket-Erneuerung nicht mehr neu erstellt.
+
+Zu große oder ungültige kollaborative Updates erhalten `update_rejected` statt
+einer gewöhnlichen Offline-Anzeige. Der Client trennt die Verbindung und bewahrt
+den lokalen Stand für einen Kopie-Download, ohne automatisch erneut beizutreten.
+
+Erfolgreich: `test:file-guests` einschließlich tatsächlicher Ablehnung unerlaubter
+Yjs-Wurzeln über WebSockets, `test:collaboration:access`,
+`test:public-share:security`, `test:public-share:workspace`,
+`test:public-share:route-access`, `scripts/file-sharing-client-request-test.ts`,
+`scripts/code-editor-collaboration-lifecycle-test.ts`,
+`scripts/file-open-flow-test.ts`, `test:chat:navigation`, TypeScript und ESLint für die Änderungen.
+Die vorhandene Warnung über `savedTime` in `FileEditor` besteht bereits im
+Ausgangsstand. `npm run build` ist auf dem aktuellen Implementierungsstand
+erfolgreich, einschließlich Lizenzprüfung, TypeScript, Routenerzeugung und
+CLI-Versionseinbindung. Die letzte GitNexus-Prüfung erfasst ausschließlich die
+erwarteten 28 Dateien, 98 Symbole und fünf bestehende Kollaborationsabläufe
+(Risiko: mittel). Die Browser-Abnahme wird dadurch nicht ersetzt.
+
+Noch offen: Browserprüfung mit schmalem Viewport, Tastatur, zwei Identitäten,
+Workspace-Wechseln und tatsächlichen Login-/E-Mail-Flows. Dafür ist die explizite
+Browserfreigabe aus `AGENTS.md` erforderlich. Der vorhandene verwaltete lokale
+Stack wurde nur inventarisiert, nicht verändert. Für diesen Branch muss sein
+Notebook-Container nach ausdrücklicher Freigabe neu gebaut und erstellt werden;
+der seit zwei Tagen laufende Stand darf die Abnahme nicht ersetzen.
+
+Die [Routen-Matrix](file-sharing-route-matrix.md) unterscheidet automatisierte
+Nachweise von der noch offenen Browser-Abnahme. Schritt 5 bleibt bis zur
+UI-Abnahme offen; danach folgen Gesamtprüfung und Push aus Schritt 6.

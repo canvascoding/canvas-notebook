@@ -427,6 +427,21 @@ async function main() {
     assert.deepEqual(Buffer.from(await publishedImageResponse.arrayBuffer()), publishedImage);
     assert.equal(publishedImageResponse.headers.get('content-type'), 'image/png');
 
+    for (const [source, expectedStatus] of [
+      [`/api/media/docs/images/published.png?workspaceId=${ownerPersonal.workspaceId}`, 200],
+      [`/api/files/preview?path=docs%2Fimages%2Fpublished.png&workspaceId=${ownerPersonal.workspaceId}`, 200],
+      ['/api/media/docs/images/published.png?workspaceId=another-workspace', 404],
+      ['/api/files/preview?path=docs%2Fimages%2Fpublished.png&workspaceId=another-workspace', 404],
+    ] as const) {
+      await writeFile(path.join(ownerPersonal.rootPath, 'docs', 'with-images.md'), `![Embedded](${source})`);
+      const result = await publicMarkdownAssetsRoute.GET(
+        routeRequest(`http://localhost/public/markdown-assets/${markdownImageToken}/docs/images/published.png`),
+        { params: Promise.resolve({ token: markdownImageToken, assetPath: ['docs', 'images', 'published.png'] }) },
+      );
+      assert.equal(result.status, expectedStatus, source);
+      if (result.ok) assert.deepEqual(Buffer.from(await result.arrayBuffer()), publishedImage);
+    }
+
     const unsharedImageResponse = await publicMarkdownAssetsRoute.GET(
       routeRequest(`http://localhost/public/markdown-assets/${markdownImageToken}/docs/images/unshared.png`),
       { params: Promise.resolve({ token: markdownImageToken, assetPath: ['docs', 'images', 'unshared.png'] }) },
