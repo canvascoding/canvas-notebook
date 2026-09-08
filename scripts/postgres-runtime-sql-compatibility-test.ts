@@ -46,7 +46,7 @@ async function runtimeSourceFiles(directory: string): Promise<string[]> {
   return nested.flat();
 }
 
-function literalSql(node: ts.Node, sourceFile: ts.SourceFile): string | null {
+function literalSql(node: ts.Node): string | null {
   if (ts.isStringLiteralLike(node)) return node.text;
   if (!ts.isTemplateExpression(node)) return null;
 
@@ -62,7 +62,7 @@ function sourceFindings(file: string, source: string): SqlFinding[] {
   const findings: SqlFinding[] = [];
 
   function visit(node: ts.Node): void {
-    const sql = literalSql(node, sourceFile);
+    const sql = literalSql(node);
     if (sql && SQL_STATEMENT_PATTERN.test(sql)) {
       const location = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
       if (UNSAFE_SUBSTRING_PATTERN.test(sql)) {
@@ -83,7 +83,7 @@ function sourceFindings(file: string, source: string): SqlFinding[] {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const method = node.expression.name.text;
       const firstArgument = node.arguments[0];
-      const runtimeSql = firstArgument ? literalSql(firstArgument, sourceFile) : null;
+      const runtimeSql = firstArgument ? literalSql(firstArgument) : null;
       if (SQL_RUNTIME_METHODS.has(method) && runtimeSql && SQL_STATEMENT_PATTERN.test(runtimeSql)
         && SQL_QUESTION_MARK_PATTERN.test(runtimeSql)) {
         const location = sourceFile.getLineAndCharacterOfPosition(firstArgument!.getStart(sourceFile));
