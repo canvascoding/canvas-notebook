@@ -25,7 +25,6 @@ export type SqlConnection = {
   close: () => void | Promise<void>;
 };
 
-const provider = getDatabaseProvider();
 // The custom server applies migrations before it imports long-lived runtime
 // modules. Reapplying them from every dynamically loaded Next.js module can
 // race with active SQLite connections in development, so only standalone
@@ -95,6 +94,15 @@ function createUnavailableDatabase(error: DatabaseUnavailableError): AppDatabase
 }
 
 function createRuntimeDatabase(): RuntimeDatabase {
+  const provider = getDatabaseProvider();
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    const error = new DatabaseUnavailableError(
+      'database_initialization_failed',
+      'Database connections are disabled during the production build; configure PostgreSQL before starting the runtime.',
+      { provider },
+    );
+    return { client: null, db: createUnavailableDatabase(error), initializationError: error };
+  }
   try {
     const database = provider === 'postgres'
       ? createPostgresDatabase()
@@ -118,33 +126,45 @@ function createRuntimeDatabase(): RuntimeDatabase {
   }
 }
 
-const runtimeDatabase = createRuntimeDatabase();
-const postgresPool = provider === 'postgres' && runtimeDatabase.client
-  ? runtimeDatabase.client as ReturnType<typeof createPostgresPool>
-  : null;
+let runtimeDatabase: RuntimeDatabase | undefined;
+function getRuntimeDatabase(): RuntimeDatabase {
+  runtimeDatabase ??= createRuntimeDatabase();
+  return runtimeDatabase;
+}
 
 /**
  * Exposes only query capability from the already-initialized runtime pool.
  * PostgreSQL-only persistence helpers can share the app pool without creating
  * their own connection pool or gaining permission to close the runtime pool.
  */
-export function getPostgresRuntimeQueryable(): Pick<ReturnType<typeof createPostgresPool>, 'query'> | null {
-  return postgresPool;
+export function getPostgresRuntimeQueryable(): ReturnType<typeof createPostgresPool> | null {
+  const database = getRuntimeDatabase();
+  return getDatabaseProvider() === 'postgres' && database.client
+    ? database.client as ReturnType<typeof createPostgresPool>
+    : null;
 }
 
 // The app keeps the existing SQLite-table Drizzle types while runtime dialect selection
 // happens underneath. The Postgres adapter is intentionally cast to that surface until
 // the schema is split into native pgTable definitions.
-export const db: AppDatabase = runtimeDatabase.db as AppDatabase;
+export const db: AppDatabase = new Proxy(Object.create(null), {
+  get(_target, property) {
+    return Reflect.get(getRuntimeDatabase().db, property);
+  },
+  set(_target, property, value) {
+    return Reflect.set(getRuntimeDatabase().db, property, value);
+  },
+}) as AppDatabase;
 export { getDatabaseProvider, resolveSqlitePath };
 
 export function getDatabaseInitializationError(): DatabaseUnavailableError | null {
-  return runtimeDatabase.initializationError;
+  return getRuntimeDatabase().initializationError;
 }
 
 export function assertDatabaseAvailable(): void {
-  if (runtimeDatabase.initializationError) {
-    throw runtimeDatabase.initializationError;
+  const database = getRuntimeDatabase();
+  if (database.initializationError) {
+    throw database.initializationError;
   }
 }
 
@@ -182,7 +202,7 @@ function runSqliteOperation<T>(sqlitePath: string, operation: () => T): T {
 
 async function openPostgresDb(): Promise<SqlConnection> {
   await ensureDatabaseReady();
-  const pool = postgresPool;
+  const pool = getPostgresRuntimeQueryable();
   if (!pool) {
     throw new Error('Postgres runtime pool is not initialized.');
   }
@@ -222,7 +242,7 @@ async function openPostgresDb(): Promise<SqlConnection> {
 export async function openDb(): Promise<SqlConnection> {
   assertRuntimeDatabaseProviderSupported();
   assertDatabaseAvailable();
-  if (provider === 'postgres') {
+  if (getDatabaseProvider() === 'postgres') {
     return openPostgresDb();
   }
 
@@ -252,5 +272,6 @@ export async function openDb(): Promise<SqlConnection> {
 
 /** Releases the shared runtime pool after isolated scripts and graceful shutdowns. */
 export async function closeDatabaseConnections(): Promise<void> {
-  await postgresPool?.end();
+  const pool = getPostgresRuntimeQueryable();
+  await pool?.end();
 }

@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -13,6 +12,7 @@ export type DatabaseProvider = 'sqlite' | 'postgres';
 
 export type DatabaseProviderProblemCode =
   | 'invalid_provider'
+  | 'sqlite_runtime_unsupported'
   | 'postgres_missing_database_url'
   | 'postgres_invalid_database_url'
   | 'postgres_runtime_adapter_unavailable'
@@ -104,14 +104,11 @@ export function resolveSqlitePath(): string {
 }
 
 export function normalizeDatabaseProvider(value?: string | null): DatabaseProvider {
-  if (process.env.NEXT_PHASE === 'phase-production-build') return 'sqlite';
-
   const normalized = normalizeEnvValue(value);
   if (!normalized) {
     const databaseUrlProtocol = getDatabaseUrlProtocol(process.env.DATABASE_URL);
     if (databaseUrlProtocol === 'postgres' || databaseUrlProtocol === 'postgresql') return 'postgres';
-    if (process.env.NODE_ENV === 'production' && !existsSync(resolveSqlitePath())) return 'postgres';
-    return 'sqlite';
+    return 'postgres';
   }
   return VALID_PROVIDERS.has(normalized as DatabaseProvider)
     ? normalized as DatabaseProvider
@@ -142,6 +139,13 @@ export function resolveDatabaseProviderConfig(): DatabaseProviderConfig {
     problems.push(createProblem(
       'invalid_provider',
       `Unsupported CANVAS_DATABASE_PROVIDER "${requestedProvider}". Use "sqlite" or "postgres".`,
+    ));
+  }
+
+  if (requestedProvider === 'sqlite') {
+    problems.push(createProblem(
+      'sqlite_runtime_unsupported',
+      'SQLite is no longer supported by the application runtime. Configure DATABASE_URL with a postgres:// or postgresql:// URL.',
     ));
   }
 
@@ -256,11 +260,11 @@ export class DatabaseProviderRuntimeError extends Error {
 
 export function assertRuntimeDatabaseProviderSupported(provider = getDatabaseProvider()): void {
   const gate = resolveDatabaseProviderGate({ postgresRuntimeAdapterAvailable: true });
-  if (provider === 'postgres' && !gate.ok) {
+  if (provider === 'sqlite' || !gate.ok) {
     const problem = gate.blockers[0];
     throw new DatabaseProviderRuntimeError(
-      problem?.code || 'postgres_missing_database_url',
-      problem?.message || 'Postgres mode is configured but not usable.',
+      problem?.code || 'sqlite_runtime_unsupported',
+      problem?.message || 'PostgreSQL is required at runtime. Configure DATABASE_URL with a postgres:// or postgresql:// URL.',
     );
   }
 }
