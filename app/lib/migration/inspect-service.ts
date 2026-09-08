@@ -52,7 +52,6 @@ async function listArchiveEntries(archivePath: string): Promise<string[]> {
 }
 
 async function validatePostgresDatabaseArtifact(params: {
-  archivePath: string;
   manifest: CanvasMigrationManifest;
   entries: string[];
 }): Promise<string[]> {
@@ -62,9 +61,6 @@ async function validatePostgresDatabaseArtifact(params: {
   }
 
   const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider;
-  if (sourceProvider === 'sqlite' || params.entries.includes('data/sqlite.db')) {
-    blockers.push('SQLite migration archives are obsolete and cannot be inspected; export a PostgreSQL migration archive.');
-  }
   if (sourceProvider !== 'postgres') return blockers;
   const backupKind = params.manifest.database?.backupKind ?? 'none';
   if (backupKind !== 'postgres_dump' && backupKind !== 'none') blockers.push('PostgreSQL migration archive has an unsupported database backup kind.');
@@ -72,6 +68,12 @@ async function validatePostgresDatabaseArtifact(params: {
   if (artifactPath && !params.entries.includes(artifactPath)) blockers.push(`Migration archive is missing ${artifactPath}.`);
 
   return blockers;
+}
+
+function hasUnsupportedSQLiteSource(manifest: CanvasMigrationManifest | null, entries: string[]): boolean {
+  if (entries.includes('data/sqlite.db')) return true;
+  if (!manifest?.components.database) return false;
+  return manifest.source?.databaseProvider === 'sqlite';
 }
 
 function parseComponents(value: unknown): MigrationComponents | null {
@@ -732,8 +734,12 @@ export async function inspectMigrationArchive(params: {
     compatibility.message,
     ...(manifest?.warnings ?? []),
   ];
+  const unsupportedSQLiteSource = hasUnsupportedSQLiteSource(manifest, entries);
+  if (unsupportedSQLiteSource) {
+    warnings.push('SQLite migration archives are no longer supported by the migration inspector; export a PostgreSQL migration archive.');
+  }
   let reconnect: MigrationImportReconnectRequirement[] = [];
-  if (manifest?.components.secrets || manifest?.security?.secretsMode === 'reconnect_manifest') {
+  if (!unsupportedSQLiteSource && (manifest?.components.secrets || manifest?.security?.secretsMode === 'reconnect_manifest')) {
     const rawReconnect = await unzipText(['-p', params.archivePath, 'data/reconnect-manifest.json'], 20 * 1024 * 1024)
       .catch(() => null);
     reconnect = parseReconnectManifest(rawReconnect);
@@ -741,13 +747,12 @@ export async function inspectMigrationArchive(params: {
       warnings.push('Secrets were selected in the source export, but no reconnect manifest was found.');
     }
   }
-  const dryRun = manifest
+  const dryRun = manifest && !unsupportedSQLiteSource
     ? await buildDryRun({ manifest, entries, reconnect, warnings })
     : undefined;
 
   if (dryRun && manifest) {
     const databaseBlockers = await validatePostgresDatabaseArtifact({
-      archivePath: params.archivePath,
       manifest,
       entries,
     });
