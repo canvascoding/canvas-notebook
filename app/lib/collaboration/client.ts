@@ -559,6 +559,10 @@ function createEntry(
             ? new CollaborationCheckpointRequestError(lastErrorCode, lastError)
             : new Error(lastError);
         })().catch((error) => {
+          // Another checkpoint may have confirmed the exact current document
+          // while this HTTP request was pending. Its later failure is obsolete.
+          if (scope === entry.requests && !scope.signal.aborted
+            && entry.clientState.durability === 'checkpointed_file') return;
           const message = error instanceof Error ? error.message : 'Checkpoint failed.';
           if (scope === entry.requests && !scope.signal.aborted) transition(entry, { type: error instanceof CollaborationCheckpointRequestError
             && isCollaborationCheckpointValidationErrorCode(error.code) ? 'degraded' : 'checkpoint_failed', message });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import { Download, Code2, Eye, Pencil, Maximize2, Minimize2, MoveHorizontal } from 'lucide-react';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
@@ -149,9 +149,20 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
   collaboration: CollaborationDocument | null; content: string; available: boolean; filePath?: string;
 }) {
   const t = useTranslations('notebook');
-  const [retrying, setRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<string | null>(null);
   const recovery = useMarkdownRecoveryCopy(collaboration, filePath);
+  const canRetry = collaboration?.connection === 'live' && collaboration.ready && recovery.canCreate;
+  const retryScope = useMemo(() => ({ document: recovery.actionScope, canRetry }), [recovery.actionScope, canRetry]);
+  const activeRetry = useRef<{ scope: typeof retryScope; running: boolean } | null>(null);
+  const [retryState, setRetryState] = useState<{ scope: typeof retryScope; busy: boolean; error: string | null } | null>(null);
+  const checkpointRecovered = collaboration?.durability === 'checkpointed_file';
+  if (retryState && retryState.scope !== retryScope) setRetryState(null);
+  else if (checkpointRecovered && retryState?.error) setRetryState({ ...retryState, error: null });
+  useLayoutEffect(() => {
+    activeRetry.current = { scope: retryScope, running: false };
+    return () => { if (activeRetry.current?.scope === retryScope) activeRetry.current = null; };
+  }, [retryScope]);
+  const retrying = retryState?.scope === retryScope && retryState.busy;
+  const retryError = !checkpointRecovered && retryState?.scope === retryScope ? retryState.error : null;
   if (!collaboration) return null;
   const { connection, durability, clientState, session } = collaboration;
   const error = collaboration.error || retryError || recovery.error;
@@ -173,7 +184,7 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
       <p role="alert">{t('editorModes.recovery')}</p>
       <div className="flex flex-wrap gap-2">
         {blocked && available && recovery.canCreate && <Button
-          variant="outline" size="sm" disabled={recovery.busy} onClick={() => void recovery.createCopy()}>
+          variant="outline" size="sm" disabled={recovery.busy || retrying} onClick={() => void recovery.createCopy()}>
           {t(recovery.busy ? 'editorModes.recoveringCopy' : 'editorModes.recoverCopy')}</Button>}
         {available && <Button variant="outline" size="sm" onClick={() => download(content, filePath?.split('/').pop() || 'document.md', 'text/markdown;charset=utf-8')}>
           <Download className="size-3.5" />{t('editorModes.backup')}
@@ -185,10 +196,20 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
         }}>
           {t('editorModes.snapshot')}
         </Button>
-        {!blocked && connection === 'live' && session?.permission === 'write' && <Button variant="outline" size="sm" disabled={retrying} onClick={async () => {
-          setRetrying(true); setRetryError(null);
-          try { await collaboration.requestCheckpoint(); } catch (failure) { setRetryError(String(failure)); }
-          finally { setRetrying(false); }
+        {canRetry && <Button variant="outline" size="sm" disabled={retrying || recovery.busy} onClick={async () => {
+          if (activeRetry.current?.scope !== retryScope || activeRetry.current.running) return;
+          activeRetry.current.running = true;
+          setRetryState({ scope: retryScope, busy: true, error: null });
+          try { await collaboration.requestCheckpoint(); }
+          catch (failure) {
+            if (activeRetry.current?.scope === retryScope) setRetryState({ scope: retryScope, busy: true,
+              error: failure instanceof Error ? failure.message : String(failure) });
+          } finally {
+            if (activeRetry.current?.scope === retryScope) {
+              activeRetry.current.running = false;
+              setRetryState((previous) => previous?.scope === retryScope ? { ...previous, busy: false } : previous);
+            }
+          }
         }}>{t('editorModes.retry')}</Button>}
       </div>
       {retryError && <p role="alert">{retryError}</p>}

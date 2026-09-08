@@ -176,7 +176,9 @@ export function reduceTextCollaborationClientState(
     case 'checkpoint_failed':
       return {
         ...state,
-        durability: state.unsyncedChanges > 0 ? 'local_pending' : 'server_received',
+        // A failed retry cannot validate a state that was already rejected.
+        durability: state.durability === 'degraded' ? 'degraded'
+          : state.unsyncedChanges > 0 ? 'local_pending' : 'server_received',
         error: event.message,
       };
     case 'degraded':
