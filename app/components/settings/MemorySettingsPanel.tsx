@@ -1,13 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowRightLeft, BookOpenText, BrainCircuit, Check, ChevronRight, Download, Loader2, Pencil, Plus, RotateCcw, Save, Send, Sparkles, Trash2, Upload } from 'lucide-react';
+import { Archive, ArrowRightLeft, BookOpenText, BrainCircuit, Check, ChevronRight, Download, Loader2, MoreHorizontal, Pencil, Plus, RotateCcw, Save, Send, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import Link from 'next/link';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
+import { MemoryOwnerPicker, type MemoryOwnerPickerItem } from '@/app/components/settings/MemoryOwnerPicker';
 import { MemoryMarkdownContent } from '@/app/components/settings/MemoryMarkdownContent';
+import { WorkspaceIdentityMark } from '@/app/components/workspaces/WorkspaceIdentityMark';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { memoryCategoryDescription, memoryCategoryLabel, type MemoryDisplayLocale } from '@/app/lib/memory/categories';
 import { DEFAULT_MANUAL_MEMORY_PRIORITY, memoryPriorityBand } from '@/app/lib/memory/contract';
@@ -17,6 +19,22 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -155,18 +173,24 @@ export function MemorySettingsPanel() {
   const workspacesLoading = useWorkspaceStore((state) => state.isLoading);
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
-  const [workspaceId, setWorkspaceId] = useState<string | null>(() => searchParams.get('workspaceId') || activeWorkspace?.id || null);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(() => (
+    searchParams.get('memoryWorkspaceId') || searchParams.get('workspaceId') || activeWorkspace?.id || null
+  ));
+  const [workspaceMemoryCounts, setWorkspaceMemoryCounts] = useState<Record<string, number>>({});
+  const [workspaceCountsLoading, setWorkspaceCountsLoading] = useState(false);
   const [agentId, setAgentId] = useState<string | null>(() => searchParams.get('agentId'));
   const [scope, setScope] = useState<MemoryScope>(() => scopeFromParam(searchParams.get('scope')));
   const [agentOwners, setAgentOwners] = useState<AgentMemoryOwner[]>([]);
   const [ownersLoading, setOwnersLoading] = useState(true);
   const [transferTargetAgentId, setTransferTargetAgentId] = useState('');
   const [ownerOperation, setOwnerOperation] = useState<string | null>(null);
+  const [agentTransferDialogOpen, setAgentTransferDialogOpen] = useState(false);
   const [agentDeletionDialogOpen, setAgentDeletionDialogOpen] = useState(false);
   const initialCollectionIdRef = useRef(searchParams.get('collectionId'));
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [exportingCollectionId, setExportingCollectionId] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<MemoryPermissions | null>(null);
   const [entryView, setEntryView] = useState<MemoryEntryView>(() => entryViewFromParam(searchParams.get('status')));
   const [entryQuery, setEntryQuery] = useState('');
@@ -209,17 +233,25 @@ export function MemorySettingsPanel() {
     () => accessibleWorkspaces.find((workspace) => workspace.id === workspaceId) ?? null,
     [accessibleWorkspaces, workspaceId],
   );
+  const agentOwnerItems = useMemo<MemoryOwnerPickerItem[]>(() => agentOwners.map((owner) => ({
+    id: owner.agentId,
+    name: owner.name,
+    detail: `${owner.agentId} · ${t('agentSelector.collections', { count: owner.collectionCount })}`,
+    countLabel: t('agentSelector.memories', { count: owner.entryCount }),
+    statusLabel: owner.status === 'deleted' ? t('agentSelector.deleted') : undefined,
+  })), [agentOwners, t]);
+  const workspaceOwnerItems = useMemo<MemoryOwnerPickerItem[]>(() => accessibleWorkspaces.map((workspace) => ({
+    id: workspace.id,
+    name: workspace.name,
+    detail: t(`workspaceSelector.types.${workspace.type}`),
+    countLabel: workspaceCountsLoading && workspaceMemoryCounts[workspace.id] === undefined
+      ? t('loading')
+      : t('workspaceSelector.memories', { count: workspaceMemoryCounts[workspace.id] ?? 0 }),
+  })), [accessibleWorkspaces, t, workspaceCountsLoading, workspaceMemoryCounts]);
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
     [collections, selectedCollectionId],
   );
-  const selectedViewCount = selectedCollection
-    ? entryView === 'published'
-      ? selectedCollection.publishedCount
-      : entryView === 'pending'
-        ? selectedCollection.pendingCount
-        : selectedCollection.archivedCount
-    : 0;
   const activeTransferTargets = useMemo(() => agentOwners.filter((owner) => owner.status === 'active' && owner.agentId !== agentId), [agentId, agentOwners]);
   const agentMemoryReadOnly = scope === 'agent' && selectedAgentOwner?.status === 'deleted';
   const canUseScope = scope === 'agent'
@@ -257,6 +289,8 @@ export function MemorySettingsPanel() {
     url.searchParams.set('tab', 'memory');
     url.searchParams.set('scope', 'agent');
     url.searchParams.set('agentId', nextAgentId);
+    url.searchParams.delete('memoryWorkspaceId');
+    url.searchParams.delete('workspaceId');
     url.searchParams.set('status', 'published');
     url.searchParams.delete('collectionId');
     url.searchParams.delete('entryId');
@@ -278,7 +312,9 @@ export function MemorySettingsPanel() {
     const url = new URL(window.location.href);
     url.searchParams.set('tab', 'memory');
     url.searchParams.set('scope', 'workspace');
-    url.searchParams.set('workspaceId', nextWorkspaceId);
+    url.searchParams.set('memoryWorkspaceId', nextWorkspaceId);
+    url.searchParams.delete('workspaceId');
+    url.searchParams.delete('agentId');
     url.searchParams.delete('collectionId');
     url.searchParams.delete('entryId');
     url.searchParams.set('status', 'published');
@@ -290,19 +326,51 @@ export function MemorySettingsPanel() {
   }, [hydrateWorkspaces]);
 
   useEffect(() => {
+    if (accessibleWorkspaces.length === 0) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setWorkspaceCountsLoading(true);
+      void Promise.all(accessibleWorkspaces.map(async (workspace) => {
+        try {
+          const workspaceQuery = queryForScope('workspace', null, workspace.id);
+          const data = await readJson<{ collections: Collection[] }>(`/api/memory?${workspaceQuery.toString()}`);
+          return [workspace.id, data.collections.reduce((total, collection) => total + collection.totalCount, 0)] as const;
+        } catch {
+          return [workspace.id, 0] as const;
+        }
+      })).then((counts) => {
+        if (!cancelled) setWorkspaceMemoryCounts(Object.fromEntries(counts));
+      }).finally(() => {
+        if (!cancelled) setWorkspaceCountsLoading(false);
+      });
+    }, 0);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [accessibleWorkspaces]);
+
+  useEffect(() => {
+    if (scope !== 'workspace' || !workspaceId || loading) return;
+    const nextCount = collections.reduce((total, collection) => total + collection.totalCount, 0);
+    const timer = window.setTimeout(() => {
+      setWorkspaceMemoryCounts((current) => current[workspaceId] === nextCount ? current : { ...current, [workspaceId]: nextCount });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [collections, loading, scope, workspaceId]);
+
+  useEffect(() => {
     const previousQuery = lastLocationQueryRef.current;
     if (previousQuery === locationQuery) return;
     lastLocationQueryRef.current = locationQuery;
     const previousParams = new URLSearchParams(previousQuery);
     const params = new URLSearchParams(locationQuery);
     const nextScope = scopeFromParam(params.get('scope'));
-    const nextWorkspaceId = params.get('workspaceId');
+    const nextWorkspaceId = params.get('memoryWorkspaceId') || params.get('workspaceId');
+    const previousWorkspaceId = previousParams.get('memoryWorkspaceId') || previousParams.get('workspaceId');
     const nextAgentId = params.get('agentId');
     const nextCollectionId = params.get('collectionId');
     const nextEntryView = entryViewFromParam(params.get('status'));
     const nextHighlightedEntryId = params.get('entryId');
     const scopeChanged = nextScope !== scopeFromParam(previousParams.get('scope'));
-    const workspaceChanged = nextScope === 'workspace' && nextWorkspaceId !== previousParams.get('workspaceId');
+    const workspaceChanged = nextScope === 'workspace' && nextWorkspaceId !== previousWorkspaceId;
     const agentChanged = nextScope === 'agent' && nextAgentId !== previousParams.get('agentId');
     const collectionChanged = nextCollectionId !== previousParams.get('collectionId');
     const viewChanged = nextEntryView !== entryViewFromParam(previousParams.get('status'));
@@ -443,7 +511,10 @@ export function MemorySettingsPanel() {
     const url = new URL(window.location.href);
     url.searchParams.set('tab', 'memory');
     url.searchParams.set('scope', nextScope);
-    if (nextScope === 'workspace' && workspaceId) url.searchParams.set('workspaceId', workspaceId);
+    url.searchParams.delete('memoryWorkspaceId');
+    url.searchParams.delete('workspaceId');
+    url.searchParams.delete('agentId');
+    if (nextScope === 'workspace' && workspaceId) url.searchParams.set('memoryWorkspaceId', workspaceId);
     if (nextScope === 'agent' && agentId) url.searchParams.set('agentId', agentId);
     url.searchParams.set('status', 'published');
     url.searchParams.delete('collectionId');
@@ -610,12 +681,31 @@ export function MemorySettingsPanel() {
     } catch (historyError) { setError(historyError instanceof Error ? historyError.message : t('errors.loadHistory')); }
   };
 
-  const exportCurrentCollection = () => {
-    const content = JSON.stringify({ exportedAt: new Date().toISOString(), scope, collection: selectedCollection, entries }, null, 2);
-    const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
-    const anchor = document.createElement('a');
-    anchor.href = url; anchor.download = `canvas-memory-${scope}-${selectedCollection?.category || 'export'}.json`; anchor.click();
-    URL.revokeObjectURL(url);
+  const exportCurrentCollection = async () => {
+    if (!selectedCollection) return;
+    setExportingCollectionId(selectedCollection.id);
+    setError(null);
+    try {
+      const exportQuery = queryForScope(scope, agentId, workspaceId, selectedCollection.id);
+      exportQuery.set('includeArchived', '1');
+      const data = await readJson<{ entries: Entry[] }>(`/api/memory?${exportQuery.toString()}`);
+      const content = JSON.stringify({
+        exportedAt: new Date().toISOString(),
+        scope,
+        collection: selectedCollection,
+        entries: data.entries,
+      }, null, 2);
+      const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `canvas-memory-${scope}-${selectedCollection.category}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : t('errors.loadEntries'));
+    } finally {
+      setExportingCollectionId(null);
+    }
   };
 
   const exportSelectedAgentMemory = async () => {
@@ -656,6 +746,7 @@ export function MemorySettingsPanel() {
       });
       const target = agentOwners.find((owner) => owner.agentId === transferTargetAgentId);
       setNotice(`Transferred ${result.entries} ${result.entries === 1 ? 'entry' : 'entries'} to ${target?.name || transferTargetAgentId}.`);
+      setAgentTransferDialogOpen(false);
       selectAgentOwner(transferTargetAgentId);
     } catch (transferError) { setError(transferError instanceof Error ? transferError.message : 'Unable to transfer agent memory.'); }
     finally { setOwnerOperation(null); }
@@ -771,51 +862,96 @@ export function MemorySettingsPanel() {
 
       <div className={cn('grid gap-6', reviewerActive && 'xl:grid-cols-[minmax(0,1fr)_22rem]')}>
         <div className="space-y-5">
-          <div className="flex flex-wrap gap-2" role="tablist" aria-label={t('scopeAriaLabel')}>
-            {MEMORY_SCOPES.map((item) => (
-              <Button key={item} variant={scope === item ? 'default' : 'outline'} size="sm" onClick={() => setScopeWithUrl(item)} disabled={item === 'workspace' && !workspacesLoading && accessibleWorkspaces.length === 0}>{t(`scopes.${item}`)}</Button>
-            ))}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-wrap gap-2" role="tablist" aria-label={t('scopeAriaLabel')}>
+              {MEMORY_SCOPES.map((item) => (
+                <Button key={item} variant={scope === item ? 'default' : 'outline'} size="sm" onClick={() => setScopeWithUrl(item)} disabled={item === 'workspace' && !workspacesLoading && accessibleWorkspaces.length === 0}>{t(`scopes.${item}`)}</Button>
+              ))}
+            </div>
+            {scope === 'user' ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" className="shrink-0" aria-label={t('privateData.actions')} data-testid="private-memory-actions">
+                    <MoreHorizontal className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuLabel>{t('privateData.title')}</DropdownMenuLabel>
+                  <DropdownMenuItem onSelect={() => importInputRef.current?.click()}>
+                    <Upload className="size-4" />{t('privateData.import')}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onSelect={() => setDeletionDialogOpen(true)}>
+                    <Trash2 className="size-4" />{t('privateData.delete')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+            <input ref={importInputRef} className="sr-only" type="file" accept="application/json,.json" onChange={(event) => void readImportFile(event.target.files?.[0] ?? null)} />
           </div>
 
           {scope === 'agent' ? (
             <Card className="border-primary/25" data-testid="agent-memory-owner-card">
-              <CardHeader className="space-y-1">
-                <CardTitle className="text-base">Agent memory owner</CardTitle>
-                <CardDescription>Every collection below belongs only to the selected agent. Changing the selection never mixes memories between agents.</CardDescription>
+              <CardHeader className="grid-cols-[minmax(0,1fr)_auto] items-start gap-4 space-y-0">
+                <div className="space-y-1">
+                  <CardTitle className="text-base">{t('agentSelector.title')}</CardTitle>
+                  <CardDescription>{t('agentSelector.description')}</CardDescription>
+                </div>
+                {selectedAgentOwner ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="icon" className="shrink-0" aria-label={t('agentSelector.actions')} data-testid="agent-memory-actions" disabled={ownerOperation !== null}>
+                        {ownerOperation ? <Loader2 className="size-4 animate-spin" /> : <MoreHorizontal className="size-4" />}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuLabel>{selectedAgentOwner.name}</DropdownMenuLabel>
+                      <DropdownMenuItem onSelect={() => void exportSelectedAgentMemory()}>
+                        <Download className="size-4" />{t('agentSelector.exportAll')}
+                      </DropdownMenuItem>
+                      {selectedAgentOwner.collectionCount > 0 ? (
+                        <DropdownMenuItem onSelect={() => void setSelectedAgentMemoryArchived(selectedAgentOwner.archivedCollectionCount < selectedAgentOwner.collectionCount)}>
+                          {selectedAgentOwner.archivedCollectionCount === selectedAgentOwner.collectionCount ? <RotateCcw className="size-4" /> : <Archive className="size-4" />}
+                          {selectedAgentOwner.archivedCollectionCount === selectedAgentOwner.collectionCount ? t('agentSelector.restoreAll') : t('agentSelector.archiveAll')}
+                        </DropdownMenuItem>
+                      ) : null}
+                      {selectedAgentOwner.collectionCount > 0 && activeTransferTargets.length > 0 ? (
+                        <DropdownMenuItem onSelect={() => setAgentTransferDialogOpen(true)}>
+                          <ArrowRightLeft className="size-4" />{t('agentSelector.transfer')}
+                        </DropdownMenuItem>
+                      ) : null}
+                      {selectedAgentOwner.collectionCount > 0 ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem variant="destructive" onSelect={() => setAgentDeletionDialogOpen(true)}>
+                            <Trash2 className="size-4" />{t('agentSelector.deleteData')}
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
               </CardHeader>
               <CardContent className="space-y-4">
-                {ownersLoading ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading agents…</p> : agentOwners.length === 0 ? (
-                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No accessible agents exist yet. <Link href="/settings?tab=agent-settings&createAgent=1" className="font-medium text-primary underline-offset-4 hover:underline">Create an agent</Link> before storing agent-specific memory.</div>
+                {ownersLoading ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t('agentSelector.loading')}</p> : agentOwners.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{t('agentSelector.empty')} <Link href="/settings?tab=agent-settings&createAgent=1" className="font-medium text-primary underline-offset-4 hover:underline">{t('agentSelector.create')}</Link></div>
                 ) : (
                   <>
-                    <div className="space-y-2">
-                      <Label htmlFor="agent-memory-owner">Selected agent</Label>
-                      <select id="agent-memory-owner" data-testid="agent-memory-owner-select" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={agentId ?? ''} onChange={(event) => selectAgentOwner(event.target.value)}>
-                        <option value="" disabled>Choose an agent</option>
-                        {agentOwners.map((owner) => <option key={owner.agentId} value={owner.agentId}>{owner.name} · {owner.agentId}{owner.status === 'deleted' ? ' · deleted' : ''} · {owner.entryCount} memories</option>)}
-                      </select>
-                    </div>
-                    {selectedAgentOwner ? (
-                      <div className="rounded-lg border bg-muted/20 p-4">
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="flex min-w-0 items-center gap-3">
-                            <AgentAvatar iconId={selectedAgentOwner.iconId} className={selectedAgentOwner.status === 'deleted' ? 'opacity-60' : ''} />
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2"><p className="font-medium">{selectedAgentOwner.name}</p><Badge variant={selectedAgentOwner.status === 'deleted' ? 'outline' : 'secondary'}>{selectedAgentOwner.status}</Badge></div>
-                              <p className="truncate font-mono text-xs text-muted-foreground">{selectedAgentOwner.agentId}</p>
-                              <p className="mt-1 text-xs text-muted-foreground">{selectedAgentOwner.entryCount} entries · {selectedAgentOwner.collectionCount} collections · {selectedAgentOwner.archivedCollectionCount} archived</p>
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Button variant="outline" size="sm" onClick={() => void exportSelectedAgentMemory()} disabled={ownerOperation !== null}><Download className="mr-2 size-4" />Export all</Button>
-                            {selectedAgentOwner.collectionCount > 0 ? <Button variant="outline" size="sm" onClick={() => void setSelectedAgentMemoryArchived(selectedAgentOwner.archivedCollectionCount < selectedAgentOwner.collectionCount)} disabled={ownerOperation !== null}>{selectedAgentOwner.archivedCollectionCount === selectedAgentOwner.collectionCount ? <RotateCcw className="mr-2 size-4" /> : <Archive className="mr-2 size-4" />}{selectedAgentOwner.archivedCollectionCount === selectedAgentOwner.collectionCount ? 'Restore all' : 'Archive all'}</Button> : null}
-                            {selectedAgentOwner.collectionCount > 0 ? <Button variant="destructive" size="sm" onClick={() => setAgentDeletionDialogOpen(true)} disabled={ownerOperation !== null}><Trash2 className="mr-2 size-4" />Delete data</Button> : null}
-                          </div>
-                        </div>
-                        {selectedAgentOwner.status === 'deleted' ? <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">This agent was deleted. Its memory is retained for you and is not used by another agent unless you explicitly transfer it.</p> : null}
-                        {selectedAgentOwner.collectionCount > 0 && activeTransferTargets.length > 0 ? <div className="mt-4 flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-end"><div className="min-w-0 flex-1 space-y-2"><Label htmlFor="agent-memory-transfer-target">Transfer all memory to</Label><select id="agent-memory-transfer-target" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={transferTargetAgentId} onChange={(event) => setTransferTargetAgentId(event.target.value)}><option value="">Choose a target agent</option>{activeTransferTargets.map((owner) => <option key={owner.agentId} value={owner.agentId}>{owner.name} · {owner.agentId}</option>)}</select></div><Button variant="outline" onClick={() => void transferSelectedAgentMemory()} disabled={!transferTargetAgentId || ownerOperation !== null}>{ownerOperation === 'transfer' ? <Loader2 className="mr-2 size-4 animate-spin" /> : <ArrowRightLeft className="mr-2 size-4" />}Transfer</Button></div> : null}
-                      </div>
-                    ) : <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">Choose a valid agent before loading agent memory.</p>}
+                    <MemoryOwnerPicker
+                      label={t('agentSelector.label')}
+                      value={agentId}
+                      items={agentOwnerItems}
+                      placeholder={t('agentSelector.choose')}
+                      searchPlaceholder={t('agentSelector.search')}
+                      emptyMessage={t('agentSelector.noResults')}
+                      testId="agent-memory-owner-select"
+                      onValueChange={selectAgentOwner}
+                      renderVisual={(item) => {
+                        const owner = agentOwners.find((candidate) => candidate.agentId === item.id);
+                        return <AgentAvatar iconId={owner?.iconId} className={cn('h-9 w-9 rounded-lg', owner?.status === 'deleted' && 'opacity-60')} iconClassName="h-4.5 w-4.5" />;
+                      }}
+                    />
+                    {selectedAgentOwner?.status === 'deleted' ? <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">{t('agentSelector.deletedNotice')}</p> : null}
                   </>
                 )}
               </CardContent>
@@ -828,41 +964,29 @@ export function MemorySettingsPanel() {
                 <CardTitle className="text-base">{t('workspaceSelector.title')}</CardTitle>
                 <CardDescription>{t('workspaceSelector.description')}</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent>
                 {workspacesLoading && accessibleWorkspaces.length === 0 ? (
                   <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t('workspaceSelector.loading')}</p>
                 ) : accessibleWorkspaces.length === 0 ? (
                   <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{t('workspaceSelector.empty')}</p>
                 ) : (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="workspace-memory-owner">{t('workspaceSelector.label')}</Label>
-                      <select
-                        id="workspace-memory-owner"
-                        data-testid="workspace-memory-owner-select"
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                        value={workspaceId ?? ''}
-                        onChange={(event) => selectWorkspace(event.target.value)}
-                      >
-                        <option value="" disabled>{t('workspaceSelector.choose')}</option>
-                        {accessibleWorkspaces.map((workspace) => (
-                          <option key={workspace.id} value={workspace.id}>
-                            {workspace.name} · {t(`workspaceSelector.types.${workspace.type}`)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {selectedWorkspace ? (
-                      <div className="rounded-lg border bg-muted/20 p-4">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium">{selectedWorkspace.name}</p>
-                          <Badge variant="secondary">{t(`workspaceSelector.types.${selectedWorkspace.type}`)}</Badge>
-                        </div>
-                        {selectedWorkspace.description ? <p className="mt-1 text-sm text-muted-foreground">{selectedWorkspace.description}</p> : null}
-                        <p className="mt-2 text-xs text-muted-foreground">{t('workspaceSelector.selectedHint')}</p>
-                      </div>
-                    ) : null}
-                  </>
+                  <MemoryOwnerPicker
+                    label={t('workspaceSelector.label')}
+                    value={workspaceId}
+                    items={workspaceOwnerItems}
+                    placeholder={t('workspaceSelector.choose')}
+                    searchPlaceholder={t('workspaceSelector.search')}
+                    emptyMessage={t('workspaceSelector.noResults')}
+                    testId="workspace-memory-owner-select"
+                    onValueChange={selectWorkspace}
+                    renderVisual={(item) => (
+                      <WorkspaceIdentityMark
+                        workspace={accessibleWorkspaces.find((workspace) => workspace.id === item.id)}
+                        className="h-9 w-9 rounded-lg"
+                        iconClassName="h-4 w-4"
+                      />
+                    )}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -887,67 +1011,58 @@ export function MemorySettingsPanel() {
                     const categoryDescription = memoryCategoryDescription(collection.category, locale);
                     const selected = selectedCollectionId === collection.id;
                     return (
-                      <button
-                        type="button"
+                      <div
                         key={collection.id}
                         data-testid="memory-category-card"
                         data-collection-id={collection.id}
-                        aria-pressed={selected}
-                        onClick={() => selectCollection(collection.id)}
                         className={cn(
-                          'group flex min-h-36 flex-col rounded-xl border bg-card p-4 text-left transition-[border-color,box-shadow,background-color] hover:border-primary/40 hover:bg-muted/20',
+                          'group flex min-h-36 flex-col overflow-hidden rounded-xl border bg-card transition-[border-color,box-shadow,background-color] hover:border-primary/40 hover:bg-muted/20',
                           selected && 'border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/15',
                         )}
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <span className={cn('grid size-9 place-items-center rounded-lg border bg-muted/40 text-muted-foreground', selected && 'border-primary/25 bg-primary/10 text-primary')}>
-                            <BookOpenText className="size-4" />
-                          </span>
-                          <div className="flex items-center gap-2">
-                            {collection.pendingCount > 0 ? <Badge variant="outline">{t('categories.pending', { count: collection.pendingCount })}</Badge> : null}
-                            {collection.archivedCount > 0 ? <Badge variant="outline">{t('categories.archived', { count: collection.archivedCount })}</Badge> : null}
-                            <ChevronRight className={cn('size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5', selected && 'text-primary')} />
+                        <button
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => selectCollection(collection.id)}
+                          className="flex flex-1 flex-col p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <span className={cn('grid size-9 place-items-center rounded-lg border bg-muted/40 text-muted-foreground', selected && 'border-primary/25 bg-primary/10 text-primary')}>
+                              <BookOpenText className="size-4" />
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {collection.pendingCount > 0 ? <Badge variant="outline">{t('categories.pending', { count: collection.pendingCount })}</Badge> : null}
+                              {collection.archivedCount > 0 ? <Badge variant="outline">{t('categories.archived', { count: collection.archivedCount })}</Badge> : null}
+                              <ChevronRight className={cn('size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5', selected && 'text-primary')} />
+                            </div>
                           </div>
-                        </div>
-                        <p className="mt-3 font-semibold tracking-tight">{categoryLabel}</p>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{categoryDescription}</p>
-                        <p className="mt-auto pt-3 text-xs text-muted-foreground">
-                          {t('categories.entries', { count: collection.totalCount })} · {formatDate(collection.updatedAt, locale)}
-                        </p>
-                      </button>
+                          <p className="mt-3 font-semibold tracking-tight">{categoryLabel}</p>
+                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{categoryDescription}</p>
+                          <p className="mt-auto pt-3 text-xs text-muted-foreground">
+                            {t('categories.entries', { count: collection.totalCount })} · {formatDate(collection.updatedAt, locale)}
+                          </p>
+                        </button>
+                        {selected ? (
+                          <div className="border-t border-primary/15 p-3">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full bg-background/80"
+                              onClick={() => void exportCurrentCollection()}
+                              disabled={exportingCollectionId !== null || collection.totalCount === 0}
+                            >
+                              {exportingCollectionId === collection.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Download className="mr-2 size-4" />}
+                              {t('categories.export')}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
                     );
                   })}
                 </div>
               ) : null}
             </CardContent>
           </Card>
-
-          {selectedCollection ? (
-            <Card className="border-primary/20" data-testid="selected-memory-category">
-              <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex min-w-0 gap-3">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
-                    <BookOpenText className="size-5" />
-                  </span>
-                  <div className="min-w-0 space-y-1">
-                    <CardDescription>{t('categories.selected')}</CardDescription>
-                    <CardTitle className="text-lg">{memoryCategoryLabel(selectedCollection.category, locale)}</CardTitle>
-                    <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{memoryCategoryDescription(selectedCollection.category, locale)}</p>
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <Badge variant="secondary">{t('categories.published', { count: selectedCollection.publishedCount })}</Badge>
-                      {selectedCollection.pendingCount > 0 ? <Badge variant="outline">{t('categories.pending', { count: selectedCollection.pendingCount })}</Badge> : null}
-                      {selectedCollection.archivedCount > 0 ? <Badge variant="outline">{t('categories.archived', { count: selectedCollection.archivedCount })}</Badge> : null}
-                    </div>
-                  </div>
-                </div>
-                {selectedViewCount > 0 ? (
-                  <Button variant="outline" size="sm" onClick={exportCurrentCollection}>
-                    <Download className="mr-2 size-4" />{t('categories.export')}
-                  </Button>
-                ) : null}
-              </CardHeader>
-            </Card>
-          ) : null}
 
           <div className="space-y-2">
             {selectedCollection ? (
@@ -1042,14 +1157,6 @@ export function MemorySettingsPanel() {
             </CardContent>
           </Card>
 
-          {scope === 'user' ? <Card className="border-dashed">
-            <CardHeader><CardTitle className="text-base">{t('privateData.title')}</CardTitle><CardDescription>{t('privateData.description')}</CardDescription></CardHeader>
-            <CardContent className="flex flex-wrap items-center gap-3">
-              <input ref={importInputRef} className="sr-only" type="file" accept="application/json,.json" onChange={(event) => void readImportFile(event.target.files?.[0] ?? null)} />
-              <Button variant="outline" onClick={() => importInputRef.current?.click()}><Upload className="mr-2 size-4" />{t('privateData.import')}</Button>
-              <Button variant="destructive" onClick={() => setDeletionDialogOpen(true)}><Trash2 className="mr-2 size-4" />{t('privateData.delete')}</Button>
-            </CardContent>
-          </Card> : null}
         </div>
 
         {reviewerActive && settings ? (
@@ -1100,6 +1207,39 @@ export function MemorySettingsPanel() {
           </Card>
         ) : null}
       </div>
+
+      <Dialog open={agentTransferDialogOpen} onOpenChange={(open) => {
+        setAgentTransferDialogOpen(open);
+        if (!open && ownerOperation !== 'transfer') setTransferTargetAgentId('');
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('agentSelector.transferTitle')}</DialogTitle>
+            <DialogDescription>{t('agentSelector.transferDescription', { name: selectedAgentOwner?.name || agentId || '' })}</DialogDescription>
+          </DialogHeader>
+          <MemoryOwnerPicker
+            label={t('agentSelector.transferTarget')}
+            value={transferTargetAgentId || null}
+            items={agentOwnerItems.filter((item) => activeTransferTargets.some((owner) => owner.agentId === item.id))}
+            placeholder={t('agentSelector.choose')}
+            searchPlaceholder={t('agentSelector.search')}
+            emptyMessage={t('agentSelector.noResults')}
+            testId="agent-memory-transfer-target"
+            onValueChange={setTransferTargetAgentId}
+            renderVisual={(item) => {
+              const owner = agentOwners.find((candidate) => candidate.agentId === item.id);
+              return <AgentAvatar iconId={owner?.iconId} className="h-9 w-9 rounded-lg" iconClassName="h-4.5 w-4.5" />;
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAgentTransferDialogOpen(false)} disabled={ownerOperation === 'transfer'}>Cancel</Button>
+            <Button onClick={() => void transferSelectedAgentMemory()} disabled={!transferTargetAgentId || ownerOperation !== null}>
+              {ownerOperation === 'transfer' ? <Loader2 className="mr-2 size-4 animate-spin" /> : <ArrowRightLeft className="mr-2 size-4" />}
+              {t('agentSelector.transferSubmit')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={Boolean(importEntries)} onOpenChange={(open) => !open && setImportEntries(null)}>
         <AlertDialogContent>

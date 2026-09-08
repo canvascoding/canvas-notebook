@@ -97,6 +97,18 @@ assert.equal(closedLastDockedDocumentState.mainSurface, 'document');
 assert.equal(closedLastDockedDocumentState.documentAvailable, false);
 assert.equal(closedLastDockedDocumentState.chatDocked, true);
 
+const closedAllDockedState = notebookLayoutReducer(dockedState, { type: 'ALL_DOCUMENTS_CLOSED' });
+assert.equal(closedAllDockedState.mainSurface, 'chat', 'cleanup ends on full chat when no work surface remains');
+assert.equal(closedAllDockedState.documentAvailable, false);
+assert.equal(closedAllDockedState.chatDocked, false);
+const closedAllWithEmail = notebookLayoutReducer({ ...dockedState, emailAvailable: true }, { type: 'ALL_DOCUMENTS_CLOSED' });
+assert.equal(closedAllWithEmail.mainSurface, 'email');
+assert.equal(closedAllWithEmail.chatDocked, true);
+for (const mainSurface of ['chat', 'email', 'browser'] as const) {
+  const closedAllInBackground = notebookLayoutReducer({ ...dockedState, mainSurface }, { type: 'ALL_DOCUMENTS_CLOSED' });
+  assert.equal(closedAllInBackground.mainSurface, mainSurface, 'closing background documents preserves the visible surface');
+}
+
 const browserBesideChatState = reduce(
   { type: 'CONTEXT_OPENED', surface: 'browser' },
   { type: 'SET_CHAT_DOCKED', docked: true },

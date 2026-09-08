@@ -19,6 +19,8 @@ import { createAtomicTempPath, resolveCanvasDataRoot } from '@/app/lib/runtime-d
 import { requirePathInside } from '@/app/lib/security/safe-paths';
 import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import type { OfficeUploadAttempt } from './workspace-upload-flow';
 
 const SESSION_FILE_NAME = 'session.json';
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -42,6 +44,7 @@ export interface WorkspaceUploadFileRecord {
   mimeType: string;
   uploadedBytes: number;
   status: WorkspaceUploadFileStatus;
+  officeAttempt?: OfficeUploadAttempt;
 }
 
 export interface WorkspaceUploadSession {
@@ -71,24 +74,10 @@ export class WorkspaceUploadServiceError extends Error {
   }
 }
 
-const fileLocks = new Map<string, Promise<void>>();
-
 async function withFileLock<T>(key: string, task: () => Promise<T>): Promise<T> {
-  const previous = fileLocks.get(key) ?? Promise.resolve();
-  let release = () => {};
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  fileLocks.set(key, current);
-  await previous;
-  try {
-    return await task();
-  } finally {
-    release();
-    if (fileLocks.get(key) === current) {
-      fileLocks.delete(key);
-    }
-  }
+  // All files share session.json, so sibling chunks must serialize as well.
+  // Publication always takes Upload-Session first, then Workspace; never reverse.
+  return withWorkspaceMutationLock(`workspace-upload:${key.split(':', 1)[0]}`, task);
 }
 
 function uploadsRoot(): string {
@@ -128,12 +117,17 @@ async function writeSession(session: WorkspaceUploadSession): Promise<void> {
   const statusPath = sessionStatusPath(session.id);
   const temporaryPath = createAtomicTempPath(statusPath);
   try {
-    await fs.writeFile(temporaryPath, `${JSON.stringify(session, null, 2)}\n`, {
-      encoding: 'utf8',
-      mode: 0o600,
-    });
+    const handle = await fs.open(temporaryPath, 'wx', 0o600);
+    try {
+      await handle.writeFile(`${JSON.stringify(session, null, 2)}\n`, 'utf8');
+      await handle.sync();
+    } finally { await handle.close(); }
     await fs.rename(temporaryPath, statusPath);
-    await fs.chmod(statusPath, 0o600).catch(() => undefined);
+    // Also make newly created upload/session directory entries durable.
+    for (const directoryPath of [sessionDir(session.id), uploadsRoot(), path.dirname(uploadsRoot()), resolveCanvasDataRoot()]) {
+      const directory = await fs.open(directoryPath, 'r');
+      try { await directory.sync(); } finally { await directory.close(); }
+    }
   } finally {
     await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
   }
@@ -432,13 +426,25 @@ export async function completeWorkspaceUploadFile(params: {
     session: WorkspaceUploadSession;
     file: WorkspaceUploadFileRecord;
     sourcePath: string;
+    persistOfficeAttempt: (attempt: OfficeUploadAttempt) => Promise<void>;
   }) => Promise<void>;
 }): Promise<{ session: WorkspaceUploadSession; file: WorkspaceUploadFileRecord; alreadyCompleted: boolean }> {
-  return withFileLock(`${params.sessionId}:${params.fileId}`, async () => {
+  return withFileLock(`${params.sessionId}:${params.fileId}`, () => withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
     const session = await readSession(params.sessionId);
     assertSessionAccess(session, params.userId, params.workspace);
     const file = findSessionFile(session, params.fileId);
     if (file.status === 'completed') {
+      if (file.officeAttempt) {
+        const { getWorkspaceFileRevision } = await import('./revision-guard');
+        const { getFileCollaborationState } = await import('./collaboration-policy');
+        const { OfficeUploadRetryError } = await import('./workspace-upload-flow');
+        const { findOfficeCommit } = await import('@/app/lib/office/document-journal');
+        const current = await getWorkspaceFileRevision(file.targetPath, { workspace: params.workspace });
+        const state = await getFileCollaborationState({ workspace: params.workspace, path: file.targetPath });
+        const receipt = await findOfficeCommit(file.officeAttempt);
+        if (current?.sha256 !== file.officeAttempt.contentHash || state.lineageId !== file.officeAttempt.lineageId
+          || receipt?.status !== 'completed' || state.latestRevision?.id !== receipt.revisionId) throw new OfficeUploadRetryError();
+      }
       return { session, file, alreadyCompleted: true };
     }
     if (file.uploadedBytes !== file.size || (file.size > 0 && file.status !== 'uploaded')) {
@@ -464,7 +470,15 @@ export async function completeWorkspaceUploadFile(params: {
       );
     }
 
-    await params.commit({ session, file, sourcePath });
+    let persistActive = true;
+    try {
+      await params.commit({ session, file, sourcePath, persistOfficeAttempt: async (attempt) => {
+        if (!persistActive) throw new Error('The upload commit has already finished.');
+        if (file.officeAttempt && JSON.stringify(file.officeAttempt) !== JSON.stringify(attempt)) throw new WorkspaceUploadServiceError('UPLOAD_REVISION_CONFLICT', 409, 'The upload starting revision is immutable.');
+        file.officeAttempt = Object.freeze({ ...attempt });
+        await writeSession(session);
+      } });
+    } finally { persistActive = false; }
     file.status = 'completed';
     file.uploadedBytes = file.size;
     if (session.files.every((candidate) => candidate.status === 'completed')) {
@@ -473,7 +487,7 @@ export async function completeWorkspaceUploadFile(params: {
     await writeSession(session);
     await fs.rm(sourcePath, { force: true }).catch(() => undefined);
     return { session, file, alreadyCompleted: false };
-  });
+  }));
 }
 
 export async function cancelWorkspaceUploadSession(params: {

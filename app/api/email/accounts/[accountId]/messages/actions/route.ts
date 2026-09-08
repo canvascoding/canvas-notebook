@@ -19,6 +19,7 @@ import {
 import { normalizeEmailAttachmentInputs } from '@/app/lib/email/attachments';
 import { emailAiRequestBodyErrorStatus, readEmailAiJsonObject } from '@/app/lib/email/ai-request-body';
 import { requireEmailAiRouteSession } from '@/app/lib/email/ai-route-guard';
+import { isImapMailboxChangedError } from '@/app/lib/email/imap-service';
 import { logEmailClientEvent } from '@/app/lib/email/logging';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -377,6 +378,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       status: 'failed',
       userId: session.user.id,
     });
+    if (isImapMailboxChangedError(error)) {
+      return NextResponse.json(
+        { success: false, code: error.code, error: error.message },
+        { status: error.status },
+      );
+    }
     const message = error instanceof Error ? error.message : 'Failed to update email message';
     return NextResponse.json(
       { success: false, error: message },

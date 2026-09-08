@@ -25,6 +25,10 @@ let activeBody = [
 ].join('\n');
 let activeDate = '2026-06-08T12:00:00.000Z';
 let activeInReplyTo: string | null = outboundMessageId;
+let activeProviderId: string | null = null;
+let activeThreadId: string | null = null;
+let activeUid: string | null = null;
+let activeUidValidity: string | null = null;
 const dispatches: Array<{
   sessionId: string;
   userId: string;
@@ -40,26 +44,30 @@ moduleInternals._load = (request, parent, isMain) => {
 
   if (request === '@/app/lib/email/service' || request.endsWith('/email/service')) {
     return {
-      listEmailMessages: async (_userId: string, input: { accountId: string; query?: string }) => ({
-        account: { id: input.accountId },
-        folder: 'INBOX',
-        messages: [{
-          id: `${activeToken}-msg`,
-          uid: `${activeToken}-msg`,
+      listEmailMessages: async (_userId: string, input: { accountId: string; query?: string }) => {
+        const messageId = activeProviderId || `${activeToken}-msg`;
+        return {
+          account: { id: input.accountId },
           folder: 'INBOX',
-          threadId: `${activeToken}-thread`,
-          from: 'owner@example.test',
-          subject: activeSubject,
-          date: activeDate,
-          snippet: activeBody.slice(0, 200),
-        }],
-      }),
+          ...(activeUidValidity ? { uidValidity: activeUidValidity } : {}),
+          messages: [{
+            id: messageId,
+            uid: activeUid || messageId,
+            folder: 'INBOX',
+            threadId: activeThreadId || `${activeToken}-thread`,
+            from: 'owner@example.test',
+            subject: activeSubject,
+            date: activeDate,
+            snippet: activeBody.slice(0, 200),
+          }],
+        };
+      },
       readEmailMessage: async (_userId: string, _accountId: string, messageId: string, folder?: string) => ({
         account: { id: _accountId },
         message: {
           id: messageId,
           folder: folder || 'INBOX',
-          threadId: `${activeToken}-thread`,
+          threadId: activeThreadId || `${activeToken}-thread`,
           from: 'owner@example.test',
           subject: activeSubject,
           date: activeDate,
@@ -363,6 +371,169 @@ async function main() {
   });
   assert.equal(ambiguousWatcher?.status, 'failed');
   assert.match(ambiguousWatcher?.error || '', /ambiguous across multiple agents/);
+
+  await db.update(todoEmailReplyWatchers).set({ status: 'completed' });
+
+  const { createImapMessageReference } = await import('../app/lib/email/imap-service');
+  const { resolveProviderMessageIdentity } = await import('../app/lib/email/provider-message-identity');
+  assert.deepEqual(resolveProviderMessageIdentity({ id: 'gmail-message-id', uid: 'gmail-message-id', folder: 'INBOX' }), {
+    canonicalId: 'gmail-message-id',
+    folder: 'INBOX',
+    isImap: false,
+    legacyId: null,
+    uid: null,
+    uidValidity: null,
+  });
+  assert.throws(
+    () => resolveProviderMessageIdentity({ id: '1', uid: '4294967296', uidValidity: '9', folder: 'INBOX' }),
+    /Invalid IMAP UID or UIDVALIDITY/u,
+  );
+  assert.throws(
+    () => resolveProviderMessageIdentity({ id: '1', uid: '1', uidValidity: '4294967296', folder: 'INBOX' }),
+    /Invalid IMAP UID or UIDVALIDITY/u,
+  );
+  assert.throws(
+    () => resolveProviderMessageIdentity({
+      id: createImapMessageReference('INBOX', '42', 1),
+      uid: '2',
+      uidValidity: '42',
+      folder: 'INBOX',
+    }),
+    /Inconsistent IMAP message identity/u,
+  );
+  assert.throws(
+    () => resolveProviderMessageIdentity({
+      id: createImapMessageReference('INBOX', '42', 1),
+      uid: 'not-a-uid',
+      folder: 'INBOX',
+    }),
+    /Invalid IMAP UID or UIDVALIDITY/u,
+  );
+  assert.throws(
+    () => resolveProviderMessageIdentity({
+      id: createImapMessageReference('INBOX', '42', 1),
+      uidValidity: '4294967296',
+      folder: 'INBOX',
+    }),
+    /Invalid IMAP UID or UIDVALIDITY/u,
+  );
+  activeToken = 'CTD-IMAPMIG1';
+  activeSubject = `Re: New Canvas to-do [${activeToken}]`;
+  activeBody = `Identical legacy IMAP reply.\n\nReply code ${activeToken}`;
+  activeDate = '2026-06-08T12:50:00.000Z';
+  activeInReplyTo = outboundMessageId;
+  activeUid = '71';
+  activeUidValidity = '9001';
+  activeThreadId = 'imap-thread-71';
+  activeProviderId = createImapMessageReference('INBOX', activeUidValidity, Number(activeUid));
+
+  await seedBase('reply-user-imap-migrate', 'reply-todo-imap-migrate', 'reply-session-imap-migrate');
+  await createTodoEmailReplyWatcher({
+    todoId: 'reply-todo-imap-migrate',
+    userId: 'reply-user-imap-migrate',
+    accountId: accountIdFor('reply-user-imap-migrate'),
+    replyToken: activeToken,
+    outboundMessageId,
+    sourceAgentId: 'canvas-agent',
+    sourceSessionId: 'reply-session-imap-migrate',
+    locale: 'en',
+    sentAt: new Date('2026-06-08T12:49:00.000Z'),
+  });
+  const migrationWatcher = await db.query.todoEmailReplyWatchers.findFirst({
+    where: eq(todoEmailReplyWatchers.todoId, 'reply-todo-imap-migrate'),
+  });
+  assert.ok(migrationWatcher);
+  const migrationReplyText = extractTodoEmailReplyText(activeBody, activeToken);
+  const migrationCreatedAt = new Date('2026-06-08T12:50:30.000Z');
+  await db.insert(todoEmailReplyEvents).values({
+    id: 'legacy-todo-reply-match',
+    watcherId: migrationWatcher.id,
+    todoId: migrationWatcher.todoId,
+    userId: migrationWatcher.userId,
+    accountId: migrationWatcher.accountId,
+    providerMessageId: `INBOX:${activeUid}`,
+    threadId: activeThreadId,
+    folder: 'INBOX',
+    fromAddress: 'owner@example.test',
+    subject: activeSubject,
+    receivedAt: new Date(activeDate),
+    replyText: migrationReplyText,
+    status: 'dispatched',
+    error: null,
+    dispatchedAt: migrationCreatedAt,
+    createdAt: migrationCreatedAt,
+    updatedAt: migrationCreatedAt,
+  });
+  const dispatchCountBeforeMigration = dispatches.length;
+  const migrationPoll = await pollTodoEmailReplies({ now: new Date('2026-06-08T12:51:00.000Z') });
+  assert.equal(migrationPoll.processed, 0);
+  assert.equal(migrationPoll.skipped, 1);
+  assert.equal(dispatches.length, dispatchCountBeforeMigration);
+  const migratedReplyEvent = await db.query.todoEmailReplyEvents.findFirst({
+    where: eq(todoEmailReplyEvents.id, 'legacy-todo-reply-match'),
+  });
+  assert.equal(migratedReplyEvent?.providerMessageId, `INBOX:${activeProviderId}`);
+  await db
+    .update(todoEmailReplyWatchers)
+    .set({ status: 'completed' })
+    .where(eq(todoEmailReplyWatchers.id, migrationWatcher.id));
+
+  activeToken = 'CTD-IMAPREUS';
+  activeSubject = `Re: New Canvas to-do [${activeToken}]`;
+  activeBody = `New message after UIDVALIDITY rollover.\n\nReply code ${activeToken}`;
+  activeDate = '2026-06-08T13:00:00.000Z';
+  activeUid = '72';
+  activeUidValidity = '9002';
+  activeThreadId = 'new-imap-thread-72';
+  activeProviderId = createImapMessageReference('INBOX', activeUidValidity, Number(activeUid));
+
+  await seedBase('reply-user-imap-reuse', 'reply-todo-imap-reuse', 'reply-session-imap-reuse');
+  await createTodoEmailReplyWatcher({
+    todoId: 'reply-todo-imap-reuse',
+    userId: 'reply-user-imap-reuse',
+    accountId: accountIdFor('reply-user-imap-reuse'),
+    replyToken: activeToken,
+    outboundMessageId,
+    sourceAgentId: 'canvas-agent',
+    sourceSessionId: 'reply-session-imap-reuse',
+    locale: 'en',
+    sentAt: new Date('2026-06-08T12:59:00.000Z'),
+  });
+  const reuseWatcher = await db.query.todoEmailReplyWatchers.findFirst({
+    where: eq(todoEmailReplyWatchers.todoId, 'reply-todo-imap-reuse'),
+  });
+  assert.ok(reuseWatcher);
+  const reuseCreatedAt = new Date('2026-06-08T12:58:30.000Z');
+  await db.insert(todoEmailReplyEvents).values({
+    id: 'legacy-todo-reply-reused-uid',
+    watcherId: reuseWatcher.id,
+    todoId: reuseWatcher.todoId,
+    userId: reuseWatcher.userId,
+    accountId: reuseWatcher.accountId,
+    providerMessageId: `INBOX:${activeUid}`,
+    threadId: 'old-imap-thread-72',
+    folder: 'INBOX',
+    fromAddress: 'different-sender@example.test',
+    subject: 'Old message in a previous UIDVALIDITY namespace',
+    receivedAt: new Date('2026-06-08T12:58:00.000Z'),
+    replyText: 'Old reply text.',
+    status: 'dispatched',
+    error: null,
+    dispatchedAt: reuseCreatedAt,
+    createdAt: reuseCreatedAt,
+    updatedAt: reuseCreatedAt,
+  });
+  const dispatchCountBeforeReuse = dispatches.length;
+  const reusePoll = await pollTodoEmailReplies({ now: new Date('2026-06-08T13:01:00.000Z') });
+  assert.equal(reusePoll.processed, 1);
+  assert.equal(reusePoll.failed, 0);
+  assert.equal(dispatches.length, dispatchCountBeforeReuse + 1);
+  const reuseEvents = await db.query.todoEmailReplyEvents.findMany({
+    where: eq(todoEmailReplyEvents.watcherId, reuseWatcher.id),
+  });
+  assert.equal(reuseEvents.length, 2);
+  assert.ok(reuseEvents.some((event) => event.providerMessageId === `INBOX:${activeUid}`));
+  assert.ok(reuseEvents.some((event) => event.providerMessageId === `INBOX:${activeProviderId}`));
 
   console.log('Todo email reply watcher test passed.');
 }

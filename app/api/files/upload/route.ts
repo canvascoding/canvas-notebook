@@ -143,6 +143,7 @@ export async function POST(request: NextRequest) {
         fileOptions,
         actorUserId: workspaceResult.session.user.id,
         targetPath,
+        content: normalized.buffer,
         write: (onBeforeReplace) => writeFile(
           targetPath,
           normalized.buffer,

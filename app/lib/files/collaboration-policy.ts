@@ -26,7 +26,9 @@ import {
   withFileCollaborationTransaction,
   type FileCollaborationTransaction,
 } from '@/app/lib/files/collaboration-repository';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { assertWorkspacePathHasNoAliases, normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 
 export type FileCollaborationStrategy = 'crdt_text' | 'excalidraw_scene' | 'revision_check' | 'exclusive_lock';
 export type FileActorType = 'user' | 'agent' | 'automation' | 'system';
@@ -86,6 +88,7 @@ export interface CollaborationDocumentRecord {
 }
 
 export interface FileCollaborationState {
+  lineageId: string | null;
   path: string;
   strategy: FileCollaborationStrategy;
   crdtCapable: boolean;
@@ -99,6 +102,8 @@ export interface FileCollaborationState {
 
 export class FileCollaborationPolicyError extends Error {
   readonly code:
+    | 'FILE_LOCK_STALE'
+    | 'FILE_LOCK_SESSION_REQUIRED'
     | 'FILE_LOCKED'
     | 'FILE_LOCK_REQUIRED'
     | 'FILE_REVISION_ID_CONFLICT'
@@ -170,15 +175,15 @@ const DEFAULT_LOCK_TTL_MS = 15 * 60 * 1000;
 const MAX_LOCK_TTL_MS = 4 * 60 * 60 * 1000;
 
 function normalizeWorkspacePath(filePath: string): string {
-  const normalized = path.posix.normalize(filePath.replace(/\\/g, '/')).replace(/^\/+/u, '');
-  if (!normalized || normalized === '.' || normalized.split('/').includes('..')) {
+  const normalized = normalizeWorkspaceRelativePath(filePath);
+  if (normalized === '.') {
     throw new Error(`Invalid workspace file path: ${filePath}`);
   }
   return normalized;
 }
 
 function fileExtension(filePath: string): string {
-  const base = path.posix.basename(filePath).toLowerCase();
+  const base = path.posix.basename(normalizeWorkspaceRelativePath(filePath)).toLowerCase();
   const dotIndex = base.lastIndexOf('.');
   return dotIndex > 0 ? base.slice(dotIndex + 1) : '';
 }
@@ -218,7 +223,7 @@ async function buildPostgresState(params: {
   ensureDocument?: boolean;
 }): Promise<FileCollaborationState> {
   const strategy = detectFileCollaborationStrategy(params.path);
-  const requiresPolicy = workspaceRequiresCollaborationPolicy(params.workspace);
+  const requiresPolicy = workspaceRequiresCollaborationPolicy(params.workspace) || isDocxPath(params.path);
   const latestRevision = params.latestRevision ?? await getPostgresLatestFileRevision(
     params.transaction,
     params.workspace.workspaceId,
@@ -253,6 +258,7 @@ async function buildPostgresState(params: {
 
   return {
     path: params.path,
+    lineageId: params.lineageId ?? latestRevision?.lineageId ?? null,
     strategy,
     crdtCapable,
     sceneCapable,
@@ -271,8 +277,8 @@ export async function getFileCollaborationState(params: {
   nowMs?: number;
 }): Promise<FileCollaborationState> {
   const normalizedPath = normalizeWorkspacePath(params.path);
-  const nowMs = params.nowMs ?? Date.now();
-  return withFileCollaborationTransaction(async (transaction) => {
+  return withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    const nowMs = params.nowMs ?? Date.now();
     if (params.ensureDocument) {
       await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
     }
@@ -311,8 +317,8 @@ export async function markCollaborationDocumentCheckpoint(params: {
   nowMs?: number;
 }): Promise<CollaborationDocumentRecord | null> {
   const normalizedPath = normalizeWorkspacePath(params.path);
-  const nowMs = params.nowMs ?? Date.now();
-  return withFileCollaborationTransaction(async (transaction) => {
+  return withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    const nowMs = params.nowMs ?? Date.now();
     await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
     return updatePostgresCollaborationDocumentCheckpoint(transaction, {
       workspaceId: params.workspace.workspaceId,
@@ -337,9 +343,9 @@ export async function ensureFileRevisionForCurrentContent(params: {
   nowMs?: number;
 }): Promise<FileRevisionRecord> {
   const normalizedPath = normalizeWorkspacePath(params.path);
-  const nowMs = params.nowMs ?? Date.now();
 
-  return withFileCollaborationTransaction(async (transaction) => {
+  return withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    const nowMs = params.nowMs ?? Date.now();
     await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
     const lineage = await ensurePostgresActiveFileLineage(transaction, {
       id: `file-lineage-${randomUUID()}`,
@@ -413,9 +419,9 @@ export async function archiveFileCollaborationPaths(params: {
     entries.set(filePath, typeof entry === 'string' ? null : entry.trashEntryId ?? null);
   }
   if (entries.size === 0) return;
-  const nowMs = params.nowMs ?? Date.now();
 
-  await withFileCollaborationTransaction(async (transaction) => {
+  await withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    const nowMs = params.nowMs ?? Date.now();
     const paths = [...entries.keys()];
     await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, paths);
     await archivePostgresFileCollaborationPathScopes(transaction, {
@@ -435,9 +441,9 @@ export async function restoreFileCollaborationPath(params: {
   nowMs?: number;
 }): Promise<void> {
   const filePath = normalizeWorkspacePath(params.path);
-  const nowMs = params.nowMs ?? Date.now();
 
-  await withFileCollaborationTransaction(async (transaction) => {
+  await withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    const nowMs = params.nowMs ?? Date.now();
     await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [filePath]);
     await restorePostgresFileCollaborationPathScope(transaction, {
       workspaceId: params.workspace.workspaceId,
@@ -459,9 +465,9 @@ export async function initializeCopiedFileCollaborationPaths(params: {
 }): Promise<void> {
   const paths = [...new Set(params.paths.map(normalizeWorkspacePath))];
   if (paths.length === 0) return;
-  const nowMs = params.nowMs ?? Date.now();
 
-  await withFileCollaborationTransaction(async (transaction) => {
+  await withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    const nowMs = params.nowMs ?? Date.now();
     await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, paths);
     await initializeCopiedPostgresFileCollaborationPathScopes(transaction, {
       workspace: params.workspace,
@@ -485,9 +491,9 @@ export async function moveFileCollaborationPath(params: {
   const oldPath = normalizeWorkspacePath(params.oldPath);
   const newPath = normalizeWorkspacePath(params.newPath);
   if (oldPath === newPath) return;
-  const nowMs = params.nowMs ?? Date.now();
 
-  await withFileCollaborationTransaction(async (transaction) => {
+  await withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    const nowMs = params.nowMs ?? Date.now();
     await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [oldPath, newPath]);
     await movePostgresFileCollaborationPathScope(transaction, {
       workspace: params.workspace,
@@ -500,8 +506,9 @@ export async function moveFileCollaborationPath(params: {
 }
 
 function isSameActor(lock: FileLockRecord, userId?: string | null, sessionId?: string | null): boolean {
-  if (sessionId && lock.lockedBySessionId && lock.lockedBySessionId === sessionId) return true;
-  return Boolean(userId && lock.lockedByUserId && lock.lockedByUserId === userId);
+  if (!userId || userId !== lock.lockedByUserId) return false;
+  if (sessionId || lock.lockedBySessionId) return Boolean(sessionId && sessionId === lock.lockedBySessionId);
+  return true;
 }
 
 export async function assertFileCollaborationWriteAllowed(params: {
@@ -511,12 +518,13 @@ export async function assertFileCollaborationWriteAllowed(params: {
   actorSessionId?: string | null;
   actorType?: FileActorType;
   baseRevisionId?: string | null;
+  lockId?: string | null;
   nowMs?: number;
 }): Promise<FileCollaborationState> {
   const normalizedPath = normalizeWorkspacePath(params.path);
-  const nowMs = params.nowMs ?? Date.now();
 
-  return withFileCollaborationTransaction(async (transaction) => {
+  return withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    const nowMs = params.nowMs ?? Date.now();
     await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
     const lineage = await ensurePostgresActiveFileLineage(transaction, {
       id: `file-lineage-${randomUUID()}`,
@@ -573,6 +581,14 @@ export async function assertFileCollaborationWriteAllowed(params: {
       });
     }
 
+    if (isDocxPath(normalizedPath) && state.activeLock && params.lockId !== state.activeLock.id) {
+      throw new FileCollaborationPolicyError({
+        code: 'FILE_LOCK_STALE', status: 423,
+        message: 'The document lease is missing or has been replaced. Keep your draft and reopen the document.',
+        path: normalizedPath, activeLock: state.activeLock,
+      });
+    }
+
     if ((state.crdtCapable || state.sceneCapable) && state.document) {
       throw new FileCollaborationPolicyError({
         code: 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED',
@@ -604,10 +620,17 @@ export async function acquireFileLock(params: {
   nowMs?: number;
 }): Promise<{ lock: FileLockRecord; state: FileCollaborationState }> {
   const normalizedPath = normalizeWorkspacePath(params.path);
-  const nowMs = params.nowMs ?? Date.now();
-  const expiresAt = nowMs + normalizeLockTtl(params.ttlMs);
+  if (isDocxPath(normalizedPath) && !params.lockedBySessionId?.trim()) {
+    throw new FileCollaborationPolicyError({
+      code: 'FILE_LOCK_SESSION_REQUIRED', status: 423,
+      message: 'DOCX editing requires a unique editor or agent session.', path: normalizedPath,
+    });
+  }
 
-  return withFileCollaborationTransaction(async (transaction) => {
+  return withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    if (isDocxPath(normalizedPath)) await assertWorkspacePathHasNoAliases(params.workspace, normalizedPath);
+    const nowMs = params.nowMs ?? Date.now();
+    const expiresAt = nowMs + normalizeLockTtl(params.ttlMs);
     await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
     await expirePostgresFileLocksForPath(transaction, params.workspace.workspaceId, normalizedPath, nowMs);
     const lineage = await ensurePostgresActiveFileLineage(transaction, {
@@ -709,9 +732,9 @@ export async function releaseFileLock(params: {
   force?: boolean;
   nowMs?: number;
 }): Promise<FileLockRecord> {
-  const nowMs = params.nowMs ?? Date.now();
 
-  return withFileCollaborationTransaction(async (transaction) => {
+  return withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    const nowMs = params.nowMs ?? Date.now();
     const requestedPath = params.path ? normalizeWorkspacePath(params.path) : null;
     let lock = params.lockId
       ? await getPostgresFileLockById(transaction, params.workspace.workspaceId, params.lockId)
@@ -766,9 +789,78 @@ export async function expireActiveFileLocks(params: {
   nowMs?: number;
 }): Promise<void> {
   const normalizedPath = normalizeWorkspacePath(params.path);
-  const nowMs = params.nowMs ?? Date.now();
-  await withFileCollaborationTransaction(async (transaction) => {
+  await withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    const nowMs = params.nowMs ?? Date.now();
     await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
     await expirePostgresFileLocksForPath(transaction, params.workspace.workspaceId, normalizedPath, nowMs);
+  });
+}
+
+/** DOCX needs session safety in personal workspaces as well as shared ones. */
+export function isDocxPath(filePath: string): boolean {
+  return fileExtension(filePath) === 'docx';
+}
+
+function withWorkspaceCollaborationTransaction<T>(workspaceId: string, operation: (transaction: FileCollaborationTransaction) => Promise<T>): Promise<T> {
+  return withWorkspaceMutationLock(workspaceId, () => withFileCollaborationTransaction(operation));
+}
+
+/** A lease ID is an unguessable generation token; renewal never recreates it. */
+export async function renewFileLock(params: {
+  workspace: WorkspaceContext; path: string; actorUserId: string;
+  actorSessionId: string; lockId: string; ttlMs?: number; nowMs?: number;
+}): Promise<{ lock: FileLockRecord; state: FileCollaborationState }> {
+  const normalizedPath = normalizeWorkspacePath(params.path);
+  return withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    if (isDocxPath(normalizedPath)) await assertWorkspacePathHasNoAliases(params.workspace, normalizedPath);
+    const nowMs = params.nowMs ?? Date.now();
+    await lockFileCollaborationPaths(transaction, params.workspace.workspaceId, [normalizedPath]);
+    const current = await getPostgresActiveFileLock(transaction, params.workspace.workspaceId, normalizedPath, nowMs);
+    if (!current || current.id !== params.lockId || !isSameActor(current, params.actorUserId, params.actorSessionId)) {
+      throw new FileCollaborationPolicyError({
+        code: 'FILE_LOCK_STALE', status: 423, path: normalizedPath,
+        message: 'The document lease has expired or belongs to another session.', activeLock: current,
+      });
+    }
+    const lock = await refreshPostgresFileLock(transaction, current.id, nowMs + normalizeLockTtl(params.ttlMs), nowMs);
+    if (!lock) throw new Error('Document lease renewal failed.');
+    return { lock, state: await buildPostgresState({ transaction, workspace: params.workspace, path: normalizedPath, nowMs }) };
+  });
+}
+
+/** Path mutations cannot move/delete an open Office document, even for its user. */
+export async function assertNoActiveOfficeLeases(workspace: WorkspaceContext, paths: readonly string[]): Promise<void> {
+  const scopes = paths.map((entry) => normalizeWorkspaceRelativePath(entry)).map((entry) => entry === '.' ? '' : entry);
+  if (!scopes.length) return;
+  await withWorkspaceCollaborationTransaction(workspace.workspaceId, async (transaction) => {
+    for (const scope of scopes) await assertWorkspacePathHasNoAliases(workspace, scope || '.');
+    const nowMs = Date.now();
+    const rows = await transaction.all(
+      "SELECT DISTINCT path FROM file_locks WHERE workspace_id = $1 AND status = 'active' AND expires_at > $2",
+      [workspace.workspaceId, nowMs],
+    ) as Array<{ path: string }>;
+    for (const row of rows) {
+      if (!isDocxPath(row.path) || !scopes.some((scope) => !scope || row.path === scope || row.path.startsWith(`${scope}/`))) continue;
+      const lock = await getPostgresActiveFileLock(transaction, workspace.workspaceId, row.path, nowMs);
+      if (lock) throw new FileCollaborationPolicyError({
+        code: 'FILE_LOCKED', status: 423, path: row.path, activeLock: lock,
+        message: 'Close the active document editor before moving, deleting or replacing this path.',
+      });
+    }
+  });
+}
+
+/** Keep replaced copies discoverable at their former path without reviving them. */
+export async function remapArchivedFileCollaborationPaths(params: { workspace: WorkspaceContext; oldPath: string; newPath: string }): Promise<void> {
+  const oldPath = normalizeWorkspacePath(params.oldPath);
+  const newPath = normalizeWorkspacePath(params.newPath);
+  await withWorkspaceCollaborationTransaction(params.workspace.workspaceId, async (transaction) => {
+    await transaction.run(
+      `UPDATE file_collaboration_lineages
+       SET path = $3 || substring(path FROM char_length($2) + 1)
+       WHERE workspace_id = $1 AND status = 'archived'
+         AND (path = $2 OR left(path, char_length($2) + 1) = $2 || '/')`,
+      [params.workspace.workspaceId, oldPath, newPath],
+    );
   });
 }

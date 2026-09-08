@@ -87,8 +87,8 @@ function main(): void {
     assistant([{ type: 'text', text: 'old answer with replay' }], {
       codex_reasoning_items: [{ encrypted_content: 'r'.repeat(16_000) }],
     }),
-    call('skill-old', 'skill_view', { name: 'release-publisher' }),
-    result('skill-old', 'skill_view', `# Skill instructions\n${'important '.repeat(2_000)}`),
+    call('skill-old', 'read', { path: '/data/skills/release-publisher/SKILL.md' }),
+    result('skill-old', 'read', `# Skill instructions\n${'important '.repeat(2_000)}`),
     call('write-old', 'write', { path: 'large.txt', content: 'x'.repeat(12_000) }),
     result('write-old', 'write', 'saved'),
     imageResult('image-1'),
@@ -126,7 +126,8 @@ function main(): void {
   assert.match(textOf(pruned.messages[1]), /^\[Duplicate tool output/u);
   assert.equal(textOf(pruned.messages[13]), duplicateBody, 'the newest duplicate stays complete');
   assert.match(textOf(pruned.messages[4]), new RegExp(`^\\${PI_SKILL_PRUNED_MARKER_PREFIX}`, 'u'));
-  assert.match(textOf(pruned.messages[4]), /skill_view\(name='release-publisher'\)/u);
+  assert.match(textOf(pruned.messages[4]), /reading its SKILL\.md path listed under Enabled Skills/u);
+  assert.doesNotMatch(textOf(pruned.messages[4]), /skill_view/u);
   assert.equal(
     JSON.stringify((pruned.messages[5] as unknown as { content: unknown }).content).includes('x'.repeat(1_000)),
     false,

@@ -1,10 +1,11 @@
 'use client';
 
-import { Film, ImageIcon, Music2 } from 'lucide-react';
+import { useState } from 'react';
+import { ImageIcon } from 'lucide-react';
 
 import { ProviderEnvEditor } from '@/app/components/settings/ProviderEnvEditor';
+import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
 import type { ProviderHelpInfo } from '@/app/lib/pi/provider-help';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 type StudioMediaCredentialsPanelProps = {
   locale?: string;
@@ -54,33 +55,31 @@ export function StudioMediaCredentialsPanel({
   managedControlPlaneAvailable = false,
 }: StudioMediaCredentialsPanelProps) {
   const copy = locale?.toLowerCase().startsWith('de') ? COPY.de : COPY.en;
+  const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <Card id="studio-media-credentials" className="scroll-mt-6">
-      <CardHeader className="border-b bg-muted/20">
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <span className="flex items-center gap-1 text-primary" aria-hidden="true">
-            <ImageIcon className="h-4 w-4" />
-            <Film className="h-4 w-4" />
-            <Music2 className="h-4 w-4" />
-          </span>
-          {copy.title}
-        </CardTitle>
-        <CardDescription className="mt-1">{copy.description}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
-          <p className="font-medium text-foreground">{copy.capabilities}</p>
-          <p className="mt-1 leading-5">
-            {managedControlPlaneAvailable ? copy.managed : copy.selfHosted}
-          </p>
-        </div>
-        <ProviderEnvEditor
-          providerId="studio-media"
-          envVars={STUDIO_MEDIA_ENV_VARS}
-          credentialScope="system"
-        />
-      </CardContent>
-    </Card>
+    <SettingsAccordionCard
+      id="studio-media-credentials"
+      title={copy.title}
+      description={copy.description}
+      icon={ImageIcon}
+      isOpen={isOpen}
+      onOpenChange={setIsOpen}
+      summaryItems={[copy.capabilities]}
+      cardClassName="scroll-mt-6"
+      contentClassName="space-y-4"
+    >
+      <div className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
+        <p className="font-medium text-foreground">{copy.capabilities}</p>
+        <p className="mt-1 leading-5">
+          {managedControlPlaneAvailable ? copy.managed : copy.selfHosted}
+        </p>
+      </div>
+      <ProviderEnvEditor
+        providerId="studio-media"
+        envVars={STUDIO_MEDIA_ENV_VARS}
+        credentialScope="system"
+      />
+    </SettingsAccordionCard>
   );
 }

@@ -95,7 +95,7 @@ function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'memory') return 'Memory';
   if (toolName === 'browser') return 'Browser';
   if (toolName === 'transcribe_audio') return 'Audio';
-  if (['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages'].includes(toolName)) return 'Documents';
+  if (['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages', 'checkout_docx', 'commit_docx', 'inspect_docx_checkout', 'release_docx_checkout'].includes(toolName)) return 'Documents';
   if (toolName === 'email' || toolName.startsWith('email_')) return 'Email';
   if (toolName === 'canvas_extensions' || toolName.includes('canvas_skill') || toolName.includes('canvas_plugin')) return 'Skills';
   if (toolName === 'automation_manage' || toolName.includes('automation_job')) return 'Automation';
@@ -157,8 +157,13 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
     notes.push('Requires GROQ_API_KEY configured under /settings?tab=integrations.');
   }
   if (group === 'Documents') {
-    notes.push('Reads and writes PDF or Markdown files inside the active workspace. Existing outputs require an explicit overwrite flag and their current SHA-256 revision.');
-    notes.push('PDF creation uses the same styled Chromium renderer as Share PDF. PDF-to-Markdown preserves semantic structure where the source exposes it, but scanned pages may require OCR.');
+    if (tool.name.includes('docx')) {
+      notes.push('DOCX edits use a session working copy, a server-held original revision and an exclusive lease; commits validate the complete package and preserve conflicts for recovery.');
+      notes.push('Shell/Python can write only scratch files. Use checkout_docx and commit_docx to create or update the workspace document.');
+    } else {
+      notes.push('Reads and writes PDF or Markdown files inside the active workspace. Existing outputs require an explicit overwrite flag and their current SHA-256 revision.');
+      notes.push('PDF creation uses the same styled Chromium renderer as Share PDF. PDF-to-Markdown preserves semantic structure where the source exposes it, but scanned pages may require OCR.');
+    }
   }
   if (group === 'Session') {
     notes.push('Read-only access to this user and agent session history.');

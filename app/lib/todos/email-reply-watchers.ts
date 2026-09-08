@@ -10,6 +10,10 @@ import {
   todoEmailReplyEvents,
   todoEmailReplyWatchers,
 } from '@/app/lib/db/schema';
+import {
+  resolveProviderMessageIdentity,
+  type ProviderMessageIdentity,
+} from '@/app/lib/email/provider-message-identity';
 import { readEmailMessage, listEmailMessages } from '@/app/lib/email/service';
 import { sendFollowUpMessage } from '@/app/lib/pi/runtime-service';
 import { assertUnambiguousOwnedPiSessionForRuntime } from '@/app/lib/pi/session-runtime-access';
@@ -33,6 +37,8 @@ type EmailListMessage = {
   subject?: string;
   date?: string;
   snippet?: string;
+  uid?: string;
+  uidValidity?: string;
 };
 
 type EmailReadMessage = EmailListMessage & {
@@ -87,13 +93,20 @@ function normalizeText(value: unknown, maxLength: number): string | null {
   return normalized ? normalized.slice(0, maxLength) : null;
 }
 
-function normalizeEmailListMessage(value: unknown): EmailListMessage | null {
+function normalizeEmailListMessage(value: unknown, listUidValidity?: unknown): EmailListMessage | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   const id = typeof record.id === 'string' && record.id.trim()
     ? record.id.trim()
     : typeof record.uid === 'string' && record.uid.trim() ? record.uid.trim() : null;
   if (!id) return null;
+  const uid = typeof record.uid === 'number' && Number.isSafeInteger(record.uid)
+    ? String(record.uid)
+    : normalizeText(record.uid, 20);
+  const rawUidValidity = record.uidValidity ?? listUidValidity;
+  const uidValidity = typeof rawUidValidity === 'number' && Number.isSafeInteger(rawUidValidity)
+    ? String(rawUidValidity)
+    : normalizeText(rawUidValidity, 20);
 
   return {
     id,
@@ -103,6 +116,8 @@ function normalizeEmailListMessage(value: unknown): EmailListMessage | null {
     subject: normalizeText(record.subject, 500) || undefined,
     date: normalizeText(record.date, 120) || undefined,
     snippet: normalizeText(record.snippet, 1000) || undefined,
+    uid: uid || undefined,
+    uidValidity: uidValidity || undefined,
   };
 }
 
@@ -130,8 +145,15 @@ function normalizeEmailReadMessage(value: unknown, fallback: EmailListMessage): 
 }
 
 function providerMessageKey(message: EmailListMessage): string {
-  const folder = (message.folder || 'INBOX').trim() || 'INBOX';
-  return `${folder}:${message.id}`;
+  const identity = resolveProviderMessageIdentity(message);
+  return `${identity.folder}:${identity.canonicalId}`;
+}
+
+function legacyProviderMessageKey(message: EmailListMessage): string | null {
+  const identity = resolveProviderMessageIdentity(message);
+  return identity.isImap && identity.legacyId
+    ? `${identity.folder}:${identity.legacyId}`
+    : null;
 }
 
 function includesCaseInsensitive(value: string | null | undefined, needle: string): boolean {
@@ -308,6 +330,58 @@ async function getExistingEvent(watcherId: string, accountId: string, providerMe
   return event ?? null;
 }
 
+function legacyReplyEventMatches(
+  event: TodoEmailReplyEvent,
+  message: EmailReadMessage,
+  identity: ProviderMessageIdentity,
+  replyText: string,
+): boolean {
+  const receivedAt = parseDate(message.date);
+  const fromAddress = normalizeText(message.from, 500);
+  const subject = normalizeText(message.subject, 500);
+  const threadId = normalizeText(message.threadId, 500);
+  if (!identity.isImap || !receivedAt || !fromAddress || !subject || !threadId) return false;
+  return event.folder === identity.folder
+    && event.receivedAt?.getTime() === receivedAt.getTime()
+    && event.fromAddress === fromAddress
+    && event.subject === subject
+    && event.threadId === threadId
+    && (event.replyText || '') === replyText;
+}
+
+async function migrateMatchingLegacyReplyEvent(input: {
+  watcher: TodoEmailReplyWatcher;
+  message: EmailReadMessage;
+  canonicalProviderMessageId: string;
+  replyText: string;
+}): Promise<boolean> {
+  const identity = resolveProviderMessageIdentity(input.message);
+  const legacyProviderMessageId = legacyProviderMessageKey(input.message);
+  if (!legacyProviderMessageId || legacyProviderMessageId === input.canonicalProviderMessageId) return false;
+  const legacy = await getExistingEvent(input.watcher.id, input.watcher.accountId, legacyProviderMessageId);
+  if (!legacy || !legacyReplyEventMatches(legacy, input.message, identity, input.replyText)) return false;
+
+  try {
+    const migrated = await db
+      .update(todoEmailReplyEvents)
+      .set({
+        providerMessageId: input.canonicalProviderMessageId,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(todoEmailReplyEvents.id, legacy.id),
+        eq(todoEmailReplyEvents.providerMessageId, legacyProviderMessageId),
+      ))
+      .returning({ id: todoEmailReplyEvents.id });
+    return migrated.length > 0;
+  } catch (error) {
+    if (await getExistingEvent(input.watcher.id, input.watcher.accountId, input.canonicalProviderMessageId)) {
+      return true;
+    }
+    throw error;
+  }
+}
+
 async function createReplyEvent(params: {
   watcher: TodoEmailReplyWatcher;
   message: EmailReadMessage;
@@ -337,8 +411,8 @@ async function createReplyEvent(params: {
     dispatchedAt: null,
     createdAt: now,
     updatedAt: now,
-  }).returning();
-  return created;
+  }).onConflictDoNothing().returning();
+  return created ?? null;
 }
 
 async function markReplyEvent(eventId: string, status: 'dispatched' | 'failed', values: { error?: string | null } = {}): Promise<void> {
@@ -407,6 +481,14 @@ async function processMessageCandidate(watcher: TodoEmailReplyWatcher, candidate
   }
 
   const replyText = extractTodoEmailReplyText(readMessage.body || readMessage.snippet || '', watcher.replyToken);
+  if (await migrateMatchingLegacyReplyEvent({
+    watcher,
+    message: readMessage,
+    canonicalProviderMessageId: providerMessageId,
+    replyText,
+  })) {
+    return 'skipped';
+  }
   if (!replyText) {
     const event = await createReplyEvent({ watcher, message: readMessage, providerMessageId, replyText: '' });
     if (event) {
@@ -443,10 +525,13 @@ async function pollWatcher(watcher: TodoEmailReplyWatcher): Promise<'processed' 
     query: watcher.replyToken,
     limit: MAX_MESSAGES_PER_WATCHER,
   });
-  const rawMessages = Array.isArray((searchResult as { messages?: unknown[] }).messages)
-    ? (searchResult as { messages: unknown[] }).messages
+  const typedSearchResult = searchResult as { messages?: unknown[]; uidValidity?: unknown };
+  const rawMessages = Array.isArray(typedSearchResult.messages)
+    ? typedSearchResult.messages
     : [];
-  const candidates = rawMessages.map(normalizeEmailListMessage).filter((entry): entry is EmailListMessage => Boolean(entry));
+  const candidates = rawMessages
+    .map((message) => normalizeEmailListMessage(message, typedSearchResult.uidValidity))
+    .filter((entry): entry is EmailListMessage => Boolean(entry));
 
   for (const candidate of candidates) {
     const result = await processMessageCandidate(watcher, candidate);

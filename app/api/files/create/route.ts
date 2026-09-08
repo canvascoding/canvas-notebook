@@ -1,3 +1,7 @@
+import { WorkspacePathAliasError } from '@/app/lib/workspaces/path-guard';
+import { randomUUID } from 'node:crypto';
+import { createEmptyDocx } from '@/app/lib/office/empty-docx';
+import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { createDirectoryIfAbsent, writeFileIfAbsent } from '@/app/lib/filesystem/workspace-files';
@@ -12,6 +16,7 @@ import {
   FileCollaborationPolicyError,
   assertFileCollaborationWriteAllowed,
   ensureFileRevisionForCurrentContent,
+  isDocxPath,
 } from '@/app/lib/files/collaboration-policy';
 import {
   applyRateLimit,
@@ -49,6 +54,12 @@ export async function POST(request: NextRequest) {
 
     if (type === 'directory') {
       await createDirectoryIfAbsent(path, fileOptions);
+    } else if (type === 'file' && isDocxPath(path)) {
+      await writeWorkspaceFileContent({
+        workspace: workspaceResult.workspace, fileOptions, actorUserId: workspaceResult.session.user.id,
+        actorSessionId: randomUUID(), path, content: await createEmptyDocx(), createOnly: true,
+        idempotencyKey: randomUUID(), signal: request.signal,
+      });
     } else if (type === 'file') {
       await assertWorkspaceFileRevisionAllowed({
         path,
@@ -111,6 +122,7 @@ export async function POST(request: NextRequest) {
 
     return jsonSuccess();
   } catch (error) {
+    if (error instanceof WorkspacePathAliasError) return jsonError(error.message, error.status, { code: error.code });
     if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') {
       return jsonError('A file or folder already exists at this path.', 409, { code: 'PATH_EXISTS' });
     }

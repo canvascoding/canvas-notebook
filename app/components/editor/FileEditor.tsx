@@ -49,6 +49,8 @@ const OfficeEditor = dynamic(() => import('./OfficeEditor').then(mod => mod.Offi
   ),
 });
 
+const DocxWorkspaceEditor = dynamic(() => import('./DocxWorkspaceEditor').then(mod => mod.DocxWorkspaceEditor), { ssr: false });
+
 const ExcalidrawEditor = dynamic(() => import('./ExcalidrawEditor').then(mod => mod.ExcalidrawEditor), {
   ssr: false,
   loading: () => (
@@ -622,7 +624,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [currentFile, clear, setActiveFile]);
 
   useEffect(() => {
-    if (currentFile?.collaboration?.crdtCapable || currentFile?.collaboration?.sceneCapable) {
+    if (getExtension(currentFile?.path ?? '') === 'docx' || currentFile?.collaboration?.crdtCapable || currentFile?.collaboration?.sceneCapable) {
       if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
       return;
     }
@@ -665,7 +667,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         window.clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [activeExternalTextChangePath, activePath, currentFile?.collaboration?.crdtCapable, currentFile?.collaboration?.sceneCapable, draft, handleSaveError, isDirty, markSaved, markSaving, saveTrackedFile, setSaveError]);
+  }, [activeExternalTextChangePath, activePath, currentFile?.path, currentFile?.collaboration?.crdtCapable, currentFile?.collaboration?.sceneCapable, draft, handleSaveError, isDirty, markSaved, markSaving, saveTrackedFile, setSaveError]);
 
   const extension = useMemo(() => {
     if (!currentFile) return '';
@@ -916,7 +918,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [activeExternalTextChange, saveTrackedFile, setSaveError, t]);
 
   useEffect(() => {
-    if (!currentFilePath || isSceneCollaboration) return;
+    if (!currentFilePath || getExtension(currentFilePath) === 'docx' || isSceneCollaboration) return;
     return registerDocumentTransitionGuard(currentFileWorkspaceId, currentFilePath, {
       hasPendingChanges: () => useEditorStore.getState().isDirty || Boolean(
         isCrdtCollaboration && activeCollaborationDocument?.durability !== 'checkpointed_file',
@@ -959,6 +961,11 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         const { activePath: pathToSave, draft: contentToSave } =
           useEditorStore.getState();
         if (!pathToSave) return;
+        if (getExtension(pathToSave) === 'docx') {
+          const guard = getDocumentTransitionGuard(currentFileWorkspaceId, pathToSave);
+          if (guard) void guard.prepare().catch((error) => toast.error(getSaveErrorMessage(error)));
+          return;
+        }
         if (isSceneCollaboration && currentFilePath === pathToSave) return;
         if (isCrdtCollaboration && currentFilePath === pathToSave) {
           if (!activeCollaborationDocument) {
@@ -995,7 +1002,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [activeCollaborationDocument, activeExternalTextChangePath, currentFilePath, getSaveErrorMessage, handleSaveError, isCrdtCollaboration, isSceneCollaboration, markSaved, markSaving, saveTrackedFile, setSaveError, t]);
+  }, [activeCollaborationDocument, activeExternalTextChangePath, currentFilePath, currentFileWorkspaceId, getSaveErrorMessage, handleSaveError, isCrdtCollaboration, isSceneCollaboration, markSaved, markSaving, saveTrackedFile, setSaveError, t]);
 
   useEffect(() => {
     if (!isImage) return;
@@ -1479,6 +1486,8 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                 </>
               )}
             </div>
+          ) : extension === 'docx' ? (
+            <DocxWorkspaceEditor key={`${currentFileWorkspaceId}:${currentFile.path}`} path={currentFile.path} workspaceId={currentFileWorkspaceId} />
           ) : isOffice ? (
             <OfficeEditor 
               key={currentFile.path} 

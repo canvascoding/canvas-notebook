@@ -183,13 +183,13 @@ export async function moveWorkspaceFileMetadataOnConnection(
     await database.run(`
       DELETE FROM ${table}
       WHERE workspace_id = ?
-        AND (path = ? OR left(path, length(?) + 1) = ? || '/')
+        AND (path = ? OR substr(path, 1, length(?) + 1) = ? || '/')
     `, [params.workspaceId, params.newPath, params.newPath, params.newPath]);
     await database.run(`
       UPDATE ${table}
       SET path = ? || substr(path, length(?) + 1)
       WHERE workspace_id = ?
-        AND (path = ? OR left(path, length(?) + 1) = ? || '/')
+        AND (path = ? OR substr(path, 1, length(?) + 1) = ? || '/')
     `, [params.newPath, params.oldPath, params.workspaceId, params.oldPath, params.oldPath, params.oldPath]);
   }
 }
@@ -206,7 +206,7 @@ export async function deleteWorkspaceFileMetadata(params: {
         await database.run(`
           DELETE FROM ${table}
           WHERE workspace_id = ?
-            AND (path = ? OR left(path, length(?) + 1) = ? || '/')
+            AND (path = ? OR substr(path, 1, length(?) + 1) = ? || '/')
         `, [params.workspace.workspaceId, filePath, filePath, filePath]);
       }
       await database.run('COMMIT');

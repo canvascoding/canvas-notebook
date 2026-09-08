@@ -1118,23 +1118,6 @@ export default function CanvasAgentChat({
           reserved: formatContextTokens(Math.max(0, contextStatusDisplay.contextWindow - contextStatusDisplay.availableTokens)),
         })
         : t('noSessionYet');
-  const contextProgressPercent = Math.min(100, Math.max(0,
-    contextStatusDisplay.source === 'pressure'
-      ? contextStatusDisplay.percentOfTrigger
-      : contextStatusDisplay.source === 'next_request' || contextStatusDisplay.source === 'actual'
-      ? Math.round((contextStatusDisplay.usedTokens / Math.max(1, contextStatusDisplay.contextWindow)) * 100)
-      : contextStatusDisplay.source === 'history'
-        ? contextStatusDisplay.percent
-        : 0,
-  ));
-  const contextTargetPercent = contextStatusDisplay.source === 'pressure'
-    ? Math.min(
-      100,
-      Math.max(0, Math.round(
-        (contextStatusDisplay.targetTokens / Math.max(1, contextStatusDisplay.triggerTokens)) * 100,
-      )),
-    )
-    : null;
   const sessionDisplayLabel = getSessionDisplayTitle(sessionTitle, t('newChatTitle'));
   const hasComposerContent = Boolean(input.trim()) || attachments.length > 0;
   const primaryActionIsStop = isRuntimeBusy && !hasComposerContent;
@@ -1333,8 +1316,6 @@ export default function CanvasAgentChat({
         activeSessionAgentId={activeSessionAgentId}
         chatAgentOptions={chatAgentOptions}
         contextDetailedLabel={contextDetailedLabel}
-        contextProgressPercent={contextProgressPercent}
-        contextTargetPercent={contextTargetPercent}
         contextTooltip={contextTooltip}
         hideNavHeader={hideNavHeader}
         isHistoryOverlayOpen={isHistoryOverlayOpen}

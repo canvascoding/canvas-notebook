@@ -61,24 +61,46 @@ test.describe('Memory Manager settings', () => {
       await expect(page.getByTestId('memory-reviewer-settings')).toHaveCount(0);
       await expect(page.getByLabel('Organization provider')).toHaveCount(0);
     }
-    await expect(page.getByRole('button', { name: 'Import JSON' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Delete all private memory' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Import JSON' })).toHaveCount(0);
+    await page.getByTestId('private-memory-actions').click();
+    await expect(page.getByRole('menuitem', { name: 'Import JSON' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Delete all private memory' })).toBeVisible();
+    await page.keyboard.press('Escape');
     await expect(page.locator('#new-memory-priority')).toHaveValue('70');
     await expect(page.getByText(/Important\. Higher values are selected earlier/i)).toBeVisible();
     await expect(page.getByText('Loading memory…')).not.toBeVisible();
 
     const workspaceTab = scopeTabs.getByRole('button', { name: 'Workspace' });
     await expect(workspaceTab).toBeEnabled();
+    const activeWorkspaceBefore = await page.evaluate(() => window.localStorage.getItem('canvas.activeWorkspaceId'));
     await workspaceTab.click();
     await expect(page.getByTestId('workspace-memory-owner-card')).toBeVisible();
-    await expect(page.getByTestId('workspace-memory-owner-select')).not.toHaveValue('');
+    const workspaceOwnerSelect = page.getByTestId('workspace-memory-owner-select');
+    await expect(workspaceOwnerSelect).toBeVisible();
+    await expect(workspaceOwnerSelect).toContainText(/memories?/i);
+    await expect(workspaceOwnerSelect.locator('[data-workspace-color]')).toHaveCount(1);
     await expect(page).toHaveURL(/scope=workspace/u);
+    await expect(page).toHaveURL(/memoryWorkspaceId=/u);
+    await expect(page).not.toHaveURL(/[?&]workspaceId=/u);
+    expect(await page.evaluate(() => window.localStorage.getItem('canvas.activeWorkspaceId'))).toBe(activeWorkspaceBefore);
+
+    await workspaceOwnerSelect.click();
+    const alternateWorkspace = page.locator('[data-testid="workspace-memory-owner-select-option"][data-current="false"]');
+    if (await alternateWorkspace.count()) {
+      await alternateWorkspace.first().click();
+      await expect(page).toHaveURL(/memoryWorkspaceId=/u);
+      expect(await page.evaluate(() => window.localStorage.getItem('canvas.activeWorkspaceId'))).toBe(activeWorkspaceBefore);
+    } else {
+      await page.keyboard.press('Escape');
+    }
 
     await scopeTabs.getByRole('button', { name: 'Agent memory' }).click();
     await expect(page.getByText('Agent memory owner', { exact: true })).toBeVisible();
     await expect(page.getByTestId('agent-memory-owner-card')).toBeVisible();
-    await expect(page.getByTestId('agent-memory-owner-select')).toBeVisible();
-    await expect(page.getByTestId('agent-memory-owner-select')).not.toHaveValue('');
+    const agentOwnerSelect = page.getByTestId('agent-memory-owner-select');
+    await expect(agentOwnerSelect).toBeVisible();
+    await expect(agentOwnerSelect).toContainText(/memories?/i);
+    await expect(agentOwnerSelect.locator('[data-agent-icon-id]')).toHaveCount(1);
     await expect(page.getByText('Loading memory…')).not.toBeVisible();
 
     const missingAgentResponse = await page.request.get('/api/memory?scope=agent');
@@ -181,11 +203,13 @@ test.describe('Memory Manager settings', () => {
 
     await contextCategory.click();
 
-    const selectedCategory = page.getByTestId('selected-memory-category');
+    const selectedCategory = contextCategory.locator('..');
     await expect(selectedCategory).toBeVisible();
-    await expect(selectedCategory.getByText('Ausgewählter Memory-Bereich', { exact: true })).toBeVisible();
+    await expect(contextCategory).toHaveAttribute('aria-pressed', 'true');
     await expect(selectedCategory.getByText('Kontext', { exact: true })).toBeVisible();
     await expect(selectedCategory.getByText('Gemeinsamer, dauerhaft relevanter Kontext.', { exact: true })).toBeVisible();
+    await expect(selectedCategory.getByRole('button', { name: 'Kategorie exportieren' })).toBeVisible();
+    await expect(page.getByTestId('selected-memory-category')).toHaveCount(0);
     const renderedMemory = page.getByTestId('memory-markdown-content').filter({ hasText: 'UI-Neustartprüfung' }).first();
     await expect(renderedMemory).toBeVisible();
     await expect(renderedMemory.locator('strong')).toHaveText('UI-Neustartprüfung');

@@ -97,7 +97,7 @@ async function main() {
   const { getManagedEmailUserId } = await import('../app/lib/email/managed-client');
   const { emailAccountSecretRef, readEmailAccountSecret, writeEmailAccountSecret } = await import('../app/lib/email/secret-store');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-service');
-  const { setImapClientFactoryForTests } = await import('../app/lib/email/imap-service');
+  const { parseImapMessageReference, setImapClientFactoryForTests } = await import('../app/lib/email/imap-service');
 
   await insertUser('owner-user', 'owner@example.test');
   await writeLegacyAccounts([legacyAccount()]);
@@ -408,6 +408,7 @@ async function main() {
     }],
   ]);
   setImapClientFactoryForTests(() => ({
+    mailbox: { uidValidity: BigInt(77) },
     connect: async () => {
       imapConnectCalls += 1;
     },
@@ -544,7 +545,12 @@ async function main() {
   assert.equal((searchResult as { account?: { id?: string } }).account?.id, smtpImapAccount.id);
   const searchMessages = (searchResult as { messages?: Array<{ id: string; from: string; snippet: string }> }).messages || [];
   assert.equal(searchMessages.length, 1);
-  assert.equal(searchMessages[0].id, '1002');
+  assert.deepEqual(parseImapMessageReference(searchMessages[0].id), {
+    version: 1,
+    folder: 'INBOX',
+    uidValidity: '77',
+    uid: 1002,
+  });
   assert.match(searchMessages[0].from, /allowed@example\.test/u);
   assert.match(searchMessages[0].snippet, /Allowed body text/u);
   assert.equal(imapReleaseCalls, 1);

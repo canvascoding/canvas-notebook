@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { SqlConnection } from '@/app/lib/db';
+import { sqliteFileCollaborationConnection } from './sqlite-connection';
 
 import type { FileCollaborationTransaction } from './types';
 
@@ -19,8 +20,9 @@ export function setFileCollaborationConnectionFactoryForTests(
 
 async function openRuntimeDatabaseConnection(): Promise<SqlConnection> {
   if (testConnectionFactory) return testConnectionFactory();
-  const { openDb } = await import('@/app/lib/db');
-  return openDb();
+  const { openDb, getDatabaseProvider } = await import('@/app/lib/db');
+  const connection = await openDb();
+  return getDatabaseProvider() === 'sqlite' ? sqliteFileCollaborationConnection(connection) : connection;
 }
 
 export async function withFileCollaborationTransaction<T>(

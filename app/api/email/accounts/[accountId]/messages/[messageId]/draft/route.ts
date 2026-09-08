@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { isImapMailboxChangedError } from '@/app/lib/email/imap-service';
 import { createEmailDerivedDraft } from '@/app/lib/email/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -36,6 +37,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const data = await createEmailDerivedDraft(session.user.id, accountId, messageId, folder, mode, undefined, { enforceReadPolicy: false });
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (isImapMailboxChangedError(error)) {
+      return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : 'Failed to create email draft';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }

@@ -5,6 +5,7 @@ import { trashWorkspacePaths } from '@/app/lib/filesystem/workspace-trash';
 import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-file-shares';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { archiveFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -43,19 +44,17 @@ export async function DELETE(request: NextRequest) {
       return jsonError(`Protected app output folder(s) cannot be deleted: ${protectedPaths.join(', ')}`, 403);
     }
 
-    const result = await trashWorkspacePaths({
-      workspace: workspaceResult.workspace,
-      paths: pathsToDelete,
-      deletedByUserId: workspaceResult.session.user.id,
+    const result = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
+      const trashed = await trashWorkspacePaths({
+        workspace: workspaceResult.workspace, paths: pathsToDelete, deletedByUserId: workspaceResult.session.user.id,
+      });
+      await archiveFileCollaborationPaths({
+        workspace: workspaceResult.workspace,
+        paths: trashed.trashed.map((entry) => ({ path: entry.originalPath, trashEntryId: entry.id })),
+      });
+      return trashed;
     });
     const deletedPaths = result.trashed.map((entry) => entry.originalPath);
-    await archiveFileCollaborationPaths({
-      workspace: workspaceResult.workspace,
-      paths: result.trashed.map((entry) => ({
-        path: entry.originalPath,
-        trashEntryId: entry.id,
-      })),
-    });
     await syncPublicSharesAfterDelete(deletedPaths, workspaceResult.workspace);
 
     invalidateWorkspaceFileViews({

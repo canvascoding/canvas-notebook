@@ -204,6 +204,8 @@ const skills: CanvasSkill[] = [
 ];
 const skillsContext = getSkillsContext(skills);
 assert.match(skillsContext, /# Enabled Skills/);
+assert.match(skillsContext, /Load only skills relevant to the current task\./);
+assert.match(skillsContext, /read its listed SKILL\.md with the read tool/);
 assert.match(skillsContext, /## Skill: pdf/);
 assert.match(skillsContext, /Description: Use when working with PDF files\./);
 assert.match(skillsContext, /Path: \/data\/skills\/pdf\/SKILL\.md/);

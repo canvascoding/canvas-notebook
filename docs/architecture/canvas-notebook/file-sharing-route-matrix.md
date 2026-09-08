@@ -1,6 +1,8 @@
 # Routen-Matrix: Dateifreigaben und Markdown-Gäste
 
 Stand: Implementierungsschritte 1–5 auf `codex/file-sharing-and-markdown-guests`.
+`origin/main` bis `f2724821` ist integriert; die genannten Freigabe- und
+Kollaborationsprüfungen sowie der Produktionsbuild wurden danach erneut ausgeführt.
 Die automatisierten Prüfungen arbeiten mit isolierten SQLite-/PGlite-Datenbanken
 und direkten Route-Aufrufen bzw. einem Loopback-WebSocket-Testserver. Sie sind
 keine Behauptung, dass die UI-Abnahme im tatsächlichen App-Stack bereits erfolgt ist.

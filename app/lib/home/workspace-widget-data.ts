@@ -59,57 +59,6 @@ function timestamp(value: string | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export async function loadHomeWidgetEmails(fetcher: Fetcher, signal?: AbortSignal): Promise<HomeWidgetEmail[]> {
-  const accountsPayload = await readJson<{ accounts?: Array<{ id?: string; emailAddress?: string; displayName?: string }> }>(
-    fetcher,
-    '/api/email/accounts',
-    { credentials: 'include', cache: 'no-store', signal },
-  );
-  const accounts = (accountsPayload.accounts ?? []).filter((account): account is { id: string; emailAddress?: string; displayName?: string } => Boolean(account.id));
-  if (accounts.length === 0) return [];
-
-  const accountResults = await Promise.allSettled(accounts.map(async (account) => {
-    const foldersPayload = await readJson<{ folders?: Array<{ path?: string; role?: string }> }>(
-      fetcher,
-      `/api/email/folders?accountId=${encodeURIComponent(account.id)}`,
-      { credentials: 'include', cache: 'no-store', signal },
-    );
-    const folder = foldersPayload.folders?.find((candidate) => candidate.role === 'inbox')?.path;
-    const messagesPayload = await readJson<{ messages?: Array<{ id?: string; folder?: string; from?: string; subject?: string; date?: string; isRead?: boolean }> }>(
-      fetcher,
-      '/api/email/messages/list',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        cache: 'no-store',
-        signal,
-        body: JSON.stringify({ accountId: account.id, ...(folder ? { folder } : {}), filter: 'unread', limit: 3 }),
-      },
-    );
-    const accountLabel = account.displayName?.trim() || account.emailAddress?.trim() || account.id;
-    return (messagesPayload.messages ?? [])
-      .filter((message): message is typeof message & { id: string } => Boolean(message.id) && message.isRead === false)
-      .map((message) => ({
-        id: message.id,
-        accountId: account.id,
-        accountLabel,
-        ...(message.folder || folder ? { folder: message.folder || folder } : {}),
-        from: message.from?.trim() || '',
-        subject: message.subject?.trim() || '',
-        date: message.date || null,
-      }));
-  }));
-
-  if (accountResults.every((result) => result.status === 'rejected')) {
-    throw new Error('Email widget data could not be loaded.');
-  }
-  return accountResults
-    .flatMap((result) => result.status === 'fulfilled' ? result.value : [])
-    .sort((a, b) => timestamp(b.date) - timestamp(a.date))
-    .slice(0, 3);
-}
-
 export async function loadHomeWidgetTodos(fetcher: Fetcher, workspaceId: string, signal?: AbortSignal): Promise<HomeWidgetTodo[]> {
   const params = new URLSearchParams({ workspaceId, scope: 'workspace', status: 'active', limit: '3' });
   const todos = await readJson<Array<{ id: string; title: string; priority?: string; dueAt?: string | null; readState?: string }>>(

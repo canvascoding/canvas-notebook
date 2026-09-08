@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { emailAiRequestBodyErrorStatus, readEmailAiJsonObject } from '@/app/lib/email/ai-request-body';
 import { requireEmailAiRouteSession } from '@/app/lib/email/ai-route-guard';
+import { isImapMailboxChangedError } from '@/app/lib/email/imap-service';
 import { createEmailAiReplyDraft } from '@/app/lib/email/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -30,6 +31,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     );
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (isImapMailboxChangedError(error)) {
+      return NextResponse.json(
+        { success: false, code: error.code, error: error.message },
+        { status: error.status },
+      );
+    }
     const message = error instanceof Error ? error.message : 'Failed to create AI reply draft';
     return NextResponse.json(
       { success: false, error: message },

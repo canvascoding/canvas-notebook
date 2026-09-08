@@ -31,6 +31,8 @@ import {
 } from '@/app/lib/pi/history-budget';
 import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
 import { createPiRuntimeContextStatusProjection } from '@/app/lib/pi/runtime-context-status';
+import { ContextStatusMeasurementCache, measurePiContextStatus } from '@/app/lib/pi/context-status-measurement';
+import { measureStoredPiContextStatus } from '@/app/lib/pi/stored-context-measurement';
 import { withPiProviderOverflowRecovery } from '@/app/lib/pi/provider-overflow-recovery';
 import type { PiMessageNormalizationOptions } from '@/app/lib/pi/message-normalization';
 import {
@@ -101,6 +103,7 @@ import { createToolLoopGuard } from '@/app/lib/pi/tool-loop-guard';
 import {
   IDLE_RUNTIME_COMPACTION_STATUS,
   type RuntimeContextPressure,
+  type RuntimeContextMeasurement,
   type RuntimeCompactionStatus,
 } from '@/app/lib/chat/runtime-status';
 import {
@@ -232,6 +235,7 @@ export type PiRuntimeStatus = {
   nextRequestBudgetExceeded?: boolean;
   nextRequestEstimateSource?: 'rough_estimate' | 'serialized_request' | null;
   contextPressure?: RuntimeContextPressure;
+  contextMeasurement?: RuntimeContextMeasurement;
   includedSummary: boolean;
   omittedMessageCount: number;
   summaryUpdatedAt: string | null;
@@ -467,6 +471,7 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
     nextRequestBudgetExceeded: status.nextRequestBudgetExceeded,
     nextRequestEstimateSource: status.nextRequestEstimateSource,
     contextPressure: status.contextPressure,
+    contextMeasurement: status.contextMeasurement,
     includedSummary: status.includedSummary,
     omittedMessageCount: status.omittedMessageCount,
     summaryUpdatedAt: status.summaryUpdatedAt,
@@ -506,6 +511,7 @@ export class LivePiRuntime {
   private isRunning = false;
   private summary: PiSessionSummaryState;
   private lastComposition: PiHistoryComposition | null = null;
+  private contextMeasurementCache?: ContextStatusMeasurementCache;
   private lastFinalPayloadBudgetSnapshot: PiContextBudgetSnapshot | null = null;
   private preparedRuntimePayload: PreparedRuntimePayload | null = null;
   private lastProviderUsageCalibration: PiProviderUsageCalibrationEvidence | null = null;
@@ -594,11 +600,64 @@ export class LivePiRuntime {
   }
 
   private invalidateContextBudget(): void {
+    this.invalidateContextMeasurement();
     this.compactionGeneration += 1;
     invalidatePiSessionCompaction(this.getCompactionScope());
     this.lastComposition = null;
     this.lastFinalPayloadBudgetSnapshot = null;
     this.preparedRuntimePayload = null;
+  }
+
+  private getContextMeasurementCache(): ContextStatusMeasurementCache {
+    return this.contextMeasurementCache ??= new ContextStatusMeasurementCache();
+  }
+
+  private invalidateContextMeasurement(): void {
+    this.getContextMeasurementCache().invalidate();
+    this.lastComposition = null;
+  }
+
+  private refreshContextMeasurement(): void {
+    if (this.disposed) return;
+    const cache = this.getContextMeasurementCache();
+    const previousPressure = cache.current?.contextPressure.pressureTokens;
+    cache.refresh(async () => {
+      // Agent message objects mutate while streaming. Take an immutable input
+      // at a durable boundary; never count individual text/thinking deltas.
+      const messages = structuredClone(this.agent.state.messages);
+      const composition = this.composeHistory(messages, this.getBrowserRuntimeContextTokenEstimate(), 'full');
+      const systemPrompt = this.getEffectiveSystemPrompt();
+      const tools = this.getEffectiveTools();
+      const latestUser = messages.findLast(isUserMessage);
+      const runtimeContext = await this.getRuntimeContextBlock(
+        latestUser ? extractUserMessageText(latestUser) : '',
+        latestUser ? this.messageContextSnapshots?.get(getMessageSignature(latestUser)) : undefined,
+      );
+      const injectedMessages = await this.injectRuntimeContext(composition.llmMessages, runtimeContext);
+      return measurePiContextStatus(composition, {
+        messages: injectedMessages,
+        model: this.model,
+        effectiveInstructions: [{ role: 'system', content: systemPrompt }],
+        effectiveTools: tools,
+        requestOutputTokenCap: this.requestOutputTokenCap,
+        runtimeContractRevision: 'canvas-pi-runtime-v1',
+      }, this.imageNormalizationOptions);
+    }, (accepted) => {
+      console.info('[ContextStatus] measurement', {
+        sessionId: this.sessionId,
+        ...cache.metadata,
+        accepted,
+        source: cache.current?.nextRequestEstimateSource ?? null,
+        pressureTokens: cache.current?.contextPressure.pressureTokens ?? null,
+        triggerTokens: cache.current?.contextPressure.triggerTokens ?? null,
+        nextRequestTokens: cache.current?.nextRequestEstimatedTokens ?? null,
+        providerInputTokens: this.lastProviderInputUsage?.inputTokens ?? null,
+        deltaTokens: previousPressure == null ? null
+          : (cache.current?.contextPressure.pressureTokens ?? previousPressure) - previousPressure,
+        components: cache.current?.components,
+      });
+      this.publishStatus();
+    });
   }
 
   private getCompactionScope() {
@@ -934,10 +993,12 @@ export class LivePiRuntime {
   }
 
   getStatus(): PiRuntimeStatus {
+    this.refreshContextMeasurement();
     if (!this.lastComposition) {
       this.lastComposition = this.composeHistory(
         this.agent.state.messages,
         this.getBrowserRuntimeContextTokenEstimate(),
+        'full',
       );
     }
     const composition = this.lastComposition;
@@ -949,10 +1010,9 @@ export class LivePiRuntime {
       && !hasPendingReplace
       && (this.isRunning || !this.isFinalPayloadSendable(finalPayloadBudget)),
     );
-    const contextStatus = createPiRuntimeContextStatusProjection({
+    const contextStatus = this.getContextMeasurementCache().current ?? createPiRuntimeContextStatusProjection({
       composition,
       contextWindow: this.model.contextWindow,
-      finalSnapshot: exposeFinalPayloadBudget ? finalPayloadBudget : null,
     });
 
     return {
@@ -988,6 +1048,7 @@ export class LivePiRuntime {
       nextRequestBudgetExceeded: contextStatus.nextRequestBudgetExceeded,
       nextRequestEstimateSource: contextStatus.nextRequestEstimateSource,
       contextPressure: contextStatus.contextPressure,
+      contextMeasurement: this.getContextMeasurementCache().metadata,
       includedSummary: composition.includedSummary,
       omittedMessageCount: composition.omittedMessages.length,
       summaryUpdatedAt: this.summary.summaryUpdatedAt ? this.summary.summaryUpdatedAt.toISOString() : null,
@@ -1996,6 +2057,9 @@ export class LivePiRuntime {
   async onAgentEvent(event: AgentEvent) {
     this.touch();
     normalizeAgentEventErrors(event, this.model);
+    if (event.type === 'message_end') {
+      this.invalidateContextMeasurement();
+    }
 
     if (event.type === 'message_start' && event.message?.role === 'assistant') {
       this.thinkingFilterState = createThinkingFilterState();
@@ -2494,9 +2558,11 @@ export class LivePiRuntime {
       ...this.agent.state.messages,
       createCompactBreakMessage(attemptId, kind, this.lastCompactionAt.toISOString(), summarizedMessageCount),
     ];
+    this.invalidateContextMeasurement();
   }
 
   private async persistMessagesOnError() {
+    this.invalidateContextMeasurement();
     try {
       const persistedCount = await this.persistMessages('error');
       if (persistedCount > 0) {
@@ -2550,6 +2616,7 @@ export class LivePiRuntime {
 
   dispose(): void {
     this.disposed = true;
+    this.contextMeasurementCache?.dispose();
     if (this.idleCompactionTimer) clearTimeout(this.idleCompactionTimer);
     this.idleCompactionTimer = null;
     abortPiSessionCompaction(this.getCompactionScope());
@@ -3058,6 +3125,7 @@ export async function invalidatePiRuntime(sessionId: string, userId: string) {
 }
 
 export async function getPiRuntimeStatus(sessionId: string, userId: string): Promise<PiRuntimeStatus | null> {
+  const readRevision = currentRuntimeStatusRevision(sessionId, userId);
   const existing = await getExistingPiRuntime(sessionId, userId);
   if (existing) {
     return existing.getStatus();
@@ -3113,25 +3181,78 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
   });
   const model = executableRuntime.model;
   const browserRuntimeContextBlock = buildBrowserRuntimeContextBlock(browserSnapshot);
+  const manifest = buildEffectiveToolManifest(tools);
+  const workspaceFileTree = ['ls', 'read', 'rg', 'grep', 'glob', 'inspect_document_relations']
+    .some((name) => effectiveToolManifestHas(manifest, name))
+    ? await buildWorkspaceFileTreePrompt({
+      workspaceId: executionContext.workspaceId,
+      rootPath: executionContext.workspaceRoot,
+    }) : { promptBlock: '' };
+  const memoryBlock = await buildMemoryPromptProjection({
+    userId,
+    agentId: sessionRecord.agentId,
+    workspaceId: executionContext.workspaceId,
+    organizationId: executionContext.organizationId,
+    usableContextTokens: model.contextWindow,
+    recordUsage: false,
+  });
+  const effectiveSystemPrompt = appendEffectiveToolCapabilitiesPrompt([
+    systemPrompt,
+    workspaceFileTree.promptBlock,
+    memoryBlock,
+    getAgentRuntimeTempPromptBlock({
+      userId, sessionId, agentId: sessionRecord.agentId,
+      organizationId: executionContext.organizationId,
+    }),
+  ].filter(Boolean).join('\n\n'), manifest);
   const composition = projectPiHermesHistory({
     messages,
     summary,
-    systemPromptTokens: estimateTextTokens(systemPrompt),
+    systemPromptTokens: estimateTextTokens(effectiveSystemPrompt),
     model,
     requestOutputTokens: getPiRequestOutputTokenCap(model),
     toolTokens: estimatePiToolSchemaTokens(tools),
+    selectionMode: 'full',
     additionalContextTokens: browserRuntimeContextBlock
       ? estimateTextTokens(browserRuntimeContextBlock)
       : 0,
   }).composition;
-  const contextStatus = createPiRuntimeContextStatusProjection({
-    composition,
-    contextWindow: model.contextWindow,
+  const nextMessages = composition.llmMessages.slice();
+  if (browserRuntimeContextBlock) {
+    const lastUser = nextMessages.findLastIndex(isUserMessage);
+    if (lastUser >= 0) {
+      nextMessages[lastUser] = appendRuntimeContextToUserMessage(
+        nextMessages[lastUser] as Extract<AgentMessage, { role: 'user' }>,
+        browserRuntimeContextBlock,
+      );
+    }
+  }
+  const measured = await measureStoredPiContextStatus(
+    JSON.stringify([userId, executionContext.workspaceId, sessionId, sessionRecord.agentId]),
+    composition, {
+    messages: nextMessages,
+    model,
+    effectiveInstructions: [{ role: 'system', content: effectiveSystemPrompt }],
+    effectiveTools: tools,
+    requestOutputTokenCap: getPiRequestOutputTokenCap(model),
+    runtimeContractRevision: 'canvas-pi-runtime-v1',
+  }, {
+    workspaceImageRoot: executionContext.workspaceRoot,
+    allowedImageFileRoots: [executionContext.workspaceRoot, resolveAgentRuntimeTempDir({
+      userId, sessionId, agentId: sessionRecord.agentId,
+      organizationId: executionContext.organizationId,
+    })],
+    uploadOwnerUserId: userId,
+    uploadWorkspaceId: executionContext.workspaceId,
   });
+  // A prompt may have started while the read-only projection was normalizing.
+  const contextStatus = measured.projection;
+  const liveRuntime = await getExistingPiRuntime(sessionId, userId);
+  if (liveRuntime) return liveRuntime.getStatus();
 
   return {
     sessionId,
-    revision: currentRuntimeStatusRevision(sessionId, userId),
+    revision: readRevision,
     ...(browserSnapshot.running ? { browser: browserSnapshot } : {}),
     phase: 'idle',
     activeTool: null,
@@ -3151,6 +3272,13 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     nextRequestBudgetExceeded: contextStatus.nextRequestBudgetExceeded,
     nextRequestEstimateSource: contextStatus.nextRequestEstimateSource,
     contextPressure: contextStatus.contextPressure,
+    contextMeasurement: {
+      revision: readRevision,
+      measuredRevision: measured.state === 'current' ? readRevision : null,
+      measuredAt: measured.measuredAt,
+      state: measured.state,
+      scope: 'stored',
+    },
     includedSummary: composition.includedSummary,
     omittedMessageCount: composition.omittedMessages.length,
     summaryUpdatedAt: summary.summaryUpdatedAt ? summary.summaryUpdatedAt.toISOString() : null,

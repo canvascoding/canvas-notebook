@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import dynamic from 'next/dynamic';
+import type { Document as OfficeDocument } from '@eigenpal/docx-js-editor/core';
 import type { DocxEditorRef } from '@eigenpal/docx-js-editor/react';
 import { Loader2 } from 'lucide-react';
 
@@ -65,8 +66,10 @@ const tableStyles = `
 
 interface DocxEditorWrapperProps {
   path: string;
-  documentBuffer: ArrayBuffer;
-  onChange?: () => void;
+  documentBuffer?: ArrayBuffer;
+  document?: OfficeDocument;
+  onChange?: (document: OfficeDocument) => void;
+  onSaveRequest?: () => void | Promise<void>;
   mode?: 'editing' | 'viewing';
 }
 
@@ -75,7 +78,7 @@ export interface DocxEditorWrapperRef {
 }
 
 export const DocxEditorWrapper = forwardRef<DocxEditorWrapperRef, DocxEditorWrapperProps>(
-  function DocxEditorWrapper({ documentBuffer, onChange, mode = 'editing' }, ref) {
+  function DocxEditorWrapper({ documentBuffer, document: initialDocument, onChange, onSaveRequest, mode = 'editing' }, ref) {
     const editorRef = useRef<DocxEditorRef>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error] = useState<string | null>(null);
@@ -106,10 +109,8 @@ export const DocxEditorWrapper = forwardRef<DocxEditorWrapperRef, DocxEditorWrap
       return () => clearTimeout(timer);
     }, []);
 
-    const handleChange = () => {
-      if (onChange) {
-        onChange();
-      }
+    const handleChange = (document: OfficeDocument) => {
+      onChange?.(document);
     };
 
     if (error) {
@@ -136,7 +137,11 @@ export const DocxEditorWrapper = forwardRef<DocxEditorWrapperRef, DocxEditorWrap
           <DocxEditorComponent
             ref={editorRef}
             documentBuffer={documentBuffer}
+            document={initialDocument}
             mode={mode}
+            readOnly={mode === 'viewing'}
+            canvasWorkspaceBound
+            onSaveRequest={onSaveRequest}
             onChange={handleChange}
           />
         </div>

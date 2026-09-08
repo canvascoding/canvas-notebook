@@ -16,9 +16,12 @@ import {
 } from '@/app/lib/public-sharing/public-file-shares';
 import {
   withRollbackableFileRename,
+  assertWorkspaceOfficePathMutationAllowed,
   type WorkspaceFileOperationOptions,
 } from '@/app/lib/filesystem/workspace-files';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 
 type RenameParams = {
   workspace: WorkspaceContext;
@@ -119,50 +122,56 @@ export async function renameWorkspacePath(
   params: RenameParams,
   operations: WorkspacePathRenameOperations = runtimeOperations,
 ): Promise<WorkspacePathRenameResult> {
-  const backupPath = params.overwrite ? operations.createBackupPath() : null;
+  params = {
+    ...params, oldPath: normalizeWorkspaceRelativePath(params.oldPath), newPath: normalizeWorkspaceRelativePath(params.newPath),
+    fileOptions: { ...params.fileOptions, workspace: params.workspace },
+  };
+  return withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
+    await assertWorkspaceOfficePathMutationAllowed([params.oldPath, params.newPath], params.fileOptions);
+    const backupPath = params.overwrite ? operations.createBackupPath() : null;
 
-  await withCompensations(async (registerDestinationRollback) => {
-    if (backupPath) {
-      await operations.moveCollaborationPath({
-        workspace: params.workspace,
-        oldPath: params.newPath,
-        newPath: backupPath,
-      });
-      registerDestinationRollback(() => operations.moveCollaborationPath({
-        workspace: params.workspace,
-        oldPath: backupPath,
-        newPath: params.newPath,
-      }));
-
-      await operations.moveMetadataPath({
-        workspace: params.workspace,
-        oldPath: params.newPath,
-        newPath: backupPath,
-      });
-      registerDestinationRollback(() => operations.moveMetadataPath({
-        workspace: params.workspace,
-        oldPath: backupPath,
-        newPath: params.newPath,
-      }));
-    }
-
-    await operations.withFileRename(params, async () => {
-      await withCompensations(async (registerSourceRollback) => {
-        await operations.moveCollaborationPath(params);
-        registerSourceRollback(() => operations.moveCollaborationPath({
+    await withCompensations(async (registerDestinationRollback) => {
+      if (backupPath) {
+        await operations.moveCollaborationPath({
           workspace: params.workspace,
           oldPath: params.newPath,
-          newPath: params.oldPath,
+          newPath: backupPath,
+        });
+        registerDestinationRollback(() => operations.moveCollaborationPath({
+          workspace: params.workspace,
+          oldPath: backupPath,
+          newPath: params.newPath,
         }));
 
-        await operations.moveMetadataPath(params);
-        registerSourceRollback(() => operations.moveMetadataPath({
+        await operations.moveMetadataPath({
           workspace: params.workspace,
           oldPath: params.newPath,
-          newPath: params.oldPath,
+          newPath: backupPath,
+        });
+        registerDestinationRollback(() => operations.moveMetadataPath({
+          workspace: params.workspace,
+          oldPath: backupPath,
+          newPath: params.newPath,
         }));
+      }
+
+      await operations.withFileRename(params, async () => {
+        await withCompensations(async (registerSourceRollback) => {
+          await operations.moveCollaborationPath(params);
+          registerSourceRollback(() => operations.moveCollaborationPath({
+            workspace: params.workspace,
+            oldPath: params.newPath,
+            newPath: params.oldPath,
+          }));
+
+          await operations.moveMetadataPath(params);
+          registerSourceRollback(() => operations.moveMetadataPath({
+            workspace: params.workspace,
+            oldPath: params.newPath,
+            newPath: params.oldPath,
+          }));
+        });
       });
-    });
   });
 
   const warnings: string[] = [];
@@ -187,4 +196,5 @@ export async function renameWorkspacePath(
   }
 
   return { warnings };
+  });
 }

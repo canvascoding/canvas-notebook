@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { isImapMailboxChangedError } from '@/app/lib/email/imap-service';
 import {
   archiveEmailMessage,
   deleteEmailMessagePermanently,
@@ -76,6 +77,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (isImapMailboxChangedError(error)) {
+      return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : 'Failed to update email message';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }

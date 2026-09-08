@@ -4,6 +4,7 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { restoreWorkspaceTrashEntry } from '@/app/lib/filesystem/workspace-trash';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { restoreFileCollaborationPath } from '@/app/lib/files/collaboration-policy';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -33,15 +34,12 @@ export async function POST(
   if (!entryId.trim()) return jsonError('Trash entry ID is required', 400);
 
   try {
-    const restored = await restoreWorkspaceTrashEntry({
-      workspace: workspaceResult.workspace,
-      entryId,
-      restoredByUserId: workspaceResult.session.user.id,
-    });
-    await restoreFileCollaborationPath({
-      workspace: workspaceResult.workspace,
-      path: restored.originalPath,
-      trashEntryId: restored.id,
+    const restored = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
+      const entry = await restoreWorkspaceTrashEntry({
+        workspace: workspaceResult.workspace, entryId, restoredByUserId: workspaceResult.session.user.id,
+      });
+      await restoreFileCollaborationPath({ workspace: workspaceResult.workspace, path: entry.originalPath, trashEntryId: entry.id });
+      return entry;
     });
     const fileOptions = workspaceFileOptions(workspaceResult.workspace);
     invalidateWorkspaceFileViews({

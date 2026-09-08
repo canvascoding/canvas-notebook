@@ -268,7 +268,7 @@ Yjs-Wurzeln über WebSockets, `test:collaboration:access`,
 Die vorhandene Warnung über `savedTime` in `FileEditor` besteht bereits im
 Ausgangsstand. `npm run build` ist auf dem aktuellen Implementierungsstand
 erfolgreich, einschließlich Lizenzprüfung, TypeScript, Routenerzeugung und
-CLI-Versionseinbindung. Die letzte GitNexus-Prüfung erfasst ausschließlich die
+CLI-Versionseinbindung. Die GitNexus-Prüfung dieses UI-Schritts erfasst ausschließlich die
 erwarteten 28 Dateien, 98 Symbole und fünf bestehende Kollaborationsabläufe
 (Risiko: mittel). Die Browser-Abnahme wird dadurch nicht ersetzt.
 
@@ -282,3 +282,35 @@ der seit zwei Tagen laufende Stand darf die Abnahme nicht ersetzen.
 Die [Routen-Matrix](file-sharing-route-matrix.md) unterscheidet automatisierte
 Nachweise von der noch offenen Browser-Abnahme. Schritt 5 bleibt bis zur
 UI-Abnahme offen; danach folgen Gesamtprüfung und Push aus Schritt 6.
+
+### Vorbereitung der UI-Abnahme: Integration mit aktuellem `main`
+
+`origin/main` wurde erneut abgerufen und bis
+`f2724821ec00bd0216bcc3c4182f014214d39add` integriert. Der dokumentierte
+Ausgangsstand `84c24054` ist gemeinsamer Vorfahr. Im Branchvergleich zum aktuellen
+Remote-Stand bleiben die erwarteten 86 Dateien der Freigabe-Umsetzung; ältere
+Todo-/Clipboard-Änderungen aus dem Ausgangsstand sind bereits upstream enthalten.
+
+Sieben Mergekonflikte wurden aufgelöst: Die PostgreSQL-Datei behält sowohl die
+Freigaben- als auch die neue E-Mail-Cache-Migration; Paket-Skripte und die
+Übersetzungsgruppen `fileSharing`/`officeDocx` bleiben vollständig erhalten.
+Die drei generierten Lizenzdateien wurden mit dem zusammengeführten Lockfile
+erneuert. `npm ci --no-audit --no-fund` und die Repository-Patches sind erfolgreich.
+
+Erneut erfolgreich auf dem integrierten Stand: `test:file-guests`,
+`test:collaboration:access`, `test:public-share:lifecycle`,
+`test:public-share:workspace`, `test:public-share:security`,
+`test:public-share:route-access`, `test:files:collaboration-repository`,
+`test:files:collaboration-schema`, `test:collaboration:live`,
+`test:chat:navigation`, die drei Client-/Dateiöffnungs-Regressionsskripte und
+`scripts/office-sqlite-compatibility-test.ts`. Der Produktionsbuild ist einschließlich
+TypeScript, Lizenzprüfung und Routenerzeugung erfolgreich. Die berührten
+Migrations-/Editor-Dateien haben keine ESLint-Fehler; `savedTime` bleibt eine
+bereits vorher vorhandene Warnung.
+
+GitNexus stuft den gesamten Funktionsumfang als kritisch ein, da die Änderungen
+Freigaben, Migrationen und laufende Kollaboration betreffen. Die Mergeprüfung
+erfasst zusätzlich die bereits in `main` enthaltenen Änderungen; diese werden
+nicht als neue Freigabe-Funktionen gewertet. Die verbliebene Freigabe für
+Notebook-Container-Neubau und Playwright ist weiterhin nicht erteilt. Daher sind
+Browser-Abnahme, Abschluss von Schritt 5 und Push weiterhin offen.

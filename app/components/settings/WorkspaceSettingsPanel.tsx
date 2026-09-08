@@ -521,7 +521,7 @@ function SettingsDataContent({
             </CardHeader>
             <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
               {activeWorkspace ? (
-                <Link className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90" href={`/settings?tab=memory&scope=workspace&workspaceId=${encodeURIComponent(activeWorkspace.id)}`}>Open Workspace Memory</Link>
+                <Link className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90" href={`/settings?tab=memory&scope=workspace&memoryWorkspaceId=${encodeURIComponent(activeWorkspace.id)}`}>Open Workspace Memory</Link>
               ) : <p className="text-sm text-muted-foreground">Select a workspace to manage its memory.</p>}
             </CardContent>
           </Card>

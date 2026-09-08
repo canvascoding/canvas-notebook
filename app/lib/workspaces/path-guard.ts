@@ -52,6 +52,42 @@ function normalizeRelativeWorkspacePath(userPath: string): NormalizedWorkspacePa
   return { relativePath, segments };
 }
 
+/** Shared lexical identity for filesystem access, format checks and leases. */
+export function normalizeWorkspaceRelativePath(userPath: string): string {
+  return normalizeRelativeWorkspacePath(userPath).relativePath;
+}
+
+export class WorkspacePathAliasError extends Error {
+  readonly code = 'WORKSPACE_PATH_ALIAS';
+  readonly status = 409;
+
+  constructor() {
+    super('Use the original workspace path and filename casing to edit or move this document. Symbolic-link aliases cannot hold an independent document lease.');
+    this.name = 'WorkspacePathAliasError';
+  }
+}
+
+/**
+ * Caller holds the workspace mutation lock. The configured root may itself be
+ * a symlink; application paths beneath it must retain one filesystem identity.
+ * Missing suffixes are allowed for new documents and destination directories.
+ */
+export async function assertWorkspacePathHasNoAliases(workspace: WorkspaceContext, userPath: string): Promise<void> {
+  const { segments } = normalizeRelativeWorkspacePath(userPath);
+  let parent = await ensureWorkspaceRoot(workspace);
+  for (const segment of segments) {
+    const candidate = path.join(parent, segment);
+    let stat: Awaited<ReturnType<typeof fs.lstat>>;
+    try { stat = await fs.lstat(candidate); }
+    catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return;
+      throw error;
+    }
+    if (stat.isSymbolicLink() || !(await fs.readdir(parent)).includes(segment)) throw new WorkspacePathAliasError();
+    parent = candidate;
+  }
+}
+
 function assertWithinBase(candidatePath: string, basePath: string, code: WorkspacePathError['code']): void {
   if (candidatePath !== basePath && !candidatePath.startsWith(`${basePath}${path.sep}`)) {
     throw createWorkspacePathError(code);

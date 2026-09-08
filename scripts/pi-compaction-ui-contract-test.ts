@@ -123,8 +123,8 @@ assert.deepEqual(getContextStatusDisplay({
   lastProviderInputTokens: 140_000,
   nextRequestEstimatedTokens: 185_000,
 }), {
-  source: 'actual', usedTokens: 140_000, contextWindow: 262_000,
-}, 'idle status must never present a stale next-request estimate as actual usage');
+  source: 'next_request', usedTokens: 185_000, contextWindow: 262_000,
+}, 'idle status must retain the same next-request basis as streaming; provider actual is historical');
 assert.deepEqual(getContextStatusDisplay({
   ...baseRuntimeStatus,
   phase: 'streaming',

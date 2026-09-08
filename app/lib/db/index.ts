@@ -123,6 +123,15 @@ const postgresPool = provider === 'postgres' && runtimeDatabase.client
   ? runtimeDatabase.client as ReturnType<typeof createPostgresPool>
   : null;
 
+/**
+ * Exposes only query capability from the already-initialized runtime pool.
+ * PostgreSQL-only persistence helpers can share the app pool without creating
+ * their own connection pool or gaining permission to close the runtime pool.
+ */
+export function getPostgresRuntimeQueryable(): Pick<ReturnType<typeof createPostgresPool>, 'query'> | null {
+  return postgresPool;
+}
+
 // The app keeps the existing SQLite-table Drizzle types while runtime dialect selection
 // happens underneath. The Postgres adapter is intentionally cast to that surface until
 // the schema is split into native pgTable definitions.

@@ -86,7 +86,7 @@ test.describe('Memory team governance', () => {
       expect(entryId).toBeTruthy();
       expect(collectionId).toBeTruthy();
 
-      await writerPage.goto(`/en/settings?tab=memory&scope=workspace&workspaceId=${encodeURIComponent(workspaceId!)}&status=pending&collectionId=${encodeURIComponent(collectionId!)}&entryId=${encodeURIComponent(entryId!)}`);
+      await writerPage.goto(`/en/settings?tab=memory&scope=workspace&memoryWorkspaceId=${encodeURIComponent(workspaceId!)}&status=pending&collectionId=${encodeURIComponent(collectionId!)}&entryId=${encodeURIComponent(entryId!)}`);
       await expect(writerPage.getByTestId('workspace-memory-owner-select')).toHaveValue(workspaceId!);
       await expect(writerPage.getByTestId('memory-status-pending')).toBeVisible();
       const writerPendingCard = writerPage.locator(`#memory-entry-${entryId}`);
@@ -201,7 +201,7 @@ test.describe('Memory team governance', () => {
 
       const archiveResponse = await page.request.delete(`/api/memory/entries/${encodeURIComponent(entryId!)}?scope=workspace&workspaceId=${encodeURIComponent(workspaceId!)}`);
       expect(archiveResponse.ok(), await archiveResponse.text()).toBeTruthy();
-      await page.goto(`/en/settings?tab=memory&scope=workspace&workspaceId=${encodeURIComponent(workspaceId!)}&status=archived&collectionId=${encodeURIComponent(collectionId!)}&entryId=${encodeURIComponent(entryId!)}`);
+      await page.goto(`/en/settings?tab=memory&scope=workspace&memoryWorkspaceId=${encodeURIComponent(workspaceId!)}&status=archived&collectionId=${encodeURIComponent(collectionId!)}&entryId=${encodeURIComponent(entryId!)}`);
       await expect(page.getByTestId('memory-status-archived')).toBeVisible();
       const archivedCard = page.locator(`#memory-entry-${entryId}`);
       await expect(archivedCard).toBeVisible();
@@ -219,13 +219,13 @@ test.describe('Memory team governance', () => {
       readerContext = await browser.newContext();
       const readerPage = await readerContext.newPage();
       await login(readerPage, READER_EMAIL!, READER_PASSWORD!);
-      await readerPage.goto(`/en/settings?tab=memory&scope=workspace&workspaceId=${encodeURIComponent(workspaceId!)}&status=published&collectionId=${encodeURIComponent(collectionId!)}`);
+      await readerPage.goto(`/en/settings?tab=memory&scope=workspace&memoryWorkspaceId=${encodeURIComponent(workspaceId!)}&status=published&collectionId=${encodeURIComponent(collectionId!)}`);
       await expect(readerPage.getByTestId('workspace-memory-owner-select')).toHaveValue(workspaceId!);
       await expect(readerPage.getByText(proposalContent)).toBeVisible();
       await expect(readerPage.getByRole('button', { name: 'Edit' })).toHaveCount(0);
       await expect(readerPage.getByRole('button', { name: 'Archive' })).toHaveCount(0);
 
-      await writerPage.goto(`/en/settings?tab=memory&scope=workspace&workspaceId=${encodeURIComponent(workspaceId!)}&status=published&collectionId=${encodeURIComponent(collectionId!)}`);
+      await writerPage.goto(`/en/settings?tab=memory&scope=workspace&memoryWorkspaceId=${encodeURIComponent(workspaceId!)}&status=published&collectionId=${encodeURIComponent(collectionId!)}`);
       await expect(writerPage.getByText(proposalContent)).toBeVisible();
 
       externalContext = await browser.newContext();

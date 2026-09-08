@@ -9,6 +9,8 @@ import { convertImage } from '../images/convert';
 import { isRuntimeContinuationMessage } from './custom-messages';
 import { isPathInside } from '../security/safe-paths';
 import { MAX_LLM_IMAGE_BYTES, MAX_LLM_TOTAL_IMAGE_BYTES } from './llm-payload-limits';
+import { extractMessageAttachments } from '../chat/message-content';
+import { toUploadMediaUrl } from '../utils/media-url';
 
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   '.gif': 'image/gif',
@@ -450,6 +452,35 @@ function hasMessageContent(message: AgentMessage): message is AgentMessage & { c
   return 'content' in message;
 }
 
+export function restorePersistedUploadImageReferences(
+  content: Array<{ type: 'text'; text: string } | ImageContent>,
+): Array<{ type: 'text'; text: string } | ImageContent> {
+  const attachments = extractMessageAttachments(content);
+  if (!attachments?.some((attachment) => attachment.contentKind === 'image')) {
+    return content;
+  }
+
+  const existingUploadIds = new Set(
+    content
+      .filter(isImageContentPart)
+      .map((part) => resolveApiUploadFileId(part.data))
+      .filter((fileId): fileId is string => Boolean(fileId)),
+  );
+  const restoredParts = attachments.flatMap<ImageContent>((attachment) => {
+    if (attachment.contentKind !== 'image' || existingUploadIds.has(attachment.id)) {
+      return [];
+    }
+    existingUploadIds.add(attachment.id);
+    return [{
+      type: 'image',
+      data: toUploadMediaUrl(attachment.id),
+      mimeType: attachment.mimeType || 'image/png',
+    }];
+  });
+
+  return restoredParts.length > 0 ? [...content, ...restoredParts] : content;
+}
+
 async function normalizePiMessage(
   message: AgentMessage,
   options: PiMessageNormalizationOptions,
@@ -473,7 +504,8 @@ async function normalizePiMessage(
   if (message.role === 'user') {
     // For user messages, extract image references from text
     // This allows users to reference images with @path/to/image.jpg
-    const normalizedContent = await normalizeImageArray(message.content, true, options);
+    const contentWithPersistedUploads = restorePersistedUploadImageReferences(message.content);
+    const normalizedContent = await normalizeImageArray(contentWithPersistedUploads, true, options);
     return normalizedContent === message.content
       ? (message as UserMessage)
       : {

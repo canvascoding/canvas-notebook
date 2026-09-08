@@ -2790,11 +2790,17 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'file_revisions', {
     lineage_id: 'TEXT',
+    revision_number: 'INTEGER NOT NULL DEFAULT 0',
   });
 
   addColumns(sqlite, 'file_collaboration_lineages', {
     trash_entry_id: 'TEXT',
+    organization_id: 'TEXT',
+    customer_id: 'TEXT',
+    project_id: 'TEXT',
   });
+  addColumns(sqlite, 'file_locks', { lineage_id: 'TEXT' });
+  addColumns(sqlite, 'collaboration_documents', { lineage_id: 'TEXT' });
 
   sqlite.exec(`
     UPDATE todo_items
