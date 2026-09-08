@@ -55,7 +55,7 @@ export type TeamRuntimeReadinessCheck = {
 export type TeamRuntimeReadinessStatus = {
   ready: boolean;
   checkedAt: string;
-  databaseEngine: 'postgres' | 'sqlite' | 'other';
+  databaseEngine: 'postgres';
   pgvectorVersion: string | null;
   checks: TeamRuntimeReadinessCheck[];
   blockers: Array<{ code: TeamRuntimeReadinessCode; message: string }>;
@@ -275,18 +275,11 @@ export async function getCommunityTeamRuntimeReadiness(
 ): Promise<TeamRuntimeReadinessStatus> {
   const now = options.now ?? new Date();
   const config = resolveDatabaseProviderConfig();
-  const engine = config.provider;
+  const engine = 'postgres' as const;
   const checks: TeamRuntimeReadinessCheck[] = [];
   let postgres: PostgresTeamRuntimeProbe | null = null;
 
-  if (engine !== 'postgres') {
-    checks.push(check(
-      'database',
-      'blocked',
-      'TEAM_RUNTIME_DATABASE_POSTGRES_REQUIRED',
-      'Community Team requires PostgreSQL. Configure and migrate this SQLite installation before upgrading.',
-    ));
-  } else if (config.problems.length > 0) {
+  if (config.problems.length > 0) {
     checks.push(check(
       'database',
       'blocked',
@@ -389,12 +382,11 @@ export async function getCommunityTeamRuntimeReadiness(
     vectorProvider: 'pgvector',
     postgresRuntimeAdapterAvailable: true,
   });
-  const capabilitiesReady = engine === 'postgres'
-    && capabilityGate.ok
+  const capabilitiesReady = capabilityGate.ok
     && postgres?.databaseReachable === true
     && postgres.migrationsReady
     && postgres.pgvectorAvailable;
-  if (engine !== 'postgres' || !postgres?.databaseReachable) {
+  if (!postgres?.databaseReachable) {
     checks.push(check(
       'capability',
       'not_checked',

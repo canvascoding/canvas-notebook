@@ -13,7 +13,7 @@ import {
 
 export type LicensePlan = 'unregistered' | 'community' | 'pro' | 'managed';
 export type LicenseDeploymentMode = 'community' | 'managed-single' | 'managed-team' | 'enterprise-onprem' | string;
-export type LicenseDatabaseProvider = 'sqlite' | 'postgres' | string;
+export type LicenseDatabaseProvider = 'postgres';
 export type LicenseVectorProvider = 'none' | 'pgvector' | 'external' | string;
 export type LicenseHostingMode = TeamSeatHostingMode;
 export type LicenseEdition = TeamSeatEdition;
