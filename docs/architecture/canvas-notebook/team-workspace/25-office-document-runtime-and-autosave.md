@@ -1,6 +1,6 @@
 # Office document runtime, safe commits, and DOCX autosave
 
-Status: implemented with automated checks passing; native browser acceptance awaits explicit permission. Native Linux isolation verification remains a pre-deployment requirement. Owner: Office Creator. Scope: Canvas Notebook DOCX editing, agent document work, and the shared file-write mechanisms on which Office safety depends.
+Status: implemented with automated checks and native Linux/aarch64 and macOS isolation tests passing; native browser acceptance awaits explicit permission. Other deployment kernel/filesystem combinations still require target-environment verification. Owner: Office Creator. Scope: Canvas Notebook DOCX editing, agent document work, and the shared file-write mechanisms on which Office safety depends.
 
 ## Problem and existing decision
 
@@ -138,5 +138,6 @@ Evidence: `docx-save-session-test.ts` exercises delayed exports/uploads, edit ge
 - `da8a3921`: canonical mutations, session leases, path aliases and immutable upload retries.
 - `f03879b7`: isolated agent working copies and conditional commits.
 - `df9b5e0e`: scoped editor autosave/recovery, compatibility gate and complete editor mutation events.
+- `ab691cb6`: native Linux verification and protection against truncating read-only opens on the mounted host filesystem.
 
 The refreshed GitNexus index contains 35,983 nodes and 96,851 edges. Staged checks ran before every implementation commit. The required comparison with `main` reports 155 files/858 symbols/77 processes, including 73 file differences that already existed between `main` and the task's starting commit. A separate comparison against the audited task baseline `c9635796` isolates this implementation: 85 files/696 symbols/71 processes, CRITICAL because shared file and collaboration paths changed. Its intended scope is file persistence, upload/copy/trash, agent file tools, DOCX editor integration and their test/dependency/documentation support. These counts precede the native Linux verification follow-up. That follow-up modifies only the Linux syscall filter, its existing sandbox test and this evidence document; upstream impact was checked before editing and reported CRITICAL for the helper (one direct caller, five graph-associated processes). It does not authorize merging or deployment; browser acceptance remains pending as described above.
