@@ -73,15 +73,14 @@ async function main() {
 
   const { cleanup, fireEvent, render } = await import('@testing-library/react');
   const {
-    HOME_EMAIL_STALE_FOLLOW_UP_MAX_ATTEMPTS,
     HOME_EMAIL_STALE_FOLLOW_UP_MAX_DELAY_MS,
     HOME_EMAIL_STALE_FOLLOW_UP_MS,
     homeEmailStaleFollowUpDelay,
     useHomeWorkspaceWidgets,
   } = await import('../app/components/home/useHomeWorkspaceWidgets');
-  assert.equal(HOME_EMAIL_STALE_FOLLOW_UP_MAX_ATTEMPTS, 8);
   assert.equal(homeEmailStaleFollowUpDelay(1), HOME_EMAIL_STALE_FOLLOW_UP_MS);
   assert.equal(homeEmailStaleFollowUpDelay(2), HOME_EMAIL_STALE_FOLLOW_UP_MS * 2);
+  assert.equal(homeEmailStaleFollowUpDelay(8), HOME_EMAIL_STALE_FOLLOW_UP_MAX_DELAY_MS);
   assert.equal(homeEmailStaleFollowUpDelay(20), HOME_EMAIL_STALE_FOLLOW_UP_MAX_DELAY_MS);
   const settle = async (delay = 30) => act(async () => { await new Promise((resolve) => setTimeout(resolve, delay)); });
 

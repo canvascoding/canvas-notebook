@@ -16,12 +16,12 @@ import {
 } from '@/app/lib/home/workspace-widget-request';
 
 export const HOME_EMAIL_STALE_FOLLOW_UP_MS = 500;
-export const HOME_EMAIL_STALE_FOLLOW_UP_MAX_ATTEMPTS = 8;
 export const HOME_EMAIL_STALE_FOLLOW_UP_MAX_DELAY_MS = 4_000;
 
 export function homeEmailStaleFollowUpDelay(attempt: number): number {
+  const exponent = Math.min(Math.max(0, Math.floor(attempt) - 1), 3);
   return Math.min(
-    HOME_EMAIL_STALE_FOLLOW_UP_MS * (2 ** Math.max(0, attempt - 1)),
+    HOME_EMAIL_STALE_FOLLOW_UP_MS * (2 ** exponent),
     HOME_EMAIL_STALE_FOLLOW_UP_MAX_DELAY_MS,
   );
 }
@@ -194,10 +194,7 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
         const attempts = options.emailFollowUpToken === emailCache.refreshToken
           ? Math.max(0, options.emailFollowUpAttempt ?? 0)
           : 0;
-        if (
-          attempts < HOME_EMAIL_STALE_FOLLOW_UP_MAX_ATTEMPTS
-          && !emailFollowUpTimersRef.current.has(followUpKey)
-        ) {
+        if (!emailFollowUpTimersRef.current.has(followUpKey)) {
           const nextAttempt = attempts + 1;
           const timer = window.setTimeout(() => {
             emailFollowUpTimersRef.current.delete(followUpKey);
