@@ -13,10 +13,7 @@ import { resolveValidatedStudioPath } from '@/app/lib/integrations/studio-paths'
 import { getStudioRoot } from '@/app/lib/integrations/studio-workspace';
 import { getFileStats, listDirectory, readFile } from '@/app/lib/filesystem/workspace-files';
 import type { RequestWorkspaceSession } from '@/app/lib/workspaces/request';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
-import { openOrganizationBootstrapDatabase } from '@/app/lib/organization/bootstrap';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
-import { resolveWorkspaceContextById } from '@/app/lib/workspaces/service';
 import { resolveExistingPostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { buildHtmlPreviewAssetManifest, normalizeHtmlPreviewPath, type HtmlPreviewAssetReader } from './html-preview-assets';
@@ -135,13 +132,7 @@ export async function resolveHtmlPreviewTicket(ticket: string, filePath: string)
     if (!current || current.user.banned) { revokeHtmlPreviewTicket(ticket);return null; }
     await assertUserSeatAccess({userId:record.userId});
     const actor=resolveWorkspaceActor(current.user);
-    let workspace: WorkspaceContext | null;
-    if (getDatabaseProvider() === 'postgres') workspace=await resolveExistingPostgresWorkspaceForActor(actor,record.workspaceId);
-    else {
-      const sqlite=openOrganizationBootstrapDatabase();
-      try { workspace=resolveWorkspaceContextById(sqlite,{actor,workspaceId:record.workspaceId}); }
-      finally { sqlite.close(); }
-    }
+    const workspace = await resolveExistingPostgresWorkspaceForActor(actor,record.workspaceId);
     if (!workspace?.permissions.canRead || workspace.legacy) { revokeHtmlPreviewTicket(ticket);return null; }
     const absolutePath = record.kind === 'studio' ? await resolvePreviewStudioPath(normalized,workspace,record.userId) : undefined;
     return {workspace, userId:record.userId, kind:record.kind, filePath:normalized, rootHtmlPath:record.rootHtmlPath, absolutePath};
