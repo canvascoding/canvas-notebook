@@ -2,7 +2,7 @@ import type { Editor, Range } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { Selection } from '@tiptap/pm/state';
 import { closeHistory } from '@tiptap/pm/history';
-import { createBlockReference, resolveBlockReference, type BlockReference } from './block-reference';
+import { BLOCK_MOVE_TRANSACTION_META, createBlockReference, resolveBlockReference, type BlockReference } from './block-reference';
 
 export type BlockInsertPlacement = 'above' | 'below';
 
@@ -395,10 +395,20 @@ export function applyReorderableBlockMove(
   if (insertPosition >= source.from && insertPosition <= source.to) return { ok: false, reason: 'no_change' };
 
   try {
+    const beforeDocument = editor.state.doc;
     const transaction = closeHistory(editor.state.tr).delete(source.from, source.to);
     const adjustedInsertPosition = transaction.mapping.map(insertPosition);
     transaction.insert(adjustedInsertPosition, source.node).scrollIntoView();
     transaction.doc.check();
+    if (source.reference.id) {
+      const parent = editor.state.doc.resolve(source.from).parent;
+      const after = transaction.doc.nodeAt(adjustedInsertPosition + source.node.nodeSize);
+      transaction.setMeta(BLOCK_MOVE_TRANSACTION_META, {
+        blockId: source.reference.id,
+        parentId: parent.type === editor.state.doc.type ? null : parent.attrs.id,
+        beforeId: after?.attrs.id ?? null,
+      });
+    }
     const selectionPosition = Math.min(adjustedInsertPosition + 1, transaction.doc.content.size);
 
     if (selectionPosition >= 0) {
@@ -406,6 +416,7 @@ export function applyReorderableBlockMove(
     }
 
     editor.view.dispatch(transaction);
+    if (editor.state.doc === beforeDocument) return { ok: false, reason: 'invalid_destination' };
   } catch {
     return { ok: false, reason: 'invalid_destination' };
   }

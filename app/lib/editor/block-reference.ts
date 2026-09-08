@@ -1,5 +1,7 @@
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 
+export const BLOCK_MOVE_TRANSACTION_META = 'canvas-block-move';
+
 /** A target belongs to one binding/view lifetime, never just a file path. */
 export type BlockReference = Readonly<{
   scope: object;

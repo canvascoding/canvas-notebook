@@ -28,9 +28,11 @@ Strukturänderungen werden zunächst auf einer isolierten Replik geprüft, weil 
 
 `npm run test:collaboration:block-tree` prüft 16 Fälle: unterschiedliche Zustellreihenfolgen, Move/Text, Move/Move, Move/Delete, relative Textanker, Undo/Redo und Retry nach Undo, Zyklen, binäres Wiederöffnen mit verspäteten Abhängigkeiten, tatsächliche ProseMirror-Moves, atomare Einfüge-/Lösch-/Umhängoperationen, ungültige Container und stale Transaktionen sowie Task-/Tabellenidentitäten mit Formatierung und Unicode. Die ursprünglichen Gegenbeispiele gegen das alte Binding bleiben separat bestehen.
 
+Die Basis des Editor-Bindings liegt inzwischen in `block-tree-editor.ts`, die Auswahlanker in `block-tree-anchors.ts`. `test:collaboration:block-binding` ergänzt acht Tests mit echten Tiptap-Instanzen in JSDOM und direkten Ankerprüfungen. Die Bindung hält schreibgeschützte Ansichten aktuell, lehnt lokale Mutationen vor Hydration oder nach Rechteentzug ab und gibt ihre Observer einschließlich des Yjs-UndoManager-Destroy-Listeners wieder frei. Die Positionsumwandlung verwendet öffentliche Yjs-RelativePositions und eine Identitätsprüfung innerhalb des Inhaltsfragments. Der alte Adapter enthält eine Positionsheuristik für den Anfang eines ganzen XML-Dokuments, die sich nicht auf ein einzelnes Inhaltsfragment übertragen lässt.
+
 Vor Aktivierung fehlen weiterhin:
 
-1. Ein Editor-Binding einschließlich Auswahl, Carets, IME, schreibgeschütztem Zustand und sauberem Unmount.
+1. Vollständige Eingabeintegration der neuen Bindung, insbesondere entfernte Carets und IME. Die Basis für Auswahl, Schreibschutz und Unmount ist getestet; echte Browserinteraktion steht aus.
 2. Eine eindeutige neue Representation und deren Client-Handshake. Alte Clients dürfen kein Schreib-Ticket dafür erhalten; ein altes `body`-Fragment darf nicht parallel schreibbar bleiben.
 3. Migration mit ruhendem Room, bestätigtem Checkpoint, vollständigem Backup und Generation-Wechsel. Der Umstieg darf nicht allein aus einem lokalen Ansichtsschalter entstehen.
 4. Gemeinsame Codec-/Agenten-/Review-Auflösung sowie Anzeige verworfener Strukturabsichten. Relative Anker müssen nur auf lebende, weiterhin zugehörige Inhalte angewendet werden.
