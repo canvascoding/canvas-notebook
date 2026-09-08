@@ -3,7 +3,6 @@ import 'server-only';
 import { execFile, spawn } from 'child_process';
 import crypto from 'crypto';
 import { createReadStream, createWriteStream, promises as fs } from 'fs';
-import { tmpdir } from 'os';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { promisify } from 'util';
@@ -33,13 +32,10 @@ import { formatVersionCompatibilityMessage } from '@/app/lib/migration/version';
 import {
   getDeploymentMode,
 } from '@/app/lib/organization/config';
-import { openOrganizationBootstrapDatabase } from '@/app/lib/organization/bootstrap';
-import { assertSqliteDatabaseReadable } from '@/app/lib/db/sqlite-health';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { openDb } from '@/app/lib/db';
 
 const execFileAsync = promisify(execFile);
-const SQLITE_ARCHIVE_PATH = 'data/sqlite.db';
 
 async function unzipText(args: string[], maxBuffer = 100 * 1024 * 1024): Promise<string> {
   const { stdout } = await execFileAsync('unzip', args, { encoding: 'utf8', maxBuffer });
@@ -107,7 +103,7 @@ async function sha256File(filePath: string): Promise<string> {
   return hash.digest('hex');
 }
 
-async function validateSqliteDatabaseArtifact(params: {
+async function validatePostgresDatabaseArtifact(params: {
   archivePath: string;
   manifest: CanvasMigrationManifest;
   entries: string[];
@@ -117,48 +113,15 @@ async function validateSqliteDatabaseArtifact(params: {
     return blockers;
   }
 
-  const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider ?? 'sqlite';
-  const backupKind = params.manifest.database?.backupKind ?? 'sqlite_snapshot';
-  const artifactPath = params.manifest.database?.artifactPath ?? SQLITE_ARCHIVE_PATH;
-  if (sourceProvider !== 'sqlite' || backupKind !== 'sqlite_snapshot' || artifactPath !== SQLITE_ARCHIVE_PATH) {
-    return blockers;
+  const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider;
+  if (sourceProvider === 'sqlite' || params.entries.includes('data/sqlite.db')) {
+    blockers.push('SQLite migration archives are obsolete and cannot be inspected; export a PostgreSQL migration archive.');
   }
-
-  const artifactEntries = params.entries.filter((entry) => entry === SQLITE_ARCHIVE_PATH);
-  if (artifactEntries.length !== 1) {
-    blockers.push(
-      artifactEntries.length === 0
-        ? 'Migration archive is missing data/sqlite.db.'
-        : 'Migration archive contains multiple data/sqlite.db entries.',
-    );
-    return blockers;
-  }
-
-  const tempRoot = await fs.mkdtemp(path.join(tmpdir(), 'canvas-migration-sqlite-'));
-  const snapshotPath = path.join(tempRoot, 'sqlite.db');
-  try {
-    await extractArchiveEntryToFile({
-      archivePath: params.archivePath,
-      entryName: SQLITE_ARCHIVE_PATH,
-      outputPath: snapshotPath,
-    });
-
-    const expectedSha256 = params.manifest.database?.artifactSha256;
-    if (expectedSha256) {
-      const actualSha256 = await sha256File(snapshotPath);
-      if (actualSha256 !== expectedSha256) {
-        blockers.push('SQLite database snapshot checksum does not match the migration manifest.');
-      }
-    }
-
-    try {
-      assertSqliteDatabaseReadable(snapshotPath);
-    } catch (error) {
-      blockers.push(`SQLite database snapshot is invalid: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  } finally {
-    await fs.rm(tempRoot, { recursive: true, force: true });
-  }
+  if (sourceProvider !== 'postgres') return blockers;
+  const backupKind = params.manifest.database?.backupKind ?? 'none';
+  if (backupKind !== 'postgres_dump' && backupKind !== 'none') blockers.push('PostgreSQL migration archive has an unsupported database backup kind.');
+  const artifactPath = params.manifest.database?.artifactPath;
+  if (artifactPath && !params.entries.includes(artifactPath)) blockers.push(`Migration archive is missing ${artifactPath}.`);
 
   return blockers;
 }
@@ -232,10 +195,10 @@ function parseExportSecurity(value: unknown): MigrationExportSecurity | undefine
 function parseExportDatabase(value: unknown): MigrationExportDatabase | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const database = value as Record<string, unknown>;
-  const provider = database.provider === 'sqlite' || database.provider === 'postgres' || database.provider === 'unknown'
+  const provider = database.provider === 'postgres' || database.provider === 'unknown'
     ? database.provider
     : 'unknown';
-  const backupKind = database.backupKind === 'sqlite_snapshot' || database.backupKind === 'postgres_dump' || database.backupKind === 'none'
+  const backupKind = database.backupKind === 'postgres_dump' || database.backupKind === 'none'
     ? database.backupKind
     : 'none';
   return {
@@ -883,7 +846,7 @@ export async function inspectMigrationArchive(params: {
     : undefined;
 
   if (dryRun && manifest) {
-    const databaseBlockers = await validateSqliteDatabaseArtifact({
+    const databaseBlockers = await validatePostgresDatabaseArtifact({
       archivePath: params.archivePath,
       manifest,
       entries,

@@ -4,7 +4,6 @@ import crypto from 'crypto';
 import path from 'path';
 import { createReadStream, createWriteStream, promises as fs } from 'fs';
 import { PassThrough } from 'stream';
-import type Database from 'better-sqlite3';
 import ZipStream from 'zip-stream';
 
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
@@ -27,7 +26,7 @@ import {
   type MigrationExportSource,
   type MigrationFileEntry,
 } from '@/app/lib/migration/types';
-import { resolveNotebookRuntimeProfile, type NotebookDatabaseProvider } from '@/app/lib/runtime/notebook-runtime';
+import { resolveNotebookRuntimeProfile } from '@/app/lib/runtime/notebook-runtime';
 import {
   ensureMigrationDir,
   getMigrationDataRoot,
@@ -39,10 +38,8 @@ import {
 } from '@/app/lib/migration/component-paths';
 import { getDeploymentMode } from '@/app/lib/organization/config';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
-import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
 
 const EXPORT_STATUS_FILE = 'status.json';
-const SQLITE_FILE_NAME = 'sqlite.db';
 const EXPORT_WRITE_THROTTLE_MS = 750;
 const RECONNECT_MANIFEST_ARCHIVE_PATH = 'data/reconnect-manifest.json';
 
@@ -197,6 +194,8 @@ async function addZipEntry(
   });
 }
 
+/* removed SQLite snapshot sanitization */
+/*
 const ALLOWED_SANITIZE_TABLES = new Set([
   'public_file_shares',
   'session',
@@ -334,6 +333,7 @@ function sanitizeSqliteMigrationSnapshot(snapshotPath: string): void {
     snapshot.close();
   }
 }
+*/
 
 async function maybeStat(pathname: string): Promise<import('fs').Stats | null> {
   try {
@@ -439,6 +439,7 @@ async function buildReconnectManifest(params: {
   };
 }
 
+/* SQLite snapshot creation was removed: migration archives are PostgreSQL-only.
 async function createSqliteSnapshot(dataRoot: string, exportDir: string): Promise<{
   filePath: string;
   entry: MigrationFileEntry;
@@ -481,6 +482,7 @@ async function createSqliteSnapshot(dataRoot: string, exportDir: string): Promis
     },
   };
 }
+*/
 
 function normalizeDatabaseProvider(value: string | null | undefined): MigrationExportDatabase['provider'] {
   const normalized = value?.trim().toLowerCase();
@@ -488,8 +490,8 @@ function normalizeDatabaseProvider(value: string | null | undefined): MigrationE
   return 'unknown';
 }
 
-function runtimeDatabaseProvider(provider: MigrationExportDatabase['provider']): NotebookDatabaseProvider | null {
-  return provider === 'sqlite' || provider === 'postgres' ? provider : null;
+function runtimeDatabaseProvider(provider: MigrationExportDatabase['provider']): 'postgres' | null {
+  return provider === 'postgres' ? provider : null;
 }
 
 function buildFeatures(source: MigrationExportSource): MigrationExportFeatures {
@@ -536,17 +538,17 @@ function buildRuntimeManifest(params: {
 
 function buildDatabaseManifest(params: {
   source: MigrationExportSource;
-  sqliteSnapshot: { entry: MigrationFileEntry; sha256: string } | null;
+  postgresDump: { entry: MigrationFileEntry; sha256: string } | null;
 }): MigrationExportDatabase {
   const provider = normalizeDatabaseProvider(params.source.databaseProvider);
-  if (provider === 'sqlite' && params.sqliteSnapshot) {
+  if (provider === 'postgres' && params.postgresDump) {
     return {
       provider,
       logicalSchemaVersion: null,
       migrationVersion: MIGRATION_BUNDLE_SCHEMA_VERSION,
-      backupKind: 'sqlite_snapshot',
-      artifactPath: params.sqliteSnapshot.entry.archivePath,
-      artifactSha256: params.sqliteSnapshot.sha256,
+      backupKind: 'postgres_dump',
+      artifactPath: params.postgresDump.entry.archivePath,
+      artifactSha256: params.postgresDump.sha256,
       pgvectorEnabled: null,
       pgvectorVersion: null,
       postgresVersion: null,
@@ -665,14 +667,8 @@ async function runExport(job: MigrationExportJob): Promise<void> {
 
     await ensureMigrationDir(exportDir);
     const files: MigrationFileEntry[] = [];
-    let sqliteSnapshot: { filePath: string; entry: MigrationFileEntry; sha256: string } | null = null;
-
-    if (job.components.database && job.source.databaseProvider === 'sqlite') {
-      job.phase = 'Creating SQLite backup';
-      await persist(true);
-      sqliteSnapshot = await createSqliteSnapshot(dataRoot, exportDir);
-      files.push(sqliteSnapshot.entry);
-    } else if (job.components.database) {
+    const postgresDump: { filePath: string; entry: MigrationFileEntry; sha256: string } | null = null;
+    if (job.components.database) {
       job.phase = 'Recording database provider metadata';
       await persist(true);
     }
@@ -704,7 +700,7 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       virtualFileContents.set(reconnectManifest.entry.archivePath, reconnectManifest.content);
     }
 
-    const database = buildDatabaseManifest({ source: job.source, sqliteSnapshot });
+    const database = buildDatabaseManifest({ source: job.source, postgresDump });
     const features = buildFeatures(job.source);
     const runtime = buildRuntimeManifest({ source: job.source, database, features });
 
@@ -741,8 +737,8 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     });
 
     const filePathByArchivePath = new Map<string, string>();
-    if (sqliteSnapshot) {
-      filePathByArchivePath.set(sqliteSnapshot.entry.archivePath, sqliteSnapshot.filePath);
+    if (postgresDump) {
+      filePathByArchivePath.set(postgresDump.entry.archivePath, postgresDump.filePath);
     }
 
     for (const entry of files) {
