@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionCookie } from "better-auth/cookies";
+import { getCanvasSessionCookie } from '@/app/lib/auth-cookie';
+import { optionalHtmlPreviewOrigin, isHtmlPreviewHost } from '@/app/lib/html-preview-origin';
 import createIntlMiddleware from 'next-intl/middleware';
 import { routing } from './i18n/routing';
 
@@ -87,6 +88,7 @@ function setCommonHeaders(response: NextResponse) {
     "connect-src 'self' ws: wss: https://o4511053822099456.ingest.de.sentry.io https://api.github.com",
     "worker-src 'self' blob:",
     "frame-ancestors 'self'",
+    `frame-src 'self' ${optionalHtmlPreviewOrigin() || ''}`,
   ].join('; ');
   response.headers.set('Content-Security-Policy', cspHeader);
 }
@@ -136,6 +138,12 @@ function isPublicRoute(pathname: string) {
 export default async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  if (isHtmlPreviewHost(request.headers.get('host'))) {
+    if (['GET','HEAD'].includes(request.method) && /^\/__preview\/[A-Za-z0-9_-]{43}\//u.test(pathname)) return NextResponse.next();
+    return new NextResponse(null,{status:404,headers:{'Cache-Control':'no-store'}});
+  }
+  if (pathname.startsWith('/__preview/')) return new NextResponse(null,{status:404,headers:{'Cache-Control':'no-store'}});
+
   // Canvas Notebook handles mutations through API routes. A next-action POST here
   // is from a stale client after a rebuild; reload the page instead of letting
   // Next.js emit a noisy "Failed to find Server Action" warning.
@@ -163,7 +171,7 @@ export default async function middleware(request: NextRequest) {
       return nextWithCommonHeaders();
     }
 
-    const sessionCookie = getSessionCookie(request);
+    const sessionCookie = getCanvasSessionCookie(request);
     const logMissingSession = process.env.NODE_ENV !== 'production' || process.env.AUTH_DEBUG === 'true';
     if (!sessionCookie && logMissingSession) {
       console.log(`[Middleware] No session cookie for ${pathname}. Denying API request.`);
@@ -197,7 +205,7 @@ export default async function middleware(request: NextRequest) {
   }
 
   // 3. Check for session cookie using Better Auth utility
-  const sessionCookie = getSessionCookie(request);
+  const sessionCookie = getCanvasSessionCookie(request);
   
   const logMissingSession = process.env.NODE_ENV !== 'production' || process.env.AUTH_DEBUG === 'true';
   if (!sessionCookie && logMissingSession) {

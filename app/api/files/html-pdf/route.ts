@@ -6,18 +6,10 @@ import {
 } from '@/app/lib/pi/browser/settings-service';
 import { generatePdfFromUrl, getPdfRendererClosedMessage, isPdfRendererClosedError } from '@/app/lib/pdf/browser';
 import { getBrowserExportErrorResponse } from '@/app/lib/exports/browser-export-service';
-import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
+import { issueHtmlPreviewTicket, revokeHtmlPreviewTicket } from '@/app/lib/html-preview-ticket';
+import { pdfDocumentAccess } from '@/app/lib/pdf/document-access';
 import path from 'path';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
-
-function getInternalRenderOrigin() {
-  const rawPort = process.env.PORT || '3000';
-  const port = /^\d{1,5}$/.test(rawPort) && Number(rawPort) > 0 && Number(rawPort) <= 65535
-    ? rawPort
-    : '3000';
-
-  return `http://127.0.0.1:${port}`;
-}
 
 export async function POST(request: NextRequest) {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
@@ -43,23 +35,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await getFileStats(filePath, fileOptions);
+    if (!filePath.startsWith('studio/')) await getFileStats(filePath, fileOptions);
     await assertBrowserExportAvailable();
 
-    const origin = getInternalRenderOrigin();
     const fileName = path.basename(filePath, ext);
-    const cookie = request.headers.get('cookie');
-    const previewUrl = `${origin}${toHtmlPreviewUrl(filePath, { workspaceId: workspaceResult.workspace.workspaceId })}`;
-
-    const pdfBuffer = await generatePdfFromUrl(
-      previewUrl,
-      cookie ? {
-        cookie,
-        origin,
-        workspaceId: workspaceResult.workspace.workspaceId,
-        kind: new URL(previewUrl).pathname.startsWith('/api/studio/media/preview/') ? 'studio' : 'workspace',
-      } : undefined,
-    );
+    const issued = await issueHtmlPreviewTicket({
+      session:workspaceResult.session,workspace:workspaceResult.workspace,rootHtmlPath:filePath,
+      kind:filePath.startsWith('studio/') ? 'studio' : 'workspace',
+    });
+    const access = pdfDocumentAccess(issued.ticket,filePath);
+    let pdfBuffer: Buffer;
+    try { pdfBuffer = await generatePdfFromUrl(access.url,access); }
+    finally { revokeHtmlPreviewTicket(issued.ticket); }
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,

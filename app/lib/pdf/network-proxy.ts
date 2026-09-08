@@ -1,6 +1,6 @@
 import http from 'node:http';
 import net from 'node:net';
-import type { Duplex } from 'node:stream';
+import { Readable, type Duplex } from 'node:stream';
 
 import { resolvePublicNetworkAddress } from '@/app/lib/security/safe-external-fetch';
 
@@ -8,8 +8,15 @@ const MAX_CONNECTIONS = 64;
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_UPLOAD_BYTES = 1024 * 1024;
 
+/** Server-owned document capability; no cookie, bearer or general app URL. */
+export type PdfPreviewAccess = {
+  url: string;
+  pathPrefix: string;
+  load(url: URL): Promise<Response>;
+};
+
 /** A job-owned forward proxy. DNS is resolved and pinned here, never in Chromium. */
-export async function createPdfNetworkProxy() {
+export async function createPdfNetworkProxy(preview?: PdfPreviewAccess) {
   const sockets = new Set<Duplex>();
   let closed = false;
   const track = (socket: Duplex) => {
@@ -25,6 +32,19 @@ export async function createPdfNetworkProxy() {
     void (async () => {
       const url = new URL(request.url || '');
       if (url.protocol !== 'http:') throw new Error('HTTP proxy URL required');
+      if (preview && url.origin === new URL(preview.url).origin) {
+        if (url.username || url.password || !['GET','HEAD'].includes(request.method || '') || !url.pathname.startsWith(preview.pathPrefix + '/')) throw new Error('Invalid preview request');
+        const result = await preview.load(url);
+        if (closed || response.destroyed) { await result.body?.cancel();return; }
+        const headers = Object.fromEntries([...result.headers].filter(([name])=>!['set-cookie','connection','transfer-encoding','content-encoding'].includes(name)));
+        response.writeHead(result.status,headers);
+        if (request.method === 'HEAD' || !result.body) { await result.body?.cancel();response.end();return; }
+        const stream=Readable.fromWeb(result.body as Parameters<typeof Readable.fromWeb>[0]);
+        stream.on('error',()=>response.destroy());
+        response.once('close',()=>stream.destroy());
+        stream.pipe(response);
+        return;
+      }
       const target = await resolvePublicNetworkAddress(url);
       if (closed || request.destroyed) return;
       const headers: http.OutgoingHttpHeaders = { ...request.headers, host: url.host };
@@ -48,6 +68,7 @@ export async function createPdfNetworkProxy() {
       });
       upstream.on('socket', track);
       upstream.on('error', () => {
+        if (response.destroyed) return;
         if (!response.headersSent) response.writeHead(502);
         response.end();
       });
@@ -59,7 +80,11 @@ export async function createPdfNetworkProxy() {
         if (uploaded > MAX_UPLOAD_BYTES) { upstream.destroy(); request.destroy(); }
       });
       request.pipe(upstream);
-    })().catch(() => { response.writeHead(403); response.end(); });
+    })().catch(() => {
+      if (response.destroyed) return;
+      if (!response.headersSent) response.writeHead(403);
+      response.end();
+    });
   });
   server.on('connection', (socket) => {
     if (track(socket)) socket.setTimeout(REQUEST_TIMEOUT_MS, () => socket.destroy());

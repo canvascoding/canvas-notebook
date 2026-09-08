@@ -2314,6 +2314,16 @@ export async function resolvePostgresWorkspaceForActor(
   }
 }
 
+/** Read-only authorization for a previously issued capability; never bootstrap. */
+export async function resolveExistingPostgresWorkspaceForActor(
+  actor: WorkspaceActor,
+  workspaceId: string,
+): Promise<WorkspaceContext | null> {
+  const database = await openDb();
+  try { return await resolveWorkspaceContextById(database, actor, workspaceId); }
+  finally { await database.close(); }
+}
+
 export async function getPostgresOrganizationPermissionForUser(
   userId: string,
 ): Promise<OrganizationPermissionState> {

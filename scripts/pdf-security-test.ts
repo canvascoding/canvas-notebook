@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
-import { pdfPreviewRequestHeaders, type PdfPreviewAuthorization } from '../app/lib/pdf/preview-request';
+import type { PdfPreviewAccess } from '../app/lib/pdf/network-proxy';
 
 const ROOT = '/api/media/preview/__workspace/pdf-fixture/fixture/';
 const fixtureCookie = 'better-auth.session_token=pdf-fixture-only';
@@ -79,17 +79,17 @@ async function main() {
   let restoreBrowserLaunch: (() => void) | undefined;
   try {
     externalOrigin = await listen(external); internalOrigin = await listen(internal);
-    const authorization: PdfPreviewAuthorization = { origin: internalOrigin, workspaceId: 'pdf-fixture', kind: 'workspace', cookie: fixtureCookie };
-    const hostileHeaders = { Cookie: fixtureCookie, Authorization: 'Bearer fixture-only', 'X-Canvas-Internal-Token': 'fixture-only', referer: internalOrigin + ROOT + 'file.html' };
-    for (const [url, method] of [
-      [externalOrigin + '/image.svg','GET'], [internalOrigin + '/api/files/list','GET'],
-      [internalOrigin + ROOT + 'file.html','POST'], [internalOrigin + '/api/media/preview/__workspace/other/file.html','GET'],
-      [internalOrigin + ROOT + 'file.html?workspaceId=other','GET'], [internalOrigin + ROOT + '%252e%252e/file.html','GET'],
-      [internalOrigin + ROOT + '%2fapi/files','GET'], [internalOrigin + ROOT + '../..//other/file.html','GET'],
-    ]) assert.deepEqual(pdfPreviewRequestHeaders(url, method, hostileHeaders, authorization), {}, `${method} ${url}: no credentials`);
-    assert.equal(pdfPreviewRequestHeaders(internalOrigin + ROOT + 'local.svg','GET',{},authorization).cookie,fixtureCookie);
-    const studio = { ...authorization, kind: 'studio' as const };
-    assert.equal(pdfPreviewRequestHeaders(internalOrigin+'/api/studio/media/preview/studio/outputs/asset.svg','GET',{},studio)['x-canvas-workspace-id'],'pdf-fixture');
+    const preview: PdfPreviewAccess = {
+      url:'http://canvas-document.invalid'+ROOT+'file.html',
+      pathPrefix:ROOT.slice(0,-1),
+      async load(url) {
+        assert.equal(url.origin,'http://canvas-document.invalid');
+        assert.ok(url.pathname.startsWith(ROOT));
+        // This recording fixture models a server-owned document provider. The
+        // production provider reads a restricted ticket; it sends no cookie.
+        return fetch(internalOrigin+url.pathname+url.search,{headers:{cookie:fixtureCookie},redirect:'manual'});
+      },
+    };
 
     renderer = process.env.TEST_PDF_BASELINE_PATH
       ? await import(pathToFileURL(process.env.TEST_PDF_BASELINE_PATH).href)
@@ -108,12 +108,12 @@ async function main() {
         '--disable-features=LocalNetworkAccessChecks',
       ] });
       const createContext = browser.createBrowserContext.bind(browser);
-      browser.createBrowserContext = () => createContext();
+      browser.createBrowserContext = options => createContext({...options,proxyBypassList:['127.0.0.1','localhost','[::1]']});
       return browser;
     };
     for (const who of ['A','B']) {
-      const pdf = await renderer!.generatePdfFromUrl(internalOrigin + ROOT + 'file.html?who=' + who,
-        (baseline ? { cookie: fixtureCookie } : authorization) as PdfPreviewAuthorization);
+      const pdf = await renderer!.generatePdfFromUrl((baseline ? internalOrigin+ROOT+'file.html' : preview.url) + '?who=' + who,
+        (baseline ? { cookie: fixtureCookie } : preview) as PdfPreviewAccess);
       assert.match(pdf.subarray(0,4).toString(), /%PDF/);
       if (artifactRoot) { await fs.mkdir(artifactRoot,{recursive:true});await fs.writeFile(path.join(artifactRoot,`${baseline?'before':'after'}-${who}.pdf`),pdf); }
       if (!baseline) {

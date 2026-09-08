@@ -10,7 +10,7 @@ Priority is abuse without an account. External document content remains untruste
 | --- | --- | --- | --- |
 | 1 | S5: unverified cookie rate-limit identity; public abuse limits and negative access checks; HTTP disconnect crash | Implemented and locally verified (`f90801dd`) | Not deployed or verified |
 | 2 | S2: PDF cookies sent to external resources; browser job isolation | Implemented and locally verified (`0db1aabe`) | Not deployed |
-| 3 | S2/S3: isolated HTML documents, restricted/revocable preview tickets, renderer network boundary | PDF network boundary implemented; document/ticket work pending | Not deployed |
+| 3 | S2/S3: isolated HTML documents, restricted/revocable preview tickets, renderer network boundary | Implemented and locally verified | Not deployed |
 | 4 | S4: personal default workspace and owner-only legacy migration | Pending | Not deployed |
 | 5 | Dependency advisories, targeted updates | Pending | Not deployed |
 
@@ -76,11 +76,11 @@ Verification:
 - Existing browser-export queue tests and the rich Markdown PDF export (callout, details, table, formula and footnote) passed. Production build, TypeScript and changed-file lint passed.
 - The built app's actual HTML viewer/share dialog and PDF download passed an authorized Playwright check with normal production Chromium flags. A public HTTPS image (including its redirect), a relative SVG, an ES module and relative JSON all loaded. The downloaded PDF contains both expected print pages, the public image and dynamically populated text; its rasterized pages and the dialog screenshot were visually checked. Only the four newly created QA files were removed afterwards. An earlier attempt correctly received the existing high-load rejection; no resource limits were relaxed for the successful run.
 
-## Package 3: renderer network boundary (document isolation still in progress)
+## Package 3: isolated HTML documents and renderer network boundary
 
 Each PDF job owns a forward proxy as well as its browser context. HTTP and HTTPS connections resolve through the existing public-address validator; the proxy dials the validated numeric address, preserving the HTTP Host and HTTPS TLS/SNI handshake. Every new connection, including a redirect destination, is checked. Only standard HTTP(S) ports are eligible. Private, loopback, link-local, metadata, multicast, documentation and IPv6 translation/tunnel destinations are rejected. IPv6 is restricted to ordinary global unicast, closing NAT64/6to4/Teredo bypasses in the shared validator.
 
-The context applies its proxy to page, frame, worker and HTTPS/WebSocket network activity. Chromium's implicit local-address proxy bypass is explicitly removed with `<-loopback>`; QUIC is disabled and WebRTC is configured to disable unproxied UDP. Chromium hostname resolution is disabled so the proxy owns public DNS decisions. The browser's unused default context has a nonfunctional proxy instead of direct network access. Proxy sockets are bounded, time out, and close with the job. The exact internal preview fetch from package 2 remains a separate server-side exception pending replacement by scoped tickets.
+The context applies its proxy to page, frame, worker and HTTPS/WebSocket network activity. Chromium's implicit local-address proxy bypass is explicitly removed with `<-loopback>`; QUIC is disabled and WebRTC is configured to disable unproxied UDP. Chromium hostname resolution is disabled so the proxy owns public DNS decisions. The browser's unused default context has a nonfunctional proxy instead of direct network access. Proxy sockets are bounded, time out, and close with the job. The transitional cookie-bearing fetch from package 2 has now been removed. A job-scoped virtual document origin is served directly by the ticket provider through this same proxy, including requests from local workers. It cannot issue arbitrary internal HTTP requests.
 
 Verification:
 
@@ -89,6 +89,31 @@ Verification:
 - Existing safe-external-fetch, browser-export queue and PDF credential regression tests passed. Production build, TypeScript and changed-file lint passed.
 - The rebuilt native app passed the same authorized HTML share-dialog/download UI check with the network boundary enabled and normal production flags. Public image, local SVG, relative module and JSON text are present; both downloaded PDF pages remain pixel-identical to the preceding UI reference. As before, the resource guard rejected an attempt during high machine load and the successful run used unchanged limits.
 
-This is an application renderer network boundary, not an operating-system sandbox or a claim about the separate interactive agent browser/Marp subprocess. Full document origin isolation and narrowed/revocable tickets remain unfinished.
+This is an application renderer network boundary, not an operating-system sandbox or a claim about the separate interactive agent browser/Marp subprocess. The separate interactive agent browser and private Marp CLI subprocess are outside this renderer boundary.
 
 Implementation references: [Chromium proxy bypass rules](https://chromium.googlesource.com/chromium/src/+/main/net/docs/proxy.md#implicit-bypass-rules), [Puppeteer context options](https://pptr.dev/api/puppeteer.browsercontextoptions).
+
+### HTML origin and file authority
+
+Authenticated workspace and Studio HTML preview routes now issue a short-lived opaque ticket and redirect to a dedicated hostname. The existing mobile ticket URL contract redirects to that same delivery service. The preview host exposes only GET/HEAD on `/__preview/:ticket/*`; app APIs, WebSocket upgrades, authorization headers and cookies are rejected or stripped. App requests originating from preview documents are denied at the HTTP boundary. The main app allows its configured preview origin in `frame-src`; documents retain scripts and same-origin access within their isolated origin so modules and workers continue to work.
+
+HTTPS authentication uses the host-only `__Host-better-auth.session_token` cookie. The explicit custom name is configured without Better Auth's automatic second prefix; other OAuth cookie names retain their existing convention. This prevents a sibling preview hostname from replacing the app session with a domain cookie. Existing HTTPS sessions require one new login after deployment. HTTP local development retains the existing cookie name.
+
+Tickets contain no app session cookie or bearer token. The process stores only a SHA-256 token key, session/user/workspace IDs, document kind, expiry and a finite allowed file set. Each read checks the real current session, account ban/seat state and read access to the persisted workspace; Studio files also retain their media access and real-path checks. Expiry is at most 30 minutes and never exceeds the originating session. Signing out or disabling the workspace revokes access on the next request. Export tickets are revoked in `finally`. Stores are bounded to 16 tickets per session and 1,024 globally; they are process-local, so deployments with multiple app workers need affinity (a different worker fails closed).
+
+The allowed set is the document's declared local dependency graph: HTML attributes, CSS imports/URLs and JavaScript string references, recursively parsed without execution. Relative and root-relative resources are retained. Dynamic references may expand a specifically named document subdirectory into a finite set, with file/source/depth bounds. Unknown runtime paths and whole-workspace expansion receive no authority. A declared JSON/text dependency is intentionally accessible to the document; this is not a claim that a document cannot name another known file as a dependency. This boundary limits ambient app/workspace authority while preserving explicitly referenced document assets. Fully dynamic filenames at the document/workspace root must also appear as declared dependencies; there is no fallback granting every file.
+
+### Deployment contract
+
+Before rollout, provision DNS and TLS for `preview.<app hostname>` pointing to the same ingress. An existing different hostname can instead be configured with `CANVAS_HTML_PREVIEW_ORIGIN=https://documents.example.net` in the deployment environment and managed CLI configuration. A different port on the same hostname does not qualify. IP-addressed deployments require an explicit preview hostname. The portable and legacy Caddy templates generate the restricted preview vhost and remove credential/Set-Cookie headers. Custom proxies must implement the equivalent vhost restrictions. Do not deploy until that hostname is reachable; failure is closed and there is no same-origin HTML fallback.
+
+No DNS records, production servers or containers were changed. Local verification used temporary self-signed certificates (not installed in the OS trust store), local Caddy on port 3443 and the native app against the existing managed PostgreSQL fixture.
+
+### Full document verification
+
+- `npm run test:security:html-preview` passes: declared dependency graph, dynamic directory bounds, root-relative rewriting, origin validation, actual HTTP vhost/credential boundaries, HTTPS cookie naming, real SQLite session expiry/revocation and disabled workspace checks.
+- Updated PDF credential tests pass with the ticket-provider interface. The independent network suite still records zero private HTTP/worker/WebSocket requests while public HTTPS resources load. Caddy tests cover the default and custom preview hostname and invalid same-host/insecure choices; both generated TypeScript and legacy shell configurations pass actual `caddy adapt`.
+- The production build contains `/__preview/[ticket]/[...path]`. TypeScript and changed-file ESLint pass. Auth identity and public routing regressions pass.
+- Authorized Playwright verification on two HTTPS hostnames passes with the managed PostgreSQL fixture: login, HTML viewer/share dialog, public image and redirect, local SVG, root-relative ES module/JSON, classic worker plus `importScripts`, mobile redirect and PDF download. Actual browser request headers contain no app session on the preview origin. Parent DOM access, credentialed app API access, session-cookie replacement and unlisted file reads are denied. Web/mobile tickets return 404 after sign-out.
+- The two exported PDF pages contain the external image and dynamically populated content and remain pixel-identical to the preceding renderer reference. Both the PDF raster and share-dialog screenshot were inspected visually. Only the newly created QA files were removed.
+- The older `mobile-files-test.ts` has a pre-existing SQLite/Excalidraw failure (`no such function: hashtext` in the collaboration transaction helper). The same failure was reproduced using its pre-change version from `dd3da799`; it is not reported as a passing suite. Its obsolete preview assertions were updated, and the new standalone preview suite supplies executable coverage for those boundaries.

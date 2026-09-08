@@ -15,9 +15,25 @@ CADDYFILE="/etc/caddy/Caddyfile"
 caddy_site_block() {
   local domain="$1"
   local proxy_token="" internal_key=""
+  local preview_origin=""
   if declare -F config_json_read >/dev/null; then
     internal_key="$(config_json_read env.CANVAS_INTERNAL_API_KEY 2>/dev/null || true)"
+    preview_origin="$(config_json_read env.CANVAS_HTML_PREVIEW_ORIGIN 2>/dev/null || true)"
   fi
+  preview_origin="${preview_origin:-https://preview.$domain}"
+  preview_origin="$(CANVAS_PREVIEW_SITE="$preview_origin" CANVAS_PREVIEW_APP_HOST="$domain" python3 - <<'PY'
+import os,re,urllib.parse
+value=urllib.parse.urlsplit(os.environ['CANVAS_PREVIEW_SITE'])
+host=value.hostname or ''
+assert value.scheme=='https' and not value.username and not value.password
+assert value.path in ('','/') and not value.query and not value.fragment
+assert host != os.environ['CANVAS_PREVIEW_APP_HOST'] and len(host)<=253
+assert re.fullmatch(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?',host)
+port=value.port
+assert port is None or 1<=port<=65535
+print('https://'+host+(':'+str(port) if port and port!=443 else ''))
+PY
+  )" || return 1
   if [[ ${#internal_key} -ge 32 ]]; then
     proxy_token="$(CANVAS_PROXY_DERIVATION_KEY="$internal_key" python3 -c 'import hashlib,hmac,os; print(hmac.new(os.environ["CANVAS_PROXY_DERIVATION_KEY"].strip().encode(), b"canvas-notebook/proxy-client-address/v1", hashlib.sha256).hexdigest())')" || return 1
   fi
@@ -28,13 +44,23 @@ caddy_site_block() {
     printf '            header_up -X-Canvas-Proxy-Token\n            header_up -X-Canvas-Proxy-Client-IP\n'
   fi
   printf '        }\n    }\n}\n'
+  printf '\n%s {\n    @preview {\n        method GET HEAD\n        path /__preview/*\n    }\n    handle @preview {\n        reverse_proxy localhost:3456 {\n            header_up -Cookie\n            header_up -Authorization\n            header_up -Proxy-Authorization\n            header_down -Set-Cookie\n            header_down -X-Frame-Options\n' "$preview_origin"
+  if [[ -n "$proxy_token" ]]; then
+    printf '            header_up X-Canvas-Proxy-Token %s\n            header_up X-Canvas-Proxy-Client-IP {remote_host}\n' "$proxy_token"
+  else
+    printf '            header_up -X-Canvas-Proxy-Token\n            header_up -X-Canvas-Proxy-Client-IP\n'
+  fi
+  printf '        }\n    }\n    handle {\n        respond 404\n    }\n}\n'
 }
 
 write_caddy_config() {
   local domain="$1"
   local tmp
   tmp="$(mktemp)"
-  caddy_site_block "$domain" > "$tmp"
+  if ! caddy_site_block "$domain" > "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
   run_root mkdir -p "$(dirname "$CADDYFILE")"
   run_root cp "$tmp" "$CADDYFILE"
   rm -f "$tmp"
@@ -55,7 +81,7 @@ sync_caddy() {
   fi
 
   info "Writing Caddy config for ${domain}..."
-  write_caddy_config "$domain"
+  write_caddy_config "$domain" || return 1
 
   if command -v caddy >/dev/null 2>&1; then
     if ! run_root caddy validate --config "$CADDYFILE" 2>&1; then
