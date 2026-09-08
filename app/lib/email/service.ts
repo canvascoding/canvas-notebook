@@ -45,6 +45,12 @@ import {
   type EmailDetailPayload,
   type EmailListPayload,
 } from '@/app/lib/email/cache/read-through';
+import {
+  invalidateEmailMailboxCache,
+  purgeEmailMailboxCache,
+  reactivateEmailMailboxCache,
+  runLocalEmailMailboxMutation,
+} from '@/app/lib/email/cache/consistency';
 import { getRuntimeEmailCacheStore, normalizeEmailCacheProvider } from '@/app/lib/email/cache/store';
 import { resolveEmailAttachments } from '@/app/lib/email/attachments';
 import { EmailMessageNotFoundError } from '@/app/lib/email/errors';
@@ -367,19 +373,26 @@ export async function setEmailMainAccount(userId: string, accountId: string) {
 }
 
 export async function disconnectEmailAccount(userId: string, accountId: string) {
-  if (await findManagedEmailAccount(userId, accountId)) {
+  const managedAccount = await findManagedEmailAccount(userId, accountId);
+  if (managedAccount) {
     await managedEmailRequest<{ success: boolean }>(
       `/v1/managed/email/accounts/${encodeURIComponent(accountId)}`,
       { method: 'DELETE' },
       managedEmailScope(userId),
     );
+    await purgeEmailMailboxCache({ userId, accountId: managedAccount.id, accountSource: 'managed' });
     return { success: true };
   }
-  return disconnectLocalEmailAccount(userId, accountId);
+  const localAccount = await resolveLocalEmailCacheAccount(userId, accountId);
+  const result = await disconnectLocalEmailAccount(userId, localAccount.account.id);
+  await purgeEmailMailboxCache({ userId, accountId: localAccount.account.id, accountSource: 'local' });
+  return result;
 }
 
 export async function saveEmailSmtpAccount(userId: string, input: SmtpAccountInput, options?: { verify?: boolean }) {
-  return saveSmtpEmailAccount(userId, input, options);
+  const account = await saveSmtpEmailAccount(userId, input, options);
+  await reactivateEmailMailboxCache({ userId, accountId: account.id, accountSource: 'local' });
+  return account;
 }
 
 export async function testEmailSmtpConnection(userId: string, input: SmtpAccountInput) {
@@ -422,6 +435,24 @@ function effectiveListFilter(input: EmailMessageListInput) {
     from: (input.from || '').trim(),
     hasAttachments: Boolean(input.hasAttachments),
   };
+}
+
+function localMailboxAccountFromResult(result: unknown): { id: string; authType: string } | null {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
+  const account = (result as { account?: unknown }).account;
+  if (!account || typeof account !== 'object' || Array.isArray(account)) return null;
+  const id = (account as { id?: unknown }).id;
+  const authType = (account as { authType?: unknown }).authType;
+  if (typeof id !== 'string' || !id.trim() || typeof authType !== 'string') return null;
+  return { id: id.trim(), authType };
+}
+
+async function invalidateLocalOAuthMailboxResult<T>(userId: string, result: T): Promise<T> {
+  const account = localMailboxAccountFromResult(result);
+  if (account && account.authType !== 'smtp_imap') {
+    await invalidateEmailMailboxCache({ userId, accountId: account.id, accountSource: 'local' });
+  }
+  return result;
 }
 
 export async function searchEmail(userId: string, input: EmailSearchInput, options?: EmailReadPolicyOptions) {
@@ -600,7 +631,10 @@ export async function setEmailMessageRead(
   folder: string | undefined,
   read: boolean,
 ) {
-  return setLocalEmailMessageRead(userId, accountId, messageId, folder, read);
+  return runLocalEmailMailboxMutation(
+    { userId, accountId },
+    () => setLocalEmailMessageRead(userId, accountId, messageId, folder, read),
+  );
 }
 
 export async function setEmailMessageAnswered(
@@ -610,23 +644,38 @@ export async function setEmailMessageAnswered(
   folder: string | undefined,
   answered: boolean,
 ) {
-  return setLocalEmailMessageAnswered(userId, accountId, messageId, folder, answered);
+  return runLocalEmailMailboxMutation(
+    { userId, accountId },
+    () => setLocalEmailMessageAnswered(userId, accountId, messageId, folder, answered),
+  );
 }
 
 export async function archiveEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
-  return archiveLocalEmailMessage(userId, accountId, messageId, folder);
+  return runLocalEmailMailboxMutation(
+    { userId, accountId },
+    () => archiveLocalEmailMessage(userId, accountId, messageId, folder),
+  );
 }
 
 export async function moveEmailMessage(userId: string, accountId: string, messageId: string, folder: string | undefined, destination: string) {
-  return moveLocalEmailMessage(userId, accountId, messageId, folder, destination);
+  return runLocalEmailMailboxMutation(
+    { userId, accountId },
+    () => moveLocalEmailMessage(userId, accountId, messageId, folder, destination),
+  );
 }
 
 export async function trashEmailMessage(userId: string, accountId: string, messageId: string, folder?: string) {
-  return trashLocalEmailMessage(userId, accountId, messageId, folder);
+  return runLocalEmailMailboxMutation(
+    { userId, accountId },
+    () => trashLocalEmailMessage(userId, accountId, messageId, folder),
+  );
 }
 
 export async function deleteEmailMessagePermanently(userId: string, accountId: string, messageId: string, folder?: string) {
-  return deleteLocalEmailMessagePermanently(userId, accountId, messageId, folder);
+  return runLocalEmailMailboxMutation(
+    { userId, accountId },
+    () => deleteLocalEmailMessagePermanently(userId, accountId, messageId, folder),
+  );
 }
 
 export async function summarizeEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
@@ -652,7 +701,8 @@ export async function createEmailDerivedDraft(
   overrides?: EmailDerivedDraftOverrides,
   options?: EmailReadPolicyOptions & EmailDeliveryOptions,
 ) {
-  return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, mode, overrides, options);
+  const result = await createLocalEmailDerivedDraft(userId, accountId, messageId, folder, mode, overrides, options);
+  return invalidateLocalOAuthMailboxResult(userId, result);
 }
 
 export async function sendEmailDerivedMessage(
@@ -664,7 +714,8 @@ export async function sendEmailDerivedMessage(
   overrides?: EmailDerivedDraftOverrides,
   options?: EmailReadPolicyOptions & EmailDeliveryOptions,
 ) {
-  return sendLocalEmailDerivedMessage(userId, accountId, messageId, folder, mode, overrides, options);
+  const result = await sendLocalEmailDerivedMessage(userId, accountId, messageId, folder, mode, overrides, options);
+  return invalidateLocalOAuthMailboxResult(userId, result);
 }
 
 export async function generateEmailAiReplyBody(userId: string, accountId: string, messageId: string, folder?: string, instruction?: string, options?: EmailReadPolicyOptions) {
@@ -695,7 +746,8 @@ export async function streamEmailComposeBody(
 }
 
 export async function createEmailAiReplyDraft(userId: string, accountId: string, messageId: string, folder?: string, instruction?: string, options?: EmailReadPolicyOptions) {
-  return createLocalEmailAiReplyDraft(userId, accountId, messageId, folder, instruction, options);
+  const result = await createLocalEmailAiReplyDraft(userId, accountId, messageId, folder, instruction, options);
+  return invalidateLocalOAuthMailboxResult(userId, result);
 }
 
 export async function createEmailDraft(userId: string, input: EmailDraftInput, options?: EmailDeliveryOptions) {
@@ -705,7 +757,8 @@ export async function createEmailDraft(userId: string, input: EmailDraftInput, o
       body: JSON.stringify(await managedDraftInput(input)),
     }, managedEmailScope(userId));
   }
-  return createLocalEmailDraft(userId, input, options?.deliveryOrigin);
+  const result = await createLocalEmailDraft(userId, input, options?.deliveryOrigin);
+  return invalidateLocalOAuthMailboxResult(userId, result);
 }
 
 export async function updateEmailDraft(userId: string, draftId: string, input: EmailDraftInput, options?: EmailDeliveryOptions) {
@@ -715,7 +768,8 @@ export async function updateEmailDraft(userId: string, draftId: string, input: E
       body: JSON.stringify(await managedDraftInput(input)),
     }, managedEmailScope(userId));
   }
-  return updateLocalEmailDraft(userId, draftId, input, options?.deliveryOrigin);
+  const result = await updateLocalEmailDraft(userId, draftId, input, options?.deliveryOrigin);
+  return invalidateLocalOAuthMailboxResult(userId, result);
 }
 
 export async function sendEmailMessage(userId: string, input: EmailDraftInput, options?: EmailDeliveryOptions) {
@@ -727,7 +781,8 @@ export async function sendEmailMessage(userId: string, input: EmailDraftInput, o
     if (!draftId) throw new Error('Managed email draft response did not include a draft ID.');
     return sendEmailDraft(userId, accountId, draftId, options);
   }
-  return sendLocalEmailMessage(userId, input, options?.deliveryOrigin);
+  const result = await sendLocalEmailMessage(userId, input, options?.deliveryOrigin);
+  return invalidateLocalOAuthMailboxResult(userId, result);
 }
 
 export async function sendEmailDraft(userId: string, accountId: string, draftId: string, options?: EmailDeliveryOptions) {
@@ -737,5 +792,6 @@ export async function sendEmailDraft(userId: string, accountId: string, draftId:
       body: JSON.stringify({ accountId }),
     }, managedEmailScope(userId));
   }
-  return sendLocalEmailDraft(userId, accountId, draftId, options?.deliveryOrigin);
+  const result = await sendLocalEmailDraft(userId, accountId, draftId, options?.deliveryOrigin);
+  return invalidateLocalOAuthMailboxResult(userId, result);
 }
