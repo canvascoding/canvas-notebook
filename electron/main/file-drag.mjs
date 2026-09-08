@@ -7,6 +7,7 @@ import { pipeline } from 'node:stream/promises';
 
 const MAX_DRAG_ITEMS = 25;
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const WINDOWS_RESERVED_FILE_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 
 function isSafeWorkspacePath(value) {
   if (typeof value !== 'string') return false;
@@ -33,7 +34,15 @@ function cacheKey(workspaceId, filePath) {
 }
 
 function safeDownloadName(filePath, response) {
-  const baseName = path.posix.basename(filePath).replace(/[^a-zA-Z0-9._ -]/g, '_') || 'download';
+  const requestedBaseName = path.posix.basename(filePath);
+  const normalizedBaseName = requestedBaseName
+    .replace(/[\u0000-\u001f<>:"/\\|?*]/g, '_')
+    .replace(/[. ]+$/g, '');
+  const baseName = !normalizedBaseName
+    ? 'download'
+    : WINDOWS_RESERVED_FILE_NAME.test(normalizedBaseName)
+      ? `_${normalizedBaseName}`
+      : normalizedBaseName;
   const contentType = response.headers.get('content-type') || '';
   return contentType.startsWith('application/zip') && !baseName.toLowerCase().endsWith('.zip')
     ? `${baseName}.zip`
@@ -64,15 +73,15 @@ export function createDesktopFileDragCache({ tempRoot, iconPath, cacheTtlMs = CA
     if (!entry) return;
     cachedFiles.delete(key);
     if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
-    await rm(entry.localPath, { force: true });
+    await rm(entry.cleanupPath, { recursive: true, force: true });
   };
 
-  const cacheFile = (key, localPath) => {
+  const cacheFile = (key, localPath, cleanupPath) => {
     const cleanupTimer = setTimeout(() => {
       void removeCachedFile(key);
     }, cacheTtlMs);
     cleanupTimer.unref?.();
-    cachedFiles.set(key, { localPath, cleanupTimer });
+    cachedFiles.set(key, { localPath, cleanupPath, cleanupTimer });
     return localPath;
   };
 
@@ -94,14 +103,16 @@ export function createDesktopFileDragCache({ tempRoot, iconPath, cacheTtlMs = CA
         throw new Error(`Could not prepare ${filePath} for drag-and-drop.`);
       }
 
-      const localPath = path.join(tempRoot, `${randomUUID()}-${safeDownloadName(filePath, response)}`);
+      const stagingPath = path.join(tempRoot, randomUUID());
+      await mkdir(stagingPath, { recursive: false });
+      const localPath = path.join(stagingPath, safeDownloadName(filePath, response));
       try {
         await pipeline(Readable.fromWeb(response.body), createWriteStream(localPath, { flags: 'wx' }));
       } catch (error) {
-        await rm(localPath, { force: true });
+        await rm(stagingPath, { recursive: true, force: true });
         throw error;
       }
-      return cacheFile(key, localPath);
+      return cacheFile(key, localPath, stagingPath);
     })();
 
     pendingDownloads.set(key, download);
