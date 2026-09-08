@@ -33,6 +33,7 @@ type SchemaColumn = {
   hasDefault: boolean;
   default?: unknown;
   table?: PostgresSchemaTable;
+  getSQLType?: () => string;
 };
 
 type SqlChunk = {
@@ -86,6 +87,11 @@ export function getPostgresSchemaTables(): PostgresSchemaTable[] {
 function columnType(column: SchemaColumn): string {
   if (column.autoIncrement) return 'bigserial';
 
+  const sqlType = column.getSQLType?.().toLowerCase();
+  if (sqlType === 'text' || sqlType === 'bigint' || sqlType === 'bigserial' || sqlType === 'double precision') {
+    return sqlType;
+  }
+
   switch (column.columnType) {
     case 'PgText':
       return 'text';
@@ -98,7 +104,7 @@ function columnType(column: SchemaColumn): string {
     case 'PgBigSerial64':
       return 'bigserial';
     case 'PgCustomColumn':
-      return 'bigint';
+      return column.dataType === 'string' ? 'text' : 'bigint';
     default:
       if (column.dataType === 'string') return 'text';
       if (column.dataType === 'number' || column.dataType === 'boolean' || column.dataType === 'date') return 'bigint';
