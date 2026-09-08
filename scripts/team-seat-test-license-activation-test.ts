@@ -68,7 +68,6 @@ function testLicensePayload(input: {
     entitlementsVersion: input.entitlementsVersion,
     nonBillable: true,
     deploymentMode: 'community-team',
-    databaseProvider: 'postgres',
     vectorProvider: 'pgvector',
     postgresRequired: true,
     capabilities: {
@@ -394,7 +393,6 @@ async function main(): Promise<void> {
       source: 'first_owner',
       seatOperationType: 'reconcile',
       now,
-      databaseProvider: 'sqlite',
     });
 
     const started = await beginDirectMembershipActivation({
@@ -404,7 +402,6 @@ async function main(): Promise<void> {
       displayName: 'Test Member',
       role: 'member',
       database: connection,
-      databaseProvider: 'sqlite',
       now: now + 100,
     });
     const preparedPayload = prepareResponse({ licenseId, desiredQuantity: 2 });
@@ -418,7 +415,6 @@ async function main(): Promise<void> {
       response: preparedPayload,
       actorUserId: 'owner-user',
       database: connection,
-      databaseProvider: 'sqlite',
       now: now + 200,
     });
     assert.equal(prepared.stage, 'seat_execute_pending');
@@ -476,7 +472,6 @@ async function main(): Promise<void> {
         password: 'test-only-password',
         actorUserId: 'owner-user',
         database: connection,
-        databaseProvider: 'sqlite',
         identity,
         now: now + 300,
       }),
@@ -511,7 +506,6 @@ async function main(): Promise<void> {
       password: 'test-only-password',
       actorUserId: 'owner-user',
       database: connection,
-      databaseProvider: 'sqlite',
       identity,
       now: now + 400,
     });
@@ -532,7 +526,6 @@ async function main(): Promise<void> {
       displayName: 'Failure Member',
       role: 'member',
       database: connection,
-      databaseProvider: 'sqlite',
       now: now + 500,
     });
     const failurePreparedPayload = prepareResponse({ licenseId, desiredQuantity: 3 });
@@ -543,7 +536,6 @@ async function main(): Promise<void> {
       response: failurePreparedPayload,
       actorUserId: 'owner-user',
       database: connection,
-      databaseProvider: 'sqlite',
       now: now + 600,
     });
     assert.ok(failurePrepared.executeOperation);
@@ -676,7 +668,6 @@ async function main(): Promise<void> {
       lifecycleStatus(activeTestStatus),
       {
         database: connection,
-        databaseProvider: 'sqlite',
         now: new Date(now + 1_000),
       },
     );
@@ -732,7 +723,6 @@ async function main(): Promise<void> {
       activeTestStatus,
       {
         database: connection,
-        databaseProvider: 'sqlite',
         now: new Date(now + 2_000),
       },
     );
@@ -751,7 +741,6 @@ async function main(): Promise<void> {
       revokedGrantStatus(activeTestStatus),
       {
         database: connection,
-        databaseProvider: 'sqlite',
         now: new Date(now + 3_000),
       },
     );

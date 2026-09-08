@@ -173,7 +173,6 @@ async function main(): Promise<void> {
     source: 'first_owner',
     seatOperationType: 'reconcile',
     now: 1_100,
-    databaseProvider: 'sqlite',
   });
 
   let state = await getTeamMembershipSyncState(connection, 'organization-1');
@@ -187,7 +186,6 @@ async function main(): Promise<void> {
     externalInvitationId: 'invitation-1',
     source: 'invitation',
     now: 1_200,
-    databaseProvider: 'sqlite',
   });
   await transitionTeamMembership(connection, {
     organizationId: 'organization-1',
@@ -198,7 +196,6 @@ async function main(): Promise<void> {
     actorUserId: 'owner-user',
     source: 'invitation',
     now: 1_300,
-    databaseProvider: 'sqlite',
   });
   await transitionTeamMembership(connection, {
     organizationId: 'organization-1',
@@ -208,7 +205,6 @@ async function main(): Promise<void> {
     actorUserId: 'owner-user',
     source: 'control_plane',
     now: 1_400,
-    databaseProvider: 'sqlite',
   });
 
   state = await getTeamMembershipSyncState(connection, 'organization-1');
@@ -225,7 +221,6 @@ async function main(): Promise<void> {
     source: 'control_plane',
     seatOperationType: 'invitation_accept',
     now: 1_500,
-    databaseProvider: 'sqlite',
   });
 
   state = await getTeamMembershipSyncState(connection, 'organization-1');
@@ -241,7 +236,6 @@ async function main(): Promise<void> {
     source: 'local_admin',
     seatOperationType: 'member_remove',
     now: 1_600,
-    databaseProvider: 'sqlite',
   });
 
   state = await getTeamMembershipSyncState(connection, 'organization-1');
@@ -253,7 +247,6 @@ async function main(): Promise<void> {
     email: 'pending@example.test',
     source: 'invitation',
     now: 1_700,
-    databaseProvider: 'sqlite',
   });
   await transitionTeamMembership(connection, {
     organizationId: 'organization-1',
@@ -263,7 +256,6 @@ async function main(): Promise<void> {
     acceptedAt: 1_750,
     source: 'invitation',
     now: 1_750,
-    databaseProvider: 'sqlite',
   });
   assert.equal(
     (await getTeamMembershipSyncState(connection, 'organization-1'))?.currentRevision,
@@ -370,7 +362,6 @@ async function main(): Promise<void> {
       },
       entitlementsVersion: 9,
       now: 6_000,
-      databaseProvider: 'sqlite',
     }),
     (error: unknown) => (
       error instanceof TeamSeatOutboxError
@@ -383,7 +374,6 @@ async function main(): Promise<void> {
     response: validAcknowledgement,
     entitlementsVersion: 9,
     now: 6_000,
-    databaseProvider: 'sqlite',
   });
   assert.equal(acknowledged.currentRevision, 3);
   assert.equal(acknowledged.acknowledgedRevision, 3);
@@ -412,7 +402,6 @@ async function main(): Promise<void> {
     }),
     entitlementsVersion: 1,
     now: 7_000,
-    databaseProvider: 'sqlite',
   });
   state = await getTeamMembershipSyncState(connection, 'organization-1');
   assert.equal(state?.acknowledgedRevision, 3, 'a stale acknowledgement must not overwrite newer diagnostics');

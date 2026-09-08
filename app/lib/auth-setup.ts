@@ -223,7 +223,6 @@ async function createInitialOwnerPostgres(input: InitialOwnerInput): Promise<Ini
       actorUserId: userId,
       seatOperationType: 'reconcile',
       transactionMode: 'existing',
-      databaseProvider: 'postgres',
       now: Date.now(),
     });
 

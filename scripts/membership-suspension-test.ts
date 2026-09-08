@@ -102,7 +102,6 @@ async function main() {
       source: 'migration',
       actorUserId: 'owner-user',
       seatOperationType: 'reconcile',
-      databaseProvider: 'sqlite',
       now: 1_100,
     });
   }
@@ -120,7 +119,6 @@ async function main() {
     actorUserId: 'admin-user',
     reason: 'Security review',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 2_000,
   });
   assert.equal(suspended.membership.status, 'suspended');
@@ -173,7 +171,6 @@ async function main() {
     actorUserId: 'admin-user',
     reason: 'Security review',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 2_100,
   });
   assert.equal(replay.replayed, true);
@@ -194,7 +191,6 @@ async function main() {
       targetUserId: 'owner-user',
       actorUserId: 'admin-user',
       database: connection,
-      databaseProvider: 'sqlite',
       now: 2_200,
     }),
     'MEMBERSHIP_LAST_OWNER',
@@ -205,7 +201,6 @@ async function main() {
       targetUserId: 'admin-user',
       actorUserId: 'admin-user',
       database: connection,
-      databaseProvider: 'sqlite',
       now: 2_300,
     }),
     'MEMBERSHIP_SELF_SUSPENSION',
@@ -224,7 +219,6 @@ async function main() {
     targetUserId: 'rollback-user',
     actorUserId: 'admin-user',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 2_400,
   }));
   assert.deepEqual(

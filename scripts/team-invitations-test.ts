@@ -182,7 +182,6 @@ async function main() {
     source: 'first_owner',
     seatOperationType: 'reconcile',
     now: 1_100,
-    databaseProvider: 'sqlite',
   });
   const initialOutboxCount = outboxCount();
 
@@ -194,7 +193,6 @@ async function main() {
     role: 'member',
     ttlMs: 7 * 24 * 60 * 60 * 1000,
     database: connection,
-    databaseProvider: 'sqlite',
     now: 2_000,
   });
   assert.equal(created.membership.status, 'invited');
@@ -226,7 +224,6 @@ async function main() {
       token: `x${created.token}`,
       requestId: '208ff899-a624-4f99-927f-1149d5c5ac7d',
       database: connection,
-      databaseProvider: 'sqlite',
       now: 3_000,
     }),
     'INVITATION_NOT_FOUND',
@@ -237,7 +234,6 @@ async function main() {
     token: created.token,
     requestId: acceptanceRequestId,
     database: connection,
-    databaseProvider: 'sqlite',
     now: 3_000,
   });
   assert.equal(accepted.replayed, false);
@@ -258,7 +254,6 @@ async function main() {
     token: created.token,
     requestId: acceptanceRequestId,
     database: connection,
-    databaseProvider: 'sqlite',
     now: 3_100,
   });
   assert.equal(replayed.replayed, true);
@@ -275,7 +270,6 @@ async function main() {
       token: created.token,
       requestId: '996b55f5-55b3-435e-902d-11b2db5e07c7',
       database: connection,
-      databaseProvider: 'sqlite',
       now: 3_200,
     }),
     'INVITATION_ALREADY_USED',
@@ -307,7 +301,6 @@ async function main() {
     prepareOperationId: invitationActivation.prepareOperation.operationId,
     response: invitationPreparedPayload,
     database: connection,
-    databaseProvider: 'sqlite',
     now: 3_400,
   });
   assert.equal(invitationPrepared.stage, 'approval_required');
@@ -324,7 +317,6 @@ async function main() {
       },
     },
     database: connection,
-    databaseProvider: 'sqlite',
     now: 3_500,
   });
   assert.equal(invitationApproved.activation.stage, 'seat_execute_pending');
@@ -367,7 +359,6 @@ async function main() {
     response: invitationExecutedPayload,
     password: 'invited password',
     database: connection,
-    databaseProvider: 'sqlite',
     identity: invitationIdentity,
     verifyCertificate: async (_response, desiredQuantity) => {
       assert.equal(desiredQuantity, 2);
@@ -393,7 +384,6 @@ async function main() {
     token: created.token,
     requestId: acceptanceRequestId,
     database: connection,
-    databaseProvider: 'sqlite',
     now: 3_700,
   });
   assert.equal(activeReplay.replayed, true);
@@ -407,14 +397,12 @@ async function main() {
     displayName: 'Declined Member',
     role: 'member',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 3_800,
   });
   const declinedAcceptance = await acceptTeamMembershipInvitation({
     token: declinedCandidate.token,
     requestId: '98ec9a4f-01b3-4bc1-b5c4-ae335e103944',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 3_810,
   });
   const declinedActivation = await beginInvitationMembershipActivation({
@@ -433,7 +421,6 @@ async function main() {
       authorizationId: 'dc44ed59-3237-4724-a4bf-4109a92f6553',
     }),
     database: connection,
-    databaseProvider: 'sqlite',
     now: 3_830,
   });
   const declined = await revokeTeamMembershipInvitation({
@@ -441,7 +428,6 @@ async function main() {
     invitationId: declinedCandidate.invitation.id,
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 3_840,
   });
   assert.equal(declined.status, 'revoked');
@@ -471,7 +457,6 @@ async function main() {
     displayName: 'Revoked Member',
     role: 'member',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 4_000,
   });
   const revoked = await revokeTeamMembershipInvitation({
@@ -479,7 +464,6 @@ async function main() {
     invitationId: revokedCandidate.invitation.id,
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 4_100,
   });
   assert.equal(revoked.status, 'revoked');
@@ -496,7 +480,6 @@ async function main() {
       token: revokedCandidate.token,
       requestId: '11cc6214-ce35-4914-b4b7-8ad163bdc30d',
       database: connection,
-      databaseProvider: 'sqlite',
       now: 4_200,
     }),
     'INVITATION_REVOKED',
@@ -509,7 +492,6 @@ async function main() {
     displayName: 'Revoked Member',
     role: 'member',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 4_300,
   });
   assert.equal(reissued.invitation.id, revokedCandidate.invitation.id);
@@ -519,7 +501,6 @@ async function main() {
       token: revokedCandidate.token,
       requestId: '7bf7484f-d59f-4c20-bccf-114e1b560a77',
       database: connection,
-      databaseProvider: 'sqlite',
       now: 4_400,
     }),
     'INVITATION_NOT_FOUND',
@@ -533,12 +514,10 @@ async function main() {
     role: 'admin',
     ttlMs: 15 * 60 * 1000,
     database: connection,
-    databaseProvider: 'sqlite',
     now: 5_000,
   });
   assert.equal(await expireTeamMembershipInvitations({
     database: connection,
-    databaseProvider: 'sqlite',
     now: 5_000 + (15 * 60 * 1000),
   }), 1);
   assert.equal(
@@ -554,7 +533,6 @@ async function main() {
       token: expiring.token,
       requestId: '8482bab2-6c2c-44f8-aecd-1405c9d8c304',
       database: connection,
-      databaseProvider: 'sqlite',
       now: 5_000 + (15 * 60 * 1000) + 1,
     }),
     'INVITATION_EXPIRED',
@@ -567,7 +545,6 @@ async function main() {
     displayName: 'Mismatch',
     role: 'member',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 6_000,
   });
   sqlite.prepare(`
@@ -580,7 +557,6 @@ async function main() {
       token: mismatch.token,
       requestId: '80eae727-cfa4-4176-8754-cf413031e9fe',
       database: connection,
-      databaseProvider: 'sqlite',
       now: 6_100,
     }),
     'INVITATION_CONFLICT',

@@ -173,7 +173,6 @@ async function main() {
           source: 'migration',
           actorUserId: 'user-owner',
           seatOperationType: 'reconcile',
-          databaseProvider: 'sqlite',
         });
       }
     }

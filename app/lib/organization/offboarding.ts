@@ -13,7 +13,6 @@ import {
   resolveUserSkillsDir,
 } from '@/app/lib/runtime-data-paths';
 import { openDb, type SqlConnection } from '@/app/lib/db';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   getTeamMembershipByUserId,
   transitionTeamMembership,
@@ -943,7 +942,6 @@ export async function offboardUser(options: {
           offboarding: true,
         },
         now,
-        databaseProvider: getDatabaseProvider(),
       });
       actions.teamMembershipRemoved = 1;
       actions.seatReductionQueued = 1;
@@ -963,7 +961,6 @@ export async function offboardUser(options: {
           seatReductionAlreadyQueued: true,
         },
         now,
-        databaseProvider: getDatabaseProvider(),
       });
       actions.teamMembershipRemoved = 1;
       actions.seatReductionQueued = 0;

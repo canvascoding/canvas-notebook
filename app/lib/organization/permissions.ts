@@ -6,7 +6,6 @@ import { isAdminUser, type AdminUserCandidate } from '@/app/lib/admin-auth';
 import { auth } from '@/app/lib/auth';
 import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { openDb } from '@/app/lib/db';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { type OrganizationPermissionSnapshot, type OrganizationPermissionState } from '@/app/lib/organization/bootstrap';
 import {
   ensureOrganizationPermissionRow,
@@ -736,7 +735,6 @@ export async function updateOrganizationRole(params: {
         actorUserId: params.actorUserId,
         transactionMode: 'existing',
         now,
-        databaseProvider: getDatabaseProvider(),
       });
 
       const updated = await getPermissionDetails(database, organization.organization_id, params.targetUserId);

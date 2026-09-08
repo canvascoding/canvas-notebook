@@ -205,7 +205,6 @@ async function main() {
     source: 'first_owner',
     seatOperationType: 'reconcile',
     now: 1_100,
-    databaseProvider: 'sqlite',
   });
 
   const started = await beginDirectMembershipActivation({
@@ -215,7 +214,6 @@ async function main() {
     displayName: 'New Member',
     role: 'member',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 2_000,
   });
   assert.equal(started.stage, 'seat_prepare_pending');
@@ -238,7 +236,6 @@ async function main() {
     displayName: 'New Member',
     role: 'member',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 2_100,
   });
   assert.equal(resumedStart.replayed, true);
@@ -257,7 +254,6 @@ async function main() {
     response: preparedPayload,
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 3_000,
   });
   assert.equal(prepared.stage, 'seat_execute_pending');
@@ -279,7 +275,6 @@ async function main() {
     response: preparedPayload,
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 3_100,
   });
   assert.equal(resumedPrepare.executeOperation?.operationId, prepared.executeOperation?.operationId);
@@ -331,7 +326,6 @@ async function main() {
     password: 'correct horse battery staple',
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     identity,
     verifyCertificate: async (_response, desiredQuantity) => {
       certificateVerifications += 1;
@@ -376,7 +370,6 @@ async function main() {
     password: 'correct horse battery staple',
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     identity,
     verifyCertificate: async (_response, desiredQuantity) => {
       certificateVerifications += 1;
@@ -412,7 +405,6 @@ async function main() {
     displayName: 'Billing Pending',
     role: 'admin',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 5_000,
   });
   const pendingPayload = prepareResponse({
@@ -430,7 +422,6 @@ async function main() {
     response: pendingPayload,
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 5_100,
   });
   assert.equal(pending.stage, 'approval_required');
@@ -478,7 +469,6 @@ async function main() {
       response: tamperedStatus,
       actorUserId: 'owner-user',
       database: connection,
-      databaseProvider: 'sqlite',
       now: 5_200,
     }),
     (error: unknown) => (
@@ -502,7 +492,6 @@ async function main() {
     response: approvedStatus,
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 5_300,
   });
   assert.equal(approved.activation.stage, 'seat_execute_pending');
@@ -591,7 +580,6 @@ async function main() {
     displayName: 'Stale Quote',
     role: 'member',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 6_000,
   });
   const stalePayload = prepareResponse({
@@ -610,7 +598,6 @@ async function main() {
     response: stalePayload,
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 6_100,
   });
   const expiredStatus = {
@@ -630,7 +617,6 @@ async function main() {
     currentResponse: expiredStatus,
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 6_200,
   });
   assert.equal(requoted.stage, 'seat_prepare_pending');
@@ -658,7 +644,6 @@ async function main() {
     reason: 'Administrative suspension',
     seatOperationType: 'member_remove',
     enqueueSeatReduction: true,
-    databaseProvider: 'sqlite',
     now: 7_000,
   });
   assert.equal(suspended.status, 'suspended');
@@ -705,7 +690,6 @@ async function main() {
     response: reactivationPrepare,
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 7_300,
   });
   assert.equal(reactivationApproval.stage, 'approval_required');
@@ -725,7 +709,6 @@ async function main() {
     },
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     now: 7_400,
   });
   assert.equal(approvedReactivation.activation.stage, 'seat_execute_pending');
@@ -830,7 +813,6 @@ async function main() {
     password: '',
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     identity: reactivationIdentity,
     verifyCertificate: async (_response, desiredQuantity) => {
       assert.equal(desiredQuantity, 2);
@@ -862,7 +844,6 @@ async function main() {
     password: '',
     actorUserId: 'owner-user',
     database: connection,
-    databaseProvider: 'sqlite',
     identity: reactivationIdentity,
     verifyCertificate: async (_response, desiredQuantity) => {
       assert.equal(desiredQuantity, 2);
@@ -897,7 +878,6 @@ async function main() {
     source: 'migration',
     actorUserId: 'owner-user',
     seatOperationType: 'reconcile',
-    databaseProvider: 'sqlite',
     now: 7_800,
   });
   assert.equal(
@@ -917,7 +897,6 @@ async function main() {
       password: 'correct horse battery staple',
       actorUserId: 'owner-user',
       database: connection,
-      databaseProvider: 'sqlite',
       identity: {
         ensurePending: async () => {
           throw new Error('an active replay must not create another identity');
@@ -979,7 +958,6 @@ async function main() {
       password: 'correct horse battery staple',
       actorUserId: 'owner-user',
       database: connection,
-      databaseProvider: 'sqlite',
       identity: staleIdentity,
       verifyCertificate: async (_response, desiredQuantity) => {
         assert.equal(desiredQuantity, 3);

@@ -73,7 +73,6 @@ async function main(): Promise<void> {
     source: 'invitation',
     reason: 'Initial invitation',
     now: 1_100,
-    databaseProvider: 'sqlite',
   });
 
   assert.equal(candidate.candidateEmail, 'candidate@example.test');
@@ -106,7 +105,6 @@ async function main(): Promise<void> {
       actorUserId: 'owner-user',
       source: 'local_admin',
       now: 1_150,
-      databaseProvider: 'sqlite',
     }),
     (error: unknown) => (
       error instanceof TeamMembershipError
@@ -133,7 +131,6 @@ async function main(): Promise<void> {
     source: 'invitation',
     reason: 'Invitation accepted; approval is required',
     now: 1_200,
-    databaseProvider: 'sqlite',
   });
   assert.equal(approvalRequired.userId, null);
   assert.equal(approvalRequired.acceptedAt, 1_200);
@@ -147,7 +144,6 @@ async function main(): Promise<void> {
     source: 'control_plane',
     controlPlaneOperationId: 'operation-execute-1',
     now: 1_300,
-    databaseProvider: 'sqlite',
   });
   assert.equal(billingPending.userId, null);
   assert.equal(billingPending.controlPlaneOperationId, 'operation-execute-1');
@@ -163,7 +159,6 @@ async function main(): Promise<void> {
     source: 'control_plane',
     controlPlaneOperationId: 'operation-execute-1',
     now: 1_400,
-    databaseProvider: 'sqlite',
   });
   assert.equal(isActiveTeamMembership(activeMember), true);
   assert.equal(activeMember.userId, 'candidate-user');
@@ -176,7 +171,6 @@ async function main(): Promise<void> {
     controlPlaneOperationId: 'operation-pending-1',
     source: 'control_plane',
     now: 1_450,
-    databaseProvider: 'sqlite',
   });
   assert.equal(pending.userId, null);
 
@@ -188,7 +182,6 @@ async function main(): Promise<void> {
     seatOperationType: 'reconcile',
     reason: 'Adopt the existing first owner without creating another auth user',
     now: 1_500,
-    databaseProvider: 'sqlite',
   });
   assert.equal(isActiveTeamMembership(owner), true);
 
@@ -229,7 +222,6 @@ async function main(): Promise<void> {
       actorUserId: 'owner-user',
       source: 'local_admin',
       now: 1_600,
-      databaseProvider: 'sqlite',
     }),
     /forced transition audit failure/u,
   );
@@ -258,7 +250,6 @@ async function main(): Promise<void> {
     actorUserId: 'owner-user',
     source: 'local_admin',
     now: 1_700,
-    databaseProvider: 'sqlite',
   });
   assert.equal(isActiveTeamMembership(suspended), false);
   assert.equal(
@@ -278,7 +269,6 @@ async function main(): Promise<void> {
     actorUserId: 'owner-user',
     source: 'control_plane',
     now: 1_800,
-    databaseProvider: 'sqlite',
   });
   await transitionTeamMembership(connection, {
     organizationId: 'organization-1',
@@ -288,7 +278,6 @@ async function main(): Promise<void> {
     actorUserId: 'owner-user',
     source: 'local_admin',
     now: 1_900,
-    databaseProvider: 'sqlite',
   });
   const reinvited = await transitionTeamMembership(connection, {
     organizationId: 'organization-1',
@@ -299,7 +288,6 @@ async function main(): Promise<void> {
     source: 'invitation',
     externalInvitationId: 'invitation-external-2',
     now: 2_000,
-    databaseProvider: 'sqlite',
   });
   assert.equal(reinvited.userId, null);
   assert.equal(reinvited.acceptedAt, null);

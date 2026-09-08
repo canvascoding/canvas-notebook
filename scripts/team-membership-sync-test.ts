@@ -151,7 +151,6 @@ async function main(): Promise<void> {
     role: 'owner',
     source: 'first_owner',
     seatOperationType: 'reconcile',
-    databaseProvider: 'sqlite',
     now: 1_100,
   });
   const snapshotBeforeInactive = await getLatestTeamMembershipSnapshotOperation(
@@ -160,7 +159,7 @@ async function main(): Promise<void> {
   );
   assert.ok(snapshotBeforeInactive);
 
-  const inactive = await runTeamMembershipSnapshotSyncCycle({
+    const inactive = await runTeamMembershipSnapshotSyncCycle({
     database: connection,
     databaseProvider: 'sqlite',
     sendSnapshot: async () => {
@@ -236,7 +235,6 @@ async function main(): Promise<void> {
 
   const startupReplay = await runTeamMembershipSnapshotSyncCycle({
     database: connection,
-    databaseProvider: 'sqlite',
     sendSnapshot: sender,
     licenseStatus: teamLicenseStatus(1),
     entitlementsVersion: 1,
@@ -257,7 +255,6 @@ async function main(): Promise<void> {
     role: 'member',
     source: 'migration',
     seatOperationType: 'reconcile',
-    databaseProvider: 'sqlite',
     now: 4_000,
   });
   const afterChange = await runTeamMembershipSnapshotSyncCycle({
