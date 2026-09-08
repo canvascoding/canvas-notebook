@@ -34,6 +34,14 @@ The runtime keeps the existing `iconId` values. Only their visual representation
 | `shield` | Security | broad companion standing behind a shield | Forest |
 | `email` | Email | companion holding a large envelope with both hands | Marine blue |
 
+## Feature glyphs
+
+Feature glyphs share the companion language without becoming selectable agent identities.
+
+| Glyph | Product label | Origami motif | Paper colour |
+| --- | --- | --- | --- |
+| `subagents` | Subagents | central companion coordinating two smaller connected companions | Indigo |
+
 ## Deliverables
 
 ```text
@@ -43,6 +51,7 @@ docs/architecture/canvas-notebook/assets/agent-origami-icons/
   previews/               Self-contained comparison artwork
 public/images/agents/origami/
   <iconId>.svg             Runtime copies
+  subagents.svg            Runtime feature glyph
 ```
 
 The comparison board must embed the artwork instead of referencing sibling SVG files. This keeps every glyph visible when the board is opened on its own or rendered by repository tooling.
@@ -55,6 +64,7 @@ The comparison board must embed the artwork instead of referencing sibling SVG f
 - `AgentAvatar` and its layout contract remain unchanged.
 - `AgentIdentityIcon` continues to render Bradley for the main-agent identifier.
 - Delegation toolset icons are not agent identities and remain Lucide-based.
+- The delegation panel uses the `subagents` feature glyph; task rows continue to show the selected agent identity.
 
 ## Acceptance checks
 

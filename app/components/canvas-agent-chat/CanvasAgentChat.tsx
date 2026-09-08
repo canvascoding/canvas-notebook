@@ -54,7 +54,7 @@ import {
 import { removeComposerDraft } from '@/app/lib/chat/draft-storage';
 import { getChatMessageSequence } from '@/app/lib/chat/message-metadata';
 import { getAgentProfileDisplayName } from '@/app/lib/chat/agent-display';
-import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
+import { isMainAgentId, MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
 import { useChatAgentConfig } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
 import { useChatControlActions } from '@/app/components/canvas-agent-chat/useChatControlActions';
@@ -1502,7 +1502,7 @@ export default function CanvasAgentChat({
         onClearUploadError={() => setUploadError(null)}
         isWebSocketUnavailable={isWebSocketUnavailable}
         showModelRequiredNotice={showModelRequiredNotice}
-        delegationPanel={sessionId ? (
+        delegationPanel={sessionId && isMainAgentId(activeSessionAgentId) ? (
           <ChatDelegationPanel
             key={sessionId}
             sourceSessionId={sessionId}
