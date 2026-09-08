@@ -258,7 +258,7 @@ export async function ensureEmailAgent(): Promise<AgentProfile> {
     .values({
       agentId: EMAIL_MANAGED_AGENT_ID,
       name: 'Email Agent',
-      iconId: 'messages',
+      iconId: 'email',
       type: 'special',
       removable: false,
       enabledToolsJson: JSON.stringify(EMAIL_AGENT_DEFAULT_ENABLED_TOOLS),
@@ -274,20 +274,26 @@ export async function ensureEmailAgent(): Promise<AgentProfile> {
   });
   if (!row) throw new Error('Email Agent could not be loaded.');
   const configuredTools = parseEnabledTools(row.enabledToolsJson);
-  const isUnmodifiedLegacyProfile = [
+  const usesLegacyDefaultTools = [
     LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS,
     PREVIOUS_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS,
   ].some((defaultTools) => (
     configuredTools?.length === defaultTools.length
       && configuredTools.every((tool, index) => tool === defaultTools[index])
   ));
-  if (isUnmodifiedLegacyProfile) {
+  const usesLegacyDefaultIcon = row.name === 'Email Agent' && row.iconId === 'messages';
+  if (usesLegacyDefaultTools || usesLegacyDefaultIcon) {
+    const enabledToolsJson = usesLegacyDefaultTools
+      ? JSON.stringify(EMAIL_AGENT_DEFAULT_ENABLED_TOOLS)
+      : row.enabledToolsJson;
+    const iconId = usesLegacyDefaultIcon ? 'email' : row.iconId;
     await db.update(agents).set({
-      enabledToolsJson: JSON.stringify(EMAIL_AGENT_DEFAULT_ENABLED_TOOLS),
+      enabledToolsJson,
+      iconId,
       revision: row.revision + 1,
       updatedAt: now,
     }).where(eq(agents.id, row.id));
-    return mapAgent({ ...row, enabledToolsJson: JSON.stringify(EMAIL_AGENT_DEFAULT_ENABLED_TOOLS), revision: row.revision + 1, updatedAt: now });
+    return mapAgent({ ...row, enabledToolsJson, iconId, revision: row.revision + 1, updatedAt: now });
   }
   return mapAgent(row);
 }
