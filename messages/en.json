@@ -645,6 +645,7 @@
     "expandFolder": "Expand folder {name}",
     "collapseFolder": "Collapse folder {name}",
     "loadingFolder": "Loading folder…",
+    "refreshingFolder": "Updating folder…",
     "close": "Close",
     "fileEditorDescription": "File editor for {name}",
     "create": "Create",

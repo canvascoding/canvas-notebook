@@ -39,7 +39,7 @@ export function mergeSubtreeChildren(nodes: FileNode[], targetPath: string, chil
   const nextNodes = nodes.map((node) => {
     if (node.path === targetPath) {
       changed = true;
-      return { ...node, children };
+      return { ...node, children: mergeRootNodesPreservingChildren(children, node.children ?? []) };
     }
     if (node.children && targetPath.startsWith(`${node.path}/`)) {
       const nextChildren = mergeSubtreeChildren(node.children, targetPath, children);

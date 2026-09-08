@@ -21,8 +21,6 @@ import {
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import {
   findNodeInTree,
-  clearUnrefreshedDirectoryChildren,
-  clearDirectoryChildren,
   getDirectoryDirectChildPaths,
   getExpandedDescendantDirectories,
   getSelectionRangePaths,
@@ -120,6 +118,7 @@ let fileRefreshRequestId = 0;
 const subdirectoryLoadPromises = new Map<string, { noCache: boolean; promise: Promise<void> }>();
 const DEFAULT_TREE_DEPTH = 0;
 const SUBDIRECTORY_TREE_DEPTH = 0;
+type DirectoryLoadState = 'unloaded' | 'loading' | 'ready' | 'refreshing' | 'error';
 const appliedPathMutations = new Set<string>();
 const pathMutationVersions = new Map<string, number>();
 
@@ -275,6 +274,9 @@ interface FileStoreState {
   isLoadingTree: boolean;
   treeError: string | null;
   directoryErrors: Record<string, string>;
+  directoryLoadStates: Record<string, DirectoryLoadState>;
+  directoryChangeVersions: Record<string, number>;
+  staleDirs: Set<string>;
 
   // Selection
   selectedNode: FileNode | null;
@@ -409,6 +411,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   isLoadingTree: false,
   treeError: null,
   directoryErrors: {},
+  directoryLoadStates: {},
+  directoryChangeVersions: {},
+  staleDirs: new Set<string>(),
 
   selectedNode: null,
 
@@ -623,95 +628,20 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       isLoadingTree: false,
       treeError: null,
       directoryErrors: {},
+      directoryLoadStates: {},
+      directoryChangeVersions: {},
+      staleDirs: new Set<string>(),
       loadingDirs: new Set<string>(),
     });
     return treeGeneration;
   },
 
-  loadFileTree: async (path = '.', depth?: number, noCache = false, requestedWorkspaceId?: string | null) => {
-    const workspaceId = requestedWorkspaceId === undefined
-      ? useWorkspaceStore.getState().activeWorkspaceId
-      : requestedWorkspaceId;
-    const treeGeneration = get().ensureTreeWorkspace(workspaceId);
-    const requestId = get().rootTreeRequestId + 1;
-    set({ rootTreeRequestId: requestId, isLoadingTree: true, treeError: null });
-
-    const depthTarget = typeof depth === 'number' ? depth : DEFAULT_TREE_DEPTH;
-
-    try {
-      const data = await loadWorkspaceTree(path, depthTarget, noCache, 'Failed to load file tree', workspaceId, {
-        includeStats: false,
-      });
-      const state = get();
-      if (
-        state.fileTreeWorkspaceId !== workspaceId ||
-        state.treeGeneration !== treeGeneration ||
-        state.rootTreeRequestId !== requestId
-      ) {
-        return;
-      }
-
-      const fileTree = path === '.' && depthTarget === 0
-        ? mergeRootNodesPreservingChildren(data, state.fileTree)
-        : data;
-      set({ fileTree, isLoadingTree: false });
-    } catch (error) {
-      const state = get();
-      if (
-        state.fileTreeWorkspaceId !== workspaceId ||
-        state.treeGeneration !== treeGeneration ||
-        state.rootTreeRequestId !== requestId
-      ) {
-        return;
-      }
-      const message =
-        error instanceof Error ? error.message : 'Failed to load file tree';
-      set({
-        treeError: message,
-        isLoadingTree: false,
-      });
-    }
+  loadFileTree: async (path = '.', depth = DEFAULT_TREE_DEPTH, noCache = false, workspaceId) => {
+    await loadDirectorySnapshot(path, depth, noCache, workspaceId, true);
   },
 
-  refreshRootTree: async (noCache = false, requestedWorkspaceId?: string | null) => {
-    const workspaceId = requestedWorkspaceId === undefined
-      ? useWorkspaceStore.getState().activeWorkspaceId
-      : requestedWorkspaceId;
-    const treeGeneration = get().ensureTreeWorkspace(workspaceId);
-    const requestId = get().rootTreeRequestId + 1;
-    set({ rootTreeRequestId: requestId, treeError: null });
-
-    try {
-      const data = await loadWorkspaceTree('.', 0, noCache, 'Failed to refresh root tree', workspaceId, {
-        includeStats: false,
-      });
-      const state = get();
-      if (
-        state.fileTreeWorkspaceId !== workspaceId ||
-        state.treeGeneration !== treeGeneration ||
-        state.rootTreeRequestId !== requestId
-      ) {
-        return;
-      }
-
-      // Merge: preserve existing children from current tree so expanded
-      // folders don't appear empty after a root-level refresh (depth=0).
-      const mergedTree = mergeRootNodesPreservingChildren(data, state.fileTree);
-
-      set({ fileTree: mergedTree, isLoadingTree: false });
-    } catch (error) {
-      const state = get();
-      if (
-        state.fileTreeWorkspaceId !== workspaceId ||
-        state.treeGeneration !== treeGeneration ||
-        state.rootTreeRequestId !== requestId
-      ) {
-        return;
-      }
-      const message =
-        error instanceof Error ? error.message : 'Failed to refresh root tree';
-      set({ treeError: message, isLoadingTree: false });
-    }
+  refreshRootTree: async (noCache = false, workspaceId) => {
+    await loadDirectorySnapshot('.', 0, noCache, workspaceId, true);
   },
 
   refreshDirectory: async (dirPath: string, noCache = false, workspaceId?: string | null) => {
@@ -719,126 +649,46 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       await get().refreshRootTree(noCache, workspaceId);
       return;
     }
-
-    await get().loadSubdirectory(dirPath, noCache, true, workspaceId);
+    await get().loadSubdirectory(dirPath, noCache, false, workspaceId);
   },
 
   refreshVisibleTree: async () => {
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
-    const { browserMode, currentDirectory, expandedDirs } = get();
+    const { browserMode, currentDirectory, expandedDirs, treeGeneration } = get();
+    const isCurrent = () => get().treeGeneration === treeGeneration && useWorkspaceStore.getState().activeWorkspaceId === workspaceId;
+    // Retain cached content, but revalidate collapsed folders when next opened.
+    const markLoaded = (nodes: FileNode[]) => {
+      for (const node of nodes) {
+        if (node.type === 'directory') get().markDirectoryStale(node.path);
+        if (node.children) markLoaded(node.children);
+      }
+    };
+    markLoaded(get().fileTree);
     await get().refreshRootTree(true, workspaceId);
-    if (get().fileTreeWorkspaceId !== workspaceId) return;
-
+    if (!isCurrent()) return;
     const dirsToRefresh = getVisibleTreeRefreshDirectories(currentDirectory, expandedDirs, browserMode === 'tree');
     await runDirectoryTasksByDepth(dirsToRefresh, async (dirPath) => {
-      if (hasRefreshParentInTree(get().fileTree, dirPath)) {
+      if (isCurrent() && hasRefreshParentInTree(get().fileTree, dirPath)) {
         await get().refreshDirectory(dirPath, true, workspaceId);
       }
     });
-
-    if (get().fileTreeWorkspaceId !== workspaceId) return;
-
-    const refreshedDirectories = new Set(dirsToRefresh);
-    set((state) => ({
-      fileTree: clearUnrefreshedDirectoryChildren(state.fileTree, refreshedDirectories),
-    }));
   },
 
   loadSubdirectory: async (dirPath: string, noCache = false, expand = true, requestedWorkspaceId?: string | null) => {
     const workspaceId = requestedWorkspaceId === undefined
       ? useWorkspaceStore.getState().activeWorkspaceId
       : requestedWorkspaceId;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
     if (dirPath === '.') {
       await get().refreshRootTree(noCache, workspaceId);
       return;
     }
-
-    const treeGeneration = get().ensureTreeWorkspace(workspaceId);
-    const loadKey = `${workspaceId ?? 'legacy'}\0${dirPath}`;
-    const inFlight = subdirectoryLoadPromises.get(loadKey);
-    if (inFlight) {
-      const { expandedDirs } = get();
-      if (expand && !expandedDirs.has(dirPath)) {
-        const newExpanded = new Set(expandedDirs);
-        newExpanded.add(dirPath);
-        get().setExpandedDirs(newExpanded);
-      }
-      await inFlight.promise;
-      if (noCache && !inFlight.noCache && get().fileTreeWorkspaceId === workspaceId) {
-        await get().loadSubdirectory(dirPath, true, expand, workspaceId);
-      }
-      return;
-    }
-
-    const { expandedDirs, fileTree } = get();
+    get().ensureTreeWorkspace(workspaceId);
+    const { expandedDirs, fileTree, staleDirs } = get();
+    if (expand && !expandedDirs.has(dirPath)) get().setExpandedDirs(new Set([...expandedDirs, dirPath]));
     const existingNode = findNodeInTree(dirPath, fileTree);
-    if (!noCache && existingNode && Array.isArray(existingNode.children)) {
-      if (expand && !expandedDirs.has(dirPath)) {
-        const newExpanded = new Set(expandedDirs);
-        newExpanded.add(dirPath);
-        get().setExpandedDirs(newExpanded);
-      }
-      return;
-    }
-
-    if (expand && !expandedDirs.has(dirPath)) {
-      const newExpanded = new Set(expandedDirs);
-      newExpanded.add(dirPath);
-      get().setExpandedDirs(newExpanded);
-    }
-
-    const newLoading = new Set(get().loadingDirs);
-    newLoading.add(dirPath);
-    const nextDirectoryErrors = { ...get().directoryErrors };
-    delete nextDirectoryErrors[dirPath];
-    set({ loadingDirs: newLoading, directoryErrors: nextDirectoryErrors });
-
-    const promise = (async () => {
-      try {
-        const data = await loadWorkspaceTree(
-          dirPath,
-          SUBDIRECTORY_TREE_DEPTH,
-          noCache,
-          'Failed to load subdirectory',
-          workspaceId,
-          { includeStats: false },
-        );
-
-        const state = get();
-        if (state.fileTreeWorkspaceId !== workspaceId || state.treeGeneration !== treeGeneration) return;
-
-        const nextLoading = new Set(state.loadingDirs);
-        nextLoading.delete(dirPath);
-        const errors = { ...state.directoryErrors };
-        delete errors[dirPath];
-        set({
-          fileTree: mergeSubtreeChildren(state.fileTree, dirPath, data),
-          loadingDirs: nextLoading,
-          directoryErrors: errors,
-        });
-      } catch (error) {
-        const state = get();
-        if (state.fileTreeWorkspaceId !== workspaceId || state.treeGeneration !== treeGeneration) return;
-
-        const nextLoading = new Set(state.loadingDirs);
-        nextLoading.delete(dirPath);
-        const message = error instanceof Error ? error.message : 'Failed to load subdirectory';
-        set({
-          loadingDirs: nextLoading,
-          directoryErrors: { ...state.directoryErrors, [dirPath]: message },
-        });
-        console.error('Failed to load subdirectory:', error);
-      }
-    })();
-
-    subdirectoryLoadPromises.set(loadKey, { noCache, promise });
-    try {
-      await promise;
-    } finally {
-      if (subdirectoryLoadPromises.get(loadKey)?.promise === promise) {
-        subdirectoryLoadPromises.delete(loadKey);
-      }
-    }
+    if (!noCache && !staleDirs.has(dirPath) && Array.isArray(existingNode?.children)) return;
+    await loadDirectorySnapshot(dirPath, SUBDIRECTORY_TREE_DEPTH, noCache, workspaceId, false);
   },
 
   loadFile: async (path: string, noCache = false, requestedWorkspaceId?: string | null) => {
@@ -1361,7 +1211,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
     const state = get();
     const affected = (path: string) => paths.some((root) => isSameOrDescendantPath(path, root));
-    for (const path of paths) invalidatePathOperations(workspaceId, path);
+    for (const path of paths) {
+      invalidatePathOperations(workspaceId, path);
+      get().markDirectoryStale(getParentDirectory(path));
+    }
     const currentFile = state.currentFile;
     const currentAffected = Boolean(currentFile && affected(currentFile.path));
     const guard = currentFile ? getDocumentTransitionGuard(workspaceId, currentFile.path) : null;
@@ -1398,6 +1251,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     if (appliedPathMutations.size > 2048) appliedPathMutations.delete(appliedPathMutations.values().next().value!);
     invalidatePathOperations(workspaceId, oldPath);
     invalidatePathOperations(workspaceId, newPath);
+    get().markDirectoryStale(getParentDirectory(oldPath));
+    get().markDirectoryStale(getParentDirectory(newPath));
     const state = get();
     const mapPath = (path: string) => remapPath(path, oldPath, newPath);
     const currentFile = state.currentFile;
@@ -1597,6 +1452,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       isLoadingTree: false,
       treeError: null,
       directoryErrors: {},
+      directoryLoadStates: {},
+      directoryChangeVersions: {},
+      staleDirs: new Set<string>(),
       selectedNode: null,
       currentFile: null,
       currentFileWorkspaceId: null,
@@ -1640,9 +1498,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     });
   },
   markDirectoryStale: (path: string) => {
-    if (!path || path === '.') return;
+    if (!path) return;
     set((state) => ({
-      fileTree: clearDirectoryChildren(state.fileTree, path),
+      staleDirs: new Set([...state.staleDirs, path]),
+      directoryChangeVersions: { ...state.directoryChangeVersions, [path]: (state.directoryChangeVersions[path] ?? 0) + 1 },
     }));
   },
   // Multi-select actions
@@ -1705,3 +1564,98 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 }));
+
+/** Only publish snapshots read after the most recent mutation of this directory. */
+async function loadDirectorySnapshot(
+  dirPath: string,
+  depth: number,
+  noCache: boolean,
+  requestedWorkspaceId: string | null | undefined,
+  replaceTree: boolean,
+): Promise<void> {
+  const get = useFileStore.getState;
+  const set = useFileStore.setState;
+  const workspaceId = requestedWorkspaceId === undefined ? useWorkspaceStore.getState().activeWorkspaceId : requestedWorkspaceId;
+  if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
+  const treeGeneration = get().ensureTreeWorkspace(workspaceId);
+  const loadKey = `${workspaceId}\0${dirPath}\0${depth}\0${replaceTree}`;
+  const inFlight = subdirectoryLoadPromises.get(loadKey);
+  if (inFlight) {
+    if (noCache) get().markDirectoryStale(dirPath);
+    return inFlight.promise;
+  }
+
+  const state = get();
+  const requestId = replaceTree ? state.rootTreeRequestId + 1 : state.rootTreeRequestId;
+  const pathVersion = pathMutationVersion(workspaceId, dirPath);
+  const hasSnapshot = replaceTree
+    ? state.fileTree.length > 0 || state.directoryLoadStates[dirPath] === 'ready'
+    : Array.isArray(findNodeInTree(dirPath, state.fileTree)?.children);
+  const errors = { ...state.directoryErrors };
+  delete errors[dirPath];
+  set({
+    ...(replaceTree ? { rootTreeRequestId: requestId, isLoadingTree: !hasSnapshot, treeError: null } : {}),
+    loadingDirs: new Set([...state.loadingDirs, dirPath]),
+    directoryErrors: errors,
+    directoryLoadStates: { ...state.directoryLoadStates, [dirPath]: hasSnapshot ? 'refreshing' : 'loading' },
+  });
+  const isCurrent = () => get().treeGeneration === treeGeneration
+    && get().fileTreeWorkspaceId === workspaceId
+    && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+    && pathMutationVersion(workspaceId, dirPath) === pathVersion
+    && (!replaceTree || get().rootTreeRequestId === requestId);
+  const finish = (error?: unknown, data?: FileNode[]) => {
+    // A synchronous store subscriber may request another read during publication.
+    // It must see a completed flight, not join the already-finished promise.
+    if (subdirectoryLoadPromises.get(loadKey)?.promise === promise) subdirectoryLoadPromises.delete(loadKey);
+    const latest = get();
+    const loadingDirs = new Set(latest.loadingDirs);
+    loadingDirs.delete(dirPath);
+    if (error !== undefined) {
+      const message = error instanceof Error ? error.message : 'Failed to load directory';
+      set({ loadingDirs, ...(replaceTree ? { isLoadingTree: false, treeError: message } : {}),
+        directoryErrors: { ...latest.directoryErrors, [dirPath]: message },
+        directoryLoadStates: { ...latest.directoryLoadStates, [dirPath]: 'error' } });
+      return;
+    }
+    const staleDirs = new Set(latest.staleDirs);
+    staleDirs.delete(dirPath);
+    const directoryErrors = { ...latest.directoryErrors };
+    delete directoryErrors[dirPath];
+    const fileTree = replaceTree
+      ? depth === 0 ? mergeRootNodesPreservingChildren(data!, latest.fileTree) : data!
+      : mergeSubtreeChildren(latest.fileTree, dirPath, data!);
+    set({ fileTree, loadingDirs, staleDirs, directoryErrors,
+      ...(replaceTree ? { isLoadingTree: false, treeError: null } : {}),
+      directoryLoadStates: { ...latest.directoryLoadStates, [dirPath]: 'ready' } });
+  };
+  let force = noCache || get().staleDirs.has(dirPath);
+  const promise = (async () => {
+    while (isCurrent()) {
+      const version = get().directoryChangeVersions[dirPath] ?? 0;
+      try {
+        const data = await loadWorkspaceTree(dirPath, depth, force, 'Failed to load directory', workspaceId, { includeStats: false });
+        if (!isCurrent()) return;
+        if ((get().directoryChangeVersions[dirPath] ?? 0) !== version) {
+          force = true;
+          continue;
+        }
+        finish(undefined, data);
+      } catch (error) {
+        if (!isCurrent()) return;
+        if ((get().directoryChangeVersions[dirPath] ?? 0) !== version) {
+          force = true;
+          continue;
+        }
+        finish(error);
+      }
+      return;
+    }
+  })();
+  subdirectoryLoadPromises.set(loadKey, { noCache, promise });
+  try {
+    await promise;
+  } finally {
+    if (subdirectoryLoadPromises.get(loadKey)?.promise === promise) subdirectoryLoadPromises.delete(loadKey);
+  }
+}
