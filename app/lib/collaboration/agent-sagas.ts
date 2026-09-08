@@ -3,7 +3,6 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 
 import { openDb, type SqlConnection } from '@/app/lib/db';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   applyPersistedAgentTextOperation,
@@ -190,7 +189,7 @@ export async function getAgentTextSaga(input: {
   workspace: WorkspaceContext;
   userId: string;
 }): Promise<AgentTextSagaView | null> {
-  if (getDatabaseProvider() !== 'postgres' || !input.workspace.permissions.canRead) return null;
+  if (!input.workspace.permissions.canRead) return null;
   const database = await openDb();
   try {
     const result = await readSaga(database, input.sagaId);
@@ -218,7 +217,6 @@ export async function applyPersistedAgentTextSaga(input: {
   correlationId?: string;
   causationId?: string;
 }): Promise<AgentTextSagaView> {
-  if (getDatabaseProvider() !== 'postgres') throw new Error('Agent collaboration sagas require Postgres.');
   if (!input.workspace.permissions.canWrite || !input.workspace.permissions.canRunAgent) {
     throw new Error('Workspace agent write permission is required.');
   }

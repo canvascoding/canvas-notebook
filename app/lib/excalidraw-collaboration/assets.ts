@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { openDb } from '@/app/lib/db';
 import { resolveDataDir } from '@/app/lib/db/provider';
 import type { ExcalidrawAssetMetadata } from './protocol';
 import { sanitizeExcalidrawSvg } from './svg-sanitizer';
@@ -31,10 +31,6 @@ type AssetRow = {
   created_at: number;
   last_referenced_at: number;
 };
-
-function assertPostgres(): void {
-  if (getDatabaseProvider() !== 'postgres') throw new Error('Excalidraw assets require Postgres.');
-}
 
 function workspaceStorageScope(workspaceId: string): string {
   return crypto.createHash('sha256').update(workspaceId).digest('hex').slice(0, 32);
@@ -86,7 +82,6 @@ export async function storeExcalidrawAsset(input: {
   version?: number;
   createdAt?: number;
 }): Promise<ExcalidrawAssetMetadata> {
-  assertPostgres();
   if (!SAFE_FILE_ID.test(input.fileId)) throw new Error('Invalid Excalidraw asset file id.');
   const mimeType = input.mimeType.toLowerCase().split(';', 1)[0].trim();
   if (!ALLOWED_MIME_TYPES.has(mimeType)) throw new Error(`Unsupported Excalidraw asset MIME type: ${mimeType}.`);
@@ -146,7 +141,6 @@ export async function loadExcalidrawAsset(input: { workspaceId: string; fileId: 
   metadata: ExcalidrawAssetMetadata;
   data: Buffer;
 } | null> {
-  assertPostgres();
   if (!SAFE_FILE_ID.test(input.fileId)) return null;
   const database = await openDb();
   try {
@@ -172,7 +166,6 @@ export async function validateExcalidrawAssetMetadata(
   workspaceId: string,
   requested: ExcalidrawAssetMetadata[],
 ): Promise<ExcalidrawAssetMetadata[]> {
-  assertPostgres();
   if (requested.length > 2_000) throw new Error('Excalidraw scene exceeds the 2,000 asset reference limit.');
   const unique = new Map(requested.map((asset) => [asset.fileId, asset]));
   if (unique.size !== requested.length) throw new Error('Duplicate Excalidraw asset reference.');

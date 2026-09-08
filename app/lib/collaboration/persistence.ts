@@ -3,7 +3,7 @@ import 'server-only';
 import crypto from 'node:crypto';
 import type * as YTypes from 'yjs';
 
-import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { openDb } from '@/app/lib/db';
 import {
   archivePersistedCollaborationStatePathScopes,
   lockFileCollaborationPaths,
@@ -94,12 +94,6 @@ type StateRow = {
   status: 'active' | 'archived';
 };
 
-function assertPostgres(): void {
-  if (getDatabaseProvider() !== 'postgres') {
-    throw new Error('Live collaboration requires the Postgres database provider.');
-  }
-}
-
 function bytes(value: Buffer | Uint8Array): Uint8Array {
   return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
 }
@@ -170,7 +164,6 @@ async function loadCollaborationStateRow(
   documentId: string,
   includeArchived: boolean,
 ): Promise<PersistedCollaborationState | null> {
-  assertPostgres();
   const database = await openDb();
   try {
     const row = await database.get(
@@ -207,7 +200,6 @@ export async function ensureCollaborationState(input: {
   representation: TextCollaborationRepresentation;
   initialContent: string;
 }): Promise<PersistedCollaborationState> {
-  assertPostgres();
   const existing = await loadCollaborationStateIncludingArchived(input.documentId);
   if (existing) {
     if (existing.status === 'archived') {
@@ -282,7 +274,6 @@ export async function persistCollaborationYDoc(
   expectedLifecycleGeneration: number,
   doc: YTypes.Doc,
 ): Promise<PersistedCollaborationState> {
-  assertPostgres();
   const update = Y.encodeStateAsUpdate(doc);
   const vector = Y.encodeStateVector(doc);
   const now = Date.now();
@@ -329,7 +320,6 @@ export async function markCollaborationCheckpoint(input: {
   serializedContent: string;
   degraded?: boolean;
 }): Promise<PersistedCollaborationState | null> {
-  assertPostgres();
   const database = await openDb();
   try {
     const row = await database.get(
@@ -493,7 +483,6 @@ export async function withCollaborationCheckpointFence<T>(input: {
     state: PersistedCollaborationState,
   ) => Promise<CompensatableCheckpointMaterialization<T>>;
 }): Promise<{ result: T; state: PersistedCollaborationState } | null> {
-  assertPostgres();
   const database = await openDb();
   let databaseClosed = false;
   let transactionOpen = false;
@@ -618,7 +607,6 @@ export async function markCollaborationDegraded(
   documentId: string,
   expectedLifecycleGeneration: number,
 ): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   const database = await openDb();
   try {
     await database.run(
@@ -730,7 +718,6 @@ async function compactCollaborationStateWhileLocked(input: {
   documentId: string;
   expectedLifecycleGeneration: number;
 }): Promise<PersistedCollaborationState> {
-  assertPostgres();
   if (getCollaborationRoomConnectionCount(input.documentId) > 0) {
     throw new Error('Collaboration state can only be compacted while the document room is empty.');
   }
@@ -791,7 +778,6 @@ export async function compactCollaborationState(input: {
   documentId: string;
   expectedLifecycleGeneration: number;
 }): Promise<PersistedCollaborationState> {
-  assertPostgres();
   return withCollaborationRoomLifecycleLock(
     input.documentId,
     () => compactCollaborationStateWhileLocked(input),
@@ -811,7 +797,6 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   checkpointRequired: boolean;
   state: PersistedCollaborationState;
 }> {
-  assertPostgres();
   if (getCollaborationRoomConnectionCount(input.documentId) > 0) {
     throw new CollaborationRepresentationMigrationError(
       'Collaboration representation can only change while the document room is empty.',
@@ -1009,7 +994,6 @@ export async function changeCollaborationRepresentation(input: {
   representation: TextCollaborationRepresentation;
   schemaVersion: number;
 }): Promise<PersistedCollaborationState> {
-  assertPostgres();
   const result = await withCollaborationRoomLifecycleLock(
     input.documentId,
     () => changeCollaborationRepresentationWhileLocked(input),
@@ -1027,7 +1011,6 @@ export async function changeCollaborationRepresentationWithSafeMarkdownNormaliza
   checkpointRequired: boolean;
   state: PersistedCollaborationState;
 }> {
-  assertPostgres();
   return withCollaborationRoomLifecycleLock(
     input.documentId,
     () => changeCollaborationRepresentationWhileLocked({
@@ -1044,7 +1027,6 @@ export async function movePersistedCollaborationPath(input: {
   oldPath: string;
   newPath: string;
 }): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   await withFileCollaborationTransaction(async (transaction) => {
     await lockFileCollaborationPaths(transaction, input.workspaceId, [input.oldPath, input.newPath]);
     await movePersistedCollaborationStatePathScope(transaction, input);
@@ -1055,7 +1037,7 @@ export async function archivePersistedCollaborationPaths(input: {
   workspaceId: string;
   paths: string[];
 }): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres' || input.paths.length === 0) return;
+  if (input.paths.length === 0) return;
   await withFileCollaborationTransaction(async (transaction) => {
     await lockFileCollaborationPaths(transaction, input.workspaceId, input.paths);
     await archivePersistedCollaborationStatePathScopes(transaction, {
@@ -1069,7 +1051,6 @@ export async function reactivatePersistedCollaborationPath(input: {
   workspaceId: string;
   path: string;
 }): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   await withFileCollaborationTransaction(async (transaction) => {
     await lockFileCollaborationPaths(transaction, input.workspaceId, [input.path]);
     await reactivatePersistedCollaborationStatePathScope(transaction, input);

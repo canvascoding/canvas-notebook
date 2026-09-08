@@ -5,7 +5,6 @@ import type * as YTypes from 'yjs';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { openDb, type SqlConnection } from '@/app/lib/db';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   applyExactTextEdits,
   resolveExactTextEditMatchCount,
@@ -1530,7 +1529,6 @@ export async function applyPersistedAgentTextOperation(input: {
   baseDocumentSequence?: number;
 }): Promise<PersistedAgentApplyResult> {
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write permission is required.');
-  if (getDatabaseProvider() !== 'postgres') throw new Error('Agent collaboration operations require Postgres.');
   return serialized(input.documentId, async (queue) => {
     const database = await openDb();
     try {
@@ -1740,7 +1738,6 @@ export async function getAgentOperation(input: {
   workspace: WorkspaceContext;
   userId: string;
 }): Promise<AgentOperationView | null> {
-  if (getDatabaseProvider() !== 'postgres') return null;
   const database = await openDb();
   try {
     const row = await readOperation(database, input.operationId);
@@ -1762,7 +1759,7 @@ export async function listAgentOperations(input: {
   userId: string;
   pendingOnly?: boolean;
 }): Promise<AgentOperationView[]> {
-  if (getDatabaseProvider() !== 'postgres' || !input.workspace.permissions.canRead) return [];
+  if (!input.workspace.permissions.canRead) return [];
   const database = await openDb();
   try {
     const rows = await database.all(
@@ -1968,7 +1965,6 @@ export async function detectLateAgentSemanticConflicts(input: {
   doc: YTypes.Doc;
   observedDocumentSequence?: number | null;
 }): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   const memoryWindows = recentAgentChangeWindows.get(input.documentId);
   if (!memoryWindows) return;
 
@@ -2042,7 +2038,6 @@ export async function detectLateAgentSemanticConflicts(input: {
 
 /** Safe restart recovery never replays an uncertain authoritative apply. */
 export async function recoverCollaborationAgentOperations(now = Date.now()): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   const database = await openDb();
   try {
     const rows = await database.all(

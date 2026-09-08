@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 
 import { collaborationUserColors } from '@/app/lib/collaboration/identity';
 import { removeDocumentPresenceEntry, upsertDocumentPresenceEntry } from '@/app/lib/collaboration/presence';
-import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { openDb } from '@/app/lib/db';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import type { ExcalidrawElementRecord } from './protocol';
 import { validateExcalidrawElement } from './scene';
@@ -178,7 +178,6 @@ function preparePatch(input: {
 }
 
 async function loadOperation(operationId: string): Promise<ExcalidrawAgentOperation | null> {
-  if (getDatabaseProvider() !== 'postgres') return null;
   const database = await openDb();
   try {
     const row = await database.get(
@@ -302,7 +301,6 @@ export async function createExcalidrawAgentOperation(input: {
   actorId: string;
   idempotencyKey: string;
 }): Promise<ExcalidrawAgentOperation> {
-  if (getDatabaseProvider() !== 'postgres') throw new Error('Excalidraw agent operations require Postgres.');
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write access is required for Excalidraw agent operations.');
   if (!input.initiatedByUserId || !input.actorId || !input.idempotencyKey || input.idempotencyKey.length > 500) {
     throw new Error('Excalidraw agent operation identity and idempotency key are required.');
@@ -456,7 +454,6 @@ export async function listExcalidrawAgentOperations(input: {
   userId: string;
   pendingOnly?: boolean;
 }): Promise<ExcalidrawAgentOperation[]> {
-  if (getDatabaseProvider() !== 'postgres') return [];
   const database = await openDb();
   try {
     const rows = await database.all(

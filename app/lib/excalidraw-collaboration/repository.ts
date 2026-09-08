@@ -2,7 +2,7 @@ import 'server-only';
 
 import crypto from 'node:crypto';
 
-import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { openDb } from '@/app/lib/db';
 import {
   lockFileCollaborationPaths,
   moveExcalidrawCollaborationStatePathScope,
@@ -84,10 +84,6 @@ export class ExcalidrawSceneResyncError extends Error {
   }
 }
 
-function assertPostgres(): void {
-  if (getDatabaseProvider() !== 'postgres') throw new Error('Excalidraw collaboration requires Postgres.');
-}
-
 function json<T>(value: JsonValue, fallback: T): T {
   if (value === null || value === undefined) return fallback;
   if (typeof value !== 'string') return value as T;
@@ -134,7 +130,6 @@ function initialScene(content: string): {
 }
 
 export async function loadExcalidrawScene(documentId: string, includeArchived = false): Promise<PersistedExcalidrawScene | null> {
-  assertPostgres();
   const database = await openDb();
   try {
     const row = await database.get(
@@ -156,7 +151,6 @@ export async function ensureExcalidrawScene(input: {
   initialContent: string;
   initialAssets?: ExcalidrawAssetMetadata[];
 }): Promise<PersistedExcalidrawScene> {
-  assertPostgres();
   const existing = await loadExcalidrawScene(input.documentId);
   if (existing) {
     if (existing.workspaceId !== input.workspaceId || existing.path !== input.path || existing.status !== 'active') {
@@ -228,7 +222,6 @@ export async function applyExcalidrawScenePatch(input: {
   actorId: string | null;
   initiatedByUserId?: string | null;
 }): Promise<AppliedExcalidrawPatch> {
-  assertPostgres();
   const patch = validateExcalidrawElements(input.elements, 'patch');
   const requestedAppState = sharedExcalidrawAppState(input.appState);
   const database = await openDb();
@@ -336,7 +329,6 @@ export async function markExcalidrawCheckpoint(input: {
   sceneSequence: number;
   revisionId: string;
 }): Promise<void> {
-  assertPostgres();
   const database = await openDb();
   try {
     await database.run(
@@ -351,7 +343,6 @@ export async function markExcalidrawCheckpoint(input: {
 }
 
 export async function markExcalidrawSceneDegraded(documentId: string, reason: string): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   const database = await openDb();
   try {
     await database.run(
@@ -364,7 +355,6 @@ export async function markExcalidrawSceneDegraded(documentId: string, reason: st
 }
 
 export async function moveExcalidrawScenePaths(input: { workspaceId: string; oldPath: string; newPath: string }): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   await withFileCollaborationTransaction(async (transaction) => {
     await lockFileCollaborationPaths(transaction, input.workspaceId, [input.oldPath, input.newPath]);
     await moveExcalidrawCollaborationStatePathScope(transaction, input);
@@ -372,7 +362,7 @@ export async function moveExcalidrawScenePaths(input: { workspaceId: string; old
 }
 
 export async function archiveExcalidrawScenePaths(input: { workspaceId: string; paths: string[] }): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres' || input.paths.length === 0) return;
+  if (input.paths.length === 0) return;
   const database = await openDb();
   try {
     await database.run('BEGIN');
@@ -396,7 +386,6 @@ export async function archiveExcalidrawScenePaths(input: { workspaceId: string; 
 }
 
 export async function reactivateExcalidrawScenePath(input: { workspaceId: string; path: string }): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   const database = await openDb();
   try {
     await database.run(
