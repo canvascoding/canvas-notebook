@@ -16,5 +16,7 @@ export interface WorkspaceFileEvent {
   relativePath: string;
   dir: string;
   timestamp: number;
+  /** Filesystem identity and change times sampled for this event. */
+  fileVersion?: string;
   mutation?: WorkspacePathRenameMutation;
 }

@@ -179,7 +179,8 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     },
     onBatchComplete: async (targetDir, job) => {
       if (!job || useWorkspaceStore.getState().activeWorkspaceId !== job.workspaceId) return;
-      await refreshDirectory(targetDir || job.targetDir, true, job.workspaceId);
+      useFileStore.getState().markDirectoryStale(targetDir || job.targetDir);
+      await useFileStore.getState().revalidateDirectory(targetDir || job.targetDir, job.workspaceId, true);
       invalidateFileReferenceValidationCache({ workspaceId: job.workspaceId });
     },
   });

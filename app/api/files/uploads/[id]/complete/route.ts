@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { invalidateWorkspaceFileViews } from '@/app/lib/api/route-helpers';
+import { publishWorkspaceUpload } from '@/app/lib/filesystem/upload-events';
 import { replaceWorkspaceFileFromPath } from '@/app/lib/filesystem/workspace-files';
 import { runWorkspaceUploadWrite } from '@/app/lib/files/workspace-upload-flow';
 import { workspaceUploadErrorResponse } from '@/app/lib/files/workspace-upload-responses';
@@ -56,11 +56,7 @@ export async function POST(
 
     if (!result.alreadyCompleted) {
       await syncPublicSharesAfterWrite([result.file.targetPath], workspaceResult.workspace);
-      invalidateWorkspaceFileViews({
-        fileOptions,
-        fullTree: true,
-        mutations: [{ path: result.file.targetPath, type: 'add' }],
-      });
+      await publishWorkspaceUpload(workspaceResult.workspace, result.file.targetPath);
       await recordAuditEvent({
         organizationId: workspaceResult.workspace.organizationId,
         workspaceId: workspaceResult.workspace.workspaceId,
