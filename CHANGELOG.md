@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.8.1] - 2026-09-08
+
+### Added
+
+- Added protected chat-session forking, including persistence, API coverage, and an assistant-message action.
+- Added progressive workspace widgets, richer memory-governance and approval visibility, and MCP client names in request history.
+- Added agent access to inspect and edit human todos, with selected-todo chat context and optimistic update handling.
+
+### Changed
+
+- Improved reasoning-aware context compaction, chat-history ordering, quick access, and Home continuation details.
+- Improved todo presentation and Markdown previews, workspace navigation, and PDF interaction support.
+
+### Fixed
+
+- Corrected Direct MCP reconnect-token validation, archived-todo filtering, workspace switching with open documents, and header navigation behavior.
+- Preserved adjacent Markdown-list boundaries in collaboration checkpoints.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.7.3] - 2026-09-07
 
 ### Added
