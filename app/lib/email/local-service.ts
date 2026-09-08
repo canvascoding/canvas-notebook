@@ -519,6 +519,14 @@ export async function listLocalEmailAccounts(userId: string) {
   return listPublicEmailAccountsForUser(userId);
 }
 
+export async function resolveLocalEmailCacheAccount(userId: string, accountId?: string) {
+  const account = await findLocalEmailAccount(userId, accountId);
+  return {
+    account: await publicLocalEmailAccount(account),
+    provider: account.authType === 'smtp_imap' ? 'imap' : account.provider,
+  };
+}
+
 async function findLocalEmailAccount(userId: string, accountId?: string): Promise<StoredEmailAccount> {
   await migrateLegacyEmailAccountsIfSafe(userId);
   return getEmailAccountForUser(userId, accountId);

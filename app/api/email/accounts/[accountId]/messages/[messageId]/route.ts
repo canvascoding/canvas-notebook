@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { isEmailMessageNotFoundError } from '@/app/lib/email/errors';
@@ -20,7 +20,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { accountId, messageId } = await params;
     const folder = request.nextUrl.searchParams.get('folder') || undefined;
-    const data = await readEmailMessage(session.user.id, accountId, messageId, folder, { enforceReadPolicy: false });
+    const data = await readEmailMessage(session.user.id, accountId, messageId, folder, {
+      enforceReadPolicy: false,
+      cacheMode: 'swr',
+      scheduleBackgroundTask: after,
+    });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     if (isImapMailboxChangedError(error)) {
