@@ -142,7 +142,8 @@ import {
   getBlockInsertButtonPosition,
   getBlockOverlayRect,
   hasCanvasBlockDragData,
-  moveReorderableBlock,
+  applyReorderableBlockMove,
+  resolveReorderableBlockRange,
   setCanvasBlockDragData,
   type BlockControlPosition,
   type BlockDropTarget,
@@ -322,6 +323,7 @@ type SlashCommandLabels = {
   addBlockAboveHint: string;
   addBlockBelowHint: string;
   dragBlockHint: string;
+  blockMoveCancelled: string;
   empty: string;
   group: string;
   imageAltPrompt: string;
@@ -1691,6 +1693,7 @@ function createSlashCommandLabels(t: (key: string) => string): SlashCommandLabel
     addBlockAboveHint: t('markdownEditorAddBlockAboveHint'),
     addBlockBelowHint: t('markdownEditorAddBlockBelowHint'),
     dragBlockHint: t('markdownEditorDragBlockHint'),
+    blockMoveCancelled: t('markdownEditorBlockMoveCancelled'),
     empty: t('markdownEditorNoCommandFound'),
     group: t('markdownEditorSlashGroup'),
     imageAltPrompt: t('markdownEditorImageAltPrompt'),
@@ -1741,9 +1744,11 @@ function MarkdownBlockControls({
   const [dropTargetOverlay, setDropTargetOverlay] = useState<BlockOverlayRect | null>(null);
   const [propertiesInteractionActive, setPropertiesInteractionActive] = useState(false);
   const dragStateRef = useRef<ReorderableBlockRange | null>(null);
+  const dragPointerRef = useRef<Pick<DragEvent, 'clientX' | 'clientY'> | null>(null);
 
   const clearDragState = useCallback(() => {
     dragStateRef.current = null;
+    dragPointerRef.current = null;
     setDragSourceOverlay(null);
     setDropIndicatorTop(null);
     setDropTargetOverlay(null);
@@ -1751,7 +1756,7 @@ function MarkdownBlockControls({
 
   const updateDragSourceOverlay = useCallback(() => {
     const container = scrollContainerRef.current;
-    const source = dragStateRef.current;
+    const source = editor && dragStateRef.current ? resolveReorderableBlockRange(editor, dragStateRef.current) : null;
     if (!editor || !container || !source) {
       setDragSourceOverlay(null);
       return;
@@ -1760,7 +1765,7 @@ function MarkdownBlockControls({
     setDragSourceOverlay(getBlockOverlayRect(editor, container, source));
   }, [editor, scrollContainerRef]);
 
-  const updateDropTarget = useCallback((event: DragEvent): BlockDropTarget | null => {
+  const updateDropTarget = useCallback((event: Pick<DragEvent, 'clientX' | 'clientY'>): BlockDropTarget | null => {
     const container = scrollContainerRef.current;
     const source = dragStateRef.current;
     if (!editor || !container || !source) {
@@ -1770,6 +1775,7 @@ function MarkdownBlockControls({
     }
 
     const dropTarget = getBlockDropTarget(editor, event, source);
+    dragPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
     const nextTop = dropTarget ? getBlockDropIndicatorTop(editor, container, dropTarget) : null;
     const nextTargetOverlay = dropTarget ? getBlockOverlayRect(editor, container, dropTarget.target) : null;
     setDropIndicatorTop(nextTop);
@@ -1792,18 +1798,34 @@ function MarkdownBlockControls({
   useEffect(() => {
     if (!editor) return;
 
+    const handleTransaction = () => {
+      updatePosition();
+      if (!dragStateRef.current) return;
+      const source = resolveReorderableBlockRange(editor, dragStateRef.current);
+      if (!editor.isEditable || !source) {
+        clearDragState();
+        toast.info(labels.blockMoveCancelled);
+        return;
+      }
+      dragStateRef.current = source;
+      if (dragPointerRef.current) updateDropTarget(dragPointerRef.current);
+      else updateDragSourceOverlay();
+    };
     const frame = window.requestAnimationFrame(updatePosition);
     editor.on('selectionUpdate', updatePosition);
-    editor.on('transaction', updatePosition);
+    editor.on('transaction', handleTransaction);
     editor.on('focus', updatePosition);
+    editor.on('destroy', clearDragState);
 
     return () => {
       window.cancelAnimationFrame(frame);
       editor.off('selectionUpdate', updatePosition);
-      editor.off('transaction', updatePosition);
+      editor.off('transaction', handleTransaction);
       editor.off('focus', updatePosition);
+      editor.off('destroy', clearDragState);
+      clearDragState();
     };
-  }, [editor, updatePosition]);
+  }, [clearDragState, editor, labels.blockMoveCancelled, updateDragSourceOverlay, updateDropTarget, updatePosition]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -1811,17 +1833,18 @@ function MarkdownBlockControls({
 
     const handleScroll = () => {
       updatePosition();
-      updateDragSourceOverlay();
+      if (dragPointerRef.current) updateDropTarget(dragPointerRef.current);
+      else updateDragSourceOverlay();
     };
 
     container.addEventListener('scroll', handleScroll, { passive: true });
-    window.addEventListener('resize', updatePosition);
+    window.addEventListener('resize', handleScroll);
 
     return () => {
       container.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('resize', handleScroll);
     };
-  }, [scrollContainerRef, updateDragSourceOverlay, updatePosition]);
+  }, [scrollContainerRef, updateDragSourceOverlay, updateDropTarget, updatePosition]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -1894,7 +1917,8 @@ function MarkdownBlockControls({
       clearDragState();
       if (!source || !dropTarget) return;
 
-      moveReorderableBlock(editor, source, dropTarget.insertPosition);
+      const result = applyReorderableBlockMove(editor, source, dropTarget);
+      if (!result.ok && result.reason !== 'no_change') toast.info(labels.blockMoveCancelled);
     };
 
     const handleDragLeave = (event: DragEvent) => {
@@ -1907,12 +1931,19 @@ function MarkdownBlockControls({
     const handleGlobalDragEnd = () => {
       clearDragState();
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !dragStateRef.current) return;
+      event.preventDefault();
+      clearDragState();
+    };
 
     editorElement.addEventListener('dragover', handleDragOver, true);
     editorElement.addEventListener('dragleave', handleDragLeave);
     editorElement.addEventListener('drop', handleDrop, true);
     window.addEventListener('dragend', handleGlobalDragEnd);
     window.addEventListener('drop', handleGlobalDragEnd);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('blur', handleGlobalDragEnd);
 
     return () => {
       editorElement.removeEventListener('dragover', handleDragOver, true);
@@ -1920,8 +1951,11 @@ function MarkdownBlockControls({
       editorElement.removeEventListener('drop', handleDrop, true);
       window.removeEventListener('dragend', handleGlobalDragEnd);
       window.removeEventListener('drop', handleGlobalDragEnd);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('blur', handleGlobalDragEnd);
+      clearDragState();
     };
-  }, [clearDragState, editor, updateDropTarget]);
+  }, [clearDragState, editor, labels.blockMoveCancelled, updateDropTarget]);
 
   if (!editor?.isEditable || (!position && !dragSourceOverlay && !dropTargetOverlay && dropIndicatorTop === null)) return null;
 
@@ -1989,8 +2023,8 @@ function MarkdownBlockControls({
                 }}
                 onDragEnd={clearDragState}
                 onDragStart={(event) => {
-                  const source = position.blockRange;
-                  if (!source || !event.dataTransfer) {
+                  const source = resolveReorderableBlockRange(editor, position.blockRange);
+                  if (!editor.isEditable || !source || !event.dataTransfer) {
                     event.preventDefault();
                     return;
                   }

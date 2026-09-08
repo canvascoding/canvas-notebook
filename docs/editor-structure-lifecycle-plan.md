@@ -4,7 +4,7 @@ Stand: 2026-09-08. Untersuchte Codebasis: `f2724821`.
 
 Für die Probes verwendete, zum Lockfile passende Pakete: Tiptap Core `3.31.0`, `@tiptap/y-tiptap` `3.0.7`, Yjs `13.6.31` und serverseitig `y-prosemirror` `1.3.7`.
 
-Status: ausgearbeiteter Plan mit Codeanalyse und gezielten Reproduktionen. Die Umsetzung ist noch nicht begonnen. Dieser Plan erweitert `docs/editor-stability-implementation.md` und die bestehende Collaboration-Policy um Strukturänderungen unter gleichzeitiger Bearbeitung. Er ersetzt keine bereits implementierten Schutzmechanismen.
+Status: Umsetzung begonnen. Schritt 1 ist als reproduzierbarer Testbestand abgeschlossen (`ed647038`); Schritt 2 behebt lokale Zielauflösung und Drag-Lifecycle. Die kollaborative Move-Semantik aus Schritt 3 und die weitere Integration sind noch offen. Dieser Plan erweitert `docs/editor-stability-implementation.md` und die bestehende Collaboration-Policy um Strukturänderungen unter gleichzeitiger Bearbeitung. Er ersetzt keine bereits implementierten Schutzmechanismen.
 
 ## 1. Ziel und Priorität
 
@@ -152,6 +152,10 @@ Abschluss: Die beobachteten Fehler sind reproduzierbar, ohne Browser-/Timing-Zuf
 Gespeicherte Node-Kopien und Positionsbereiche durch stabile Zielauflösung mit aktueller Prüfung ersetzen. Schreibrecht, Dokumentzuordnung, Zieltyp und zulässige Container an der Mutationsgrenze prüfen. Drag-State bei Abbruch/Ansichtswechsel bereinigen, Task-Items korrigieren und Fehler strukturiert zurückgeben.
 
 Abschluss: Die ersten vier Probes sind grün; Bearbeiten/Einfügen/Löschen zwischen Drag-Start und Drop beschädigt keine Inhalte. Das ist ein begrenzter Fix und noch keine Freigabe konkurrierender Moves.
+
+Umsetzungsstand: `block-reference.ts` trennt die Zielidentität von den aktuellen Positionsgrenzen. Referenzen sind an eine Editorinstanz gebunden; fehlende oder doppelte IDs werden nicht durch Textsuche ersetzt. Der gemeinsame Move-Helfer prüft Quelle, Drop-Ziel, Schreibrecht und erlaubte Grenzen beim Ausführen. Einfügen und Overlays verwenden dieselbe Auflösung. Task-Items behalten Checkbox und Unterblöcke. Transaktionen aktualisieren den Drag-State; Escape, Unmount, Editor-Zerstörung und Fensterwechsel räumen ihn auf. Abgebrochene Änderungen erhalten ein strukturiertes Fehlerergebnis und eine übersetzte UI-Meldung.
+
+Nachweis: `npm run test:editor:blocks` besteht mit 11 Fällen; `npm run test:editor:markdown` und ESLint für die geänderten TypeScript-Dateien bestehen. Der vollständige Typecheck meldet ausschließlich drei Fehler zu `canvasWorkspaceBound` in den unveränderten DOCX-Pfaden mit den bereitgestellten Abhängigkeiten. Browserfreigabe ist angefragt; die tatsächliche UI-Abnahme steht noch aus. Die beiden Repliken-Gegenbeispiele bleiben bewusst offen bis Schritt 3.
 
 ### Schritt 3 — Sichere kollaborative Move-Semantik nachweisen und umsetzen
 

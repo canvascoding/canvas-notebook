@@ -1,12 +1,15 @@
 import type { Editor, Range } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { Selection } from '@tiptap/pm/state';
+import { closeHistory } from '@tiptap/pm/history';
+import { createBlockReference, resolveBlockReference, type BlockReference } from './block-reference';
 
 export type BlockInsertPlacement = 'above' | 'below';
 
 export type ReorderableBlockKind = 'topLevel' | 'listItem';
 
 export type ReorderableBlockRange = {
+  reference: BlockReference;
   depth: number;
   from: number;
   kind: ReorderableBlockKind;
@@ -71,6 +74,7 @@ function getTopLevelBlockRangeAt(editor: Editor, position: number): ReorderableB
 
     if (isInsideNode || isAtDocumentEnd) {
       range = {
+        reference: createBlockReference(editor, node),
         depth: 1,
         from,
         kind: 'topLevel',
@@ -100,7 +104,7 @@ function getListItemBlockRangeAt(
 
   for (let depth = $position.depth; depth > 0; depth -= 1) {
     const node = $position.node(depth);
-    if (node.type.name !== 'listItem') continue;
+    if (node.type.name !== 'listItem' && node.type.name !== 'taskItem') continue;
 
     const parentDepth = depth - 1;
     const parentNode = $position.node(parentDepth);
@@ -115,6 +119,7 @@ function getListItemBlockRangeAt(
     }
 
     return {
+      reference: createBlockReference(editor, node),
       depth,
       from: $position.before(depth),
       kind: 'listItem',
@@ -133,6 +138,12 @@ export function getReorderableBlockRangeAt(
   position: number,
   source?: ReorderableBlockRange,
 ): ReorderableBlockRange | null {
+  if (editor.isDestroyed) return null;
+  if (source) {
+    const current = resolveReorderableBlockRange(editor, source);
+    if (!current) return null;
+    source = current;
+  }
   if (source?.kind === 'listItem') {
     return getListItemBlockRangeAt(editor, position, source);
   }
@@ -142,6 +153,18 @@ export function getReorderableBlockRangeAt(
   }
 
   return getListItemBlockRangeAt(editor, position) ?? getTopLevelBlockRangeAt(editor, position);
+}
+
+export function resolveReorderableBlockRange(
+  editor: Editor,
+  range: ReorderableBlockRange,
+): ReorderableBlockRange | null {
+  if (editor.isDestroyed) return null;
+  const current = resolveBlockReference(editor.state.doc, editor, range.reference);
+  if (!current || current.node.type !== range.node.type) return null;
+  const isListItem = current.node.type.name === 'listItem' || current.node.type.name === 'taskItem';
+  if (range.kind === 'topLevel' ? current.depth !== 1 : !isListItem) return null;
+  return { ...range, ...current };
 }
 
 function createEmptyListItemNode(editor: Editor, source: ReorderableBlockRange) {
@@ -154,9 +177,12 @@ export function createInsertedBlockCommandTarget(
   placement: BlockInsertPlacement,
   blockRange?: ReorderableBlockRange,
 ): Range | null {
-  if (!editor.isEditable || editor.isActive('codeBlock')) return null;
+  if (editor.isDestroyed || !editor.isEditable || editor.isActive('codeBlock')) return null;
 
   if (blockRange) {
+    const current = resolveReorderableBlockRange(editor, blockRange);
+    if (!current) return null;
+    blockRange = current;
     const insertPosition = placement === 'above' ? blockRange.from : blockRange.to;
     const isListItem = blockRange.kind === 'listItem';
     const cursorPosition = insertPosition + (isListItem ? 2 : 1);
@@ -245,9 +271,13 @@ export function getBlockDropInsertPosition(
 
 export function getBlockDropTarget(
   editor: Editor,
-  event: DragEvent,
+  event: Pick<DragEvent, 'clientX' | 'clientY'>,
   source: ReorderableBlockRange,
 ): BlockDropTarget | null {
+  if (editor.isDestroyed || !editor.isEditable) return null;
+  const current = resolveReorderableBlockRange(editor, source);
+  if (!current) return null;
+  source = current;
   const positionAtCoords = editor.view.posAtCoords({
     left: event.clientX,
     top: event.clientY,
@@ -301,7 +331,9 @@ export function getBlockDropIndicatorTop(
   container: HTMLDivElement,
   dropTarget: BlockDropTarget,
 ): number | null {
-  const targetDom = editor.view.nodeDOM(dropTarget.target.from);
+  const target = resolveReorderableBlockRange(editor, dropTarget.target);
+  if (!target) return null;
+  const targetDom = editor.view.nodeDOM(target.from);
   if (!(targetDom instanceof HTMLElement)) return null;
 
   const containerRect = container.getBoundingClientRect();
@@ -316,7 +348,9 @@ export function getBlockOverlayRect(
   container: HTMLDivElement,
   blockRange: ReorderableBlockRange,
 ): BlockOverlayRect | null {
-  const blockDom = editor.view.nodeDOM(blockRange.from);
+  const current = resolveReorderableBlockRange(editor, blockRange);
+  if (!current) return null;
+  const blockDom = editor.view.nodeDOM(current.from);
   if (!(blockDom instanceof HTMLElement)) return null;
 
   const containerRect = container.getBoundingClientRect();
@@ -328,17 +362,43 @@ export function getBlockOverlayRect(
   };
 }
 
-export function moveReorderableBlock(editor: Editor, source: ReorderableBlockRange, insertPosition: number): boolean {
-  const sourceSize = source.to - source.from;
-  const adjustedInsertPosition = insertPosition > source.from ? insertPosition - sourceSize : insertPosition;
+export type BlockMoveResult = { ok: true } | {
+  ok: false;
+  reason: 'read_only' | 'source_changed' | 'target_changed' | 'invalid_destination' | 'no_change';
+};
 
-  if (adjustedInsertPosition === source.from) return false;
+/** Numeric destinations are for immediate commands only. Gestures carry a target reference. */
+export function applyReorderableBlockMove(
+  editor: Editor,
+  capturedSource: ReorderableBlockRange,
+  destination: BlockDropTarget | number,
+): BlockMoveResult {
+  if (editor.isDestroyed || !editor.isEditable) return { ok: false, reason: 'read_only' };
+  const source = resolveReorderableBlockRange(editor, capturedSource);
+  if (!source) return { ok: false, reason: 'source_changed' };
+  let insertPosition: number;
+  if (typeof destination === 'number') {
+    insertPosition = destination;
+  } else {
+    const target = resolveReorderableBlockRange(editor, destination.target);
+    if (!target) return { ok: false, reason: 'target_changed' };
+    if (source.kind !== target.kind) return { ok: false, reason: 'invalid_destination' };
+    insertPosition = destination.placement === 'before' ? target.from : target.to;
+  }
+  if (!Number.isInteger(insertPosition) || insertPosition < source.parentFrom || insertPosition > source.parentTo) {
+    return { ok: false, reason: 'invalid_destination' };
+  }
+  const $insert = editor.state.doc.resolve(insertPosition);
+  if ($insert.depth !== source.depth - 1 || $insert.start() !== source.parentFrom || $insert.textOffset !== 0) {
+    return { ok: false, reason: 'invalid_destination' };
+  }
+  if (insertPosition >= source.from && insertPosition <= source.to) return { ok: false, reason: 'no_change' };
 
   try {
-    const transaction = editor.state.tr
-      .delete(source.from, source.to)
-      .insert(adjustedInsertPosition, source.node)
-      .scrollIntoView();
+    const transaction = closeHistory(editor.state.tr).delete(source.from, source.to);
+    const adjustedInsertPosition = transaction.mapping.map(insertPosition);
+    transaction.insert(adjustedInsertPosition, source.node).scrollIntoView();
+    transaction.doc.check();
     const selectionPosition = Math.min(adjustedInsertPosition + 1, transaction.doc.content.size);
 
     if (selectionPosition >= 0) {
@@ -347,9 +407,7 @@ export function moveReorderableBlock(editor: Editor, source: ReorderableBlockRan
 
     editor.view.dispatch(transaction);
   } catch {
-    // Ignore invalid drops, for example when the browser reports coordinates
-    // outside the reorderable parent list.
-    return false;
+    return { ok: false, reason: 'invalid_destination' };
   }
 
   try {
@@ -359,5 +417,13 @@ export function moveReorderableBlock(editor: Editor, source: ReorderableBlockRan
     // transaction; the reorder itself is still complete.
   }
 
-  return true;
+  return { ok: true };
+}
+
+export function moveReorderableBlock(
+  editor: Editor,
+  source: ReorderableBlockRange,
+  destination: BlockDropTarget | number,
+): boolean {
+  return applyReorderableBlockMove(editor, source, destination).ok;
 }

@@ -862,6 +862,7 @@
     "markdownEditorAddBlockBelowHint": "Klicken, um darunter hinzuzufügen",
     "markdownEditorAddBlockAboveHint": "Option-Klick, um darüber hinzuzufügen",
     "markdownEditorDragBlockHint": "Ziehen, um zu verschieben",
+    "markdownEditorBlockMoveCancelled": "Der Block konnte nicht verschoben werden, weil sich das Ziel oder die Schreibrechte geändert haben. Bitte erneut versuchen.",
     "markdownEditorOpenBlockMenuHint": "Klicken, um das Menü zu öffnen",
     "markdownEditorEditAsText": "Als Text bearbeiten",
     "markdownEditorEditVisually": "Visuell bearbeiten",
