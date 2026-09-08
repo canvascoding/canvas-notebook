@@ -1197,6 +1197,11 @@
     "saved": "Saved",
     "savedAt": "Saved {time}",
     "collaboration": {
+      "location": {
+        "unavailable": "This document is no longer available at its saved location. Your open draft is retained.",
+        "generationChanged": "The document was reinitialized. Your open draft is retained; its location was not switched.",
+        "lookupFailed": "The document location could not be checked. Retrying…"
+      },
       "revisionCheck": "Revision checked",
       "lockRequired": "Lock required",
       "locked": "Locked",

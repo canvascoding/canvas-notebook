@@ -65,6 +65,7 @@ export interface CodeEditorProps {
   readOnly?: boolean;
   path?: string;
   documentKey?: string;
+  expectedCollaborationDocumentId?: string | null;
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   collaborationEnabled?: boolean;
   collaborationSession?: CollaborationSessionResponse | null;
@@ -360,6 +361,7 @@ export function CodeEditor({
   readOnly = false,
   path,
   documentKey,
+  expectedCollaborationDocumentId,
   markdownNavigationTarget,
   collaborationEnabled,
   collaborationSession,
@@ -380,6 +382,7 @@ export function CodeEditor({
     enabled: shouldCollaborate && !collaborationDocument && !collaborationSession,
     workspaceId: activeWorkspaceId,
     path: languagePath,
+    expectedDocumentId: expectedCollaborationDocumentId,
   });
   const internalCollaboration = useCollaborationDocument({
     enabled: shouldCollaborate && !collaborationDocument,

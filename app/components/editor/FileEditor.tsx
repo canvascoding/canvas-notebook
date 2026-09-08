@@ -17,6 +17,7 @@ import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { useEditorStore } from '@/app/store/editor-store';
 import { getDocumentTransitionGuard, registerDocumentTransitionGuard } from '@/app/lib/files/document-transition';
 import { prepareCollaborationDocumentTransition, type CollaborationDocument } from '@/app/lib/collaboration/client';
+import { useCollaborationDocumentLocation } from '@/app/lib/collaboration/document-location-client';
 import {
   CollaborationCheckpointRequestError,
   isCollaborationCheckpointValidationErrorCode,
@@ -717,6 +718,14 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [collaborationDocumentId]);
   const isSceneCollaboration = Boolean(collaboration?.sceneCapable);
   const isCrdtCollaboration = Boolean(collaboration?.crdtCapable);
+  const collaborationLocationIssue = useCollaborationDocumentLocation({
+    workspaceId: currentFileWorkspaceId, documentId: collaborationDocumentId,
+    documentKey: currentFile?.editorIdentity, path: currentFilePath,
+    lifecycleGeneration: activeCollaborationDocument?.session?.lifecycleGeneration,
+    representation: activeCollaborationDocument?.session?.representation === 'excalidraw_scene'
+      ? undefined : activeCollaborationDocument?.session?.representation,
+    connection: activeCollaborationDocument?.connection,
+  });
   const updateCollaborativeDraft = useCallback((value: string) => {
     if (isCrdtCollaboration) {
       syncCollaborativeDraft(value);
@@ -756,7 +765,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
   const savedTime = formatTimestamp(lastSavedAt);
   const displaySaveError = isCrdtCollaboration
-    ? activeCollaborationDocument?.error ?? null
+    ? activeCollaborationDocument?.error ?? (collaborationLocationIssue ? t(`collaboration.location.${collaborationLocationIssue}`) : null)
     : saveError ?? null;
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const currentFileNode = useMemo<FileNode | null>(() => {
@@ -1528,6 +1537,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               <MarkdownEditor
                 key={JSON.stringify([currentFileWorkspaceId, currentFile.editorIdentity ?? currentFile.path])}
                 documentKey={currentFile.editorIdentity}
+                expectedCollaborationDocumentId={collaborationDocumentId}
                 value={draft}
                 onChange={updateCollaborativeDraft}
                 filePath={currentFile.path}
@@ -1541,6 +1551,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             <CodeEditor
               value={draft}
               documentKey={currentFile.editorIdentity}
+              expectedCollaborationDocumentId={collaborationDocumentId}
               onChange={updateCollaborativeDraft}
               readOnly={false}
               path={currentFile.path}

@@ -240,6 +240,7 @@ export interface MarkdownEditorProps {
   filePath?: string;
   /** Stable within an open document, including rename; defaults to filePath. */
   documentKey?: string;
+  expectedCollaborationDocumentId?: string | null;
   externalValueSync?: 'always' | 'when-blurred';
   collaborationEnabled?: boolean;
   collaborationSession?: CollaborationSessionResponse | null;
@@ -5652,6 +5653,7 @@ export function MarkdownEditor({
   readOnly = false,
   filePath,
   documentKey,
+  expectedCollaborationDocumentId,
   externalValueSync = 'always',
   collaborationEnabled = false,
   onCollaborationChange,
@@ -5680,6 +5682,7 @@ export function MarkdownEditor({
     enabled: collaborationEnabled,
     workspaceId: activeWorkspaceId,
     path: filePath,
+    expectedDocumentId: expectedCollaborationDocumentId,
   });
   const resolvedCollaborationSession = collaborationSession.session;
   const collaborationDocument = useCollaborationDocument({

@@ -647,9 +647,10 @@ export function useTextCollaborationSession(input: {
   enabled: boolean;
   workspaceId: string | null;
   path: string | undefined;
+  expectedDocumentId?: string | null;
 }): TextCollaborationSessionResolution {
   const key = input.enabled && input.workspaceId && input.path
-    ? `${input.workspaceId}\0${input.path}`
+    ? `${input.workspaceId}\0${input.path}\0${input.expectedDocumentId ?? ''}`
     : null;
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{
@@ -668,6 +669,9 @@ export function useTextCollaborationSession(input: {
     void requestSession(input.path, 'auto', input.workspaceId, controller.signal)
       .then((session) => requireTextSession(session))
       .then((session) => {
+        if (input.expectedDocumentId && session.documentId !== input.expectedDocumentId) {
+          throw new Error('This file path now belongs to another document. Waiting for the original document location.');
+        }
         if (!cancelled) setState({ key, attempt, session, error: null });
       })
       .catch((error) => {
@@ -684,7 +688,7 @@ export function useTextCollaborationSession(input: {
       cancelled = true;
       controller.abort();
     };
-  }, [input.path, input.workspaceId, key, attempt]);
+  }, [input.path, input.workspaceId, input.expectedDocumentId, key, attempt]);
 
   const current = state.key === key && state.attempt === attempt ? state : { session: null, error: null };
   return {
