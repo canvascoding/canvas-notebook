@@ -244,24 +244,28 @@ export async function resolveAgentSessionWorkspaceForUser(input: {
   }
 
   const database = await openDb();
-  const user = await findPostgresUserById(database, input.userId);
-  if (!user) {
-    throw new Error('Workspace not found or inaccessible.');
-  }
+  try {
+    const user = await findPostgresUserById(database, input.userId);
+    if (!user) {
+      throw new Error('Workspace not found or inaccessible.');
+    }
 
-  const actor = resolveWorkspaceActor({
-    id: user.id,
-    email: user.email,
-    role: user.role,
-  });
-  const workspace = requestedWorkspaceId
-    ? await resolvePostgresWorkspaceForActor(actor, requestedWorkspaceId)
-    : (await getPostgresWorkspaceState(actor)).defaultWorkspace;
-  if (!workspace) {
-    throw new Error('Workspace not found or inaccessible.');
+    const actor = resolveWorkspaceActor({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    });
+    const workspace = requestedWorkspaceId
+      ? await resolvePostgresWorkspaceForActor(actor, requestedWorkspaceId)
+      : (await getPostgresWorkspaceState(actor)).defaultWorkspace;
+    if (!workspace) {
+      throw new Error('Workspace not found or inaccessible.');
+    }
+    assertPermissions(workspace, input.permissions);
+    return workspace;
+  } finally {
+    await database.close();
   }
-  assertPermissions(workspace, input.permissions);
-  return workspace;
 }
 
 export async function ensurePiSessionWorkspaceSnapshot(input: {
