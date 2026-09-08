@@ -1,8 +1,3 @@
-import type Database from 'better-sqlite3';
-import {mkdirSync} from 'fs';
-import path from 'path';
-import * as schema from './schema';
-import { runMigrations } from './migrate';
 import {
   createPostgresDrizzle,
   createPostgresPool,
@@ -16,7 +11,6 @@ import {
   coerceDatabaseUnavailableError,
   DatabaseUnavailableError,
 } from './errors';
-import { loadBetterSqlite3, loadDrizzleSqlite } from './optional-sqlite';
 
 export type SqlConnection = {
   get: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
@@ -24,39 +18,6 @@ export type SqlConnection = {
   all: (sql: string, params?: unknown[]) => unknown[] | Promise<unknown[]>;
   close: () => void | Promise<void>;
 };
-
-// The custom server applies migrations before it imports long-lived runtime
-// modules. Reapplying them from every dynamically loaded Next.js module can
-// race with active SQLite connections in development, so only standalone
-// scripts retain the on-open migration fallback.
-const shouldRunSqliteStartupMigrations =
-  process.env.NEXT_PHASE !== 'phase-production-build'
-  && process.env.CANVAS_DATABASE_MIGRATIONS_COMPLETED !== 'true';
-
-function getSqlitePath(): string {
-  return resolveSqlitePath();
-}
-
-function createSqliteDatabase() {
-  const BetterSqlite3 = loadBetterSqlite3();
-  const drizzleSqlite = loadDrizzleSqlite();
-  const productionBuild = process.env.NEXT_PHASE === 'phase-production-build';
-  const sqlitePath = productionBuild ? ':memory:' : getSqlitePath();
-  if (!productionBuild) {
-    mkdirSync(path.dirname(sqlitePath), {recursive: true});
-  }
-
-  const sqlite = new BetterSqlite3(sqlitePath);
-  sqlite.pragma('foreign_keys = ON');
-  sqlite.pragma('busy_timeout = 5000');
-  if (shouldRunSqliteStartupMigrations) {
-    runMigrations(sqlite);
-  }
-  return {
-    client: sqlite,
-    db: drizzleSqlite(sqlite, {schema}),
-  };
-}
 
 function createPostgresDatabase() {
   const pool = createPostgresPool();
@@ -66,10 +27,9 @@ function createPostgresDatabase() {
   };
 }
 
-type AppDatabase = ReturnType<typeof createSqliteDatabase>['db'];
+type AppDatabase = ReturnType<typeof createPostgresDatabase>['db'];
 
 type RuntimeDatabase =
-  | (ReturnType<typeof createSqliteDatabase> & { initializationError: null })
   | (ReturnType<typeof createPostgresDatabase> & { initializationError: null })
   | { client: null; db: AppDatabase; initializationError: DatabaseUnavailableError };
 
@@ -104,14 +64,12 @@ function createRuntimeDatabase(): RuntimeDatabase {
     return { client: null, db: createUnavailableDatabase(error), initializationError: error };
   }
   try {
-    const database = provider === 'postgres'
-      ? createPostgresDatabase()
-      : createSqliteDatabase();
+    assertRuntimeDatabaseProviderSupported(provider);
+    const database = createPostgresDatabase();
     return { ...database, initializationError: null };
   } catch (error) {
     const unavailableError = coerceDatabaseUnavailableError(error, {
       provider,
-      sqlitePath: provider === 'sqlite' ? getSqlitePath() : undefined,
     });
     if (!unavailableError) {
       throw error;
@@ -172,32 +130,9 @@ export async function ensureDatabaseReady(): Promise<void> {
   assertDatabaseAvailable();
 }
 
-function bindSqlite(statement: Database.Statement, params?: unknown[]) {
-  return params === undefined ? statement : statement.bind(...params);
-}
-
 function translateSqlitePlaceholders(sql: string): string {
   let index = 0;
   return sql.replace(/\?/g, () => `$${++index}`);
-}
-
-function stripPostgresCasts(sql: string): string {
-  return sql.replace(/::[a-zA-Z_][a-zA-Z0-9_]*/g, '');
-}
-
-function runSqliteOperation<T>(sqlitePath: string, operation: () => T): T {
-  try {
-    return operation();
-  } catch (error) {
-    const unavailableError = coerceDatabaseUnavailableError(error, {
-      provider: 'sqlite',
-      sqlitePath,
-    });
-    if (unavailableError) {
-      throw unavailableError;
-    }
-    throw error;
-  }
 }
 
 async function openPostgresDb(): Promise<SqlConnection> {
@@ -242,32 +177,7 @@ async function openPostgresDb(): Promise<SqlConnection> {
 export async function openDb(): Promise<SqlConnection> {
   assertRuntimeDatabaseProviderSupported();
   assertDatabaseAvailable();
-  if (getDatabaseProvider() === 'postgres') {
-    return openPostgresDb();
-  }
-
-  const sqlitePath = getSqlitePath();
-  const BetterSqlite3 = loadBetterSqlite3();
-  const freshSqlite = runSqliteOperation(sqlitePath, () => new BetterSqlite3(sqlitePath));
-  freshSqlite.pragma('foreign_keys = ON');
-  freshSqlite.pragma('busy_timeout = 5000');
-  return {
-    get: (sql: string, params?: unknown[]) => runSqliteOperation(
-      sqlitePath,
-      () => bindSqlite(freshSqlite.prepare(stripPostgresCasts(sql)), params).get(),
-    ),
-    run: (sql: string, params?: unknown[]) => runSqliteOperation(
-      sqlitePath,
-      () => bindSqlite(freshSqlite.prepare(stripPostgresCasts(sql)), params).run(),
-    ),
-    all: (sql: string, params?: unknown[]) => runSqliteOperation(
-      sqlitePath,
-      () => bindSqlite(freshSqlite.prepare(stripPostgresCasts(sql)), params).all(),
-    ),
-    close: () => {
-      freshSqlite.close();
-    },
-  };
+  return openPostgresDb();
 }
 
 /** Releases the shared runtime pool after isolated scripts and graceful shutdowns. */
