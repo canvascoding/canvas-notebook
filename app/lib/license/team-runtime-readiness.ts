@@ -103,13 +103,6 @@ function check(
   return { area, status, code, message };
 }
 
-function databaseEngine(): TeamRuntimeReadinessStatus['databaseEngine'] {
-  const configured = process.env.CANVAS_DATABASE_PROVIDER?.trim().toLowerCase();
-  if (!configured || configured === 'sqlite') return 'sqlite';
-  if (configured === 'postgres') return 'postgres';
-  return 'other';
-}
-
 function requiredColumnsSql(): string {
   const values = REQUIRED_POSTGRES_COLUMNS
     .map(([tableName, columnName]) => `('${tableName}', '${columnName}')`)
@@ -281,8 +274,8 @@ export async function getCommunityTeamRuntimeReadiness(
   options: TeamRuntimeReadinessOptions = {},
 ): Promise<TeamRuntimeReadinessStatus> {
   const now = options.now ?? new Date();
-  const engine = databaseEngine();
   const config = resolveDatabaseProviderConfig();
+  const engine = config.provider;
   const checks: TeamRuntimeReadinessCheck[] = [];
   let postgres: PostgresTeamRuntimeProbe | null = null;
 

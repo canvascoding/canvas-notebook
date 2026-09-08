@@ -372,7 +372,7 @@ async function readLocalImportContext(warnings: string[]): Promise<LocalImportCo
       const database = await openDb();
       try {
         const organization = await database.get(`
-          SELECT organization_id AS organizationId, deployment_mode AS deploymentMode, team_features_enabled AS teamFeaturesEnabled
+          SELECT organization_id AS "organizationId", deployment_mode AS "deploymentMode", team_features_enabled AS "teamFeaturesEnabled"
           FROM canvas_organization_settings
           ORDER BY created_at ASC
           LIMIT 1
@@ -385,11 +385,11 @@ async function readLocalImportContext(warnings: string[]): Promise<LocalImportCo
         const workspaces = await database.all(`
           SELECT
             id,
-            organization_id AS organizationId,
+            organization_id AS "organizationId",
             type,
-            owner_user_id AS ownerUserId,
-            root_relative_path AS rootRelativePath,
-            display_name AS displayName
+            owner_user_id AS "ownerUserId",
+            root_relative_path AS "rootRelativePath",
+            display_name AS "displayName"
           FROM canvas_workspaces
           WHERE status = 'active'
           ORDER BY created_at ASC

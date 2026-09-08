@@ -154,7 +154,7 @@
     "test:knowledge:retrieval-scope": "tsx --conditions react-server scripts/knowledge-retrieval-scope-test.ts",
     "test:knowledge:settings": "tsx --conditions react-server scripts/knowledge-settings-test.ts",
     "test:knowledge:gates": "tsx --conditions react-server scripts/knowledge-feature-gates-test.ts",
-    "test:db:provider": "tsx scripts/database-provider-abstraction-test.ts",
+    "test:db:provider": "tsx scripts/database-provider-abstraction-test.ts && tsx --conditions react-server scripts/team-runtime-postgres-inference-test.ts",
     "test:db:unavailable": "tsx --conditions react-server scripts/database-unavailable-error-test.ts",
     "test:db:external-preflight": "tsx scripts/postgres-external-preflight-test.ts",
     "test:skills:core": "tsx --conditions react-server scripts/core-skills-test.ts",

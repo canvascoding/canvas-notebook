@@ -195,6 +195,12 @@ async function assertPostgresFailureModes(): Promise<void> {
       postgres.query('SELECT creator.id FROM user creator'),
       /column creator\.id does not exist/iu,
     );
+
+    const foldedAlias = await postgres.query<Record<string, string>>("SELECT 'org-1' AS organizationId");
+    const quotedAlias = await postgres.query<Record<string, string>>('SELECT \'org-1\' AS "organizationId"');
+    assert.equal(foldedAlias.rows[0]?.organizationId, undefined);
+    assert.equal(foldedAlias.rows[0]?.organizationid, 'org-1');
+    assert.equal(quotedAlias.rows[0]?.organizationId, 'org-1');
   } finally {
     await postgres.close();
   }
