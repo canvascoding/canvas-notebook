@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { generateUniqueIds } from '@tiptap/extension-unique-id';
-import { getSchema } from '@tiptap/core';
+import { getSchema, type JSONContent } from '@tiptap/core';
 import type * as YTypes from 'yjs';
 
 import {
@@ -15,6 +15,8 @@ import {
 } from '@/app/lib/markdown/rich-markdown-codec';
 import { TiptapTransformer, Y, YProsemirror } from './server-runtime';
 import { equivalentRichDocument } from '../markdown/core/equivalence';
+import { CollaborationBlockTree } from './block-tree';
+import { readRichDocumentJson, richDocumentFormat, type RichDocumentFormat } from './rich-document';
 
 export function richMarkdownSchemaExtensions() {
   return richMarkdownCodecExtensions();
@@ -216,12 +218,33 @@ function preserveAlignedStableIds(
   }
 }
 
-export function createRichMarkdownYDoc(markdown: string): YTypes.Doc {
+function createRichDocument(json: JSONContent, format: RichDocumentFormat): YTypes.Doc {
+  const extensions = richMarkdownSchemaExtensions();
+  if (format === 'tiptap_xml') return TiptapTransformer.toYdoc(json, 'body', extensions);
+  const doc = new Y.Doc();
+  try {
+    const content = json.content?.length ? json : generateUniqueIds({ type: 'doc', content: [{ type: 'paragraph' }] }, extensions);
+    CollaborationBlockTree.create(doc, getSchema(extensions).nodeFromJSON(content));
+    return doc;
+  } catch (error) { doc.destroy(); throw error; }
+}
+
+/** Only the fenced lifecycle migration may replace a persisted representation. */
+export function convertRichMarkdownYDoc(source: YTypes.Doc, format: RichDocumentFormat): YTypes.Doc {
+  const doc = createRichDocument(readRichDocumentJson(source), format);
+  for (const name of ['frontmatter', 'bodyFinalLineEnding']) {
+    const value = source.getText(name).toString();
+    if (value) doc.getText(name).insert(0, value);
+  }
+  return doc;
+}
+
+export function createRichMarkdownYDoc(markdown: string, format: RichDocumentFormat = 'tiptap_xml'): YTypes.Doc {
   const parts = splitCanvasMarkdownForRichEditor(markdown);
   const manager = markdownManager();
   const extensions = richMarkdownSchemaExtensions();
   const json = generateUniqueIds(manager.parse(parts.body), extensions);
-  const doc = TiptapTransformer.toYdoc(json, 'body', extensions);
+  const doc = createRichDocument(json, format);
   if (parts.prefix) doc.getText('frontmatter').insert(0, parts.prefix);
   const finalLineEnding = parts.body.match(/((?:\r?\n)+)$/u)?.[1];
   if (finalLineEnding) doc.getText('bodyFinalLineEnding').insert(0, finalLineEnding);
@@ -229,7 +252,7 @@ export function createRichMarkdownYDoc(markdown: string): YTypes.Doc {
 }
 
 export function richMarkdownFromYDoc(doc: YTypes.Doc): string {
-  const json = TiptapTransformer.fromYdoc(doc, 'body');
+  const json = readRichDocumentJson(doc);
   const serializedBody = markdownManager().serialize(json);
   const body = restoreRichMarkdownFinalLineEnding(
     doc.getText('bodyFinalLineEnding').toString(),
@@ -240,9 +263,8 @@ export function richMarkdownFromYDoc(doc: YTypes.Doc): string {
 
 /**
  * Applies a complete Markdown source edit to the authoritative rich Y.Doc.
- * y-prosemirror performs a structural diff against the existing fragment, so
- * connected web editors receive a normal collaborative transaction instead
- * of a destructive whole-file replacement.
+ * The representation adapter preserves existing identities and shared text.
+ * Block placement changes never replace the corresponding text fragment.
  */
 export function replaceRichMarkdownInYDoc(
   doc: YTypes.Doc,
@@ -251,19 +273,24 @@ export function replaceRichMarkdownInYDoc(
 ): void {
   const replacement = createRichMarkdownYDoc(markdown);
   try {
-    const currentJson = TiptapTransformer.fromYdoc(doc, 'body') as RichMarkdownJsonNode;
-    const json = TiptapTransformer.fromYdoc(replacement, 'body') as RichMarkdownJsonNode;
+    const currentJson = readRichDocumentJson(doc) as RichMarkdownJsonNode;
+    const json = readRichDocumentJson(replacement) as RichMarkdownJsonNode;
     preserveAlignedStableIds(currentJson, json, stableIdCounts(currentJson));
     const schema = getSchema(richMarkdownSchemaExtensions());
     const proseMirrorDocument = schema.nodeFromJSON(json);
     const parts = splitCanvasMarkdownForRichEditor(markdown);
     doc.transact(() => {
-      YProsemirror.updateYFragment(
-        doc,
-        doc.getXmlFragment('body'),
-        proseMirrorDocument,
-        { mapping: new Map(), isOMark: new Map() },
-      );
+      if (richDocumentFormat(doc) === 'tiptap_blocks') {
+        const tree = new CollaborationBlockTree(doc, schema);
+        tree.applyDocumentChange(tree.read(), proseMirrorDocument, origin);
+      } else {
+        YProsemirror.updateYFragment(
+          doc,
+          doc.getXmlFragment('body'),
+          proseMirrorDocument,
+          { mapping: new Map(), isOMark: new Map() },
+        );
+      }
       const frontmatter = doc.getText('frontmatter');
       if (frontmatter.length > 0) frontmatter.delete(0, frontmatter.length);
       if (parts.prefix) frontmatter.insert(0, parts.prefix);
@@ -301,7 +328,7 @@ export function validateRichMarkdownYDoc(doc: YTypes.Doc): RichMarkdownValidatio
   let json: unknown;
   let markdown: string;
   try {
-    json = TiptapTransformer.fromYdoc(doc, 'body');
+    json = readRichDocumentJson(doc);
     const schemaDocument = getSchema(richMarkdownSchemaExtensions()).nodeFromJSON(json);
     // A new Y.Doc can be completely empty before the first editor mounts.
     if (schemaDocument.content.size > 0) schemaDocument.check();
@@ -320,7 +347,7 @@ export function validateRichMarkdownYDoc(doc: YTypes.Doc): RichMarkdownValidatio
   try {
     roundtrip = createRichMarkdownYDoc(markdown);
     if (richMarkdownFromYDoc(roundtrip) !== markdown
-      || !equivalentRichDocument(json, TiptapTransformer.fromYdoc(roundtrip, 'body'))) {
+      || !equivalentRichDocument(json, readRichDocumentJson(roundtrip))) {
       return { valid: false, code: 'roundtrip_unstable', markdown };
     }
   } catch {

@@ -10,7 +10,7 @@ import {
 } from './block-tree-placement';
 
 export const BLOCK_TREE_FORMAT_VERSION = 1;
-const BLOCK_TREE_KEY = 'canvas-block-tree-v1';
+export const BLOCK_TREE_KEY = 'canvas-block-tree-v1';
 
 type BlockProperties = { type: string; attrs: Record<string, unknown>; inline: boolean };
 type BlockRecord = Y.Map<unknown>;
