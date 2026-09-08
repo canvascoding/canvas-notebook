@@ -206,6 +206,8 @@
     "test:collaboration:block-binding": "tsx --conditions react-server scripts/collaboration-block-anchors-test.ts && tsx --conditions react-server scripts/collaboration-block-editor-test.ts",
     "test:collaboration:text-history": "tsx --test scripts/collaboration-text-history-test.ts && tsx scripts/collaborative-source-lifecycle-test.tsx",
     "test:collaboration:rename": "tsx scripts/collaboration-document-awareness-test.ts && tsx scripts/collaboration-client-rename-test.tsx",
+    "test:collaboration:location": "tsx --conditions react-server scripts/collaboration-document-location-route-test.ts",
+    "test:collaboration:location-integration": "tsx --conditions react-server scripts/collaboration-document-location-integration-test.ts",
     "test:collaboration:rich-document": "tsx --conditions react-server scripts/collaboration-rich-document-test.ts",
     "test:collaboration:block-format": "tsx --conditions react-server scripts/collaboration-block-format-integration-test.ts",
     "test:collaboration:block-agent": "tsx --conditions react-server scripts/collaboration-block-agent-test.ts",
