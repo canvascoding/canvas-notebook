@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
 
-import { getDatabaseProvider, openDb, type SqlConnection } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import {
   MEMORY_MAX_ENTRY_CHARS,
   MEMORY_PENDING_ARCHIVE_AFTER_MS,
@@ -1235,7 +1235,7 @@ export async function updateMemoryReviewSettings(
 ): Promise<{ reactivatedJobs: number; cancelledJobs: number; settingsRevision: number }> {
   const connection = await openDb();
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     try {
       const existing = await connection.get(`
         SELECT automatic_memory_enabled, automatic_memory_enabled_at,
@@ -1243,7 +1243,7 @@ export async function updateMemoryReviewSettings(
           memory_prompt_max_tokens, sensitive_memory_enabled, created_at
         FROM memory_user_settings
         WHERE user_id = ?
-        LIMIT 1${getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : ''}
+        LIMIT 1 FOR UPDATE
       `, [userId]) as Record<string, unknown> | undefined;
       const previousAutomaticMemoryEnabled = existing?.automatic_memory_enabled === true
         || existing?.automatic_memory_enabled === 1;
@@ -1881,7 +1881,7 @@ async function canSuggestSharedMemoryWithConnection(
   connection: SqlConnection,
   scope: MemoryServiceScope,
 ): Promise<boolean> {
-  const rowLock = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
+  const rowLock = ' FOR UPDATE';
   if (scope.target === 'organization') {
     const permission = await connection.get(`
       SELECT role, status
@@ -2004,7 +2004,7 @@ export async function applyMemoryReviewCandidates(params: {
   }
   const connection = await openDb();
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     try {
       const executionGuard = await connection.get(`
         SELECT settings.sensitive_memory_enabled
@@ -2013,7 +2013,7 @@ export async function applyMemoryReviewCandidates(params: {
         WHERE job.id = ? AND job.user_id = ? AND job.status = 'running'
           AND settings.automatic_memory_enabled = 1
           AND settings.settings_revision = ?
-        LIMIT 1${getDatabaseProvider() === 'postgres' ? ' FOR UPDATE OF settings' : ''}
+        LIMIT 1 FOR UPDATE OF settings
       `, [params.claim.id, params.claim.userId, params.claim.settingsRevision]) as {
         sensitive_memory_enabled?: number | boolean;
       } | undefined;
