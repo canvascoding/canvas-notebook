@@ -31,9 +31,15 @@ async function main() {
   ));
   const child = document.querySelector('[data-file-path="docs/retained.txt"]');
   assert.ok(child, 'expanded folder renders the cached child');
+  const group = document.querySelector('[role="group"]')!;
+  const childCount = group.children.length;
   await act(async () => useFileStore.setState({ loadingDirs: new Set(['docs']), directoryLoadStates: { docs: 'refreshing' } }));
   assert.equal(document.querySelector('[data-file-path="docs/retained.txt"]'), child, 'refresh keeps the same child DOM node mounted');
+  assert.equal(group.children.length, childCount, 'refresh adds no visible row before existing children');
+  assert.ok(!document.body.textContent?.includes('Updating folder'), 'short background reads stay quiet');
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 230)); });
   assert.ok(document.body.textContent?.includes('Updating folder'));
+  assert.equal(group.children.length, childCount, 'delayed refresh indicator stays in the existing header');
   await act(async () => useFileStore.setState({ loadingDirs: new Set(), directoryLoadStates: { docs: 'error' }, directoryErrors: { docs: 'Retry this folder' } }));
   assert.equal(document.querySelector('[data-file-path="docs/retained.txt"]'), child, 'error also retains the visible snapshot');
   assert.ok(document.body.textContent?.includes('Retry this folder'));

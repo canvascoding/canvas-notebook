@@ -28,6 +28,7 @@ import { formatCompactFileDate, formatCompactFileSize } from '@/app/lib/files/fo
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { useLocale, useTranslations } from 'next-intl';
 import { FilePresenceMarkers } from './FilePresenceMarkers';
+import { useDelayedFlag } from '@/app/hooks/useDelayedFlag';
 
 interface FileTreeNodeProps {
   node: FileNodeType;
@@ -86,6 +87,8 @@ function FileTreeNodeComponent({
   const isRowActive = isSelected || isMultiSelected;
   const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
   const hasLoadedChildren = Array.isArray(node.children);
+  const showRefresh = useDelayedFlag(isLoading && hasLoadedChildren);
+  const showLoading = isLoading && (!hasLoadedChildren || showRefresh);
   const childNodes = node.children ?? [];
   const childSelectionOrder = childNodes.map((child) => child.path);
   const displayName = getFileDisplayName(node);
@@ -340,7 +343,7 @@ function FileTreeNodeComponent({
               aria-selected={isRowActive}
               data-file-primary-action
             >
-              {renderListContent(isLoading ? (
+              {renderListContent(showLoading ? (
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
               ) : (
                 getFileIcon()
@@ -417,7 +420,7 @@ function FileTreeNodeComponent({
                 aria-selected={isRowActive}
                 data-file-primary-action
               >
-                {isLoading ? (
+                {showLoading ? (
                   <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
                 ) : (
                   <ChevronRight
@@ -429,6 +432,7 @@ function FileTreeNodeComponent({
                 )}
                 {getFileIcon()}
                 {nameContent}
+                {showRefresh && <span className="sr-only">{t('refreshingFolder')}</span>}
               </SidebarMenuButton>
             </CollapsibleTrigger>
             {isMultiSelectMode ? (
@@ -466,10 +470,10 @@ function FileTreeNodeComponent({
         {showChildren && (
           <CollapsibleContent>
             <SidebarMenuSub className="mx-0 mr-0 border-l-0 px-0 py-0 pr-0 md:ml-3.5 md:border-l md:pl-2.5" role="group">
-              {isLoading ? (
+              {isLoading && !hasLoadedChildren ? (
                 <div className="flex items-center gap-2 py-1 pl-[var(--tree-mobile-padding)] pr-2 text-xs text-muted-foreground md:px-2" style={childPaddingStyle}>
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>{t(hasLoadedChildren ? 'refreshingFolder' : 'loadingFolder')}</span>
+                  <span>{t('loadingFolder')}</span>
                 </div>
               ) : null}
               {directoryError ? (

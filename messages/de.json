@@ -787,6 +787,7 @@
     "uploadCollecting": "Dateien erfassen",
     "uploadPreparing": "Upload vorbereiten",
     "uploadReconciling": "Dateien abgleichen",
+    "liveUpdatesConnected": "Live verbunden",
     "uploadCurrentFile": "Aktuell: {name}",
     "uploadRetryingFile": "Erneuter Versuch für {name} (Versuch {attempt})",
     "uploadFailedCount": "{count, plural, one {# Datei fehlgeschlagen} other {# Dateien fehlgeschlagen}}",
