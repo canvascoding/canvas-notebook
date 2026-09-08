@@ -120,8 +120,8 @@ async function main() {
     refreshVisibleTree: async () => {
       refreshVisibleCalls += 1;
     },
-    refreshDirectory: async (dirPath, noCache) => {
-      refreshedDirectories.push({ dirPath, noCache });
+    revalidateDirectory: async (dirPath) => {
+      refreshedDirectories.push({ dirPath, noCache: true });
     },
   });
 
@@ -170,12 +170,21 @@ async function main() {
       relativePath: 'docs/current/fresh.md',
       dir: 'docs/current',
       timestamp: Date.now(),
+      fileVersion: 'version-1',
     });
-    await delay(25);
+    await delay(550);
 
     assert.equal(refreshVisibleCalls, 2, 'each established connection revalidates visible directories');
     assert.deepEqual(refreshedDirectories, [{ dirPath: 'docs/current', noCache: true }]);
 
+    const versionBeforeEcho = useFileStore.getState().workspaceFileVersion;
+    workspaceSource.emit('filechange', {
+      type: 'change', workspaceId: 'workspace-two', path: '/data/workspace/docs/current/fresh.md',
+      relativePath: 'docs/current/fresh.md', dir: 'docs/current', timestamp: Date.now(), fileVersion: 'version-1',
+    });
+    await delay(550);
+    assert.equal(refreshedDirectories.length, 1, 'native echo of the confirmed version causes no second refresh');
+    assert.equal(useFileStore.getState().workspaceFileVersion, versionBeforeEcho);
     workspaceSource.emit('filechange', {
       type: 'change',
       workspaceId: 'workspace-two',
@@ -183,8 +192,9 @@ async function main() {
       relativePath: 'docs/current/fresh.md',
       dir: 'docs/current',
       timestamp: Date.now(),
+      fileVersion: 'version-2',
     });
-    await delay(300);
+    await delay(550);
 
     assert.equal(refreshVisibleCalls, 2, 'each established connection revalidates visible directories');
     assert.deepEqual(refreshedDirectories, [{ dirPath: 'docs/current', noCache: true }, { dirPath: 'docs/current', noCache: true }], 'content changes also refresh metadata');

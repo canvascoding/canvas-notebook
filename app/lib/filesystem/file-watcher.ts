@@ -6,6 +6,7 @@ import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-referenc
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
+import { filesystemFileVersion } from './file-version';
 import type { WorkspaceFileEvent, WorkspaceFileEventType, WorkspacePathRenameMutation } from '@/app/lib/files/file-events';
 
 const IGNORED_PATTERNS = [
@@ -41,6 +42,7 @@ export interface WorkspaceFileMutation {
   workspace: WorkspaceContext;
   type: FileEventType;
   relativePath: string;
+  fileVersion?: string;
 }
 
 function normalizeRelativePath(value: string): string {
@@ -290,17 +292,6 @@ export class FileWatcherService {
     const normalizedPath = normalizeRelativePath(relativePath);
     const dir = getParentDirectory(normalizedPath);
 
-    if (eventType === 'change') {
-      return {
-        type: 'change',
-        workspaceId: workspace.workspaceId,
-        path: fullPath,
-        relativePath: normalizedPath,
-        dir,
-        timestamp: Date.now(),
-      };
-    }
-
     try {
       const stats = await fs.stat(fullPath);
       const isDir = stats.isDirectory();
@@ -312,12 +303,13 @@ export class FileWatcherService {
         }
       }
       return {
-        type: isDir ? 'addDir' : 'add',
+        type: isDir ? 'addDir' : eventType === 'change' ? 'change' : 'add',
         workspaceId: workspace.workspaceId,
         path: fullPath,
         relativePath: normalizedPath,
         dir,
         timestamp: Date.now(),
+        fileVersion: filesystemFileVersion(stats),
       };
     } catch {
       const watcherKey = subscriptionKey(workspace.workspaceId, normalizedPath);
@@ -400,6 +392,7 @@ export class FileWatcherService {
       relativePath,
       dir: getParentDirectory(relativePath),
       timestamp: Date.now(),
+      fileVersion: mutation.fileVersion,
     };
   }
 

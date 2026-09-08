@@ -22,6 +22,7 @@ import {
   normalizeWorkspacePathParam,
 } from '@/app/lib/files/path-utils';
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
+import { DirectoryRefreshQueue } from '@/app/lib/files/directory-refresh-queue';
 import { beginUploadJob, createUploadProgressReporter, finishUploadJob, updateUploadJob, type UploadOptions } from './upload-store';
 import {
   findNodeInTree,
@@ -90,6 +91,7 @@ const saveFileQueues = new Map<string, Promise<void>>();
 const localFileWrites = new LocalFileWriteTracker();
 let fileRefreshRequestId = 0;
 const subdirectoryLoadPromises = new Map<string, { noCache: boolean; promise: Promise<void> }>();
+const directoryRefreshQueue = new DirectoryRefreshQueue();
 const DEFAULT_TREE_DEPTH = 0;
 const SUBDIRECTORY_TREE_DEPTH = 0;
 type DirectoryLoadState = 'unloaded' | 'loading' | 'ready' | 'refreshing' | 'error';
@@ -324,6 +326,7 @@ interface FileStoreState {
   loadFileTree: (path?: string, depth?: number, noCache?: boolean, workspaceId?: string | null) => Promise<void>;
   refreshRootTree: (noCache?: boolean, workspaceId?: string | null) => Promise<void>;
   refreshDirectory: (dirPath: string, noCache?: boolean, workspaceId?: string | null) => Promise<void>;
+  revalidateDirectory: (dirPath: string, workspaceId?: string | null, immediate?: boolean) => Promise<void>;
   refreshVisibleTree: () => Promise<void>;
   loadSubdirectory: (dirPath: string, noCache?: boolean, expand?: boolean, workspaceId?: string | null) => Promise<void>;
   loadFile: (path: string, noCache?: boolean, workspaceId?: string | null) => Promise<FileLoadResult>;
@@ -622,6 +625,17 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     await get().loadSubdirectory(dirPath, noCache, false, workspaceId);
   },
 
+  revalidateDirectory: async (dirPath, requestedWorkspaceId, immediate = false) => {
+    const workspaceId = requestedWorkspaceId === undefined ? useWorkspaceStore.getState().activeWorkspaceId : requestedWorkspaceId;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
+    const generation = get().ensureTreeWorkspace(workspaceId);
+    await directoryRefreshQueue.request(`${workspaceId}\0${generation}\0${dirPath}`, async () => {
+      if (get().treeGeneration !== generation || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
+      if (get().directoryLoadStates[dirPath] === 'ready' && !get().staleDirs.has(dirPath)) return;
+      await loadDirectorySnapshot(dirPath, 0, true, workspaceId, dirPath === '.', true);
+    }, immediate);
+  },
+
   refreshVisibleTree: async () => {
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
     const { browserMode, currentDirectory, expandedDirs, treeGeneration } = get();
@@ -634,12 +648,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
     };
     markLoaded(get().fileTree);
-    await get().refreshRootTree(true, workspaceId);
+    get().markDirectoryStale('.');
+    await get().revalidateDirectory('.', workspaceId, true);
     if (!isCurrent()) return;
     const dirsToRefresh = getVisibleTreeRefreshDirectories(currentDirectory, expandedDirs, browserMode === 'tree');
     await runDirectoryTasksByDepth(dirsToRefresh, async (dirPath) => {
       if (isCurrent() && hasRefreshParentInTree(get().fileTree, dirPath)) {
-        await get().refreshDirectory(dirPath, true, workspaceId);
+        await get().revalidateDirectory(dirPath, workspaceId, true);
       }
     });
   },
@@ -1412,7 +1427,8 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
       ) {
         updateUploadJob(job, { phase: 'reconciling' });
-        await get().refreshDirectory(targetDir, true, workspaceId);
+        get().markDirectoryStale(job.targetDir);
+        await get().revalidateDirectory(job.targetDir, workspaceId, true);
       }
     };
 
@@ -1622,6 +1638,7 @@ async function loadDirectorySnapshot(
   noCache: boolean,
   requestedWorkspaceId: string | null | undefined,
   replaceTree: boolean,
+  joinFreshRead = false,
 ): Promise<void> {
   const get = useFileStore.getState;
   const set = useFileStore.setState;
@@ -1631,7 +1648,10 @@ async function loadDirectorySnapshot(
   const loadKey = `${workspaceId}\0${dirPath}\0${depth}\0${replaceTree}`;
   const inFlight = subdirectoryLoadPromises.get(loadKey);
   if (inFlight) {
-    if (noCache) get().markDirectoryStale(dirPath);
+    if (noCache && (!joinFreshRead || !inFlight.noCache)) {
+      get().markDirectoryStale(dirPath);
+      inFlight.noCache = true;
+    }
     return inFlight.promise;
   }
 
@@ -1682,12 +1702,14 @@ async function loadDirectorySnapshot(
   let force = noCache || get().staleDirs.has(dirPath);
   const promise = (async () => {
     while (isCurrent()) {
+      const startedAt = Date.now();
       const version = get().directoryChangeVersions[dirPath] ?? 0;
       try {
         const data = await loadWorkspaceTree(dirPath, depth, force, 'Failed to load directory', workspaceId, { includeStats: false });
         if (!isCurrent()) return;
         if ((get().directoryChangeVersions[dirPath] ?? 0) !== version) {
           force = true;
+          if (joinFreshRead) await new Promise((resolve) => setTimeout(resolve, Math.max(0, 500 - (Date.now() - startedAt))));
           continue;
         }
         finish(undefined, data);
@@ -1695,6 +1717,7 @@ async function loadDirectorySnapshot(
         if (!isCurrent()) return;
         if ((get().directoryChangeVersions[dirPath] ?? 0) !== version) {
           force = true;
+          if (joinFreshRead) await new Promise((resolve) => setTimeout(resolve, Math.max(0, 500 - (Date.now() - startedAt))));
           continue;
         }
         finish(error);
