@@ -1540,6 +1540,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           ) : (
             <CodeEditor
               value={draft}
+              documentKey={currentFile.editorIdentity}
               onChange={updateCollaborativeDraft}
               readOnly={false}
               path={currentFile.path}

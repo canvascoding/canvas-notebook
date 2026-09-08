@@ -7,6 +7,7 @@ import type { IndexeddbPersistence } from 'y-indexeddb';
 import type * as Y from 'yjs';
 
 import { collaborationStateProof, isCollaborationStateProof } from './state-proof';
+import { createDocumentAwarenessLease } from './document-awareness';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { CollaborationCheckpointRequestError, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
 import { prepareRecoverableCollaborationTransition, preserveLocalCollaborationRecovery } from './local-recovery';
@@ -46,8 +47,10 @@ type CollaborationDurabilitySnapshot = {
 
 type RegistryEntry = {
   key: string;
+  path: string;
   refs: number;
   lifecycle: AbortController;
+  requests: AbortController;
   doc: Y.Doc | null;
   provider: HocuspocusProvider | null;
   persistence: IndexeddbPersistence | null;
@@ -56,6 +59,7 @@ type RegistryEntry = {
   listeners: Set<() => void>;
   cleanupTimer?: ReturnType<typeof setTimeout>;
   startPromise: Promise<void>;
+  startProvider?: () => void;
   checkpointPromise?: Promise<void>;
   pendingAuthoritativeSnapshot?: CollaborationDurabilitySnapshot;
   setComposition: SetCollaborationComposition;
@@ -104,6 +108,7 @@ function assertEntryActive(entry: RegistryEntry): void {
 function disposeEntry(entry: RegistryEntry): void {
   if (entry.lifecycle.signal.aborted) return;
   entry.lifecycle.abort();
+  entry.requests.abort();
   entry.provider?.destroy();
   void Promise.resolve(entry.persistence?.destroy()).catch(() => undefined);
   entry.doc?.destroy();
@@ -151,16 +156,19 @@ function waitForEntryState(
   entry: RegistryEntry,
   predicate: (state: TextCollaborationClientState) => boolean,
   timeoutMs: number,
+  signal = entry.lifecycle.signal,
 ): Promise<void> {
   if (entry.lifecycle.signal.aborted) return Promise.reject(new Error('Collaboration document was closed.'));
+  if (signal.aborted) return Promise.reject(new Error('Collaboration location changed.'));
   if (predicate(entry.clientState)) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const cleanup = () => {
       window.clearTimeout(timeout);
       entry.listeners.delete(listener);
-      entry.lifecycle.signal.removeEventListener('abort', abort);
+      signal.removeEventListener('abort', abort);
     };
-    const abort = () => { cleanup(); reject(new Error('Collaboration document was closed.')); };
+    const abort = () => { cleanup(); reject(new Error(entry.lifecycle.signal.aborted
+      ? 'Collaboration document was closed.' : 'Collaboration location changed.')); };
     const timeout = window.setTimeout(() => {
       cleanup();
       reject(new Error('Timed out while waiting for collaboration to synchronize.'));
@@ -171,7 +179,7 @@ function waitForEntryState(
       resolve();
     };
     entry.listeners.add(listener);
-    entry.lifecycle.signal.addEventListener('abort', abort, { once: true });
+    signal.addEventListener('abort', abort, { once: true });
   });
 }
 
@@ -217,6 +225,49 @@ function websocketUrl(relative: string): string {
   return url.toString();
 }
 
+function assertRequestActive(entry: RegistryEntry, scope: AbortController): void {
+  assertEntryActive(entry);
+  if (scope !== entry.requests || scope.signal.aborted) throw new Error('Collaboration location changed.');
+}
+
+async function refreshEntrySession(entry: RegistryEntry, scope: AbortController): Promise<void> {
+  assertRequestActive(entry, scope);
+  const previous = entry.session;
+  if (!previous) throw new Error('Collaboration is not ready.');
+  const refreshed = requireTextSession(await requestSession(entry.path, 'auto', entry.key.split('\0')[0], scope.signal),
+    previous.representation as TextCollaborationRepresentation);
+  assertRequestActive(entry, scope);
+  if (refreshed.documentId !== previous.documentId || refreshed.lifecycleGeneration !== previous.lifecycleGeneration
+    || refreshed.documentName !== previous.documentName) {
+    throw new Error('The collaboration document generation changed. Reload to use the current document state.');
+  }
+  entry.session = refreshed;
+}
+
+/** A validated session may move the open document, never replace its Yjs state. */
+function adoptEntryLocation(entry: RegistryEntry, path: string, session: CollaborationSessionResponse): void {
+  if (entry.path === path) return;
+  const previous = entry.session;
+  requireTextSession(session, previous?.representation as TextCollaborationRepresentation | undefined);
+  if (!previous || session.documentId !== previous.documentId || session.lifecycleGeneration !== previous.lifecycleGeneration
+    || session.documentName !== previous.documentName) throw new Error('Collaboration document identity changed.');
+  entry.requests.abort();
+  entry.requests = new AbortController();
+  entry.checkpointPromise = undefined;
+  entry.provider?.destroy();
+  entry.provider = null;
+  entry.path = path;
+  entry.session = session;
+  entry.pendingAuthoritativeSnapshot = durabilitySnapshot(session) ?? undefined;
+  entry.clientState = { ...entry.clientState, remoteSynced: false, ready: false,
+    checkpointStateVector: null, checkpointStateProof: null,
+    connection: session.permission === 'read' ? 'read_only' : 'reconnecting',
+    durability: entry.clientState.durability === 'degraded' ? 'degraded'
+      : entry.clientState.unsyncedChanges > 0 ? 'local_pending' : 'server_received' };
+  entry.startProvider?.();
+  emit(entry);
+}
+
 function createEntry(
   key: string,
   path: string,
@@ -226,12 +277,14 @@ function createEntry(
   const workspaceId = key.split('\0')[0];
   const entry: RegistryEntry = {
     key,
+    path,
     lifecycle: new AbortController(),
+    requests: new AbortController(),
     refs: 0,
     doc: null,
     provider: null,
     persistence: null,
-    session: null,
+    session: initialSession ?? null,
     clientState: createInitialTextCollaborationClientState({
       permission: initialSession?.permission,
       documentSequence: initialSession?.documentSequence,
@@ -257,8 +310,8 @@ function createEntry(
       ]);
       if (entry.lifecycle.signal.aborted || registry.get(key) !== entry) return;
       entry.doc = new Y.Doc({ gc: true });
-      let session = requireTextSession(
-        initialSession || await requestSession(path, representation, workspaceId, entry.lifecycle.signal),
+      const session = requireTextSession(
+        entry.session || await requestSession(entry.path, representation, workspaceId, entry.requests.signal),
         representation,
       );
       assertEntryActive(entry);
@@ -322,127 +375,128 @@ function createEntry(
         transition(entry, { type: 'document_changed' });
         if (entry.pendingAuthoritativeSnapshot) reconcileAuthoritativeSnapshot(entry.pendingAuthoritativeSnapshot);
       });
-      const provider = new HocuspocusProvider({
-        url: websocketUrl(session.websocketUrl),
-        preserveTrailingSlash: true,
-        name: session.documentName,
-        document: entry.doc,
-        token: async () => {
-          assertEntryActive(entry);
-          if (Date.parse(session.expiresAt) - Date.now() < 30_000) {
-            const refreshed = requireTextSession(await requestSession(path, 'auto', workspaceId, entry.lifecycle.signal), representation);
-            assertEntryActive(entry);
-            if (
-              refreshed.documentId !== session.documentId
-              || refreshed.lifecycleGeneration !== session.lifecycleGeneration
-            ) {
-              throw new Error('The collaboration document generation changed. Reload to use the current document state.');
+      entry.startProvider = () => {
+        const scope = entry.requests;
+        const active = () => !entry.lifecycle.signal.aborted && scope === entry.requests && !scope.signal.aborted;
+        const session = entry.session!;
+        const provider = new HocuspocusProvider({
+          url: websocketUrl(session.websocketUrl),
+          preserveTrailingSlash: true,
+          name: session.documentName,
+          document: entry.doc!,
+          awareness: createDocumentAwarenessLease(entry.doc!),
+          token: async () => {
+            assertRequestActive(entry, scope);
+            if (Date.parse(entry.session!.expiresAt) - Date.now() < 30_000) await refreshEntrySession(entry, scope);
+            assertRequestActive(entry, scope);
+            return entry.session!.token;
+          },
+          flushDelay: 75,
+          onStatus: ({ status }) => {
+            if (!active()) return;
+            transition(entry, {
+              type: 'provider_status',
+              status: status === 'connected' ? 'connected' : status === 'connecting' ? 'connecting' : 'disconnected',
+              permission: entry.session!.permission,
+            });
+          },
+          onSynced: () => {
+            if (!active()) return;
+            transition(entry, { type: 'remote_synced', permission: entry.session!.permission });
+            if (entry.pendingAuthoritativeSnapshot) {
+              reconcileAuthoritativeSnapshot(entry.pendingAuthoritativeSnapshot);
             }
-            session = refreshed;
-            entry.session = session;
-          }
-          return session.token;
-        },
-        flushDelay: 75,
-        onStatus: ({ status }) => {
-          transition(entry, {
-            type: 'provider_status',
-            status: status === 'connected' ? 'connected' : status === 'connecting' ? 'connecting' : 'disconnected',
-            permission: session.permission,
-          });
-        },
-        onSynced: () => {
-          transition(entry, { type: 'remote_synced', permission: session.permission });
-          if (entry.pendingAuthoritativeSnapshot) {
-            reconcileAuthoritativeSnapshot(entry.pendingAuthoritativeSnapshot);
-          }
-        },
-        onUnsyncedChanges: ({ number }) => {
-          transition(entry, { type: 'unsynced_changes', count: number });
-          if (number === 0 && entry.pendingAuthoritativeSnapshot) {
-            reconcileAuthoritativeSnapshot(entry.pendingAuthoritativeSnapshot);
-          }
-        },
-        onAuthenticationFailed: ({ reason }) => {
-          transition(entry, {
-            type: 'authentication_failed',
-            message: reason || 'Collaboration authentication failed.',
-          });
-        },
-        onStateless: ({ payload }) => {
-          try {
-            const message = JSON.parse(payload) as {
-              type?: string;
-              message?: string;
-              sequence?: number;
-              stateVector?: string;
-              stateProof?: string;
-              documentId?: string;
-              lifecycleGeneration?: number;
-              documentSequence?: number;
-              checkpointSequence?: number;
-            };
-            if (message.type === 'degraded') {
-              transition(entry, { type: 'degraded', message: message.message || 'Checkpoint failed.' });
-              return;
+          },
+          onUnsyncedChanges: ({ number }) => {
+            if (!active()) return;
+            transition(entry, { type: 'unsynced_changes', count: number });
+            if (number === 0 && entry.pendingAuthoritativeSnapshot) {
+              reconcileAuthoritativeSnapshot(entry.pendingAuthoritativeSnapshot);
             }
-            if (message.type === 'durability_snapshot') {
-              const snapshot = durabilitySnapshot(message);
-              if (snapshot) reconcileAuthoritativeSnapshot(snapshot);
-              return;
-            }
-            if (
-              message.type === 'checkpointed'
-              && Number.isSafeInteger(message.sequence)
-              && typeof message.stateVector === 'string'
-              && isCollaborationStateProof(message.stateProof)
-              && entry.doc
-            ) {
-              reconcileAuthoritativeSnapshot({
-                documentId: message.documentId || session.documentId,
-                lifecycleGeneration: message.lifecycleGeneration ?? session.lifecycleGeneration,
-                documentSequence: message.documentSequence ?? message.sequence as number,
-                checkpointSequence: message.checkpointSequence ?? message.sequence as number,
-                stateVector: message.stateVector,
-                stateProof: message.stateProof,
-              });
-              return;
-            }
-            if (message.type === 'checkpoint_superseded' && Number.isSafeInteger(message.sequence)) {
-              const snapshot = durabilitySnapshot(message);
-              if (snapshot) reconcileAuthoritativeSnapshot(snapshot);
-              else transition(entry, {
-                type: 'checkpoint_superseded',
-                sequence: message.sequence as number,
-              });
-            }
-          } catch {}
-        },
-      });
-      entry.provider = provider;
+          },
+          onAuthenticationFailed: ({ reason }) => {
+            if (!active()) return;
+            transition(entry, {
+              type: 'authentication_failed',
+              message: reason || 'Collaboration authentication failed.',
+            });
+          },
+          onStateless: ({ payload }) => {
+            if (!active()) return;
+            try {
+              const message = JSON.parse(payload) as {
+                type?: string;
+                message?: string;
+                sequence?: number;
+                stateVector?: string;
+                stateProof?: string;
+                documentId?: string;
+                lifecycleGeneration?: number;
+                documentSequence?: number;
+                checkpointSequence?: number;
+              };
+              if (message.type === 'degraded') {
+                transition(entry, { type: 'degraded', message: message.message || 'Checkpoint failed.' });
+                return;
+              }
+              if (message.type === 'durability_snapshot') {
+                const snapshot = durabilitySnapshot(message);
+                if (snapshot) reconcileAuthoritativeSnapshot(snapshot);
+                return;
+              }
+              if (
+                message.type === 'checkpointed'
+                && Number.isSafeInteger(message.sequence)
+                && typeof message.stateVector === 'string'
+                && isCollaborationStateProof(message.stateProof)
+                && entry.doc
+              ) {
+                reconcileAuthoritativeSnapshot({
+                  documentId: message.documentId || session.documentId,
+                  lifecycleGeneration: message.lifecycleGeneration ?? session.lifecycleGeneration,
+                  documentSequence: message.documentSequence ?? message.sequence as number,
+                  checkpointSequence: message.checkpointSequence ?? message.sequence as number,
+                  stateVector: message.stateVector,
+                  stateProof: message.stateProof,
+                });
+                return;
+              }
+              if (message.type === 'checkpoint_superseded' && Number.isSafeInteger(message.sequence)) {
+                const snapshot = durabilitySnapshot(message);
+                if (snapshot) reconcileAuthoritativeSnapshot(snapshot);
+                else transition(entry, {
+                  type: 'checkpoint_superseded',
+                  sequence: message.sequence as number,
+                });
+              }
+            } catch {}
+          },
+        });
+        entry.provider = provider;
+        provider.setAwarenessField('canvas', {
+          userId: session.user.id,
+          displayName: session.user.name,
+          color: session.user.color,
+          colorLight: session.user.colorLight,
+          activity: session.permission === 'write' ? 'editing' : 'viewing',
+        });
+      };
       entry.requestCheckpoint = () => {
         if (entry.lifecycle.signal.aborted) return Promise.reject(new Error('Collaboration document was closed.'));
         if (entry.checkpointPromise) return entry.checkpointPromise;
-        entry.checkpointPromise = (async () => {
+        const scope = entry.requests;
+        const promise = (async () => {
           transition(entry, { type: 'checkpoint_requested' });
           await waitForEntryState(
             entry,
             (state) => state.ready && state.unsyncedChanges === 0,
             10_000,
+            scope.signal,
           );
-          assertEntryActive(entry);
+          assertRequestActive(entry, scope);
           if (!entry.doc || !entry.session) throw new Error('Collaboration is not ready.');
           if (Date.parse(entry.session.expiresAt) - Date.now() < 30_000) {
-            const refreshed = requireTextSession(await requestSession(path, 'auto', workspaceId, entry.lifecycle.signal), representation);
-            assertEntryActive(entry);
-            if (
-              refreshed.documentId !== entry.session.documentId
-              || refreshed.lifecycleGeneration !== entry.session.lifecycleGeneration
-            ) {
-              throw new Error('The collaboration document generation changed. Reload to use the current document state.');
-            }
-            entry.session = refreshed;
-            session = refreshed;
+            await refreshEntrySession(entry, scope);
           }
 
           const stateVector = bytesToBase64(Y.encodeStateVector(entry.doc));
@@ -451,9 +505,9 @@ function createEntry(
           let lastError = 'Checkpoint is waiting for the latest Yjs persistence.';
           let lastErrorCode: string | null = null;
           for (let attempt = 0; attempt < 20; attempt += 1) {
-            assertEntryActive(entry);
+            assertRequestActive(entry, scope);
             const response = await fetch('/api/files/collaboration/checkpoint', {
-              signal: entry.lifecycle.signal,
+              signal: scope.signal,
               method: 'POST',
               headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
               body: JSON.stringify({ token: entry.session.token, stateVector, stateProof }),
@@ -462,7 +516,7 @@ function createEntry(
               code?: string;
               error?: string;
             };
-            assertEntryActive(entry);
+            assertRequestActive(entry, scope);
             const snapshot = durabilitySnapshot(payload);
             if (
               response.ok
@@ -485,21 +539,16 @@ function createEntry(
             : new Error(lastError);
         })().catch((error) => {
           const message = error instanceof Error ? error.message : 'Checkpoint failed.';
-          transition(entry, { type: error instanceof CollaborationCheckpointRequestError
+          if (scope === entry.requests && !scope.signal.aborted) transition(entry, { type: error instanceof CollaborationCheckpointRequestError
             && isCollaborationCheckpointValidationErrorCode(error.code) ? 'degraded' : 'checkpoint_failed', message });
           throw error;
         }).finally(() => {
-          entry.checkpointPromise = undefined;
+          if (entry.checkpointPromise === promise) entry.checkpointPromise = undefined;
         });
-        return entry.checkpointPromise;
+        entry.checkpointPromise = promise;
+        return promise;
       };
-      provider.setAwarenessField('canvas', {
-        userId: session.user.id,
-        displayName: session.user.name,
-        color: session.user.color,
-        colorLight: session.user.colorLight,
-        activity: session.permission === 'write' ? 'editing' : 'viewing',
-      });
+      entry.startProvider();
       emit(entry);
     } catch (error) {
       transition(entry, {
@@ -535,13 +584,21 @@ export function useCollaborationDocument(input: {
   path: string | undefined;
   representation: TextCollaborationRepresentation;
   session?: CollaborationSessionResponse | null;
+  /** A host's open lifetime, retained while a rename resolves a new session. */
+  documentKey?: string;
+  waitForSession?: boolean;
 }): CollaborationDocument | null {
+  const owner = input.enabled && input.workspaceId && input.path
+    ? JSON.stringify([input.workspaceId, input.documentKey ?? input.path]) : null;
+  const [state, setState] = useState<{
+    owner: string | null; key: string; path: string; document: CollaborationDocument | null;
+  } | null>(null);
   const key = input.enabled && input.workspaceId && input.path
     ? input.session
-      ? `${input.workspaceId}\0${input.path}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}`
-      : `${input.workspaceId}\0${input.path}\0${input.representation}`
+      ? `${input.workspaceId}\0${input.documentKey ?? input.path}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}`
+      : input.waitForSession ? state?.owner === owner ? state.key : null
+        : `${input.workspaceId}\0${input.path}\0${input.representation}`
     : null;
-  const [state, setState] = useState<CollaborationDocument | null>(null);
   useEffect(() => {
     if (!key || !input.path) {
       return;
@@ -550,10 +607,13 @@ export function useCollaborationDocument(input: {
     if (!entry) {
       entry = createEntry(key, input.path, input.representation, input.session);
       registry.set(key, entry);
+    } else if (input.session) {
+      try { adoptEntryLocation(entry, input.path, input.session); }
+      catch (error) { transition(entry, { type: 'degraded', message: error instanceof Error ? error.message : 'Collaboration location changed.' }); }
     }
     if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
     entry.refs += 1;
-    const update = () => setState(entry.doc ? snapshot(entry) : null);
+    const update = () => setState({ owner, key, path: entry.path, document: entry.doc ? snapshot(entry) : null });
     entry.listeners.add(update);
     update();
     return () => {
@@ -566,8 +626,9 @@ export function useCollaborationDocument(input: {
         }, 1_000);
       }
     };
-  }, [input.path, input.representation, input.session, key]);
-  return key && state?.registryKey === key ? state : null;
+  }, [input.path, input.representation, input.session, key, owner]);
+  return key && state?.key === key && state.owner === owner && state.path === input.path
+    && (!input.waitForSession || input.session) ? state.document : null;
 }
 
 export type TextCollaborationSessionResolution = {

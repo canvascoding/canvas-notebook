@@ -5683,7 +5683,9 @@ export function MarkdownEditor({
   });
   const resolvedCollaborationSession = collaborationSession.session;
   const collaborationDocument = useCollaborationDocument({
-    enabled: collaborationEnabled && Boolean(resolvedCollaborationSession),
+    enabled: collaborationEnabled,
+    documentKey,
+    waitForSession: true,
     workspaceId: activeWorkspaceId,
     path: filePath,
     representation: resolvedCollaborationSession && resolvedCollaborationSession.representation !== 'excalidraw_scene'

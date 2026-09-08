@@ -28,10 +28,13 @@ async function main() {
   const originalLoad = internals._load;
   const workspace = { activeWorkspaceId: 'test-workspace' };
   const files = { currentFile: null };
+  let sessionError: string | null = null;
+  let retries = 0;
   internals._load = (request, parent, isMain) => {
     if (request === '@/app/components/ThemeProvider') return { useTheme: () => ({ resolvedTheme: 'light' }) };
     if (request === '@/app/components/shared/WorkspaceDocumentPreviewDialog') return { WorkspaceDocumentPreviewDialog: () => null };
-    if (request === '@/app/lib/collaboration/client') return { useCollaborationDocument: () => null };
+    if (request === '@/app/lib/collaboration/client') return { useCollaborationDocument: () => null,
+      useTextCollaborationSession: () => ({ session: null, loading: false, error: sessionError, retry: () => { retries++; } }) };
     if (request === '@/app/store/workspace-store') return { useWorkspaceStore: Object.assign((selector: (value: typeof workspace) => unknown) => selector(workspace), { getState: () => workspace }) };
     if (request === '@/app/store/file-store') return { useFileStore: Object.assign((selector?: (value: typeof files) => unknown) => selector ? selector(files) : files, { getState: () => files }) };
     return originalLoad(request, parent, isMain);
@@ -48,9 +51,10 @@ async function main() {
     const changes: string[] = [];
     let mounted = true;
     let readOnly = false;
+    let suppliedDocument = true;
     const render = () => root.render(<StrictMode><NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
       {mounted && <CodeEditor value={text.toString()} onChange={(value) => changes.push(value)} path="note.txt"
-        readOnly={readOnly} collaborationEnabled collaborationDocument={collaboration} />}
+        readOnly={readOnly} collaborationEnabled collaborationDocument={suppliedDocument ? collaboration : undefined} />}
     </NextIntlClientProvider></StrictMode>);
     const view = () => EditorView.findFromDOM(container.querySelector<HTMLElement>('.cm-editor')!)!;
     const shortcut = (shiftKey = false) => view().contentDOM.dispatchEvent(new dom.window.KeyboardEvent('keydown', {
@@ -79,6 +83,12 @@ async function main() {
     await act(async () => { readOnly = false; render(); });
     await act(async () => { shortcut(true); });
     assert.equal(text.toString(), 'Peer AAAx');
+    suppliedDocument = false;
+    sessionError = 'The renamed file session could not be loaded.';
+    await act(async () => { render(); });
+    assert.equal(container.querySelector('[role="status"]')?.textContent, sessionError);
+    await act(async () => { container.querySelector<HTMLButtonElement>('button')!.click(); });
+    assert.equal(retries, 1, 'an unresolved text session offers a working retry');
     console.log('Collaborative source keyboard history retains peer edits, document lifetime and permissions.');
   } finally {
     await act(async () => root.unmount());

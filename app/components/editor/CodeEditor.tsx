@@ -48,6 +48,7 @@ import { useTranslations } from 'next-intl';
 import { createTextEditorCollaboration } from '@/app/lib/collaboration/text-editor-history';
 import {
   useCollaborationDocument,
+  useTextCollaborationSession,
   type CollaborationDocument,
 } from '@/app/lib/collaboration/client';
 import { getCodeEditorLifecycleKey } from '@/app/lib/collaboration/code-editor-lifecycle';
@@ -63,6 +64,7 @@ export interface CodeEditorProps {
   onChange: (value: string) => void;
   readOnly?: boolean;
   path?: string;
+  documentKey?: string;
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   collaborationEnabled?: boolean;
   collaborationSession?: CollaborationSessionResponse | null;
@@ -357,6 +359,7 @@ export function CodeEditor({
   onChange,
   readOnly = false,
   path,
+  documentKey,
   markdownNavigationTarget,
   collaborationEnabled,
   collaborationSession,
@@ -373,12 +376,19 @@ export function CodeEditor({
   const extension = languagePath?.split('.').pop()?.toLowerCase();
   const supportsCollaboration = extension === 'md' || extension === 'markdown' || extension === 'txt';
   const shouldCollaborate = collaborationEnabled ?? Boolean(currentFile?.collaboration?.crdtCapable && supportsCollaboration);
+  const sessionResolution = useTextCollaborationSession({
+    enabled: shouldCollaborate && !collaborationDocument && !collaborationSession,
+    workspaceId: activeWorkspaceId,
+    path: languagePath,
+  });
   const internalCollaboration = useCollaborationDocument({
     enabled: shouldCollaborate && !collaborationDocument,
+    documentKey,
+    waitForSession: true,
     workspaceId: activeWorkspaceId,
     path: languagePath,
     representation: 'plain_text',
-    session: collaborationSession,
+    session: collaborationSession ?? sessionResolution.session,
   });
   const collaboration = collaborationDocument ?? internalCollaboration;
   const collaborationText = collaboration?.doc.getText('content') ?? null;
@@ -397,7 +407,8 @@ export function CodeEditor({
     collaborationBindingReady,
   });
   const collaborationReadOnly = shouldCollaborate && (
-    !collaboration?.session
+    !collaboration?.ready
+    || !collaboration?.session
     || collaboration.session.permission !== 'write'
     || collaboration.status === 'degraded'
   );
@@ -526,10 +537,13 @@ export function CodeEditor({
 
   if (shouldCollaborate && !collaboration?.ready) {
     return (
-      <div className="flex h-full min-h-0 items-center justify-center bg-background p-6 text-center">
+      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 bg-background p-6 text-center">
         <p className="text-sm text-muted-foreground" role="status">
-          {collaboration?.error || t('collaboration.connecting')}
+          {sessionResolution.error || collaboration?.error || t('collaboration.connecting')}
         </p>
+        {sessionResolution.error && <button type="button" className="rounded border px-3 py-1.5 text-sm" onClick={sessionResolution.retry}>
+          {t('externalChangeReload')}
+        </button>}
       </div>
     );
   }
