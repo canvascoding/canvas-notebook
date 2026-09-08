@@ -179,6 +179,8 @@ Teilstand 3.3d: Der Webclient meldet beide Formatversionen an und prüft die Ant
 
 ### Schritt 4 — Strukturaktionen und Agentenziele integrieren
 
+Teilstand 4.1: Zwei zusätzliche Gegenbeispiele belegten unterschiedlich sortierte Kopf-/Datenzeilen nach parallelen Spaltenaktionen. Der Strukturkern gruppiert jetzt sämtliche Teilbewegungen einer Editortransaktion mit gemeinsamem kausalem Stempel und interner Reihenfolge. Neue Blöcke erhalten auch bei scheinbar passender Ausgangsposition eine ausdrückliche Platzierung, damit konkurrierende Einfügungen nicht von zufälligen Zell-IDs abhängen. Die 20 Kerntests enthalten 1.152 Umordnungsabläufe (alle 576 Vier-Spalten-Paare in beiden Zustellrichtungen), Einfügung/Einfügung, Löschung/Move und Undo/Redo mit fremder Zelländerung. Binding- und Agentenregressionen bestehen weiterhin. Die breitere Befehlsintegration, Split/Join und Konfliktanzeige folgen innerhalb dieses Schritts.
+
 Die nachgewiesene Mechanik auf Listen, Task-Items, Container und Tabellen ausweiten. Agentenziele zusätzlich an die fachliche Blockidentität und geprüfte Strukturhistorie binden. Relative Textanker bleiben innerhalb fortbestehender Inhalte nutzbar; unklare Split-/Join-Ziele werden nicht automatisch neu zugeordnet. Review, Revert und Zielmarkierungen verwenden dieselbe Auflösung.
 
 Abschluss: Ein verschobener Block bleibt für einen passenden Agentenpatch adressierbar; gleich aussehende Nachbarblöcke werden nie zum Ersatz-Ziel. Tabellen-/Containeraktionen bestehen dieselben Integritätsprüfungen.

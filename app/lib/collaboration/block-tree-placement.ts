@@ -1,7 +1,7 @@
 /** Placement is independent of the CRDT types that hold a block's contents. */
 export type InitialBlockPlacement = { id: string; parentId: string | null; order: number };
 
-type StructuralOperationStamp = { id: string; clock: number; actor: number };
+type StructuralOperationStamp = { id: string; clock: number; actor: number; transactionId: string; ordinal: number };
 export type BlockPlacementOperation = StructuralOperationStamp & (
   | { kind: 'move'; blockId: string; parentId: string | null; beforeId: string | null }
   | { kind: 'delete'; blockIds: string[] }
@@ -27,7 +27,8 @@ function validId(value: unknown): value is string {
 export function isBlockPlacementOperation(value: unknown): value is BlockPlacementOperation {
   if (!value || typeof value !== 'object') return false;
   const op = value as Partial<BlockPlacementOperation>;
-  if (!validId(op.id) || !Number.isSafeInteger(op.clock) || (op.clock ?? 0) < 1
+  if (!validId(op.id) || !validId(op.transactionId) || !Number.isSafeInteger(op.ordinal) || (op.ordinal ?? -1) < 0
+    || !Number.isSafeInteger(op.clock) || (op.clock ?? 0) < 1
     || !Number.isInteger(op.actor) || (op.actor ?? -1) < 0 || (op.actor ?? 0) > 0xffffffff) return false;
   if (op.kind === 'delete') return Array.isArray(op.blockIds) && op.blockIds.length > 0 && op.blockIds.every(validId);
   return op.kind === 'move' && validId(op.blockId) && (op.parentId === null || validId(op.parentId))
@@ -40,8 +41,9 @@ function compareIds(left: string, right: string): number {
 
 /**
  * Causal operations sort after what they observed; concurrent intentions use a
- * fixed actor/operation tie-break. Replay never copies content or duplicates a
- * block. Rejected intentions remain in the log for diagnosis/review.
+ * fixed actor/transaction tie-break. A transaction's ordered operations remain
+ * contiguous, including cell movements across all rows of a table. Replay never
+ * copies content or duplicates a block. Rejected intentions remain in the log.
  */
 export function projectBlockPlacements(
   initial: InitialBlockPlacement[],
@@ -73,7 +75,8 @@ export function projectBlockPlacements(
     }
     return false;
   };
-  const ordered = [...operations].sort((a, b) => a.clock - b.clock || a.actor - b.actor || compareIds(a.id, b.id));
+  const ordered = [...operations].sort((a, b) => a.clock - b.clock || a.actor - b.actor
+    || compareIds(a.transactionId, b.transactionId) || a.ordinal - b.ordinal || compareIds(a.id, b.id));
   for (const op of ordered) {
     if (op.kind === 'delete') continue;
     let reason: BlockPlacementConflict['reason'] | undefined;

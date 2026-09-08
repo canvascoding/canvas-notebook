@@ -4,6 +4,7 @@ import { getSchema } from '@tiptap/core';
 import { initProseMirrorDoc } from '@tiptap/y-tiptap';
 import * as Y from 'yjs';
 import { EditorState } from '@tiptap/pm/state';
+import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model';
 
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { createRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
@@ -228,4 +229,130 @@ test('moving a task or table preserves every nested identity and marked Unicode 
     exchange(h.left, h.right, true);
     assert.deepEqual(h.b.read().toJSON(), next.toJSON());
   } finally { h.dispose(); }
+});
+
+function reorderColumns(doc: ProseMirrorNode, order: number[]): ProseMirrorNode {
+  const table = doc.firstChild!;
+  const rows: ProseMirrorNode[] = [];
+  table.forEach((row) => rows.push(row.copy(Fragment.fromArray(order.map((index) => row.child(index))))));
+  return doc.copy(Fragment.from(table.copy(Fragment.fromArray(rows))));
+}
+
+test('one column action cannot interleave its cell moves with a concurrent column action', () => {
+  const h = replicas('| r0c0 | r0c1 | r0c2 | r0c3 |\n| --- | --- | --- | --- |\n| r1c0 | r1c1 | r1c2 | r1c3 |\n| r2c0 | r2c1 | r2c2 | r2c3 |');
+  try {
+    h.a.applyDocumentChange(h.a.read(), reorderColumns(h.a.read(), [0, 3, 1, 2]), localOrigin);
+    h.b.applyDocumentChange(h.b.read(), reorderColumns(h.b.read(), [1, 0, 2, 3]), remoteOrigin);
+    exchange(h.left, h.right, false);
+    const orders: string[] = [];
+    h.a.read().firstChild!.forEach((row) => {
+      const cells: string[] = [];
+      row.forEach((cell) => cells.push(cell.textContent.slice(-1)));
+      orders.push(cells.join(''));
+    });
+    assert.equal(new Set(orders).size, 1, `header and data columns must agree: ${orders.join('/')}`);
+    assert.deepEqual(h.a.read().toJSON(), h.b.read().toJSON());
+  } finally { h.dispose(); }
+});
+
+test('all four-column permutations converge with identities and columns intact in both delivery orders', () => {
+  const permutations = (values: number[]): number[][] => values.length
+    ? values.flatMap((value, index) => permutations(values.filter((_, other) => other !== index)).map((rest) => [value, ...rest]))
+    : [[]];
+  const seed = createRichMarkdownYDoc('| r0c0 | r0c1 | r0c2 | r0c3 |\n| --- | --- | --- | --- |\n| r1c0 | r1c1 | r1c2 | r1c3 |\n| r2c0 | r2c1 | r2c2 | r2c3 |', 'tiptap_blocks');
+  const update = Y.encodeStateAsUpdate(seed);
+  seed.destroy();
+  for (const leftOrder of permutations([0, 1, 2, 3])) for (const rightOrder of permutations([0, 1, 2, 3])) for (const reverse of [false, true]) {
+    const left = new Y.Doc();
+    const right = new Y.Doc();
+    try {
+      Y.applyUpdate(left, update);
+      Y.applyUpdate(right, update);
+      left.clientID = 10;
+      right.clientID = 20;
+      const a = new CollaborationBlockTree(left, schema);
+      const b = new CollaborationBlockTree(right, schema);
+      const identityContent = new Map<string, string>();
+      a.read().descendants((node) => { if (node.inlineContent) identityContent.set(node.attrs.id, node.textContent); });
+      a.applyDocumentChange(a.read(), reorderColumns(a.read(), leftOrder), localOrigin);
+      b.applyDocumentChange(b.read(), reorderColumns(b.read(), rightOrder), remoteOrigin);
+      exchange(left, right, reverse);
+      const result = a.read();
+      const rowOrders: string[] = [];
+      result.firstChild!.forEach((row) => {
+        const cells: string[] = [];
+        row.forEach((cell) => cells.push(cell.textContent.slice(-1)));
+        rowOrders.push(cells.join(''));
+      });
+      assert.equal(new Set(rowOrders).size, 1, `${leftOrder}/${rightOrder}: ${rowOrders}`);
+      assert.deepEqual(result.toJSON(), b.read().toJSON());
+      const finalContent = new Map<string, string>();
+      result.descendants((node) => { if (node.inlineContent) finalContent.set(node.attrs.id, node.textContent); });
+      assert.deepEqual(finalContent, identityContent);
+    } finally { left.destroy(); right.destroy(); }
+  }
+});
+
+function insertColumn(doc: ProseMirrorNode, actor: string): ProseMirrorNode {
+  const rows: ProseMirrorNode[] = [];
+  doc.firstChild!.forEach((row, _offset, rowIndex) => {
+    // Opposite lexical cell-ID order in alternating rows exposes accidental
+    // ordering by random identities instead of the user's column action.
+    const prefix = `${rowIndex % 2 ? (actor === 'A' ? 'z' : 'a') : actor}-${rowIndex}`;
+    const paragraph = schema.nodes.paragraph.create({ id: `${prefix}-paragraph` }, schema.text(actor));
+    const cell = row.firstChild!.type.create({ ...row.firstChild!.attrs, id: `${prefix}-cell` }, paragraph);
+    rows.push(row.copy(Fragment.fromArray([row.firstChild!, cell, row.child(1)])));
+  });
+  return doc.copy(Fragment.from(doc.firstChild!.copy(Fragment.fromArray(rows))));
+}
+
+test('concurrent inserted columns keep their cells aligned despite unrelated cell identities', () => {
+  const h = replicas('| H1 | H2 |\n| --- | --- |\n| D1 | D2 |');
+  try {
+    h.a.applyDocumentChange(h.a.read(), insertColumn(h.a.read(), 'A'), localOrigin);
+    h.b.applyDocumentChange(h.b.read(), insertColumn(h.b.read(), 'B'), remoteOrigin);
+    exchange(h.left, h.right, false);
+    const inserted: string[] = [];
+    h.a.read().firstChild!.forEach((row) => {
+      const cells: string[] = [];
+      row.forEach((cell) => { if (cell.textContent === 'A' || cell.textContent === 'B') cells.push(cell.textContent); });
+      inserted.push(cells.join(''));
+    });
+    assert.deepEqual(inserted, ['AB', 'AB']);
+    assert.deepEqual(h.a.read().toJSON(), h.b.read().toJSON());
+  } finally { h.dispose(); }
+});
+
+test('column deletion and reorder converge, and column undo retains a remote cell edit', () => {
+  for (const reverse of [false, true]) {
+    const h = replicas('| H0 | H1 | H2 | H3 |\n| --- | --- | --- | --- |\n| D0 | D1 | D2 | D3 |');
+    const undo = h.a.createUndoManager(localOrigin);
+    try {
+      const initial = h.a.read();
+      const editedId = initial.firstChild!.child(1).child(2).firstChild!.attrs.id;
+      h.a.applyDocumentChange(initial, reorderColumns(initial, [0, 3, 1, 2]), localOrigin);
+      const operationGroups = new Set([...h.a.operations.values()].map((op) => `${op.clock}:${op.actor}:${op.transactionId}`));
+      assert.equal(operationGroups.size, 1);
+      replaceText(h.b, editedId, 'remote D2');
+      exchange(h.left, h.right, reverse);
+      undo.undo();
+      assert.equal(h.a.read().firstChild!.child(1).child(2).textContent, 'remote D2');
+      undo.redo();
+      assert.equal(h.a.read().firstChild!.child(1).child(3).textContent, 'remote D2');
+      exchange(h.left, h.right, reverse);
+      const beforeA = h.a.read();
+      const beforeB = h.b.read();
+      h.a.applyDocumentChange(beforeA, reorderColumns(beforeA, [1, 0, 2, 3]), localOrigin);
+      h.b.applyDocumentChange(beforeB, reorderColumns(beforeB, [0, 2, 3]), remoteOrigin);
+      exchange(h.left, h.right, reverse);
+      const rows: string[] = [];
+      h.a.read().firstChild!.forEach((row) => {
+        const order: string[] = [];
+        row.forEach((cell) => order.push(cell.textContent.slice(-1)));
+        rows.push(order.join(''));
+      });
+      assert.equal(new Set(rows).size, 1);
+      assert.deepEqual(h.a.read().toJSON(), h.b.read().toJSON());
+    } finally { undo.destroy(); h.dispose(); }
+  }
 });

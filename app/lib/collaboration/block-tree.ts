@@ -156,7 +156,7 @@ export class CollaborationBlockTree {
     // or a process restarts. Summing it yields a causal logical clock.
     const clock = [...Y.decodeStateVector(Y.encodeStateVector(this.doc)).values()].reduce((sum, value) => sum + value, 1);
     if (!Number.isSafeInteger(clock)) throw new BlockTreeConflict('structure_invalid');
-    return { id, clock, actor: this.doc.clientID };
+    return { id, clock, actor: this.doc.clientID, transactionId: id, ordinal: 0 };
   }
 
   move(input: { blockId: string; parentId: string | null; beforeId: string | null; operationId: string }, origin: unknown): void {
@@ -257,6 +257,11 @@ export class CollaborationBlockTree {
     structural: boolean,
     move?: BlockMoveIntent,
   ): void {
+    // Stamp the whole plan before any content/record writes change the clock.
+    // One table-column action can contain many moves across different rows.
+    const transaction = structural ? this.stamp(prefix) : null;
+    let ordinal = 0;
+    const operationStamp = (id: string) => ({ ...transaction!, id, ordinal: ordinal++ });
     this.doc.transact(() => {
       for (const block of next.values()) {
         const old = before.get(block.id);
@@ -278,11 +283,11 @@ export class CollaborationBlockTree {
       const removed = [...before.keys()].filter((id) => !next.has(id));
       if (removed.length) {
         const id = `${prefix}:delete`;
-        this.recordOperation({ ...this.stamp(id), kind: 'delete', blockIds: removed });
+        this.recordOperation({ ...operationStamp(id), kind: 'delete', blockIds: removed });
       }
       if (move) {
         const id = `${prefix}:intent`;
-        this.recordOperation({ ...this.stamp(id), kind: 'move', ...move });
+        this.recordOperation({ ...operationStamp(id), kind: 'move', ...move });
       }
       const targetChildren = new Map<string | null, string[]>();
       for (const block of next.values()) {
@@ -297,10 +302,13 @@ export class CollaborationBlockTree {
           const blockId = children[index];
           const beforeId = children[index + 1] ?? null;
           const siblings = current.children.get(parentId) ?? [];
-          if (current.parents.get(blockId) === parentId && siblings.includes(blockId)
+          // New blocks need an explicit placement even when their initial
+          // numeric position happens to match. Concurrent insertions can share
+          // that position; only the transaction keeps a whole column aligned.
+          if (before.has(blockId) && current.parents.get(blockId) === parentId && siblings.includes(blockId)
             && (siblings[siblings.indexOf(blockId) + 1] ?? null) === beforeId) continue;
           const id = `${prefix}:move:${moveIndex++}`;
-          this.recordOperation({ ...this.stamp(id), kind: 'move', blockId, parentId, beforeId });
+          this.recordOperation({ ...operationStamp(id), kind: 'move', blockId, parentId, beforeId });
           current = this.project();
         }
       }
