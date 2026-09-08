@@ -69,6 +69,34 @@ test('toolbar targets retain backward text, node and exact table cell selections
   } finally { editor.destroy(); doc.destroy(); }
 });
 
+test('prepared image and emoji replacements follow a moved block and preserve neighbouring content', async () => {
+  const doc = createDocument();
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    const target = createEditorRangeTarget(editor, { from: 6, to: 9 });
+    const tree = new CollaborationBlockTree(doc, schema);
+    tree.move({ blockId: editor.state.doc.child(1).attrs.id, parentId: null, beforeId: null, operationId: 'image-target-move' }, 'peer');
+    const range = resolveEditorRangeTarget(editor, target)!;
+    assert.ok(range);
+    assert.equal(editor.chain().insertContentAt(range, [{ type: 'image', attrs: { src: 'attachments/example.png', alt: 'Example' } }]).run(), true);
+    const images: string[] = [];
+    editor.state.doc.descendants((node) => { if (node.type.name === 'image') images.push(node.attrs.src); });
+    assert.deepEqual(images, ['attachments/example.png']);
+    assert.equal(editor.state.doc.textContent, 'AAACCC');
+    assert.equal(validateRichMarkdownYDoc(doc).valid, true);
+    editor.commands.undo();
+    assert.deepEqual(texts(editor), ['AAA', 'CCC', 'BBB']);
+    const emoji = createEditorRangeTarget(editor, { from: 11, to: 14 });
+    tree.move({ blockId: editor.state.doc.child(2).attrs.id, parentId: null, beforeId: editor.state.doc.child(0).attrs.id, operationId: 'emoji-target-move' }, 'peer');
+    assert.equal(editor.chain().insertContentAt(resolveEditorRangeTarget(editor, emoji)!, '👩🏽‍💻').run(), true);
+    assert.deepEqual(texts(editor), ['👩🏽‍💻', 'AAA', 'CCC']);
+    assert.equal(validateRichMarkdownYDoc(doc).valid, true);
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
+
 function createDocument(markdown = 'AAA\n\nBBB\n\nCCC') {
   const source = createRichMarkdownYDoc(markdown);
   const initial = initProseMirrorDoc(source.getXmlFragment('body'), schema).doc;

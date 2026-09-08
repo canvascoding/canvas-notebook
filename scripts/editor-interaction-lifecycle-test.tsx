@@ -8,6 +8,7 @@ import * as Y from 'yjs';
 
 import { useEditorRangeTarget } from '../app/hooks/use-editor-range-target';
 import { useEditorToolbarTarget } from '../app/hooks/use-editor-toolbar-target';
+import { useEditorAsyncAction } from '../app/hooks/use-editor-async-action';
 import { MarkdownUrlPaste, type PastedMarkdownLink } from '../app/components/editor/MarkdownUrlPaste';
 import { resolveEditorRangeTarget } from '../app/lib/editor/interaction-target';
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
@@ -84,6 +85,7 @@ async function main() {
       assert.deepEqual(resolveEditorRangeTarget(a, link.target), { from: 11, to: 14 });
     } finally { await act(async () => pasteRoot.unmount()); }
     await toolbarLifecycle(a, b, doc, container);
+    await asyncActionLifecycle(a, b, container);
     assert.deepEqual(errors, []);
     console.log('Dialog lifecycle: StrictMode, close, editor replacement, retained callbacks and URL-paste target capture passed.');
   } finally {
@@ -130,6 +132,53 @@ async function toolbarLifecycle(a: Editor, b: Editor, doc: Y.Doc, container: HTM
     unmounted = true;
     assert.equal(latest.restore(), null);
     console.log('Toolbar target: move, second press, changed text, read-only, deletion and retained view callbacks passed.');
+  } finally { if (!unmounted) await act(async () => root.unmount()); }
+}
+
+async function asyncActionLifecycle(a: Editor, b: Editor, container: HTMLElement) {
+  const root = createRoot(container);
+  let controls: ReturnType<typeof useEditorAsyncAction> | undefined;
+  function Import({ editor, open }: { editor: Editor; open: boolean }) {
+    const action = useEditorAsyncAction(editor, open);
+    useEffect(() => { controls = action; }, [action]);
+    return null;
+  }
+  const render = (editor: Editor, open: boolean) => act(async () => root.render(<StrictMode><Import editor={editor} open={open} /></StrictMode>));
+  let unmounted = false;
+  try {
+    await render(a, true);
+    const original = controls!;
+    const first = original.begin()!;
+    assert.ok(first);
+    assert.equal(original.begin(), null, 'double submit has exactly one request');
+    original.finish(first);
+    const second = original.begin()!;
+    assert.equal(original.isCurrent(first), false, 'a completed response cannot settle its successor');
+    original.finish(first);
+    assert.equal(original.isCurrent(second), true);
+    original.cancel();
+    assert.equal(second.signal.aborted, true);
+    assert.equal(original.isCurrent(second), false);
+    await render(a, false);
+    await render(a, true);
+    assert.equal(original.begin(), null, 'an old dialog callback cannot start work in a reopened dialog');
+    const reopened = controls!;
+    const pending = reopened.begin()!;
+    let respond!: () => void;
+    const response = new Promise<void>((resolve) => { respond = resolve; });
+    let inserted = false;
+    const late = response.then(() => { if (reopened.isCurrent(pending)) inserted = true; });
+    await render(b, true);
+    assert.equal(pending.signal.aborted, true);
+    respond(); await late;
+    assert.equal(inserted, false, 'a transport ignoring abort cannot complete through an old editor');
+    const latest = controls!;
+    const unmounting = latest.begin()!;
+    await act(async () => root.unmount()); unmounted = true;
+    assert.equal(unmounting.signal.aborted, true);
+    assert.equal(latest.isCurrent(unmounting), false);
+    assert.equal(latest.begin(), null);
+    console.log('Async editor action: duplicate submit, retry, cancellation, reopen, late response and unmount passed.');
   } finally { if (!unmounted) await act(async () => root.unmount()); }
 }
 

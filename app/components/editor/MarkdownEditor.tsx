@@ -214,6 +214,7 @@ import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction 
 import { BlockTreePlacementNotice } from '@/app/lib/collaboration/block-tree-editor';
 import { useEditorRangeTarget } from '@/app/hooks/use-editor-range-target';
 import { useEditorToolbarTarget } from '@/app/hooks/use-editor-toolbar-target';
+import { useEditorAsyncAction } from '@/app/hooks/use-editor-async-action';
 import { createEditorRangeTarget, resolveEditorRangeTarget, type EditorRangeTarget } from '@/app/lib/editor/interaction-target';
 import {
   useCollaborationDocument,
@@ -366,12 +367,12 @@ type BlockCommandMenuState = {
 
 type ImageDialogSeed = {
   id: number;
-  range?: Range;
+  target?: EditorRangeTarget | null;
 };
 
 type EmojiDialogSeed = {
   id: number;
-  range?: Range;
+  target?: EditorRangeTarget | null;
 };
 
 type RichBlockKind = 'callout' | 'details' | 'footnote' | 'inlineMath' | 'blockMath';
@@ -3246,7 +3247,7 @@ function insertMarkdownImagesIntoEditor(
   editor: Editor,
   images: ImportedMarkdownImageResult[],
   alt: string,
-  range?: Range,
+  range: Range,
 ) {
   const content = images
     .filter((image) => image.markdownSrc)
@@ -3258,20 +3259,9 @@ function insertMarkdownImagesIntoEditor(
       },
     }));
 
-  if (content.length === 0) return;
+  if (content.length === 0 || editor.isDestroyed || !editor.isEditable || editor.view.composing || !isEditorRangeInsideDoc(editor, range)) return false;
 
-  const chain = editor.chain().focus();
-  const safeRange = range ? clampEditorRangeToDoc(editor, range) : null;
-
-  if (safeRange) {
-    if (safeRange.from < safeRange.to) {
-      chain.deleteRange(safeRange);
-    }
-    chain.insertContentAt(safeRange.from, content).run();
-    return;
-  }
-
-  chain.insertContent(content).run();
+  return editor.chain().focus().insertContentAt(range, content).run();
 }
 
 function MarkdownImageDialog({
@@ -3279,13 +3269,13 @@ function MarkdownImageDialog({
   filePath,
   open,
   onOpenChange,
-  range,
+  target,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
   filePath?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  range?: Range;
+  target?: EditorRangeTarget | null;
 }) {
   const t = useTranslations('notebook');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -3294,12 +3284,30 @@ function MarkdownImageDialog({
   const [alt, setAlt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const resolveTarget = useEditorRangeTarget(editor, open, undefined, target);
+  const { begin, cancel, isCurrent, finish } = useEditorAsyncAction(editor, open);
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    if (!nextOpen) cancel();
+    onOpenChange(nextOpen);
+  }, [cancel, onOpenChange]);
 
   const submit = useCallback(async () => {
     if (!editor || submitting) return;
 
     setError(null);
-
+    if (!resolveTarget()) {
+      setError(t('markdownEditorInteractionTargetChanged'));
+      return;
+    }
+    let request: AbortController | null = null;
+    const insert = (images: ImportedMarkdownImageResult[]) => {
+      const currentRange = resolveTarget();
+      if (!currentRange || !insertMarkdownImagesIntoEditor(editor, images, alt, currentRange)) {
+        setError(t('markdownEditorInteractionTargetChanged'));
+        return;
+      }
+      handleOpenChange(false);
+    };
     try {
       if (mode === 'url') {
         const trimmedSource = source.trim();
@@ -3309,13 +3317,7 @@ function MarkdownImageDialog({
         }
 
         if (!isRemoteImageImportSource(trimmedSource)) {
-          insertMarkdownImagesIntoEditor(
-            editor,
-            [{ markdownSrc: directMarkdownImageSrc(trimmedSource, filePath), name: trimmedSource.split('/').pop() || 'image' }],
-            alt,
-            range,
-          );
-          onOpenChange(false);
+          insert([{ markdownSrc: directMarkdownImageSrc(trimmedSource, filePath), name: trimmedSource.split('/').pop() || 'image' }]);
           return;
         }
       } else if (!fileInputRef.current?.files?.length) {
@@ -3323,6 +3325,8 @@ function MarkdownImageDialog({
         return;
       }
 
+      request = begin();
+      if (!request) return;
       setSubmitting(true);
       const formData = new FormData();
       formData.set('targetDir', getWorkspaceTargetDirForMarkdown(filePath));
@@ -3339,24 +3343,29 @@ function MarkdownImageDialog({
       const response = await fetch('/api/markdown/images/import', {
         method: 'POST',
         body: formData,
+        signal: request.signal,
       });
       const payload = await response.json().catch(() => null) as MarkdownImageImportResponse | null;
 
+      if (!isCurrent(request)) return;
       if (!response.ok || !payload?.success || !payload.files?.length) {
         throw new Error(payload?.error || t('markdownEditorImageImportError'));
       }
 
-      insertMarkdownImagesIntoEditor(editor, payload.files, alt, range);
-      onOpenChange(false);
+      insert(payload.files);
     } catch (importError) {
+      if (request && !isCurrent(request)) return;
       setError(importError instanceof Error ? importError.message : t('markdownEditorImageImportError'));
     } finally {
-      setSubmitting(false);
+      if (request && isCurrent(request)) {
+        finish(request);
+        setSubmitting(false);
+      }
     }
-  }, [alt, editor, filePath, mode, onOpenChange, range, source, submitting, t]);
+  }, [alt, begin, editor, filePath, finish, handleOpenChange, isCurrent, mode, resolveTarget, source, submitting, t]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t('markdownEditorImageDialogTitle')}</DialogTitle>
@@ -3419,7 +3428,7 @@ function MarkdownImageDialog({
         </div>
 
         <DialogFooter>
-          <Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>
+          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
             {t('cancel')}
           </Button>
           <Button type="button" disabled={submitting} onClick={() => void submit()}>
@@ -3775,28 +3784,27 @@ function MarkdownEmojiDialog({
   editor,
   onOpenChange,
   open,
-  range,
+  target,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
   onOpenChange: (open: boolean) => void;
   open: boolean;
-  range?: Range;
+  target?: EditorRangeTarget | null;
 }) {
   const t = useTranslations('notebook');
+  const resolveTarget = useEditorRangeTarget(editor, open, undefined, target);
   const [query, setQuery] = useState('');
   const items = useMemo(() => filterCanvasEmoji(query), [query]);
 
   const insertEmoji = useCallback((emoji: string) => {
     if (!editor || editor.isDestroyed || !editor.isEditable) return;
-    const insertionRange = range ? clampEditorRangeToDoc(editor, range) : null;
-    const chain = editor.chain().focus();
-    if (insertionRange) {
-      chain.insertContentAt(insertionRange, emoji).run();
-    } else {
-      chain.insertContent(emoji).run();
+    const insertionRange = resolveTarget();
+    if (!insertionRange || !editor.chain().focus().insertContentAt(insertionRange, emoji).run()) {
+      toast.error(t('markdownEditorInteractionTargetChanged'));
+      return;
     }
     onOpenChange(false);
-  }, [editor, onOpenChange, range]);
+  }, [editor, onOpenChange, resolveTarget, t]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -4230,7 +4238,7 @@ function MarkdownToolbar({
         filePath={filePath}
         open={imageDialogOpen}
         onOpenChange={onImageDialogOpenChange}
-        range={imageDialogSeed.range}
+        target={imageDialogSeed.target}
       />
     </TooltipProvider>
   );
@@ -4786,6 +4794,7 @@ function RichMarkdownEditor({
   const t = useTranslations('notebook');
   const documentParts = useMemo(() => splitMarkdownEditorDocument(value, frontmatter), [value, frontmatter]);
   const latestValueRef = useRef(value);
+  const dialogEditorRef = useRef<Editor | null>(null);
   const acceptedExternalValueRef = useRef(documentParts.body);
   const applyingExternalValueRef = useRef(false);
   const pendingBlockCommandMenuFrameRef = useRef<number | null>(null);
@@ -4820,12 +4829,14 @@ function RichMarkdownEditor({
   }), [t]);
   const openImageDialogFromToolbar = useCallback((open: boolean, range?: Range) => {
     if (open) {
-      setImageDialogSeed((current) => ({ id: current.id + 1, range }));
+      const target = dialogEditorRef.current ? createEditorRangeTarget(dialogEditorRef.current, range) : null;
+      setImageDialogSeed((current) => ({ id: current.id + 1, target }));
     }
     setImageDialogOpen(open);
   }, []);
   const openEmojiDialogFromToolbar = useCallback((range?: Range) => {
-    setEmojiDialogSeed((current) => ({ id: current.id + 1, range }));
+    const target = dialogEditorRef.current ? createEditorRangeTarget(dialogEditorRef.current, range) : null;
+    setEmojiDialogSeed((current) => ({ id: current.id + 1, target }));
     setEmojiDialogOpen(true);
   }, []);
   const openTableDialogAtRange = useCallback((range?: Range | null) => {
@@ -4903,20 +4914,22 @@ function RichMarkdownEditor({
   }, [openRichBlockDialog]);
   const openImageDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
     const insertionRange = prepareCommandDialogInsertionRange(slashEditor, range);
-    const insertPosition = insertionRange?.from ?? slashEditor.state.selection.from;
+    if (!insertionRange) return;
+    const target = createEditorRangeTarget(slashEditor, insertionRange);
 
     setImageDialogSeed((current) => ({
       id: current.id + 1,
-      range: { from: insertPosition, to: insertPosition },
+      target,
     }));
     setImageDialogOpen(true);
   }, []);
   const openEmojiDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
     const insertionRange = prepareCommandDialogInsertionRange(slashEditor, range);
-    const insertPosition = insertionRange?.from ?? slashEditor.state.selection.from;
+    if (!insertionRange) return;
+    const target = createEditorRangeTarget(slashEditor, insertionRange);
     setEmojiDialogSeed((current) => ({
       id: current.id + 1,
-      range: { from: insertPosition, to: insertPosition },
+      target,
     }));
     setEmojiDialogOpen(true);
   }, []);
@@ -5025,6 +5038,11 @@ function RichMarkdownEditor({
       }
     },
   }, [collaboration?.provider]);
+
+  useEffect(() => {
+    dialogEditorRef.current = editor;
+    return () => { dialogEditorRef.current = null; };
+  }, [editor]);
 
   useEffect(() => {
     if (!editor || !collaboration) return;
@@ -5496,7 +5514,7 @@ function RichMarkdownEditor({
           editor={markdownEditor}
           onOpenChange={setEmojiDialogOpen}
           open={emojiDialogOpen}
-          range={emojiDialogSeed.range}
+          target={emojiDialogSeed.target}
         />
       ) : null}
       {!effectiveReadOnly ? (
@@ -5928,6 +5946,7 @@ export function MarkdownEditor({
 
   return wrap(
     <RichMarkdownEditor
+      key={JSON.stringify([activeWorkspaceId, filePath, resolvedCollaborationSession?.documentId, resolvedCollaborationSession?.lifecycleGeneration, resolvedCollaborationSession?.representation])}
       value={value}
       onChange={onChange}
       readOnly={readOnly}
