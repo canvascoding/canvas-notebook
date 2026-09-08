@@ -118,9 +118,11 @@ import {
   openNotebookDocumentTab,
   readNotebookDocumentTabs,
   renameNotebookDocumentTabs,
+  rememberNotebookClosedDocuments,
   writeNotebookDocumentTabs,
   type NotebookDocumentTabsState,
 } from '@/app/lib/notebook/document-tabs';
+import { closeAllNotebookDocuments, notebookLocationAfterClosing } from '@/app/lib/notebook/close-documents';
 import { registerNotebookDocumentOpenGuard } from '@/app/lib/notebook/document-tab-open-guard';
 import { resolveNotebookChatContext } from '@/app/lib/notebook/chat-context';
 import { getNotebookTabRevealDelta } from '@/app/lib/notebook/tab-strip';
@@ -486,7 +488,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const [closedDocuments, setClosedDocuments] = useState<Record<string, string[]>>({});
   const rememberClosedDocument = useCallback((workspaceId: string, path: string) => {
     setClosedDocuments((current) => ({
-      ...current, [workspaceId]: [...(current[workspaceId] || []).filter((item) => item !== path), path].slice(-20),
+      ...current, [workspaceId]: rememberNotebookClosedDocuments(current[workspaceId] || [], [path]),
     }));
   }, []);
   const documentTabsWorkspaceIdRef = useRef<string | null>(null);
@@ -697,9 +699,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       openedPathRef.current = routeFilePath;
       void openNotebookFile(routeFilePath);
     }
-    if (shouldOpenRouteChat) {
-      dispatch({ type: 'SHOW_CHAT' });
-    }
   }, [
     activeWorkspaceId,
     dispatch,
@@ -707,8 +706,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     openNotebookFile,
     routeFilePath,
     routeWorkspaceId,
-    shouldOpenRouteChat,
   ]);
+
+  useEffect(() => {
+    if (activeWorkspaceId && documentTabsHydratedFor === activeWorkspaceId && shouldOpenRouteChat) {
+      dispatch({ type: 'SHOW_CHAT' });
+    }
+  }, [activeWorkspaceId, dispatch, documentTabsHydratedFor, shouldOpenRouteChat]);
 
   useEffect(() => {
     if (
@@ -876,6 +880,35 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       dispatch({ type: 'DOCUMENT_CLOSED' });
     }
   }, [dispatch, handleCloseDocumentTab]);
+
+  const handleCloseAllDocuments = useCallback(async () => {
+    if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return false;
+    try {
+      return await closeAllNotebookDocuments({
+        workspaceId: activeWorkspaceId,
+        getTabs: () => documentTabsRef.current,
+        onClosed: (closed) => {
+          setClosedDocuments((current) => ({
+            ...current,
+            [activeWorkspaceId]: rememberNotebookClosedDocuments(current[activeWorkspaceId] || [], closed.openPaths, closed.activePath),
+          }));
+          replaceDocumentTabs(activeWorkspaceId, emptyNotebookDocumentTabsState());
+          openedPathRef.current = null;
+          setRequestedDocumentFocus(false);
+          dispatch({ type: 'ALL_DOCUMENTS_CLOSED' });
+          const location = notebookLocationAfterClosing(window.location.href, activeWorkspaceId, closed.openPaths);
+          if (location !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+            // Next.js copies its internal history state and updates useSearchParams for external writes.
+            window.history.replaceState(null, '', location);
+          }
+          toast.success(tNotebook('documentsClosed', { count: closed.openPaths.length }));
+        },
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : tNotebook('failedToSaveFile'));
+      return false;
+    }
+  }, [activeWorkspaceId, dispatch, replaceDocumentTabs, tNotebook]);
 
   useEffect(() => {
     const closeDocumentTabsAtPaths = (paths: Iterable<string>) => {
@@ -1263,9 +1296,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             </div>
 
             <NotebookDocumentMenu
+              key={activeWorkspaceId}
               paths={documentTabs.openPaths}
               activePath={documentTabs.activePath}
               canReopen={Boolean(activeWorkspaceId && closedDocuments[activeWorkspaceId]?.length)}
+              onCloseAll={handleCloseAllDocuments}
               onSelect={(path) => void handleSelectDocumentTab(path)}
               onReopen={() => {
                 if (!activeWorkspaceId) return;

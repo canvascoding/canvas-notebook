@@ -343,7 +343,10 @@ interface FileStoreState {
   loadFile: (path: string, noCache?: boolean, workspaceId?: string | null) => Promise<FileLoadResult>;
   refreshCurrentFileContent: (path: string, options?: { allowDirty?: boolean }) => Promise<CurrentFile | null>;
   revealAndLoadFile: (path: string, options?: OpenWorkspaceFileOptions) => Promise<OpenWorkspaceFileResult>;
-  closeFile: (path: string) => Promise<boolean>;
+  closeFile: (path: string, options?: {
+    canClose?: () => boolean;
+    onClosed?: () => void;
+  }) => Promise<boolean>;
   prepareCurrentFileForTransition: () => Promise<void>;
   saveFile: (path: string, content: string, workspaceId?: string | null) => Promise<void>;
   selectNode: (
@@ -1117,8 +1120,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     return { status: 'opened', path: normalizedPath };
   },
 
-  closeFile: async (path: string) => {
+  closeFile: async (path: string, options) => {
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    if (options?.canClose && !options.canClose()) return false;
     if (get().currentFile && get().currentFile?.path !== path) return false;
     const requestId = get().openFileRequestId + 1;
     set((state) => ({ openFileRequestId: requestId,
@@ -1126,9 +1130,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       isLoadingFile: false, loadingFilePath: null }));
     await get().prepareCurrentFileForTransition();
     if (get().openFileRequestId !== requestId
-      || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return false;
+      || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId
+      || (options?.canClose && !options.canClose())) return false;
     get().clearCurrentFile();
     useEditorStore.getState().clear();
+    // Commit related tab state in the same turn, before a newer file open can intervene.
+    options?.onClosed?.();
     return true;
   },
 
