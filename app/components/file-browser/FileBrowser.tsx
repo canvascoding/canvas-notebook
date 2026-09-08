@@ -20,7 +20,7 @@ import { FileBreadcrumb } from './FileBreadcrumb';
 import { CreateItemDialog } from './CreateItemDialog';
 import { UploadDialog } from './UploadDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
-import { isProtectedDirectoryNode, splitProtectedWorkspacePaths } from '@/app/lib/files/operation-flows';
+import { compactWorkspaceSelection, isProtectedDirectoryNode, splitProtectedWorkspacePaths } from '@/app/lib/files/operation-flows';
 import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import { getDroppedItems } from '@/app/lib/drop-traverse';
@@ -305,10 +305,9 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   };
 
   const handleBulkDownload = async () => {
-    for (const path of multiSelectPaths) {
-      try { await downloadFile(path); } catch (error) { console.error(`Failed to download ${path}:`, error); }
-    }
-    toast.success(t('download'));
+    const selectedPaths = compactWorkspaceSelection(multiSelectPaths);
+    if (selectedPaths.length === 0) return;
+    await downloadFile(selectedPaths);
   };
 
   const handleBulkPublicShare = () => {

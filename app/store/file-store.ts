@@ -397,7 +397,7 @@ interface FileStoreState {
   ) => Promise<void>;
   reconcileUpload: (job: UploadJobHandle) => Promise<void>;
   uploadDirectories: (paths: string[], job: UploadJobHandle) => Promise<number>;
-  downloadFile: (path: string) => Promise<void>;
+  downloadFile: (path: string | Iterable<string>) => Promise<void>;
   toggleDirectory: (path: string) => void;
   collapseAllDirectories: () => void;
   clearCurrentFile: () => void;
@@ -1529,17 +1529,18 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  downloadFile: async (path: string) => {
+  downloadFile: async (path: string | Iterable<string>) => {
     set({ fileError: null, fileErrorPath: null, missingFilePath: null });
+    const selectedPaths = typeof path === 'string' ? [path] : Array.from(path);
 
     try {
-      triggerWorkspaceDownload(path);
+      triggerWorkspaceDownload(selectedPaths);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to download file';
       set({
         fileError: message,
-        fileErrorPath: path,
+        fileErrorPath: selectedPaths[0] ?? null,
       });
       throw error;
     }

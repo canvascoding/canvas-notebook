@@ -196,6 +196,16 @@ export function workspaceDownloadUrl(
   );
 }
 
+export function workspaceSelectionDownloadUrl(
+  paths: readonly string[],
+  options: { download?: boolean; workspaceId?: string | null } = {}
+) {
+  const params = new URLSearchParams();
+  for (const path of paths) params.append('path', path);
+  if (options.download) params.set('download', '1');
+  return withWorkspaceQuery(`/api/files/download?${params.toString()}`, options.workspaceId);
+}
+
 export async function readApiJson<T>(response: Response, fallbackMessage: string): Promise<T> {
   const body = await response.text();
   if (!body.trim()) {
@@ -663,10 +673,17 @@ export async function uploadWorkspaceFiles({
   };
 }
 
-export function triggerWorkspaceDownload(path: string): void {
-  const url = workspaceDownloadUrl(path, { download: true });
+export function triggerWorkspaceDownload(paths: string | Iterable<string>): void {
+  const selectedPaths = typeof paths === 'string' ? [paths] : Array.from(paths);
+  if (selectedPaths.length === 0) throw new Error('Select at least one file to download');
+
+  const url = selectedPaths.length === 1
+    ? workspaceDownloadUrl(selectedPaths[0], { download: true })
+    : workspaceSelectionDownloadUrl(selectedPaths, { download: true });
   const anchor = document.createElement('a');
-  const name = path.split('/').pop() || 'download';
+  const name = selectedPaths.length === 1
+    ? selectedPaths[0].split('/').pop() || 'download'
+    : 'notebook-selection.zip';
   anchor.href = url;
   anchor.download = name;
   anchor.rel = 'noopener';
