@@ -44,11 +44,7 @@ _database_provider() {
   provider="$(config_json_read env.CANVAS_DATABASE_PROVIDER)"
   provider="$(printf '%s' "$provider" | tr '[:upper:]' '[:lower:]' | xargs)"
   database_url="$(config_json_read env.DATABASE_URL)"
-  if [[ -z "$provider" && "$database_url" =~ ^postgres(ql)?:// ]]; then
-    printf 'postgres\n'
-  else
-    config_json_normalize_database_provider "$provider"
-  fi
+  config_json_normalize_database_provider "$provider"
 }
 
 _database_status_json() {

@@ -140,9 +140,11 @@ if grep -q 'positional-secret-key' "$TMP_DIR/config-set-secret-key-positional.tx
   exit 1
 fi
 
-# The remainder of this suite exercises the supported legacy SQLite lifecycle.
-"$cli" config-set env.CANVAS_DATABASE_PROVIDER sqlite --no-banner > /dev/null
-
+# The remainder of this suite exercises the PostgreSQL-only lifecycle.
+"$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > /dev/null
+printf '%s' 'safe-password-123' | "$cli" config-set env.CANVAS_POSTGRES_PASSWORD --stdin --no-banner > /dev/null
+printf '%s' 'postgresql://canvas:safe-password-123@postgres:5432/canvas_notebook' | "$cli" config-set env.DATABASE_URL --stdin --no-banner > /dev/null
+"$cli" config-set env.CANVAS_POSTGRES_MODE external --no-banner > /dev/null
 test ! -e "$CANVAS_CONFIG_ENV"
 : > "$CANVAS_TEST_COMPOSE_LOG"
 "$cli" env --render --json --no-banner > "$TMP_DIR/env-render-first.json"
@@ -165,7 +167,7 @@ if grep -q -- '--force-recreate' "$CANVAS_TEST_COMPOSE_LOG"; then
   exit 1
 fi
 "$cli" env --no-banner > "$TMP_DIR/env-default.txt"
-grep -q 'CANVAS_DATABASE_PROVIDER[[:space:]]*sqlite' "$TMP_DIR/env-default.txt"
+grep -q 'CANVAS_DATABASE_PROVIDER[[:space:]]*postgres' "$TMP_DIR/env-default.txt"
 "$cli" env --json --no-banner > "$TMP_DIR/env-default-json.txt"
 if grep -Fq "$stdin_secret" "$TMP_DIR/env-default-json.txt"; then
   echo "env --json exposed an unredacted secret" >&2
@@ -188,31 +190,36 @@ if grep -Fq "$custom_secret_key" "$TMP_DIR/env-default-json.txt"; then
   exit 1
 fi
 grep -q '^COMPOSE_PROFILES=$' "$CANVAS_COMPOSE_ENV"
-grep -q '^CANVAS_DATABASE_PROVIDER=sqlite$' "$CANVAS_COMPOSE_ENV"
-grep -q '^CANVAS_POSTGRES_VECTOR_ENABLED=false$' "$CANVAS_CONFIG_ENV"
+grep -q '^CANVAS_DATABASE_PROVIDER=postgres$' "$CANVAS_COMPOSE_ENV"
+grep -q '^CANVAS_POSTGRES_VECTOR_ENABLED=true$' "$CANVAS_CONFIG_ENV"
 
+"$cli" config-set env.CANVAS_POSTGRES_MODE managed --no-banner > /dev/null
+"$cli" env --render --json --no-banner > /dev/null
 "$cli" database status --json --no-banner > "$TMP_DIR/database-status-default.json"
-grep -q '"databaseProvider":"sqlite"' "$TMP_DIR/database-status-default.json"
-grep -q '"postgresProfileEnabled":false' "$TMP_DIR/database-status-default.json"
+grep -q '"databaseProvider":"postgres"' "$TMP_DIR/database-status-default.json"
+grep -q '"postgresProfileEnabled":true' "$TMP_DIR/database-status-default.json"
 
 : > "$CANVAS_TEST_COMPOSE_LOG"
-"$cli" database prepare-postgres --timeout 2 --json --no-banner > "$TMP_DIR/database-prepare-postgres.json"
+"$cli" database prepare-postgres --timeout 10 --json --no-banner > "$TMP_DIR/database-prepare-postgres.json"
 grep -q '"success":true' "$TMP_DIR/database-prepare-postgres.json"
-grep -q '"databaseProvider":"sqlite"' "$TMP_DIR/database-prepare-postgres.json"
+grep -q '"databaseProvider":"postgres"' "$TMP_DIR/database-prepare-postgres.json"
 grep -q '"databaseUrlConfigured":true' "$TMP_DIR/database-prepare-postgres.json"
 grep -q -- '--profile postgres up -d --no-recreate postgres' "$CANVAS_TEST_COMPOSE_LOG"
-if grep -q 'exec -i -u postgres fake-postgres-id psql' "$CANVAS_TEST_COMPOSE_LOG"; then
-  echo "prepare-postgres altered the initialized role outside the reconciliation journal" >&2
-  exit 1
-fi
+grep -q 'exec -i -u postgres fake-postgres-id psql' "$CANVAS_TEST_COMPOSE_LOG"
 grep -q 'exec -i fake-postgres-id sh -c' "$CANVAS_TEST_COMPOSE_LOG"
 if grep -Eq 'postgresql://canvas:[^*[:space:]]+@postgres|CANVAS_POSTGRES_PASSWORD|safe-password' "$CANVAS_TEST_COMPOSE_LOG"; then
   echo "Postgres prepare leaked a password-bearing value into docker argv logs" >&2
   exit 1
 fi
-grep -q '^COMPOSE_PROFILES=$' "$CANVAS_COMPOSE_ENV"
+grep -q '^COMPOSE_PROFILES=postgres$' "$CANVAS_COMPOSE_ENV"
 
 "$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > "$TMP_DIR/config-set-provider.txt"
+"$cli" config-set env.CANVAS_POSTGRES_MODE managed --no-banner > /dev/null
+if "$cli" config-set env.CANVAS_DATABASE_PROVIDER sqlite --no-banner > "$TMP_DIR/sqlite-rejected.txt" 2>&1; then
+  echo "SQLite provider was unexpectedly accepted" >&2
+  exit 1
+fi
+grep -q 'SQLite is no longer supported' "$TMP_DIR/sqlite-rejected.txt"
 : > "$CANVAS_TEST_COMPOSE_LOG"
 "$cli" env --sync --timeout=10 --json --no-banner > "$TMP_DIR/env-sync-postgres.json"
 jq -e '.success == true and .postgresReconciled == true and .healthy == true and .timeoutSeconds == 10' "$TMP_DIR/env-sync-postgres.json" >/dev/null
@@ -348,7 +355,7 @@ if "$cli" env --sync --no-banner > "$TMP_DIR/team-sqlite.txt" 2>&1; then
   echo "managed-team accepted sqlite provider" >&2
   exit 1
 fi
-if ! grep -q 'requires CANVAS_DATABASE_PROVIDER=postgres' "$TMP_DIR/team-sqlite.txt"; then
+if ! grep -q 'SQLite is no longer supported' "$TMP_DIR/team-sqlite.txt"; then
   echo "managed-team SQLite rejection did not report the expected validation error" >&2
   cat "$TMP_DIR/team-sqlite.txt" >&2
   exit 1

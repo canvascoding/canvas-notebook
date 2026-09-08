@@ -53,11 +53,9 @@ run_case() (
 )
 
 run_case fresh-default "" "" "" postgres
-run_case existing-sqlite sqlite "" "" sqlite
 run_case existing-postgres postgres "" "" postgres
-run_case migrated-legacy-sqlite "" "" sqlite sqlite
 
-if run_case fresh-explicit-sqlite "" sqlite "" sqlite >/dev/null 2>&1; then
+if run_case fresh-explicit-sqlite "" sqlite "" postgres >/dev/null 2>&1; then
   echo "fresh SQLite installation was unexpectedly accepted" >&2
   exit 1
 fi
