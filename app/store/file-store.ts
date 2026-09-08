@@ -23,9 +23,11 @@ import {
 } from '@/app/lib/files/path-utils';
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { DirectoryRefreshQueue } from '@/app/lib/files/directory-refresh-queue';
-import { beginUploadJob, createUploadProgressReporter, finishUploadJob, updateUploadJob, type UploadOptions } from './upload-store';
+import { beginUploadJob, createUploadProgressReporter, finishUploadJob, updateUploadJob, type UploadOptions, type UploadJobHandle } from './upload-store';
+import { UploadTreeBatch, uploadVersionGuard } from '@/app/lib/files/upload-tree-batch';
 import {
   findNodeInTree,
+  flattenDirectoryChildren,
   getDirectoryDirectChildPaths,
   getExpandedDescendantDirectories,
   getSelectionRangePaths,
@@ -34,6 +36,7 @@ import {
   hasRefreshParentInTree,
   mergeRootNodesPreservingChildren,
   mergeSubtreeChildren,
+  mergeUploadedFileNodes,
   remapExpandedDirectories,
 } from '@/app/lib/files/tree-utils';
 import {
@@ -97,10 +100,11 @@ const SUBDIRECTORY_TREE_DEPTH = 0;
 type DirectoryLoadState = 'unloaded' | 'loading' | 'ready' | 'refreshing' | 'error';
 const appliedPathMutations = new Set<string>();
 const pathMutationVersions = new Map<string, number>();
+const uploadTreeBatches = new Map<string, { batch: UploadTreeBatch; isCurrent: () => boolean }>();
 
-function pathMutationVersion(workspaceId: string | null, path: string): number {
+function pathMutationVersion(workspaceId: string | null, path: string, versions = pathMutationVersions): number {
   return getParentDirectories(`${path}/_`).reduce((version, parent) => (
-    version + (pathMutationVersions.get(`${workspaceId}\0${parent}`) ?? 0)
+    version + (versions.get(`${workspaceId}\0${parent}`) ?? 0)
   ), 0);
 }
 
@@ -357,6 +361,7 @@ interface FileStoreState {
     convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[],
     options?: UploadOptions,
   ) => Promise<void>;
+  reconcileUpload: (job: UploadJobHandle) => Promise<void>;
   downloadFile: (path: string) => Promise<void>;
   toggleDirectory: (path: string) => void;
   collapseAllDirectories: () => void;
@@ -1407,6 +1412,20 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
+  reconcileUpload: async (job) => {
+    const pending = uploadTreeBatches.get(job.id);
+    pending?.batch.flush();
+    uploadTreeBatches.delete(job.id);
+    if (useWorkspaceStore.getState().activeWorkspaceId !== job.workspaceId || (pending && !pending.isCurrent())) return;
+    const directories = new Set([job.targetDir, ...(pending?.batch.directories ?? [])]);
+    for (const dir of directories) {
+      if (dir !== '.' && !Array.isArray(findNodeInTree(dir, get().fileTree)?.children)) continue;
+      get().markDirectoryStale(dir);
+    }
+    await Promise.all([...directories].filter((dir) => dir === '.' || Array.isArray(findNodeInTree(dir, get().fileTree)?.children))
+      .map((dir) => get().revalidateDirectory(dir, job.workspaceId, true)));
+  },
+
   uploadFile: async (
     file: File | File[],
     targetDir: string,
@@ -1418,6 +1437,28 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const workspaceId = options.job ? options.job.workspaceId : (options.workspaceId === undefined
       ? useWorkspaceStore.getState().activeWorkspaceId : options.workspaceId);
     const job = options.job ?? beginUploadJob(files, targetDir, workspaceId, pathMap);
+    let pending = uploadTreeBatches.get(job.id);
+    if (!pending) {
+      const generation = get().treeGeneration;
+      const since = uploadVersionGuard.snapshot();
+      const mutations = new Map(pathMutationVersions);
+      const isCurrent = () => useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+        && get().fileTreeWorkspaceId === workspaceId && get().treeGeneration === generation;
+      const batch = new UploadTreeBatch(
+        (result) => isCurrent()
+          && pathMutationVersion(workspaceId, result.targetPath, mutations) === pathMutationVersion(workspaceId, result.targetPath)
+          && uploadVersionGuard.accepts(workspaceId, result, since),
+        (nodes, directories) => {
+          if (!isCurrent()) return;
+          set((state) => ({ fileTree: mergeUploadedFileNodes(state.fileTree, nodes) }));
+          for (const dir of directories) {
+            if (dir === '.' || Array.isArray(findNodeInTree(dir, get().fileTree)?.children)) get().markDirectoryStale(dir);
+          }
+        },
+      );
+      pending = { batch, isCurrent };
+      uploadTreeBatches.set(job.id, pending);
+    }
     const reporter = createUploadProgressReporter(job, options.fileIndices);
     let failure: unknown;
     updateUploadJob(job, { phase: 'uploading' });
@@ -1427,8 +1468,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
       ) {
         updateUploadJob(job, { phase: 'reconciling' });
-        get().markDirectoryStale(job.targetDir);
-        await get().revalidateDirectory(job.targetDir, workspaceId, true);
+        await get().reconcileUpload(job);
       }
     };
 
@@ -1440,6 +1480,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         pathMap,
         convertParams,
         onFileProgress: reporter.report,
+        onFileCompleted: (result) => pending.batch.add(result),
       });
       if (result.completed.length > 0) await refreshUploadedDirectory();
     } catch (error) {
@@ -1450,7 +1491,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       throw error;
     } finally {
       reporter.flush();
-      if (!options.job) finishUploadJob(job, failure);
+      if (!options.job) {
+        pending.batch.flush();
+        uploadTreeBatches.delete(job.id);
+        finishUploadJob(job, failure);
+      }
     }
   },
 
@@ -1705,7 +1750,8 @@ async function loadDirectorySnapshot(
       const startedAt = Date.now();
       const version = get().directoryChangeVersions[dirPath] ?? 0;
       try {
-        const data = await loadWorkspaceTree(dirPath, depth, force, 'Failed to load directory', workspaceId, { includeStats: false });
+        const includeStats = (flattenDirectoryChildren(get().fileTree, dirPath) ?? []).some((node) => node.size !== undefined);
+        const data = await loadWorkspaceTree(dirPath, depth, force, 'Failed to load directory', workspaceId, { includeStats });
         if (!isCurrent()) return;
         if ((get().directoryChangeVersions[dirPath] ?? 0) !== version) {
           force = true;

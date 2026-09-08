@@ -38,8 +38,10 @@ export function mergeSubtreeChildren(nodes: FileNode[], targetPath: string, chil
   let changed = false;
   const nextNodes = nodes.map((node) => {
     if (node.path === targetPath) {
+      const merged = mergeRootNodesPreservingChildren(children, node.children ?? []);
+      if (merged === node.children) return node;
       changed = true;
-      return { ...node, children: mergeRootNodesPreservingChildren(children, node.children ?? []) };
+      return { ...node, children: merged };
     }
     if (node.children && targetPath.startsWith(`${node.path}/`)) {
       const nextChildren = mergeSubtreeChildren(node.children, targetPath, children);
@@ -59,11 +61,48 @@ export function mergeRootNodesPreservingChildren(nextNodes: FileNode[], currentN
     currentNodesByPath.set(node.path, node);
   }
 
-  return nextNodes.map((nextNode) => {
-    if (nextNode.type !== 'directory') return nextNode;
+  const merged = nextNodes.map((nextNode) => {
     const currentNode = currentNodesByPath.get(nextNode.path);
-    return currentNode?.children ? { ...nextNode, children: currentNode.children } : nextNode;
+    const candidate = nextNode.type === 'directory' && currentNode?.type === 'directory' && currentNode.children
+      ? { ...nextNode, children: currentNode.children } : nextNode;
+    return currentNode && equalFileNode(candidate, currentNode) ? currentNode : candidate;
   });
+  return merged.length === currentNodes.length && merged.every((node, index) => node === currentNodes[index]) ? currentNodes : merged;
+}
+
+function equalFileNode(left: FileNode, right: FileNode): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)] as Array<keyof FileNode>);
+  for (const key of keys) {
+    if (key === 'publicShare') {
+      if (left.publicShare === right.publicShare) continue;
+      if (!left.publicShare || !right.publicShare) return false;
+      const fields = new Set([...Object.keys(left.publicShare), ...Object.keys(right.publicShare)] as Array<keyof NonNullable<FileNode['publicShare']>>);
+      if ([...fields].some((field) => left.publicShare![field] !== right.publicShare![field])) return false;
+    } else if (left[key] !== right[key]) return false;
+  }
+  return true;
+}
+
+/** Insert into loaded branches only; new closed parents remain lazy. */
+export function mergeUploadedFileNodes(tree: FileNode[], uploads: FileNode[]): FileNode[] {
+  const insert = (nodes: FileNode[], file: FileNode, segments: string[], depth: number): FileNode[] => {
+    const path = segments.slice(0, depth + 1).join('/');
+    const index = nodes.findIndex((node) => node.path === path);
+    const existing = nodes[index];
+    let next: FileNode;
+    if (depth === segments.length - 1) {
+      next = existing?.type === file.type ? { ...existing, ...file } : file;
+      if (existing && equalFileNode(existing, next)) return nodes;
+    } else if (!existing) next = { path, name: segments[depth], type: 'directory' };
+    else {
+      if (existing.type !== 'directory' || !existing.children) return nodes;
+      const children = insert(existing.children, file, segments, depth + 1);
+      if (children === existing.children) return nodes;
+      next = { ...existing, children };
+    }
+    return index < 0 ? [...nodes, next] : nodes.map((node, cursor) => cursor === index ? next : node);
+  };
+  return uploads.reduce((nodes, upload) => insert(nodes, upload, upload.path.split('/'), 0), tree);
 }
 
 export function clearUnrefreshedDirectoryChildren(

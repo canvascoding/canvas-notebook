@@ -154,8 +154,9 @@ export async function POST(request: NextRequest) {
     }
 
     await syncPublicSharesAfterWrite(uploadedPaths, workspaceResult.workspace);
+    const committed = [];
     for (const uploadedPath of uploadedPaths) {
-      await publishWorkspaceUpload(workspaceResult.workspace, uploadedPath);
+      committed.push(await publishWorkspaceUpload(workspaceResult.workspace, uploadedPath));
     }
     await recordAuditEvent({
       organizationId: workspaceResult.workspace.organizationId,
@@ -178,7 +179,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, count: files.length, files: uploadedFiles });
+    return NextResponse.json({ success: true, count: files.length, files: uploadedFiles, committed });
   } catch (error) {
     if (error instanceof FileCollaborationPolicyError) {
       return NextResponse.json(
