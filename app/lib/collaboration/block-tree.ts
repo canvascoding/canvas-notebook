@@ -1,0 +1,308 @@
+import type { Node as ProseMirrorNode, Schema } from '@tiptap/pm/model';
+import { updateYFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap';
+import * as Y from 'yjs';
+
+import {
+  projectBlockPlacements,
+  type BlockPlacementOperation,
+  type BlockPlacementProjection,
+  type InitialBlockPlacement,
+} from './block-tree-placement';
+
+export const BLOCK_TREE_FORMAT_VERSION = 1;
+const BLOCK_TREE_KEY = 'canvas-block-tree-v1';
+
+type BlockProperties = { type: string; attrs: Record<string, unknown>; inline: boolean };
+type BlockRecord = Y.Map<unknown>;
+
+type DocumentBlock = InitialBlockPlacement & { node: ProseMirrorNode };
+export type BlockMoveIntent = { blockId: string; parentId: string | null; beforeId: string | null };
+
+function documentBlocks(doc: ProseMirrorNode): Map<string, DocumentBlock> {
+  const blocks = new Map<string, DocumentBlock>();
+  const ids = new Set<string>();
+  doc.descendants((node) => {
+    if (node.isText) return;
+    const id = node.attrs.id;
+    if (typeof id !== 'string' || !id || ids.has(id)) throw new BlockTreeConflict('identity_invalid');
+    ids.add(id);
+  });
+  const visit = (parent: ProseMirrorNode, parentId: string | null) => {
+    parent.forEach((node, _offset, order) => {
+      const id = node.attrs.id as string;
+      blocks.set(id, { id, parentId, order, node });
+      if (!node.inlineContent && !node.isLeaf) visit(node, id);
+    });
+  };
+  visit(doc, null);
+  return blocks;
+}
+
+function properties(record: BlockRecord): BlockProperties {
+  const shape = record.get('shape') as { type: string; inline: boolean };
+  const attrs = record.get('attributes') as Y.Map<unknown>;
+  return { ...shape, attrs: attrs.toJSON() };
+}
+
+export class BlockTreeConflict extends Error {
+  constructor(readonly code: 'format_mismatch' | 'identity_invalid' | 'target_changed' | 'structure_invalid') {
+    super(`Block structure operation failed: ${code}.`);
+    this.name = 'BlockTreeConflict';
+  }
+}
+
+/**
+ * Versioned storage candidate. It is deliberately not a second writer to the
+ * legacy body fragment. Production activation requires a fenced migration and
+ * the editor/agent adapters for this representation.
+ */
+export class CollaborationBlockTree {
+  readonly root: Y.Map<unknown>;
+  readonly records: Y.Map<BlockRecord>;
+  readonly operations: Y.Map<BlockPlacementOperation>;
+  readonly receipts: Y.Map<BlockPlacementOperation>;
+
+  constructor(readonly doc: Y.Doc, readonly schema: Schema) {
+    this.root = doc.getMap(BLOCK_TREE_KEY);
+    if (this.root.get('version') !== BLOCK_TREE_FORMAT_VERSION
+      || doc.share.has('body') || !(this.root.get('records') instanceof Y.Map)
+      || !(this.root.get('operations') instanceof Y.Map) || !(this.root.get('receipts') instanceof Y.Map)) {
+      throw new BlockTreeConflict('format_mismatch');
+    }
+    this.records = this.root.get('records') as Y.Map<BlockRecord>;
+    this.operations = this.root.get('operations') as Y.Map<BlockPlacementOperation>;
+    this.receipts = this.root.get('receipts') as Y.Map<BlockPlacementOperation>;
+  }
+
+  static create(doc: Y.Doc, initial: ProseMirrorNode): CollaborationBlockTree {
+    if (doc.share.has(BLOCK_TREE_KEY) || doc.share.has('body')) throw new BlockTreeConflict('format_mismatch');
+    initial.check();
+    const blocks = documentBlocks(initial);
+    const root = doc.getMap(BLOCK_TREE_KEY);
+    const records = new Y.Map<BlockRecord>();
+    const operations = new Y.Map<BlockPlacementOperation>();
+    doc.transact(() => {
+      root.set('version', BLOCK_TREE_FORMAT_VERSION);
+      root.set('records', records);
+      root.set('operations', operations);
+      root.set('receipts', new Y.Map<BlockPlacementOperation>());
+      const tree = new CollaborationBlockTree(doc, initial.type.schema);
+      for (const block of blocks.values()) tree.addRecord(block);
+    }, 'block-tree-import');
+    return new CollaborationBlockTree(doc, initial.type.schema);
+  }
+
+  private addRecord(block: DocumentBlock): void {
+    const { id, parentId, order, node } = block;
+    const record = new Y.Map<unknown>();
+    record.set('initial', { id, parentId, order } satisfies InitialBlockPlacement);
+    record.set('shape', { type: node.type.name, inline: node.inlineContent });
+    record.set('attributes', new Y.Map(Object.entries(node.attrs)));
+    const content = new Y.XmlFragment();
+    record.set('content', content);
+    this.records.set(id, record);
+    if (node.inlineContent) updateYFragment(this.doc, content, node, { mapping: new Map(), isOMark: new Map() });
+  }
+
+  project(): BlockPlacementProjection {
+    const initial = [...this.records.entries()].map(([id, record]) => {
+      if (!(record instanceof Y.Map)) throw new BlockTreeConflict('format_mismatch');
+      const placement = record.get('initial') as InitialBlockPlacement | undefined;
+      if (!placement || placement.id !== id) throw new BlockTreeConflict('identity_invalid');
+      return placement;
+    });
+    for (const [id, operation] of this.operations) {
+      if (!operation || operation.id !== id) throw new BlockTreeConflict('identity_invalid');
+    }
+    return projectBlockPlacements(initial, [...this.operations.values()]);
+  }
+
+  createUndoManager(origin: unknown): Y.UndoManager {
+    // Receipts are durable even when the corresponding operation is undone:
+    // retrying that operation must not silently redo it.
+    return new Y.UndoManager([this.records, this.operations], { trackedOrigins: new Set([origin]), captureTimeout: 0 });
+  }
+
+  content(blockId: string): Y.XmlFragment {
+    const record = this.records.get(blockId);
+    const content = record?.get('content');
+    if (!(content instanceof Y.XmlFragment)) throw new BlockTreeConflict('target_changed');
+    return content;
+  }
+
+  read(schema: Schema = this.schema, projection = this.project()): ProseMirrorNode {
+    if (projection.conflicts.some((conflict) => conflict.reason === 'orphan')) throw new BlockTreeConflict('structure_invalid');
+    const build = (id: string): ProseMirrorNode => {
+      const record = this.records.get(id)!;
+      const props = properties(record);
+      if (props.attrs.id !== id) throw new BlockTreeConflict('identity_invalid');
+      if (props.inline && (projection.children.get(id)?.length ?? 0) > 0) throw new BlockTreeConflict('structure_invalid');
+      const children = props.inline
+        ? (yXmlFragmentToProsemirrorJSON(this.content(id)).content as unknown[][]).flat().map((json) => schema.nodeFromJSON(json))
+        : (projection.children.get(id) ?? []).map(build);
+      const type = schema.nodes[props.type];
+      if (!type || type.inlineContent !== props.inline) throw new BlockTreeConflict('structure_invalid');
+      return type.createChecked(props.attrs, children);
+    };
+    const result = schema.topNodeType.createChecked(null, (projection.children.get(null) ?? []).map(build));
+    documentBlocks(result);
+    return result;
+  }
+
+  private stamp(id: string) {
+    if (typeof id !== 'string' || !id) throw new BlockTreeConflict('identity_invalid');
+    // The integrated state vector is monotonic even when an operation is undone
+    // or a process restarts. Summing it yields a causal logical clock.
+    const clock = [...Y.decodeStateVector(Y.encodeStateVector(this.doc)).values()].reduce((sum, value) => sum + value, 1);
+    if (!Number.isSafeInteger(clock)) throw new BlockTreeConflict('structure_invalid');
+    return { id, clock, actor: this.doc.clientID };
+  }
+
+  move(input: { blockId: string; parentId: string | null; beforeId: string | null; operationId: string }, origin: unknown): void {
+    const existing = this.receipts.get(input.operationId);
+    if (existing) {
+      if (existing.kind !== 'move' || existing.blockId !== input.blockId
+        || existing.parentId !== input.parentId || existing.beforeId !== input.beforeId) {
+        throw new BlockTreeConflict('identity_invalid');
+      }
+      return;
+    }
+    const operation: BlockPlacementOperation = { ...this.stamp(input.operationId), kind: 'move',
+      blockId: input.blockId, parentId: input.parentId, beforeId: input.beforeId };
+    const initial = [...this.records.values()].map((record) => record.get('initial') as InitialBlockPlacement);
+    const next = projectBlockPlacements(initial, [...this.operations.values(), operation]);
+    if (next.conflicts.some((conflict) => conflict.operationId === operation.id || conflict.reason === 'orphan')) {
+      throw new BlockTreeConflict('target_changed');
+    }
+    try { this.read(this.schema, next); } catch { throw new BlockTreeConflict('structure_invalid'); }
+    this.doc.transact(() => { this.recordOperation(operation); }, origin);
+  }
+
+  private recordOperation(operation: BlockPlacementOperation): void {
+    this.operations.set(operation.id, operation);
+    this.receipts.set(operation.id, operation);
+  }
+
+  delete(blockId: string, operationId: string, origin: unknown): void {
+    const existing = this.receipts.get(operationId);
+    if (existing) {
+      if (existing.kind !== 'delete' || existing.blockIds[0] !== blockId) throw new BlockTreeConflict('identity_invalid');
+      return;
+    }
+    const projection = this.project();
+    if (!projection.parents.has(blockId) || projection.deleted.has(blockId)) throw new BlockTreeConflict('target_changed');
+    if (this.operations.has(operationId)) throw new BlockTreeConflict('identity_invalid');
+    const blockIds: string[] = [];
+    const collect = (id: string) => {
+      blockIds.push(id);
+      for (const child of projection.children.get(id) ?? []) collect(child);
+    };
+    collect(blockId);
+    const operation: BlockPlacementOperation = { ...this.stamp(operationId), kind: 'delete', blockIds };
+    const initial = [...this.records.values()].map((record) => record.get('initial') as InitialBlockPlacement);
+    const next = projectBlockPlacements(initial, [...this.operations.values(), operation]);
+    try { this.read(this.schema, next); } catch { throw new BlockTreeConflict('structure_invalid'); }
+    this.doc.transact(() => { this.recordOperation(operation); }, origin);
+  }
+
+  updateInlineContent(blockId: string, next: ProseMirrorNode, origin: unknown): void {
+    const projection = this.project();
+    if (projection.deleted.has(blockId) || !projection.parents.has(blockId) || next.attrs.id !== blockId) {
+      throw new BlockTreeConflict('target_changed');
+    }
+    const props = properties(this.records.get(blockId)!);
+    if (!props.inline || !next.inlineContent || props.type !== next.type.name) throw new BlockTreeConflict('structure_invalid');
+    next.check();
+    this.doc.transact(() => {
+      updateYFragment(this.doc, this.content(blockId), next, { mapping: new Map(), isOMark: new Map() });
+    }, origin);
+  }
+
+  /** Applies an editor transaction by identity, including native list/table commands. */
+  applyDocumentChange(before: ProseMirrorNode, next: ProseMirrorNode, origin: unknown, move?: BlockMoveIntent): void {
+    if (before.eq(next)) return;
+    next.check();
+    if (!this.read().eq(before)) throw new BlockTreeConflict('target_changed');
+    const previous = documentBlocks(before);
+    const following = documentBlocks(next);
+    for (const id of following.keys()) {
+      if (!previous.has(id) && this.records.has(id)) throw new BlockTreeConflict('identity_invalid');
+    }
+    const structural = previous.size !== following.size || [...following.values()].some((block) => {
+      const old = previous.get(block.id);
+      return !old || old.parentId !== block.parentId || old.order !== block.order || old.node.type !== block.node.type;
+    });
+    const operationPrefix = globalThis.crypto.randomUUID();
+    if (structural) {
+      // Yjs transactions do not roll back exceptions. Validate a structural plan
+      // on an isolated replica first, then apply the same plan synchronously.
+      const scratch = new Y.Doc();
+      try {
+        Y.applyUpdate(scratch, Y.encodeStateAsUpdate(this.doc));
+        scratch.clientID = this.doc.clientID;
+        const candidate = new CollaborationBlockTree(scratch, this.schema);
+        candidate.applyChanges(previous, following, operationPrefix, origin, structural, move);
+        if (!candidate.read().eq(next)) throw new BlockTreeConflict('structure_invalid');
+      } finally { scratch.destroy(); }
+    }
+    this.applyChanges(previous, following, operationPrefix, origin, structural, move);
+  }
+
+  private applyChanges(
+    before: Map<string, DocumentBlock>,
+    next: Map<string, DocumentBlock>,
+    prefix: string,
+    origin: unknown,
+    structural: boolean,
+    move?: BlockMoveIntent,
+  ): void {
+    this.doc.transact(() => {
+      for (const block of next.values()) {
+        const old = before.get(block.id);
+        if (!old) { this.addRecord(block); continue; }
+        if (old.node === block.node) continue;
+        const record = this.records.get(block.id)!;
+        const attrs = record.get('attributes') as Y.Map<unknown>;
+        for (const key of new Set([...Object.keys(old.node.attrs), ...Object.keys(block.node.attrs)])) {
+          if (JSON.stringify(old.node.attrs[key]) === JSON.stringify(block.node.attrs[key])) continue;
+          if (block.node.attrs[key] === undefined) attrs.delete(key);
+          else attrs.set(key, block.node.attrs[key]);
+        }
+        if (old.node.type !== block.node.type) record.set('shape', { type: block.node.type.name, inline: block.node.inlineContent });
+        if (block.node.inlineContent && !old.node.content.eq(block.node.content)) {
+          updateYFragment(this.doc, this.content(block.id), block.node, { mapping: new Map(), isOMark: new Map() });
+        }
+      }
+      if (!structural) return;
+      const removed = [...before.keys()].filter((id) => !next.has(id));
+      if (removed.length) {
+        const id = `${prefix}:delete`;
+        this.recordOperation({ ...this.stamp(id), kind: 'delete', blockIds: removed });
+      }
+      if (move) {
+        const id = `${prefix}:intent`;
+        this.recordOperation({ ...this.stamp(id), kind: 'move', ...move });
+      }
+      const targetChildren = new Map<string | null, string[]>();
+      for (const block of next.values()) {
+        const children = targetChildren.get(block.parentId) ?? [];
+        children.push(block.id);
+        targetChildren.set(block.parentId, children);
+      }
+      let moveIndex = 0;
+      let current = this.project();
+      for (const [parentId, children] of targetChildren) {
+        for (let index = children.length - 1; index >= 0; index -= 1) {
+          const blockId = children[index];
+          const beforeId = children[index + 1] ?? null;
+          const siblings = current.children.get(parentId) ?? [];
+          if (current.parents.get(blockId) === parentId && siblings.includes(blockId)
+            && (siblings[siblings.indexOf(blockId) + 1] ?? null) === beforeId) continue;
+          const id = `${prefix}:move:${moveIndex++}`;
+          this.recordOperation({ ...this.stamp(id), kind: 'move', blockId, parentId, beforeId });
+          current = this.project();
+        }
+      }
+    }, origin);
+  }
+}

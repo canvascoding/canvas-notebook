@@ -163,6 +163,8 @@ Den technischen Nachweis aus Abschnitt 4.2 durchführen, die Format-/Binding-Ent
 
 Abschluss: Move/Text, Move/Move, Move/Delete und Undo erhalten Identitäten und Inhalte für unterschiedliche Update-Reihenfolgen, verzögerte und doppelte Zustellung. Es existiert kein schreibbarer alter Clientpfad, der die gewählte Regel umgehen kann.
 
+Teilstand 3.1: Der getrennte Inhalts-/Platzierungskern und sein ProseMirror-Transaktionsadapter bestehen 16 neutrale Repliken- und Strukturtests. Die Entscheidung und Konfliktregeln stehen in `docs/editor-block-tree-decision.md`. Das ist der abgeschlossene technische Nachweis, noch nicht der Abschluss von Schritt 3. Als Nächstes folgen innerhalb dieses Schritts das tatsächliche Editor-Binding (3.2) sowie Representation-Handshake und Migration (3.3). Der neue Kern ist bis dahin nicht an produktive Sessions angeschlossen.
+
 ### Schritt 4 — Strukturaktionen und Agentenziele integrieren
 
 Die nachgewiesene Mechanik auf Listen, Task-Items, Container und Tabellen ausweiten. Agentenziele zusätzlich an die fachliche Blockidentität und geprüfte Strukturhistorie binden. Relative Textanker bleiben innerhalb fortbestehender Inhalte nutzbar; unklare Split-/Join-Ziele werden nicht automatisch neu zugeordnet. Review, Revert und Zielmarkierungen verwenden dieselbe Auflösung.
