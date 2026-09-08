@@ -358,7 +358,7 @@ export async function getCommunityTeamRuntimeReadiness(
           'pgvector',
           'ready',
           'TEAM_RUNTIME_PGVECTOR_READY',
-          `pgvector ${postgres.pgvectorVersion $1$2 ''} is available.`.trim(),
+          `pgvector ${postgres.pgvectorVersion ?? ''} is available.`.trim(),
         )
       : check(
           'pgvector',
@@ -483,7 +483,7 @@ export function withCommunityTeamVersionReadiness(
         'version',
         'blocked',
         'TEAM_RUNTIME_NOTEBOOK_UPDATE_REQUIRED',
-        `Update Canvas Notebook to ${version.minimum $1$2 'a supported version'} before upgrading to Team.`,
+        `Update Canvas Notebook to ${version.minimum ?? 'a supported version'} before upgrading to Team.`,
       ));
   return finalizeReadiness(
     status.checkedAt,

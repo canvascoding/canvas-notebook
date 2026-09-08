@@ -905,7 +905,7 @@ export async function beginDirectMembershipSeatRequote(input: {
     });
     const enqueued = await enqueueTeamSeatOutboxOperation(database, {
       organizationId: input.organizationId,
-      dedupeKey: `${operationType}:${input.membershipId}:seat-prepare:${Number(count$1.count || 0) + 1}`,
+      dedupeKey: `${operationType}:${input.membershipId}:seat-prepare:${Number(count?.count || 0) + 1}`,
       operationKind: 'seat_prepare',
       operationType,
       membershipId: input.membershipId,
