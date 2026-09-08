@@ -52,7 +52,7 @@ async function importFile(input: {
   const contentHash = hash(content);
   const connection = await openDb();
   try {
-    const existing = await connection.get(`SELECT id FROM memory_legacy_imports WHERE user_id = ? AND agent_id = ? AND file_name = ? AND content_hash = ? LIMIT 1`, [input.userId, input.agentId, input.fileName, contentHash]) as { id?: string } | undefined;
+    const existing = await connection.get(`SELECT id FROM memory_legacy_imports WHERE user_id = $1 AND agent_id = $2 AND file_name = $3 AND content_hash = $4 LIMIT 1`, [input.userId, input.agentId, input.fileName, contentHash]) as { id?: string } | undefined;
     if (existing?.id) return;
   } finally { await connection.close(); }
 
@@ -74,7 +74,7 @@ async function importFile(input: {
       INSERT INTO memory_legacy_imports (
         id, user_id, agent_id, file_name, content_hash,
         entries_imported, entries_skipped, completed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT (user_id, agent_id, file_name, content_hash) DO NOTHING
     `, [randomUUID(), input.userId, input.agentId, input.fileName, contentHash, entriesImported, entriesSkipped, now]);
   } finally { await resultDb.close(); }

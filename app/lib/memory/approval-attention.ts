@@ -79,11 +79,12 @@ export async function listMemoryApprovalAttention(input: {
   const predicates: string[] = [];
   const params: unknown[] = [input.userId];
   if (managedWorkspaceIds.length > 0) {
-    predicates.push(`(collection.scope_type = 'workspace' AND collection.workspace_id IN (${managedWorkspaceIds.map(() => '?').join(', ')}))`);
+    const firstWorkspaceParam = params.length + 1;
+    predicates.push(`(collection.scope_type = 'workspace' AND collection.workspace_id IN (${managedWorkspaceIds.map((_, index) => `$${firstWorkspaceParam + index}`).join(', ')}))`);
     params.push(...managedWorkspaceIds);
   }
   if (canApproveOrganization && organization.organizationId) {
-    predicates.push(`(collection.scope_type = 'organization' AND collection.organization_id = ?)`);
+    predicates.push(`(collection.scope_type = 'organization' AND collection.organization_id = $${params.length + 1})`);
     params.push(organization.organizationId);
   }
 
@@ -98,7 +99,7 @@ export async function listMemoryApprovalAttention(input: {
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
       LEFT JOIN "user" creator ON creator.id = entry.created_by_user_id
       LEFT JOIN memory_approval_read_states read_state
-        ON read_state.entry_id = entry.id AND read_state.user_id = ?
+        ON read_state.entry_id = entry.id AND read_state.user_id = $1
       WHERE entry.status = 'pending' AND collection.status = 'active'
         AND (${predicates.join(' OR ')})
       ORDER BY entry.updated_at DESC, entry.id ASC
@@ -138,7 +139,7 @@ async function storeApprovalReadState(userId: string, entryIds: string[], now: n
     for (const entryId of entryIds) {
       await connection.run(`
         INSERT INTO memory_approval_read_states (user_id, entry_id, read_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT(user_id, entry_id) DO UPDATE SET read_at = excluded.read_at, updated_at = excluded.updated_at
       `, [userId, entryId, now, now, now]);
     }

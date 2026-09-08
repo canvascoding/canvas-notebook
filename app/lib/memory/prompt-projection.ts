@@ -30,7 +30,7 @@ export async function buildMemoryPromptProjection(input: {
   const connection = await openDb();
   try {
     const settings = await connection.get(`
-      SELECT memory_prompt_max_tokens FROM memory_user_settings WHERE user_id = ?
+      SELECT memory_prompt_max_tokens FROM memory_user_settings WHERE user_id = $1
     `, [input.userId]) as { memory_prompt_max_tokens?: number } | undefined;
     const budget = resolveMemoryPromptTokenBudget({
       configuredTokens: settings?.memory_prompt_max_tokens,
@@ -38,8 +38,8 @@ export async function buildMemoryPromptProjection(input: {
     });
     if (budget <= 0) return '';
     const scopes = [
-      `(collection.scope_type = 'user' AND collection.user_id = ? AND collection.agent_id IS NULL)`,
-      `(collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id = ?)`,
+      `(collection.scope_type = 'user' AND collection.user_id = $1 AND collection.agent_id IS NULL)`,
+      `(collection.scope_type = 'agent' AND collection.user_id = $2 AND collection.agent_id = $3)`,
     ];
     const params: unknown[] = [input.userId, input.userId, input.agentId];
     if (input.workspaceId) {
@@ -47,7 +47,7 @@ export async function buildMemoryPromptProjection(input: {
         target: 'workspace', userId: input.userId, workspaceId: input.workspaceId,
       });
       if (workspacePermissions.canReadPublished) {
-        scopes.push(`(collection.scope_type = 'workspace' AND collection.workspace_id = ?)`);
+        scopes.push(`(collection.scope_type = 'workspace' AND collection.workspace_id = $${params.length + 1})`);
         params.push(input.workspaceId);
       }
     }
@@ -56,7 +56,7 @@ export async function buildMemoryPromptProjection(input: {
         target: 'organization', userId: input.userId, organizationId: input.organizationId,
       });
       if (organizationPermissions.canReadPublished) {
-        scopes.push(`(collection.scope_type = 'organization' AND collection.organization_id = ?)`);
+        scopes.push(`(collection.scope_type = 'organization' AND collection.organization_id = $${params.length + 1})`);
         params.push(input.organizationId);
       }
     }
@@ -94,7 +94,7 @@ export async function buildMemoryPromptProjection(input: {
     if (entries.length === 0) return '';
     if (input.recordUsage !== false) {
       await connection.run(
-        `UPDATE memory_entries SET last_used_at = ? WHERE id IN (${entries.map(() => '?').join(', ')})`,
+        `UPDATE memory_entries SET last_used_at = $1 WHERE id IN (${entries.map((_, index) => `$${index + 2}`).join(', ')})`,
         [Date.now(), ...entries.map((entry) => entry.id)],
       );
     }
