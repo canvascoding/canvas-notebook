@@ -16,9 +16,10 @@ async function main(): Promise<void> {
     assert.throws(() => provider.assertRuntimeDatabaseProviderSupported(), /requires DATABASE_URL/u);
 
     process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
-    const sqliteConfig = provider.resolveDatabaseProviderConfig();
-    assert.ok(sqliteConfig.problems.some((problem) => problem.code === 'sqlite_runtime_unsupported'));
-    assert.throws(() => provider.assertRuntimeDatabaseProviderSupported(), /SQLite is no longer supported/u);
+    const postgresConfig = provider.resolveDatabaseProviderConfig();
+    assert.equal(postgresConfig.provider, 'postgres');
+    assert.ok(postgresConfig.problems.some((problem) => problem.code === 'postgres_missing_database_url'));
+    assert.throws(() => provider.assertRuntimeDatabaseProviderSupported(), /requires DATABASE_URL/u);
 
     process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
     process.env.DATABASE_URL = 'postgresql://canvas:test@127.0.0.1:1/canvas';

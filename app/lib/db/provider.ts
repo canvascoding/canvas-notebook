@@ -1,4 +1,3 @@
-import path from 'node:path';
 
 import {
   normalizeVectorProvider,
@@ -8,11 +7,10 @@ import {
   type NotebookVectorProvider,
 } from '@/app/lib/runtime/notebook-runtime';
 
-export type DatabaseProvider = 'sqlite' | 'postgres';
+export type DatabaseProvider = 'postgres';
 
 export type DatabaseProviderProblemCode =
   | 'invalid_provider'
-  | 'sqlite_runtime_unsupported'
   | 'postgres_missing_database_url'
   | 'postgres_invalid_database_url'
   | 'postgres_runtime_adapter_unavailable'
@@ -23,17 +21,13 @@ export type DatabaseProviderProblem = {
   message: string;
 };
 
-export type DatabaseRuntimeAdapter = 'sqlite' | 'postgres' | 'postgres-unavailable';
+export type DatabaseRuntimeAdapter = 'postgres' | 'postgres-unavailable';
 
 export type DatabaseProviderConfig = {
   provider: DatabaseProvider;
   requestedProvider: string | null;
   vectorProvider: NotebookVectorProvider;
   runtimeAdapter: DatabaseRuntimeAdapter;
-  sqlite: {
-    dataDir: string;
-    path: string;
-  };
   postgres: {
     databaseUrlConfigured: boolean;
     databaseUrlProtocol: string | null;
@@ -63,8 +57,6 @@ export type PublicDatabaseProviderStatus = {
   warnings: DatabaseProviderProblemCode[];
 };
 
-const VALID_PROVIDERS = new Set<DatabaseProvider>(['sqlite', 'postgres']);
-
 function normalizeEnvValue(value: string | null | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
   return normalized ? normalized : null;
@@ -90,29 +82,8 @@ function getDatabaseUrlProtocol(databaseUrl: string | null | undefined): string 
   }
 }
 
-export function resolveDataDir(): string {
-  const configuredDataDir = process.env.DATA?.trim();
-  if (configuredDataDir) {
-    return path.resolve(/*turbopackIgnore: true*/ configuredDataDir);
-  }
-
-  return path.resolve(/*turbopackIgnore: true*/ process.cwd(), 'data');
-}
-
-export function resolveSqlitePath(): string {
-  return path.join(resolveDataDir(), 'sqlite.db');
-}
-
 export function normalizeDatabaseProvider(value?: string | null): DatabaseProvider {
-  const normalized = normalizeEnvValue(value);
-  if (!normalized) {
-    const databaseUrlProtocol = getDatabaseUrlProtocol(process.env.DATABASE_URL);
-    if (databaseUrlProtocol === 'postgres' || databaseUrlProtocol === 'postgresql') return 'postgres';
-    return 'postgres';
-  }
-  return VALID_PROVIDERS.has(normalized as DatabaseProvider)
-    ? normalized as DatabaseProvider
-    : 'sqlite';
+  return 'postgres';
 }
 
 export function getDatabaseProvider(): DatabaseProvider {
@@ -130,26 +101,18 @@ export function resolveDatabaseProviderConfig(): DatabaseProviderConfig {
   const requestedProvider = normalizeEnvValue(process.env.CANVAS_DATABASE_PROVIDER);
   const provider = normalizeDatabaseProvider(requestedProvider);
   const problems: DatabaseProviderProblem[] = [];
-  const sqlitePath = resolveSqlitePath();
   const databaseUrlProtocol = getDatabaseUrlProtocol(process.env.DATABASE_URL);
   const pgvectorEnabled = isTruthyEnv(process.env.CANVAS_POSTGRES_VECTOR_ENABLED);
   const vectorProvider = normalizeVectorProvider(process.env.CANVAS_VECTOR_PROVIDER) || (pgvectorEnabled ? 'pgvector' : 'none');
 
-  if (requestedProvider && !VALID_PROVIDERS.has(requestedProvider as DatabaseProvider)) {
+  if (requestedProvider && requestedProvider !== 'postgres' && requestedProvider !== 'postgresql') {
     problems.push(createProblem(
       'invalid_provider',
-      `Unsupported CANVAS_DATABASE_PROVIDER "${requestedProvider}". Use "sqlite" or "postgres".`,
+      `Unsupported CANVAS_DATABASE_PROVIDER "${requestedProvider}". Use "postgres".`,
     ));
   }
 
-  if (requestedProvider === 'sqlite') {
-    problems.push(createProblem(
-      'sqlite_runtime_unsupported',
-      'SQLite is no longer supported by the application runtime. Configure DATABASE_URL with a postgres:// or postgresql:// URL.',
-    ));
-  }
-
-  if (provider === 'postgres') {
+  {
     if (!process.env.DATABASE_URL?.trim()) {
       problems.push(createProblem(
         'postgres_missing_database_url',
@@ -167,11 +130,7 @@ export function resolveDatabaseProviderConfig(): DatabaseProviderConfig {
     provider,
     requestedProvider,
     vectorProvider,
-    runtimeAdapter: provider === 'postgres' ? 'postgres' : 'sqlite',
-    sqlite: {
-      dataDir: resolveDataDir(),
-      path: sqlitePath,
-    },
+    runtimeAdapter: 'postgres',
     postgres: {
       databaseUrlConfigured: Boolean(process.env.DATABASE_URL?.trim()),
       databaseUrlProtocol,
@@ -215,7 +174,7 @@ export function resolveDatabaseProviderGate(options: {
     blockers.push(createProblem(problem.code, problem.message));
   }
 
-  if (config.provider === 'postgres' && !postgresRuntimeAdapterAvailable) {
+  if (!postgresRuntimeAdapterAvailable) {
     blockers.push(createProblem(
       'postgres_runtime_adapter_unavailable',
       'Postgres provider is configured, but this build still uses the SQLite runtime adapter.',
@@ -260,10 +219,10 @@ export class DatabaseProviderRuntimeError extends Error {
 
 export function assertRuntimeDatabaseProviderSupported(provider = getDatabaseProvider()): void {
   const gate = resolveDatabaseProviderGate({ postgresRuntimeAdapterAvailable: true });
-  if (provider === 'sqlite' || !gate.ok) {
+  if (!gate.ok) {
     const problem = gate.blockers[0];
     throw new DatabaseProviderRuntimeError(
-      problem?.code || 'sqlite_runtime_unsupported',
+      problem?.code || 'postgres_missing_database_url',
       problem?.message || 'PostgreSQL is required at runtime. Configure DATABASE_URL with a postgres:// or postgresql:// URL.',
     );
   }

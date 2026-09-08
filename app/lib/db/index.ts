@@ -5,7 +5,6 @@ import {
 import {
   assertRuntimeDatabaseProviderSupported,
   getDatabaseProvider,
-  resolveSqlitePath,
 } from './provider';
 import {
   coerceDatabaseUnavailableError,
@@ -110,7 +109,7 @@ export const db: AppDatabase = new Proxy(Object.create(null), {
     return Reflect.set(getRuntimeDatabase().db, property, value);
   },
 }) as AppDatabase;
-export { getDatabaseProvider, resolveSqlitePath };
+export { getDatabaseProvider };
 
 export function getDatabaseInitializationError(): DatabaseUnavailableError | null {
   return getRuntimeDatabase().initializationError;

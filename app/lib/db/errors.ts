@@ -1,11 +1,9 @@
 export type DatabaseUnavailableCode =
-  | 'sqlite_unreadable'
   | 'postgres_unavailable'
   | 'database_initialization_failed';
 
 export type DatabaseUnavailableContext = {
-  provider?: 'sqlite' | 'postgres';
-  sqlitePath?: string;
+  provider?: 'postgres';
 };
 
 export class DatabaseUnavailableError extends Error {
@@ -22,26 +20,6 @@ export class DatabaseUnavailableError extends Error {
     this.cause = cause;
   }
 }
-
-const SQLITE_UNAVAILABLE_CODES = new Set([
-  'SQLITE_CANTOPEN',
-  'SQLITE_CORRUPT',
-  'SQLITE_FULL',
-  'SQLITE_IOERR',
-  'SQLITE_NOTADB',
-  'SQLITE_READONLY',
-]);
-
-const SQLITE_UNAVAILABLE_MESSAGES = [
-  /database disk image is malformed/iu,
-  /file is not a database/iu,
-  /malformed database schema/iu,
-  /not a database/iu,
-  /unable to open database file/iu,
-  /attempt to write a readonly database/iu,
-  /database or disk is full/iu,
-  /disk i\/o error/iu,
-];
 
 const POSTGRES_UNAVAILABLE_CODES = new Set([
   '08000',
@@ -91,14 +69,6 @@ export function isDatabaseUnavailableError(error: unknown): error is DatabaseUna
     Boolean(error && typeof error === 'object' && (error as { name?: unknown }).name === 'DatabaseUnavailableError');
 }
 
-export function isSqliteDatabaseUnavailableError(error: unknown): boolean {
-  const code = readErrorCode(error);
-  if (code && SQLITE_UNAVAILABLE_CODES.has(code)) return true;
-
-  const message = readErrorMessage(error);
-  return SQLITE_UNAVAILABLE_MESSAGES.some((pattern) => pattern.test(message));
-}
-
 export function isPostgresDatabaseUnavailableError(error: unknown): boolean {
   const code = readErrorCode(error);
   if (code && POSTGRES_UNAVAILABLE_CODES.has(code)) return true;
@@ -115,17 +85,7 @@ export function coerceDatabaseUnavailableError(
     return error;
   }
 
-  if ((context.provider ?? 'sqlite') === 'sqlite' && isSqliteDatabaseUnavailableError(error)) {
-    const location = context.sqlitePath ? ` at ${context.sqlitePath}` : '';
-    return new DatabaseUnavailableError(
-      'sqlite_unreadable',
-      `SQLite database${location} is unavailable or unreadable. Restore it from a backup or replace the database file before retrying.`,
-      { ...context, provider: 'sqlite' },
-      error,
-    );
-  }
-
-  if (context.provider === 'postgres' && isPostgresDatabaseUnavailableError(error)) {
+  if (isPostgresDatabaseUnavailableError(error)) {
     return new DatabaseUnavailableError(
       'postgres_unavailable',
       'PostgreSQL is unavailable. Check its connection and credentials, then retry.',
@@ -138,10 +98,6 @@ export function coerceDatabaseUnavailableError(
 }
 
 export function databaseUnavailablePublicMessage(error: DatabaseUnavailableError): string {
-  if (error.code === 'sqlite_unreadable') {
-    return 'The SQLite database is unavailable or unreadable. Restore it from a backup or replace the database file before retrying.';
-  }
-
   if (error.code === 'postgres_unavailable') {
     return 'The PostgreSQL database is unavailable. Check its connection and credentials, then retry.';
   }
