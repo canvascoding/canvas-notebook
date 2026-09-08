@@ -10,13 +10,21 @@ import {
   type HomeWidgetTodo,
 } from '@/app/lib/home/workspace-widget-data';
 import {
-  claimHomeWidgetRefreshToken,
   HOME_WIDGET_NAMES,
   isHomeWidgetName,
   type HomeWidgetName,
 } from '@/app/lib/home/workspace-widget-request';
 
 export const HOME_EMAIL_STALE_FOLLOW_UP_MS = 500;
+export const HOME_EMAIL_STALE_FOLLOW_UP_MAX_ATTEMPTS = 8;
+export const HOME_EMAIL_STALE_FOLLOW_UP_MAX_DELAY_MS = 4_000;
+
+export function homeEmailStaleFollowUpDelay(attempt: number): number {
+  return Math.min(
+    HOME_EMAIL_STALE_FOLLOW_UP_MS * (2 ** Math.max(0, attempt - 1)),
+    HOME_EMAIL_STALE_FOLLOW_UP_MAX_DELAY_MS,
+  );
+}
 
 export type HomeWidgetState<T> = {
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -58,6 +66,8 @@ type HomeWorkspaceWidgetResponse = {
 type LoadWidgetOptions = {
   allowEmailFollowUp?: boolean;
   background?: boolean;
+  emailFollowUpAttempt?: number;
+  emailFollowUpToken?: string;
   force?: boolean;
 };
 
@@ -105,7 +115,6 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
   const [snapshot, setSnapshot] = useState<HomeWorkspaceWidgetSnapshot>(() => initialSnapshot(workspaceId ?? null));
   const requestGenerationRef = useRef<Record<HomeWidgetName, number>>({ emails: 0, todos: 0, automation: 0, studio: 0 });
   const activeControllersRef = useRef(new Set<AbortController>());
-  const scheduledEmailTokensRef = useRef(new Set<string>());
   const emailFollowUpTimersRef = useRef(new Map<string, number>());
   const loadWidgetsRef = useRef<LoadWidgets>(async () => undefined);
   const current = snapshot.workspaceId === (workspaceId ?? null) ? snapshot : initialSnapshot(workspaceId ?? null);
@@ -125,6 +134,10 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
       const generation = requestGenerationRef.current[widget] + 1;
       requestGenerationRef.current[widget] = generation;
       generations.set(widget, generation);
+    }
+    if (requested.includes('emails')) {
+      for (const timer of emailFollowUpTimersRef.current.values()) window.clearTimeout(timer);
+      emailFollowUpTimersRef.current.clear();
     }
     const isCurrent = (widget: HomeWidgetName) => requestGenerationRef.current[widget] === generations.get(widget);
     const controller = new AbortController();
@@ -168,29 +181,46 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
 
       const emailResult = data.emails;
       const emailCache = emailResult?.status === 'ready' ? emailResult.cache : undefined;
-      if (
+      const shouldFollowUpEmail = (
         requested.includes('emails')
         && isCurrent('emails')
         && options.allowEmailFollowUp !== false
         && emailCache?.state === 'stale'
         && emailCache.refreshQueued
         && emailCache.refreshToken
-      ) {
+      );
+      if (shouldFollowUpEmail) {
         const followUpKey = `${requestWorkspaceId}\0${emailCache.refreshToken}`;
-        if (claimHomeWidgetRefreshToken(scheduledEmailTokensRef.current, followUpKey)) {
+        const attempts = options.emailFollowUpToken === emailCache.refreshToken
+          ? Math.max(0, options.emailFollowUpAttempt ?? 0)
+          : 0;
+        if (
+          attempts < HOME_EMAIL_STALE_FOLLOW_UP_MAX_ATTEMPTS
+          && !emailFollowUpTimersRef.current.has(followUpKey)
+        ) {
+          const nextAttempt = attempts + 1;
           const timer = window.setTimeout(() => {
             emailFollowUpTimersRef.current.delete(followUpKey);
             const latest = currentSnapshotRef.current;
             if (
-              latest.workspaceId !== requestWorkspaceId
+              requestGenerationRef.current.emails !== generations.get('emails')
+              || latest.workspaceId !== requestWorkspaceId
               || latest.emails.cache?.refreshToken !== emailCache.refreshToken
               || latest.emails.cache.state !== 'stale'
               || !latest.emails.cache.refreshQueued
             ) return;
-            void loadWidgetsRef.current(['emails'], { allowEmailFollowUp: false, background: true });
-          }, HOME_EMAIL_STALE_FOLLOW_UP_MS);
+            void loadWidgetsRef.current(['emails'], {
+              allowEmailFollowUp: true,
+              background: true,
+              emailFollowUpAttempt: nextAttempt,
+              emailFollowUpToken: emailCache.refreshToken,
+            });
+          }, homeEmailStaleFollowUpDelay(nextAttempt));
           emailFollowUpTimersRef.current.set(followUpKey, timer);
         }
+      } else if (requested.includes('emails') && isCurrent('emails')) {
+        for (const timer of emailFollowUpTimersRef.current.values()) window.clearTimeout(timer);
+        emailFollowUpTimersRef.current.clear();
       }
     } catch {
       if (controller.signal.aborted) return;
@@ -220,7 +250,6 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
     if (!active || !workspaceId) return;
     const controllers = activeControllersRef.current;
     const followUpTimers = emailFollowUpTimersRef.current;
-    const scheduledTokens = scheduledEmailTokensRef.current;
     const initialTimer = window.setTimeout(() => {
       void loadWidgets(HOME_WIDGET_NAMES, { allowEmailFollowUp: true });
     }, 0);
@@ -230,7 +259,6 @@ export function useHomeWorkspaceWidgets(workspaceId: string | undefined, active:
       controllers.clear();
       for (const timer of followUpTimers.values()) window.clearTimeout(timer);
       followUpTimers.clear();
-      scheduledTokens.clear();
     };
   }, [active, loadWidgets, workspaceId]);
 

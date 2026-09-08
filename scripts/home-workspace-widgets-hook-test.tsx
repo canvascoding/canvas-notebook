@@ -16,15 +16,20 @@ for (const key of ['self', 'window', 'document', 'navigator', 'HTMLElement', 'El
 Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true, writable: true });
 
-function emailResult(refreshToken: string, subject: string, refreshQueued = true) {
+function emailResult(
+  refreshToken: string,
+  subject: string,
+  refreshQueued = true,
+  state: 'fresh' | 'stale' = 'stale',
+) {
   return {
     status: 'ready' as const,
     data: [{ id: `message-${refreshToken}`, accountId: 'account', accountLabel: 'mail@example.test', folder: 'INBOX', from: 'sender@example.test', subject, date: '2026-09-08T10:00:00.000Z' }],
     cachedAt: '2026-09-08T10:00:00.000Z',
-    stale: true,
+    stale: state === 'stale',
     cache: {
       enabled: true,
-      state: 'stale' as const,
+      state,
       source: 'cache' as const,
       fetchedAt: '2026-09-08T10:00:00.000Z',
       staleAt: '2026-09-08T10:01:00.000Z',
@@ -67,7 +72,17 @@ async function main() {
   assert.equal(claimedTokens.has('token-204'), true);
 
   const { cleanup, fireEvent, render } = await import('@testing-library/react');
-  const { HOME_EMAIL_STALE_FOLLOW_UP_MS, useHomeWorkspaceWidgets } = await import('../app/components/home/useHomeWorkspaceWidgets');
+  const {
+    HOME_EMAIL_STALE_FOLLOW_UP_MAX_ATTEMPTS,
+    HOME_EMAIL_STALE_FOLLOW_UP_MAX_DELAY_MS,
+    HOME_EMAIL_STALE_FOLLOW_UP_MS,
+    homeEmailStaleFollowUpDelay,
+    useHomeWorkspaceWidgets,
+  } = await import('../app/components/home/useHomeWorkspaceWidgets');
+  assert.equal(HOME_EMAIL_STALE_FOLLOW_UP_MAX_ATTEMPTS, 8);
+  assert.equal(homeEmailStaleFollowUpDelay(1), HOME_EMAIL_STALE_FOLLOW_UP_MS);
+  assert.equal(homeEmailStaleFollowUpDelay(2), HOME_EMAIL_STALE_FOLLOW_UP_MS * 2);
+  assert.equal(homeEmailStaleFollowUpDelay(20), HOME_EMAIL_STALE_FOLLOW_UP_MAX_DELAY_MS);
   const settle = async (delay = 30) => act(async () => { await new Promise((resolve) => setTimeout(resolve, delay)); });
 
   function Probe({ workspaceId }: { workspaceId: string }) {
@@ -92,7 +107,11 @@ async function main() {
     const widgets = url.searchParams.get('widgets');
     if (widgets === 'emails') {
       emailRequests += 1;
-      return success({ emails: emailResult(emailRequests === 1 ? 'token-two' : 'token-two', 'Refreshed email') });
+      if (emailRequests === 1) {
+        return success({ emails: emailResult('token-one', 'Provider still refreshing') });
+      }
+      const token = emailRequests === 2 ? 'token-two' : 'token-four';
+      return success({ emails: emailResult(token, 'Refreshed email', false, 'fresh') });
     }
     if (widgets === 'todos') {
       return success({
@@ -101,8 +120,8 @@ async function main() {
     }
     assert.equal(widgets, HOME_WIDGET_NAMES.join(','));
     fullRequests += 1;
-    const token = fullRequests === 1 ? 'token-one' : 'token-two';
-    return success({ emails: emailResult(token, fullRequests === 1 ? 'Cached email' : 'Refreshed email'), ...otherWidgets });
+    const token = fullRequests === 1 ? 'token-one' : 'token-three';
+    return success({ emails: emailResult(token, fullRequests === 1 ? 'Cached email' : 'Cached again'), ...otherWidgets });
   };
 
   let screen = render(<Probe workspaceId="workspace-one" />);
@@ -115,23 +134,32 @@ async function main() {
   assert.equal(calls.length, 1);
 
   await settle(HOME_EMAIL_STALE_FOLLOW_UP_MS + 80);
-  assert.equal(calls.length, 2, 'a stale token should schedule one delayed follow-up');
+  assert.equal(calls.length, 2, 'a stale token should schedule a delayed follow-up');
   assert.equal(calls[1]?.searchParams.get('widgets'), 'emails');
   assert.equal(calls[1]?.searchParams.has('refresh'), false);
+  assert.equal(screen.getByTestId('email-token').textContent, 'token-one');
+  assert.equal(screen.getByTestId('email-subject').textContent, 'Provider still refreshing');
+
+  await settle(homeEmailStaleFollowUpDelay(2) + 80);
+  assert.equal(calls.length, 3, 'the same stale token should be polled again while its refresh is queued');
+  assert.equal(calls[2]?.searchParams.get('widgets'), 'emails');
   assert.equal(screen.getByTestId('email-token').textContent, 'token-two');
+  assert.equal(screen.getByTestId('email-subject').textContent, 'Refreshed email');
   await settle(HOME_EMAIL_STALE_FOLLOW_UP_MS + 80);
-  assert.equal(calls.length, 2, 'a stale follow-up response must not recurse');
+  assert.equal(calls.length, 3, 'polling must stop once the cache becomes fresh');
 
   document.dispatchEvent(new Event('visibilitychange'));
   await settle();
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
   await settle(HOME_EMAIL_STALE_FOLLOW_UP_MS + 80);
-  assert.equal(calls.length, 4, 'a new token may schedule one follow-up on a later natural refresh');
-  assert.equal(calls[3]?.searchParams.get('widgets'), 'emails');
+  assert.equal(calls.length, 5, 'a new token may schedule a follow-up on a later natural refresh');
+  assert.equal(calls[4]?.searchParams.get('widgets'), 'emails');
 
   document.dispatchEvent(new Event('visibilitychange'));
+  await settle();
+  assert.equal(calls.length, 6);
   await settle(HOME_EMAIL_STALE_FOLLOW_UP_MS + 80);
-  assert.equal(calls.length, 5, 'the same token must never schedule a second follow-up');
+  assert.equal(calls.length, 7, 'a completed token may be followed again after a new provider refresh is queued');
 
   fireEvent.click(screen.getByRole('button', { name: 'Retry todos' }));
   await settle();
