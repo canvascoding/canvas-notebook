@@ -59,6 +59,8 @@ import {
   useShouldShowWorkspaceSwitcher,
 } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
+import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
+import { remapPath } from '@/app/lib/files/path-mutation-state';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import {
   getNotebookNavigationIntent,
@@ -940,12 +942,20 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const handlePathsDeleted = (event: Event) => {
       const { paths, workspaceId } = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
       if (workspaceId !== activeWorkspaceId || workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
+      if (workspaceId) setClosedDocuments((current) => ({
+        ...current,
+        [workspaceId]: (current[workspaceId] ?? []).filter((path) => !paths.some((root) => isSameOrDescendantPath(path, root))),
+      }));
       closeDocumentTabsAtPaths(paths);
     };
     const handlePathRenamed = (event: Event) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
       const { oldPath, newPath, workspaceId } = (event as CustomEvent<WorkspacePathRenamedDetail>).detail;
       if (workspaceId !== activeWorkspaceId || workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
+      setClosedDocuments((current) => ({
+        ...current,
+        [workspaceId]: [...new Set((current[workspaceId] ?? []).map((path) => remapPath(path, oldPath, newPath)))],
+      }));
       replaceDocumentTabs(
         activeWorkspaceId,
         renameNotebookDocumentTabs(documentTabsRef.current, oldPath, newPath),
