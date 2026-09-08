@@ -93,6 +93,10 @@ function columnType(column: SchemaColumn): string {
       return 'double precision';
     case 'PgBigInt53':
     case 'PgBigInt64':
+      return 'bigint';
+    case 'PgBigSerial53':
+    case 'PgBigSerial64':
+      return 'bigserial';
     case 'PgCustomColumn':
       return 'bigint';
     default:
@@ -146,7 +150,7 @@ function renderSqlFragment(fragment: unknown): string | null {
   return rendered.trim() || null;
 }
 
-function createTableSql(table: PostgresSchemaTable): string {
+export function createTableSql(table: PostgresSchemaTable): string {
   const tableName = String(table[TABLE_NAME_SYMBOL]);
   const config = getTableConfig(table as never) as {
     columns: SchemaColumn[];

@@ -1,5 +1,5 @@
 import { desc, sql } from "drizzle-orm";
-import { pgTable, text, bigint, doublePrecision as real, index, uniqueIndex, primaryKey, check, customType } from "drizzle-orm/pg-core";
+import { pgTable, text, bigint, bigserial, doublePrecision as real, index, uniqueIndex, primaryKey, check, customType } from "drizzle-orm/pg-core";
 import { MAIN_AGENT_ID } from '@/app/lib/agents/main-agent';
 
 // OAuth metadata is stored in text columns on both SQLite and PostgreSQL. A
@@ -300,8 +300,8 @@ export const jwks = pgTable("jwks", {
   id: text("id").primaryKey(),
   publicKey: text("public_key").notNull(),
   privateKey: text("private_key").notNull(),
-  createdAt: bigint("created_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
-  expiresAt: bigint("expires_at", { mode: "timestamp_ms" }, { mode: "number" }),
+  createdAt: pgTimestamp("created_at").notNull(),
+  expiresAt: pgTimestamp("expires_at"),
   alg: text("alg"),
   crv: text("crv"),
 });
@@ -318,8 +318,8 @@ export const oauthClient = pgTable("oauth_client", {
   scopes: jsonText<string[]>("scopes"),
   clientCredentialsScopes: jsonText<string[]>("client_credentials_scopes"),
   userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
-  createdAt: bigint("created_at", { mode: "timestamp_ms" }, { mode: "number" }),
-  updatedAt: bigint("updated_at", { mode: "timestamp_ms" }, { mode: "number" }),
+  createdAt: pgTimestamp("created_at"),
+  updatedAt: pgTimestamp("updated_at"),
   name: text("name"),
   uri: text("uri"),
   icon: text("icon"),
@@ -359,13 +359,13 @@ export const oauthRefreshToken = pgTable("oauth_refresh_token", {
   authorizationCodeId: text("authorization_code_id"),
   resources: jsonText<string[]>("resources"),
   requestedUserInfoClaims: jsonText<string[]>("requested_user_info_claims"),
-  expiresAt: bigint("expires_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
-  createdAt: bigint("created_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
-  revoked: bigint("revoked", { mode: "timestamp_ms" }, { mode: "number" }),
-  rotatedAt: bigint("rotated_at", { mode: "timestamp_ms" }, { mode: "number" }),
+  expiresAt: pgTimestamp("expires_at").notNull(),
+  createdAt: pgTimestamp("created_at").notNull(),
+  revoked: pgTimestamp("revoked"),
+  rotatedAt: pgTimestamp("rotated_at"),
   rotationReplayResponse: text("rotation_replay_response"),
-  rotationReplayExpiresAt: bigint("rotation_replay_expires_at", { mode: "timestamp_ms" }, { mode: "number" }),
-  authTime: bigint("auth_time", { mode: "timestamp_ms" }, { mode: "number" }),
+  rotationReplayExpiresAt: pgTimestamp("rotation_replay_expires_at"),
+  authTime: pgTimestamp("auth_time"),
   confirmation: text("confirmation").$type<Record<string, unknown>>(),
   scopes: jsonText<string[]>("scopes").notNull(),
 }, (table) => ({
@@ -385,8 +385,8 @@ export const oauthAccessToken = pgTable("oauth_access_token", {
   resources: jsonText<string[]>("resources"),
   requestedUserInfoClaims: jsonText<string[]>("requested_user_info_claims"),
   refreshId: text("refresh_id").references(() => oauthRefreshToken.id, { onDelete: "cascade" }),
-  expiresAt: bigint("expires_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
-  createdAt: bigint("created_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
+  expiresAt: pgTimestamp("expires_at").notNull(),
+  createdAt: pgTimestamp("created_at").notNull(),
   confirmation: text("confirmation").$type<Record<string, unknown>>(),
   scopes: jsonText<string[]>("scopes").notNull(),
 }, (table) => ({
@@ -401,8 +401,8 @@ export const mcpRevokedAccessToken = pgTable("mcp_revoked_access_token", {
   clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
   sessionId: text("session_id").notNull().references(() => session.id, { onDelete: "cascade" }),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-  expiresAt: bigint("expires_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
-  revokedAt: bigint("revoked_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
+  expiresAt: pgTimestamp("expires_at").notNull(),
+  revokedAt: pgTimestamp("revoked_at").notNull(),
 }, (table) => ({
   expiryIdx: index("idx_mcp_revoked_access_token_expiry").on(table.expiresAt),
 }));
@@ -415,7 +415,7 @@ export const mcpDirectGrantRevocation = pgTable("mcp_direct_grant_revocation", {
   clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
   sessionId: text("session_id").notNull().references(() => session.id, { onDelete: "cascade" }),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-  revokedAt: bigint("revoked_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
+  revokedAt: pgTimestamp("revoked_at").notNull(),
 }, (table) => ({
   grantPk: primaryKey({ columns: [table.clientId, table.sessionId, table.userId] }),
   userClientIdx: index("idx_mcp_direct_grant_revocation_user_client").on(table.userId, table.clientId),
@@ -428,8 +428,8 @@ export const mcpDirectWorkspaceGrant = pgTable("mcp_direct_workspace_grant", {
   clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   workspaceId: text("workspace_id").notNull(),
-  createdAt: bigint("created_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
-  updatedAt: bigint("updated_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
 }, (table) => ({
   grantPk: primaryKey({ columns: [table.clientId, table.userId, table.workspaceId] }),
   userClientIdx: index("idx_mcp_direct_workspace_grant_user_client").on(table.userId, table.clientId),
@@ -440,8 +440,8 @@ export const mcpDirectWorkspaceGrant = pgTable("mcp_direct_workspace_grant", {
 export const mcpDirectWorkspaceSetting = pgTable("mcp_direct_workspace_setting", {
   workspaceId: text("workspace_id").primaryKey().references(() => canvasWorkspaces.id, { onDelete: "cascade" }),
   enabledByUserId: text("enabled_by_user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-  enabledAt: bigint("enabled_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
-  updatedAt: bigint("updated_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
+  enabledAt: pgTimestamp("enabled_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
 });
 
 export const oauthConsent = pgTable("oauth_consent", {
@@ -452,8 +452,8 @@ export const oauthConsent = pgTable("oauth_consent", {
   resources: jsonText<string[]>("resources"),
   requestedUserInfoClaims: jsonText<string[]>("requested_user_info_claims"),
   scopes: jsonText<string[]>("scopes").notNull(),
-  createdAt: bigint("created_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
-  updatedAt: bigint("updated_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
 }, (table) => ({
   clientIdx: index("idx_oauth_consent_client").on(table.clientId),
   userIdx: index("idx_oauth_consent_user").on(table.userId),
@@ -471,8 +471,8 @@ export const oauthResource = pgTable("oauth_resource", {
   customClaims: text("custom_claims").$type<Record<string, unknown>>(),
   dpopBoundAccessTokensRequired: pgBoolean("dpop_bound_access_tokens_required"),
   disabled: pgBoolean("disabled").default(false),
-  createdAt: bigint("created_at", { mode: "timestamp_ms" }, { mode: "number" }),
-  updatedAt: bigint("updated_at", { mode: "timestamp_ms" }, { mode: "number" }),
+  createdAt: pgTimestamp("created_at"),
+  updatedAt: pgTimestamp("updated_at"),
   policyVersion: bigint("policy_version", { mode: "number" }).default(1),
   metadata: text("metadata").$type<Record<string, unknown>>(),
 });
@@ -482,14 +482,14 @@ export const oauthClientResource = pgTable("oauth_client_resource", {
   clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
   resourceId: text("resource_id").notNull().references(() => oauthResource.identifier, { onDelete: "cascade" }),
   metadata: text("metadata").$type<Record<string, unknown>>(),
-  createdAt: bigint("created_at", { mode: "timestamp_ms" }, { mode: "number" }),
+  createdAt: pgTimestamp("created_at"),
 }, (table) => ({
   clientResourceUnique: uniqueIndex("idx_oauth_client_resource_unique").on(table.clientId, table.resourceId),
 }));
 
 export const oauthClientAssertion = pgTable("oauth_client_assertion", {
   id: text("id").primaryKey(),
-  expiresAt: bigint("expires_at", { mode: "timestamp_ms" }, { mode: "number" }).notNull(),
+  expiresAt: pgTimestamp("expires_at").notNull(),
 });
 
 export const canvasOrganizationSettings = pgTable("canvas_organization_settings", {
@@ -1211,7 +1211,7 @@ export const aiUserWorkspaceProviderGrants = pgTable("ai_user_workspace_provider
 }));
 
 export const aiSessions = pgTable("ai_sessions", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   sessionId: text("session_id").notNull(),
   userId: text("user_id").notNull().references(() => user.id),
   model: text("model").notNull(), // agent id, e.g. 'claude', 'codex', 'openrouter', 'ollama'
@@ -1223,7 +1223,7 @@ export const aiSessions = pgTable("ai_sessions", {
 }));
 
 export const aiMessages = pgTable("ai_messages", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   aiSessionDbId: bigint("ai_session_db_id", { mode: "number" }).notNull().references(() => aiSessions.id),
   role: text("role").notNull(), // 'user', 'assistant', 'system'
   content: text("content").notNull(),
@@ -1235,7 +1235,7 @@ export const aiMessages = pgTable("ai_messages", {
 }));
 
 export const piSessions = pgTable("pi_sessions", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   sessionId: text("session_id").notNull(),
   clientRequestId: text("client_request_id"),
   userId: text("user_id").notNull().references(() => user.id),
@@ -1375,7 +1375,7 @@ export const piDelegations = pgTable("pi_delegations", {
 }));
 
 export const agents = pgTable("agents", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   agentId: text("agent_id").notNull().unique(),
   name: text("name").notNull(),
   iconId: text("icon_id").notNull().default("bot"),
@@ -1475,7 +1475,7 @@ export const agentUserPreferences = pgTable("agent_user_preferences", {
 }));
 
 export const piMessages = pgTable("pi_messages", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   piSessionDbId: bigint("pi_session_db_id", { mode: "number" }).notNull().references(() => piSessions.id),
   role: text("role").notNull(), // 'user', 'assistant', 'toolResult'
   content: text("content").notNull(), // Full JSON of Message object
@@ -1656,7 +1656,7 @@ export const memoryReviewJobs = pgTable("memory_review_jobs", {
 }));
 
 export const piUsageEvents = pgTable("pi_usage_events", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   fingerprint: text("fingerprint").notNull().unique(),
   userId: text("user_id").notNull().references(() => user.id),
   organizationId: text("organization_id"),
@@ -1958,7 +1958,7 @@ export const knowledgeChunks = pgTable("knowledge_chunks", {
 }));
 
 export const onboardingLog = pgTable("onboarding_log", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   completedAt: pgTimestamp("completed_at").notNull(),
   completedBy: text("completed_by"), // userId or null for bootstrap
   method: text("method").notNull(), // 'ui' | 'bootstrap'
@@ -1967,7 +1967,7 @@ export const onboardingLog = pgTable("onboarding_log", {
 });
 
 export const licenseCerts = pgTable("license_certs", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   cert: text("cert").notNull(),
   plan: text("plan").notNull(),
   instanceId: text("instance_id").notNull(),
@@ -1981,7 +1981,7 @@ export const licenseCerts = pgTable("license_certs", {
 }));
 
 export const licensePublicKeys = pgTable("license_public_keys", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   kid: text("kid"),
   publicKey: text("public_key").notNull(),
   fingerprint: text("fingerprint").notNull(),
@@ -2125,7 +2125,7 @@ export const automationWebhookEvents = pgTable("automation_webhook_events", {
 }));
 
 export const userHintState = pgTable("user_hint_state", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
   hintKey: text("hint_key").notNull(),
   page: text("page").notNull(),
@@ -2137,7 +2137,7 @@ export const userHintState = pgTable("user_hint_state", {
 });
 
 export const pageOnboardingState = pgTable("page_onboarding_state", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
   page: text("page").notNull(),
   completed: pgBoolean("completed").notNull().default(false),
@@ -2487,7 +2487,7 @@ export const studioBulkJobLineItems = pgTable("studio_bulk_job_line_items", {
 }));
 
 export const channelUserBindings = pgTable("channel_user_bindings", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
   channelId: text("channel_id").notNull().default('telegram'),
   channelUserId: text("channel_user_id").notNull(),
@@ -2501,7 +2501,7 @@ export const channelUserBindings = pgTable("channel_user_bindings", {
 }));
 
 export const sessionChannelLinks = pgTable("session_channel_links", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   sessionId: text("session_id").notNull(),
   userId: text("user_id").notNull().references(() => user.id),
   channelId: text("channel_id").notNull(),
@@ -2523,7 +2523,7 @@ export const sessionChannelLinks = pgTable("session_channel_links", {
 }));
 
 export const channelActiveSessions = pgTable("channel_active_sessions", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
   agentId: text("agent_id").notNull().default(MAIN_AGENT_ID),
   channelId: text("channel_id").notNull(),
@@ -2537,7 +2537,7 @@ export const channelActiveSessions = pgTable("channel_active_sessions", {
 }));
 
 export const channelLinkTokens = pgTable("channel_link_tokens", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
   channelId: text("channel_id").notNull().default('telegram'),
   token: text("token").notNull().unique(),
@@ -2604,7 +2604,7 @@ export const directMcpRequestHistory = pgTable("direct_mcp_request_history", {
 }));
 
 export const telegramActiveSession = pgTable("telegram_active_session", {
-  id: bigint("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  id: bigserial("id", { mode: "number" }).primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
   chatId: text("chat_id").notNull(),
   sessionId: text("session_id").notNull(),

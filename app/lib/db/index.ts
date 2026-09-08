@@ -27,11 +27,7 @@ function createPostgresDatabase() {
   };
 }
 
-// The application still exposes the legacy synchronous query helpers through
-// its compatibility adapter. Keep that adapter structurally untyped without
-// leaking a dialect-specific BetterSQLite3Database surface.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AppDatabase = any;
+type AppDatabase = ReturnType<typeof createPostgresDrizzle>;
 
 type RuntimeDatabase =
   | (ReturnType<typeof createPostgresDatabase> & { initializationError: null })
