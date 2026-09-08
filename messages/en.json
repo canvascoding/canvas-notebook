@@ -864,6 +864,7 @@
     "markdownEditorAddBlockAboveHint": "Option-click to add above",
     "markdownEditorDragBlockHint": "Drag to move",
     "markdownEditorBlockMoveCancelled": "The block could not be moved because its target or editing permissions changed. Please try again.",
+    "markdownEditorCollaborationEditBlocked": "The change could not be applied. Please check the current document and try again.",
     "markdownEditorOpenBlockMenuHint": "Click to open menu",
     "markdownEditorEditAsText": "Edit as text",
     "markdownEditorEditVisually": "Edit visually",

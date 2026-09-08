@@ -204,6 +204,7 @@
     "test:collaboration:rich-document": "tsx --conditions react-server scripts/collaboration-rich-document-test.ts",
     "test:collaboration:block-format": "tsx --conditions react-server scripts/collaboration-block-format-integration-test.ts",
     "test:collaboration:block-agent": "tsx --conditions react-server scripts/collaboration-block-agent-test.ts",
+    "test:collaboration:live-markdown": "tsx scripts/markdown-live-document-test.tsx",
     "test:editor:field": "tsx scripts/markdown-field-content-test.tsx && tsx scripts/markdown-field-ui-test.tsx",
     "test:editor:preservation": "tsx scripts/markdown-roundtrip-preservation-test.ts",
     "test:editor:collaboration-lifecycle": "tsx scripts/code-editor-collaboration-lifecycle-test.ts",

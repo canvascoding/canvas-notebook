@@ -184,11 +184,9 @@ export async function createCollaborationSessionGrant(input: {
     const richModeAnalysis = extension(request.path) === 'txt'
       ? null
       : analyzeMarkdownRichMode(initialContent);
-    const selectedTargetRepresentation: TextCollaborationRepresentation = richModeAnalysis
-      && richModeAnalysis.mode !== 'source'
-      ? richRepresentation
-      : selectedInitialRepresentation;
     const existingState = await loadCollaborationStateIncludingArchived(collaboration.document.id);
+    const selectedTargetRepresentation: TextCollaborationRepresentation = (clientSupportsBlocks && existingState?.representation === 'tiptap_xml')
+      || (richModeAnalysis && richModeAnalysis.mode !== 'source') ? richRepresentation : selectedInitialRepresentation;
     if (
       !existingState
       && isRichTextCollaborationRepresentation(request.representation)

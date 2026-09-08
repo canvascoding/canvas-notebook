@@ -4,9 +4,9 @@ Stand: 2026-09-08. Entscheidung für Schritt 3 des Editor-Lifecycle-Plans.
 
 ## Befund und Entscheidung
 
-Die bisherige ProseMirror/Yjs-Bindung schreibt einen Baum aus verschachtelten XML-Knoten. Ein Delete/Insert zum Verschieben erhält dessen interne Textidentität nicht. Die Gegenbeispiele in `test:collaboration:blocks` belegen sowohl Textzuordnung zu einem Nachbarblock als auch doppelte Block-IDs. Erneutes Auflösen einer fachlichen ID behebt die lokalen Drag-Fehler, aber diesen Bindungsfehler nicht.
+Die bisherige ProseMirror/Yjs-Bindung schreibt einen Baum aus verschachtelten XML-Knoten. Ein Delete/Insert zum Verschieben erhält dessen interne Textidentität nicht. Die ursprünglich gegen das XML-Binding angelegten Gegenbeispiele belegten sowohl Textzuordnung zu einem Nachbarblock als auch doppelte Block-IDs. Erneutes Auflösen einer fachlichen ID behebt die lokalen Drag-Fehler, aber diesen Bindungsfehler nicht. `test:collaboration:blocks` prüft diese beiden Regressionen inzwischen erfolgreich gegen das angeschlossene Blockformat; die ursprüngliche Reproduktion bleibt in Commit `ed647038` nachvollziehbar.
 
-Der neue Kern trennt deshalb Inhalt und Platzierung. Er liegt in `app/lib/collaboration/block-tree.ts` und `block-tree-placement.ts`. Er wird erst nach der noch ausstehenden Binding-/Protokollintegration und abgesicherten Migration produktiv verwendet. Bestehende Dokumente werden durch diese Implementierung nicht umgeschrieben.
+Der neue Kern trennt deshalb Inhalt und Platzierung. Er liegt in `app/lib/collaboration/block-tree.ts` und `block-tree-placement.ts`. Bindung, Session-Handshake und abgesicherte Migration sind inzwischen im Code angeschlossen. Neue kompatible Websessions verwenden das Blockformat; bestehende Dokumente werden erst über den gesperrten Upgrade-Ablauf migriert. Der Stand ist noch nicht deployt oder im echten Browser abgenommen.
 
 ## Persistiertes Modell
 
@@ -26,7 +26,7 @@ Strukturänderungen werden zunächst auf einer isolierten Replik geprüft, weil 
 
 ## Nachweis und noch offene Integration
 
-`npm run test:collaboration:block-tree` prüft 16 Fälle: unterschiedliche Zustellreihenfolgen, Move/Text, Move/Move, Move/Delete, relative Textanker, Undo/Redo und Retry nach Undo, Zyklen, binäres Wiederöffnen mit verspäteten Abhängigkeiten, tatsächliche ProseMirror-Moves, atomare Einfüge-/Lösch-/Umhängoperationen, ungültige Container und stale Transaktionen sowie Task-/Tabellenidentitäten mit Formatierung und Unicode. Die ursprünglichen Gegenbeispiele gegen das alte Binding bleiben separat bestehen.
+`npm run test:collaboration:block-tree` prüft 16 Fälle: unterschiedliche Zustellreihenfolgen, Move/Text, Move/Move, Move/Delete, relative Textanker, Undo/Redo und Retry nach Undo, Zyklen, binäres Wiederöffnen mit verspäteten Abhängigkeiten, tatsächliche ProseMirror-Moves, atomare Einfüge-/Lösch-/Umhängoperationen, ungültige Container und stale Transaktionen sowie Task-/Tabellenidentitäten mit Formatierung und Unicode. Die beiden ursprünglichen Fehlerfälle laufen zusätzlich als Regressionen gegen das angeschlossene Format.
 
 Die Basis des Editor-Bindings liegt inzwischen in `block-tree-editor.ts`, die Auswahlanker in `block-tree-anchors.ts`. `test:collaboration:block-binding` ergänzt acht Tests mit echten Tiptap-Instanzen in JSDOM und direkten Ankerprüfungen. Die Bindung hält schreibgeschützte Ansichten aktuell, lehnt lokale Mutationen vor Hydration oder nach Rechteentzug ab und gibt ihre Observer einschließlich des Yjs-UndoManager-Destroy-Listeners wieder frei. Die Positionsumwandlung verwendet öffentliche Yjs-RelativePositions und eine Identitätsprüfung innerhalb des Inhaltsfragments. Der alte Adapter enthält eine Positionsheuristik für den Anfang eines ganzen XML-Dokuments, die sich nicht auf ein einzelnes Inhaltsfragment übertragen lässt.
 
@@ -37,8 +37,8 @@ Der gemeinsame Codec-Leser in `rich-document.ts` normalisiert beide Repräsentat
 Vor Aktivierung fehlen weiterhin:
 
 1. Browserabnahme der vollständigen Eingabeintegration, insbesondere reale IME-Ereignisfolgen und Wechsel bei noch nicht an ProseMirror übergebener DOM-Eingabe. Auswahl, Carets, Schreibschutz, Unmount und die Repliken-Zusammenführung während Komposition sind in Komponententests geprüft.
-2. Browserseitige Anmeldung der neuen Fähigkeit und Anschluss der neuen Bindung. Das Backend verwendet bereits die getrennte Repräsentation `tiptap_blocks` und prüft beide Clientversionen vor dem Ausstellen eines Tickets. Alte Clients werden für umgestellte Dokumente abgewiesen.
-3. Anschluss des Browser-Migrationsablaufs. Der serverseitige Wechsel mit ruhendem Room, bestätigtem Checkpoint, vollständigem Backup und Generation-Wechsel ist implementiert und gegen eine eigene PostgreSQL-Testdatenbank geprüft. Bestehende Rich-IDs bleiben erhalten. Der laufende Notebook-Testcontainer wurde dafür nicht verwendet oder neu gebaut.
+2. Browserabnahme des angeschlossenen Handshakes und der tatsächlichen View-Lifecycle-Übergänge. Der Webclient meldet beide Fähigkeiten an; das Backend prüft beide Versionen vor dem Ausstellen eines Tickets. Alte Clients werden für umgestellte Dokumente abgewiesen.
+3. Browserabnahme des angeschlossenen Migrationsablaufs. Der serverseitige Wechsel mit ruhendem Room, bestätigtem Checkpoint, vollständigem Backup und Generation-Wechsel ist gegen eine eigene PostgreSQL-Testdatenbank geprüft. Bestehende Rich-IDs bleiben erhalten. Der laufende Notebook-Testcontainer wurde dafür nicht verwendet oder neu gebaut.
 4. Anzeige verworfener Strukturabsichten und breitere Split-/Join-/Tabellenabnahme. Codec, direkte Agentenziele, Review-Markierungen und Revert verwenden inzwischen die fortbestehenden Blockidentitäten. Gelöschte oder nicht mehr zugehörige Inhalte werden abgewiesen. Fünf gezielte Agententests und ein zusätzlicher PostgreSQL-Ablauf mit Move, Agentenpatch, Checkpoint und Revert sind erfolgreich.
 5. Browserabnahme und Lastprüfung. Die Operationshistorie wird bewusst noch nicht abgeschnitten; eine spätere Verdichtung muss alte Clients und deren ausstehende Operationen über die Generation ausschließen und IDs/Belege erhalten.
 

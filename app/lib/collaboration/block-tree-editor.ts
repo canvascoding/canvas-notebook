@@ -6,7 +6,7 @@ import { BLOCK_MOVE_TRANSACTION_META } from '../editor/block-reference';
 import { BlockTreeConflict, CollaborationBlockTree, type BlockMoveIntent } from './block-tree';
 import { captureBlockTreeSelection, restoreBlockTreeSelection, type BlockTreeSelection } from './block-tree-anchors';
 
-const REMOTE_BLOCK_TREE_TRANSACTION = 'canvas-block-tree-remote';
+export const REMOTE_BLOCK_TREE_TRANSACTION = 'canvas-block-tree-remote';
 const blockTreeEditorKey = new PluginKey('canvas-block-tree-editor');
 
 type BlockTreeEditorOptions = {

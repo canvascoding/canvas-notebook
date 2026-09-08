@@ -4,7 +4,6 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncE
 import { useTranslations } from 'next-intl';
 import { Download, Code2, Eye, Pencil, Maximize2, Minimize2, MoveHorizontal } from 'lucide-react';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
-import { yXmlFragmentToProsemirrorJSON } from 'y-prosemirror';
 import * as Y from 'yjs';
 import { Button } from '@/components/ui/button';
 import type { CollaborationDocument } from '@/app/lib/collaboration/client';
@@ -13,13 +12,15 @@ import { recordExportedCollaborationRecovery } from '@/app/lib/collaboration/loc
 import { useFileStore } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { createRichMarkdownManager, restoreRichMarkdownFinalLineEnding } from '@/app/lib/markdown/rich-markdown-codec';
+import { readRichDocumentJson } from '@/app/lib/collaboration/rich-document';
+import { COLLABORATION_CLIENT_CAPABILITIES, isRichTextCollaborationRepresentation, supportsBlockTreeCollaboration } from '@/app/lib/collaboration/types';
 
 export type MarkdownDocumentMode = 'read' | 'rich' | 'source';
 
 /** Observe the authoritative document even when its editor is not mounted. */
 function createLiveMarkdownStore(doc: Y.Doc | undefined, representation: string | undefined, fallback: string) {
   let cached: { content: string; available: boolean } | undefined;
-  const manager = representation === 'tiptap_xml' ? createRichMarkdownManager() : null;
+  const manager = isRichTextCollaborationRepresentation(representation) ? createRichMarkdownManager() : null;
   return {
     subscribe(listener: () => void) {
       const update = () => { cached = undefined; listener(); };
@@ -33,7 +34,7 @@ function createLiveMarkdownStore(doc: Y.Doc | undefined, representation: string 
           ? doc.getText('content').toString()
           : doc.getText('frontmatter').toString() + restoreRichMarkdownFinalLineEnding(
             doc.getText('bodyFinalLineEnding').toString(),
-            manager!.serialize(yXmlFragmentToProsemirrorJSON(doc.getXmlFragment('body'))),
+            manager!.serialize(readRichDocumentJson(doc)),
           );
         cached = { content, available: true };
       } catch { cached = { content: '', available: false }; }
@@ -105,10 +106,12 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
         const response = await fetch('/api/files/collaboration/session', {
           method: 'POST', headers: { 'Content-Type': 'application/json', ...workspaceHeaders(collaboration.registryKey.split('\0')[0]) },
           body: JSON.stringify({ path: filePath, representation: 'auto', allowRichMigration: true,
+            ...COLLABORATION_CLIENT_CAPABILITIES,
             expectedLifecycleGeneration: collaboration.session?.lifecycleGeneration }),
         });
         const result = await response.json();
-        migrated = response.ok && result.success === true && result.representation === 'tiptap_xml';
+        migrated = response.ok && result.success === true && result.representation === 'tiptap_blocks'
+          && supportsBlockTreeCollaboration(result);
       }
       // Refresh the authoritative session even if the user switched back to Read.
       // The chosen mode belongs to the parent and must not be reset by this request.

@@ -210,16 +210,14 @@ import {
   createObsidianWikiLinkNode,
 } from './ObsidianWikiLinkExtension';
 import { ObsidianInlineFootnoteExtension } from './ObsidianInlineFootnoteExtension';
-import Collaboration, { isChangeOrigin } from '@tiptap/extension-collaboration';
-import CollaborationCaret from '@tiptap/extension-collaboration-caret';
+import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '@/app/lib/collaboration/rich-editor-extensions';
 import {
   useCollaborationDocument,
   useTextCollaborationSession,
   type CollaborationDocument,
 } from '@/app/lib/collaboration/client';
-import type { CollaborationSessionResponse } from '@/app/lib/collaboration/types';
+import { isRichTextCollaborationRepresentation, type CollaborationSessionResponse } from '@/app/lib/collaboration/types';
 import {
-  createAgentTargetDecorationExtension,
   updateAgentTargetDecorations,
   type CollaborationAgentTargetAnchor,
 } from '@/app/lib/collaboration/agent-target-decorations';
@@ -2142,6 +2140,7 @@ function createEditorExtensions(
   mentionLabels: { empty: string; group: string } = { empty: '', group: '' },
   collaboration: CollaborationDocument | null = null,
   remoteCaretLabel?: (name: string) => string,
+  onCollaborationError?: (error: Error) => void,
 ) {
   const extensions = [
     MarkdownDomSelection,
@@ -2188,7 +2187,7 @@ function createEditorExtensions(
     }),
     UniqueID.configure({
       types: 'all',
-      filterTransaction: (transaction) => !isChangeOrigin(transaction),
+      filterTransaction: (transaction) => !isRemoteRichEditorTransaction(transaction),
     }),
     MarkdownHeadingAnchors,
     MarkdownSearchExtension,
@@ -2203,17 +2202,20 @@ function createEditorExtensions(
     ObsidianInlineFootnoteExtension,
     createCanvasMarkdownExtension(),
   ];
-  if (collaboration?.provider && collaboration.session) {
+  if (collaboration?.provider && collaboration.session
+    && isRichTextCollaborationRepresentation(collaboration.session.representation)) {
     extensions.push(
-      Collaboration.configure({ document: collaboration.doc, field: 'body' }),
-      CollaborationCaret.configure({
-        provider: collaboration.provider,
+      ...createRichEditorCollaborationExtensions({
+        document: collaboration.doc,
+        representation: collaboration.session.representation,
+        awareness: collaboration.provider.awareness,
+        onError: onCollaborationError,
         user: {
           name: collaboration.session.user.name,
           color: collaboration.session.user.color,
           colorLight: collaboration.session.user.colorLight,
         },
-        render: (user) => {
+        renderCaret: (user) => {
           const name = typeof user.name === 'string' && user.name.trim()
             ? user.name.trim().slice(0, 120)
             : 'Collaborator';
@@ -2267,7 +2269,6 @@ function createEditorExtensions(
           style: `--collaboration-user-color: ${typeof user.color === 'string' ? user.color : '#2563eb'};`,
         }),
       }),
-      createAgentTargetDecorationExtension(collaboration.doc),
     );
   }
   return extensions;
@@ -4958,6 +4959,9 @@ function RichMarkdownEditor({
     (name: string) => t('collaboration.remoteCaretLabel', { name }),
     [t],
   );
+  const onCollaborationError = useCallback(() => {
+    toast.error(t('markdownEditorCollaborationEditBlocked'));
+  }, [t]);
   const extensions = useMemo(
     () => createEditorExtensions(
       filePath,
@@ -4968,6 +4972,7 @@ function RichMarkdownEditor({
       mentionLabels,
       collaboration,
       remoteCaretLabel,
+      onCollaborationError,
     ),
     [
       activeWorkspaceId,
@@ -4976,6 +4981,7 @@ function RichMarkdownEditor({
       labels,
       mentionLabels,
       remoteCaretLabel,
+      onCollaborationError,
       slashCommandActions,
       wikiLabels,
     ],
@@ -5756,9 +5762,8 @@ export function MarkdownEditor({
     enabled: collaborationEnabled && Boolean(resolvedCollaborationSession),
     workspaceId: activeWorkspaceId,
     path: filePath,
-    representation: resolvedCollaborationSession?.representation === 'plain_text'
-      ? 'plain_text'
-      : 'tiptap_xml',
+    representation: resolvedCollaborationSession && resolvedCollaborationSession.representation !== 'excalidraw_scene'
+      ? resolvedCollaborationSession.representation : 'plain_text',
     session: resolvedCollaborationSession,
   });
   const isMobileKeyboardActive = useMobileKeyboardActive();
@@ -5788,13 +5793,15 @@ export function MarkdownEditor({
     filePath ? consumeWorkspaceMarkdownLocation(filePath) : null
   ));
   const authoritativeRepresentation = collaborationSession.session?.representation;
-  const preparingRichMode = mode === 'rich' && collaborationEnabled && !readOnly
-    && authoritativeRepresentation === 'plain_text' && richModeAnalysis.mode !== 'source'
+  const needsRichUpgrade = collaborationEnabled && authoritativeRepresentation !== 'tiptap_blocks'
+    && (authoritativeRepresentation === 'tiptap_xml' || richModeAnalysis.mode !== 'source')
     && collaborationDocument?.session?.permission === 'write';
+  const preparingRichMode = mode === 'rich' && collaborationEnabled && !readOnly
+    && needsRichUpgrade;
   const effectiveMode: EditorMode = mode === 'read' ? 'read'
     : preparingRichMode ? 'rich'
       : mode === 'source' || (collaborationEnabled ? authoritativeRepresentation === 'plain_text' : sourceModeRequired) ? 'source' : 'rich';
-  const richSourceReadOnly = collaborationEnabled && authoritativeRepresentation === 'tiptap_xml';
+  const richSourceReadOnly = collaborationEnabled && isRichTextCollaborationRepresentation(authoritativeRepresentation);
 
   useEffect(() => {
     onCollaborationChange?.(collaborationDocument);
@@ -5869,8 +5876,7 @@ export function MarkdownEditor({
   }} />;
   const wrap = (children: React.ReactNode) => <div className="flex h-full min-h-0 flex-col bg-background" data-document-width={layout === 'field' || wide ? 'wide' : 'page'} data-editor-layout={layout} data-field-inline={layout === 'field' && !expanded} data-editor-mode={effectiveMode}>
     {modeBar}
-    {!readOnly && collaborationDocument && authoritativeRepresentation === 'plain_text'
-      && richModeAnalysis.mode !== 'source' && collaborationDocument.session?.permission === 'write' && filePath
+    {!readOnly && collaborationDocument && needsRichUpgrade && collaborationDocument.session && filePath
       ? <div hidden={mode === 'read'}><MarkdownRichMigration key={`${filePath}:${collaborationDocument.session.lifecycleGeneration}`}
         collaboration={collaborationDocument} filePath={filePath} autoStart={mode === 'rich'}
         onStart={() => setMode('rich')} onBusyChange={setMigrationInProgress} onReady={collaborationSession.retry} /></div> : null}

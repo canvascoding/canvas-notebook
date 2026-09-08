@@ -21,6 +21,8 @@ import type {
   TextCollaborationRepresentation,
   CollaborationSessionResponse,
 } from './types';
+import { COLLABORATION_CLIENT_CAPABILITIES, COLLABORATION_SCHEMA_VERSION, RICH_MARKDOWN_SCHEMA_VERSION,
+  isRichTextCollaborationRepresentation, supportsBlockTreeCollaboration } from './types';
 
 type RequestedTextCollaborationRepresentation = TextCollaborationRepresentation | 'auto';
 
@@ -153,7 +155,7 @@ async function requestSession(
   const response = await fetch('/api/files/collaboration/session', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
-    body: JSON.stringify({ path, representation }),
+    body: JSON.stringify({ path, representation, ...COLLABORATION_CLIENT_CAPABILITIES }),
   });
   const payload = await response.json().catch(() => ({})) as Partial<CollaborationSessionResponse> & { error?: string };
   if (!response.ok || payload.success !== true) throw new Error(payload.error || 'Collaboration could not be started.');
@@ -166,7 +168,10 @@ function requireTextSession(
 ): CollaborationSessionResponse {
   if (
     session.provider !== 'yjs'
-    || (session.representation !== 'plain_text' && session.representation !== 'tiptap_xml')
+    || session.schemaVersion !== COLLABORATION_SCHEMA_VERSION
+    || (session.representation !== 'plain_text' && !isRichTextCollaborationRepresentation(session.representation))
+    || (isRichTextCollaborationRepresentation(session.representation) && session.richTextSchemaVersion !== RICH_MARKDOWN_SCHEMA_VERSION)
+    || (session.representation === 'tiptap_blocks' && !supportsBlockTreeCollaboration(session))
     || (representation && session.representation !== representation)
   ) {
     throw new Error('The collaboration representation does not match this editor. Reload to use the current document representation.');

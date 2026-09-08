@@ -9,8 +9,7 @@ import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protoc
 import { createRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
 import { richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
-import { createBlockTreeCollaborationExtension } from '../app/lib/collaboration/block-tree-editor';
-import { createBlockTreeCaretExtension } from '../app/lib/collaboration/block-tree-carets';
+import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '../app/lib/collaboration/rich-editor-extensions';
 import { getReorderableBlockRangeAt, moveReorderableBlock } from '../app/lib/editor/reorderable-blocks';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
@@ -32,9 +31,10 @@ function createDocument() {
 function createEditor(doc: Y.Doc, errors: Error[], awareness?: Awareness) {
   return new Editor({
     extensions: [
-      ...richMarkdownCodecExtensions().map((extension) => extension.name === 'starterKit' ? extension.configure({ undoRedo: false }) : extension),
-      createBlockTreeCollaborationExtension({ document: doc, onError: (error) => errors.push(error) }),
-      ...(awareness ? [createBlockTreeCaretExtension({ document: doc, awareness, user: { name: 'Peer', color: '#123456' } })] : []),
+      ...richMarkdownCodecExtensions().map((extension) => extension.name === 'starterKit' ? extension.configure({ undoRedo: false })
+        : extension.name === 'uniqueID' ? extension.configure({ filterTransaction: (transaction: import('@tiptap/pm/state').Transaction) => !isRemoteRichEditorTransaction(transaction) }) : extension),
+      ...createRichEditorCollaborationExtensions({ document: doc, representation: 'tiptap_blocks', awareness: awareness ?? null,
+        user: { name: 'Peer', color: '#123456' }, onError: (error) => errors.push(error) }),
     ],
   });
 }

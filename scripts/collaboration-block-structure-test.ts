@@ -1,21 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { Doc, XmlElement, XmlText } from 'yjs';
+import type { Doc, XmlText } from 'yjs';
+import { getSchema } from '@tiptap/core';
 
 import { createBlockTestEditor } from '../tests/fixtures/editor-block-test-harness';
-import { createRichMarkdownYDoc, validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
-import { Y, TiptapTransformer } from '../app/lib/collaboration/server-runtime';
+import { createRichMarkdownYDoc, validateRichMarkdownYDoc, richMarkdownSchemaExtensions } from '../app/lib/collaboration/markdown-state';
+import { Y } from '../app/lib/collaboration/server-runtime';
+import { readRichDocumentJson } from '../app/lib/collaboration/rich-document';
+import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { getReorderableBlockRangeAt, moveReorderableBlock } from '../app/lib/editor/reorderable-blocks';
 
 function blocks(doc: Doc) {
-  const json = TiptapTransformer.fromYdoc(doc, 'body') as {
+  const json = readRichDocumentJson(doc) as {
     content: Array<{ attrs: { id: string }; content?: Array<{ text?: string }> }>;
   };
   return json.content.map((node) => ({ id: node.attrs.id, text: node.content?.map((child) => child.text ?? '').join('') ?? '' }));
 }
 
 function replicas() {
-  const left = createRichMarkdownYDoc('AAA\n\nBBB\n\nCCC');
+  const left = createRichMarkdownYDoc('AAA\n\nBBB\n\nCCC', 'tiptap_blocks');
   const right = new Y.Doc();
   Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
   // Fixed client IDs make every failure repeatable, independent of random IDs.
@@ -41,7 +44,7 @@ test('a concurrent text edit follows its moved block, not the block at its old p
     const moved = createBlockTestEditor(left);
     const source = getReorderableBlockRangeAt(moved.editor, moved.textPosition('BBB'))!;
     moveReorderableBlock(moved.editor, source, moved.editor.state.doc.content.size);
-    const target = (right.getXmlFragment('body').get(1) as XmlElement).get(0) as XmlText;
+    const target = new CollaborationBlockTree(right, getSchema(richMarkdownSchemaExtensions())).content(before[1].id).get(0) as XmlText;
     right.transact(() => { target.delete(0, 3); target.insert(0, 'NEW'); }, { actorType: 'agent' });
     exchange(left, right);
     const expected = [before[0], before[2], { ...before[1], text: 'NEW' }];

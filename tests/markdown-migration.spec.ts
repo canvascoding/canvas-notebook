@@ -1,6 +1,9 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
+import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
+
+const migrationResponse = { success: true, representation: 'tiptap_blocks', ...COLLABORATION_CLIENT_CAPABILITIES };
 
 let bundle: string;
 let browserErrors: string[];
@@ -34,7 +37,7 @@ test('Edit prepares normalizable Markdown and opens the actual rich editor with 
   const requests: unknown[] = [];
   await page.route('**/api/files/collaboration/session', async (route) => {
     requests.push(route.request().postDataJSON());
-    return route.fulfill({ json: { success: true, representation: 'tiptap_xml' } });
+    return route.fulfill({ json: migrationResponse });
   });
   await page.goto('http://localhost:43122/');
   await page.addScriptTag({ content: bundle });
@@ -43,7 +46,8 @@ test('Edit prepares normalizable Markdown and opens the actual rich editor with 
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
   await expect(page.locator('.tiptap[contenteditable="true"]')).toBeVisible();
   await expect(page.locator('.tiptap li')).toHaveCount(2);
-  expect(requests).toEqual([{ path: 'copy.md', representation: 'auto', allowRichMigration: true, expectedLifecycleGeneration: 1 }]);
+  expect(requests).toEqual([{ path: 'copy.md', representation: 'auto', allowRichMigration: true,
+    ...COLLABORATION_CLIENT_CAPABILITIES, expectedLifecycleGeneration: 1 }]);
   await expect(page.locator('body')).toHaveAttribute('data-checkpoints', '1');
   await page.screenshot({ path: testInfo.outputPath('edit-prepared.png') });
 });
@@ -54,7 +58,7 @@ for (const chosenMode of ['Source', 'Read']) {
     const response = new Promise<void>((resolve) => { finish = resolve; });
     await page.route('**/api/files/collaboration/session', async (route) => {
       await response;
-      return route.fulfill({ json: { success: true, representation: 'tiptap_xml' } });
+      return route.fulfill({ json: migrationResponse });
     });
     await page.goto('http://localhost:43122/');
     await page.addScriptTag({ content: bundle });
@@ -77,7 +81,7 @@ test('returning to Edit during preparation does not start a second migration', a
   await page.route('**/api/files/collaboration/session', async (route) => {
     requests += 1;
     await response;
-    return route.fulfill({ json: { success: true, representation: 'tiptap_xml' } });
+    return route.fulfill({ json: migrationResponse });
   });
   await page.goto('http://localhost:43122/');
   await page.addScriptTag({ content: bundle });
@@ -119,7 +123,7 @@ test('Source alone does not migrate and manual preparation opens Edit', async ({
   let requests = 0;
   await page.route('**/api/files/collaboration/session', (route) => {
     requests += 1;
-    return route.fulfill({ json: { success: true, representation: 'tiptap_xml' } });
+    return route.fulfill({ json: migrationResponse });
   });
   await page.goto('http://localhost:43122/');
   await page.addScriptTag({ content: bundle });
