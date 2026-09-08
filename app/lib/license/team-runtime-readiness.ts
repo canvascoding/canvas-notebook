@@ -24,7 +24,6 @@ export type TeamRuntimeReadinessCheckStatus = 'ready' | 'blocked' | 'not_checked
 
 export type TeamRuntimeReadinessCode =
   | 'TEAM_RUNTIME_DATABASE_READY'
-  | 'TEAM_RUNTIME_DATABASE_POSTGRES_REQUIRED'
   | 'TEAM_RUNTIME_DATABASE_CONFIG_INVALID'
   | 'TEAM_RUNTIME_DATABASE_UNREACHABLE'
   | 'TEAM_RUNTIME_MIGRATIONS_READY'

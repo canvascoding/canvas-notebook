@@ -298,17 +298,17 @@ async function main() {
 
     assert.deepEqual(await getCommunityTeamUpgradeRuntimeSnapshot(), {
       notebookVersion: '2026.8.1.2',
-      databaseEngine: 'sqlite',
+      databaseEngine: 'postgres',
       teamReady: false,
     });
-    const sqliteReadiness = await getCommunityTeamRuntimeReadiness({
+    const unconfiguredReadiness = await getCommunityTeamRuntimeReadiness({
       storageProbe: async () => true,
     });
-    assert.equal(sqliteReadiness.ready, false);
-    assert.ok(sqliteReadiness.blockers.some(
-      (blocker) => blocker.code === 'TEAM_RUNTIME_DATABASE_POSTGRES_REQUIRED',
+    assert.equal(unconfiguredReadiness.ready, false);
+    assert.ok(unconfiguredReadiness.blockers.some(
+      (blocker) => blocker.code === 'TEAM_RUNTIME_DATABASE_CONFIG_INVALID',
     ));
-    assert.ok(sqliteReadiness.blockers.some(
+    assert.ok(unconfiguredReadiness.blockers.some(
       (blocker) => blocker.code === 'TEAM_RUNTIME_PGVECTOR_NOT_CONFIGURED',
     ));
 
