@@ -41,7 +41,10 @@ prosemirror.EditorView = class extends NativeEditorView {
 const { render, fireEvent } = require('@testing-library/react') as typeof import('@testing-library/react');
 const { DocxEditor } = require('@eigenpal/docx-js-editor/react') as typeof import('@eigenpal/docx-js-editor/react');
 const { createEmptyDocument } = require('@eigenpal/docx-js-editor/core') as typeof import('@eigenpal/docx-js-editor/core');
-type CanvasDocxEditorProps = React.ComponentProps<typeof DocxEditor> & { canvasWorkspaceBound?: boolean };
+type CanvasDocxEditorProps = React.ComponentProps<typeof DocxEditor> & {
+  canvasWorkspaceBound?: boolean;
+  onSaveRequest?: () => void | Promise<void>;
+};
 const CanvasDocxEditor = DocxEditor as React.ComponentType<CanvasDocxEditorProps>;
 
 async function settle() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); }); }

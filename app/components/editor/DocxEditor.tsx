@@ -15,6 +15,7 @@ const DocxEditorComponent = dynamic(
 type CanvasDocxEditorProps = React.ComponentProps<typeof DocxEditorComponent> & {
   /** Canvas: suppress local Open and route Save to the workspace protocol. */
   canvasWorkspaceBound?: boolean;
+  onSaveRequest?: () => void | Promise<void>;
 };
 
 const CanvasDocxEditorComponent = DocxEditorComponent as React.ComponentType<CanvasDocxEditorProps>;
