@@ -1501,6 +1501,7 @@ export async function writeAgentBinaryFile(params: {
       path.dirname(fullPath),
       `.${path.basename(fullPath)}.canvas-agent-${randomUUID()}.tmp`,
     );
+    let removedRuntimeTempDestination = false;
     try {
       await assertAgentRuntimeTempWriteQuota({
         fullPath,
@@ -1511,9 +1512,31 @@ export async function writeAgentBinaryFile(params: {
       });
       if (runtimeTempPath && before.existed) {
         await fs.rm(fullPath, { force: true });
+        removedRuntimeTempDestination = true;
       }
       await fs.writeFile(stagingPath, params.content, { flag: 'wx', mode: 0o600 });
       await fs.rename(stagingPath, fullPath);
+      removedRuntimeTempDestination = false;
+    } catch (error) {
+      try {
+        await fs.rm(stagingPath, { force: true });
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          `Failed to replace ${params.path} and could not remove its staging file.`,
+        );
+      }
+      if (removedRuntimeTempDestination && before.buffer) {
+        try {
+          await fs.writeFile(fullPath, before.buffer, { flag: 'wx', mode: 0o600 });
+        } catch (restoreError) {
+          throw new AggregateError(
+            [error, restoreError],
+            `Failed to replace ${params.path} and could not restore its previous scratch content.`,
+          );
+        }
+      }
+      throw error;
     } finally {
       await fs.rm(stagingPath, { force: true }).catch(() => undefined);
     }

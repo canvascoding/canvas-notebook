@@ -100,15 +100,17 @@ async function main() {
       });
       const previousMaxBytes = process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES;
       const previousMaxFiles = process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES;
+      let quotaReplacementAfterSha256 = '';
       process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = String((await inspectAgentRuntimeTempUsage(runtimeTempDir)).bytes);
       process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES = String((await inspectAgentRuntimeTempUsage(runtimeTempDir)).files);
       try {
-        await writeAgentBinaryFile({
+        const quotaReplacementAfter = await writeAgentBinaryFile({
           path: quotaReplacementPath,
           content: Buffer.from([2, 2, 2, 2]),
           overwrite: true,
           expectedSha256: quotaReplacementBefore.afterSha256,
         });
+        quotaReplacementAfterSha256 = quotaReplacementAfter.afterSha256;
       } finally {
         if (previousMaxBytes === undefined) delete process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES;
         else process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = previousMaxBytes;
@@ -116,6 +118,33 @@ async function main() {
         else process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES = previousMaxFiles;
       }
       assert.deepEqual(await fs.readFile(quotaReplacementPath), Buffer.from([2, 2, 2, 2]));
+
+      const originalWriteFile = fs.writeFile;
+      fs.writeFile = (async (...args: Parameters<typeof fs.writeFile>) => {
+        const targetPath = String(args[0]);
+        if (targetPath.includes('.canvas-agent-') && targetPath.endsWith('.tmp')) {
+          throw new Error('injected staging write failure');
+        }
+        return originalWriteFile(...args);
+      }) as typeof fs.writeFile;
+      try {
+        await assert.rejects(
+          () => writeAgentBinaryFile({
+            path: quotaReplacementPath,
+            content: Buffer.from([3, 3, 3, 3]),
+            overwrite: true,
+            expectedSha256: quotaReplacementAfterSha256,
+          }),
+          /injected staging write failure/,
+        );
+      } finally {
+        fs.writeFile = originalWriteFile;
+      }
+      assert.deepEqual(
+        await fs.readFile(quotaReplacementPath),
+        Buffer.from([2, 2, 2, 2]),
+        'failed scratch replacements must restore the previous artifact',
+      );
 
       const tempCopyPath = path.join(runtimeTempDir, 'copy', 'scratch-copy.py');
       await copyAgentPaths({ sourcePaths: [tempFile], destinationPath: tempCopyPath });
