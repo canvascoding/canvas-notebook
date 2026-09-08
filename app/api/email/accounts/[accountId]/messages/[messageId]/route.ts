@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { isEmailMessageNotFoundError } from '@/app/lib/email/errors';
+import { isImapMailboxChangedError } from '@/app/lib/email/imap-service';
 import { readEmailMessage } from '@/app/lib/email/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -22,6 +23,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const data = await readEmailMessage(session.user.id, accountId, messageId, folder, { enforceReadPolicy: false });
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (isImapMailboxChangedError(error)) {
+      return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status });
+    }
     if (isEmailMessageNotFoundError(error)) {
       return NextResponse.json({ success: false, code: 'EMAIL_MESSAGE_NOT_FOUND', error: 'Email message is no longer available.' }, { status: 404 });
     }
