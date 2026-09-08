@@ -39,7 +39,12 @@ export async function readNotificationAttention(input: {
       workspaces: input.workspaces,
       filter: 'notifications',
       limit: 12,
-    }), { items: [], counts: { chat: 0, todos: 0, studio: 0, automation: 0 } }),
+    }), {
+      scope: { workspaceIds, workspaceCount: workspaceIds.length },
+      counts: { unread: 0, chat: 0, emails: 0, todos: 0, todoUnread: 0, studio: 0, automation: 0 },
+      items: [],
+      nextCursor: null,
+    }),
     settleNotificationSource(listTodos(input.userId, {
       workspaceType: 'all',
       workspaceIds,

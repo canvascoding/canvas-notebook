@@ -18,7 +18,7 @@ async function main() {
   assert.equal(refreshed.data.revision, 2);
   assert.equal(loads, 2);
 
-  const staleFallback = await loadCachedWorkspaceWidget({
+  const staleFallback = await loadCachedWorkspaceWidget<{ revision: number }>({
     ...base,
     forceRefresh: true,
     load: async () => { throw new Error('source unavailable'); },

@@ -136,7 +136,7 @@ async function assertProviderNeutralUserQueriesAreQuoted(): Promise<void> {
   const findings = (await Promise.all(PROVIDER_NEUTRAL_USER_QUERY_FILES.map(async (file) => {
     const source = await fs.readFile(path.join(root, file), 'utf8');
     return /\b(?:FROM|JOIN)\s+user\b/iu.test(source) ? file : null;
-  }))).filter((file): file is string => Boolean(file));
+  }))).filter((file) => file !== null);
 
   assert.deepEqual(
     findings,
