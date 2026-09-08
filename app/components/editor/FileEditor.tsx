@@ -16,8 +16,9 @@ import {
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { useEditorStore } from '@/app/store/editor-store';
 import { getDocumentTransitionGuard, registerDocumentTransitionGuard } from '@/app/lib/files/document-transition';
-import { prepareCollaborationDocumentTransition, type CollaborationDocument } from '@/app/lib/collaboration/client';
+import { prepareCollaborationDocumentTransition } from '@/app/lib/collaboration/client';
 import { useCollaborationDocumentLocation } from '@/app/lib/collaboration/document-location-client';
+import { useFileEditorCollaborationDocument } from '@/app/lib/collaboration/file-editor-document';
 import {
   CollaborationCheckpointRequestError,
   isCollaborationCheckpointValidationErrorCode,
@@ -490,24 +491,12 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const [externalTextChange, setExternalTextChange] = useState<ExternalTextChange | null>(null);
   const [isResolvingExternalTextChange, setIsResolvingExternalTextChange] = useState(false);
   const currentFilePath = currentFile?.path ?? null;
-  const [collaborationDocumentState, setCollaborationDocumentState] = useState<{
-    path: string;
-    document: CollaborationDocument;
-  } | null>(null);
+  const { document: activeCollaborationDocument, onCollaborationChange: handleCollaborationChange } =
+    useFileEditorCollaborationDocument(currentFile, currentFileWorkspaceId);
   const [agentOperationState, setAgentOperationState] = useState<{
     documentId: string;
     operations: CollaborationAgentOperation[];
   } | null>(null);
-  const handleCollaborationChange = useCallback((document: CollaborationDocument | null) => {
-    if (!currentFilePath) return;
-    setCollaborationDocumentState((current) => {
-      if (document) return { path: currentFilePath, document };
-      return current?.path === currentFilePath ? null : current;
-    });
-  }, [currentFilePath]);
-  const activeCollaborationDocument = collaborationDocumentState?.path === currentFilePath
-    ? collaborationDocumentState.document
-    : null;
   const activeExternalTextChange = externalTextChange &&
     externalTextChange.path === activePath &&
     externalTextChange.path === currentFilePath

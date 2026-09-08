@@ -200,6 +200,7 @@
     "test:editor:blocks": "tsx --conditions react-server scripts/editor-block-structure-test.ts",
     "test:editor:local-document": "tsx --test scripts/local-markdown-document-test.ts scripts/local-markdown-rich-binding-test.ts scripts/local-markdown-source-binding-test.ts",
     "test:editor:local-lifecycle": "tsx scripts/local-markdown-editor-lifecycle-test.tsx",
+    "test:editor:collaboration-scope": "tsx scripts/file-editor-collaboration-scope-test.tsx",
     "test:editor:identity": "tsx scripts/file-editor-identity-test.ts",
     "test:collaboration:blocks": "tsx --conditions react-server scripts/collaboration-block-structure-test.ts",
     "test:collaboration:block-tree": "tsx --conditions react-server scripts/collaboration-block-tree-test.ts",
