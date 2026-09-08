@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useFileStore } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
@@ -14,6 +14,7 @@ import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { findPathInTree, flattenDirectoryChildren } from '@/app/lib/files/tree-utils';
 import { searchWorkspaceFileReferences } from '@/app/lib/files/client';
 import { sortFileNodes, sortFileTree } from '@/app/lib/files/sort';
+import { useExplorerScrollAnchor } from './useExplorerScrollAnchor';
 
 interface UseFileExplorerViewModelOptions {
   containerRef: RefObject<HTMLDivElement | null>;
@@ -62,6 +63,7 @@ function directoryLoadState(nodes: FileNodeType[], path: string): { exists: bool
 }
 
 export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplorerViewModelOptions) {
+  const lastScrolledSelection = useRef<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [searchState, setSearchState] = useState<SearchState>({
     query: '',
@@ -270,7 +272,8 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
 
     const controller = new AbortController();
     const timeout = window.setTimeout(async () => {
-      setSearchState({ query, results: null, total: null, isSearching: true, error: null });
+      setSearchState((previous) => previous.query === query ? { ...previous, isSearching: true, error: null }
+        : { query, results: null, total: null, isSearching: true, error: null });
       try {
         if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
         const result = await searchWorkspaceFileReferences({
@@ -290,13 +293,13 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
         setSearchState({ query, results: nextResults, total: result.total, isSearching: false, error: null });
       } catch (error) {
         if (!controller.signal.aborted && !(error instanceof DOMException && error.name === 'AbortError')) {
-          setSearchState({
+          setSearchState((previous) => ({
             query,
-            results: null,
-            total: null,
+            results: previous.query === query ? previous.results : null,
+            total: previous.query === query ? previous.total : null,
             isSearching: false,
             error: error instanceof Error ? error.message : 'Failed to search files',
-          });
+          }));
         }
       }
     }, 200);
@@ -366,13 +369,23 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     [searchResultNodes]
   );
 
+  useExplorerScrollAnchor(containerRef, `${activeWorkspaceId}\0${browserMode}\0${currentDirectory}\0${normalizedSearchQuery}`, searchResultNodes);
+
   useEffect(() => {
-    if (!selectedNode || isRestoring || isLoadingTree) return;
+    if (!selectedNode) { lastScrolledSelection.current = null; return; }
+    if (isRestoring || isLoadingTree) return;
+    const selection = `${activeWorkspaceId}\0${browserMode}\0${currentDirectory}\0${selectedNode.path}`;
+    const needsReveal = browserReveal?.status === 'ready' && browserReveal.path === selectedNode.path
+      && browserReveal.workspaceId === activeWorkspaceId;
+    if (!needsReveal && lastScrolledSelection.current === selection) return;
 
     const frame = window.requestAnimationFrame(() => {
       const activeItem = Array.from(containerRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
         .find((element) => element.dataset.filePath === selectedNode.path);
-      activeItem?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      if (activeItem) {
+        lastScrolledSelection.current = selection;
+        activeItem.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
       const pending = useFileStore.getState().browserReveal;
       if (activeItem && pending?.status === 'ready' && pending.path === selectedNode.path
         && pending.workspaceId === useWorkspaceStore.getState().activeWorkspaceId) {
@@ -381,7 +394,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [browserMode, browserReveal, containerRef, currentDirectory, fileTree, filteredListChildren, isLoadingTree, isRestoring, searchResultNodes, selectedNode]);
+  }, [activeWorkspaceId, browserMode, browserReveal, containerRef, currentDirectory, fileTree, filteredListChildren, isLoadingTree, isRestoring, searchResultNodes, selectedNode]);
 
   return {
     browserMode,
