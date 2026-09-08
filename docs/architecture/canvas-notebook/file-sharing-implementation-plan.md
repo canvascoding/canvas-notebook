@@ -11,7 +11,7 @@ standardmäßig schreibgeschützt. Eingeladene Gäste erhalten Zugriff auf eine
 konkrete Markdown-Datei, ohne dadurch Mitglieder des gesamten Workspace zu werden.
 
 - [x] 0. Befunde, Verhalten und Abnahme dokumentieren; Arbeitsbranch erstellen.
-- [ ] 1. Bestehende Sicherheits- und Auslieferungsfehler beheben.
+- [x] 1. Bestehende Sicherheits- und Auslieferungsfehler beheben.
   - Nur tatsächlich eingebettete Markdown-Bilder öffentlich ausliefern; Code,
     Kommentare, escaped Syntax und nicht verwendete Referenzen ausschließen.
   - Fremde Freigaben nur mit Verwaltungsrecht verändern; Web, Mobile und Agent
@@ -74,3 +74,22 @@ Tests verwenden synthetische Konten; keine Einladungen an reale Personen senden.
 Die konkret ausgeführten Tests und verbleibenden offenen Abnahmepunkte werden
 hier nach jedem abgeschlossenen Schritt ergänzt. Eine grüne Teilprüfung ersetzt
 nicht die Gesamtprüfung einschließlich Gastbearbeitung und UI.
+
+### Schritt 1
+
+Markdown- und HTML-Bilder werden aus Syntaxbäumen gesammelt und an denselben
+Quellpositionen umgeschrieben. Code, Kommentare, unbenutzte Definitionen und
+Frontmatter autorisieren keine Assets. Der gemeinsame Obsidian-Scanner erhält
+UTF-16-Offsets auch bei Emoji. HTML-Sandboxen erlauben die eigene Vorschauseite.
+Datei- und PDF-Downloads verwenden einen gemeinsamen Unicode-fähigen Header.
+Änderungen fremder Sicherheitsmodi prüfen die Verwaltungsberechtigung.
+
+Erfolgreich: `test:public-share:security`, `test:public-share:workspace`,
+`test:public-share:route-access`, `scripts/obsidian-flavored-markdown-test.ts`,
+`scripts/markdown-core-test.ts`, `scripts/file-live-collaboration-test.ts`,
+TypeScript-Prüfung, ESLint für geänderte Dateien und `test:licenses`.
+Die Asset-Routentests prüfen explizit HTTP 404 für ansonsten vorhandene,
+nur in Code/Kommentaren erwähnte Bilder. Rechte-Tests erlauben den Manager und
+verweigern dem Projektleser die Änderung eines fremden Links.
+Die tatsächliche Browser-Einbettung und der PDF-Renderer bleiben Bestandteil
+der abschließenden UI-/Ende-zu-Ende-Abnahme.

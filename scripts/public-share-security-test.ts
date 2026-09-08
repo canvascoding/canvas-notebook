@@ -12,6 +12,8 @@ assert.equal(normalizePublicShareSecurityMode('anything-else'), 'strict');
 
 assert.match(STRICT_PUBLIC_HTML_CSP, /script-src 'none'/);
 assert.match(INTERACTIVE_PUBLIC_HTML_CSP, /sandbox allow-scripts/);
+assert.match(STRICT_PUBLIC_HTML_CSP, /frame-ancestors 'self'/);
+assert.match(INTERACTIVE_PUBLIC_HTML_CSP, /frame-ancestors 'self'/);
 assert.doesNotMatch(
   INTERACTIVE_PUBLIC_HTML_CSP,
   /allow-same-origin/,

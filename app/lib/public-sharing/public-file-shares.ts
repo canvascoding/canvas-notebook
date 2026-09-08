@@ -11,6 +11,7 @@ import { db } from '@/app/lib/db';
 import { canvasWorkspaces, publicFileShares } from '@/app/lib/db/schema';
 import { resolveExistingWorkspacePath, validatePath } from '@/app/lib/filesystem/workspace-files';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { fileContentDisposition } from '@/app/lib/files/content-disposition';
 import {
   INTERACTIVE_PUBLIC_HTML_CSP,
   isHtmlWorkspacePath,
@@ -689,6 +690,11 @@ export async function createPublicFileShares(params: {
       const existing = reconciledExistingRows.find((row) => row.status === 'active' && workspaceMatches(row, workspace));
       if (existing) {
         const existingSecurityMode = normalizePublicShareSecurityMode(existing.securityMode);
+        if (existingSecurityMode !== requestedSecurityMode
+          && existing.createdByUserId !== params.createdByUserId
+          && !canManageOtherWorkspaceShare(existing, workspace)) {
+          throw new Error('Only the share owner or a workspace share manager can change this public link.');
+        }
         const row = existingSecurityMode === requestedSecurityMode
           ? existing
           : await updateShare(existing, {
@@ -1074,10 +1080,6 @@ export async function resolvePublicShareShortCode(shortCode: string, options: Re
   return resolved;
 }
 
-function quotedFileName(fileName: string): string {
-  return fileName.replace(/["\\\r\n]/g, '_');
-}
-
 export function createPublicFileHeaders(params: {
   fileName: string;
   workspacePath: string;
@@ -1120,11 +1122,7 @@ export function createPublicFileHeaders(params: {
     headers.set('Content-Security-Policy', PUBLIC_SHARE_ASSET_CSP);
   }
 
-  if (forceAttachment) {
-    headers.set('Content-Disposition', `attachment; filename="${quotedFileName(params.fileName)}"`);
-  } else {
-    headers.set('Content-Disposition', `inline; filename="${quotedFileName(params.fileName)}"`);
-  }
+  headers.set('Content-Disposition', fileContentDisposition(params.fileName, forceAttachment ? 'attachment' : 'inline'));
 
   return headers;
 }

@@ -1,21 +1,8 @@
-import {
-  getObsidianWikiDisplayLabel,
-  parseObsidianWikiLinks,
-} from '@/app/lib/markdown/obsidian-flavored-markdown';
+import { collectMarkdownImageNodes } from './markdown-image-nodes';
 import { isMarkdownImagePath } from '@/app/lib/markdown/markdown-image-types';
 
 const PRESERVED_URL_PREFIXES = ['/api/', '/public/', '/_next/'];
 const EXTERNAL_URL_PATTERN = /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i;
-const INLINE_IMAGE_PATTERN = /(!\[[^\]\n]*\]\(\s*)(<[^>\n]+>|[^\s)\n]+)([^)\n]*\))/g;
-const HTML_IMAGE_PATTERN = /(<img\b[^>]*\bsrc\s*=\s*)(["'])([^"']+)(\2)/gi;
-const REFERENCE_DEFINITION_PATTERN = /^(\s*\[([^\]\n]+)\]:\s*)(<[^>\n]+>|[^\s\n]+)(.*)$/gm;
-const REFERENCE_IMAGE_PATTERN = /!\[([^\]\n]*)\]\[([^\]\n]*)\]/g;
-const SHORTCUT_REFERENCE_IMAGE_PATTERN = /!\[([^\]\n]+)\](?![[(])/g;
-
-type SourceMatch = {
-  source: string;
-  index: number;
-};
 
 function splitUrlDecoration(value: string) {
   const queryIndex = value.indexOf('?');
@@ -68,72 +55,12 @@ function unwrapMarkdownDestination(value: string) {
     : trimmed;
 }
 
-function normalizeReferenceLabel(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
 function isPubliclyServedImagePath(workspacePath: string) {
   return isMarkdownImagePath(workspacePath);
 }
 
-function collectInlineAndHtmlImageSources(markdown: string): SourceMatch[] {
-  const sources: SourceMatch[] = [];
-
-  for (const match of markdown.matchAll(INLINE_IMAGE_PATTERN)) {
-    const source = unwrapMarkdownDestination(match[2] || '');
-    if (source) sources.push({ source, index: match.index ?? 0 });
-  }
-
-  for (const match of markdown.matchAll(HTML_IMAGE_PATTERN)) {
-    const source = match[3] || '';
-    if (source) sources.push({ source, index: match.index ?? 0 });
-  }
-
-  return sources;
-}
-
-function referencedImageLabels(markdown: string) {
-  const labels = new Set<string>();
-
-  for (const match of markdown.matchAll(REFERENCE_IMAGE_PATTERN)) {
-    const alt = match[1] || '';
-    const explicitLabel = match[2] || '';
-    const label = normalizeReferenceLabel(explicitLabel || alt);
-    if (label) labels.add(label);
-  }
-
-  for (const match of markdown.matchAll(SHORTCUT_REFERENCE_IMAGE_PATTERN)) {
-    const label = normalizeReferenceLabel(match[1] || '');
-    if (label) labels.add(label);
-  }
-
-  return labels;
-}
-
-function collectReferencedDefinitionSources(markdown: string): SourceMatch[] {
-  const labels = referencedImageLabels(markdown);
-  if (labels.size === 0) return [];
-
-  const sources: SourceMatch[] = [];
-  for (const match of markdown.matchAll(REFERENCE_DEFINITION_PATTERN)) {
-    const label = normalizeReferenceLabel(match[2] || '');
-    if (!labels.has(label)) continue;
-
-    const source = unwrapMarkdownDestination(match[3] || '');
-    if (source) sources.push({ source, index: match.index ?? 0 });
-  }
-
-  return sources;
-}
-
-function publicMarkdownImageSources(markdown: string): SourceMatch[] {
-  return [
-    ...collectInlineAndHtmlImageSources(markdown),
-    ...collectReferencedDefinitionSources(markdown),
-    ...parseObsidianWikiLinks(markdown)
-      .filter((link) => link.embed && isMarkdownImagePath(link.path))
-      .map((link) => ({ source: link.path, index: link.start })),
-  ];
+function publicMarkdownImageSources(markdown: string) {
+  return collectMarkdownImageNodes(markdown);
 }
 
 export function resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath: string, source: string): string | null {
@@ -177,45 +104,12 @@ function rewriteImageSource(source: string, markdownWorkspacePath: string, token
   return source.trim().startsWith('<') && source.trim().endsWith('>') ? `<${rewritten}>` : rewritten;
 }
 
-function rewriteObsidianWikiImageSources(markdown: string, markdownWorkspacePath: string, token: string) {
-  const replacements = parseObsidianWikiLinks(markdown)
-    .filter((link) => link.embed && isMarkdownImagePath(link.path))
-    .map((link) => {
-      const alt = getObsidianWikiDisplayLabel(link)
-        .replace(/\\/gu, '\\\\')
-        .replace(/\]/gu, '\\]');
-      const source = rewriteImageSource(link.path, markdownWorkspacePath, token);
-      return {
-        end: link.end,
-        start: link.start,
-        value: `![${alt}](<${source}>)`,
-      };
-    })
-    .sort((left, right) => right.start - left.start);
-
+export function rewritePublicMarkdownImageSources(markdown: string, markdownWorkspacePath: string, token: string): string {
   let rewritten = markdown;
-  for (const replacement of replacements) {
-    rewritten = `${rewritten.slice(0, replacement.start)}${replacement.value}${rewritten.slice(replacement.end)}`;
+  for (const image of publicMarkdownImageSources(markdown).reverse()) {
+    const source = rewriteImageSource(image.source, markdownWorkspacePath, token);
+    if (source === image.source) continue;
+    rewritten = `${rewritten.slice(0, image.index)}${image.replace(source)}${rewritten.slice(image.end)}`;
   }
   return rewritten;
-}
-
-export function rewritePublicMarkdownImageSources(markdown: string, markdownWorkspacePath: string, token: string): string {
-  const referencedLabels = referencedImageLabels(markdown);
-  let rewritten = markdown.replace(INLINE_IMAGE_PATTERN, (match, before: string, source: string, after: string) => (
-    `${before}${rewriteImageSource(source, markdownWorkspacePath, token)}${after}`
-  ));
-
-  rewritten = rewritten.replace(HTML_IMAGE_PATTERN, (match, before: string, quote: string, source: string, after: string) => (
-    `${before}${quote}${rewriteImageSource(source, markdownWorkspacePath, token)}${after}`
-  ));
-
-  if (referencedLabels.size > 0) {
-    rewritten = rewritten.replace(REFERENCE_DEFINITION_PATTERN, (match, before: string, label: string, source: string, after: string) => {
-      if (!referencedLabels.has(normalizeReferenceLabel(label))) return match;
-      return `${before}${rewriteImageSource(source, markdownWorkspacePath, token)}${after}`;
-    });
-  }
-
-  return rewriteObsidianWikiImageSources(rewritten, markdownWorkspacePath, token);
 }

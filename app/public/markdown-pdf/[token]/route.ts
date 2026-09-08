@@ -11,6 +11,7 @@ import {
 } from '@/app/lib/public-sharing/public-markdown-export';
 import { getBrowserExportErrorResponse } from '@/app/lib/exports/browser-export-service';
 import { getMarkdownPdfRenderOptions } from '@/app/lib/pdf/markdown-brand';
+import { fileContentDisposition } from '@/app/lib/files/content-disposition';
 
 export async function POST(
   _request: NextRequest,
@@ -34,7 +35,7 @@ export async function POST(
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${getMarkdownPdfDownloadName(result.fileName)}"`,
+        'Content-Disposition': fileContentDisposition(getMarkdownPdfDownloadName(result.fileName)),
         'Content-Length': pdfBuffer.length.toString(),
         'Cache-Control': 'private, no-cache',
         'X-Robots-Tag': 'noindex, nofollow',

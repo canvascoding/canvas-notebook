@@ -38,8 +38,9 @@ function parseRange(rangeHeader: string | null, fileSize: number): { start: numb
     end = Number.isNaN(end) ? fileSize - 1 : end;
   }
 
-  if (start < 0 || end < start || start >= fileSize || end >= fileSize) return 'invalid';
-  return { start, end };
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
+    || start < 0 || end < start || start >= fileSize) return 'invalid';
+  return { start, end: Math.min(end, fileSize - 1) };
 }
 
 export function publicShareErrorResponse(resolved: Extract<PublicShareResolution, { ok: false }>) {

@@ -433,6 +433,38 @@ async function main() {
     );
     assert.equal(unsharedImageResponse.status, 404);
 
+    // Referencing a private asset as a code example must not publish it.
+    for (const example of [
+      '```md\n![private](images/unshared.png)\n```',
+      '    ![private](images/unshared.png)',
+      '<!-- <img src="images/unshared.png"> -->',
+      '`![private][ref]`\n\n[ref]: images/unshared.png',
+    ]) {
+      await writeFile(path.join(ownerPersonal.rootPath, 'docs', 'with-images.md'), example);
+      const response = await publicMarkdownAssetsRoute.GET(
+        routeRequest(`http://localhost/public/markdown-assets/${markdownImageToken}/docs/images/unshared.png`),
+        { params: Promise.resolve({ token: markdownImageToken, assetPath: ['docs', 'images', 'unshared.png'] }) },
+      );
+      assert.equal(response.status, 404, example);
+    }
+
+    await writeFile(path.join(ownerProject.rootPath, 'docs', 'restricted-share.html'), '<p>Project</p>');
+    const managedHtml = await createPublicFileShares({
+      paths: ['docs/restricted-share.html'], createdByUserId: 'user-owner', workspace: ownerProject,
+    });
+    const deniedHtmlUpdate = await createPublicFileShares({
+      paths: ['docs/restricted-share.html'], createdByUserId: 'user-reader', workspace: readerProject,
+      securityMode: 'interactive',
+    });
+    assert.equal(deniedHtmlUpdate.shares.length, 0);
+    assert.match(deniedHtmlUpdate.skipped[0].reason, /owner.*manager/);
+    const allowedHtmlUpdate = await createPublicFileShares({
+      paths: ['docs/restricted-share.html'], createdByUserId: 'user-member', workspace: memberProject,
+      securityMode: 'interactive',
+    });
+    assert.equal(allowedHtmlUpdate.shares[0].id, managedHtml.shares[0].id);
+    assert.equal(allowedHtmlUpdate.shares[0].securityMode, 'interactive');
+
     await writeFile(
       path.join(ownerPersonal.rootPath, 'docs', 'public-slides.marp.md'),
       '---\nmarp: true\n---\n\n# Public slides\n\n![Logo](images/published.png)\n',
