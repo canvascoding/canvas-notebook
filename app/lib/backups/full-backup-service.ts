@@ -9,9 +9,7 @@ import ZipStream from 'zip-stream';
 
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
 import { getDeploymentMode } from '@/app/lib/organization/config';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { resolveCanvasDataRoot, resolveSystemBackupsDir } from '@/app/lib/runtime-data-paths';
-import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
 import {
   FULL_BACKUP_SCHEMA_VERSION,
   type CanvasFullBackupManifest,
@@ -33,7 +31,6 @@ interface FullBackupLock {
 }
 
 const execFileAsync = promisify(execFile);
-const SQLITE_FILE_NAME = 'sqlite.db';
 const DEFAULT_PG_DUMP_COMMAND = 'pg_dump';
 const BACKUP_STATUS_FILE = 'status.json';
 const BACKUP_LOCK_FILE = '.full-backup.lock';
@@ -42,12 +39,6 @@ const LATEST_BACKUP_DIR_NAME = 'latest';
 export const LATEST_FULL_BACKUP_FILE_NAME = 'canvas-notebook-backup-latest.zip';
 export const LATEST_FULL_BACKUP_METADATA_FILE_NAME = 'canvas-notebook-backup-latest.json';
 const activeFullBackups = new Map<string, Promise<void>>();
-
-function normalizeProvider(value: string | null | undefined): FullBackupProvider {
-  const normalized = value?.trim().toLowerCase();
-  if (normalized === 'sqlite' || normalized === 'postgres') return normalized;
-  return 'unknown';
-}
 
 function getBackupsRoot(): string {
   return resolveSystemBackupsDir();
@@ -204,7 +195,6 @@ async function acquireBackupLock(job: FullBackupJob): Promise<() => Promise<void
 function shouldSkipDataPath(relativePath: string): boolean {
   const normalized = relativePath.split(path.sep).join('/');
   const parts = normalized.split('/').filter(Boolean);
-  if (normalized === SQLITE_FILE_NAME) return true;
   if (parts.includes('node_modules') || parts.includes('.next') || parts.includes('.git')) return true;
   if (parts.includes('cache') || parts.includes('temp') || parts.includes('logs')) return true;
   if (parts[0] === 'system' && parts[1] === 'backups') return true;
@@ -260,55 +250,6 @@ async function collectDataFiles(dataRoot: string): Promise<Array<FullBackupFileE
 
   await walk(dataRoot);
   return entries.sort((a, b) => a.archivePath.localeCompare(b.archivePath));
-}
-
-async function createSqliteFullSnapshot(dataRoot: string, backupDir: string): Promise<{
-  database: FullBackupDatabaseManifest;
-  entry: FullBackupFileEntry & { filePath: string };
-}> {
-  const BetterSqlite3 = loadBetterSqlite3();
-  const sourcePath = path.join(dataRoot, SQLITE_FILE_NAME);
-  const snapshotPath = path.join(backupDir, 'database', SQLITE_FILE_NAME);
-  await ensurePrivateDir(path.dirname(snapshotPath));
-
-  const source = new BetterSqlite3(sourcePath, { readonly: true, fileMustExist: true });
-  try {
-    await source.backup(snapshotPath);
-  } finally {
-    source.close();
-  }
-
-  const snapshot = new BetterSqlite3(snapshotPath, { readonly: true, fileMustExist: true });
-  try {
-    const check = snapshot.prepare('PRAGMA quick_check').get() as { quick_check?: string } | undefined;
-    if (check?.quick_check !== 'ok') {
-      throw new Error(`SQLite backup quick_check failed: ${check?.quick_check || 'unknown'}`);
-    }
-  } finally {
-    snapshot.close();
-  }
-
-  const stats = await fs.stat(snapshotPath);
-  const sha256 = await sha256File(snapshotPath);
-  return {
-    database: {
-      provider: 'sqlite',
-      backupKind: 'sqlite_snapshot',
-      artifactPath: 'database/sqlite.db',
-      artifactSha256: sha256,
-      postgresVersion: null,
-      pgvectorEnabled: null,
-      pgvectorVersion: null,
-    },
-    entry: {
-      kind: 'database',
-      filePath: snapshotPath,
-      archivePath: 'database/sqlite.db',
-      size: stats.size,
-      modifiedAt: stats.mtime.toISOString(),
-      sha256,
-    },
-  };
 }
 
 function parsePostgresUrl(raw: string): {
@@ -469,7 +410,7 @@ function manifestEntry(entry: FullBackupFileEntry & { filePath: string }): FullB
 
 function buildSource(source?: FullBackupSourceInput): FullBackupSource {
   return {
-    databaseProvider: normalizeProvider(source?.databaseProvider ?? getDatabaseProvider()),
+    databaseProvider: 'postgres',
     deploymentMode: source?.deploymentMode ?? getDeploymentMode(),
     teamFeaturesEnabled: source?.teamFeaturesEnabled ?? process.env.CANVAS_TEAM_FEATURES_ENABLED === 'true',
     managedServicesEnabled: source?.managedServicesEnabled ?? process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true',
@@ -563,9 +504,7 @@ async function runFullBackup(job: FullBackupJob, releaseLock: () => Promise<void
     job.phase = 'Creating database backup';
     await persist(true);
 
-    const databaseArtifact = job.source.databaseProvider === 'postgres'
-      ? await createPostgresDump(backupDir)
-      : await createSqliteFullSnapshot(dataRoot, backupDir);
+    const databaseArtifact = await createPostgresDump(backupDir);
 
     job.phase = 'Scanning data files';
     await persist(true);
@@ -851,7 +790,7 @@ function parseManifest(raw: string): CanvasFullBackupManifest | null {
 export async function inspectFullBackupArchive(archivePath: string): Promise<FullBackupInspection> {
   const warnings: string[] = [];
   const risks: string[] = [];
-  const targetProvider = normalizeProvider(getDatabaseProvider());
+  const targetProvider: FullBackupProvider = 'postgres';
   let manifest: CanvasFullBackupManifest | null = null;
 
   try {
@@ -873,13 +812,11 @@ export async function inspectFullBackupArchive(archivePath: string): Promise<Ful
     };
   }
 
-  const sourceProvider = normalizeProvider(manifest.database.provider);
+  const sourceProvider = manifest.database.provider;
   if (manifest.security.unencryptedArchive) {
     warnings.push('Backup archive is local and unencrypted. Treat it as sensitive infrastructure data.');
   }
-  if (sourceProvider === 'postgres' && targetProvider !== 'postgres') {
-    risks.push('Postgres full backup cannot be restored into a SQLite target.');
-  }
+  if (sourceProvider !== 'postgres') risks.push('Only Postgres full backup manifests are supported.');
   if (manifest.backupSchemaVersion > FULL_BACKUP_SCHEMA_VERSION) {
     risks.push('Backup schema version is newer than this application can restore.');
   }
@@ -895,10 +832,7 @@ export async function inspectFullBackupArchive(archivePath: string): Promise<Ful
       risks.push(`Backup database artifact could not be read: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
   }
-  if (sourceProvider === 'sqlite' && manifest.database.backupKind !== 'sqlite_snapshot') {
-    risks.push('SQLite full backup manifest does not point to a SQLite snapshot.');
-  }
-  if (sourceProvider === 'postgres' && manifest.database.backupKind !== 'postgres_dump') {
+  if (manifest.database.backupKind !== 'postgres_dump') {
     risks.push('Postgres full backup manifest does not point to a Postgres dump.');
   }
 
