@@ -1,7 +1,6 @@
 import 'server-only';
 
-import { and, eq, type SQL } from 'drizzle-orm';
-import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { and, eq, type AnyColumn, type SQL } from 'drizzle-orm';
 
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import type { StudioStorageScope } from '@/app/lib/integrations/studio-workspace';
@@ -16,8 +15,8 @@ export interface StudioScope {
 }
 
 type ScopedColumns = {
-  workspaceId: AnySQLiteColumn;
-  createdByUserId?: AnySQLiteColumn;
+  workspaceId: AnyColumn;
+  createdByUserId?: AnyColumn;
 };
 
 export function createStudioScope(userId: string, workspace: WorkspaceContext): StudioScope {
