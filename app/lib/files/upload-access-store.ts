@@ -42,7 +42,7 @@ export async function getUploadAccessGrant(fileId: string): Promise<UploadAccess
   const database = await openDb();
   try {
     const row = await database.get(
-      'SELECT * FROM upload_access_grants WHERE file_id = ? LIMIT 1',
+      'SELECT * FROM upload_access_grants WHERE file_id = $1 LIMIT 1',
       [fileId],
     ) as UploadAccessRow | undefined;
     return row ? mapGrant(row) : null;
@@ -62,7 +62,7 @@ export async function createUploadAccessGrant(
       `INSERT INTO upload_access_grants (
          file_id, owner_user_id, workspace_id, storage_path, original_name,
          mime_type, category, size_bytes, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)${conflictClause}`,
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)${conflictClause}`,
       [
         grant.fileId,
         grant.ownerUserId,
@@ -83,7 +83,7 @@ export async function createUploadAccessGrant(
 export async function deleteUploadAccessGrant(fileId: string): Promise<void> {
   const database = await openDb();
   try {
-    await database.run('DELETE FROM upload_access_grants WHERE file_id = ?', [fileId]);
+    await database.run('DELETE FROM upload_access_grants WHERE file_id = $1', [fileId]);
   } finally {
     await database.close();
   }

@@ -13,7 +13,7 @@ export async function resolveLegacyWorkspaceRecovery(userId: string): Promise<Wo
       SELECT o.organization_id, u.id, u.email, u.role
       FROM canvas_organization_settings o
       INNER JOIN "user" u ON u.id = o.owner_user_id
-      WHERE u.id = ? AND (u.banned IS NULL OR u.banned = 0)
+      WHERE u.id = $1 AND (u.banned IS NULL OR u.banned = 0)
         AND o.organization_id = (
           SELECT organization_id FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1
         )

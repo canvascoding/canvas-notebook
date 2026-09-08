@@ -65,16 +65,16 @@ export async function enrichWorkspaceFileNodes(params: {
 
   await withDatabase(async (database) => {
     for (const pathChunk of chunks(normalizedPaths, PATH_QUERY_CHUNK_SIZE)) {
-      const placeholders = pathChunk.map(() => '?').join(', ');
+      const placeholders = pathChunk.map((_, index) => `$${index + 2}`).join(', ');
       const rows = await database.all(
-        `SELECT path, title FROM workspace_file_metadata WHERE workspace_id = ? AND path IN (${placeholders})`,
+        `SELECT path, title FROM workspace_file_metadata WHERE workspace_id = $1 AND path IN (${placeholders})`,
         [params.workspace.workspaceId, ...pathChunk],
       ) as MetadataRow[];
       rows.forEach((row) => metadata.set(row.path, row));
 
       if (params.userId) {
         const stateRows = await database.all(
-          `SELECT path, is_favorite, pinned_at FROM workspace_file_user_states WHERE workspace_id = ? AND user_id = ? AND path IN (${placeholders})`,
+          `SELECT path, is_favorite, pinned_at FROM workspace_file_user_states WHERE workspace_id = $1 AND user_id = $2 AND path IN (${placeholders})`,
           [params.workspace.workspaceId, params.userId, ...pathChunk],
         ) as UserStateRow[];
         stateRows.forEach((row) => userStates.set(row.path, row));
@@ -108,12 +108,12 @@ export async function setWorkspaceFileTitle(params: {
   const now = Date.now();
   await withDatabase(async (database) => {
     if (title === null) {
-      await database.run('DELETE FROM workspace_file_metadata WHERE workspace_id = ? AND path = ?', [params.workspace.workspaceId, path]);
+      await database.run('DELETE FROM workspace_file_metadata WHERE workspace_id = $1 AND path = $2', [params.workspace.workspaceId, path]);
       return;
     }
     await database.run(`
       INSERT INTO workspace_file_metadata (workspace_id, path, title, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT(workspace_id, path) DO UPDATE SET title = excluded.title, updated_at = excluded.updated_at
     `, [params.workspace.workspaceId, path, title, now, now]);
   });
@@ -129,7 +129,7 @@ export async function setWorkspaceFileUserState(params: {
   const now = Date.now();
   await withDatabase(async (database) => {
     const current = await database.get(
-      'SELECT is_favorite, pinned_at FROM workspace_file_user_states WHERE workspace_id = ? AND user_id = ? AND path = ?',
+      'SELECT is_favorite, pinned_at FROM workspace_file_user_states WHERE workspace_id = $1 AND user_id = $2 AND path = $3',
       [params.workspace.workspaceId, params.userId, path],
     ) as UserStateRow | undefined;
     const isFavorite = params.update.isFavorite ?? Boolean(current?.is_favorite);
@@ -137,12 +137,12 @@ export async function setWorkspaceFileUserState(params: {
       ? current?.pinned_at ?? null
       : params.update.pinned ? now : null;
     if (!isFavorite && pinnedAt === null) {
-      await database.run('DELETE FROM workspace_file_user_states WHERE workspace_id = ? AND user_id = ? AND path = ?', [params.workspace.workspaceId, params.userId, path]);
+      await database.run('DELETE FROM workspace_file_user_states WHERE workspace_id = $1 AND user_id = $2 AND path = $3', [params.workspace.workspaceId, params.userId, path]);
       return;
     }
     await database.run(`
       INSERT INTO workspace_file_user_states (workspace_id, user_id, path, is_favorite, pinned_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       ON CONFLICT(workspace_id, user_id, path) DO UPDATE SET
         is_favorite = excluded.is_favorite,
         pinned_at = excluded.pinned_at,
@@ -182,14 +182,14 @@ export async function moveWorkspaceFileMetadataOnConnection(
   for (const table of ['workspace_file_metadata', 'workspace_file_user_states']) {
     await database.run(`
       DELETE FROM ${table}
-      WHERE workspace_id = ?
-        AND (path = ? OR substr(path, 1, length(?) + 1) = ? || '/')
+      WHERE workspace_id = $1
+        AND (path = $2 OR substr(path, 1, length($3) + 1) = $4 || '/')
     `, [params.workspaceId, params.newPath, params.newPath, params.newPath]);
     await database.run(`
       UPDATE ${table}
-      SET path = ? || substr(path, length(?) + 1)
-      WHERE workspace_id = ?
-        AND (path = ? OR substr(path, 1, length(?) + 1) = ? || '/')
+      SET path = $1 || substr(path, length($2) + 1)
+      WHERE workspace_id = $3
+        AND (path = $4 OR substr(path, 1, length($5) + 1) = $6 || '/')
     `, [params.newPath, params.oldPath, params.workspaceId, params.oldPath, params.oldPath, params.oldPath]);
   }
 }
@@ -205,8 +205,8 @@ export async function deleteWorkspaceFileMetadata(params: {
       for (const table of ['workspace_file_metadata', 'workspace_file_user_states']) {
         await database.run(`
           DELETE FROM ${table}
-          WHERE workspace_id = ?
-            AND (path = ? OR substr(path, 1, length(?) + 1) = ? || '/')
+          WHERE workspace_id = $1
+            AND (path = $2 OR substr(path, 1, length($3) + 1) = $4 || '/')
         `, [params.workspace.workspaceId, filePath, filePath, filePath]);
       }
       await database.run('COMMIT');

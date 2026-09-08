@@ -386,7 +386,7 @@ async function loadAgentResponsePushReadState(input: {
          ORDER BY pi_messages.sequence DESC, pi_messages.id DESC
          LIMIT 1) AS last_assistant_message_content
        FROM pi_sessions
-       WHERE user_id = ? AND session_id = ? AND workspace_id = ?
+       WHERE user_id = $1 AND session_id = $2 AND workspace_id = $3
        LIMIT 1`,
       [input.userId, input.sessionId, input.workspaceId],
     ) as {
@@ -459,7 +459,7 @@ export async function getMobilePushDeviceStatus(input: {
     const row = await connection.get(
       `SELECT ${DEVICE_SELECT}
        FROM mobile_push_devices
-       WHERE user_id = ? AND installation_id = ?`,
+       WHERE user_id = $1 AND installation_id = $2`,
       [input.userId, input.installationId],
     ) as MobilePushDeviceRow | undefined;
     return deviceStatus(row);
@@ -475,14 +475,14 @@ export async function syncMobilePushDeviceSession(input: {
     const now = Date.now();
     await connection.run(
       `UPDATE mobile_push_devices
-       SET auth_session_id = ?, updated_at = ?
-       WHERE user_id = ? AND installation_id = ?`,
+       SET auth_session_id = $1, updated_at = $2
+       WHERE user_id = $3 AND installation_id = $4`,
       [input.authSessionId, now, input.userId, input.installationId],
     );
     const row = await connection.get(
       `SELECT ${DEVICE_SELECT}
        FROM mobile_push_devices
-       WHERE user_id = ? AND installation_id = ?`,
+       WHERE user_id = $1 AND installation_id = $2`,
       [input.userId, input.installationId],
     ) as MobilePushDeviceRow | undefined;
     console.info('[Mobile Push] Device session sync', {
@@ -507,19 +507,19 @@ export async function registerMobilePushDevice(input: {
     try {
       await connection.run(
         `DELETE FROM mobile_push_devices
-         WHERE user_id = ?
+         WHERE user_id = $1
            AND NOT EXISTS (
              SELECT 1 FROM session
              WHERE session.id = mobile_push_devices.auth_session_id
                AND session.user_id = mobile_push_devices.user_id
-               AND session.expires_at > ?
+               AND session.expires_at > $2
            )`,
         [input.userId, authNow],
       );
       const existing = await connection.get(
         `SELECT id, expo_push_token, enabled, last_error_code
          FROM mobile_push_devices
-         WHERE user_id = ? AND installation_id = ?`,
+         WHERE user_id = $1 AND installation_id = $2`,
         [input.userId, input.registration.installationId],
       ) as {
         id: string;
@@ -528,7 +528,7 @@ export async function registerMobilePushDevice(input: {
         last_error_code: string | null;
       } | undefined;
       const count = await connection.get(
-        'SELECT COUNT(*) AS count FROM mobile_push_devices WHERE user_id = ?',
+        'SELECT COUNT(*) AS count FROM mobile_push_devices WHERE user_id = $1',
         [input.userId],
       ) as { count?: number | string } | undefined;
       if (!existing && Number(count?.count || 0) >= MAX_DEVICES_PER_USER) {
@@ -540,7 +540,7 @@ export async function registerMobilePushDevice(input: {
       }
 
       await connection.run(
-        'DELETE FROM mobile_push_devices WHERE expo_push_token = ? AND installation_id <> ?',
+        'DELETE FROM mobile_push_devices WHERE expo_push_token = $1 AND installation_id <> $2',
         [input.registration.expoPushToken, input.registration.installationId],
       );
       const tokenChanged = Boolean(
@@ -555,7 +555,7 @@ export async function registerMobilePushDevice(input: {
           app_variant, enabled, agent_response_ready, todo_attention, email_review, studio_completed,
           failure_attention, automation_run_status, preview_enabled, last_registered_at, last_delivery_at,
           last_error_code, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NULL, $17, $18, $19)
         ON CONFLICT(installation_id) DO UPDATE SET
           user_id = excluded.user_id,
           auth_session_id = excluded.auth_session_id,
@@ -604,7 +604,7 @@ export async function registerMobilePushDevice(input: {
     const row = await connection.get(
       `SELECT ${DEVICE_SELECT}
        FROM mobile_push_devices
-       WHERE user_id = ? AND installation_id = ?`,
+       WHERE user_id = $1 AND installation_id = $2`,
       [input.userId, input.registration.installationId],
     ) as MobilePushDeviceRow | undefined;
     return deviceStatus(row);
@@ -620,7 +620,7 @@ export async function updateMobilePushDevicePreference(input: {
     const row = await connection.get(
       `SELECT ${DEVICE_SELECT}
        FROM mobile_push_devices
-       WHERE user_id = ? AND installation_id = ?`,
+       WHERE user_id = $1 AND installation_id = $2`,
       [input.userId, input.update.installationId],
     ) as MobilePushDeviceRow | undefined;
     if (!row) {
@@ -637,15 +637,15 @@ export async function updateMobilePushDevicePreference(input: {
     if (changed) {
       await connection.run(
         `UPDATE mobile_push_devices
-         SET ${preference.column} = ?, updated_at = ?
-         WHERE id = ? AND user_id = ? AND installation_id = ?`,
+         SET ${preference.column} = $1, updated_at = $2
+         WHERE id = $3 AND user_id = $4 AND installation_id = $5`,
         [input.update.enabled ? 1 : 0, now, row.id, input.userId, input.update.installationId],
       );
     }
     const updated = await connection.get(
       `SELECT ${DEVICE_SELECT}
        FROM mobile_push_devices
-       WHERE user_id = ? AND installation_id = ?`,
+       WHERE user_id = $1 AND installation_id = $2`,
       [input.userId, input.update.installationId],
     ) as MobilePushDeviceRow | undefined;
     console.info('[Mobile Push] Preference update', {
@@ -666,7 +666,7 @@ export async function unregisterMobilePushDevice(input: {
 }): Promise<void> {
   await withConnection(async (connection) => {
     await connection.run(
-      'DELETE FROM mobile_push_devices WHERE user_id = ? AND installation_id = ?',
+      'DELETE FROM mobile_push_devices WHERE user_id = $1 AND installation_id = $2',
       [input.userId, input.installationId],
     );
   });
@@ -890,7 +890,7 @@ async function recordTicketResult(input: {
       `INSERT INTO mobile_push_deliveries (
         id, device_id, user_id, category, entity_id, expo_ticket_id, status,
         attempt_count, next_receipt_check_at, receipt_at, last_error_code, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'ticket_accepted', 0, ?, NULL, NULL, ?, ?)`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, 'ticket_accepted', 0, $7, NULL, NULL, $8, $9)`,
       [
         `mpdl_${randomUUID()}`,
         row.id,
@@ -905,8 +905,8 @@ async function recordTicketResult(input: {
     );
     await connection.run(
       `UPDATE mobile_push_devices
-       SET last_error_code = NULL, updated_at = ?
-       WHERE id = ?`,
+       SET last_error_code = NULL, updated_at = $1
+       WHERE id = $2`,
       [now, row.id],
     );
     return true;
@@ -917,7 +917,7 @@ async function recordTicketResult(input: {
     `INSERT INTO mobile_push_deliveries (
       id, device_id, user_id, category, entity_id, expo_ticket_id, status,
       attempt_count, next_receipt_check_at, receipt_at, last_error_code, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, NULL, 'ticket_error', 0, NULL, ?, ?, ?, ?)`,
+    ) VALUES ($1, $2, $3, $4, $5, NULL, 'ticket_error', 0, NULL, $6, $7, $8, $9)`,
     [
       `mpdl_${randomUUID()}`,
       row.id,
@@ -932,8 +932,8 @@ async function recordTicketResult(input: {
   );
   await connection.run(
     `UPDATE mobile_push_devices
-     SET enabled = ?, last_error_code = ?, updated_at = ?
-     WHERE id = ?`,
+     SET enabled = $1, last_error_code = $2, updated_at = $3
+     WHERE id = $4`,
     [disablesPushDevice(errorCode) ? 0 : 1, errorCode, now, row.id],
   );
   return false;
@@ -990,11 +990,11 @@ export async function sendMobileAttentionPush(input: {
       `SELECT mobile_push_devices.${DEVICE_SELECT.replaceAll(', ', ', mobile_push_devices.')}
        FROM mobile_push_devices
        INNER JOIN session ON session.id = mobile_push_devices.auth_session_id
-       WHERE mobile_push_devices.user_id = ?
+       WHERE mobile_push_devices.user_id = $1
          AND mobile_push_devices.enabled = 1
          AND mobile_push_devices.${preferenceColumn} = 1
          AND session.user_id = mobile_push_devices.user_id
-         AND session.expires_at > ?`,
+         AND session.expires_at > $2`,
       [input.userId, authNow],
     ) as MobilePushDeviceRow[];
     // A disabled alert category must stay quiet, but it must not prevent an
@@ -1005,11 +1005,11 @@ export async function sendMobileAttentionPush(input: {
       `SELECT mobile_push_devices.${DEVICE_SELECT.replaceAll(', ', ', mobile_push_devices.')}
        FROM mobile_push_devices
        INNER JOIN session ON session.id = mobile_push_devices.auth_session_id
-       WHERE mobile_push_devices.user_id = ?
+       WHERE mobile_push_devices.user_id = $1
          AND mobile_push_devices.enabled = 1
          AND mobile_push_devices.platform = 'ios'
          AND session.user_id = mobile_push_devices.user_id
-         AND session.expires_at > ?`,
+         AND session.expires_at > $2`,
       [input.userId, authNow],
     ) as MobilePushDeviceRow[];
     let badge: number | undefined;
@@ -1248,12 +1248,12 @@ export async function pollMobilePushReceipts(input: {
     const rows = await connection.all(
       `SELECT id, device_id, expo_ticket_id, attempt_count
        FROM mobile_push_deliveries
-       WHERE user_id = ?
+       WHERE user_id = $1
          AND status = 'ticket_accepted'
          AND next_receipt_check_at IS NOT NULL
-         AND next_receipt_check_at <= ?
+         AND next_receipt_check_at <= $2
        ORDER BY next_receipt_check_at ASC, id ASC
-       LIMIT ?`,
+       LIMIT $3`,
       [input.userId, now, limit],
     ) as MobilePushDeliveryRow[];
     if (rows.length === 0) return { checked: 0, delivered: 0, failed: 0, pending: 0 };
@@ -1276,17 +1276,17 @@ export async function pollMobilePushReceipts(input: {
         if (attemptCount >= MAX_RECEIPT_ATTEMPTS) {
           await connection.run(
             `UPDATE mobile_push_deliveries
-             SET status = 'receipt_timeout', attempt_count = ?, next_receipt_check_at = NULL,
-               last_error_code = 'RECEIPT_TIMEOUT', updated_at = ?
-             WHERE id = ?`,
+             SET status = 'receipt_timeout', attempt_count = $1, next_receipt_check_at = NULL,
+               last_error_code = 'RECEIPT_TIMEOUT', updated_at = $2
+             WHERE id = $3`,
             [attemptCount, now, row.id],
           );
           failed += 1;
         } else {
           await connection.run(
             `UPDATE mobile_push_deliveries
-             SET attempt_count = ?, next_receipt_check_at = ?, updated_at = ?
-             WHERE id = ?`,
+             SET attempt_count = $1, next_receipt_check_at = $2, updated_at = $3
+             WHERE id = $4`,
             [attemptCount, now + receiptRetryDelay(attemptCount), now, row.id],
           );
           pending += 1;
@@ -1297,15 +1297,15 @@ export async function pollMobilePushReceipts(input: {
       if (receipt.status === 'ok') {
         await connection.run(
           `UPDATE mobile_push_deliveries
-           SET status = 'receipt_ok', next_receipt_check_at = NULL, receipt_at = ?,
-             last_error_code = NULL, updated_at = ?
-           WHERE id = ?`,
+           SET status = 'receipt_ok', next_receipt_check_at = NULL, receipt_at = $1,
+             last_error_code = NULL, updated_at = $2
+           WHERE id = $3`,
           [now, now, row.id],
         );
         await connection.run(
           `UPDATE mobile_push_devices
-           SET last_delivery_at = ?, last_error_code = NULL, updated_at = ?
-           WHERE id = ?`,
+           SET last_delivery_at = $1, last_error_code = NULL, updated_at = $2
+           WHERE id = $3`,
           [now, now, row.device_id],
         );
         delivered += 1;
@@ -1315,15 +1315,15 @@ export async function pollMobilePushReceipts(input: {
       const errorCode = ticketErrorCode(receipt);
       await connection.run(
         `UPDATE mobile_push_deliveries
-         SET status = 'receipt_error', next_receipt_check_at = NULL, receipt_at = ?,
-           last_error_code = ?, updated_at = ?
-         WHERE id = ?`,
+         SET status = 'receipt_error', next_receipt_check_at = NULL, receipt_at = $1,
+           last_error_code = $2, updated_at = $3
+         WHERE id = $4`,
         [now, errorCode, now, row.id],
       );
       await connection.run(
         `UPDATE mobile_push_devices
-         SET enabled = ?, last_error_code = ?, updated_at = ?
-         WHERE id = ?`,
+         SET enabled = $1, last_error_code = $2, updated_at = $3
+         WHERE id = $4`,
         [disablesPushDevice(errorCode) ? 0 : 1, errorCode, now, row.device_id],
       );
       failed += 1;

@@ -38,7 +38,7 @@ export function createPublicRateLimitStore(
       }
 
       if (now - lastCleanupAt >= 60_000) {
-        await database.run('DELETE FROM security_public_rate_limits WHERE reset_at <= ?', [now]);
+        await database.run('DELETE FROM security_public_rate_limits WHERE reset_at <= $1', [now]);
         lastCleanupAt = now;
       }
 
@@ -47,15 +47,15 @@ export function createPublicRateLimitStore(
       for (const bucket of buckets) {
         const row = await database.get(`
           INSERT INTO security_public_rate_limits (bucket_key, count, reset_at)
-          VALUES (?, 1, ?)
+          VALUES ($1, 1, $2)
           ON CONFLICT (bucket_key) DO UPDATE SET
-            count = CASE WHEN security_public_rate_limits.reset_at <= ? THEN 1 ELSE security_public_rate_limits.count + 1 END,
-            reset_at = CASE WHEN security_public_rate_limits.reset_at <= ? THEN excluded.reset_at ELSE security_public_rate_limits.reset_at END
-          WHERE security_public_rate_limits.reset_at <= ? OR security_public_rate_limits.count < ?
+            count = CASE WHEN security_public_rate_limits.reset_at <= $3 THEN 1 ELSE security_public_rate_limits.count + 1 END,
+            reset_at = CASE WHEN security_public_rate_limits.reset_at <= $4 THEN excluded.reset_at ELSE security_public_rate_limits.reset_at END
+          WHERE security_public_rate_limits.reset_at <= $5 OR security_public_rate_limits.count < $6
           RETURNING reset_at
         `, [bucket.key, now + bucket.windowMs, now, now, now, bucket.limit]);
         if (!row) {
-          const existing = await database.get('SELECT reset_at FROM security_public_rate_limits WHERE bucket_key = ?', [bucket.key]) as { reset_at: number | string } | undefined;
+          const existing = await database.get('SELECT reset_at FROM security_public_rate_limits WHERE bucket_key = $1', [bucket.key]) as { reset_at: number | string } | undefined;
           return { ok: false, retryAfter: Math.max(1, Math.ceil((Number(existing?.reset_at ?? now + bucket.windowMs) - now) / 1000)) };
         }
       }

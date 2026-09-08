@@ -301,8 +301,8 @@ async function ensurePostgresWorkspaceMemberCandidate(
         u.banned
       FROM "user" u
       LEFT JOIN organization_user_permissions p
-        ON p.user_id = u.id AND p.organization_id = ?
-      WHERE u.id = ?
+        ON p.user_id = u.id AND p.organization_id = $1
+      WHERE u.id = $2
       LIMIT 1
     `,
     [params.organizationId, params.userId],
@@ -324,7 +324,7 @@ async function ensurePostgresWorkspaceMemberCandidate(
     `
       INSERT INTO organization_user_permissions (
         organization_id, user_id, role, status, created_at, updated_at
-      ) VALUES (?, ?, 'member', 'active', ?, ?)
+      ) VALUES ($1, $2, 'member', 'active', $3, $4)
       ON CONFLICT(organization_id, user_id) DO NOTHING
     `,
     [params.organizationId, params.userId, now, now],
@@ -369,14 +369,14 @@ export async function getPostgresAuthUserCount(database: RuntimeDb): Promise<num
 
 export async function findPostgresUserById(database: RuntimeDb, userId: string): Promise<PostgresUserRow | null> {
   return await database.get(
-    'SELECT id, name, email, role, created_at FROM "user" WHERE id = ? LIMIT 1',
+    'SELECT id, name, email, role, created_at FROM "user" WHERE id = $1 LIMIT 1',
     [userId],
   ) as PostgresUserRow | undefined || null;
 }
 
 export async function findPostgresUserByEmail(database: RuntimeDb, email: string): Promise<PostgresUserRow | null> {
   return await database.get(
-    'SELECT id, name, email, role, created_at FROM "user" WHERE lower(email) = lower(?) LIMIT 1',
+    'SELECT id, name, email, role, created_at FROM "user" WHERE lower(email) = lower($1) LIMIT 1',
     [email],
   ) as PostgresUserRow | undefined || null;
 }
@@ -408,7 +408,7 @@ export async function updatePostgresAuthUser(
   },
 ): Promise<void> {
   await database.run(
-    'UPDATE "user" SET name = ?, email = ?, role = ?, updated_at = ? WHERE id = ?',
+    'UPDATE "user" SET name = $1, email = $2, role = $3, updated_at = $4 WHERE id = $5',
     [input.name, input.email, input.role || 'admin', Date.now(), input.userId],
   );
 }
@@ -428,7 +428,7 @@ export async function insertPostgresAuthUser(
     `
       INSERT INTO "user" (
         id, name, email, email_verified, image, role, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     `,
     [userId, input.name, input.email, 1, null, input.role || 'admin', now, now],
   );
@@ -444,14 +444,14 @@ export async function ensurePostgresCredentialPassword(
   },
 ): Promise<void> {
   const existingAccount = await database.get(
-    'SELECT id FROM account WHERE user_id = ? AND provider_id = ? LIMIT 1',
+    'SELECT id FROM account WHERE user_id = $1 AND provider_id = $2 LIMIT 1',
     [input.userId, 'credential'],
   ) as { id: string } | undefined;
   const now = Date.now();
 
   if (existingAccount) {
     await database.run(
-      'UPDATE account SET account_id = ?, issuer = COALESCE(issuer, ?), password = ?, updated_at = ? WHERE id = ?',
+      'UPDATE account SET account_id = $1, issuer = COALESCE(issuer, $2), password = $3, updated_at = $4 WHERE id = $5',
       [input.userId, 'local:credential', input.passwordHash, now, existingAccount.id],
     );
     return;
@@ -461,7 +461,7 @@ export async function ensurePostgresCredentialPassword(
     `
       INSERT INTO account (
         id, account_id, provider_id, user_id, issuer, password, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     `,
     [input.accountId || randomUUID(), input.userId, 'credential', input.userId, 'local:credential', input.passwordHash, now, now],
   );
@@ -497,7 +497,7 @@ async function getPermissionRow(
         can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
         can_manage_backups, can_manage_organization_memory, can_migrate_database, can_enable_knowledge, can_recover_workspaces
       FROM organization_user_permissions
-      WHERE organization_id = ? AND user_id = ?
+      WHERE organization_id = $1 AND user_id = $2
       LIMIT 1
     `,
     [organizationId, userId],
@@ -511,7 +511,7 @@ async function ensurePermissionRow(
   requestedRole: OrganizationPermissionSnapshot['role'],
 ): Promise<OrganizationPermissionSnapshot> {
   const existing = await database.get(
-    'SELECT role FROM organization_user_permissions WHERE organization_id = ? AND user_id = ? LIMIT 1',
+    'SELECT role FROM organization_user_permissions WHERE organization_id = $1 AND user_id = $2 LIMIT 1',
     [organizationId, userId],
   ) as { role?: string } | undefined;
   const role = existing?.role === 'owner' ? 'owner' : requestedRole;
@@ -526,7 +526,7 @@ async function ensurePermissionRow(
         can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
         can_manage_backups, can_manage_organization_memory, can_migrate_database, can_enable_knowledge, can_recover_workspaces,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       ON CONFLICT(organization_id, user_id) DO UPDATE SET
         role = excluded.role,
         updated_at = excluded.updated_at
@@ -560,7 +560,7 @@ async function getWorkspaceById(database: RuntimeDb, workspaceId: string) {
     `
       SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
       FROM canvas_workspaces
-      WHERE id = ?
+      WHERE id = $1
       LIMIT 1
     `,
     [workspaceId],
@@ -574,7 +574,7 @@ async function getPersonalWorkspace(database: RuntimeDb, userId: string) {
     `
       SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
       FROM canvas_workspaces
-      WHERE type = 'personal' AND owner_user_id = ?
+      WHERE type = 'personal' AND owner_user_id = $1
       ORDER BY is_default DESC, created_at ASC
       LIMIT 1
     `,
@@ -589,7 +589,7 @@ async function getActiveOrganizationWorkspace(database: RuntimeDb, organizationI
     `
       SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
       FROM canvas_workspaces
-      WHERE type = 'organization' AND organization_id = ? AND status = 'active'
+      WHERE type = 'organization' AND organization_id = $1 AND status = 'active'
       ORDER BY created_at ASC
       LIMIT 1
     `,
@@ -615,7 +615,7 @@ async function ensureWorkspaceRecord(database: RuntimeDb, input: {
   if (existing) {
     const nextRootRelativePath = input.preserveExistingRoot ? existing.rootRelativePath : input.rootRelativePath;
     await database.run(
-      'UPDATE canvas_workspaces SET root_relative_path = ?, display_name = ?, is_default = ?, updated_at = ? WHERE id = ?',
+      'UPDATE canvas_workspaces SET root_relative_path = $1, display_name = $2, is_default = $3, updated_at = $4 WHERE id = $5',
       [nextRootRelativePath, existing.displayName || input.displayName, input.isDefault ? 1 : 0, now, existing.id],
     );
     ensureWorkspaceDirectory(nextRootRelativePath);
@@ -627,7 +627,7 @@ async function ensureWorkspaceRecord(database: RuntimeDb, input: {
     `
       INSERT INTO canvas_workspaces (
         id, organization_id, type, owner_user_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10)
     `,
     [id, input.organizationId, input.type, input.ownerUserId, input.rootRelativePath, input.displayName, input.icon, input.isDefault ? 1 : 0, now, now],
   );
@@ -644,7 +644,7 @@ async function reserveWorkspaceRootRelativePath(
     const slug = suffix === 0 ? baseSlug : `${baseSlug}-${suffix + 1}`;
     const rootRelativePath = buildPath(slug);
     const existing = await database.get(
-      'SELECT id FROM canvas_workspaces WHERE root_relative_path = ? LIMIT 1',
+      'SELECT id FROM canvas_workspaces WHERE root_relative_path = $1 LIMIT 1',
       [rootRelativePath],
     ) as { id: string } | undefined;
     if (!existing) return rootRelativePath;
@@ -675,7 +675,7 @@ async function insertWorkspaceRecord(database: RuntimeDb, input: {
     `
       INSERT INTO canvas_workspaces (
         id, organization_id, type, owner_user_id, project_id, root_relative_path, display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active', $11, $12, $13)
     `,
     [
       id,
@@ -714,7 +714,7 @@ async function upsertTeamWorkspaceOwnerMembership(database: RuntimeDb, input: {
       INSERT INTO canvas_workspace_members (
         organization_id, workspace_id, user_id, role, status,
         can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, 'admin', 'active', 1, 1, 1, ?, ?, ?)
+      ) VALUES ($1, $2, $3, 'admin', 'active', 1, 1, 1, $4, $5, $6)
       ON CONFLICT(workspace_id, user_id) DO UPDATE SET
         role = excluded.role,
         status = excluded.status,
@@ -779,7 +779,7 @@ async function countActiveWorkspaceAutomations(database: RuntimeDb, workspaceId:
     `
       SELECT COUNT(*) AS count
       FROM automation_jobs
-      WHERE workspace_id = ? AND status = 'active'
+      WHERE workspace_id = $1 AND status = 'active'
     `,
     [workspaceId],
   ) as { count?: number | string } | undefined;
@@ -891,7 +891,7 @@ async function collectWorkspaceMembersForTypeChange(database: RuntimeDb, workspa
     `
       SELECT user_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage, invited_by_user_id
       FROM canvas_workspace_members
-      WHERE workspace_id = ?
+      WHERE workspace_id = $1
     `,
     [workspaceId],
   ) as TypeChangeMemberRow[];
@@ -902,7 +902,7 @@ async function collectProjectMembersForTypeChange(database: RuntimeDb, organizat
     `
       SELECT user_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage, invited_by_user_id
       FROM canvas_project_members
-      WHERE organization_id = ? AND project_id = ?
+      WHERE organization_id = $1 AND project_id = $2
     `,
     [organizationId, projectId],
   ) as TypeChangeMemberRow[];
@@ -921,7 +921,7 @@ async function upsertWorkspaceMembersForTypeChange(
         INSERT INTO canvas_workspace_members (
           organization_id, workspace_id, user_id, role, status,
           can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         ON CONFLICT(workspace_id, user_id) DO UPDATE SET
           organization_id = excluded.organization_id,
           role = excluded.role,
@@ -962,7 +962,7 @@ async function upsertProjectMembersForTypeChange(
         INSERT INTO canvas_project_members (
           organization_id, project_id, user_id, role, status,
           can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         ON CONFLICT(project_id, user_id) DO UPDATE SET
           organization_id = excluded.organization_id,
           role = excluded.role,
@@ -1067,12 +1067,12 @@ async function getProjectPermissionRows(
 ): Promise<Map<string, ProjectPermissionRow>> {
   const uniqueProjectIds = Array.from(new Set(projectIds.filter(Boolean)));
   if (uniqueProjectIds.length === 0) return new Map();
-  const placeholders = uniqueProjectIds.map(() => '?').join(', ');
+  const placeholders = uniqueProjectIds.map((_, index) => `$${index + 3}`).join(', ');
   const rows = await database.all(
     `
       SELECT project_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
       FROM canvas_project_members
-      WHERE organization_id = ? AND user_id = ? AND project_id IN (${placeholders})
+      WHERE organization_id = $1 AND user_id = $2 AND project_id IN (${placeholders})
     `,
     [organizationId, userId, ...uniqueProjectIds],
   ) as ProjectPermissionRow[];
@@ -1087,12 +1087,12 @@ async function getTeamWorkspacePermissionRows(
 ): Promise<Map<string, TeamWorkspacePermissionRow>> {
   const uniqueWorkspaceIds = Array.from(new Set(workspaceIds.filter(Boolean)));
   if (uniqueWorkspaceIds.length === 0) return new Map();
-  const placeholders = uniqueWorkspaceIds.map(() => '?').join(', ');
+  const placeholders = uniqueWorkspaceIds.map((_, index) => `$${index + 2}`).join(', ');
   const rows = await database.all(
     `
       SELECT workspace_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
       FROM canvas_workspace_members
-      WHERE user_id = ? AND workspace_id IN (${placeholders})
+      WHERE user_id = $1 AND workspace_id IN (${placeholders})
     `,
     [userId, ...uniqueWorkspaceIds],
   ) as TeamWorkspacePermissionRow[];
@@ -1109,7 +1109,7 @@ async function getTeamWorkspacePermissionRow(
     `
       SELECT workspace_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
       FROM canvas_workspace_members
-      WHERE workspace_id = ? AND user_id = ?
+      WHERE workspace_id = $1 AND user_id = $2
       LIMIT 1
     `,
     [workspaceId, userId],
@@ -1127,7 +1127,7 @@ async function getProjectPermissionRow(
     `
       SELECT role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
       FROM canvas_project_members
-      WHERE organization_id = ? AND project_id = ? AND user_id = ?
+      WHERE organization_id = $1 AND project_id = $2 AND user_id = $3
       LIMIT 1
     `,
     [organizationId, projectId, userId],
@@ -1143,8 +1143,8 @@ async function listWorkspaceContextsForUser(
     `
       SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
       FROM canvas_workspaces
-      WHERE organization_id = ? AND status = 'active'
-        AND (type != 'personal' OR owner_user_id = ?)
+      WHERE organization_id = $1 AND status = 'active'
+        AND (type != 'personal' OR owner_user_id = $2)
       ORDER BY is_default DESC, CASE type WHEN 'personal' THEN 0 WHEN 'organization' THEN 1 WHEN 'team' THEN 2 ELSE 3 END, created_at ASC
     `,
     [organizationId, actor.userId],
@@ -1282,7 +1282,7 @@ export async function ensurePostgresOrganizationBootstrapForUser(
   if (organization) {
     assertOrganizationIdMatchesEnvironment(organization.organization_id);
     await database.run(
-      'UPDATE canvas_organization_settings SET deployment_mode = ?, team_features_enabled = ?, updated_at = ? WHERE organization_id = ?',
+      'UPDATE canvas_organization_settings SET deployment_mode = $1, team_features_enabled = $2, updated_at = $3 WHERE organization_id = $4',
       [deploymentMode, teamFeaturesEnabled ? 1 : 0, now, organization.organization_id],
     );
     organization = {
@@ -1297,7 +1297,7 @@ export async function ensurePostgresOrganizationBootstrapForUser(
       `
         INSERT INTO canvas_organization_settings (
           organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6)
       `,
       [organizationId, userId, deploymentMode, teamFeaturesEnabled ? 1 : 0, now, now],
     );
@@ -1315,7 +1315,7 @@ export async function ensurePostgresOrganizationBootstrapForUser(
   if (!ownerUser) {
     throw new OrganizationBootstrapError('NO_USERS', 'The persisted organization owner is unavailable.');
   }
-  await database.run('UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?', ['admin', now, ownerUser.id]);
+  await database.run('UPDATE "user" SET role = $1, updated_at = $2 WHERE id = $3', ['admin', now, ownerUser.id]);
   const ownerPermission = await ensurePermissionRow(database, organization.organization_id, ownerUser.id, 'owner');
 
   await ensureWorkspaceRecord(database, {
@@ -1465,7 +1465,7 @@ export async function createPostgresWorkspaceForActor(
         `
           SELECT id
           FROM canvas_workspaces
-          WHERE type = 'project' AND organization_id = ? AND project_id = ?
+          WHERE type = 'project' AND organization_id = $1 AND project_id = $2
           LIMIT 1
         `,
         [status.organizationId, projectId],
@@ -1476,7 +1476,7 @@ export async function createPostgresWorkspaceForActor(
     }
     if (input.type === 'organization') {
       await database.get(
-        'SELECT pg_advisory_xact_lock(hashtext(?))',
+        'SELECT pg_advisory_xact_lock(hashtext($1))',
         [`canvas:organization-workspace:${status.organizationId}`],
       );
       if (await getActiveOrganizationWorkspace(database, status.organizationId)) {
@@ -1493,7 +1493,7 @@ export async function createPostgresWorkspaceForActor(
           `
             SELECT id, customer_id
             FROM canvas_projects
-            WHERE organization_id = ? AND id = ? AND status = 'active'
+            WHERE organization_id = $1 AND id = $2 AND status = 'active'
             LIMIT 1
           `,
           [status.organizationId, input.projectId?.trim() || ''],
@@ -1538,7 +1538,7 @@ export async function createPostgresWorkspaceForActor(
 
     if (record.type === 'project' && project?.customer_id) {
       await database.run(
-        'UPDATE canvas_workspaces SET customer_id = ?, updated_at = ? WHERE id = ?',
+        'UPDATE canvas_workspaces SET customer_id = $1, updated_at = $2 WHERE id = $3',
         [project.customer_id, Date.now(), record.id],
       );
     }
@@ -1556,7 +1556,7 @@ export async function createPostgresWorkspaceForActor(
           INSERT INTO canvas_project_members (
             organization_id, project_id, user_id, role, status,
             can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
-          ) VALUES (?, ?, ?, 'admin', 'active', 1, 1, 1, ?, ?, ?)
+          ) VALUES ($1, $2, $3, 'admin', 'active', 1, 1, 1, $4, $5, $6)
           ON CONFLICT(project_id, user_id) DO UPDATE SET
             role = excluded.role,
             status = excluded.status,
@@ -1634,7 +1634,7 @@ export async function updatePostgresWorkspaceForActor(
       || nextColor !== record.color
     ) {
       await database.run(
-        'UPDATE canvas_workspaces SET display_name = ?, description = ?, workspace_icon = ?, workspace_color = ?, updated_at = ? WHERE id = ?',
+        'UPDATE canvas_workspaces SET display_name = $1, description = $2, workspace_icon = $3, workspace_color = $4, updated_at = $5 WHERE id = $6',
         [nextName, nextDescription, nextIcon, nextColor, Date.now(), record.id],
       );
     }
@@ -1692,7 +1692,7 @@ export async function deletePostgresWorkspaceForActor(
     }
 
     await database.run(
-      "UPDATE canvas_workspaces SET status = 'disabled', updated_at = ? WHERE id = ?",
+      "UPDATE canvas_workspaces SET status = 'disabled', updated_at = $1 WHERE id = $2",
       [Date.now(), workspaceId],
     );
     await database.run('COMMIT');
@@ -1759,7 +1759,7 @@ export async function changePostgresWorkspaceTypeForActor(
           `
             SELECT id, customer_id
             FROM canvas_projects
-            WHERE organization_id = ? AND id = ? AND status = 'active'
+            WHERE organization_id = $1 AND id = $2 AND status = 'active'
             LIMIT 1
           `,
           [record.organizationId, targetProjectId],
@@ -1794,7 +1794,7 @@ export async function changePostgresWorkspaceTypeForActor(
         `
           SELECT id
           FROM canvas_workspaces
-          WHERE type = 'project' AND organization_id = ? AND project_id = ?
+          WHERE type = 'project' AND organization_id = $1 AND project_id = $2
           LIMIT 1
         `,
         [record.organizationId, targetProjectId],
@@ -1806,7 +1806,7 @@ export async function changePostgresWorkspaceTypeForActor(
         `
           SELECT id
           FROM canvas_workspaces
-          WHERE root_relative_path = ? AND id != ?
+          WHERE root_relative_path = $1 AND id != $2
           LIMIT 1
         `,
         [nextRootRelativePath, record.id],
@@ -1829,14 +1829,14 @@ export async function changePostgresWorkspaceTypeForActor(
     await database.run(
       `
         UPDATE canvas_workspaces
-        SET type = ?,
-          owner_user_id = ?,
-          customer_id = ?,
-          project_id = ?,
-          root_relative_path = ?,
+        SET type = $1,
+          owner_user_id = $2,
+          customer_id = $3,
+          project_id = $4,
+          root_relative_path = $5,
           is_default = 0,
-          updated_at = ?
-        WHERE id = ?
+          updated_at = $6
+        WHERE id = $7
       `,
       [
         targetType,
@@ -1850,11 +1850,11 @@ export async function changePostgresWorkspaceTypeForActor(
     );
 
     if (record.type === 'team' && targetType !== 'team') {
-      await database.run('DELETE FROM canvas_workspace_members WHERE workspace_id = ?', [record.id]);
+      await database.run('DELETE FROM canvas_workspace_members WHERE workspace_id = $1', [record.id]);
     }
     if (record.type === 'project' && record.projectId && (targetType !== 'project' || record.projectId !== targetProjectId)) {
       await database.run(
-        'DELETE FROM canvas_project_members WHERE organization_id = ? AND project_id = ?',
+        'DELETE FROM canvas_project_members WHERE organization_id = $1 AND project_id = $2',
         [record.organizationId, record.projectId],
       );
     }
@@ -1917,7 +1917,7 @@ async function listPostgresWorkspaceMemberCandidates(
         u.banned
       FROM "user" u
       LEFT JOIN organization_user_permissions p
-        ON p.user_id = u.id AND p.organization_id = ?
+        ON p.user_id = u.id AND p.organization_id = $1
       WHERE COALESCE(p.status, 'active') = 'active'
         AND COALESCE(p.role, 'member') != 'external'
       ORDER BY lower(COALESCE(u.email, u.name, u.id)) ASC
@@ -1992,7 +1992,7 @@ export async function listPostgresWorkspaceMembersForActor(
       ? await database.all(
           `
             SELECT
-              ? AS workspace_id,
+              $1 AS workspace_id,
               m.user_id,
               u.name,
               u.email,
@@ -2005,7 +2005,7 @@ export async function listPostgresWorkspaceMembersForActor(
               m.updated_at
             FROM canvas_project_members m
             LEFT JOIN "user" u ON u.id = m.user_id
-            WHERE m.organization_id = ? AND m.project_id = ?
+            WHERE m.organization_id = $2 AND m.project_id = $3
             ORDER BY m.can_manage DESC, lower(COALESCE(u.email, u.name, m.user_id)) ASC
           `,
           [workspace.workspaceId, workspace.organizationId, workspace.projectId],
@@ -2026,7 +2026,7 @@ export async function listPostgresWorkspaceMembersForActor(
               m.updated_at
             FROM canvas_workspace_members m
             LEFT JOIN "user" u ON u.id = m.user_id
-            WHERE m.workspace_id = ?
+            WHERE m.workspace_id = $1
             ORDER BY m.can_manage DESC, lower(COALESCE(u.email, u.name, m.user_id)) ASC
           `,
           [workspaceId],
@@ -2065,8 +2065,8 @@ async function assertPostgresWorkspaceRetainsManager(
         `
           SELECT user_id, can_manage
           FROM canvas_project_members
-          WHERE organization_id = ?
-            AND project_id = ?
+          WHERE organization_id = $1
+            AND project_id = $2
             AND COALESCE(status, 'active') = 'active'
           ORDER BY user_id
           FOR UPDATE
@@ -2077,7 +2077,7 @@ async function assertPostgresWorkspaceRetainsManager(
         `
           SELECT user_id, can_manage
           FROM canvas_workspace_members
-          WHERE workspace_id = ?
+          WHERE workspace_id = $1
             AND COALESCE(status, 'active') = 'active'
           ORDER BY user_id
           FOR UPDATE
@@ -2135,7 +2135,7 @@ async function upsertPostgresWorkspaceMember(
         INSERT INTO canvas_project_members (
           organization_id, project_id, user_id, role, status,
           can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $10)
         ON CONFLICT(project_id, user_id) DO UPDATE SET
           organization_id = excluded.organization_id,
           role = excluded.role,
@@ -2154,7 +2154,7 @@ async function upsertPostgresWorkspaceMember(
         INSERT INTO canvas_workspace_members (
           organization_id, workspace_id, user_id, role, status,
           can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $10)
         ON CONFLICT(workspace_id, user_id) DO UPDATE SET
           role = excluded.role,
           status = excluded.status,
@@ -2171,12 +2171,12 @@ async function upsertPostgresWorkspaceMember(
   const row = workspace.workspaceType === 'project'
     ? await database.get(
         `
-          SELECT ? AS workspace_id, m.user_id, u.name, u.email, m.role,
+          SELECT $1 AS workspace_id, m.user_id, u.name, u.email, m.role,
             COALESCE(m.status, 'active') AS status, m.can_read, m.can_write, m.can_manage,
             m.created_at, m.updated_at
           FROM canvas_project_members m
           LEFT JOIN "user" u ON u.id = m.user_id
-          WHERE m.organization_id = ? AND m.project_id = ? AND m.user_id = ?
+          WHERE m.organization_id = $2 AND m.project_id = $3 AND m.user_id = $4
           LIMIT 1
         `,
         [workspace.workspaceId, organizationId, workspace.projectId, userId],
@@ -2188,7 +2188,7 @@ async function upsertPostgresWorkspaceMember(
             m.created_at, m.updated_at
           FROM canvas_workspace_members m
           LEFT JOIN "user" u ON u.id = m.user_id
-          WHERE m.workspace_id = ? AND m.user_id = ?
+          WHERE m.workspace_id = $1 AND m.user_id = $2
           LIMIT 1
         `,
         [workspace.workspaceId, userId],
@@ -2228,7 +2228,7 @@ export async function upsertPostgresWorkspaceMemberForActor(
         `
           SELECT id
           FROM canvas_projects
-          WHERE organization_id = ? AND id = ? AND status = 'active'
+          WHERE organization_id = $1 AND id = $2 AND status = 'active'
           LIMIT 1
         `,
         [organizationId, workspace.projectId],
@@ -2280,12 +2280,12 @@ export async function removePostgresWorkspaceMemberForActor(
 
     if (workspace.workspaceType === 'project') {
       await database.run(
-        'DELETE FROM canvas_project_members WHERE organization_id = ? AND project_id = ? AND user_id = ?',
+        'DELETE FROM canvas_project_members WHERE organization_id = $1 AND project_id = $2 AND user_id = $3',
         [workspace.organizationId, workspace.projectId, userId],
       );
     } else {
       await database.run(
-        'DELETE FROM canvas_workspace_members WHERE workspace_id = ? AND user_id = ?',
+        'DELETE FROM canvas_workspace_members WHERE workspace_id = $1 AND user_id = $2',
         [workspace.workspaceId, userId],
       );
     }
