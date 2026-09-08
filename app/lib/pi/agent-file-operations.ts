@@ -1501,42 +1501,29 @@ export async function writeAgentBinaryFile(params: {
       path.dirname(fullPath),
       `.${path.basename(fullPath)}.canvas-agent-${randomUUID()}.tmp`,
     );
-    let removedRuntimeTempDestination = false;
     try {
-      await assertAgentRuntimeTempWriteQuota({
-        fullPath,
-        additionalBytes: params.content.length,
-        additionalFiles: 1,
-        releasedBytes: before.buffer?.length ?? 0,
-        releasedFiles: before.existed ? 1 : 0,
-      });
-      if (runtimeTempPath && before.existed) {
-        await fs.rm(fullPath, { force: true });
-        removedRuntimeTempDestination = true;
+      try {
+        await assertAgentRuntimeTempWriteQuota({
+          fullPath,
+          additionalBytes: params.content.length,
+          additionalFiles: 1,
+        });
+      } catch (error) {
+        if (
+          runtimeTempPath &&
+          before.existed &&
+          error instanceof Error &&
+          error.message.startsWith('Agent runtime temp quota exceeded:')
+        ) {
+          throw new Error(
+            `${error.message} Atomic binary replacement requires temporary quota headroom for the staging file so the original remains recoverable if the process stops.`,
+            { cause: error },
+          );
+        }
+        throw error;
       }
       await fs.writeFile(stagingPath, params.content, { flag: 'wx', mode: 0o600 });
       await fs.rename(stagingPath, fullPath);
-      removedRuntimeTempDestination = false;
-    } catch (error) {
-      try {
-        await fs.rm(stagingPath, { force: true });
-      } catch (cleanupError) {
-        throw new AggregateError(
-          [error, cleanupError],
-          `Failed to replace ${params.path} and could not remove its staging file.`,
-        );
-      }
-      if (removedRuntimeTempDestination && before.buffer) {
-        try {
-          await fs.writeFile(fullPath, before.buffer, { flag: 'wx', mode: 0o600 });
-        } catch (restoreError) {
-          throw new AggregateError(
-            [error, restoreError],
-            `Failed to replace ${params.path} and could not restore its previous scratch content.`,
-          );
-        }
-      }
-      throw error;
     } finally {
       await fs.rm(stagingPath, { force: true }).catch(() => undefined);
     }

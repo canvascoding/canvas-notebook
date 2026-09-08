@@ -101,9 +101,23 @@ async function main() {
       const previousMaxBytes = process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES;
       const previousMaxFiles = process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES;
       let quotaReplacementAfterSha256 = '';
-      process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = String((await inspectAgentRuntimeTempUsage(runtimeTempDir)).bytes);
-      process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES = String((await inspectAgentRuntimeTempUsage(runtimeTempDir)).files);
+      const usageBeforeReplacement = await inspectAgentRuntimeTempUsage(runtimeTempDir);
+      process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = String(usageBeforeReplacement.bytes);
+      process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES = String(usageBeforeReplacement.files);
       try {
+        await assert.rejects(
+          () => writeAgentBinaryFile({
+            path: quotaReplacementPath,
+            content: Buffer.from([2, 2, 2, 2]),
+            overwrite: true,
+            expectedSha256: quotaReplacementBefore.afterSha256,
+          }),
+          /Atomic binary replacement requires temporary quota headroom/,
+        );
+        assert.deepEqual(await fs.readFile(quotaReplacementPath), Buffer.from([1, 1, 1, 1]));
+
+        process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_BYTES = String(usageBeforeReplacement.bytes + 4);
+        process.env.CANVAS_AGENT_RUNTIME_TEMP_MAX_FILES = String(usageBeforeReplacement.files + 1);
         const quotaReplacementAfter = await writeAgentBinaryFile({
           path: quotaReplacementPath,
           content: Buffer.from([2, 2, 2, 2]),
@@ -143,7 +157,7 @@ async function main() {
       assert.deepEqual(
         await fs.readFile(quotaReplacementPath),
         Buffer.from([2, 2, 2, 2]),
-        'failed scratch replacements must restore the previous artifact',
+        'failed scratch replacements must preserve the previous artifact',
       );
 
       const tempCopyPath = path.join(runtimeTempDir, 'copy', 'scratch-copy.py');
