@@ -19,7 +19,7 @@ async function main() {
       'plugins',
       'installed',
       'document-suite',
-      '1.2.0',
+      '1.3.0',
       'skills',
       'excalidraw-diagram',
     );
@@ -30,7 +30,7 @@ async function main() {
       'plugins',
       'installed',
       'document-suite',
-      '1.2.0',
+      '1.3.0',
       'skills',
       'excalidraw-diagram',
     );

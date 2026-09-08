@@ -66,6 +66,9 @@ async function main() {
     assert.equal(getAgentRuntimeTempEnv(runtimeTempDir).TMPDIR, runtimeTempDir);
     assert.match(getAgentRuntimeTempPromptBlock(context), /Temporary runtime directory:/);
     assert.match(getAgentRuntimeTempPromptBlock(context), new RegExp(runtimeTempDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(getAgentRuntimeTempPromptBlock(context), /document conversions, render previews/);
+    assert.match(getAgentRuntimeTempPromptBlock(context), /copy_path or move_path/);
+    assert.match(getAgentRuntimeTempPromptBlock(context), /Do not write workspace files through Bash/);
 
     const tempFile = path.join(runtimeTempDir, 'calc', 'scratch.py');
     await runWithAgentExecutionContext(context, async () => {

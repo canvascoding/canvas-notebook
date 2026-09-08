@@ -291,8 +291,8 @@ export function getAgentRuntimeTempPromptBlock(identity: AgentRuntimeTempIdentit
   return [
     '## Agent Runtime Temp Directory',
     `Temporary runtime directory: ${tempDir}`,
-    'Use this directory for throwaway scripts, intermediate files, caches, extracted working data, temporary Python files, and calculations.',
-    'Do not store final user-facing artifacts there. Copy only final outputs into the workspace when the user should keep them.',
+    'Use this directory for generated code, throwaway scripts, build output, virtual environments, extracted assets, document conversions, render previews, caches, and calculations.',
+    'Promote only requested final artifacts into the workspace with copy_path or move_path. Do not write workspace files through Bash.',
     'Runtime commands receive CANVAS_AGENT_TEMP_DIR, TMPDIR, TMP, TEMP, and PYTHONPYCACHEPREFIX pointing to this directory.',
   ].join('\n');
 }

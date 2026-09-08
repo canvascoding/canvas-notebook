@@ -193,6 +193,7 @@ ENV NODE_ENV=production \
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/seed_skills ./seed_skills
+COPY --from=builder /app/seed_plugins ./seed_plugins
 COPY --from=builder /app/app ./app
 COPY --from=builder /app/components ./components
 COPY --from=builder /app/i18n ./i18n
