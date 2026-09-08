@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import { migrateSqliteMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
+import { FILE_GUEST_SCHEMA_SQL } from './file-guest-migration';
 
 export const TEAM_SEAT_LEGACY_MIGRATION_KEY = 'team-seat-memberships-v1';
 export const TEAM_SEAT_LEGACY_MIGRATION_REASON = 'Legacy organization access backfill (non-billable).';
@@ -2069,6 +2070,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (generation_id) REFERENCES studio_generations(id) ON DELETE SET NULL
     );
   `);
+
+  sqlite.exec(FILE_GUEST_SCHEMA_SQL);
 
   // Older imported databases may predate columns that are used by indexes below.
   // Add those compatibility columns before index creation so restores can migrate

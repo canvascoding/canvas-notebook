@@ -5,6 +5,10 @@ import { Hocuspocus, type Connection, type onAwarenessUpdatePayload } from '@hoc
 import { WebSocketServer } from 'ws';
 
 import { auth } from '@/app/lib/auth';
+import { fileGuestService } from '@/app/lib/file-guests/service';
+import { fileGuestCookieName } from '@/app/lib/file-guests/types';
+import { recordFileGuestVersion } from '@/app/lib/file-guests/versions';
+import { assertFileGuestUpdateAllowed } from '@/app/lib/file-guests/update-policy';
 import { createCollaborationAccessMonitor } from '@/app/lib/collaboration/access-monitor';
 import { assertCollaborationDocumentAccess, resolveCollaborationSessionAccess, revalidateCollaborationAccess } from '@/app/lib/collaboration/connection-access';
 import {
@@ -204,7 +208,15 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         email: string | null;
         role?: string | null;
       };
-      if (mobileIdentity) {
+      if (claims.guestInvitationId) {
+        if (mobileIdentity) throw new Error('Guest sessions cannot use mobile authentication.');
+        const cookieName = fileGuestCookieName(claims.guestInvitationId);
+        const guestToken = requestHeaders.get('cookie')?.split(';').map((value) => value.trim())
+          .find((value) => value.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1) || '';
+        const guest = await fileGuestService.access(claims.guestInvitationId, { token: guestToken });
+        if (guest.guestSession.id !== claims.sessionId) throw new Error('Guest session scope mismatch.');
+        authenticatedUser = guest.user;
+      } else if (mobileIdentity) {
         authenticatedUser = mobileIdentity.user;
       } else {
         const session = await auth.api.getSession({ headers: requestHeaders });
@@ -233,7 +245,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         },
       );
       connectionConfig.readOnly = claims.permission !== 'write';
-      const presenceProfile = await resolveCollaborationPresenceProfile({
+      const presenceProfile = claims.guestInvitationId ? null : await resolveCollaborationPresenceProfile({
         workspaceId: claims.workspaceId,
         userId: authenticatedUser.id,
         name: authenticatedUser.name,
@@ -286,6 +298,12 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       if (update.byteLength > MAX_UPDATE_BYTES) throw new Error('Collaboration update exceeds the 1 MiB message limit.');
       await accessMonitor.check(connection);
     },
+    async beforeSync({ context, document, type, payload }) {
+      if (context.claims.guestInvitationId && context.claims.permission === 'write' && (type === 1 || type === 2)) {
+        if (context.claims.representation === 'excalidraw_scene') throw new Error('Guest documents must be Markdown.');
+        assertFileGuestUpdateAllowed(document, payload, context.claims.representation);
+      }
+    },
     async beforeHandleAwareness({ context, states }) {
       if (!context) return;
       const colors = collaborationUserColors(context.user.id);
@@ -309,6 +327,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
           : null;
         states.set(clientId, {
           ...state,
+          user: { name: context.user.name.slice(0, 120), color: colors.color, colorLight: colors.colorLight },
           canvas: {
             userId: context.user.id,
             sessionId: context.claims.sessionId,
@@ -317,7 +336,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
             displayName: context.user.name.slice(0, 120),
             color: colors.color,
             colorLight: colors.colorLight,
-            activity: requested?.activity === 'editing' ? 'editing' : 'viewing',
+            activity: context.claims.permission === 'write' && requested?.activity === 'editing' ? 'editing' : 'viewing',
             composition,
           },
         });
@@ -406,6 +425,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       }
       document.broadcastStateless(JSON.stringify(durabilitySnapshotPayload(state)));
       try {
+        await recordFileGuestVersion(state);
         const result = await materializeCollaborationCheckpoint({
           state,
           workspace: lastContext.workspace,
@@ -486,6 +506,15 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       if (workspace.workspaceId !== input.workspace.workspaceId) {
         throw new AgentDirectConnectionAuthorizationError('The agent session no longer has access to this collaboration workspace.');
       }
+    } else if (input.actorSessionId) {
+      const access = await resolveCollaborationSessionAccess({
+        schemaVersion: input.documentSchemaVersion, issuedAt: Date.now(), expiresAt: Date.now() + 60_000,
+        userId: input.initiatedByUserId, sessionId: input.actorSessionId, workspaceId: workspace.workspaceId,
+        organizationId: workspace.organizationId ?? null, documentId: input.documentId, path: input.documentPath,
+        provider: 'yjs', representation: input.documentRepresentation, permission: 'write',
+        lifecycleGeneration: input.documentLifecycleGeneration,
+      });
+      workspace = access.workspace;
     }
     const { state, releaseRoomAdmission } = await withCollaborationRoomLifecycleLock(
       input.documentId,

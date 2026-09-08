@@ -1873,6 +1873,57 @@ export const publicFileShares = sqliteTable("public_file_shares", {
   expiresIdx: index("idx_public_file_shares_expires_at").on(table.expiresAt),
 }));
 
+export const fileGuestInvitations = sqliteTable('file_guest_invitations', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull(),
+  path: text('path').notNull(),
+  documentId: text('document_id').notNull(),
+  email: text('email').notNull(),
+  permission: text('permission').notNull(),
+  status: text('status').notNull().default('active'),
+  policyRevision: integer('policy_revision').notNull().default(1),
+  createdByUserId: text('created_by_user_id').notNull().references(() => user.id),
+  assetsJson: text('assets_json').notNull().default('[]'),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  challengeId: text('challenge_id'),
+  challengeHash: text('challenge_hash'),
+  challengeExpiresAt: integer('challenge_expires_at', { mode: 'timestamp' }),
+  challengeAttempts: integer('challenge_attempts').notNull().default(0),
+  challengeSentAt: integer('challenge_sent_at', { mode: 'timestamp' }),
+  challengeWindowAt: integer('challenge_window_at', { mode: 'timestamp' }),
+  challengeSendCount: integer('challenge_send_count').notNull().default(0),
+}, (table) => ({
+  activeEmailIdx: uniqueIndex('idx_file_guest_active_email').on(table.workspaceId, table.documentId, table.email).where(sql`${table.status} = 'active'`),
+  documentIdx: index('idx_file_guest_document').on(table.documentId, table.status),
+}));
+
+export const fileGuestSessions = sqliteTable('file_guest_sessions', {
+  id: text('id').primaryKey(),
+  invitationId: text('invitation_id').notNull().references(() => fileGuestInvitations.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  displayName: text('display_name').notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+}, (table) => ({
+  invitationIdx: index('idx_file_guest_session_invitation').on(table.invitationId, table.expiresAt),
+}));
+
+export const fileGuestVersions = sqliteTable('file_guest_versions', {
+  id: text('id').primaryKey(),
+  workspaceId: text('workspace_id').notNull(),
+  documentId: text('document_id').notNull(),
+  lifecycleGeneration: integer('lifecycle_generation').notNull(),
+  documentSequence: integer('document_sequence').notNull(),
+  content: text('content').notNull(),
+  contentHash: text('content_hash').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+}, (table) => ({
+  hashIdx: uniqueIndex('idx_file_guest_version_hash').on(table.documentId, table.lifecycleGeneration, table.contentHash),
+  timeIdx: index('idx_file_guest_version_time').on(table.documentId, table.createdAt),
+}));
+
 export const knowledgeSources = sqliteTable("knowledge_sources", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),

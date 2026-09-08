@@ -35,7 +35,7 @@ konkrete Markdown-Datei, ohne dadurch Mitglieder des gesamten Workspace zu werde
   - Bestehende Schutzmechanismen für Lebenszyklus, Reconnect, Checkpoints und
     Agentbearbeitung erhalten.
   - Nachweis: Entzug von Lesen/Schreiben, Logout, parallele Updates und Reconnect.
-- [ ] 4. Dateibezogenen Markdown-Gastzugriff implementieren.
+- [x] 4. Dateibezogenen Markdown-Gastzugriff implementieren.
   - Verwaltbare Einladungen mit Lesen/Bearbeiten und optionalem Ablauf.
   - Identität des eingeladenen Gasts prüfen; Berechtigung nur für diese Datei
     und ihre ausdrücklich benötigten Assets, ohne Workspace- oder Agentzugriff.
@@ -156,3 +156,67 @@ Die PGlite-Prüfung verwendet die tatsächlichen Session-, Workspace- und
 Dokumentresolver. Sie prüft Rechteentzug, Sessionlöschung/-ablauf, Kontosperre,
 falsche Dokumentgeneration sowie wartende Nachrichten und lokale Änderungen.
 Die UI-/WebSocket-Abnahme mit zwei Browsern bleibt Teil von Schritt 6.
+
+### Schritt 4
+
+Einladungen binden eine E-Mail-Adresse an genau eine Markdown-Dokumentidentität.
+Lesen/Bearbeiten, Ablauf und Widerruf werden mit `policyRevision` verwaltet.
+Gäste bestätigen einen sechsstelligen Code, der ausschließlich an die eingeladene
+Adresse gesendet wird. Codes gelten zehn Minuten, erlauben fünf Versuche und
+können atomar nur einmal eingelöst werden. Versand ist auf einen Code pro Minute
+und fünf Codes pro Stunde und Einladung begrenzt; öffentliche Aktionen haben
+zusätzliche gemeinsame Ratenlimits und prüfen die konfigurierte Origin.
+
+Gastzugang setzt die vorhandene Team-/PostgreSQL-Berechtigung voraus. Codes
+verwenden den konfigurierten System-E-Mail-Versand (Managed oder SMTP), nicht ein
+persönliches Postfach. Fehlende Konfiguration verweist auf die Integrationen.
+Die Einladung selbst versendet keine Nachricht; der Einladende kopiert ihren
+Link, und der Gast fordert den Code an. Tests versenden ausschließlich über
+einen simulierten Transport an synthetische Adressen.
+
+Gastsitzungen haben eigene HttpOnly-Cookies, gelten höchstens zwölf Stunden und
+erzeugen weder App-Konten noch Better-Auth-Sitzungen oder Workspace-Mitgliedschaften.
+Alle allgemeinen Datei-, Mitglieder- und Agent-Routen behalten ihre bisherige
+Authentifizierung. Das Gastticket prüft zusätzlich Einladung, Version der Rechte,
+Sitzung und Dokument. Auch die aktuellen Rechte des Einladenden werden erneut
+geprüft. Namensanzeige und Bearbeitungsstatus stammen serverseitig aus der
+bestätigten Sitzung; Gastnamen sind als solche gekennzeichnet.
+
+Die Gastseite unter `/guest/files/:id` verwendet denselben Yjs-/Hocuspocus-Zustand
+mit CodeMirror oder dem gemeinsamen Tiptap-Markdown-Schema. Sie bietet Lesen,
+Bearbeiten, Quelltext, Speicherstatus und einen lokalen Markdown-Download.
+Editorverbindungen und Ticket-Erneuerungen bleiben an ihren ursprünglichen
+Workspace bzw. ihre Einladung gebunden. Ein erneuter Beitritt erstellt eine
+frische Clientverbindung; fehlgeschlagene erneute Anmeldung entfernt die noch
+sichtbare lokale Kopie nicht automatisch.
+
+Eingebettete Bilder werden bei der Einladung fest freigegeben und an ihre
+Dateiidentität gebunden. Später von Gästen eingefügte Pfade erweitern diese Liste
+nicht. Verknüpfungen zu anderen Workspace-Dateien öffnen keine internen Vorschauen.
+Gastupdates werden vor Übernahme isoliert geprüft: zusätzliche Yjs-Wurzeln und
+mehr als 5 MiB Markdown bzw. 20 MiB kollaborativer Speicher werden abgelehnt.
+
+Beim Verschieben oder Archivieren werden betroffene Einladungen innerhalb
+derselben PostgreSQL-Transaktion widerrufen, auch bei Verzeichnisoperationen.
+Zurückverschieben oder Wiederherstellen aktiviert sie nicht wieder.
+
+Ab der ersten Gastfreigabe werden bis zu zwanzig Versionsstände aufbewahrt;
+normale Speicherungen erzeugen höchstens einen Stand pro Minute. Vor einer
+Wiederherstellung wird zusätzlich der aktuelle Stand gesichert. Verwaltung und
+Wiederherstellung erfordern interne Schreib- und Freigaberechte. Ein Hash des
+vollständigen Yjs-Updates verhindert das Überschreiben zwischenzeitlicher
+Änderungen, einschließlich reiner Löschungen, die keinen State-Vector erhöhen.
+Die Wiederherstellung läuft als normale kollaborative Transaktion und erscheint
+bei allen Teilnehmern. Gäste erhalten keinen Zugang zur früheren Versionshistorie.
+
+Erfolgreich: `test:file-guests`, `test:collaboration:access`,
+`test:files:collaboration`, `test:files:collaboration-repository`,
+`test:public-share:lifecycle`, `scripts/file-live-collaboration-test.ts`,
+`scripts/code-editor-collaboration-lifecycle-test.ts`, TypeScript und ESLint.
+Die Gasttests verwenden PGlite mit dem tatsächlichen Drizzle-/SQL-Adapter und
+echte Hocuspocus-WebSockets über einen kurzlebigen Loopback-Testserver. Jeweils
+zwei Schreibende und ein Leser prüfen Quelltext und Rich Text, gleichzeitige
+Änderungen, Offline-Änderungen/Reconnect, Widerruf, Schreibversuche als Leser,
+geschützte Präsenz, Versionskonflikte und Wiederherstellung. Es läuft dabei weder
+ein Browser noch ein App- oder Container-Stack. Die Einbindung in den Teilen-Dialog
+folgt in Schritt 5; die Browser-Abnahme bleibt Schritt 6.

@@ -7,6 +7,7 @@ import type { IndexeddbPersistence } from 'y-indexeddb';
 import type * as Y from 'yjs';
 
 import { workspaceHeaders } from '@/app/lib/files/client';
+import { fileGuestApi } from '@/app/lib/file-guests/types';
 import { CollaborationCheckpointRequestError, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
 import { prepareRecoverableCollaborationTransition, preserveLocalCollaborationRecovery } from './local-recovery';
 import {
@@ -149,10 +150,12 @@ function waitForEntryState(
 async function requestSession(
   path: string,
   representation: RequestedTextCollaborationRepresentation,
+  workspaceId: string,
+  guestInvitationId?: string,
 ): Promise<CollaborationSessionResponse> {
-  const response = await fetch('/api/files/collaboration/session', {
+  const response = await fetch(guestInvitationId ? `${fileGuestApi(guestInvitationId)}/session` : '/api/files/collaboration/session', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+    headers: { 'Content-Type': 'application/json', ...(guestInvitationId ? {} : workspaceHeaders(workspaceId)) },
     body: JSON.stringify({ path, representation }),
   });
   const payload = await response.json().catch(() => ({})) as Partial<CollaborationSessionResponse> & { error?: string };
@@ -184,8 +187,10 @@ function createEntry(
   key: string,
   path: string,
   representation: TextCollaborationRepresentation,
+  workspaceId: string,
   initialSession?: CollaborationSessionResponse | null,
 ): RegistryEntry {
+  const guestInvitationId = initialSession?.guestAccess?.invitationId;
   const entry: RegistryEntry = {
     key,
     refs: 0,
@@ -219,7 +224,7 @@ function createEntry(
       if (entry.refs === 0 && !registry.has(key)) return;
       entry.doc = new Y.Doc({ gc: true });
       let session = requireTextSession(
-        initialSession || await requestSession(path, representation),
+        initialSession || await requestSession(path, representation, workspaceId, guestInvitationId),
         representation,
       );
       entry.session = session;
@@ -237,7 +242,7 @@ function createEntry(
         stateVector: session.stateVector,
       }) ?? undefined;
       const persistence = new IndexeddbPersistence(
-        `canvas:${session.documentId}:${session.lifecycleGeneration}:${representation}`,
+        `canvas:${guestInvitationId ? `guest:${guestInvitationId}:` : ''}${session.documentId}:${session.lifecycleGeneration}:${representation}`,
         entry.doc,
       );
       entry.persistence = persistence;
@@ -283,7 +288,7 @@ function createEntry(
         document: entry.doc,
         token: async () => {
           if (Date.parse(session.expiresAt) - Date.now() < 30_000) {
-            const refreshed = requireTextSession(await requestSession(path, 'auto'), representation);
+            const refreshed = requireTextSession(await requestSession(path, 'auto', workspaceId, guestInvitationId), representation);
             if (
               refreshed.documentId !== session.documentId
               || refreshed.lifecycleGeneration !== session.lifecycleGeneration
@@ -389,7 +394,7 @@ function createEntry(
           }
 
           if (Date.parse(entry.session.expiresAt) - Date.now() < 30_000) {
-            const refreshed = requireTextSession(await requestSession(path, 'auto'), representation);
+            const refreshed = requireTextSession(await requestSession(path, 'auto', workspaceId, guestInvitationId), representation);
             if (
               refreshed.documentId !== entry.session.documentId
               || refreshed.lifecycleGeneration !== entry.session.lifecycleGeneration
@@ -403,9 +408,9 @@ function createEntry(
           let lastError = 'Checkpoint is waiting for the latest Yjs persistence.';
           let lastErrorCode: string | null = null;
           for (let attempt = 0; attempt < 20; attempt += 1) {
-            const response = await fetch('/api/files/collaboration/checkpoint', {
+            const response = await fetch(guestInvitationId ? `${fileGuestApi(guestInvitationId)}/checkpoint` : '/api/files/collaboration/checkpoint', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+              headers: { 'Content-Type': 'application/json', ...(guestInvitationId ? {} : workspaceHeaders(workspaceId)) },
               body: JSON.stringify({ token: entry.session.token, stateVector }),
             });
             const payload = await response.json().catch(() => ({})) as Record<string, unknown> & {
@@ -487,17 +492,17 @@ export function useCollaborationDocument(input: {
 }): CollaborationDocument | null {
   const key = input.enabled && input.workspaceId && input.path
     ? input.session
-      ? `${input.workspaceId}\0${input.path}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}`
+      ? `${input.workspaceId}\0${input.path}\0${input.session.guestAccess?.invitationId || ''}\0${input.session.user.id}\0${input.session.expiresAt}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}`
       : `${input.workspaceId}\0${input.path}\0${input.representation}`
     : null;
   const [state, setState] = useState<CollaborationDocument | null>(null);
   useEffect(() => {
-    if (!key || !input.path) {
+    if (!key || !input.path || !input.workspaceId) {
       return;
     }
     let entry = registry.get(key);
     if (!entry) {
-      entry = createEntry(key, input.path, input.representation, input.session);
+      entry = createEntry(key, input.path, input.representation, input.workspaceId, input.session);
       registry.set(key, entry);
     }
     if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
@@ -518,7 +523,7 @@ export function useCollaborationDocument(input: {
         }, 1_000);
       }
     };
-  }, [input.path, input.representation, input.session, key]);
+  }, [input.path, input.representation, input.session, input.workspaceId, key]);
   return key && state?.registryKey === key ? state : null;
 }
 
@@ -551,11 +556,11 @@ export function useTextCollaborationSession(input: {
   }>({ key: null, attempt: -1, session: null, error: null });
 
   useEffect(() => {
-    if (!key || !input.path) {
+    if (!key || !input.path || !input.workspaceId) {
       return;
     }
     let cancelled = false;
-    void requestSession(input.path, 'auto')
+    void requestSession(input.path, 'auto', input.workspaceId)
       .then((session) => requireTextSession(session))
       .then((session) => {
         if (!cancelled) setState({ key, attempt, session, error: null });
@@ -573,7 +578,7 @@ export function useTextCollaborationSession(input: {
     return () => {
       cancelled = true;
     };
-  }, [input.path, key, attempt]);
+  }, [input.path, input.workspaceId, key, attempt]);
 
   const current = state.key === key && state.attempt === attempt ? state : { session: null, error: null };
   return {
