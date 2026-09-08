@@ -90,7 +90,7 @@ export interface MigrationExportSource {
 
 export interface MigrationExportRuntime {
   runtimeMode: 'personal' | 'team';
-  databaseProvider: 'sqlite' | 'postgres';
+  databaseProvider: 'postgres';
   vectorProvider: 'none' | 'pgvector' | 'external';
   postgresRequired: boolean;
   capabilities: Array<'multiUser' | 'teamWorkspace' | 'vectorSearch' | 'liveCollaboration'>;
@@ -104,9 +104,9 @@ export interface MigrationExportSecurity {
   unencryptedArchive: true;
 }
 
-export type MigrationExportDatabaseProvider = 'sqlite' | 'postgres' | 'unknown';
+export type MigrationExportDatabaseProvider = 'postgres' | 'unknown';
 
-export type MigrationExportDatabaseBackupKind = 'sqlite_snapshot' | 'postgres_dump' | 'none';
+export type MigrationExportDatabaseBackupKind = 'postgres_dump' | 'none';
 
 export interface MigrationExportDatabase {
   provider: MigrationExportDatabaseProvider;

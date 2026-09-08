@@ -374,47 +374,8 @@ async function readLocalImportContext(warnings: string[]): Promise<LocalImportCo
     }
   }
 
-  let sqlite: ReturnType<typeof openOrganizationBootstrapDatabase> | null = null;
-  try {
-    sqlite = openOrganizationBootstrapDatabase();
-    const organization = sqlite.prepare(`
-      SELECT organization_id AS organizationId, deployment_mode AS deploymentMode, team_features_enabled AS teamFeaturesEnabled
-      FROM canvas_organization_settings
-      ORDER BY created_at ASC
-      LIMIT 1
-    `).get() as { organizationId: string; deploymentMode: string; teamFeaturesEnabled: number } | undefined;
-    const users = sqlite.prepare(`
-      SELECT id, email
-      FROM user
-      ORDER BY created_at ASC
-    `).all() as LocalUser[];
-    const workspaces = sqlite.prepare(`
-      SELECT
-        id,
-        organization_id AS organizationId,
-        type,
-        owner_user_id AS ownerUserId,
-        root_relative_path AS rootRelativePath,
-        display_name AS displayName
-      FROM canvas_workspaces
-      WHERE status = 'active'
-      ORDER BY created_at ASC
-    `).all() as LocalWorkspace[];
-
-    return {
-      databaseProvider: getDatabaseProvider(),
-      deploymentMode: organization?.deploymentMode || getDeploymentMode(),
-      organizationId: organization?.organizationId || null,
-      teamFeaturesEnabled: organization ? organization.teamFeaturesEnabled === 1 : false,
-      users,
-      workspaces,
-    };
-  } catch (error) {
-    warnings.push(`Target mapping context could not be read: ${error instanceof Error ? error.message : 'unknown error'}`);
-    return fallback;
-  } finally {
-    sqlite?.close();
-  }
+  warnings.push('Target mapping context is unavailable because PostgreSQL is not configured.');
+  return fallback;
 }
 
 function parseReconnectManifest(raw: string | null): MigrationImportReconnectRequirement[] {
@@ -675,23 +636,14 @@ async function buildDryRun(params: {
   const blockers: string[] = [];
 
   if (params.manifest.components.database) {
-    const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider ?? 'sqlite';
-    const backupKind = params.manifest.database?.backupKind ?? 'sqlite_snapshot';
-    const artifactPath = params.manifest.database?.artifactPath ?? 'data/sqlite.db';
+    const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider;
     if (sourceProvider === 'postgres') {
       if (target.databaseProvider !== 'postgres') {
         blockers.push('This export requires a Postgres target before database restore can be staged.');
       }
-      blockers.push('Postgres database restore is not supported by the migration restore engine; use Full Backup restore or the SQLite-to-Postgres migration flow.');
-    } else if (sourceProvider !== 'sqlite') {
-      blockers.push(`Source database provider ${sourceProvider} is not supported by the restore engine.`);
+      blockers.push('Postgres database restore is not supported by the migration restore engine; use Full Backup restore or a dedicated provider migration.');
     } else {
-      if (backupKind !== 'sqlite_snapshot' || artifactPath !== 'data/sqlite.db') {
-        blockers.push('SQLite database restore requires a sanitized data/sqlite.db snapshot in the migration archive.');
-      }
-      if (target.databaseProvider !== 'sqlite') {
-        blockers.push(`Target database provider ${target.databaseProvider} requires a provider-aware import path before SQLite database restore.`);
-      }
+      blockers.push(`Source database provider ${sourceProvider ?? 'unknown'} is not supported by the PostgreSQL-only restore engine.`);
     }
   }
 
