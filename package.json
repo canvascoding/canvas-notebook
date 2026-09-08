@@ -23,7 +23,7 @@
     "unrs-resolver@1.12.2": true
   },
   "scripts": {
-    "postinstall": "patch-package",
+    "postinstall": "patch-package --error-on-fail",
     "dev": "node scripts/run-dev.mjs",
     "electron:dev": "electron ./electron",
     "test:electron": "node --test electron/main/*.test.mjs scripts/sync-electron-version.test.mjs",
@@ -386,6 +386,8 @@
     "test:chat:file-links": "tsx scripts/chat-file-link-validation-test.ts",
     "test:public-share:workspace": "tsx --conditions react-server scripts/public-share-workspace-scope-test.ts",
     "test:public-share:route-access": "tsx scripts/public-share-route-access-test.ts",
+    "test:office:runtime": "tsx --conditions react-server scripts/workspace-mutation-lock-test.ts && tsx --conditions react-server scripts/office-docx-package-test.ts && tsx --conditions react-server scripts/office-document-journal-test.ts && tsx --conditions react-server scripts/office-document-lease-test.ts && tsx --conditions react-server scripts/office-document-commit-test.ts && tsx --conditions react-server scripts/office-sqlite-compatibility-test.ts && tsx --conditions react-server scripts/office-publication-context-test.ts && tsx --conditions react-server scripts/office-path-mutations-test.ts && tsx --conditions react-server scripts/office-path-alias-test.ts && tsx --conditions react-server scripts/office-upload-retry-test.ts && tsx --conditions react-server scripts/office-document-tools-test.ts && tsx --conditions react-server scripts/agent-shell-sandbox-test.ts",
+    "test:office:editor": "tsx scripts/docx-save-session-test.ts && tsx scripts/docx-editor-events-test.tsx && tsx --conditions react-server scripts/office-docx-roundtrip-test.ts && tsx --conditions react-server scripts/office-editor-compatibility-test.ts",
     "test:files:collaboration": "tsx --conditions react-server scripts/file-collaboration-policy-test.ts",
     "test:files:collaboration-schema": "tsx --conditions react-server scripts/file-collaboration-postgres-schema-test.ts",
     "test:files:collaboration-repository": "tsx --conditions react-server scripts/file-collaboration-repository-test.ts",
@@ -448,7 +450,7 @@
     "@composio/core": "^0.13.1",
     "@earendil-works/pi-agent-core": "^0.84.1",
     "@earendil-works/pi-ai": "^0.84.1",
-    "@eigenpal/docx-js-editor": "^0.5.2",
+    "@eigenpal/docx-js-editor": "0.5.3",
     "@excalidraw/excalidraw": "^0.18.1",
     "@excalidraw/mermaid-to-excalidraw": "^2.2.2",
     "@google/genai": "^2.8.0",

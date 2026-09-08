@@ -7594,5 +7594,35 @@
       "videoTitle": "{title} video",
       "moreActions": "More actions"
     }
+  },
+  "officeDocx": {
+    "openFailed": "The current document could not be opened.",
+    "historySelection": "Select document history",
+    "currentDocument": "Current document",
+    "previousDocument": "Previous document at this path",
+    "noVersions": "No saved versions are available yet.",
+    "workspaceMissing": "Select a workspace to edit this Word document.",
+    "loading": "Opening Word document…",
+    "saving": "Saving…",
+    "paused": "Saving paused",
+    "readOnly": "Read only",
+    "pending": "Changes pending",
+    "saved": "Saved",
+    "save": "Save",
+    "saveCopy": "Save a copy",
+    "versions": "Previous versions",
+    "unsupported": "This document contains features the browser editor cannot safely preserve. Download the original or edit an agent working copy.",
+    "recoveryFailed": "The local recovery copy could not be saved.",
+    "externalChange": "The saved file has changed. Your draft remains available; reopen the saved version to continue.",
+    "retry": "Retry",
+    "reload": "Reopen saved version",
+    "reloadKeepDraft": "Keep draft and reopen saved version",
+    "downloadDraft": "Download draft",
+    "recoveryAvailable": "An unsaved local draft is available.",
+    "recover": "Recover draft",
+    "discardRecovery": "Discard this recovery",
+    "versionsHint": "Download a saved version for recovery.",
+    "close": "Close",
+    "copySaved": "Copy saved: {path}"
   }
 }

@@ -93,6 +93,7 @@ RUN apt-get update \
 RUN npm install -g npm@${NPM_VERSION} node-addon-api@8.9.0 node-gyp@12.4.0
 
 COPY package.json package-lock.json .npmrc* ./
+COPY patches ./patches
 RUN npm ci --legacy-peer-deps --loglevel=warn \
   && npm --prefix node_modules/sharp run build \
   && npm --prefix node_modules/next/node_modules/sharp run build \

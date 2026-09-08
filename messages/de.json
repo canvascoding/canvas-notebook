@@ -7593,5 +7593,35 @@
       "videoTitle": "{title} Video",
       "moreActions": "Weitere Aktionen"
     }
+  },
+  "officeDocx": {
+    "openFailed": "Das aktuelle Dokument konnte nicht geöffnet werden.",
+    "historySelection": "Dokumentverlauf auswählen",
+    "currentDocument": "Aktuelles Dokument",
+    "previousDocument": "Früheres Dokument an diesem Pfad",
+    "noVersions": "Noch keine gespeicherten Versionen vorhanden.",
+    "workspaceMissing": "Wähle einen Workspace, um dieses Word-Dokument zu bearbeiten.",
+    "loading": "Word-Dokument wird geöffnet…",
+    "saving": "Wird gespeichert…",
+    "paused": "Speichern pausiert",
+    "readOnly": "Schreibgeschützt",
+    "pending": "Änderungen ausstehend",
+    "saved": "Gespeichert",
+    "save": "Speichern",
+    "saveCopy": "Kopie speichern",
+    "versions": "Frühere Versionen",
+    "unsupported": "Dieses Dokument enthält Funktionen, die der Browser-Editor nicht sicher erhalten kann. Lade das Original herunter oder bearbeite eine Arbeitskopie mit einem Agenten.",
+    "recoveryFailed": "Die lokale Wiederherstellungskopie konnte nicht gespeichert werden.",
+    "externalChange": "Die gespeicherte Datei wurde geändert. Dein Entwurf bleibt verfügbar; öffne den gespeicherten Stand erneut, um fortzufahren.",
+    "retry": "Erneut versuchen",
+    "reload": "Gespeicherten Stand öffnen",
+    "reloadKeepDraft": "Entwurf behalten und gespeicherten Stand öffnen",
+    "downloadDraft": "Entwurf herunterladen",
+    "recoveryAvailable": "Ein ungespeicherter lokaler Entwurf ist verfügbar.",
+    "recover": "Entwurf wiederherstellen",
+    "discardRecovery": "Diese Wiederherstellung verwerfen",
+    "versionsHint": "Lade eine gespeicherte Version zur Wiederherstellung herunter.",
+    "close": "Schließen",
+    "copySaved": "Kopie gespeichert: {path}"
   }
 }
