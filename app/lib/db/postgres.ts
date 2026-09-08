@@ -1,5 +1,5 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { getTableConfig } from 'drizzle-orm/sqlite-core';
+import { getTableConfig } from 'drizzle-orm/pg-core';
 import { Pool, types } from 'pg';
 
 import * as schema from './schema';
@@ -87,13 +87,13 @@ function columnType(column: SchemaColumn): string {
   if (column.autoIncrement) return 'bigserial';
 
   switch (column.columnType) {
-    case 'SQLiteText':
+    case 'PgText':
       return 'text';
-    case 'SQLiteReal':
+    case 'PgDoublePrecision':
       return 'double precision';
-    case 'SQLiteBoolean':
-    case 'SQLiteInteger':
-    case 'SQLiteTimestamp':
+    case 'PgBigInt53':
+    case 'PgBigInt64':
+    case 'PgCustomColumn':
       return 'bigint';
     default:
       if (column.dataType === 'string') return 'text';

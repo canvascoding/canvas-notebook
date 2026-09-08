@@ -1,5 +1,3 @@
-import type {BetterSQLite3Database} from 'drizzle-orm/better-sqlite3';
-import type * as schema from './schema';
 import {
   createPostgresDrizzle,
   createPostgresPool,
@@ -25,13 +23,15 @@ function createPostgresDatabase() {
   const pool = createPostgresPool();
   return {
     client: pool,
-    db: createPostgresDrizzle(pool),
+    db: createPostgresDrizzle(pool) as AppDatabase,
   };
 }
 
-// Keep the public table surface compatible while the schema is still defined
-// with sqliteTable. The runtime adapter below remains PostgreSQL-only.
-type AppDatabase = BetterSQLite3Database<typeof schema>;
+// The application still exposes the legacy synchronous query helpers through
+// its compatibility adapter. Keep that adapter structurally untyped without
+// leaking a dialect-specific BetterSQLite3Database surface.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AppDatabase = any;
 
 type RuntimeDatabase =
   | (ReturnType<typeof createPostgresDatabase> & { initializationError: null })
@@ -106,9 +106,6 @@ export function getPostgresRuntimeQueryable(): ReturnType<typeof createPostgresP
     : null;
 }
 
-// The app keeps the existing SQLite-table Drizzle types while runtime dialect selection
-// happens underneath. The Postgres adapter is intentionally cast to that surface until
-// the schema is split into native pgTable definitions.
 export const db: AppDatabase = new Proxy(Object.create(null), {
   get(_target, property) {
     return Reflect.get(getRuntimeDatabase().db, property);
