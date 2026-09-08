@@ -15,7 +15,8 @@ export function hasExportedCollaborationRecovery(doc: Doc): boolean {
 }
 
 /** Resolve only after IndexedDB commits the full document, including its delete set. */
-export async function preserveLocalCollaborationRecovery(persistence: IndexeddbPersistence, doc: Doc): Promise<void> {
+export async function preserveLocalCollaborationRecovery(persistence: IndexeddbPersistence, doc: Doc): Promise<Uint8Array> {
+  if (doc.isDestroyed) throw new Error('Collaboration document was closed.');
   if (!persistence.synced) throw new Error('Local collaboration storage is not ready.');
   const database = persistence.db;
   if (!database) throw new Error('Local collaboration storage is unavailable.');
@@ -34,7 +35,8 @@ export async function preserveLocalCollaborationRecovery(persistence: IndexeddbP
       };
       transaction.objectStore('updates').add(snapshot);
     });
-    if (equalBytes(snapshot, encodeStateAsUpdate(doc))) return;
+    if (doc.isDestroyed) throw new Error('Collaboration document was closed.');
+    if (equalBytes(snapshot, encodeStateAsUpdate(doc))) return snapshot;
   }
   throw new Error('The document changed while its local backup was being saved.');
 }

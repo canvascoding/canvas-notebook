@@ -83,6 +83,27 @@ export type CollaborationDocument = {
 
 const registry = new Map<string, RegistryEntry>();
 
+/** Confirm a full local binary backup before creating a potentially lossy recovery copy. */
+export async function preserveCollaborationDocumentRecovery(document: CollaborationDocument): Promise<Uint8Array> {
+  const entry = registry.get(document.registryKey);
+  if (!entry || entry.doc !== document.doc) throw new Error('Collaboration is still connecting.');
+  const scope = entry.requests;
+  const assertCurrent = () => {
+    assertRequestActive(entry, scope);
+    if (!document.session || entry.session?.documentId !== document.session.documentId
+      || entry.session.lifecycleGeneration !== document.session.lifecycleGeneration
+      || entry.session.representation !== document.session.representation) {
+      throw new Error('Collaboration document changed. Please retry.');
+    }
+  };
+  assertCurrent();
+  if (!entry.persistence) throw new Error('Local collaboration storage is unavailable.');
+  // A download being started is not proof that this snapshot has been saved.
+  const snapshot = await preserveLocalCollaborationRecovery(entry.persistence, document.doc);
+  assertCurrent();
+  return snapshot;
+}
+
 export async function prepareCollaborationDocumentTransition(document: CollaborationDocument): Promise<void> {
   const entry = registry.get(document.registryKey);
   if (!entry || entry.doc !== document.doc) throw new Error('Collaboration is still connecting.');
