@@ -1,3 +1,6 @@
+import { useFilePresenceStore } from '@/app/store/file-presence-store';
+import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-file-paths';
+import { previewMayDependOn, previewDependencyDirectories } from '@/app/lib/files/preview-dependencies';
 /**
  * FileWatcher SSE Client - Singleton with acquire/release pattern
  *
@@ -32,6 +35,7 @@ function getWatchedDirs(): string[] {
   }
 
   if (currentFile?.path) {
+    for (const dir of previewDependencyDirectories(currentFile.path, currentFile.content)) dirs.add(dir);
     const parts = currentFile.path.split('/').filter(Boolean);
     if (parts.length > 1) {
       dirs.add(parts.slice(0, -1).join('/'));
@@ -60,12 +64,13 @@ export class FileWatcherClient extends EventTarget {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingRefreshDirs = new Set<string>();
   private lastReloadTime = 0;
-  private debounceMs = 1000;
-  private maxDebounceMs = 5000;
+  private debounceMs = 250;
+  private maxDebounceMs = 1000;
   private _isConnected = false;
   private storeUnsubscribe: (() => void) | null = null;
   private workspaceUnsubscribe: (() => void) | null = null;
   private connectionWorkspaceId: string | null = null;
+  private connectionGeneration = 0;
   private pendingDeletions = new Map<string, object>();
 
   static readonly DISCONNECT_GRACE_MS = 3000;
@@ -90,6 +95,7 @@ export class FileWatcherClient extends EventTarget {
           state.expandedDirs !== prevState.expandedDirs ||
           state.currentDirectory !== prevState.currentDirectory ||
           state.currentFile?.path !== prevState.currentFile?.path ||
+          state.currentFile?.content !== prevState.currentFile?.content ||
           state.browserMode !== prevState.browserMode;
 
         if (watchedDirsChanged && this._isConnected && this.clientId) {
@@ -104,6 +110,9 @@ export class FileWatcherClient extends EventTarget {
       });
     }
 
+    if ((this.eventSource || this._isConnected) && this.connectionWorkspaceId !== useWorkspaceStore.getState().activeWorkspaceId) {
+      this.reconnectForWorkspace();
+    }
     if (this._isConnected && this.clientId) {
       this.scheduleDirSync(getWatchedDirs());
     }
@@ -142,14 +151,18 @@ export class FileWatcherClient extends EventTarget {
     const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
     if (!this.clientId || (activeWorkspaceId && this.connectionWorkspaceId !== activeWorkspaceId)) return;
 
+    const generation = this.connectionGeneration;
+    const workspaceId = this.connectionWorkspaceId;
+    const clientId = this.clientId;
     if (this.syncTimer) clearTimeout(this.syncTimer);
     this.syncTimer = setTimeout(() => {
-      if (!this.clientId) return;
-      fetch(watcherUrl(this.connectionWorkspaceId), {
+      this.syncTimer = null;
+      if (!clientId || generation !== this.connectionGeneration || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
+      fetch(watcherUrl(workspaceId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ clientId: this.clientId, dirs }),
+        body: JSON.stringify({ clientId, dirs }),
       }).catch(() => {});
     }, FileWatcherClient.SYNC_DEBOUNCE_MS);
   }
@@ -165,12 +178,17 @@ export class FileWatcherClient extends EventTarget {
     });
 
     this.eventSource = eventSource;
+    const generation = ++this.connectionGeneration;
+    const isCurrent = () => this.eventSource === eventSource && this.connectionGeneration === generation
+      && useWorkspaceStore.getState().activeWorkspaceId === workspaceId;
 
     eventSource.onopen = () => {
+      if (!isCurrent()) return;
       this.reconnectAttempts = 0;
     };
 
     eventSource.addEventListener('connected', (message: MessageEvent) => {
+      if (!isCurrent()) return;
       try {
         const data = JSON.parse(message.data);
         if (data.clientId && (!this.connectionWorkspaceId || !data.workspaceId || data.workspaceId === this.connectionWorkspaceId)) {
@@ -180,11 +198,13 @@ export class FileWatcherClient extends EventTarget {
           this.dispatchEvent(new CustomEvent('connected'));
 
           this.scheduleDirSync(getWatchedDirs());
+          this.revalidateAfterConnect();
         }
       } catch {}
     });
 
     eventSource.addEventListener('filechange', (message: MessageEvent) => {
+      if (!isCurrent()) return;
       try {
         const event: FileEvent = JSON.parse(message.data);
         this.handleFileChange(event);
@@ -196,7 +216,8 @@ export class FileWatcherClient extends EventTarget {
     eventSource.addEventListener('heartbeat', () => {});
 
     eventSource.onerror = () => {
-      if (this.eventSource !== eventSource) return;
+      if (!isCurrent()) return;
+      this.cancelPendingWork();
       this._isConnected = false;
       this.clientId = null;
 
@@ -215,6 +236,8 @@ export class FileWatcherClient extends EventTarget {
 
   disconnect(): void {
     this.isManualDisconnect = true;
+    this.connectionGeneration += 1;
+    this.cancelPendingWork();
     this.refCount = 0;
     this._isConnected = false;
     this.clientId = null;
@@ -272,6 +295,13 @@ export class FileWatcherClient extends EventTarget {
     const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
     if (activeWorkspaceId && event.workspaceId && event.workspaceId !== activeWorkspaceId) return;
 
+    if (event.type === 'add' || event.type === 'addDir') useFilePresenceStore.getState().restorePath(event.relativePath);
+    const current = useFileStore.getState().currentFile;
+    useFileStore.setState((state) => ({ workspaceFileVersion: state.workspaceFileVersion + 1,
+      previewDependencyVersion: state.previewDependencyVersion + (current && previewMayDependOn(current.path, current.content, event.relativePath) ? 1 : 0) }));
+    for (const path of event.mutation ? [event.mutation.oldPath, event.mutation.newPath] : [event.relativePath]) {
+      invalidateFileReferenceValidationCache({ workspaceId: activeWorkspaceId, path });
+    }
     const affectedPaths = event.mutation
       ? [event.mutation.oldPath, event.mutation.newPath]
       : [event.relativePath];
@@ -315,9 +345,7 @@ export class FileWatcherClient extends EventTarget {
       && useFileStore.getState().currentFile?.path === event.relativePath) {
       void useFileStore.getState().refreshCurrentFileContent(event.relativePath);
     }
-    if (event.type !== 'change') {
-      useFileStore.getState().markDirectoryStale(event.dir || '.');
-    }
+    useFileStore.getState().markDirectoryStale(event.dir || '.');
     this.dispatchEvent(new CustomEvent<FileEvent>('filechange', { detail: event }));
 
     if (this.shouldRefreshTreeForEvent(event)) {
@@ -326,13 +354,14 @@ export class FileWatcherClient extends EventTarget {
   }
 
   private shouldRefreshTreeForEvent(event: FileEvent): boolean {
-    if (event.dir === '.') return event.type !== 'change';
-    if (event.type === 'change') return false;
+    if (event.dir === '.') return true;
     return getWatchedDirs().includes(event.dir || '.');
   }
 
   private scheduleDirectoryRefresh(dirPath: string): void {
     this.pendingRefreshDirs.add(dirPath || '.');
+    const workspaceId = this.connectionWorkspaceId;
+    const generation = this.connectionGeneration;
 
     const now = Date.now();
     const timeSinceLastReload = now - this.lastReloadTime;
@@ -346,28 +375,29 @@ export class FileWatcherClient extends EventTarget {
 
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
+      if (generation !== this.connectionGeneration || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
       const dirsToRefresh = Array.from(this.pendingRefreshDirs).sort((a, b) => {
         const depthDiff = a.split('/').length - b.split('/').length;
         return depthDiff !== 0 ? depthDiff : a.localeCompare(b);
       });
       this.pendingRefreshDirs.clear();
 
-      void this.refreshDirectories(dirsToRefresh)
+      void this.refreshDirectories(dirsToRefresh, workspaceId, generation)
         .catch((error) => {
           console.warn('[FileWatcherClient] Failed to refresh changed directories:', error);
         })
         .finally(() => {
-          this.lastReloadTime = Date.now();
+          if (generation === this.connectionGeneration) this.lastReloadTime = Date.now();
         });
     }, finalWaitTime);
   }
 
-  private async refreshDirectories(dirPaths: string[]): Promise<void> {
+  private async refreshDirectories(dirPaths: string[], workspaceId: string | null, generation: number): Promise<void> {
     const store = useFileStore.getState();
     await runDirectoryTasksByDepth(
       dirPaths,
       async (dirPath) => {
-        await store.refreshDirectory(dirPath, true);
+        if (generation === this.connectionGeneration && useWorkspaceStore.getState().activeWorkspaceId === workspaceId) await store.refreshDirectory(dirPath, true, workspaceId);
       },
       { concurrency: WATCHER_REFRESH_CONCURRENCY },
     );
@@ -382,7 +412,10 @@ export class FileWatcherClient extends EventTarget {
     const nextWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
     if (nextWorkspaceId === this.connectionWorkspaceId) return;
 
-    this.cancelSyncTimer();
+    this.cancelPendingWork();
+    this.connectionGeneration += 1;
+    this.reconnectAttempts = 0;
+    this.lastReloadTime = 0;
     this.clientId = null;
     this._isConnected = false;
     this.connectionWorkspaceId = null;
@@ -392,6 +425,30 @@ export class FileWatcherClient extends EventTarget {
     }
     this.dispatchEvent(new CustomEvent('disconnected'));
     this.connect();
+  }
+
+  private cancelPendingWork(): void {
+    this.cancelSyncTimer();
+    if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.debounceTimer = null; this.reconnectTimer = null;
+    this.pendingRefreshDirs.clear(); this.pendingDeletions.clear();
+  }
+
+  private revalidateAfterConnect(): void {
+    const store = useFileStore.getState();
+    invalidateFileReferenceValidationCache({ workspaceId: this.connectionWorkspaceId });
+    useFileStore.setState((state) => ({ workspaceFileVersion: state.workspaceFileVersion + 1, previewDependencyVersion: state.previewDependencyVersion + 1 }));
+    void store.refreshVisibleTree().catch((error) => console.warn('[FileWatcherClient] Reconnect refresh failed:', error));
+    if (store.currentFile && store.currentFileWorkspaceId === this.connectionWorkspaceId) void store.refreshCurrentFileContent(store.currentFile.path);
+  }
+
+  reconnectNow(): void {
+    this.cancelPendingWork();
+    this.eventSource?.close(); this.eventSource = null;
+    this._isConnected = false; this.clientId = null;
+    this.reconnectAttempts = 0;
+    if (this.refCount > 0) this.connect();
   }
 
   private cancelDisconnectTimer(): void {

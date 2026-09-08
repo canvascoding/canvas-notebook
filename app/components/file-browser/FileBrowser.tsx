@@ -14,6 +14,7 @@ import { remapPath } from '@/app/lib/files/path-mutation-state';
 import { findPathInTree } from '@/app/lib/files/tree-utils';
 import { FileGridView } from './FileGridView';
 import { FileRevealStatus } from './FileRevealStatus';
+import { FileSyncStatus } from './FileSyncStatus';
 import { FileToolbar, type FileToolbarHandlers } from './FileToolbar';
 import { FileBreadcrumb } from './FileBreadcrumb';
 import { CreateItemDialog } from './CreateItemDialog';
@@ -521,6 +522,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        <FileSyncStatus includeTreeStatus />
         <FileRevealStatus />
         <FileGridView
           variant={variant}

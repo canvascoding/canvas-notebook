@@ -31,6 +31,7 @@ import type { CollaborationAgentOperation } from '@/app/lib/collaboration/agent-
 import { visibleAgentTargetAnchors } from '@/app/lib/collaboration/agent-target-decorations';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
 import { MarkdownEditor } from './MarkdownEditorClient';
+import { FileSyncStatus } from '../file-browser/FileSyncStatus';
 import { MarpPreview } from './MarpPreview';
 import { MarpExportDialog } from '../file-browser/MarpExportDialog';
 import { ShareMarkdownDialog } from '../file-browser/ShareMarkdownDialog';
@@ -384,6 +385,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     currentFileWorkspaceId,
     pendingExternalFile,
     documentSyncStatus,
+    previewDependencyVersion,
     isLoadingFile,
     loadingFilePath,
     fileError,
@@ -401,6 +403,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     currentFileWorkspaceId: state.currentFileWorkspaceId,
     pendingExternalFile: state.pendingExternalFile,
     documentSyncStatus: state.documentSyncStatus,
+    previewDependencyVersion: state.previewDependencyVersion,
     isLoadingFile: state.isLoadingFile,
     loadingFilePath: state.loadingFilePath,
     fileError: state.fileError,
@@ -893,6 +896,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   useEffect(() => {
     if (!currentFilePath || isSceneCollaboration) return;
     return registerDocumentTransitionGuard(currentFileWorkspaceId, currentFilePath, {
+      localChangeVersion: () => officeEditorRef.current?.changeVersion(),
       hasPendingChanges: () => useEditorStore.getState().isDirty || Boolean(officeEditorRef.current?.hasChanges()) || Boolean(
         isCrdtCollaboration && activeCollaborationDocument?.durability !== 'checkpointed_file',
       ),
@@ -1318,6 +1322,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           </div>
         </div>
       </TooltipProvider>
+      <FileSyncStatus />
       {documentSyncStatus === 'updating' || documentSyncStatus === 'updated' || documentSyncStatus === 'error' ? <div role="status" title={formatTimestamp(lastSavedAt) ?? undefined} className="shrink-0 border-b px-3 py-1 text-xs text-muted-foreground">{t(documentSyncStatus === 'updating' ? 'documentUpdating' : documentSyncStatus === 'updated' ? 'documentUpdated' : 'documentUpdateFailed')}</div> : null}
       {currentFile.unavailable ? (
         <div role="status" data-testid="unavailable-document-recovery" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted px-3 py-2 text-xs">
@@ -1450,7 +1455,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               size={currentFile.stats?.size}
             />
           ) : isHtml ? (
-            <HtmlViewer path={currentFile.path} value={draft} onChange={updateDraft} viewMode={htmlViewMode} revision={documentRevision} refreshKey={htmlRefreshKey} lastSavedAt={lastSavedAt} />
+            <HtmlViewer path={currentFile.path} value={draft} onChange={updateDraft} viewMode={htmlViewMode} revision={`${documentRevision}:${previewDependencyVersion}`} refreshKey={htmlRefreshKey} lastSavedAt={lastSavedAt} />
           ) : isExcalidraw ? (
             <ExcalidrawEditor
               documentIdentity={documentIdentity}
@@ -1462,7 +1467,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             />
           ) : isMarkdown ? (
             isMarpMarkdownFile && markdownViewMode === 'slides' ? (
-              <MarpPreview path={currentFile.path} content={draft} refreshKey={marpRefreshKey} />
+              <MarpPreview path={currentFile.path} content={draft} refreshKey={marpRefreshKey + previewDependencyVersion} />
             ) : (
               <MarkdownEditor
                 key={documentIdentity}

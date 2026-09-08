@@ -640,6 +640,8 @@
     "documentUpdating": "Updating document…",
     "documentUpdated": "Document updated from an external change.",
     "documentUpdateFailed": "Document update failed. Reconnect or reload to retry.",
+    "liveUpdatesUnavailable": "Live updates are disconnected. Displayed content may be outdated.",
+    "reconnectLiveUpdates": "Reconnect",
     "refreshingFolder": "Updating folder…",
     "movePartialFailure": "Moved {count} items. The remaining move stopped: {error}",
     "close": "Close",
