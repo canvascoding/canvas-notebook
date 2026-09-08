@@ -41,10 +41,11 @@ export function useMarkdownRecoveryCopy(collaboration: CollaborationDocument | n
   const generation = collaboration?.session?.lifecycleGeneration;
   const representation = collaboration?.session?.representation;
   const permission = collaboration?.session?.permission;
+  const denied = collaboration?.connection === 'denied';
   const registryKey = collaboration?.registryKey;
   const editorIdentity = file?.editorIdentity;
-  const lifetime = useMemo(() => ({ doc, documentId, generation, representation, permission, registryKey,
-    workspaceId, fileWorkspaceId, filePath, openedPath: file?.path, editorIdentity, treeGeneration }), [doc, documentId, generation, representation, permission, registryKey,
+  const lifetime = useMemo(() => ({ doc, documentId, generation, representation, permission, denied, registryKey,
+    workspaceId, fileWorkspaceId, filePath, openedPath: file?.path, editorIdentity, treeGeneration }), [doc, documentId, generation, representation, permission, denied, registryKey,
     workspaceId, fileWorkspaceId, filePath, file?.path, editorIdentity, treeGeneration]);
   const active = useRef<{ lifetime: typeof lifetime; running: boolean } | null>(null);
   const [state, setState] = useState<{ lifetime: typeof lifetime; busy: boolean; error: string | null; copyPath: string | null } | null>(null);
@@ -53,7 +54,7 @@ export function useMarkdownRecoveryCopy(collaboration: CollaborationDocument | n
     active.current = { lifetime, running: false };
     return () => { if (active.current?.lifetime === lifetime) active.current = null; };
   }, [lifetime]);
-  const eligible = Boolean(doc && !doc.isDestroyed && workspaceId && fileWorkspaceId === workspaceId
+  const eligible = Boolean(doc && !doc.isDestroyed && !denied && workspaceId && fileWorkspaceId === workspaceId
     && filePath && file?.path === filePath && file.collaboration?.crdtCapable
     && (!file.collaboration.document?.id || file.collaboration.document.id === documentId)
     && registryKey?.startsWith(`${workspaceId}\0`) && permission === 'write' && representation);

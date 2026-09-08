@@ -150,7 +150,9 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
 }) {
   const t = useTranslations('notebook');
   const recovery = useMarkdownRecoveryCopy(collaboration, filePath);
-  const canRetry = collaboration?.connection === 'live' && collaboration.ready && recovery.canCreate;
+  const failureKind = collaboration?.clientState.failure?.kind;
+  const canRetry = collaboration?.connection === 'live' && collaboration.ready && recovery.canCreate
+    && failureKind !== 'lifecycle' && failureKind !== 'authentication' && failureKind !== 'startup';
   const retryScope = useMemo(() => ({ document: recovery.actionScope, canRetry }), [recovery.actionScope, canRetry]);
   const activeRetry = useRef<{ scope: typeof retryScope; running: boolean } | null>(null);
   const [retryState, setRetryState] = useState<{ scope: typeof retryScope; busy: boolean; error: string | null } | null>(null);
@@ -174,13 +176,15 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
       : durability === 'checkpoint_pending' ? 'checkpointPending' : 'serverReceived';
   const diagnostic = JSON.stringify({ documentId: session?.documentId, generation: session?.lifecycleGeneration,
     connection, durability, documentSequence: clientState.documentSequence,
-    checkpointSequence: clientState.checkpointSequence, unsyncedChanges: clientState.unsyncedChanges, error }, null, 2);
+    checkpointSequence: clientState.checkpointSequence, unsyncedChanges: clientState.unsyncedChanges,
+    failure: clientState.failure, error }, null, 2);
   return <div className="shrink-0 border-b px-3 py-2 text-xs" data-testid="markdown-save-state">
     <div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
       <span>{connectionKey === 'connected' ? t('editorModes.connected') : t(`collaboration.${connectionKey}`)}</span><span aria-hidden="true">·</span>
       <span>{blocked ? t('editorModes.saveBlocked') : t(`collaboration.${durabilityKey}`)}</span>
     </div>
     {(error || blocked || !available) && <div className="mt-2 space-y-2">
+      {clientState.failure && <p role="alert">{t(`editorModes.failure.${clientState.failure.kind}`)}</p>}
       <p role="alert">{t('editorModes.recovery')}</p>
       <div className="flex flex-wrap gap-2">
         {blocked && available && recovery.canCreate && <Button

@@ -5,6 +5,8 @@ import { Hocuspocus, type onAwarenessUpdatePayload } from '@hocuspocus/server';
 import { WebSocketServer } from 'ws';
 
 import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
+import { COLLABORATION_FAILURE_CODES } from '@/app/lib/collaboration/failure';
+import { CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/checkpoint-errors';
 import { auth } from '@/app/lib/auth';
 import {
   CollaborationCheckpointSupersededError,
@@ -264,6 +266,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       ) {
         connection.sendStateless(JSON.stringify({
           type: 'degraded',
+          code: COLLABORATION_FAILURE_CODES.generationChanged,
           message: 'The collaboration document generation changed. Reload to use the current document state.',
         }));
         connection.close();
@@ -381,6 +384,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         if (error instanceof CollaborationStateStaleError) {
           document.broadcastStateless(JSON.stringify({
             type: 'degraded',
+            code: COLLABORATION_FAILURE_CODES.generationChanged,
             message: 'The collaboration document generation changed. Reload to use the current document state.',
           }));
           hocuspocus.closeConnections(documentName);
@@ -392,6 +396,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         ).catch(() => undefined);
         document.broadcastStateless(JSON.stringify({
           type: 'degraded',
+          code: COLLABORATION_FAILURE_CODES.persistenceFailed,
           message: error instanceof Error ? error.message : 'Yjs persistence failed.',
         }));
         throw error;
@@ -424,6 +429,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         await markCollaborationDegraded(documentName, state.lifecycleGeneration);
         document.broadcastStateless(JSON.stringify({
           type: 'degraded',
+          code: error instanceof CollaborationCheckpointValidationError ? error.code : COLLABORATION_CHECKPOINT_ERROR_CODES.failed,
           message: error instanceof Error ? error.message : 'Checkpoint failed.',
         }));
       }

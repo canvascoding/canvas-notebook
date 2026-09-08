@@ -538,6 +538,14 @@
       "rich": "Bearbeiten",
       "source": "Quelltext",
       "saveBlocked": "Dateispeicherung pausiert",
+      "failure": {
+        "validation": "Dieser Bearbeitungsstand lässt sich derzeit nicht unter Erhalt seiner Struktur als Markdown speichern.",
+        "storage": "Der Bearbeitungsstand oder die Datei konnte nicht gespeichert werden. Du kannst die Speicherung erneut versuchen.",
+        "lifecycle": "Die Bearbeitungssitzung dieses Dokuments ist veraltet. Öffne das Dokument erneut, um seinen aktuellen Stand zu laden.",
+        "authentication": "Der Schreibzugriff konnte nicht bestätigt werden. Öffne das Dokument erneut, um deinen Zugriff zu prüfen.",
+        "startup": "Die kollaborative Bearbeitungssitzung konnte nicht gestartet werden.",
+        "unknown": "Die Speicherung wurde unterbrochen. Die technischen Details unten zeigen den gemeldeten Fehler."
+      },
       "recovery": "Das Speichern der Datei ist pausiert. Vor dem Erstellen einer Wiederherstellungskopie wird der vollständige Bearbeitungsstand auf diesem Gerät gesichert. Die Markdown-Kopie kann Details auslassen; die vollständige Sicherung erhält sie. Falls der lokale Speicher ausfällt, kannst du den Wiederherstellungsstand herunterladen.",
       "recoveryChanged": "Das Dokument wurde während der Sicherung geändert. Bitte erstelle die Wiederherstellungskopie erneut.",
       "recoveryCopyChanged": "Die Wiederherstellungskopie wurde als {path} gespeichert. Dieses Dokument enthält neuere Änderungen und bleibt geöffnet.",

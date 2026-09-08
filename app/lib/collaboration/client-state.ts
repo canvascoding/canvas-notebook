@@ -1,4 +1,5 @@
 import { isCollaborationStateProof } from './state-proof';
+import { collaborationFailure, COLLABORATION_FAILURE_CODES, type CollaborationFailure } from './failure';
 import type {
   CollaborationPermission,
   TextCollaborationConnectionState,
@@ -17,6 +18,7 @@ export type TextCollaborationClientState = {
   checkpointStateVector: string | null;
   checkpointStateProof: string | null;
   error: string | null;
+  failure: CollaborationFailure | null;
 };
 
 export type TextCollaborationClientEvent =
@@ -36,8 +38,8 @@ export type TextCollaborationClientEvent =
   | { type: 'checkpoint_requested' }
   | { type: 'checkpointed'; sequence: number; stateVector: string; stateProof: string; matchesCurrentDocument: boolean }
   | { type: 'checkpoint_superseded'; sequence: number }
-  | { type: 'checkpoint_failed'; message: string }
-  | { type: 'degraded'; message: string }
+  | { type: 'checkpoint_failed'; message: string; code?: string }
+  | { type: 'degraded'; message: string; code?: string }
   | { type: 'authentication_failed'; message: string };
 
 export function createInitialTextCollaborationClientState(input: {
@@ -65,6 +67,7 @@ export function createInitialTextCollaborationClientState(input: {
     checkpointStateVector: null,
     checkpointStateProof: null,
     error: null,
+    failure: null,
   };
 }
 
@@ -85,26 +88,32 @@ export function reduceTextCollaborationClientState(
     case 'provider_status':
       return withReadiness({
         ...state,
-        connection: event.permission === 'read'
+        // A TCP/WebSocket reconnect is not proof of renewed authorization.
+        connection: state.connection === 'denied' ? 'denied' : event.permission === 'read'
           ? 'read_only'
           : event.status === 'connected'
             ? state.remoteSynced ? 'live' : 'connecting'
             : event.status === 'connecting' ? 'reconnecting' : 'offline',
-        error: state.durability === 'degraded' ? state.error : null,
+        error: state.connection === 'denied' || state.durability === 'degraded' ? state.error : null,
+        failure: state.connection === 'denied' || state.durability === 'degraded' ? state.failure : null,
       });
     case 'remote_synced':
       return withReadiness({
         ...state,
         remoteSynced: true,
         connection: event.permission === 'read' ? 'read_only' : 'live',
-        error: state.durability === 'degraded' ? state.error : null,
+        error: state.failure?.kind !== 'authentication' && state.durability === 'degraded' ? state.error : null,
+        // A successful authenticated sync permits revalidation, not an automatic
+        // release of a previously paused Markdown checkpoint.
+        failure: state.durability === 'degraded'
+          ? state.failure?.kind === 'authentication' ? collaborationFailure(undefined) : state.failure : null,
       });
     case 'document_changed':
       return {
         ...state,
         checkpointStateVector: null,
         checkpointStateProof: null,
-        durability: state.durability === 'degraded' ? 'degraded'
+        durability: state.durability === 'degraded' || state.connection === 'denied' ? 'degraded'
           : state.unsyncedChanges > 0 ? 'local_pending' : 'server_received',
       };
     case 'unsynced_changes': {
@@ -131,7 +140,8 @@ export function reduceTextCollaborationClientState(
       const checkpointCoversDocument = checkpointSequence >= documentSequence;
       const exactPersistedDocument = state.ready && event.matchesCurrentDocument
         && isCollaborationStateProof(event.stateProof) && state.unsyncedChanges === 0;
-      const stillDegraded = state.durability === 'degraded' && !(exactPersistedDocument && checkpointCoversDocument);
+      const stillDegraded = state.durability === 'degraded' && (state.failure?.kind === 'lifecycle'
+        || !(exactPersistedDocument && checkpointCoversDocument));
       return {
         ...state,
         documentSequence,
@@ -145,7 +155,8 @@ export function reduceTextCollaborationClientState(
           : exactPersistedDocument
             ? checkpointCoversDocument ? 'checkpointed_file' : 'persisted_yjs'
             : 'server_received',
-        error: stillDegraded ? state.error : null,
+        error: state.connection === 'denied' || stillDegraded ? state.error : null,
+        failure: state.connection === 'denied' || stillDegraded ? state.failure : null,
       };
     }
     case 'checkpoint_requested':
@@ -154,6 +165,7 @@ export function reduceTextCollaborationClientState(
         ...state,
         durability: state.unsyncedChanges > 0 ? 'local_pending' : 'checkpoint_pending',
         error: null,
+        failure: null,
       };
     case 'checkpointed': {
       return reduceTextCollaborationClientState(state, {
@@ -180,12 +192,15 @@ export function reduceTextCollaborationClientState(
         durability: state.durability === 'degraded' ? 'degraded'
           : state.unsyncedChanges > 0 ? 'local_pending' : 'server_received',
         error: event.message,
+        // Retain the reason the editor is blocked when only its retry fails.
+        failure: state.durability === 'degraded' ? state.failure : collaborationFailure(event.code),
       };
     case 'degraded':
       return {
         ...state,
         durability: 'degraded',
         error: event.message,
+        failure: collaborationFailure(event.code),
       };
     case 'authentication_failed':
       return withReadiness({
@@ -193,6 +208,7 @@ export function reduceTextCollaborationClientState(
         connection: 'denied',
         durability: 'degraded',
         error: event.message,
+        failure: collaborationFailure(COLLABORATION_FAILURE_CODES.authenticationFailed),
       });
   }
 }

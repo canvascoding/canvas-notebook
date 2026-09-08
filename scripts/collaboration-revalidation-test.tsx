@@ -10,6 +10,7 @@ import { JSDOM } from 'jsdom';
 import * as Y from 'yjs';
 import { collaborationStateProof } from '../app/lib/collaboration/state-proof';
 import { COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
+import { COLLABORATION_FAILURE_CODES } from '../app/lib/collaboration/failure';
 import type * as Client from '../app/lib/collaboration/client';
 import type { CollaborationSessionResponse } from '../app/lib/collaboration/types';
 import type { CurrentFile } from '../app/lib/files/types';
@@ -98,7 +99,7 @@ async function main() {
     });
     await until(() => current?.session?.documentId === session.documentId && !!current.provider);
     await act(async () => { provider().options.onStatus({ status: 'connected' }); provider().options.onSynced(); });
-    await send({ type: 'degraded', message: `Validation paused ${owner}` });
+    await send({ type: 'degraded', code: COLLABORATION_CHECKPOINT_ERROR_CODES.roundtripUnstable, message: `Validation paused ${owner}` });
   };
   const button = () => [...document.querySelectorAll('button')].find((element) => element.textContent === messages.notebook.editorModes.retry);
   const click = () => act(async () => { assert(button()); button()!.click(); });
@@ -108,6 +109,8 @@ async function main() {
     stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'), stateProof: collaborationStateProof(doc, Y) });
   try {
     await fixture();
+    assert.equal(get().clientState.failure?.kind, 'validation');
+    assert(document.body.textContent!.includes(messages.notebook.editorModes.failure.validation));
     assert.equal(get().durability, 'degraded'); assert(button(), 'paused saving offers explicit revalidation');
     await click(); await click();
     assert.equal(requests.length, 1); assert(button()!.disabled);
@@ -115,6 +118,7 @@ async function main() {
     assert.equal(get().durability, 'degraded'); assert.equal(button()!.disabled, false);
     await click(); await respond({ error: 'Storage temporarily unavailable' }, 503);
     assert.equal(get().durability, 'degraded', 'a transient retry failure must not release the edit/save gate');
+    assert.equal(get().clientState.failure?.kind, 'validation', 'a failed retry retains the reason structural editing is blocked');
     assert.match(document.body.textContent!, /Storage temporarily unavailable/u);
     await act(async () => { provider().options.onStatus({ status: 'connecting' }); provider().options.onStatus({ status: 'connected' }); });
     assert.equal(get().durability, 'degraded');
@@ -133,6 +137,7 @@ async function main() {
     assert.equal(requests.at(-1)!.proof, collaborationStateProof(get().doc, Y));
     await respond(checkpoint(get().doc, 3));
     assert.equal(get().durability, 'checkpointed_file'); assert.equal(get().error, null);
+    assert.equal(get().clientState.failure, null);
     assert.equal(button(), undefined); assert(!document.body.textContent!.includes('Storage temporarily unavailable'));
     assert.deepEqual(Y.encodeStateAsUpdate(get().doc), before, 'revalidation never rewrites the document');
 
@@ -161,7 +166,54 @@ async function main() {
     assert.equal(get().error, 'Validation paused 2');
     assert(!document.body.textContent!.includes('Obsolete retry failure'), 'an old retry cannot populate the new document status');
     assert.equal(button()!.disabled, false);
+    await send({ type: 'degraded', message: 'Legacy message without a code' });
+    assert.equal(get().clientState.failure?.kind, 'unknown');
+    await send({ type: 'degraded', code: { kind: 'validation' }, message: 'Malformed code' });
+    assert.equal(get().clientState.failure?.kind, 'unknown');
+    await send({ type: 'degraded', code: COLLABORATION_FAILURE_CODES.persistenceFailed, message: 'Storage failed' });
+    assert.equal(get().clientState.failure?.kind, 'storage');
+    await click();
+    const staleGenerationRequestCount = requests.length;
+    await send({ type: 'durability_snapshot', ...checkpoint(get().doc, 10) });
+    await respond({ code: COLLABORATION_FAILURE_CODES.generationChanged, error: 'Session generation changed' }, 409);
+    assert.equal(requests.length, staleGenerationRequestCount, 'an obsolete generation is not retried as a transient persistence delay');
+    assert.equal(get().clientState.failure?.kind, 'lifecycle');
+    assert(document.body.textContent!.includes(messages.notebook.editorModes.failure.lifecycle));
+    assert.equal(button(), undefined, 'an obsolete session cannot use the retry action');
+    await send({ type: 'durability_snapshot', ...checkpoint(get().doc, 10) });
+    await act(async () => { provider().options.onStatus({ status: 'connected' }); provider().options.onSynced(); });
+    assert.equal(get().durability, 'degraded'); assert.equal(get().clientState.failure?.kind, 'lifecycle',
+      'old-generation acknowledgements and reconnects cannot repair a lifecycle failure');
+    const beforeRename = get().doc;
+    file = { ...file, path: 'renamed.md', collaboration: { ...file.collaboration!, path: 'renamed.md' } };
+    await act(async () => {
+      useFileStore.setState({ currentFile: file }); root.render(<StrictMode><Probe /></StrictMode>);
+    });
+    await until(() => current?.doc === beforeRename && !!current.provider);
+    await act(async () => { provider().options.onStatus({ status: 'connected' }); provider().options.onSynced(); });
+    assert.equal(get().doc, beforeRename); assert.equal(get().clientState.failure, null,
+      'a validated same-document rename adopts its new session and removes the old location failure');
+    await send({ type: 'degraded', code: COLLABORATION_CHECKPOINT_ERROR_CODES.roundtripUnstable, message: 'Validation paused again' });
+    await click();
+    await send({ type: 'durability_snapshot', ...checkpoint(get().doc, 11) });
+    await respond({ error: 'Write access was revoked' }, 403);
+    assert.equal(get().connection, 'denied', 'HTTP permission denial revokes the client before a WebSocket denial arrives');
+    assert.equal(get().clientState.failure?.kind, 'authentication');
+    await send({ type: 'durability_snapshot', ...checkpoint(get().doc, 11) });
+    assert.equal(get().clientState.failure?.kind, 'authentication', 'a file checkpoint does not grant access');
+    await act(async () => {
+      provider().options.onStatus({ status: 'connecting' }); provider().options.onStatus({ status: 'connected' });
+    });
+    assert.equal(get().connection, 'denied', 'a reconnected socket does not grant access before authenticated sync');
+    await act(async () => {
+      get().doc.getText('content').insert(0, 'received while denied ');
+      provider().options.onSynced();
+    });
+    assert.equal(get().connection, 'live'); assert.equal(get().durability, 'degraded');
+    assert.equal(get().clientState.failure?.kind, 'unknown');
+    assert(button(), 'successful reauthentication allows validating the current state again');
     await act(async () => provider().options.onAuthenticationFailed({ reason: 'Write permission revoked' }));
+    assert.equal(get().clientState.failure?.kind, 'authentication');
     assert.equal(button(), undefined, 'a denied connection cannot retry a checkpoint');
     console.log('Paused checkpoints support scoped retries; failures, reconnects, old proofs and binary-only acknowledgements never grant a false release.');
   } finally {

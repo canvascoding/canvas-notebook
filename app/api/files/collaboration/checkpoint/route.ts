@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import { collaborationUpdateStateProof, isCollaborationStateProof } from '@/app/lib/collaboration/state-proof';
+import { COLLABORATION_FAILURE_CODES } from '@/app/lib/collaboration/failure';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { applyRateLimit, readJsonBody } from '@/app/lib/api/route-helpers';
 import {
@@ -102,7 +103,8 @@ export async function POST(request: NextRequest) {
       || state.path !== claims.path
       || state.representation !== claims.representation
     ) {
-      return NextResponse.json({ success: false, error: 'Collaboration document generation is stale.' }, { status: 409 });
+      return NextResponse.json({ success: false, code: COLLABORATION_FAILURE_CODES.generationChanged,
+        error: 'Collaboration document generation is stale.' }, { status: 409 });
     }
     const suppliedVector = decodeStateVector(body.stateVector);
     if (!suppliedVector || !Buffer.from(state.stateVector).equals(suppliedVector)

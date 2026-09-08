@@ -10,6 +10,7 @@ import { collaborationStateProof, isCollaborationStateProof } from './state-proo
 import { createDocumentAwarenessLease } from './document-awareness';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { CollaborationCheckpointRequestError, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
+import { COLLABORATION_FAILURE_CODES } from './failure';
 import { prepareRecoverableCollaborationTransition, preserveLocalCollaborationRecovery } from './local-recovery';
 import {
   createInitialTextCollaborationClientState,
@@ -260,7 +261,8 @@ async function refreshEntrySession(entry: RegistryEntry, scope: AbortController)
   assertRequestActive(entry, scope);
   if (refreshed.documentId !== previous.documentId || refreshed.lifecycleGeneration !== previous.lifecycleGeneration
     || refreshed.documentName !== previous.documentName) {
-    throw new Error('The collaboration document generation changed. Reload to use the current document state.');
+    throw new CollaborationCheckpointRequestError(COLLABORATION_FAILURE_CODES.generationChanged,
+      'The collaboration document generation changed. Reload to use the current document state.');
   }
   entry.session = refreshed;
 }
@@ -280,10 +282,13 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
   entry.path = path;
   entry.session = session;
   entry.pendingAuthoritativeSnapshot = durabilitySnapshot(session) ?? undefined;
+  const locationRecovered = entry.clientState.failure?.kind === 'lifecycle';
   entry.clientState = { ...entry.clientState, remoteSynced: false, ready: false,
     checkpointStateVector: null, checkpointStateProof: null,
     connection: session.permission === 'read' ? 'read_only' : 'reconnecting',
-    durability: entry.clientState.durability === 'degraded' ? 'degraded'
+    error: locationRecovered ? null : entry.clientState.error,
+    failure: locationRecovered ? null : entry.clientState.failure,
+    durability: entry.clientState.durability === 'degraded' && !locationRecovered ? 'degraded'
       : entry.clientState.unsyncedChanges > 0 ? 'local_pending' : 'server_received' };
   entry.startProvider?.();
   emit(entry);
@@ -448,6 +453,7 @@ function createEntry(
               const message = JSON.parse(payload) as {
                 type?: string;
                 message?: string;
+                code?: string;
                 sequence?: number;
                 stateVector?: string;
                 stateProof?: string;
@@ -457,7 +463,7 @@ function createEntry(
                 checkpointSequence?: number;
               };
               if (message.type === 'degraded') {
-                transition(entry, { type: 'degraded', message: message.message || 'Checkpoint failed.' });
+                transition(entry, { type: 'degraded', message: message.message || 'Checkpoint failed.', code: message.code });
                 return;
               }
               if (message.type === 'durability_snapshot') {
@@ -551,21 +557,28 @@ function createEntry(
             lastError = response.ok
               ? 'Checkpoint response did not contain a valid authoritative collaboration snapshot.'
               : payload.error || lastError;
-            lastErrorCode = typeof payload.code === 'string' ? payload.code : null;
-            if (response.status !== 409) break;
+            lastErrorCode = response.status === 401 || response.status === 403
+              ? COLLABORATION_FAILURE_CODES.authenticationFailed : typeof payload.code === 'string' ? payload.code : null;
+            if (response.status !== 409 || lastErrorCode === COLLABORATION_FAILURE_CODES.generationChanged) break;
             await new Promise((resolve) => window.setTimeout(resolve, 200));
           }
           throw lastErrorCode
             ? new CollaborationCheckpointRequestError(lastErrorCode, lastError)
             : new Error(lastError);
         })().catch((error) => {
+          const requestCode = error instanceof CollaborationCheckpointRequestError ? error.code : undefined;
+          const authenticationFailed = requestCode === COLLABORATION_FAILURE_CODES.authenticationFailed;
+          const generationChanged = requestCode === COLLABORATION_FAILURE_CODES.generationChanged;
           // Another checkpoint may have confirmed the exact current document
           // while this HTTP request was pending. Its later failure is obsolete.
-          if (scope === entry.requests && !scope.signal.aborted
+          if (!authenticationFailed && !generationChanged && scope === entry.requests && !scope.signal.aborted
             && entry.clientState.durability === 'checkpointed_file') return;
           const message = error instanceof Error ? error.message : 'Checkpoint failed.';
-          if (scope === entry.requests && !scope.signal.aborted) transition(entry, { type: error instanceof CollaborationCheckpointRequestError
-            && isCollaborationCheckpointValidationErrorCode(error.code) ? 'degraded' : 'checkpoint_failed', message });
+          if (scope === entry.requests && !scope.signal.aborted) {
+            if (authenticationFailed) transition(entry, { type: 'authentication_failed', message });
+            else transition(entry, { type: generationChanged || (requestCode && isCollaborationCheckpointValidationErrorCode(requestCode))
+              ? 'degraded' : 'checkpoint_failed', message, code: requestCode });
+          }
           throw error;
         }).finally(() => {
           if (entry.checkpointPromise === promise) entry.checkpointPromise = undefined;
@@ -578,6 +591,7 @@ function createEntry(
     } catch (error) {
       transition(entry, {
         type: 'degraded',
+        code: COLLABORATION_FAILURE_CODES.startupFailed,
         message: error instanceof Error ? error.message : 'Collaboration could not be started.',
       });
     }
@@ -634,7 +648,8 @@ export function useCollaborationDocument(input: {
       registry.set(key, entry);
     } else if (input.session) {
       try { adoptEntryLocation(entry, input.path, input.session); }
-      catch (error) { transition(entry, { type: 'degraded', message: error instanceof Error ? error.message : 'Collaboration location changed.' }); }
+      catch (error) { transition(entry, { type: 'degraded', code: COLLABORATION_FAILURE_CODES.generationChanged,
+        message: error instanceof Error ? error.message : 'Collaboration location changed.' }); }
     }
     if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
     entry.refs += 1;

@@ -198,6 +198,7 @@
     "test:files:drag": "tsx scripts/file-drag-move-test.ts && tsx scripts/desktop-file-drag-client-test.ts && npm run test:electron",
     "test:editor:recovery-copy": "tsx scripts/collaboration-recovery-copy-test.tsx && tsx scripts/collaboration-local-recovery-test.ts",
     "test:editor:revalidation": "tsx scripts/collaboration-revalidation-test.tsx",
+    "test:collaboration:failures": "tsx scripts/collaboration-failure-test.ts && npm run test:editor:revalidation",
     "test:editor:table-breaks": "tsx --conditions react-server scripts/markdown-table-breaks-test.ts",
     "test:editor:mark-whitespace": "tsx --conditions react-server scripts/markdown-mark-whitespace-test.ts",
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",

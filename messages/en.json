@@ -539,6 +539,14 @@
       "rich": "Edit",
       "source": "Source",
       "saveBlocked": "File saving paused",
+      "failure": {
+        "validation": "This editing state cannot currently be saved to Markdown while preserving its structure.",
+        "storage": "The editing state or file could not be stored. You can retry saving.",
+        "lifecycle": "This document's editing session is outdated. Reopen the document to load its current state.",
+        "authentication": "Write access could not be confirmed. Reopen the document to check your access.",
+        "startup": "The collaborative editing session could not be started.",
+        "unknown": "Saving was interrupted. The technical details below show the reported error."
+      },
       "recovery": "File saving is paused. Before creating a recovery copy, the full editing state is saved on this device. The Markdown copy may omit details; the full backup keeps them. If local storage fails, you can download the recovery state.",
       "recoveryChanged": "The document changed while its backup was being saved. Please create the recovery copy again.",
       "recoveryCopyChanged": "The recovery copy was saved as {path}. This document has newer changes and remains open.",

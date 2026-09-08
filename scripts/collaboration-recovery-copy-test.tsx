@@ -100,11 +100,13 @@ async function main() {
   let file!: CurrentFile;
   let session!: CollaborationSessionResponse & { representation: 'plain_text' | 'tiptap_blocks' };
   let show = true;
+  let denied = false;
   const root = createRoot(document.getElementById('root')!);
   function Probe() {
     current = client.useCollaborationDocument({ enabled: true, workspaceId: 'workspace', path: file.path,
       documentKey: String(owner), representation: session.representation, session });
     const degraded = current ? { ...current, durability: 'degraded' as const, status: 'degraded' as const,
+      connection: denied ? 'denied' as const : current.connection,
       session: current.session ? { ...current.session, permission: session.permission } : null,
       error: 'Rich collaboration checkpoint validation failed (roundtrip_unstable).' } : null;
     return <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
@@ -118,7 +120,7 @@ async function main() {
     assert(predicate(), 'expected asynchronous state did not arrive');
   };
   const fixture = async (representation: 'plain_text' | 'tiptap_blocks' = 'plain_text') => {
-    owner++; show = true; seed.destroy(); seed = new Y.Doc();
+    owner++; show = true; denied = false; seed.destroy(); seed = new Y.Doc();
     if (representation === 'plain_text') {
       const text = seed.getText('content'); text.insert(0, 'First\nMiddle\nLast');
       beforeDeletion = Y.encodeStateAsUpdate(seed); text.delete(6, 7);
@@ -203,7 +205,7 @@ async function main() {
     assert.match(document.body.textContent!, /newer changes and remains open/u);
     assert(document.body.textContent!.includes(writes.at(-1)!.path));
 
-    for (const change of ['workspace', 'workspace-return', 'other-file', 'file-return', 'reopen', 'rename', 'tree', 'navigation', 'unmount', 'generation', 'permission'] as const) {
+    for (const change of ['workspace', 'workspace-return', 'other-file', 'file-return', 'reopen', 'rename', 'tree', 'navigation', 'unmount', 'generation', 'permission', 'denied'] as const) {
       await fixture(); await click(); const count: number = writes.length;
       await act(async () => {
         if (change === 'workspace' || change === 'workspace-return') useWorkspaceStore.setState({ activeWorkspaceId: 'other' });
@@ -221,6 +223,7 @@ async function main() {
       if (change === 'unmount') { show = false; await render(); }
       if (change === 'generation') { session = { ...session, lifecycleGeneration: 2 }; await render(); }
       if (change === 'permission') { session = { ...session, permission: 'read' }; await render(); }
+      if (change === 'denied') { denied = true; await render(); }
       await commit(); assert.equal(writes.length, count, `${change} revokes a backup's permission to create a copy`);
     }
 
