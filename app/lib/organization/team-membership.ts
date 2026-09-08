@@ -4,10 +4,6 @@ import { randomUUID } from 'node:crypto';
 
 import type { SqlConnection } from '@/app/lib/db';
 import {
-  getDatabaseProvider,
-  type DatabaseProvider,
-} from '@/app/lib/db/provider';
-import {
   enqueueTeamSeatOutboxOperation,
   recordTeamMembershipProjectionChange,
 } from '@/app/lib/license/team-seat-outbox';
@@ -245,9 +241,8 @@ async function rollbackQuietly(database: Pick<SqlConnection, 'run'>): Promise<vo
 async function withMembershipTransaction<T>(
   database: Pick<SqlConnection, 'run'>,
   operation: () => Promise<T>,
-  provider: DatabaseProvider,
 ): Promise<T> {
-  await database.run(provider === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+  await database.run('BEGIN');
   try {
     const result = await operation();
     await database.run('COMMIT');
@@ -340,7 +335,6 @@ export async function createTeamMembershipCandidate(
     reason?: string | null;
     metadata?: unknown;
     now?: number;
-    databaseProvider?: DatabaseProvider;
   },
 ): Promise<TeamMembership> {
   const id = `team-membership-${randomUUID()}`;
@@ -399,7 +393,7 @@ export async function createTeamMembershipCandidate(
       throw new TeamMembershipError('MEMBERSHIP_CONFLICT', 'Membership was not persisted.', 409);
     }
     return membership;
-  }, input.databaseProvider ?? getDatabaseProvider());
+  });
 }
 
 export async function adoptActiveTeamMembership(
@@ -415,8 +409,7 @@ export async function adoptActiveTeamMembership(
     seatOperationType?: TeamSeatChangeType;
     transactionMode?: 'managed' | 'existing';
     now?: number;
-    databaseProvider?: DatabaseProvider;
-  },
+    },
 ): Promise<TeamMembership> {
   const now = input.now ?? Date.now();
   const user = await database.get(
@@ -497,7 +490,6 @@ export async function adoptActiveTeamMembership(
     : withMembershipTransaction(
       database,
       adopt,
-      input.databaseProvider ?? getDatabaseProvider(),
     );
 }
 
@@ -522,7 +514,6 @@ export async function transitionTeamMembership(
     enqueueSeatReduction?: boolean;
     transactionMode?: 'managed' | 'existing';
     now?: number;
-    databaseProvider?: DatabaseProvider;
   },
 ): Promise<TeamMembership> {
   const now = input.now ?? Date.now();
@@ -724,7 +715,6 @@ export async function transitionTeamMembership(
     : withMembershipTransaction(
       database,
       transition,
-      input.databaseProvider ?? getDatabaseProvider(),
     );
 }
 
@@ -807,7 +797,6 @@ export async function updateTeamMembershipRole(
     actorUserId: string;
     transactionMode?: 'managed' | 'existing';
     now?: number;
-    databaseProvider?: DatabaseProvider;
   },
 ): Promise<TeamMembership> {
   const now = input.now ?? Date.now();
@@ -887,7 +876,6 @@ export async function updateTeamMembershipRole(
     : withMembershipTransaction(
       database,
       update,
-      input.databaseProvider ?? getDatabaseProvider(),
     );
 }
 

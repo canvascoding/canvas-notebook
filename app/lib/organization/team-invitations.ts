@@ -5,10 +5,6 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { SqlConnection } from '@/app/lib/db';
 import { openDb } from '@/app/lib/db';
 import {
-  getDatabaseProvider,
-  type DatabaseProvider,
-} from '@/app/lib/db/provider';
-import {
   createTeamMembershipCandidate,
   getTeamMembershipByCandidateEmail,
   getTeamMembershipById,
@@ -176,7 +172,7 @@ async function finishTerminalMembership(
     actorUserId?: string | null;
     reason: 'team_invitation_revoked' | 'team_invitation_expired';
     now: number;
-    databaseProvider: DatabaseProvider;
+
   },
 ): Promise<void> {
   const membership = await getTeamMembershipById(
@@ -202,7 +198,7 @@ async function finishTerminalMembership(
     externalInvitationId: invitation.id,
     metadata: { billableOperation: false },
     now: input.now,
-    databaseProvider: input.databaseProvider,
+
   });
 }
 
@@ -214,7 +210,6 @@ export async function createTeamMembershipInvitation(input: {
   role: Extract<TeamMembershipRole, 'admin' | 'member' | 'external'>;
   ttlMs?: number;
   database?: InvitationDatabase;
-  databaseProvider?: DatabaseProvider;
   now?: number;
 }): Promise<{
   invitation: TeamMembershipInvitation;
@@ -223,7 +218,6 @@ export async function createTeamMembershipInvitation(input: {
 }> {
   const database = input.database ?? await openDb();
   const closeDatabase = input.database === undefined;
-  const databaseProvider = input.databaseProvider ?? getDatabaseProvider();
   const now = input.now ?? Date.now();
   const email = normalizeTeamMembershipCandidateEmail(input.email);
   const ttlMs = input.ttlMs ?? DEFAULT_INVITATION_TTL_MS;
@@ -275,7 +269,7 @@ export async function createTeamMembershipInvitation(input: {
           ? 'team_invitation_expired'
           : 'team_invitation_revoked',
         now,
-        databaseProvider,
+
       });
       membership = await getTeamMembershipById(database, input.organizationId, membership.id);
     }
@@ -293,7 +287,7 @@ export async function createTeamMembershipInvitation(input: {
         displayName: input.displayName,
         metadata: { billableOperation: false },
         now,
-        databaseProvider,
+
       });
     } else if (!membership) {
       membership = await createTeamMembershipCandidate(database, {
@@ -308,7 +302,7 @@ export async function createTeamMembershipInvitation(input: {
         reason: 'team_invitation_created',
         metadata: { billableOperation: false },
         now,
-        databaseProvider,
+
       });
     }
     if (
@@ -463,12 +457,10 @@ export async function revokeTeamMembershipInvitation(input: {
   invitationId: string;
   actorUserId: string;
   database?: InvitationDatabase;
-  databaseProvider?: DatabaseProvider;
   now?: number;
 }): Promise<TeamMembershipInvitation> {
   const database = input.database ?? await openDb();
   const closeDatabase = input.database === undefined;
-  const databaseProvider = input.databaseProvider ?? getDatabaseProvider();
   const now = input.now ?? Date.now();
   try {
     const current = await readInvitationById(database, input.organizationId, input.invitationId);
@@ -514,7 +506,7 @@ export async function revokeTeamMembershipInvitation(input: {
           declinedBeforeSeatExecution: true,
         },
         now,
-        databaseProvider,
+
       });
       await database.run(`
         UPDATE team_membership_invitations
@@ -544,7 +536,7 @@ export async function revokeTeamMembershipInvitation(input: {
         ? 'team_invitation_expired'
         : 'team_invitation_revoked',
       now,
-      databaseProvider,
+
     });
     return revoked;
   } finally {
@@ -556,7 +548,6 @@ export async function acceptTeamMembershipInvitation(input: {
   token: string;
   requestId: string;
   database?: InvitationDatabase;
-  databaseProvider?: DatabaseProvider;
   now?: number;
 }): Promise<{
   invitation: TeamMembershipInvitation;
@@ -572,7 +563,6 @@ export async function acceptTeamMembershipInvitation(input: {
   }
   const database = input.database ?? await openDb();
   const closeDatabase = input.database === undefined;
-  const databaseProvider = input.databaseProvider ?? getDatabaseProvider();
   const now = input.now ?? Date.now();
   try {
     let invitation = await readInvitationByToken(database, input.token);
@@ -597,7 +587,7 @@ export async function acceptTeamMembershipInvitation(input: {
       await finishTerminalMembership(database, invitation, {
         reason: 'team_invitation_expired',
         now,
-        databaseProvider,
+
       });
       throw new TeamInvitationError('INVITATION_EXPIRED', 'Invitation has expired.', 410);
     }
@@ -676,7 +666,7 @@ export async function acceptTeamMembershipInvitation(input: {
           billableOperation: false,
         },
         now,
-        databaseProvider,
+
       });
     }
     return {
@@ -691,13 +681,11 @@ export async function acceptTeamMembershipInvitation(input: {
 
 export async function expireTeamMembershipInvitations(input?: {
   database?: InvitationDatabase;
-  databaseProvider?: DatabaseProvider;
   now?: number;
   limit?: number;
 }): Promise<number> {
   const database = input?.database ?? await openDb();
   const closeDatabase = input?.database === undefined;
-  const databaseProvider = input?.databaseProvider ?? getDatabaseProvider();
   const now = input?.now ?? Date.now();
   const limit = Math.max(1, Math.min(500, input?.limit ?? 100));
   try {
@@ -723,7 +711,7 @@ export async function expireTeamMembershipInvitations(input?: {
       }), {
         reason: 'team_invitation_expired',
         now,
-        databaseProvider,
+
       });
     }
     return expired;

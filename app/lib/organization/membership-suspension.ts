@@ -3,10 +3,6 @@ import 'server-only';
 import type { SqlConnection } from '@/app/lib/db';
 import { openDb } from '@/app/lib/db';
 import {
-  getDatabaseProvider,
-  type DatabaseProvider,
-} from '@/app/lib/db/provider';
-import {
   getTeamMembershipByUserId,
   transitionTeamMembership,
   type TeamMembership,
@@ -104,7 +100,6 @@ export async function suspendTeamMembershipUser(input: {
   actorUserId: string;
   reason?: string | null;
   database?: MembershipSuspensionDatabase;
-  databaseProvider?: DatabaseProvider;
   now?: number;
 }): Promise<MembershipSuspensionResult> {
   if (input.targetUserId === input.actorUserId) {
@@ -115,9 +110,8 @@ export async function suspendTeamMembershipUser(input: {
   }
   const database = input.database ?? await openDb();
   const closeDatabase = input.database === undefined;
-  const databaseProvider = input.databaseProvider ?? getDatabaseProvider();
   const now = input.now ?? Date.now();
-  await database.run(databaseProvider === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+  await database.run('BEGIN');
   try {
     const state = await readOrganizationUserState(
       database,
@@ -202,7 +196,6 @@ export async function suspendTeamMembershipUser(input: {
       enqueueSeatReduction: true,
       transactionMode: 'existing',
       now,
-      databaseProvider,
     });
     await database.run('COMMIT');
     return {
