@@ -7,7 +7,6 @@ import { runWorkspaceUploadWrite } from '@/app/lib/files/workspace-upload-flow';
 import { workspaceUploadErrorResponse } from '@/app/lib/files/workspace-upload-responses';
 import {
   completeWorkspaceUploadFile,
-  publicWorkspaceUploadSession,
 } from '@/app/lib/files/workspace-upload-service';
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -38,6 +37,7 @@ export async function POST(
       fileId,
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
+      includeFullSession: false,
       commit: async ({ file, sourcePath, persistOfficeAttempt }) => {
         await runWorkspaceUploadWrite({
           workspace: workspaceResult.workspace,
@@ -86,7 +86,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      upload: publicWorkspaceUploadSession(result.session),
+      uploadId: result.session.id,
       file: result.file,
       committed,
       alreadyCompleted: result.alreadyCompleted,

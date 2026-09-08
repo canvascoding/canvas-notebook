@@ -68,6 +68,7 @@ export async function PUT(
       offset,
       expectedBytes,
       body: request.body,
+      includeFullSession: false,
     });
     return NextResponse.json({
       success: true,
