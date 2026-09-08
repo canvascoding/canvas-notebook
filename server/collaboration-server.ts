@@ -4,6 +4,7 @@ import type net from 'node:net';
 import { Hocuspocus, type onAwarenessUpdatePayload } from '@hocuspocus/server';
 import { WebSocketServer } from 'ws';
 
+import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
 import { auth } from '@/app/lib/auth';
 import {
   CollaborationCheckpointSupersededError,
@@ -66,6 +67,7 @@ function durabilitySnapshotPayload(state: PersistedCollaborationState) {
     documentSequence: state.documentSequence,
     checkpointSequence: state.checkpointSequence,
     stateVector: Buffer.from(state.stateVector).toString('base64'),
+    stateProof: collaborationUpdateStateProof(state.yjsState, Y),
   };
 }
 

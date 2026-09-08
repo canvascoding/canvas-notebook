@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { Y } from '@/app/lib/collaboration/server-runtime';
+import { collaborationUpdateStateProof, isCollaborationStateProof } from '@/app/lib/collaboration/state-proof';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { applyRateLimit, readJsonBody } from '@/app/lib/api/route-helpers';
 import {
@@ -28,6 +30,7 @@ function checkpointResponse(
     documentSequence: state.documentSequence,
     checkpointSequence: state.checkpointSequence,
     stateVector: Buffer.from(state.stateVector).toString('base64'),
+    stateProof: collaborationUpdateStateProof(state.yjsState, Y),
     sequence: state.documentSequence,
     revisionId: input.revisionId,
     ...(input.alreadyCheckpointed ? { alreadyCheckpointed: true } : {}),
@@ -57,9 +60,11 @@ export async function POST(request: NextRequest) {
   const body = await readJsonBody<{
     token?: string;
     stateVector?: string;
+    stateProof?: string;
   }>(request);
-  if (!body.token || !body.stateVector) {
-    return NextResponse.json({ success: false, error: 'Token and stateVector are required.' }, { status: 400 });
+  if (typeof body.token !== 'string' || typeof body.stateVector !== 'string'
+    || !isCollaborationStateProof(body.stateProof)) {
+    return NextResponse.json({ success: false, error: 'Token, stateVector and a current stateProof are required. Reload or update the editor.' }, { status: 400 });
   }
 
   let checkpointContext: {
@@ -100,7 +105,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Collaboration document generation is stale.' }, { status: 409 });
     }
     const suppliedVector = decodeStateVector(body.stateVector);
-    if (!suppliedVector || !Buffer.from(state.stateVector).equals(suppliedVector)) {
+    if (!suppliedVector || !Buffer.from(state.stateVector).equals(suppliedVector)
+      || collaborationUpdateStateProof(state.yjsState, Y) !== body.stateProof) {
       return NextResponse.json({ success: false, error: 'Checkpoint is not based on the latest persisted Yjs state.' }, { status: 409 });
     }
     if (state.checkpointSequence >= state.documentSequence) {

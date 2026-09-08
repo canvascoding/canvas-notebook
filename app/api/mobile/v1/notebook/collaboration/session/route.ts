@@ -94,6 +94,7 @@ export async function POST(request: NextRequest) {
       documentSequence: grant.documentSequence,
       checkpointSequence: grant.checkpointSequence,
       stateVector: grant.stateVector,
+      stateProof: grant.stateProof,
       token: ticket.token,
       expiresAt: ticket.expiresAt,
       websocketUrl: '/ws/collaboration',

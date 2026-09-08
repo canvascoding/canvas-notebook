@@ -1,3 +1,4 @@
+import { isCollaborationStateProof } from './state-proof';
 import type {
   CollaborationPermission,
   TextCollaborationConnectionState,
@@ -14,11 +15,13 @@ export type TextCollaborationClientState = {
   documentSequence: number | null;
   checkpointSequence: number | null;
   checkpointStateVector: string | null;
+  checkpointStateProof: string | null;
   error: string | null;
 };
 
 export type TextCollaborationClientEvent =
   | { type: 'indexeddb_hydrated' }
+  | { type: 'document_changed' }
   | { type: 'provider_status'; status: 'connected' | 'connecting' | 'disconnected'; permission: CollaborationPermission }
   | { type: 'remote_synced'; permission: CollaborationPermission }
   | { type: 'unsynced_changes'; count: number }
@@ -27,10 +30,11 @@ export type TextCollaborationClientEvent =
       documentSequence: number;
       checkpointSequence: number;
       stateVector: string;
+      stateProof: string;
       matchesCurrentDocument: boolean;
     }
   | { type: 'checkpoint_requested' }
-  | { type: 'checkpointed'; sequence: number; stateVector: string; matchesCurrentDocument: boolean }
+  | { type: 'checkpointed'; sequence: number; stateVector: string; stateProof: string; matchesCurrentDocument: boolean }
   | { type: 'checkpoint_superseded'; sequence: number }
   | { type: 'checkpoint_failed'; message: string }
   | { type: 'degraded'; message: string }
@@ -48,21 +52,18 @@ export function createInitialTextCollaborationClientState(input: {
   const checkpointSequence = Number.isSafeInteger(input.checkpointSequence)
     ? input.checkpointSequence ?? null
     : null;
-  const checkpointed = documentSequence !== null
-    && checkpointSequence !== null
-    && checkpointSequence >= documentSequence;
   return {
     connection: input.permission === 'read' ? 'read_only' : 'connecting',
-    durability: checkpointed ? 'checkpointed_file' : 'persisted_yjs',
+    // The session describes the server, not the not-yet-hydrated local doc.
+    durability: 'server_received',
     indexedDbHydrated: false,
     remoteSynced: false,
     ready: false,
     unsyncedChanges: 0,
     documentSequence,
     checkpointSequence,
-    checkpointStateVector: checkpointed && typeof input.stateVector === 'string'
-      ? input.stateVector
-      : null,
+    checkpointStateVector: null,
+    checkpointStateProof: null,
     error: null,
   };
 }
@@ -98,6 +99,14 @@ export function reduceTextCollaborationClientState(
         connection: event.permission === 'read' ? 'read_only' : 'live',
         error: state.durability === 'degraded' ? state.error : null,
       });
+    case 'document_changed':
+      return {
+        ...state,
+        checkpointStateVector: null,
+        checkpointStateProof: null,
+        durability: state.durability === 'degraded' ? 'degraded'
+          : state.unsyncedChanges > 0 ? 'local_pending' : 'server_received',
+      };
     case 'unsynced_changes': {
       const count = Math.max(0, event.count);
       return {
@@ -120,7 +129,8 @@ export function reduceTextCollaborationClientState(
         ? Math.max(state.checkpointSequence ?? 0, event.checkpointSequence)
         : event.checkpointSequence;
       const checkpointCoversDocument = checkpointSequence >= documentSequence;
-      const exactPersistedDocument = event.matchesCurrentDocument && state.unsyncedChanges === 0;
+      const exactPersistedDocument = state.ready && event.matchesCurrentDocument
+        && isCollaborationStateProof(event.stateProof) && state.unsyncedChanges === 0;
       const stillDegraded = state.durability === 'degraded' && !(exactPersistedDocument && checkpointCoversDocument);
       return {
         ...state,
@@ -129,6 +139,7 @@ export function reduceTextCollaborationClientState(
         checkpointStateVector: exactPersistedDocument && checkpointCoversDocument
           ? event.stateVector
           : null,
+        checkpointStateProof: exactPersistedDocument && checkpointCoversDocument ? event.stateProof : null,
         durability: stillDegraded ? 'degraded' : state.unsyncedChanges > 0
           ? 'local_pending'
           : exactPersistedDocument
@@ -150,6 +161,7 @@ export function reduceTextCollaborationClientState(
         documentSequence: event.sequence,
         checkpointSequence: event.sequence,
         stateVector: event.stateVector,
+        stateProof: event.stateProof,
         matchesCurrentDocument: event.matchesCurrentDocument,
       });
     }

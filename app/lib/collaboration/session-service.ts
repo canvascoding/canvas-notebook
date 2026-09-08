@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { Y } from '@/app/lib/collaboration/server-runtime';
+import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
 import { readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
@@ -74,6 +76,7 @@ export type CollaborationSessionGrant = {
   documentSequence?: number;
   checkpointSequence?: number;
   stateVector?: string;
+  stateProof?: string | null;
 };
 
 function extension(path: string): string {
@@ -317,6 +320,7 @@ export async function createCollaborationSessionGrant(input: {
       documentSequence: state.documentSequence,
       checkpointSequence: state.checkpointSequence,
       stateVector: Buffer.from(state.stateVector).toString('base64'),
+      stateProof: collaborationUpdateStateProof(state.yjsState, Y),
     };
   }
 

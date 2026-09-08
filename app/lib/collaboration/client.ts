@@ -6,6 +6,7 @@ import type { HocuspocusProvider } from '@hocuspocus/provider';
 import type { IndexeddbPersistence } from 'y-indexeddb';
 import type * as Y from 'yjs';
 
+import { collaborationStateProof, isCollaborationStateProof } from './state-proof';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { CollaborationCheckpointRequestError, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
 import { prepareRecoverableCollaborationTransition, preserveLocalCollaborationRecovery } from './local-recovery';
@@ -40,6 +41,7 @@ type CollaborationDurabilitySnapshot = {
   documentSequence: number;
   checkpointSequence: number;
   stateVector: string;
+  stateProof: string;
 };
 
 type RegistryEntry = {
@@ -123,6 +125,7 @@ function durabilitySnapshot(value: unknown): CollaborationDurabilitySnapshot | n
     || (candidate.checkpointSequence ?? 0) > (candidate.documentSequence ?? -1)
     || typeof candidate.stateVector !== 'string'
     || candidate.stateVector.length === 0
+    || !isCollaborationStateProof(candidate.stateProof)
   ) return null;
   return candidate as CollaborationDurabilitySnapshot;
 }
@@ -240,6 +243,7 @@ function createEntry(
         documentSequence: session.documentSequence,
         checkpointSequence: session.checkpointSequence,
         stateVector: session.stateVector,
+        stateProof: session.stateProof,
       }) ?? undefined;
       const persistence = new IndexeddbPersistence(
         `canvas:${session.documentId}:${session.lifecycleGeneration}:${representation}`,
@@ -256,17 +260,22 @@ function createEntry(
           || snapshot.documentId !== entry.session.documentId
           || snapshot.lifecycleGeneration !== entry.session.lifecycleGeneration
         ) return;
+        const previous = entry.pendingAuthoritativeSnapshot;
+        if (previous && (snapshot.documentSequence < previous.documentSequence
+          || (snapshot.documentSequence === previous.documentSequence
+            && snapshot.checkpointSequence < previous.checkpointSequence))) return;
         entry.pendingAuthoritativeSnapshot = snapshot;
         if (!entry.clientState.remoteSynced) return;
-        const currentStateVector = bytesToBase64(Y.encodeStateVector(entry.doc));
+        const matchesCurrentDocument = collaborationStateProof(entry.doc, Y) === snapshot.stateProof;
         transition(entry, {
           type: 'authoritative_snapshot',
           documentSequence: snapshot.documentSequence,
           checkpointSequence: snapshot.checkpointSequence,
           stateVector: snapshot.stateVector,
-          matchesCurrentDocument: currentStateVector === snapshot.stateVector,
+          stateProof: snapshot.stateProof,
+          matchesCurrentDocument,
         });
-        if (snapshot.checkpointSequence > 0) {
+        if (matchesCurrentDocument && snapshot.checkpointSequence > 0) {
           entry.provider?.sendStateless(JSON.stringify({
             type: 'checkpoint_ack',
             documentId: snapshot.documentId,
@@ -275,6 +284,11 @@ function createEntry(
           }));
         }
       };
+      entry.doc.on('update', () => {
+        // Invalidate immediately, before the provider batches/sends the change.
+        transition(entry, { type: 'document_changed' });
+        if (entry.pendingAuthoritativeSnapshot) reconcileAuthoritativeSnapshot(entry.pendingAuthoritativeSnapshot);
+      });
       const provider = new HocuspocusProvider({
         url: websocketUrl(session.websocketUrl),
         preserveTrailingSlash: true,
@@ -327,6 +341,7 @@ function createEntry(
               message?: string;
               sequence?: number;
               stateVector?: string;
+              stateProof?: string;
               documentId?: string;
               lifecycleGeneration?: number;
               documentSequence?: number;
@@ -345,6 +360,7 @@ function createEntry(
               message.type === 'checkpointed'
               && Number.isSafeInteger(message.sequence)
               && typeof message.stateVector === 'string'
+              && isCollaborationStateProof(message.stateProof)
               && entry.doc
             ) {
               reconcileAuthoritativeSnapshot({
@@ -353,6 +369,7 @@ function createEntry(
                 documentSequence: message.documentSequence ?? message.sequence as number,
                 checkpointSequence: message.checkpointSequence ?? message.sequence as number,
                 stateVector: message.stateVector,
+                stateProof: message.stateProof,
               });
               return;
             }
@@ -378,14 +395,6 @@ function createEntry(
             10_000,
           );
           if (!entry.doc || !entry.session) throw new Error('Collaboration is not ready.');
-          const stateVector = bytesToBase64(Y.encodeStateVector(entry.doc));
-          if (
-            entry.clientState.durability === 'checkpointed_file'
-            && entry.clientState.checkpointStateVector === stateVector
-          ) {
-            return;
-          }
-
           if (Date.parse(entry.session.expiresAt) - Date.now() < 30_000) {
             const refreshed = requireTextSession(await requestSession(path, 'auto'), representation);
             if (
@@ -398,13 +407,16 @@ function createEntry(
             session = refreshed;
           }
 
+          const stateVector = bytesToBase64(Y.encodeStateVector(entry.doc));
+          const stateProof = collaborationStateProof(entry.doc, Y);
+          if (!stateProof) throw new Error('Collaboration is waiting for missing Yjs updates.');
           let lastError = 'Checkpoint is waiting for the latest Yjs persistence.';
           let lastErrorCode: string | null = null;
           for (let attempt = 0; attempt < 20; attempt += 1) {
             const response = await fetch('/api/files/collaboration/checkpoint', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
-              body: JSON.stringify({ token: entry.session.token, stateVector }),
+              body: JSON.stringify({ token: entry.session.token, stateVector, stateProof }),
             });
             const payload = await response.json().catch(() => ({})) as Record<string, unknown> & {
               code?: string;

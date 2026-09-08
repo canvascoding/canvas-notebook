@@ -10,7 +10,8 @@ import { createCollaborationSessionGrant, CollaborationSessionError, parseCollab
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
 import { changeCollaborationRepresentation, CollaborationRepresentationMigrationError, loadCollaborationState,
   persistCollaborationYDoc, CollaborationStateStaleError } from '../app/lib/collaboration/persistence';
-import { materializeCollaborationCheckpoint } from '../app/lib/collaboration/checkpoint';
+import { collaborationStateProof, collaborationUpdateStateProof } from '../app/lib/collaboration/state-proof';
+import { materializeCollaborationCheckpoint, CollaborationCheckpointSupersededError } from '../app/lib/collaboration/checkpoint';
 import { readRichDocumentJson } from '../app/lib/collaboration/rich-document';
 import { richMarkdownFromYDoc, richMarkdownSchemaExtensions } from '../app/lib/collaboration/markdown-state';
 import { installCollaborationRoomInspector } from '../app/lib/collaboration/runtime-state';
@@ -143,6 +144,29 @@ async function main() {
     const initialized = await grant({ path: newPath, ...COLLABORATION_CLIENT_CAPABILITIES });
     assert.equal(initialized.representation, 'tiptap_blocks');
     assert.equal(initialized.lifecycleGeneration, 1);
+    const initializedState = await loadCollaborationState(initialized.documentId);
+    assert(initializedState);
+    assert.equal(initialized.stateProof, collaborationUpdateStateProof(initializedState.yjsState, Y));
+    const deleting = new Y.Doc();
+    try {
+      Y.applyUpdate(deleting, initializedState.yjsState);
+      const deleteTree = new CollaborationBlockTree(deleting, getSchema(richMarkdownSchemaExtensions()));
+      const id = deleteTree.read().child(1).attrs.id;
+      const beforeVector = Y.encodeStateVector(deleting);
+      (deleteTree.content(id).get(0) as Y.XmlText).delete(0, 1);
+      assert.deepEqual(Y.encodeStateVector(deleting), beforeVector);
+      assert.notEqual(collaborationStateProof(deleting, Y), initialized.stateProof);
+      const deletedState = await persistCollaborationYDoc(initialized.documentId, 1, deleting);
+      assert.equal(collaborationUpdateStateProof(deletedState.yjsState, Y), collaborationStateProof(deleting, Y));
+      assert(deletedState.documentSequence > initializedState.documentSequence);
+      await assert.rejects(() => materializeCollaborationCheckpoint({ state: initializedState, workspace, actorType: 'system' }),
+        CollaborationCheckpointSupersededError);
+      const checkpoint = await materializeCollaborationCheckpoint({ state: deletedState, workspace, actorType: 'system' });
+      assert.equal(checkpoint.state.checkpointSequence, deletedState.documentSequence);
+      assert.equal(await fs.readFile(path.join(rootPath, newPath), 'utf8'), '# Shared\n\nAA\n\nBBB\n');
+      const confirmed = await grant({ path: newPath, ...COLLABORATION_CLIENT_CAPABILITIES });
+      assert.equal(confirmed.stateProof, collaborationStateProof(deleting, Y));
+    } finally { deleting.destroy(); }
     console.log('Block format integration: sessions, migration, backup, stale generations, moved agent targets, checkpoints and revert passed.');
   } finally {
     uninstall(); original.destroy();

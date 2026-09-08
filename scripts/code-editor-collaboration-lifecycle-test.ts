@@ -73,8 +73,8 @@ let collaborationState = createInitialTextCollaborationClientState({
   checkpointSequence: 5,
   stateVector: 'initial-vector',
 });
-assert.equal(collaborationState.durability, 'checkpointed_file');
-assert.equal(collaborationState.checkpointStateVector, 'initial-vector');
+assert.equal(collaborationState.durability, 'server_received');
+assert.equal(collaborationState.checkpointStateVector, null, 'a session cannot certify unhydrated local state');
 collaborationState = reduceTextCollaborationClientState(collaborationState, {
   type: 'indexeddb_hydrated',
 });
@@ -92,7 +92,7 @@ assert.equal(collaborationState.durability, 'local_pending');
 collaborationState = reduceTextCollaborationClientState(collaborationState, {
   type: 'checkpointed',
   sequence: 6,
-  stateVector: 'older-vector',
+  stateVector: 'older-vector', stateProof: 'yjs-snapshot-sha256-v1:' + 'a'.repeat(64),
   matchesCurrentDocument: false,
 });
 assert.equal(
@@ -114,7 +114,7 @@ assert.equal(textCollaborationLegacyStatus(collaborationState), 'persisting');
 collaborationState = reduceTextCollaborationClientState(collaborationState, {
   type: 'checkpointed',
   sequence: 6,
-  stateVector: 'stale-vector',
+  stateVector: 'stale-vector', stateProof: 'yjs-snapshot-sha256-v1:' + 'a'.repeat(64),
   matchesCurrentDocument: true,
 });
 assert.equal(
@@ -125,7 +125,7 @@ assert.equal(
 collaborationState = reduceTextCollaborationClientState(collaborationState, {
   type: 'checkpointed',
   sequence: 7,
-  stateVector: 'current-vector',
+  stateVector: 'current-vector', stateProof: 'yjs-snapshot-sha256-v1:' + 'a'.repeat(64),
   matchesCurrentDocument: true,
 });
 assert.equal(collaborationState.durability, 'checkpointed_file');
@@ -134,7 +134,7 @@ collaborationState = reduceTextCollaborationClientState(collaborationState, {
   type: 'authoritative_snapshot',
   documentSequence: 8,
   checkpointSequence: 7,
-  stateVector: 'persisted-vector',
+  stateVector: 'persisted-vector', stateProof: 'yjs-snapshot-sha256-v1:' + 'a'.repeat(64),
   matchesCurrentDocument: true,
 });
 assert.equal(collaborationState.durability, 'persisted_yjs');
@@ -142,7 +142,7 @@ collaborationState = reduceTextCollaborationClientState(collaborationState, {
   type: 'authoritative_snapshot',
   documentSequence: 8,
   checkpointSequence: 8,
-  stateVector: 'checkpointed-vector',
+  stateVector: 'checkpointed-vector', stateProof: 'yjs-snapshot-sha256-v1:' + 'a'.repeat(64),
   matchesCurrentDocument: true,
 });
 assert.equal(collaborationState.durability, 'checkpointed_file');
@@ -150,7 +150,7 @@ collaborationState = reduceTextCollaborationClientState(collaborationState, {
   type: 'authoritative_snapshot',
   documentSequence: 7,
   checkpointSequence: 7,
-  stateVector: 'out-of-order-vector',
+  stateVector: 'out-of-order-vector', stateProof: 'yjs-snapshot-sha256-v1:' + 'a'.repeat(64),
   matchesCurrentDocument: true,
 });
 assert.equal(collaborationState.documentSequence, 8, 'out-of-order server snapshots must not regress durability');
@@ -162,11 +162,11 @@ assert.equal(reconnectedState.durability, 'degraded', 'a network reconnect canno
 assert.equal(reconnectedState.error, 'roundtrip_unstable');
 const partialAcknowledgement = reduceTextCollaborationClientState(reconnectedState, {
   type: 'authoritative_snapshot', documentSequence: 9, checkpointSequence: 8,
-  stateVector: 'new-persisted-vector', matchesCurrentDocument: true,
+  stateVector: 'new-persisted-vector', stateProof: 'yjs-snapshot-sha256-v1:' + 'a'.repeat(64), matchesCurrentDocument: true,
 });
 assert.equal(partialAcknowledgement.durability, 'degraded', 'Yjs persistence alone does not repair the Markdown file');
 const repairedState = reduceTextCollaborationClientState(partialAcknowledgement, {
-  type: 'checkpointed', sequence: 9, stateVector: 'repaired-vector', matchesCurrentDocument: true,
+  type: 'checkpointed', sequence: 9, stateVector: 'repaired-vector', stateProof: 'yjs-snapshot-sha256-v1:' + 'a'.repeat(64), matchesCurrentDocument: true,
 });
 assert.equal(repairedState.durability, 'checkpointed_file');
 assert.equal(repairedState.error, null);

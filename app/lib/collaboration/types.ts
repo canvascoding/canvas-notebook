@@ -88,6 +88,7 @@ export interface CollaborationSessionResponse {
   documentSequence?: number;
   checkpointSequence?: number;
   stateVector?: string;
+  stateProof?: string | null;
   token: string;
   expiresAt: string;
   websocketUrl: string;
