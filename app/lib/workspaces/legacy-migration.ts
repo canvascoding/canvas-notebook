@@ -99,7 +99,7 @@ function readExistingManifest(markerPath: string): Pick<LegacyWorkspaceMigration
 export function migrateLegacyWorkspaceToPersonalWorkspace(params: {
   organizationId: string;
   userId: string;
-  personalWorkspace: WorkspaceRecord;
+  personalWorkspace: Pick<WorkspaceRecord, 'rootRelativePath'>;
 }): LegacyWorkspaceMigrationResult {
   const sourceRoot = resolveLegacyWorkspaceRoot();
   const targetRoot = workspaceAbsoluteRoot(params.personalWorkspace.rootRelativePath);

@@ -463,7 +463,10 @@ export function ensureOrganizationBootstrapForUser(
     };
   }
 
-  const ownerUser = getUserById(sqlite, organization.owner_user_id) || targetUser;
+  const ownerUser = getUserById(sqlite, organization.owner_user_id);
+  if (!ownerUser) {
+    throw new OrganizationBootstrapError('NO_USERS', 'The persisted organization owner is unavailable.');
+  }
   sqlite.prepare('UPDATE user SET role = ?, updated_at = ? WHERE id = ?').run('admin', now, ownerUser.id);
 
   const ownerPermission = ensurePermissionRow(sqlite, organization.organization_id, ownerUser.id, 'owner');

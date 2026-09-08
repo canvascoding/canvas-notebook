@@ -5,7 +5,8 @@ import { NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
-import { createLegacyPersonalWorkspaceContext, resolveWorkspaceActor } from './context';
+import { LEGACY_PERSONAL_WORKSPACE_ID, resolveWorkspaceActor } from './context';
+import { resolveLegacyWorkspaceRecovery } from './legacy-recovery';
 import { WORKSPACE_ID_HEADER } from './constants';
 import {
   ensureOrganizationBootstrapForUser,
@@ -87,11 +88,13 @@ export async function requireSessionWorkspace(
   const requestedWorkspaceId = options.workspaceId?.trim() || null;
   let workspace: WorkspaceContext | null = null;
 
-  if (!requestedWorkspaceId) {
-    workspace = createLegacyPersonalWorkspaceContext(actor);
+  if (requestedWorkspaceId === LEGACY_PERSONAL_WORKSPACE_ID) {
+    workspace = await resolveLegacyWorkspaceRecovery(session.user.id);
   } else if (getDatabaseProvider() === 'postgres') {
     try {
-      workspace = await resolvePostgresWorkspaceForActor(actor, requestedWorkspaceId);
+      workspace = requestedWorkspaceId
+        ? await resolvePostgresWorkspaceForActor(actor, requestedWorkspaceId)
+        : (await getPostgresWorkspaceState(actor)).defaultWorkspace;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not resolve workspace';
       return {
@@ -114,10 +117,9 @@ export async function requireSessionWorkspace(
         };
       }
 
-      workspace = resolveWorkspaceContextById(sqlite, {
-        actor,
-        workspaceId: requestedWorkspaceId,
-      });
+      workspace = requestedWorkspaceId
+        ? resolveWorkspaceContextById(sqlite, { actor, workspaceId: requestedWorkspaceId })
+        : resolveDefaultWorkspaceContext(sqlite, { actor, organizationId: status.organizationId });
       sqlite.exec('COMMIT');
     } catch (error) {
       if (sqlite.inTransaction) {

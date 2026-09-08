@@ -11,7 +11,7 @@ Priority is abuse without an account. External document content remains untruste
 | 1 | S5: unverified cookie rate-limit identity; public abuse limits and negative access checks; HTTP disconnect crash | Implemented and locally verified (`f90801dd`) | Not deployed or verified |
 | 2 | S2: PDF cookies sent to external resources; browser job isolation | Implemented and locally verified (`0db1aabe`) | Not deployed |
 | 3 | S2/S3: isolated HTML documents, restricted/revocable preview tickets, renderer network boundary | Implemented and locally verified | Not deployed |
-| 4 | S4: personal default workspace and owner-only legacy migration | Pending | Not deployed |
+| 4 | S4: personal default workspace and owner-only legacy migration | Implemented and locally verified | Not deployed |
 | 5 | Dependency advisories, targeted updates | Pending | Not deployed |
 
 ## Package 1: public limits and request boundaries
@@ -117,3 +117,19 @@ No DNS records, production servers or containers were changed. Local verificatio
 - Authorized Playwright verification on two HTTPS hostnames passes with the managed PostgreSQL fixture: login, HTML viewer/share dialog, public image and redirect, local SVG, root-relative ES module/JSON, classic worker plus `importScripts`, mobile redirect and PDF download. Actual browser request headers contain no app session on the preview origin. Parent DOM access, credentialed app API access, session-cookie replacement and unlisted file reads are denied. Web/mobile tickets return 404 after sign-out.
 - The two exported PDF pages contain the external image and dynamically populated content and remain pixel-identical to the preceding renderer reference. Both the PDF raster and share-dialog screenshot were inspected visually. Only the newly created QA files were removed.
 - The older `mobile-files-test.ts` has a pre-existing SQLite/Excalidraw failure (`no such function: hashtext` in the collaboration transaction helper). The same failure was reproduced using its pre-change version from `dd3da799`; it is not reported as a passing suite. Its obsolete preview assertions were updated, and the new standalone preview suite supplies executable coverage for those boundaries.
+
+
+## Package 4: personal defaults and legacy recovery
+
+Requests without a workspace ID now resolve the authenticated user's persisted personal workspace through the ordinary SQLite/PostgreSQL records and permissions. They no longer manufacture a personal context for the shared `DATA/workspace` directory. Explicit workspace selection retains the existing access checks.
+
+An explicit `legacy-personal-workspace` request can return only a read-only recovery context to the current primary organization's persisted, non-banned owner. A claimed admin role or bootstrap email is insufficient. Recovery denies writes, deletion, public links and agent execution in the old root. Existing owner agent sessions carrying that legacy ID resolve to their persisted personal workspace instead; other accounts are rejected before receiving a filesystem context. Terminal and Bash implementations are unchanged.
+
+PostgreSQL now performs the same source-preserving owner import already used by SQLite. The import checks owner identity and the target personal workspace, retains the old directory, preserves current destination files, and stores name conflicts under the existing timestamped `_legacy-workspace-import` directory. The existing migration marker prevents duplicate imports. Unimported residual files remain available through the owner's read-only recovery context. The database connection is released before the separate recovery check, avoiding pool starvation. If a stored owner row is missing, organization bootstrap fails instead of substituting the requesting account.
+
+Verification:
+
+- `npm run test:security:workspaces` passes against disposable SQLite storage. With `TEST_DATABASE_URL` pointing to a local PostgreSQL server, the same command creates and drops a separate test database and passes the same account isolation/recovery assertions. Two ordinary account IDs get separate default roots and files; forged admin claims, cross-account workspace IDs and explicit legacy agent IDs do not grant access. Owner files, source files and conflicting versions remain readable. SQLite additionally simulates a corrupt imported database with a missing owner and verifies rejection.
+- The complete existing PostgreSQL workspace API suite passes, including personal/team reads, downloads, permissions and membership changes. Its stale file-count assertion was corrected to include the already-existing `Erste Schritte.md` starter document in a new team workspace. Authentication setup, workspace foundation and Notebook workspace-state tests pass.
+- The standalone preview-ticket regression still passes. The older agent session/file-operation suite reaches the same pre-existing SQLite `hashtext` collaboration failure as the pre-change resolver from `357ffe18`; no changes were made to that unrelated transaction code.
+- Production build and changed-file lint pass. The authorized HTTPS browser check confirms file creation/read without an explicit workspace header, owner-only read-only legacy recovery, HTML preview with external image/local module/worker, mobile redirect and ticket revocation. Its repeated PDF request correctly received the existing high-load 503 while the host was heavily loaded; the preceding package 3 PDF render remains the successful image/layout reference, and final export verification follows dependency work. Before the native check, the local legacy fixture was inventoried (9 files, 64 bytes); migration retains those source files.
