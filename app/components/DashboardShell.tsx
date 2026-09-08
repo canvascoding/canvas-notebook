@@ -50,6 +50,7 @@ import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { useTerminalAvailability } from '@/app/components/terminal/TerminalAvailabilityProvider';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { NotebookDocumentMenu } from '@/app/components/notebook/NotebookDocumentMenu';
+import { notebookPanelToggleClassName } from '@/app/components/notebook/toolbar-styles';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
 import { useNotebookLayoutController } from '@/app/components/notebook/useNotebookLayoutController';
 import { useNotebookToolContext } from '@/app/components/notebook/useNotebookToolContext';
@@ -1152,9 +1153,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
-                    variant={(layout.isMobile ? mobileExplorerOpen : explorerVisible) ? 'secondary' : 'ghost'}
+                    variant="ghost"
                     size="icon-sm"
-                    className="shrink-0"
+                    className={notebookPanelToggleClassName}
                     aria-label={layout.isMobile
                       ? tNav('openFileExplorer')
                       : explorerVisible ? tNav('hideSidebar') : tNav('showSidebar')}
@@ -1277,12 +1278,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                     <TooltipTrigger asChild>
                       <Button
                         type="button"
-                        variant={state.chatDocked ? 'secondary' : 'ghost'}
+                        variant="ghost"
                         size="icon-sm"
-                        className="shrink-0"
+                        className={notebookPanelToggleClassName}
                         disabled={!layout.canDockChat && !state.chatDocked}
                         aria-label={state.chatDocked ? tNotebook('unpinChat') : tNotebook('pinChat')}
-                        aria-pressed={state.chatDocked}
+                        aria-pressed={state.chatDocked && !documentFocus}
                         onClick={() => setChatDocked(!state.chatDocked)}
                       >
                         <PanelRight className="h-4 w-4" />
@@ -1299,11 +1300,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                       <TooltipTrigger asChild>
                         <Button
                           type="button"
-                          variant={state.terminalOpen ? 'secondary' : 'ghost'}
+                          variant="ghost"
                           size="icon-sm"
-                          className="shrink-0"
+                          className={notebookPanelToggleClassName}
                           aria-label={state.terminalOpen ? tNotebook('hideTerminal') : tNotebook('showTerminal')}
-                          aria-pressed={state.terminalOpen}
+                          aria-pressed={state.terminalOpen && !documentFocus}
                           onClick={() => dispatch({
                             type: 'SET_TERMINAL',
                             open: !state.terminalOpen,
