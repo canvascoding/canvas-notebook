@@ -73,8 +73,9 @@ export async function enrichWorkspaceFileNodes(params: {
       rows.forEach((row) => metadata.set(row.path, row));
 
       if (params.userId) {
+        const statePlaceholders = pathChunk.map((_, index) => `$${index + 3}`).join(', ');
         const stateRows = await database.all(
-          `SELECT path, is_favorite, pinned_at FROM workspace_file_user_states WHERE workspace_id = $1 AND user_id = $2 AND path IN (${placeholders})`,
+          `SELECT path, is_favorite, pinned_at FROM workspace_file_user_states WHERE workspace_id = $1 AND user_id = $2 AND path IN (${statePlaceholders})`,
           [params.workspace.workspaceId, params.userId, ...pathChunk],
         ) as UserStateRow[];
         stateRows.forEach((row) => userStates.set(row.path, row));
