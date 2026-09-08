@@ -649,6 +649,16 @@
       "sourceUrl": "https://github.com/lemonadejs/lemonadejs",
       "verificationSource": "node_modules/lemonadejs/LICENSE.md",
       "reason": "The package includes an MIT license but omits the lockfile license field."
+    },
+    "@zone-eu/mailsplit@5.4.16": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/mailparser/node_modules/@zone-eu/mailsplit/LICENSE.MIT",
+      "copyrightNotices": [
+        "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ"
+      ],
+      "sourceUrl": "https://github.com/zone-eu/mailsplit/tree/df5b42b046bbab53b9b238c39208658b8732bf75",
+      "verificationSource": "https://github.com/zone-eu/mailsplit/blob/df5b42b046bbab53b9b238c39208658b8732bf75/LICENSE.MIT",
+      "reason": "Technical package review by Codex on 2026-09-08: npm gitHead and v5.4.16 both identify df5b42b046bbab53b9b238c39208658b8732bf75. The complete LICENSE.MIT is byte-identical to the already elected MIT alternative in 5.4.14 (raw SHA-256 412ad6764b495ece74454c3b1d1816a4bf9b533f94158d23bfe4342559d8ca46). Canvas continues to use MIT and retains the complete text and copyright notice. No package modification or separate NOTICE file. This records source/license evidence, not a new legal or product release approval."
     }
   },
   "additionalComponents": [

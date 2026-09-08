@@ -334,7 +334,6 @@ assert(
 
 for (const [name, version] of [
   ['@types/trusted-types', '2.0.7'],
-  ['@types/yauzl', '2.10.3'],
 ] as const) {
   const component = inventory.components.find((candidate) => (
     candidate.name === name && candidate.versionOrCommit === version

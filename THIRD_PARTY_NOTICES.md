@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.8.1
-- Lockfile SHA-256: `b33addc70ef44a256653e12dabca8a34a51efdcd391ef97b12b88a934610c2cd`
-- Distributed components: 1511
+- Lockfile SHA-256: `7b965295db64bb22c928f9943bb6dac9e22f9c1016490842db0395b3839046fc`
+- Distributed components: 1478
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -234,7 +234,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @lezer/xml | 1.0.6 | runtime | MIT | allowed |
 | @lifeomic/attempt | 3.1.0 | runtime | MIT | allowed |
 | @marijn/find-cluster-break | 1.0.3 | runtime | MIT | allowed |
-| @marp-team/marp-cli | 4.5.0 | runtime | MIT | allowed |
+| @marp-team/marp-cli | 4.5.1 | runtime | MIT | allowed |
 | @marp-team/marp-core | 4.4.0 | runtime | MIT | allowed |
 | @marp-team/marpit-svg-polyfill | 2.1.0 | runtime | MIT | allowed |
 | @marp-team/marpit | 3.2.2 | runtime | MIT | allowed |
@@ -317,7 +317,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @protobufjs/path | 1.1.2 | runtime | BSD-3-Clause | allowed |
 | @protobufjs/pool | 1.1.0 | runtime | BSD-3-Clause | allowed |
 | @protobufjs/utf8 | 1.1.2 | runtime | BSD-3-Clause | allowed |
-| @puppeteer/browsers | 2.13.2 | runtime | Apache-2.0 | allowed |
 | @puppeteer/browsers | 3.0.6 | runtime | Apache-2.0 | allowed |
 | @radix-ui/number | 1.1.2 | runtime | MIT | allowed |
 | @radix-ui/primitive | 1.0.0 | runtime | MIT | allowed |
@@ -544,7 +543,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @tiptap/y-tiptap | 3.0.7 | runtime | MIT | allowed |
 | @tokenizer/inflate | 0.4.1 | runtime | MIT | allowed |
 | @tokenizer/token | 0.3.0 | runtime | MIT | allowed |
-| @tootallnate/quickjs-emscripten | 0.23.0 | runtime | MIT | allowed |
 | @types/archiver | 8.0.0 | runtime | MIT | allowed |
 | @types/aria-query | 5.0.4 | runtime | MIT | allowed |
 | @types/better-sqlite3 | 7.6.13 | runtime | MIT | allowed |
@@ -603,7 +601,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @types/unist | 2.0.11 | runtime | MIT | allowed |
 | @types/unist | 3.0.3 | runtime | MIT | allowed |
 | @types/use-sync-external-store | 0.0.6 | runtime | MIT | allowed |
-| @types/yauzl | 2.10.3 | runtime | MIT | allowed |
 | @uiw/codemirror-extensions-basic-setup | 4.25.11 | runtime | MIT | allowed |
 | @uiw/react-codemirror | 4.25.11 | runtime | MIT | allowed |
 | @ungap/structured-clone | 1.3.3 | runtime | ISC | allowed |
@@ -624,7 +621,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @webassemblyjs/wasm-parser | 1.14.1 | runtime | MIT | allowed |
 | @webassemblyjs/wast-printer | 1.14.1 | runtime | MIT | allowed |
 | @xmldom/xmldom | 0.8.15 | runtime | MIT | allowed |
-| @xmldom/xmldom | 0.9.10 | runtime | MIT | allowed |
+| @xmldom/xmldom | 0.9.12 | runtime | MIT | allowed |
 | @xterm/addon-clipboard | 0.2.0 | runtime | MIT | allowed |
 | @xterm/addon-fit | 0.11.0 | runtime | MIT | allowed |
 | @xterm/addon-web-links | 0.12.0 | runtime | MIT | allowed |
@@ -632,6 +629,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @xtuc/ieee754 | 1.2.0 | runtime | BSD-3-Clause | allowed |
 | @xtuc/long | 4.2.2 | runtime | Apache-2.0 | allowed |
 | @zone-eu/mailsplit | 5.4.14 | runtime | MIT | allowed |
+| @zone-eu/mailsplit | 5.4.16 | runtime | MIT | allowed |
 | abort-controller | 3.0.0 | runtime | MIT | allowed |
 | accepts | 1.3.8 | runtime | MIT | allowed |
 | accepts | 2.0.0 | runtime | MIT | allowed |
@@ -642,8 +640,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | ajv-keywords | 5.1.0 | runtime | MIT | allowed |
 | ajv | 8.20.0 | runtime | MIT | allowed |
 | ansi-regex | 5.0.1 | runtime | MIT | allowed |
-| ansi-regex | 6.2.2 | runtime | MIT | allowed |
-| ansi-styles | 4.3.0 | runtime | MIT | allowed |
+| ansi-regex | 6.3.0 | runtime | MIT | allowed |
 | ansi-styles | 5.2.0 | runtime | MIT | allowed |
 | ansi-styles | 6.2.3 | runtime | MIT | allowed |
 | anymatch | 3.1.3 | runtime | ISC | allowed |
@@ -652,7 +649,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | argparse | 2.0.1 | runtime | Python-2.0 | allowed |
 | aria-hidden | 1.2.6 | runtime | MIT | allowed |
 | aria-query | 5.3.0 | runtime | Apache-2.0 | allowed |
-| ast-types | 0.13.4 | runtime | MIT | allowed |
 | astring | 1.9.0 | runtime | MIT | allowed |
 | async-mutex | 0.5.0 | runtime | MIT | allowed |
 | async | 3.2.6 | runtime | MIT | allowed |
@@ -667,7 +663,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | bare-url | 2.4.5 | runtime | Apache-2.0 | allowed |
 | base64-js | 1.5.1 | runtime | MIT | allowed |
 | baseline-browser-mapping | 2.11.20 | runtime | Apache-2.0 | allowed |
-| basic-ftp | 5.3.1 | runtime | MIT | allowed |
 | batch | 0.6.1 | runtime | MIT | allowed |
 | bcryptjs | 3.0.3 | runtime | BSD-3-Clause | allowed |
 | better-auth | 1.7.1 | runtime | MIT | allowed |
@@ -685,7 +680,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | braces | 3.0.3 | runtime | MIT | allowed |
 | browser-fs-access | 0.29.1 | runtime | Apache-2.0 | allowed |
 | browserslist | 4.28.8 | runtime | MIT | allowed |
-| buffer-crc32 | 0.2.13 | runtime | MIT | allowed |
 | buffer-crc32 | 1.0.0 | runtime | MIT | allowed |
 | buffer-equal-constant-time | 1.0.1 | runtime | BSD-3-Clause | allowed |
 | buffer-from | 1.1.2 | runtime | MIT | allowed |
@@ -710,19 +704,15 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | chokidar | 4.0.3 | runtime | MIT | allowed |
 | chownr | 1.1.4 | runtime | ISC | allowed |
 | chrome-trace-event | 1.0.4 | runtime | MIT | allowed |
-| chromium-bidi | 14.0.0 | runtime | Apache-2.0 | allowed |
 | chromium-bidi | 16.0.1 | runtime | Apache-2.0 | allowed |
 | cjs-module-lexer | 2.2.0 | runtime | MIT | allowed |
 | class-variance-authority | 0.7.1 | runtime | Apache-2.0 | allowed |
 | client-only | 0.0.1 | runtime | MIT | allowed |
-| cliui | 8.0.1 | runtime | ISC | allowed |
 | cliui | 9.0.1 | runtime | ISC | allowed |
 | clsx | 1.1.1 | runtime | MIT | allowed |
 | clsx | 2.1.1 | runtime | MIT | allowed |
 | cmdk | 1.1.1 | runtime | MIT | allowed |
 | codemirror | 6.0.2 | runtime | MIT | allowed |
-| color-convert | 2.0.1 | runtime | MIT | allowed |
-| color-name | 1.1.4 | runtime | MIT | allowed |
 | comma-separated-tokens | 2.0.3 | runtime | MIT | allowed |
 | commander | 13.1.0 | runtime | MIT | allowed |
 | commander | 2.20.3 | runtime | MIT | allowed |
@@ -798,7 +788,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | d3 | 7.9.0 | runtime | ISC | allowed |
 | dagre-d3-es | 7.0.14 | runtime | MIT | allowed |
 | data-uri-to-buffer | 4.0.1 | runtime | MIT | allowed |
-| data-uri-to-buffer | 6.0.2 | runtime | MIT | allowed |
 | data-urls | 7.0.0 | runtime | MIT | allowed |
 | dayjs | 1.11.21 | runtime | MIT | allowed |
 | debug | 2.6.9 | runtime | MIT | allowed |
@@ -808,9 +797,8 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | decode-named-character-reference | 1.3.0 | runtime | MIT | allowed |
 | decompress-response | 6.0.0 | runtime | MIT | allowed |
 | deep-extend | 0.6.0 | runtime | MIT | allowed |
-| deepmerge-ts | 7.1.6 | runtime | BSD-3-Clause | allowed |
+| deepmerge-ts | 8.0.2 | runtime | BSD-3-Clause | allowed |
 | defu | 6.1.7 | runtime | MIT | allowed |
-| degenerator | 5.0.1 | runtime | MIT | allowed |
 | delaunator | 5.1.0 | runtime | ISC | allowed |
 | depd | 1.1.2 | runtime | MIT | allowed |
 | depd | 2.0.0 | runtime | MIT | allowed |
@@ -818,7 +806,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | detect-libc | 2.1.2 | runtime | Apache-2.0 | allowed |
 | detect-node-es | 1.1.0 | runtime | MIT | allowed |
 | devlop | 1.1.0 | runtime | MIT | allowed |
-| devtools-protocol | 0.0.1608973 | runtime | BSD-3-Clause | allowed |
 | devtools-protocol | 0.0.1638949 | runtime | BSD-3-Clause | allowed |
 | diff | 8.0.4 | runtime | BSD-3-Clause | allowed |
 | dingbat-to-unicode | 1.0.1 | runtime | BSD-2-Clause | allowed |
@@ -838,9 +825,9 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | electron-to-chromium | 1.5.420 | runtime | ISC | allowed |
 | electron-updater | 6.8.9 | runtime | MIT | allowed |
 | emoji-regex | 10.6.0 | runtime | MIT | allowed |
-| emoji-regex | 8.0.0 | runtime | MIT | allowed |
 | encodeurl | 2.0.0 | runtime | MIT | allowed |
 | encoding-japanese | 2.2.0 | runtime | MIT | allowed |
+| encoding-japanese | 2.3.0 | runtime | MIT | allowed |
 | end-of-stream | 1.4.5 | runtime | MIT | allowed |
 | enhanced-resolve | 5.24.5 | runtime | MIT | allowed |
 | entities | 4.5.0 | runtime | BSD-2-Clause | allowed |
@@ -860,14 +847,11 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | escape-html | 1.0.3 | runtime | MIT | allowed |
 | escape-string-regexp | 5.0.0 | runtime | MIT | allowed |
 | escape-string-regexp | 5.0.0 | runtime | MIT | allowed |
-| escodegen | 2.1.0 | runtime | BSD-2-Clause | allowed |
 | esm | 3.2.25 | runtime | MIT | allowed |
-| esprima | 4.0.1 | runtime | BSD-2-Clause | allowed |
 | esquery | 1.7.0 | runtime | BSD-3-Clause | allowed |
 | estraverse | 5.3.0 | runtime | BSD-2-Clause | allowed |
 | estree-util-is-identifier-name | 3.0.0 | runtime | MIT | allowed |
 | estree-walker | 2.0.2 | runtime | MIT | allowed |
-| esutils | 2.0.3 | runtime | BSD-2-Clause | allowed |
 | etag | 1.8.1 | runtime | MIT | allowed |
 | event-target-shim | 5.0.1 | runtime | MIT | allowed |
 | eventemitter3 | 5.0.4 | runtime | MIT | allowed |
@@ -879,14 +863,12 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | express-rate-limit | 8.5.2 | runtime | MIT | allowed |
 | express | 5.2.1 | runtime | MIT | allowed |
 | extend | 3.0.2 | runtime | MIT | allowed |
-| extract-zip | 2.0.1 | runtime | BSD-2-Clause | allowed |
 | fast-deep-equal | 3.1.3 | runtime | MIT | allowed |
 | fast-equals | 5.4.1 | runtime | MIT | allowed |
 | fast-fifo | 1.3.2 | runtime | MIT | allowed |
 | fast-uri | 3.1.6 | runtime | BSD-3-Clause | allowed |
 | fault | 1.0.4 | runtime | MIT | allowed |
 | fault | 2.0.1 | runtime | MIT | allowed |
-| fd-slicer | 1.1.0 | runtime | MIT | allowed |
 | fdir | 6.5.0 | runtime | MIT | allowed |
 | fetch-blob | 3.2.0 | runtime | MIT | allowed |
 | file-type | 22.0.1 | runtime | MIT | allowed |
@@ -913,8 +895,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | get-intrinsic | 1.3.0 | runtime | MIT | allowed |
 | get-nonce | 1.0.1 | runtime | MIT | allowed |
 | get-proto | 1.0.1 | runtime | MIT | allowed |
-| get-stream | 5.2.0 | runtime | MIT | allowed |
-| get-uri | 6.0.5 | runtime | MIT | allowed |
 | github-from-package | 0.0.0 | runtime | MIT | allowed |
 | glob-parent | 5.1.2 | runtime | ISC | allowed |
 | glob | 13.0.6 | runtime | BlueOak-1.0.0 | allowed |
@@ -949,7 +929,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | highlightjs-vue | 1.0.0 | runtime | CC0-1.0 | allowed |
 | hono | 4.13.1 | runtime | MIT | allowed |
 | html-encoding-sniffer | 6.0.0 | runtime | MIT | allowed |
-| html-to-text | 10.0.0 | runtime | MIT | allowed |
+| html-to-text | 10.0.1 | runtime | MIT | allowed |
 | html-url-attributes | 3.0.1 | runtime | MIT | allowed |
 | htmlparser2 | 10.1.0 | runtime | MIT | allowed |
 | http-errors | 1.8.1 | runtime | MIT | allowed |
@@ -991,7 +971,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | is-binary-path | 2.1.0 | runtime | MIT | allowed |
 | is-decimal | 2.0.1 | runtime | MIT | allowed |
 | is-extglob | 2.1.1 | runtime | MIT | allowed |
-| is-fullwidth-code-point | 3.0.0 | runtime | MIT | allowed |
 | is-glob | 4.0.3 | runtime | MIT | allowed |
 | is-hexadecimal | 2.0.1 | runtime | MIT | allowed |
 | is-number | 7.0.0 | runtime | MIT | allowed |
@@ -1043,6 +1022,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | lib0 | 0.2.117 | runtime | MIT | allowed |
 | libbase64 | 1.3.0 | runtime | MIT | allowed |
 | libmime | 5.4.1 | runtime | MIT | allowed |
+| libmime | 5.4.3 | runtime | MIT | allowed |
 | libqp | 2.1.1 | runtime | MIT | allowed |
 | lie | 3.3.0 | runtime | MIT | allowed |
 | lines-and-columns | 1.2.4 | runtime | MIT | allowed |
@@ -1063,11 +1043,10 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | lru-cache | 11.5.2 | runtime | BlueOak-1.0.0 | allowed |
 | lru-cache | 11.5.2 | runtime | BlueOak-1.0.0 | allowed |
 | lru-cache | 5.1.1 | runtime | ISC | allowed |
-| lru-cache | 7.18.3 | runtime | ISC | allowed |
 | lucide-react | 1.24.0 | runtime | ISC | allowed |
 | lz-string | 1.5.0 | runtime | MIT | allowed |
 | magic-string | 0.30.21 | runtime | MIT | allowed |
-| mailparser | 3.9.14 | runtime | MIT | allowed |
+| mailparser | 3.9.23 | runtime | MIT | allowed |
 | mammoth | 1.12.0 | runtime | BSD-2-Clause | allowed |
 | markdown-it-front-matter | 0.2.4 | runtime | MIT | allowed |
 | markdown-it | 14.3.0 | runtime | MIT | allowed |
@@ -1146,7 +1125,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | mitt | 3.0.1 | runtime | MIT | allowed |
 | mj-context-menu | 0.6.1 | runtime | Apache-2.0 | allowed |
 | mkdirp-classic | 0.5.3 | runtime | MIT | allowed |
-| modern-tar | 0.7.6 | runtime | MIT | allowed |
+| modern-tar | 0.7.7 | runtime | MIT | allowed |
 | module-details-from-path | 1.0.4 | runtime | MIT | allowed |
 | ms | 2.0.0 | runtime | MIT | allowed |
 | ms | 2.1.3 | runtime | MIT | allowed |
@@ -1158,7 +1137,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | negotiator | 0.6.3 | runtime | MIT | allowed |
 | negotiator | 1.0.0 | runtime | MIT | allowed |
 | neo-async | 2.6.2 | runtime | MIT | allowed |
-| netmask | 2.1.1 | runtime | MIT | allowed |
 | next-intl-swc-plugin-extractor | 4.13.2 | runtime | MIT | allowed |
 | next-intl | 4.13.2 | runtime | MIT | allowed |
 | next-themes | 0.4.6 | runtime | MIT | allowed |
@@ -1170,6 +1148,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | node-fetch | 3.3.2 | runtime | MIT | allowed |
 | node-pty | 1.1.0 | runtime | MIT | allowed |
 | node-releases | 2.0.54 | runtime | MIT | allowed |
+| nodemailer | 10.0.1 | runtime | MIT-0 | allowed |
 | nodemailer | 9.0.3 | runtime | MIT-0 | allowed |
 | normalize-path | 3.0.0 | runtime | MIT | allowed |
 | NousResearch/hermes-agent session-compaction reference | f293e7206b4ddd66042329442c6afebc19a8808d | runtime | MIT | allowed |
@@ -1187,8 +1166,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | p-limit | 3.1.0 | runtime | MIT | allowed |
 | p-locate | 5.0.0 | runtime | MIT | allowed |
 | p-retry | 4.6.2 | runtime | MIT | allowed |
-| pac-proxy-agent | 7.2.0 | runtime | MIT | allowed |
-| pac-resolver | 7.0.1 | runtime | MIT | allowed |
 | package-manager-detector | 1.7.0 | runtime | MIT | allowed |
 | pako | 1.0.11 | runtime | (MIT AND Zlib) | allowed |
 | pako | 2.0.3 | runtime | (MIT AND Zlib) | allowed |
@@ -1210,7 +1187,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | pdfjs-dist | 5.4.296 | runtime | Apache-2.0 | allowed |
 | pdfjs-dist | 6.2.108 | runtime | Apache-2.0 | allowed |
 | peberminta | 0.10.0 | runtime | MIT | allowed |
-| pend | 1.2.0 | runtime | MIT | allowed |
 | perfect-freehand | 1.2.0 | runtime | MIT | allowed |
 | pg-cloudflare | 1.4.0 | runtime | MIT | allowed |
 | pg-connection-string | 2.14.0 | runtime | MIT | allowed |
@@ -1272,12 +1248,10 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | prosemirror-view | 1.42.1 | runtime | MIT | allowed |
 | protobufjs | 7.6.5 | runtime | BSD-3-Clause | allowed |
 | proxy-addr | 2.0.7 | runtime | MIT | allowed |
-| proxy-agent | 6.5.0 | runtime | MIT | allowed |
 | proxy-from-env | 1.1.0 | runtime | MIT | allowed |
 | pump | 3.0.4 | runtime | MIT | allowed |
 | punycode.js | 2.3.1 | runtime | MIT | allowed |
 | punycode | 2.3.1 | runtime | MIT | allowed |
-| puppeteer-core | 24.43.1 | runtime | Apache-2.0 | allowed |
 | puppeteer-core | 25.3.0 | runtime | Apache-2.0 | allowed |
 | pusher-js | 8.5.0 | runtime | MIT | allowed |
 | pwacompat | 2.0.17 | runtime | Apache-2.0 | allowed |
@@ -1321,7 +1295,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | remark-parse | 11.0.0 | runtime | MIT | allowed |
 | remark-rehype | 11.1.2 | runtime | MIT | allowed |
 | remark-stringify | 11.0.0 | runtime | MIT | allowed |
-| require-directory | 2.1.1 | runtime | MIT | allowed |
 | require-from-string | 2.0.2 | runtime | MIT | allowed |
 | require-in-the-middle | 8.0.1 | runtime | MIT | allowed |
 | reselect | 5.2.0 | runtime | MIT | allowed |
@@ -1371,7 +1344,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | simple-get | 4.0.1 | runtime | MIT | allowed |
 | sliced | 1.0.1 | runtime | MIT | allowed |
 | smart-buffer | 4.2.0 | runtime | MIT | allowed |
-| socks-proxy-agent | 8.0.5 | runtime | MIT | allowed |
 | socks | 2.8.9 | runtime | MIT | allowed |
 | sonic-boom | 4.2.1 | runtime | MIT | allowed |
 | sonner | 2.0.7 | runtime | MIT | allowed |
@@ -1389,10 +1361,10 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | string_decoder | 1.1.1 | runtime | MIT | allowed |
 | string_decoder | 1.1.1 | runtime | MIT | allowed |
 | string_decoder | 1.3.0 | runtime | MIT | allowed |
-| string-width | 4.2.3 | runtime | MIT | allowed |
 | string-width | 7.2.0 | runtime | MIT | allowed |
+| string-width | 7.2.0 | runtime | MIT | allowed |
+| string-width | 8.2.2 | runtime | MIT | allowed |
 | stringify-entities | 4.0.4 | runtime | MIT | allowed |
-| strip-ansi | 6.0.1 | runtime | MIT | allowed |
 | strip-ansi | 7.2.0 | runtime | MIT | allowed |
 | strip-json-comments | 2.0.1 | runtime | MIT | allowed |
 | strtok3 | 10.3.5 | runtime | MIT | allowed |
@@ -1406,7 +1378,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | tailwind-merge | 3.6.0 | runtime | MIT | allowed |
 | tapable | 2.3.3 | runtime | MIT | allowed |
 | tar-fs | 2.1.5 | runtime | MIT | allowed |
-| tar-fs | 3.1.3 | runtime | MIT | allowed |
 | tar-stream | 2.2.0 | runtime | MIT | allowed |
 | tar-stream | 3.2.0 | runtime | MIT | allowed |
 | teex | 1.0.1 | runtime | MIT | allowed |
@@ -1482,7 +1453,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | watchpack | 2.5.2 | runtime | MIT | allowed |
 | web-namespaces | 2.0.1 | runtime | MIT | allowed |
 | web-streams-polyfill | 3.3.3 | runtime | MIT | allowed |
-| webdriver-bidi-protocol | 0.4.1 | runtime | Apache-2.0 | allowed |
 | webdriver-bidi-protocol | 0.4.2 | runtime | Apache-2.0 | allowed |
 | webidl-conversions | 3.0.1 | runtime | BSD-2-Clause | allowed |
 | webidl-conversions | 8.0.1 | runtime | BSD-2-Clause | allowed |
@@ -1494,10 +1464,11 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | whatwg-url | 5.0.0 | runtime | MIT | allowed |
 | which | 2.0.2 | runtime | ISC | allowed |
 | wicked-good-xpath | 1.3.0 | runtime | MIT | allowed |
-| wrap-ansi | 7.0.0 | runtime | MIT | allowed |
 | wrap-ansi | 9.0.2 | runtime | MIT | allowed |
 | wrappy | 1.0.2 | runtime | ISC | allowed |
 | ws | 8.21.0 | runtime | MIT | allowed |
+| ws | 8.21.3 | runtime | MIT | allowed |
+| ws | 8.21.3 | runtime | MIT | allowed |
 | xlsx | 0.20.3 | runtime | Apache-2.0 | allowed |
 | xml-name-validator | 5.0.0 | runtime | Apache-2.0 | allowed |
 | xmlbuilder | 10.1.1 | runtime | MIT | allowed |
@@ -1511,16 +1482,12 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | y18n | 5.0.8 | runtime | ISC | allowed |
 | yallist | 3.1.1 | runtime | ISC | allowed |
 | yaml | 2.9.0 | runtime | ISC | allowed |
-| yargs-parser | 21.1.1 | runtime | ISC | allowed |
 | yargs-parser | 22.0.0 | runtime | ISC | allowed |
-| yargs | 17.7.3 | runtime | MIT | allowed |
-| yargs | 18.0.0 | runtime | MIT | allowed |
-| yauzl | 2.10.0 | runtime | MIT | allowed |
+| yargs | 18.1.0 | runtime | MIT | allowed |
 | yjs | 13.6.31 | runtime | MIT | allowed |
 | yocto-queue | 0.1.0 | runtime | MIT | allowed |
 | zip-stream | 7.0.5 | runtime | MIT | allowed |
 | zod-to-json-schema | 3.25.2 | runtime | ISC | allowed |
-| zod | 3.25.76 | runtime | MIT | allowed |
 | zod | 3.25.76 | runtime | MIT | allowed |
 | zod | 4.4.3 | runtime | MIT | allowed |
 | zustand | 4.5.7 | runtime | MIT | allowed |
@@ -3580,7 +3547,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 0e74697a68ce
 
-Applies to estraverse@5.3.0, esutils@2.0.3.
+Applies to estraverse@5.3.0.
 
 ```text
 Redistribution and use in source and binary forms, with or without
@@ -3638,7 +3605,7 @@ SOFTWARE.
 
 ### License text 0f2482bc8520
 
-Applies to libmime@5.4.1.
+Applies to libmime@5.4.1, libmime@5.4.3.
 
 Copyright notices:
 
@@ -3857,37 +3824,6 @@ Copyright notices:
 MIT License
 
 Copyright (c) 2014-present Sebastian McKenzie and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### License text 119fee4adef9
-
-Applies to color-convert@2.0.1.
-
-Copyright notices:
-
-- Copyright (c) 2011-2016 Heather Arthur <fayearthur@gmail.com>
-
-```text
-Copyright (c) 2011-2016 Heather Arthur <fayearthur@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
@@ -4286,36 +4222,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 16618f12b491
-
-Applies to buffer-crc32@0.2.13.
-
-Copyright notices:
-
-- Copyright (c) 2013 Brian J. Brennan
-
-```text
-The MIT License
-
-Copyright (c) 2013 Brian J. Brennan
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to use,
-copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
-Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
-PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
-FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### License text 1662fae9b531
 
 Applies to ms@2.1.3.
@@ -4381,38 +4287,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-```
-
-### License text 176d95320d56
-
-Applies to fd-slicer@1.1.0.
-
-Copyright notices:
-
-- Copyright (c) 2014 Andrew Kelley
-
-```text
-Copyright (c) 2014 Andrew Kelley
-
-Permission is hereby granted, free of charge, to any person
-obtaining a copy of this software and associated documentation files
-(the "Software"), to deal in the Software without restriction,
-including without limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of the Software,
-and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
-BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
-ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 ```
 
 ### License text 181bc2685f0c
@@ -6161,7 +6035,7 @@ SOFTWARE.
 
 ### License text 2b29dcfe0d64
 
-Applies to ws@8.21.0.
+Applies to ws@8.21.0, ws@8.21.3, ws@8.21.3.
 
 Copyright notices:
 
@@ -6508,7 +6382,7 @@ IN THE SOFTWARE.
 
 ### License text 2dc046572936
 
-Applies to cliui@8.0.1, cliui@9.0.1.
+Applies to cliui@9.0.1.
 
 Copyright notices:
 
@@ -6625,7 +6499,7 @@ SOFTWARE.
 
 ### License text 2f1a503bfab8
 
-Applies to yargs@17.7.3, yargs@18.0.0.
+Applies to yargs@18.1.0.
 
 Copyright notices:
 
@@ -6657,7 +6531,7 @@ THE SOFTWARE.
 
 ### License text 2fd433bea68e
 
-Applies to mailparser@3.9.14.
+Applies to mailparser@3.9.23.
 
 Copyright notices:
 
@@ -6962,7 +6836,7 @@ THE SOFTWARE.
 
 ### License text 365496ca1f56
 
-Applies to yargs-parser@21.1.1, yargs-parser@22.0.0.
+Applies to yargs-parser@22.0.0.
 
 Copyright notices:
 
@@ -7483,7 +7357,7 @@ THIS SOFTWARE.
 
 ### License text 3f1189b28e38
 
-Applies to zod@3.25.76, zod@3.25.76, zod@4.4.3.
+Applies to zod@3.25.76, zod@4.4.3.
 
 Copyright notices:
 
@@ -8218,7 +8092,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 43659035063c
 
-Applies to html-to-text@10.0.0.
+Applies to html-to-text@10.0.1.
 
 Copyright notices:
 
@@ -8282,32 +8156,6 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### License text 451ec07eeb9c
-
-Applies to lru-cache@7.18.3.
-
-Copyright notices:
-
-- Copyright (c) 2010-2023 Isaac Z. Schlueter and Contributors
-
-```text
-The ISC License
-
-Copyright (c) 2010-2023 Isaac Z. Schlueter and Contributors
-
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted, provided that the above
-copyright notice and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
-IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
 ### License text 456fe85ad3e7
@@ -8497,7 +8345,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 483acb265f18
 
-Applies to cssesc@3.0.0, emoji-regex@10.6.0, emoji-regex@8.0.0, he@1.2.0, is-potential-custom-element-name@1.0.1, jsesc@3.1.0, punycode.js@2.3.1, punycode@2.3.1, uc.micro@2.1.0.
+Applies to cssesc@3.0.0, emoji-regex@10.6.0, he@1.2.0, is-potential-custom-element-name@1.0.1, jsesc@3.1.0, punycode.js@2.3.1, punycode@2.3.1, uc.micro@2.1.0.
 
 Copyright notices:
 
@@ -8528,7 +8376,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 48da2f39e100
 
-Applies to ansi-regex@5.0.1, ansi-styles@4.3.0, ansi-styles@5.2.0, callsites@3.1.0, env-paths@2.2.1, has-flag@4.0.0, is-fullwidth-code-point@3.0.0, p-retry@4.6.2, parent-module@1.0.1, path-exists@4.0.0, path-key@3.1.1, resolve-from@4.0.0, shebang-regex@3.0.0, string-width@4.2.3, strip-ansi@6.0.1, type-fest@0.7.1.
+Applies to ansi-regex@5.0.1, ansi-styles@5.2.0, callsites@3.1.0, env-paths@2.2.1, has-flag@4.0.0, p-retry@4.6.2, parent-module@1.0.1, path-exists@4.0.0, path-key@3.1.1, resolve-from@4.0.0, shebang-regex@3.0.0, type-fest@0.7.1.
 
 Copyright notices:
 
@@ -9136,7 +8984,7 @@ Copyright notices:
 
 ### License text 4da724fc305d
 
-Applies to @xmldom/xmldom@0.8.15, @xmldom/xmldom@0.9.10.
+Applies to @xmldom/xmldom@0.8.15, @xmldom/xmldom@0.9.12.
 
 Copyright notices:
 
@@ -9333,7 +9181,7 @@ SOFTWARE.
 
 ### License text 4f814dcacd2d
 
-Applies to nodemailer@9.0.3.
+Applies to nodemailer@10.0.1, nodemailer@9.0.3.
 
 Copyright notices:
 
@@ -11080,36 +10928,6 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
 IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### License text 5abeca78b582
-
-Applies to basic-ftp@5.3.1.
-
-Copyright notices:
-
-- Copyright (c) 2019 Patrick Juchli
-
-```text
-Copyright (c) 2019 Patrick Juchli
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
 ### License text 5ac141bfc70b
 
 Applies to quick-format-unescaped@4.0.4.
@@ -11306,7 +11124,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 ### License text 5c932d88256b
 
-Applies to ansi-regex@6.2.2, ansi-styles@6.2.3, decompress-response@6.0.0, escape-string-regexp@5.0.0, escape-string-regexp@5.0.0, file-type@22.0.1, find-up@5.0.0, get-east-asian-width@1.6.0, get-stream@5.2.0, import-fresh@3.3.1, is-plain-obj@4.1.0, is-stream@4.0.1, locate-path@6.0.0, mimic-response@3.1.0, p-limit@3.1.0, p-locate@5.0.0, parse-json@5.2.0, string-width@7.2.0, strip-ansi@7.2.0, supports-color@8.1.1, uint8array-extras@1.5.0, wrap-ansi@7.0.0, wrap-ansi@9.0.2, yocto-queue@0.1.0.
+Applies to ansi-regex@6.3.0, ansi-styles@6.2.3, decompress-response@6.0.0, escape-string-regexp@5.0.0, escape-string-regexp@5.0.0, file-type@22.0.1, find-up@5.0.0, get-east-asian-width@1.6.0, import-fresh@3.3.1, is-plain-obj@4.1.0, is-stream@4.0.1, locate-path@6.0.0, mimic-response@3.1.0, p-limit@3.1.0, p-locate@5.0.0, parse-json@5.2.0, string-width@7.2.0, string-width@7.2.0, string-width@8.2.2, strip-ansi@7.2.0, supports-color@8.1.1, uint8array-extras@1.5.0, wrap-ansi@9.0.2, yocto-queue@0.1.0.
 
 Copyright notices:
 
@@ -13217,7 +13035,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 71368fd0f5b4
 
-Applies to agent-base@7.1.4, http-proxy-agent@7.0.2, https-proxy-agent@7.0.6, pac-resolver@7.0.1, proxy-agent@6.5.0, socks-proxy-agent@8.0.5.
+Applies to agent-base@7.1.4, http-proxy-agent@7.0.2, https-proxy-agent@7.0.6.
 
 Copyright notices:
 
@@ -13347,7 +13165,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 734d8fd2baff
 
-Applies to deepmerge-ts@7.1.6.
+Applies to deepmerge-ts@8.0.2.
 
 Copyright notices:
 
@@ -13946,40 +13764,6 @@ OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### License text 77b2de947c65
-
-Applies to extract-zip@2.0.1.
-
-Copyright notices:
-
-- Copyright (c) 2014 Max Ogden and other contributors
-
-```text
-Copyright (c) 2014 Max Ogden and other contributors
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this
-  list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice,
-  this list of conditions and the following disclaimer in the documentation
-  and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-```
-
 ### License text 77e34b8bcff7
 
 Applies to expand-template@2.0.3.
@@ -14134,7 +13918,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### License text 7a209dd1b94c
 
-Applies to devtools-protocol@0.0.1608973, devtools-protocol@0.0.1638949.
+Applies to devtools-protocol@0.0.1638949.
 
 Copyright notices:
 
@@ -14382,40 +14166,6 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-### License text 7e64acffcb0d
-
-Applies to pend@1.2.0.
-
-Copyright notices:
-
-- Copyright (c) 2014 Andrew Kelley
-
-```text
-The MIT License (Expat)
-
-Copyright (c) 2014 Andrew Kelley
-
-Permission is hereby granted, free of charge, to any person
-obtaining a copy of this software and associated documentation files
-(the "Software"), to deal in the Software without restriction,
-including without limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of the Software,
-and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
-BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
-ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
@@ -15291,39 +15041,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### License text 819021ebdb73
-
-Applies to data-uri-to-buffer@6.0.2, get-uri@6.0.5, pac-proxy-agent@7.2.0.
-
-Copyright notices:
-
-- Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>
-
-```text
-(The MIT License)
-
-Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### License text 821556e63367
 
 Applies to NousResearch/hermes-agent session-compaction reference@f293e7206b4ddd66042329442c6afebc19a8808d.
@@ -15727,41 +15444,6 @@ Apache License
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-```
-
-### License text 856b7c5bc8da
-
-Applies to degenerator@5.0.1.
-
-Copyright notices:
-
-- Copyright (c) 2013 Nathan Rajlich &lt;nathan@tootallnate.net&gt;
-- Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>
-
-```text
-
-(The MIT License)
-
-Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-'Software'), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### License text 85747ad4bba3
@@ -16896,25 +16578,6 @@ Permission to use, copy, modify, and/or distribute this software for any purpose
 THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### License text 9060d3e477a5
-
-Applies to color-name@1.1.4.
-
-Copyright notices:
-
-- Copyright (c) 2015 Dmitry Ivanov
-
-```text
-The MIT License (MIT)
-Copyright (c) 2015 Dmitry Ivanov
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### License text 9068a8782d2f
 
 Applies to enhanced-resolve@5.24.5, minimizer-webpack-plugin@5.8.0, schema-utils@4.3.3, watchpack@2.5.2, webpack@5.110.3.
@@ -17217,38 +16880,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### License text 94bcb9959136
-
-Applies to esprima@4.0.1.
-
-Copyright notices:
-
-- Copyright JS Foundation and other contributors, https://js.foundation/
-
-```text
-Copyright JS Foundation and other contributors, https://js.foundation/
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-  * Redistributions of source code must retain the above copyright
-    notice, this list of conditions and the following disclaimer.
-  * Redistributions in binary form must reproduce the above copyright
-    notice, this list of conditions and the following disclaimer in the
-    documentation and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
-DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
-THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
 ### License text 94cfe87de9b1
@@ -19036,7 +18667,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text 9817440890fa
 
-Applies to encoding-japanese@2.2.0.
+Applies to encoding-japanese@2.2.0, encoding-japanese@2.3.0.
 
 Copyright notices:
 
@@ -20214,7 +19845,7 @@ THE SOFTWARE.
 
 ### License text a27ca07269b3
 
-Applies to @puppeteer/browsers@2.13.2, @puppeteer/browsers@3.0.6, puppeteer-core@24.43.1, puppeteer-core@25.3.0.
+Applies to @puppeteer/browsers@3.0.6, puppeteer-core@25.3.0.
 
 Copyright notices:
 
@@ -20425,37 +20056,6 @@ Copyright notices:
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-```
-
-### License text a374b737c41b
-
-Applies to ast-types@0.13.4.
-
-Copyright notices:
-
-- Copyright (c) 2013 Ben Newman <bn@cs.stanford.edu>
-
-```text
-Copyright (c) 2013 Ben Newman <bn@cs.stanford.edu>
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### License text a3d60eaf32d2
@@ -21386,39 +20986,6 @@ Apache License
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-```
-
-### License text a92e52eb1fa7
-
-Applies to require-directory@2.1.1.
-
-Copyright notices:
-
-- Copyright (c) 2011 Troy Goode <troygoode@gmail.com>
-
-```text
-The MIT License (MIT)
-
-Copyright (c) 2011 Troy Goode <troygoode@gmail.com>
-
-Permission is hereby granted, free of charge, to any person obtaining a
-copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be included
-in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### License text a9801fb52ba2
@@ -22791,7 +22358,7 @@ THE SOFTWARE.
 
 ### License text b08840544230
 
-Applies to docker-global-npm:@sigstore/verify@3.1.0 / c4ad6141eb947a20690837888e5d90d9a30b5af3, docker-python:flatbuffers@25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953, docker-python:magika@0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767, webdriver-bidi-protocol@0.4.1, webdriver-bidi-protocol@0.4.2.
+Applies to docker-global-npm:@sigstore/verify@3.1.0 / c4ad6141eb947a20690837888e5d90d9a30b5af3, docker-python:flatbuffers@25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953, docker-python:magika@0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767, webdriver-bidi-protocol@0.4.2.
 
 Copyright notices:
 
@@ -23025,38 +22592,6 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### License text b303783d5eb7
-
-Applies to yauzl@2.10.0.
-
-Copyright notices:
-
-- Copyright (c) 2014 Josh Wolfe
-
-```text
-The MIT License (MIT)
-
-Copyright (c) 2014 Josh Wolfe
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 ```
 
 ### License text b40930bbcf80
@@ -24260,7 +23795,7 @@ THIS SOFTWARE.
 
 ### License text c0993ca46cd4
 
-Applies to end-of-stream@1.4.5, pump@3.0.4, tar-fs@2.1.5, tar-fs@3.1.3, tar-stream@2.2.0, tar-stream@3.2.0.
+Applies to end-of-stream@1.4.5, pump@3.0.4, tar-fs@2.1.5, tar-stream@2.2.0, tar-stream@3.2.0.
 
 Copyright notices:
 
@@ -24458,7 +23993,7 @@ did not modify the npm package or the generated table.
 
 ### License text c2cfccb812fe
 
-Applies to @types/archiver@8.0.0, @types/aria-query@5.0.4, @types/better-sqlite3@7.6.13, @types/d3-array@3.2.2, @types/d3-axis@3.0.6, @types/d3-brush@3.0.6, @types/d3-chord@3.0.6, @types/d3-color@3.1.3, @types/d3-contour@3.0.6, @types/d3-delaunay@6.0.4, @types/d3-dispatch@3.0.7, @types/d3-drag@3.0.7, @types/d3-dsv@3.0.7, @types/d3-ease@3.0.2, @types/d3-fetch@3.0.7, @types/d3-force@3.0.10, @types/d3-format@3.0.4, @types/d3-geo@3.1.0, @types/d3-hierarchy@3.1.7, @types/d3-interpolate@3.0.4, @types/d3-path@3.1.1, @types/d3-polygon@3.0.2, @types/d3-quadtree@3.0.6, @types/d3-random@3.0.4, @types/d3-scale-chromatic@3.1.0, @types/d3-scale@4.0.9, @types/d3-selection@3.0.11, @types/d3-shape@3.1.8, @types/d3-time-format@4.0.3, @types/d3-time@3.0.4, @types/d3-timer@3.0.2, @types/d3-transition@3.0.9, @types/d3-zoom@3.0.8, @types/d3@7.4.3, @types/debug@4.1.13, @types/estree-jsx@1.0.5, @types/estree@1.0.9, @types/geojson@7946.0.16, @types/hast@3.0.5, @types/json-schema@7.0.15, @types/katex@0.16.8, @types/mailparser@3.4.6, @types/mdast@4.0.4, @types/ms@2.1.0, @types/node@22.20.1, @types/node@26.1.1, @types/nodemailer@8.0.1, @types/pg@8.20.0, @types/prismjs@1.26.6, @types/react-dom@19.2.3, @types/react-syntax-highlighter@15.5.13, @types/react@19.2.17, @types/readdir-glob@1.1.5, @types/trusted-types@2.0.7, @types/unist@2.0.11, @types/unist@3.0.3, @types/use-sync-external-store@0.0.6, @types/yauzl@2.10.3.
+Applies to @types/archiver@8.0.0, @types/aria-query@5.0.4, @types/better-sqlite3@7.6.13, @types/d3-array@3.2.2, @types/d3-axis@3.0.6, @types/d3-brush@3.0.6, @types/d3-chord@3.0.6, @types/d3-color@3.1.3, @types/d3-contour@3.0.6, @types/d3-delaunay@6.0.4, @types/d3-dispatch@3.0.7, @types/d3-drag@3.0.7, @types/d3-dsv@3.0.7, @types/d3-ease@3.0.2, @types/d3-fetch@3.0.7, @types/d3-force@3.0.10, @types/d3-format@3.0.4, @types/d3-geo@3.1.0, @types/d3-hierarchy@3.1.7, @types/d3-interpolate@3.0.4, @types/d3-path@3.1.1, @types/d3-polygon@3.0.2, @types/d3-quadtree@3.0.6, @types/d3-random@3.0.4, @types/d3-scale-chromatic@3.1.0, @types/d3-scale@4.0.9, @types/d3-selection@3.0.11, @types/d3-shape@3.1.8, @types/d3-time-format@4.0.3, @types/d3-time@3.0.4, @types/d3-timer@3.0.2, @types/d3-transition@3.0.9, @types/d3-zoom@3.0.8, @types/d3@7.4.3, @types/debug@4.1.13, @types/estree-jsx@1.0.5, @types/estree@1.0.9, @types/geojson@7946.0.16, @types/hast@3.0.5, @types/json-schema@7.0.15, @types/katex@0.16.8, @types/mailparser@3.4.6, @types/mdast@4.0.4, @types/ms@2.1.0, @types/node@22.20.1, @types/node@26.1.1, @types/nodemailer@8.0.1, @types/pg@8.20.0, @types/prismjs@1.26.6, @types/react-dom@19.2.3, @types/react-syntax-highlighter@15.5.13, @types/react@19.2.17, @types/readdir-glob@1.1.5, @types/trusted-types@2.0.7, @types/unist@2.0.11, @types/unist@3.0.3, @types/use-sync-external-store@0.0.6.
 
 Copyright notices:
 
@@ -24657,38 +24192,6 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### License text c47e09b7a38f
-
-Applies to netmask@2.1.1.
-
-Copyright notices:
-
-- Copyright (c) 2011 Olivier Poitrey rs@rhapsodyk.net
-
-```text
-MIT License
-
-Copyright (c) 2011 Olivier Poitrey rs@rhapsodyk.net
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 ```
 
 ### License text c4b4ad3a5746
@@ -24994,7 +24497,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTH
 
 ### License text c71d239df917
 
-Applies to @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.0, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/core@2.9.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.9.0, @opentelemetry/sdk-trace-base@2.9.0, @opentelemetry/sdk-trace@2.9.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.11.20, browser-fs-access@0.29.1, chromium-bidi@14.0.0, chromium-bidi@16.0.1, drizzle-orm@0.45.2, events-universal@1.0.1, import-in-the-middle@3.3.1, pdf-parse@2.4.5, semifies@1.0.0, text-decoder@1.2.7.
+Applies to @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.0, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/core@2.9.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.9.0, @opentelemetry/sdk-trace-base@2.9.0, @opentelemetry/sdk-trace@2.9.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.11.20, browser-fs-access@0.29.1, chromium-bidi@16.0.1, drizzle-orm@0.45.2, events-universal@1.0.1, import-in-the-middle@3.3.1, pdf-parse@2.4.5, semifies@1.0.0, text-decoder@1.2.7.
 
 Copyright notices:
 
@@ -25883,38 +25386,6 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text cc8e9104738f
-
-Applies to @tootallnate/quickjs-emscripten@0.23.0.
-
-Copyright notices:
-
-- quickjs-emscripten copyright (c) 2019 Jake Teton-Landis
-
-```text
-MIT License
-
-quickjs-emscripten copyright (c) 2019 Jake Teton-Landis
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
 ### License text ccd21f75fe56
 
 Applies to graphology-types@0.24.8.
@@ -26634,7 +26105,7 @@ END OF TERMS AND CONDITIONS
 
 ### License text d1cc09bdab06
 
-Applies to @zone-eu/mailsplit@5.4.14.
+Applies to @zone-eu/mailsplit@5.4.14, @zone-eu/mailsplit@5.4.16.
 
 Copyright notices:
 
@@ -26906,38 +26377,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-```
-
-### License text d5d62471a28a
-
-Applies to escodegen@2.1.0.
-
-Copyright notices:
-
-- Copyright (C) 2012 Yusuke Suzuki (twitter: @Constellation) and other contributors.
-
-```text
-Copyright (C) 2012 Yusuke Suzuki (twitter: @Constellation) and other contributors.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are met:
-
-  * Redistributions of source code must retain the above copyright
-    notice, this list of conditions and the following disclaimer.
-  * Redistributions in binary form must reproduce the above copyright
-    notice, this list of conditions and the following disclaimer in the
-    documentation and/or other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
-DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
-THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
 ### License text d7d2a7786de7
@@ -27570,7 +27009,7 @@ SOFTWARE.
 
 ### License text dbcbef54fa7e
 
-Applies to modern-tar@0.7.6.
+Applies to modern-tar@0.7.7.
 
 Copyright notices:
 
@@ -30407,7 +29846,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text f2b31d0b3aa8
 
-Applies to @marp-team/marp-cli@4.5.0, @marp-team/marp-core@4.4.0, @marp-team/marpit-svg-polyfill@2.1.0.
+Applies to @marp-team/marp-cli@4.5.1, @marp-team/marp-core@4.4.0, @marp-team/marpit-svg-polyfill@2.1.0.
 
 Copyright notices:
 
