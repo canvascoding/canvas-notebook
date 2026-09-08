@@ -2,7 +2,6 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 
-import { getDatabaseProvider, type DatabaseProvider } from '@/app/lib/db/provider';
 import type { EmailCachePostgresQueryable } from './postgres-migration';
 
 export const EMAIL_CACHE_SCHEMA_VERSION = 1;
@@ -510,51 +509,6 @@ function normalizeCachedMessageDetail(detail: EmailCachedMessageDetail): EmailCa
     })),
   };
 }
-
-function disabledCleanup(skipped = true): EmailCacheCleanupResult {
-  return { enabled: false, skipped, deletedLists: 0, deletedMessages: 0 };
-}
-
-const DISABLED_EMAIL_CACHE_STORE: EmailCacheStore = {
-  enabled: false,
-  async getMailboxGeneration() { return null; },
-  async bumpMailboxGeneration() { return null; },
-  async reactivateAccount() { return null; },
-  async getList() { return miss(false); },
-  async acquireListRefreshLease() {
-    return { enabled: false, acquired: false, generation: null, leaseUntil: null };
-  },
-  async putList() { return { enabled: false, stored: false, reason: 'disabled' }; },
-  async releaseListRefreshLease() { return false; },
-  async getMessage() { return miss(false); },
-  async getMessages() { return []; },
-  async acquireMessageRefreshLease() {
-    return { enabled: false, acquired: false, generation: null, leaseUntil: null };
-  },
-  async putMessage() { return { enabled: false, stored: false, reason: 'disabled' }; },
-  async putMessages(input) {
-    return {
-      enabled: false,
-      requestedCount: input.messages.length,
-      storedCount: 0,
-      storedMessageKeys: [],
-      rejectedMessageKeys: input.messages.map((message) => normalizeEmailMessageRef(message.ref).messageKey),
-      reason: 'disabled',
-    };
-  },
-  async releaseMessageRefreshLease() { return false; },
-  async purgeAccount() {
-    return {
-      enabled: false,
-      tombstoned: false,
-      generation: null,
-      deletedLists: 0,
-      deletedMessages: 0,
-    };
-  },
-  async cleanup() { return disabledCleanup(false); },
-  async maybeCleanup() { return disabledCleanup(); },
-};
 
 export class PostgresEmailCacheStore implements EmailCacheStore {
   readonly enabled = true;
@@ -1454,28 +1408,22 @@ export class PostgresEmailCacheStore implements EmailCacheStore {
 }
 
 export function createEmailCacheStore(options: {
-  provider?: DatabaseProvider;
-  postgres?: EmailCachePostgresQueryable;
-} = {}): EmailCacheStore {
-  const provider = options.provider ?? getDatabaseProvider();
-  if (provider !== 'postgres') return DISABLED_EMAIL_CACHE_STORE;
-  if (!options.postgres) {
+  postgres: EmailCachePostgresQueryable;
+}): PostgresEmailCacheStore {
+  if (!options?.postgres) {
     throw new Error('PostgreSQL email caching requires an explicit PostgreSQL queryable.');
   }
   return new PostgresEmailCacheStore(options.postgres);
 }
 
-let runtimeEmailCacheStorePromise: Promise<EmailCacheStore> | null = null;
+let runtimeEmailCacheStorePromise: Promise<PostgresEmailCacheStore> | null = null;
 
 /**
  * Lazily binds the cache to the application's existing PostgreSQL pool.
- * Build-time and SQLite runtimes resolve to the disabled store without loading
- * the database singleton, while concurrent first callers share one store.
+ * Runtime initialization failures reject instead of silently disabling caching,
+ * while concurrent first callers share one store.
  */
-export function getRuntimeEmailCacheStore(): Promise<EmailCacheStore> {
-  if (getDatabaseProvider() !== 'postgres') {
-    return Promise.resolve(DISABLED_EMAIL_CACHE_STORE);
-  }
+export function getRuntimeEmailCacheStore(): Promise<PostgresEmailCacheStore> {
   if (!runtimeEmailCacheStorePromise) {
     runtimeEmailCacheStorePromise = import('@/app/lib/db').then((database) => {
       database.assertDatabaseAvailable();
