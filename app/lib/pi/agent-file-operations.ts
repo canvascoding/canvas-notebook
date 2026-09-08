@@ -2580,7 +2580,7 @@ function shellUsesMutatingGitCommand(command: string): boolean {
 
 export function detectUnsafeBashCommand(
   command: string,
-  options: { workingDirectory?: 'temp' | 'workspace' } = {},
+  options: { workingDirectory?: 'temp' | 'workspace'; sandboxed?: boolean } = {},
 ): string | null {
   const secretPatterns = [
     /\b(?:env|printenv)\b/i,
@@ -2609,7 +2609,9 @@ export function detectUnsafeBashCommand(
     Boolean(executionContext?.workspaceRoot && normalized.includes(executionContext.workspaceRoot));
   const cdsIntoManagedPath = /\bcd\s+\/data\/(?:workspace|workspaces|agents)(?:\/|$|\s)/.test(normalized);
 
-  if (shellUsesDirectFileMutationCommand(normalized)) {
+  const isolatedTempExecution = options.sandboxed === true && options.workingDirectory === 'temp';
+
+  if (shellUsesDirectFileMutationCommand(normalized) && !isolatedTempExecution) {
     return 'Direct shell file mutations are blocked. Use write, edit_file, apply_patch, copy_path, move_path, or delete_path so workspace permissions, revisions, and audit logs are enforced.';
   }
 
@@ -2617,11 +2619,11 @@ export function detectUnsafeBashCommand(
     return 'Mutating git commands are blocked in bash. Use dedicated file tools or ask the user before changing repository state.';
   }
 
-  if (/\bsed\b(?=[^;&|]*\s-[A-Za-z]*i(?:\b|\.|['"]|$))/.test(normalized)) {
+  if (!isolatedTempExecution && /\bsed\b(?=[^;&|]*\s-[A-Za-z]*i(?:\b|\.|['"]|$))/.test(normalized)) {
     return 'Unsafe in-place file edits with sed are blocked. Use edit_file or apply_patch instead.';
   }
 
-  if (/\bperl\b(?=[^;&|]*\s-[A-Za-z0-9]*p?i(?:\b|\.|['"]|$))/.test(normalized)) {
+  if (!isolatedTempExecution && /\bperl\b(?=[^;&|]*\s-[A-Za-z0-9]*p?i(?:\b|\.|['"]|$))/.test(normalized)) {
     return 'Unsafe in-place file edits with perl are blocked. Use edit_file or apply_patch instead.';
   }
 

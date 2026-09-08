@@ -59,6 +59,11 @@ RUN set -eux; \
   DESTDIR=/opt/libvips-root meson install -C /tmp/vips-${LIBVIPS_VERSION}/build; \
   test -f /opt/libvips-root/usr/local/lib/pkgconfig/vips-cpp.pc
 
+COPY tools/agent-sandbox/landlock-run.c /tmp/canvas-agent-landlock.c
+RUN cc -O2 -Wall -Wextra -Werror -std=c11 \
+  -o /opt/canvas-agent-landlock /tmp/canvas-agent-landlock.c \
+  && /opt/canvas-agent-landlock --help >/dev/null
+
 FROM canvas-base AS app-base
 
 RUN set -eux; \
@@ -126,6 +131,8 @@ ARG POSTGRES_CLIENT_VERSION=18.4-1.pgdg12+1
 ARG POSTGRES_COMMON_VERSION=293.pgdg12+1
 ARG TARGETPLATFORM
 
+COPY --from=libvips-build /opt/canvas-agent-landlock /usr/local/libexec/canvas-agent-landlock
+
 RUN set -eux; \
   apt-get update; \
   apt-get install -y --no-install-recommends ffmpeg curl wget zstd ca-certificates unzip zip git make python3 python3-pip python3-venv ripgrep poppler-utils procps \
@@ -159,6 +166,7 @@ RUN set -eux; \
   pg_dump --version; \
   pandoc --version; \
   libreoffice --headless --version
+RUN test -x /usr/local/libexec/canvas-agent-landlock
 
 # Install the exact cross-platform Python wheel set required by skills.
 COPY --from=builder /app/requirements/runtime-python.txt /app/requirements/runtime-python.txt

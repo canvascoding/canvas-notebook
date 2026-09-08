@@ -6,7 +6,9 @@ import { Type } from 'typebox';
 import { ensureAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
 import {
   buildAgentBashEnvironment,
+  executeAgentBashCommand,
   resolveAgentBashWorkingDirectory,
+  resolveAgentBashSandboxMode,
   type AgentBashWorkingDirectory,
 } from '@/app/lib/pi/agent-bash-runtime';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
@@ -32,7 +34,6 @@ import {
   deleteAgentPaths,
   editAgentFile,
   editAgentExcalidrawScene,
-  execAsync,
   extractPdfTextForRead,
   formatImageReadText,
   getAgentWorkspaceRoot,
@@ -629,6 +630,7 @@ export const piTools: AgentTool[] = [
       const startedAt = Date.now();
       let workingDirectory: AgentBashWorkingDirectory | null = null;
       let cwd: string | null = null;
+      let sandboxMode: 'landlock' | 'local-development' | null = null;
       try {
         throwIfAborted(signal);
         const executionContext = getAgentExecutionContext();
@@ -645,17 +647,27 @@ export const piTools: AgentTool[] = [
         if (!cwd) {
           throw new Error('The private session temp directory is unavailable without an execution context.');
         }
-        assertBashCommandAllowed(command, { workingDirectory });
+        sandboxMode = resolveAgentBashSandboxMode(process.env);
+        assertBashCommandAllowed(command, {
+          workingDirectory,
+          sandboxed: sandboxMode === 'landlock',
+        });
         const safeEnv = buildAgentBashEnvironment({
           sourceEnv: process.env,
           workspaceDir,
           tempDir,
         });
-        const { stdout, stderr } = await execAsync(command, {
+        const execution = await executeAgentBashCommand({
+          command,
           cwd,
+          workspaceDir,
+          tempDir,
           env: safeEnv,
+          executionContext,
           signal,
         });
+        const { stdout, stderr } = execution;
+        sandboxMode = execution.sandboxMode;
         await recordBashToolAudit({
           command,
           status: 'success',
@@ -665,11 +677,12 @@ export const piTools: AgentTool[] = [
           exitCode: 0,
           workingDirectory,
           cwd,
+          sandboxMode,
         });
         const output = [stdout, stderr].filter(Boolean).join('\n');
         return {
           content: [{ type: 'text', text: output || '(no output)' }],
-          details: { stdout, stderr, workingDirectory, cwd },
+          details: { stdout, stderr, workingDirectory, cwd, sandboxMode },
         };
       } catch (error: unknown) {
         if (isAbortError(error, signal)) {
@@ -680,10 +693,11 @@ export const piTools: AgentTool[] = [
             error: 'Tool execution aborted.',
             workingDirectory,
             cwd,
+            sandboxMode,
           });
           return {
             content: [{ type: 'text', text: 'Error: Tool execution aborted.' }],
-            details: { error: 'Tool execution aborted.', workingDirectory, cwd },
+            details: { error: 'Tool execution aborted.', workingDirectory, cwd, sandboxMode },
           };
         }
         const execError = asCommandExecutionError(error);
@@ -698,10 +712,11 @@ export const piTools: AgentTool[] = [
           exitCode: execError.code ?? null,
           workingDirectory,
           cwd,
+          sandboxMode,
         });
         return {
           content: [{ type: 'text', text: output }],
-          details: { error: execError.message, stdout: execError.stdout, stderr: execError.stderr, workingDirectory, cwd },
+          details: { error: execError.message, stdout: execError.stdout, stderr: execError.stderr, workingDirectory, cwd, sandboxMode },
         };
       }
     },

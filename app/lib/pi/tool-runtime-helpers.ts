@@ -58,7 +58,7 @@ export class BlockedBashCommandError extends Error {
 
 export function assertBashCommandAllowed(
   command: string,
-  options: { workingDirectory?: AgentBashWorkingDirectory } = {},
+  options: { workingDirectory?: AgentBashWorkingDirectory; sandboxed?: boolean } = {},
 ): void {
   const blockedReason = detectUnsafeBashCommand(command, options);
   if (blockedReason) {
@@ -101,6 +101,7 @@ export async function recordBashToolAudit(input: {
   exitCode?: string | number | null;
   workingDirectory?: AgentBashWorkingDirectory | null;
   cwd?: string | null;
+  sandboxMode?: 'landlock' | 'local-development' | null;
 }) {
   const executionContext = getAgentExecutionContext();
   if (!executionContext) return;
@@ -131,6 +132,7 @@ export async function recordBashToolAudit(input: {
       error: input.error ? input.error.slice(0, 500) : null,
       workingDirectory: input.workingDirectory ?? null,
       cwd: input.cwd ?? null,
+      sandboxMode: input.sandboxMode ?? null,
       workspace: {
         workspaceId: executionContext.workspaceId,
         workspaceType: executionContext.workspaceType,
