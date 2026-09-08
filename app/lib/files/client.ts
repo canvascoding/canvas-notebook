@@ -57,6 +57,13 @@ export interface DeleteWorkspacePathsResult {
   trashEntries?: WorkspaceTrashEntryReference[];
 }
 
+export class WorkspaceDeletePartialError extends Error {
+  constructor(readonly result: DeleteWorkspacePathsResult) {
+    super(`Failed to delete: ${result.failed?.map((failure) => failure.path).join(', ')}`);
+    this.name = 'WorkspaceDeletePartialError';
+  }
+}
+
 export interface WorkspaceTrashEntryReference {
   id: string;
   originalPath: string;
@@ -382,10 +389,10 @@ export async function createWorkspacePath(
   }
 }
 
-export async function deleteWorkspacePaths(paths: string[]): Promise<DeleteWorkspacePathsResult> {
+export async function deleteWorkspacePaths(paths: string[], workspaceId?: string | null): Promise<DeleteWorkspacePathsResult> {
   const response = await fetch('/api/files/delete', {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
     credentials: 'include',
     body: JSON.stringify({ path: paths }),
   });

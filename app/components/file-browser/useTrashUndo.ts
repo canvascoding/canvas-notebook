@@ -8,6 +8,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import {
   restoreWorkspaceTrashEntry,
+  WorkspaceDeletePartialError,
   type DeleteWorkspacePathsResult,
 } from '@/app/lib/files/client';
 import { useFileStore } from '@/app/store/file-store';
@@ -23,9 +24,17 @@ export function useTrashUndo() {
 
   return useCallback(async (paths: string | string[]): Promise<DeleteWorkspacePathsResult> => {
     const workspaceId = activeWorkspaceId;
-    const result = await deletePath(paths);
+    let partialError: WorkspaceDeletePartialError | null = null;
+    const result = await deletePath(paths, workspaceId).catch((error) => {
+      if (!(error instanceof WorkspaceDeletePartialError)) throw error;
+      partialError = error;
+      return error.result;
+    });
     const trashEntries = result.trashEntries ?? [];
-    if (trashEntries.length === 0) return result;
+    if (trashEntries.length === 0) {
+      if (partialError) throw partialError;
+      return result;
+    }
 
     let isRestoring = false;
     toast.success(t('movedToTrash', { count: trashEntries.length }), {
@@ -62,6 +71,7 @@ export function useTrashUndo() {
         },
       },
     });
+    if (partialError) throw partialError;
     return result;
   }, [activeWorkspaceId, deletePath, refreshDirectory, t]);
 }

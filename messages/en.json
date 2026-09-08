@@ -635,6 +635,7 @@
     "collapseFolder": "Collapse folder {name}",
     "loadingFolder": "Loading folder…",
     "refreshingFolder": "Updating folder…",
+    "movePartialFailure": "Moved {count} items. The remaining move stopped: {error}",
     "close": "Close",
     "fileEditorDescription": "File editor for {name}",
     "create": "Create",
