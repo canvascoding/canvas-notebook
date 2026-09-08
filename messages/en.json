@@ -907,6 +907,7 @@
     "markdownEditorInitialContentPlaceholder": "Optional text to start with",
     "markdownEditorFootnoteDialogTitle": "Insert footnote",
     "markdownEditorFootnoteDialogDescription": "The reference is added here and its definition is stored at the end of the note.",
+    "markdownEditorFootnoteMarkdownHint": "Use Markdown for formatting, lists, and multiple paragraphs.",
     "markdownEditorFootnoteContentLabel": "Footnote text",
     "markdownEditorFootnoteContentPlaceholder": "Explain or cite this reference",
     "markdownEditorFootnoteRequired": "Enter the footnote text.",

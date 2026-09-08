@@ -906,6 +906,7 @@
     "markdownEditorInitialContentPlaceholder": "Optionaler Text für den Anfang",
     "markdownEditorFootnoteDialogTitle": "Fußnote einfügen",
     "markdownEditorFootnoteDialogDescription": "Der Verweis wird hier eingefügt; die Definition steht am Ende der Notiz.",
+    "markdownEditorFootnoteMarkdownHint": "Du kannst Markdown für Formatierungen, Listen und mehrere Absätze verwenden.",
     "markdownEditorFootnoteContentLabel": "Fußnotentext",
     "markdownEditorFootnoteContentPlaceholder": "Erklärung oder Quelle zu diesem Verweis",
     "markdownEditorFootnoteRequired": "Gib den Text der Fußnote ein.",

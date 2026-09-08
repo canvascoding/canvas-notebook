@@ -215,7 +215,7 @@ import { BlockTreePlacementNotice } from '@/app/lib/collaboration/block-tree-edi
 import { useEditorRangeTarget } from '@/app/hooks/use-editor-range-target';
 import { useEditorToolbarTarget } from '@/app/hooks/use-editor-toolbar-target';
 import { useEditorAsyncAction } from '@/app/hooks/use-editor-async-action';
-import { insertMathAtRange, replaceRichBlockTitle, updateFootnoteDefinition } from '@/app/lib/editor/rich-block-commands';
+import { insertMathAtRange, insertRichFootnoteAtRange, replaceRichBlockTitle, richBlockContentMarkdown, updateFootnoteDefinition } from '@/app/lib/editor/rich-block-commands';
 import { createEditorNodeTarget, createEditorRangeTarget, invalidateEditorTarget, resolveEditorNodeTarget, resolveEditorRangeTarget, type EditorNodeTarget, type EditorRangeTarget } from '@/app/lib/editor/interaction-target';
 import {
   useCollaborationDocument,
@@ -3502,15 +3502,15 @@ function MarkdownRichBlockDialog({
         : t('markdownEditorMathDialogDescription');
 
   const submit = useCallback(() => {
-    const nextTitle = title.trim();
-    const nextContent = content.trim();
+    const nextTitle = title;
+    const nextContent = content;
     const nextLatex = latex.trim();
 
     if (isMath && !nextLatex) {
       setError(t('markdownEditorFormulaRequired'));
       return;
     }
-    if (seed.kind === 'footnote' && !nextContent) {
+    if (seed.kind === 'footnote' && !nextContent.trim()) {
       setError(t('markdownEditorFootnoteRequired'));
       return;
     }
@@ -3518,14 +3518,14 @@ function MarkdownRichBlockDialog({
     if (seed.kind === 'callout') {
       onSubmit({
         kind: 'callout',
-        title: nextTitle || t('markdownEditorCommands.callout.title'),
+        title: nextTitle.trim() ? nextTitle : t('markdownEditorCommands.callout.title'),
         calloutType,
         content: nextContent,
       });
     } else if (seed.kind === 'details') {
       onSubmit({
         kind: 'details',
-        title: nextTitle || t('markdownEditorCommands.details.title'),
+        title: nextTitle.trim() ? nextTitle : t('markdownEditorCommands.details.title'),
         content: nextContent,
         open: detailsOpen,
       });
@@ -3636,6 +3636,7 @@ function MarkdownRichBlockDialog({
           {seed.kind === 'footnote' ? (
             <div className="grid gap-2">
               <Label htmlFor="markdown-footnote-content">{t('markdownEditorFootnoteContentLabel')}</Label>
+              <p className="text-xs text-muted-foreground">{t('markdownEditorFootnoteMarkdownHint')}</p>
               <Textarea
                 autoFocus
                 id="markdown-footnote-content"
@@ -4829,7 +4830,7 @@ function RichMarkdownEditor({
           kind,
           footnoteId,
           nodeTarget,
-          initialContent: definition?.textContent ?? '',
+          initialContent: definition ? richBlockContentMarkdown(targetEditor, definition) ?? '' : '',
         }));
         return;
       }
@@ -5079,10 +5080,7 @@ function RichMarkdownEditor({
       if (seed.footnoteId) {
         applied = updateFootnoteDefinition(editor, position!, submission.content);
       } else {
-        applied = editor.chain().focus().insertMarkdownFootnote({
-          content: submission.content,
-          range: range!,
-        }).run();
+        applied = insertRichFootnoteAtRange(editor, submission.content, range!);
       }
     } else if (seed.nodeTarget !== undefined) {
       if (submission.kind === 'inlineMath') {

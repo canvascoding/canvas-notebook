@@ -1,4 +1,6 @@
 import type { Editor, Range } from '@tiptap/core';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
+import { preserveAlignedStableIds, stableIdCounts } from './rich-node-identities';
 import { isEditorPositionInsideDoc, isEditorRangeInsideDoc } from './prosemirror-ranges';
 
 export function replaceRichBlockTitle(
@@ -21,13 +23,13 @@ export function replaceRichBlockTitle(
   const titleNodeType = editor.schema.nodes[titleType];
   const content = title ? editor.schema.text(title) : undefined;
 
-  if (currentTitle) {
+  if (currentTitle && currentTitle.textContent !== title) {
     transaction.replaceWith(
       position + 1,
       position + 1 + currentTitle.nodeSize,
       currentTitle.type.create(currentTitle.attrs, content),
     );
-  } else if (titleNodeType) {
+  } else if (!currentTitle && titleNodeType) {
     transaction.insert(position + 1, titleNodeType.create(null, content));
   }
 
@@ -41,20 +43,12 @@ export function updateFootnoteDefinition(editor: Editor, position: number, conte
   const definition = editor.state.doc.nodeAt(position);
   if (!definition || definition.type.name !== 'markdownFootnoteDefinition') return false;
 
-  const firstBlock = definition.firstChild;
-  const paragraphType = editor.schema.nodes.paragraph;
-  if (!paragraphType) return false;
-
-  const paragraph = paragraphType.create(
-    firstBlock?.type.name === 'paragraph' ? firstBlock.attrs : null,
-    content ? editor.schema.text(content) : undefined,
-  );
-  const transaction = editor.state.tr;
-  if (firstBlock) {
-    transaction.replaceWith(position + 1, position + 1 + firstBlock.nodeSize, paragraph);
-  } else {
-    transaction.insert(position + 1, paragraph);
-  }
+  const parsed = parseFootnoteContent(editor, content);
+  if (!parsed) return false;
+  const next = { ...definition.toJSON(), content: parsed.content.toJSON() };
+  preserveAlignedStableIds(definition.toJSON(), next, stableIdCounts(editor.state.doc.toJSON()));
+  const replacement = editor.schema.nodeFromJSON(next);
+  const transaction = editor.state.tr.replaceWith(position + 1, position + definition.nodeSize - 1, replacement.content);
   editor.view.dispatch(transaction.scrollIntoView());
   return true;
 }
@@ -70,4 +64,33 @@ export function insertMathAtRange(
   return kind === 'inlineMath'
     ? chain.insertInlineMath({ latex, pos: range.from }).run()
     : chain.insertBlockMath({ latex, pos: range.from }).run();
+}
+
+/** The draft is Markdown so multiple blocks and inline formatting remain editable. */
+export function richBlockContentMarkdown(editor: Editor, node: ProseMirrorNode): string | null {
+  if (!editor.markdown) return null;
+  return editor.markdown.serialize({ type: 'doc', content: node.content.toJSON() });
+}
+
+function parseFootnoteContent(editor: Editor, markdown: string): ProseMirrorNode | null {
+  if (!editor.markdown) return null;
+  try {
+    const parsed = editor.schema.nodeFromJSON(editor.markdown.parse(markdown));
+    parsed.check();
+    return parsed;
+  } catch { return null; }
+}
+
+export function insertRichFootnoteAtRange(editor: Editor, content: string, range: Range): boolean {
+  if (editor.isDestroyed || !editor.isEditable || editor.view.composing || !isEditorRangeInsideDoc(editor, range)) return false;
+  const parsed = parseFootnoteContent(editor, content);
+  if (!parsed) return false;
+  return editor.chain().focus().insertMarkdownFootnote({ content: '', range }).command(({ tr }) => {
+    // insertMarkdownFootnote appends its new definition in this same transaction.
+    const definition = tr.doc.lastChild;
+    if (definition?.type.name !== 'markdownFootnoteDefinition') return false;
+    const position = tr.doc.content.size - definition.nodeSize;
+    tr.replaceWith(position + 1, tr.doc.content.size - 1, parsed.content);
+    return true;
+  }).run();
 }

@@ -17,7 +17,7 @@ import { getReorderableBlockRangeAt, moveReorderableBlock } from '../app/lib/edi
 import { CanvasUniqueID } from '../app/lib/editor/canvas-unique-id';
 import { createEditorNodeTarget, createEditorRangeTarget, createEditorSelectionTarget, invalidateEditorTarget, resolveEditorNodeTarget, resolveEditorRangeTarget, resolveEditorSelectionTarget } from '../app/lib/editor/interaction-target';
 import { moveMarkdownTablePart } from '../app/lib/markdown/core/table-commands';
-import { insertMathAtRange, replaceRichBlockTitle, updateFootnoteDefinition } from '../app/lib/editor/rich-block-commands';
+import { insertMathAtRange, insertRichFootnoteAtRange, replaceRichBlockTitle, richBlockContentMarkdown, updateFootnoteDefinition } from '../app/lib/editor/rich-block-commands';
 import tableEdits from '../app/lib/markdown/core/table-command-fixtures.json';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
@@ -194,6 +194,73 @@ test('table insertion resolves its prepared range after movement and is independ
     assert.equal(validateRichMarkdownYDoc(doc).valid, true);
     editor.commands.undo();
     assert.deepEqual(texts(editor), ['AAA', 'CCC', 'BBB']);
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
+
+test('changing callout attributes preserves an unchanged formatted title', async () => {
+  const doc = createDocument('> [!note] **Title**\n> Body');
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    const original = editor.state.doc.firstChild!;
+    assert.equal(original.firstChild!.firstChild!.marks[0].type.name, 'bold');
+    assert.equal(replaceRichBlockTitle(editor, 0, 'canvasCallout', 'canvasCalloutTitle', 'Title', { calloutType: 'warning' }), true);
+    assert.ok(editor.state.doc.firstChild!.firstChild!.eq(original.firstChild!));
+    assert.ok(editor.state.doc.firstChild!.child(1).eq(original.child(1)));
+    assert.equal(editor.state.doc.firstChild!.attrs.calloutType, 'warning');
+    editor.commands.undo();
+    assert.ok(editor.state.doc.firstChild!.eq(original));
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
+
+test('footnote drafts preserve multiple paragraphs, lists, marks and unchanged child identities', async () => {
+  const doc = createDocument('AAA[^1]\n\n[^1]: **First** note.\n    \n    Second *paragraph*.\n    \n    - item\n    - another');
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    const original = editor.state.doc.lastChild!;
+    assert.equal(original.type.name, 'markdownFootnoteDefinition');
+    assert.equal(original.childCount, 3);
+    const position = editor.state.doc.content.size - original.nodeSize;
+    const draft = richBlockContentMarkdown(editor, original)!;
+    assert.match(draft, /\*\*First\*\*/);
+    assert.match(draft, /Second \*paragraph\*/);
+    assert.equal(updateFootnoteDefinition(editor, position, draft.replace('Second', 'Revised')), true);
+    const edited = editor.state.doc.nodeAt(position)!;
+    assert.equal(edited.childCount, 3, 'later paragraphs are not duplicated into the first one');
+    assert.ok(edited.child(0).eq(original.child(0)));
+    assert.equal(edited.child(1).attrs.id, original.child(1).attrs.id);
+    assert.equal(edited.child(1).textContent, 'Revised paragraph.');
+    assert.equal(edited.child(1).child(1).marks[0].type.name, 'italic');
+    assert.ok(edited.child(2).eq(original.child(2)));
+    assert.equal(validateRichMarkdownYDoc(doc).valid, true);
+    editor.commands.undo();
+    assert.ok(editor.state.doc.nodeAt(position)!.eq(original));
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
+
+test('a new Markdown footnote is inserted with its formatted body in one undo transaction', async () => {
+  const doc = createDocument();
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    assert.equal(insertRichFootnoteAtRange(editor, '**First**\n\nSecond *paragraph*', { from: 6, to: 9 }), true);
+    assert.deepEqual(errors, []);
+    const definitions: import('@tiptap/pm/model').Node[] = [];
+    editor.state.doc.descendants((node) => { if (node.type.name === 'markdownFootnoteDefinition') definitions.push(node); });
+    assert.equal(definitions.length, 1);
+    const definition = definitions[0];
+    assert.equal(definition.childCount, 2);
+    assert.equal(definition.child(0).firstChild!.marks[0].type.name, 'bold');
+    assert.equal(validateRichMarkdownYDoc(doc).valid, true);
+    editor.commands.undo();
+    assert.deepEqual(texts(editor), ['AAA', 'BBB', 'CCC']);
     assert.deepEqual(errors, []);
   } finally { editor.destroy(); doc.destroy(); }
 });
