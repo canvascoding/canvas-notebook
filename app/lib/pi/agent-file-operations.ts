@@ -1235,6 +1235,9 @@ async function commitTextChange(params: {
   const workspacePath = workspaceContext && isPathWithin(params.fullPath, workspaceContext.rootPath)
     ? workspaceRelativeAgentPath(workspaceContext, params.fullPath)
     : null;
+  const runtimeTempPath = executionContext
+    ? isAgentRuntimeTempPath(params.fullPath, executionContext)
+    : false;
   const baseRevision = workspaceContext && workspacePath && params.beforeBuffer
     ? await ensureFileRevisionForCurrentContent({
         workspace: workspaceContext,
@@ -1256,15 +1259,15 @@ async function commitTextChange(params: {
     });
   }
 
-  const snapshot = workspacePath
-    ? await createSnapshotFromBuffer({
-        inputPath: workspacePath,
+  const snapshot = runtimeTempPath
+    ? null
+    : await createSnapshotFromBuffer({
+        inputPath: workspacePath ?? params.inputPath,
         fullPath: params.fullPath,
         existed: params.beforeExisted,
         beforeBuffer: params.beforeBuffer,
         operation: params.operation,
-      })
-    : null;
+      });
 
   if (workspaceContext && workspacePath) {
     await writeWorkspaceFile(workspacePath, params.nextContent, { workspace: workspaceContext }, async () => {
@@ -1295,6 +1298,8 @@ async function commitTextChange(params: {
       sourceSessionId: executionContext?.sessionId ?? null,
       baseRevisionId: baseRevision?.id ?? null,
     });
+  }
+  if (!runtimeTempPath) {
     await syncPublicSharesAfterWrite([params.fullPath]);
   }
 
@@ -1424,6 +1429,9 @@ export async function writeAgentBinaryFile(params: {
     const workspacePath = workspaceContext && isPathWithin(fullPath, workspaceContext.rootPath)
       ? workspaceRelativeAgentPath(workspaceContext, fullPath)
       : null;
+    const runtimeTempPath = executionContext
+      ? isAgentRuntimeTempPath(fullPath, executionContext)
+      : false;
     const baseRevision = workspaceContext && workspacePath && before.buffer
       ? await ensureFileRevisionForCurrentContent({
           workspace: workspaceContext,
@@ -1445,15 +1453,15 @@ export async function writeAgentBinaryFile(params: {
       });
     }
 
-    const snapshot = workspacePath
-      ? await createSnapshotFromBuffer({
-          inputPath: workspacePath,
+    const snapshot = runtimeTempPath
+      ? null
+      : await createSnapshotFromBuffer({
+          inputPath: workspacePath ?? params.path,
           fullPath,
           existed: before.existed,
           beforeBuffer: before.buffer,
           operation,
-        })
-      : null;
+        });
     const stagingPath = path.join(
       path.dirname(fullPath),
       `.${path.basename(fullPath)}.canvas-agent-${randomUUID()}.tmp`,
@@ -1481,6 +1489,8 @@ export async function writeAgentBinaryFile(params: {
         sourceSessionId: executionContext?.sessionId ?? null,
         baseRevisionId: baseRevision?.id ?? null,
       });
+    }
+    if (!runtimeTempPath) {
       await syncPublicSharesAfterWrite([fullPath]);
     }
 
@@ -2543,14 +2553,18 @@ function findShellWriteRedirectTargets(command: string): string[] {
   return targets;
 }
 
-function shellRedirectWritesManagedPath(command: string, cdsIntoManagedPath: boolean): boolean {
+function shellRedirectWritesManagedPath(
+  command: string,
+  cdsIntoManagedPath: boolean,
+  workingDirectory?: 'temp' | 'workspace',
+): boolean {
   const targets = findShellWriteRedirectTargets(command);
   if (targets.length === 0) return false;
 
   return targets.some((target) => {
     if (isManagedDataPath(target)) return true;
     if (path.isAbsolute(target)) return false;
-    return cdsIntoManagedPath;
+    return cdsIntoManagedPath || workingDirectory === 'workspace';
   });
 }
 
@@ -2564,7 +2578,10 @@ function shellUsesMutatingGitCommand(command: string): boolean {
   return gitMutationPattern.test(command);
 }
 
-export function detectUnsafeBashCommand(command: string): string | null {
+export function detectUnsafeBashCommand(
+  command: string,
+  options: { workingDirectory?: 'temp' | 'workspace' } = {},
+): string | null {
   const secretPatterns = [
     /\b(?:env|printenv)\b/i,
     /\bdeclare\s+-x\b/i,
@@ -2608,11 +2625,14 @@ export function detectUnsafeBashCommand(command: string): string | null {
     return 'Unsafe in-place file edits with perl are blocked. Use edit_file or apply_patch instead.';
   }
 
-  if ((mentionsManagedPath || cdsIntoManagedPath) && /\btee\b/.test(normalized)) {
+  if ((mentionsManagedPath || cdsIntoManagedPath || options.workingDirectory === 'workspace') && /\btee\b/.test(normalized)) {
     return 'Shell file writes with tee in workspace or agent paths are blocked. Use write, edit_file, or apply_patch instead.';
   }
 
-  if ((mentionsManagedPath || cdsIntoManagedPath) && shellRedirectWritesManagedPath(normalized, cdsIntoManagedPath)) {
+  if (
+    (mentionsManagedPath || cdsIntoManagedPath || options.workingDirectory === 'workspace')
+    && shellRedirectWritesManagedPath(normalized, cdsIntoManagedPath, options.workingDirectory)
+  ) {
     return 'Shell redirects that write workspace or agent files are blocked. Use write, edit_file, or apply_patch instead.';
   }
 

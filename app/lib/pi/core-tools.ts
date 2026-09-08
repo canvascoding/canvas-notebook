@@ -3,8 +3,12 @@ import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
-import { filterSafeEnv } from '@/app/lib/security/env-allowlist';
-import { ensureAgentRuntimeTempDir, getAgentRuntimeTempEnv } from '@/app/lib/pi/agent-runtime-temp';
+import { ensureAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
+import {
+  buildAgentBashEnvironment,
+  resolveAgentBashWorkingDirectory,
+  type AgentBashWorkingDirectory,
+} from '@/app/lib/pi/agent-bash-runtime';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
@@ -609,24 +613,46 @@ export const piTools: AgentTool[] = [
   {
     name: 'bash',
     label: 'Executing command',
-    description: 'Executes an inspection-oriented bash command from the workspace bound to the current chat session. Do not use this for file mutations; use write, edit_file, apply_patch, copy_path, move_path, or delete_path so workspace permissions, revisions, and audit logs are enforced.',
+    description: 'Executes a command for inspection or code execution. Commands default to the private session temp directory; select workspace only when a command must inspect workspace-relative inputs. Keep generated code and intermediate output in temp. Do not mutate workspace files from Bash; promote only final artifacts with copy_path or move_path so workspace permissions, revisions, and audit logs are enforced.',
     parameters: Type.Object({
       command: Type.String({ description: 'The command to execute.' }),
+      workingDirectory: Type.Optional(Type.Union([
+        Type.Literal('temp'),
+        Type.Literal('workspace'),
+      ], { description: 'Execution directory. Defaults to the private session temp directory. Use workspace only for workspace-relative inspection.' })),
     }),
     execute: async (toolCallId, params, signal) => {
-      const { command } = params as { command: string };
+      const { command, workingDirectory: requestedWorkingDirectory } = params as {
+        command: string;
+        workingDirectory?: AgentBashWorkingDirectory;
+      };
       const startedAt = Date.now();
+      let workingDirectory: AgentBashWorkingDirectory | null = null;
+      let cwd: string | null = null;
       try {
         throwIfAborted(signal);
-        assertBashCommandAllowed(command);
         const executionContext = getAgentExecutionContext();
-        const safeEnv = filterSafeEnv(process.env) as NodeJS.ProcessEnv;
+        workingDirectory = resolveAgentBashWorkingDirectory(
+          requestedWorkingDirectory,
+          Boolean(executionContext),
+        );
+        const workspaceDir = getAgentWorkspaceRoot();
+        let tempDir: string | null = null;
         if (executionContext) {
-          const tempDir = await ensureAgentRuntimeTempDir(executionContext);
-          Object.assign(safeEnv, getAgentRuntimeTempEnv(tempDir));
+          tempDir = await ensureAgentRuntimeTempDir(executionContext);
         }
+        cwd = workingDirectory === 'temp' ? tempDir : workspaceDir;
+        if (!cwd) {
+          throw new Error('The private session temp directory is unavailable without an execution context.');
+        }
+        assertBashCommandAllowed(command, { workingDirectory });
+        const safeEnv = buildAgentBashEnvironment({
+          sourceEnv: process.env,
+          workspaceDir,
+          tempDir,
+        });
         const { stdout, stderr } = await execAsync(command, {
-          cwd: getAgentWorkspaceRoot(),
+          cwd,
           env: safeEnv,
           signal,
         });
@@ -637,11 +663,13 @@ export const piTools: AgentTool[] = [
           stdout,
           stderr,
           exitCode: 0,
+          workingDirectory,
+          cwd,
         });
         const output = [stdout, stderr].filter(Boolean).join('\n');
         return {
           content: [{ type: 'text', text: output || '(no output)' }],
-          details: { stdout, stderr },
+          details: { stdout, stderr, workingDirectory, cwd },
         };
       } catch (error: unknown) {
         if (isAbortError(error, signal)) {
@@ -650,10 +678,12 @@ export const piTools: AgentTool[] = [
             status: 'error',
             durationMs: Date.now() - startedAt,
             error: 'Tool execution aborted.',
+            workingDirectory,
+            cwd,
           });
           return {
             content: [{ type: 'text', text: 'Error: Tool execution aborted.' }],
-            details: { error: 'Tool execution aborted.' },
+            details: { error: 'Tool execution aborted.', workingDirectory, cwd },
           };
         }
         const execError = asCommandExecutionError(error);
@@ -666,10 +696,12 @@ export const piTools: AgentTool[] = [
           stderr: execError.stderr,
           error: execError.message,
           exitCode: execError.code ?? null,
+          workingDirectory,
+          cwd,
         });
         return {
           content: [{ type: 'text', text: output }],
-          details: { error: execError.message, stdout: execError.stdout, stderr: execError.stderr },
+          details: { error: execError.message, stdout: execError.stdout, stderr: execError.stderr, workingDirectory, cwd },
         };
       }
     },

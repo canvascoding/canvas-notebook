@@ -45,6 +45,7 @@ import { runWithAgentExecutionContext, type AgentExecutionContext } from '@/app/
 import { createBrowserGatewayTool, type BrowserToolMode } from '@/app/lib/pi/browser/tool';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { hashAuditValue, recordAuditEvent, type AuditStatus } from '@/app/lib/audit/audit-service';
+import type { AgentBashWorkingDirectory } from '@/app/lib/pi/agent-bash-runtime';
 
 export const execAsync = promisify(exec);
 
@@ -55,8 +56,11 @@ export class BlockedBashCommandError extends Error {
   }
 }
 
-export function assertBashCommandAllowed(command: string): void {
-  const blockedReason = detectUnsafeBashCommand(command);
+export function assertBashCommandAllowed(
+  command: string,
+  options: { workingDirectory?: AgentBashWorkingDirectory } = {},
+): void {
+  const blockedReason = detectUnsafeBashCommand(command, options);
   if (blockedReason) {
     throw new BlockedBashCommandError(blockedReason);
   }
@@ -95,6 +99,8 @@ export async function recordBashToolAudit(input: {
   stderr?: string;
   error?: string;
   exitCode?: string | number | null;
+  workingDirectory?: AgentBashWorkingDirectory | null;
+  cwd?: string | null;
 }) {
   const executionContext = getAgentExecutionContext();
   if (!executionContext) return;
@@ -123,6 +129,8 @@ export async function recordBashToolAudit(input: {
       stdoutBytes: Buffer.byteLength(input.stdout ?? '', 'utf8'),
       stderrBytes: Buffer.byteLength(input.stderr ?? '', 'utf8'),
       error: input.error ? input.error.slice(0, 500) : null,
+      workingDirectory: input.workingDirectory ?? null,
+      cwd: input.cwd ?? null,
       workspace: {
         workspaceId: executionContext.workspaceId,
         workspaceType: executionContext.workspaceType,

@@ -214,6 +214,10 @@ async function main() {
   assert.ok(pdfToMarkdownTool);
   assert.ok(splitPdfTool);
   assert.ok(editPdfPagesTool);
+  const bashParametersJson = JSON.stringify(bashTool.parameters);
+  assert.match(bashParametersJson, /workingDirectory/);
+  assert.match(bashParametersJson, /temp/);
+  assert.match(bashParametersJson, /workspace/);
   const browserParametersJson = JSON.stringify(browserTool.parameters);
   assert.match(browserParametersJson, /evaluate/);
   assert.match(browserParametersJson, /eval/);
@@ -653,14 +657,53 @@ async function main() {
     legacy: false,
   };
   const expectedRuntimeTempDir = resolveAgentRuntimeTempDir(bashExecutionContext);
+  await fs.mkdir(expectedRuntimeTempDir, { recursive: true });
+  const expectedRuntimeTempRealDir = await fs.realpath(expectedRuntimeTempDir);
+  const workspaceRealDir = await fs.realpath(workspaceDir);
+  const bashDefaultCwdResult = await runWithAgentExecutionContext(bashExecutionContext, () => bashTool.execute('bash-runtime-temp-default-cwd', {
+    command: 'node -p "process.cwd()"',
+  }));
+  assert.equal(getText(bashDefaultCwdResult).trim(), expectedRuntimeTempRealDir);
+  assert.equal((bashDefaultCwdResult.details as { workingDirectory?: string }).workingDirectory, 'temp');
+  assert.equal((bashDefaultCwdResult.details as { cwd?: string }).cwd, expectedRuntimeTempDir);
+
+  const bashWorkspaceCwdResult = await runWithAgentExecutionContext(bashExecutionContext, () => bashTool.execute('bash-runtime-workspace-cwd', {
+    command: 'node -p "process.cwd()"',
+    workingDirectory: 'workspace',
+  }));
+  assert.equal(getText(bashWorkspaceCwdResult).trim(), workspaceRealDir);
+  assert.equal((bashWorkspaceCwdResult.details as { workingDirectory?: string }).workingDirectory, 'workspace');
+  assert.equal((bashWorkspaceCwdResult.details as { cwd?: string }).cwd, workspaceDir);
+
+  const bashWorkspaceRedirectResult = await runWithAgentExecutionContext(bashExecutionContext, () => bashTool.execute('bash-runtime-workspace-relative-redirect', {
+    command: 'printf broken > workspace-relative.txt',
+    workingDirectory: 'workspace',
+  }));
+  assert.match(getText(bashWorkspaceRedirectResult), /workspace|write|redirect/i);
+  await assert.rejects(fs.stat(path.join(workspaceDir, 'workspace-relative.txt')));
+
   const bashTempResult = await runWithAgentExecutionContext(bashExecutionContext, () => bashTool.execute('bash-runtime-temp', {
-    command: 'node -e "const fs=require(\'fs\'); const path=require(\'path\'); const e=process[\'e\'+\'nv\']; const dir=e.CANVAS_AGENT_TEMP_DIR; fs.writeFileSync(path.join(dir, \'runtime.txt\'), e.TMPDIR + \'\\n\' + e.PYTHONPYCACHEPREFIX); process.stdout.write(dir);"',
+    command: 'node -e "const fs=require(\'fs\'); const path=require(\'path\'); const e=process[\'e\'+\'nv\']; const dir=e.CANVAS_AGENT_TEMP_DIR; fs.writeFileSync(\'runtime.txt\', e.TMPDIR + \'\\n\' + e.PYTHONPYCACHEPREFIX + \'\\n\' + e.CANVAS_WORKSPACE_DIR); process.stdout.write(dir);"',
   }));
   assert.equal(getText(bashTempResult), expectedRuntimeTempDir);
   assert.equal(
     await fs.readFile(path.join(expectedRuntimeTempDir, 'runtime.txt'), 'utf8'),
-    `${expectedRuntimeTempDir}\n${path.join(expectedRuntimeTempDir, '__pycache__')}`,
+    `${expectedRuntimeTempDir}\n${path.join(expectedRuntimeTempDir, '__pycache__')}\n${workspaceDir}`,
   );
+
+  process.env.CANVAS_UNEXPECTED_SECRET_SENTINEL = 'must-not-reach-agent-bash';
+  const bashStrictEnvResult = await runWithAgentExecutionContext(bashExecutionContext, () => bashTool.execute('bash-runtime-strict-env', {
+    command: 'node -e "const e=process[\'e\'+\'nv\']; process.stdout.write(JSON.stringify({sentinel:e.CANVAS_UNEXPECTED_SECRET_SENTINEL||null,home:e.HOME,cache:e.XDG_CACHE_HOME}));"',
+  }));
+  delete process.env.CANVAS_UNEXPECTED_SECRET_SENTINEL;
+  const bashStrictEnv = JSON.parse(getText(bashStrictEnvResult)) as {
+    sentinel: string | null;
+    home: string;
+    cache: string;
+  };
+  assert.equal(bashStrictEnv.sentinel, null);
+  assert.equal(bashStrictEnv.home, path.join(expectedRuntimeTempDir, 'home'));
+  assert.equal(bashStrictEnv.cache, path.join(expectedRuntimeTempDir, 'cache'));
 
   const loopGuard = createToolLoopGuard({ warningThreshold: 2, terminationThreshold: 3 });
   const emptyUsage = {
