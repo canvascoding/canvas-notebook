@@ -7,6 +7,7 @@ import { generateUniqueIds } from '@tiptap/extension-unique-id';
 import * as Y from 'yjs';
 
 import { useEditorRangeTarget } from '../app/hooks/use-editor-range-target';
+import { useEditorToolbarTarget } from '../app/hooks/use-editor-toolbar-target';
 import { MarkdownUrlPaste, type PastedMarkdownLink } from '../app/components/editor/MarkdownUrlPaste';
 import { resolveEditorRangeTarget } from '../app/lib/editor/interaction-target';
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
@@ -82,12 +83,54 @@ async function main() {
       tree.move({ blockId: tree.read().child(1).attrs.id, parentId: null, beforeId: null, operationId: 'move-pasted-link' }, 'peer');
       assert.deepEqual(resolveEditorRangeTarget(a, link.target), { from: 11, to: 14 });
     } finally { await act(async () => pasteRoot.unmount()); }
+    await toolbarLifecycle(a, b, doc, container);
     assert.deepEqual(errors, []);
     console.log('Dialog lifecycle: StrictMode, close, editor replacement, retained callbacks and URL-paste target capture passed.');
   } finally {
     if (!unmounted) await act(async () => { root.unmount(); });
     a.destroy(); b.destroy(); doc.destroy(); container.remove(); dom.window.close();
   }
+}
+
+async function toolbarLifecycle(a: Editor, b: Editor, doc: Y.Doc, container: HTMLElement) {
+  const root = createRoot(container);
+  let controls: ReturnType<typeof useEditorToolbarTarget> | undefined;
+  function Toolbar({ editor }: { editor: Editor }) {
+    const target = useEditorToolbarTarget(editor);
+    useEffect(() => { controls = target; }, [target]);
+    return null;
+  }
+  let unmounted = false;
+  try {
+    a.commands.setTextSelection({ from: 11, to: 14 });
+    await act(async () => root.render(<StrictMode><Toolbar editor={a} /></StrictMode>));
+    const retained = controls!;
+    retained.hold();
+    const tree = new CollaborationBlockTree(doc, a.schema);
+    const id = tree.read().child(2).attrs.id;
+    tree.move({ blockId: id, parentId: null, beforeId: tree.read().child(0).attrs.id, operationId: 'toolbar-move' }, 'peer');
+    retained.hold(); // A sheet tile's second press must not recapture a mapped selection.
+    assert.deepEqual(retained.restore(), { from: 1, to: 4 });
+    assert.equal(a.state.doc.textBetween(a.state.selection.from, a.state.selection.to), 'BBB');
+    (tree.content(id).get(0) as Y.XmlText).insert(1, 'NEW');
+    assert.equal(retained.restore(), null, 'a transaction does not replace the held target with changed text');
+    retained.release();
+    a.commands.setTextSelection(2);
+    retained.hold();
+    a.setEditable(false);
+    assert.equal(retained.restore(), null);
+    a.setEditable(true);
+    assert.deepEqual(retained.restore(), { from: 2, to: 2 });
+    a.commands.deleteRange({ from: 0, to: a.state.doc.child(0).nodeSize });
+    assert.equal(retained.restore(), null, 'deleting the held block never falls back to its neighbour');
+    await act(async () => root.render(<StrictMode><Toolbar editor={b} /></StrictMode>));
+    assert.equal(retained.restore(), null, 'the previous view cannot dispatch through its retained toolbar callback');
+    const latest = controls!;
+    await act(async () => root.unmount());
+    unmounted = true;
+    assert.equal(latest.restore(), null);
+    console.log('Toolbar target: move, second press, changed text, read-only, deletion and retained view callbacks passed.');
+  } finally { if (!unmounted) await act(async () => root.unmount()); }
 }
 
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

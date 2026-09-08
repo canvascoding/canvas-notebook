@@ -213,6 +213,7 @@ import { ObsidianInlineFootnoteExtension } from './ObsidianInlineFootnoteExtensi
 import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '@/app/lib/collaboration/rich-editor-extensions';
 import { BlockTreePlacementNotice } from '@/app/lib/collaboration/block-tree-editor';
 import { useEditorRangeTarget } from '@/app/hooks/use-editor-range-target';
+import { useEditorToolbarTarget } from '@/app/hooks/use-editor-toolbar-target';
 import { createEditorRangeTarget, resolveEditorRangeTarget, type EditorRangeTarget } from '@/app/lib/editor/interaction-target';
 import {
   useCollaborationDocument,
@@ -4463,33 +4464,21 @@ function MobileMarkdownToolbar({
     text: '',
     canEditText: true,
   });
-  const savedRangeRef = useRef<Range | null>(null);
+  const { hold: holdSelection, release: releaseSelection, restore: restoreSelection } = useEditorToolbarTarget(editor);
   const releaseInteractionTimeoutRef = useRef<number | null>(null);
   const [isInteractingWithToolbar, setIsInteractingWithToolbar] = useState(false);
   const canUseCommands = Boolean(editor?.isEditable);
   const toolbarState = useMarkdownToolbarState(editor);
   const portalElement = getBodyPortalElement();
 
-  const saveCurrentRange = useCallback(() => {
-    if (!editor) {
-      savedRangeRef.current = null;
-      return null;
-    }
-
-    const { from, to } = editor.state.selection;
-    const range = { from, to };
-    savedRangeRef.current = range;
-    return range;
-  }, [editor]);
-
   const holdToolbarVisibility = useCallback(() => {
-    saveCurrentRange();
+    holdSelection();
     if (releaseInteractionTimeoutRef.current !== null) {
       window.clearTimeout(releaseInteractionTimeoutRef.current);
       releaseInteractionTimeoutRef.current = null;
     }
     setIsInteractingWithToolbar(true);
-  }, [saveCurrentRange]);
+  }, [holdSelection]);
 
   const releaseToolbarVisibility = useCallback(() => {
     if (releaseInteractionTimeoutRef.current !== null) {
@@ -4517,56 +4506,31 @@ function MobileMarkdownToolbar({
   }, [keyboardActive]);
 
   useEffect(() => {
-    if (!editor) {
-      savedRangeRef.current = null;
-      return undefined;
-    }
-
-    const updateSavedRange = () => {
-      if (!editor.isEditable) return;
-      saveCurrentRange();
-    };
-
-    updateSavedRange();
-    editor.on('focus', updateSavedRange);
-    editor.on('selectionUpdate', updateSavedRange);
-    editor.on('transaction', updateSavedRange);
-
-    return () => {
-      editor.off('focus', updateSavedRange);
-      editor.off('selectionUpdate', updateSavedRange);
-      editor.off('transaction', updateSavedRange);
-    };
-  }, [editor, saveCurrentRange]);
+    if (!sheet && !isInteractingWithToolbar) releaseSelection();
+  }, [sheet, isInteractingWithToolbar, releaseSelection]);
 
   const restoreSavedRange = useCallback(() => {
-    if (!editor) return null;
-    const range = savedRangeRef.current ?? {
-      from: editor.state.selection.from,
-      to: editor.state.selection.to,
-    };
-    const safeRange = clampEditorRangeToDoc(editor, range);
-    if (!safeRange) return null;
-
-    editor.chain().focus().setTextSelection(safeRange).run();
-    return safeRange;
-  }, [editor]);
+    holdSelection();
+    const range = restoreSelection();
+    if (!range) toast.error(t('markdownEditorInteractionTargetChanged'));
+    return range;
+  }, [holdSelection, restoreSelection, t]);
 
   const openSheet = useCallback((nextSheet: Exclude<MobileMarkdownSheet, null>) => {
-    saveCurrentRange();
+    holdSelection();
     setSheet((current) => current === nextSheet ? null : nextSheet);
-  }, [saveCurrentRange]);
+  }, [holdSelection]);
 
   const runInlineCommand = useCallback((command: (editor: MarkdownEditorWithMarkdown) => void) => {
-    if (!editor) return;
-    restoreSavedRange();
+    if (!editor || !restoreSavedRange()) return;
     command(editor);
-  }, [editor, restoreSavedRange]);
+    releaseSelection();
+  }, [editor, releaseSelection, restoreSavedRange]);
 
   const openLinkDialog = useCallback(() => {
     if (!editor) return;
+    if (!restoreSavedRange()) return;
     const selectedWorkspaceLink = getActiveWorkspaceWikiLink(editor);
-    if (!selectedWorkspaceLink) restoreSavedRange();
     const activeLink = getActiveLinkDetails(editor);
     const activeWorkspaceLink = selectedWorkspaceLink ?? getActiveWorkspaceWikiLink(editor);
     const target = createEditorRangeTarget(editor, activeWorkspaceLink?.range ?? activeLink?.range ?? editor.state.selection);
@@ -4579,11 +4543,13 @@ function MobileMarkdownToolbar({
     }));
     setSheet(null);
     setLinkDialogOpen(true);
-  }, [editor, restoreSavedRange]);
+    releaseSelection();
+  }, [editor, releaseSelection, restoreSavedRange]);
 
   const runCommandItem = useCallback((item: SlashCommandItem) => {
     if (!editor) return;
-    const range = restoreSavedRange() ?? { from: editor.state.selection.from, to: editor.state.selection.to };
+    const range = restoreSavedRange();
+    if (!range) return;
     setSheet(null);
     item.command({
       actions,
@@ -4591,7 +4557,14 @@ function MobileMarkdownToolbar({
       labels,
       range,
     });
-  }, [actions, editor, labels, restoreSavedRange]);
+    releaseSelection();
+  }, [actions, editor, labels, releaseSelection, restoreSavedRange]);
+
+  const runHistoryCommand = useCallback((direction: 'undo' | 'redo') => {
+    if (!editor || editor.isDestroyed || !editor.isEditable || editor.view.composing) return;
+    editor.chain().focus()[direction]().run();
+    releaseSelection();
+  }, [editor, releaseSelection]);
 
   const commandItems = useMemo(() => getLocalizedSlashCommandItems(labels), [labels]);
   const blockItems = useMemo(
@@ -4689,9 +4662,10 @@ function MobileMarkdownToolbar({
           label={labels.items.emoji.title}
           disabled={!canUseCommands}
           onClick={() => {
-            const range = restoreSavedRange() ?? saveCurrentRange();
+            const range = restoreSavedRange();
+            if (!range) return;
             setSheet(null);
-            onOpenEmojiDialog(range ?? undefined);
+            onOpenEmojiDialog(range);
           }}
         >
           <SmilePlus className="h-5 w-5" />
@@ -4719,17 +4693,18 @@ function MobileMarkdownToolbar({
           label={labels.items.image.title}
           disabled={!canUseCommands}
           onClick={() => {
-            const range = restoreSavedRange() ?? saveCurrentRange();
+            const range = restoreSavedRange();
+            if (!range) return;
             setSheet(null);
-            onImageDialogOpenChange(true, range ?? undefined);
+            onImageDialogOpenChange(true, range);
           }}
         >
           <ImageIcon className="h-5 w-5" />
         </MobileToolbarButton>
-        <MobileToolbarButton label={t('markdownEditorMobileUndo')} disabled={!canUseCommands || !toolbarState.canUndo} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().undo().run())}>
+        <MobileToolbarButton label={t('markdownEditorMobileUndo')} disabled={!canUseCommands || !toolbarState.canUndo} onClick={() => runHistoryCommand('undo')}>
           <Undo2 className="h-5 w-5" />
         </MobileToolbarButton>
-        <MobileToolbarButton label={t('markdownEditorMobileRedo')} disabled={!canUseCommands || !toolbarState.canRedo} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().redo().run())}>
+        <MobileToolbarButton label={t('markdownEditorMobileRedo')} disabled={!canUseCommands || !toolbarState.canRedo} onClick={() => runHistoryCommand('redo')}>
           <Redo2 className="h-5 w-5" />
         </MobileToolbarButton>
         <MobileToolbarButton label={labels.items.codeBlock.title} active={toolbarState.isCodeBlock} disabled={!canUseCommands} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().toggleCodeBlock().run())}>
@@ -4740,6 +4715,7 @@ function MobileMarkdownToolbar({
           disabled={!canUseCommands}
           onClick={() => {
             const range = restoreSavedRange();
+            if (!range) return;
             setSheet(null);
             onOpenTableDialog(range);
           }}

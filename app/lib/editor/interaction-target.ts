@@ -1,6 +1,7 @@
 import type { Editor, Range } from '@tiptap/core';
 import type { Slice } from '@tiptap/pm/model';
-import { TextSelection } from '@tiptap/pm/state';
+import { AllSelection, NodeSelection, Selection, TextSelection } from '@tiptap/pm/state';
+import { CellSelection } from '@tiptap/pm/tables';
 
 import { createBlockReference, resolveBlockReference, type BlockReference } from './block-reference';
 import type { BlockTreeSelection } from '../collaboration/block-tree-anchors';
@@ -85,4 +86,57 @@ export function resolveEditorNodeTarget(editor: Editor, target: EditorNodeTarget
 
 export function invalidateEditorTarget(target: TargetLifetime | null | undefined): void {
   if (target) target.active = false;
+}
+
+export type EditorSelectionTarget =
+  | { kind: 'text'; range: EditorRangeTarget; backward: boolean }
+  | { kind: 'node'; node: EditorNodeTarget }
+  | { kind: 'cells'; anchor: EditorNodeTarget; head: EditorNodeTarget; cells: EditorNodeTarget[] }
+  | { kind: 'all'; range: EditorRangeTarget };
+
+/** Toolbars preserve the selection kind as well as its stable target. */
+export function createEditorSelectionTarget(editor: Editor): EditorSelectionTarget | null {
+  if (!writable(editor)) return null;
+  const selection = editor.state.selection;
+  if (selection instanceof NodeSelection) {
+    const node = createEditorNodeTarget(editor, selection.from);
+    return node ? { kind: 'node', node } : null;
+  }
+  if (selection instanceof CellSelection) {
+    const anchor = createEditorNodeTarget(editor, selection.$anchorCell.pos);
+    const head = createEditorNodeTarget(editor, selection.$headCell.pos);
+    const cells: Array<EditorNodeTarget | null> = [];
+    selection.forEachCell((_cell, position) => cells.push(createEditorNodeTarget(editor, position)));
+    return anchor && head && cells.every((cell): cell is EditorNodeTarget => cell !== null)
+      ? { kind: 'cells', anchor, head, cells } : null;
+  }
+  const range = createEditorRangeTarget(editor, selection);
+  if (!range) return null;
+  if (selection instanceof AllSelection) return { kind: 'all', range };
+  return selection instanceof TextSelection ? { kind: 'text', range, backward: selection.anchor > selection.head } : null;
+}
+
+export function resolveEditorSelectionTarget(editor: Editor, target: EditorSelectionTarget | null): Selection | null {
+  if (!target) return null;
+  const doc = editor.state.doc;
+  if (target.kind === 'node') {
+    const position = resolveEditorNodeTarget(editor, target.node);
+    return position !== null && NodeSelection.isSelectable(doc.nodeAt(position)!) ? NodeSelection.create(doc, position) : null;
+  }
+  if (target.kind === 'cells') {
+    const anchor = resolveEditorNodeTarget(editor, target.anchor);
+    const head = resolveEditorNodeTarget(editor, target.head);
+    const expected = target.cells.map((cell) => resolveEditorNodeTarget(editor, cell));
+    if (anchor === null || head === null || expected.includes(null)) return null;
+    try {
+      const selection = CellSelection.create(doc, anchor, head);
+      const actual: number[] = [];
+      selection.forEachCell((_cell, position) => actual.push(position));
+      return actual.length === expected.length && actual.every((position) => expected.includes(position)) ? selection : null;
+    } catch { return null; }
+  }
+  const range = resolveEditorRangeTarget(editor, target.range);
+  if (!range) return null;
+  if (target.kind === 'all') return range.from === 0 && range.to === doc.content.size ? new AllSelection(doc) : null;
+  return TextSelection.create(doc, target.backward ? range.to : range.from, target.backward ? range.from : range.to);
 }

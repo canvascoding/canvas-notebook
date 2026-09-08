@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import { Editor, getSchema } from '@tiptap/core';
 import { initProseMirrorDoc } from '@tiptap/y-tiptap';
 import { CellSelection } from '@tiptap/pm/tables';
+import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import * as Y from 'yjs';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
 
@@ -14,7 +15,7 @@ import { BlockTreePlacementNotice } from '../app/lib/collaboration/block-tree-ed
 import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '../app/lib/collaboration/rich-editor-extensions';
 import { getReorderableBlockRangeAt, moveReorderableBlock } from '../app/lib/editor/reorderable-blocks';
 import { CanvasUniqueID } from '../app/lib/editor/canvas-unique-id';
-import { createEditorNodeTarget, createEditorRangeTarget, invalidateEditorTarget, resolveEditorNodeTarget, resolveEditorRangeTarget } from '../app/lib/editor/interaction-target';
+import { createEditorNodeTarget, createEditorRangeTarget, createEditorSelectionTarget, invalidateEditorTarget, resolveEditorNodeTarget, resolveEditorRangeTarget, resolveEditorSelectionTarget } from '../app/lib/editor/interaction-target';
 import { moveMarkdownTablePart } from '../app/lib/markdown/core/table-commands';
 import tableEdits from '../app/lib/markdown/core/table-command-fixtures.json';
 
@@ -24,6 +25,49 @@ for (const key of ['window', 'document', 'DOMParser', 'navigator', 'Node', 'HTML
 }
 
 const schema = getSchema(richMarkdownCodecExtensions());
+
+test('toolbar targets retain backward text, node and exact table cell selections through moves', async () => {
+  const doc = createDocument('AAA\n\nBBB\n\n| A | B |\n| --- | --- |\n| one | two |');
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    const tree = new CollaborationBlockTree(doc, schema);
+    editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, 9, 6)));
+    const text = createEditorSelectionTarget(editor);
+    tree.move({ blockId: editor.state.doc.child(1).attrs.id, parentId: null, beforeId: editor.state.doc.child(0).attrs.id, operationId: 'backward-move' }, 'peer');
+    const backward = resolveEditorSelectionTarget(editor, text)!;
+    assert.equal(backward.anchor, 4);
+    assert.equal(backward.head, 1);
+    editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, 0)));
+    const node = createEditorSelectionTarget(editor);
+    tree.move({ blockId: editor.state.doc.child(0).attrs.id, parentId: null, beforeId: null, operationId: 'node-move' }, 'peer');
+    const nodeSelection = resolveEditorSelectionTarget(editor, node);
+    assert.ok(nodeSelection instanceof NodeSelection);
+    assert.equal(nodeSelection.node.textContent, 'BBB');
+    assert.equal(nodeSelection.from, editor.state.doc.content.size - 5);
+    const positions: number[] = [];
+    editor.state.doc.descendants((child, from) => { if (child.type.spec.tableRole === 'cell') positions.push(from); });
+    editor.view.dispatch(editor.state.tr.setSelection(CellSelection.create(editor.state.doc, positions[0], positions[1])));
+    const cells = createEditorSelectionTarget(editor);
+    const originalIds: string[] = [];
+    (editor.state.selection as CellSelection).forEachCell((cell) => originalIds.push(cell.attrs.id));
+    tree.move({ blockId: editor.state.doc.child(1).attrs.id, parentId: null, beforeId: null, operationId: 'table-move-again' }, 'peer');
+    const restored = resolveEditorSelectionTarget(editor, cells);
+    assert.ok(restored instanceof CellSelection);
+    const restoredIds: string[] = [];
+    restored.forEachCell((cell) => restoredIds.push(cell.attrs.id));
+    assert.deepEqual(restoredIds, originalIds);
+    editor.view.dispatch(editor.state.tr.setSelection(restored));
+    editor.commands.addColumnAfter();
+    // The range remains the same exact cells if a column is added outside it.
+    assert.ok(resolveEditorSelectionTarget(editor, cells) instanceof CellSelection);
+    editor.commands.setTextSelection(position(editor, 'one'));
+    editor.view.dispatch(editor.state.tr.insertText('changed'));
+    assert.equal(resolveEditorSelectionTarget(editor, cells), null);
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
 
 function createDocument(markdown = 'AAA\n\nBBB\n\nCCC') {
   const source = createRichMarkdownYDoc(markdown);
