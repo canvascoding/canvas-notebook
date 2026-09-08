@@ -1,5 +1,6 @@
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { NodeSelection, Selection, TextSelection } from '@tiptap/pm/state';
+import { CellSelection } from '@tiptap/pm/tables';
 import * as Y from 'yjs';
 
 import type { CollaborationBlockTree } from './block-tree';
@@ -11,6 +12,7 @@ export type BlockTreeAnchor = {
 
 export type BlockTreeSelection =
   | { kind: 'text'; anchor: BlockTreeAnchor; head: BlockTreeAnchor }
+  | { kind: 'cells'; tableId: string; anchorId: string; headId: string; cellIds: string[] }
   | { kind: 'node'; blockId: string };
 
 function findNode(doc: ProseMirrorNode, id: string): { node: ProseMirrorNode; from: number } | null {
@@ -135,6 +137,15 @@ export function captureBlockTreeSelection(
   doc: ProseMirrorNode,
   selection: Selection,
 ): BlockTreeSelection | null {
+  if (selection instanceof CellSelection) {
+    const cellIds: string[] = [];
+    selection.forEachCell((cell) => cellIds.push(cell.attrs.id));
+    const tableId = selection.$anchorCell.node(-1).attrs.id;
+    const anchorId = selection.$anchorCell.nodeAfter?.attrs.id;
+    const headId = selection.$headCell.nodeAfter?.attrs.id;
+    return [tableId, anchorId, headId, ...cellIds].every((id) => typeof id === 'string' && id)
+      ? { kind: 'cells', tableId, anchorId, headId, cellIds: cellIds.sort() } : null;
+  }
   if (selection instanceof NodeSelection && typeof selection.node.attrs.id === 'string') {
     return { kind: 'node', blockId: selection.node.attrs.id };
   }
@@ -148,6 +159,22 @@ export function restoreBlockTreeSelection(
   doc: ProseMirrorNode,
   selection: BlockTreeSelection,
 ): Selection | null {
+  if (selection.kind === 'cells') {
+    const anchor = findNode(doc, selection.anchorId);
+    const head = findNode(doc, selection.headId);
+    if (!anchor || !head) return null;
+    try {
+      const $anchor = doc.resolve(anchor.from);
+      const $head = doc.resolve(head.from);
+      if ($anchor.node(-1).attrs.id !== selection.tableId || $head.node(-1).attrs.id !== selection.tableId) return null;
+      const result = CellSelection.create(doc, anchor.from, head.from);
+      const cellIds: string[] = [];
+      result.forEachCell((cell) => cellIds.push(cell.attrs.id));
+      // A rectangular selection must not silently expand to newly interposed
+      // cells. Cancel when the original set is no longer one rectangle.
+      return JSON.stringify(cellIds.sort()) === JSON.stringify(selection.cellIds) ? result : null;
+    } catch { return null; }
+  }
   if (selection.kind === 'node') {
     const current = findNode(doc, selection.blockId);
     return current && NodeSelection.isSelectable(current.node) ? NodeSelection.create(doc, current.from) : null;

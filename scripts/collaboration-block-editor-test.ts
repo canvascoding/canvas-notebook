@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
 import { Editor, getSchema } from '@tiptap/core';
 import { initProseMirrorDoc } from '@tiptap/y-tiptap';
+import { CellSelection } from '@tiptap/pm/tables';
 import * as Y from 'yjs';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
 
@@ -195,6 +196,39 @@ test('loading and selecting a table never generates a local paragraph from defer
     assert.deepEqual(Y.encodeStateAsUpdate(doc), before, 'selection is not a content edit');
     assert.deepEqual(errors, []);
   } finally { editor.destroy(); doc.destroy(); }
+});
+
+test('local and remote cell highlights follow a moved column through the live binding', async () => {
+  const left = createDocument('| A | B |\n| --- | --- |\n| one | two |');
+  const right = new Y.Doc();
+  Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
+  const aPresence = new Awareness(left);
+  const bPresence = new Awareness(right);
+  const errors: Error[] = [];
+  const a = createEditor(left, errors, aPresence);
+  const b = createEditor(right, errors, bPresence);
+  document.body.append(a.view.dom, b.view.dom);
+  try {
+    await Promise.resolve();
+    const aCell = a.state.doc.resolve(position(a, 'A')).before(3);
+    const oneCell = a.state.doc.resolve(position(a, 'one')).before(3);
+    a.view.focus();
+    a.view.dispatch(a.state.tr.setSelection(CellSelection.create(a.state.doc, aCell, oneCell)));
+    await Promise.resolve();
+    applyAwarenessUpdate(bPresence, encodeAwarenessUpdate(aPresence, [left.clientID]), 'peer');
+    const highlighted = () => [...b.view.dom.querySelectorAll('td.collaboration-carets__selection, th.collaboration-carets__selection')]
+      .map((cell) => cell.querySelector('p')?.textContent);
+    assert.deepEqual(highlighted(), ['A', 'one']);
+    b.commands.setTextSelection(position(b, 'one'));
+    assert.equal(b.commands.command((props) => moveMarkdownTablePart(props, 'column', 1)), true);
+    Y.applyUpdate(left, Y.encodeStateAsUpdate(right));
+    assert.ok(a.state.selection instanceof CellSelection);
+    const selected: string[] = [];
+    a.state.selection.forEachCell((cell) => selected.push(cell.textContent));
+    assert.deepEqual(selected, ['A', 'one']);
+    assert.deepEqual(highlighted(), ['A', 'one']);
+    assert.deepEqual(errors, []);
+  } finally { a.destroy(); b.destroy(); aPresence.destroy(); bPresence.destroy(); left.destroy(); right.destroy(); }
 });
 
 test('hydration never replaces server data with an empty editor and permission gates every mutation', async () => {

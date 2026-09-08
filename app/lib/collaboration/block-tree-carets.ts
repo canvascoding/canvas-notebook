@@ -1,5 +1,6 @@
 import { Extension, type Editor } from '@tiptap/core';
 import { NodeSelection, Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
+import { CellSelection } from '@tiptap/pm/tables';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import type { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
@@ -20,7 +21,7 @@ type CaretOptions = {
 };
 
 function serializeSelection(selection: BlockTreeSelection): unknown {
-  if (selection.kind === 'node') return selection;
+  if (selection.kind !== 'text') return selection;
   return {
     kind: 'text',
     anchor: { blockId: selection.anchor.blockId, relative: Y.relativePositionToJSON(selection.anchor.relative) },
@@ -32,6 +33,12 @@ function parseSelection(value: unknown): BlockTreeSelection | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Partial<BlockTreeSelection>;
   if (candidate.kind === 'node') return typeof candidate.blockId === 'string' ? { kind: 'node', blockId: candidate.blockId } : null;
+  if (candidate.kind === 'cells') {
+    const { tableId, anchorId, headId, cellIds } = candidate;
+    return typeof tableId === 'string' && typeof anchorId === 'string' && typeof headId === 'string'
+      && Array.isArray(cellIds) && cellIds.length > 0 && cellIds.length <= 10000 && cellIds.every((id) => typeof id === 'string')
+      ? { kind: 'cells', tableId, anchorId, headId, cellIds } : null;
+  }
   if (candidate.kind !== 'text' || !candidate.anchor || !candidate.head
     || typeof candidate.anchor.blockId !== 'string' || typeof candidate.head.blockId !== 'string') return null;
   try {
@@ -79,7 +86,9 @@ function decorations(state: EditorState, options: CaretOptions): DecorationSet {
       const user = caretUser(presence.user);
       if (!selection.empty) {
         const attrs = { class: 'collaboration-carets__selection', style: `background-color: ${user.colorLight};` };
-        values.push(selection instanceof NodeSelection
+        if (selection instanceof CellSelection) {
+          selection.forEachCell((cell, position) => values.push(Decoration.node(position, position + cell.nodeSize, attrs)));
+        } else values.push(selection instanceof NodeSelection
           ? Decoration.node(selection.from, selection.to, attrs)
           : Decoration.inline(selection.from, selection.to, attrs));
       }

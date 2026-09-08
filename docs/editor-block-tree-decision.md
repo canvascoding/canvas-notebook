@@ -20,6 +20,8 @@ Undo erfasst nur die eigenen Änderungen an Inhalt und aktiven Operationen. Ein 
 
 ## ProseMirror-Adaptervertrag
 
+Zellauswahlen besitzen neben Tabellen- und Randzellen-IDs die exakte Menge ausgewählter Zellen. Die Wiederherstellung darf keine inzwischen dazwischen liegenden fremden Zellen einschließen. Eine nicht mehr rechteckig darstellbare oder gelöschte Auswahl wird verworfen. Awareness überträgt diesen Vertrag; entfernte Auswahlen werden zellenweise hervorgehoben. Die Auswahl-/Bindingmatrix umfasst nach dieser Ergänzung 26 Tests.
+
 Eine Editortransaktion liefert vorherigen und nächsten Dokumentzustand. Der Adapter prüft zunächst, dass der vorherige Zustand noch zum gebundenen CRDT-Dokument gehört. Danach werden veränderte Inhalte und Attribute anhand der Identitäten aktualisiert. Neue Blöcke erhalten neue Datensätze; gelöschte Datensätze bleiben für Recovery erhalten. Ein expliziter Drag-Move übergibt zusätzlich seine tatsächliche Quellidentität. Eine reine Reihenfolgedifferenz könnte dieselbe sichtbare Änderung sonst als Move eines Nachbarblocks interpretieren.
 
 Strukturänderungen werden zunächst auf einer isolierten Replik geprüft, weil Yjs-Transaktionen bei Fehlern nicht zurückrollen. Erst wenn Projektion und ProseMirror-Ziel einschließlich IDs identisch sind, wird derselbe Plan synchron auf dem aktiven Dokument angewendet. Textänderungen erfordern keine solche Replik und erzeugen keine Platzierungsoperationen.

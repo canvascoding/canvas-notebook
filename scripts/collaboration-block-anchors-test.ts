@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import { getSchema } from '@tiptap/core';
 import { initProseMirrorDoc } from '@tiptap/y-tiptap';
 import { NodeSelection, TextSelection } from '@tiptap/pm/state';
+import { CellSelection } from '@tiptap/pm/tables';
+import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model';
 import * as Y from 'yjs';
 
 import { createRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
@@ -74,4 +76,50 @@ test('a node selection follows a moved container and survives binary restore', (
     assert.equal(resolved.from, current.firstChild!.nodeSize);
     assert.equal(resolved.node.textContent, 'Quote');
   } finally { h.doc.destroy(); restored.destroy(); }
+});
+
+function cellPosition(doc: ProseMirrorNode, id: string): number {
+  let position = -1;
+  doc.descendants((node, from) => { if (node.attrs.id === id) position = from; });
+  assert.ok(position >= 0);
+  return position;
+}
+
+test('a cell selection follows its exact identities across table movement and binary reopening', () => {
+  const h = fixture('| H0 | H1 | H2 |\n| --- | --- | --- |\n| D0 | D1 | D2 |\n\nTail');
+  const reopened = new Y.Doc();
+  try {
+    const table = h.initial.firstChild!;
+    const anchorId = table.firstChild!.child(1).attrs.id;
+    const headId = table.child(1).child(1).attrs.id;
+    const saved = captureBlockTreeSelection(h.tree, h.initial,
+      CellSelection.create(h.initial, cellPosition(h.initial, anchorId), cellPosition(h.initial, headId)))!;
+    assert.equal(saved.kind, 'cells');
+    h.tree.move({ blockId: table.attrs.id, parentId: null, beforeId: null, operationId: 'table' }, {});
+    Y.applyUpdate(reopened, Y.encodeStateAsUpdate(h.doc));
+    const tree = new CollaborationBlockTree(reopened, schema);
+    const selection = restoreBlockTreeSelection(tree, tree.read(), saved);
+    assert.ok(selection instanceof CellSelection);
+    const text: string[] = [];
+    selection.forEachCell((cell) => text.push(cell.textContent));
+    assert.deepEqual(text, ['H1', 'D1']);
+    assert.equal(selection.$anchorCell.nodeAfter!.attrs.id, anchorId);
+    assert.equal(selection.$headCell.nodeAfter!.attrs.id, headId);
+  } finally { h.doc.destroy(); reopened.destroy(); }
+});
+
+test('cell selection cancels when reordering interposes an unselected column or deletes a target', () => {
+  const h = fixture('| H0 | H1 | H2 |\n| --- | --- | --- |\n| D0 | D1 | D2 |\n\nTail');
+  try {
+    const table = h.initial.firstChild!;
+    const saved = captureBlockTreeSelection(h.tree, h.initial, CellSelection.create(h.initial,
+      cellPosition(h.initial, table.firstChild!.child(0).attrs.id), cellPosition(h.initial, table.child(1).child(1).attrs.id)))!;
+    const rows: ProseMirrorNode[] = [];
+    table.forEach((row) => rows.push(row.copy(Fragment.fromArray([row.child(0), row.child(2), row.child(1)]))));
+    const next = h.initial.copy(Fragment.fromArray([table.copy(Fragment.fromArray(rows)), h.initial.child(1)]));
+    h.tree.applyDocumentChange(h.initial, next, {});
+    assert.equal(restoreBlockTreeSelection(h.tree, h.tree.read(), saved), null, 'never select the unrelated middle column');
+    h.tree.delete(table.attrs.id, 'delete-table', {});
+    assert.equal(restoreBlockTreeSelection(h.tree, h.tree.read(), saved), null);
+  } finally { h.doc.destroy(); }
 });
