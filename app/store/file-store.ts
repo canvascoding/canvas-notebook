@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create, type StoreApi } from 'zustand';
 import { recordOpenedWorkspaceFile } from '@/app/lib/files/quick-access-client';
 import type {
   BrowserMode,
@@ -251,6 +251,14 @@ function remapFileRevisions(
   return changed ? remapped : revisions;
 }
 
+export type CurrentCollaborationLocationScope = {
+  workspaceId: string;
+  documentId: string;
+  editorIdentity: string;
+  treeGeneration: number;
+  path: string;
+};
+
 interface FileStoreState {
   // File tree
   fileTree: FileNode[];
@@ -358,6 +366,7 @@ interface FileStoreState {
   ) => void;
   createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
   deletePath: (path: string | string[]) => Promise<DeleteWorkspacePathsResult>;
+  adoptCurrentCollaborationLocation: (scope: CurrentCollaborationLocationScope, path: string) => boolean;
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean) => Promise<void>;
   uploadFile: (
     file: File | File[],
@@ -381,6 +390,60 @@ interface FileStoreState {
   setLastSelectedPath: (path: string | null) => void;
   selectRange: (startPath: string, endPath: string, currentTree: FileNode[]) => void;
   selectAllInDirectory: (dirPath: string) => void;
+}
+
+/** Apply an already committed rename without replacing the open document or its draft. */
+function projectWorkspacePathRename(
+  get: StoreApi<FileStoreState>['getState'],
+  set: StoreApi<FileStoreState>['setState'],
+  oldPath: string,
+  newPath: string,
+): Set<string> {
+  const { expandedDirs, selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
+
+  let updatedExpandedDirs = expandedDirs;
+  const remappedExpandedDirs = remapExpandedDirectories(expandedDirs, oldPath, newPath);
+  if (remappedExpandedDirs !== expandedDirs) {
+    updatedExpandedDirs = remappedExpandedDirs;
+    get().setExpandedDirs(updatedExpandedDirs);
+  }
+
+  if (currentDirectory === oldPath || currentDirectory.startsWith(oldPath + '/')) {
+    setCurrentDirectory(remapDescendantPath(currentDirectory, oldPath, newPath));
+  }
+
+  const updatedSelectedNode = selectedNode
+    ? (isSameOrDescendantPath(selectedNode.path, oldPath) ? { ...selectedNode, path: remapDescendantPath(selectedNode.path, oldPath, newPath) } : selectedNode)
+    : null;
+  const updatedCurrentFile = currentFile && isSameOrDescendantPath(currentFile.path, oldPath)
+    ? { ...currentFile, path: remapDescendantPath(currentFile.path, oldPath, newPath),
+        ...(currentFile.collaboration ? { collaboration: { ...currentFile.collaboration,
+          path: remapDescendantPath(currentFile.path, oldPath, newPath) } } : {}) }
+    : currentFile;
+  if (get().loadingFilePath && isSameOrDescendantPath(get().loadingFilePath!, oldPath)) {
+    set((state) => ({ fileLoadRequestId: state.fileLoadRequestId + 1,
+      openFileRequestId: state.openFileRequestId + 1, isLoadingFile: false, loadingFilePath: null }));
+  }
+  const editor = useEditorStore.getState();
+  if (editor.activePath && isSameOrDescendantPath(editor.activePath, oldPath)) {
+    useEditorStore.setState({
+      activePath: remapDescendantPath(editor.activePath, oldPath, newPath),
+      sessionId: editor.sessionId + 1,
+      isSaving: false,
+    });
+  }
+  set((state) => ({
+    selectedNode: updatedSelectedNode,
+    ...(updatedCurrentFile !== currentFile ? {
+      currentFile: updatedCurrentFile,
+      fileError: null,
+      fileErrorPath: null,
+      missingFilePath: null,
+    } : {}),
+    fileRevisions: remapFileRevisions(state.fileRevisions, oldPath, newPath),
+  }));
+
+  return updatedExpandedDirs;
 }
 
 export const useFileStore = create<FileStoreState>((set, get) => ({
@@ -1398,6 +1461,21 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
+  adoptCurrentCollaborationLocation: (scope, path) => {
+    const state = get();
+    const file = state.currentFile;
+    if (path === scope.path || normalizeWorkspacePathParam(path) !== path
+      || useWorkspaceStore.getState().activeWorkspaceId !== scope.workspaceId
+      || state.currentFileWorkspaceId !== scope.workspaceId || state.treeGeneration !== scope.treeGeneration
+      || !file || file.path !== scope.path || file.editorIdentity !== scope.editorIdentity
+      || !file.collaboration?.crdtCapable || file.collaboration.document?.id !== scope.documentId
+      || useEditorStore.getState().activePath !== scope.path) return false;
+
+    projectWorkspacePathRename(get, set, scope.path, path);
+    notifyWorkspacePathRenamed(scope.path, path, scope.workspaceId);
+    return true;
+  },
+
   renamePath: async (oldPath: string, newPath: string, overwrite = false, refreshTree = true) => {
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
 
@@ -1410,47 +1488,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       await renameWorkspacePath(oldPath, newPath, overwrite);
       if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
 
-      const { expandedDirs, selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
-
-      let updatedExpandedDirs = expandedDirs;
-      const remappedExpandedDirs = remapExpandedDirectories(expandedDirs, oldPath, newPath);
-      if (remappedExpandedDirs !== expandedDirs) {
-        updatedExpandedDirs = remappedExpandedDirs;
-        get().setExpandedDirs(updatedExpandedDirs);
-      }
-
-      if (currentDirectory === oldPath || currentDirectory.startsWith(oldPath + '/')) {
-        setCurrentDirectory(remapDescendantPath(currentDirectory, oldPath, newPath));
-      }
-
-      const updatedSelectedNode = selectedNode
-        ? (isSameOrDescendantPath(selectedNode.path, oldPath) ? { ...selectedNode, path: remapDescendantPath(selectedNode.path, oldPath, newPath) } : selectedNode)
-        : null;
-      const updatedCurrentFile = currentFile && isSameOrDescendantPath(currentFile.path, oldPath)
-        ? { ...currentFile, path: remapDescendantPath(currentFile.path, oldPath, newPath) }
-        : currentFile;
-      if (get().loadingFilePath && isSameOrDescendantPath(get().loadingFilePath!, oldPath)) {
-        set((state) => ({ fileLoadRequestId: state.fileLoadRequestId + 1,
-          openFileRequestId: state.openFileRequestId + 1, isLoadingFile: false, loadingFilePath: null }));
-      }
-      const editor = useEditorStore.getState();
-      if (editor.activePath && isSameOrDescendantPath(editor.activePath, oldPath)) {
-        useEditorStore.setState({
-          activePath: remapDescendantPath(editor.activePath, oldPath, newPath),
-          sessionId: editor.sessionId + 1,
-          isSaving: false,
-        });
-      }
-      set((state) => ({
-        selectedNode: updatedSelectedNode,
-        ...(updatedCurrentFile !== currentFile ? {
-          currentFile: updatedCurrentFile,
-          fileError: null,
-          fileErrorPath: null,
-          missingFilePath: null,
-        } : {}),
-        fileRevisions: remapFileRevisions(state.fileRevisions, oldPath, newPath),
-      }));
+      const updatedExpandedDirs = projectWorkspacePathRename(get, set, oldPath, newPath);
 
       if (refreshTree) {
         const parentDirs = new Set([

@@ -170,10 +170,12 @@ export class FileWatcherClient extends EventTarget {
     this.eventSource = eventSource;
 
     eventSource.onopen = () => {
+      if (this.eventSource !== eventSource) return;
       this.reconnectAttempts = 0;
     };
 
     eventSource.addEventListener('connected', (message: MessageEvent) => {
+      if (this.eventSource !== eventSource) return;
       try {
         const data = JSON.parse(message.data);
         if (data.clientId && (!this.connectionWorkspaceId || !data.workspaceId || data.workspaceId === this.connectionWorkspaceId)) {
@@ -188,6 +190,7 @@ export class FileWatcherClient extends EventTarget {
     });
 
     eventSource.addEventListener('filechange', (message: MessageEvent) => {
+      if (this.eventSource !== eventSource) return;
       try {
         const event: FileEvent = JSON.parse(message.data);
         this.handleFileChange(event);
