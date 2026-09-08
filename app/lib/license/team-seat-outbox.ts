@@ -4,10 +4,6 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import type { SqlConnection } from '@/app/lib/db';
 import {
-  getDatabaseProvider,
-  type DatabaseProvider,
-} from '@/app/lib/db/provider';
-import {
   createTeamSeatSnapshotRequest,
   parseTeamSeatSnapshotResponse,
   TEAM_SEAT_PROTOCOL_VERSION,
@@ -399,10 +395,9 @@ async function rollbackQuietly(database: Pick<SqlConnection, 'run'>): Promise<vo
 
 async function withTransaction<T>(
   database: Pick<SqlConnection, 'run'>,
-  provider: DatabaseProvider,
   operation: () => Promise<T>,
 ): Promise<T> {
-  await database.run(provider === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+  await database.run('BEGIN');
   try {
     const result = await operation();
     await database.run('COMMIT');
@@ -1209,13 +1204,12 @@ export async function recordTeamSeatSnapshotAcknowledgement(
     response: unknown;
     entitlementsVersion?: number | null;
     now?: number;
-    databaseProvider?: DatabaseProvider;
   },
 ): Promise<TeamMembershipSyncState> {
   const response = parseTeamSeatSnapshotResponse(input.response);
   const now = input.now ?? Date.now();
 
-  return withTransaction(database, input.databaseProvider ?? getDatabaseProvider(), async () => {
+  return withTransaction(database, async () => {
     const operation = await getTeamSeatOutboxOperation(database, input.operationId);
     if (!operation || operation.organizationId !== input.organizationId) {
       throw new TeamSeatOutboxError('TEAM_SEAT_OUTBOX_NOT_FOUND', 'Snapshot outbox operation not found.', 404);

@@ -38,13 +38,13 @@ function licenseStatus(input: {
     instanceId: 'self_team_license_lifecycle_test',
     licenseState: 'active',
     protocolVersion: 'canvas-team-seat-protocol-v1',
+    databaseProvider: 'postgres',
     hostingMode: 'community',
     edition: input.edition,
     licenseClass: 'commercial',
     licenseEnvironment: 'production',
     seatLimit: input.seatLimit,
     deploymentMode: 'community',
-    databaseProvider: 'postgres',
     vectorProvider: 'pgvector',
     postgresRequired: input.edition === 'team',
     capabilities: input.edition === 'team'
@@ -200,7 +200,6 @@ async function main() {
       expiredTeamStatus,
       {
         database,
-        databaseProvider: 'sqlite',
         now: new Date(now + 1_000),
       },
     );
@@ -274,7 +273,6 @@ async function main() {
       expiredTeamStatus,
       {
         database,
-        databaseProvider: 'sqlite',
         now: new Date(now + 2_000),
       },
     );
@@ -288,7 +286,6 @@ async function main() {
       licenseStatus({ edition: 'team', seatLimit: 2 }),
       {
         database,
-        databaseProvider: 'sqlite',
         now: new Date(now + 3_000),
       },
     );
@@ -309,7 +306,6 @@ async function main() {
       licenseStatus({ edition: 'team', seatLimit: 3 }),
       {
         database,
-        databaseProvider: 'sqlite',
         now: new Date(now + 4_000),
       },
     );
@@ -361,7 +357,6 @@ async function main() {
       licenseStatus({ edition: 'solo', seatLimit: 1 }),
       {
         database,
-        databaseProvider: 'sqlite',
         now: new Date(now + 5_000),
       },
     );

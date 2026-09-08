@@ -5,10 +5,6 @@ import { randomUUID } from 'node:crypto';
 import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import type { SqlConnection } from '@/app/lib/db';
 import {
-  getDatabaseProvider,
-  type DatabaseProvider,
-} from '@/app/lib/db/provider';
-import {
   getActiveTeamMembershipProjection,
 } from '@/app/lib/organization/team-membership';
 import {
@@ -78,7 +74,6 @@ export type TeamLicenseLifecycleResult = {
 
 type TeamLicenseLifecycleOptions = {
   database?: LifecycleDatabase;
-  databaseProvider?: DatabaseProvider;
   now?: Date;
 };
 
@@ -666,10 +661,9 @@ export async function reconcileTeamLicenseLifecycle(
   options: TeamLicenseLifecycleOptions = {},
 ): Promise<TeamLicenseLifecycleResult> {
   const policy = resolveEffectiveSeatPolicy(status);
-  const databaseProvider = options.databaseProvider ?? getDatabaseProvider();
   const database = options.database ?? await (await import('@/app/lib/db')).openDb();
   const ownsDatabase = !options.database;
-  await database.run(databaseProvider === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+  await database.run('BEGIN');
   try {
     const result = await reconcileWithinTransaction(
       database,

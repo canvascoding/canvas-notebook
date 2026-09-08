@@ -4,10 +4,6 @@ import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-clie
 import type { SqlConnection } from '@/app/lib/db';
 import { openDb } from '@/app/lib/db';
 import {
-  getDatabaseProvider,
-  type DatabaseProvider,
-} from '@/app/lib/db/provider';
-import {
   createTeamSeatSnapshotRequest,
   TEAM_SEAT_PROTOCOL_VERSION,
   type TeamSeatSnapshotRequest,
@@ -144,10 +140,9 @@ async function rollbackQuietly(
 
 async function withSyncTransaction<T>(
   database: Pick<SqlConnection, 'run'>,
-  provider: DatabaseProvider,
   operation: () => Promise<T>,
 ): Promise<T> {
-  await database.run(provider === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+  await database.run('BEGIN');
   try {
     const result = await operation();
     await database.run('COMMIT');
@@ -164,10 +159,9 @@ async function ensureSnapshotOperation(
     organizationId: string;
     now: number;
     forceReport: boolean;
-    databaseProvider: DatabaseProvider;
   },
 ): Promise<'unchanged' | 'generated' | 'requeued'> {
-  return withSyncTransaction(database, input.databaseProvider, async () => {
+  return withSyncTransaction(database, async () => {
     const projection = await getActiveTeamMembershipProjection(
       database,
       input.organizationId,
@@ -234,7 +228,6 @@ async function ensureSnapshotOperation(
 
 export async function runTeamMembershipSnapshotSyncCycle(options: {
   database?: TeamMembershipSyncDatabase;
-  databaseProvider?: DatabaseProvider;
   sendSnapshot?: TeamMembershipSnapshotSender;
   entitlementsVersion?: number | null;
   licenseStatus?: LicenseStatus;
@@ -242,7 +235,6 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
     organizationId: string,
     input: {
       database: TeamMembershipSyncDatabase;
-      databaseProvider: DatabaseProvider;
       licenseStatus?: LicenseStatus;
       now: number;
     },
@@ -269,7 +261,6 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
   const database = options.database ?? await openDb();
   const closeDatabase = options.database === undefined;
   const now = options.now ?? Date.now();
-  const databaseProvider = options.databaseProvider ?? getDatabaseProvider();
   const sender = options.sendSnapshot ?? (
     (request, operationId) => submitCommunityTeamMembershipSnapshot(
       request,
@@ -284,7 +275,6 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
         organizationId,
         now,
         forceReport: options.forceReport === true,
-        databaseProvider,
       });
       if (ensured === 'generated') result.generated += 1;
       if (ensured === 'requeued') result.requeued += 1;
@@ -308,7 +298,6 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
           response,
           entitlementsVersion: options.entitlementsVersion,
           now,
-          databaseProvider,
         });
         result.acknowledged += 1;
         try {
@@ -319,7 +308,6 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
             )
           ))(operation.organizationId, {
             database,
-            databaseProvider,
             licenseStatus,
             now,
           });

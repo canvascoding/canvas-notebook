@@ -55,13 +55,13 @@ function teamLicenseStatus(seatLimit: number): LicenseStatus {
     instanceId: 'self_team_membership_sync_test',
     licenseState: 'active',
     protocolVersion: 'canvas-team-seat-protocol-v1',
+    databaseProvider: 'postgres',
     hostingMode: 'community',
     edition: 'team',
     licenseClass: 'commercial',
     licenseEnvironment: 'production',
     seatLimit,
     deploymentMode: 'community',
-    databaseProvider: 'postgres',
     vectorProvider: 'pgvector',
     postgresRequired: true,
     capabilities: { multiUser: true, teamWorkspace: true },
@@ -161,7 +161,6 @@ async function main(): Promise<void> {
 
     const inactive = await runTeamMembershipSnapshotSyncCycle({
     database: connection,
-    databaseProvider: 'sqlite',
     sendSnapshot: async () => {
       throw new Error('Solo licenses must not send Team membership snapshots.');
     },
@@ -202,7 +201,6 @@ async function main(): Promise<void> {
 
   const initial = await runTeamMembershipSnapshotSyncCycle({
     database: connection,
-    databaseProvider: 'sqlite',
     sendSnapshot: sender,
     licenseStatus: teamLicenseStatus(1),
     entitlementsVersion: 1,
@@ -259,7 +257,6 @@ async function main(): Promise<void> {
   });
   const afterChange = await runTeamMembershipSnapshotSyncCycle({
     database: connection,
-    databaseProvider: 'sqlite',
     sendSnapshot: sender,
     licenseStatus: teamLicenseStatus(2),
     entitlementsVersion: 2,
@@ -280,7 +277,6 @@ async function main(): Promise<void> {
   let failedOperationId: string | null = null;
   const deferred = await runTeamMembershipSnapshotSyncCycle({
     database: connection,
-    databaseProvider: 'sqlite',
     sendSnapshot: async (_request, operationId) => {
       failedOperationId = operationId;
       throw new Error('temporary network failure');
@@ -299,7 +295,6 @@ async function main(): Promise<void> {
 
   const retry = await runTeamMembershipSnapshotSyncCycle({
     database: connection,
-    databaseProvider: 'sqlite',
     sendSnapshot: sender,
     licenseStatus: teamLicenseStatus(2),
     entitlementsVersion: 2,
@@ -311,7 +306,6 @@ async function main(): Promise<void> {
 
   const terminal = await runTeamMembershipSnapshotSyncCycle({
     database: connection,
-    databaseProvider: 'sqlite',
     sendSnapshot: async () => {
       throw new LicenseControlPlaneError(
         'The instance token is no longer valid.',
@@ -334,7 +328,6 @@ async function main(): Promise<void> {
   assert.equal(terminalOperation?.status, 'failed');
   assert.equal((await runTeamMembershipSnapshotSyncCycle({
     database: connection,
-    databaseProvider: 'sqlite',
     sendSnapshot: async () => {
       throw new Error('A terminal snapshot must stay dormant without an explicit recovery signal.');
     },
@@ -344,7 +337,6 @@ async function main(): Promise<void> {
 
   const connectionRecovered = await runTeamMembershipSnapshotSyncCycle({
     database: connection,
-    databaseProvider: 'sqlite',
     sendSnapshot: sender,
     licenseStatus: teamLicenseStatus(2),
     entitlementsVersion: 3,

@@ -44,13 +44,13 @@ function teamLicense(seatLimit: number, licenseClass: 'commercial' | 'manual' | 
     instanceId: 'self_team_seat_reconciliation_test',
     licenseState: 'active',
     protocolVersion: 'canvas-team-seat-protocol-v1',
+    databaseProvider: 'postgres',
     hostingMode: 'community',
     edition: 'team',
     licenseClass,
     licenseEnvironment: licenseClass === 'test' ? 'test' : 'production',
     seatLimit,
     deploymentMode: 'community',
-    databaseProvider: 'postgres',
     vectorProvider: 'pgvector',
     postgresRequired: true,
     capabilities: {
@@ -219,7 +219,6 @@ async function main(): Promise<void> {
     'organization-reconciliation',
     {
       database: connection,
-      databaseProvider: 'sqlite',
       licenseStatus: teamLicense(2),
       now: now + 100,
     },
@@ -263,7 +262,6 @@ async function main(): Promise<void> {
     'organization-reconciliation',
     {
       database: connection,
-      databaseProvider: 'sqlite',
       licenseStatus: teamLicense(3),
       now: now + 200,
     },
@@ -283,7 +281,6 @@ async function main(): Promise<void> {
     'organization-reconciliation',
     {
       database: connection,
-      databaseProvider: 'sqlite',
       licenseStatus: teamLicense(3),
       now: now + 201,
     },
@@ -303,7 +300,6 @@ async function main(): Promise<void> {
     'organization-reconciliation',
     {
       database: connection,
-      databaseProvider: 'sqlite',
       licenseStatus: teamLicense(2),
       now: now + 300,
     },
