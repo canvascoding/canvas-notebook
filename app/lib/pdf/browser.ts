@@ -17,6 +17,7 @@ import {
 } from '@/app/lib/exports/browser-export-service';
 import type { MarkdownPdfRenderOptions } from '@/app/lib/pdf/markdown-brand';
 import { handlePdfPreviewRequest, type PdfPreviewAuthorization } from './preview-request';
+import { createPdfNetworkProxy } from './network-proxy';
 
 let browser: Browser | null = null;
 let launchPromise: Promise<Browser> | null = null;
@@ -125,6 +126,12 @@ async function launchPdfBrowser(): Promise<Browser> {
       PDF_CHROMIUM_JS_HEAP_LIMIT,
       '--disable-component-update',
       '--disable-extensions',
+      '--disable-quic',
+      '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+      '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1',
+      // Jobs replace this fail-closed default with their own public-only proxy.
+      '--proxy-server=http://127.0.0.1:9',
+      '--proxy-bypass-list=<-loopback>',
     ],
     pipe: launchSpec.pipe,
     defaultViewport: { width: 1280, height: 900 },
@@ -184,6 +191,7 @@ export async function generatePdfFromHtml(
 ): Promise<Buffer> {
   let page: Page | null = null;
   let browserContext: BrowserContext | null = null;
+  let network: Awaited<ReturnType<typeof createPdfNetworkProxy>> | null = null;
   return runBrowserExportJob({
     label: 'pdf-html',
     timeoutMs: DEFAULT_BROWSER_EXPORT_TIMEOUT_MS,
@@ -193,7 +201,9 @@ export async function generatePdfFromHtml(
       try {
         const b = await getBrowser();
         if (job.signal.aborted) throw job.signal.reason;
-        browserContext = await b.createBrowserContext();
+        network = await createPdfNetworkProxy();
+        if (job.signal.aborted) throw job.signal.reason;
+        browserContext = await b.createBrowserContext(network.contextOptions);
         if (job.signal.aborted) throw job.signal.reason;
         page = await browserContext.newPage();
         page.setDefaultTimeout(15_000);
@@ -218,6 +228,7 @@ export async function generatePdfFromHtml(
         throw error;
       } finally {
         await browserContext?.close().catch(() => undefined);
+        await network?.close();
       }
     },
   });
@@ -283,6 +294,7 @@ async function applyEmojiFontFallback(page: Page) {
 export async function generatePdfFromUrl(url: string, authorization?: PdfPreviewAuthorization): Promise<Buffer> {
   let page: Page | null = null;
   let browserContext: BrowserContext | null = null;
+  let network: Awaited<ReturnType<typeof createPdfNetworkProxy>> | null = null;
   const requests = new AbortController();
   return runBrowserExportJob({
     label: 'pdf-url',
@@ -293,7 +305,9 @@ export async function generatePdfFromUrl(url: string, authorization?: PdfPreview
       try {
         const b = await getBrowser();
         if (job.signal.aborted) throw job.signal.reason;
-        browserContext = await b.createBrowserContext();
+        network = await createPdfNetworkProxy();
+        if (job.signal.aborted) throw job.signal.reason;
+        browserContext = await b.createBrowserContext(network.contextOptions);
         if (job.signal.aborted) throw job.signal.reason;
         page = await browserContext.newPage();
         page.setDefaultTimeout(15_000);
@@ -317,6 +331,7 @@ export async function generatePdfFromUrl(url: string, authorization?: PdfPreview
       } finally {
         requests.abort();
         await browserContext?.close().catch(() => undefined);
+        await network?.close();
       }
     },
   });

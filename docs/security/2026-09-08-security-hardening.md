@@ -9,8 +9,8 @@ Priority is abuse without an account. External document content remains untruste
 | Package | Finding / work | Implementation status | Production status |
 | --- | --- | --- | --- |
 | 1 | S5: unverified cookie rate-limit identity; public abuse limits and negative access checks; HTTP disconnect crash | Implemented and locally verified (`f90801dd`) | Not deployed or verified |
-| 2 | S2: PDF cookies sent to external resources; browser job isolation | Implemented and locally verified | Not deployed |
-| 3 | S2/S3: isolated HTML documents, restricted/revocable preview tickets, renderer network boundary | Pending | Not deployed |
+| 2 | S2: PDF cookies sent to external resources; browser job isolation | Implemented and locally verified (`0db1aabe`) | Not deployed |
+| 3 | S2/S3: isolated HTML documents, restricted/revocable preview tickets, renderer network boundary | PDF network boundary implemented; document/ticket work pending | Not deployed |
 | 4 | S4: personal default workspace and owner-only legacy migration | Pending | Not deployed |
 | 5 | Dependency advisories, targeted updates | Pending | Not deployed |
 
@@ -75,3 +75,20 @@ Verification:
 - The two-page reference PDF includes all images, external font, dynamic module/JSON text, emoji and a print page break. Both rendered pages remained pixel-identical to the baseline. This was checked using Poppler output, text extraction and visual inspection.
 - Existing browser-export queue tests and the rich Markdown PDF export (callout, details, table, formula and footnote) passed. Production build, TypeScript and changed-file lint passed.
 - The built app's actual HTML viewer/share dialog and PDF download passed an authorized Playwright check with normal production Chromium flags. A public HTTPS image (including its redirect), a relative SVG, an ES module and relative JSON all loaded. The downloaded PDF contains both expected print pages, the public image and dynamically populated text; its rasterized pages and the dialog screenshot were visually checked. Only the four newly created QA files were removed afterwards. An earlier attempt correctly received the existing high-load rejection; no resource limits were relaxed for the successful run.
+
+## Package 3: renderer network boundary (document isolation still in progress)
+
+Each PDF job owns a forward proxy as well as its browser context. HTTP and HTTPS connections resolve through the existing public-address validator; the proxy dials the validated numeric address, preserving the HTTP Host and HTTPS TLS/SNI handshake. Every new connection, including a redirect destination, is checked. Only standard HTTP(S) ports are eligible. Private, loopback, link-local, metadata, multicast, documentation and IPv6 translation/tunnel destinations are rejected. IPv6 is restricted to ordinary global unicast, closing NAT64/6to4/Teredo bypasses in the shared validator.
+
+The context applies its proxy to page, frame, worker and HTTPS/WebSocket network activity. Chromium's implicit local-address proxy bypass is explicitly removed with `<-loopback>`; QUIC is disabled and WebRTC is configured to disable unproxied UDP. Chromium hostname resolution is disabled so the proxy owns public DNS decisions. The browser's unused default context has a nonfunctional proxy instead of direct network access. Proxy sockets are bounded, time out, and close with the job. The exact internal preview fetch from package 2 remains a separate server-side exception pending replacement by scoped tickets.
+
+Verification:
+
+- `npm run test:security:pdf-network`: 14 private/special address cases, four CONNECT rejection cases, mixed public/private DNS answers, an actual pinned public HTTP connection under a simulated second-lookup rebinding result, and real Chromium image/frame/fetch/Blob-worker/WebSocket probes including a redirect to a private target. The private recording server receives zero requests. A public HTTPS image with redirect and HTML-based PDF export remain functional.
+- The network regression disables only Chromium's independent Local Network Access prompt in its test process, ensuring requests exercise the production proxy. It preserves the proxy policy and production proxy flags. The older credential suite separately replaces its test browser's proxy settings to retain controlled loopback recording servers; it does not serve as evidence of network isolation.
+- Existing safe-external-fetch, browser-export queue and PDF credential regression tests passed. Production build, TypeScript and changed-file lint passed.
+- The rebuilt native app passed the same authorized HTML share-dialog/download UI check with the network boundary enabled and normal production flags. Public image, local SVG, relative module and JSON text are present; both downloaded PDF pages remain pixel-identical to the preceding UI reference. As before, the resource guard rejected an attempt during high machine load and the successful run used unchanged limits.
+
+This is an application renderer network boundary, not an operating-system sandbox or a claim about the separate interactive agent browser/Marp subprocess. Full document origin isolation and narrowed/revocable tickets remain unfinished.
+
+Implementation references: [Chromium proxy bypass rules](https://chromium.googlesource.com/chromium/src/+/main/net/docs/proxy.md#implicit-bypass-rules), [Puppeteer context options](https://pptr.dev/api/puppeteer.browsercontextoptions).

@@ -94,15 +94,23 @@ async function main() {
     renderer = process.env.TEST_PDF_BASELINE_PATH
       ? await import(pathToFileURL(process.env.TEST_PDF_BASELINE_PATH).href)
       : await import('../app/lib/pdf/browser');
-    // These servers deliberately use loopback for reproducible, credential-safe
-    // network captures. Disable Chromium's separate LNA prompt only in this test
-    // process; production launch flags and renderer network policy are unchanged.
-    // This suite tests credential isolation, not SSRF protection.
+    // These servers deliberately use loopback for credential-safe captures.
+    // Isolate the credential layer by replacing only this test browser's proxy
+    // configuration. The separate pdf-network-security suite exercises actual
+    // production proxy options, workers, frames and DNS pinning end to end.
     const puppeteer = createRequire(import.meta.url)('puppeteer-core').default as typeof import('puppeteer-core').default;
     const originalLaunch = puppeteer.launch;
     restoreBrowserLaunch = () => { puppeteer.launch = originalLaunch; };
     const launch = originalLaunch.bind(puppeteer);
-    puppeteer.launch = options => launch({ ...options, args: [...(options?.args || []), '--disable-features=LocalNetworkAccessChecks'] });
+    puppeteer.launch = async options => {
+      const browser = await launch({ ...options, args: [
+        ...(options?.args || []).filter(arg => !arg.startsWith('--proxy-') && !arg.startsWith('--host-resolver-rules=')),
+        '--disable-features=LocalNetworkAccessChecks',
+      ] });
+      const createContext = browser.createBrowserContext.bind(browser);
+      browser.createBrowserContext = () => createContext();
+      return browser;
+    };
     for (const who of ['A','B']) {
       const pdf = await renderer!.generatePdfFromUrl(internalOrigin + ROOT + 'file.html?who=' + who,
         (baseline ? { cookie: fixtureCookie } : authorization) as PdfPreviewAuthorization);
