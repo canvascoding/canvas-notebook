@@ -54,8 +54,10 @@ async function main() {
   assert.doesNotMatch(routeSource, /widget:\s*'emails'/u, 'email must bypass the process-local Home cache');
   assert.match(routeSource, /loadHomeWidgetEmails\(access\.session\.user\.id/u);
   assert.match(routeSource, /services: \{ listAccounts: listEmailAccounts, listMessages: listEmailMessages \}/u);
+  assert.match(routeSource, /parseHomeWidgetSelection\(request\.nextUrl\.searchParams\.get\('widgets'\), HOME_WIDGET_NAMES\)/u);
+  assert.match(routeSource, /selected\.has\('emails'\)/u);
   for (const widget of ['todos', 'automation', 'studio']) {
-    assert.match(routeSource, new RegExp(`widget: '${widget}'`, 'u'), `${widget} should keep the Home cache`);
+    assert.match(routeSource, new RegExp(`selected\\.has\\('${widget}'\\)[\\s\\S]*widget: '${widget}'`, 'u'), `${widget} should remain independently selectable and cached`);
   }
 
   console.log('home-workspace-widget-cache-test: ok');

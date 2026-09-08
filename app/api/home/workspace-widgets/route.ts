@@ -9,6 +9,7 @@ import {
   loadHomeWidgetTodos,
 } from '@/app/lib/home/workspace-widget-data';
 import { loadHomeWidgetEmails } from '@/app/lib/home/workspace-email-widget';
+import { HOME_WIDGET_NAMES, parseHomeWidgetSelection } from '@/app/lib/home/workspace-widget-request';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 
 const TTL = {
@@ -43,20 +44,61 @@ export async function GET(request: NextRequest) {
   const limited = applyRateLimit(request, { limit: 120, windowMs: 60_000, keyPrefix: 'home-workspace-widgets' });
   if (limited) return limited;
 
-  const forceRefresh = request.nextUrl.searchParams.get('refresh') === '1';
+  const requestedWidgets = parseHomeWidgetSelection(request.nextUrl.searchParams.get('widgets'), HOME_WIDGET_NAMES);
+  if (!requestedWidgets) return jsonError('Invalid workspace widget selection', 400);
+  const refreshParam = request.nextUrl.searchParams.get('refresh');
+  const forceRefreshWidgets = refreshParam === '1'
+    ? requestedWidgets
+    : parseHomeWidgetSelection(refreshParam, []);
+  if (!forceRefreshWidgets) return jsonError('Invalid workspace widget refresh selection', 400);
+  const selected = new Set(requestedWidgets);
+  const forced = new Set(forceRefreshWidgets);
   const fetcher = requestFetcher(request);
-  const cacheInput = { userId: access.session.user.id, workspaceId, forceRefresh };
   const [emails, todos, automation, studio] = await Promise.all([
-    widgetResult(() => loadHomeWidgetEmails(access.session.user.id, {
-      scheduleBackgroundTask: after,
-      services: { listAccounts: listEmailAccounts, listMessages: listEmailMessages },
-    })),
-    widgetResult(() => loadCachedWorkspaceWidget({ ...cacheInput, widget: 'todos', ttlMs: TTL.todos, load: () => loadHomeWidgetTodos(fetcher, workspaceId) })),
-    widgetResult(() => loadCachedWorkspaceWidget({ ...cacheInput, widget: 'automation', ttlMs: TTL.automation, load: () => loadHomeWidgetAutomation(fetcher, workspaceId) })),
-    widgetResult(() => loadCachedWorkspaceWidget({ ...cacheInput, widget: 'studio', ttlMs: TTL.studio, load: () => loadHomeWidgetStudio(fetcher, workspaceId) })),
+    selected.has('emails')
+      ? widgetResult(() => loadHomeWidgetEmails(access.session.user.id, {
+        scheduleBackgroundTask: after,
+        services: { listAccounts: listEmailAccounts, listMessages: listEmailMessages },
+      }))
+      : undefined,
+    selected.has('todos')
+      ? widgetResult(() => loadCachedWorkspaceWidget({
+        userId: access.session.user.id,
+        workspaceId,
+        forceRefresh: forced.has('todos'),
+        widget: 'todos',
+        ttlMs: TTL.todos,
+        load: () => loadHomeWidgetTodos(fetcher, workspaceId),
+      }))
+      : undefined,
+    selected.has('automation')
+      ? widgetResult(() => loadCachedWorkspaceWidget({
+        userId: access.session.user.id,
+        workspaceId,
+        forceRefresh: forced.has('automation'),
+        widget: 'automation',
+        ttlMs: TTL.automation,
+        load: () => loadHomeWidgetAutomation(fetcher, workspaceId),
+      }))
+      : undefined,
+    selected.has('studio')
+      ? widgetResult(() => loadCachedWorkspaceWidget({
+        userId: access.session.user.id,
+        workspaceId,
+        forceRefresh: forced.has('studio'),
+        widget: 'studio',
+        ttlMs: TTL.studio,
+        load: () => loadHomeWidgetStudio(fetcher, workspaceId),
+      }))
+      : undefined,
   ]);
 
-  return jsonSuccess({ data: { emails, todos, automation, studio } }, {
+  return jsonSuccess({ data: {
+    ...(emails ? { emails } : {}),
+    ...(todos ? { todos } : {}),
+    ...(automation ? { automation } : {}),
+    ...(studio ? { studio } : {}),
+  } }, {
     headers: { 'Cache-Control': 'private, no-store' },
   });
 }

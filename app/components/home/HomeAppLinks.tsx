@@ -147,10 +147,10 @@ export function HomeAppLinks({ active, workspaceId }: { active: boolean; workspa
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{t('pages.workspaceDescription')}</p>
       </div>
       {workspaceId ? <div className="grid flex-1 gap-4 md:min-h-0 md:grid-cols-2 md:grid-rows-[repeat(2,minmax(15rem,1fr))]">
-        <EmailWidget state={widgets.emails} onRetry={widgets.retry} />
-        <TodoWidget state={widgets.todos} workspaceId={workspaceId} onRetry={widgets.retry} />
-        <StudioWidget state={widgets.studio} workspaceId={workspaceId} onRetry={widgets.retry} />
-        <AutomationWidget state={widgets.automation} onRetry={widgets.retry} />
+        <EmailWidget state={widgets.emails} onRetry={() => widgets.retry('emails')} />
+        <TodoWidget state={widgets.todos} workspaceId={workspaceId} onRetry={() => widgets.retry('todos')} />
+        <StudioWidget state={widgets.studio} workspaceId={workspaceId} onRetry={() => widgets.retry('studio')} />
+        <AutomationWidget state={widgets.automation} onRetry={() => widgets.retry('automation')} />
       </div> : <div className="grid flex-1 gap-4 md:grid-cols-2 lg:grid-rows-2">{Array.from({ length: 4 }, (_, index) => <div key={index} className="min-h-64 animate-pulse rounded-xl border border-border bg-muted/40" />)}</div>}
     </section>
   );
