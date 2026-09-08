@@ -11,6 +11,8 @@ import { workspaceTrashEntries } from '@/app/lib/db/schema';
 import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
 import { ensureWorkspaceRoot, resolveExistingWorkspacePath, resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { assertNoActiveOfficeLeases } from '@/app/lib/files/collaboration-policy';
 
 export const DEFAULT_WORKSPACE_TRASH_RETENTION_DAYS = 30;
 
@@ -258,73 +260,76 @@ export async function trashWorkspacePaths(params: {
   deletedByUserId: string;
   now?: Date;
 }): Promise<TrashWorkspacePathsResult> {
-  await ensureWorkspaceRoot(params.workspace);
-  const now = params.now ?? new Date();
-  const days = retentionDays();
-  const expiresAt = expiresAtFrom(now, days);
-  const result: TrashWorkspacePathsResult = { trashed: [], failed: [] };
+  return withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
+    await ensureWorkspaceRoot(params.workspace);
+    const now = params.now ?? new Date();
+    const days = retentionDays();
+    const expiresAt = expiresAtFrom(now, days);
+    const result: TrashWorkspacePathsResult = { trashed: [], failed: [] };
 
-  const { selected: candidates, failed: invalidPaths } = dedupeNestedPaths(params.workspace, params.paths);
-  result.failed.push(...invalidPaths);
+    const { selected: candidates, failed: invalidPaths } = dedupeNestedPaths(params.workspace, params.paths);
+    result.failed.push(...invalidPaths);
 
-  for (const candidate of candidates) {
-    try {
-      const sourcePath = await resolveExistingWorkspacePath(params.workspace, candidate.originalPath);
-      const summary = await summarizePath(sourcePath);
-      const id = `trash-${randomUUID()}`;
-      const trashRelativePath = trashRelativePathFor(params.workspace, id, candidate.originalPath);
-      const trashPath = absoluteDataPath(trashRelativePath);
-      await fs.mkdir(trashRootForWorkspace(params.workspace), { recursive: true });
-      await movePath(sourcePath, trashPath, summary.itemType === 'directory');
-
+    for (const candidate of candidates) {
       try {
-        const rows = await db.insert(workspaceTrashEntries).values({
-          id,
-          organizationId: params.workspace.organizationId ?? null,
-          workspaceId: params.workspace.workspaceId,
-          workspaceType: params.workspace.workspaceType,
-          ownerUserId: params.workspace.ownerUserId ?? null,
-          originalPath: candidate.originalPath,
-          trashRelativePath,
-          entryName: path.posix.basename(candidate.originalPath),
-          itemType: summary.itemType,
-          sizeBytes: summary.sizeBytes,
-          fileCount: summary.fileCount,
-          directoryCount: summary.directoryCount,
-          status: 'trashed',
-          deletedByUserId: params.deletedByUserId,
-          deletedAt: now,
-          expiresAt,
-          metadataJson: JSON.stringify({
-            retentionDays: days,
-            workspaceType: params.workspace.workspaceType,
-            requestedPath: candidate.requested,
-          }),
-        }).returning();
-        const row = rows[0];
-        if (!row) throw new Error('Trash entry was not persisted.');
-        result.trashed.push(mapTrashRow(row));
-      } catch (dbError) {
-        try {
-          if (await pathExists(trashPath)) {
-            await movePath(trashPath, sourcePath, summary.itemType === 'directory');
-          }
-        } catch (rollbackError) {
-          throw new Error(
-            `Failed to persist trash entry (${formatErrorMessage(dbError)}); rollback failed: ${formatErrorMessage(rollbackError)}`
-          );
-        }
-        throw dbError;
-      }
-    } catch (error) {
-      result.failed.push({
-        path: candidate.requested,
-        error: formatErrorMessage(error),
-      });
-    }
-  }
+        await assertNoActiveOfficeLeases(params.workspace, [candidate.originalPath]);
+        const sourcePath = await resolveExistingWorkspacePath(params.workspace, candidate.originalPath);
+        const summary = await summarizePath(sourcePath);
+        const id = `trash-${randomUUID()}`;
+        const trashRelativePath = trashRelativePathFor(params.workspace, id, candidate.originalPath);
+        const trashPath = absoluteDataPath(trashRelativePath);
+        await fs.mkdir(trashRootForWorkspace(params.workspace), { recursive: true });
+        await movePath(sourcePath, trashPath, summary.itemType === 'directory');
 
-  return result;
+        try {
+          const rows = await db.insert(workspaceTrashEntries).values({
+            id,
+            organizationId: params.workspace.organizationId ?? null,
+            workspaceId: params.workspace.workspaceId,
+            workspaceType: params.workspace.workspaceType,
+            ownerUserId: params.workspace.ownerUserId ?? null,
+            originalPath: candidate.originalPath,
+            trashRelativePath,
+            entryName: path.posix.basename(candidate.originalPath),
+            itemType: summary.itemType,
+            sizeBytes: summary.sizeBytes,
+            fileCount: summary.fileCount,
+            directoryCount: summary.directoryCount,
+            status: 'trashed',
+            deletedByUserId: params.deletedByUserId,
+            deletedAt: now,
+            expiresAt,
+            metadataJson: JSON.stringify({
+              retentionDays: days,
+              workspaceType: params.workspace.workspaceType,
+              requestedPath: candidate.requested,
+            }),
+          }).returning();
+          const row = rows[0];
+          if (!row) throw new Error('Trash entry was not persisted.');
+          result.trashed.push(mapTrashRow(row));
+        } catch (dbError) {
+          try {
+            if (await pathExists(trashPath)) {
+              await movePath(trashPath, sourcePath, summary.itemType === 'directory');
+            }
+          } catch (rollbackError) {
+            throw new Error(
+              `Failed to persist trash entry (${formatErrorMessage(dbError)}); rollback failed: ${formatErrorMessage(rollbackError)}`
+            );
+          }
+          throw dbError;
+        }
+      } catch (error) {
+        result.failed.push({
+          path: candidate.requested,
+          error: formatErrorMessage(error),
+        });
+      }
+    }
+
+    return result;
+  });
 }
 
 export async function listWorkspaceTrashEntries(params: {
@@ -355,14 +360,16 @@ export async function restoreWorkspaceTrashEntry(params: {
   overwrite?: boolean;
   now?: Date;
 }): Promise<WorkspaceTrashEntry> {
-  const row = await db.query.workspaceTrashEntries.findFirst({
-    where: and(
-      eq(workspaceTrashEntries.id, params.entryId),
-      eq(workspaceTrashEntries.workspaceId, params.workspace.workspaceId),
-      eq(workspaceTrashEntries.status, 'trashed'),
-    ),
+  return withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
+    const row = await db.query.workspaceTrashEntries.findFirst({
+      where: and(
+        eq(workspaceTrashEntries.id, params.entryId),
+        eq(workspaceTrashEntries.workspaceId, params.workspace.workspaceId),
+        eq(workspaceTrashEntries.status, 'trashed'),
+      ),
   });
   if (!row) throw new Error('Trash entry not found.');
+  await assertNoActiveOfficeLeases(params.workspace, [row.originalPath]);
 
   const trashPath = absoluteDataPath(row.trashRelativePath);
   const restoreResolution = resolveWorkspacePath(params.workspace, row.originalPath);
@@ -434,6 +441,7 @@ export async function restoreWorkspaceTrashEntry(params: {
   }
   if (!restoredEntry) throw new Error('Trash entry was not marked restored.');
   return restoredEntry;
+  });
 }
 
 export async function purgeExpiredWorkspaceTrash(params: {
@@ -454,39 +462,41 @@ export async function purgeExpiredWorkspaceTrash(params: {
   const result: PurgeWorkspaceTrashResult = { purged: [], failed: [] };
   for (const row of rows) {
     try {
-      const purgedRows = await db.update(workspaceTrashEntries)
-        .set({
-          status: 'purged',
-          purgedAt: now,
-          purgedByUserId: params.purgedByUserId ?? null,
-        })
-        .where(and(
-          eq(workspaceTrashEntries.id, row.id),
-          eq(workspaceTrashEntries.status, 'trashed'),
-        ))
-        .returning({ id: workspaceTrashEntries.id });
-      if (!purgedRows[0]) continue;
+      await withWorkspaceMutationLock(row.workspaceId, async () => {
+        const purgedRows = await db.update(workspaceTrashEntries)
+          .set({
+            status: 'purged',
+            purgedAt: now,
+            purgedByUserId: params.purgedByUserId ?? null,
+          })
+          .where(and(
+            eq(workspaceTrashEntries.id, row.id),
+            eq(workspaceTrashEntries.status, 'trashed'),
+          ))
+          .returning({ id: workspaceTrashEntries.id });
+        if (!purgedRows[0]) return;
 
-      try {
-        await fs.rm(absoluteDataPath(row.trashRelativePath), { recursive: true, force: true });
-      } catch (fsError) {
         try {
-          await db.update(workspaceTrashEntries)
-            .set({
-              status: 'trashed',
-              purgedAt: null,
-              purgedByUserId: null,
-            })
-            .where(eq(workspaceTrashEntries.id, row.id));
-        } catch (rollbackError) {
-          throw new Error(
-            `Failed to remove purged trash file (${formatErrorMessage(fsError)}); rollback failed: ${formatErrorMessage(rollbackError)}`
-          );
+          await fs.rm(absoluteDataPath(row.trashRelativePath), { recursive: true, force: true });
+        } catch (fsError) {
+          try {
+            await db.update(workspaceTrashEntries)
+              .set({
+                status: 'trashed',
+                purgedAt: null,
+                purgedByUserId: null,
+              })
+              .where(eq(workspaceTrashEntries.id, row.id));
+          } catch (rollbackError) {
+            throw new Error(
+              `Failed to remove purged trash file (${formatErrorMessage(fsError)}); rollback failed: ${formatErrorMessage(rollbackError)}`
+            );
+          }
+          throw fsError;
         }
-        throw fsError;
-      }
 
-      result.purged.push(row.id);
+        result.purged.push(row.id);
+      });
     } catch (error) {
       result.failed.push({
         id: row.id,

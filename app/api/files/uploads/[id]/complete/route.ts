@@ -38,12 +38,16 @@ export async function POST(
       fileId,
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
-      commit: async ({ file, sourcePath }) => {
+      commit: async ({ file, sourcePath, persistOfficeAttempt }) => {
         await runWorkspaceUploadWrite({
           workspace: workspaceResult.workspace,
           fileOptions,
           actorUserId: workspaceResult.session.user.id,
           targetPath: file.targetPath,
+          sourcePath,
+          idempotencyKey: `upload:${id}:${file.id}`,
+          officeAttempt: file.officeAttempt,
+          persistOfficeAttempt,
           write: (onBeforeReplace) => replaceWorkspaceFileFromPath(
             sourcePath,
             file.targetPath,

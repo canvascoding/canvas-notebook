@@ -465,7 +465,7 @@ export async function completeDirectMcpBinaryUpload(input: {
       fileId: handle.fileId,
       userId: input.principal.userId,
       workspace: input.workspace,
-      commit: async ({ file, sourcePath }) => {
+      commit: async ({ file, sourcePath, persistOfficeAttempt }) => {
         if (file.targetPath !== handle.targetPath || file.size !== handle.size) {
           throw new DirectMcpBinaryUploadError('The upload session no longer matches the requested file.');
         }
@@ -476,16 +476,18 @@ export async function completeDirectMcpBinaryUpload(input: {
           );
         }
         detectedMimeType = await inspectUploadedMimeType(buffer, handle.mimeType);
-        await assertDestinationRevision({
-          workspace: input.workspace,
-          path: handle.targetPath,
-          beforeSha256: handle.beforeSha256,
-        });
         await runWorkspaceUploadWrite({
           workspace: input.workspace,
           fileOptions: { workspace: input.workspace },
           actorUserId: input.principal.userId,
           targetPath: handle.targetPath,
+          content: buffer,
+          idempotencyKey: `upload:${handle.sessionId}:${file.id}`,
+          officeAttempt: file.officeAttempt,
+          persistOfficeAttempt,
+          beforeWrite: () => assertDestinationRevision({
+            workspace: input.workspace, path: handle.targetPath, beforeSha256: handle.beforeSha256,
+          }),
           write: (onBeforeReplace) => replaceWorkspaceFileFromPath(
             sourcePath,
             handle.targetPath,

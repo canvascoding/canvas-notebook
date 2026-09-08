@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
-import { batchCopyBetweenWorkspaces } from '@/app/lib/filesystem/workspace-files';
+import { batchCopyBetweenWorkspaces, withWorkspaceCopyMutationLocks } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
 import { initializeCopiedFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
@@ -84,20 +84,22 @@ export async function POST(request: NextRequest) {
     if (targetWorkspaceResult.response) return targetWorkspaceResult.response;
 
     const sourceFileOptions = workspaceFileOptions(sourceWorkspaceResult.workspace);
-    const targetFileOptions = workspaceFileOptions(targetWorkspaceResult.workspace);
+    const targetFileOptions = { ...workspaceFileOptions(targetWorkspaceResult.workspace), mutationActorUserId: session.user.id };
 
     const protectedPaths = copySources.filter((p) => isProtectedAppOutputFolder(p));
     if (protectedPaths.length > 0) {
       return jsonError(`Protected app output folder(s) cannot be copied: ${protectedPaths.join(', ')}`, 403);
     }
 
-    const result = await batchCopyBetweenWorkspaces(copySources, destDir, overwrite, renameOnCollision, {
-      source: sourceFileOptions,
-      target: targetFileOptions,
-    });
-    await initializeCopiedFileCollaborationPaths({
-      workspace: targetWorkspaceResult.workspace,
-      paths: result.copied,
+    const result = await withWorkspaceCopyMutationLocks(sourceFileOptions, targetFileOptions, async () => {
+      const copied = await batchCopyBetweenWorkspaces(copySources, destDir, overwrite, renameOnCollision, {
+        source: sourceFileOptions, target: targetFileOptions,
+      });
+      const initialized = new Set(copied.collaborationInitializedPaths);
+      await initializeCopiedFileCollaborationPaths({
+        workspace: targetWorkspaceResult.workspace, paths: copied.copied.filter((entry) => !initialized.has(entry)),
+      });
+      return copied;
     });
 
     invalidateWorkspaceFileViews({

@@ -17,10 +17,13 @@ import {
   resolveExistingWorkspacePath as resolveExistingWorkspacePathForContext,
   resolveWritableWorkspacePath as resolveWritableWorkspacePathForContext,
   resolveWorkspacePath,
+  normalizeWorkspaceRelativePath,
 } from '@/app/lib/workspaces/path-guard';
 import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { assertOfficePublicationAllowed } from '@/app/lib/office/publication-context';
 
 export type { FileNode } from '@/app/lib/files/types';
 
@@ -28,6 +31,7 @@ export interface WorkspaceFileOperationOptions {
   workspace?: WorkspaceContext;
   includeMetadata?: boolean;
   includeSymlinks?: boolean;
+  mutationActorUserId?: string;
 }
 
 function getDataDir(): string {
@@ -38,49 +42,37 @@ function getWorkspace(options?: WorkspaceFileOperationOptions): WorkspaceContext
   return options?.workspace ?? createLegacyPersonalWorkspaceContext();
 }
 
-const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache', '.canvas-brand']);
+/** Only Office files and directory scopes require the Office lease repository. */
+export async function assertWorkspaceOfficePathMutationAllowed(
+  filePaths: readonly string[],
+  options?: WorkspaceFileOperationOptions,
+): Promise<void> {
+  const workspace = getWorkspace(options);
+  const scopes: string[] = [];
+  for (const filePath of filePaths) {
+    const resolution = resolveWorkspacePath(workspace, filePath);
+    const normalizedPath = resolution.relativePath;
+    if (normalizedPath.toLowerCase().endsWith('.docx') || !path.posix.extname(normalizedPath)) {
+      scopes.push(normalizedPath);
+      continue;
+    }
+    try {
+      const actualPath = await resolveExistingWorkspacePath(normalizedPath, options);
+      if ((await fs.stat(actualPath)).isDirectory() || actualPath.toLowerCase().endsWith('.docx')) scopes.push(normalizedPath);
+    } catch (error) {
+      if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') throw error;
+    }
+  }
+  if (scopes.length) {
+    const { assertNoActiveOfficeLeases } = await import('@/app/lib/files/collaboration-policy');
+    await assertNoActiveOfficeLeases(workspace, scopes);
+  }
+}
+
+const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache', '.canvas-brand', '.canvas-copy-backups']);
 const HIDDEN_WORKSPACE_METADATA_FILES = new Set(['.gitkeep', '.keep']);
 const FILE_METADATA_CONCURRENCY = 32;
 const FILE_TREE_DIRECTORY_CONCURRENCY = 16;
-const workspaceFileMutationLocks = new Map<string, Promise<void>>();
-
-async function withExactWorkspaceFileMutationLock<T>(
-  filePath: string,
-  options: WorkspaceFileOperationOptions | undefined,
-  operation: () => Promise<T>,
-): Promise<T> {
-  const key = `${getWorkspace(options).workspaceId}\0${filePath}`;
-  const previous = workspaceFileMutationLocks.get(key) ?? Promise.resolve();
-  let releaseCurrent!: () => void;
-  const current = new Promise<void>((resolve) => { releaseCurrent = resolve; });
-  const queued = previous.then(() => current);
-  workspaceFileMutationLocks.set(key, queued);
-
-  await previous;
-  try {
-    return await operation();
-  } finally {
-    releaseCurrent();
-    if (workspaceFileMutationLocks.get(key) === queued) workspaceFileMutationLocks.delete(key);
-  }
-}
-
-function workspaceMutationLockPathHierarchy(filePath: string): string[] {
-  const normalizedPath = path.posix.normalize(filePath.replaceAll('\\', '/')).replace(/^\.\//, '');
-  if (normalizedPath === '.' || normalizedPath === '') return ['.'];
-
-  const paths = [normalizedPath];
-  let parentPath = path.posix.dirname(normalizedPath);
-  while (parentPath !== '.' && parentPath !== '/') {
-    paths.push(parentPath);
-    const nextParentPath = path.posix.dirname(parentPath);
-    if (nextParentPath === parentPath) break;
-    parentPath = nextParentPath;
-  }
-  paths.push('.');
-  return paths;
-}
-
 export async function withWorkspaceFileMutationLock<T>(
   filePath: string,
   options: WorkspaceFileOperationOptions | undefined,
@@ -94,13 +86,10 @@ export async function withWorkspaceFileMutationLocks<T>(
   options: WorkspaceFileOperationOptions | undefined,
   operation: () => Promise<T>,
 ): Promise<T> {
-  const uniquePaths = [...new Set(filePaths.flatMap(workspaceMutationLockPathHierarchy))]
-    .sort((left, right) => left.localeCompare(right));
-  const runWithLocks = async (index: number): Promise<T> => {
-    if (index >= uniquePaths.length) return operation();
-    return withExactWorkspaceFileMutationLock(uniquePaths[index], options, () => runWithLocks(index + 1));
-  };
-  return runWithLocks(0);
+  // All path hierarchies previously included the workspace root. Preserve that
+  // ordering while extending exclusion across runtime processes and nested calls.
+  void filePaths;
+  return withWorkspaceMutationLock(getWorkspace(options).workspaceId, operation);
 }
 
 async function mapWithConcurrency<T, R>(
@@ -260,6 +249,7 @@ async function writeFileUnlocked(
   options?: WorkspaceFileOperationOptions,
   onBeforeReplace?: () => Promise<void>,
 ): Promise<void> {
+  assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
   const fullPath = await resolveWritableWorkspacePath(filePath, options);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
   const stagingPath = `${fullPath}.canvas-write-${randomUUID()}.tmp`;
@@ -313,6 +303,7 @@ async function replaceWorkspaceFileFromPathUnlocked(
   options?: WorkspaceFileOperationOptions,
   onBeforeReplace?: () => Promise<void>,
 ): Promise<void> {
+  assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
   const sourceStats = await fs.stat(sourcePath);
   if (!sourceStats.isFile()) {
     throw new Error('Upload source must be a file.');
@@ -357,11 +348,35 @@ async function replaceWorkspaceFileFromPathUnlocked(
 export async function writeFileIfAbsent(
   filePath: string,
   content: Buffer | string,
-  options?: WorkspaceFileOperationOptions
+  options?: WorkspaceFileOperationOptions,
+  onBeforeReplace?: () => Promise<void>,
 ): Promise<void> {
-  const fullPath = await resolveWritableWorkspacePath(filePath, options);
-  const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
-  await fs.writeFile(fullPath, buffer, { flag: 'wx' });
+  return withWorkspaceFileMutationLock(filePath, options, async () => {
+    assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
+    const fullPath = await resolveWritableWorkspacePath(filePath, options);
+    const stagingPath = `${fullPath}.canvas-create-${randomUUID()}.tmp`;
+    let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
+    try {
+      handle = await fs.open(stagingPath, 'wx', 0o666);
+      await handle.writeFile(content);
+      await handle.sync();
+      await handle.close();
+      handle = null;
+      await onBeforeReplace?.();
+      // link() publishes the complete inode atomically and rejects EEXIST.
+      // rename() would silently replace a concurrent creator's file.
+      await fs.link(stagingPath, fullPath);
+      const directoryHandle = await fs.open(path.dirname(fullPath), 'r');
+      try {
+        await directoryHandle.sync();
+      } finally {
+        await directoryHandle.close();
+      }
+    } finally {
+      await handle?.close().catch(() => undefined);
+      await fs.rm(stagingPath, { force: true }).catch(() => undefined);
+    }
+  });
 }
 
 export async function writeWorkspaceFileFromPathIfAbsent(
@@ -369,6 +384,7 @@ export async function writeWorkspaceFileFromPathIfAbsent(
   filePath: string,
   options?: WorkspaceFileOperationOptions,
 ): Promise<void> {
+  assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
   const sourceStats = await fs.stat(sourcePath);
   if (!sourceStats.isFile()) throw new Error('Upload source must be a file.');
   const parentDir = path.posix.dirname(filePath);
@@ -425,8 +441,11 @@ export async function createDirectoryIfAbsent(dirPath: string, options?: Workspa
 }
 
 export async function deleteFile(filePath: string, options?: WorkspaceFileOperationOptions): Promise<void> {
-  const fullPath = await resolveExistingWorkspacePath(filePath, options);
-  await fs.rm(fullPath, {recursive: true, force: true});
+  return withWorkspaceFileMutationLock(filePath, options, async () => {
+    await assertWorkspaceOfficePathMutationAllowed([filePath], options);
+    const fullPath = await resolveExistingWorkspacePath(filePath, options);
+    await fs.rm(fullPath, {recursive: true, force: true});
+  });
 }
 
 export interface RenameConflictError extends Error {
@@ -513,6 +532,7 @@ export async function withRollbackableFileRename<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   return withWorkspaceFileMutationLocks([oldPath, newPath], options, async () => {
+    await assertWorkspaceOfficePathMutationAllowed([oldPath, newPath], options);
     let backupDirectory: string | null = null;
     let destinationBackupPath: string | null = null;
     const conflict = await checkRenameConflict(oldPath, newPath, options);
@@ -560,8 +580,16 @@ async function renameFileUnlocked(
   overwrite = false,
   options?: WorkspaceFileOperationOptions,
 ): Promise<void> {
+  oldPath = normalizeWorkspaceRelativePath(oldPath);
+  newPath = normalizeWorkspaceRelativePath(newPath);
+  await assertWorkspaceOfficePathMutationAllowed([oldPath, newPath], options);
   const fullOldPath = await resolveExistingWorkspacePath(oldPath, options);
   const fullNewPath = validatePath(newPath, options);
+  if (newPath.toLowerCase().endsWith('.docx') && (await fs.stat(fullOldPath)).isFile()) {
+    const { readOfficeFileBytes } = await import('@/app/lib/office/document-service');
+    const { validateDocxPackage } = await import('@/app/lib/office/docx-package');
+    await validateDocxPackage(await readOfficeFileBytes(oldPath, options ?? {}));
+  }
 
   // Ensure parent directory exists
   const parentDir = path.dirname(newPath);
@@ -668,6 +696,7 @@ export async function buildFileTree(
 }
 
 export interface CopyResult {
+  collaborationInitializedPaths?: string[];
   copied: string[];
   failed: {path: string; error: string}[];
   skipped: string[];
@@ -721,46 +750,134 @@ export async function copyFile(
   overwrite = false,
   renameOnCollision = false,
   options?: WorkspaceFileOperationOptions
-): Promise<{copied: string; skipped: boolean}> {
-  const fullSource = await resolveExistingWorkspacePath(sourcePath, options);
-  const fullDestDir = await resolveExistingWorkspacePath(destDir, options);
-  const fileName = path.basename(fullSource);
-  let destFileName = fileName;
+): Promise<{copied: string; skipped: boolean; collaborationInitialized?: boolean}> {
+  return copyFileBetweenWorkspaces(sourcePath, destDir, overwrite, renameOnCollision, { source: options ?? {}, target: options ?? {} });
+}
 
-  if (renameOnCollision) {
-    const fullDest = path.join(fullDestDir, destFileName);
-    try {
-      await fs.access(fullDest);
-      destFileName = findAvailableDestName(fileName, fullDestDir);
-    } catch {
-      // Destination doesn't exist - use original name
-    }
-  } else {
-    const fullDest = path.join(fullDestDir, destFileName);
-    let destExists = false;
-    try {
-      await fs.access(fullDest);
-      destExists = true;
-    } catch {
-      // Destination doesn't exist - good
-    }
+export async function withWorkspaceCopyMutationLocks<T>(
+  source: WorkspaceFileOperationOptions,
+  target: WorkspaceFileOperationOptions,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const workspaceIds = [...new Set([getWorkspace(source).workspaceId, getWorkspace(target).workspaceId])].sort();
+  const enter = (index: number): Promise<T> => index === workspaceIds.length
+    ? operation()
+    : withWorkspaceMutationLock(workspaceIds[index], () => enter(index + 1));
+  return enter(0);
+}
 
-    if (destExists) {
-      if (!overwrite) {
-        return {copied: '', skipped: true};
-      }
-      if (isSameFsPath(fullSource, fullDest)) {
-        throw new Error('Cannot overwrite a path with itself');
-      }
-      await fs.rm(fullDest, {recursive: true, force: true});
+async function collectOfficeCopyPaths(filePath: string, options: WorkspaceFileOperationOptions): Promise<string[]> {
+  filePath = normalizeWorkspaceRelativePath(filePath);
+  const absolutePath = validatePath(filePath, options);
+  let stats: Awaited<ReturnType<typeof fs.lstat>>;
+  try { stats = await fs.lstat(absolutePath); }
+  catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return [];
+    throw error;
+  }
+  if (stats.isSymbolicLink()) {
+    if (filePath.toLowerCase().endsWith('.docx')) throw new Error('Copying a Word document through a symbolic link is not supported.');
+    return [];
+  }
+  if (!stats.isDirectory()) return filePath.toLowerCase().endsWith('.docx') ? [filePath] : [];
+  const result: string[] = [];
+  for (const entry of await fs.readdir(absolutePath)) {
+    result.push(...await collectOfficeCopyPaths(path.posix.join(filePath, entry), options));
+  }
+  return result;
+}
+
+async function publishCopiedOfficeContent(filePath: string, content: Buffer, options: WorkspaceFileOperationOptions): Promise<void> {
+  const workspace = getWorkspace(options);
+  const actorUserId = options.mutationActorUserId ?? workspace.ownerUserId;
+  if (!actorUserId) throw new Error('A user identity is required to copy Word documents.');
+  const { runWorkspaceUploadWrite } = await import('@/app/lib/files/workspace-upload-flow');
+  await runWorkspaceUploadWrite({
+    workspace, fileOptions: options, actorUserId, targetPath: filePath, content,
+    write: async () => { throw new Error('Word copies must use the document publication service.'); },
+  });
+}
+
+async function preserveOfficeCopyBaseline(filePath: string, options: WorkspaceFileOperationOptions): Promise<void> {
+  const workspace = getWorkspace(options);
+  const actorUserId = options.mutationActorUserId ?? workspace.ownerUserId;
+  if (!actorUserId) throw new Error('A user identity is required to copy Word documents.');
+  const { readOfficeDocumentSnapshot } = await import('@/app/lib/office/document-service');
+  const { prepareOfficeCommit, completeOfficeCommit } = await import('@/app/lib/office/document-journal');
+  const snapshot = await readOfficeDocumentSnapshot(workspace, filePath);
+  if (!snapshot.collaboration.lineageId) throw new Error('The replaced Word document has no recoverable identity.');
+  // Archive the existing bytes without republishing them. This also preserves
+  // a damaged legacy DOCX when the user replaces it with a valid document.
+  const baseline = await prepareOfficeCommit({
+    workspaceId: workspace.workspaceId, lineageId: snapshot.collaboration.lineageId, path: filePath,
+    actorUserId, actorSessionId: `copy-baseline:${randomUUID()}`, actorType: 'user',
+    beforeHash: snapshot.stats.sha256, baseRevisionId: snapshot.revision.id,
+    beforeContent: snapshot.content, content: snapshot.content, idempotencyKey: randomUUID(),
+  });
+  await completeOfficeCommit(baseline, snapshot.revision.id);
+}
+
+async function withOfficeCopyReplacement<T>(
+  destination: string,
+  exists: boolean,
+  options: WorkspaceFileOperationOptions,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const workspace = getWorkspace(options);
+  const { archiveFileCollaborationPaths, moveFileCollaborationPath, remapArchivedFileCollaborationPaths } = await import('@/app/lib/files/collaboration-policy');
+  const { deleteWorkspaceFileMetadata, moveWorkspaceFileMetadata } = await import('@/app/lib/files/workspace-file-metadata');
+  const discardPartialDestination = async () => {
+    await fs.rm(validatePath(destination, options), { recursive: true, force: true });
+    await archiveFileCollaborationPaths({ workspace, paths: [{ path: destination }] });
+    await deleteWorkspaceFileMetadata({ workspace, path: destination });
+  };
+  if (!exists) {
+    try { return await operation(); }
+    catch (error) {
+      try { await discardPartialDestination(); }
+      catch (rollbackError) { throw new Error('Office directory copy failed and its partial destination could not be fully cleaned up.', { cause: new AggregateError([error, rollbackError]) }); }
+      throw error;
     }
   }
-
-  const fullDest = path.join(fullDestDir, destFileName);
-  const destRelative = destDir === '.' ? destFileName : `${destDir}/${destFileName}`;
-  await assertCopyDestinationIsSafe(fullSource, fullDestDir, fullDest);
-  await fs.cp(fullSource, fullDest, {recursive: true});
-  return {copied: destRelative, skipped: false};
+  const backupDirectory = '.canvas-copy-backups';
+  await createDirectory(backupDirectory, options);
+  await fs.chmod(validatePath(backupDirectory, options), 0o700);
+  const backupPath = `${backupDirectory}/${randomUUID()}`;
+  const result = await withRollbackableFileRename(destination, backupPath, false, options, async () => {
+    let collaborationMoved = false;
+    let metadataMoved = false;
+    let copyStarted = false;
+    try {
+      await moveFileCollaborationPath({ workspace, oldPath: destination, newPath: backupPath });
+      collaborationMoved = true;
+      await moveWorkspaceFileMetadata({ workspace, oldPath: destination, newPath: backupPath });
+      metadataMoved = true;
+      copyStarted = true;
+      return await operation();
+    } catch (error) {
+      try {
+        if (copyStarted) await discardPartialDestination();
+        if (metadataMoved) await moveWorkspaceFileMetadata({ workspace, oldPath: backupPath, newPath: destination });
+        if (collaborationMoved) await moveFileCollaborationPath({ workspace, oldPath: backupPath, newPath: destination });
+      } catch (rollbackError) {
+        // The outer filesystem transaction restores the original directory or
+        // retains its private backup when filesystem compensation also fails.
+        throw new Error(`Office copy failed; metadata recovery may require the original at ${destination} or ${backupPath}.`, { cause: new AggregateError([error, rollbackError]) });
+      }
+      throw error;
+    }
+  });
+  try {
+    await archiveFileCollaborationPaths({ workspace, paths: [{ path: backupPath }] });
+    await remapArchivedFileCollaborationPaths({ workspace, oldPath: backupPath, newPath: destination });
+    await deleteWorkspaceFileMetadata({ workspace, path: backupPath });
+    await fs.rm(validatePath(backupPath, options), { recursive: true, force: true });
+  } catch (error) {
+    // A cleanup failure must never discard the original backup or make a
+    // successfully published destination disappear.
+    console.warn('[Office copy] Original backup retained after cleanup failure:', backupPath, error);
+  }
+  return result;
 }
 
 export async function copyFileBetweenWorkspaces(
@@ -772,46 +889,82 @@ export async function copyFileBetweenWorkspaces(
     source: WorkspaceFileOperationOptions;
     target: WorkspaceFileOperationOptions;
   }
-): Promise<{copied: string; skipped: boolean}> {
-  const fullSource = await resolveExistingWorkspacePath(sourcePath, options.source);
-  const fullDestDir = await resolveExistingWorkspacePath(destDir, options.target);
-  const fileName = path.basename(fullSource);
-  let destFileName = fileName;
+): Promise<{copied: string; skipped: boolean; collaborationInitialized?: boolean}> {
+  sourcePath = normalizeWorkspaceRelativePath(sourcePath);
+  destDir = normalizeWorkspaceRelativePath(destDir);
+  return withWorkspaceCopyMutationLocks(options.source, options.target, async () => {
+    const fullSource = await resolveExistingWorkspacePath(sourcePath, options.source);
+    const fullDestDir = await resolveExistingWorkspacePath(destDir, options.target);
+    const fileName = path.basename(fullSource);
+    let destFileName = fileName;
 
-  if (renameOnCollision) {
-    const fullDest = path.join(fullDestDir, destFileName);
-    try {
-      await fs.access(fullDest);
-      destFileName = findAvailableDestName(fileName, fullDestDir);
-    } catch {
-      // Destination doesn't exist - use original name
-    }
-  } else {
-    const fullDest = path.join(fullDestDir, destFileName);
     let destExists = false;
-    try {
-      await fs.access(fullDest);
-      destExists = true;
-    } catch {
-      // Destination doesn't exist - good
+    if (renameOnCollision) {
+      const fullDest = path.join(fullDestDir, destFileName);
+      try {
+        await fs.access(fullDest);
+        destFileName = findAvailableDestName(fileName, fullDestDir);
+      } catch {
+        // Destination doesn't exist - use original name
+      }
+    } else {
+      const fullDest = path.join(fullDestDir, destFileName);
+      try {
+        await fs.access(fullDest);
+        destExists = true;
+      } catch {
+        // Destination doesn't exist - good
+      }
+
+      if (destExists) {
+        if (!overwrite) {
+          return {copied: '', skipped: true};
+        }
+        if (isSameFsPath(fullSource, fullDest)) {
+          throw new Error('Cannot overwrite a path with itself');
+        }
+      }
     }
 
-    if (destExists) {
-      if (!overwrite) {
-        return {copied: '', skipped: true};
+    const fullDest = path.join(fullDestDir, destFileName);
+    const destRelative = destDir === '.' ? destFileName : `${destDir}/${destFileName}`;
+    await assertCopyDestinationIsSafe(fullSource, fullDestDir, fullDest);
+    await assertWorkspaceOfficePathMutationAllowed([destRelative], options.target);
+    const officeSources = destRelative.toLowerCase().endsWith('.docx') && (await fs.stat(fullSource)).isFile()
+      ? [sourcePath]
+      : await collectOfficeCopyPaths(sourcePath, options.source);
+    const replacedOfficePaths = destExists ? await collectOfficeCopyPaths(destRelative, options.target) : [];
+    const includesOffice = officeSources.length > 0 || replacedOfficePaths.length > 0;
+    if (includesOffice) {
+      if (!(options.target.mutationActorUserId ?? getWorkspace(options.target).ownerUserId)) throw new Error('A user identity is required to copy Word documents.');
+      const { readOfficeFileBytes } = await import('@/app/lib/office/document-service');
+      const { validateDocxPackage } = await import('@/app/lib/office/docx-package');
+      // Complete validation before touching destination bytes or lineage metadata.
+      for (const source of officeSources) await validateDocxPackage(await readOfficeFileBytes(source, options.source));
+      for (const replaced of replacedOfficePaths) {
+        await preserveOfficeCopyBaseline(replaced, options.target);
       }
-      if (isSameFsPath(fullSource, fullDest)) {
-        throw new Error('Cannot overwrite a path with itself');
-      }
-      await fs.rm(fullDest, {recursive: true, force: true});
+      const { initializeCopiedFileCollaborationPaths } = await import('@/app/lib/files/collaboration-policy');
+      const sourceIsOfficeFile = officeSources.length === 1 && officeSources[0] === sourcePath;
+      await withOfficeCopyReplacement(destRelative, destExists, options.target, async () => {
+        await initializeCopiedFileCollaborationPaths({ workspace: getWorkspace(options.target), paths: [destRelative] });
+        if (sourceIsOfficeFile) {
+          await publishCopiedOfficeContent(destRelative, await readOfficeFileBytes(sourcePath, options.source), options.target);
+        } else {
+          const excluded = new Set(officeSources.map((source) => validatePath(source, options.source)));
+          await fs.cp(fullSource, fullDest, { recursive: true, filter: (source) => !excluded.has(source) });
+          for (const source of officeSources) {
+            const destination = path.posix.join(destRelative, path.posix.relative(sourcePath, source));
+            await publishCopiedOfficeContent(destination, await readOfficeFileBytes(source, options.source), options.target);
+          }
+        }
+      });
+    } else {
+      if (destExists) await fs.rm(fullDest, { recursive: true, force: true });
+      await fs.cp(fullSource, fullDest, {recursive: true});
     }
-  }
-
-  const fullDest = path.join(fullDestDir, destFileName);
-  const destRelative = destDir === '.' ? destFileName : `${destDir}/${destFileName}`;
-  await assertCopyDestinationIsSafe(fullSource, fullDestDir, fullDest);
-  await fs.cp(fullSource, fullDest, {recursive: true});
-  return {copied: destRelative, skipped: false};
+    return {copied: destRelative, skipped: false, collaborationInitialized: includesOffice};
+  });
 }
 
 export async function batchCopy(
@@ -831,6 +984,7 @@ export async function batchCopy(
         results.skipped.push(sourcePath);
       } else {
         results.copied.push(result.copied);
+        if (result.collaborationInitialized) (results.collaborationInitializedPaths ??= []).push(result.copied);
       }
     } catch (error) {
       results.failed.push({
@@ -869,6 +1023,7 @@ export async function batchCopyBetweenWorkspaces(
         results.skipped.push(sourcePath);
       } else {
         results.copied.push(result.copied);
+        if (result.collaborationInitialized) (results.collaborationInitializedPaths ??= []).push(result.copied);
       }
     } catch (error) {
       results.failed.push({

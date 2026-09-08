@@ -16,6 +16,7 @@ import {
   readJsonBody,
 } from '@/app/lib/api/route-helpers';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 
 interface ExtractZipRequestBody {
   path?: string;
@@ -25,7 +26,7 @@ interface ExtractZipRequestBody {
 export async function POST(request: NextRequest) {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
   if (workspaceResult.response) return workspaceResult.response;
-  const fileOptions = workspaceFileOptions(workspaceResult.workspace);
+  const fileOptions = { ...workspaceFileOptions(workspaceResult.workspace), mutationActorUserId: workspaceResult.session.user.id };
 
   try {
     const rateLimitResponse = applyRateLimit(request, {
@@ -40,10 +41,13 @@ export async function POST(request: NextRequest) {
       return jsonError('path and targetDir are required', 400);
     }
 
-    const result = await extractWorkspaceZip(path, targetDir, fileOptions);
-    await initializeCopiedFileCollaborationPaths({
-      workspace: workspaceResult.workspace,
-      paths: result.files,
+    const result = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
+      const extracted = await extractWorkspaceZip(path, targetDir, fileOptions);
+      const initialized = new Set(extracted.collaborationInitializedPaths);
+      await initializeCopiedFileCollaborationPaths({
+        workspace: workspaceResult.workspace, paths: extracted.files.filter((entry) => !initialized.has(entry)),
+      });
+      return extracted;
     });
     await syncPublicSharesAfterWrite(result.files, workspaceResult.workspace);
     invalidateWorkspaceFileViews({
