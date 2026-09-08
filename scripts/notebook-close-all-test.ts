@@ -134,6 +134,25 @@ async function main() {
     unregister();
 
     setup();
+    tabs = { openPaths: ['report.docx', ...paths.slice(1)], activePath: 'report.docx' };
+    useFileStore.setState({ currentFile: { path: 'report.docx', content: '' }, currentFileWorkspaceId: 'a' });
+    useEditorStore.getState().setActiveFile('report.docx', '');
+    useEditorStore.getState().updateDraft('binary editors must use their own save protocol');
+    await assert.rejects(close(), /editor is still connecting/, 'DOCX must stay open until its save guard is ready');
+    assert.equal(commits, 0);
+    assert.equal(tabs.openPaths.length, 100);
+    let docxPrepared = false;
+    globalThis.fetch = (async () => { throw new Error('DOCX must not use the text save path'); }) as typeof fetch;
+    unregister = registerDocumentTransitionGuard('a', 'report.docx', {
+      hasPendingChanges: () => true, prepare: async () => { docxPrepared = true; },
+    });
+    assert.equal(await close(), true);
+    assert.equal(docxPrepared, true);
+    assert.equal(commits, 1);
+    assert.equal(history.at(-1), 'report.docx');
+    unregister();
+
+    setup();
     useFileStore.getState().clearCurrentFile();
     assert.equal(await close(), true, 'a missing or unavailable preview can still be closed');
     setup();
