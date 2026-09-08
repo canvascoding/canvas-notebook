@@ -6,6 +6,11 @@ import { PGlite } from '@electric-sql/pglite';
 import ts from 'typescript';
 
 const RUNTIME_SOURCE_ROOTS = ['app', 'server'] as const;
+const PROVIDER_NEUTRAL_USER_QUERY_FILES = [
+  'app/lib/agent-runtime-policy/bootstrap-service.ts',
+  'app/lib/memory/approval-attention.ts',
+  'app/lib/memory/legacy-migration.ts',
+] as const;
 const SQL_STATEMENT_PATTERN = /\b(?:DELETE|INSERT|SELECT|UPDATE|WITH)\b/iu;
 const BARE_PARAMETER_PATTERN = String.raw`(?:\?|\$\d+)`;
 const UNSAFE_CASE_PATTERNS = [
@@ -126,6 +131,20 @@ async function assertRuntimeSqlIsUnambiguous(): Promise<void> {
   );
 }
 
+async function assertProviderNeutralUserQueriesAreQuoted(): Promise<void> {
+  const root = process.cwd();
+  const findings = (await Promise.all(PROVIDER_NEUTRAL_USER_QUERY_FILES.map(async (file) => {
+    const source = await fs.readFile(path.join(root, file), 'utf8');
+    return /\b(?:FROM|JOIN)\s+user\b/iu.test(source) ? file : null;
+  }))).filter((file): file is string => Boolean(file));
+
+  assert.deepEqual(
+    findings,
+    [],
+    `PostgreSQL reserves USER; quote the table name in provider-neutral SQL:\n${findings.join('\n')}`,
+  );
+}
+
 async function assertPostgresFailureModes(): Promise<void> {
   const postgres = new PGlite();
   try {
@@ -165,6 +184,17 @@ async function assertPostgresFailureModes(): Promise<void> {
       'SELECT timestamp_value::text AS timestamp_value FROM compatibility_probe',
     );
     assert.equal(typedCase.rows[0]?.timestamp_value, '1000');
+
+    await postgres.exec('CREATE TABLE "user" (id TEXT PRIMARY KEY)');
+    await postgres.exec("INSERT INTO \"user\" (id) VALUES ('user-a'), ('user-b')");
+    const reservedUserExpression = await postgres.query<{ count: number }>('SELECT COUNT(*)::int AS count FROM user');
+    const quotedUserTable = await postgres.query<{ count: number }>('SELECT COUNT(*)::int AS count FROM "user"');
+    assert.equal(reservedUserExpression.rows[0]?.count, 1);
+    assert.equal(quotedUserTable.rows[0]?.count, 2);
+    await assert.rejects(
+      postgres.query('SELECT creator.id FROM user creator'),
+      /column creator\.id does not exist/iu,
+    );
   } finally {
     await postgres.close();
   }
@@ -173,6 +203,7 @@ async function assertPostgresFailureModes(): Promise<void> {
 async function main(): Promise<void> {
   assertDetectorCatchesRegressions();
   await assertRuntimeSqlIsUnambiguous();
+  await assertProviderNeutralUserQueriesAreQuoted();
   await assertPostgresFailureModes();
   console.log('postgres-runtime-sql-compatibility-test: ok');
 }

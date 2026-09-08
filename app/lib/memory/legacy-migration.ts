@@ -88,7 +88,7 @@ async function importFile(input: {
 async function canImportSharedLegacyMemory(): Promise<boolean> {
   const connection = await openDb();
   try {
-    const row = await connection.get('SELECT COUNT(*) AS count FROM user') as { count?: number } | undefined;
+    const row = await connection.get('SELECT COUNT(*) AS count FROM "user"') as { count?: number } | undefined;
     if (Number(row?.count ?? 0) !== 1) return false;
     const settings = await connection.get(`
       SELECT deployment_mode, team_features_enabled

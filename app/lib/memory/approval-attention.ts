@@ -96,7 +96,7 @@ export async function listMemoryApprovalAttention(input: {
         read_state.read_at
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
-      LEFT JOIN user creator ON creator.id = entry.created_by_user_id
+      LEFT JOIN "user" creator ON creator.id = entry.created_by_user_id
       LEFT JOIN memory_approval_read_states read_state
         ON read_state.entry_id = entry.id AND read_state.user_id = ?
       WHERE entry.status = 'pending' AND collection.status = 'active'

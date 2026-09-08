@@ -114,7 +114,7 @@ function providerUpdateFromCatalog(provider: AiProviderInstallation): AiCatalogP
 async function readBootstrapDatabaseState(organizationId: string): Promise<RuntimeBootstrapDatabaseState> {
   const connection = await openDb();
   try {
-    const userCountRow = await connection.get('SELECT COUNT(*) AS count FROM user') as { count?: number | string } | undefined;
+    const userCountRow = await connection.get('SELECT COUNT(*) AS count FROM "user"') as { count?: number | string } | undefined;
     const organization = await connection.get(
       `SELECT owner_user_id, team_features_enabled
        FROM canvas_organization_settings
