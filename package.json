@@ -208,6 +208,7 @@
     "test:editor:field": "tsx scripts/markdown-field-content-test.tsx && tsx scripts/markdown-field-ui-test.tsx",
     "test:editor:preservation": "tsx scripts/markdown-roundtrip-preservation-test.ts",
     "test:editor:collaboration-lifecycle": "tsx scripts/code-editor-collaboration-lifecycle-test.ts",
+    "test:editor:interaction": "tsx scripts/editor-interaction-lifecycle-test.tsx",
     "test:files:atomic": "tsx --conditions react-server scripts/atomic-workspace-write-test.ts",
     "test:editor:outline": "tsx scripts/markdown-outline-test.ts && tsx scripts/markdown-outline-ui-test.ts",
     "test:editor:rich-blocks": "tsx scripts/tiptap-markdown-roundtrip-test.ts && tsx --conditions react-server scripts/markdown-rich-blocks-collaboration-test.ts && tsx scripts/markdown-rich-blocks-ui-test.ts && tsx --conditions react-server scripts/markdown-empty-block-regression-test.ts && npm run test:editor:core",

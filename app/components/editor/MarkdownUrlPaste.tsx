@@ -3,8 +3,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/core';
 import { synchronizeMarkdownTextSelection } from './MarkdownDomSelection';
+import { createEditorRangeTarget, type EditorRangeTarget } from '@/app/lib/editor/interaction-target';
 
-export type PastedMarkdownLink = { href: string; text: string; canEditText: boolean };
+export type PastedMarkdownLink = { href: string; text: string; canEditText: boolean; target: EditorRangeTarget | null };
 
 /** A URL chooser consumes only a single plain URL, leaving code/rich/file paste alone. */
 export function MarkdownUrlPaste({ editor, renderDialog }: {
@@ -30,7 +31,8 @@ export function MarkdownUrlPaste({ editor, renderDialog }: {
       if (containsCode) return;
       event.preventDefault();
       event.stopPropagation();
-      setLink({ href, text: empty ? '' : editor.state.doc.textBetween(from, to, ' '), canEditText: empty });
+      setLink({ href, text: empty ? '' : editor.state.doc.textBetween(from, to, ' '), canEditText: empty,
+        target: createEditorRangeTarget(editor, { from, to }) });
     };
     element.addEventListener('paste', onPaste, true);
     return () => element.removeEventListener('paste', onPaste, true);

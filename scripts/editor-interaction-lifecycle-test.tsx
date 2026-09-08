@@ -1,0 +1,93 @@
+import assert from 'node:assert/strict';
+import { JSDOM } from 'jsdom';
+import { act, StrictMode, useEffect } from 'react';
+import { createRoot } from 'react-dom/client';
+import { Editor, getSchema, type Range } from '@tiptap/core';
+import { generateUniqueIds } from '@tiptap/extension-unique-id';
+import * as Y from 'yjs';
+
+import { useEditorRangeTarget } from '../app/hooks/use-editor-range-target';
+import { MarkdownUrlPaste, type PastedMarkdownLink } from '../app/components/editor/MarkdownUrlPaste';
+import { resolveEditorRangeTarget } from '../app/lib/editor/interaction-target';
+import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
+import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '../app/lib/collaboration/rich-editor-extensions';
+import { CanvasUniqueID } from '../app/lib/editor/canvas-unique-id';
+import { createRichMarkdownManager, richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
+
+async function main() {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
+  for (const key of ['window', 'document', 'DOMParser', 'navigator', 'Node', 'HTMLElement', 'Element', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame'] as const) {
+    Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
+  }
+  Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, value: true });
+  const extensions = richMarkdownCodecExtensions();
+  const doc = new Y.Doc();
+  CollaborationBlockTree.create(doc, getSchema(extensions).nodeFromJSON(generateUniqueIds(
+    createRichMarkdownManager().parse('AAA\n\nBBB\n\nCCC'), extensions,
+  )));
+  const errors: Error[] = [];
+  const createEditor = () => new Editor({ extensions: [
+    ...extensions.map((extension) => extension.name === 'starterKit' ? extension.configure({ undoRedo: false })
+      : extension.name === 'uniqueID' ? CanvasUniqueID.configure({ types: 'all', filterTransaction: (tr) => !isRemoteRichEditorTransaction(tr) }) : extension),
+    ...createRichEditorCollaborationExtensions({ document: doc, representation: 'tiptap_blocks', awareness: null,
+      user: { name: 'Test', color: '#123456' }, onError: (error) => errors.push(error) }),
+  ] });
+  const a = createEditor();
+  const b = createEditor();
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  let resolve: () => Range | null = () => null;
+  function Probe({ editor, open }: { editor: Editor; open: boolean }) {
+    const target = useEditorRangeTarget(editor, open);
+    useEffect(() => { resolve = target; }, [target]);
+    return null;
+  }
+  const render = (editor: Editor, open: boolean) => root.render(<StrictMode><Probe editor={editor} open={open} /></StrictMode>);
+  let unmounted = false;
+  try {
+    await Promise.resolve();
+    a.commands.setTextSelection(6);
+    await act(async () => { render(a, true); });
+    const retained = resolve;
+    assert.ok(retained(), 'StrictMode cleanup does not invalidate the live dialog');
+    await act(async () => { render(a, false); });
+    assert.equal(retained(), null);
+    await act(async () => { render(a, true); });
+    assert.ok(retained());
+    await act(async () => { render(b, true); });
+    assert.equal(retained(), null, 'an old callback cannot act through a still-live old editor');
+    assert.equal(resolve(), null, 'the old draft never acquires the new editor target');
+    await act(async () => { root.unmount(); });
+    unmounted = true;
+    assert.equal(resolve(), null);
+    const pasteRoot = createRoot(container);
+    let captured: PastedMarkdownLink | undefined;
+    document.body.append(a.view.dom);
+    try {
+      await act(async () => pasteRoot.render(<MarkdownUrlPaste editor={a} renderDialog={(link) => {
+        captured = link;
+        return <output>{link.href}</output>;
+      }} />));
+      a.view.focus();
+      a.commands.setTextSelection({ from: 6, to: 9 });
+      const event = new dom.window.Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', { value: { files: [], getData: () => 'https://example.com' } });
+      await act(async () => { a.view.dom.dispatchEvent(event); });
+      const link = captured as PastedMarkdownLink | undefined;
+      assert.ok(link);
+      assert.equal(event.defaultPrevented, true);
+      assert.equal(link.text, 'BBB');
+      const tree = new CollaborationBlockTree(doc, a.schema);
+      tree.move({ blockId: tree.read().child(1).attrs.id, parentId: null, beforeId: null, operationId: 'move-pasted-link' }, 'peer');
+      assert.deepEqual(resolveEditorRangeTarget(a, link.target), { from: 11, to: 14 });
+    } finally { await act(async () => pasteRoot.unmount()); }
+    assert.deepEqual(errors, []);
+    console.log('Dialog lifecycle: StrictMode, close, editor replacement, retained callbacks and URL-paste target capture passed.');
+  } finally {
+    if (!unmounted) await act(async () => { root.unmount(); });
+    a.destroy(); b.destroy(); doc.destroy(); container.remove(); dom.window.close();
+  }
+}
+
+void main().catch((error) => { console.error(error); process.exitCode = 1; });

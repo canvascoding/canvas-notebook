@@ -866,6 +866,7 @@
     "markdownEditorBlockMoveCancelled": "The block could not be moved because its target or editing permissions changed. Please try again.",
     "markdownEditorCollaborationEditBlocked": "The change could not be applied. Please check the current document and try again.",
     "markdownEditorConcurrentStructureConflict": "Some concurrent structure changes could not be applied. Please check the current block order.",
+    "markdownEditorInteractionTargetChanged": "The editing target has changed or is no longer available. Your draft is preserved; please select the current target again.",
     "markdownEditorOpenBlockMenuHint": "Click to open menu",
     "markdownEditorEditAsText": "Edit as text",
     "markdownEditorEditVisually": "Edit visually",

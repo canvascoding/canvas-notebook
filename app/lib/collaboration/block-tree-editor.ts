@@ -32,9 +32,14 @@ export function isBlockTreeEditorReady(editor: Editor): boolean {
   return !editor.isDestroyed && Boolean(storage.canvasBlockTreeCollaboration?.binding?.ready);
 }
 
-export function captureBlockTreeEditorSelection(editor: Editor): BlockTreeSelection | null {
+export function captureBlockTreeEditorSelection(editor: Editor, selection?: Selection): BlockTreeSelection | null {
   const storage = editor.storage as typeof editor.storage & { canvasBlockTreeCollaboration?: BlockTreeEditorStorage };
-  return storage.canvasBlockTreeCollaboration?.binding?.captureSelection() ?? null;
+  return storage.canvasBlockTreeCollaboration?.binding?.captureSelection(selection) ?? null;
+}
+
+export function resolveBlockTreeEditorSelection(editor: Editor, selection: BlockTreeSelection): Selection | null {
+  const storage = editor.storage as typeof editor.storage & { canvasBlockTreeCollaboration?: BlockTreeEditorStorage };
+  return storage.canvasBlockTreeCollaboration?.binding?.resolveSelection(selection) ?? null;
 }
 
 /** Owns one editor view; the registry continues to own the shared document. */
@@ -154,10 +159,16 @@ class BlockTreeEditorBinding {
 
   get composing(): boolean { return this.compositionTree !== null; }
 
-  captureSelection(): BlockTreeSelection | null {
+  captureSelection(selection: Selection = this.editor.state.selection): BlockTreeSelection | null {
     const tree = this.compositionTree ?? this.tree;
     return !this.destroyed && tree && this.ready
-      ? captureBlockTreeSelection(tree, this.editor.state.doc, this.editor.state.selection) : null;
+      ? captureBlockTreeSelection(tree, this.editor.state.doc, selection) : null;
+  }
+
+  resolveSelection(selection: BlockTreeSelection): Selection | null {
+    const tree = this.compositionTree ?? this.tree;
+    return !this.destroyed && tree && this.ready
+      ? restoreBlockTreeSelection(tree, this.editor.state.doc, selection) : null;
   }
 
   beginComposition() {

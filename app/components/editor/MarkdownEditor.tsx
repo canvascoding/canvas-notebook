@@ -29,7 +29,7 @@ import { CanvasTableKit as TableKit } from '@/app/lib/markdown/core/lists-and-ta
 import { CanvasUniqueID as UniqueID } from '@/app/lib/editor/canvas-unique-id';
 import { CodeBlock } from '@tiptap/extension-code-block';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
-import { Plugin, PluginKey, type SelectionBookmark } from '@tiptap/pm/state';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import {
   AtSign,
@@ -212,6 +212,8 @@ import {
 import { ObsidianInlineFootnoteExtension } from './ObsidianInlineFootnoteExtension';
 import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '@/app/lib/collaboration/rich-editor-extensions';
 import { BlockTreePlacementNotice } from '@/app/lib/collaboration/block-tree-editor';
+import { useEditorRangeTarget } from '@/app/hooks/use-editor-range-target';
+import { createEditorRangeTarget, resolveEditorRangeTarget, type EditorRangeTarget } from '@/app/lib/editor/interaction-target';
 import {
   useCollaborationDocument,
   useTextCollaborationSession,
@@ -2355,6 +2357,7 @@ type LinkDialogSeed = {
   href: string;
   text: string;
   canEditText: boolean;
+  target?: EditorRangeTarget | null;
 };
 
 type LinkPopoverState = {
@@ -2362,6 +2365,7 @@ type LinkPopoverState = {
   href: string;
   text: string;
   range: Range;
+  target: EditorRangeTarget | null;
   position: {
     left: number;
     top: number;
@@ -2669,6 +2673,7 @@ function MarkdownLinkDialog({
   initialText,
   canEditText,
   sourcePath,
+  target,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
   open: boolean;
@@ -2677,26 +2682,19 @@ function MarkdownLinkDialog({
   initialText: string;
   canEditText: boolean;
   sourcePath?: string;
+  target?: EditorRangeTarget | null;
 }) {
   const t = useTranslations('notebook');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const bookmark = useRef<SelectionBookmark | null>(editor?.state.selection.getBookmark() ?? null);
-  useEffect(() => {
-    if (!editor || !open) return;
-    const mapSelection = ({ transaction }: { transaction: import('@tiptap/pm/state').Transaction }) => {
-      if (transaction.docChanged && bookmark.current) bookmark.current = bookmark.current.map(transaction.mapping);
-    };
-    editor.on('transaction', mapSelection);
-    return () => { editor.off('transaction', mapSelection); };
-  }, [editor, open]);
+  const resolveTarget = useEditorRangeTarget(editor, open, undefined, target);
   const restoreSelection = useCallback(() => {
-    if (!editor || editor.isDestroyed) return false;
-    if (bookmark.current) {
-      editor.view.dispatch(editor.state.tr.setSelection(bookmark.current.resolve(editor.state.doc)));
-      bookmark.current = null;
+    const range = resolveTarget();
+    if (!editor || !range) {
+      toast.error(t('markdownEditorInteractionTargetChanged'));
+      return false;
     }
-    return true;
-  }, [editor]);
+    return editor.commands.setTextSelection(range);
+  }, [editor, resolveTarget, t]);
   const initialWorkspaceTarget = getWorkspaceMarkdownNavigationTarget(initialHref, sourcePath) ?? '';
   const [mode, setMode] = useState<LinkDialogMode>(
     initialHref && !initialWorkspaceTarget ? 'web' : 'workspace',
@@ -2915,7 +2913,7 @@ function MarkdownLinkDialog({
       <DialogContent className="max-h-[min(90dvh,44rem)] overflow-y-auto sm:max-w-lg"
         onCloseAutoFocus={(event) => {
           event.preventDefault();
-          if (restoreSelection() && editor) editor.view.focus();
+          if (editor && !editor.isDestroyed) editor.view.focus();
         }}>
         <DialogHeader>
           <DialogTitle>{t('markdownEditorLinkDialogTitle')}</DialogTitle>
@@ -3173,14 +3171,15 @@ function MarkdownLinkPopover({
   }, [state]);
 
   const removeLink = useCallback(() => {
-    if (!editor || !state || !isEditorRangeInsideCurrentDoc(editor, state.range)) {
-      onClose();
+    const range = editor && state ? resolveEditorRangeTarget(editor, state.target) : null;
+    if (!editor || !range) {
+      toast.error(t('markdownEditorInteractionTargetChanged'));
       return;
     }
 
-    editor.chain().focus().setTextSelection(state.range).unsetLink().run();
+    editor.chain().focus().setTextSelection(range).unsetLink().run();
     onClose();
-  }, [editor, onClose, state]);
+  }, [editor, onClose, state, t]);
 
   if (!state) return null;
 
@@ -3897,8 +3896,10 @@ function MarkdownToolbar({
     if (!editor) return;
     const activeLink = getActiveLinkDetails(editor);
     const activeWorkspaceLink = getActiveWorkspaceWikiLink(editor);
+    const target = createEditorRangeTarget(editor, activeWorkspaceLink?.range ?? activeLink?.range ?? editor.state.selection);
     setLinkDialogSeed((current) => ({
       id: current.id + 1,
+      target,
       href: activeWorkspaceLink?.target || activeLink?.href || (editor.getAttributes('link').href as string | undefined) || '',
       text: activeWorkspaceLink?.text || activeLink?.text || getSelectedText(editor),
       canEditText: editor.state.selection.empty && !activeLink && !activeWorkspaceLink,
@@ -3937,25 +3938,32 @@ function MarkdownToolbar({
       return;
     }
 
+    const target = createEditorRangeTarget(editor, activeLink.range);
     setLinkPopover((current) => ({
       id: (current?.id ?? 0) + 1,
       ...activeLink,
+      target,
       position: getLinkPopoverPosition(rect),
     }));
   }, [editor, linkDialogOpen]);
 
   const editLinkFromPopover = useCallback((state: LinkPopoverState) => {
-    if (!editor || !isEditorRangeInsideCurrentDoc(editor, state.range)) return;
+    const range = editor ? resolveEditorRangeTarget(editor, state.target) : null;
+    if (!editor || !range) {
+      toast.error(t('markdownEditorInteractionTargetChanged'));
+      return;
+    }
 
-    editor.chain().focus().setTextSelection(state.range).run();
+    editor.chain().focus().setTextSelection(range).run();
     setLinkDialogSeed((current) => ({
       id: current.id + 1,
+      target: state.target,
       href: state.href,
       text: state.text,
       canEditText: false,
     }));
     handleLinkDialogOpenChange(true);
-  }, [editor, handleLinkDialogOpenChange]);
+  }, [editor, handleLinkDialogOpenChange, t]);
 
   useEffect(() => {
     if (!editor) return;
@@ -4212,6 +4220,7 @@ function MarkdownToolbar({
         initialHref={linkDialogSeed.href}
         initialText={linkDialogSeed.text}
         canEditText={linkDialogSeed.canEditText}
+        target={linkDialogSeed.target}
         sourcePath={filePath}
       />
       <MarkdownImageDialog
@@ -4560,8 +4569,10 @@ function MobileMarkdownToolbar({
     if (!selectedWorkspaceLink) restoreSavedRange();
     const activeLink = getActiveLinkDetails(editor);
     const activeWorkspaceLink = selectedWorkspaceLink ?? getActiveWorkspaceWikiLink(editor);
+    const target = createEditorRangeTarget(editor, activeWorkspaceLink?.range ?? activeLink?.range ?? editor.state.selection);
     setLinkDialogSeed((current) => ({
       id: current.id + 1,
+      target,
       href: activeWorkspaceLink?.target || activeLink?.href || (editor.getAttributes('link').href as string | undefined) || '',
       text: activeWorkspaceLink?.text || activeLink?.text || getSelectedText(editor),
       canEditText: editor.state.selection.empty && !activeLink && !activeWorkspaceLink,
@@ -4768,6 +4779,7 @@ function MobileMarkdownToolbar({
         initialHref={linkDialogSeed.href}
         initialText={linkDialogSeed.text}
         canEditText={linkDialogSeed.canEditText}
+        target={linkDialogSeed.target}
         sourcePath={filePath}
       />
     </>
@@ -5528,7 +5540,7 @@ function RichMarkdownEditor({
       ) : null}
       {!effectiveReadOnly && markdownEditor ? <MarkdownUrlPaste editor={markdownEditor} renderDialog={(link, close) =>
         <MarkdownLinkDialog editor={markdownEditor} open onOpenChange={(open) => { if (!open) close(); }}
-          initialHref={link.href} initialText={link.text} canEditText={link.canEditText} sourcePath={filePath} />
+          initialHref={link.href} initialText={link.text} canEditText={link.canEditText} target={link.target} sourcePath={filePath} />
       } /> : null}
       <MarkdownFindBar editor={markdownEditor} onOpenChange={setFindOpen} open={findOpen} />
       <div ref={scrollContainerRef} data-testid="markdown-scroll-container" className="relative min-h-0 flex-1 overflow-auto">

@@ -197,6 +197,8 @@ Abschluss: Ein verschobener Block bleibt für einen passenden Agentenpatch adres
 
 ### Schritt 5 — Dokument-Lifecycle und History durchgängig absichern
 
+Teilstand 5.1: `interaction-target.ts` kapselt kurzlebige Bereichs- und Knotenziele. Bereiche nutzen im Blockformat relative Textanker und vergleichen vor einer Ersetzung den vorbereiteten Inhalt; lokale Ziele folgen unveränderten Blockidentitäten. Ganze Knotendialoge lehnen zwischenzeitlich geänderte Inhalte ab. Abbruch, Schreibschutz, Komposition, gelöschte Ziele und eine andere Editorinstanz verhindern die Ausführung. Der gemeinsame React-Hook widerruft gespeicherte Callbacks bei Schließen, Editorwechsel und Unmount, einschließlich StrictMode. Linkdialog, Desktop-/Mobile-Linköffner, Linkmenü und URL-Paste erfassen ihre Ziele beim Auslösen. Eine übersetzte Meldung lässt den Dialogentwurf bei Konflikten bestehen. 31 Auswahl-/Bindingtests sowie der neue React-/URL-Paste-Lifecycle-Test bestehen; ESLint ist grün, der Typecheck enthält weiterhin ausschließlich die bekannten DOCX-Abhängigkeitsfehler. Weitere Dialoge, mobile Auswahlwiederherstellung, asynchrone Bildimporte und die Speicherbestätigung folgen innerhalb dieses Schritts.
+
 Die Übergänge aus Abschnitt 6 mit aktiven Strukturaktionen, Agentenoperationen und verzögerten Callbacks verbinden. Bestehende Registry/Guards gezielt erweitern. Undo eines Moves als Positionsänderung prüfen; Undo darf keine frühere Inhaltskopie über spätere fremde Änderungen legen.
 
 Abschluss: Read/Edit-Wechsel, Navigation, Rename, Reconnect, Rechtewechsel und Neustart haben jeweils nachgewiesene Ergebnisse. Eine Speicherantwort des alten Dokuments kann das neue weder verändern noch als gespeichert markieren.

@@ -14,6 +14,7 @@ import { BlockTreePlacementNotice } from '../app/lib/collaboration/block-tree-ed
 import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '../app/lib/collaboration/rich-editor-extensions';
 import { getReorderableBlockRangeAt, moveReorderableBlock } from '../app/lib/editor/reorderable-blocks';
 import { CanvasUniqueID } from '../app/lib/editor/canvas-unique-id';
+import { createEditorNodeTarget, createEditorRangeTarget, invalidateEditorTarget, resolveEditorNodeTarget, resolveEditorRangeTarget } from '../app/lib/editor/interaction-target';
 import { moveMarkdownTablePart } from '../app/lib/markdown/core/table-commands';
 import tableEdits from '../app/lib/markdown/core/table-command-fixtures.json';
 
@@ -294,6 +295,69 @@ test('undo can resolve an incompatible row-column merge while preserving the pee
     a.view.dispatch(a.state.tr.insertText('updated ', changed));
     assert.match(a.state.doc.textContent, /updated one/);
   } finally { a.destroy(); b.destroy(); left.destroy(); right.destroy(); }
+});
+
+test('dialog targets follow block identity and relative text while rejecting changed node drafts', async () => {
+  const doc = createDocument();
+  const errors: Error[] = [];
+  const editor = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    const from = position(editor, 'BBB');
+    const range = createEditorRangeTarget(editor, { from: from + 1, to: from + 2 })!;
+    const node = createEditorNodeTarget(editor, from - 1)!;
+    const tree = new CollaborationBlockTree(doc, schema);
+    const id = tree.read().child(1).attrs.id;
+    tree.move({ blockId: id, parentId: null, beforeId: null, operationId: 'move-dialog-target' }, {});
+    assert.equal(resolveEditorNodeTarget(editor, node), position(editor, 'BBB') - 1);
+    (tree.content(id).get(0) as Y.XmlText).insert(0, 'prefix ');
+    const current = resolveEditorRangeTarget(editor, range)!;
+    assert.ok(current);
+    assert.equal(editor.state.doc.textBetween(current.from, current.to), 'B');
+    assert.equal(current.from, position(editor, 'prefix BBB') + 8);
+    assert.equal(resolveEditorNodeTarget(editor, node), null, 'a stale full-node dialog cannot overwrite the remote edit');
+    editor.view.dispatch(editor.state.tr.insertText('X', current.from, current.to));
+    assert.equal(resolveEditorRangeTarget(editor, range), null, 'a changed target selection requires review');
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); doc.destroy(); }
+});
+
+test('dialog targets cannot outlive cancellation, permission loss, deletion, or their editor instance', async () => {
+  const doc = createDocument();
+  const errors: Error[] = [];
+  const a = createEditor(doc, errors);
+  const b = createEditor(doc, errors);
+  try {
+    await Promise.resolve();
+    const from = position(a, 'BBB');
+    const target = createEditorRangeTarget(a, { from, to: from })!;
+    assert.equal(resolveEditorRangeTarget(b, target), null);
+    a.setEditable(false);
+    assert.equal(resolveEditorRangeTarget(a, target), null);
+    a.setEditable(true);
+    invalidateEditorTarget(target);
+    assert.equal(resolveEditorRangeTarget(a, target), null);
+    const deleted = createEditorRangeTarget(a, { from, to: from })!;
+    new CollaborationBlockTree(doc, schema).delete(a.state.doc.child(1).attrs.id, 'delete-dialog', {});
+    assert.equal(resolveEditorRangeTarget(a, deleted), null);
+    const pending = createEditorRangeTarget(a)!;
+    a.destroy();
+    assert.equal(resolveEditorRangeTarget(a, pending), null);
+  } finally { if (!a.isDestroyed) a.destroy(); b.destroy(); doc.destroy(); }
+});
+
+test('local editor dialog targets use block identities instead of stale positions', async () => {
+  const editor = new Editor({ extensions: richMarkdownCodecExtensions(), content: 'AAA\n\nBBB\n\nCCC', contentType: 'markdown' });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const from = position(editor, 'BBB');
+    const target = createEditorRangeTarget(editor, { from, to: from + 3 })!;
+    const source = getReorderableBlockRangeAt(editor, from)!;
+    assert.equal(moveReorderableBlock(editor, source, 0), true);
+    assert.deepEqual(resolveEditorRangeTarget(editor, target), { from: 1, to: 4 });
+    editor.view.dispatch(editor.state.tr.insertText('changed', 1, 4));
+    assert.equal(resolveEditorRangeTarget(editor, target), null);
+  } finally { editor.destroy(); }
 });
 
 test('hydration never replaces server data with an empty editor and permission gates every mutation', async () => {
