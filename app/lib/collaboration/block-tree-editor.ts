@@ -1,6 +1,6 @@
 import { Extension, type Editor } from '@tiptap/core';
 import { Plugin, PluginKey, Selection, type EditorState, type Transaction } from '@tiptap/pm/state';
-import type * as Y from 'yjs';
+import * as Y from 'yjs';
 
 import { BLOCK_MOVE_TRANSACTION_META } from '../editor/block-reference';
 import { BlockTreeConflict, CollaborationBlockTree, type BlockMoveIntent } from './block-tree';
@@ -18,6 +18,16 @@ type BlockTreeEditorStorage = {
   binding: BlockTreeEditorBinding | null;
 };
 
+export function isBlockTreeEditorReady(editor: Editor): boolean {
+  const storage = editor.storage as typeof editor.storage & { canvasBlockTreeCollaboration?: BlockTreeEditorStorage };
+  return !editor.isDestroyed && Boolean(storage.canvasBlockTreeCollaboration?.binding?.ready);
+}
+
+export function captureBlockTreeEditorSelection(editor: Editor): BlockTreeSelection | null {
+  const storage = editor.storage as typeof editor.storage & { canvasBlockTreeCollaboration?: BlockTreeEditorStorage };
+  return storage.canvasBlockTreeCollaboration?.binding?.captureSelection() ?? null;
+}
+
 /** Owns one editor view; the registry continues to own the shared document. */
 class BlockTreeEditorBinding {
   readonly origin = {};
@@ -27,6 +37,9 @@ class BlockTreeEditorBinding {
   private selection: BlockTreeSelection | null = null;
   private destroyed = false;
   private lastError: string | null = null;
+  private compositionTree: CollaborationBlockTree | null = null;
+  private compositionClientId: number | null = null;
+  private historyCaptureTimeout = 0;
   ready = false;
 
   constructor(private editor: Editor, private options: BlockTreeEditorOptions) {
@@ -48,12 +61,19 @@ class BlockTreeEditorBinding {
   private beforeEditorTransaction = ({ transaction, nextState }: { transaction: Transaction; nextState: EditorState }) => {
     if (transaction.getMeta(REMOTE_BLOCK_TREE_TRANSACTION) === this || this.editor.state.doc.eq(nextState.doc)) return;
     if (this.destroyed || !this.ready || !this.editor.isEditable || !this.tree) throw new BlockTreeConflict('target_changed');
-    this.tree.applyDocumentChange(this.editor.state.doc, nextState.doc, this.origin, transaction.getMeta(BLOCK_MOVE_TRANSACTION_META) as BlockMoveIntent | undefined);
+    const target = this.compositionTree ?? this.tree;
+    target.applyDocumentChange(this.editor.state.doc, nextState.doc, this.origin, transaction.getMeta(BLOCK_MOVE_TRANSACTION_META) as BlockMoveIntent | undefined);
+    if (this.compositionTree) {
+      // Local IME edits are immediately durable/synced, while this view keeps
+      // composing against its original replica until compositionend.
+      Y.applyUpdate(this.options.document,
+        Y.encodeStateAsUpdate(target.doc, Y.encodeStateVector(this.options.document)), this.origin);
+    }
     this.lastError = null;
   };
 
   private beforeYTransaction = () => {
-    if (this.destroyed || !this.tree || !this.ready) return;
+    if (this.destroyed || !this.tree || !this.ready || this.compositionTree) return;
     this.selection = captureBlockTreeSelection(this.tree, this.editor.state.doc, this.editor.state.selection);
   };
 
@@ -64,7 +84,7 @@ class BlockTreeEditorBinding {
   private onDocumentDestroyed = () => this.destroy();
 
   private projectToEditor() {
-    if (this.destroyed || this.editor.isDestroyed) return;
+    if (this.destroyed || this.editor.isDestroyed || this.compositionTree) return;
     try {
       if (!this.tree) {
         // An empty client is waiting for provider/IndexedDB hydration. It must
@@ -101,10 +121,48 @@ class BlockTreeEditorBinding {
   }
 
   history(direction: 'undo' | 'redo', dispatch: boolean): boolean {
-    if (this.destroyed || !this.ready || !this.editor.isEditable || !this.undoManager) return false;
+    if (this.destroyed || !this.ready || !this.editor.isEditable || !this.undoManager || this.compositionTree) return false;
     if (direction === 'undo' ? !this.undoManager.canUndo() : !this.undoManager.canRedo()) return false;
     if (dispatch) this.undoManager[direction]();
     return true;
+  }
+
+  get composing(): boolean { return this.compositionTree !== null; }
+
+  captureSelection(): BlockTreeSelection | null {
+    const tree = this.compositionTree ?? this.tree;
+    return !this.destroyed && tree && this.ready
+      ? captureBlockTreeSelection(tree, this.editor.state.doc, this.editor.state.selection) : null;
+  }
+
+  beginComposition() {
+    if (this.destroyed || !this.ready || !this.editor.isEditable || this.compositionTree) return;
+    const replica = new Y.Doc();
+    Y.applyUpdate(replica, Y.encodeStateAsUpdate(this.options.document));
+    if (this.compositionClientId === null) this.compositionClientId = replica.clientID;
+    else replica.clientID = this.compositionClientId;
+    this.compositionTree = new CollaborationBlockTree(replica, this.editor.schema);
+    if (this.undoManager) {
+      this.undoManager.stopCapturing();
+      this.historyCaptureTimeout = this.undoManager.captureTimeout;
+      this.undoManager.captureTimeout = Number.POSITIVE_INFINITY;
+    }
+  }
+
+  endComposition() {
+    if (!this.compositionTree || this.destroyed || this.editor.isDestroyed) return;
+    // ProseMirror itself flushes this observer at composition boundaries. Drain
+    // pending DOM input before releasing the composing replica as well.
+    const view = this.editor.view as typeof this.editor.view & { domObserver: { flush: () => void } };
+    view.domObserver.flush();
+    this.selection = this.captureSelection();
+    this.compositionTree.doc.destroy();
+    this.compositionTree = null;
+    if (this.undoManager) {
+      this.undoManager.stopCapturing();
+      this.undoManager.captureTimeout = this.historyCaptureTimeout;
+    }
+    this.projectToEditor();
   }
 
   destroy() {
@@ -118,6 +176,8 @@ class BlockTreeEditorBinding {
     for (const listener of this.undoDestroyListeners) this.options.document.off('destroy', listener);
     this.undoDestroyListeners = [];
     this.undoManager = null;
+    this.compositionTree?.doc.destroy();
+    this.compositionTree = null;
     this.tree = null;
     this.selection = null;
   }
@@ -135,7 +195,24 @@ export function createBlockTreeCollaborationExtension(options: BlockTreeEditorOp
         key: blockTreeEditorKey,
         filterTransaction(transaction) {
           if (!transaction.docChanged || transaction.getMeta(REMOTE_BLOCK_TREE_TRANSACTION) === storage.binding) return true;
-          return Boolean(storage.binding?.ready && editor.isEditable);
+          return Boolean(storage.binding?.ready && editor.isEditable
+            && !(storage.binding.composing && transaction.getMeta(BLOCK_MOVE_TRANSACTION_META)));
+        },
+        props: {
+          handleDOMEvents: {
+            compositionstart: () => { storage.binding?.beginComposition(); return false; },
+            compositionupdate: () => { storage.binding?.beginComposition(); return false; },
+            compositionend: () => {
+              const binding = storage.binding;
+              queueMicrotask(() => binding?.endComposition());
+              return false;
+            },
+            blur: () => {
+              const binding = storage.binding;
+              queueMicrotask(() => binding?.endComposition());
+              return false;
+            },
+          },
         },
         view() {
           const binding = new BlockTreeEditorBinding(editor, options);

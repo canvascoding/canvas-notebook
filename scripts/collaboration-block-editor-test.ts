@@ -4,11 +4,13 @@ import { JSDOM } from 'jsdom';
 import { Editor, getSchema } from '@tiptap/core';
 import { initProseMirrorDoc } from '@tiptap/y-tiptap';
 import * as Y from 'yjs';
+import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
 
 import { createRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
 import { richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { createBlockTreeCollaborationExtension } from '../app/lib/collaboration/block-tree-editor';
+import { createBlockTreeCaretExtension } from '../app/lib/collaboration/block-tree-carets';
 import { getReorderableBlockRangeAt, moveReorderableBlock } from '../app/lib/editor/reorderable-blocks';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
@@ -27,11 +29,12 @@ function createDocument() {
   return doc;
 }
 
-function createEditor(doc: Y.Doc, errors: Error[]) {
+function createEditor(doc: Y.Doc, errors: Error[], awareness?: Awareness) {
   return new Editor({
     extensions: [
       ...richMarkdownCodecExtensions().map((extension) => extension.name === 'starterKit' ? extension.configure({ undoRedo: false }) : extension),
       createBlockTreeCollaborationExtension({ document: doc, onError: (error) => errors.push(error) }),
+      ...(awareness ? [createBlockTreeCaretExtension({ document: doc, awareness, user: { name: 'Peer', color: '#123456' } })] : []),
     ],
   });
 }
@@ -142,4 +145,153 @@ test('invalid editor changes are rejected without changing the visible or durabl
     assert.notDeepEqual(deleted, before);
     assert.equal(errors.length, 1);
   } finally { editor.destroy(); doc.destroy(); }
+});
+
+test('remote carets follow a moved block and disappear when its target is deleted', async () => {
+  const left = createDocument();
+  const right = new Y.Doc();
+  Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
+  const awarenessA = new Awareness(left);
+  const awarenessB = new Awareness(right);
+  const errors: Error[] = [];
+  const a = createEditor(left, errors, awarenessA);
+  const b = createEditor(right, errors, awarenessB);
+  document.body.append(a.view.dom, b.view.dom);
+  try {
+    await Promise.resolve();
+    a.view.focus();
+    a.commands.setTextSelection(position(a, 'BBB') + 1);
+    await Promise.resolve();
+    applyAwarenessUpdate(awarenessB, encodeAwarenessUpdate(awarenessA, [awarenessA.clientID]), {});
+    assert.equal(b.view.dom.querySelectorAll('[data-collaboration-user="Peer"]').length, 1);
+    const id = a.state.doc.child(1).attrs.id;
+    new CollaborationBlockTree(right, schema).move({ blockId: id, parentId: null, beforeId: null, operationId: 'move' }, {});
+    const caret = b.view.dom.querySelector('[data-collaboration-user="Peer"]')!;
+    assert.equal(caret.closest('p')?.textContent, 'BPeerBB');
+    assert.equal(caret.closest('p'), b.view.dom.lastElementChild);
+    new CollaborationBlockTree(right, schema).delete(id, 'delete', {});
+    assert.equal(b.view.dom.querySelectorAll('[data-collaboration-user="Peer"]').length, 0);
+    assert.deepEqual(errors, []);
+  } finally {
+    a.destroy(); b.destroy(); awarenessA.destroy(); awarenessB.destroy(); left.destroy(); right.destroy();
+  }
+});
+
+test('closing an older view cannot clear a cursor published by the current view', async () => {
+  const doc = createDocument();
+  const awareness = new Awareness(doc);
+  const errors: Error[] = [];
+  const a = createEditor(doc, errors, awareness);
+  const b = createEditor(doc, errors, awareness);
+  document.body.append(a.view.dom, b.view.dom);
+  try {
+    await Promise.resolve();
+    a.view.focus();
+    a.commands.setTextSelection(position(a, 'AAA') + 1);
+    await Promise.resolve();
+    const oldOwner = awareness.getLocalState()?.canvasBlockSelection?.owner;
+    assert.ok(oldOwner);
+    b.view.focus();
+    b.commands.setTextSelection(position(b, 'CCC') + 1);
+    await Promise.resolve();
+    const active = awareness.getLocalState()?.canvasBlockSelection;
+    assert.ok(active?.owner && active.owner !== oldOwner);
+    a.destroy();
+    assert.deepEqual(awareness.getLocalState()?.canvasBlockSelection, active);
+    b.destroy();
+    assert.equal(awareness.getLocalState()?.canvasBlockSelection, null);
+    assert.deepEqual(errors, []);
+  } finally {
+    if (!a.isDestroyed) a.destroy();
+    if (!b.isDestroyed) b.destroy();
+    awareness.destroy(); doc.destroy();
+  }
+});
+
+test('an active composition keeps its DOM text through a remote block move', async () => {
+  const left = createDocument();
+  const right = new Y.Doc();
+  Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
+  const errors: Error[] = [];
+  const editor = createEditor(left, errors);
+  document.body.append(editor.view.dom);
+  try {
+    await Promise.resolve();
+    editor.view.focus();
+    editor.commands.setTextSelection(position(editor, 'BBB') + 1);
+    editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionstart', { bubbles: true }));
+    assert.equal(editor.view.composing, true);
+    const composingText = editor.view.dom.querySelectorAll('p')[1].firstChild!;
+    const id = editor.state.doc.child(1).attrs.id;
+    new CollaborationBlockTree(right, schema).move({ blockId: id, parentId: null, beforeId: null, operationId: 'remote-move' }, {});
+    Y.applyUpdate(left, Y.encodeStateAsUpdate(right));
+    assert.equal(composingText.isConnected, true, 'the browser composition node must not be replaced');
+    assert.equal(editor.view.composing, true);
+    editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionend', { bubbles: true }));
+    await Promise.resolve();
+    assert.deepEqual(texts(editor), ['AAA', 'CCC', 'BBB']);
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); left.destroy(); right.destroy(); }
+});
+
+test('composition edits sync immediately and merge with remote text and placement as one undo action', async () => {
+  const left = createDocument();
+  const right = new Y.Doc();
+  Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
+  const errors: Error[] = [];
+  const editor = createEditor(left, errors);
+  document.body.append(editor.view.dom);
+  try {
+    await Promise.resolve();
+    editor.view.focus();
+    editor.commands.setTextSelection(position(editor, 'BBB') + 1);
+    editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionstart', { bubbles: true }));
+    const from = position(editor, 'BBB');
+    const source = getReorderableBlockRangeAt(editor, from)!;
+    assert.equal(moveReorderableBlock(editor, source, 0), false, 'local drag does not interrupt composition');
+    editor.view.dispatch(editor.state.tr.insertText('中', from + 1));
+    assert.equal(new CollaborationBlockTree(left, schema).read().child(1).textContent, 'B中BB', 'the composing draft is already in the durable document');
+    const remote = new CollaborationBlockTree(right, schema);
+    const id = remote.read().child(1).attrs.id;
+    (remote.content(id).get(0) as Y.XmlText).insert(0, 'R');
+    remote.move({ blockId: id, parentId: null, beforeId: null, operationId: 'remote' }, {});
+    Y.applyUpdate(left, Y.encodeStateAsUpdate(right));
+    assert.deepEqual(texts(editor), ['AAA', 'B中BB', 'CCC'], 'remote rendering waits for compositionend');
+    editor.view.dispatch(editor.state.tr.insertText('文', from + 2));
+    editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionend', { bubbles: true }));
+    await Promise.resolve();
+    assert.deepEqual(texts(editor), ['AAA', 'CCC', 'RB中文BB']);
+    assert.equal(editor.commands.undo(), true);
+    assert.deepEqual(texts(editor), ['AAA', 'CCC', 'RBBB'], 'undo retains remote text and move');
+    assert.equal(editor.commands.redo(), true);
+    assert.deepEqual(texts(editor), ['AAA', 'CCC', 'RB中文BB']);
+    assert.deepEqual(errors, []);
+  } finally { editor.destroy(); left.destroy(); right.destroy(); }
+});
+
+test('repeated composition reuses its actor and unmount retains the latest synchronized input', async () => {
+  const doc = createDocument();
+  const errors: Error[] = [];
+  const countListeners = () => [...doc._observers.values()].reduce((sum, listeners) => sum + listeners.size, 0);
+  const baseline = countListeners();
+  const editor = createEditor(doc, errors);
+  document.body.append(editor.view.dom);
+  try {
+    await Promise.resolve();
+    editor.view.focus();
+    editor.commands.setTextSelection(position(editor, 'AAA') + 1);
+    editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionstart', { bubbles: true }));
+    editor.view.dispatch(editor.state.tr.insertText('中'));
+    editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionend', { bubbles: true }));
+    await Promise.resolve();
+    const actors = Y.decodeStateVector(Y.encodeStateVector(doc)).size;
+    editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionstart', { bubbles: true }));
+    editor.view.dispatch(editor.state.tr.insertText('文'));
+    assert.equal(Y.decodeStateVector(Y.encodeStateVector(doc)).size, actors);
+    editor.destroy();
+    await Promise.resolve();
+    assert.equal(new CollaborationBlockTree(doc, schema).read().firstChild!.textContent, 'A中文AA');
+    assert.equal(countListeners(), baseline);
+    assert.deepEqual(errors, []);
+  } finally { if (!editor.isDestroyed) editor.destroy(); doc.destroy(); }
 });
