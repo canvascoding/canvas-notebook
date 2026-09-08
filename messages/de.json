@@ -633,6 +633,7 @@
     "expandFolder": "Ordner {name} aufklappen",
     "collapseFolder": "Ordner {name} einklappen",
     "loadingFolder": "Ordner wird geladen …",
+    "refreshingFolder": "Ordner wird aktualisiert …",
     "close": "Schließen",
     "fileEditorDescription": "Dateieditor für {name}",
     "create": "Erstellen",

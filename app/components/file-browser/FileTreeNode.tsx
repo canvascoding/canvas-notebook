@@ -469,9 +469,10 @@ function FileTreeNodeComponent({
               {isLoading ? (
                 <div className="flex items-center gap-2 py-1 pl-[var(--tree-mobile-padding)] pr-2 text-xs text-muted-foreground md:px-2" style={childPaddingStyle}>
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>{t('loadingFolder')}</span>
+                  <span>{t(hasLoadedChildren ? 'refreshingFolder' : 'loadingFolder')}</span>
                 </div>
-              ) : directoryError ? (
+              ) : null}
+              {directoryError ? (
                 <button
                   type="button"
                   className="flex w-full items-start gap-2 py-1 pl-[var(--tree-mobile-padding)] pr-2 text-left text-xs text-destructive hover:bg-destructive/10 md:px-2"
@@ -482,8 +483,8 @@ function FileTreeNodeComponent({
                   <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
                   <span className="line-clamp-2">{directoryError}</span>
                 </button>
-              ) : (
-                childNodes.map((child) => (
+              ) : null}
+              {childNodes.map((child) => (
                   <FileTreeNode
                     key={child.path}
                     node={child}
@@ -497,8 +498,7 @@ function FileTreeNodeComponent({
                     showListMetadata={showListMetadata}
                     dropTargetPath={dropTargetPath}
                   />
-                ))
-              )}
+                ))}
             </SidebarMenuSub>
           </CollapsibleContent>
         )}

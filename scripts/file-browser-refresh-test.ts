@@ -155,7 +155,8 @@ async function main() {
 
     await useFileStore.getState().refreshVisibleTree();
     const collapsedDocs = useFileStore.getState().fileTree.find((node) => node.path === 'docs');
-    assert.equal(collapsedDocs?.children, undefined, 'manual refresh must mark collapsed directory children stale');
+    assert.equal(collapsedDocs?.children?.[0]?.path, 'docs/stale-after-refresh.md', 'manual refresh preserves cached children until revalidation');
+    assert.ok(useFileStore.getState().staleDirs.has('docs'), 'collapsed directory remains stale until opened');
 
     useFileStore.getState().toggleDirectory('docs');
     await waitFor(() => !useFileStore.getState().loadingDirs.has('docs'), 'opening a stale directory should refresh it');
