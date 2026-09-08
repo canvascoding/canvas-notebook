@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SyntheticEvent } from 'react';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
@@ -42,13 +42,30 @@ function formatDuration(seconds?: number | null) {
 export function MediaViewer({ path, kind, mimeType, size, sourceUrl }: MediaViewerProps) {
   const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const resolvedSourceUrl = sourceUrl ?? toMediaUrl(path, { workspaceId });
+  const elementRef = useRef<HTMLMediaElement | null>(null);
+  const restoreRef = useRef<{ time: number; paused: boolean; volume: number; rate: number; muted: boolean } | null>(null);
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!element) return;
+    restoreRef.current = { time: element.currentTime, paused: element.paused,
+      volume: element.volume, rate: element.playbackRate, muted: element.muted };
+    element.load();
+  }, [resolvedSourceUrl]);
   const [duration, setDuration] = useState<number | null>(null);
   const sizeLabel = formatBytes(size);
   const durationLabel = formatDuration(duration);
 
   const handleLoadedMetadata = useCallback(
     (event: SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) => {
-      const nextDuration = event.currentTarget.duration;
+      const element = event.currentTarget;
+      const restore = restoreRef.current;
+      restoreRef.current = null;
+      if (restore) {
+        element.currentTime = Math.min(restore.time, Number.isFinite(element.duration) ? element.duration : restore.time);
+        element.volume = restore.volume; element.playbackRate = restore.rate; element.muted = restore.muted;
+        if (!restore.paused) void element.play().catch(() => {});
+      }
+      const nextDuration = element.duration;
       if (Number.isFinite(nextDuration)) {
         setDuration(nextDuration);
       }
@@ -72,6 +89,7 @@ export function MediaViewer({ path, kind, mimeType, size, sourceUrl }: MediaView
         {toolbar}
         <div className="flex flex-1 items-center justify-center p-6">
           <audio
+            ref={(element) => { elementRef.current = element; }}
             controls
             preload="metadata"
             onLoadedMetadata={handleLoadedMetadata}
@@ -90,6 +108,7 @@ export function MediaViewer({ path, kind, mimeType, size, sourceUrl }: MediaView
       {toolbar}
       <div className="flex flex-1 items-center justify-center overflow-hidden p-4">
       <video
+        ref={(element) => { elementRef.current = element; }}
         controls
         preload="metadata"
         onLoadedMetadata={handleLoadedMetadata}

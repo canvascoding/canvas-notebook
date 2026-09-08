@@ -81,6 +81,8 @@ export interface FileCollaborationState {
 }
 
 export interface CurrentFile {
+  /** Stable view identity survives managed path mutations. */
+  viewId?: string;
   path: string;
   content: string;
   stats?: FileStats;
