@@ -1,4 +1,4 @@
-import { db, getDatabaseProvider, openDb, type SqlConnection } from '../db';
+import { db, openDb, type SqlConnection } from '../db';
 import { legacyAiTablesExist } from '../db/legacy-ai-tables';
 import { toDatabaseTimestamp } from '../db/timestamps';
 import { piSessions, piMessages, aiSessions, aiMessages, sessionChannelLinks } from '../db/schema';
@@ -310,7 +310,7 @@ export async function createPiSessionWithRuntimeSnapshot(
     let transactionStarted = false;
     let insertResult: InsertPiSessionWithRuntimeSnapshotResult | null = null;
     try {
-      await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+      await connection.run('BEGIN');
       transactionStarted = true;
       await lockPiSessionCreationForUser(connection, input.userId);
       insertResult = await insertPiSessionWithRuntimeSnapshotOnConnection(connection, input);
@@ -495,13 +495,12 @@ export async function savePiSession(
   let transactionStarted = false;
   let sequenceCheckpoint = 0;
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     transactionStarted = true;
-    const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
     const locked = await connection.get(
       `SELECT id FROM pi_sessions
        WHERE id = ? AND session_id = ? AND user_id = ? AND agent_id = ?
-       LIMIT 1${forUpdate}`,
+       LIMIT 1 FOR UPDATE`,
       [sessionDbId, sessionId, userId, agentId],
     ) as { id?: number | string } | undefined;
     if (locked?.id === undefined) throw new PiSessionRuntimeAccessError(
@@ -665,13 +664,12 @@ export async function finalizePiSessionAfterNoop(input: {
   const connection = await openDb();
   let transactionStarted = false;
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     transactionStarted = true;
-    const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
     const locked = await connection.get(
       `SELECT id FROM pi_sessions
        WHERE id = ? AND session_id = ? AND user_id = ? AND agent_id = ?
-       LIMIT 1${forUpdate}`,
+       LIMIT 1 FOR UPDATE`,
       [session.id, input.sessionId, input.userId, agentId],
     ) as { id?: number | string } | undefined;
     if (locked?.id === undefined) throw new PiSessionRuntimeAccessError(

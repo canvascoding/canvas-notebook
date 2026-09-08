@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getDatabaseProvider, openDb, type SqlConnection } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import { toDatabaseTimestamp } from '@/app/lib/db/timestamps';
 import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
@@ -114,8 +114,6 @@ export type PiMessageSequenceAudit = Readonly<{
   nullSequenceCount: number;
   valid: boolean;
 }>;
-
-type DatabaseProvider = 'sqlite' | 'postgres';
 
 type ScopedSessionRow = {
   id: number | string;
@@ -315,12 +313,11 @@ function mapAttempt(row: AttemptRow): PiCompactionAttemptRecord {
 
 async function withTransaction<T>(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   operation: () => Promise<T>,
 ): Promise<T> {
   let started = false;
   try {
-    await connection.run(provider === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     started = true;
     const result = await operation();
     await connection.run('COMMIT');
@@ -340,16 +337,14 @@ async function withTransaction<T>(
 
 async function getScopedSessionForUpdate(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   scope: PiCompactionScope,
 ): Promise<ScopedSessionRow> {
-  const forUpdate = provider === 'postgres' ? ' FOR UPDATE' : '';
   const rows = await connection.all(
     `SELECT id, summary_revision, summary_through_sequence, workspace_id
      FROM pi_sessions
      WHERE session_id = ? AND user_id = ? AND agent_id = ?
      ORDER BY id ASC
-     LIMIT 2${forUpdate}`,
+     LIMIT 2 FOR UPDATE`,
     [scope.sessionId, scope.userId, scope.agentId],
   ) as ScopedSessionRow[];
   if (rows.length !== 1 || (rows[0].workspace_id ?? null) !== scope.workspaceId) {
@@ -363,9 +358,8 @@ async function getAttemptForSession(
   attemptId: string,
   piSessionDbId: number | string,
   forUpdate: boolean,
-  provider: DatabaseProvider,
 ): Promise<AttemptRow | null> {
-  const lock = forUpdate && provider === 'postgres' ? ' FOR UPDATE' : '';
+  const lock = forUpdate ? ' FOR UPDATE' : '';
   return await connection.get(
     `SELECT ${ATTEMPT_SELECT_COLUMNS}
      FROM pi_session_compaction_attempts
@@ -437,7 +431,6 @@ export type StartPiCompactionAttemptResult =
 
 export async function startPiSessionCompactionAttemptOnConnection(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   input: StartPiCompactionAttemptInput,
 ): Promise<StartPiCompactionAttemptResult> {
   const scope = validateScope(input);
@@ -464,8 +457,8 @@ export async function startPiSessionCompactionAttemptOnConnection(
   }
   const metrics = input.metrics ?? {};
 
-  return withTransaction(connection, provider, async () => {
-    const session = await getScopedSessionForUpdate(connection, provider, scope);
+  return withTransaction(connection, async () => {
+    const session = await getScopedSessionForUpdate(connection, scope);
     const nowTimestamp = toDatabaseTimestamp(now);
     await connection.run(
       `UPDATE pi_session_compaction_attempts
@@ -611,7 +604,7 @@ export async function startPiSessionCompactionAttemptOnConnection(
         telemetryJson,
       ],
     );
-    const inserted = await getAttemptForSession(connection, attemptId, session.id, false, provider);
+    const inserted = await getAttemptForSession(connection, attemptId, session.id, false);
     if (!inserted) throw new PiCompactionPersistenceConflictError('Compaction attempt was not persisted.');
     return { status: 'started', attempt: mapAttempt(inserted) };
   });
@@ -619,12 +612,11 @@ export async function startPiSessionCompactionAttemptOnConnection(
 
 export async function countPiSessionCompactionRetryFailuresOnConnection(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   scopeInput: PiCompactionScope,
 ): Promise<number> {
   const scope = validateScope(scopeInput);
-  return withTransaction(connection, provider, async () => {
-    const session = await getScopedSessionForUpdate(connection, provider, scope);
+  return withTransaction(connection, async () => {
+    const session = await getScopedSessionForUpdate(connection, scope);
     const row = await connection.get(
       `SELECT COUNT(*) AS failure_count
        FROM pi_session_compaction_attempts
@@ -642,12 +634,11 @@ export async function countPiSessionCompactionRetryFailuresOnConnection(
 
 export async function countPiSessionCompactionIneffectiveAttemptsOnConnection(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   scopeInput: PiCompactionScope,
 ): Promise<number> {
   const scope = validateScope(scopeInput);
-  return withTransaction(connection, provider, async () => {
-    const session = await getScopedSessionForUpdate(connection, provider, scope);
+  return withTransaction(connection, async () => {
+    const session = await getScopedSessionForUpdate(connection, scope);
     const row = await connection.get(
       `SELECT COUNT(*) AS ineffective_count
        FROM pi_session_compaction_attempts
@@ -673,7 +664,6 @@ export type RecordPiCompactionProgressInput = PiCompactionScope & Readonly<{
 
 export async function recordPiSessionCompactionProgressOnConnection(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   input: RecordPiCompactionProgressInput,
 ): Promise<boolean> {
   const scope = validateScope(input);
@@ -681,8 +671,8 @@ export async function recordPiSessionCompactionProgressOnConnection(
   if (input.idleDeadlineAt.getTime() <= now.getTime()) {
     throw new Error('Compaction progress must extend the idle deadline.');
   }
-  return withTransaction(connection, provider, async () => {
-    const session = await getScopedSessionForUpdate(connection, provider, scope);
+  return withTransaction(connection, async () => {
+    const session = await getScopedSessionForUpdate(connection, scope);
     const timestamp = toDatabaseTimestamp(now);
     const updated = await connection.run(
       `UPDATE pi_session_compaction_attempts
@@ -712,7 +702,6 @@ export type FinishPiCompactionAttemptInput = PiCompactionScope & Readonly<{
 
 export async function finishPiSessionCompactionAttemptOnConnection(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   input: FinishPiCompactionAttemptInput,
 ): Promise<Readonly<{ changed: boolean; attempt: PiCompactionAttemptRecord }>> {
   if (!TERMINAL_ATTEMPT_STATES.has(input.state)) {
@@ -721,9 +710,9 @@ export async function finishPiSessionCompactionAttemptOnConnection(
   const scope = validateScope(input);
   const now = input.now ?? new Date();
   const metrics = input.metrics ?? {};
-  return withTransaction(connection, provider, async () => {
-    const session = await getScopedSessionForUpdate(connection, provider, scope);
-    const attempt = await getAttemptForSession(connection, input.attemptId.trim(), session.id, true, provider);
+  return withTransaction(connection, async () => {
+    const session = await getScopedSessionForUpdate(connection, scope);
+    const attempt = await getAttemptForSession(connection, input.attemptId.trim(), session.id, true);
     if (!attempt) throw new PiCompactionScopeError();
     if (attempt.state !== 'running') return { changed: false, attempt: mapAttempt(attempt) };
     const timestamp = toDatabaseTimestamp(now);
@@ -761,7 +750,7 @@ export async function finishPiSessionCompactionAttemptOnConnection(
       ],
     );
     if (changes(result) !== 1) throw new PiCompactionPersistenceConflictError();
-    const updated = await getAttemptForSession(connection, attempt.id, session.id, false, provider);
+    const updated = await getAttemptForSession(connection, attempt.id, session.id, false);
     if (!updated) throw new PiCompactionPersistenceConflictError();
     return { changed: true, attempt: mapAttempt(updated) };
   });
@@ -784,7 +773,6 @@ export type CommitPiCompactionSummaryResult =
 
 export async function commitPiSessionCompactionSummaryOnConnection(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   input: CommitPiCompactionSummaryInput,
 ): Promise<CommitPiCompactionSummaryResult> {
   const scope = validateScope(input);
@@ -807,9 +795,9 @@ export async function commitPiSessionCompactionSummaryOnConnection(
   }
   const now = input.now ?? new Date();
   const metrics = input.metrics ?? {};
-  return withTransaction(connection, provider, async () => {
-    const session = await getScopedSessionForUpdate(connection, provider, scope);
-    const attempt = await getAttemptForSession(connection, input.attemptId.trim(), session.id, true, provider);
+  return withTransaction(connection, async () => {
+    const session = await getScopedSessionForUpdate(connection, scope);
+    const attempt = await getAttemptForSession(connection, input.attemptId.trim(), session.id, true);
     if (!attempt) throw new PiCompactionScopeError();
     if (attempt.state !== 'running') {
       return { status: 'already_finished', attempt: mapAttempt(attempt) };
@@ -840,7 +828,7 @@ export async function commitPiSessionCompactionSummaryOnConnection(
          WHERE id = ? AND pi_session_db_id = ? AND state = 'running'`,
         [timestamp, timestamp, durationMs, progressEventCount, telemetryJson, attempt.id, session.id],
       );
-      const updated = await getAttemptForSession(connection, attempt.id, session.id, false, provider);
+      const updated = await getAttemptForSession(connection, attempt.id, session.id, false);
       if (!updated) throw new PiCompactionPersistenceConflictError();
       return { status: 'stale', attempt: mapAttempt(updated) };
     }
@@ -911,7 +899,7 @@ export async function commitPiSessionCompactionSummaryOnConnection(
       ],
     );
     if (changes(attemptUpdate) !== 1) throw new PiCompactionPersistenceConflictError();
-    const updatedAttempt = await getAttemptForSession(connection, attempt.id, session.id, false, provider);
+    const updatedAttempt = await getAttemptForSession(connection, attempt.id, session.id, false);
     if (!updatedAttempt) throw new PiCompactionPersistenceConflictError();
     return {
       status: 'committed',
@@ -929,7 +917,7 @@ export async function commitPiSessionCompactionSummaryOnConnection(
 
 async function withCompactionConnection<T>(
   scope: PiCompactionScope,
-  operation: (connection: SqlConnection, provider: DatabaseProvider) => Promise<T>,
+  operation: (connection: SqlConnection) => Promise<T>,
 ): Promise<T> {
   const validatedScope = validateScope(scope);
   return withKeyedOperationLock(
@@ -938,7 +926,7 @@ async function withCompactionConnection<T>(
     async () => {
       const connection = await openDb();
       try {
-        return await operation(connection, getDatabaseProvider());
+        return await operation(connection);
       } finally {
         await connection.close();
       }
@@ -949,47 +937,47 @@ async function withCompactionConnection<T>(
 export function startPiSessionCompactionAttempt(
   input: StartPiCompactionAttemptInput,
 ): Promise<StartPiCompactionAttemptResult> {
-  return withCompactionConnection(input, (connection, provider) => (
-    startPiSessionCompactionAttemptOnConnection(connection, provider, input)
+  return withCompactionConnection(input, (connection) => (
+    startPiSessionCompactionAttemptOnConnection(connection, input)
   ));
 }
 
 export function finishPiSessionCompactionAttempt(
   input: FinishPiCompactionAttemptInput,
 ): Promise<Readonly<{ changed: boolean; attempt: PiCompactionAttemptRecord }>> {
-  return withCompactionConnection(input, (connection, provider) => (
-    finishPiSessionCompactionAttemptOnConnection(connection, provider, input)
+  return withCompactionConnection(input, (connection) => (
+    finishPiSessionCompactionAttemptOnConnection(connection, input)
   ));
 }
 
 export function countPiSessionCompactionRetryFailures(
   input: PiCompactionScope,
 ): Promise<number> {
-  return withCompactionConnection(input, (connection, provider) => (
-    countPiSessionCompactionRetryFailuresOnConnection(connection, provider, input)
+  return withCompactionConnection(input, (connection) => (
+    countPiSessionCompactionRetryFailuresOnConnection(connection, input)
   ));
 }
 
 export function countPiSessionCompactionIneffectiveAttempts(
   input: PiCompactionScope,
 ): Promise<number> {
-  return withCompactionConnection(input, (connection, provider) => (
-    countPiSessionCompactionIneffectiveAttemptsOnConnection(connection, provider, input)
+  return withCompactionConnection(input, (connection) => (
+    countPiSessionCompactionIneffectiveAttemptsOnConnection(connection, input)
   ));
 }
 
 export function recordPiSessionCompactionProgress(
   input: RecordPiCompactionProgressInput,
 ): Promise<boolean> {
-  return withCompactionConnection(input, (connection, provider) => (
-    recordPiSessionCompactionProgressOnConnection(connection, provider, input)
+  return withCompactionConnection(input, (connection) => (
+    recordPiSessionCompactionProgressOnConnection(connection, input)
   ));
 }
 
 export function commitPiSessionCompactionSummary(
   input: CommitPiCompactionSummaryInput,
 ): Promise<CommitPiCompactionSummaryResult> {
-  return withCompactionConnection(input, (connection, provider) => (
-    commitPiSessionCompactionSummaryOnConnection(connection, provider, input)
+  return withCompactionConnection(input, (connection) => (
+    commitPiSessionCompactionSummaryOnConnection(connection, input)
   ));
 }

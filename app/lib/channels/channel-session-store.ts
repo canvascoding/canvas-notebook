@@ -1,4 +1,4 @@
-import { getDatabaseProvider, openDb, type SqlConnection } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import { toDatabaseTimestamp } from '@/app/lib/db/timestamps';
 import {
   insertPiSessionWithRuntimeSnapshotOnConnection,
@@ -33,7 +33,7 @@ async function withChannelWriteTransaction<T>(
     const connection = await openDb();
     let transactionStarted = false;
     try {
-      await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+      await connection.run('BEGIN');
       transactionStarted = true;
       await lockPiSessionCreationForUser(connection, userId);
       const result = await operation(connection);

@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
 
-import { db, getDatabaseProvider, openDb } from '@/app/lib/db';
+import { db, openDb } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { toDatabaseTimestamp } from '@/app/lib/db/timestamps';
 import type { AiSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/types';
@@ -188,7 +188,7 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
     let created = false;
 
     try {
-      await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+      await connection.run('BEGIN');
       transactionStarted = true;
       await lockPiSessionCreationForUser(connection, input.userId);
 
@@ -235,7 +235,6 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
         };
       }
 
-      const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
       const source = await connection.get(
         `SELECT id, session_id, user_id, agent_id, title, title_generation_state,
                 session_kind, forked_from_session_id, forked_from_sequence,
@@ -245,7 +244,7 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
                 workspace_name, workspace_root_relative_path
          FROM pi_sessions
          WHERE session_id = ? AND user_id = ? AND agent_id = ?
-         LIMIT 1${forUpdate}`,
+         LIMIT 1 FOR UPDATE`,
         [input.sourceSessionId, input.userId, input.agentId],
       ) as ForkSessionRow | undefined;
       if (!source) {

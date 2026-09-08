@@ -128,7 +128,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   const now = new Date('2026-08-27T10:00:00.000Z');
   const deadlineAt = new Date('2026-08-27T10:05:00.000Z');
 
-  const started = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const started = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-1`,
     trigger: 'automatic',
@@ -161,14 +161,14 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   assert.equal(Object.isFrozen(started.attempt), true);
   assert.equal(started.attempt.telemetry.summaryModel, 'summary-model');
   assert.equal(started.attempt.telemetry.anchorCount, 4);
-  assert.equal(await recordPiSessionCompactionProgressOnConnection(connection, provider, {
+  assert.equal(await recordPiSessionCompactionProgressOnConnection(connection, {
     ...scope,
     attemptId: started.attempt.attemptId,
     idleDeadlineAt: new Date('2026-08-27T10:03:00.000Z'),
     now: new Date('2026-08-27T10:01:00.000Z'),
   }), true);
 
-  const secondStart = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const secondStart = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-parallel`,
     trigger: 'manual',
@@ -192,7 +192,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     [session.id, JSON.stringify({ role: 'user', content: 'concurrent append' }), 1_700_000_004],
   );
 
-  const committed = await commitPiSessionCompactionSummaryOnConnection(connection, provider, {
+  const committed = await commitPiSessionCompactionSummaryOnConnection(connection, {
     ...scope,
     attemptId: started.attempt.attemptId,
     expectedSummaryRevision: 0,
@@ -234,7 +234,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   assert.equal(Number(persisted.summary_through_sequence), 3);
   assert.equal(Number(persisted.message_count), 4, 'a concurrent append above the checkpoint must remain');
 
-  const rollbackAttempt = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const rollbackAttempt = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-rollback`,
     trigger: 'manual',
@@ -248,7 +248,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   assert.equal(rollbackAttempt.status, 'started');
   const removeRollbackFence = await installRollbackFence(connection, provider, rollbackAttempt.attempt.attemptId);
   await assert.rejects(
-    commitPiSessionCompactionSummaryOnConnection(connection, provider, {
+    commitPiSessionCompactionSummaryOnConnection(connection, {
       ...scope,
       attemptId: rollbackAttempt.attempt.attemptId,
       expectedSummaryRevision: 1,
@@ -268,7 +268,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   assert.equal(afterRollback.summary_text, 'Bounded internal summary');
   assert.equal(Number(afterRollback.summary_revision), 1);
   assert.equal(Number(afterRollback.summary_through_sequence), 3);
-  const finishedRollback = await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const finishedRollback = await finishPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: rollbackAttempt.attempt.attemptId,
     state: 'failed',
@@ -278,7 +278,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   assert.equal(finishedRollback.changed, true);
   assert.equal(finishedRollback.attempt.state, 'failed');
 
-  const staleAttempt = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const staleAttempt = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-stale`,
     trigger: 'automation',
@@ -294,7 +294,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     `UPDATE pi_sessions SET summary_revision = 2, summary_through_sequence = 4 WHERE id = ?`,
     [session.id],
   );
-  const staleCommit = await commitPiSessionCompactionSummaryOnConnection(connection, provider, {
+  const staleCommit = await commitPiSessionCompactionSummaryOnConnection(connection, {
     ...scope,
     attemptId: staleAttempt.attempt.attemptId,
     expectedSummaryRevision: 1,
@@ -312,7 +312,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   assert.equal(afterStale.summary_text, 'Bounded internal summary');
   assert.equal(Number(afterStale.summary_revision), 2);
 
-  const cooldownSource = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const cooldownSource = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-cooldown-source`,
     trigger: 'automatic',
@@ -324,7 +324,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:05:00.000Z'),
   });
   assert.equal(cooldownSource.status, 'started');
-  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+  await finishPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-cooldown-source`,
     state: 'failed',
@@ -332,7 +332,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     retryAt: new Date('2026-08-27T10:15:00.000Z'),
     now: new Date('2026-08-27T10:05:30.000Z'),
   });
-  const automaticCooldown = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const automaticCooldown = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-cooldown-auto`,
     trigger: 'automatic',
@@ -344,7 +344,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:06:00.000Z'),
   });
   assert.equal(automaticCooldown.status, 'cooldown_active');
-  const exactBudgetBypass = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const exactBudgetBypass = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-cooldown-exact-budget`,
     trigger: 'automatic',
@@ -359,7 +359,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   });
   assert.equal(exactBudgetBypass.status, 'started');
   assert.equal(exactBudgetBypass.attempt.trigger, 'automatic');
-  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+  await finishPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-cooldown-exact-budget`,
     state: 'failed',
@@ -367,7 +367,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     retryAt: new Date('2026-08-27T10:16:00.000Z'),
     now: new Date('2026-08-27T10:06:30.000Z'),
   });
-  const secondExactBudgetBypass = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const secondExactBudgetBypass = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-cooldown-exact-budget-second`,
     trigger: 'automatic',
@@ -381,7 +381,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:07:00.000Z'),
   });
   assert.equal(secondExactBudgetBypass.status, 'cooldown_active');
-  const manualBypass = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const manualBypass = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-cooldown-manual`,
     trigger: 'manual',
@@ -393,7 +393,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:06:00.000Z'),
   });
   assert.equal(manualBypass.status, 'started');
-  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+  await finishPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-cooldown-manual`,
     state: 'failed',
@@ -401,7 +401,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     retryAt: new Date('2026-08-27T10:16:00.000Z'),
     now: new Date('2026-08-27T10:06:30.000Z'),
   });
-  const secondManualBypass = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const secondManualBypass = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-cooldown-manual-second`,
     trigger: 'manual',
@@ -414,11 +414,11 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   });
   assert.equal(secondManualBypass.status, 'cooldown_active');
   assert.equal(
-    await countPiSessionCompactionRetryFailuresOnConnection(connection, provider, scope),
+    await countPiSessionCompactionRetryFailuresOnConnection(connection, scope),
     3,
   );
 
-  const resetAttempt = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const resetAttempt = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-cooldown-reset`,
     trigger: 'automatic',
@@ -430,7 +430,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:17:00.000Z'),
   });
   assert.equal(resetAttempt.status, 'started');
-  const resetCommit = await commitPiSessionCompactionSummaryOnConnection(connection, provider, {
+  const resetCommit = await commitPiSessionCompactionSummaryOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-cooldown-reset`,
     expectedSummaryRevision: 2,
@@ -441,11 +441,11 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   });
   assert.equal(resetCommit.status, 'committed');
   assert.equal(
-    await countPiSessionCompactionRetryFailuresOnConnection(connection, provider, scope),
+    await countPiSessionCompactionRetryFailuresOnConnection(connection, scope),
     0,
   );
 
-  const ineffectiveOne = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const ineffectiveOne = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-ineffective-1`,
     trigger: 'automatic',
@@ -457,7 +457,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:19:00.000Z'),
   });
   assert.equal(ineffectiveOne.status, 'started');
-  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+  await finishPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-ineffective-1`,
     state: 'no_op',
@@ -465,11 +465,11 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:19:30.000Z'),
   });
   assert.equal(
-    await countPiSessionCompactionIneffectiveAttemptsOnConnection(connection, provider, scope),
+    await countPiSessionCompactionIneffectiveAttemptsOnConnection(connection, scope),
     1,
   );
 
-  const ineffectiveTwo = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const ineffectiveTwo = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-ineffective-2`,
     trigger: 'automatic',
@@ -481,7 +481,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:20:00.000Z'),
   });
   assert.equal(ineffectiveTwo.status, 'started');
-  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+  await finishPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-ineffective-2`,
     state: 'no_op',
@@ -490,10 +490,10 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:20:30.000Z'),
   });
   assert.equal(
-    await countPiSessionCompactionIneffectiveAttemptsOnConnection(connection, provider, scope),
+    await countPiSessionCompactionIneffectiveAttemptsOnConnection(connection, scope),
     2,
   );
-  const breakerBlocked = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const breakerBlocked = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-breaker-blocked`,
     trigger: 'automatic',
@@ -506,7 +506,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   });
   assert.equal(breakerBlocked.status, 'breaker_active');
 
-  const breakerManualProbe = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const breakerManualProbe = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-breaker-manual-probe`,
     trigger: 'manual',
@@ -518,14 +518,14 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:21:00.000Z'),
   });
   assert.equal(breakerManualProbe.status, 'started');
-  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+  await finishPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-breaker-manual-probe`,
     state: 'no_op',
     reasonCode: 'nothing_eligible',
     now: new Date('2026-08-27T10:21:30.000Z'),
   });
-  const secondManualProbe = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const secondManualProbe = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-breaker-manual-second`,
     trigger: 'manual',
@@ -538,7 +538,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   });
   assert.equal(secondManualProbe.status, 'breaker_active');
 
-  const recoveryProbe = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const recoveryProbe = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-breaker-recovery`,
     trigger: 'automatic',
@@ -550,7 +550,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:26:00.000Z'),
   });
   assert.equal(recoveryProbe.status, 'started');
-  await finishPiSessionCompactionAttemptOnConnection(connection, provider, {
+  await finishPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-breaker-recovery`,
     state: 'aborted',
@@ -558,7 +558,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:26:30.000Z'),
   });
 
-  const orphanedIdleAttempt = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const orphanedIdleAttempt = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-orphaned-idle`,
     trigger: 'automatic',
@@ -571,7 +571,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     now: new Date('2026-08-27T10:27:00.000Z'),
   });
   assert.equal(orphanedIdleAttempt.status, 'started');
-  const reapedIdleAttempt = await startPiSessionCompactionAttemptOnConnection(connection, provider, {
+  const reapedIdleAttempt = await startPiSessionCompactionAttemptOnConnection(connection, {
     ...scope,
     attemptId: `attempt-${provider}-after-orphaned-idle`,
     trigger: 'automatic',
@@ -590,7 +590,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
   assert.equal(reapedIdleAttempt.attempt.durationMs, 120_000);
 
   await assert.rejects(
-    startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    startPiSessionCompactionAttemptOnConnection(connection, {
       ...scope,
       workspaceId: 'workspace-other',
       attemptId: `attempt-${provider}-wrong-scope`,
@@ -622,7 +622,7 @@ async function exerciseStore(connection: SqlConnection, provider: Provider): Pro
     [session.id, JSON.stringify({ role: 'user', content: 'duplicate sequence' }), 1_700_000_005],
   );
   await assert.rejects(
-    startPiSessionCompactionAttemptOnConnection(connection, provider, {
+    startPiSessionCompactionAttemptOnConnection(connection, {
       ...scope,
       attemptId: `attempt-${provider}-invalid-history`,
       trigger: 'manual',
