@@ -23,18 +23,38 @@ export function restoreExplorerAnchor(surface: HTMLElement, anchor: ExplorerAnch
 }
 
 export function useExplorerScrollAnchor(ref: RefObject<HTMLDivElement | null>, context: string, revision: unknown) {
-  const previous = useRef<{ context: string; anchor: ExplorerAnchor | null } | null>(null);
+  const previous = useRef<{
+    surface: HTMLElement; context: string; revision: unknown;
+    anchor: ExplorerAnchor | null; onScroll: () => void;
+  } | null>(null);
+  // The surface can mount after restoration without changing the data revision.
   useLayoutEffect(() => {
-    const surface = ref.current?.closest<HTMLElement>('[data-file-scroll-container]') ?? ref.current;
+    const surface = ref.current;
+    const entry = previous.current;
+    if (entry && (entry.surface !== surface || entry.context !== context)) {
+      entry.surface.removeEventListener('scroll', entry.onScroll);
+      previous.current = null;
+    }
     if (!surface) return;
-    if (previous.current?.context === context && previous.current.anchor) restoreExplorerAnchor(surface, previous.current.anchor);
-    previous.current = { context, anchor: captureExplorerAnchor(surface) };
-  }, [context, ref, revision]);
-  useEffect(() => {
-    const surface = ref.current?.closest<HTMLElement>('[data-file-scroll-container]') ?? ref.current;
-    if (!surface) return;
-    const onScroll = () => { previous.current = { context, anchor: captureExplorerAnchor(surface) }; };
+    if (previous.current) {
+      if (previous.current.revision !== revision && previous.current.anchor) {
+        restoreExplorerAnchor(surface, previous.current.anchor);
+      }
+      previous.current.revision = revision;
+      previous.current.anchor = captureExplorerAnchor(surface);
+      return;
+    }
+    const onScroll = () => {
+      if (previous.current?.surface === surface) previous.current.anchor = captureExplorerAnchor(surface);
+    };
+    previous.current = { surface, context, revision, anchor: captureExplorerAnchor(surface), onScroll };
     surface.addEventListener('scroll', onScroll, { passive: true });
-    return () => surface.removeEventListener('scroll', onScroll);
-  }, [context, ref]);
+  });
+  useEffect(() => {
+    return () => {
+      const entry = previous.current;
+      entry?.surface.removeEventListener('scroll', entry.onScroll);
+      previous.current = null;
+    };
+  }, []);
 }

@@ -374,6 +374,8 @@ export function FileGridView({
     return (
       <div
         ref={containerRef}
+        data-file-scroll-container
+        style={{ overflowAnchor: 'none' }}
         className="relative h-full overflow-y-auto focus:outline-none"
         onContextMenu={handleBackgroundContextMenu}
         {...marqueeHandlers}
@@ -391,6 +393,8 @@ export function FileGridView({
     return (
       <div
         ref={containerRef}
+        data-file-scroll-container
+        style={{ overflowAnchor: 'none' }}
         className="h-full overflow-y-auto p-3 md:p-4 focus:outline-none"
         onContextMenu={handleBackgroundContextMenu}
         onFocus={handleContainerFocus}
@@ -453,6 +457,8 @@ export function FileGridView({
     const listContent = (
       <div
         ref={containerRef}
+        data-file-scroll-container
+        style={{ overflowAnchor: 'none' }}
         className="relative h-full overflow-y-auto py-2 focus:outline-none"
         tabIndex={0}
         onContextMenu={handleBackgroundContextMenu}
@@ -536,6 +542,8 @@ export function FileGridView({
   const treeContent = (
     <div
       ref={containerRef}
+      data-file-scroll-container
+      style={{ overflowAnchor: 'none' }}
       className="relative h-full overflow-y-auto py-2 focus:outline-none"
       tabIndex={0}
       onContextMenu={handleBackgroundContextMenu}

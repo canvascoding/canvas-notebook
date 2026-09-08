@@ -535,18 +535,20 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
         </div>
       </div>
 
-      <div data-file-scroll-container className="min-h-0 flex-1 overflow-y-auto" style={{ overflowAnchor: 'none' }}>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <FileSyncStatus includeTreeStatus />
         <FileRevealStatus />
-        <FileGridView
-          variant={variant}
-          onOpenFile={handleOpenFile}
-          onFileOpened={handleFileOpened}
-          onUpload={handleUploadClick}
-          onCreateFolder={handleNewFolder}
-          moveController={moveController}
-          dropTargetPath={fileMoveDrag.dropTargetPath}
-        />
+        <div className="min-h-0 flex-1">
+          <FileGridView
+            variant={variant}
+            onOpenFile={handleOpenFile}
+            onFileOpened={handleFileOpened}
+            onUpload={handleUploadClick}
+            onCreateFolder={handleNewFolder}
+            moveController={moveController}
+            dropTargetPath={fileMoveDrag.dropTargetPath}
+          />
+        </div>
       </div>
 
       <CreateItemDialog {...createDialogProps} defaultPath={resolveTargetDir()} />
