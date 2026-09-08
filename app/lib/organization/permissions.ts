@@ -6,7 +6,7 @@ import { isAdminUser, type AdminUserCandidate } from '@/app/lib/admin-auth';
 import { auth } from '@/app/lib/auth';
 import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { openDb } from '@/app/lib/db';
-import { type OrganizationPermissionSnapshot, type OrganizationPermissionState } from '@/app/lib/organization/bootstrap';
+import { type OrganizationPermissionSnapshot, type OrganizationPermissionState } from '@/app/lib/organization/contracts';
 import {
   ensureOrganizationPermissionRow,
   organizationPermissionDefaults,
