@@ -1178,10 +1178,10 @@ export class PostgresEmailCacheStore implements EmailCacheStore {
           payload.provider_message_id, payload.folder, payload.uid_validity, payload.uid,
           payload.sender, payload.subject, payload.message_date, payload.preview, payload.is_read,
           payload.metadata_json, payload.detail_json, $4,
-          CASE WHEN payload.metadata_json IS NULL THEN NULL ELSE $6 END,
-          CASE WHEN payload.metadata_json IS NULL THEN NULL ELSE $7 END,
-          CASE WHEN payload.detail_json IS NULL THEN NULL ELSE $6 END,
-          CASE WHEN payload.detail_json IS NULL THEN NULL ELSE $7 END,
+          CASE WHEN payload.metadata_json IS NULL THEN NULL ELSE $6::bigint END,
+          CASE WHEN payload.metadata_json IS NULL THEN NULL ELSE $7::bigint END,
+          CASE WHEN payload.detail_json IS NULL THEN NULL ELSE $6::bigint END,
+          CASE WHEN payload.detail_json IS NULL THEN NULL ELSE $7::bigint END,
           $8, NULL, NULL, $6, $6, $6
         FROM payload, mailbox
         WHERE mailbox.generation = $4
