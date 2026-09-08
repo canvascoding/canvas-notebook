@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.9.8.1",
-  "lockfileSha256": "64430109a903b3c410f1d637f906cfe783f2923ad6cace4880e176773d00cad2",
+  "lockfileSha256": "56bdaa247842913ecf86fda163c49147a60dea018d93c5b0717112d43e56895b",
   "summary": {
-    "totalComponents": 2017,
-    "npmComponents": 1993,
+    "totalComponents": 1992,
+    "npmComponents": 1968,
     "nonNpmComponents": 24,
-    "runtimeComponents": 1478,
-    "developmentOnlyComponents": 539,
-    "allowed": 1967,
+    "runtimeComponents": 1448,
+    "developmentOnlyComponents": 544,
+    "allowed": 1942,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -4722,6 +4722,25 @@
       "reviewNotes": "Inherited development-only classification from eslint-plugin-import."
     },
     {
+      "name": "decompress-response",
+      "versionOrCommit": "6.0.0",
+      "sourceUrl": "sindresorhus/decompress-response",
+      "packagePathOrArtifact": "node_modules/decompress-response",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/decompress-response/license",
+      "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
+      "copyrightNotices": [
+        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "deep-is",
       "versionOrCommit": "0.1.4",
       "sourceUrl": "http://github.com/thlorenz/deep-is",
@@ -5124,6 +5143,25 @@
       "licenseTextSha256": "483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a",
       "copyrightNotices": [
         "Copyright Mathias Bynens <https://mathiasbynens.be/>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "end-of-stream",
+      "versionOrCommit": "1.4.5",
+      "sourceUrl": "https://github.com/mafintosh/end-of-stream",
+      "packagePathOrArtifact": "node_modules/end-of-stream",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/end-of-stream/LICENSE",
+      "licenseTextSha256": "c0993ca46cd47c09710a977d3a3d51602cff96f19e8d2eb8d5887aa20a7beead",
+      "copyrightNotices": [
+        "Copyright (c) 2014 Mathias Buus"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -8126,6 +8164,45 @@
       "reviewNotes": "Inherited development-only classification from clone-response."
     },
     {
+      "name": "mimic-response",
+      "versionOrCommit": "3.1.0",
+      "sourceUrl": "sindresorhus/mimic-response",
+      "packagePathOrArtifact": "node_modules/mimic-response",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/mimic-response/license",
+      "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
+      "copyrightNotices": [
+        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "minimist",
+      "versionOrCommit": "1.2.8",
+      "sourceUrl": "https://github.com/minimistjs/minimist/tree/6901ee286bc4c16da6830b48b46ce1574703cea1",
+      "packagePathOrArtifact": "node_modules/minimist",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/minimist/LICENSE",
+      "licenseTextSha256": "435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b",
+      "copyrightNotices": [
+        "Copyright (c) 2013 James Halliday and contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release publishes gitHead 6901ee286bc4c16da6830b48b46ce1574703cea1, and annotated tag v1.2.8 dereferences to that commit. Its tarball contains the complete MIT permission and warranty text but omits the copyright-holder line. The official upstream repository later corrected the same project LICENSE in commit b7ce0ded1e840ccef6f59b1866694e93f6f582e8 by adding the explicit primary-source notice Copyright (c) 2013 James Halliday and contributors. Version 1.2.8 remains the latest npm release. Canvas retains the exact release terms together with this documented upstream attribution and does not modify the package. Verification source: https://github.com/minimistjs/minimist/blob/b7ce0ded1e840ccef6f59b1866694e93f6f582e8/LICENSE"
+    },
+    {
       "name": "minizlib",
       "versionOrCommit": "3.1.0",
       "sourceUrl": "https://github.com/isaacs/minizlib",
@@ -8776,6 +8853,25 @@
       "licenseTextSha256": "aaa78451b6fecd1b9c4594c796c133c0e90cad100372ff8bc6de615e9ef9adf1",
       "copyrightNotices": [
         "Copyright (c) 2018 Made With MOXY Lda <hello@moxy.studio>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "pump",
+      "versionOrCommit": "3.0.4",
+      "sourceUrl": "https://github.com/mafintosh/pump",
+      "packagePathOrArtifact": "node_modules/pump",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/pump/LICENSE",
+      "licenseTextSha256": "c0993ca46cd47c09710a977d3a3d51602cff96f19e8d2eb8d5887aa20a7beead",
+      "copyrightNotices": [
+        "Copyright (c) 2014 Mathias Buus"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -23017,28 +23113,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "@types/better-sqlite3",
-      "versionOrCommit": "7.6.13",
-      "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
-      "packagePathOrArtifact": "node_modules/@types/better-sqlite3",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@types/better-sqlite3/LICENSE",
-      "licenseTextSha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
-      "copyrightNotices": [
-        "Copyright (c) Microsoft Corporation."
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "@types/d3-array",
       "versionOrCommit": "3.2.2",
       "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
@@ -25733,28 +25807,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "better-sqlite3",
-      "versionOrCommit": "12.11.1",
-      "sourceUrl": "https://github.com/WiseLibs/better-sqlite3",
-      "packagePathOrArtifact": "node_modules/better-sqlite3",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/better-sqlite3/LICENSE",
-      "licenseTextSha256": "09856b52897c91ab67e7456ef43067019f31dfd3b87fda72e655736b1ebdee55",
-      "copyrightNotices": [
-        "Copyright (c) 2017 Joshua Wise"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "bidi-js",
       "versionOrCommit": "1.0.3",
       "sourceUrl": "https://github.com/lojjic/bidi-js",
@@ -25817,50 +25869,6 @@
       "copyrightNotices": [
         "Copyright (c) Paul Miller (https://paulmillr.com)",
         "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "bindings",
-      "versionOrCommit": "1.5.0",
-      "sourceUrl": "https://github.com/TooTallNate/node-bindings",
-      "packagePathOrArtifact": "node_modules/bindings",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/bindings/LICENSE.md",
-      "licenseTextSha256": "85fde19744c84cfacb04aed732c0392ba221231b26090d3271d2ed865bfc0792",
-      "copyrightNotices": [
-        "Copyright (c) 2012 Nathan Rajlich &lt;nathan@tootallnate.net&gt;"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "bl",
-      "versionOrCommit": "4.1.0",
-      "sourceUrl": "https://github.com/rvagg/bl",
-      "packagePathOrArtifact": "node_modules/bl",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/bl/LICENSE.md",
-      "licenseTextSha256": "9377db95383c8befacf05c6e465d969d756edf178487ca1344fdf3ba147c596f",
-      "copyrightNotices": [
-        "Copyright (c) 2013-2019 bl contributors"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -26084,28 +26092,6 @@
       "licenseTextSha256": "14275f5c8139d02054c5259d52a88ccbba662a86af18c30f071c8d082dc6004c",
       "copyrightNotices": [
         "Copyright (c) 2016, 2018 Linus Unnebäck"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "buffer",
-      "versionOrCommit": "5.7.1",
-      "sourceUrl": "https://github.com/feross/buffer",
-      "packagePathOrArtifact": "node_modules/bl/node_modules/buffer",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/bl/node_modules/buffer/LICENSE",
-      "licenseTextSha256": "06bafa45fdad2579ba0e43b0c9b2c6290287c99c4203c300254a462b38a307f6",
-      "copyrightNotices": [
-        "Copyright (c) Feross Aboukhadijeh, and other contributors."
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -26516,28 +26502,6 @@
       "licenseTextSha256": "bdfd5e0edb6089e6586c8f15e6a86fab83ffbeeda3b3b7b33734ccb8c5906965",
       "copyrightNotices": [
         "Copyright (c) 2012 Paul Miller (https://paulmillr.com), Elan Shanker"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "chownr",
-      "versionOrCommit": "1.1.4",
-      "sourceUrl": "https://github.com/isaacs/chownr",
-      "packagePathOrArtifact": "node_modules/tar-fs/node_modules/chownr",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "ISC",
-      "verifiedLicense": "ISC",
-      "licenseTextRef": "node_modules/tar-fs/node_modules/chownr/LICENSE",
-      "licenseTextSha256": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b",
-      "copyrightNotices": [
-        "Copyright (c) Isaac Z. Schlueter and Contributors"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -28591,50 +28555,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "decompress-response",
-      "versionOrCommit": "6.0.0",
-      "sourceUrl": "sindresorhus/decompress-response",
-      "packagePathOrArtifact": "node_modules/decompress-response",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/decompress-response/license",
-      "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
-      "copyrightNotices": [
-        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "deep-extend",
-      "versionOrCommit": "0.6.0",
-      "sourceUrl": "https://github.com/unclechu/node-deep-extend",
-      "packagePathOrArtifact": "node_modules/deep-extend",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/deep-extend/LICENSE",
-      "licenseTextSha256": "e17120ad3deff741c2ca5cbe511971ca33971a1ba6e49694c6498309bb2680b9",
-      "copyrightNotices": [
-        "Copyright (c) 2013-2018, Viacheslav Lotsmanov"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "deepmerge-ts",
       "versionOrCommit": "8.0.2",
       "sourceUrl": "https://github.com/RebeccaStevens/deepmerge-ts",
@@ -29327,28 +29247,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "end-of-stream",
-      "versionOrCommit": "1.4.5",
-      "sourceUrl": "https://github.com/mafintosh/end-of-stream",
-      "packagePathOrArtifact": "node_modules/end-of-stream",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/end-of-stream/LICENSE",
-      "licenseTextSha256": "c0993ca46cd47c09710a977d3a3d51602cff96f19e8d2eb8d5887aa20a7beead",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Mathias Buus"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "enhanced-resolve",
       "versionOrCommit": "5.24.5",
       "sourceUrl": "https://github.com/webpack/enhanced-resolve",
@@ -30011,28 +29909,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "expand-template",
-      "versionOrCommit": "2.0.3",
-      "sourceUrl": "https://github.com/ralphtheninja/expand-template",
-      "packagePathOrArtifact": "node_modules/expand-template",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "(MIT OR WTFPL)",
-      "verifiedLicense": "(MIT OR WTFPL)",
-      "licenseTextRef": "node_modules/expand-template/LICENSE",
-      "licenseTextSha256": "77e34b8bcff7968c20cef7a81e56835494746645eea2110dfa0f849d3d02f62e",
-      "copyrightNotices": [
-        "Copyright (c) 2018 Lars-Magnus Skog"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "express-rate-limit",
       "versionOrCommit": "8.5.2",
       "sourceUrl": "https://github.com/express-rate-limit/express-rate-limit",
@@ -30300,28 +30176,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "file-uri-to-path",
-      "versionOrCommit": "1.0.0",
-      "sourceUrl": "https://github.com/TooTallNate/file-uri-to-path",
-      "packagePathOrArtifact": "node_modules/file-uri-to-path",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/file-uri-to-path/LICENSE",
-      "licenseTextSha256": "75070206e4ee2a749be52444cecc05101ca8d314c9d6d335ff914046cbf086a0",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "fill-range",
       "versionOrCommit": "7.1.1",
       "sourceUrl": "jonschlinkert/fill-range",
@@ -30497,28 +30351,6 @@
       "copyrightNotices": [
         "Copyright (c) 2012 TJ Holowaychuk <tj@vision-media.ca>",
         "Copyright (c) 2016-2017 Douglas Christopher Wilson <doug@somethingdoug.com>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "fs-constants",
-      "versionOrCommit": "1.0.0",
-      "sourceUrl": "https://github.com/mafintosh/fs-constants",
-      "packagePathOrArtifact": "node_modules/fs-constants",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/fs-constants/LICENSE",
-      "licenseTextSha256": "2281f2db407bdbb54f069eec38128b2dee2c0c952f52b786ef1faecb81767b3c",
-      "copyrightNotices": [
-        "Copyright (c) 2018 Mathias Buus"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -30815,31 +30647,6 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
-    },
-    {
-      "name": "github-from-package",
-      "versionOrCommit": "0.0.0",
-      "sourceUrl": "https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz",
-      "packagePathOrArtifact": "node_modules/github-from-package",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/github-from-package/LICENSE",
-      "licenseTextSha256": "435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b",
-      "copyrightNotices": [
-        "Copyright (c) James Halliday and contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "The exact npm tarball contains the full MIT terms but omits its copyright-holder line; publisher metadata names James Halliday and the historical repository is unavailable. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas retains the exact MIT text and uses James Halliday with a contributors qualifier as the best available publisher attribution. Any version change requires a new review. Verification source: https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz#LICENSE",
-      "reviewedBy": "Frank Alexander Weber",
-      "reviewedAt": "2026-07-17"
     },
     {
       "name": "glob-parent",
@@ -32170,28 +31977,6 @@
       "licenseTextSha256": "69be713b3d6c33e0dba76c4d23d986d568593abca04ce47d75162af255d6a345",
       "copyrightNotices": [
         "Copyright (c) Isaac Z. Schlueter"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "ini",
-      "versionOrCommit": "1.3.8",
-      "sourceUrl": "https://github.com/isaacs/ini",
-      "packagePathOrArtifact": "node_modules/ini",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "ISC",
-      "verifiedLicense": "ISC",
-      "licenseTextRef": "node_modules/ini/LICENSE",
-      "licenseTextSha256": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b",
-      "copyrightNotices": [
-        "Copyright (c) Isaac Z. Schlueter and Contributors"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -35766,28 +35551,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "mimic-response",
-      "versionOrCommit": "3.1.0",
-      "sourceUrl": "sindresorhus/mimic-response",
-      "packagePathOrArtifact": "node_modules/mimic-response",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/mimic-response/license",
-      "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
-      "copyrightNotices": [
-        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "minimatch",
       "versionOrCommit": "10.2.5",
       "sourceUrl": "git@github.com:isaacs/minimatch",
@@ -35809,29 +35572,6 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
-    },
-    {
-      "name": "minimist",
-      "versionOrCommit": "1.2.8",
-      "sourceUrl": "https://github.com/minimistjs/minimist/tree/6901ee286bc4c16da6830b48b46ce1574703cea1",
-      "packagePathOrArtifact": "node_modules/minimist",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/minimist/LICENSE",
-      "licenseTextSha256": "435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b",
-      "copyrightNotices": [
-        "Copyright (c) 2013 James Halliday and contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "The exact npm release publishes gitHead 6901ee286bc4c16da6830b48b46ce1574703cea1, and annotated tag v1.2.8 dereferences to that commit. Its tarball contains the complete MIT permission and warranty text but omits the copyright-holder line. The official upstream repository later corrected the same project LICENSE in commit b7ce0ded1e840ccef6f59b1866694e93f6f582e8 by adding the explicit primary-source notice Copyright (c) 2013 James Halliday and contributors. Version 1.2.8 remains the latest npm release. Canvas retains the exact release terms together with this documented upstream attribution and does not modify the package. Verification source: https://github.com/minimistjs/minimist/blob/b7ce0ded1e840ccef6f59b1866694e93f6f582e8/LICENSE"
     },
     {
       "name": "minimizer-webpack-plugin",
@@ -35923,28 +35663,6 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "License text source: https://raw.githubusercontent.com/zorkow/context-menu/8ddd26a41f834cd23b9bb20737dfae5fa9b05eb4/doc/jsdoc/scripts/prettify/Apache-License-2.0.txt Published source revision: 8ddd26a41f834cd23b9bb20737dfae5fa9b05eb4 The npm release omits LICENSE despite declaring it in package.json. The published gitHead contains package.json at version 0.6.1 and the complete Apache-2.0 text in the generated documentation sources."
-    },
-    {
-      "name": "mkdirp-classic",
-      "versionOrCommit": "0.5.3",
-      "sourceUrl": "https://github.com/mafintosh/mkdirp-classic",
-      "packagePathOrArtifact": "node_modules/mkdirp-classic",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/mkdirp-classic/LICENSE",
-      "licenseTextSha256": "a255b85c1a510ecfe660c4d442ecdbc1e9d07f4b4d3d7f90443f7e5570591e0a",
-      "copyrightNotices": [
-        "Copyright (c) 2020 James Halliday (mail@substack.net) and Mathias Buus"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
     },
     {
       "name": "modern-tar",
@@ -36123,28 +35841,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "napi-build-utils",
-      "versionOrCommit": "2.0.0",
-      "sourceUrl": "https://github.com/inspiredware/napi-build-utils",
-      "packagePathOrArtifact": "node_modules/napi-build-utils",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/napi-build-utils/LICENSE",
-      "licenseTextSha256": "9c6a91d2847bd9bfd493c1ca87b9c3f96302cfd069667e6dd4a6278e69a33a31",
-      "copyrightNotices": [
-        "Copyright (c) 2018 inspiredware"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "negotiator",
       "versionOrCommit": "0.6.3",
       "sourceUrl": "jshttp/negotiator",
@@ -36299,28 +35995,6 @@
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "node-abi",
-      "versionOrCommit": "3.94.0",
-      "sourceUrl": "https://github.com/electron/node-abi",
-      "packagePathOrArtifact": "node_modules/prebuild-install/node_modules/node-abi",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/prebuild-install/node_modules/node-abi/LICENSE",
-      "licenseTextSha256": "9a508cd4122f2dc1cc39f8ab0b6950efbc49fb087a581c7177a4b8c9d5d0d6a1",
-      "copyrightNotices": [
-        "Copyright (c) 2016 Lukas Geiger"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -38181,28 +37855,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "prebuild-install",
-      "versionOrCommit": "7.1.3",
-      "sourceUrl": "https://github.com/prebuild/prebuild-install",
-      "packagePathOrArtifact": "node_modules/prebuild-install",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/prebuild-install/LICENSE",
-      "licenseTextSha256": "0aa9add6a9158efad3e6649e3affd607c7e2629f6677af19f9988c8fbb0757b0",
-      "copyrightNotices": [
-        "Copyright (c) 2015 Mathias Buus"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "pretty-format",
       "versionOrCommit": "27.5.1",
       "sourceUrl": "https://github.com/facebook/jest",
@@ -38710,28 +38362,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "pump",
-      "versionOrCommit": "3.0.4",
-      "sourceUrl": "https://github.com/mafintosh/pump",
-      "packagePathOrArtifact": "node_modules/pump",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/pump/LICENSE",
-      "licenseTextSha256": "c0993ca46cd47c09710a977d3a3d51602cff96f19e8d2eb8d5887aa20a7beead",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Mathias Buus"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "punycode.js",
       "versionOrCommit": "2.3.1",
       "sourceUrl": "https://github.com/mathiasbynens/punycode.js",
@@ -39002,28 +38632,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "rc",
-      "versionOrCommit": "1.2.8",
-      "sourceUrl": "https://github.com/dominictarr/rc",
-      "packagePathOrArtifact": "node_modules/rc",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "(BSD-2-Clause OR MIT OR Apache-2.0)",
-      "verifiedLicense": "(BSD-2-Clause OR MIT OR Apache-2.0)",
-      "licenseTextRef": "node_modules/rc/LICENSE.APACHE2",
-      "licenseTextSha256": "e8734448285a2dd773d40136ed5d5e8163a70701dd540cdc796cfca232f67d55",
-      "copyrightNotices": [
-        "Copyright (c) 2011 Dominic Tarr"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "react-dom",
       "versionOrCommit": "19.2.7",
       "sourceUrl": "https://github.com/facebook/react",
@@ -39282,52 +38890,6 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/lazystream/node_modules/readable-stream/LICENSE",
-      "licenseTextSha256": "ec62dc96da0099b87f4511736c87309335527fb7031639493e06c95728dc8c54",
-      "copyrightNotices": [
-        "Copyright Joyent, Inc. and other Node contributors. All rights reserved.",
-        "Copyright Node.js contributors. All rights reserved."
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "readable-stream",
-      "versionOrCommit": "3.6.2",
-      "sourceUrl": "https://github.com/nodejs/readable-stream",
-      "packagePathOrArtifact": "node_modules/bl/node_modules/readable-stream",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/bl/node_modules/readable-stream/LICENSE",
-      "licenseTextSha256": "ec62dc96da0099b87f4511736c87309335527fb7031639493e06c95728dc8c54",
-      "copyrightNotices": [
-        "Copyright Joyent, Inc. and other Node contributors. All rights reserved.",
-        "Copyright Node.js contributors. All rights reserved."
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "readable-stream",
-      "versionOrCommit": "3.6.2",
-      "sourceUrl": "https://github.com/nodejs/readable-stream",
-      "packagePathOrArtifact": "node_modules/tar-fs/node_modules/readable-stream",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/tar-fs/node_modules/readable-stream/LICENSE",
       "licenseTextSha256": "ec62dc96da0099b87f4511736c87309335527fb7031639493e06c95728dc8c54",
       "copyrightNotices": [
         "Copyright Joyent, Inc. and other Node contributors. All rights reserved.",
@@ -40797,50 +40359,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "simple-concat",
-      "versionOrCommit": "1.0.1",
-      "sourceUrl": "https://github.com/feross/simple-concat",
-      "packagePathOrArtifact": "node_modules/simple-concat",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/simple-concat/LICENSE",
-      "licenseTextSha256": "d4c2065e2b936e62a4eb400efb4576edec9ca1388a9f78aa288e147275e7bc8b",
-      "copyrightNotices": [
-        "Copyright (c) Feross Aboukhadijeh"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "simple-get",
-      "versionOrCommit": "4.0.1",
-      "sourceUrl": "https://github.com/feross/simple-get",
-      "packagePathOrArtifact": "node_modules/simple-get",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/simple-get/LICENSE",
-      "licenseTextSha256": "d4c2065e2b936e62a4eb400efb4576edec9ca1388a9f78aa288e147275e7bc8b",
-      "copyrightNotices": [
-        "Copyright (c) Feross Aboukhadijeh"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "sliced",
       "versionOrCommit": "1.0.1",
       "sourceUrl": "https://github.com/aheckmann/sliced",
@@ -41375,28 +40893,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "strip-json-comments",
-      "versionOrCommit": "2.0.1",
-      "sourceUrl": "sindresorhus/strip-json-comments",
-      "packagePathOrArtifact": "node_modules/rc/node_modules/strip-json-comments",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/rc/node_modules/strip-json-comments/license",
-      "licenseTextSha256": "6fb9754611c20f6649f68805e8c990e83261f29316e29de9e6cedae607b8634c",
-      "copyrightNotices": [
-        "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "strtok3",
       "versionOrCommit": "10.3.5",
       "sourceUrl": "https://github.com/Borewit/strtok3",
@@ -41612,50 +41108,6 @@
       "licenseTextSha256": "824ef6c33ae5ecbbab65d37f2b37da2bfc81d76cf7676ec0f59d00a0a38bdb75",
       "copyrightNotices": [
         "Copyright JS Foundation and other contributors"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "tar-fs",
-      "versionOrCommit": "2.1.5",
-      "sourceUrl": "https://github.com/mafintosh/tar-fs",
-      "packagePathOrArtifact": "node_modules/tar-fs",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/tar-fs/LICENSE",
-      "licenseTextSha256": "c0993ca46cd47c09710a977d3a3d51602cff96f19e8d2eb8d5887aa20a7beead",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Mathias Buus"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "tar-stream",
-      "versionOrCommit": "2.2.0",
-      "sourceUrl": "https://github.com/mafintosh/tar-stream",
-      "packagePathOrArtifact": "node_modules/tar-fs/node_modules/tar-stream",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/tar-fs/node_modules/tar-stream/LICENSE",
-      "licenseTextSha256": "c0993ca46cd47c09710a977d3a3d51602cff96f19e8d2eb8d5887aa20a7beead",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Mathias Buus"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -42190,26 +41642,6 @@
       "copyrightNotices": [
         "Copyright (c) Hiroki Osame <hiroki.osame@gmail.com>"
       ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "tunnel-agent",
-      "versionOrCommit": "0.6.0",
-      "sourceUrl": "https://github.com/mikeal/tunnel-agent",
-      "packagePathOrArtifact": "node_modules/tunnel-agent",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/tunnel-agent/LICENSE",
-      "licenseTextSha256": "527adf9d4c760f7367c2aeffed6a89afba8ba40ea1b0efbc8f56496ad30ea9cf",
-      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed"
     },
