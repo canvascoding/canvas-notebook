@@ -181,6 +181,15 @@ async function assertProviderNeutralUserQueriesAreQuoted(): Promise<void> {
   );
 }
 
+async function assertRequiredQuotedUserQueries(): Promise<void> {
+  const root = process.cwd();
+  for (const file of PROVIDER_NEUTRAL_USER_QUERY_FILES) {
+    const source = await fs.readFile(path.join(root, file), 'utf8');
+    assert.match(source, /(?:FROM|JOIN)\s+"user"/iu, `${file} must quote the reserved user table`);
+    assert.doesNotMatch(source, /(?:FROM|JOIN)\s+user\b/iu, `${file} must not use the reserved user table unquoted`);
+  }
+}
+
 async function assertPostgresFailureModes(): Promise<void> {
   const postgres = new PGlite();
   try {
@@ -221,8 +230,8 @@ async function assertPostgresFailureModes(): Promise<void> {
     );
     assert.equal(typedCase.rows[0]?.timestamp_value, '1000');
 
-    await postgres.exec('CREATE TABLE "user" (id TEXT PRIMARY KEY)');
-    await postgres.exec("INSERT INTO \"user\" (id) VALUES ('user-a'), ('user-b')");
+    await postgres.exec('CREATE TABLE "user" (id TEXT PRIMARY KEY, name TEXT, email TEXT)');
+    await postgres.exec("INSERT INTO \"user\" (id, name, email) VALUES ('user-a', 'Ada', 'ada@example.test'), ('user-b', 'Bea', 'bea@example.test')");
     const reservedUserExpression = await postgres.query<{ count: number }>('SELECT COUNT(*)::int AS count FROM user');
     const quotedUserTable = await postgres.query<{ count: number }>('SELECT COUNT(*)::int AS count FROM "user"');
     assert.equal(reservedUserExpression.rows[0]?.count, 1);
@@ -231,6 +240,38 @@ async function assertPostgresFailureModes(): Promise<void> {
       postgres.query('SELECT creator.id FROM user creator'),
       /column creator\.id does not exist/iu,
     );
+
+    await postgres.exec(`
+      CREATE TABLE memory_entries (id TEXT PRIMARY KEY, created_by_user_id TEXT);
+      INSERT INTO memory_entries VALUES ('entry-1', 'user-a');
+    `);
+    const creatorFields = await postgres.query<{ created_by_name: string; created_by_email: string }>(`
+      SELECT creator.name AS created_by_name, creator.email AS created_by_email
+      FROM memory_entries entry
+      LEFT JOIN "user" creator ON creator.id = entry.created_by_user_id
+    `);
+    assert.deepEqual(creatorFields.rows[0], { created_by_name: 'Ada', created_by_email: 'ada@example.test' });
+
+    await postgres.exec(`
+      CREATE TABLE canvas_organization_settings (organization_id TEXT, deployment_mode TEXT, team_features_enabled BOOLEAN, created_at BIGINT);
+      CREATE TABLE canvas_workspaces (id TEXT, organization_id TEXT, type TEXT, owner_user_id TEXT, root_relative_path TEXT, display_name TEXT, status TEXT, created_at BIGINT);
+      INSERT INTO canvas_organization_settings VALUES ('org-1', 'single_user', false, 1);
+      INSERT INTO canvas_workspaces VALUES ('workspace-1', 'org-1', 'personal', 'user-a', 'notes', 'Personal', 'active', 1);
+    `);
+    const inspectionShape = await postgres.query<Record<string, string>>(`
+      SELECT organization_id AS "organizationId", deployment_mode AS "deploymentMode", team_features_enabled AS "teamFeaturesEnabled"
+      FROM canvas_organization_settings
+    `);
+    const workspaceShape = await postgres.query<Record<string, string>>(`
+      SELECT organization_id AS "organizationId", owner_user_id AS "ownerUserId", root_relative_path AS "rootRelativePath", display_name AS "displayName"
+      FROM canvas_workspaces
+    `);
+    assert.deepEqual(inspectionShape.rows[0], {
+      organizationId: 'org-1', deploymentMode: 'single_user', teamFeaturesEnabled: false,
+    });
+    assert.deepEqual(workspaceShape.rows[0], {
+      organizationId: 'org-1', ownerUserId: 'user-a', rootRelativePath: 'notes', displayName: 'Personal',
+    });
 
     const foldedAlias = await postgres.query<Record<string, string>>("SELECT 'org-1' AS organizationId");
     const quotedAlias = await postgres.query<Record<string, string>>('SELECT \'org-1\' AS "organizationId"');
@@ -246,6 +287,7 @@ async function main(): Promise<void> {
   assertDetectorCatchesRegressions();
   await assertRuntimeSqlIsUnambiguous();
   await assertProviderNeutralUserQueriesAreQuoted();
+  await assertRequiredQuotedUserQueries();
   await assertPostgresFailureModes();
   console.log('postgres-runtime-sql-compatibility-test: ok');
 }
