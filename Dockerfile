@@ -129,10 +129,10 @@ ARG TARGETPLATFORM
 RUN set -eux; \
   apt-get update; \
   apt-get install -y --no-install-recommends ffmpeg curl wget zstd ca-certificates unzip zip git make python3 python3-pip python3-venv ripgrep poppler-utils procps \
-     pandoc libreoffice-writer \
+     pandoc libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui libreoffice-draw-nogui \
      chromium fonts-liberation libnss3 libatk-bridge2.0-0 libcups2 libdrm2 \
      libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
-     fonts-noto-color-emoji; \
+     fonts-noto-core fonts-noto-color-emoji fonts-crosextra-carlito fonts-crosextra-caladea; \
   case "$(dpkg --print-architecture)" in \
     amd64) \
       pg_client_sha=21c9b6e141053fcecceddd5cb196a105eef9e0c5fd9d6d4f5b52a9b4693a871f; \
