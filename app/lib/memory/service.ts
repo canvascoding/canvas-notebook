@@ -164,7 +164,7 @@ export async function resolveAgentMemoryOwnerForUser(input: {
     try {
       const retained = await connection.get(`
         SELECT id FROM memory_collections
-        WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+        WHERE scope_type = 'agent' AND user_id = $1 AND agent_id = $2
         LIMIT 1
       `, [input.userId, input.agentId]) as { id?: string } | undefined;
       if (retained?.id) return { agentId: input.agentId, status: 'deleted' };
@@ -189,7 +189,7 @@ export async function readAgentMemoryOwnerStats(userId: string): Promise<AgentMe
       FROM memory_collections collection
       LEFT JOIN agents agent ON agent.agent_id = collection.agent_id
       LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
-      WHERE collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id IS NOT NULL
+      WHERE collection.scope_type = 'agent' AND collection.user_id = $1 AND collection.agent_id IS NOT NULL
       GROUP BY collection.agent_id
       ORDER BY MAX(collection.updated_at) DESC, collection.agent_id ASC
     `, [userId]) as Array<Record<string, unknown>>;
@@ -212,7 +212,7 @@ export async function exportAgentMemory(userId: string, agentId: string): Promis
   try {
     const collections = await connection.all(`
       SELECT id, category, title, status FROM memory_collections
-      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+      WHERE scope_type = 'agent' AND user_id = $1 AND agent_id = $2
       ORDER BY updated_at DESC, id ASC
     `, [userId, owner.agentId]) as Array<Record<string, unknown>>;
     const result: AgentMemoryExport['collections'] = [];
@@ -220,7 +220,7 @@ export async function exportAgentMemory(userId: string, agentId: string): Promis
       const rows = await connection.all(`
         SELECT id, content, status, priority, pinned, collection_id, semantic_key,
           sensitivity, updated_at, last_used_at
-        FROM memory_entries WHERE collection_id = ?
+        FROM memory_entries WHERE collection_id = $1
         ORDER BY pinned DESC, priority DESC, updated_at DESC, id ASC
       `, [collection.id]) as Array<Record<string, unknown>>;
       result.push({
@@ -255,8 +255,8 @@ export async function setAgentMemoryArchived(input: {
   const connection = await openDb();
   try {
     const result = await connection.run(`
-      UPDATE memory_collections SET status = ?, revision = revision + 1, updated_at = ?
-      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ? AND status != ?
+      UPDATE memory_collections SET status = $1, revision = revision + 1, updated_at = $2
+      WHERE scope_type = 'agent' AND user_id = $3 AND agent_id = $4 AND status != $5
     `, [input.archived ? 'archived' : 'active', Date.now(), input.userId, owner.agentId, input.archived ? 'archived' : 'active']) as { changes?: number };
     return { collections: Number(result.changes ?? 0), archived: input.archived };
   } finally {
@@ -278,11 +278,11 @@ export async function transferAgentMemory(input: {
       SELECT COUNT(DISTINCT collection.id) AS collections, COUNT(entry.id) AS entries
       FROM memory_collections collection
       LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
-      WHERE collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id = ?
+      WHERE collection.scope_type = 'agent' AND collection.user_id = $1 AND collection.agent_id = $2
     `, [input.userId, source.agentId]) as Record<string, unknown> | undefined;
     await connection.run(`
-      UPDATE memory_collections SET agent_id = ?, revision = revision + 1, updated_at = ?
-      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+      UPDATE memory_collections SET agent_id = $1, revision = revision + 1, updated_at = $2
+      WHERE scope_type = 'agent' AND user_id = $3 AND agent_id = $4
     `, [target.agentId, Date.now(), input.userId, source.agentId]);
     return { collections: Number(counts?.collections ?? 0), entries: Number(counts?.entries ?? 0) };
   } finally {
@@ -298,11 +298,11 @@ export async function deleteAgentMemory(userId: string, agentId: string): Promis
       SELECT COUNT(DISTINCT collection.id) AS collections, COUNT(entry.id) AS entries
       FROM memory_collections collection
       LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
-      WHERE collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id = ?
+      WHERE collection.scope_type = 'agent' AND collection.user_id = $1 AND collection.agent_id = $2
     `, [userId, owner.agentId]) as Record<string, unknown> | undefined;
     await connection.run(`
       DELETE FROM memory_collections
-      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+      WHERE scope_type = 'agent' AND user_id = $1 AND agent_id = $2
     `, [userId, owner.agentId]);
     return { collections: Number(counts?.collections ?? 0), entries: Number(counts?.entries ?? 0) };
   } finally {
@@ -411,15 +411,16 @@ async function assertMemoryScopeAccess(
   return permissions;
 }
 
-function scopeWhere(scope: MemoryServiceScope): { sql: string; params: unknown[] } {
-  if (scope.target === 'user') return { sql: 'scope_type = ? AND user_id = ? AND agent_id IS NULL', params: ['user', scope.userId] };
-  if (scope.target === 'agent') return { sql: 'scope_type = ? AND user_id = ? AND agent_id = ?', params: ['agent', scope.userId, scope.agentId] };
-  if (scope.target === 'workspace') return { sql: 'scope_type = ? AND workspace_id = ?', params: ['workspace', scope.workspaceId] };
-  return { sql: 'scope_type = ? AND organization_id = ?', params: ['organization', scope.organizationId] };
+function scopeWhere(scope: MemoryServiceScope, startIndex = 1): { sql: string; params: unknown[] } {
+  const p = (offset: number) => `$${startIndex + offset}`;
+  if (scope.target === 'user') return { sql: `scope_type = ${p(0)} AND user_id = ${p(1)} AND agent_id IS NULL`, params: ['user', scope.userId] };
+  if (scope.target === 'agent') return { sql: `scope_type = ${p(0)} AND user_id = ${p(1)} AND agent_id = ${p(2)}`, params: ['agent', scope.userId, scope.agentId] };
+  if (scope.target === 'workspace') return { sql: `scope_type = ${p(0)} AND workspace_id = ${p(1)}`, params: ['workspace', scope.workspaceId] };
+  return { sql: `scope_type = ${p(0)} AND organization_id = ${p(1)}`, params: ['organization', scope.organizationId] };
 }
 
-function collectionScopeWhere(scope: MemoryServiceScope): { sql: string; params: unknown[] } {
-  const where = scopeWhere(scope);
+function collectionScopeWhere(scope: MemoryServiceScope, startIndex = 1): { sql: string; params: unknown[] } {
+  const where = scopeWhere(scope, startIndex);
   return { sql: where.sql.replaceAll('scope_', 'collection.scope_').replaceAll('user_id', 'collection.user_id').replaceAll('agent_id', 'collection.agent_id').replaceAll('workspace_id', 'collection.workspace_id').replaceAll('organization_id', 'collection.organization_id'), params: where.params };
 }
 
@@ -427,11 +428,12 @@ function visibleMemoryEntriesWhere(
   scope: MemoryServiceScope,
   permissions: MemoryScopePermissions,
   alias = 'entry',
+  startIndex = 1,
 ): { sql: string; params: unknown[] } {
   if (permissions.canPublish) return { sql: '1 = 1', params: [] };
   if ((scope.target === 'workspace' || scope.target === 'organization') && permissions.canSuggest) {
     return {
-      sql: `(${alias}.status = 'published' OR (${alias}.status = 'pending' AND ${alias}.created_by_user_id = ?))`,
+      sql: `(${alias}.status = 'published' OR (${alias}.status = 'pending' AND ${alias}.created_by_user_id = $${startIndex}))`,
       params: [scope.userId],
     };
   }
@@ -478,11 +480,11 @@ async function findCollectionIdWithConnection(
   category?: string,
 ): Promise<string | null> {
   assertCompleteMemoryScopeIdentity(scopeIdentity(scope));
-  const where = scopeWhere(scope);
+  const where = scopeWhere(scope, 1);
   const resolvedCategory = canonicalMemoryCategory(scope.target, category);
   const existing = await connection.get(`
     SELECT id FROM memory_collections
-    WHERE ${where.sql} AND status = 'active' AND category = ?
+    WHERE ${where.sql} AND status = 'active' AND category = $${where.params.length + 1}
     ORDER BY updated_at DESC, id DESC
     LIMIT 1
   `, [...where.params, resolvedCategory]) as { id?: string } | undefined;
@@ -501,7 +503,7 @@ async function findCollectionIdWithConnection(
     INSERT INTO memory_collections (
       id, scope_type, user_id, agent_id, organization_id, workspace_id,
       category, title, summary, sensitivity, status, revision, created_by_user_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', 'active', 1, ?, ?, ?)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'standard', 'active', 1, $10, $11, $12)
     ON CONFLICT (id) DO NOTHING
   `, [
     id, scope.target, scope.userId,
@@ -536,13 +538,13 @@ export async function readMemory(scope: MemoryServiceScope): Promise<MemoryReadR
   const permissions = await assertMemoryScopeAccess(scope, 'read');
   const connection = await openDb();
   try {
-    const where = collectionScopeWhere(scope);
+    const where = collectionScopeWhere(scope, 1);
     const rows = await connection.all(`
       SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
       WHERE ${where.sql} AND collection.status = 'active' AND entry.status != 'archived'
-        AND (? = 1 OR entry.status = 'published')
+        AND ($${where.params.length + 1} = 1 OR entry.status = 'published')
       ORDER BY entry.pinned DESC, entry.priority DESC, entry.updated_at DESC, entry.id ASC
     `, [...where.params, permissions.canPublish ? 1 : 0]) as Record<string, unknown>[];
     return { target: scope.target, entries: rows.map(toEntry) };
@@ -556,8 +558,8 @@ export async function listMemoryCollections(scope: MemoryServiceScope): Promise<
   const permissions = await assertMemoryScopeAccess(scope, 'read');
   const connection = await openDb();
   try {
-    const where = scopeWhere(scope);
-    const visibleEntries = visibleMemoryEntriesWhere(scope, permissions);
+    const visibleEntries = visibleMemoryEntriesWhere(scope, permissions, 'entry', 1);
+    const where = scopeWhere(scope, 1 + visibleEntries.params.length);
     const rows = await connection.all(`
       SELECT collection.id, collection.category, collection.title, collection.summary, collection.status, collection.updated_at,
         COALESCE(SUM(CASE WHEN entry.status != 'archived' THEN 1 ELSE 0 END), 0) AS entry_count,
@@ -597,13 +599,13 @@ export async function readMemoryCollection(
   const view = scope.view ?? (scope.includeArchived === true ? 'all' : 'active');
   const connection = await openDb();
   try {
-    const where = collectionScopeWhere(scope);
-    const visibleEntries = visibleMemoryEntriesWhere(scope, permissions);
+    const where = collectionScopeWhere(scope, 2);
+    const visibleEntries = visibleMemoryEntriesWhere(scope, permissions, 'entry', 2 + where.params.length);
     const rows = await connection.all(`
       SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
-      WHERE entry.collection_id = ? AND ${where.sql}
+      WHERE entry.collection_id = $1 AND ${where.sql}
         AND ${visibleEntries.sql}
         AND ${memoryEntryViewWhere(view)}
       ORDER BY entry.pinned DESC, entry.priority DESC, entry.updated_at DESC, entry.id ASC
@@ -617,12 +619,12 @@ async function findEntryInScope(
   scope: MemoryServiceScope,
   id: string,
 ): Promise<Record<string, unknown> | undefined> {
-  const where = collectionScopeWhere(scope);
+  const where = collectionScopeWhere(scope, 2);
   return connection.get(`
     SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
     FROM memory_entries entry
     INNER JOIN memory_collections collection ON collection.id = entry.collection_id
-    WHERE entry.id = ? AND ${where.sql} AND entry.status != 'archived'
+    WHERE entry.id = $1 AND ${where.sql} AND entry.status != 'archived'
     LIMIT 1
   `, [id, ...where.params]) as Promise<Record<string, unknown> | undefined>;
 }
@@ -634,12 +636,12 @@ export async function readMemoryEntryHistory(
   const permissions = await assertMemoryScopeAccess(scope, 'read');
   const connection = await openDb();
   try {
-    const where = collectionScopeWhere(scope);
+    const where = collectionScopeWhere(scope, 2);
     const entry = await connection.get(`
       SELECT entry.id, entry.status, entry.created_by_user_id
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
-      WHERE entry.id = ? AND ${where.sql}
+      WHERE entry.id = $1 AND ${where.sql}
       LIMIT 1
     `, [scope.id.trim(), ...where.params]) as { id?: string; status?: MemoryEntryStatus; created_by_user_id?: string | null } | undefined;
     const canReadOwnPending = entry?.status === 'pending'
@@ -651,7 +653,7 @@ export async function readMemoryEntryHistory(
     const rows = await connection.all(`
       SELECT id, action, actor_type, decision_code, created_at
       FROM memory_events
-      WHERE entry_id = ?
+      WHERE entry_id = $1
       ORDER BY created_at DESC, id DESC
       LIMIT 20
     `, [entry.id]) as Array<Record<string, unknown>>;
@@ -730,9 +732,9 @@ export async function saveOnboardingUserMemories(params: {
       const existing = await connection.get(`
         SELECT id, content, normalized_content_hash, semantic_key, priority, pinned
         FROM memory_entries
-        WHERE collection_id = ? AND status != 'archived'
-          AND (semantic_key = ? OR normalized_content_hash = ?)
-        ORDER BY CASE WHEN semantic_key = ? THEN 0 ELSE 1 END, updated_at DESC, id DESC
+        WHERE collection_id = $1 AND status != 'archived'
+          AND (semantic_key = $2 OR normalized_content_hash = $3)
+        ORDER BY CASE WHEN semantic_key = $4 THEN 0 ELSE 1 END, updated_at DESC, id DESC
         LIMIT 1
       `, [collectionId, memory.semanticKey, hash, memory.semanticKey]) as Record<string, unknown> | undefined;
       const now = Date.now();
@@ -749,10 +751,10 @@ export async function saveOnboardingUserMemories(params: {
         } else {
           await connection.run(`
             UPDATE memory_entries
-            SET semantic_key = ?, content = ?, normalized_content_hash = ?, status = 'published',
-              priority = ?, sensitivity = 'standard', estimated_tokens = ?, source_session_id = ?,
-              source_agent_id = ?, last_confirmed_at = ?, revision = revision + 1, updated_at = ?
-            WHERE id = ?
+            SET semantic_key = $1, content = $2, normalized_content_hash = $3, status = 'published',
+              priority = $4, sensitivity = 'standard', estimated_tokens = $5, source_session_id = $6,
+              source_agent_id = $7, last_confirmed_at = $8, revision = revision + 1, updated_at = $9
+            WHERE id = $10
           `, [
             memory.semanticKey,
             memory.content,
@@ -775,7 +777,7 @@ export async function saveOnboardingUserMemories(params: {
             id, collection_id, semantic_key, content, normalized_content_hash, status, priority, pinned,
             sensitivity, estimated_tokens, source_session_id, source_agent_id, created_by_actor_type,
             created_by_user_id, last_confirmed_at, revision, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'published', ?, 0, 'standard', ?, ?, ?, 'assistant', ?, ?, 1, ?, ?)
+          ) VALUES ($1, $2, $3, $4, $5, 'published', $6, 0, 'standard', $7, $8, $9, 'assistant', $10, $11, 1, $12, $13)
           ON CONFLICT (id) DO UPDATE SET
             semantic_key = excluded.semantic_key,
             content = excluded.content,
@@ -813,7 +815,7 @@ export async function saveOnboardingUserMemories(params: {
         await connection.run(`
           INSERT INTO memory_events (
             id, entry_id, action, actor_type, actor_user_id, session_id, decision_code, created_at
-          ) VALUES (?, ?, ?, 'assistant', ?, ?, 'onboarding_profile', ?)
+          ) VALUES ($1, $2, $3, 'assistant', $4, $5, 'onboarding_profile', $6)
           ON CONFLICT (id) DO NOTHING
         `, [eventId, entryId, action, userId, sessionId, now]);
       }
