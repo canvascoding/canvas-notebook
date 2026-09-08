@@ -234,7 +234,9 @@ export const config = {
     // stream reader. Excluding exactly those routes prevents Next.js proxy
     // from cloning each body into the separate 256 MiB upload buffer first.
     // Their handlers repeat the full session check before reading.
-    '/api/((?!email/compose/(?:ai|agent)(?:/|$)|email/accounts/[^/]+/messages/actions(?:/|$)|email/accounts/[^/]+/messages/[^/]+/(?:summary|ai-reply)(?:/|$)).*)',
+    // Public setup/invitation handlers enforce their own token/setup checks,
+    // shared abuse limits and 16 KiB body reader before consuming input.
+    '/api/((?!setup/owner$|organization/invitations/(?:accept|activate|preview)$|email/compose/(?:ai|agent)(?:/|$)|email/accounts/[^/]+/messages/actions(?:/|$)|email/accounts/[^/]+/messages/[^/]+/(?:summary|ai-reply)(?:/|$)).*)',
     '/((?!api|ws|_next/static|_next/image|favicon.ico|.*\\..*).*)',
   ],
 };

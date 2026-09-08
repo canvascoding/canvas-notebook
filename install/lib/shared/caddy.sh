@@ -14,7 +14,20 @@ CADDYFILE="/etc/caddy/Caddyfile"
 
 caddy_site_block() {
   local domain="$1"
-  printf '%s {\n    handle /__canvas-host/operations/* {\n        @not_read not method GET\n        respond @not_read 405\n        reverse_proxy 127.0.0.1:3457\n    }\n    handle /__canvas-host/* {\n        respond 404\n    }\n    handle {\n        reverse_proxy localhost:3456 {\n            header_up X-Forwarded-Port 443\n        }\n    }\n}\n' "$domain"
+  local proxy_token="" internal_key=""
+  if declare -F config_json_read >/dev/null; then
+    internal_key="$(config_json_read env.CANVAS_INTERNAL_API_KEY 2>/dev/null || true)"
+  fi
+  if [[ ${#internal_key} -ge 32 ]]; then
+    proxy_token="$(CANVAS_PROXY_DERIVATION_KEY="$internal_key" python3 -c 'import hashlib,hmac,os; print(hmac.new(os.environ["CANVAS_PROXY_DERIVATION_KEY"].strip().encode(), b"canvas-notebook/proxy-client-address/v1", hashlib.sha256).hexdigest())')" || return 1
+  fi
+  printf '%s {\n    handle /__canvas-host/operations/* {\n        @not_read not method GET\n        respond @not_read 405\n        reverse_proxy 127.0.0.1:3457\n    }\n    handle /__canvas-host/* {\n        respond 404\n    }\n    handle {\n        reverse_proxy localhost:3456 {\n            header_up X-Forwarded-Port 443\n' "$domain"
+  if [[ -n "$proxy_token" ]]; then
+    printf '            header_up X-Canvas-Proxy-Token %s\n            header_up X-Canvas-Proxy-Client-IP {remote_host}\n' "$proxy_token"
+  else
+    printf '            header_up -X-Canvas-Proxy-Token\n            header_up -X-Canvas-Proxy-Client-IP\n'
+  fi
+  printf '        }\n    }\n}\n'
 }
 
 write_caddy_config() {

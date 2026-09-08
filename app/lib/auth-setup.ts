@@ -245,6 +245,11 @@ async function createInitialOwnerPostgres(input: InitialOwnerInput): Promise<Ini
 }
 
 export async function createInitialOwner(input: unknown): Promise<InitialOwner> {
+  // Avoid password hashing on an already configured public setup endpoint.
+  // The transaction below still performs the authoritative check for races.
+  if (await getAuthUserCount() > 0) {
+    throw new InitialOwnerSetupError('ALREADY_CONFIGURED', 'Initial setup is already complete.');
+  }
   const validation = validateInitialOwnerInput(input);
   if (!validation.ok) {
     throw new InitialOwnerSetupError('INVALID_INPUT', validation.error, validation.field);

@@ -27,7 +27,7 @@ import { hasDirectMcpConnectionConsent } from '@/app/lib/mcp/server/connection-m
 import { verifyOAuthPageQuery } from '@/app/lib/mcp/server/oauth-page-query';
 import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
 import { grantDirectMcpDefaultWorkspaces } from '@/app/lib/mcp/server/workspace-access-policy';
-import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { publicRateLimit } from '@/app/lib/security/public-rate-limit';
 
 const DIRECT_MCP_DYNAMIC_CLIENT_REGISTRATION_RATE_LIMIT = 10;
 const DIRECT_MCP_DYNAMIC_CLIENT_REGISTRATION_RATE_WINDOW_MS = 60_000;
@@ -365,8 +365,9 @@ export async function POST(request: NextRequest) {
     );
     if (prepared.response) return prepared.response;
     if (isRegistration) {
-      const limited = rateLimit(request, {
+      const limited = await publicRateLimit({
         limit: DIRECT_MCP_DYNAMIC_CLIENT_REGISTRATION_RATE_LIMIT,
+        globalLimit: DIRECT_MCP_DYNAMIC_CLIENT_REGISTRATION_RATE_LIMIT * 20,
         windowMs: DIRECT_MCP_DYNAMIC_CLIENT_REGISTRATION_RATE_WINDOW_MS,
         keyPrefix: 'direct-mcp-oauth-client-registration',
       });

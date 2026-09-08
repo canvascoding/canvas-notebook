@@ -536,7 +536,16 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       config = await reset();
       process.env.CANVAS_UPDATE_DEADLINE_EPOCH_MS = String(Date.now() + 32000);
       process.env.CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS = '30';
-      const success = await captureConsole(() => update(context, docker, config, true, { image: targetImage }));
+      let proxySynchronized = false;
+      const success = await captureConsole(() => update(context, docker, config, true, {
+        image: targetImage,
+        syncProxy: async (applied) => {
+          assert.equal(runner.runningImageId, 'new-image-id');
+          assert.ok(applied.env.CANVAS_INTERNAL_API_KEY, 'proxy receives the materialized app identity key');
+          proxySynchronized = true;
+        },
+      }));
+      assert.equal(proxySynchronized, true, 'update synchronizes managed ingress before reporting success');
       assert.equal(process.exitCode, undefined);
       assert.equal(JSON.parse(success.at(-1) || '{}').success, true);
       assert.equal((JSON.parse(await readFile(paths.configFile, 'utf8')) as { image: string }).image, mutableImage);
@@ -549,6 +558,16 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       else process.env.CANVAS_UPDATE_DEADLINE_EPOCH_MS = originalDeadline;
       if (originalReserve === undefined) delete process.env.CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS;
       else process.env.CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS = originalReserve;
+
+      config = await reset();
+      const proxyFailure = await captureConsole(() => update(context, docker, config, true, {
+        image: targetImage,
+        syncProxy: async () => { throw new Error('proxy validation failed'); },
+      }));
+      assert.equal(process.exitCode, 1);
+      assert.equal(JSON.parse(proxyFailure.at(-1) || '{}').phase, 'proxy');
+      assert.equal(JSON.parse(proxyFailure.at(-1) || '{}').rolledBack, true);
+      assert.equal(runner.runningImageId, 'old-image-id');
 
       config = await reset();
       const operationId = '8767a5c7-1a6d-4768-b760-d1c7d42fe095';

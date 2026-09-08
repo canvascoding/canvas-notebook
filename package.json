@@ -213,6 +213,8 @@
     "test:pdf:runtime": "CANVAS_PYTHON_PATH=${CANVAS_PYTHON_PATH:-python3} tsx scripts/pdf-tool-runtime-test.ts",
     "test:pdf:tools": "CANVAS_PYTHON_PATH=${CANVAS_PYTHON_PATH:-python3} tsx scripts/pdf-tools-test.ts",
     "test:rate-limit": "tsx scripts/rate-limit-test.ts",
+    "test:security:public": "tsx scripts/rate-limit-test.ts && tsx scripts/request-identity-test.ts && tsx scripts/public-rate-limit-store-test.ts && tsx scripts/public-request-boundaries-test.ts && tsx --conditions react-server scripts/auth-rate-limit-identity-test.ts && tsx scripts/http-request-boundary-test.ts && tsx scripts/public-security-routing-test.ts",
+    "test:security:public:postgres": "TEST_RATE_LIMIT_PROVIDER=postgres tsx scripts/public-rate-limit-store-test.ts",
     "test:media:references": "tsx --conditions react-server scripts/media-reference-resolver-test.ts",
     "test:upload:conversion": "tsx --conditions react-server scripts/upload-conversion-test.ts",
     "test:migration:upload": "tsx --conditions react-server scripts/migration-upload-test.ts",
@@ -427,7 +429,8 @@
     "cli:portable:dist": "node dist-cli/main.js",
     "server:setup": "bash scripts/server-setup.sh",
     "container:rebuild": "node scripts/setup.mjs",
-    "test:editor:core": "tsx --conditions react-server scripts/markdown-core-test.ts && tsx --conditions react-server scripts/markdown-list-identities-test.ts && tsx --conditions react-server scripts/markdown-adjacent-lists-test.ts && tsx scripts/markdown-table-commands-test.ts && tsx scripts/markdown-images-test.ts"
+    "test:editor:core": "tsx --conditions react-server scripts/markdown-core-test.ts && tsx --conditions react-server scripts/markdown-list-identities-test.ts && tsx --conditions react-server scripts/markdown-adjacent-lists-test.ts && tsx scripts/markdown-table-commands-test.ts && tsx scripts/markdown-images-test.ts",
+    "test:security:public:http": "node scripts/security-public-http-test.mjs"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",

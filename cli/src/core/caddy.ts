@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { deriveProxyIdentityToken } from '../../../app/lib/security/proxy-identity';
 
 import type { CanvasCliConfig, CommandResult, CommandRunner, RuntimeContext } from './types';
 
@@ -37,6 +38,22 @@ export interface CaddyApplyResult extends CaddyStatus {
   restarted: boolean;
   skipped: boolean;
   skipReason: 'no_public_domain' | 'caddy_not_installed' | null;
+}
+
+/** Refresh only a recognized Canvas site; preserve separately managed ingress. */
+export async function syncManagedCaddyIdentity(
+  manager: Pick<CaddyManager, 'status' | 'apply'>,
+  config: CanvasCliConfig,
+  platform: RuntimeContext['platform'],
+): Promise<void> {
+  if (platform !== 'linux') return;
+  const status = await manager.status(config);
+  if (!status.publicDomain || !status.installed) return;
+  if (status.caddyfileExists && !status.caddyfileManaged) {
+    console.warn('Custom Caddy configuration retained. Configure the Canvas proxy identity headers for per-client public limits.');
+    return;
+  }
+  if (!status.inSync) await manager.apply(config, { repair: false });
 }
 
 interface CaddyPaths {
@@ -76,10 +93,14 @@ export function resolveCaddyTarget(config: CanvasCliConfig): CaddyTarget {
   return { baseUrl: configuredUrl, domain, publicDomain };
 }
 
-export function renderCaddyfile(domain: string, hostPort: number): string {
+export function renderCaddyfile(domain: string, hostPort: number, internalApiKey?: string): string {
   validateHostname(domain);
   if (!Number.isInteger(hostPort) || hostPort < 1 || hostPort > 65535) throw new Error(`Invalid Caddy upstream port: ${hostPort}`);
-  return `${MANAGED_MARKER}\n${domain} {\n\thandle /__canvas-host/operations/* {\n\t\t@not_read not method GET\n\t\trespond @not_read 405\n\t\treverse_proxy 127.0.0.1:${UPDATE_STATUS_PORT}\n\t}\n\thandle /__canvas-host/* {\n\t\trespond 404\n\t}\n\thandle {\n\t\treverse_proxy localhost:${hostPort} {\n\t\t\theader_up X-Forwarded-Port 443\n\t\t}\n\t}\n}\n`;
+  const token = deriveProxyIdentityToken(internalApiKey);
+  const proxyIdentity = token
+    ? `\n\t\t\theader_up X-Canvas-Proxy-Token ${token}\n\t\t\theader_up X-Canvas-Proxy-Client-IP {remote_host}`
+    : '\n\t\t\theader_up -X-Canvas-Proxy-Token\n\t\t\theader_up -X-Canvas-Proxy-Client-IP';
+  return `${MANAGED_MARKER}\n${domain} {\n\thandle /__canvas-host/operations/* {\n\t\t@not_read not method GET\n\t\trespond @not_read 405\n\t\treverse_proxy 127.0.0.1:${UPDATE_STATUS_PORT}\n\t}\n\thandle /__canvas-host/* {\n\t\trespond 404\n\t}\n\thandle {\n\t\treverse_proxy localhost:${hostPort} {\n\t\t\theader_up X-Forwarded-Port 443${proxyIdentity}\n\t\t}\n\t}\n}\n`;
 }
 
 export function isCaddyCommand(command: string): boolean {
@@ -114,8 +135,8 @@ function knownDefaultSite(content: string): boolean {
   return /^:80 \{ root \* \/usr\/share\/caddy file_server \}$/u.test(activeStatements(content));
 }
 
-function contentIssues(content: string, domain: string, hostPort: number): string[] {
-  if (content.trim() === renderCaddyfile(domain, hostPort).trim()) return [];
+function contentIssues(content: string, domain: string, hostPort: number, internalApiKey?: string): string[] {
+  if (content.trim() === renderCaddyfile(domain, hostPort, internalApiKey).trim()) return [];
   const issues: string[] = [];
   const normalized = activeStatements(content);
   if (knownDefaultSite(content)) issues.push('default_site_present');
@@ -125,6 +146,9 @@ function contentIssues(content: string, domain: string, hostPort: number): strin
     !normalized.includes(`reverse_proxy 127.0.0.1:${UPDATE_STATUS_PORT}`) ||
     !normalized.includes('@not_read not method GET')) issues.push('missing_update_status_proxy');
   if (!normalized.includes('header_up X-Forwarded-Port 443')) issues.push('missing_forwarded_port');
+  const token = deriveProxyIdentityToken(internalApiKey);
+  if (token && (!normalized.includes(`header_up X-Canvas-Proxy-Token ${token}`)
+    || !normalized.includes('header_up X-Canvas-Proxy-Client-IP {remote_host}'))) issues.push('missing_proxy_identity');
   if (!recognizedCanvasSite(content, domain) && !knownDefaultSite(content)) issues.push('unmanaged_caddyfile');
   return [...new Set(issues)];
 }
@@ -324,10 +348,10 @@ export class CaddyManager {
         if (!content) issues.push('caddyfile_missing');
         else {
           caddyfileManaged = recognizedCanvasSite(content, target.domain);
-          issues.push(...contentIssues(content, target.domain, config.hostPort));
+          issues.push(...contentIssues(content, target.domain, config.hostPort, String(config.env.CANVAS_INTERNAL_API_KEY || '')));
         }
         if (legacyConfigExists) issues.push('legacy_config_present');
-        inSync = Boolean(content) && contentIssues(content || '', target.domain, config.hostPort).length === 0 && !legacyConfigExists;
+        inSync = Boolean(content) && contentIssues(content || '', target.domain, config.hostPort, String(config.env.CANVAS_INTERNAL_API_KEY || '')).length === 0 && !legacyConfigExists;
       }
     } catch (statusError) {
       error ??= message(statusError);
@@ -383,7 +407,7 @@ export class CaddyManager {
     if (!recognized && !repairableDefault) {
       throw new Error(`Refusing to overwrite unmanaged Caddyfile: ${this.paths.caddyfile}`);
     }
-    const desired = renderCaddyfile(target.domain, config.hostPort);
+    const desired = renderCaddyfile(target.domain, config.hostPort, String(config.env.CANVAS_INTERNAL_API_KEY || ''));
     await this.validateCandidate(desired);
 
     const currentMode = Number((await this.lstatOptional(this.paths.caddyfile))?.mode || 0o644) & 0o777;
