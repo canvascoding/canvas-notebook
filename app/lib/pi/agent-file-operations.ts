@@ -519,6 +519,12 @@ function workspaceRelativeAgentPath(workspace: WorkspaceContext, fullPath: strin
   return path.relative(workspace.rootPath, fullPath).split(path.sep).join('/');
 }
 
+function workspaceRelativeAgentPathIfWithin(workspace: WorkspaceContext, fullPath: string): string | null {
+  return isPathWithin(fullPath, workspace.rootPath)
+    ? workspaceRelativeAgentPath(workspace, fullPath)
+    : null;
+}
+
 async function collaborativeAgentFileContext(fullPath: string, initialBuffer: Buffer): Promise<{
   workspace: WorkspaceContext;
   executionContext: AgentExecutionContext;
@@ -2180,11 +2186,12 @@ export async function copyAgentPaths(params: {
     async () => {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'copy_path');
       const copyWorkspace = getAgentWorkspaceContext();
-      if (copyWorkspace) {
+      if (copyWorkspace && getDatabaseProvider() === 'postgres') {
         const overwrittenPaths: string[] = [];
         for (const entry of entries) {
           if (!entry.overwritten || !entry.destinationResolvedPath) continue;
-          const destinationPath = workspaceRelativeAgentPath(copyWorkspace, entry.destinationResolvedPath);
+          const destinationPath = workspaceRelativeAgentPathIfWithin(copyWorkspace, entry.destinationResolvedPath);
+          if (!destinationPath) continue;
           await assertFileCollaborationWriteAllowed({
             workspace: copyWorkspace,
             path: destinationPath,
@@ -2213,15 +2220,19 @@ export async function copyAgentPaths(params: {
       }
       await verifyPathOperationEntries({ entries, sourceMustBeRemoved: false });
       if (copyWorkspace) {
-        await initializeCopiedFileCollaborationPaths({
-          workspace: copyWorkspace,
-          paths: entries
-            .map((entry) => entry.destinationResolvedPath)
-            .filter((value): value is string => Boolean(value))
-            .map((destination) => workspaceRelativeAgentPath(copyWorkspace, destination)),
-        });
+        const workspaceDestinations = entries
+          .map((entry) => entry.destinationResolvedPath
+            ? workspaceRelativeAgentPathIfWithin(copyWorkspace, entry.destinationResolvedPath)
+            : null)
+          .filter((value): value is string => Boolean(value));
+        if (getDatabaseProvider() === 'postgres') {
+          await initializeCopiedFileCollaborationPaths({
+            workspace: copyWorkspace,
+            paths: workspaceDestinations,
+          });
+        }
+        await syncPublicSharesAfterWrite(workspaceDestinations, copyWorkspace);
       }
-      await syncPublicSharesAfterWrite(entries.map((entry) => entry.destinationResolvedPath).filter((value): value is string => Boolean(value)));
       for (const entry of entries) {
         if (entry.destinationResolvedPath) {
           publishAgentWorkspaceMutation(
@@ -2313,10 +2324,11 @@ export async function moveAgentPaths(params: {
     async () => {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'move_path');
       const moveWorkspace = getAgentWorkspaceContext();
-      if (moveWorkspace) {
+      if (moveWorkspace && getDatabaseProvider() === 'postgres') {
         const overwrittenPaths = entries
           .filter((entry) => entry.overwritten && entry.destinationResolvedPath)
-          .map((entry) => workspaceRelativeAgentPath(moveWorkspace, entry.destinationResolvedPath!));
+          .map((entry) => workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.destinationResolvedPath!))
+          .filter((value): value is string => Boolean(value));
         if (overwrittenPaths.length > 0) {
           await archiveFileCollaborationPaths({ workspace: moveWorkspace, paths: overwrittenPaths.map((path) => ({ path })) });
         }
@@ -2340,20 +2352,45 @@ export async function moveAgentPaths(params: {
         }
       }
       await verifyPathOperationEntries({ entries, sourceMustBeRemoved: true });
+      const copiedIntoWorkspace: string[] = [];
+      const removedFromWorkspace: string[] = [];
       for (const entry of entries) {
         if (entry.destinationResolvedPath) {
           if (moveWorkspace) {
-            const oldPath = workspaceRelativeAgentPath(moveWorkspace, entry.sourceResolvedPath);
-            const newPath = workspaceRelativeAgentPath(moveWorkspace, entry.destinationResolvedPath);
-            await moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
+            const oldPath = workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.sourceResolvedPath);
+            const newPath = workspaceRelativeAgentPathIfWithin(moveWorkspace, entry.destinationResolvedPath);
+            if (oldPath && newPath && getDatabaseProvider() === 'postgres') {
+              await moveFileCollaborationPath({ workspace: moveWorkspace, oldPath, newPath });
+              await syncPublicSharesAfterMove(oldPath, newPath, moveWorkspace);
+            } else if (oldPath && newPath) {
+              await syncPublicSharesAfterMove(oldPath, newPath, moveWorkspace);
+            } else if (oldPath) {
+              removedFromWorkspace.push(oldPath);
+            } else if (newPath) {
+              copiedIntoWorkspace.push(newPath);
+            }
           }
-          await syncPublicSharesAfterMove(entry.sourceResolvedPath, entry.destinationResolvedPath);
           publishAgentWorkspaceMutation(entry.sourceResolvedPath, entry.type === 'directory' ? 'unlinkDir' : 'unlink');
           publishAgentWorkspaceMutation(
             entry.destinationResolvedPath,
             entry.overwritten ? 'change' : entry.type === 'directory' ? 'addDir' : 'add',
           );
         }
+      }
+      if (moveWorkspace && copiedIntoWorkspace.length > 0) {
+        if (getDatabaseProvider() === 'postgres') {
+          await initializeCopiedFileCollaborationPaths({ workspace: moveWorkspace, paths: copiedIntoWorkspace });
+        }
+        await syncPublicSharesAfterWrite(copiedIntoWorkspace, moveWorkspace);
+      }
+      if (moveWorkspace && removedFromWorkspace.length > 0) {
+        if (getDatabaseProvider() === 'postgres') {
+          await archiveFileCollaborationPaths({
+            workspace: moveWorkspace,
+            paths: removedFromWorkspace.map((path) => ({ path })),
+          });
+        }
+        await syncPublicSharesAfterDelete(removedFromWorkspace, moveWorkspace);
       }
 
       const result = pathOperationSummary('move_path', entries, params.destinationPath, destinationFullPath);

@@ -23,7 +23,10 @@ async function main() {
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
     const {
       assertAgentPathAllowed,
+      copyAgentPaths,
       deleteAgentPaths,
+      moveAgentPaths,
+      writeAgentBinaryFile,
       writeAgentTextFile,
     } = await import('../app/lib/pi/agent-file-operations');
 
@@ -43,6 +46,11 @@ async function main() {
       canDelete: false,
       canShare: false,
       legacy: false,
+    };
+    const writableContext = {
+      ...context,
+      canWrite: true,
+      canDelete: true,
     };
 
     const runtimeTempDir = resolveAgentRuntimeTempDir(context);
@@ -69,7 +77,19 @@ async function main() {
       });
       assert.equal(overwritten.resolvedPath, tempFile);
 
-      await deleteAgentPaths({ paths: [tempFile] });
+      const binaryPath = path.join(runtimeTempDir, 'calc', 'artifact.bin');
+      const binary = await writeAgentBinaryFile({
+        path: binaryPath,
+        content: Buffer.from([0, 1, 2, 255]),
+      });
+      assert.equal(binary.snapshot, null);
+      assert.deepEqual(await fs.readFile(binaryPath), Buffer.from([0, 1, 2, 255]));
+
+      const tempCopyPath = path.join(runtimeTempDir, 'copy', 'scratch-copy.py');
+      await copyAgentPaths({ sourcePaths: [tempFile], destinationPath: tempCopyPath });
+      assert.equal(await fs.readFile(tempCopyPath, 'utf8'), 'print("temporary v2")\n');
+
+      await deleteAgentPaths({ paths: [tempFile, binaryPath, tempCopyPath] });
     });
     await assert.rejects(fs.stat(tempFile));
 
@@ -80,6 +100,47 @@ async function main() {
           content: 'blocked\n',
         }),
         /writes are disabled/,
+      );
+
+      const blockedPromotionSource = path.join(runtimeTempDir, 'blocked-promotion.txt');
+      await writeAgentTextFile({ path: blockedPromotionSource, content: 'not delivered\n' });
+      await assert.rejects(
+        () => copyAgentPaths({
+          sourcePaths: [blockedPromotionSource],
+          destinationPath: 'blocked-promotion.txt',
+        }),
+        /writes are disabled/,
+      );
+    });
+
+    const copyPromotionSource = path.join(runtimeTempDir, 'copy-final.txt');
+    const movePromotionSource = path.join(runtimeTempDir, 'move-final.txt');
+    await runWithAgentExecutionContext(writableContext, async () => {
+      await writeAgentTextFile({ path: copyPromotionSource, content: 'copied final\n' });
+      await copyAgentPaths({
+        sourcePaths: [copyPromotionSource],
+        destinationPath: 'delivered/copied-final.txt',
+      });
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'delivered', 'copied-final.txt'), 'utf8'), 'copied final\n');
+      assert.equal(await fs.readFile(copyPromotionSource, 'utf8'), 'copied final\n');
+
+      await writeAgentTextFile({ path: movePromotionSource, content: 'moved final\n' });
+      await moveAgentPaths({
+        sourcePaths: [movePromotionSource],
+        destinationPath: 'delivered/moved-final.txt',
+      });
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'delivered', 'moved-final.txt'), 'utf8'), 'moved final\n');
+      await assert.rejects(fs.stat(movePromotionSource));
+    });
+
+    const otherSessionContext = { ...context, sessionId: 'another-session' };
+    const otherSessionFile = path.join(resolveAgentRuntimeTempDir(otherSessionContext), 'private.txt');
+    await fs.mkdir(path.dirname(otherSessionFile), { recursive: true });
+    await fs.writeFile(otherSessionFile, 'other session\n');
+    await runWithAgentExecutionContext(context, async () => {
+      await assert.rejects(
+        () => assertAgentPathAllowed(otherSessionFile),
+        /limited to the workspace bound to this chat session/,
       );
     });
 
