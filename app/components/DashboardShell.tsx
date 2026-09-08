@@ -16,7 +16,6 @@ import {
   Globe2,
   Mail,
   MessageSquare,
-  PanelRight,
   SquareTerminal,
   X,
 } from 'lucide-react';
@@ -50,6 +49,7 @@ import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { useTerminalAvailability } from '@/app/components/terminal/TerminalAvailabilityProvider';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { NotebookDocumentMenu } from '@/app/components/notebook/NotebookDocumentMenu';
+import { NotebookChatControls } from '@/app/components/notebook/NotebookChatControls';
 import { notebookPanelToggleClassName } from '@/app/components/notebook/toolbar-styles';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
 import { useNotebookLayoutController } from '@/app/components/notebook/useNotebookLayoutController';
@@ -135,6 +135,7 @@ import { useForcedChatSession } from '@/app/components/canvas-agent-chat/useForc
 
 type SurfaceTabProps = {
   active: boolean;
+  tabStop?: boolean;
   closeLabel?: string;
   controlsId: string;
   icon: ReactNode;
@@ -152,6 +153,7 @@ type OpenNotebookFileOptions = {
 
 function SurfaceTab({
   active,
+  tabStop = active,
   closeLabel,
   controlsId,
   icon,
@@ -166,7 +168,7 @@ function SurfaceTab({
     <div
       title={title || label}
       className={cn(
-        'group/tab flex h-10 shrink-0 items-center overflow-hidden rounded-md border transition-colors sm:h-8',
+        'group/tab flex h-10 shrink-0 items-center overflow-hidden rounded-md border transition-colors sm:h-8 pointer-coarse:h-11',
         active
           ? 'border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_-2px_0_hsl(var(--primary))]'
           : 'border-transparent text-muted-foreground hover:border-border hover:bg-muted/70 hover:text-foreground',
@@ -178,7 +180,7 @@ function SurfaceTab({
         role="tab"
         aria-controls={controlsId}
         aria-selected={active}
-        tabIndex={active ? 0 : -1}
+        tabIndex={tabStop ? 0 : -1}
         data-testid={testId}
         className="flex h-full min-w-0 items-center gap-1 px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:gap-2 sm:px-2.5"
         onClick={onSelect}
@@ -210,17 +212,19 @@ function SurfaceLayer({
   children,
   labelledBy,
   testId,
+  role = 'tabpanel',
 }: {
   active: boolean;
   children: ReactNode;
   labelledBy: string;
   testId: string;
+  role?: 'tabpanel' | 'region';
 }) {
   return (
     <section
       id={testId}
       data-testid={testId}
-      role="tabpanel"
+      role={role}
       aria-labelledby={labelledBy}
       aria-hidden={!active}
       inert={!active}
@@ -424,11 +428,15 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const searchParams = useSearchParams();
   const layout = useNotebookLayoutController();
   const { state, dispatch, setChatDocked } = layout;
-  const setChatDockedRef = useRef(setChatDocked);
   const [requestedDocumentFocus, setRequestedDocumentFocus] = useState(false);
   const documentFocus = requestedDocumentFocus && !layout.isMobile && state.mainSurface === 'document';
   const focusContext = useMemo(() => ({ focused: documentFocus, setFocused: setRequestedDocumentFocus }), [documentFocus]);
   const explorerVisible = state.explorerOpen && !documentFocus;
+  const toggleChatDock = useCallback(() => {
+    if (!layout.canDockChat) return;
+    setRequestedDocumentFocus(false);
+    setChatDocked(!(state.chatDocked && !documentFocus));
+  }, [documentFocus, layout.canDockChat, setChatDocked, state.chatDocked]);
 
   useEffect(() => {
     if (!documentFocus) return;
@@ -956,8 +964,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       if (key === 'k') {
         event.preventDefault();
         if (event.shiftKey) {
-          setChatDockedRef.current(!state.chatDocked);
+          toggleChatDock();
         } else {
+          setRequestedDocumentFocus(false);
           dispatch({ type: 'SHOW_CHAT' });
         }
       } else if (key === 'j' && terminalEnabled) {
@@ -977,6 +986,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     state.explorerOpen,
     state.terminalOpen,
     terminalEnabled,
+    toggleChatDock,
   ]);
 
   const applyExplorerWidth = useCallback((width: number) => {
@@ -1031,7 +1041,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     ),
   );
 
-  const showChat = useCallback(() => dispatch({ type: 'SHOW_CHAT' }), [dispatch]);
+  const showChat = useCallback(() => {
+    setRequestedDocumentFocus(false);
+    dispatch({ type: 'SHOW_CHAT' });
+  }, [dispatch]);
   const showSurface = useCallback((surface: Exclude<NotebookMainSurface, 'chat'>) => {
     dispatch({ type: 'SHOW_SURFACE', surface });
   }, [dispatch]);
@@ -1100,6 +1113,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const activeDocumentTabId = activeDocumentTabIndex >= 0
     ? `notebook-document-${activeDocumentTabIndex}-tab`
     : 'notebook-surface-document-tab';
+  const keyboardWorkSurface = state.mainSurface === 'chat'
+    ? state.lastWorkSurface ?? (documentTabs.activePath ? 'document' : state.emailAvailable ? 'email' : 'browser')
+    : state.mainSurface;
 
   useEffect(() => {
     const animationFrame = window.requestAnimationFrame(() => {
@@ -1147,7 +1163,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             </div>
           ) : null}
 
-          <div className="z-30 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-2">
+          <div className="z-30 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-2 pointer-coarse:h-14" data-testid="notebook-toolbar">
             <TooltipProvider delayDuration={250}>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1155,7 +1171,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className={notebookPanelToggleClassName}
+                    className={cn(notebookPanelToggleClassName, 'pointer-coarse:min-h-11 pointer-coarse:min-w-11')}
                     aria-label={layout.isMobile
                       ? tNav('openFileExplorer')
                       : explorerVisible ? tNav('hideSidebar') : tNav('showSidebar')}
@@ -1194,20 +1210,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               }}
               className="flex min-w-0 flex-1 touch-pan-x items-center gap-1 overflow-x-auto overscroll-x-contain scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
-              <SurfaceTab
-                active={state.mainSurface === 'chat'}
-                controlsId={surfacePanelIds.chat}
-                icon={<MessageSquare className="h-3.5 w-3.5 shrink-0" />}
-                label={tCommon('aiChat')}
-                onSelect={showChat}
-                testId="notebook-surface-chat"
-              />
               {visibleNotebookDocumentPaths(documentTabs).map((path) => {
                 const index = documentTabs.openPaths.indexOf(path);
                 const label = notebookDocumentLabel(path, documentTabs.openPaths);
                 return (
                   <SurfaceTab
                     key={path}
+                    tabStop={keyboardWorkSurface === 'document' && documentTabs.activePath === path}
                     title={path}
                     active={
                       state.mainSurface === 'document'
@@ -1226,6 +1235,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               {state.emailAvailable ? (
                 <SurfaceTab
                   active={state.mainSurface === 'email'}
+                  tabStop={keyboardWorkSurface === 'email'}
                   closeLabel={tNotebook('closeEmailSurface')}
                   controlsId={surfacePanelIds.email}
                   icon={<Mail className="h-3.5 w-3.5 shrink-0" />}
@@ -1239,6 +1249,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               {state.browserAvailable ? (
                 <SurfaceTab
                   active={state.mainSurface === 'browser'}
+                  tabStop={keyboardWorkSurface === 'browser'}
                   closeLabel={tNotebook('closeBrowserSurface')}
                   controlsId={surfacePanelIds.browser}
                   icon={<Globe2 className="h-3.5 w-3.5 shrink-0" />}
@@ -1271,29 +1282,18 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 });
               }}
             />
+            <div className="h-5 w-px shrink-0 bg-border" />
+            <NotebookChatControls
+              full={state.mainSurface === 'chat' && !documentFocus}
+              docked={state.chatDocked && !documentFocus}
+              canDock={layout.canDockChat}
+              mobile={layout.isMobile}
+              controlsId={surfacePanelIds.chat}
+              onShow={showChat}
+              onToggleDock={toggleChatDock}
+            />
             {layout.isDesktop ? (
               <>
-                <TooltipProvider delayDuration={250}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        className={notebookPanelToggleClassName}
-                        disabled={!layout.canDockChat && !state.chatDocked}
-                        aria-label={state.chatDocked ? tNotebook('unpinChat') : tNotebook('pinChat')}
-                        aria-pressed={state.chatDocked && !documentFocus}
-                        onClick={() => setChatDocked(!state.chatDocked)}
-                      >
-                        <PanelRight className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {state.chatDocked ? tNotebook('unpinChat') : tNotebook('pinChat')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}⇧K)
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
                 {terminalEnabled && (
                   <TooltipProvider delayDuration={250}>
                     <Tooltip>
@@ -1302,13 +1302,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                           type="button"
                           variant="ghost"
                           size="icon-sm"
-                          className={notebookPanelToggleClassName}
-                          aria-label={state.terminalOpen ? tNotebook('hideTerminal') : tNotebook('showTerminal')}
+                          className={cn(notebookPanelToggleClassName, 'pointer-coarse:min-h-11 pointer-coarse:min-w-11')}
+                          aria-label={state.terminalOpen && !documentFocus ? tNotebook('hideTerminal') : tNotebook('showTerminal')}
                           aria-pressed={state.terminalOpen && !documentFocus}
-                          onClick={() => dispatch({
-                            type: 'SET_TERMINAL',
-                            open: !state.terminalOpen,
-                          })}
+                          onClick={() => {
+                            setRequestedDocumentFocus(false);
+                            dispatch({ type: 'SET_TERMINAL', open: !(state.terminalOpen && !documentFocus) });
+                          }}
                         >
                           <SquareTerminal className="h-4 w-4" />
                         </Button>
@@ -1378,8 +1378,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               </SurfaceLayer>
               <SurfaceLayer
                 active={state.mainSurface === 'chat' || browserActivityUsesSheet}
-                labelledBy="notebook-surface-chat-tab"
+                labelledBy="notebook-chat-button"
                 testId="notebook-mobile-chat"
+                role="region"
               >
                 <div
                   id="browser-agent-activity-panel"
@@ -1568,9 +1569,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   role={browserActivityUsesSheet
                     ? 'dialog'
                     : state.mainSurface === 'chat'
-                      ? 'tabpanel'
+                      ? 'region'
                       : 'complementary'}
-                  aria-labelledby={state.mainSurface === 'chat' ? 'notebook-surface-chat-tab' : undefined}
+                  aria-labelledby={state.mainSurface === 'chat' ? 'notebook-chat-button' : undefined}
                   aria-label={browserActivityUsesSheet
                     ? tNotebook('agentActivity')
                     : state.chatDocked
