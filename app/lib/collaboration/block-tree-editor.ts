@@ -143,7 +143,10 @@ class BlockTreeEditorBinding {
   }
 
   history(direction: 'undo' | 'redo', dispatch: boolean): boolean {
-    if (this.destroyed || !this.ready || !this.editor.isEditable || !this.undoManager || this.compositionTree) return false;
+    // A merge can invalidate the current projection. Selective history is still
+    // a valid recovery path: undo the user's own row/container action while
+    // retaining remote edits. Permission and view-lifecycle gates still apply.
+    if (this.destroyed || !this.editor.isEditable || !this.undoManager || this.compositionTree) return false;
     if (direction === 'undo' ? !this.undoManager.canUndo() : !this.undoManager.canRedo()) return false;
     if (dispatch) this.undoManager[direction]();
     return true;

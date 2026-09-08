@@ -369,3 +369,27 @@ test('column deletion and reorder converge, and column undo retains a remote cel
     } finally { undo.destroy(); h.dispose(); }
   }
 });
+
+test('incompatible concurrent row and column insertions retain recovery data without exposing a broken table', () => {
+  const h = replicas('| H1 | H2 |\n| --- | --- |\n| D1 | D2 |');
+  const reopened = new Y.Doc();
+  try {
+    const before = h.a.read();
+    const row = schema.nodes.tableRow.create({ id: 'new-row' }, ['new-left', 'new-right'].map((id) => (
+      schema.nodes.tableCell.create({ id: `${id}-cell` }, schema.nodes.paragraph.create({ id }, schema.text(id)))
+    )));
+    const table = before.firstChild!;
+    const next = before.copy(Fragment.from(table.copy(table.content.append(Fragment.from(row)))));
+    h.a.applyDocumentChange(before, next, localOrigin);
+    h.b.applyDocumentChange(h.b.read(), insertColumn(h.b.read(), 'B'), remoteOrigin);
+    exchange(h.left, h.right, true);
+    assert.throws(() => h.a.read(), /structure_invalid/);
+    assert.throws(() => h.b.read(), /structure_invalid/);
+    assert.equal(h.a.content('new-left').toString(), 'new-left');
+    Y.applyUpdate(reopened, Y.encodeStateAsUpdate(h.left));
+    const recovered = new CollaborationBlockTree(reopened, schema);
+    assert.equal(recovered.content('new-right').toString(), 'new-right');
+    assert.equal(recovered.records.size, h.a.records.size);
+    assert.throws(() => recovered.read(), /structure_invalid/);
+  } finally { h.dispose(); reopened.destroy(); }
+});

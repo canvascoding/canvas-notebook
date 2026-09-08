@@ -1,4 +1,5 @@
 import type { Node as ProseMirrorNode, Schema } from '@tiptap/pm/model';
+import { TableMap } from '@tiptap/pm/tables';
 import { updateYFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap';
 import * as Y from 'yjs';
 
@@ -147,6 +148,15 @@ export class CollaborationBlockTree {
     };
     const result = schema.topNodeType.createChecked(null, (projection.children.get(null) ?? []).map(build));
     documentBlocks(result);
+    result.descendants((node) => {
+      // Table schemas accept rows with different cell counts. Concurrent row
+      // and column edits must not trigger a view-local automatic repair that
+      // invents new cells or writes a lossy checkpoint. Keep all CRDT records
+      // available for recovery and require resolution of the invalid geometry.
+      if (node.type.spec.tableRole === 'table' && TableMap.get(node).problems?.length) {
+        throw new BlockTreeConflict('structure_invalid');
+      }
+    });
     return result;
   }
 

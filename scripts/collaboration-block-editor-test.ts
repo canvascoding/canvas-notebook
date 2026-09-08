@@ -259,6 +259,43 @@ test('a rejected concurrent placement is reported once while the valid document 
   } finally { editor.destroy(); left.destroy(); right.destroy(); }
 });
 
+test('undo can resolve an incompatible row-column merge while preserving the peer column', async () => {
+  const left = createDocument('| A | B |\n| --- | --- |\n| one | two |');
+  const right = new Y.Doc();
+  Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
+  const aErrors: Error[] = [];
+  const bErrors: Error[] = [];
+  const a = createEditor(left, aErrors);
+  const b = createEditor(right, bErrors);
+  try {
+    await Promise.resolve();
+    a.commands.setTextSelection(position(a, 'one'));
+    assert.equal(a.commands.addRowAfter(), true);
+    b.commands.setTextSelection(position(b, 'one'));
+    assert.equal(b.commands.addColumnAfter(), true);
+    const beforeMerge = a.getJSON();
+    const aUpdate = Y.encodeStateAsUpdate(left);
+    const bUpdate = Y.encodeStateAsUpdate(right);
+    Y.applyUpdate(left, bUpdate);
+    Y.applyUpdate(right, aUpdate);
+    assert.deepEqual(a.getJSON(), beforeMerge, 'the view keeps its last valid projection');
+    assert.equal(validateRichMarkdownYDoc(left).valid, false);
+    assert.equal(aErrors.length, 1);
+    const blockedState = Y.encodeStateAsUpdate(left);
+    a.commands.insertContent('must not write into an invalid projection');
+    assert.deepEqual(Y.encodeStateAsUpdate(left), blockedState);
+    assert.equal(a.commands.undo(), true, 'the user can undo their own incompatible row action');
+    assert.equal(a.state.doc.firstChild!.childCount, 2);
+    assert.equal(a.state.doc.firstChild!.firstChild!.childCount, 3, 'the peer column survives recovery');
+    assert.equal(validateRichMarkdownYDoc(left).valid, true);
+    Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
+    assert.deepEqual(a.getJSON(), b.getJSON());
+    const changed = position(a, 'one');
+    a.view.dispatch(a.state.tr.insertText('updated ', changed));
+    assert.match(a.state.doc.textContent, /updated one/);
+  } finally { a.destroy(); b.destroy(); left.destroy(); right.destroy(); }
+});
+
 test('hydration never replaces server data with an empty editor and permission gates every mutation', async () => {
   const server = createDocument();
   const client = new Y.Doc();
