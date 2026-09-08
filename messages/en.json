@@ -5229,7 +5229,7 @@
         },
         "components": {
           "database": {
-            "label": "SQLite database",
+            "label": "PostgreSQL database",
             "hint": "Settings, chats, automations, metadata"
           },
           "workspace": {

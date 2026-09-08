@@ -1381,8 +1381,8 @@ async function runSwapCommand(
 }
 
 function databaseStatusPayload(config: CanvasCliConfig) {
-  const provider = String(config.env.CANVAS_DATABASE_PROVIDER || 'sqlite');
-  const postgresMode = provider === 'postgres' ? String(config.env.CANVAS_POSTGRES_MODE || 'managed') : null;
+  const provider = parseCliDatabaseProvider(String(config.env.CANVAS_DATABASE_PROVIDER || 'postgres'));
+  const postgresMode = String(config.env.CANVAS_POSTGRES_MODE || 'managed');
   const deploymentMode = String(config.env.CANVAS_DEPLOYMENT_MODE || 'single_user');
   const postgresRequired = ['true', '1', 'yes', 'on'].includes(String(config.env.CANVAS_POSTGRES_REQUIRED || '').trim().toLowerCase());
   return {
@@ -1390,7 +1390,7 @@ function databaseStatusPayload(config: CanvasCliConfig) {
     postgresMode,
     deploymentMode,
     postgresRequired,
-    postgresProfileEnabled: provider === 'postgres' && postgresMode === 'managed',
+    postgresProfileEnabled: postgresMode === 'managed',
     postgres: {
       image: String(config.env.CANVAS_POSTGRES_IMAGE || ''),
       dataVolume: String(config.env.CANVAS_POSTGRES_DATA_VOLUME || ''),
@@ -1596,7 +1596,7 @@ async function reconcilePostgresAuth(
     journalArmed = false;
     const result = {
       success: true,
-      databaseProvider: String(config.env.CANVAS_DATABASE_PROVIDER || 'sqlite'),
+      databaseProvider: String(config.env.CANVAS_DATABASE_PROVIDER || 'postgres'),
       postgresStarted: true,
       roleAuthSynchronized: true,
       authVerified: true,
@@ -1769,7 +1769,7 @@ async function database(context: RuntimeContext, docker: DockerManager, config: 
     if (json) {
       console.log(JSON.stringify({ success: true, prepare, ...databaseStatusPayload(next) }));
     } else {
-      console.log('Postgres service prepared. No SQLite data was migrated.');
+      console.log('Postgres service prepared.');
     }
     return;
   }
@@ -1956,10 +1956,6 @@ async function main(): Promise<void> {
     switch (parsed.command) {
     case 'install': {
       const options = parseInstallOptions(parsed.args);
-      const configExists = await fs.access(context.paths.configFile).then(() => true, () => false);
-      if (!configExists && options.database === 'sqlite') {
-        throw new Error('Fresh production installations require Postgres. SQLite is supported only for existing installations and migration.');
-      }
       if (options.databaseUrlSource) {
         options.database = 'postgres';
         options.postgresMode = 'external';

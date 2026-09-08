@@ -134,7 +134,7 @@ _database_prepare_postgres() {
     migrate_compose_file
   fi
   config_json_ensure_postgres_infrastructure_config
-  CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE=true config_json_to_env
+  config_json_to_env
   if ! (postgres_prepare_managed_runtime "$timeout_seconds"); then
     if [[ -n "$snapshot_dir" ]]; then
       _write_secure_config_file "$CONFIG_ENV_PATH" "${snapshot_dir}/container.env" || true
@@ -148,7 +148,7 @@ _database_prepare_postgres() {
     printf '{"success":true,'
     _database_status_json | sed 's/^{//'
   else
-    ok "Postgres service prepared. No SQLite data was migrated."
+    ok "Postgres service prepared."
   fi
 }
 
@@ -574,7 +574,7 @@ _database_reconcile_postgres_auth() (
     _database_reconcile_error compose "Compose configuration failed."
     return 1
   fi
-  if [[ "$fresh_initialization" == "true" ]] && ! (CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE=true config_json_to_env) >/dev/null 2>&1; then
+  if [[ "$fresh_initialization" == "true" ]] && ! (config_json_to_env) >/dev/null 2>&1; then
     _database_reconcile_error render "Environment render failed before initial Postgres startup."
     return 1
   fi

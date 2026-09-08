@@ -3,10 +3,9 @@ import type { SqlConnection } from '@/app/lib/db';
 export type PublicRateLimitBucket = { key: string; limit: number; windowMs: number };
 export type PublicRateLimitDecision = { ok: true } | { ok: false; retryAfter: number };
 
-/** Atomic database counters shared by every app process, on either supported DB. */
+/** Atomic PostgreSQL counters shared by every app process. */
 export function createPublicRateLimitStore(
   connect: () => Promise<SqlConnection>,
-  provider: () => 'postgres' | 'sqlite',
 ) {
   let schemaReady = false;
   let lastCleanupAt = 0;
@@ -15,24 +14,19 @@ export function createPublicRateLimitStore(
     const database = await connect();
     try {
       if (!schemaReady) {
-        const postgres = provider() === 'postgres';
-        if (postgres) await database.run('BEGIN');
+        await database.run('BEGIN');
         try {
-          if (postgres) {
-            await database.get("SELECT pg_advisory_xact_lock(hashtext('canvas-public-rate-limit-schema'))");
-          }
+          await database.get("SELECT pg_advisory_xact_lock(hashtext('canvas-public-rate-limit-schema'))");
           await database.run(`CREATE TABLE IF NOT EXISTS security_public_rate_limits (
             bucket_key TEXT PRIMARY KEY,
             count BIGINT NOT NULL,
             reset_at BIGINT NOT NULL
           )`);
           await database.run('CREATE INDEX IF NOT EXISTS idx_security_public_rate_limits_expiry ON security_public_rate_limits (reset_at)');
-          if (postgres) await database.run('COMMIT');
+          await database.run('COMMIT');
           schemaReady = true;
         } catch (error) {
-          if (postgres) {
-            try { await database.run('ROLLBACK'); } catch { /* Preserve the original error. */ }
-          }
+          try { await database.run('ROLLBACK'); } catch { /* Preserve the original error. */ }
           throw error;
         }
       }

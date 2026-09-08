@@ -1907,7 +1907,7 @@ export const knowledgeSources = pgTable("knowledge_sources", {
   sourceAclVersion: bigint("source_acl_version", { mode: "number" }).notNull().default(1),
   indexVersion: bigint("index_version", { mode: "number" }).notNull().default(1),
   embeddingIndexStatus: text("embedding_index_status").notNull().default("disabled"),
-  databaseProvider: text("database_provider").notNull().default("sqlite"),
+  databaseProvider: text("database_provider").notNull().default("postgres"),
   metadataJson: text("metadata_json"),
   status: text("status").notNull().default("pending"),
   lastAccessCheckedAt: pgTimestamp("last_access_checked_at"),

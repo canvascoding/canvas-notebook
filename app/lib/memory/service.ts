@@ -670,7 +670,7 @@ export async function readMemoryEntryHistory(
 /**
  * Persists the explicit, user-confirmed facts collected by Bradley during the
  * profile onboarding. The operation is idempotent across retries and uses the
- * same SQL surface for SQLite and PostgreSQL.
+ * native PostgreSQL SQL surface.
  */
 export async function saveOnboardingUserMemories(params: {
   userId: string;

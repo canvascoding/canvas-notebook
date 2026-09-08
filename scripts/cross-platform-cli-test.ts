@@ -331,6 +331,8 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^COMPOSE_PROFILES=postgres$/m);
     assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^CANVAS_POSTGRES_MODE=managed$/m);
     const missingPostgresCredentials = configureRuntimeAndDatabase(config, { database: 'postgres' });
+    missingPostgresCredentials.env.DATABASE_URL = '';
+    missingPostgresCredentials.env.CANVAS_POSTGRES_PASSWORD = '';
     assert.throws(
       () => materializeConfig(missingPostgresCredentials, undefined, { allowPostgresSecretGeneration: false }),
       /database prepare-postgres/u,
@@ -352,7 +354,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(preparedPostgres.env.CANVAS_POSTGRES_REQUIRED, true);
     assert.equal(preparedPostgres.env.CANVAS_POSTGRES_MODE, 'managed');
     assert.match(String(preparedPostgres.env.DATABASE_URL), /^postgresql:\/\/canvas:/);
-    assert.match(composeEnvText(preparedPostgres, composePath(preparedPostgres.dataDir, 'linux')), /^COMPOSE_PROFILES=$/m);
+    assert.match(composeEnvText(preparedPostgres, composePath(preparedPostgres.dataDir, 'linux')), /^COMPOSE_PROFILES=postgres$/m);
     assert.match(composeEnvText(preparedPostgres, composePath(preparedPostgres.dataDir, 'linux')), /^CANVAS_POSTGRES_PASSWORD=/m);
 
     const redactedPostgres = redactConfig(postgresConfig);
@@ -365,7 +367,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       configSecretState(postgresConfig).CANVAS_POSTGRES_PASSWORD.fingerprint,
       secretState.CANVAS_POSTGRES_PASSWORD.fingerprint,
     );
-    assert.deepEqual(configSecretState(config).CANVAS_POSTGRES_PASSWORD, { present: false, fingerprint: null });
+    assert.equal(configSecretState(config).CANVAS_POSTGRES_PASSWORD.present, true);
     const dynamicSecretConfig = structuredClone(postgresConfig);
     dynamicSecretConfig.env.CANVAS_INSTANCE_TOKEN = 'dynamic-instance-token';
     dynamicSecretConfig.env.OPENAI_API_KEY = 'dynamic-openai-key';
@@ -385,7 +387,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.match(dynamicSecretState.CUSTOM_SECRET_KEY.fingerprint || '', /^[a-f0-9]{64}$/u);
     assert.match(dynamicSecretState.openai_api_key.fingerprint || '', /^[a-f0-9]{64}$/u);
 
-    assert.equal(postgresRuntimeDesired(config), false);
+    assert.equal(postgresRuntimeDesired(config), true);
     assert.equal(postgresRuntimeDesired(postgresConfig), true);
     const postgresRequiredConfig = structuredClone(config);
     postgresRequiredConfig.env.CANVAS_POSTGRES_REQUIRED = true;
@@ -425,6 +427,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       database: 'postgres',
       postgresMode: 'external',
     });
+    missingExternalUrl.env.DATABASE_URL = '';
     assert.throws(
       () => materializeConfig(missingExternalUrl, undefined, { allowPostgresSecretGeneration: false }),
       /External Postgres requires DATABASE_URL/u,
@@ -610,6 +613,10 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
 
       config = await reset();
       const freshPostgresConfig = materializePostgresInfrastructureConfig(config);
+      const uninitializedPostgresConfig = structuredClone(freshPostgresConfig);
+      uninitializedPostgresConfig.env.DATABASE_URL = '';
+      uninitializedPostgresConfig.env.CANVAS_POSTGRES_PASSWORD = '';
+      await writeEnvFiles(uninitializedPostgresConfig, composePath(uninitializedPostgresConfig.dataDir, 'linux'));
       await writeConfig(freshPostgresConfig);
       runner.postgresInitialized = false;
       runner.calls = [];

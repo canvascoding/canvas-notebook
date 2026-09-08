@@ -443,10 +443,7 @@ config_json_ensure_database_config() {
   database_url="$(config_json_read env.DATABASE_URL)"
   provider="$(config_json_normalize_database_provider "$provider_raw")" || return 1
 
-  if config_json_deployment_requires_postgres "$deployment_mode" "$team_features" && [[ "$provider" != "postgres" ]]; then
-    if [[ "${CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE:-false}" != "true" ]]; then
-      fail "${deployment_mode} requires CANVAS_DATABASE_PROVIDER=postgres."
-    fi
+  if config_json_deployment_requires_postgres "$deployment_mode" "$team_features"; then
     config_json_write env.CANVAS_POSTGRES_REQUIRED true
   fi
 

@@ -19,7 +19,7 @@ const BUNDLED_TRUSTED_FINGERPRINTS: string[] = [
 ];
 const LOG_PREFIX = '[license/public-key]';
 
-export type LicensePublicKeySource = 'env' | 'bundled' | 'control_plane' | 'sqlite' | 'none';
+export type LicensePublicKeySource = 'env' | 'bundled' | 'control_plane' | 'postgres' | 'none';
 export type LicensePublicKeyError = 'unreachable' | 'invalid_response' | 'untrusted_key' | 'db_error';
 export type LicensePublicKeySet = 'production' | 'test';
 
@@ -336,7 +336,7 @@ async function resolveFromControlPlane(
       return resolution;
     }
 
-    await persistToSQLite(key, keyset).catch((error) => {
+    await persistToPostgres(key, keyset).catch((error) => {
       console.warn(`${LOG_PREFIX} failed to persist public key cache`, {
         kid: key.kid,
         keyset,
@@ -375,7 +375,7 @@ function persistedSources(keyset: LicensePublicKeySet): string[] {
     : ['control_plane', 'control_plane_production'];
 }
 
-async function resolveFromSQLite(
+async function resolveFromPostgres(
   keyset: LicensePublicKeySet,
 ): Promise<LicensePublicKeyResolution> {
   try {
@@ -419,18 +419,18 @@ async function resolveFromSQLite(
         .set({ lastUsedAt: new Date() })
         .where(eq(licensePublicKeys.fingerprint, key.fingerprint))));
 
-    logLicenseInfoThrottled(LOG_PREFIX, 'resolved from sqlite cache', {
+    logLicenseInfoThrottled(LOG_PREFIX, 'resolved from postgres cache', {
       keyset,
       kids: keys.map((key) => key.kid),
     });
-    return { keys, source: 'sqlite', keyset };
+    return { keys, source: 'postgres', keyset };
   } catch {
-    console.warn(`${LOG_PREFIX} sqlite public key lookup failed`, { keyset });
+    console.warn(`${LOG_PREFIX} postgres public key lookup failed`, { keyset });
     return { keys: [], source: 'none', keyset, error: 'db_error' };
   }
 }
 
-async function persistToSQLite(
+async function persistToPostgres(
   key: LicensePublicKey,
   keyset: LicensePublicKeySet,
 ): Promise<void> {
@@ -515,10 +515,10 @@ export async function resolveLicensePublicKeys(
 
   const controlPlane = await resolveFromControlPlane(keyset, forceRefresh);
   if (controlPlane.keys.length > 0) {
-    const sqlite = await resolveFromSQLite(keyset);
+    const postgres = await resolveFromPostgres(keyset);
     const resolution = {
       ...controlPlane,
-      keys: mergeKeys(controlPlane.keys, sqlite.keys),
+      keys: mergeKeys(controlPlane.keys, postgres.keys),
     };
     positiveMemoryCache[keyset] = {
       resolution,
@@ -528,9 +528,9 @@ export async function resolveLicensePublicKeys(
     return resolution;
   }
 
-  const sqlite = await resolveFromSQLite(keyset);
-  if (sqlite.keys.length > 0) {
-    const resolution = controlPlane.error ? { ...sqlite, error: controlPlane.error } : sqlite;
+  const postgres = await resolveFromPostgres(keyset);
+  if (postgres.keys.length > 0) {
+    const resolution = controlPlane.error ? { ...postgres, error: controlPlane.error } : postgres;
     positiveMemoryCache[keyset] = {
       resolution,
       expiresAt: Date.now() + CACHE_TTL_MS,
@@ -538,5 +538,5 @@ export async function resolveLicensePublicKeys(
     return resolution;
   }
 
-  return controlPlane.error ? controlPlane : sqlite;
+  return controlPlane.error ? controlPlane : postgres;
 }

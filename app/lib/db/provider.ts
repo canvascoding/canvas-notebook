@@ -96,13 +96,6 @@ export function getDatabaseProvider(): DatabaseProvider {
   return normalizeDatabaseProvider(process.env.CANVAS_DATABASE_PROVIDER);
 }
 
-export function assertSqliteRuntimeAllowed(operation: string): void {
-  if (getDatabaseProvider() !== 'postgres') return;
-  throw new Error(
-    `Postgres runtime cannot ${operation} through SQLite. Use the Postgres repository or the explicit offline migration tool.`,
-  );
-}
-
 export function resolveDatabaseProviderConfig(): DatabaseProviderConfig {
   const requestedProvider = normalizeEnvValue(process.env.CANVAS_DATABASE_PROVIDER);
   const provider = normalizeDatabaseProvider(requestedProvider);
@@ -183,7 +176,7 @@ export function resolveDatabaseProviderGate(options: {
   if (!postgresRuntimeAdapterAvailable) {
     blockers.push(createProblem(
       'postgres_runtime_adapter_unavailable',
-      'Postgres provider is configured, but this build still uses the SQLite runtime adapter.',
+      'Postgres provider is configured, but the PostgreSQL runtime adapter is unavailable.',
     ));
   }
 

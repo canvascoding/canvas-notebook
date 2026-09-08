@@ -1,13 +1,10 @@
 import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
-
 import { getRequestRateLimitIdentity } from './request-identity';
 import { createPublicRateLimitStore, type PublicRateLimitBucket } from './public-rate-limit-store';
 
 const consume = createPublicRateLimitStore(
   async () => (await import('@/app/lib/db')).openDb(),
-  getDatabaseProvider,
 );
 
 export type PublicRateLimitOptions = {

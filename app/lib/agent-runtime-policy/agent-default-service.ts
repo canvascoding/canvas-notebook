@@ -82,9 +82,8 @@ function storedThinkingLevels(value: unknown): string[] {
 
 /**
  * Catalog validation and the agent-default write share one database
- * transaction. SQLite obtains the write lock up front; Postgres locks the
- * catalog-default row so a catalog revision cannot commit between validation
- * and the agent update.
+ * transaction. PostgreSQL locks the catalog-default row so a catalog revision
+ * cannot commit between validation and the agent update.
  */
 export async function writeAgentDefaultWithCatalogValidation(input: {
   organizationId: string;

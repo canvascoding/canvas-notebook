@@ -375,7 +375,7 @@ grep -q 'condition: service_healthy' "$CANVAS_COMPOSE_FILE"
 grep -q 'required: false' "$CANVAS_COMPOSE_FILE"
 grep -q 'profiles:' "$CANVAS_COMPOSE_FILE"
 grep -q 'pgvector/pgvector:0.8.3-pg18' "$CANVAS_COMPOSE_FILE"
-grep -q 'unused-sqlite-profile-disabled' "$CANVAS_COMPOSE_FILE"
+grep -q 'postgres-password-required' "$CANVAS_COMPOSE_FILE"
 
 jq '.env.CANVAS_DATABASE_PROVIDER = "postgres" | .env.DATABASE_URL = "postgresql://can%76as:secret%31xx@postgres:5432/canvas%5Fnotebook" | .env.CANVAS_POSTGRES_PASSWORD = ""' \
   "$TMP_DIR/config-postgres.json" > "$TMP_DIR/config-encoded-database-url.json"

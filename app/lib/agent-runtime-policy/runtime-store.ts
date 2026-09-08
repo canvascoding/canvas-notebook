@@ -1030,6 +1030,68 @@ export function piSessionRuntimeSnapshotDbFields(snapshot: AiSessionRuntimeSnaps
   };
 }
 
+export function buildPiSessionRuntimeSnapshotCas(input: {
+  compareSnapshot: AiSessionRuntimeSnapshot | null;
+  contextRevision?: {
+    organizationId: string;
+    workspaceId: string;
+    expectedCatalogRevision: number;
+    expectedPolicyRevision: number;
+  };
+}): {
+  snapshotCasSql: string;
+  contextCasSql: string;
+  params: unknown[];
+} {
+  let parameterIndex = 12;
+  const parameter = () => `$${parameterIndex++}`;
+  const snapshotCasSql = input.compareSnapshot
+    ? `AND runtime_provider_installation_id = ${parameter()}
+         AND provider = ${parameter()} AND model = ${parameter()} AND thinking_level = ${parameter()}
+         AND runtime_catalog_revision = ${parameter()} AND runtime_policy_revision = ${parameter()}
+         AND runtime_selection_source = ${parameter()}`
+    : 'AND runtime_provider_installation_id IS NULL';
+  const snapshotCasParams = input.compareSnapshot
+    ? [
+        input.compareSnapshot.selection.providerInstallationId,
+        input.compareSnapshot.selection.providerId,
+        input.compareSnapshot.selection.modelId,
+        input.compareSnapshot.selection.thinkingLevel,
+        input.compareSnapshot.catalogRevision,
+        input.compareSnapshot.policyRevision,
+        input.compareSnapshot.selectionSource,
+      ]
+    : [];
+  const contextCasSql = input.contextRevision
+    ? `AND COALESCE((
+           SELECT catalog_revision
+           FROM ai_runtime_defaults
+           WHERE organization_id = ${parameter()}
+           LIMIT 1
+         ), 0) = ${parameter()}
+         AND COALESCE((
+           SELECT revision
+           FROM ai_workspace_model_policies
+           WHERE organization_id = ${parameter()} AND workspace_id = ${parameter()}
+           LIMIT 1
+         ), 0) = ${parameter()}`
+    : '';
+  const contextCasParams = input.contextRevision
+    ? [
+        input.contextRevision.organizationId,
+        input.contextRevision.expectedCatalogRevision,
+        input.contextRevision.organizationId,
+        input.contextRevision.workspaceId,
+        input.contextRevision.expectedPolicyRevision,
+      ]
+    : [];
+  return {
+    snapshotCasSql,
+    contextCasSql,
+    params: [...snapshotCasParams, ...contextCasParams],
+  };
+}
+
 export async function writePiSessionRuntimeSnapshot(input: {
   sessionId: string;
   userId: string;
@@ -1106,46 +1168,10 @@ export async function writePiSessionRuntimeSnapshot(input: {
     if (existing && !input.allowReplace) throw new SessionRuntimeSnapshotConflictError();
 
     const compareSnapshot = hasExpectedSnapshot ? expectedSnapshot ?? null : existing;
-    const snapshotCasSql = compareSnapshot
-      ? `AND runtime_provider_installation_id = ?
-         AND provider = ? AND model = ? AND thinking_level = ?
-         AND runtime_catalog_revision = ? AND runtime_policy_revision = ?
-         AND runtime_selection_source = ?`
-      : 'AND runtime_provider_installation_id IS NULL';
-    const snapshotCasParams = compareSnapshot
-      ? [
-          compareSnapshot.selection.providerInstallationId,
-          compareSnapshot.selection.providerId,
-          compareSnapshot.selection.modelId,
-          compareSnapshot.selection.thinkingLevel,
-          compareSnapshot.catalogRevision,
-          compareSnapshot.policyRevision,
-          compareSnapshot.selectionSource,
-        ]
-      : [];
-    const contextCasSql = input.contextRevision
-      ? `AND COALESCE((
-           SELECT catalog_revision
-           FROM ai_runtime_defaults
-           WHERE organization_id = $1
-           LIMIT 1
-         ), 0) = $2
-         AND COALESCE((
-           SELECT revision
-           FROM ai_workspace_model_policies
-           WHERE organization_id = $3 AND workspace_id = $4
-           LIMIT 1
-         ), 0) = $5`
-      : '';
-    const contextCasParams = input.contextRevision
-      ? [
-          input.contextRevision.organizationId,
-          input.contextRevision.expectedCatalogRevision,
-          input.contextRevision.organizationId,
-          input.contextRevision.workspaceId,
-          input.contextRevision.expectedPolicyRevision,
-        ]
-      : [];
+    const { snapshotCasSql, contextCasSql, params: casParams } = buildPiSessionRuntimeSnapshotCas({
+      compareSnapshot,
+      contextRevision: input.contextRevision,
+    });
     const result = await connection.run(
       `UPDATE pi_sessions
        SET provider = $1, model = $2, thinking_level = $3,
@@ -1166,8 +1192,7 @@ export async function writePiSessionRuntimeSnapshot(input: {
         input.sessionId,
         input.userId,
         input.agentId,
-        ...snapshotCasParams,
-        ...contextCasParams,
+        ...casParams,
       ],
     ) as { changes?: number; rowCount?: number } | undefined;
     const changed = numberValue(result?.changes ?? result?.rowCount, 0);

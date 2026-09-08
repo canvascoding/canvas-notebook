@@ -859,7 +859,7 @@ export async function getAutomationRunLogSnapshot(runId: string): Promise<{
   if (isOversized) {
     return {
       logPath: row.logPath,
-      content: `Run log is too large to load safely in the browser (${row.eventsLogLength} characters stored in SQLite).\nOpen the persisted chat session for the full conversation, or inspect the database directly.\n`,
+      content: `Run log is too large to load safely in the browser (${row.eventsLogLength} characters stored in PostgreSQL).\nOpen the persisted chat session for the full conversation, or inspect the database directly.\n`,
       truncated: true,
     };
   }
