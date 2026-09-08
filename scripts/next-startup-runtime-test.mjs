@@ -4,7 +4,6 @@ import { readFile } from 'node:fs/promises';
 const serverSource = await readFile(new URL('../server.js', import.meta.url), 'utf8');
 const dbIndexSource = await readFile(new URL('../app/lib/db/index.ts', import.meta.url), 'utf8');
 const startupMigrationSource = await readFile(new URL('../app/lib/db/startup-migrations.ts', import.meta.url), 'utf8');
-const organizationBootstrapSource = await readFile(new URL('../app/lib/organization/bootstrap.ts', import.meta.url), 'utf8');
 const authSetupSource = await readFile(new URL('../app/lib/auth-setup.ts', import.meta.url), 'utf8');
 const sessionWorkspaceSource = await readFile(new URL('../app/lib/pi/session-workspace-context.ts', import.meta.url), 'utf8');
 const migrationRunnerSource = await readFile(new URL('./run-database-migrations.ts', import.meta.url), 'utf8');
@@ -97,11 +96,6 @@ assert.doesNotMatch(
   'Postgres startup must not migrate or create a SQLite sidecar',
 );
 assert.match(startupMigrationSource, /assertSqliteRuntimeAllowed\('run startup migrations'\)/u);
-assert.ok(
-  organizationBootstrapSource.indexOf("assertSqliteRuntimeAllowed('open the organization bootstrap database')")
-    < organizationBootstrapSource.indexOf('const sqlitePath = resolveSqlitePath()'),
-  'the organization SQLite guard must run before resolving or opening the sidecar',
-);
 assert.ok(
   authSetupSource.indexOf("assertSqliteRuntimeAllowed('open the authentication setup database')")
     < authSetupSource.indexOf('const sqlitePath = getSqlitePath()'),

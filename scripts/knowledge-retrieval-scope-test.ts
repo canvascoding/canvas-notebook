@@ -3,7 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
-import type { OrganizationPermissionSnapshot } from '../app/lib/organization/bootstrap';
+import type { OrganizationPermissionSnapshot } from '../app/lib/organization/contracts';
 import type { WorkspaceContext, WorkspacePermissions } from '../app/lib/workspaces/types';
 
 const READ_ONLY: WorkspacePermissions = {

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import type { DatabaseProvider } from '@/app/lib/db/provider';
-import type { OrganizationPermissionState } from '@/app/lib/organization/bootstrap';
+import type { OrganizationPermissionState } from '@/app/lib/organization/contracts';
 
 function testState(databaseProvider: DatabaseProvider): OrganizationPermissionState {
   return {

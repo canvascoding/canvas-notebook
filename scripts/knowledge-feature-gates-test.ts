@@ -9,7 +9,7 @@ import type {
   KnowledgeParsingSettings,
   KnowledgeResourceStatus,
 } from '../app/lib/knowledge/settings-types';
-import type { OrganizationPermissionState } from '../app/lib/organization/bootstrap';
+import type { OrganizationPermissionState } from '../app/lib/organization/contracts';
 
 const BASE_SETTINGS: KnowledgeParsingSettings = {
   knowledgeAutoIngestionEnabled: false,

@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { normalizeDataScopeId, resolveSystemMigrationDir } from '@/app/lib/runtime-data-paths';
 import { resolveLegacyWorkspaceRoot } from './context';
-import { workspaceAbsoluteRoot, type WorkspaceRecord } from './service';
+import { workspaceAbsoluteRoot, type WorkspaceRecord } from './contracts';
 
 const LEGACY_WORKSPACE_IMPORT_NAME = '_legacy-workspace-import';
 const MARKER_VERSION = 1;
