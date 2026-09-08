@@ -1,4 +1,10 @@
 import { getExtension } from './path-utils';
+import type { CurrentFile } from './types';
+
+export function documentContentRevision(file: CurrentFile | null): string {
+  return file?.stats?.sha256 ?? file?.stats?.fileVersion
+    ?? `${file?.revision?.id ?? ''}:${file?.stats?.modified ?? ''}:${file?.stats?.size ?? ''}`;
+}
 
 export const TEXT_FILE_EXTENSIONS = new Set([
   'txt', 'log', 'js', 'jsx', 'ts', 'tsx', 'json', 'css', 'scss', 'html', 'htm',
