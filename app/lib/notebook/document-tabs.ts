@@ -2,6 +2,7 @@ import {
   normalizeNotebookFilePath,
   readStoredNotebookOpenFilePath,
 } from '@/app/lib/files/notebook-open-file-storage';
+import { normalizeWorkspacePathParam } from '@/app/lib/files/path-utils';
 
 export const NOTEBOOK_MAX_OPEN_DOCUMENTS = 100;
 export const NOTEBOOK_DOCUMENT_TABS_STORAGE_VERSION = 1;
@@ -11,6 +12,8 @@ const NOTEBOOK_DOCUMENT_TABS_STORAGE_KEY = 'canvas.notebookDocumentTabs.v1';
 export type NotebookDocumentTabsState = {
   activePath: string | null;
   openPaths: string[];
+  /** Last observed collaborative identity; paths alone cannot identify a moved file. */
+  documentIds?: Record<string, string>;
 };
 
 /** The previously active document is the first one reopened after closing a batch. */
@@ -30,6 +33,7 @@ export type OpenNotebookDocumentTabResult = {
 type StoredNotebookDocumentTabs = {
   activePath: string | null;
   openPaths: string[];
+  documentIds?: Record<string, string>;
   version: typeof NOTEBOOK_DOCUMENT_TABS_STORAGE_VERSION;
 };
 
@@ -61,18 +65,51 @@ function normalizeOpenPaths(paths: unknown): string[] {
 export function normalizeNotebookDocumentTabsState(input: {
   activePath?: unknown;
   openPaths?: unknown;
+  documentIds?: unknown;
 }): NotebookDocumentTabsState {
   const openPaths = normalizeOpenPaths(input.openPaths);
   const requestedActivePath = typeof input.activePath === 'string'
     ? normalizeNotebookFilePath(input.activePath)
     : null;
 
+  const documentIds = normalizeTabDocumentIds(input.documentIds, openPaths);
   return {
     openPaths,
+    ...(Object.keys(documentIds).length ? { documentIds } : {}),
     activePath: requestedActivePath && openPaths.includes(requestedActivePath)
       ? requestedActivePath
       : openPaths.at(-1) ?? null,
   };
+}
+
+function normalizeTabDocumentIds(input: unknown, openPaths: string[]): Record<string, string> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+  return Object.fromEntries(openPaths.flatMap(path => {
+    const id = Object.hasOwn(input, path) ? (input as Record<string, unknown>)[path] : undefined;
+    return typeof id === 'string' && id.length > 0 && id.length <= 256 && id.trim() === id && !/[\u0000-\u001f\u007f]/u.test(id)
+      ? [[path, id]] : [];
+  }));
+}
+
+/** Capture only a successful file read, including removal of an obsolete identity. */
+export function rememberNotebookDocumentId(state: NotebookDocumentTabsState, path: string, documentId: string | null): NotebookDocumentTabsState {
+  if (!state.openPaths.includes(path)) return state;
+  const documentIds = { ...state.documentIds };
+  if (documentId === null) delete documentIds[path];
+  else {
+    if (normalizeTabDocumentIds({ [path]: documentId }, [path])[path] !== documentId) return state;
+    documentIds[path] = documentId;
+  }
+  if (state.documentIds?.[path] === documentId || (documentId === null && !Object.hasOwn(state.documentIds ?? {}, path))) return state;
+  return normalizeNotebookDocumentTabsState({ ...state, documentIds });
+}
+
+/** A resolved identity may rename its own tab; it cannot take over another open path. */
+export function adoptNotebookDocumentLocation(state: NotebookDocumentTabsState, path: string, documentId: string, nextPath: string): NotebookDocumentTabsState {
+  if (!state.openPaths.includes(path) || !Object.hasOwn(state.documentIds ?? {}, path)
+    || state.documentIds?.[path] !== documentId || normalizeWorkspacePathParam(nextPath) !== nextPath || path === nextPath) return state;
+  if (state.openPaths.includes(nextPath) && state.documentIds?.[nextPath] !== documentId) return state;
+  return renameNotebookDocumentTabs(state, path, nextPath);
 }
 
 export function openNotebookDocumentTab(
@@ -100,6 +137,7 @@ export function openNotebookDocumentTab(
   return {
     status: 'opened',
     state: {
+      ...state,
       activePath: normalizedPath,
       openPaths: [...state.openPaths, normalizedPath],
     },
@@ -128,14 +166,15 @@ export function closeNotebookDocumentTab(
 
   const openPaths = state.openPaths.filter((openPath) => openPath !== normalizedPath);
   if (state.activePath !== normalizedPath) {
-    return { ...state, openPaths };
+    return normalizeNotebookDocumentTabsState({ ...state, openPaths });
   }
 
-  return {
+  return normalizeNotebookDocumentTabsState({
+    ...state,
     openPaths,
     // Prefer the former right-hand neighbor, then the left-hand neighbor.
     activePath: openPaths[closedIndex] ?? openPaths[closedIndex - 1] ?? null,
-  };
+  });
 }
 
 export function closeNotebookDocumentTabsAtPaths(
@@ -174,7 +213,15 @@ export function renameNotebookDocumentTabs(
   };
   const openPaths = normalizeOpenPaths(state.openPaths.map(remapPath));
   const activePath = state.activePath ? remapPath(state.activePath) : null;
-  return normalizeNotebookDocumentTabsState({ activePath, openPaths });
+  // A confirmed overwrite belongs to the moved document, even when the target
+  // was already open. Process moved entries last instead of depending on tab order.
+  const entries = Object.entries(state.documentIds ?? {});
+  const destinations = new Set(state.openPaths.filter(path => remapPath(path) !== path).map(remapPath));
+  const documentIds = Object.fromEntries([
+    ...entries.filter(([path]) => remapPath(path) === path && !destinations.has(path)),
+    ...entries.filter(([path]) => remapPath(path) !== path).map(([path, id]) => [remapPath(path), id]),
+  ]);
+  return normalizeNotebookDocumentTabsState({ activePath, openPaths, documentIds });
 }
 
 export function readNotebookDocumentTabs(
