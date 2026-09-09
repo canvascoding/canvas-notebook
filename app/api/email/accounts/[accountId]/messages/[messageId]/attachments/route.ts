@@ -1,5 +1,3 @@
-import path from 'node:path';
-
 import JSZip from 'jszip';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -12,12 +10,10 @@ import {
 } from '@/app/lib/email/attachment-batch';
 import { isEmailMessageNotFoundError } from '@/app/lib/email/errors';
 import { isImapMailboxChangedError } from '@/app/lib/email/imap-service';
+import { saveDownloadedEmailAttachmentsToWorkspace } from '@/app/lib/email/attachment-workspace-save';
 import { fileContentDisposition } from '@/app/lib/files/content-disposition';
-import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
-import { getFileStats } from '@/app/lib/filesystem/workspace-files';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
-import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
+import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 
 function errorStatus(error: unknown): number {
   if (error instanceof EmailAttachmentBatchError) return error.status;
@@ -37,40 +33,6 @@ function errorPayload(error: unknown) {
     return { success: false, code: 'EMAIL_MESSAGE_NOT_FOUND', error: 'Email attachment is no longer available.' };
   }
   return { success: false, error: error instanceof Error ? error.message : 'Email attachment operation failed' };
-}
-
-async function workspacePathExists(filePath: string, fileOptions: ReturnType<typeof workspaceFileOptions>) {
-  try {
-    await getFileStats(filePath, fileOptions);
-    return true;
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && ['ENOENT', 'ENOTDIR'].includes(String(error.code))) {
-      return false;
-    }
-    throw error;
-  }
-}
-
-async function availableWorkspacePath(
-  targetDirectory: string,
-  fileName: string,
-  reservedPaths: Set<string>,
-  fileOptions: ReturnType<typeof workspaceFileOptions>,
-) {
-  const parsed = path.posix.parse(fileName);
-  const baseName = parsed.name || 'attachment';
-  let candidateName = fileName;
-  let index = 2;
-  while (true) {
-    const candidatePath = targetDirectory === '.' ? candidateName : `${targetDirectory}/${candidateName}`;
-    const normalizedKey = candidatePath.normalize('NFC').toLocaleLowerCase('en-US');
-    if (!reservedPaths.has(normalizedKey) && !(await workspacePathExists(candidatePath, fileOptions))) {
-      reservedPaths.add(normalizedKey);
-      return candidatePath;
-    }
-    candidateName = `${baseName}-${index}${parsed.ext}`;
-    index += 1;
-  }
 }
 
 export async function GET(
@@ -156,12 +118,7 @@ export async function POST(
   try {
     const { accountId, messageId } = await params;
     const folder = typeof record.folder === 'string' && record.folder.trim() ? record.folder : undefined;
-    const targetPath = normalizeWorkspaceRelativePath(record.targetPath);
-    const fileOptions = workspaceFileOptions(workspaceResult.workspace);
-    const targetStats = await getFileStats(targetPath, fileOptions);
-    if (!targetStats.isDirectory) {
-      return NextResponse.json({ success: false, error: 'The selected workspace destination is not a folder.' }, { status: 400 });
-    }
+    const targetPath = record.targetPath;
     const downloaded = await downloadEmailAttachmentBatch({
       userId: workspaceResult.session.user.id,
       accountId,
@@ -170,27 +127,14 @@ export async function POST(
       attachmentIds,
       readPolicy: { enforceReadPolicy: false },
     });
-    const reservedPaths = new Set<string>();
-    const paths: string[] = [];
-    for (const item of downloaded.attachments) {
-      const destinationPath = await availableWorkspacePath(
-        targetPath,
-        item.attachment.filename,
-        reservedPaths,
-        fileOptions,
-      );
-      const saved = await writeWorkspaceFileContent({
-        workspace: workspaceResult.workspace,
-        fileOptions,
-        actorUserId: workspaceResult.session.user.id,
-        actorType: 'user',
-        path: destinationPath,
-        content: item.content,
-        createOnly: true,
-        encoded: true,
-      });
-      paths.push(saved.path);
-    }
+    const savedAttachments = await saveDownloadedEmailAttachmentsToWorkspace({
+      workspace: workspaceResult.workspace,
+      actorUserId: workspaceResult.session.user.id,
+      actorType: 'user',
+      attachments: downloaded.attachments,
+      destination: { type: 'directory', path: targetPath, renameConflicts: true },
+    });
+    const paths = savedAttachments.map((attachment) => attachment.path);
     await recordAuditEvent({
       organizationId: workspaceResult.workspace.organizationId,
       workspaceId: workspaceResult.workspace.workspaceId,

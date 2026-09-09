@@ -35,4 +35,7 @@ const emailToolsSource = fs.readFileSync(
 assert.match(emailToolsSource, /if \(!context\.workspaceId\)/u);
 assert.match(emailToolsSource, /workspaceId: context\.workspaceId/u);
 assert.doesNotMatch(emailToolsSource, /workspaceId: mailbox\.workspaceId \|\| context\.workspaceId/u);
+assert.match(emailToolsSource, /allAttachments: Type\.Optional\(Type\.Boolean/u);
+assert.match(emailToolsSource, /downloadEmailAttachmentBatch/u);
+assert.match(emailToolsSource, /saveDownloadedEmailAttachmentsToWorkspace/u);
 console.log('email-agent-policy-test: ok');

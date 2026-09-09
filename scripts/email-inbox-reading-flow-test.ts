@@ -188,8 +188,7 @@ assert.match(attachmentRouteSource, /fileContentDisposition/u);
 assert.match(attachmentCollectionRouteSource, /export async function GET/u);
 assert.match(attachmentCollectionRouteSource, /export async function POST/u);
 assert.match(attachmentCollectionRouteSource, /downloadEmailAttachmentBatch/u);
-assert.match(attachmentCollectionRouteSource, /writeWorkspaceFileContent/u);
-assert.match(attachmentCollectionRouteSource, /createOnly: true/u);
+assert.match(attachmentCollectionRouteSource, /saveDownloadedEmailAttachmentsToWorkspace/u);
 assert.match(errorSource, /readonly code = 'EMAIL_MESSAGE_NOT_FOUND'/u);
 
 console.log('email-inbox-reading-flow-test: ok');
