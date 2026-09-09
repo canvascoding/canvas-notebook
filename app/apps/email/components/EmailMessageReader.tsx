@@ -5,6 +5,7 @@ import DOMPurify from 'dompurify';
 import {
   Archive,
   ChevronDown,
+  Download,
   FolderInput,
   Forward,
   Image as ImageIcon,
@@ -682,6 +683,7 @@ function EmailMessageRowActionMenuItems({
 }
 
 export function EmailMessageViewer({
+  accountId,
   actions,
   allowRemoteResourcesByDefault,
   allowedRemoteResourceSenders,
@@ -700,6 +702,7 @@ export function EmailMessageViewer({
   summaryStatus,
   unavailable = false,
 }: {
+  accountId?: string;
   actions?: EmailMessageViewerActions;
   allowRemoteResourcesByDefault: boolean;
   allowedRemoteResourceSenders: string[];
@@ -817,12 +820,37 @@ export function EmailMessageViewer({
           <div className="mt-5 border-t border-border pt-4">
             <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{labels.attachments}</div>
             <div className="mt-2 flex flex-col gap-2">
-              {message.attachments.map((attachment) => (
-                <div key={attachment.filename} className="border border-border px-3 py-2 text-sm">
-                  <div className="font-medium">{attachment.filename}</div>
-                  <div className="text-xs text-muted-foreground">{attachment.contentType || labels.unknownAttachmentType}</div>
-                </div>
-              ))}
+              {message.attachments.map((attachment) => {
+                const downloadParams = new URLSearchParams();
+                if (message.folder) downloadParams.set('folder', message.folder);
+                const downloadHref = accountId && attachment.id
+                  ? `/api/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(message.id)}/attachments/${encodeURIComponent(attachment.id)}${downloadParams.size ? `?${downloadParams.toString()}` : ''}`
+                  : null;
+                const sizeLabel = typeof attachment.size === 'number'
+                  ? new Intl.NumberFormat(undefined, { style: 'unit', unit: 'byte', unitDisplay: 'short', notation: 'compact' }).format(attachment.size)
+                  : '';
+                const canDownload = attachment.downloadable !== false && Boolean(downloadHref);
+                return (
+                  <div key={attachment.id || attachment.filename} className="flex flex-wrap items-center justify-between gap-3 border border-border px-3 py-2 text-sm">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{attachment.filename}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {[attachment.contentType || labels.unknownAttachmentType, sizeLabel].filter(Boolean).join(' · ')}
+                      </div>
+                    </div>
+                    {canDownload ? (
+                      <Button asChild type="button" size="sm" variant="outline">
+                        <a href={downloadHref!} download={attachment.filename}>
+                          <Download className="h-4 w-4" />
+                          {labels.downloadAttachment}
+                        </a>
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">{labels.attachmentUnavailable}</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

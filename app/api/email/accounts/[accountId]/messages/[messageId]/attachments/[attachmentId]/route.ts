@@ -5,6 +5,7 @@ import { isEmailMessageNotFoundError } from '@/app/lib/email/errors';
 import { isImapMailboxChangedError } from '@/app/lib/email/imap-service';
 import { readInboundEmailAttachmentStream } from '@/app/lib/email/inbound-attachments';
 import { downloadEmailAttachment } from '@/app/lib/email/service';
+import { fileContentDisposition } from '@/app/lib/files/content-disposition';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export async function GET(
@@ -28,12 +29,10 @@ export async function GET(
       { enforceReadPolicy: false },
     );
     const content = await readInboundEmailAttachmentStream(downloaded.content);
-    const filename = Buffer.from(downloaded.attachment.filename, 'utf8').toString('utf8');
-    const fallbackName = filename.replace(/[^A-Za-z0-9._-]/gu, '_') || 'attachment';
     return new NextResponse(new Uint8Array(content), {
       headers: {
         'Cache-Control': 'private, no-store',
-        'Content-Disposition': `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        'Content-Disposition': fileContentDisposition(downloaded.attachment.filename),
         'Content-Length': String(content.length),
         'Content-Type': downloaded.attachment.contentType,
         'X-Content-Type-Options': 'nosniff',

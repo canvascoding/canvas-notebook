@@ -210,10 +210,12 @@ export type EmailMessageViewerLabels = {
   archive: string;
   backToMessages: string;
   attachments: string;
+  attachmentUnavailable: string;
   cancel: string;
   cc: string;
   date: string;
   emptyBody: string;
+  downloadAttachment: string;
   forward: string;
   from: string;
   loadingMessage: string;

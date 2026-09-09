@@ -2581,6 +2581,8 @@
     "date": "Date",
     "emptyBody": "No readable message body available.",
     "attachments": "Attachments",
+    "attachmentUnavailable": "Download unavailable",
+    "downloadAttachment": "Download",
     "remoteImagesBlocked": "Remote images and external resources are blocked for privacy.",
     "showRemoteImages": "Load images",
     "unknownAttachmentType": "Unknown file type",

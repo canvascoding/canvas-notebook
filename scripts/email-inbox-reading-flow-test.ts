@@ -105,6 +105,10 @@ const messageRouteSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'api', 'email', 'accounts', '[accountId]', 'messages', '[messageId]', 'route.ts'),
   'utf8',
 );
+const attachmentRouteSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'api', 'email', 'accounts', '[accountId]', 'messages', '[messageId]', 'attachments', '[attachmentId]', 'route.ts'),
+  'utf8',
+);
 const errorSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'lib', 'email', 'errors.ts'),
   'utf8',
@@ -151,6 +155,9 @@ assert.match(mailboxNavigationSource, /export function EmailMailboxNavigation/u)
 assert.match(messageReaderSource, /export function EmailMessageViewer/u);
 assert.match(messageReaderSource, /DOMPurify\.sanitize/u);
 assert.match(messageReaderSource, /sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"/u);
+assert.match(messageReaderSource, /downloadAttachment/u);
+assert.match(messageReaderSource, /attachment\.downloadable !== false/u);
+assert.match(messageReaderSource, /\/attachments\/\$\{encodeURIComponent\(attachment\.id\)\}/u);
 
 const surfaceLayerSource = notebookShellSource.slice(
   notebookShellSource.indexOf('function SurfaceLayer('),
@@ -163,6 +170,9 @@ assert.match(notebookShellSource, /inert=\{!active\}/u);
 assert.match(notebookShellSource, /<EmailClient contextIntent=\{emailContext\} embedded \/>/u);
 assert.match(messageRouteSource, /code: 'EMAIL_MESSAGE_NOT_FOUND'/u);
 assert.match(messageRouteSource, /status: 404/u);
+assert.match(attachmentRouteSource, /downloadEmailAttachment/u);
+assert.match(attachmentRouteSource, /'Cache-Control': 'private, no-store'/u);
+assert.match(attachmentRouteSource, /fileContentDisposition/u);
 assert.match(errorSource, /readonly code = 'EMAIL_MESSAGE_NOT_FOUND'/u);
 
 console.log('email-inbox-reading-flow-test: ok');

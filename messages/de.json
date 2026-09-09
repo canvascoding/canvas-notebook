@@ -2580,6 +2580,8 @@
     "date": "Datum",
     "emptyBody": "Kein lesbarer Nachrichtentext vorhanden.",
     "attachments": "Anhänge",
+    "attachmentUnavailable": "Download nicht verfügbar",
+    "downloadAttachment": "Herunterladen",
     "remoteImagesBlocked": "Remote-Bilder und externe Ressourcen sind aus Datenschutzgründen blockiert.",
     "showRemoteImages": "Bilder laden",
     "unknownAttachmentType": "Unbekannter Dateityp",
