@@ -152,7 +152,12 @@ assert.match(messageReaderSource, /export function EmailMessageViewer/u);
 assert.match(messageReaderSource, /DOMPurify\.sanitize/u);
 assert.match(messageReaderSource, /sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"/u);
 
-assert.match(notebookShellSource, /role="tabpanel"/u);
+const surfaceLayerSource = notebookShellSource.slice(
+  notebookShellSource.indexOf('function SurfaceLayer('),
+  notebookShellSource.indexOf('function BrowserContextHeader('),
+);
+assert.match(surfaceLayerSource, /role = 'tabpanel'/u);
+assert.match(surfaceLayerSource, /role=\{role\}/u);
 assert.match(notebookShellSource, /aria-hidden=\{!active\}/u);
 assert.match(notebookShellSource, /inert=\{!active\}/u);
 assert.match(notebookShellSource, /<EmailClient contextIntent=\{emailContext\} embedded \/>/u);
