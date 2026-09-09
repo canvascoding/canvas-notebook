@@ -50,7 +50,9 @@ Nachweise: echte zuvor blockierte Datei wieder unter derselben ID geöffnet; Pos
 
 ## Native Zwischenablage und weitere offene Fälle
 
-Über native Cmd+A/C/V- und Cmd+A/X/V-Tastaturaktionen wurden alle 18 Wurzelblöcke mit 50 Knoten-IDs kopiert bzw. ausgeschnitten. Die ursprünglichen IDs bleiben beim Kopieren bestehen, eingefügte Knoten erhalten frische, eindeutige IDs. Undo stellte in beiden Fällen den vorherigen vollständigen Baum wieder her. Der Inhalt blieb erhalten, beim eingefügten Bild ging jedoch die Zentrierung verloren. Diese Formatregression wird als nächstes korrigiert; die Clipboard-Abnahme ist noch offen.
+Über native Cmd+A/C/V- und Cmd+A/X/V-Tastaturaktionen wurden alle 18 Wurzelblöcke mit 50 Knoten-IDs kopiert bzw. ausgeschnitten. Die ursprünglichen IDs bleiben beim Kopieren bestehen, eingefügte Knoten erhalten frische, eindeutige IDs. Undo stellte in beiden Fällen den vorherigen vollständigen Baum wieder her.
+
+Beim eingefügten Bild ging zunächst die Zentrierung verloren: Die HTML-Zwischenablage normalisiert CSS-Leerzeichen, Semikolons und Nullwerte, während der Import die exakte kanonische Zeichenfolge verglich. Der HTML-Import liest jetzt die normalisierten Rand-Eigenschaften aus dem DOM; der strikte portable Markdown-Parser bleibt unverändert. Die 17 Clipboard-Testgruppen enthalten nun Bilder mit linker, mittlerer und rechter Ausrichtung und vergleichen auch alle kopierten Attribute. Sie und die portable Bildsuite bestehen. Die native Wiederholung behielt 240 px und Zentrierung sowie sämtliche sonstigen Attribute/Inhalte; ein zusätzlicher leerer Eingabeabsatz nach dem Paste bleibt erwartbar. Erneutes Kopieren, bestätigter Checkpoint und Reload ergaben denselben vollständigen Baum mit 101 eindeutigen Knoten-IDs. Das ist eine Chromium-Prüfung der nativen Zwischenablage, kein Nachweis für andere Betriebssysteme.
 
 Ein normaler abgebrochener HTTP-Aufruf beendete zweimal den lokalen Dev-Server mit `ECONNRESET`. Eine vorübergehende private Diagnose erfasst den Ursprung; reguläre Abbrüche mit vorhandenen Fehlerhandlern sind bereits sichtbar, der fatale Fall ist damit noch nicht erklärt oder behoben.
 

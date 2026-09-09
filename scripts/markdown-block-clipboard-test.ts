@@ -86,6 +86,8 @@ function verify(editor: Editor) {
 const blocks = [
   '**Paragraph** with `code`', '> Quote\n>\n> - Nested', '- [x] Task\n  - Nested',
   '| A | B |\n| --- | --- |\n| C | D |', '![Alt](image.png)', '```ts\nconst x = 1;\n```',
+  ...['left', 'center', 'right'].map(align => '<img src="image.png" alt="Aligned" width="240" style="display:block;max-width:100%;height:auto;margin-left:'
+    + (align === 'left' ? '0' : 'auto') + ';margin-right:' + (align === 'right' ? '0' : 'auto') + '">'),
   '> [!note] **Title**\n> Body', '<details open>\n<summary>Summary</summary>\n\nBody\n\n</details>',
 ];
 for (const collaborative of [false, true]) test(`DOM clipboard copies, repeated paste and direct duplication retain source identities (${collaborative})`, async () => {
@@ -106,6 +108,10 @@ for (const collaborative of [false, true]) test(`DOM clipboard copies, repeated 
         transferEvent(editor, 'paste', data);
         assert.ok(editor.state.doc.child(1).eq(original), 'copy cannot reassign the original or nested identities');
         assert.equal(editor.state.doc.content.content.filter(node => node.type === original.type && node.textContent === original.textContent).length, index + 2);
+        for (const copied of editor.state.doc.content.content.filter(node => node.type === original.type
+          && node.textContent === original.textContent && node.attrs.id !== original.attrs.id)) {
+          assert(equivalentRichDocument(copied.toJSON(), original.toJSON()), 'clipboard preserves block attributes and nested content');
+        }
         ids(editor.state.doc);
       }
       assert.equal(editor.commands.undo(), true);
