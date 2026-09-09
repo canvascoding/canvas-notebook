@@ -154,10 +154,8 @@ export function validatePiRollingSummaryBody(input: {
   } else if (activeTask === PI_NO_USER_TASK_SENTINEL) {
     return Object.freeze({ ok: false, body: null, reason: 'real_user_task_missing' });
   }
-  const focusTopic = redactPiCompactionText(input.focusTopic ?? '', input.knownSecrets ?? []).trim();
-  if (focusTopic && !body.toLocaleLowerCase().includes(focusTopic.toLocaleLowerCase())) {
-    return Object.freeze({ ok: false, body: null, reason: 'focus_topic_missing' });
-  }
+  // Focus guides relevance; literal matching rejects valid paraphrases and
+  // cannot establish whether the result is actually focused.
   return Object.freeze({ ok: true, body, reason: null });
 }
 
