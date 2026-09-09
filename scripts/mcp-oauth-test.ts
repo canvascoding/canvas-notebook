@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import http from 'node:http';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
@@ -31,6 +32,7 @@ async function main() {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-oauth-'));
   process.env.CANVAS_DATA_ROOT = tempRoot;
   process.env.BASE_URL = 'http://localhost:3000';
+  process.env.INTEGRATIONS_ENV_MASTER_KEY = crypto.randomBytes(32).toString('hex');
 
   let refreshCalls = 0;
   let registrationCalls = 0;
@@ -142,6 +144,7 @@ async function main() {
 
   try {
     const { writeMcpConfigRaw } = await import('../app/lib/mcp/config');
+    const { MCP_SYSTEM_SCOPE } = await import('../app/lib/mcp/scope');
     const {
       clearMcpOAuth,
       completeMcpOAuthCallback,
@@ -169,9 +172,9 @@ async function main() {
     await writeMcpConfigRaw(JSON.stringify({
       settings: { toolPrefix: 'server', idleTimeout: 10 },
       mcpServers: { remote: serverConfig },
-    }, null, 2));
+    }, null, 2), MCP_SYSTEM_SCOPE);
 
-    const started = await startMcpOAuth('remote', 'http://localhost:3000');
+    const started = await startMcpOAuth('remote', 'http://localhost:3000', MCP_SYSTEM_SCOPE);
     const authorizationUrl = new URL(started.authorizationUrl);
     assert.equal(authorizationUrl.origin + authorizationUrl.pathname, `${baseUrl}/authorize`);
     assert.equal(authorizationUrl.searchParams.get('client_id'), 'dynamic-client');
@@ -182,7 +185,7 @@ async function main() {
     assert.equal(registrationCalls, 1);
     assert.deepEqual(registeredRedirectUris, ['http://localhost:3000/api/mcp/oauth/callback']);
 
-    const productionStarted = await startMcpOAuth('remote', 'https://canvas.example.com');
+    const productionStarted = await startMcpOAuth('remote', 'https://canvas.example.com', MCP_SYSTEM_SCOPE);
     const productionAuthorizationUrl = new URL(productionStarted.authorizationUrl);
     assert.equal(productionAuthorizationUrl.searchParams.get('redirect_uri'), 'https://canvas.example.com/api/mcp/oauth/callback');
     assert.equal(productionAuthorizationUrl.searchParams.get('client_id'), 'https://canvas.example.com/api/mcp/oauth/client-metadata');
@@ -197,18 +200,18 @@ async function main() {
       token_endpoint_auth_method: 'none',
     });
 
-    let status = await getMcpOAuthStatus('remote', 'https://canvas.example.com');
+    let status = await getMcpOAuthStatus('remote', 'https://canvas.example.com', MCP_SYSTEM_SCOPE);
     assert.equal(status.redirectUri, 'https://canvas.example.com/api/mcp/oauth/callback');
 
     delete process.env.BASE_URL;
-    const publicStarted = await startMcpOAuth('remote', 'https://canvas.example.com');
+    const publicStarted = await startMcpOAuth('remote', 'https://canvas.example.com', MCP_SYSTEM_SCOPE);
     const publicAuthorizationUrl = new URL(publicStarted.authorizationUrl);
     assert.equal(publicAuthorizationUrl.searchParams.get('redirect_uri'), 'https://canvas.example.com/api/mcp/oauth/callback');
     assert.equal(publicAuthorizationUrl.searchParams.get('client_id'), 'https://canvas.example.com/api/mcp/oauth/client-metadata');
     assert.equal(registrationCalls, 1);
 
     process.env.MCP_OAUTH_BASE_URL = 'https://mcp-callback.example.com';
-    const overrideStarted = await startMcpOAuth('remote', 'https://canvas.example.com');
+    const overrideStarted = await startMcpOAuth('remote', 'https://canvas.example.com', MCP_SYSTEM_SCOPE);
     const overrideAuthorizationUrl = new URL(overrideStarted.authorizationUrl);
     assert.equal(overrideAuthorizationUrl.searchParams.get('redirect_uri'), 'https://mcp-callback.example.com/api/mcp/oauth/callback');
     assert.equal(overrideAuthorizationUrl.searchParams.get('client_id'), 'https://mcp-callback.example.com/api/mcp/oauth/client-metadata');
@@ -219,19 +222,21 @@ async function main() {
     assert.deepEqual(registeredApplicationTypes, ['native']);
     process.env.BASE_URL = 'http://localhost:3000';
 
-    const token = await completeMcpOAuthCallback('auth-code', started.state, baseUrl);
+    const token = await completeMcpOAuthCallback('auth-code', started.state, baseUrl, MCP_SYSTEM_SCOPE);
     assert.equal(token.accessToken, 'initial-token');
     assert.equal(token.refreshToken, 'refresh-token-1');
     assert.equal(token.issuer, baseUrl);
     assert.equal(token.resource, 'https://example.test/mcp');
-    assert.equal(getOAuthTokenPath('remote'), path.join(tempRoot, 'settings', 'mcp-oauth', 'remote', 'tokens.json'));
-    assert.equal(await modeOf(getOAuthTokenPath('remote')), 0o600);
+    const systemConnectionId = `system-${crypto.createHash('sha256').update('remote').digest('hex')}`;
+    const tokenPath = await getOAuthTokenPath('remote', MCP_SYSTEM_SCOPE);
+    assert.equal(tokenPath, path.join(tempRoot, 'settings', 'connections', systemConnectionId, 'tokens.json'));
+    assert.equal(await modeOf(tokenPath), 0o600);
 
-    status = await getMcpOAuthStatus('remote');
+    status = await getMcpOAuthStatus('remote', undefined, MCP_SYSTEM_SCOPE);
     assert.equal(status.authorized, true);
 
     await new Promise((resolve) => setTimeout(resolve, 1100));
-    const accessToken = await getValidMcpAccessToken('remote', serverConfig, hashMcpServerConfig(serverConfig));
+    const accessToken = await getValidMcpAccessToken('remote', serverConfig, hashMcpServerConfig(serverConfig), MCP_SYSTEM_SCOPE);
     assert.equal(accessToken, 'refreshed-token');
     assert.equal(refreshCalls, 1);
 
@@ -240,12 +245,13 @@ async function main() {
       hashMcpServerConfig(serverConfig),
       'knowledge:read tools',
       `${baseUrl}/.well-known/oauth-protected-resource`,
+      MCP_SYSTEM_SCOPE,
     );
-    const stepUpStarted = await startMcpOAuth('remote', 'http://localhost:3000');
+    const stepUpStarted = await startMcpOAuth('remote', 'http://localhost:3000', MCP_SYSTEM_SCOPE);
     const stepUpAuthorizationUrl = new URL(stepUpStarted.authorizationUrl);
     assert.equal(stepUpAuthorizationUrl.searchParams.get('scope'), 'tools knowledge:read');
 
-    const proxy = createMcpProxyTool();
+    const proxy = createMcpProxyTool(undefined, MCP_SYSTEM_SCOPE);
     const proxyStatus = await proxy.execute('auth-status', { action: 'auth_status', server: 'remote' });
     assert.match((proxyStatus.content[0] as { text: string }).text, /authorized/);
 
@@ -255,8 +261,8 @@ async function main() {
     await writeMcpConfigRaw(JSON.stringify({
       settings: { toolPrefix: 'server', idleTimeout: 10 },
       mcpServers: { plain: noAuthConfig },
-    }, null, 2));
-    const noAuthStatus = await getMcpOAuthStatus('plain');
+    }, null, 2), MCP_SYSTEM_SCOPE);
+    const noAuthStatus = await getMcpOAuthStatus('plain', undefined, MCP_SYSTEM_SCOPE);
     assert.equal(noAuthStatus.configured, true);
     assert.equal(noAuthStatus.requiresAuth, false);
     const noAuthProxyStatus = await proxy.execute('auth-status-noauth', { action: 'auth_status', server: 'plain' });
@@ -269,8 +275,8 @@ async function main() {
     await writeMcpConfigRaw(JSON.stringify({
       settings: { toolPrefix: 'server', idleTimeout: 10 },
       mcpServers: { discovered: discoveredConfig },
-    }, null, 2));
-    const discovered = await startMcpOAuth('discovered', 'http://localhost:3000');
+    }, null, 2), MCP_SYSTEM_SCOPE);
+    const discovered = await startMcpOAuth('discovered', 'http://localhost:3000', MCP_SYSTEM_SCOPE);
     const discoveredUrl = new URL(discovered.authorizationUrl);
     assert.equal(discoveredUrl.origin + discoveredUrl.pathname, `${baseUrl}/authorize`);
     assert.equal(discoveredUrl.searchParams.get('client_id'), 'dynamic-client');
@@ -282,8 +288,8 @@ async function main() {
     await writeMcpConfigRaw(JSON.stringify({
       settings: { toolPrefix: 'server', idleTimeout: 10 },
       mcpServers: { pathDiscovered: pathResourceConfig },
-    }, null, 2));
-    const pathDiscovered = await startMcpOAuth('pathDiscovered', 'http://localhost:3000');
+    }, null, 2), MCP_SYSTEM_SCOPE);
+    const pathDiscovered = await startMcpOAuth('pathDiscovered', 'http://localhost:3000', MCP_SYSTEM_SCOPE);
     const pathDiscoveredUrl = new URL(pathDiscovered.authorizationUrl);
     assert.equal(pathDiscoveredUrl.origin + pathDiscoveredUrl.pathname, `${baseUrl}/tenant-auth/authorize`);
     assert.equal(pathDiscoveredUrl.searchParams.get('client_id'), 'dynamic-client');
@@ -296,15 +302,15 @@ async function main() {
     await writeMcpConfigRaw(JSON.stringify({
       settings: { toolPrefix: 'server', idleTimeout: 10 },
       mcpServers: { oidcDiscovered: oidcConfig },
-    }, null, 2));
-    const oidcDiscovered = await startMcpOAuth('oidcDiscovered', 'http://localhost:3000');
+    }, null, 2), MCP_SYSTEM_SCOPE);
+    const oidcDiscovered = await startMcpOAuth('oidcDiscovered', 'http://localhost:3000', MCP_SYSTEM_SCOPE);
     const oidcDiscoveredUrl = new URL(oidcDiscovered.authorizationUrl);
     assert.equal(oidcDiscoveredUrl.origin + oidcDiscoveredUrl.pathname, `${baseUrl}/oidc-auth/authorize`);
     assert.equal(oidcDiscoveredUrl.searchParams.get('resource'), `${baseUrl}/oidc/mcp`);
     assert.equal(oidcDiscoveredUrl.searchParams.get('scope'), 'tools resources');
 
     await assert.rejects(
-      () => completeMcpOAuthCallback('auth-code', overrideStarted.state, `${baseUrl}/unexpected`),
+      () => completeMcpOAuthCallback('auth-code', overrideStarted.state, `${baseUrl}/unexpected`, MCP_SYSTEM_SCOPE),
       /issuer does not exactly match/u,
     );
 
@@ -316,13 +322,13 @@ async function main() {
           url: 'https://example.test/changed',
         },
       },
-    }, null, 2));
-    status = await getMcpOAuthStatus('remote');
+    }, null, 2), MCP_SYSTEM_SCOPE);
+    status = await getMcpOAuthStatus('remote', undefined, MCP_SYSTEM_SCOPE);
     assert.equal(status.authorized, false);
     assert.match(status.reason || '', /does not match/);
 
-    await clearMcpOAuth('remote');
-    await assert.rejects(() => fs.stat(getOAuthTokenPath('remote')));
+    await clearMcpOAuth('remote', MCP_SYSTEM_SCOPE);
+    await assert.rejects(async () => fs.stat(await getOAuthTokenPath('remote', MCP_SYSTEM_SCOPE)));
 
     console.log('mcp-oauth-test: ok');
   } finally {

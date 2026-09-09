@@ -467,7 +467,7 @@ async function handleAuthClear(serverName: string, scope?: McpScope): Promise<Ag
   return textResult(`OAuth credentials cleared for MCP server "${serverName}".`, { server: serverName, cleared: true });
 }
 
-export function createMcpProxyTool(userId?: string): AgentTool {
+export function createMcpProxyTool(userId?: string, systemScope?: McpScope): AgentTool {
   startMcpIdleCleanup();
 
   return {
@@ -495,7 +495,7 @@ export function createMcpProxyTool(userId?: string): AgentTool {
     executionMode: 'sequential',
     execute: async (_toolCallId, params, signal) => {
       const p = params as McpProxyParams;
-      const scope = getMcpScope(userId);
+      const scope = getMcpScope(userId) || (systemScope?.legacy === true ? systemScope : undefined);
       try {
         if (userId) {
           const { assertUserOrganizationAdmin } = await import('@/app/lib/organization/permissions');

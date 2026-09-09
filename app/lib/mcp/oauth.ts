@@ -2,16 +2,16 @@ import crypto from 'crypto';
 import path from 'path';
 
 import { readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
+import { hashMcpAuthConfig } from '@/app/lib/mcp/connection-identity';
+import { migrateMcpConnectionCredentials, readMcpCredentialJson, resolveMcpCredentialConnection, writeMcpCredentialJson } from '@/app/lib/mcp/credential-storage';
 import { fetchMcpHttp } from '@/app/lib/mcp/http';
 import {
   normalizeMcpScope,
   type McpScope,
 } from '@/app/lib/mcp/scope';
 import {
-  readMcpTextFileIfExists,
   removeMcpStoragePath,
   resolveMcpStoragePath,
-  writeMcpTextFileAtomic,
 } from '@/app/lib/mcp/storage';
 
 type OAuthServerConfig = {
@@ -59,6 +59,8 @@ type OAuthScopeChallengeRecord = {
 };
 
 type OAuthStateRecord = {
+  connectionId: string;
+  authVersion: number;
   state: string;
   serverName: string;
   codeVerifier: string;
@@ -77,6 +79,8 @@ type OAuthStateRecord = {
 };
 
 export type OAuthTokenRecord = {
+  connectionId?: string;
+  authVersion?: number;
   serverName: string;
   serverUrl?: string;
   issuer: string;
@@ -132,45 +136,36 @@ function base64Url(buffer: Buffer): string {
   return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
 }
 
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
-    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${stableStringify(entry)}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
 function hashMcpServerConfig(config: McpServerConfig): string {
-  return crypto.createHash('sha256').update(stableStringify(config)).digest('hex');
+  return hashMcpAuthConfig(config);
 }
 
 function sanitizeServerName(serverName: string): string {
   return serverName.replace(/[^A-Za-z0-9_.-]/g, '_') || 'server';
 }
 
-function getServerOAuthRelativeDir(serverName: string): string {
-  return path.join('mcp-oauth', sanitizeServerName(serverName));
+async function getServerOAuthRelativeDir(serverName: string, scope?: McpScope | null): Promise<string> {
+  return migrateMcpConnectionCredentials(serverName, scope);
 }
 
-function getOAuthTokenRelativePath(serverName: string): string {
-  return path.join(getServerOAuthRelativeDir(serverName), 'tokens.json');
+async function getOAuthTokenRelativePath(serverName: string, scope?: McpScope | null): Promise<string> {
+  return path.posix.join(await getServerOAuthRelativeDir(serverName, scope), 'tokens.json');
 }
 
-export function getOAuthTokenPath(serverName: string, scope?: McpScope | null): string {
-  return resolveMcpStoragePath(getOAuthTokenRelativePath(serverName), scope);
+export async function getOAuthTokenPath(serverName: string, scope?: McpScope | null): Promise<string> {
+  return resolveMcpStoragePath(await getOAuthTokenRelativePath(serverName, scope), scope);
 }
 
-function getOAuthClientRelativePath(serverName: string): string {
-  return path.join(getServerOAuthRelativeDir(serverName), 'client.json');
+async function getOAuthClientRelativePath(serverName: string, scope?: McpScope | null): Promise<string> {
+  return path.posix.join(await getServerOAuthRelativeDir(serverName, scope), 'client.json');
 }
 
-function getOAuthScopeChallengeRelativePath(serverName: string): string {
-  return path.join(getServerOAuthRelativeDir(serverName), 'scope-challenge.json');
+async function getOAuthScopeChallengeRelativePath(serverName: string, scope?: McpScope | null): Promise<string> {
+  return path.posix.join(await getServerOAuthRelativeDir(serverName, scope), 'scope-challenge.json');
 }
 
 function getOAuthStateRelativeDir(): string {
-  return path.join('mcp-oauth', '.state');
+  return 'oauth-states';
 }
 
 function getOAuthStateRelativePath(state: string): string {
@@ -178,19 +173,11 @@ function getOAuthStateRelativePath(state: string): string {
 }
 
 async function writeJsonPrivate(relativePath: string, payload: unknown, scope?: McpScope | null): Promise<void> {
-  await writeMcpTextFileAtomic(relativePath, JSON.stringify(payload, null, 2), scope, {
-    mode: 0o600,
-    directoryMode: 0o700,
-  });
+  await writeMcpCredentialJson(relativePath, payload, scope);
 }
 
 async function readJsonIfExists<T>(relativePath: string, scope?: McpScope | null): Promise<T | null> {
-  try {
-    const { content } = await readMcpTextFileIfExists(relativePath, scope);
-    return content === null ? null : JSON.parse(content) as T;
-  } catch {
-    return null;
-  }
+  return readMcpCredentialJson<T>(relativePath, scope);
 }
 
 function getOAuthConfig(serverConfig: McpServerConfig): OAuthServerConfig | null {
@@ -440,7 +427,7 @@ async function resolveClient(
     return { clientId: clientMetadataUrl.toString() };
   }
 
-  const existing = await readJsonIfExists<OAuthClientRecord>(getOAuthClientRelativePath(serverName), scope);
+  const existing = await readJsonIfExists<OAuthClientRecord>((await getOAuthClientRelativePath(serverName, scope)), scope);
   if (existing?.clientId && existing.redirectUri === redirectUri && existing.issuer === issuer) {
     return { clientId: existing.clientId, clientSecret: existing.clientSecret };
   }
@@ -484,7 +471,7 @@ async function resolveClient(
     issuer,
     registeredAt: new Date().toISOString(),
   } satisfies OAuthClientRecord;
-  await writeJsonPrivate(getOAuthClientRelativePath(serverName), client, scope);
+  await writeJsonPrivate((await getOAuthClientRelativePath(serverName, scope)), client, scope);
   return client;
 }
 
@@ -494,16 +481,10 @@ function createPkcePair(): { verifier: string; challenge: string } {
   return { verifier, challenge };
 }
 
-async function resolveServerForOAuth(serverName: string, scope?: McpScope | null): Promise<{ serverConfig: McpServerConfig; oauth: OAuthServerConfig; configHash: string }> {
-  const config = await readMcpConfig(scope);
-  const serverConfig = config.mcpServers[serverName];
-  if (!serverConfig) {
-    throw new McpOAuthError(`Unknown MCP server "${serverName}".`);
-  }
+async function resolveServerForOAuth(serverName: string, scope?: McpScope | null): Promise<{ serverConfig: McpServerConfig & { connectionId: string }; oauth: OAuthServerConfig; configHash: string }> {
+  const serverConfig = await resolveMcpCredentialConnection(serverName, scope);
   const oauth = getOAuthConfig(serverConfig);
-  if (!oauth) {
-    throw new McpOAuthError(`MCP server "${serverName}" is not configured for OAuth.`);
-  }
+  if (!oauth) throw new McpOAuthError(`MCP server "${serverName}" is not configured for OAuth.`);
   return { serverConfig, oauth, configHash: hashMcpServerConfig(serverConfig) };
 }
 
@@ -530,7 +511,7 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
     }
 
     const configHash = hashMcpServerConfig(serverConfig);
-    const token = await readJsonIfExists<OAuthTokenRecord>(getOAuthTokenRelativePath(serverName), normalizedScope);
+    const token = await readJsonIfExists<OAuthTokenRecord>((await getOAuthTokenRelativePath(serverName, scope)), normalizedScope);
     const serverUrl = typeof serverConfig.url === 'string' ? serverConfig.url : undefined;
     const bound = Boolean(
       token
@@ -566,6 +547,7 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
 
 export async function startMcpOAuth(serverName: string, requestOrigin?: string | null, mcpScope?: McpScope | null): Promise<McpOAuthStartResult> {
   const normalizedScope = normalizeMcpScope(mcpScope);
+  const scope = normalizedScope;
   const { serverConfig, oauth, configHash } = await resolveServerForOAuth(serverName, normalizedScope);
   const redirectUri = getRedirectUri(oauth, requestOrigin);
   const endpoints = await resolveOAuthEndpoints(oauth, serverConfig);
@@ -584,8 +566,8 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
     Array.isArray(oauth.scopes) ? oauth.scopes : endpoints.scopesSupported,
   );
   const [existingToken, scopeChallenge] = await Promise.all([
-    readJsonIfExists<OAuthTokenRecord>(getOAuthTokenRelativePath(serverName), normalizedScope),
-    readJsonIfExists<OAuthScopeChallengeRecord>(getOAuthScopeChallengeRelativePath(serverName), normalizedScope),
+    readJsonIfExists<OAuthTokenRecord>((await getOAuthTokenRelativePath(serverName, scope)), normalizedScope),
+    readJsonIfExists<OAuthScopeChallengeRecord>((await getOAuthScopeChallengeRelativePath(serverName, scope)), normalizedScope),
   ]);
   if (existingToken?.configHash === configHash && existingToken.scope) {
     existingToken.scope.split(/\s+/u).filter(Boolean).forEach((entry) => requestedScopes.add(entry));
@@ -610,6 +592,8 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
   await writeJsonPrivate(getOAuthStateRelativePath(state), {
     state,
     serverName,
+    connectionId: serverConfig.connectionId,
+    authVersion: serverConfig.authVersion || 1,
     codeVerifier: pkce.verifier,
     redirectUri,
     tokenUrl: endpoints.tokenUrl,
@@ -666,7 +650,7 @@ async function resolveClientSecretForRefresh(
     return oauth.clientSecret;
   }
 
-  const storedClient = await readJsonIfExists<OAuthClientRecord>(getOAuthClientRelativePath(serverName), scope);
+  const storedClient = await readJsonIfExists<OAuthClientRecord>((await getOAuthClientRelativePath(serverName, scope)), scope);
   if (storedClient?.clientId === clientId && storedClient.issuer === issuer) {
     return storedClient.clientSecret;
   }
@@ -705,7 +689,8 @@ export async function recordMcpOAuthScopeChallenge(
   scope?: McpScope | null,
 ): Promise<string[]> {
   const normalizedScope = normalizeMcpScope(scope);
-  const challengePath = getOAuthScopeChallengeRelativePath(serverName);
+  configHash = hashMcpAuthConfig(await resolveMcpCredentialConnection(serverName, scope));
+  const challengePath = (await getOAuthScopeChallengeRelativePath(serverName, scope));
   const existing = await readJsonIfExists<OAuthScopeChallengeRecord>(challengePath, normalizedScope);
   const scopes = new Set(
     existing?.configHash === configHash ? existing.scopes : [],
@@ -749,6 +734,8 @@ export async function completeMcpOAuthCallback(
 
   const token: OAuthTokenRecord = {
     serverName: stored.serverName,
+    connectionId: stored.connectionId,
+    authVersion: stored.authVersion,
     serverUrl: stored.serverUrl,
     issuer: stored.issuer,
     resource: stored.resource,
@@ -762,19 +749,20 @@ export async function completeMcpOAuthCallback(
     updatedAt: new Date().toISOString(),
   };
 
-  await writeJsonPrivate(getOAuthTokenRelativePath(stored.serverName), token, normalizedScope);
-  await removeMcpStoragePath(getOAuthScopeChallengeRelativePath(stored.serverName), normalizedScope).catch(() => undefined);
+  await writeJsonPrivate((await getOAuthTokenRelativePath(stored.connectionId, normalizedScope)), token, normalizedScope);
+  await removeMcpStoragePath((await getOAuthScopeChallengeRelativePath(stored.connectionId, normalizedScope)), normalizedScope).catch(() => undefined);
   return token;
 }
 
 export async function clearMcpOAuth(serverName: string, scope?: McpScope | null): Promise<void> {
-  await removeMcpStoragePath(getServerOAuthRelativeDir(serverName), scope, { recursive: true });
+  await removeMcpStoragePath((await getServerOAuthRelativeDir(serverName, scope)), scope, { recursive: true });
 }
 
-export async function getValidMcpAccessToken(serverName: string, serverConfig: McpServerConfig, configHash: string, scope?: McpScope | null): Promise<string | null> {
+export async function getValidMcpAccessToken(serverName: string, serverConfig: McpServerConfig, _configHash: string, scope?: McpScope | null): Promise<string | null> {
   const normalizedScope = normalizeMcpScope(scope);
   if (!getOAuthConfig(serverConfig)) return null;
-  const tokenRelativePath = getOAuthTokenRelativePath(serverName);
+  const configHash = hashMcpAuthConfig(serverConfig);
+  const tokenRelativePath = (await getOAuthTokenRelativePath(serverName, scope));
   const token = await readJsonIfExists<OAuthTokenRecord>(tokenRelativePath, normalizedScope);
   const serverUrl = typeof serverConfig.url === 'string' ? serverConfig.url : undefined;
   if (!token || !token.issuer || !token.resource || token.configHash !== configHash || (serverUrl && token.serverUrl !== serverUrl)) {
